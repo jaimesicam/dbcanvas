@@ -1,0 +1,14 @@
+# Environment / secrets
+.env
+
+# Node
+node_modules/
+dist/
+*.log
+
+# Go
+/app/*.db
+/app/*.db-*
+
+# OS
+.DS_Store

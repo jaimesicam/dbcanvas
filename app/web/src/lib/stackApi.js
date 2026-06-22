@@ -1,0 +1,84 @@
+// Stack Designer API wrapper. Same conventions as lib/api.js: same-origin JSON,
+// cookies ride along, throws Error with .status on non-2xx.
+
+async function request(method, path, body) {
+  const opts = {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+  }
+  if (body !== undefined) opts.body = JSON.stringify(body)
+
+  const res = await fetch(path, opts)
+  let data = null
+  const text = await res.text()
+  if (text) {
+    try {
+      data = JSON.parse(text)
+    } catch {
+      data = null
+    }
+  }
+  if (!res.ok) {
+    const msg = (data && data.error) || `Request failed (${res.status})`
+    const err = new Error(msg)
+    err.status = res.status
+    throw err
+  }
+  return data
+}
+
+export const TTL_OPTIONS = [
+  { id: '2h', label: '2 hours' },
+  { id: '4h', label: '4 hours' },
+  { id: '8h', label: '8 hours' },
+  { id: '24h', label: '24 hours' },
+  { id: '2w', label: '2 weeks' },
+  { id: 'infinity', label: 'Infinity' },
+]
+
+export const stackApi = {
+  list: () => request('GET', '/api/stacks'),
+  create: (name, ttl, design) => request('POST', '/api/stacks', { name, ttl, design }),
+  get: (id) => request('GET', `/api/stacks/${id}`),
+  update: (id, name, design) => request('PUT', `/api/stacks/${id}`, { name, design }),
+  remove: (id) => request('DELETE', `/api/stacks/${id}`),
+  validate: (id) => request('POST', `/api/stacks/${id}/validate`),
+  deploy: (id) => request('POST', `/api/stacks/${id}/deploy`),
+  destroy: (id) => request('POST', `/api/stacks/${id}/destroy`),
+  getNode: (id, nid) => request('GET', `/api/stacks/${id}/nodes/${nid}`),
+  nodeAction: (id, nid, action) => request('POST', `/api/stacks/${id}/nodes/${nid}/${action}`),
+}
+
+// Intranet node management (Phase 3). `nid` is the design node id.
+export function intranetApi(id, nid) {
+  const base = `/api/stacks/${id}/nodes/${nid}`
+  return {
+    emailList: () => request('GET', `${base}/email/users`),
+    emailAdd: (username, password) => request('POST', `${base}/email/users`, { username, password }),
+    emailPassword: (username, password) => request('POST', `${base}/email/users/password`, { username, password }),
+    emailDelete: (username) => request('POST', `${base}/email/users/delete`, { username }),
+
+    ldapUsers: () => request('GET', `${base}/ldap/users`),
+    ldapUserCreate: (body) => request('POST', `${base}/ldap/users`, body),
+    ldapUserUpdate: (body) => request('POST', `${base}/ldap/users/update`, body),
+    ldapUserPassword: (uid, password) => request('POST', `${base}/ldap/users/password`, { uid, password }),
+    ldapUserDelete: (uid) => request('POST', `${base}/ldap/users/delete`, { uid }),
+
+    ldapGroups: () => request('GET', `${base}/ldap/groups`),
+    ldapGroupCreate: (cn) => request('POST', `${base}/ldap/groups`, { cn }),
+    ldapGroupMembers: (cn, uids) => request('POST', `${base}/ldap/groups/members`, { cn, uids }),
+    ldapGroupDelete: (cn) => request('POST', `${base}/ldap/groups/delete`, { cn }),
+
+    certInfo: () => request('GET', `${base}/cert`),
+    certGenerate: (value, unit) => request('POST', `${base}/cert`, { value, unit }),
+  }
+}
+
+export const DEPLOY_TONE = {
+  pending: 'muted',
+  provisioning: 'warning',
+  running: 'success',
+  stopped: 'muted',
+  error: 'danger',
+}

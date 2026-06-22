@@ -1,0 +1,35 @@
+services:
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    image: dbcanvas:latest
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
+    environment:
+      # The container always listens on all interfaces internally (the
+      # Dockerfile sets APP_HOST=0.0.0.0); host-side exposure is controlled by
+      # the publish binding below, not by this value.
+      APP_PORT: ${APP_PORT:-8080}
+      DB_PATH: /data/dbcanvas.db
+      # Domain used to configure deployed stacks (Intranet: LDAP/mail/DNS/CA).
+      DOMAIN: ${DOMAIN:-example.net}
+    ports:
+      # Publish on APP_HOST (default 127.0.0.1 = private). Set APP_HOST=0.0.0.0
+      # in .env to expose on all host interfaces.
+      - "${APP_HOST:-127.0.0.1}:${APP_PORT:-8080}:${APP_PORT:-8080}"
+    volumes:
+      - app-data:/data            # SQLite database persists across rebuilds
+      # Stack Designer drives Docker on the host to deploy/manage stack
+      # containers (Docker-out-of-Docker). The app talks to this socket via the
+      # Engine API using only the Go stdlib — no docker CLI in the image.
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/dbcanvas", "-healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  app-data:
