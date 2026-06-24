@@ -42,6 +42,54 @@ const NODE_TYPES = {
     osOptions: [{ id: 'pmm', label: 'percona/pmm-server' }],
     defaults: { version: '', adminPassword: '', generateCert: false },
   },
+  // PXC nodes live inside a PXC cluster frame (not added from the toolbar
+  // directly); this entry only supplies the color/icon used to render them.
+  pxc: {
+    label: 'PXC Node',
+    slug: 'pxc',
+    sub: 'Percona XtraDB Cluster',
+    color: '#a855f7',
+    icon: 'Mineral',
+  },
+}
+
+// ---------------------------------------------------------- PXC cluster frames
+const PXC_NODE_W = 116
+const PXC_NODE_H = 78
+const FRAME_TITLE = 32
+const FRAME_PAD = 14
+const FRAME_GAP = 12
+const FRAME_COLOR = '#a855f7'
+
+// layoutFrame derives a frame's size and lays its member nodes out in a row.
+function layoutFrame(frame, frameNodes) {
+  const n = Math.max(1, frameNodes.length)
+  const w = FRAME_PAD * 2 + n * PXC_NODE_W + (n - 1) * FRAME_GAP
+  const h = FRAME_TITLE + FRAME_PAD * 2 + PXC_NODE_H
+  const positioned = frameNodes.map((nd, i) => ({
+    ...nd,
+    x: frame.x + FRAME_PAD + i * (PXC_NODE_W + FRAME_GAP),
+    y: frame.y + FRAME_TITLE + FRAME_PAD,
+  }))
+  return { frame: { ...frame, w, h }, nodes: positioned }
+}
+
+// nextClusterName → pxc-cluster-NN, unique across all PXC frames (from 00).
+function nextClusterName(frames) {
+  let max = -1
+  for (const f of frames) {
+    const m = (f.label || '').match(/^pxc-cluster-(\d+)$/)
+    if (m) max = Math.max(max, parseInt(m[1], 10))
+  }
+  return `pxc-cluster-${String(max + 1).padStart(2, '0')}`
+}
+
+// nextPXCName → lowest pxcNN not already used by any PXC node in the stack.
+function nextPXCName(usedSet) {
+  for (let i = 1; ; i++) {
+    const name = `pxc${String(i).padStart(2, '0')}`
+    if (!usedSet.has(name)) return name
+  }
 }
 
 const osLabel = (type, os) => (NODE_TYPES[type]?.osOptions.find((o) => o.id === os)?.label) || os
@@ -253,6 +301,7 @@ function StackEditor({ stackId, onBack }) {
   const [error, setError] = useState('')
   const [nodes, setNodes] = useState([])
   const [edges, setEdges] = useState([])
+  const [frames, setFrames] = useState([])
   const [view, setView] = useState({ x: 40, y: 20, z: 1 })
   const [selected, setSelected] = useState(null)
   const [menu, setMenu] = useState(null)
@@ -271,7 +320,7 @@ function StackEditor({ stackId, onBack }) {
   const uid = (p) => `${p}-${Date.now().toString(36)}-${++counter.current}`
 
   const refs = useRef({})
-  refs.current = { nodes, edges, view }
+  refs.current = { nodes, edges, frames, view }
   const stackRef = useRef(null)
   stackRef.current = stack
   const lastSaved = useRef('')
@@ -286,11 +335,13 @@ function StackEditor({ stackId, onBack }) {
       const d = s.design || {}
       const nz = d.nodes || []
       const ez = d.edges || []
+      const fz = d.frames || []
       const vw = d.view || { x: 40, y: 20, z: 1 }
       setNodes(nz)
       setEdges(ez)
+      setFrames(fz)
       setView(vw)
-      lastSaved.current = JSON.stringify({ nodes: nz, edges: ez, view: vw })
+      lastSaved.current = JSON.stringify({ nodes: nz, edges: ez, frames: fz, view: vw })
     }).catch((err) => setError(err.message))
     return () => { alive = false }
   }, [stackId])
@@ -324,18 +375,18 @@ function StackEditor({ stackId, onBack }) {
   // saved snapshot (so the 3s status poll never triggers a save).
   useEffect(() => {
     if (!stackRef.current) return
-    const cur = JSON.stringify({ nodes, edges, view })
+    const cur = JSON.stringify({ nodes, edges, frames, view })
     if (cur === lastSaved.current) return
     setSaveState('saving')
     const t = setTimeout(async () => {
       try {
-        await stackApi.update(stackRef.current.id, stackRef.current.name, { nodes, edges, view })
+        await stackApi.update(stackRef.current.id, stackRef.current.name, { nodes, edges, frames, view })
         lastSaved.current = cur
       } catch { /* keep dirty; will retry on next change */ }
       setSaveState('saved')
     }, 600)
     return () => clearTimeout(t)
-  }, [nodes, edges, view])
+  }, [nodes, edges, frames, view])
 
   const getWorld = useCallback((cx, cy) => {
     const rect = wrapRef.current.getBoundingClientRect()
@@ -373,6 +424,15 @@ function StackEditor({ stackId, onBack }) {
       const w = getWorld(e.clientX, e.clientY)
       if (d.kind === 'node') {
         setNodes((ns) => ns.map((n) => (n.id === d.id ? { ...n, x: w.x + d.offx, y: w.y + d.offy } : n)))
+      } else if (d.kind === 'frame') {
+        const nx = w.x + d.offx, ny = w.y + d.offy
+        const frame = refs.current.frames.find((f) => f.id === d.id)
+        setFrames((fs) => fs.map((f) => (f.id === d.id ? { ...f, x: nx, y: ny } : f)))
+        if (frame) {
+          const mine = refs.current.nodes.filter((n) => n.frameId === d.id)
+          const laid = new Map(layoutFrame({ ...frame, x: nx, y: ny }, mine).nodes.map((n) => [n.id, n]))
+          setNodes((ns) => ns.map((n) => laid.get(n.id) || n))
+        }
       } else if (d.kind === 'connect') {
         const tgt = hitPort(w, d.fromId)
         const src = portPoint(rectOf(d.fromId), d.fromPort)
@@ -451,6 +511,21 @@ function StackEditor({ stackId, onBack }) {
     const n = nodes.find((x) => x.id === id)
     dragRef.current = { kind: 'node', id, offx: n.x - w.x, offy: n.y - w.y }
   }
+  function startFrame(e, id) {
+    if (e.button !== 0) return
+    e.stopPropagation()
+    setSelected({ kind: 'frame', id })
+    setMenu(null)
+    const w = getWorld(e.clientX, e.clientY)
+    const f = frames.find((x) => x.id === id)
+    dragRef.current = { kind: 'frame', id, offx: f.x - w.x, offy: f.y - w.y }
+  }
+  function selectFrameNode(e, id) {
+    if (e.button !== 0) return
+    e.stopPropagation()
+    setSelected({ kind: 'node', id })
+    setMenu(null)
+  }
   function startConnect(e, ownerId, port) {
     if (e.button !== 0) return
     e.stopPropagation()
@@ -468,6 +543,7 @@ function StackEditor({ stackId, onBack }) {
 
   // mutations
   const patchNode = (id, patch) => setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, ...patch } : n)))
+  const patchFrame = (id, patch) => setFrames((fs) => fs.map((f) => (f.id === id ? { ...f, ...patch } : f)))
   function deleteNode(id) {
     setNodes((ns) => ns.filter((n) => n.id !== id))
     setEdges((es) => es.filter((e) => e.from.node !== id && e.to.node !== id))
@@ -477,9 +553,76 @@ function StackEditor({ stackId, onBack }) {
     setEdges((es) => es.filter((e) => e.id !== id))
     setSelected((s) => (s?.kind === 'edge' && s.id === id ? null : s))
   }
+  function deleteFrame(id) {
+    setNodes((ns) => ns.filter((n) => n.frameId !== id))
+    setFrames((fs) => fs.filter((f) => f.id !== id))
+    setSelected((s) => (s && (s.id === id) ? null : s))
+  }
   function deleteSelected() {
-    if (selected?.kind === 'node') deleteNode(selected.id)
-    else if (selected?.kind === 'edge') deleteEdge(selected.id)
+    if (selected?.kind === 'node') {
+      const n = nodes.find((x) => x.id === selected.id)
+      if (n?.frameId) removePXCNodeById(n.frameId, n.id)
+      else deleteNode(selected.id)
+    } else if (selected?.kind === 'edge') deleteEdge(selected.id)
+    else if (selected?.kind === 'frame') deleteFrame(selected.id)
+  }
+
+  // --- PXC cluster frame operations ---
+  // Re-lay a frame's member nodes (positions derive from the frame geometry).
+  function relayout(frameId, framesArr, nodesArr) {
+    const frame = framesArr.find((f) => f.id === frameId)
+    if (!frame) return { frames: framesArr, nodes: nodesArr }
+    const mine = nodesArr.filter((n) => n.frameId === frameId)
+    const others = nodesArr.filter((n) => n.frameId !== frameId)
+    const r = layoutFrame(frame, mine)
+    return {
+      frames: framesArr.map((f) => (f.id === frameId ? r.frame : f)),
+      nodes: [...others, ...r.nodes],
+    }
+  }
+  function addPXCCluster() {
+    if (!nodes.some((n) => n.type === 'intranet')) return
+    const fid = uid('frame')
+    const fx = (-view.x + 200) / view.z
+    const fy = (-view.y + 200) / view.z
+    const frame = {
+      id: fid, type: 'pxc', label: nextClusterName(frames), x: fx, y: fy, w: 0, h: 0,
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64', pxcMajor: '8.0', pxcVersion: '',
+      rootPassword: '', pmmNodeId: '', useProxy: false, gtid: true,
+      generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
+    }
+    const used = new Set(nodes.filter((n) => n.type === 'pxc').map((n) => n.label))
+    const newNodes = []
+    for (let i = 0; i < 3; i++) {
+      const name = nextPXCName(used)
+      used.add(name)
+      newNodes.push({ id: uid('pxc'), type: 'pxc', label: name, frameId: fid, role: 'regular', exportEnabled: false, exportHostPort: 0, x: 0, y: 0 })
+    }
+    const r = relayout(fid, [...frames, frame], [...nodes, ...newNodes])
+    setFrames(r.frames)
+    setNodes(r.nodes)
+    setSelected({ kind: 'frame', id: fid })
+  }
+  function addPXCNode(frameId) {
+    const used = new Set(nodes.filter((n) => n.type === 'pxc').map((n) => n.label))
+    const name = nextPXCName(used)
+    const newNode = { id: uid('pxc'), type: 'pxc', label: name, frameId, role: 'regular', exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
+    const r = relayout(frameId, frames, [...nodes, newNode])
+    setFrames(r.frames)
+    setNodes(r.nodes)
+  }
+  function removePXCNode(frameId) {
+    const mine = nodes.filter((n) => n.frameId === frameId)
+    if (mine.length <= 1) return // keep at least one node
+    removePXCNodeById(frameId, mine[mine.length - 1].id)
+  }
+  function removePXCNodeById(frameId, id) {
+    const mine = nodes.filter((n) => n.frameId === frameId)
+    if (mine.length <= 1) return // keep at least one node
+    const r = relayout(frameId, frames, nodes.filter((n) => n.id !== id))
+    setFrames(r.frames)
+    setNodes(r.nodes)
+    setSelected((s) => (s?.kind === 'node' && s.id === id ? { kind: 'frame', id: frameId } : s))
   }
   function addNode(type) {
     const def = NODE_TYPES[type]
@@ -610,6 +753,9 @@ function StackEditor({ stackId, onBack }) {
           <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('pmm')}>
             <Icon.Plus size={16} /> PMM3
           </Button>
+          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addPXCCluster}>
+            <Icon.Plus size={16} /> PXC Cluster
+          </Button>
           <div className="mx-1 h-5 w-px bg-border" />
           <Button size="sm" variant="outline" disabled={!!busy} onClick={runValidate}>
             <Icon.Check size={15} /> {busy === 'validate' ? 'Validating…' : 'Validate'}
@@ -690,7 +836,63 @@ function StackEditor({ stackId, onBack }) {
               )}
             </svg>
 
-            {nodes.map((n) => {
+            {/* PXC cluster frames (rendered behind nodes, with their member nodes) */}
+            {frames.map((f) => {
+              const fdef = NODE_TYPES[f.type] || {}
+              const on = selected?.kind === 'frame' && selected.id === f.id
+              const kids = nodes.filter((n) => n.frameId === f.id)
+              return (
+                <div key={f.id} className="absolute" style={{ left: f.x, top: f.y, width: f.w, height: f.h }}>
+                  <div className="absolute inset-0 rounded-xl border-2 border-dashed"
+                    style={{ borderColor: on ? 'var(--primary)' : FRAME_COLOR, background: `color-mix(in srgb, ${FRAME_COLOR} 7%, transparent)` }} />
+                  <div
+                    onPointerDown={(e) => startFrame(e, f.id)}
+                    onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setSelected({ kind: 'frame', id: f.id }) }}
+                    className="absolute inset-x-0 top-0 flex cursor-grab items-center gap-2 rounded-t-xl px-2 active:cursor-grabbing"
+                    style={{ height: FRAME_TITLE, background: `color-mix(in srgb, ${FRAME_COLOR} 18%, transparent)` }}
+                  >
+                    <span style={{ color: FRAME_COLOR }}>{(Icon[fdef.icon] || Icon.Mineral)({ size: 15 })}</span>
+                    <span className="truncate text-xs font-semibold text-fg">{f.label}</span>
+                    <span className="text-[10px] text-muted">{kids.length} node{kids.length === 1 ? '' : 's'}</span>
+                    <div className="ml-auto flex items-center gap-0.5">
+                      <button title="Add PXC node" onPointerDown={(e) => e.stopPropagation()} onClick={() => addPXCNode(f.id)}
+                        className="rounded px-1.5 text-sm leading-none text-muted hover:bg-surface hover:text-fg">+</button>
+                      <button title="Remove a node" onPointerDown={(e) => e.stopPropagation()} onClick={() => removePXCNode(f.id)}
+                        className="rounded px-1.5 text-sm leading-none text-muted hover:bg-surface hover:text-fg">−</button>
+                    </div>
+                  </div>
+                  {kids.map((n) => {
+                    const non = selected?.kind === 'node' && selected.id === n.id
+                    const dep = depByNode[n.id]
+                    const arb = n.role === 'arbitrator'
+                    return (
+                      <div key={n.id}
+                        onPointerDown={(e) => selectFrameNode(e, n.id)}
+                        className={`absolute flex cursor-pointer flex-col overflow-hidden rounded-lg border bg-surface shadow-sm ${non ? 'ring-2 ring-primary' : ''}`}
+                        style={{ left: n.x - f.x, top: n.y - f.y, width: PXC_NODE_W, height: PXC_NODE_H }}
+                      >
+                        <div className="h-1 w-full shrink-0" style={{ background: arb ? '#64748b' : FRAME_COLOR }} />
+                        <div className="flex flex-1 flex-col justify-center px-2 py-1">
+                          <div className="flex items-center gap-1">
+                            <span className="min-w-0 flex-1 truncate text-xs font-semibold text-fg">{n.label}</span>
+                            {dep?.state === 'provisioning' ? (
+                              <ProgressRing percent={dep.progress?.percent || 0} size={15} />
+                            ) : dep ? (
+                              <span className="h-2 w-2 shrink-0 rounded-full" title={dep.state}
+                                style={{ background: `var(--${DEPLOY_TONE[dep.state] === 'success' ? 'success' : dep.state === 'error' ? 'danger' : 'warning'})` }} />
+                            ) : null}
+                          </div>
+                          <div className="mt-0.5 text-[10px] text-muted">{arb ? 'arbitrator' : 'regular'}</div>
+                          {n.exportEnabled && <div className="text-[9px] font-medium text-primary">⇅ export</div>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })}
+
+            {nodes.filter((n) => !n.frameId).map((n) => {
               const def = NODE_TYPES[n.type] || NODE_TYPES.intranet
               const on = selected?.kind === 'node' && selected.id === n.id
               return (
@@ -744,10 +946,13 @@ function StackEditor({ stackId, onBack }) {
         stackId={stack.id}
         nodes={nodes}
         edges={edges}
+        frames={frames}
         depByNode={depByNode}
         patchNode={patchNode}
+        patchFrame={patchFrame}
         deleteNode={deleteNode}
         deleteEdge={deleteEdge}
+        deleteFrame={deleteFrame}
       />
 
       {menu && (
@@ -970,6 +1175,158 @@ function PMMOptions({ n, patchNode, deployed }) {
   )
 }
 
+// ------------------------------------------------------------- PXC cluster forms
+
+// PXCFrameForm edits a PXC cluster frame: version/OS/platform, credentials,
+// monitoring/proxy/GTID/TLS options, and shows quorum guidance.
+function PXCFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed }) {
+  const [cat, setCat] = useState(null)
+  useEffect(() => {
+    let alive = true
+    stackApi.pxcCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    return () => { alive = false }
+  }, [])
+  const imgs = cat || []
+  const lock = deployed ? 'opacity-70' : ''
+
+  const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
+  const osVersions = [...new Set(imgs.filter((i) => i.os === f.os).map((i) => i.osVersion))]
+  const archs = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === f.osVersion).map((i) => i.arch))]
+  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion && i.arch === f.arch)
+  const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
+  const minors = (entry?.versions?.[f.pxcMajor]) || []
+
+  const pmmNodes = nodes.filter((n) => n.type === 'pmm')
+  const regulars = frameNodes.filter((n) => n.role !== 'arbitrator').length
+  const total = frameNodes.length
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">PXC Cluster</span>
+        <Badge tone="primary">{total} node{total === 1 ? '' : 's'}</Badge>
+      </div>
+
+      <Field label="Cluster name" hint="Must be unique across the stack.">
+        <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+      </Field>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+          <select className={`${inputCls} ${lock}`} value={f.os} disabled={deployed} onChange={(e) => patchFrame(f.id, { os: e.target.value })}>
+            {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="OS version">
+          <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
+            {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Platform / arch">
+          <select className={`${inputCls} ${lock}`} value={f.arch} disabled={deployed} onChange={(e) => patchFrame(f.id, { arch: e.target.value })}>
+            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="PXC major">
+          <select className={`${inputCls} ${lock}`} value={f.pxcMajor} disabled={deployed} onChange={(e) => patchFrame(f.id, { pxcMajor: e.target.value, pxcVersion: '' })}>
+            {majors.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+      </div>
+
+      <Field label="PXC minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+        <select className={`${inputCls} ${lock}`} value={f.pxcVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { pxcVersion: e.target.value })}>
+          <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
+          {minors.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </Field>
+
+      <Field label="Root password" hint={deployed ? 'Set at deploy.' : 'Leave empty to auto-generate.'}>
+        <input className={`${inputCls} ${lock}`} value={f.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchFrame(f.id, { rootPassword: e.target.value })} />
+      </Field>
+
+      <Field label="Monitored by (PMM)" hint="Optional — registers the cluster with a PMM node.">
+        <select className={inputCls} value={f.pmmNodeId || ''} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
+          <option value="">none</option>
+          {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </Field>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={!!f.useProxy} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for egress</span>
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={f.gtid !== false} onChange={(e) => patchFrame(f.id, { gtid: e.target.checked })} />
+        <span>Enable GTID</span>
+      </label>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
+        <span>Generate per-node certificates from Intranet CA</span>
+      </label>
+      {f.generateCert && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted">Cert TTL</span>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={f.certTtlUnit || 'days'} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
+            <option value="minutes">minutes</option>
+            <option value="hours">hours</option>
+            <option value="days">days</option>
+          </select>
+        </div>
+      )}
+
+      {(regulars < 3 || total % 2 === 0) && (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+          {regulars < 3 && <div>For HA, use at least 3 regular nodes ({regulars} now).</div>}
+          {total % 2 === 0 && <div>An odd number of nodes keeps quorum on a split network ({total} now).</div>}
+        </div>
+      )}
+      {regulars === 0 && (
+        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">At least one regular (data) node is required.</div>
+      )}
+
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteFrame(f.id)}>
+        <Icon.Trash size={16} /> Delete cluster
+      </Button>
+    </div>
+  )
+}
+
+// PXCNodeForm edits a single PXC cluster member: role and host port export.
+function PXCNodeForm({ node: n, frame, nodes, patchNode, dep, deployed }) {
+  return (
+    <div className="space-y-3">
+      {dep && (
+        <div className="flex items-center justify-between rounded-lg bg-surface2 px-3 py-2 text-sm">
+          <span className="text-muted">Deployment</span>
+          <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+        </div>
+      )}
+      <Field label="Node name" hint="Auto-assigned, unique across the stack.">
+        <input className={`${inputCls} opacity-70`} value={n.label} readOnly />
+      </Field>
+      <Field label="Cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <Field label="Role" hint={deployed ? 'Locked — the node is deployed.' : 'Arbitrator (garbd) votes for quorum but stores no data.'}>
+        <select className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.role || 'regular'} disabled={deployed} onChange={(e) => patchNode(n.id, { role: e.target.value })}>
+          <option value="regular">regular (data node)</option>
+          <option value="arbitrator">arbitrator (garbd)</option>
+        </select>
+      </Field>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={!!n.exportEnabled} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
+        <span>Export DB port to the host</span>
+      </label>
+      {n.exportEnabled && (
+        <Field label="Host port" hint="0 / empty = random unused port. Must not clash with another node.">
+          <input type="number" min="0" max="65535" className={inputCls} value={n.exportHostPort || 0}
+            onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
+        </Field>
+      )}
+    </div>
+  )
+}
+
 // Minimap: a scaled overview of the canvas in the bottom-right corner showing
 // every node (colored by type) and the current viewport. Click or drag inside it
 // to recenter the main view on that point.
@@ -1104,10 +1461,10 @@ function loadProps() {
   try { return JSON.parse(localStorage.getItem(PROPS_KEY) || '{}') } catch { return {} }
 }
 
-function StackProperties({ selected, stackId, nodes, edges, depByNode, patchNode, deleteNode, deleteEdge }) {
+function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, deleteNode, deleteEdge, deleteFrame }) {
   const selNode = selected?.kind === 'node' ? nodes.find((n) => n.id === selected.id) : null
   const selDep = selNode ? depByNode[selNode.id] : null
-  const wide = selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm')
+  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm')) || selected?.kind === 'frame'
 
   const saved = useRef(loadProps()).current
   const [docked, setDocked] = useState(saved.docked !== false)
@@ -1145,7 +1502,7 @@ function StackProperties({ selected, stackId, nodes, edges, depByNode, patchNode
       </button>
     </div>
   )
-  const body = <Body selected={selected} stackId={stackId} nodes={nodes} edges={edges} depByNode={depByNode} patchNode={patchNode} deleteNode={deleteNode} deleteEdge={deleteEdge} />
+  const body = <Body selected={selected} stackId={stackId} nodes={nodes} edges={edges} frames={frames} depByNode={depByNode} patchNode={patchNode} patchFrame={patchFrame} deleteNode={deleteNode} deleteEdge={deleteEdge} deleteFrame={deleteFrame} />
 
   if (docked) {
     return (
@@ -1180,15 +1537,29 @@ function StackProperties({ selected, stackId, nodes, edges, depByNode, patchNode
   )
 }
 
-function Body({ selected, stackId, nodes, edges, depByNode, patchNode, deleteNode, deleteEdge }) {
-  if (!selected) return <p className="text-sm text-muted">Select a node or link to edit it. Add an Intranet node from the toolbar to begin.</p>
+function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, deleteNode, deleteEdge, deleteFrame }) {
+  if (!selected) return <p className="text-sm text-muted">Select a node, link or PXC cluster to edit it. Add an Intranet node from the toolbar to begin.</p>
+
+  if (selected.kind === 'frame') {
+    const f = frames.find((x) => x.id === selected.id)
+    if (!f) return null
+    const frameNodes = nodes.filter((n) => n.frameId === f.id)
+    const deployed = frameNodes.some((n) => depByNode[n.id])
+    return <PXCFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+  }
 
   if (selected.kind === 'node') {
     const n = nodes.find((x) => x.id === selected.id)
     if (!n) return null
-    const def = NODE_TYPES[n.type] || NODE_TYPES.intranet
     const dep = depByNode[n.id]
     const deployed = !!dep
+
+    // PXC cluster member node → its own compact editor (no OS/arch of its own).
+    if (n.type === 'pxc') {
+      return <PXCNodeForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} nodes={nodes} patchNode={patchNode} dep={dep} deployed={deployed} />
+    }
+
+    const def = NODE_TYPES[n.type] || NODE_TYPES.intranet
 
     // Deployed + running Intranet → full management console.
     if (dep && dep.state === 'running' && n.type === 'intranet') {

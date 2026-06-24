@@ -49,6 +49,7 @@ export const stackApi = {
   getNode: (id, nid) => request('GET', `/api/stacks/${id}/nodes/${nid}`),
   nodeAction: (id, nid, action) => request('POST', `/api/stacks/${id}/nodes/${nid}/${action}`),
   pmmCatalog: () => request('GET', '/api/catalog/pmm'),
+  pxcCatalog: () => request('GET', '/api/catalog/pxc'),
 }
 
 // PMM node management. `nid` is the design node id.
