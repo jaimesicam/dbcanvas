@@ -8,8 +8,29 @@ import (
 	"net"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
+
+// dnsSerial returns a strictly increasing zone serial. Plain time.Now().Unix()
+// collides when two reconciles land in the same second, which makes named skip
+// the reload (it keeps the older, stale zone). Tracking the last value and
+// bumping guarantees each rewrite advances the serial.
+var (
+	dnsSerialMu   sync.Mutex
+	dnsLastSerial int64
+)
+
+func dnsSerial() int64 {
+	dnsSerialMu.Lock()
+	defer dnsSerialMu.Unlock()
+	s := time.Now().Unix()
+	if s <= dnsLastSerial {
+		s = dnsLastSerial + 1
+	}
+	dnsLastSerial = s
+	return s
+}
 
 // The Intranet node runs bind (named) as the authoritative DNS server for the
 // stack's $DOMAIN. Every deployed node — including the Intranet itself — is
@@ -320,7 +341,7 @@ func (a *App) reconcileStackDNS(ctx context.Context, stackID int64) {
 	sort.Slice(recs, func(i, j int) bool { return recs[i].host < recs[j].host })
 
 	domain := envOr("DOMAIN", "example.net")
-	serial := time.Now().Unix()
+	serial := dnsSerial()
 	subnet, _ := a.docker.NetworkSubnet(ctx, netName)
 	revZone, owner, hasRev := reverseZoneInfo(subnet)
 
@@ -332,13 +353,23 @@ func (a *App) reconcileStackDNS(ctx context.Context, stackID int64) {
 	}
 	a.docker.CopyFile(ctx, intranetID, "/etc", "named.conf", 0o644, []byte(namedConf(domain, revName, intranetIP)))
 
-	// Fix ownership and (re)load named. rndc reconfig picks up new zones from the
-	// rewritten named.conf; a restart is the fallback if rndc isn't available.
+	// Fix ownership and (re)load named. `rndc reconfig` loads any newly-declared
+	// zones from the rewritten named.conf; then each existing zone is reloaded by
+	// name (the bare `rndc reload` does not reliably re-read a changed master zone
+	// file). The serial is guaranteed to advance (see dnsSerial), so named honors
+	// the reload. A full restart is the fallback.
+	env := []string{"FWD=" + domain, "REV=" + revName}
 	reload := `set -e
 chown root:named /etc/named.conf /var/named/dbcanvas.forward 2>/dev/null || true
 [ -f /var/named/dbcanvas.reverse ] && chown root:named /var/named/dbcanvas.reverse 2>/dev/null || true
 chmod 640 /etc/named.conf 2>/dev/null || true
 chmod 644 /var/named/dbcanvas.* 2>/dev/null || true
-rndc reconfig >/dev/null 2>&1 && rndc reload >/dev/null 2>&1 || systemctl restart named >/dev/null 2>&1 || true`
-	a.docker.Exec(ctx, intranetID, []string{"bash", "-c", reload}, nil)
+if command -v rndc >/dev/null 2>&1; then
+  rndc reconfig >/dev/null 2>&1 || true
+  rndc reload "$FWD" >/dev/null 2>&1 || true
+  [ -n "$REV" ] && rndc reload "$REV" >/dev/null 2>&1 || true
+else
+  systemctl reload named >/dev/null 2>&1 || systemctl restart named >/dev/null 2>&1 || true
+fi`
+	a.docker.Exec(ctx, intranetID, []string{"bash", "-c", reload}, env)
 }

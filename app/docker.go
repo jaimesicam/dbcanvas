@@ -206,11 +206,19 @@ type ContainerSpec struct {
 	Network      string
 	Aliases      []string
 	Privileged   bool
-	PublishPort  int      // container TCP port to publish to an auto-assigned host port (0 = none)
-	PublishPorts []int    // additional container TCP ports to publish (auto-assigned host ports)
-	DNS          []string // resolv.conf nameservers (empty = Docker default embedded DNS)
-	DNSSearch    []string // resolv.conf search domains
-	IPv4Address  string   // static IPv4 on Network (empty = auto-assign)
+	PublishPort  int       // container TCP port to publish to an auto-assigned host port (0 = none)
+	PublishPorts []int     // additional container TCP ports to publish (auto-assigned host ports)
+	PublishMap   []PortMap // explicit container→host TCP publishes (HostPort 0 = auto-assign)
+	DNS          []string  // resolv.conf nameservers (empty = Docker default embedded DNS)
+	DNSSearch    []string  // resolv.conf search domains
+	IPv4Address  string    // static IPv4 on Network (empty = auto-assign)
+}
+
+// PortMap publishes a container TCP port to a specific host port (HostPort 0
+// lets Docker pick a free ephemeral one).
+type PortMap struct {
+	ContainerPort int
+	HostPort      int
 }
 
 // ContainerCreate creates a container and returns its id.
@@ -254,7 +262,7 @@ func (d *Docker) ContainerCreate(ctx context.Context, spec ContainerSpec) (strin
 	if spec.PublishPort > 0 {
 		ports = append([]int{spec.PublishPort}, ports...)
 	}
-	if len(ports) > 0 {
+	if len(ports) > 0 || len(spec.PublishMap) > 0 {
 		exposed := map[string]any{}
 		bindings := map[string]any{}
 		for _, p := range ports {
@@ -262,6 +270,15 @@ func (d *Docker) ContainerCreate(ctx context.Context, spec ContainerSpec) (strin
 			exposed[port] = map[string]any{}
 			// empty HostPort → Docker assigns a free ephemeral host port.
 			bindings[port] = []map[string]string{{"HostPort": ""}}
+		}
+		for _, m := range spec.PublishMap {
+			port := fmt.Sprintf("%d/tcp", m.ContainerPort)
+			exposed[port] = map[string]any{}
+			hp := ""
+			if m.HostPort > 0 {
+				hp = fmt.Sprintf("%d", m.HostPort)
+			}
+			bindings[port] = []map[string]string{{"HostPort": hp}}
 		}
 		body["ExposedPorts"] = exposed
 		host["PortBindings"] = bindings
@@ -509,7 +526,10 @@ func demuxStream(r io.Reader) (stdout, stderr []byte) {
 func (d *Docker) CopyFile(ctx context.Context, id, dir, name string, mode int64, content []byte) error {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
-	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: mode, Size: int64(len(content))}); err != nil {
+	// ModTime must be current: tools that decide whether a file changed by its
+	// mtime (e.g. bind's `rndc reload` for zone files) would otherwise see a
+	// zero/epoch timestamp every time and skip reloading.
+	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: mode, ModTime: time.Now(), Size: int64(len(content))}); err != nil {
 		return err
 	}
 	if _, err := tw.Write(content); err != nil {

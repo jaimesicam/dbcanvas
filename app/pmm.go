@@ -389,7 +389,7 @@ func tarFiles(files map[string]fileEntry) []byte {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
 	for name, f := range files {
-		tw.WriteHeader(&tar.Header{Name: name, Mode: f.mode, Uid: f.uid, Gid: 0, Size: int64(len(f.content))})
+		tw.WriteHeader(&tar.Header{Name: name, Mode: f.mode, Uid: f.uid, Gid: 0, ModTime: time.Now(), Size: int64(len(f.content))})
 		tw.Write(f.content)
 	}
 	tw.Close()

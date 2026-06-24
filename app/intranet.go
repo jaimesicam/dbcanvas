@@ -284,8 +284,12 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 		a.reconcileStackDNS(bg, st.ID)
 	}
 
-	// Create newly added nodes; keep already-running ones (redeploy).
+	// Create newly added nodes; keep already-running ones (redeploy). PXC nodes
+	// are provisioned as a unit by their frame, not individually.
 	for _, n := range doc.Nodes {
+		if n.Type == "pxc" {
+			continue
+		}
 		if d, ok := existing[n.ID]; ok && d.State == DeployRunning {
 			continue
 		}
@@ -295,6 +299,28 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 		case "pmm":
 			a.provisionPMM(st, n, doc)
 		}
+	}
+
+	// PXC cluster frames: (re)provision a frame unless all its member nodes are
+	// already running (cluster formation is sequential and all-or-nothing).
+	for _, f := range doc.Frames {
+		if f.Type != "pxc" {
+			continue
+		}
+		members := 0
+		running := 0
+		for _, n := range doc.Nodes {
+			if n.FrameID == f.ID && n.Type == "pxc" {
+				members++
+				if d, ok := existing[n.ID]; ok && d.State == DeployRunning {
+					running++
+				}
+			}
+		}
+		if members > 0 && running == members {
+			continue
+		}
+		a.provisionPXCFrame(st, f, doc)
 	}
 
 	a.store.SetStackStatus(st.ID, StackDeployed)
