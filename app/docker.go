@@ -381,6 +381,41 @@ func (d *Docker) ContainerPort(ctx context.Context, id, portProto string) (strin
 	return "", nil
 }
 
+// ListPublishedPorts returns a map of published host TCP port → container name
+// across all containers, used to detect host-port conflicts before deploy.
+func (d *Docker) ListPublishedPorts(ctx context.Context) (map[int]string, error) {
+	resp, err := d.do(ctx, "GET", "/containers/json?all=true", nil)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != 200 {
+		return nil, errBody("list containers", resp)
+	}
+	var arr []struct {
+		Names []string `json:"Names"`
+		Ports []struct {
+			PublicPort int    `json:"PublicPort"`
+			Type       string `json:"Type"`
+		} `json:"Ports"`
+	}
+	if err := json.Unmarshal(drain(resp), &arr); err != nil {
+		return nil, err
+	}
+	out := map[int]string{}
+	for _, c := range arr {
+		name := ""
+		if len(c.Names) > 0 {
+			name = strings.TrimPrefix(c.Names[0], "/")
+		}
+		for _, p := range c.Ports {
+			if p.PublicPort > 0 && p.Type == "tcp" {
+				out[p.PublicPort] = name
+			}
+		}
+	}
+	return out, nil
+}
+
 // ContainerIP returns a container's IPv4 address on the given network, or "" if
 // it is not attached / has no address yet.
 func (d *Docker) ContainerIP(ctx context.Context, id, network string) (string, error) {

@@ -221,6 +221,59 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			out = append(out, issue{"error", "Duplicate node label: " + l + " — labels must be unique"})
 		}
 	}
+
+	// --- PXC cluster frames ---
+	clusterNames := map[string]int{}
+	exportReq := map[int][]string{} // requested host port → node labels
+	var usedPorts map[int]string
+	for _, f := range doc.Frames {
+		if f.Type != "pxc" {
+			continue
+		}
+		clusterNames[strings.TrimSpace(f.Label)]++
+		regs, total := 0, 0
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != "pxc" {
+				continue
+			}
+			total++
+			if n.Role != "arbitrator" {
+				regs++
+			}
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		}
+		if regs == 0 {
+			out = append(out, issue{"error", "PXC cluster " + f.Label + " needs at least one regular (data) node"})
+		} else if regs < 3 {
+			out = append(out, issue{"warning", "PXC cluster " + f.Label + ": at least 3 regular nodes are recommended for high availability"})
+		}
+		if total%2 == 0 && total > 0 {
+			out = append(out, issue{"warning", "PXC cluster " + f.Label + ": an odd number of nodes keeps quorum on a split network"})
+		}
+	}
+	for name, c := range clusterNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{"error", "Duplicate PXC cluster name: " + name})
+		}
+	}
+	// Export host-port conflicts: within the design, and against ports already
+	// published by other containers (the stack's own containers are excluded so a
+	// redeploy doesn't flag itself).
+	if len(exportReq) > 0 {
+		usedPorts, _ = a.docker.ListPublishedPorts(ctx)
+		selfPrefix := fmt.Sprintf("dbcanvas-%d-", st.ID)
+		for port, who := range exportReq {
+			if len(who) > 1 {
+				out = append(out, issue{"error", fmt.Sprintf("Export host port %d requested by multiple nodes: %s", port, strings.Join(who, ", "))})
+			}
+			if owner, taken := usedPorts[port]; taken && !strings.HasPrefix(owner, selfPrefix) {
+				out = append(out, issue{"error", fmt.Sprintf("Export host port %d is already in use (by %s)", port, owner)})
+			}
+		}
+	}
+
 	if len(out) == 0 {
 		out = append(out, issue{"info", "All checks passed"})
 	}
