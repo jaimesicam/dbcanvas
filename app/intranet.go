@@ -20,6 +20,10 @@ type designNode struct {
 	Label string `json:"label"`
 	OS    string `json:"os"`
 	Arch  string `json:"arch"`
+	// PMM node fields (ignored by other node types).
+	Version       string `json:"version"`       // PMM minor version tag ("" → catalog default)
+	AdminPassword string `json:"adminPassword"` // PMM admin password ("" → auto-generated)
+	GenerateCert  bool   `json:"generateCert"`  // sign nginx certs from the Intranet CA on deploy
 }
 type designDoc struct {
 	Nodes []designNode `json:"nodes"`
@@ -32,6 +36,8 @@ type nodeConfig struct {
 	OS          string   `json:"os"`
 	Arch        string   `json:"arch"`
 	Alias       string   `json:"alias"`
+	Hostname    string   `json:"hostname"`
+	FQDN        string   `json:"fqdn"`
 	LDAPAdminDN string   `json:"ldapAdminDN"`
 	Services    []string `json:"services"`
 	WebmailPort int      `json:"webmailPort,omitempty"`
@@ -139,11 +145,14 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		out = append(out, issue{"warning", "Stack has no nodes to deploy"})
 	}
 	intranet := 0
+	others := 0
 	labels := map[string]int{}
 	seenImg := map[string]bool{}
+	pmmCat := loadPMMCatalog()
 	for _, n := range doc.Nodes {
 		labels[strings.TrimSpace(n.Label)]++
-		if n.Type == "intranet" {
+		switch n.Type {
+		case "intranet":
 			intranet++
 			img := intranetImage(n.Arch)
 			if !seenImg[img] {
@@ -152,10 +161,22 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
 				}
 			}
+		case "pmm":
+			others++
+			if !pmmCat.validPMMTag(n.Version) {
+				out = append(out, issue{"warning", "Unknown PMM version " + n.Version + " for node " + n.Label + " — run `make versions`"})
+			}
+		default:
+			others++
 		}
 	}
 	if intranet > 1 {
 		out = append(out, issue{"error", "Only one Intranet node is allowed per stack"})
+	}
+	// The Intranet provides DNS, mail, LDAP and the CA for the whole stack, so it
+	// is required before any other node can be deployed.
+	if others > 0 && intranet == 0 {
+		out = append(out, issue{"error", "An Intranet node is required — add one before deploying other nodes"})
 	}
 	for l, c := range labels {
 		if c > 1 && l != "" {
@@ -210,13 +231,19 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Remove containers for nodes deleted from the canvas.
+	removed := false
 	for _, d := range deps {
 		if !inDesign[d.NodeID] {
 			if d.ContainerID != "" {
 				a.docker.ContainerRemove(bg, d.ContainerID)
 			}
 			a.store.DeleteDeployment(st.ID, d.NodeID)
+			removed = true
 		}
+	}
+	// Drop removed hosts from the Intranet DNS zones.
+	if removed {
+		a.reconcileStackDNS(bg, st.ID)
 	}
 
 	// Create newly added nodes; keep already-running ones (redeploy).
@@ -224,10 +251,12 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 		if d, ok := existing[n.ID]; ok && d.State == DeployRunning {
 			continue
 		}
-		if n.Type != "intranet" {
-			continue // only Intranet is supported in this phase
+		switch n.Type {
+		case "intranet":
+			a.provisionIntranet(st, n)
+		case "pmm":
+			a.provisionPMM(st, n, doc)
 		}
-		a.provisionIntranet(st, n)
 	}
 
 	a.store.SetStackStatus(st.ID, StackDeployed)
@@ -258,7 +287,8 @@ func (a *App) provisionIntranet(st Stack, n designNode) {
 		}
 	}
 	cfg := nodeConfig{
-		Domain: domain, BaseDN: baseDN, OS: "oel9", Arch: archOr(n.Arch), Alias: "intranet", LDAPAdminDN: adminDN,
+		Domain: domain, BaseDN: baseDN, OS: "oel9", Arch: archOr(n.Arch),
+		Alias: "intranet", Hostname: "intranet", FQDN: "intranet." + domain, LDAPAdminDN: adminDN,
 		Services: []string{"Squid proxy", "DNS", "SMTP", "IMAP", "Webmail (RoundCube)", "OpenLDAP", "Self-signing CA"},
 	}
 	cfgJSON, _ := json.Marshal(cfg)
@@ -295,9 +325,14 @@ func (a *App) provisionIntranet(st Stack, n designNode) {
 		if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
 			a.docker.ContainerRemove(ctx, cid)
 		}
+		// Pin the Intranet to a stable address (host .2 of the stack subnet) so it
+		// stays a reliable DNS resolver / SMTP relay for the other nodes across
+		// restarts. The FQDN alias also lets peers reach it as intranet.<domain>.
+		subnet, _ := a.docker.NetworkSubnet(ctx, networkName(st.ID))
 		id, err := a.docker.ContainerCreate(ctx, ContainerSpec{
 			Name: name, Image: intranetImage(n.Arch), Hostname: "intranet",
-			Network: networkName(st.ID), Aliases: []string{"intranet"}, Privileged: true, PublishPort: 80,
+			Network: networkName(st.ID), Aliases: []string{"intranet", "intranet." + domain},
+			Privileged: true, PublishPort: 80, IPv4Address: staticIntranetIP(subnet),
 		})
 		if err != nil {
 			failNode("create container: %v", err)
@@ -357,6 +392,12 @@ func (a *App) provisionIntranet(st Stack, n designNode) {
 			}
 			logln(step.Name + ": ok")
 		}
+
+		// Configure bind as the authoritative resolver and publish DNS records for
+		// every host in the stack (including the Intranet itself).
+		setPhase("Publishing DNS records", 98)
+		a.reconcileStackDNS(ctx, st.ID)
+		logln("DNS zones published")
 
 		setPhase("Running", 100)
 		prog.Message = "provisioned"
@@ -531,6 +572,9 @@ func (a *App) handleNodeAction(action string) http.HandlerFunc {
 			err = a.docker.ContainerStart(ctx, dep.ContainerID)
 			if err == nil {
 				a.store.SetDeploymentState(st.ID, nid, DeployRunning)
+				a.refreshPublishedPorts(ctx, st, nid, dep)
+				a.restoreNodeResolver(ctx, st, nid, dep)
+				a.reconcileStackDNS(ctx, st.ID)
 			}
 		case "stop":
 			err = a.docker.ContainerStop(ctx, dep.ContainerID)
@@ -541,6 +585,9 @@ func (a *App) handleNodeAction(action string) http.HandlerFunc {
 			err = a.docker.ContainerRestart(ctx, dep.ContainerID)
 			if err == nil {
 				a.store.SetDeploymentState(st.ID, nid, DeployRunning)
+				a.refreshPublishedPorts(ctx, st, nid, dep)
+				a.restoreNodeResolver(ctx, st, nid, dep)
+				a.reconcileStackDNS(ctx, st.ID)
 			}
 		}
 		if err != nil {
@@ -549,6 +596,62 @@ func (a *App) handleNodeAction(action string) http.HandlerFunc {
 		}
 		updated, _ := a.store.GetDeployment(st.ID, nid)
 		writeJSON(w, http.StatusOK, updated)
+	}
+}
+
+// refreshPublishedPorts re-reads a node container's auto-assigned host ports and
+// persists them into the stored config. Containers are created with an empty
+// HostPort binding, so Docker hands out a *new* ephemeral host port every time
+// the container starts — meaning a stop/start or restart changes the published
+// port and would otherwise leave the recorded access links (Intranet webmail,
+// PMM 8080/8443) pointing at the old, now-invalid port. Called after start and
+// restart for both node types.
+func (a *App) refreshPublishedPorts(ctx context.Context, st Stack, nid string, dep Deployment) {
+	if dep.ContainerID == "" {
+		return
+	}
+	var doc designDoc
+	json.Unmarshal(st.Design, &doc)
+	typ := ""
+	for _, n := range doc.Nodes {
+		if n.ID == nid {
+			typ = n.Type
+			break
+		}
+	}
+	readPort := func(portProto string) (int, bool) {
+		hp, err := a.docker.ContainerPort(ctx, dep.ContainerID, portProto)
+		if err != nil || hp == "" {
+			return 0, false
+		}
+		v, err := strconv.Atoi(hp)
+		return v, err == nil
+	}
+	save := func(cfg any) {
+		b, _ := json.Marshal(cfg)
+		a.store.UpsertDeployment(Deployment{
+			StackID: dep.StackID, NodeID: dep.NodeID, ContainerID: dep.ContainerID,
+			State: DeployRunning, Config: b, Secrets: dep.Secrets,
+		})
+	}
+	switch typ {
+	case "intranet":
+		var cfg nodeConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("80/tcp"); ok {
+			cfg.WebmailPort = p
+		}
+		save(cfg)
+	case "pmm":
+		var cfg pmmConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("8080/tcp"); ok {
+			cfg.HTTPPort = p
+		}
+		if p, ok := readPort("8443/tcp"); ok {
+			cfg.HTTPSPort = p
+		}
+		save(cfg)
 	}
 }
 

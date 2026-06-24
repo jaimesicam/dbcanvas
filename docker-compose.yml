@@ -13,12 +13,18 @@ services:
       DB_PATH: /data/dbcanvas.db
       # Domain used to configure deployed stacks (Intranet: LDAP/mail/DNS/CA).
       DOMAIN: ${DOMAIN:-example.net}
+      # Catalog of installable versions (produced by `make versions`).
+      VERSIONS_FILE: /etc/dbcanvas/versions.yaml
     ports:
       # Publish on APP_HOST (default 127.0.0.1 = private). Set APP_HOST=0.0.0.0
       # in .env to expose on all host interfaces.
       - "${APP_HOST:-127.0.0.1}:${APP_PORT:-8080}:${APP_PORT:-8080}"
     volumes:
       - app-data:/data            # SQLite database persists across rebuilds
+      # Catalog of installable versions (Percona Server per image + PMM3),
+      # produced by `make versions`. Mounted read-only; re-run `make versions`
+      # on the host to refresh what the version pickers offer.
+      - ./versions.yaml:/etc/dbcanvas/versions.yaml:ro
       # Stack Designer drives Docker on the host to deploy/manage stack
       # containers (Docker-out-of-Docker). The app talks to this socket via the
       # Engine API using only the Go stdlib — no docker CLI in the image.

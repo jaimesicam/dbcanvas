@@ -48,6 +48,16 @@ export const stackApi = {
   destroy: (id) => request('POST', `/api/stacks/${id}/destroy`),
   getNode: (id, nid) => request('GET', `/api/stacks/${id}/nodes/${nid}`),
   nodeAction: (id, nid, action) => request('POST', `/api/stacks/${id}/nodes/${nid}/${action}`),
+  pmmCatalog: () => request('GET', '/api/catalog/pmm'),
+}
+
+// PMM node management. `nid` is the design node id.
+export function pmmApi(id, nid) {
+  const base = `/api/stacks/${id}/nodes/${nid}`
+  return {
+    certInfo: () => request('GET', `${base}/pmm/cert`),
+    certGenerate: (value, unit) => request('POST', `${base}/pmm/cert`, { value, unit }),
+  }
 }
 
 // Intranet node management (Phase 3). `nid` is the design node id.

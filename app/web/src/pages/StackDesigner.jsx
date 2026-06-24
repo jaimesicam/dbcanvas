@@ -4,6 +4,7 @@ import { Icon } from '../components/Icons.jsx'
 import { Card, Button, Badge, Field, ConfirmButton, inputCls } from '../components/ui.jsx'
 import { stackApi, TTL_OPTIONS, DEPLOY_TONE } from '../lib/stackApi.js'
 import IntranetManager from './IntranetManager.jsx'
+import PMMManager from './PMMManager.jsx'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import {
   PORTS, dist, portPoint, edgePath, screenToWorld, zoomAt,
@@ -19,16 +20,26 @@ const ARCH_OPTIONS = [
   { id: 'arm64', label: 'arm64 (aarch64)' },
 ]
 
-// Node-type catalog. Phase 1 ships only the Intranet singleton on OEL9.
+// Node-type catalog.
 const NODE_TYPES = {
   intranet: {
     label: 'Intranet',
-    sub: 'Squid proxy · DNS · SMTP · IMAP · RoundCube webmail · OpenLDAP · self-signing CA',
+    sub: 'Squid Proxy · DNS · Mail · OpenLDAP · CA',
     color: '#6366f1',
     icon: 'Server',
     singleton: true,
     ports: false, // self-contained; no connection endpoints
     osOptions: [{ id: 'oel9', label: 'Oracle Linux 9' }],
+  },
+  pmm: {
+    label: 'PMM3',
+    sub: 'Percona Monitoring & Management',
+    color: '#0ea5e9',
+    icon: 'Monitor',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'pmm', label: 'percona/pmm-server' }],
+    defaults: { version: '', adminPassword: '', generateCert: false },
   },
 }
 
@@ -454,10 +465,12 @@ function StackEditor({ stackId, onBack }) {
   function addNode(type) {
     const def = NODE_TYPES[type]
     if (def.singleton && nodes.some((n) => n.type === type)) return
+    // The Intranet is required first — it provides DNS/mail/LDAP/CA for the stack.
+    if (type !== 'intranet' && !nodes.some((n) => n.type === 'intranet')) return
     const id = uid(type)
     const x = (-view.x + 220) / view.z
     const y = (-view.y + 160) / view.z
-    setNodes((ns) => [...ns, { id, type, x, y, label: def.label, os: def.osOptions[0].id, arch: 'amd64' }])
+    setNodes((ns) => [...ns, { id, type, x, y, label: def.label, os: def.osOptions[0].id, arch: 'amd64', ...(def.defaults || {}) }])
     setSelected({ kind: 'node', id })
   }
 
@@ -575,6 +588,9 @@ function StackEditor({ stackId, onBack }) {
           <Button size="sm" disabled={hasIntranet} onClick={() => addNode('intranet')}>
             <Icon.Plus size={16} /> Intranet
           </Button>
+          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('pmm')}>
+            <Icon.Plus size={16} /> PMM3
+          </Button>
           <div className="mx-1 h-5 w-px bg-border" />
           <Button size="sm" variant="outline" disabled={!!busy} onClick={runValidate}>
             <Icon.Check size={15} /> {busy === 'validate' ? 'Validating…' : 'Validate'}
@@ -663,10 +679,10 @@ function StackEditor({ stackId, onBack }) {
                   key={n.id}
                   onPointerDown={(e) => startNode(e, n.id)}
                   onContextMenu={(e) => openMenu(e, n.id)}
-                  className={`group absolute flex cursor-grab flex-col rounded-xl border bg-surface shadow-sm active:cursor-grabbing ${on ? 'ring-2 ring-primary' : ''}`}
+                  className={`group absolute flex cursor-grab flex-col overflow-hidden rounded-xl border bg-surface shadow-sm active:cursor-grabbing ${on ? 'ring-2 ring-primary' : ''}`}
                   style={{ left: n.x, top: n.y, width: NODE_W, height: NODE_H }}
                 >
-                  <div className="h-1.5 w-full rounded-t-xl" style={{ background: def.color }} />
+                  <div className="h-1.5 w-full shrink-0" style={{ background: def.color }} />
                   <div className="flex flex-1 flex-col justify-center px-3 py-2">
                     <div className="flex items-start gap-2.5">
                       <span className="mt-0.5 shrink-0" style={{ color: def.color }}>
@@ -842,6 +858,7 @@ function ConfigModal({ dep, onClose }) {
           <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
         </div>
         <dl className="space-y-1.5 text-sm">
+          <Row k="FQDN" v={cfg.fqdn} />
           <Row k="Domain" v={cfg.domain} />
           <Row k="Base DN" v={cfg.baseDN} />
           <Row k="LDAP admin" v={cfg.ldapAdminDN} />
@@ -869,6 +886,66 @@ function Row({ k, v }) {
       <dt className="text-muted">{k}</dt>
       <dd className="truncate font-mono text-xs text-fg">{v || '—'}</dd>
     </div>
+  )
+}
+
+// PMMOptions renders the PMM-only node settings: minor-version picker (from the
+// catalog produced by `make versions`), admin password (auto-generated when
+// empty), and the Intranet-CA certificate toggle.
+function PMMOptions({ n, patchNode, deployed }) {
+  const [cat, setCat] = useState(null)
+  useEffect(() => {
+    let alive = true
+    stackApi.pmmCatalog().then((c) => { if (alive) setCat(c) }).catch(() => { /* keep defaults */ })
+    return () => { alive = false }
+  }, [])
+  const versions = cat?.versions || []
+  const defaultTag = cat?.defaultTag || '3'
+  return (
+    <>
+      <Field
+        label="PMM version"
+        hint={deployed ? 'Locked — the node is deployed.' : `Default is the rolling latest (percona/pmm-server:${defaultTag}). Pick a minor version to pin it.`}
+      >
+        <select
+          className={`${inputCls} ${deployed ? 'opacity-70' : ''}`}
+          value={n.version || ''}
+          disabled={deployed}
+          onChange={(e) => patchNode(n.id, { version: e.target.value })}
+        >
+          <option value="">latest ({defaultTag})</option>
+          {versions.map((v) => (
+            <option key={v} value={v}>{v}</option>
+          ))}
+        </select>
+      </Field>
+      <Field
+        label="Admin password"
+        hint={deployed ? 'Set at deploy time.' : 'Leave empty to auto-generate a strong password.'}
+      >
+        <input
+          className={`${inputCls} ${deployed ? 'opacity-70' : ''}`}
+          value={n.adminPassword || ''}
+          disabled={deployed}
+          placeholder="(auto-generate if empty)"
+          onChange={(e) => patchNode(n.id, { adminPassword: e.target.value })}
+        />
+      </Field>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input
+          type="checkbox"
+          checked={!!n.generateCert}
+          disabled={deployed}
+          onChange={(e) => patchNode(n.id, { generateCert: e.target.checked })}
+        />
+        <span>Generate nginx certificate from Intranet CA</span>
+      </label>
+      {n.generateCert && !deployed && (
+        <p className="text-xs text-muted">
+          Requires an Intranet node in the stack. New certs are written to <span className="font-mono">/srv/nginx</span> at deploy.
+        </p>
+      )}
+    </>
   )
 }
 
@@ -928,7 +1005,7 @@ function loadProps() {
 function StackProperties({ selected, stackId, nodes, edges, depByNode, patchNode, deleteNode, deleteEdge }) {
   const selNode = selected?.kind === 'node' ? nodes.find((n) => n.id === selected.id) : null
   const selDep = selNode ? depByNode[selNode.id] : null
-  const wide = selDep && selDep.state === 'running' && selNode.type === 'intranet'
+  const wide = selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm')
 
   const saved = useRef(loadProps()).current
   const [docked, setDocked] = useState(saved.docked !== false)
@@ -1015,6 +1092,10 @@ function Body({ selected, stackId, nodes, edges, depByNode, patchNode, deleteNod
     if (dep && dep.state === 'running' && n.type === 'intranet') {
       return <IntranetManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
     }
+    // Deployed + running PMM → PMM management console.
+    if (dep && dep.state === 'running' && n.type === 'pmm') {
+      return <PMMManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+    }
     return (
       <div className="space-y-3">
         {dep && (
@@ -1053,6 +1134,7 @@ function Body({ selected, stackId, nodes, edges, depByNode, patchNode, deleteNod
             ))}
           </select>
         </Field>
+        {n.type === 'pmm' && <PMMOptions n={n} patchNode={patchNode} deployed={deployed} />}
         <div className="grid grid-cols-2 gap-2">
           <Field label="X">
             <input type="number" className={inputCls} value={Math.round(n.x)} onChange={(e) => patchNode(n.id, { x: +e.target.value })} />

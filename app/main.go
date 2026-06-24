@@ -51,6 +51,8 @@ func main() {
 	mux.HandleFunc("POST /api/users/{id}/disable", app.requireAdmin(app.handleUserStatus(StatusDisabled)))
 	mux.HandleFunc("DELETE /api/users/{id}", app.requireAdmin(app.handleDeleteUser))
 
+	mux.HandleFunc("GET /api/catalog/pmm", app.handlePMMCatalog)
+
 	mux.HandleFunc("GET /api/stacks", app.handleListStacks)
 	mux.HandleFunc("POST /api/stacks", app.handleCreateStack)
 	mux.HandleFunc("GET /api/stacks/{id}", app.handleGetStack)
@@ -83,6 +85,10 @@ func main() {
 
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/cert", app.handleCertInfo)
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/cert", app.handleCertGenerate)
+
+	// PMM node management.
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/pmm/cert", app.handlePMMCertInfo)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/pmm/cert", app.handlePMMCertGenerate)
 
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/term", app.handleNodeTerminal)
 

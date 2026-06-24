@@ -9,6 +9,7 @@ dist/
 # Go
 /app/*.db
 /app/*.db-*
+/app/dbcanvas
 
 # OS
 .DS_Store

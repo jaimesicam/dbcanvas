@@ -28,6 +28,15 @@ export const Icon = {
       <rect x="3" y="16" width="7" height="5" rx="1.5" />
     </Svg>
   ),
+  // Monitoring: a metrics panel with a live activity/pulse trace.
+  Monitor: (p) => (
+    <Svg {...p}>
+      <rect x="3" y="4" width="18" height="14" rx="2" />
+      <path d="M6 13h2l1.5-4 2.5 7 1.5-3H18" />
+      <line x1="9" y1="21" x2="15" y2="21" />
+      <line x1="12" y1="18" x2="12" y2="21" />
+    </Svg>
+  ),
   Sliders: (p) => (
     <Svg {...p}>
       <line x1="4" y1="8" x2="20" y2="8" />

@@ -79,6 +79,7 @@ export default function IntranetManager({ stackId, nodeId, dep, onDeleteNode }) 
 function Overview({ cfg, dep, onDeleteNode, onOpenTerminal }) {
   return (
     <div className="space-y-2 text-sm">
+      <KV k="FQDN" v={cfg.fqdn} mono />
       <KV k="Domain" v={cfg.domain} />
       <KV k="Base DN" v={cfg.baseDN} mono />
       <KV k="OS / arch" v={cfg.os ? `${cfg.os} · ${cfg.arch || ''}` : ''} />

@@ -391,3 +391,379 @@ reject `:` and newlines). New backend file **`app/intranet_mgmt.go`** + routes:
 > (`all predefined address pools have been fully subnetted`); `docker network
 > prune` frees space. Pre-existing similarly-named projects/containers are left
 > untouched.
+
+---
+
+## 3. `make versions` — installable version catalog (Percona Server + PMM3)
+
+**Goal.** Enrich `versions.yaml` (produced by `make images`, §1) with the
+**installable software versions** each artifact offers, so later UI pickers can
+offer real choices:
+
+- For every **built systemd image** (per OS × platform): the **Percona Server**
+  releases installable on it, grouped by major series (`"8.0"`, `"8.4"`).
+- A trailing **`pmm`** section: the **PMM3** (`percona/pmm-server`) image
+  versions selectable for a PMM node (§4).
+
+`make versions` **reads and rewrites** `versions.yaml` in place — it preserves the
+image records from `make images` and adds/refreshes the version data. It is the
+single source of truth the app reads at runtime.
+
+### Files added
+
+```
+images/versions.sh         # probes images + the PMM registry → rewrites versions.yaml
+```
+
+### Makefile
+
+Added `versions` to `.PHONY` and the target:
+
+```make
+## versions: probe built images for installable Percona Server versions → versions.yaml
+versions:
+	bash images/versions.sh
+```
+
+### Percona Server discovery (per image)
+
+For each image entry parsed out of `versions.yaml`, `versions.sh` spins up a
+throwaway container (`docker run --rm <tag> bash -lc <probe>`) and uses the
+`percona-release` manager already baked into the image (§1) to enumerate the
+`percona-server-server` package versions:
+
+- **RHEL family (Oracle Linux):** `percona-release setup ps80` then
+  `dnf -q search percona-server-server --showduplicates`; repeat with
+  `percona-release setup ps84lts` for the 8.4 LTS series.
+- **Debian family (Ubuntu):** same products, queried with
+  `apt-cache madison percona-server-server` after `apt-get update`.
+
+The output is filtered to the exact `percona-server-server` binary package
+(dropping `-debuginfo`/source rows), the upstream version string is normalised
+(e.g. `8.0.46-37.1.el9.x86_64` → `8.0.46-37.1`; Debian `…-1.noble` → `…-1`),
+deduplicated and `sort -V`-ordered, and split into the `8.0` / `8.4` series by a
+`^8\.0\.` / `^8\.4\.` match (robust even if both repos end up enabled).
+
+- **EL8 gotcha — the distro `mysql` module masks the package.** On Oracle Linux 8
+  the default `mysql` dnf **module** hides Percona's `percona-server-server`
+  (search returns only `-debuginfo`, `repoquery` is empty). The probe runs
+  `dnf -y module disable mysql` first — a harmless no-op on EL9/EL10, which have
+  no such module — after which all ~33 EL8 8.0 builds enumerate. Without it EL8
+  reports **zero** versions.
+- Each image is recorded with whatever it has; a series with no packages is
+  written as an empty list (e.g. EL10 carries only a couple of 8.0 builds).
+- **arm64 caveat:** on a host without binfmt the `…-arm64` tags are actually
+  amd64 builds, so they enumerate the amd64 repo. The version *strings* are
+  arch-independent, so the recorded data is still correct; on a host with real
+  emulation each arch is probed natively.
+
+### PMM3 discovery (from the registry)
+
+PMM3 ships as a Docker image, not an OS package, so its installable minor
+versions come from the **registry**, not a container. `versions.sh` queries the
+Docker Hub tags API for `percona/pmm-server` (paginated; no JSON parser — tag
+names and the `next` page URL are grepped out), keeps the full three-part
+`3.x.y` releases (`sort -V`), and writes the `pmm` section. `default_tag` is the
+rolling `"3"` tag (latest 3.x) used when no specific minor is selected; `latest`
+is the newest discovered `3.x.y`.
+
+### `versions.yaml` schema additions (generated — do not hand-edit)
+
+Per-image entries gain a `percona_server` map; a new top-level `pmm` mapping is
+appended. A `versions_generated_at` timestamp is added alongside `generated_at`.
+
+```yaml
+images:
+  - os: oraclelinux
+    version: "9"
+    # …existing make-images fields (platform, arch, tag, base, built_at)…
+    percona_server:
+      "8.0":
+        - 8.0.30-22.1
+        - 8.0.46-37.1
+      "8.4":
+        - 8.4.0-1.1
+        - 8.4.8-8.1
+pmm:
+  repository: percona/pmm-server
+  default_tag: "3"          # rolling latest-3.x; used when no minor is picked
+  latest: "3.8.1"
+  versions:                 # selectable PMM3 minor versions
+    - "3.0.0"
+    - "3.8.1"
+```
+
+Regenerate any time with `make versions`. Like `versions.yaml` generally, the
+contents are environment-/time-specific (registry state, which images built).
+
+### Verification performed
+
+- `make versions` probed all 10 images + discovered **13 PMM3 versions**
+  (`3.0.0`…`3.8.1`, latest `3.8.1`); output parses as valid YAML.
+- Per-image Percona Server counts as expected: OL8 33×8.0 + 8×8.4 (after the
+  `mysql`-module fix; **0** before it), OL9 16+8, OL10 2+3, Ubuntu 22.04 16+5,
+  Ubuntu 24.04 9+5.
+
+---
+
+## 4. PMM3 node (Percona Monitoring & Management)
+
+A second Stack Designer node type: a **PMM3 server** (`percona/pmm-server` —
+Grafana, VictoriaMetrics, ClickHouse, PostgreSQL, QAN and an nginx TLS
+front-end, all under supervisord). Unlike the Intranet node it is **not** built
+by `make images`; the selected image is pulled at deploy. The node offers a
+**minor-version picker** (from §3's catalog), a **user-set-or-generated admin
+password**, and an optional **nginx certificate signed by the Intranet CA**.
+
+### versions.yaml at runtime — mount + catalog
+
+The app reads the §3 catalog at runtime (the build context is `./app`, so
+`versions.yaml` is **not** embedded — it is mounted):
+
+- **`docker-compose.yml`**: bind-mount `./versions.yaml:/etc/dbcanvas/versions.yaml:ro`
+  and set `VERSIONS_FILE=/etc/dbcanvas/versions.yaml`. Re-run `make versions` on
+  the host to refresh what the pickers offer (no rebuild needed; the app reads
+  the file per request).
+- **`app/versions.go`**: parses **only** the `pmm:` block by hand (the format is
+  fixed and we emit it — no YAML dependency added). `versionsFilePath()` tries
+  `VERSIONS_FILE`, then `/etc/dbcanvas/versions.yaml`, then `versions.yaml` /
+  `../versions.yaml` for local `go run`. `loadPMMCatalog()` never errors — on any
+  problem it returns a fallback (`percona/pmm-server`, tag `3`) so a PMM node can
+  still deploy. `PMMCatalog.validPMMTag` accepts the default tag, `latest`, or a
+  discovered version (guards the Docker pull against arbitrary tags).
+- **Route** (`main.go`): `GET /api/catalog/pmm` (auth required) → the catalog
+  `{repository, defaultTag, latest, versions[]}`.
+
+### Node model
+
+`designNode` (in `intranet.go`) gains PMM-only fields (ignored by other types),
+carried in the saved design JSON: `version` (minor tag; `""` → catalog default),
+`adminPassword` (`""` → auto-generated), `generateCert` (sign nginx certs from
+the Intranet CA on deploy). Deploy dispatch (`handleDeployStack`) switches on
+node type: `intranet` → `provisionIntranet`, `pmm` → `provisionPMM`.
+
+### Provisioning — `app/pmm.go`
+
+`provisionPMM(stack, node, doc)` records the deployment then runs an async,
+stepwise goroutine (same progress/percent/log model as the Intranet, §2):
+
+1. **Pull image** (`ImagePull`, new in `docker.go`) if not already present —
+   `repo:tag` from the node version / catalog default.
+2. **Create + start** the container publishing **two** ports, **8080** (HTTP) and
+   **8443** (HTTPS), via `ContainerSpec.PublishPorts` (new). Network = the stack
+   network, aliases `[<label>, "pmm"]`, hostname = the sanitised label.
+3. **Wait for readiness** — poll `GET http://localhost:8080/v1/server/readyz`
+   for `200` inside the container (`waitPMMReady`, up to 180s).
+4. **Admin password** — `change-admin-password "$PW"` (PMM ships it at
+   `/usr/local/sbin/`). The password is reused across redeploys, else the user's
+   value, else `genSecret("PmmAdm!")`; the effective value is stored in the
+   deployment **secrets** (`pmmSecrets`).
+5. **Grafana SMTP** — rewrite the `[smtp]` section of `/etc/grafana/grafana.ini`
+   to relay through the Intranet mail server (`host = intranet.<domain>:25`,
+   `enabled = true`, `skip_verify = true`, `startTLS_policy = NoStartTLS`, …,
+   matching the requested template), then `supervisorctl restart grafana`. Any
+   pre-existing `[smtp]` block is stripped first (awk, up to the next section
+   header) so it is never duplicated.
+6. **Certificate** (when `generateCert`) — see below.
+
+The published host ports, admin user, image, SMTP host and service list are
+stored in the deployment **config** (`pmmConfig`).
+
+- **For the SMTP `host` to resolve**, the Intranet container now also advertises
+  the FQDN network alias `intranet.<domain>` (added to its `Aliases`), so peers
+  on the stack network reach the mail server at `intranet.<domain>:25` (Docker's
+  embedded DNS, no bind dependency).
+- **Validation** (`validateStack`): a PMM `version` not in the catalog is a
+  warning; `generateCert` **requires an Intranet node** in the stack (its CA) —
+  an error otherwise. The PMM image is not required to pre-exist (it is pulled).
+
+### Certificate from the Intranet CA → `/srv/nginx`
+
+PMM's nginx serves `/srv/nginx/{certificate.crt,certificate.key,ca-certs.pem,
+certificate.conf,dhparam.pem}`. `pmmGenerateCert(pmm, intranet, domain, alias,
+ttlValue, ttlUnit)`:
+
+1. Reads the Intranet CA cert+key (`/etc/pki/dbcanvas/{ca.crt,ca.key}`) out of the
+   Intranet container (`readContainerFile` = `base64 -w0` over the exec channel,
+   binary-safe).
+2. Stages them into the PMM container's `/tmp` via `PutArchive` (new in
+   `docker.go`: extract a tar into a dir).
+3. Runs an in-container openssl script that **archives** the existing
+   `/srv/nginx` cert set to `/srv/nginx/archive/<timestamp>/`, then writes a new
+   key + CA-signed cert (SANs: `<alias>`, `<alias>.<domain>`, `pmm`, `localhost`,
+   `127.0.0.1`; validity from the TTL via openssl `-not_after`), sets
+   `ca-certs.pem` to the signing CA, regenerates `certificate.conf`, keeps the
+   existing `dhparam.pem`, fixes ownership, and `supervisorctl restart nginx`.
+
+At deploy time `provisionPMM` first waits for the Intranet CA to exist
+(`waitIntranetCA`, since both nodes provision concurrently) and signs with a
+365-day default. Post-deploy, the **certificate frame** re-issues on demand:
+
+- **`app/pmm_mgmt.go`** + routes: `GET /api/stacks/{id}/nodes/{nid}/pmm/cert`
+  (current cert subject/issuer/dates) and `POST …/pmm/cert` (`{value, unit}` →
+  generate with that TTL). The handler finds the stack's running Intranet node
+  for the CA (`intranetContainerFor`) and flips `config.generateCert` true.
+
+### `docker.go` additions / fixes
+
+- **`ImagePull`** (POST `/images/create`, drain the progress stream to block
+  until present), **`PutArchive`** (PUT `/archive` with a tar), and
+  **`ContainerSpec.PublishPorts []int`** (publish several auto-assigned host
+  ports; the single `PublishPort` still works for the Intranet).
+- **tmpfs scoped to privileged containers.** The systemd images need a tmpfs at
+  `/run` + `/run/lock`; this was previously mounted for **every** container.
+  PMM runs **unprivileged as UID 1000** and crash-loops (`mkdir /run/postgresql:
+  Permission denied`) when `/run` is a root-owned tmpfs — so the tmpfs (and the
+  cgroup bind / host cgroupns) are now applied **only when `Privileged`**.
+- **`tarFiles` stamps an owner uid.** `PutArchive` extracts as root into PMM's
+  **sticky** `/tmp`, but the in-container openssl runs as `pmm` (UID 1000) — so
+  the staged CA files are written with `Uid: 1000` (mode `0600`), letting the
+  unprivileged user both read the CA key and delete the files afterward.
+
+### Lifecycle — published ports refreshed on start/restart
+
+Containers are created with an **empty HostPort** binding, so Docker assigns a
+**new** ephemeral host port every time the container **starts** — a stop/start or
+restart therefore changes the published port and would leave the recorded access
+links (PMM 8080/8443, Intranet webmail :80) pointing at the old port.
+`handleNodeAction` now calls **`refreshPublishedPorts`** after a successful
+`start`/`restart` (both node types): it re-inspects the container, reads the live
+host ports, and rewrites the stored config so the links stay valid (the 3-s
+deployment poll then re-renders them).
+
+### Frontend
+
+- **`StackDesigner.jsx`**: new `pmm` entry in `NODE_TYPES` (label **PMM3**, sub
+  **"Percona Monitoring & Management"** — deliberately short so the node card
+  doesn't overflow), a **PMM3** toolbar button (non-singleton), and node defaults
+  (`version/adminPassword/generateCert`). `PMMOptions` (shown in the properties
+  panel when an undeployed PMM node is selected): **version** select populated
+  from `GET /api/catalog/pmm` (default option = `latest (<defaultTag>)`),
+  **admin password** input (placeholder "auto-generate if empty"), and a
+  **Generate nginx certificate from Intranet CA** checkbox; all lock once
+  deployed. A running PMM node renders **`PMMManager`** (the properties panel
+  widens, as for the Intranet).
+- **`PMMManager.jsx`**: tabs **Overview** (image/version/alias/SMTP/cert mode +
+  root console + delete), **Access** (HTTP/HTTPS URLs built from the published
+  host ports, admin user + password with copy buttons, "Open PMM" link), and
+  **Certificate** (current cert info + a generate frame with a TTL value/unit;
+  notes that it archives existing `/srv/nginx` certs and needs the Intranet node).
+- **`lib/stackApi.js`**: `stackApi.pmmCatalog()` and `pmmApi(id, nid)`
+  (`certInfo`/`certGenerate`).
+
+### Verification performed
+
+- `make versions` wrote the `pmm` catalog (13 versions); `GET /api/catalog/pmm`
+  returned it (default `3`, latest `3.8.1`).
+- End-to-end (host binary, real Docker): deployed an **Intranet + PMM** stack
+  (cert generation on). PMM reached `running`; node config exposed the published
+  **8080/8443** host ports and the generated admin password
+  (`PmmAdm!…`), which authenticated to Grafana (`/api/user` → 200). `grafana.ini`
+  carried the exact `[smtp]` block (`host = intranet.example.net:25`, which
+  resolved on the stack network). `/srv/nginx/certificate.crt` was issued by
+  `DBCanvas CA` (subject `CN=pmm.example.net`) and served on **8443**;
+  `ca-certs.pem` was the CA; the prior cert set was archived under
+  `/srv/nginx/archive/<ts>/`; `/tmp` CA staging was cleaned up.
+- Certificate **frame**: `POST …/pmm/cert` with a 2-hour TTL produced a new
+  Intranet-signed cert (notAfter ≈ +2h) and a **second** archive directory.
+- **Port refresh:** restart and **stop→start** each re-assigned the host ports
+  (e.g. `32821/32822` → `32823/32824` → `32825/32826`); after each, the stored
+  config matched `docker port` and the HTTPS link returned 302.
+- **PMM `/run` fix:** before scoping the tmpfs, PMM crash-looped
+  (`mkdir /run/postgresql: Permission denied`); after, it boots cleanly.
+- `go build`/`vet`/`test`, `gofmt`, the web build, and `docker compose config`
+  all pass.
+
+---
+
+## 5. Intranet DNS authority + unique hostnames + required-Intranet gating
+
+A set of changes making the Intranet the stack's real DNS server, giving every
+node a unique hostname/FQDN, and enforcing the Intranet as a prerequisite.
+
+### Node card / description
+
+- The Intranet node's description is shortened to **"Squid Proxy · DNS · Mail ·
+  OpenLDAP · CA"**. The previous 7-segment string overflowed the fixed-height
+  card and (with `justify-center`) clipped the colored top accent bar; the node
+  card also gained `overflow-hidden` so no description can clip it again.
+
+### Unique hostnames + FQDN (`dns.go`)
+
+- **`stackHostnames(doc)`** assigns every node a stable, DNS-safe, **unique**
+  hostname. The Intranet (singleton) is always `intranet`. Other nodes use their
+  sanitized label (`hostLabel`: lowercased, `[a-z0-9-]`); when two share a label
+  (e.g. two PMMs both "pmm"), each gets a stable suffix from a short FNV hash of
+  its node id (`pmm-c170`, `pmm-c629`) — so a single instance stays clean and
+  duplicates keep their names across redeploys regardless of canvas order.
+- This one hostname is used consistently for the container **hostname**, the
+  **network alias**, the **DNS record**, and the displayed **FQDN**
+  (`<hostname>.<domain>`, `$DOMAIN` from `.env`). `pmmConfig`/`nodeConfig` carry
+  `Hostname` + `FQDN`; the PMM **Overview**, Intranet **Overview**, and the
+  node-profile modal display the FQDN.
+
+### Intranet as authoritative DNS (`dns.go`, `bind`)
+
+The Intranet runs `bind`/`named` as the **authoritative server for `$DOMAIN`**
+with both a forward zone and a reverse (PTR) zone, plus forwarding for everything
+else.
+
+- **`docker.go`** additions: `ContainerIP(network)`, `NetworkSubnet(name)`, and
+  `ContainerSpec.{DNS, DNSSearch, IPv4Address}` (→ `HostConfig.Dns/DnsSearch` and
+  endpoint `IPAMConfig.IPv4Address`). `Exec` was refactored to `ExecAs(user,…)`
+  so root-owned files (e.g. `/etc/resolv.conf`) can be edited inside images that
+  run unprivileged.
+- **Stable resolver IP:** the Intranet is pinned to a **static address** (host
+  `.2` of the stack subnet, `staticIntranetIP`), so it stays a reliable resolver
+  across restarts.
+- **Ordering:** every non-Intranet node **blocks until the Intranet is fully
+  up and running** before it starts its own container — it depends on the
+  Intranet's DNS / SMTP / LDAP / CA. `waitIntranet` polls the Intranet deployment
+  and only returns its container id + IP once it reaches `running` (failing fast
+  if the Intranet errors). The node's image is still pulled beforehand, so the
+  slow pull overlaps the Intranet build; only the container start is gated.
+- **`reconcileStackDNS(stackID)`** rebuilds the zones from the stack's current
+  deployments: it writes `named.conf` (listening on `127.0.0.1` + the Intranet's
+  own IP, **never** Docker's `127.0.0.11`, which it forwards external queries to),
+  a forward zone (`A` for every node incl. `intranet`), and a reverse zone (PTR;
+  the `in-addr.arpa` zone name + owner are derived from the network subnet by
+  `reverseZoneInfo`, rounded to /8·/16·/24), then reloads named (`rndc reconfig &&
+  rndc reload`, restart fallback). It is a full idempotent rebuild, called after
+  each node provisions, after start/restart (IPs change), and after a node is
+  removed (so stale records drop).
+- **Nodes use the Intranet as resolver.** Non-Intranet containers are created
+  with `Dns=[intranetIP]`; additionally their `/etc/resolv.conf` is rewritten
+  (as root) to the Intranet as **sole** nameserver (`pointResolverAtIntranet`),
+  because Docker's embedded resolver answers reverse PTR for in-network IPs itself
+  and won't forward it. Docker regenerates resolv.conf on each start, so
+  `restoreNodeResolver` re-applies it after start/restart. External names still
+  resolve (the Intranet's bind forwards to `127.0.0.11`).
+
+### Intranet required (UI + validation)
+
+- **Frontend** (`StackDesigner.jsx`): the PMM3 (and any future non-Intranet)
+  add-button is disabled until an Intranet node exists (`disabled={!hasIntranet}`,
+  with a tooltip); `addNode` also guards against adding a non-Intranet node first.
+- **Validation** (`validateStack`): errors if any non-Intranet node exists with no
+  Intranet node ("An Intranet node is required — add one before deploying other
+  nodes"). The old duplicate-label warning is gone — duplicates now get unique
+  hostnames automatically.
+
+### Verification performed
+
+Deployed an Intranet + **two PMM nodes both labelled "pmm"**:
+- Unique hostnames/FQDNs: `intranet.example.net`, `pmm-c170.example.net`,
+  `pmm-c629.example.net`; the Intranet pinned to `172.20.0.2`.
+- From a PMM node (resolv.conf → `172.20.0.2` only): **forward** resolves all
+  three hosts (and short names via the search domain); **reverse** `dig -x` /
+  `getent hosts <ip>` returns each FQDN incl. `intranet.example.net`; **external**
+  (`repo.percona.com`) resolves via the Intranet's forwarder; the Grafana SMTP
+  target `intranet.example.net` resolves.
+- The Intranet's forward + reverse zone files contain an entry for every host
+  including itself; `dig @127.0.0.1` on the Intranet answers both directions.
+- **Restart** of a PMM node kept resolv.conf pointed at the Intranet and the zone
+  was rebuilt with the node's (possibly new) IP — forward + reverse stayed
+  consistent.
+- **Gating:** validating a stack of PMM-only nodes errors; the PMM3 button is
+  disabled until an Intranet is added.
+- `go build`/`vet`/`test`, `gofmt`, and the web build all pass.

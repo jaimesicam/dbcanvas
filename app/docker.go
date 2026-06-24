@@ -107,6 +107,45 @@ func (d *Docker) ImageExists(ctx context.Context, ref string) (bool, error) {
 	}
 }
 
+// ImagePull pulls an image reference (repo:tag) from its registry, blocking
+// until the pull stream completes. The streamed JSON progress is drained and
+// discarded; a non-2xx response or a transport error is returned.
+func (d *Docker) ImagePull(ctx context.Context, repo, tag string) error {
+	q := url.Values{"fromImage": {repo}, "tag": {tag}}
+	resp, err := d.do(ctx, "POST", "/images/create?"+q.Encode(), nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return errBody("pull image", resp)
+	}
+	// The body streams newline-delimited JSON until the pull finishes; reading
+	// it to EOF is what makes this call block until the image is present.
+	io.Copy(io.Discard, resp.Body)
+	return nil
+}
+
+// PutArchive extracts a tar archive into dir inside a container (the Docker
+// "upload to container" endpoint). Used to place several files at once.
+func (d *Docker) PutArchive(ctx context.Context, id, dir string, tarball []byte) error {
+	req, err := http.NewRequestWithContext(ctx, "PUT",
+		"http://docker/containers/"+id+"/archive?path="+url.QueryEscape(dir), bytes.NewReader(tarball))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-tar")
+	resp, err := d.http.Do(req)
+	if err != nil {
+		return err
+	}
+	drain(resp)
+	if resp.StatusCode != 200 {
+		return errBody("put archive", resp)
+	}
+	return nil
+}
+
 // NetworkEnsure creates a user-defined bridge network if it does not exist.
 func (d *Docker) NetworkEnsure(ctx context.Context, name string) error {
 	resp, err := d.do(ctx, "GET", "/networks/"+url.PathEscape(name), nil)
@@ -160,28 +199,35 @@ func (d *Docker) ContainerByName(ctx context.Context, name string) (string, bool
 
 // ContainerSpec describes a container to create.
 type ContainerSpec struct {
-	Name        string
-	Image       string
-	Hostname    string
-	Env         []string
-	Network     string
-	Aliases     []string
-	Privileged  bool
-	PublishPort int // container TCP port to publish to an auto-assigned host port (0 = none)
+	Name         string
+	Image        string
+	Hostname     string
+	Env          []string
+	Network      string
+	Aliases      []string
+	Privileged   bool
+	PublishPort  int      // container TCP port to publish to an auto-assigned host port (0 = none)
+	PublishPorts []int    // additional container TCP ports to publish (auto-assigned host ports)
+	DNS          []string // resolv.conf nameservers (empty = Docker default embedded DNS)
+	DNSSearch    []string // resolv.conf search domains
+	IPv4Address  string   // static IPv4 on Network (empty = auto-assign)
 }
 
 // ContainerCreate creates a container and returns its id.
 func (d *Docker) ContainerCreate(ctx context.Context, spec ContainerSpec) (string, error) {
 	host := map[string]any{
 		"Privileged":    spec.Privileged,
-		"Tmpfs":         map[string]string{"/run": "", "/run/lock": ""},
 		"RestartPolicy": map[string]any{"Name": "unless-stopped"},
 	}
 	if spec.Privileged {
-		// systemd as PID 1 needs the host cgroup namespace and a writable
-		// cgroup mount (verified on cgroup v2 hosts).
+		// systemd as PID 1 needs the host cgroup namespace, a writable cgroup
+		// mount (verified on cgroup v2 hosts), and tmpfs for /run + /run/lock.
+		// Non-systemd images (e.g. PMM, which runs unprivileged as UID 1000)
+		// must NOT get a root-owned /run tmpfs — it blocks their own startup
+		// from creating runtime dirs like /run/postgresql.
 		host["CgroupnsMode"] = "host"
 		host["Binds"] = []string{"/sys/fs/cgroup:/sys/fs/cgroup:rw"}
+		host["Tmpfs"] = map[string]string{"/run": "", "/run/lock": ""}
 	}
 	body := map[string]any{
 		"Image":    spec.Image,
@@ -190,17 +236,35 @@ func (d *Docker) ContainerCreate(ctx context.Context, spec ContainerSpec) (strin
 	}
 	if spec.Network != "" {
 		host["NetworkMode"] = spec.Network
+		endpoint := map[string]any{"Aliases": spec.Aliases}
+		if spec.IPv4Address != "" {
+			endpoint["IPAMConfig"] = map[string]any{"IPv4Address": spec.IPv4Address}
+		}
 		body["NetworkingConfig"] = map[string]any{
-			"EndpointsConfig": map[string]any{
-				spec.Network: map[string]any{"Aliases": spec.Aliases},
-			},
+			"EndpointsConfig": map[string]any{spec.Network: endpoint},
 		}
 	}
+	if len(spec.DNS) > 0 {
+		host["Dns"] = spec.DNS
+	}
+	if len(spec.DNSSearch) > 0 {
+		host["DnsSearch"] = spec.DNSSearch
+	}
+	ports := spec.PublishPorts
 	if spec.PublishPort > 0 {
-		port := fmt.Sprintf("%d/tcp", spec.PublishPort)
-		body["ExposedPorts"] = map[string]any{port: map[string]any{}}
-		// empty HostPort → Docker assigns a free ephemeral host port (unused).
-		host["PortBindings"] = map[string]any{port: []map[string]string{{"HostPort": ""}}}
+		ports = append([]int{spec.PublishPort}, ports...)
+	}
+	if len(ports) > 0 {
+		exposed := map[string]any{}
+		bindings := map[string]any{}
+		for _, p := range ports {
+			port := fmt.Sprintf("%d/tcp", p)
+			exposed[port] = map[string]any{}
+			// empty HostPort → Docker assigns a free ephemeral host port.
+			bindings[port] = []map[string]string{{"HostPort": ""}}
+		}
+		body["ExposedPorts"] = exposed
+		host["PortBindings"] = bindings
 	}
 	body["HostConfig"] = host
 
@@ -300,6 +364,60 @@ func (d *Docker) ContainerPort(ctx context.Context, id, portProto string) (strin
 	return "", nil
 }
 
+// ContainerIP returns a container's IPv4 address on the given network, or "" if
+// it is not attached / has no address yet.
+func (d *Docker) ContainerIP(ctx context.Context, id, network string) (string, error) {
+	resp, err := d.do(ctx, "GET", "/containers/"+id+"/json", nil)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode != 200 {
+		return "", errBody("inspect", resp)
+	}
+	var out struct {
+		NetworkSettings struct {
+			Networks map[string]struct {
+				IPAddress string `json:"IPAddress"`
+			} `json:"Networks"`
+		} `json:"NetworkSettings"`
+	}
+	if err := json.Unmarshal(drain(resp), &out); err != nil {
+		return "", err
+	}
+	if n, ok := out.NetworkSettings.Networks[network]; ok {
+		return n.IPAddress, nil
+	}
+	return "", nil
+}
+
+// NetworkSubnet returns the IPv4 CIDR of a user-defined network (e.g.
+// "172.20.0.0/16"), or "" if it has no IPAM subnet.
+func (d *Docker) NetworkSubnet(ctx context.Context, name string) (string, error) {
+	resp, err := d.do(ctx, "GET", "/networks/"+url.PathEscape(name), nil)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode != 200 {
+		return "", errBody("inspect network", resp)
+	}
+	var out struct {
+		IPAM struct {
+			Config []struct {
+				Subnet string `json:"Subnet"`
+			} `json:"Config"`
+		} `json:"IPAM"`
+	}
+	if err := json.Unmarshal(drain(resp), &out); err != nil {
+		return "", err
+	}
+	for _, c := range out.IPAM.Config {
+		if strings.Contains(c.Subnet, ".") { // IPv4 only
+			return c.Subnet, nil
+		}
+	}
+	return "", nil
+}
+
 // ExecResult captures a non-TTY exec's output and exit code.
 type ExecResult struct {
 	Stdout string
@@ -307,13 +425,23 @@ type ExecResult struct {
 	Code   int
 }
 
-// Exec runs a command in a container, capturing stdout/stderr and the exit code.
+// Exec runs a command in a container as its default user, capturing
+// stdout/stderr and the exit code.
 func (d *Docker) Exec(ctx context.Context, id string, cmd []string, env []string) (ExecResult, error) {
+	return d.ExecAs(ctx, id, "", cmd, env)
+}
+
+// ExecAs is Exec with an explicit user (e.g. "0" for root, needed to edit
+// root-owned files inside images that run as an unprivileged user).
+func (d *Docker) ExecAs(ctx context.Context, id, user string, cmd []string, env []string) (ExecResult, error) {
 	create := map[string]any{
 		"AttachStdout": true,
 		"AttachStderr": true,
 		"Tty":          false,
 		"Cmd":          cmd,
+	}
+	if user != "" {
+		create["User"] = user
 	}
 	if len(env) > 0 {
 		create["Env"] = env
