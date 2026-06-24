@@ -61,6 +61,15 @@ export function pmmApi(id, nid) {
   }
 }
 
+// PXC node management.
+export function pxcApi(id, nid) {
+  const base = `/api/stacks/${id}/nodes/${nid}`
+  return {
+    certInfo: () => request('GET', `${base}/pxc/cert`),
+    certGenerate: (value, unit) => request('POST', `${base}/pxc/cert`, { value, unit }),
+  }
+}
+
 // Intranet node management (Phase 3). `nid` is the design node id.
 export function intranetApi(id, nid) {
   const base = `/api/stacks/${id}/nodes/${nid}`

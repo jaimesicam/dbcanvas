@@ -91,6 +91,10 @@ func main() {
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/pmm/cert", app.handlePMMCertInfo)
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/pmm/cert", app.handlePMMCertGenerate)
 
+	// PXC node management.
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/pxc/cert", app.handlePXCCertInfo)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/pxc/cert", app.handlePXCCertGenerate)
+
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/term", app.handleNodeTerminal)
 
 	app.startReaper()

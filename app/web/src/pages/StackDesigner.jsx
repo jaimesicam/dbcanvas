@@ -5,6 +5,7 @@ import { Card, Button, Badge, Field, ConfirmButton, inputCls } from '../componen
 import { stackApi, TTL_OPTIONS, DEPLOY_TONE } from '../lib/stackApi.js'
 import IntranetManager from './IntranetManager.jsx'
 import PMMManager from './PMMManager.jsx'
+import PXCManager from './PXCManager.jsx'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import {
   PORTS, dist, portPoint, edgePath, screenToWorld, zoomAt,
@@ -1464,7 +1465,7 @@ function loadProps() {
 function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, deleteNode, deleteEdge, deleteFrame }) {
   const selNode = selected?.kind === 'node' ? nodes.find((n) => n.id === selected.id) : null
   const selDep = selNode ? depByNode[selNode.id] : null
-  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm')) || selected?.kind === 'frame'
+  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc')) || selected?.kind === 'frame'
 
   const saved = useRef(loadProps()).current
   const [docked, setDocked] = useState(saved.docked !== false)
@@ -1554,8 +1555,11 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     const dep = depByNode[n.id]
     const deployed = !!dep
 
-    // PXC cluster member node → its own compact editor (no OS/arch of its own).
+    // PXC cluster member node.
     if (n.type === 'pxc') {
+      if (dep && dep.state === 'running') {
+        return <PXCManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
       return <PXCNodeForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} nodes={nodes} patchNode={patchNode} dep={dep} deployed={deployed} />
     }
 

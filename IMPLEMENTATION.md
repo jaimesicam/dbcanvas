@@ -805,3 +805,115 @@ handlers `stopPropagation` so they don't trigger a canvas pan).
   message; relabelled `pmm-01`/`pmm-02` it passes; a blank label errors. Numbered
   labels carry through to hostnames (`pmm-01` → `pmm-01.example.net`).
 - `go build`/`vet`, `gofmt`, and the web build pass.
+
+---
+
+## 7. Percona XtraDB Cluster (PXC) frame
+
+A Galera **cluster** modeled as a canvas **frame** holding PXC nodes. PXC nodes
+run on the systemd OS images (built by `make images`) with the
+percona-xtradb-cluster packages installed at deploy time. Built in phases A–F.
+
+### `make versions` (Phase A)
+
+`images/versions.sh` now sorts **every** series newest-first (`sort -rV`) and, for
+each image, also discovers **percona-xtradb-cluster** versions (`pxc80` /
+`pxc84lts`) into a `percona_xtradb_cluster:` map (8.0/8.4), mirroring
+`percona_server`. RHEL needs `dnf module disable mysql`; Ubuntu PXC packages
+carry an epoch (`1:8.0.45-…`) that is stripped. The package version line is
+`^percona-xtradb-cluster-[0-9]` (the meta package), which excludes `-garbd`,
+`-server`, etc.
+
+### Data model + catalog (Phase B)
+
+- `.env`/`.env.example`/compose add `APP_PASSWORD` / `REPL_PASSWORD` (defaults
+  `app_password` / `repl_password`) — the app and replication DB users.
+- The canvas design doc gains **`frames[]`**. `designFrame` carries the PXC
+  cluster config (OS/version/arch, PXC major/minor, root password, PMM monitor,
+  proxy, GTID, cert + TTL); PXC nodes are `designNode`s with `frameId`, `role`
+  (`regular`/`arbitrator`), and `exportEnabled`/`exportHostPort`.
+- `versions.go` parses the per-image `percona_xtradb_cluster` sections;
+  `GET /api/catalog/pxc` returns installable PXC versions per OS/arch. (The YAML
+  key-quote bug — `splitYAMLKV` didn't unquote the `"8.0"` key — was fixed.)
+
+### Canvas frame UI (Phase C)
+
+`StackDesigner.jsx` gained frame support: a **"PXC Cluster"** toolbar button
+(gated on Intranet) creates a frame with **3 PXC nodes**; the frame title has
+**+/-** to add/remove nodes. Cluster names auto-number **`pxc-cluster-NN`** (from
+00) and node names **`pxcNN`**, unique across the whole stack. Frame properties
+(version/OS/arch from the catalog, root pw, PMM monitor, proxy, GTID, cert+TTL,
+quorum guidance) and node properties (regular/arbitrator, host-port export) live
+in the side panel. Frames render behind nodes, lay their members out in a row,
+and drag as a unit; PXC nodes are excluded from the normal node loop.
+
+### Provisioning (Phase D) — `pxc.go`
+
+`provisionPXCFrame` orchestrates a whole cluster as one unit:
+1. Wait for the Intranet to be **running** (DNS/CA/proxy).
+2. **In parallel** per node: create the container (systemd image, Intranet
+   resolver, regular nodes publish 3306 to the host via `PublishMap` when export
+   is on), install `percona-xtradb-cluster` (or `-garbd` for arbitrators) via
+   `percona-release`, and write `/etc/my.cnf` (server-id, GTID, wsrep, gcomm of
+   all regular FQDNs). DNS is reconciled so every FQDN resolves.
+3. **Sequentially**: bootstrap the first regular node (`mysql@bootstrap`), set the
+   root password, create the app/repl users; join the rest (`mysql`, xtrabackup
+   SST); start `garbd` for arbitrators.
+4. Optional per-node **TLS**: certs signed by the Intranet CA into
+   `/var/lib/mysql/{ca,server-cert,server-key,client-cert,client-key}.pem`
+   (mysql-owned, TTL), `ssl-*` added to my.cnf, mysqld restarted.
+5. Optional **PMM** registration (best-effort) and **Intranet Squid proxy** for
+   package egress.
+
+- **GTID** (default on): `server-id` (from the `pxcNN` name), `gtid_mode=ON`,
+  `enforce_gtid_consistency=ON`, `binlog_format=ROW`, `log_bin=ON`, and
+  `log_replica_updates=ON` for 8.4 / 8.0.26+ (`log_slave_updates` for older 8.0).
+- **Cluster traffic** runs with `pxc_encrypt_cluster_traffic=OFF` (the stack
+  network is isolated; PXC's default ON requires all nodes to share a CA, which
+  conflicts with SST mirroring per-node certs into the datadir). The per-node
+  certs provide **client (3306) TLS**.
+- The **four ports** (3306/4567/4444/4568) are reachable between nodes on the
+  stack network; only **3306** is published to the host (export option).
+
+Two general bugs were fixed while getting this working: `CopyFile`/`tarFiles`
+now stamp a current tar **ModTime** (bind's `rndc reload` keys off mtime, so
+zero-mtime zone files were never re-read — DNS silently went stale), and the DNS
+reconcile uses a **monotonic serial** + per-zone `rndc reload`.
+
+### Validation (Phase E)
+
+`validateStack` checks each PXC frame: **≥1 regular node** (error), **duplicate
+cluster names** (error), **export host-port conflicts** within the design and
+against ports already published by other containers (error; the stack's own
+containers are excluded so redeploy doesn't self-flag — via
+`Docker.ListPublishedPorts`), and **warnings** for <3 regular nodes and even node
+counts (split-brain quorum).
+
+### Management (Phase F)
+
+A running PXC node shows **`PXCManager`** in the properties panel: Overview
+(cluster/role/FQDN/server-id/ports/GTID/TLS/monitor + host-access `host:port` +
+root console + delete), Credentials (root/app/repl), and a Certificate frame to
+re-issue from the Intranet CA with a TTL (`GET`/`POST /pxc/cert`, reusing the
+deploy-time `pxcApplyCert`). Arbitrators show only Overview.
+
+### Verification performed
+
+- `make versions` records PXC 8.0/8.4 per image (newest-first); `GET
+  /api/catalog/pxc` returns them per OS/arch.
+- Manual recipe validation on two OL9 systemd containers nailed the install /
+  bootstrap / SST / garbd commands and the `pxc_encrypt_cluster_traffic` issue.
+- End-to-end via the app: a **2 data + 1 arbitrator** cluster on OL9 reached
+  `wsrep_cluster_size=3`, Primary/Synced; GTID fully on (`log_replica_updates`,
+  `server_id=1`); app/repl users present; **replication works** (write on n1 read
+  on n2); per-node certs are **Intranet-CA-signed** (`CN=pxc01.example.net`,
+  issuer `DBCanvas CA`, in `/var/lib/mysql`, mysql-owned, 365-day TTL) with
+  `have_ssl=YES`; **3306 reachable from the host** on the chosen export port
+  (connected as `app`); garbd active on the arbitrator (no mysqld).
+- Validation: arbitrator-only frame, duplicate cluster name, and duplicate export
+  port all error; a 3-regular cluster passes.
+- `go build`/`vet`/`test`, `gofmt`, and the web build all pass.
+
+> Note: Ubuntu/Debian PXC paths are wired (provider dir, apt install) but only
+> the Oracle Linux path was validated end-to-end; PMM auto-registration and the
+> Squid proxy are best-effort (non-fatal) steps.

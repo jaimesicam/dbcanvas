@@ -428,8 +428,8 @@ func (a *App) pxcBootstrap(ctx context.Context, st Stack, frame designFrame, n d
 	pr.logln("cluster bootstrapped; root password set; app/repl users created")
 	if frame.GenerateCert {
 		pr.phase("Issuing certificate", 80)
-		if err := a.pxcApplyCert(ctx, st, frame, n, host, domain, intranetID, "mysql@bootstrap", pr); err != nil {
-			return err
+		if err := a.pxcApplyCert(ctx, id, intranetID, fqdnOf(host, domain), "mysql@bootstrap", frame.CertTTLValue, frame.CertTTLUnit, pr.logln); err != nil {
+			return pr.fail("%v", err)
 		}
 	}
 	return nil
@@ -446,8 +446,8 @@ func (a *App) pxcJoin(ctx context.Context, st Stack, frame designFrame, n design
 	pr.logln("joined cluster (synced)")
 	if frame.GenerateCert {
 		pr.phase("Issuing certificate", 80)
-		if err := a.pxcApplyCert(ctx, st, frame, n, host, domain, intranetID, "mysql", pr); err != nil {
-			return err
+		if err := a.pxcApplyCert(ctx, id, intranetID, fqdnOf(host, domain), "mysql", frame.CertTTLValue, frame.CertTTLUnit, pr.logln); err != nil {
+			return pr.fail("%v", err)
 		}
 	}
 	return nil
@@ -465,48 +465,49 @@ func (a *App) pxcStartGarbd(ctx context.Context, st Stack, n designFrameNode, fr
 	return nil
 }
 
-// pxcApplyCert stages the Intranet CA into the node, signs server + client certs
-// into /var/lib/mysql (owned by mysql) with the frame's TTL, points my.cnf at
-// them, and restarts the given mysql unit.
-func (a *App) pxcApplyCert(ctx context.Context, st Stack, frame designFrame, n designNode, host, domain, intranetID, unit string, pr *pxcProg) error {
+// pxcApplyCert stages the Intranet CA into the node container, signs server +
+// client certs into /var/lib/mysql (owned by mysql) with the given TTL, points
+// my.cnf at them, and restarts the given mysql unit. Returns an error (callers
+// own progress reporting), so it is reusable for post-deploy regeneration.
+func (a *App) pxcApplyCert(ctx context.Context, containerID, intranetID, fqdn, unit string, ttlValue int, ttlUnit string, logln func(string)) error {
+	if logln == nil {
+		logln = func(string) {}
+	}
 	if err := a.waitIntranetCAReady(ctx, intranetID, 120*time.Second); err != nil {
-		return pr.fail("certificate: %v", err)
+		return fmt.Errorf("certificate: %w", err)
 	}
 	caCrt, err := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
 	if err != nil {
-		return pr.fail("read CA cert: %v", err)
+		return fmt.Errorf("read CA cert: %w", err)
 	}
 	caKey, err := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.key")
 	if err != nil {
-		return pr.fail("read CA key: %v", err)
+		return fmt.Errorf("read CA key: %w", err)
 	}
-	dep, _ := a.store.GetDeployment(st.ID, n.ID)
-	id := dep.ContainerID
 	// In the systemd PXC images exec runs as root, so 0644 staging is fine.
-	if err := a.docker.PutArchive(ctx, id, "/tmp", tarFiles(map[string]fileEntry{
+	if err := a.docker.PutArchive(ctx, containerID, "/tmp", tarFiles(map[string]fileEntry{
 		"dbca-ca.crt": {0o644, 0, caCrt},
 		"dbca-ca.key": {0o644, 0, caKey},
 	})); err != nil {
-		return pr.fail("stage CA: %v", err)
+		return fmt.Errorf("stage CA: %w", err)
 	}
-	val, unitVal := frame.CertTTLValue, frame.CertTTLUnit
-	if val <= 0 {
-		val, unitVal = 365, "days"
+	if ttlValue <= 0 {
+		ttlValue, ttlUnit = 365, "days"
 	}
-	switch unitVal {
+	switch ttlUnit {
 	case "minutes", "hours", "days":
 	default:
-		unitVal = "days"
+		ttlUnit = "days"
 	}
 	env := []string{
-		"FQDN=" + fqdnOf(host, domain),
-		"VALUE=" + strconv.Itoa(val), "UNIT=" + unitVal,
+		"FQDN=" + fqdn,
+		"VALUE=" + strconv.Itoa(ttlValue), "UNIT=" + ttlUnit,
 		"UNITSVC=" + unit,
 	}
-	if err := a.runStep(ctx, id, pxcCertScript, env, pr.logln); err != nil {
-		return pr.fail("generate certificate: %v", err)
+	if err := a.runStep(ctx, containerID, pxcCertScript, env, logln); err != nil {
+		return fmt.Errorf("generate certificate: %w", err)
 	}
-	pr.logln("per-node certificate written to /var/lib/mysql (mysql-owned)")
+	logln("per-node certificate written to /var/lib/mysql (mysql-owned)")
 	return nil
 }
 
