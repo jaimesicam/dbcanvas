@@ -24,9 +24,42 @@ type designNode struct {
 	Version       string `json:"version"`       // PMM minor version tag ("" → catalog default)
 	AdminPassword string `json:"adminPassword"` // PMM admin password ("" → auto-generated)
 	GenerateCert  bool   `json:"generateCert"`  // sign nginx certs from the Intranet CA on deploy
+	// PXC node fields — a PXC node belongs to a PXC frame (FrameID) and is either
+	// a data member ("regular") or a voting-only "arbitrator" (garbd).
+	FrameID        string `json:"frameId"`
+	Role           string `json:"role"`           // "regular" | "arbitrator"
+	ExportEnabled  bool   `json:"exportEnabled"`  // publish the DB port to the host
+	ExportHostPort int    `json:"exportHostPort"` // desired host port (0 = random/unused)
 }
+
+// designFrame is a group container on the canvas. Currently only the PXC cluster
+// frame, which holds PXC nodes and carries cluster-wide configuration.
+type designFrame struct {
+	ID    string  `json:"id"`
+	Type  string  `json:"type"` // "pxc"
+	Label string  `json:"label"`
+	X     float64 `json:"x"`
+	Y     float64 `json:"y"`
+	W     float64 `json:"w"`
+	H     float64 `json:"h"`
+	// PXC cluster config.
+	OS           string `json:"os"`           // os family: "oraclelinux" | "ubuntu"
+	OSVersion    string `json:"osVersion"`    // e.g. "9" | "24.04"
+	Arch         string `json:"arch"`         // "amd64" | "arm64"
+	PXCMajor     string `json:"pxcMajor"`     // "8.0" | "8.4"
+	PXCVersion   string `json:"pxcVersion"`   // minor (e.g. 8.0.45-36.1); "" → latest
+	RootPassword string `json:"rootPassword"` // "" → auto-generated
+	PMMNodeID    string `json:"pmmNodeId"`    // PMM node that monitors this cluster (optional)
+	UseProxy     bool   `json:"useProxy"`     // route egress via the Intranet Squid proxy
+	GTID         bool   `json:"gtid"`         // enable GTID (default on)
+	GenerateCert bool   `json:"generateCert"` // per-node certs signed by the Intranet CA
+	CertTTLValue int    `json:"certTtlValue"`
+	CertTTLUnit  string `json:"certTtlUnit"`
+}
+
 type designDoc struct {
-	Nodes []designNode `json:"nodes"`
+	Nodes  []designNode  `json:"nodes"`
+	Frames []designFrame `json:"frames"`
 }
 
 // nodeConfig is the non-secret profile shown for a deployed node.

@@ -15,6 +15,9 @@ services:
       DOMAIN: ${DOMAIN:-example.net}
       # Catalog of installable versions (produced by `make versions`).
       VERSIONS_FILE: /etc/dbcanvas/versions.yaml
+      # Default DB users created on deployed Percona XtraDB Cluster nodes.
+      APP_PASSWORD: ${APP_PASSWORD:-app_password}
+      REPL_PASSWORD: ${REPL_PASSWORD:-repl_password}
     ports:
       # Publish on APP_HOST (default 127.0.0.1 = private). Set APP_HOST=0.0.0.0
       # in .env to expose on all host interfaces.

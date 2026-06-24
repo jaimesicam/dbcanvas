@@ -153,3 +153,122 @@ func (a *App) handlePMMCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, loadPMMCatalog())
 }
+
+// PXCImage is one built image's installable Percona XtraDB Cluster versions,
+// keyed by major series — drives the PXC frame's OS/version pickers.
+type PXCImage struct {
+	OS        string              `json:"os"`
+	OSVersion string              `json:"osVersion"`
+	Arch      string              `json:"arch"`
+	Platform  string              `json:"platform"`
+	Versions  map[string][]string `json:"versions"` // "8.0" → [...], "8.4" → [...]
+}
+
+// loadPXCCatalog parses the per-image `percona_xtradb_cluster` sections of
+// versions.yaml. Never errors — returns nil on any problem.
+func loadPXCCatalog() []PXCImage {
+	path := versionsFilePath()
+	if path == "" {
+		return nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	var out []PXCImage
+	var cur *PXCImage
+	inImages := false
+	section := "" // "pxc" while inside a percona_xtradb_cluster block
+	series := ""  // current major series ("8.0"/"8.4") while reading its list
+
+	flush := func() {
+		if cur != nil {
+			out = append(out, *cur)
+			cur = nil
+		}
+	}
+
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		line := sc.Text()
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		// Top-level key (no indent) — ends any image and the images block.
+		if !strings.HasPrefix(line, " ") {
+			flush()
+			inImages = strings.HasPrefix(line, "images:")
+			section, series = "", ""
+			continue
+		}
+		if !inImages {
+			continue
+		}
+		// New image entry.
+		if strings.HasPrefix(line, "  - os:") {
+			flush()
+			cur = &PXCImage{Versions: map[string][]string{}}
+			cur.OS = unquoteYAML(strings.TrimSpace(strings.TrimPrefix(line, "  - os:")))
+			section, series = "", ""
+			continue
+		}
+		if cur == nil {
+			continue
+		}
+		// 4-space entry key / section header.
+		if strings.HasPrefix(line, "    ") && !strings.HasPrefix(line, "      ") {
+			section, series = "", ""
+			key, val := splitYAMLKV(trimmed)
+			switch key {
+			case "version":
+				cur.OSVersion = val
+			case "arch":
+				cur.Arch = val
+			case "platform":
+				cur.Platform = val
+			case "percona_xtradb_cluster":
+				section = "pxc"
+			}
+			continue
+		}
+		// 6-space major-series key under a section.
+		if strings.HasPrefix(line, "      ") && !strings.HasPrefix(line, "        ") {
+			if section != "pxc" {
+				series = ""
+				continue
+			}
+			key, val := splitYAMLKV(trimmed)
+			series = unquoteYAML(key) // keys like "8.0" are quoted in the YAML
+			if val == "[]" {
+				cur.Versions[series] = []string{}
+				series = ""
+			} else if _, ok := cur.Versions[series]; !ok {
+				cur.Versions[series] = []string{}
+			}
+			continue
+		}
+		// 8-space list item under the current series.
+		if strings.HasPrefix(line, "        - ") {
+			if section == "pxc" && series != "" {
+				v := unquoteYAML(strings.TrimSpace(strings.TrimPrefix(trimmed, "-")))
+				if v != "" {
+					cur.Versions[series] = append(cur.Versions[series], v)
+				}
+			}
+		}
+	}
+	flush()
+	return out
+}
+
+func (a *App) handlePXCCatalog(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.currentUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"images": loadPXCCatalog()})
+}

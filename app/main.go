@@ -52,6 +52,7 @@ func main() {
 	mux.HandleFunc("DELETE /api/users/{id}", app.requireAdmin(app.handleDeleteUser))
 
 	mux.HandleFunc("GET /api/catalog/pmm", app.handlePMMCatalog)
+	mux.HandleFunc("GET /api/catalog/pxc", app.handlePXCCatalog)
 
 	mux.HandleFunc("GET /api/stacks", app.handleListStacks)
 	mux.HandleFunc("POST /api/stacks", app.handleCreateStack)
