@@ -33,6 +33,7 @@ const NODE_TYPES = {
   },
   pmm: {
     label: 'PMM3',
+    slug: 'pmm',
     sub: 'Percona Monitoring & Management',
     color: '#0ea5e9',
     icon: 'Monitor',
@@ -44,6 +45,24 @@ const NODE_TYPES = {
 }
 
 const osLabel = (type, os) => (NODE_TYPES[type]?.osOptions.find((o) => o.id === os)?.label) || os
+
+// Auto-numbered per-type labels: a non-singleton node is named "<slug>-NN" with
+// NN zero-padded from 01 and increasing per node type (pmm-01, pmm-02, …, and in
+// future psmysql-01, psmysql-02, …). These labels become the node hostnames in
+// the Intranet DNS / FQDNs. The Intranet singleton keeps its plain label.
+function nextLabel(type, nodes) {
+  const def = NODE_TYPES[type]
+  if (def.singleton) return def.label
+  const base = def.slug || type
+  const re = new RegExp(`^${base}-(\\d+)$`)
+  let max = 0
+  for (const n of nodes) {
+    if (n.type !== type) continue
+    const m = (n.label || '').match(re)
+    if (m) max = Math.max(max, parseInt(m[1], 10))
+  }
+  return `${base}-${String(max + 1).padStart(2, '0')}`
+}
 
 // Small SVG progress ring (upper-right of a provisioning node).
 function ProgressRing({ percent = 0, size = 24 }) {
@@ -470,7 +489,7 @@ function StackEditor({ stackId, onBack }) {
     const id = uid(type)
     const x = (-view.x + 220) / view.z
     const y = (-view.y + 160) / view.z
-    setNodes((ns) => [...ns, { id, type, x, y, label: def.label, os: def.osOptions[0].id, arch: 'amd64', ...(def.defaults || {}) }])
+    setNodes((ns) => [...ns, { id, type, x, y, label: nextLabel(type, ns), os: def.osOptions[0].id, arch: 'amd64', ...(def.defaults || {}) }])
     setSelected({ kind: 'node', id })
   }
 
@@ -715,6 +734,8 @@ function StackEditor({ stackId, onBack }) {
           <div className="pointer-events-none absolute bottom-3 left-3 rounded-lg border bg-surface/80 px-3 py-2 text-xs text-muted backdrop-blur">
             Drag canvas to pan · scroll to zoom · drag a port to connect · right-click for actions
           </div>
+
+          <Minimap nodes={nodes} view={view} setView={setView} wrapRef={wrapRef} selectedId={selected?.kind === 'node' ? selected.id : null} />
         </div>
       </div>
 
@@ -946,6 +967,87 @@ function PMMOptions({ n, patchNode, deployed }) {
         </p>
       )}
     </>
+  )
+}
+
+// Minimap: a scaled overview of the canvas in the bottom-right corner showing
+// every node (colored by type) and the current viewport. Click or drag inside it
+// to recenter the main view on that point.
+const MINI_W = 184
+const MINI_H = 124
+const MINI_PAD = 8
+
+function Minimap({ nodes, view, setView, wrapRef, selectedId }) {
+  const drag = useRef(false)
+  const rect = wrapRef.current?.getBoundingClientRect()
+  const vw = rect?.width || 800
+  const vh = rect?.height || 600
+
+  // Current viewport expressed in world coordinates.
+  const viewWorld = { x: -view.x / view.z, y: -view.y / view.z, w: vw / view.z, h: vh / view.z }
+
+  // Bounds over all nodes plus the viewport, so both are always visible.
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  for (const n of nodes) {
+    minX = Math.min(minX, n.x); minY = Math.min(minY, n.y)
+    maxX = Math.max(maxX, n.x + NODE_W); maxY = Math.max(maxY, n.y + NODE_H)
+  }
+  minX = Math.min(minX, viewWorld.x); minY = Math.min(minY, viewWorld.y)
+  maxX = Math.max(maxX, viewWorld.x + viewWorld.w); maxY = Math.max(maxY, viewWorld.y + viewWorld.h)
+  if (!isFinite(minX)) { minX = 0; minY = 0; maxX = 1; maxY = 1 }
+
+  const bw = (maxX - minX) || 1
+  const bh = (maxY - minY) || 1
+  const scale = Math.min((MINI_W - 2 * MINI_PAD) / bw, (MINI_H - 2 * MINI_PAD) / bh)
+  const ox = MINI_PAD + ((MINI_W - 2 * MINI_PAD) - bw * scale) / 2 - minX * scale
+  const oy = MINI_PAD + ((MINI_H - 2 * MINI_PAD) - bh * scale) / 2 - minY * scale
+  const tx = (x) => ox + x * scale
+  const ty = (y) => oy + y * scale
+
+  function recenter(e) {
+    const r = e.currentTarget.getBoundingClientRect()
+    const wx = (e.clientX - r.left - ox) / scale
+    const wy = (e.clientY - r.top - oy) / scale
+    setView((v) => ({ ...v, x: vw / 2 - wx * v.z, y: vh / 2 - wy * v.z }))
+  }
+
+  return (
+    <div
+      className="absolute bottom-3 right-3 overflow-hidden rounded-lg border bg-surface/90 shadow backdrop-blur"
+      style={{ width: MINI_W, height: MINI_H }}
+      title="Minimap — click or drag to navigate"
+    >
+      <svg
+        width={MINI_W}
+        height={MINI_H}
+        className="cursor-pointer"
+        style={{ touchAction: 'none' }}
+        onPointerDown={(e) => { e.stopPropagation(); drag.current = true; recenter(e) }}
+        onPointerMove={(e) => { if (drag.current) recenter(e) }}
+        onPointerUp={() => { drag.current = false }}
+        onPointerLeave={() => { drag.current = false }}
+      >
+        <rect
+          x={tx(viewWorld.x)} y={ty(viewWorld.y)}
+          width={viewWorld.w * scale} height={viewWorld.h * scale}
+          fill="var(--primary)" fillOpacity="0.12" stroke="var(--primary)" strokeWidth="1"
+        />
+        {nodes.map((n) => {
+          const def = NODE_TYPES[n.type] || {}
+          const on = selectedId === n.id
+          return (
+            <rect
+              key={n.id}
+              x={tx(n.x)} y={ty(n.y)}
+              width={Math.max(2, NODE_W * scale)} height={Math.max(2, NODE_H * scale)}
+              rx="1"
+              fill={def.color || 'var(--muted)'} fillOpacity={on ? 1 : 0.8}
+              stroke={on ? 'var(--fg)' : 'none'} strokeWidth="1"
+            />
+          )
+        })}
+      </svg>
+    </div>
   )
 }
 

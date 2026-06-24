@@ -746,8 +746,7 @@ else.
   with a tooltip); `addNode` also guards against adding a non-Intranet node first.
 - **Validation** (`validateStack`): errors if any non-Intranet node exists with no
   Intranet node ("An Intranet node is required — add one before deploying other
-  nodes"). The old duplicate-label warning is gone — duplicates now get unique
-  hostnames automatically.
+  nodes").
 
 ### Verification performed
 
@@ -767,3 +766,42 @@ Deployed an Intranet + **two PMM nodes both labelled "pmm"**:
 - **Gating:** validating a stack of PMM-only nodes errors; the PMM3 button is
   disabled until an Intranet is added.
 - `go build`/`vet`/`test`, `gofmt`, and the web build all pass.
+
+---
+
+## 6. Auto-numbered labels, unique-label deploy gate, and canvas minimap
+
+### Per-type auto-numbered labels
+
+Non-Intranet nodes are now created with an auto-numbered label `"<slug>-NN"` — NN
+zero-padded from `01` and increasing **per node type** (`pmm-01`, `pmm-02`, …; a
+future Percona Server type would give `psmysql-01`, `psmysql-02`, …). The Intranet
+singleton keeps its plain label. `nextLabel(type, nodes)` (in `StackDesigner.jsx`)
+parses existing `^<slug>-(\d+)$` labels of that type and uses `max+1`; each node
+type carries an optional `slug` (defaults to the type key). Because these labels
+are unique by construction, they become the node **hostnames / FQDNs** directly in
+the Intranet DNS (`stackHostnames` no longer needs its hash-suffix fallback for
+the common case — e.g. `pmm-01.example.net`).
+
+### Unique-label deploy gate
+
+Labels are DNS hostnames, so `validateStack` now **errors** (blocking deploy) when
+any label is **duplicated** ("Duplicate node label: … — labels must be unique") or
+**blank** ("Every node must have a label"). This replaces the earlier soft
+warning.
+
+### Minimap
+
+`StackDesigner.jsx` gained a **`Minimap`** in the canvas's bottom-right corner: a
+scaled overview of the whole design showing every node (colored by type, the
+selected one outlined) and the current **viewport** rectangle. It tracks pan/zoom,
+auto-fits the bounds of all nodes plus the viewport, and is **interactive** —
+click or drag inside it to recenter the main view on that point (its pointer
+handlers `stopPropagation` so they don't trigger a canvas pan).
+
+### Verification performed
+
+- Validation: a stack with two `"pmm"`-labelled nodes errors with the duplicate
+  message; relabelled `pmm-01`/`pmm-02` it passes; a blank label errors. Numbered
+  labels carry through to hostnames (`pmm-01` → `pmm-01.example.net`).
+- `go build`/`vet`, `gofmt`, and the web build pass.

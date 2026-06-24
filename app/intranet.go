@@ -178,9 +178,14 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	if others > 0 && intranet == 0 {
 		out = append(out, issue{"error", "An Intranet node is required — add one before deploying other nodes"})
 	}
+	// Labels become DNS hostnames, so they must be present and unique — a stack
+	// with duplicate (or blank) labels cannot be deployed.
+	if labels[""] > 0 {
+		out = append(out, issue{"error", "Every node must have a label"})
+	}
 	for l, c := range labels {
 		if c > 1 && l != "" {
-			out = append(out, issue{"warning", "Duplicate node label: " + l})
+			out = append(out, issue{"error", "Duplicate node label: " + l + " — labels must be unique"})
 		}
 	}
 	if len(out) == 0 {
