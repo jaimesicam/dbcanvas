@@ -28,6 +28,14 @@ export const Icon = {
       <rect x="3" y="16" width="7" height="5" rx="1.5" />
     </Svg>
   ),
+  // Database cluster: a stacked cylinder (classic DB symbol) for PXC nodes.
+  Database: (p) => (
+    <Svg {...p}>
+      <ellipse cx="12" cy="5" rx="7" ry="2.6" />
+      <path d="M5 5v6c0 1.45 3.13 2.6 7 2.6s7-1.15 7-2.6V5" />
+      <path d="M5 11v6c0 1.45 3.13 2.6 7 2.6s7-1.15 7-2.6v-6" />
+    </Svg>
+  ),
   // Monitoring: a metrics panel with a live activity/pulse trace.
   Monitor: (p) => (
     <Svg {...p}>

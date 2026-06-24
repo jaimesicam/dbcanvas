@@ -50,7 +50,7 @@ const NODE_TYPES = {
     slug: 'pxc',
     sub: 'Percona XtraDB Cluster',
     color: '#a855f7',
-    icon: 'Mineral',
+    icon: 'Database',
   },
 }
 
@@ -852,7 +852,7 @@ function StackEditor({ stackId, onBack }) {
                     className="absolute inset-x-0 top-0 flex cursor-grab items-center gap-2 rounded-t-xl px-2 active:cursor-grabbing"
                     style={{ height: FRAME_TITLE, background: `color-mix(in srgb, ${FRAME_COLOR} 18%, transparent)` }}
                   >
-                    <span style={{ color: FRAME_COLOR }}>{(Icon[fdef.icon] || Icon.Mineral)({ size: 15 })}</span>
+                    <span style={{ color: FRAME_COLOR }}>{(Icon[fdef.icon] || Icon.Database)({ size: 15 })}</span>
                     <span className="truncate text-xs font-semibold text-fg">{f.label}</span>
                     <span className="text-[10px] text-muted">{kids.length} node{kids.length === 1 ? '' : 's'}</span>
                     <div className="ml-auto flex items-center gap-0.5">
