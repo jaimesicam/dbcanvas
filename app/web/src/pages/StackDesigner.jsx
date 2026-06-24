@@ -546,6 +546,19 @@ function StackEditor({ stackId, onBack }) {
   const patchNode = (id, patch) => setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, ...patch } : n)))
   const patchFrame = (id, patch) => setFrames((fs) => fs.map((f) => (f.id === id ? { ...f, ...patch } : f)))
   function deleteNode(id) {
+    // A PXC member belongs to a frame: re-lay the frame after removing it (and
+    // drop the frame entirely if it was the last node), so the menu/manager
+    // delete behaves like the frame's own remove control.
+    const node = nodes.find((n) => n.id === id)
+    if (node?.frameId) {
+      const siblings = nodes.filter((n) => n.frameId === node.frameId)
+      if (siblings.length <= 1) { deleteFrame(node.frameId); return }
+      const r = relayout(node.frameId, frames, nodes.filter((n) => n.id !== id))
+      setFrames(r.frames)
+      setNodes(r.nodes)
+      setSelected((s) => (s?.kind === 'node' && s.id === id ? { kind: 'frame', id: node.frameId } : s))
+      return
+    }
     setNodes((ns) => ns.filter((n) => n.id !== id))
     setEdges((es) => es.filter((e) => e.from.node !== id && e.to.node !== id))
     setSelected((s) => (s?.kind === 'node' && s.id === id ? null : s))
@@ -560,11 +573,8 @@ function StackEditor({ stackId, onBack }) {
     setSelected((s) => (s && (s.id === id) ? null : s))
   }
   function deleteSelected() {
-    if (selected?.kind === 'node') {
-      const n = nodes.find((x) => x.id === selected.id)
-      if (n?.frameId) removePXCNodeById(n.frameId, n.id)
-      else deleteNode(selected.id)
-    } else if (selected?.kind === 'edge') deleteEdge(selected.id)
+    if (selected?.kind === 'node') deleteNode(selected.id)
+    else if (selected?.kind === 'edge') deleteEdge(selected.id)
     else if (selected?.kind === 'frame') deleteFrame(selected.id)
   }
 
@@ -869,6 +879,7 @@ function StackEditor({ stackId, onBack }) {
                     return (
                       <div key={n.id}
                         onPointerDown={(e) => selectFrameNode(e, n.id)}
+                        onContextMenu={(e) => openMenu(e, n.id)}
                         className={`absolute flex cursor-pointer flex-col overflow-hidden rounded-lg border bg-surface shadow-sm ${non ? 'ring-2 ring-primary' : ''}`}
                         style={{ left: n.x - f.x, top: n.y - f.y, width: PXC_NODE_W, height: PXC_NODE_H }}
                       >
