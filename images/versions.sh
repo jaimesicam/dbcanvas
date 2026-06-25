@@ -123,6 +123,15 @@ EOS
 # Extract the lines for one marker section from captured probe output.
 section() { awk -v s="$1" '$0=="@@"s"@@"{f=1;next} /^@@/{f=0} f' ; }
 
+# PDPS (Percona Distribution for MySQL using Percona Server) repositories are
+# enumerated from the percona-release manager itself (`percona-release | grep pdps`).
+# Each repo name (e.g. pdps-80-lts, pdps-84-lts, pdps-8x-innovation) is what you
+# pass to `percona-release enable <repo>`; the repo determines the Percona Server
+# major/minor series installed. Cross-OS, so discover once from any built image.
+pdps_discover() {
+  docker run --rm "$1" bash -lc 'percona-release 2>&1 | grep -oiE "pdps[a-z0-9._-]*" | sort -u' 2>/dev/null
+}
+
 # PMM3 (Percona Monitoring and Management) ships as the percona/pmm-server Docker
 # image rather than an OS package, so its installable minor versions come from
 # the image registry, not from inside a container. Query Docker Hub for the
@@ -167,9 +176,11 @@ trap 'rm -f "$TMP"' EXIT
 } >"$TMP"
 
 count=0
+first_tag=""
 while IFS=$'\t' read -r os version platform arch tag base built; do
   [ -n "$tag" ] || continue
   count=$((count + 1))
+  [ -n "$first_tag" ] || first_tag="$tag"
 
   case "$os" in
     oraclelinux|rhel|centos|rocky|almalinux) probe="$(rhel_probe)" ;;
@@ -263,6 +274,23 @@ echo "    pmm3: ${pmm_n} version(s)${pmm_latest:+, latest ${pmm_latest}}" >&2
     while IFS= read -r v; do [ -n "$v" ] && echo "    - \"${v}\""; done <<<"$pmm_versions"
   else
     echo "  versions: []"
+  fi
+} >>"$TMP"
+
+# ---- PDPS repositories (from percona-release, for InnoDB/Group Replication) ----
+echo "==> discovering PDPS repositories from percona-release (${first_tag})" >&2
+pdps_repos="$(pdps_discover "$first_tag")"
+pdps_n=$(printf '%s' "$pdps_repos" | grep -c . || true)
+echo "    pdps: ${pdps_n} repo(s)" >&2
+{
+  echo "# PDPS (Percona Distribution for MySQL / Percona Server) repositories available"
+  echo "# via percona-release — pass a name to 'percona-release enable <repo>'. The repo"
+  echo "# determines the Percona Server major/minor series. Re-run: make versions"
+  if [ -n "$pdps_repos" ]; then
+    echo "pdps:"
+    while IFS= read -r r; do [ -n "$r" ] && echo "  - \"${r}\""; done <<<"$pdps_repos"
+  else
+    echo "pdps: []"
   fi
 } >>"$TMP"
 

@@ -52,6 +52,7 @@ export const stackApi = {
   pxcCatalog: () => request('GET', '/api/catalog/pxc'),
   proxysqlCatalog: () => request('GET', '/api/catalog/proxysql'),
   psCatalog: () => request('GET', '/api/catalog/ps'),
+  pdpsCatalog: () => request('GET', '/api/catalog/pdps'),
 }
 
 // PMM node management. `nid` is the design node id.

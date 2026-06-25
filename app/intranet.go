@@ -94,7 +94,12 @@ type designFrame struct {
 	// RootPassword, PMMNodeID, UseProxy, GTID, GenerateCert/CertTTL above).
 	PSMajor   string `json:"psMajor"`   // Percona Server "8.0" | "8.4"
 	PSVersion string `json:"psVersion"` // minor; "" → latest
-	ReplMode  string `json:"replMode"`  // "async" (normal) | "semisync"
+	ReplMode  string `json:"replMode"`  // mysql: "async"|"semisync" · innodb: "innodbcluster"|"groupreplication"
+	// InnoDB / Group Replication frame config (Type=="innodb"; reuses OS/OSVersion/
+	// Arch, RootPassword, PMMNodeID, UseProxy, GenerateCert/CertTTL, ReplMode above;
+	// GTID is always on). The Percona Server version comes from the PDPS repo.
+	PDPSRepo    string `json:"pdpsRepo"`    // percona-release repo, e.g. "pdps-84-lts"
+	MySQLRouter bool   `json:"mysqlRouter"` // install + run MySQL Router on each member
 }
 
 type designDoc struct {
@@ -467,6 +472,44 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		}
 	}
 
+	// --- InnoDB / Group Replication frames ---
+	innodbNames := map[string]int{}
+	for _, f := range doc.Frames {
+		if f.Type != "innodb" {
+			continue
+		}
+		innodbNames[strings.TrimSpace(f.Label)]++
+		members := 0
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != "innodb" {
+				continue
+			}
+			members++
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		}
+		if members == 0 {
+			out = append(out, issue{"error", "InnoDB/GR cluster " + f.Label + " needs at least one node"})
+		} else if members < 3 {
+			out = append(out, issue{"warning", "InnoDB/GR cluster " + f.Label + ": at least 3 nodes are recommended for quorum"})
+		} else if members%2 == 0 {
+			out = append(out, issue{"warning", "InnoDB/GR cluster " + f.Label + ": an odd number of nodes keeps quorum on a split network"})
+		}
+		img := pxcImage(f.OS, f.OSVersion, f.Arch)
+		if !seenImg[img] {
+			seenImg[img] = true
+			if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+				out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+			}
+		}
+	}
+	for name, c := range innodbNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{"error", "Duplicate InnoDB/GR cluster name: " + name})
+		}
+	}
+
 	// Export host-port conflicts: within the design, and against ports already
 	// published by other containers (the stack's own containers are excluded so a
 	// redeploy doesn't flag itself).
@@ -580,6 +623,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			memberType = "proxysql"
 		case "mysql":
 			memberType = "mysql"
+		case "innodb":
+			memberType = "innodb"
 		default:
 			continue
 		}
@@ -603,6 +648,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionProxySQLFrame(st, f, doc)
 		case "mysql":
 			a.provisionMySQLFrame(st, f, doc)
+		case "innodb":
+			a.provisionInnoDBFrame(st, f, doc)
 		}
 	}
 
@@ -1024,6 +1071,16 @@ func (a *App) refreshPublishedPorts(ctx context.Context, st Stack, nid string, d
 		json.Unmarshal(dep.Config, &cfg)
 		if p, ok := readPort("3306/tcp"); ok {
 			cfg.ExportPort = p
+		}
+		save(cfg)
+	case "innodb":
+		var cfg innodbConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("6446/tcp"); ok {
+			cfg.RWPort = p
+		}
+		if p, ok := readPort("6447/tcp"); ok {
+			cfg.ROPort = p
 		}
 		save(cfg)
 	}

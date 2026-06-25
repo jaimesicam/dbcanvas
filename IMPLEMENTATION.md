@@ -1431,3 +1431,71 @@ ProxySQL/ProxySQL-cluster); the ProxySQL forms' linked-cluster banner accepts ei
   replication forms, secondaries go `super_read_only`, and ProxySQL routes
   reads/writes correctly (caching_sha2 over a non-TLS ProxySQL→backend link is the
   most likely thing to need a tweak).
+
+---
+
+## 12. InnoDB / Group Replication frame
+
+An **InnoDB / Group Replication** frame: Percona Server nodes (installed from a
+**PDPS repository**) forming a single-primary MySQL Group Replication group —
+either **InnoDB Cluster** (MySQL-Shell-managed) or raw **Group Replication**. MySQL
+Router is installed on **each member** (default on), so the cluster is
+self-contained and exposes **no canvas association endpoints** (the router is the
+proxy). Default = 3 members.
+
+### `make versions`: PDPS repositories
+`images/versions.sh` runs `percona-release | grep -oiE 'pdps[a-z0-9._-]*'` in a
+built image and writes a top-level **`pdps:`** list of repo names (e.g. `pdps-80-lts`,
+`pdps-84-lts`, `pdps-8x-innovation`). `versions.go` parses it →
+**`GET /api/catalog/pdps`** → `stackApi.pdpsCatalog()`. The chosen repo (passed to
+`percona-release enable <repo>`) determines the Percona Server major/minor — there
+is no separate version picker.
+
+### Data model
+`designFrame` `Type=="innodb"` + `pdpsRepo`, `replMode` (`innodbcluster` |
+`groupreplication`), `mysqlRouter bool` (default true); reuses `os`/`osVersion`/
+`arch` (base image), `rootPassword`, `pmmNodeId`, `useProxy`, `generateCert`/
+`certTtl*`. Members: `designNode` `Type=="innodb"` + `FrameID` + export (no role —
+GR auto-elects the primary).
+
+### Provisioning — `app/innodb.go`
+`provisionInnoDBFrame`: in parallel `innodbPrepareNode` creates each container,
+installs `percona-server-server` + `percona-mysql-router` (+ `percona-mysql-shell`
+for InnoDB Cluster) from the PDPS repo, writes `my.cnf` (GTID + GR settings for raw
+GR mode; base only for InnoDB Cluster — Shell configures GR), starts mysqld, sets
+root pw (reusing the `mysql.go` helpers + `validate_password` relax + `/root/.my.cnf`
++ rsyslog), creates the GR **recovery user** (not binlogged), and clears GTID state
+(`RESET …`). Then:
+- **Group Replication** mode: bootstrap on member 0 (`group_replication_bootstrap_group`
+  + `START GROUP_REPLICATION`, wait `ONLINE` via `performance_schema.replication_group_members`),
+  create app/monitor/cluster users (replicate via GR), then `START GROUP_REPLICATION`
+  on the rest.
+- **InnoDB Cluster** mode: MySQL Shell `dba.createCluster()` on member 0 + `addInstance`
+  (clone recovery) for the rest, connecting as the `cluster` user.
+
+A unique `group_replication_group_name` UUID is generated per frame (stable across
+redeploys). **MySQL Router** (Phase 3) is installed on each member: InnoDB-Cluster
+mode → `mysqlrouter --bootstrap` against the cluster metadata; raw GR → a static
+`mysqlrouter.conf` routing to the members (RW first-available 6446 / RO round-robin
+6447 — **not** primary-aware). Router ports are the host-export target. TLS/PMM/proxy
+reuse the PXC/MySQL helpers. Deploy dispatch + frames loop + `refreshPublishedPorts`
++ validation (≥1 member, image, odd/≥3 quorum warnings, unique name) handle `innodb`.
+
+### Frontend
+`NODE_TYPES.innodb` (cyan, DB-cylinder icon) + **"InnoDB / Group Replication"**
+toolbar button; `addInnoDBCluster` (3 members `innodbNN`); type-aware frame render
+**without `PortHandles`** (`endpointKind` returns null and `hitPort` excludes it, so
+it can't be linked to a ProxySQL). **`InnoDBFrameForm`** (image OS/version/arch +
+**PDPS repo** picker + replication-mode select + root pw + PMM/proxy/cert + **Enable
+MySQL Router** default on) and **`InnoDBMemberForm`** (router host-port export). A
+running member shows **`InnoDBManager`** (Overview incl. group name / bootstrap /
+router, Access showing the router RW/RO host ports, Credentials).
+
+### Verification performed
+- `go build`/`vet`/`test`, `gofmt`, `bash -n images/versions.sh`, and the web build pass.
+- **Caveat — not validated on a live deployment.** The PDPS `percona-release enable`,
+  the `percona-mysql-router`/`percona-mysql-shell` package names, GR bootstrap/join,
+  `dba.createCluster`/`addInstance`, and `mysqlrouter --bootstrap` follow the docs but
+  were **not** run against real containers; a live deploy (and `make versions` to
+  populate `pdps:`) is needed to confirm — the package names and the raw-GR static
+  router config are the most likely spots to need a tweak.

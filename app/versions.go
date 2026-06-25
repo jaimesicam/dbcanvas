@@ -295,3 +295,51 @@ func (a *App) handlePSCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"images": loadPSCatalog()})
 }
+
+// loadPDPSCatalog reads the top-level `pdps:` list of percona-release repositories
+// from versions.yaml. Never errors — returns nil on any problem.
+func loadPDPSCatalog() []string {
+	path := versionsFilePath()
+	if path == "" {
+		return nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	var out []string
+	inPDPS := false
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		line := sc.Text()
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if !strings.HasPrefix(line, " ") {
+			inPDPS = trimmed == "pdps:" || trimmed == "pdps: []"
+			if trimmed == "pdps: []" {
+				inPDPS = false
+			}
+			continue
+		}
+		if inPDPS && strings.HasPrefix(trimmed, "- ") {
+			v := unquoteYAML(strings.TrimSpace(strings.TrimPrefix(trimmed, "-")))
+			if v != "" {
+				out = append(out, v)
+			}
+		}
+	}
+	return out
+}
+
+func (a *App) handlePDPSCatalog(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.currentUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"repos": loadPDPSCatalog()})
+}

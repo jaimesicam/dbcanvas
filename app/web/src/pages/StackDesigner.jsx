@@ -8,6 +8,7 @@ import PMMManager from './PMMManager.jsx'
 import PXCManager from './PXCManager.jsx'
 import ProxySQLManager from './ProxySQLManager.jsx'
 import MySQLManager from './MySQLManager.jsx'
+import InnoDBManager from './InnoDBManager.jsx'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import {
   PORTS, dist, portPoint, edgePath, screenToWorld, zoomAt,
@@ -60,6 +61,14 @@ const NODE_TYPES = {
     slug: 'mysql',
     sub: 'Percona Server replication member',
     color: '#2563eb',
+    icon: 'Database',
+  },
+  // InnoDB / Group Replication members live inside an InnoDB/GR frame.
+  innodb: {
+    label: 'InnoDB / GR',
+    slug: 'innodb',
+    sub: 'Group Replication member',
+    color: '#0891b2',
     icon: 'Database',
   },
   // Standalone single Percona Server instance (no replication).
@@ -154,7 +163,7 @@ function nextMemberName(usedSet, prefix) {
 }
 
 // Per-frame-type presentation: accent color and the description line.
-const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb' }
+const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2' }
 const frameColor = (f) => FRAME_COLORS[f?.type] || '#a855f7'
 
 const osLabel = (type, os) => (NODE_TYPES[type]?.osOptions.find((o) => o.id === os)?.label) || os
@@ -171,6 +180,7 @@ const pxcVersionLabel = (f) => `Percona XtraDB Cluster ${f?.pxcVersion || f?.pxc
 const frameVersionLabel = (f) => {
   if (f?.type === 'proxysql') return `ProxySQL ${f?.proxysqlVersion || f?.proxysqlMajor || ''}`.trim()
   if (f?.type === 'mysql') return `Percona Server ${f?.psVersion || f?.psMajor || ''} replication`.trim()
+  if (f?.type === 'innodb') return `${f?.replMode === 'groupreplication' ? 'Group Replication' : 'InnoDB Cluster'}${f?.pdpsRepo ? ` · ${f.pdpsRepo}` : ''}`
   return pxcVersionLabel(f)
 }
 
@@ -821,6 +831,33 @@ function StackEditor({ stackId, onBack }) {
     setNodes(r.nodes)
     setSelected({ kind: 'frame', id: fid })
   }
+  function newInnoDBMember(frameId) {
+    const used = new Set(nodes.filter((n) => n.type === 'innodb').map((n) => n.label))
+    return { id: uid('innodb'), type: 'innodb', label: nextMemberName(used, 'innodb'), frameId, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
+  }
+  function addInnoDBCluster() {
+    if (!nodes.some((n) => n.type === 'intranet')) return
+    const fid = uid('frame')
+    const fx = (-view.x + 200) / view.z
+    const fy = (-view.y + 200) / view.z
+    const frame = {
+      id: fid, type: 'innodb', label: nextNamedCluster(frames, 'innodb'), x: fx, y: fy, w: 0, h: 0,
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64', pdpsRepo: '', replMode: 'innodbcluster',
+      rootPassword: '', pmmNodeId: '', useProxy: true, mysqlRouter: true,
+      generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
+    }
+    const used = new Set(nodes.filter((n) => n.type === 'innodb').map((n) => n.label))
+    const newNodes = []
+    for (let i = 0; i < 3; i++) {
+      const name = nextMemberName(used, 'innodb')
+      used.add(name)
+      newNodes.push({ id: uid('innodb'), type: 'innodb', label: name, frameId: fid, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 })
+    }
+    const r = relayout(fid, [...frames, frame], [...nodes, ...newNodes])
+    setFrames(r.frames)
+    setNodes(r.nodes)
+    setSelected({ kind: 'frame', id: fid })
+  }
   // Frame +/- buttons dispatch by frame type.
   function addFrameMember(frame) {
     if (frame.type === 'proxysql') {
@@ -830,6 +867,10 @@ function StackEditor({ stackId, onBack }) {
     } else if (frame.type === 'mysql') {
       // Added members are secondaries (the single primary is kept).
       const r = relayout(frame.id, frames, [...nodes, newMySQLMember(frame.id, 'secondary')])
+      setFrames(r.frames)
+      setNodes(r.nodes)
+    } else if (frame.type === 'innodb') {
+      const r = relayout(frame.id, frames, [...nodes, newInnoDBMember(frame.id)])
       setFrames(r.frames)
       setNodes(r.nodes)
     } else {
@@ -1007,6 +1048,9 @@ function StackEditor({ stackId, onBack }) {
           <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addMySQLCluster}>
             <Icon.Plus size={16} /> Percona Server Replication
           </Button>
+          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addInnoDBCluster}>
+            <Icon.Plus size={16} /> InnoDB / Group Replication
+          </Button>
           <div className="mx-1 h-5 w-px bg-border" />
           <Button size="sm" variant="outline" disabled={!!busy} onClick={runValidate}>
             <Icon.Check size={15} /> {busy === 'validate' ? 'Validating…' : 'Validate'}
@@ -1136,6 +1180,7 @@ function StackEditor({ stackId, onBack }) {
                     let sub = 'Galera data node'
                     if (f.type === 'proxysql') sub = 'ProxySQL'
                     else if (f.type === 'mysql') sub = isPrimary ? 'Primary' : 'Secondary · read-only'
+                    else if (f.type === 'innodb') sub = 'GR member'
                     else if (arb) sub = 'Arbitrator · garbd'
                     const barCol = (f.type === 'pxc' && arb) || (f.type === 'mysql' && !isPrimary) ? '#64748b' : col
                     return (
@@ -1163,8 +1208,10 @@ function StackEditor({ stackId, onBack }) {
                       </div>
                     )
                   })}
-                  {/* 4 association endpoints — rendered last so they sit above the title bar */}
-                  <PortHandles ownerId={f.id} connecting={!!connect} snapPort={connect?.targetId === f.id ? connect.targetPort : null} onStart={startConnect} />
+                  {/* Association endpoints — InnoDB/GR has none (router is built in). */}
+                  {f.type !== 'innodb' && (
+                    <PortHandles ownerId={f.id} connecting={!!connect} snapPort={connect?.targetId === f.id ? connect.targetPort : null} onStart={startConnect} />
+                  )}
                 </div>
               )
             })}
@@ -2334,6 +2381,162 @@ function ProxySQLFrameMemberForm({ node: n, frame, patchNode, dep, deployed }) {
   )
 }
 
+// InnoDBFrameForm edits an InnoDB / Group Replication frame: image OS/version/arch,
+// the PDPS repository (which sets the Percona Server version), the replication mode
+// (InnoDB Cluster vs raw Group Replication), root password, PMM/proxy/cert, and the
+// MySQL Router toggle. It has no association endpoints (Router is built in).
+function InnoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed }) {
+  const [imgs, setImgs] = useState([])
+  const [repos, setRepos] = useState([])
+  useEffect(() => {
+    let alive = true
+    stackApi.psCatalog().then((c) => { if (alive) setImgs(c.images || []) }).catch(() => { /* */ })
+    stackApi.pdpsCatalog().then((c) => { if (alive) setRepos(c.repos || []) }).catch(() => { /* */ })
+    return () => { alive = false }
+  }, [])
+  const lock = deployed ? 'opacity-70' : ''
+
+  const osFamilies = [...new Set(imgs.map((i) => i.os))]
+  const osVersions = [...new Set(imgs.filter((i) => i.os === f.os).map((i) => i.osVersion))]
+  const archs = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === f.osVersion).map((i) => i.arch))]
+
+  useEffect(() => {
+    if (deployed || !imgs.length) return
+    const patch = {}
+    const osVer = osVersions.includes(f.osVersion) ? f.osVersion : (osVersions[0] ?? f.osVersion)
+    if (osVer !== f.osVersion) patch.osVersion = osVer
+    const archList = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === osVer).map((i) => i.arch))]
+    const arch = archList.includes(f.arch) ? f.arch : (archList[0] ?? f.arch)
+    if (arch !== f.arch) patch.arch = arch
+    if (Object.keys(patch).length) patchFrame(f.id, patch)
+  }, [imgs, f.id, f.os, f.osVersion, f.arch, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (deployed || !repos.length) return
+    if (!repos.includes(f.pdpsRepo)) patchFrame(f.id, { pdpsRepo: repos[0] })
+  }, [repos, f.pdpsRepo, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pmmNodes = nodes.filter((x) => x.type === 'pmm')
+  const members = nodes.filter((x) => x.frameId === f.id).length
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">InnoDB / Group Replication</span>
+        <Badge tone="primary">{members} node{members === 1 ? '' : 's'}</Badge>
+      </div>
+
+      <Field label="Cluster name" hint="Must be unique across the stack.">
+        <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+      </Field>
+
+      <Field label="Replication mode" hint={deployed ? 'Locked.' : 'InnoDB Cluster adds MySQL Shell management + Router metadata.'}>
+        <select className={`${inputCls} ${lock}`} value={f.replMode || 'innodbcluster'} disabled={deployed} onChange={(e) => patchFrame(f.id, { replMode: e.target.value })}>
+          <option value="innodbcluster">InnoDB Cluster</option>
+          <option value="groupreplication">Group Replication</option>
+        </select>
+      </Field>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+          <select className={`${inputCls} ${lock}`} value={f.os} disabled={deployed} onChange={(e) => patchFrame(f.id, { os: e.target.value })}>
+            {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="OS version">
+          <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
+            {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Platform / arch">
+          <select className={`${inputCls} ${lock}`} value={f.arch} disabled={deployed} onChange={(e) => patchFrame(f.id, { arch: e.target.value })}>
+            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="PDPS repository" hint={deployed ? 'Locked.' : 'Sets the Percona Server version.'}>
+          <select className={`${inputCls} ${lock}`} value={f.pdpsRepo} disabled={deployed} onChange={(e) => patchFrame(f.id, { pdpsRepo: e.target.value })}>
+            {repos.length === 0 && <option value="">(run make versions)</option>}
+            {repos.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </Field>
+      </div>
+
+      <Field label="Root password" hint={deployed ? 'Set at deploy.' : 'Leave empty to auto-generate.'}>
+        <input className={`${inputCls} ${lock}`} value={f.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchFrame(f.id, { rootPassword: e.target.value })} />
+      </Field>
+
+      <Field label="Monitored by (PMM)" hint="Optional — registers each node with a PMM node.">
+        <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
+          <option value="">none</option>
+          {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </Field>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={f.mysqlRouter !== false} disabled={deployed} onChange={(e) => patchFrame(f.id, { mysqlRouter: e.target.checked })} />
+        <span>Install MySQL Router on each node (6446 RW / 6447 RO)</span>
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for downloads</span>
+      </label>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
+        <span>Generate per-node certificates from Intranet CA</span>
+      </label>
+      {f.generateCert && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted">Cert TTL</span>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={f.certTtlUnit || 'days'} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
+            <option value="minutes">minutes</option>
+            <option value="hours">hours</option>
+            <option value="days">days</option>
+          </select>
+        </div>
+      )}
+
+      {members < 3 && (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+          At least 3 nodes are recommended for Group Replication quorum ({members} now).
+        </div>
+      )}
+      <p className="text-xs text-muted">No association line — MySQL Router is built in. Per-node host-port export is set on each node.</p>
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteFrame(f.id)}>
+        <Icon.Trash size={16} /> Delete cluster
+      </Button>
+    </div>
+  )
+}
+
+// InnoDBMemberForm edits an InnoDB/GR member: only host-port export of the router
+// ports (OS/version/mode come from the frame; GR auto-elects the primary).
+function InnoDBMemberForm({ node: n, frame, patchNode, dep, deployed }) {
+  return (
+    <div className="space-y-3">
+      {dep && (
+        <div className="flex items-center justify-between rounded-lg bg-surface2 px-3 py-2 text-sm">
+          <span className="text-muted">Deployment</span>
+          <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+        </div>
+      )}
+      <Field label="Node name" hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
+      <Field label="Cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <p className="text-xs text-muted">Group Replication auto-elects the primary; secondaries are read-only.</p>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
+        <span>Export MySQL Router ports to the host (6446 RW / 6447 RO)</span>
+      </label>
+      {n.exportEnabled && (
+        <Field label="RW host port (6446)" hint="0 / empty = random unused port; the RO port (6447) is auto-assigned.">
+          <input type="number" min="0" max="65535" className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.exportHostPort || 0} disabled={deployed}
+            onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
+        </Field>
+      )}
+    </div>
+  )
+}
+
 // Minimap: a scaled overview of the canvas in the bottom-right corner showing
 // every node (colored by type) and the current viewport. Click or drag inside it
 // to recenter the main view on that point.
@@ -2471,7 +2674,7 @@ function loadProps() {
 function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, deleteNode, deleteEdge, deleteFrame }) {
   const selNode = selected?.kind === 'node' ? nodes.find((n) => n.id === selected.id) : null
   const selDep = selNode ? depByNode[selNode.id] : null
-  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps')) || selected?.kind === 'frame'
+  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb')) || selected?.kind === 'frame'
 
   const saved = useRef(loadProps()).current
   const [docked, setDocked] = useState(saved.docked !== false)
@@ -2559,6 +2762,9 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     if (f.type === 'mysql') {
       return <MySQLFrameForm frame={f} nodes={nodes} frames={frames} edges={edges} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
     }
+    if (f.type === 'innodb') {
+      return <InnoDBFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+    }
     return <PXCFrameForm frame={f} stackId={stackId} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} running={running} />
   }
 
@@ -2582,6 +2788,14 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <MySQLManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <MySQLMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} nodes={nodes} patchNode={patchNode} dep={dep} deployed={deployed} />
+    }
+
+    // InnoDB / Group Replication member node.
+    if (n.type === 'innodb') {
+      if (dep && dep.state === 'running') {
+        return <InnoDBManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <InnoDBMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} patchNode={patchNode} dep={dep} deployed={deployed} />
     }
 
     const def = NODE_TYPES[n.type] || NODE_TYPES.intranet
