@@ -2,10 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
 import { Card, Button, Badge, Field, ConfirmButton, inputCls } from '../components/ui.jsx'
-import { stackApi, TTL_OPTIONS, DEPLOY_TONE } from '../lib/stackApi.js'
+import { stackApi, frameApi, TTL_OPTIONS, DEPLOY_TONE } from '../lib/stackApi.js'
 import IntranetManager from './IntranetManager.jsx'
 import PMMManager from './PMMManager.jsx'
 import PXCManager from './PXCManager.jsx'
+import ProxySQLManager from './ProxySQLManager.jsx'
+import MySQLManager from './MySQLManager.jsx'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import {
   PORTS, dist, portPoint, edgePath, screenToWorld, zoomAt,
@@ -52,6 +54,46 @@ const NODE_TYPES = {
     color: '#a855f7',
     icon: 'Database',
   },
+  // Percona Server replication members live inside a Percona Server Replication frame.
+  mysql: {
+    label: 'Percona Server',
+    slug: 'mysql',
+    sub: 'Percona Server replication member',
+    color: '#2563eb',
+    icon: 'Database',
+  },
+  // Standalone single Percona Server instance (no replication).
+  ps: {
+    label: 'Percona Server',
+    slug: 'ps',
+    sub: 'Percona Server (standalone)',
+    color: '#2563eb',
+    icon: 'Database',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
+    defaults: {
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64', psMajor: '8.0', psVersion: '',
+      rootPassword: '', gtid: true, pmmNodeId: '', useProxy: true,
+      generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
+      exportEnabled: false, exportHostPort: 0,
+    },
+  },
+  proxysql: {
+    label: 'ProxySQL',
+    slug: 'proxysql',
+    sub: 'ProxySQL — MySQL proxy',
+    color: '#f59e0b',
+    icon: 'ProxySQL',
+    singleton: false,
+    ports: true, // links to a PXC cluster frame (data flows PXC → ProxySQL)
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
+    defaults: {
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64',
+      proxysqlMajor: '2', proxysqlVersion: '', mode: 'singlewrite',
+      exportEnabled: false, exportHostPort: 0, pmmNodeId: '', useProxy: true,
+    },
+  },
 }
 
 // ---------------------------------------------------------- PXC cluster frames
@@ -60,7 +102,6 @@ const PXC_NODE_H = 78
 const FRAME_TITLE = 32
 const FRAME_PAD = 14
 const FRAME_GAP = 12
-const FRAME_COLOR = '#a855f7'
 
 // layoutFrame derives a frame's size and lays its member nodes out in a row.
 function layoutFrame(frame, frameNodes) {
@@ -93,7 +134,58 @@ function nextPXCName(usedSet) {
   }
 }
 
+// nextNamedCluster → "<prefix>-NN" unique across the frames (from 00).
+function nextNamedCluster(frames, prefix) {
+  let max = -1
+  const re = new RegExp(`^${prefix}-(\\d+)$`)
+  for (const f of frames) {
+    const m = (f.label || '').match(re)
+    if (m) max = Math.max(max, parseInt(m[1], 10))
+  }
+  return `${prefix}-${String(max + 1).padStart(2, '0')}`
+}
+
+// nextMemberName → lowest "<prefix>NN" not already used by any node in the stack.
+function nextMemberName(usedSet, prefix) {
+  for (let i = 1; ; i++) {
+    const name = `${prefix}${String(i).padStart(2, '0')}`
+    if (!usedSet.has(name)) return name
+  }
+}
+
+// Per-frame-type presentation: accent color and the description line.
+const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb' }
+const frameColor = (f) => FRAME_COLORS[f?.type] || '#a855f7'
+
 const osLabel = (type, os) => (NODE_TYPES[type]?.osOptions.find((o) => o.id === os)?.label) || os
+
+// pxcOSLabel formats a PXC frame's OS family + version (e.g. "Oracle Linux 9").
+const PXC_OS_NAMES = { oraclelinux: 'Oracle Linux', ubuntu: 'Ubuntu', debian: 'Debian' }
+const pxcOSLabel = (f) => [PXC_OS_NAMES[f?.os] || f?.os, f?.osVersion].filter(Boolean).join(' ')
+
+// pxcVersionLabel formats a PXC frame's version for display (minor if pinned,
+// else the major series, e.g. "Percona XtraDB Cluster 8.0").
+const pxcVersionLabel = (f) => `Percona XtraDB Cluster ${f?.pxcVersion || f?.pxcMajor || ''}`.trim()
+
+// frameVersionLabel: the description line for a cluster-frame type.
+const frameVersionLabel = (f) => {
+  if (f?.type === 'proxysql') return `ProxySQL ${f?.proxysqlVersion || f?.proxysqlMajor || ''}`.trim()
+  if (f?.type === 'mysql') return `Percona Server ${f?.psVersion || f?.psMajor || ''} replication`.trim()
+  return pxcVersionLabel(f)
+}
+
+// ProxySQL implementation-mode options depend on the linked backend type: PXC
+// (proxysql-admin singlewrite/loadbal) vs MySQL replication (primary/rwsplit). The
+// "wrong" set is never shown — they switch with the associated cluster.
+const PROXY_MODE_OPTS = {
+  pxc: [{ id: 'singlewrite', label: 'single writer (default)' }, { id: 'loadbal', label: 'load balancer' }],
+  mysql: [{ id: 'rwsplit', label: 'read/write split' }, { id: 'primary', label: 'primary only (all to primary)' }],
+}
+const proxyModeOpts = (backendType) => PROXY_MODE_OPTS[backendType === 'mysql' ? 'mysql' : 'pxc']
+
+// nodeOSLabel renders a free node's OS line; ProxySQL carries its own os/version
+// (like a PXC frame), other nodes map via their osOptions.
+const nodeOSLabel = (n) => (n.type === 'proxysql' || n.type === 'ps' ? pxcOSLabel(n) : osLabel(n.type, n.os))
 
 // Auto-numbered per-type labels: a non-singleton node is named "<slug>-NN" with
 // NN zero-padded from 01 and increasing per node type (pmm-01, pmm-02, …, and in
@@ -307,6 +399,7 @@ function StackEditor({ stackId, onBack }) {
   const [selected, setSelected] = useState(null)
   const [menu, setMenu] = useState(null)
   const [connect, setConnect] = useState(null)
+  const [linkPrompt, setLinkPrompt] = useState(null) // ProxySQL↔ProxySQL: choose flow direction
   const [saveState, setSaveState] = useState('saved') // saved | saving
   const [deployments, setDeployments] = useState([])
   const [issues, setIssues] = useState(null) // validate results panel
@@ -394,21 +487,34 @@ function StackEditor({ stackId, onBack }) {
     return screenToWorld(rect, refs.current.view, cx, cy)
   }, [])
 
+  // rectOf resolves a connection endpoint id to its rectangle — a free node uses
+  // the fixed node size, a PXC cluster frame its own geometry.
   const rectOf = useCallback((id) => {
     const n = refs.current.nodes.find((x) => x.id === id)
-    return n ? { x: n.x, y: n.y, w: NODE_W, h: NODE_H } : null
+    if (n) return { x: n.x, y: n.y, w: NODE_W, h: NODE_H }
+    const f = refs.current.frames.find((x) => x.id === id)
+    if (f) return { x: f.x, y: f.y, w: f.w, h: f.h }
+    return null
   }, [])
 
+  // Endpoints that expose connection ports: free nodes whose type opts in
+  // (def.ports), and PXC cluster frames. PXC member nodes connect via their frame.
   function hitPort(world, excludeId) {
     let best = null
     let bestD = SNAP
-    for (const n of refs.current.nodes) {
-      if (n.id === excludeId) continue
-      const r = { x: n.x, y: n.y, w: NODE_W, h: NODE_H }
+    const consider = (id, r) => {
+      if (id === excludeId) return
       for (const port of PORTS) {
         const d = dist(world, portPoint(r, port))
-        if (d < bestD) { bestD = d; best = { id: n.id, port } }
+        if (d < bestD) { bestD = d; best = { id, port } }
       }
+    }
+    for (const n of refs.current.nodes) {
+      if (n.frameId || !NODE_TYPES[n.type]?.ports) continue
+      consider(n.id, { x: n.x, y: n.y, w: NODE_W, h: NODE_H })
+    }
+    for (const f of refs.current.frames) {
+      if (f.type === 'pxc' || f.type === 'proxysql' || f.type === 'mysql') consider(f.id, { x: f.x, y: f.y, w: f.w, h: f.h })
     }
     return best
   }
@@ -447,16 +553,7 @@ function StackEditor({ stackId, onBack }) {
       if (d?.kind === 'connect') {
         const t = d.lastTarget
         if (t && t.id !== d.fromId) {
-          const dup = refs.current.edges.some(
-            (ed) =>
-              (ed.from.node === d.fromId && ed.from.port === d.fromPort && ed.to.node === t.id && ed.to.port === t.port) ||
-              (ed.from.node === t.id && ed.from.port === t.port && ed.to.node === d.fromId && ed.to.port === d.fromPort),
-          )
-          if (!dup) {
-            const id = uid('e')
-            setEdges((es) => [...es, { id, from: { node: d.fromId, port: d.fromPort }, to: { node: t.id, port: t.port }, type: 'directional' }])
-            setSelected({ kind: 'edge', id })
-          }
+          tryConnect({ node: d.fromId, port: d.fromPort }, { node: t.id, port: t.port })
         }
       }
       dragRef.current = null
@@ -542,6 +639,52 @@ function StackEditor({ stackId, onBack }) {
     setMenu({ x: e.clientX, y: e.clientY, id })
   }
 
+  // --- association links (read refs.current so they're correct when called from
+  // the captured pointer-up handler) ---
+  // endpointKind classifies a connectable endpoint:
+  //   'pxc'           — PXC cluster frame (source only)
+  //   'proxysql'      — standalone ProxySQL node (1 incoming, many outgoing)
+  //   'proxysql-frame'— ProxySQL cluster frame (1 incoming from PXC, no outgoing)
+  // Member nodes inside a frame are not linkable (no ports).
+  // 'backend' = a PXC or MySQL cluster frame (source only); 'proxysql' = standalone
+  // ProxySQL node; 'proxysql-frame' = ProxySQL cluster frame.
+  function endpointKind(id) {
+    const n = refs.current.nodes.find((x) => x.id === id)
+    if (n) return n.type === 'proxysql' && !n.frameId ? 'proxysql' : null
+    const f = refs.current.frames.find((x) => x.id === id)
+    if (f) return (f.type === 'pxc' || f.type === 'mysql') ? 'backend' : f.type === 'proxysql' ? 'proxysql-frame' : null
+    return null
+  }
+  // createFlow adds a directed edge from→to (arrow at the destination). The
+  // destination may have at most ONE incoming flow; a PXC frame source may have at
+  // most ONE outgoing flow (opts.singleOutgoing). Rejected (no arrow) otherwise.
+  function createFlow(fromEnd, toEnd, opts = {}) {
+    const E = refs.current.edges
+    if (E.some((ed) => ed.to.node === toEnd.node)) return // destination already receives
+    if (opts.singleOutgoing && E.some((ed) => ed.from.node === fromEnd.node)) return // source already sends
+    if (E.some((ed) => (ed.from.node === fromEnd.node && ed.to.node === toEnd.node) || (ed.from.node === toEnd.node && ed.to.node === fromEnd.node))) return
+    const id = uid('e')
+    setEdges((es) => [...es, { id, from: fromEnd, to: toEnd, type: 'directional' }])
+    setSelected({ kind: 'edge', id })
+  }
+  // tryConnect applies the association rules to a dropped connection.
+  function tryConnect(e1, e2) {
+    const k1 = endpointKind(e1.node)
+    const k2 = endpointKind(e2.node)
+    if (!k1 || !k2) return
+    // No second link between the same pair.
+    if (refs.current.edges.some((ed) => (ed.from.node === e1.node && ed.to.node === e2.node) || (ed.from.node === e2.node && ed.to.node === e1.node))) return
+    const isProxyDest = (k) => k === 'proxysql' || k === 'proxysql-frame'
+    // PXC/MySQL backend frame → ProxySQL node/cluster frame (frame is always the
+    // source, max 1 outgoing).
+    if (k1 === 'backend' && isProxyDest(k2)) return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'backend' && isProxyDest(k1)) return createFlow(e2, e1, { singleOutgoing: true })
+    // ProxySQL node ↔ ProxySQL node: ask which way the data flows.
+    if (k1 === 'proxysql' && k2 === 'proxysql') { setLinkPrompt({ e1, e2 }); return }
+    // Everything else (frame↔frame, ProxySQL cluster frame as source, node↔cluster
+    // frame, self) is not allowed.
+  }
+
   // mutations
   const patchNode = (id, patch) => setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, ...patch } : n)))
   const patchFrame = (id, patch) => setFrames((fs) => fs.map((f) => (f.id === id ? { ...f, ...patch } : f)))
@@ -568,8 +711,11 @@ function StackEditor({ stackId, onBack }) {
     setSelected((s) => (s?.kind === 'edge' && s.id === id ? null : s))
   }
   function deleteFrame(id) {
+    const memberIds = new Set(nodes.filter((n) => n.frameId === id).map((n) => n.id))
     setNodes((ns) => ns.filter((n) => n.frameId !== id))
     setFrames((fs) => fs.filter((f) => f.id !== id))
+    // Drop any association lines attached to the frame (or its member nodes).
+    setEdges((es) => es.filter((e) => e.from.node !== id && e.to.node !== id && !memberIds.has(e.from.node) && !memberIds.has(e.to.node)))
     setSelected((s) => (s && (s.id === id) ? null : s))
   }
   function deleteSelected() {
@@ -599,7 +745,7 @@ function StackEditor({ stackId, onBack }) {
     const frame = {
       id: fid, type: 'pxc', label: nextClusterName(frames), x: fx, y: fy, w: 0, h: 0,
       os: 'oraclelinux', osVersion: '9', arch: 'amd64', pxcMajor: '8.0', pxcVersion: '',
-      rootPassword: '', pmmNodeId: '', useProxy: false, gtid: true,
+      rootPassword: '', pmmNodeId: '', useProxy: true, gtid: true,
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
     }
     const used = new Set(nodes.filter((n) => n.type === 'pxc').map((n) => n.label))
@@ -621,6 +767,74 @@ function StackEditor({ stackId, onBack }) {
     const r = relayout(frameId, frames, [...nodes, newNode])
     setFrames(r.frames)
     setNodes(r.nodes)
+  }
+  function newProxySQLMember(frameId) {
+    const used = new Set(nodes.filter((n) => n.type === 'proxysql').map((n) => n.label))
+    return { id: uid('proxysql'), type: 'proxysql', label: nextMemberName(used, 'proxysql'), frameId, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
+  }
+  function addProxySQLCluster() {
+    if (!nodes.some((n) => n.type === 'intranet')) return
+    const fid = uid('frame')
+    const fx = (-view.x + 200) / view.z
+    const fy = (-view.y + 200) / view.z
+    const frame = {
+      id: fid, type: 'proxysql', label: nextNamedCluster(frames, 'proxysql-cluster'), x: fx, y: fy, w: 0, h: 0,
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64', proxysqlMajor: '2', proxysqlVersion: '',
+      mode: 'singlewrite', pmmNodeId: '', useProxy: true,
+    }
+    const used = new Set(nodes.filter((n) => n.type === 'proxysql').map((n) => n.label))
+    const newNodes = []
+    for (let i = 0; i < 3; i++) {
+      const name = nextMemberName(used, 'proxysql')
+      used.add(name)
+      newNodes.push({ id: uid('proxysql'), type: 'proxysql', label: name, frameId: fid, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 })
+    }
+    const r = relayout(fid, [...frames, frame], [...nodes, ...newNodes])
+    setFrames(r.frames)
+    setNodes(r.nodes)
+    setSelected({ kind: 'frame', id: fid })
+  }
+  function newMySQLMember(frameId, role) {
+    const used = new Set(nodes.filter((n) => n.type === 'mysql').map((n) => n.label))
+    return { id: uid('mysql'), type: 'mysql', label: nextMemberName(used, 'mysql'), frameId, role: role || 'secondary', exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
+  }
+  function addMySQLCluster() {
+    if (!nodes.some((n) => n.type === 'intranet')) return
+    const fid = uid('frame')
+    const fx = (-view.x + 200) / view.z
+    const fy = (-view.y + 200) / view.z
+    const frame = {
+      id: fid, type: 'mysql', label: nextNamedCluster(frames, 'psrepl'), x: fx, y: fy, w: 0, h: 0,
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64', psMajor: '8.0', psVersion: '',
+      rootPassword: '', pmmNodeId: '', useProxy: true, gtid: true, replMode: 'async',
+      generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
+    }
+    const used = new Set(nodes.filter((n) => n.type === 'mysql').map((n) => n.label))
+    const newNodes = []
+    for (let i = 0; i < 3; i++) {
+      const name = nextMemberName(used, 'mysql')
+      used.add(name)
+      newNodes.push({ id: uid('mysql'), type: 'mysql', label: name, frameId: fid, role: i === 0 ? 'primary' : 'secondary', exportEnabled: false, exportHostPort: 0, x: 0, y: 0 })
+    }
+    const r = relayout(fid, [...frames, frame], [...nodes, ...newNodes])
+    setFrames(r.frames)
+    setNodes(r.nodes)
+    setSelected({ kind: 'frame', id: fid })
+  }
+  // Frame +/- buttons dispatch by frame type.
+  function addFrameMember(frame) {
+    if (frame.type === 'proxysql') {
+      const r = relayout(frame.id, frames, [...nodes, newProxySQLMember(frame.id)])
+      setFrames(r.frames)
+      setNodes(r.nodes)
+    } else if (frame.type === 'mysql') {
+      // Added members are secondaries (the single primary is kept).
+      const r = relayout(frame.id, frames, [...nodes, newMySQLMember(frame.id, 'secondary')])
+      setFrames(r.frames)
+      setNodes(r.nodes)
+    } else {
+      addPXCNode(frame.id)
+    }
   }
   function removePXCNode(frameId) {
     const mine = nodes.filter((n) => n.frameId === frameId)
@@ -653,9 +867,22 @@ function StackEditor({ stackId, onBack }) {
     return next
   }
 
+  // Flush the debounced design save so validate/deploy act on exactly what's on
+  // the canvas (otherwise a just-toggled option — e.g. the cert checkbox — may not
+  // have hit the server yet and a stale design gets deployed).
+  async function saveNow() {
+    if (!stackRef.current) return
+    const cur = JSON.stringify({ nodes, edges, frames, view })
+    if (cur === lastSaved.current) return
+    await stackApi.update(stackRef.current.id, stackRef.current.name, { nodes, edges, frames, view })
+    lastSaved.current = cur
+    setSaveState('saved')
+  }
+
   async function runValidate() {
     setBusy('validate')
     try {
+      await saveNow()
       const r = await stackApi.validate(stack.id)
       setIssues(r.issues || [])
     } catch (err) {
@@ -669,6 +896,7 @@ function StackEditor({ stackId, onBack }) {
     setBusy('deploy')
     setIssues(null)
     try {
+      await saveNow()
       const v = await stackApi.validate(stack.id)
       if (!v.ok) {
         setIssues(v.issues)
@@ -767,6 +995,18 @@ function StackEditor({ stackId, onBack }) {
           <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addPXCCluster}>
             <Icon.Plus size={16} /> PXC Cluster
           </Button>
+          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('proxysql')}>
+            <Icon.Plus size={16} /> ProxySQL
+          </Button>
+          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addProxySQLCluster}>
+            <Icon.Plus size={16} /> ProxySQL Cluster
+          </Button>
+          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('ps')}>
+            <Icon.Plus size={16} /> Percona Server
+          </Button>
+          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addMySQLCluster}>
+            <Icon.Plus size={16} /> Percona Server Replication
+          </Button>
           <div className="mx-1 h-5 w-px bg-border" />
           <Button size="sm" variant="outline" disabled={!!busy} onClick={runValidate}>
             <Icon.Check size={15} /> {busy === 'validate' ? 'Validating…' : 'Validate'}
@@ -832,13 +1072,26 @@ function StackEditor({ stackId, onBack }) {
                 const r0 = rectOf(ed.from.node)
                 const r1 = rectOf(ed.to.node)
                 if (!r0 || !r1) return null
-                const d = edgePath(portPoint(r0, ed.from.port), ed.from.port, portPoint(r1, ed.to.port), ed.to.port)
+                const p0 = portPoint(r0, ed.from.port)
+                const p1 = portPoint(r1, ed.to.port)
+                const d = edgePath(p0, ed.from.port, p1, ed.to.port)
                 const on = selected?.kind === 'edge' && selected.id === ed.id
+                // Caption an association line (any link involving a ProxySQL node or
+                // ProxySQL cluster frame).
+                const proxyNodeEnd = nodes.some((n) => (n.id === ed.from.node || n.id === ed.to.node) && n.type === 'proxysql')
+                const proxyFrameEnd = frames.some((fr) => (fr.id === ed.from.node || fr.id === ed.to.node) && fr.type === 'proxysql')
+                const caption = proxyNodeEnd || proxyFrameEnd ? 'forwards SQL traffic to' : null
                 return (
                   <g key={ed.id}>
                     <path d={d} fill="none" stroke="transparent" strokeWidth="16" className="pointer-events-auto cursor-pointer"
                       onPointerDown={(e) => { e.stopPropagation(); setSelected({ kind: 'edge', id: ed.id }) }} />
                     <path d={d} fill="none" stroke={on ? 'var(--primary)' : 'var(--muted)'} strokeWidth={on ? 3 : 2} markerEnd="url(#stk-arrow)" />
+                    {caption && (
+                      <text x={(p0.x + p1.x) / 2} y={(p0.y + p1.y) / 2 - 5} textAnchor="middle"
+                        style={{ fill: 'var(--muted)', fontSize: '9px', paintOrder: 'stroke', stroke: 'var(--bg)', strokeWidth: 3.5, strokeLinejoin: 'round' }}>
+                        {caption}
+                      </text>
+                    )}
                   </g>
                 )
               })}
@@ -847,26 +1100,29 @@ function StackEditor({ stackId, onBack }) {
               )}
             </svg>
 
-            {/* PXC cluster frames (rendered behind nodes, with their member nodes) */}
+            {/* Cluster frames (PXC / ProxySQL), rendered behind nodes with their members */}
             {frames.map((f) => {
               const fdef = NODE_TYPES[f.type] || {}
               const on = selected?.kind === 'frame' && selected.id === f.id
               const kids = nodes.filter((n) => n.frameId === f.id)
+              const col = frameColor(f)
               return (
-                <div key={f.id} className="absolute" style={{ left: f.x, top: f.y, width: f.w, height: f.h }}>
+                <div key={f.id} className="group absolute" style={{ left: f.x, top: f.y, width: f.w, height: f.h }}>
                   <div className="absolute inset-0 rounded-xl border-2 border-dashed"
-                    style={{ borderColor: on ? 'var(--primary)' : FRAME_COLOR, background: `color-mix(in srgb, ${FRAME_COLOR} 7%, transparent)` }} />
+                    style={{ borderColor: on ? 'var(--primary)' : col, background: `color-mix(in srgb, ${col} 7%, transparent)` }} />
                   <div
                     onPointerDown={(e) => startFrame(e, f.id)}
                     onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setSelected({ kind: 'frame', id: f.id }) }}
                     className="absolute inset-x-0 top-0 flex cursor-grab items-center gap-2 rounded-t-xl px-2 active:cursor-grabbing"
-                    style={{ height: FRAME_TITLE, background: `color-mix(in srgb, ${FRAME_COLOR} 18%, transparent)` }}
+                    style={{ height: FRAME_TITLE, background: `color-mix(in srgb, ${col} 18%, transparent)` }}
                   >
-                    <span style={{ color: FRAME_COLOR }}>{(Icon[fdef.icon] || Icon.Database)({ size: 15 })}</span>
-                    <span className="truncate text-xs font-semibold text-fg">{f.label}</span>
-                    <span className="text-[10px] text-muted">{kids.length} node{kids.length === 1 ? '' : 's'}</span>
+                    <span style={{ color: col }}>{(Icon[fdef.icon] || Icon.Database)({ size: 15 })}</span>
+                    <div className="min-w-0 flex-1 leading-tight">
+                      <div className="truncate text-xs font-semibold text-fg">{f.label}</div>
+                      <div className="truncate text-[10px] text-muted">{frameVersionLabel(f)} · {kids.length} node{kids.length === 1 ? '' : 's'}</div>
+                    </div>
                     <div className="ml-auto flex items-center gap-0.5">
-                      <button title="Add PXC node" onPointerDown={(e) => e.stopPropagation()} onClick={() => addPXCNode(f.id)}
+                      <button title="Add node" onPointerDown={(e) => e.stopPropagation()} onClick={() => addFrameMember(f)}
                         className="rounded px-1.5 text-sm leading-none text-muted hover:bg-surface hover:text-fg">+</button>
                       <button title="Remove a node" onPointerDown={(e) => e.stopPropagation()} onClick={() => removePXCNode(f.id)}
                         className="rounded px-1.5 text-sm leading-none text-muted hover:bg-surface hover:text-fg">−</button>
@@ -876,6 +1132,12 @@ function StackEditor({ stackId, onBack }) {
                     const non = selected?.kind === 'node' && selected.id === n.id
                     const dep = depByNode[n.id]
                     const arb = n.role === 'arbitrator'
+                    const isPrimary = n.role === 'primary'
+                    let sub = 'Galera data node'
+                    if (f.type === 'proxysql') sub = 'ProxySQL'
+                    else if (f.type === 'mysql') sub = isPrimary ? 'Primary' : 'Secondary · read-only'
+                    else if (arb) sub = 'Arbitrator · garbd'
+                    const barCol = (f.type === 'pxc' && arb) || (f.type === 'mysql' && !isPrimary) ? '#64748b' : col
                     return (
                       <div key={n.id}
                         onPointerDown={(e) => selectFrameNode(e, n.id)}
@@ -883,7 +1145,7 @@ function StackEditor({ stackId, onBack }) {
                         className={`absolute flex cursor-pointer flex-col overflow-hidden rounded-lg border bg-surface shadow-sm ${non ? 'ring-2 ring-primary' : ''}`}
                         style={{ left: n.x - f.x, top: n.y - f.y, width: PXC_NODE_W, height: PXC_NODE_H }}
                       >
-                        <div className="h-1 w-full shrink-0" style={{ background: arb ? '#64748b' : FRAME_COLOR }} />
+                        <div className="h-1 w-full shrink-0" style={{ background: barCol }} />
                         <div className="flex flex-1 flex-col justify-center px-2 py-1">
                           <div className="flex items-center gap-1">
                             <span className="min-w-0 flex-1 truncate text-xs font-semibold text-fg">{n.label}</span>
@@ -894,12 +1156,15 @@ function StackEditor({ stackId, onBack }) {
                                 style={{ background: `var(--${DEPLOY_TONE[dep.state] === 'success' ? 'success' : dep.state === 'error' ? 'danger' : 'warning'})` }} />
                             ) : null}
                           </div>
-                          <div className="mt-0.5 text-[10px] text-muted">{arb ? 'arbitrator' : 'regular'}</div>
+                          <div className="mt-0.5 truncate text-[10px] text-muted">{sub}</div>
+                          <div className="truncate text-[9px] font-medium text-fg/80">{pxcOSLabel(f)} · {f.arch || 'amd64'}</div>
                           {n.exportEnabled && <div className="text-[9px] font-medium text-primary">⇅ export</div>}
                         </div>
                       </div>
                     )
                   })}
+                  {/* 4 association endpoints — rendered last so they sit above the title bar */}
+                  <PortHandles ownerId={f.id} connecting={!!connect} snapPort={connect?.targetId === f.id ? connect.targetPort : null} onStart={startConnect} />
                 </div>
               )
             })}
@@ -933,7 +1198,7 @@ function StackEditor({ stackId, onBack }) {
                           </span>
                         </div>
                         <div className="mt-0.5 text-[11px] leading-snug text-muted">{def.sub}</div>
-                        <div className="mt-1 text-[11px] font-medium text-fg/80">{osLabel(n.type, n.os)} · {n.arch || 'amd64'}</div>
+                        <div className="mt-1 text-[11px] font-medium text-fg/80">{nodeOSLabel(n)} · {n.arch || 'amd64'}</div>
                       </div>
                     </div>
                   </div>
@@ -972,6 +1237,14 @@ function StackEditor({ stackId, onBack }) {
       )}
 
       {configNode && <ConfigModal dep={configNode} onClose={() => setConfigNode(null)} />}
+
+      {linkPrompt && (
+        <LinkDirectionModal
+          prompt={linkPrompt} nodes={nodes} edges={edges}
+          onClose={() => setLinkPrompt(null)}
+          onChoose={(fromEnd, toEnd) => { createFlow(fromEnd, toEnd); setLinkPrompt(null) }}
+        />
+      )}
 
       {deployPanel === 'open' && (
         <DeploymentConsole deployments={deployments} nodes={nodes} onMinimize={() => setDeployPanel('min')} />
@@ -1085,6 +1358,47 @@ function DeploymentConsole({ deployments, nodes, onMinimize }) {
   )
 }
 
+// LinkDirectionModal asks which way data flows when two ProxySQL nodes are linked.
+// The option whose destination already receives a flow is disabled (a ProxySQL
+// can only have one incoming flow).
+function LinkDirectionModal({ prompt, nodes, edges, onClose, onChoose }) {
+  const { e1, e2 } = prompt
+  const labelOf = (id) => nodes.find((n) => n.id === id)?.label || 'node'
+  const hasIncoming = (id) => edges.some((ed) => ed.to.node === id)
+  const l1 = labelOf(e1.node)
+  const l2 = labelOf(e2.node)
+  const opts = [
+    { from: e1, to: e2, label: `${l1} → ${l2}`, disabled: hasIncoming(e2.node), dest: l2 },
+    { from: e2, to: e1, label: `${l2} → ${l1}`, disabled: hasIncoming(e1.node), dest: l1 },
+  ]
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
+      <div className="w-full max-w-sm rounded-xl border bg-surface p-5 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+        <h3 className="mb-1 text-sm font-semibold">Which way does SQL traffic flow?</h3>
+        <p className="mb-3 text-xs text-muted">Pick the direction of the association line between these two ProxySQL nodes.</p>
+        <div className="space-y-2">
+          {opts.map((o, i) => (
+            <button key={i} disabled={o.disabled} onClick={() => onChoose(o.from, o.to)}
+              className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-sm ${o.disabled ? 'cursor-not-allowed opacity-50' : 'hover:border-primary hover:bg-primary/10'}`}>
+              <span className="font-mono">{o.label}</span>
+              {o.disabled && <span className="text-[11px] text-muted">{o.dest} already receives a flow</span>}
+            </button>
+          ))}
+        </div>
+        {opts.every((o) => o.disabled) && (
+          <p className="mt-3 rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+            Both nodes already receive a flow — no direction is available.
+          </p>
+        )}
+        <div className="mt-4 flex justify-end">
+          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
 function ConfigModal({ dep, onClose }) {
   let cfg = {}
   try { cfg = typeof dep.config === 'string' ? JSON.parse(dep.config) : dep.config || {} } catch { cfg = {} }
@@ -1191,8 +1505,11 @@ function PMMOptions({ n, patchNode, deployed }) {
 
 // PXCFrameForm edits a PXC cluster frame: version/OS/platform, credentials,
 // monitoring/proxy/GTID/TLS options, and shows quorum guidance.
-function PXCFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed }) {
+function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, deleteFrame, deployed, running }) {
   const [cat, setCat] = useState(null)
+  const [monBusy, setMonBusy] = useState(false)
+  const [monMsg, setMonMsg] = useState('')
+  const [monErr, setMonErr] = useState('')
   useEffect(() => {
     let alive = true
     stackApi.pxcCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
@@ -1207,6 +1524,27 @@ function PXCFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
   const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion && i.arch === f.arch)
   const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
   const minors = (entry?.versions?.[f.pxcMajor]) || []
+
+  // Cascade-normalize the selection: when OS (or a higher-level field) changes, the
+  // dependent fields may become invalid for the new OS (e.g. osVersion stays "9"
+  // under ubuntu), leaving major/minor empty. Snap each invalid field to the first
+  // valid option for the current catalog, in one pass, until everything is valid.
+  useEffect(() => {
+    if (deployed || !imgs.length) return
+    const patch = {}
+    const osVer = osVersions.includes(f.osVersion) ? f.osVersion : (osVersions[0] ?? f.osVersion)
+    if (osVer !== f.osVersion) patch.osVersion = osVer
+    const archList = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === osVer).map((i) => i.arch))]
+    const arch = archList.includes(f.arch) ? f.arch : (archList[0] ?? f.arch)
+    if (arch !== f.arch) patch.arch = arch
+    const e2 = imgs.find((i) => i.os === f.os && i.osVersion === osVer && i.arch === arch)
+    const majorList = e2 ? Object.keys(e2.versions || {}).filter((m) => (e2.versions[m] || []).length) : []
+    const major = majorList.includes(f.pxcMajor) ? f.pxcMajor : (majorList[0] ?? f.pxcMajor)
+    if (major !== f.pxcMajor) patch.pxcMajor = major
+    const minorList = (e2?.versions?.[major]) || []
+    if (f.pxcVersion && !minorList.includes(f.pxcVersion)) patch.pxcVersion = ''
+    if (Object.keys(patch).length) patchFrame(f.id, patch)
+  }, [imgs, f.id, f.os, f.osVersion, f.arch, f.pxcMajor, f.pxcVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const pmmNodes = nodes.filter((n) => n.type === 'pmm')
   const regulars = frameNodes.filter((n) => n.role !== 'arbitrator').length
@@ -1257,12 +1595,29 @@ function PXCFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
         <input className={`${inputCls} ${lock}`} value={f.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchFrame(f.id, { rootPassword: e.target.value })} />
       </Field>
 
-      <Field label="Monitored by (PMM)" hint="Optional — registers the cluster with a PMM node.">
-        <select className={inputCls} value={f.pmmNodeId || ''} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
+      <Field label="Monitored by (PMM)" hint={running ? 'Pick a PMM node (or none), then apply to the running cluster.' : 'Optional — registers the cluster with a PMM node.'}>
+        <select className={inputCls} value={f.pmmNodeId || ''} onChange={(e) => { patchFrame(f.id, { pmmNodeId: e.target.value }); setMonMsg(''); setMonErr('') }}>
           <option value="">none</option>
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
         </select>
       </Field>
+      {running && (
+        <div className="space-y-1.5 rounded-lg border border-dashed p-2">
+          <div className="text-xs text-muted">Applies PMM monitoring to the running data nodes now (installs pmm-client and registers, or deregisters when set to none).</div>
+          {monErr && <div className="rounded border border-danger/30 bg-danger/15 px-2 py-1 text-xs text-danger">{monErr}</div>}
+          {monMsg && <div className="rounded border border-success/30 bg-success/15 px-2 py-1 text-xs text-success">{monMsg}</div>}
+          <Button size="sm" className="w-full" disabled={monBusy}
+            onClick={async () => {
+              setMonBusy(true); setMonErr(''); setMonMsg('')
+              try {
+                const r = await frameApi(stackId, f.id).setMonitoring(f.pmmNodeId || '')
+                setMonMsg(f.pmmNodeId ? `Monitoring enabled (${r.updated} node${r.updated === 1 ? '' : 's'}).` : `Monitoring disabled (${r.updated} node${r.updated === 1 ? '' : 's'}).`)
+              } catch (e) { setMonErr(e.message) } finally { setMonBusy(false) }
+            }}>
+            {monBusy ? 'Applying…' : (f.pmmNodeId ? 'Apply PMM monitoring' : 'Disable PMM monitoring')}
+          </Button>
+        </div>
+      )}
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
@@ -1335,6 +1690,646 @@ function PXCNodeForm({ node: n, frame, nodes, patchNode, dep, deployed }) {
             onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
         </Field>
       )}
+    </div>
+  )
+}
+
+// MySQLFrameForm edits a MySQL replication frame: catalog-driven OS/version +
+// Percona Server major/minor, replication mode, root password, PMM/proxy/GTID/cert.
+function MySQLFrameForm({ frame: f, nodes, frames, edges, patchFrame, deleteFrame, deployed }) {
+  const [cat, setCat] = useState(null)
+  useEffect(() => {
+    let alive = true
+    stackApi.psCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    return () => { alive = false }
+  }, [])
+  const imgs = cat || []
+  const lock = deployed ? 'opacity-70' : ''
+
+  const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
+  const osVersions = [...new Set(imgs.filter((i) => i.os === f.os).map((i) => i.osVersion))]
+  const archs = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === f.osVersion).map((i) => i.arch))]
+  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion && i.arch === f.arch)
+  const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
+  const minors = (entry?.versions?.[f.psMajor]) || []
+
+  useEffect(() => {
+    if (deployed || !imgs.length) return
+    const patch = {}
+    const osVer = osVersions.includes(f.osVersion) ? f.osVersion : (osVersions[0] ?? f.osVersion)
+    if (osVer !== f.osVersion) patch.osVersion = osVer
+    const archList = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === osVer).map((i) => i.arch))]
+    const arch = archList.includes(f.arch) ? f.arch : (archList[0] ?? f.arch)
+    if (arch !== f.arch) patch.arch = arch
+    const e2 = imgs.find((i) => i.os === f.os && i.osVersion === osVer && i.arch === arch)
+    const majorList = e2 ? Object.keys(e2.versions || {}).filter((m) => (e2.versions[m] || []).length) : []
+    const major = majorList.includes(f.psMajor) ? f.psMajor : (majorList[0] ?? f.psMajor)
+    if (major !== f.psMajor) patch.psMajor = major
+    const minorList = (e2?.versions?.[major]) || []
+    if (f.psVersion && !minorList.includes(f.psVersion)) patch.psVersion = ''
+    if (Object.keys(patch).length) patchFrame(f.id, patch)
+  }, [imgs, f.id, f.os, f.osVersion, f.arch, f.psMajor, f.psVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pmmNodes = nodes.filter((x) => x.type === 'pmm')
+  const members = nodes.filter((x) => x.frameId === f.id)
+  const primaries = members.filter((x) => x.role === 'primary').length
+  const secondaries = members.length - primaries
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Percona Server Replication</span>
+        <Badge tone="primary">{members.length} node{members.length === 1 ? '' : 's'}</Badge>
+      </div>
+
+      <Field label="Cluster name" hint="Must be unique across the stack.">
+        <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+      </Field>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+          <select className={`${inputCls} ${lock}`} value={f.os} disabled={deployed} onChange={(e) => patchFrame(f.id, { os: e.target.value })}>
+            {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="OS version">
+          <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
+            {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Platform / arch">
+          <select className={`${inputCls} ${lock}`} value={f.arch} disabled={deployed} onChange={(e) => patchFrame(f.id, { arch: e.target.value })}>
+            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Percona Server major">
+          <select className={`${inputCls} ${lock}`} value={f.psMajor} disabled={deployed} onChange={(e) => patchFrame(f.id, { psMajor: e.target.value, psVersion: '' })}>
+            {majors.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+      </div>
+
+      <Field label="Percona Server minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+        <select className={`${inputCls} ${lock}`} value={f.psVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { psVersion: e.target.value })}>
+          <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
+          {minors.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </Field>
+
+      <Field label="Replication mode" hint={deployed ? 'Locked.' : 'Semi-sync waits for a replica ack on commit.'}>
+        <select className={`${inputCls} ${lock}`} value={f.replMode || 'async'} disabled={deployed} onChange={(e) => patchFrame(f.id, { replMode: e.target.value })}>
+          <option value="async">normal (asynchronous)</option>
+          <option value="semisync">semi-synchronous</option>
+        </select>
+      </Field>
+
+      <Field label="Root password" hint={deployed ? 'Set at deploy.' : 'Leave empty to auto-generate.'}>
+        <input className={`${inputCls} ${lock}`} value={f.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchFrame(f.id, { rootPassword: e.target.value })} />
+      </Field>
+
+      <Field label="Monitored by (PMM)" hint="Optional — registers each node with a PMM node.">
+        <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
+          <option value="">none</option>
+          {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </Field>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for downloads</span>
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={f.gtid !== false} disabled={deployed} onChange={(e) => patchFrame(f.id, { gtid: e.target.checked })} />
+        <span>Enable GTID (required for auto-positioning)</span>
+      </label>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
+        <span>Generate per-node certificates from Intranet CA</span>
+      </label>
+      {f.generateCert && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted">Cert TTL</span>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={f.certTtlUnit || 'days'} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
+            <option value="minutes">minutes</option>
+            <option value="hours">hours</option>
+            <option value="days">days</option>
+          </select>
+        </div>
+      )}
+
+      {(primaries !== 1 || secondaries === 0) && (
+        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+          {primaries !== 1 && <div>Exactly one node must be the primary ({primaries} now).</div>}
+          {secondaries === 0 && <div>At least one secondary is required.</div>}
+        </div>
+      )}
+
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteFrame(f.id)}>
+        <Icon.Trash size={16} /> Delete cluster
+      </Button>
+    </div>
+  )
+}
+
+// MySQLMemberForm edits a MySQL replication member: its role (choosing primary
+// auto-demotes the current primary) and host-port export.
+function MySQLMemberForm({ node: n, frame, nodes, patchNode, dep, deployed }) {
+  const setRole = (role) => {
+    if (role === 'primary') {
+      // Exactly one primary: demote any other primary in this frame.
+      for (const m of nodes) {
+        if (m.frameId === n.frameId && m.id !== n.id && m.role === 'primary') patchNode(m.id, { role: 'secondary' })
+      }
+    }
+    patchNode(n.id, { role })
+  }
+  return (
+    <div className="space-y-3">
+      {dep && (
+        <div className="flex items-center justify-between rounded-lg bg-surface2 px-3 py-2 text-sm">
+          <span className="text-muted">Deployment</span>
+          <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+        </div>
+      )}
+      <Field label="Node name" hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
+      <Field label="Cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <Field label="Role" hint={deployed ? 'Locked — the node is deployed.' : 'There is always exactly one primary; the rest are read-only secondaries.'}>
+        <select className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.role || 'secondary'} disabled={deployed} onChange={(e) => setRole(e.target.value)}>
+          <option value="primary">primary (read/write)</option>
+          <option value="secondary">secondary (read-only)</option>
+        </select>
+      </Field>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
+        <span>Export DB port (3306) to the host</span>
+      </label>
+      {n.exportEnabled && (
+        <Field label="Host port" hint="0 / empty = random unused port.">
+          <input type="number" min="0" max="65535" className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.exportHostPort || 0} disabled={deployed}
+            onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
+        </Field>
+      )}
+    </div>
+  )
+}
+
+// PerconaServerForm edits a standalone Percona Server node: catalog-driven OS/version
+// + Percona Server major/minor, root password, PMM/proxy/GTID/cert and host export.
+// (Same options as the replication frame, minus the replication mode and role.)
+function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }) {
+  const [cat, setCat] = useState(null)
+  useEffect(() => {
+    let alive = true
+    stackApi.psCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    return () => { alive = false }
+  }, [])
+  const imgs = cat || []
+  const lock = deployed ? 'opacity-70' : ''
+
+  const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
+  const osVersions = [...new Set(imgs.filter((i) => i.os === n.os).map((i) => i.osVersion))]
+  const archs = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === n.osVersion).map((i) => i.arch))]
+  const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion && i.arch === n.arch)
+  const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
+  const minors = (entry?.versions?.[n.psMajor]) || []
+
+  useEffect(() => {
+    if (deployed || !imgs.length) return
+    const patch = {}
+    const osVer = osVersions.includes(n.osVersion) ? n.osVersion : (osVersions[0] ?? n.osVersion)
+    if (osVer !== n.osVersion) patch.osVersion = osVer
+    const archList = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === osVer).map((i) => i.arch))]
+    const arch = archList.includes(n.arch) ? n.arch : (archList[0] ?? n.arch)
+    if (arch !== n.arch) patch.arch = arch
+    const e2 = imgs.find((i) => i.os === n.os && i.osVersion === osVer && i.arch === arch)
+    const majorList = e2 ? Object.keys(e2.versions || {}).filter((m) => (e2.versions[m] || []).length) : []
+    const major = majorList.includes(n.psMajor) ? n.psMajor : (majorList[0] ?? n.psMajor)
+    if (major !== n.psMajor) patch.psMajor = major
+    const minorList = (e2?.versions?.[major]) || []
+    if (n.psVersion && !minorList.includes(n.psVersion)) patch.psVersion = ''
+    if (Object.keys(patch).length) patchNode(n.id, patch)
+  }, [imgs, n.id, n.os, n.osVersion, n.arch, n.psMajor, n.psVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pmmNodes = nodes.filter((x) => x.type === 'pmm')
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Percona Server</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+
+      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+          <select className={`${inputCls} ${lock}`} value={n.os} disabled={deployed} onChange={(e) => patchNode(n.id, { os: e.target.value })}>
+            {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="OS version">
+          <select className={`${inputCls} ${lock}`} value={n.osVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { osVersion: e.target.value })}>
+            {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Platform / arch">
+          <select className={`${inputCls} ${lock}`} value={n.arch} disabled={deployed} onChange={(e) => patchNode(n.id, { arch: e.target.value })}>
+            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Percona Server major">
+          <select className={`${inputCls} ${lock}`} value={n.psMajor} disabled={deployed} onChange={(e) => patchNode(n.id, { psMajor: e.target.value, psVersion: '' })}>
+            {majors.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+      </div>
+
+      <Field label="Percona Server minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+        <select className={`${inputCls} ${lock}`} value={n.psVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { psVersion: e.target.value })}>
+          <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
+          {minors.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </Field>
+
+      <Field label="Root password" hint={deployed ? 'Set at deploy.' : 'Leave empty to auto-generate.'}>
+        <input className={`${inputCls} ${lock}`} value={n.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchNode(n.id, { rootPassword: e.target.value })} />
+      </Field>
+
+      <Field label="Monitored by (PMM)" hint="Optional — registers this server with a PMM node.">
+        <select className={`${inputCls} ${lock}`} value={n.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchNode(n.id, { pmmNodeId: e.target.value })}>
+          <option value="">none</option>
+          {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </Field>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for downloads</span>
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={n.gtid !== false} disabled={deployed} onChange={(e) => patchNode(n.id, { gtid: e.target.checked })} />
+        <span>Enable GTID</span>
+      </label>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.generateCert} disabled={deployed} onChange={(e) => patchNode(n.id, { generateCert: e.target.checked })} />
+        <span>Generate certificate from Intranet CA</span>
+      </label>
+      {n.generateCert && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted">Cert TTL</span>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={n.certTtlValue || 365} onChange={(e) => patchNode(n.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={n.certTtlUnit || 'days'} onChange={(e) => patchNode(n.id, { certTtlUnit: e.target.value })}>
+            <option value="minutes">minutes</option>
+            <option value="hours">hours</option>
+            <option value="days">days</option>
+          </select>
+        </div>
+      )}
+
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
+        <span>Export DB port (3306) to the host</span>
+      </label>
+      {n.exportEnabled && (
+        <Field label="Host port" hint="0 / empty = random unused port.">
+          <input type="number" min="0" max="65535" className={`${inputCls} ${lock}`} value={n.exportHostPort || 0} disabled={deployed}
+            onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
+        </Field>
+      )}
+
+      {!deployed && <p className="text-xs text-muted">Access links and credentials appear here after deploy.</p>}
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// ProxySQLForm edits a (not-yet-running) ProxySQL node: catalog-driven OS/version
+// + ProxySQL major/minor, implementation mode, host-port export and PMM monitor.
+// It must be linked to a PXC cluster frame by an association line on the canvas.
+function ProxySQLForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep, deployed }) {
+  const [cat, setCat] = useState(null)
+  useEffect(() => {
+    let alive = true
+    stackApi.proxysqlCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    return () => { alive = false }
+  }, [])
+  const imgs = cat || []
+  const lock = deployed ? 'opacity-70' : ''
+
+  const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
+  const osVersions = [...new Set(imgs.filter((i) => i.os === n.os).map((i) => i.osVersion))]
+  const archs = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === n.osVersion).map((i) => i.arch))]
+  const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion && i.arch === n.arch)
+  const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
+  const minors = (entry?.versions?.[n.proxysqlMajor]) || []
+
+  // Same cascade-normalization as the PXC frame: snap invalid dependent selects.
+  useEffect(() => {
+    if (deployed || !imgs.length) return
+    const patch = {}
+    const osVer = osVersions.includes(n.osVersion) ? n.osVersion : (osVersions[0] ?? n.osVersion)
+    if (osVer !== n.osVersion) patch.osVersion = osVer
+    const archList = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === osVer).map((i) => i.arch))]
+    const arch = archList.includes(n.arch) ? n.arch : (archList[0] ?? n.arch)
+    if (arch !== n.arch) patch.arch = arch
+    const e2 = imgs.find((i) => i.os === n.os && i.osVersion === osVer && i.arch === arch)
+    const majorList = e2 ? Object.keys(e2.versions || {}).filter((m) => (e2.versions[m] || []).length) : []
+    const major = majorList.includes(n.proxysqlMajor) ? n.proxysqlMajor : (majorList[0] ?? n.proxysqlMajor)
+    if (major !== n.proxysqlMajor) patch.proxysqlMajor = major
+    const minorList = (e2?.versions?.[major]) || []
+    if (n.proxysqlVersion && !minorList.includes(n.proxysqlVersion)) patch.proxysqlVersion = ''
+    if (Object.keys(patch).length) patchNode(n.id, patch)
+  }, [imgs, n.id, n.os, n.osVersion, n.arch, n.proxysqlMajor, n.proxysqlVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pmmNodes = nodes.filter((x) => x.type === 'pmm')
+  // Walk the association graph (a ProxySQL may reach a cluster through another ProxySQL).
+  const linkedFrame = (() => {
+    const adj = {}
+    for (const e of edges) {
+      ;(adj[e.from.node] ||= []).push(e.to.node)
+      ;(adj[e.to.node] ||= []).push(e.from.node)
+    }
+    const seen = new Set([n.id])
+    const queue = [n.id]
+    while (queue.length) {
+      const cur = queue.shift()
+      for (const nb of adj[cur] || []) {
+        const f = frames.find((fr) => fr.id === nb && (fr.type === 'pxc' || fr.type === 'mysql'))
+        if (f) return f
+        if (!seen.has(nb)) { seen.add(nb); queue.push(nb) }
+      }
+    }
+    return null
+  })()
+  const modeOpts = proxyModeOpts(linkedFrame?.type)
+  // Normalize the mode when the linked backend changes (PXC vs MySQL modes differ).
+  useEffect(() => {
+    if (deployed || !linkedFrame) return
+    if (!modeOpts.some((m) => m.id === n.mode)) patchNode(n.id, { mode: modeOpts[0].id })
+  }, [linkedFrame?.type, n.mode, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">ProxySQL</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+
+      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+
+      {linkedFrame ? (
+        <div className="rounded-lg border border-success/30 bg-success/10 px-2.5 py-1.5 text-xs text-success">
+          Linked to {linkedFrame.type === 'mysql' ? 'MySQL' : 'PXC'} cluster <span className="font-semibold">{linkedFrame.label}</span> (data flows cluster → ProxySQL).
+        </div>
+      ) : (
+        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+          Not linked — drag an association line from a PXC cluster frame to this node.
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+          <select className={`${inputCls} ${lock}`} value={n.os} disabled={deployed} onChange={(e) => patchNode(n.id, { os: e.target.value })}>
+            {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="OS version">
+          <select className={`${inputCls} ${lock}`} value={n.osVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { osVersion: e.target.value })}>
+            {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Platform / arch">
+          <select className={`${inputCls} ${lock}`} value={n.arch} disabled={deployed} onChange={(e) => patchNode(n.id, { arch: e.target.value })}>
+            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="ProxySQL major">
+          <select className={`${inputCls} ${lock}`} value={n.proxysqlMajor} disabled={deployed} onChange={(e) => patchNode(n.id, { proxysqlMajor: e.target.value, proxysqlVersion: '' })}>
+            {majors.map((o) => <option key={o} value={o}>proxysql{o}</option>)}
+          </select>
+        </Field>
+      </div>
+
+      <Field label="ProxySQL minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+        <select className={`${inputCls} ${lock}`} value={n.proxysqlVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { proxysqlVersion: e.target.value })}>
+          <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
+          {minors.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </Field>
+
+      <Field label="Implementation mode" hint={deployed ? 'Locked.' : (modeOpts === PROXY_MODE_OPTS.mysql ? 'How ProxySQL routes traffic to the MySQL primary/replicas.' : 'MODE for proxysql-admin.')}>
+        <select className={`${inputCls} ${lock}`} value={modeOpts.some((m) => m.id === n.mode) ? n.mode : modeOpts[0].id} disabled={deployed} onChange={(e) => patchNode(n.id, { mode: e.target.value })}>
+          {modeOpts.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+        </select>
+      </Field>
+
+      <Field label="Monitored by (PMM)" hint="Optional — registers ProxySQL with a PMM node.">
+        <select className={`${inputCls} ${lock}`} value={n.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchNode(n.id, { pmmNodeId: e.target.value })}>
+          <option value="">none</option>
+          {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </Field>
+
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for egress</span>
+      </label>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
+        <span>Expose ProxySQL ports to the host (6033 MySQL, 6032 admin)</span>
+      </label>
+      {n.exportEnabled && (
+        <Field label="MySQL host port (6033)" hint="0 / empty = random unused port; the admin port (6032) is auto-assigned.">
+          <input type="number" min="0" max="65535" className={`${inputCls} ${lock}`} value={n.exportHostPort || 0} disabled={deployed}
+            onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
+        </Field>
+      )}
+
+      {!deployed && <p className="text-xs text-muted">Access links and credentials appear here after deploy.</p>}
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// frameLinkedCluster walks the association graph from a frame/node id to the PXC
+// cluster frame it (transitively) reaches, if any.
+function frameLinkedCluster(startId, edges, frames) {
+  const adj = {}
+  for (const e of edges) {
+    ;(adj[e.from.node] ||= []).push(e.to.node)
+    ;(adj[e.to.node] ||= []).push(e.from.node)
+  }
+  const seen = new Set([startId])
+  const queue = [startId]
+  while (queue.length) {
+    const cur = queue.shift()
+    for (const nb of adj[cur] || []) {
+      const f = frames.find((fr) => fr.id === nb && (fr.type === 'pxc' || fr.type === 'mysql'))
+      if (f) return f
+      if (!seen.has(nb)) { seen.add(nb); queue.push(nb) }
+    }
+  }
+  return null
+}
+
+// ProxySQLFrameForm edits a ProxySQL cluster frame: catalog-driven OS/version +
+// ProxySQL major/minor, implementation mode, PMM monitor and Intranet-proxy
+// options. Per-member host-port export lives on each member node.
+function ProxySQLFrameForm({ frame: f, nodes, frames, edges, patchFrame, deleteFrame, deployed }) {
+  const [cat, setCat] = useState(null)
+  useEffect(() => {
+    let alive = true
+    stackApi.proxysqlCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    return () => { alive = false }
+  }, [])
+  const imgs = cat || []
+  const lock = deployed ? 'opacity-70' : ''
+
+  const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
+  const osVersions = [...new Set(imgs.filter((i) => i.os === f.os).map((i) => i.osVersion))]
+  const archs = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === f.osVersion).map((i) => i.arch))]
+  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion && i.arch === f.arch)
+  const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
+  const minors = (entry?.versions?.[f.proxysqlMajor]) || []
+
+  useEffect(() => {
+    if (deployed || !imgs.length) return
+    const patch = {}
+    const osVer = osVersions.includes(f.osVersion) ? f.osVersion : (osVersions[0] ?? f.osVersion)
+    if (osVer !== f.osVersion) patch.osVersion = osVer
+    const archList = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === osVer).map((i) => i.arch))]
+    const arch = archList.includes(f.arch) ? f.arch : (archList[0] ?? f.arch)
+    if (arch !== f.arch) patch.arch = arch
+    const e2 = imgs.find((i) => i.os === f.os && i.osVersion === osVer && i.arch === arch)
+    const majorList = e2 ? Object.keys(e2.versions || {}).filter((m) => (e2.versions[m] || []).length) : []
+    const major = majorList.includes(f.proxysqlMajor) ? f.proxysqlMajor : (majorList[0] ?? f.proxysqlMajor)
+    if (major !== f.proxysqlMajor) patch.proxysqlMajor = major
+    const minorList = (e2?.versions?.[major]) || []
+    if (f.proxysqlVersion && !minorList.includes(f.proxysqlVersion)) patch.proxysqlVersion = ''
+    if (Object.keys(patch).length) patchFrame(f.id, patch)
+  }, [imgs, f.id, f.os, f.osVersion, f.arch, f.proxysqlMajor, f.proxysqlVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pmmNodes = nodes.filter((n) => n.type === 'pmm')
+  const memberCount = nodes.filter((n) => n.frameId === f.id).length
+  const linkedFrame = frameLinkedCluster(f.id, edges, frames)
+  const modeOpts = proxyModeOpts(linkedFrame?.type)
+  useEffect(() => {
+    if (deployed || !linkedFrame) return
+    if (!modeOpts.some((m) => m.id === f.mode)) patchFrame(f.id, { mode: modeOpts[0].id })
+  }, [linkedFrame?.type, f.mode, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">ProxySQL Cluster</span>
+        <Badge tone="primary">{memberCount} node{memberCount === 1 ? '' : 's'}</Badge>
+      </div>
+
+      <Field label="Cluster name" hint="Must be unique across the stack.">
+        <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+      </Field>
+
+      {linkedFrame ? (
+        <div className="rounded-lg border border-success/30 bg-success/10 px-2.5 py-1.5 text-xs text-success">
+          Linked to {linkedFrame.type === 'mysql' ? 'MySQL' : 'PXC'} cluster <span className="font-semibold">{linkedFrame.label}</span> (data flows cluster → ProxySQL).
+        </div>
+      ) : (
+        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+          Not linked — drag an association line from a PXC cluster frame to this cluster.
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+          <select className={`${inputCls} ${lock}`} value={f.os} disabled={deployed} onChange={(e) => patchFrame(f.id, { os: e.target.value })}>
+            {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="OS version">
+          <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
+            {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Platform / arch">
+          <select className={`${inputCls} ${lock}`} value={f.arch} disabled={deployed} onChange={(e) => patchFrame(f.id, { arch: e.target.value })}>
+            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="ProxySQL major">
+          <select className={`${inputCls} ${lock}`} value={f.proxysqlMajor} disabled={deployed} onChange={(e) => patchFrame(f.id, { proxysqlMajor: e.target.value, proxysqlVersion: '' })}>
+            {majors.map((o) => <option key={o} value={o}>proxysql{o}</option>)}
+          </select>
+        </Field>
+      </div>
+
+      <Field label="ProxySQL minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+        <select className={`${inputCls} ${lock}`} value={f.proxysqlVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { proxysqlVersion: e.target.value })}>
+          <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
+          {minors.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </Field>
+
+      <Field label="Implementation mode" hint={deployed ? 'Locked.' : (modeOpts === PROXY_MODE_OPTS.mysql ? 'How ProxySQL routes traffic to the MySQL primary/replicas.' : 'MODE for proxysql-admin.')}>
+        <select className={`${inputCls} ${lock}`} value={modeOpts.some((m) => m.id === f.mode) ? f.mode : modeOpts[0].id} disabled={deployed} onChange={(e) => patchFrame(f.id, { mode: e.target.value })}>
+          {modeOpts.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+        </select>
+      </Field>
+
+      <Field label="Monitored by (PMM)" hint="Optional — registers each member with a PMM node.">
+        <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
+          <option value="">none</option>
+          {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </Field>
+
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for downloads</span>
+      </label>
+
+      <p className="text-xs text-muted">Add/remove ProxySQL nodes with the +/- on the frame. Per-node host-port export is set on each node.</p>
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteFrame(f.id)}>
+        <Icon.Trash size={16} /> Delete cluster
+      </Button>
+    </div>
+  )
+}
+
+// ProxySQLFrameMemberForm edits a ProxySQL cluster member: only host-port export
+// (OS/version/mode come from the frame).
+function ProxySQLFrameMemberForm({ node: n, frame, patchNode, dep, deployed }) {
+  return (
+    <div className="space-y-3">
+      {dep && (
+        <div className="flex items-center justify-between rounded-lg bg-surface2 px-3 py-2 text-sm">
+          <span className="text-muted">Deployment</span>
+          <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+        </div>
+      )}
+      <Field label="Node name" hint="Auto-assigned, unique across the stack.">
+        <input className={`${inputCls} opacity-70`} value={n.label} readOnly />
+      </Field>
+      <Field label="ProxySQL cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
+        <span>Expose ProxySQL ports to the host (6033 MySQL, 6032 admin)</span>
+      </label>
+      {n.exportEnabled && (
+        <Field label="MySQL host port (6033)" hint="0 / empty = random unused port; the admin port (6032) is auto-assigned.">
+          <input type="number" min="0" max="65535" className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.exportHostPort || 0} disabled={deployed}
+            onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
+        </Field>
+      )}
+      {!deployed && <p className="text-xs text-muted">Cluster settings (OS, version, mode, monitoring) are on the frame.</p>}
     </div>
   )
 }
@@ -1476,7 +2471,7 @@ function loadProps() {
 function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, deleteNode, deleteEdge, deleteFrame }) {
   const selNode = selected?.kind === 'node' ? nodes.find((n) => n.id === selected.id) : null
   const selDep = selNode ? depByNode[selNode.id] : null
-  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc')) || selected?.kind === 'frame'
+  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps')) || selected?.kind === 'frame'
 
   const saved = useRef(loadProps()).current
   const [docked, setDocked] = useState(saved.docked !== false)
@@ -1557,7 +2552,14 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     if (!f) return null
     const frameNodes = nodes.filter((n) => n.frameId === f.id)
     const deployed = frameNodes.some((n) => depByNode[n.id])
-    return <PXCFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+    const running = frameNodes.some((n) => depByNode[n.id]?.state === 'running')
+    if (f.type === 'proxysql') {
+      return <ProxySQLFrameForm frame={f} nodes={nodes} frames={frames} edges={edges} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+    }
+    if (f.type === 'mysql') {
+      return <MySQLFrameForm frame={f} nodes={nodes} frames={frames} edges={edges} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+    }
+    return <PXCFrameForm frame={f} stackId={stackId} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} running={running} />
   }
 
   if (selected.kind === 'node') {
@@ -1574,6 +2576,14 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       return <PXCNodeForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} nodes={nodes} patchNode={patchNode} dep={dep} deployed={deployed} />
     }
 
+    // MySQL replication member node.
+    if (n.type === 'mysql') {
+      if (dep && dep.state === 'running') {
+        return <MySQLManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <MySQLMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} nodes={nodes} patchNode={patchNode} dep={dep} deployed={deployed} />
+    }
+
     const def = NODE_TYPES[n.type] || NODE_TYPES.intranet
 
     // Deployed + running Intranet → full management console.
@@ -1583,6 +2593,25 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     // Deployed + running PMM → PMM management console.
     if (dep && dep.state === 'running' && n.type === 'pmm') {
       return <PMMManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+    }
+    // Deployed + running ProxySQL → ProxySQL management console.
+    if (dep && dep.state === 'running' && n.type === 'proxysql') {
+      return <ProxySQLManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+    }
+    // ProxySQL (not yet running): a cluster member shows the per-member form; a
+    // standalone node shows the full options form.
+    if (n.type === 'proxysql') {
+      if (n.frameId) {
+        return <ProxySQLFrameMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} patchNode={patchNode} dep={dep} deployed={deployed} />
+      }
+      return <ProxySQLForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+    // Standalone Percona Server node.
+    if (n.type === 'ps') {
+      if (dep && dep.state === 'running') {
+        return <MySQLManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <PerconaServerForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
     return (
       <div className="space-y-3">

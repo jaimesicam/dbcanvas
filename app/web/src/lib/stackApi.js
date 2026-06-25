@@ -50,6 +50,8 @@ export const stackApi = {
   nodeAction: (id, nid, action) => request('POST', `/api/stacks/${id}/nodes/${nid}/${action}`),
   pmmCatalog: () => request('GET', '/api/catalog/pmm'),
   pxcCatalog: () => request('GET', '/api/catalog/pxc'),
+  proxysqlCatalog: () => request('GET', '/api/catalog/proxysql'),
+  psCatalog: () => request('GET', '/api/catalog/ps'),
 }
 
 // PMM node management. `nid` is the design node id.
@@ -67,6 +69,15 @@ export function pxcApi(id, nid) {
   return {
     certInfo: () => request('GET', `${base}/pxc/cert`),
     certGenerate: (value, unit) => request('POST', `${base}/pxc/cert`, { value, unit }),
+  }
+}
+
+// PXC cluster (frame) management. `fid` is the design frame id.
+export function frameApi(id, fid) {
+  const base = `/api/stacks/${id}/frames/${fid}`
+  return {
+    // pmmNodeId "" turns monitoring off; a node id registers the cluster with that PMM server.
+    setMonitoring: (pmmNodeId) => request('POST', `${base}/pmm`, { pmmNodeId }),
   }
 }
 

@@ -164,9 +164,16 @@ type PXCImage struct {
 	Versions  map[string][]string `json:"versions"` // "8.0" → [...], "8.4" → [...]
 }
 
-// loadPXCCatalog parses the per-image `percona_xtradb_cluster` sections of
-// versions.yaml. Never errors — returns nil on any problem.
-func loadPXCCatalog() []PXCImage {
+// loadPXCCatalog / loadProxySQLCatalog / loadPSCatalog parse the per-image
+// `percona_xtradb_cluster` / `proxysql` / `percona_server` sections of versions.yaml.
+func loadPXCCatalog() []PXCImage      { return loadImageCatalog("percona_xtradb_cluster") }
+func loadProxySQLCatalog() []PXCImage { return loadImageCatalog("proxysql") }
+func loadPSCatalog() []PXCImage       { return loadImageCatalog("percona_server") }
+
+// loadImageCatalog parses the per-image `<wantSection>` major-series map of
+// versions.yaml (each image's installable versions keyed by series). It mirrors
+// the YAML the generator emits. Never errors — returns nil on any problem.
+func loadImageCatalog(wantSection string) []PXCImage {
 	path := versionsFilePath()
 	if path == "" {
 		return nil
@@ -180,8 +187,8 @@ func loadPXCCatalog() []PXCImage {
 	var out []PXCImage
 	var cur *PXCImage
 	inImages := false
-	section := "" // "pxc" while inside a percona_xtradb_cluster block
-	series := ""  // current major series ("8.0"/"8.4") while reading its list
+	inWanted := false // inside the requested per-image section
+	series := ""      // current major series key while reading its list
 
 	flush := func() {
 		if cur != nil {
@@ -202,7 +209,7 @@ func loadPXCCatalog() []PXCImage {
 		if !strings.HasPrefix(line, " ") {
 			flush()
 			inImages = strings.HasPrefix(line, "images:")
-			section, series = "", ""
+			inWanted, series = false, ""
 			continue
 		}
 		if !inImages {
@@ -213,7 +220,7 @@ func loadPXCCatalog() []PXCImage {
 			flush()
 			cur = &PXCImage{Versions: map[string][]string{}}
 			cur.OS = unquoteYAML(strings.TrimSpace(strings.TrimPrefix(line, "  - os:")))
-			section, series = "", ""
+			inWanted, series = false, ""
 			continue
 		}
 		if cur == nil {
@@ -221,7 +228,7 @@ func loadPXCCatalog() []PXCImage {
 		}
 		// 4-space entry key / section header.
 		if strings.HasPrefix(line, "    ") && !strings.HasPrefix(line, "      ") {
-			section, series = "", ""
+			inWanted, series = false, ""
 			key, val := splitYAMLKV(trimmed)
 			switch key {
 			case "version":
@@ -230,19 +237,19 @@ func loadPXCCatalog() []PXCImage {
 				cur.Arch = val
 			case "platform":
 				cur.Platform = val
-			case "percona_xtradb_cluster":
-				section = "pxc"
+			case wantSection:
+				inWanted = true
 			}
 			continue
 		}
 		// 6-space major-series key under a section.
 		if strings.HasPrefix(line, "      ") && !strings.HasPrefix(line, "        ") {
-			if section != "pxc" {
+			if !inWanted {
 				series = ""
 				continue
 			}
 			key, val := splitYAMLKV(trimmed)
-			series = unquoteYAML(key) // keys like "8.0" are quoted in the YAML
+			series = unquoteYAML(key) // keys like "8.0" / "2" are quoted in the YAML
 			if val == "[]" {
 				cur.Versions[series] = []string{}
 				series = ""
@@ -253,7 +260,7 @@ func loadPXCCatalog() []PXCImage {
 		}
 		// 8-space list item under the current series.
 		if strings.HasPrefix(line, "        - ") {
-			if section == "pxc" && series != "" {
+			if inWanted && series != "" {
 				v := unquoteYAML(strings.TrimSpace(strings.TrimPrefix(trimmed, "-")))
 				if v != "" {
 					cur.Versions[series] = append(cur.Versions[series], v)
@@ -271,4 +278,20 @@ func (a *App) handlePXCCatalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"images": loadPXCCatalog()})
+}
+
+func (a *App) handleProxySQLCatalog(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.currentUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"images": loadProxySQLCatalog()})
+}
+
+func (a *App) handlePSCatalog(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.currentUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"images": loadPSCatalog()})
 }

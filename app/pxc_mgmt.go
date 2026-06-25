@@ -61,7 +61,7 @@ func (a *App) handlePXCCertGenerate(w http.ResponseWriter, r *http.Request) {
 	if fqdn == "" {
 		fqdn = fqdnOf(cfg.Hostname, envOr("DOMAIN", "example.net"))
 	}
-	if err := a.pxcApplyCert(r.Context(), dep.ContainerID, intranetID, fqdn, unit, b.Value, b.Unit, nil); err != nil {
+	if err := a.pxcApplyCert(r.Context(), dep.ContainerID, intranetID, fqdn, unit, cfg.OS, b.Value, b.Unit, nil); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -74,4 +74,85 @@ func (a *App) handlePXCCertGenerate(w http.ResponseWriter, r *http.Request) {
 	}
 	out, _ := a.execScript(r.Context(), dep.ContainerID, pxcCertInfoScript, nil)
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "result": strings.TrimSpace(out)})
+}
+
+// handlePXCFrameMonitor turns PMM monitoring on or off for a deployed PXC cluster.
+// Body: {"pmmNodeId": "<id>"} to register the cluster's data nodes with that PMM
+// server, or "" to deregister them. It applies to every running regular member
+// (arbitrators have no MySQL to monitor) and records the change in each member's
+// config so the manager reflects it.
+func (a *App) handlePXCFrameMonitor(w http.ResponseWriter, r *http.Request) {
+	st, _, ok := a.loadOwnedStack(w, r)
+	if !ok {
+		return
+	}
+	fid := r.PathValue("fid")
+	var b struct {
+		PMMNodeID string `json:"pmmNodeId"`
+	}
+	if err := decode(r, &b); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	var doc designDoc
+	if json.Unmarshal(st.Design, &doc) != nil {
+		writeErr(w, http.StatusInternalServerError, "invalid stack design")
+		return
+	}
+	var frame designFrame
+	found := false
+	for _, f := range doc.Frames {
+		if f.ID == fid && f.Type == "pxc" {
+			frame, found = f, true
+			break
+		}
+	}
+	if !found {
+		writeErr(w, http.StatusNotFound, "PXC cluster not found")
+		return
+	}
+
+	monitoredBy, pmmUser, pmmPass := "", "", ""
+	if b.PMMNodeID != "" {
+		fqdn, user, pass, running := a.pmmServerFor(st, doc, b.PMMNodeID)
+		if !running {
+			writeErr(w, http.StatusConflict, "the selected PMM node is not running")
+			return
+		}
+		monitoredBy, pmmUser, pmmPass = fqdn, user, pass
+	}
+
+	ctx := r.Context()
+	updated := 0
+	for _, n := range doc.Nodes {
+		if n.FrameID != fid || n.Type != "pxc" || n.Role == "arbitrator" {
+			continue
+		}
+		dep, err := a.store.GetDeployment(st.ID, n.ID)
+		if err != nil || dep.ContainerID == "" || dep.State != DeployRunning {
+			continue
+		}
+		var sec pxcSecrets
+		json.Unmarshal(dep.Secrets, &sec)
+		if b.PMMNodeID != "" {
+			if err := a.pxcPMMExec(ctx, dep.ContainerID, frame.OS, pxcPMMEnv(monitoredBy, pmmUser, pmmPass, sec, n.Label)); err != nil {
+				writeErr(w, http.StatusInternalServerError, "register "+n.Label+" with PMM: "+err.Error())
+				return
+			}
+		} else {
+			// Best-effort deregister; ignore errors so an unreachable agent doesn't block.
+			a.docker.Exec(ctx, dep.ContainerID, []string{"bash", "-c", pxcPMMRemoveScript}, []string{"NODE=" + n.Label})
+		}
+		var cfg pxcConfig
+		json.Unmarshal(dep.Config, &cfg)
+		cfg.MonitoredBy = monitoredBy
+		cfgJSON, _ := json.Marshal(cfg)
+		a.store.UpsertDeployment(Deployment{StackID: dep.StackID, NodeID: dep.NodeID, ContainerID: dep.ContainerID, State: dep.State, Config: cfgJSON, Secrets: dep.Secrets})
+		updated++
+	}
+
+	// The frame's pmmNodeId is persisted by the designer's autosave; here we only
+	// reconcile the live containers and each member's recorded MonitoredBy.
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "monitoredBy": monitoredBy, "updated": updated})
 }

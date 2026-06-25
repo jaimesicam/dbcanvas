@@ -214,6 +214,20 @@ signing CA). Delivered in four phases — **all complete**.
   admin mailbox; enables+starts all services. Idempotent via a marker file.
   - **OL9 note:** unlike stock RHEL 8/9, Oracle Linux 9 **does** ship
     `openldap-servers` (2.6.x) and `roundcubemail` via Oracle EPEL + CodeReady.
+  - **rsyslog** is installed + enabled on the Intranet (in the install/enable steps)
+    and on **every other systemd-image node** (PXC, ProxySQL, Percona Server /
+    replication) via a shared best-effort **`ensureRsyslog`** helper
+    (`command -v rsyslogd || install; systemctl enable --now rsyslog`) called after
+    each node's package install. (PMM uses the `percona/pmm-server` image with its
+    own logging and is excluded.)
+  - **Squid cache** (a "Configure Squid" step before services start): appends
+    `maximum_object_size 150 MB` and `cache_dir ufs /var/spool/squid 4000 16 256`
+    to `/etc/squid/squid.conf` (idempotent grep-guarded) and ensures the
+    `/var/spool/squid` dir exists. The cache **swap directories are initialized by
+    the squid.service's own `ExecStartPre` (`cache_swap.sh`) on start** — we must
+    **not** run `squid -z` manually, as it leaves a detached instance + `/run/squid.pid`
+    that makes the subsequent `systemctl start` fail with "Squid is already running"
+    (`Result: protocol`).
 - **Routes** (`app/main.go`): `POST /api/stacks/{id}/validate`, `.../deploy`,
   `.../destroy`, `GET /api/stacks/{id}/nodes/{nid}`,
   `POST .../nodes/{nid}/{start|stop|restart}`.
@@ -271,12 +285,17 @@ reject `:` and newlines). New backend file **`app/intranet_mgmt.go`** + routes:
 - **Frontend**: `@xterm/xterm` + `@xterm/addon-fit`. A top-level
   `src/terminal/TerminalProvider.jsx` (mounted in `App.jsx` **above** the page
   switch) holds xterm instances + WebSockets in a ref map and renders a persistent
-  **TerminalDock** — so sessions **survive navigation** (leaving/returning to the
-  Stacks page doesn't reset them). The dock is multi-tab (one per container),
-  minimisable, and **dock/detach**-able: docked = bottom bar with a drag-to-resize
-  height handle; detached = floating window (drag header to move, corner handle to
-  free-resize). Layout persists in `localStorage`. "Enter root console" is offered
-  from the node right-click menu and the Intranet Overview tab.
+  terminal layer — so sessions **survive navigation** (leaving/returning to the
+  Stacks page doesn't reset them). The bottom **dock** is multi-tab (one per
+  container), minimisable, with a drag-to-resize height handle. **Each tab is
+  individually detachable** into its own floating window (the **⧉** button on the
+  tab) and **re-attachable** (the **Dock** button on the window); floating windows
+  drag by their header and free-resize (CSS `resize`). Detach/attach does **not**
+  re-create xterm — each session owns a persistent host `<div>` (with xterm opened
+  into it once) that is **re-parented via `appendChild`** between the dock area and
+  its floating window, so scrollback and the live socket survive the move. The dock
+  height persists in `localStorage`. "Enter root console" is offered from the node
+  right-click menu and the Intranet Overview tab.
 - **Properties panel** (`StackDesigner.jsx`): now **horizontally resizable when
   docked** (left-edge drag) and **detachable** into a floating, freely-resizable
   window (move + corner handle); layout persists in `localStorage`.
@@ -917,3 +936,498 @@ deploy-time `pxcApplyCert`). Arbitrators show only Overview.
 > Note: Ubuntu/Debian PXC paths are wired (provider dir, apt install) but only
 > the Oracle Linux path was validated end-to-end; PMM auto-registration and the
 > Squid proxy are best-effort (non-fatal) steps.
+
+---
+
+## 8. PXC refinements — descriptions, post-deploy PMM toggle, XtraBackup
+
+Three follow-ups to the PXC frame (§7).
+
+### Canvas descriptions (frontend)
+
+The PXC cluster **frame** and its **node cards** now carry a description like the
+other node types. In `StackDesigner.jsx`:
+- The frame title bar gains a second muted line: **`Percona XtraDB Cluster <ver> ·
+  N node(s)`** (`pxcVersionLabel(f)` — the pinned minor `pxcVersion` if set, else
+  the `pxcMajor` series), with the cluster name on the first line and the +/-
+  buttons unchanged on the right.
+- Each PXC node card replaces the bare `regular`/`arbitrator` word with a fuller
+  description — **"Galera data node"** for regular members, **"Arbitrator ·
+  garbd"** for arbitrators — and adds an **OS + platform** line
+  (`pxcOSLabel(f) · <arch>`, e.g. "Oracle Linux 9 · amd64") taken from the frame,
+  matching the OS/arch line the Intranet/PMM node cards already show.
+
+### Post-deploy PMM monitoring toggle
+
+A deployed PXC cluster can now be **switched on/off PMM monitoring** without a
+redeploy, from the frame's properties panel.
+
+- **Backend** `app/pxc_mgmt.go` + route `POST /api/stacks/{id}/frames/{fid}/pmm`
+  (`handlePXCFrameMonitor`): body `{pmmNodeId}` — a PMM node id registers every
+  **running regular** member with that PMM server; `""` deregisters them
+  (arbitrators have no MySQL, so they are skipped). It records the change in each
+  member's `config.MonitoredBy`; the frame's `pmmNodeId` itself is persisted by
+  the designer's autosave (the handler does **not** rewrite the design, to avoid
+  clobbering a concurrent autosave). Selecting a PMM node that isn't running →
+  409.
+- **pmm-client installed unconditionally at deploy.** Every **data node** installs
+  the PMM client at provision time (`pxcPrepareNode`, ~45%, regular nodes only —
+  arbitrators have no MySQL), **regardless of whether monitoring is on**, so it can
+  be enabled on-the-fly later without an install: `pxcInstallPMMClient{RHEL,Debian}`
+  = **`percona-release setup pmm3-client`** then `dnf install pmm-client` (OEL) /
+  `apt-get update && apt-get install pmm-client` (Ubuntu — the repo `update` was
+  previously missing). The install fails loudly (no `|| true`) so a broken install
+  surfaces; the earlier register scripts used `percona-release enable` and swallowed
+  every error with `|| true`, so a failed install was silent and the node never
+  joined PMM. The register scripts still re-ensure the client (guarded by
+  `command -v pmm-admin`) so they self-heal on clusters provisioned before the
+  install became unconditional. Turning monitoring **off only deregisters**
+  (`pxcPMMRemoveScript`: `pmm-admin remove mysql` + `pmm-admin unregister --force`)
+  — it never uninstalls pmm-client.
+- **Real PMM credentials.** Registration previously hard-coded `admin:admin` in
+  the `--server-url`. A new **`pmmServerFor(st, doc, pmmNodeId)`** resolves the
+  PMM node's FQDN + admin user/password from its deployment **secrets**
+  (`pmmSecrets`), and the register scripts now use `https://$PMM_USER:$PMM_PASS@…`
+  (`--force` so re-config is idempotent; `pmm-admin remove` before `add` so
+  re-registration doesn't duplicate the service). The deploy-time best-effort
+  registration (`provisionPXCFrame` Phase 3) feeds the same credentials, falling
+  back to `admin/admin` when the PMM node isn't up yet. New deregister script
+  `pxcPMMRemoveScript` (`pmm-admin remove mysql` + `pmm-admin unregister --force`).
+- **Frontend.** `PXCFrameForm` now takes `stackId` + `running`; when any member is
+  running it shows an **Apply PMM monitoring / Disable PMM monitoring** button
+  (busy/success/error states) that calls **`frameApi(id, fid).setMonitoring()`**
+  (new in `lib/stackApi.js`, `POST …/frames/{fid}/pmm`). The "Monitored by (PMM)"
+  select stays editable post-deploy and drives the apply.
+
+### Percona XtraBackup on data nodes
+
+PXC's SST method is `xtrabackup-v2`, so every **regular (data)** node now installs
+**Percona XtraBackup** matching the cluster's series, in `pxcPrepareNode` (after
+the PXC package, ~40%): `percona-release setup pxb80` → `percona-xtrabackup-80`
+for PXC 8.0, `percona-release setup pxb84lts` → `percona-xtrabackup-84` for 8.4
+(RHEL uses `dnf install`, Ubuntu `apt install` — `pxcInstallXtrabackup{RHEL,Debian}`,
+mapped by `pxbProduct`/`pxbPackage`). Arbitrators (garbd, no datadir/SST) skip it.
+
+### Slow query log
+
+Every data node enables the slow query log: `pxcMyCnf` now writes
+`slow_query_log=ON`, `slow_query_log_file=/var/lib/mysql/slow.log` (the
+mysql-owned datadir, so mysqld can always create it), and `long_query_time=2` to
+the `[mysqld]` section. Arbitrators run garbd only (no mysqld) and have no my.cnf.
+
+### Root login (`/root/.my.cnf`) + monitor user
+
+- **`/root/.my.cnf`.** Every data node gets `/root/.my.cnf` (mode 0600) with a
+  `[client]` section (`user=root`, `password=<root pw>`, `socket=…`), so the unix
+  root user can run `mysql` without typing the password (`pxcRootMyCnf`). It is
+  written **after** the root password is established — after bootstrap on the first
+  node, after SST on the joiners — so it doesn't interfere with the bootstrap
+  auth_socket path.
+- **`monitor`@'%' user.** A monitoring user is created on the bootstrap node (and
+  replicated cluster-wide by Galera) with PMM-appropriate grants
+  (`SELECT, PROCESS, REPLICATION CLIENT, RELOAD, BACKUP_ADMIN ON *.*` + `SELECT ON
+  performance_schema.*`, `MAX_USER_CONNECTIONS 10`). Its password comes from the new
+  **`MONITOR_PASSWORD`** env (default `monitor_password`), added to
+  `.env`/`.env.example`/`docker-compose.yml` alongside `APP_PASSWORD`/`REPL_PASSWORD`
+  and carried in `pxcSecrets` (`MonitorUser`/`MonitorPassword`). The PXC manager's
+  **Credentials** tab now lists the monitor user/password too. (PMM registration
+  itself still uses root for now — the monitor user is created and available.)
+- **`cluster`@'%' user.** Likewise created at bootstrap with **`ALL PRIVILEGES …
+  WITH GRANT OPTION`** (it replaces root as ProxySQL's `CLUSTER_USERNAME`). Password
+  from the new **`CLUSTER_PASSWORD`** env (default `cluster_password`); carried in
+  `pxcSecrets` (`ClusterUser`/`ClusterPassword`) and consumed by §9's ProxySQL.
+
+### Ubuntu/Debian PXC fixes
+
+The Ubuntu path (previously only wired, not validated) had several distro-specific
+bugs, all fixed by making the provisioner OS-aware:
+
+- **Config file was ignored → every node bootstrapped standalone.** DBCanvas wrote
+  `/etc/my.cnf`, but on Debian that is read *before* the package's `/etc/mysql`
+  includes, whose default **empty `wsrep_cluster_address`** then overrode ours — so
+  each node formed its own single-node cluster. Now on Debian the config is written
+  to **`/etc/mysql/dbcanvas.cnf`** and a trailing **`!include /etc/mysql/dbcanvas.cnf`**
+  is appended to `/etc/mysql/my.cnf` (`pxcDebianIncludeCnf`) so it is read **last**
+  and wins (`pxcCnfPath`/`pxcCnfDir`). `pxcMyCnf` also now sets `bind-address=0.0.0.0`
+  (Debian's package config defaults to `127.0.0.1`, which would block the published
+  host port and cross-node access) and uses an OS-aware **error-log path**
+  (`/var/log/mysql/error.log` on Debian — apparmor only permits `/var/log/mysql`;
+  `pxcLogError`).
+- **Root password was not applied.** The bootstrap script only handled RHEL's
+  *temporary password* logged to the error log. Debian/Ubuntu leaves
+  `root@localhost` on **auth_socket** (no password), so that path was skipped and
+  `mysql -uroot -p…` then failed. `pxcBootstrapScript` now handles all three cases:
+  already-set (redeploy), RHEL temp-password (`ALTER USER … IDENTIFIED BY`), and
+  Debian auth_socket (connect over the socket as the root OS user and
+  `ALTER USER … IDENTIFIED WITH caching_sha2_password BY`). **Note:** the temp
+  password is *expired*, which permits only `ALTER USER`, not `SELECT` — so the
+  script must **not** probe it with a `SELECT 1` first (an earlier revision did and
+  fell through to the passwordless branch → `Access denied … using password: NO` on
+  OEL); it runs the `ALTER` directly with `--connect-expired-password`. `LOGERR` is passed in so
+  the temp-password grep / failure tails read the right file; the join and cert
+  scripts take `LOGERR`/`CNF` too (the cert script appends `ssl-*` to the OS-correct
+  config file).
+- **pmm-agent not enabled when joining PMM.** `pmm-admin config` talks to the local
+  pmm-agent (127.0.0.1:7777), which the RHEL package starts at install but the
+  Debian package leaves **disabled** — so registration failed. The register scripts
+  now run **`systemctl enable --now pmm-agent`** before (and after) `pmm-admin
+  config` on both families.
+- **MySQL service wasn't added → register over the socket (not TCP).**
+  `pmm-admin add mysql` connected as **root over TCP** (`--host=127.0.0.1`), which
+  fails: `root@localhost` doesn't match a TCP connection and caching_sha2 over plain
+  TCP needs the server key — so the MySQL service was never added (most visibly on
+  Ubuntu). It now adds the service as **root over the unix socket**
+  (`--username=$DB_USER --password=$DB_PW --socket=/var/lib/mysql/mysql.sock`),
+  which authenticates cleanly (socket = secure transport, so caching_sha2 works
+  without TLS). `pxcPMMEnv` passes the root creds from `pxcSecrets`, and the `add`
+  no longer pipes to `/dev/null` so a real failure surfaces. (The `monitor` user is
+  **not** used here — it is reserved for ProxySQL.) The **query source** is chosen at
+  registration time: `slowlog` when `@@global.slow_query_log` is on (the default —
+  see Slow query log above), otherwise `perfschema`.
+- **Arbitrator config path.** garbd's config is `/etc/sysconfig/garb` on RHEL but
+  **`/etc/default/garb`** on Debian; `pxcStartGarbd` now passes the right path
+  (`GARBCONF`) and the script writes there.
+
+### Deploy/validate flush the design first
+
+The certificate step was running even when "Generate per-node certificates" was
+**unticked**: the designer autosave is debounced (600 ms), so unticking and
+clicking **Deploy** quickly deployed the *previously saved* design (cert still on).
+`runDeploy`/`runValidate` now call a new **`saveNow()`** that flushes the current
+canvas (nodes/edges/frames/view) to the server **before** validating/deploying, so
+the deploy acts on exactly what's on screen.
+
+Separately, the cert step failed **silently** (the script sent all openssl/systemctl
+output to `/dev/null`, so the deploy log showed `attempt N/10 failed:` with no
+message). `pxcCertScript` no longer discards stderr and now checks `command -v
+openssl` up front, so a real cause surfaces (e.g. openssl missing from the base
+image, or mysqld failing to restart with TLS).
+
+### Frame OS/version cascade
+
+Changing a PXC frame's **OS** left the now-invalid `osVersion`/`arch`/`pxcMajor`
+in place (e.g. switching to ubuntu kept `osVersion="9"`), so the catalog `entry`
+lookup missed and the **PXC major/minor selects came up empty** until you toggled
+the version back and forth. `PXCFrameForm` now has a normalization effect that
+**cascade-snaps** each invalid dependent field to the first valid option for the
+current catalog (osVersion → arch → major → clears an invalid minor) in one pass,
+skipped when the frame is deployed (locked).
+
+### Verification performed
+
+- `go build`/`vet`/`test`, `gofmt`, and the web build all pass.
+- **Caveat:** the Ubuntu/Debian PXC path is still **not validated end-to-end on a
+  live cluster** — these fixes target the specific distro differences (config
+  precedence, auth_socket, pmm-agent, garb path) but a real Ubuntu deploy should be
+  run to confirm.
+
+---
+
+## 9. ProxySQL node
+
+A **ProxySQL** node — a MySQL proxy that fronts a PXC cluster and routes
+application traffic (read/write split or load-balanced) to its members. It runs on
+a systemd OS image (built by `make images`), is wired to a **PXC cluster frame**
+via a canvas **association line**, and is configured with `proxysql-admin`. Like
+PXC nodes it can be PMM-monitored and can publish its ports to the host.
+
+### `make versions` (ProxySQL discovery)
+
+`images/versions.sh` now also probes **ProxySQL** versions per image and writes a
+`proxysql:` map keyed by major series **"2"/"3"** (mirroring `percona_server` /
+`percona_xtradb_cluster`). Discovery: a single `percona-release setup proxysql`
+repo carries both packages, enumerated separately — RHEL
+`yum/dnf search proxysql2|proxysql3 --showduplicates`, Ubuntu
+`apt-cache madison proxysql2 / proxysql3`. New probe markers `@@PROXYSQL2@@` /
+`@@PROXYSQL3@@`; `emit_series` was generalized to take the two series keys
+(so it serves "8.0"/"8.4" and "2"/"3").
+
+### Catalog (versions.go)
+
+`loadPXCCatalog` was generalized into **`loadImageCatalog(section)`** (parses any
+per-image major-series map); `loadPXCCatalog`/`loadProxySQLCatalog` call it with
+`percona_xtradb_cluster` / `proxysql`. New route **`GET /api/catalog/proxysql`**
+(`handleProxySQLCatalog`) → `{images:[{os,osVersion,arch,versions:{"2":[…],"3":[…]}}]}`.
+
+### Data model
+
+- `designNode` gains `osVersion` (shared) and ProxySQL fields: `proxysqlMajor`
+  ("2"/"3"), `proxysqlVersion` (minor, "" → latest), `mode`
+  (`singlewrite` default | `loadbal`), `pmmNodeId`, plus the existing
+  `exportEnabled`/`exportHostPort`.
+- `designDoc` now carries **`edges`** (`designEdge{from,to:{node,port},type}`; an
+  endpoint's `node` may be a node **or** a frame id). **`pxcFrameForProxySQL(doc,
+  nodeID)`** resolves the PXC frame a ProxySQL node is linked to.
+
+### Provisioning — `app/proxysql.go`
+
+`provisionProxySQL` records the deployment then runs an async, stepwise goroutine:
+1. Wait for the **Intranet** (resolver/CA), then for the **associated PXC cluster**
+   to be running (`waitPXCRunning` — polls the frame's regular members; returns a
+   member FQDN as `CLUSTER_HOSTNAME` and that member's `pxcSecrets`).
+2. **Create + start** the container (systemd image `dbcanvas-systemd:<os>-<ver>-<arch>`,
+   Intranet resolver, publishing **6033** (MySQL) and **6032** (admin) to the host
+   when export is on).
+3. **Install** `proxysql2`/`proxysql3` + **`which`** (`proxysql-admin` shells out to
+   it; absent on a minimal OEL image — Debian's ships in `debianutils`), the
+   **Percona Server mysql client** (`percona-server-client` via `ps80`/`ps84lts`
+   matching the cluster — `proxysql-admin` needs the `mysql` client to talk to PXC),
+   and **pmm-client** (always, so monitoring can be turned on later). When the node's
+   **Use Intranet proxy** option (`useProxy`) is on, the package manager's proxy is
+   pointed at the Intranet Squid (`pkgProxy{RHEL,Debian}`) once up front so every
+   install egresses through it.
+4. **Configure `/etc/proxysql-admin.cnf`** and `proxysql-admin --enable`: the keys
+   come from the linked cluster — `CLUSTER_USERNAME/PASSWORD` = the PXC **`cluster`**
+   admin user (`CLUSTER_PASSWORD` from `.env`, default `cluster_password` —
+   created `cluster`@'%' `WITH GRANT OPTION` on the cluster at bootstrap), not root;
+   `CLUSTER_HOSTNAME` = a PXC node FQDN, `MONITOR_USERNAME/PASSWORD` = the PXC
+   **monitor** user (the user reserved in §8 for exactly this), `CLUSTER_APP_*` =
+   PXC **app** user/`APP_PASSWORD`, and **`MODE`** = `singlewrite`|`loadbal`.
+   `proxysql-admin --enable` is **interactive** (it prompts "enter a new password
+   [y/n]?" because the `monitor` user already exists), so it is run with
+   **`--use-existing-monitor-password`**, which keeps it non-interactive.
+5. Optional **PMM** registration (`pmm-admin add proxysql … --port 6032`).
+
+`proxysqlConfig`/`proxysqlSecrets` store the profile (image, mode, cluster,
+backend host, published host ports, PMM target) and credentials (ProxySQL admin
+interface + the backend app/monitor/cluster creds). `refreshPublishedPorts` and
+the lifecycle (start/stop/restart) handle the 6033/6032 host ports like the other
+nodes. Deploy dispatch adds a `proxysql` case; **install ignores the selected
+minor version** and installs the major package (same as PXC).
+
+### Validation
+
+`validateStack`: a ProxySQL node requires its **OS image to exist** (`make images`)
+and to be **linked to a PXC cluster** (error otherwise); its export host port joins
+the shared port-conflict check.
+
+### Frontend
+
+- **`NODE_TYPES.proxysql`** (`ports: true`, dedicated **`Icon.ProxySQL`** — a
+  proxy/router fanning a client out to three cluster backends) + a **ProxySQL**
+  toolbar button (gated
+  on Intranet). The canvas connection system was extended so a **PXC cluster frame
+  exposes its 4 ports** (`PortHandles` on the frame, rendered last so they sit above
+  the title bar) and `rectOf`/`hitPort` resolve **frame** endpoints; only
+  ports-enabled free nodes and PXC frames are connectable. Association rules live in
+  **`tryConnect`/`createFlow`** (every edge is a directed data flow, arrow at the
+  destination, captioned **"forwards SQL traffic to"** at its midpoint):
+  - **PXC frame → ProxySQL** — orientation is fixed (frame is always the source);
+    no prompt.
+  - **ProxySQL → ProxySQL** — a **`LinkDirectionModal`** asks which way data flows
+    (A→B or B→A); the option whose destination already receives a flow is disabled.
+  - **One incoming flow per ProxySQL** — `createFlow` rejects (no arrow) if the
+    destination already has any incoming edge (from a PXC frame *or* another
+    ProxySQL). So dropping a frame→ProxySQL link onto a ProxySQL that already
+    receives one is silently ignored.
+  - **No frame↔frame links** (a PXC cluster can't associate with another cluster or
+    itself) and **no self-links**.
+  A ProxySQL chained behind another ProxySQL still resolves its upstream PXC cluster:
+  both **`pxcFrameForProxySQL`** (backend) and the form's linked-cluster banner now
+  **walk the association graph** (BFS) rather than only checking direct edges.
+- **`ProxySQLForm`** also has a **Use Intranet proxy (Squid)** checkbox (`useProxy`).
+- **`ProxySQLForm`** (undeployed): catalog-driven OS/version/arch + ProxySQL
+  major/minor (same cascade-normalization as the PXC frame), **mode** select, PMM
+  monitor select, host-port export, and a linked-cluster banner (error until an
+  association line is drawn).
+- **`ProxySQLManager`** (running): Overview / Access (host:port for 6033 app
+  traffic + 6032 admin) / Credentials. The generic right-click menu already gives
+  **root console, start, stop, restart, delete**.
+- `stackApi.proxysqlCatalog()`.
+
+### Verification performed
+
+- `go build`/`vet`/`test`, `gofmt`, and the web build all pass.
+- **Caveat — not validated end-to-end on a live deployment.** The ProxySQL install,
+  `proxysql-admin.cnf` keys, `proxysql-admin --enable` flags and PMM `add proxysql`
+  follow Percona's documented usage but were **not** run against real containers; a
+  live deploy (OL first, then Ubuntu) should confirm, and `make versions` should be
+  re-run to populate the `proxysql:` catalog.
+
+---
+
+## 10. ProxySQL cluster frame
+
+A **ProxySQL cluster frame** — a canvas frame (like the PXC cluster frame, §7)
+holding ProxySQL nodes, all fronting the same PXC cluster. Add/remove members with
+the frame's **+/-**; minimum one member. The members have **no exposed endpoints**
+— only the **frame** carries the association port.
+
+### Data model + provisioning
+
+- `designFrame` gains `Type=="proxysql"` and ProxySQL fields (`proxysqlMajor`,
+  `proxysqlVersion`, `mode`; it reuses `os`/`osVersion`/`arch`, `pmmNodeId`,
+  `useProxy`). Members are `designNode`s with `Type=="proxysql"` + `FrameID`, each
+  carrying its own `exportEnabled`/`exportHostPort`. The frame's `os`/`osVersion`/
+  `arch` drive the **shared image** — members do **not** carry their own (so they're
+  validated/provisioned via the frame, never as standalone nodes; standalone
+  `provisionProxySQL` is a thin wrapper over `provisionProxySQLInstance`).
+- **`provisionProxySQLFrame`** brings the cluster up as one unit: it waits for the
+  Intranet + the PXC cluster (resolved from the **frame's** single association via
+  `pxcFrameForProxySQL`), then **in parallel** `proxysqlPrepareMember` creates each
+  container and installs ProxySQL + mysql client + pmm-client and starts proxysql.
+  It then **joins all members into a native ProxySQL cluster** (`proxysqlClusterScript`
+  — a dedicated cluster sync credential + every member listed in `proxysql_servers`),
+  and runs **`proxysql-admin --enable` on a single primary** member; the backend
+  config (mysql_servers/users) then syncs across the cluster. So **only one member
+  configures the whole cluster** — members do not each run `proxysql-admin`.
+- **Deploy dispatch** (`handleDeployStack`) skips **all frame members** (`FrameID != ""`,
+  PXC or ProxySQL) in the per-node loop — they are provisioned by their frame, not
+  individually (this also prevents the double-provisioning a member would otherwise
+  get). **Validation** skips ProxySQL members in the standalone-node case (so they
+  no longer demand their own PXC link or report a `dbcanvas-systemd:--amd64` image)
+  and validates the **frame** instead: a ProxySQL cluster needs **≥1 member**, its
+  **OS image** to exist, a **PXC-cluster association**, a unique cluster name, and
+  its members' export ports join the shared port-conflict check.
+  `refreshPublishedPorts` already covers member nodes (type `proxysql`).
+
+### Canvas + association rules
+
+- **"ProxySQL Cluster" toolbar button** (gated on Intranet); members auto-named
+  `proxysqlNN`, cluster `proxysql-cluster-NN`. Frame rendering is now type-aware
+  (color/description/member-card per `f.type`, via `frameColor`/`frameVersionLabel`);
+  the `Database` PXC accent stays purple, ProxySQL frames are amber. `+/-` dispatch
+  through `addFrameMember`/`removePXCNode`.
+- The association ruleset (`endpointKind`/`tryConnect`/`createFlow`) now has three
+  connectable endpoint kinds: **`pxc`** (frame, source only), **`proxysql`**
+  (standalone node), **`proxysql-frame`** (cluster frame). Rules:
+  - **PXC frame → ProxySQL node or ProxySQL cluster frame** — frame is the source;
+    a PXC frame may have **at most one outgoing** link (`createFlow` `singleOutgoing`),
+    so once a cluster points at one ProxySQL/ProxySQL-cluster you can't add another.
+  - **A ProxySQL cluster frame has at most one incoming** flow and **no outgoing**
+    (it can't be a source — only `pxc → proxysql-frame` is accepted, regardless of
+    drag direction).
+  - ProxySQL **node ↔ node** still prompts for direction; frame↔frame and self
+    links remain disallowed.
+- **`ProxySQLFrameForm`** (catalog-driven OS/version/major/minor cascade, mode, PMM
+  monitor, Intranet-proxy, linked-cluster banner) and **`ProxySQLFrameMemberForm`**
+  (per-member host-port export only). A running member shows **`ProxySQLManager`**;
+  the generic right-click menu gives **view config, root console, stop, restart,
+  delete** after deploy.
+
+### Verification performed
+
+- `go build`/`vet`/`test`, `gofmt`, and the web build all pass.
+- **Caveat — not validated on a live deployment.** The native ProxySQL clustering
+  setup (`proxysql_servers` + the `admin-cluster_*` sync credential applied over the
+  6032 admin interface, then `proxysql-admin --enable` on a single primary) follows
+  ProxySQL's documented clustering model but was **not** run against real containers;
+  a live deploy should confirm the config actually syncs to the non-primary members.
+
+---
+
+## 11. Percona Server: replication frame + standalone node
+
+A **Percona Server Replication** frame (`Type=="mysql"` internally): a primary +
+one or more secondaries running Percona Server (`percona-server-server`) on the
+systemd OS images, with GTID-based replication. Default = 1 primary + 2 secondaries
+(validation requires exactly one primary and **≥1 secondary**). It has the PXC
+frame's options plus a **replication mode** (normal/async or semi-synchronous), and
+every member's properties pick its **role** (primary | secondary, with exactly one
+primary enforced). *(The feature is labelled "Percona Server Replication"
+throughout the UI; the frame/member type key stays `mysql`.)*
+
+A standalone **Percona Server** node (`Type=="ps"`) is also available: a single
+read/write Percona Server instance with the **same options minus the replication
+mode and role**. `provisionPerconaServer` reuses the replication primary path
+(`mysqlPrepareNode` + `mysqlSetupPrimary`) via a synthetic single-node frame built
+from the node's settings; it deploys in the per-node loop (dispatch/validation case
+`ps`, ports refreshed like `mysql`), exports 3306, and shows in `MySQLManager`
+(role rendered as *standalone (read/write)*; replication/source rows hidden).
+
+### Catalog
+`percona_server` versions are already discovered by `make versions` (§3), so this
+just adds `loadPSCatalog()` (= `loadImageCatalog("percona_server")`) +
+`GET /api/catalog/ps` + `stackApi.psCatalog()`.
+
+### Data model
+`designFrame` gains `Type=="mysql"` + `psMajor`/`psVersion`/`replMode` (reusing
+`os`/`osVersion`/`arch`, `rootPassword`, `pmmNodeId`, `useProxy`, `gtid`,
+`generateCert`/`certTtl*`). Members are `designNode`s `Type=="mysql"` + `FrameID` +
+`Role` (`primary`|`secondary`).
+
+### Provisioning — `app/mysql.go`
+`provisionMySQLFrame`: in parallel, create each container, install
+`percona-server-server` + pmm-client, and write `my.cnf` (unique `server-id`, GTID
+on, `log_bin`, `binlog_format=ROW`, the version-correct `log_replica_updates`/
+`log_slave_updates`). Then **sequentially** bootstrap the primary (set root pw,
+create app/repl/monitor/cluster users — which replicate via GTID — `read_only=OFF`),
+then attach each secondary.
+
+**Keyword versioning (8.0.23+ / 8.4 safe — the removed forms are never used):**
+- `CHANGE REPLICATION SOURCE TO … SOURCE_HOST=…, SOURCE_USER=…,
+  SOURCE_AUTO_POSITION=1, GET_SOURCE_PUBLIC_KEY=1` (not `CHANGE MASTER`/`MASTER_HOST`).
+- `START REPLICA`, `SHOW REPLICA STATUS` (not `START SLAVE`/`SHOW SLAVE STATUS`).
+- `RESET MASTER` (8.0) / `RESET BINARY LOGS AND GTIDS` (8.4) clears each node's
+  GTID/binlog history right after the root-password reset: on the primary before it
+  creates the users (so the replicated history starts clean), and on each replica
+  before `CHANGE REPLICATION SOURCE` (so AUTO_POSITION fetches the full history with
+  **no errant GTIDs**). **Note:** the root-password reset is run as a **bare
+  `ALTER USER`** — an expired temp password permits *only* `ALTER USER`, so prefixing
+  it (e.g. with `SET sql_log_bin=0`) fails with `ERROR 1820`; the subsequent RESET is
+  what removes the GTID that the binlogged `ALTER` creates.
+- After `START REPLICA` succeeds, the secondary is made `SET PERSIST read_only=ON;
+  super_read_only=ON` (so a fronting ProxySQL classifies it as a reader, and the
+  setting survives restarts; the replication applier bypasses it).
+- **Semi-sync** plugin/variable names branch by series: 8.0 `rpl_semi_sync_master`/
+  `_slave` (`semisync_master.so`/`semisync_slave.so`), 8.4 `rpl_semi_sync_source`/
+  `_replica` (`semisync_source.so`/`semisync_replica.so`).
+- Percona Server ships the **`validate_password`** component with a MEDIUM policy
+  that rejects the `.env` passwords (`app_password`, …) with `ERROR 1819`. The
+  primary runs `SET GLOBAL validate_password.policy=LOW; …length=6` (tolerated if
+  absent) **before** creating the users so they're accepted; replicas receive the
+  already-hashed `CREATE USER` form from the binlog, so they don't re-validate. The
+  same relax was added defensively to the PXC bootstrap (§7).
+
+Per-node TLS reuses `pxcApplyCert` (unit `mysqld` on RHEL / `mysql` on Debian); PMM
+registration + Squid-proxy egress reuse the PXC helpers. Each node also gets
+`/root/.my.cnf` (`pxcRootMyCnf`, mode 0600) so the unix root user can run `mysql`
+without a password, like the PXC nodes. Deploy dispatch + the frames loop +
+`refreshPublishedPorts` + validation all handle `mysql` frames.
+
+### ProxySQL for a MySQL backend (manual, since `proxysql-admin` is PXC-only)
+`pxcFrameForProxySQL` was generalized to **`backendFrameForProxySQL`** (returns the
+frame **and** its type, `pxc`|`mysql`, walking the association graph). When a
+ProxySQL node/cluster is linked to a **MySQL** frame, the provisioner skips
+`proxysql-admin` and runs **`proxysqlMySQLConfigureScript`** over the 6032 admin
+interface (proxysql is **started first** — `proxysql-admin` starts it itself, but
+the manual path must `systemctl enable --now proxysql` + wait for 6032, else the
+admin connection gets `ERROR 2003 … 6032 (111)`): defines the writer(10)/reader(20)
+`mysql_replication_hostgroups`, lists
+every backend in HG10 (ProxySQL's monitor moves `read_only` secondaries to HG20),
+registers the app user (default HG10), points `mysql-monitor_*` at the monitor user,
+and (for **read/write split** mode) adds query rules routing plain `SELECT`s to the
+readers. For a ProxySQL **cluster** backed by MySQL, only the primary member is
+configured (it syncs to the rest via native ProxySQL clustering). `waitMySQLRunning`
+gates this on the whole topology being up.
+
+**Backend-aware implementation mode.** ProxySQL's "implementation mode" options
+depend on the linked backend and the irrelevant set is never shown
+(`proxyModeOpts` + a normalization effect on both ProxySQL forms;
+`proxysqlConfig.BackendKind` records which applies):
+- **PXC backend** → `singlewrite` | `loadbal` (passed to `proxysql-admin`).
+- **MySQL backend** → `primary` (all traffic to the primary; no read split) |
+  `rwsplit` (writes → primary HG10, reads → replica HG20). The manual configure
+  script adds the `SELECT`→reader query rules only for `rwsplit`.
+
+### Frontend
+`NODE_TYPES.mysql` (blue, DB-cylinder icon) + **"MySQL Replication"** toolbar
+button; `addMySQLCluster` (1 primary + 2 secondaries; members `mysqlNN`). The
+type-aware frame render shows each member's **Primary / Secondary · read-only**.
+**`MySQLFrameForm`** (PS catalog cascade + replication-mode select + root pw + PMM/
+proxy/GTID/cert + a "exactly one primary / ≥1 secondary" guard) and
+**`MySQLMemberForm`** (role select that **auto-demotes** the current primary, host
+export). A running member shows **`MySQLManager`** (Overview: role, mode, source,
+read_only, server-id, GTID, host access; Credentials). The association ruleset now
+treats a PXC **or** MySQL frame as a `backend` source (max one outgoing to a
+ProxySQL/ProxySQL-cluster); the ProxySQL forms' linked-cluster banner accepts either.
+
+### Verification performed
+- `go build`/`vet`/`test`, `gofmt`, and the web build all pass.
+- **Caveat — not validated on a live deployment.** The replication SQL (GTID
+  auto-position, the RESET-based GTID baseline, semi-sync plugin branching) and
+  especially the **manual ProxySQL→MySQL** wiring follow MySQL/ProxySQL docs but
+  were **not** run against real containers. A live deploy should confirm
+  replication forms, secondaries go `super_read_only`, and ProxySQL routes
+  reads/writes correctly (caching_sha2 over a non-TLS ProxySQL→backend link is the
+  most likely thing to need a tweak).

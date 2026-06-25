@@ -15,11 +15,12 @@ import (
 
 // design parsing (the canvas document stored in stacks.design_json)
 type designNode struct {
-	ID    string `json:"id"`
-	Type  string `json:"type"`
-	Label string `json:"label"`
-	OS    string `json:"os"`
-	Arch  string `json:"arch"`
+	ID        string `json:"id"`
+	Type      string `json:"type"`
+	Label     string `json:"label"`
+	OS        string `json:"os"`
+	OSVersion string `json:"osVersion"` // OS release (e.g. "9", "24.04") — used by ProxySQL
+	Arch      string `json:"arch"`
 	// PMM node fields (ignored by other node types).
 	Version       string `json:"version"`       // PMM minor version tag ("" → catalog default)
 	AdminPassword string `json:"adminPassword"` // PMM admin password ("" → auto-generated)
@@ -30,13 +31,42 @@ type designNode struct {
 	Role           string `json:"role"`           // "regular" | "arbitrator"
 	ExportEnabled  bool   `json:"exportEnabled"`  // publish the DB port to the host
 	ExportHostPort int    `json:"exportHostPort"` // desired host port (0 = random/unused)
+	// ProxySQL node fields (ignored by other node types). os/osVersion/arch are the
+	// shared image fields above; these add the ProxySQL series + behaviour.
+	ProxySQLMajor   string `json:"proxysqlMajor"`   // "2" | "3"
+	ProxySQLVersion string `json:"proxysqlVersion"` // minor (e.g. 2.7.1-1); "" → latest
+	Mode            string `json:"mode"`            // "singlewrite" (default) | "loadbal"
+	PMMNodeID       string `json:"pmmNodeId"`       // PMM node monitoring this ProxySQL (optional)
+	UseProxy        bool   `json:"useProxy"`        // route package egress via the Intranet Squid proxy
+	// Standalone Percona Server node fields (Type=="ps"; ignored by other types).
+	PSMajor      string `json:"psMajor"`      // Percona Server "8.0" | "8.4"
+	PSVersion    string `json:"psVersion"`    // minor; "" → latest
+	GTID         bool   `json:"gtid"`         // enable GTID
+	RootPassword string `json:"rootPassword"` // "" → auto-generated
+	CertTTLValue int    `json:"certTtlValue"`
+	CertTTLUnit  string `json:"certTtlUnit"`
 }
 
-// designFrame is a group container on the canvas. Currently only the PXC cluster
-// frame, which holds PXC nodes and carries cluster-wide configuration.
+// designEdge is a connection drawn on the canvas. The endpoints' Node field holds
+// the id of a node OR a frame (e.g. a ProxySQL node linked to a PXC cluster frame).
+type designEdge struct {
+	ID   string  `json:"id"`
+	From edgeEnd `json:"from"`
+	To   edgeEnd `json:"to"`
+	Type string  `json:"type"`
+}
+
+type edgeEnd struct {
+	Node string `json:"node"`
+	Port string `json:"port"`
+}
+
+// designFrame is a group container on the canvas: a PXC cluster frame (holds PXC
+// nodes) or a ProxySQL cluster frame (holds ProxySQL nodes), carrying the
+// cluster-wide configuration for its members.
 type designFrame struct {
 	ID    string  `json:"id"`
-	Type  string  `json:"type"` // "pxc"
+	Type  string  `json:"type"` // "pxc" | "proxysql"
 	Label string  `json:"label"`
 	X     float64 `json:"x"`
 	Y     float64 `json:"y"`
@@ -55,11 +85,56 @@ type designFrame struct {
 	GenerateCert bool   `json:"generateCert"` // per-node certs signed by the Intranet CA
 	CertTTLValue int    `json:"certTtlValue"`
 	CertTTLUnit  string `json:"certTtlUnit"`
+	// ProxySQL cluster frame config (Type=="proxysql"; reuses OS/OSVersion/Arch,
+	// PMMNodeID, UseProxy above).
+	ProxySQLMajor   string `json:"proxysqlMajor"`   // "2" | "3"
+	ProxySQLVersion string `json:"proxysqlVersion"` // minor; "" → latest
+	Mode            string `json:"mode"`            // "singlewrite" | "loadbal"
+	// MySQL replication frame config (Type=="mysql"; reuses OS/OSVersion/Arch,
+	// RootPassword, PMMNodeID, UseProxy, GTID, GenerateCert/CertTTL above).
+	PSMajor   string `json:"psMajor"`   // Percona Server "8.0" | "8.4"
+	PSVersion string `json:"psVersion"` // minor; "" → latest
+	ReplMode  string `json:"replMode"`  // "async" (normal) | "semisync"
 }
 
 type designDoc struct {
 	Nodes  []designNode  `json:"nodes"`
 	Frames []designFrame `json:"frames"`
+	Edges  []designEdge  `json:"edges"`
+}
+
+// backendFrameForProxySQL returns the backend database cluster frame a ProxySQL
+// node/cluster is associated with — a PXC cluster *or* a MySQL replication frame —
+// plus its type ("pxc"|"mysql"). It walks the canvas association graph (undirected),
+// so a ProxySQL chained behind another ProxySQL still resolves the upstream backend.
+func backendFrameForProxySQL(doc designDoc, startID string) (designFrame, string, bool) {
+	frames := map[string]designFrame{}
+	for _, f := range doc.Frames {
+		if f.Type == "pxc" || f.Type == "mysql" {
+			frames[f.ID] = f
+		}
+	}
+	adj := map[string][]string{}
+	for _, e := range doc.Edges {
+		adj[e.From.Node] = append(adj[e.From.Node], e.To.Node)
+		adj[e.To.Node] = append(adj[e.To.Node], e.From.Node)
+	}
+	visited := map[string]bool{startID: true}
+	queue := []string{startID}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, nb := range adj[cur] {
+			if f, ok := frames[nb]; ok {
+				return f, f.Type, true
+			}
+			if !visited[nb] {
+				visited[nb] = true
+				queue = append(queue, nb)
+			}
+		}
+	}
+	return designFrame{}, "", false
 }
 
 // nodeConfig is the non-secret profile shown for a deployed node.
@@ -141,6 +216,31 @@ func domainToDN(domain string) string {
 	return strings.Join(parts, ",")
 }
 
+// rsyslogScript{RHEL,Debian} install rsyslog if missing and enable+start it, so
+// every systemd-image node has system logging. Best-effort.
+const rsyslogScriptRHEL = `set -e
+command -v rsyslogd >/dev/null 2>&1 || dnf -y -q install rsyslog >/dev/null
+systemctl enable --now rsyslog >/dev/null 2>&1 || true`
+
+const rsyslogScriptDebian = `set -e
+export DEBIAN_FRONTEND=noninteractive
+command -v rsyslogd >/dev/null 2>&1 || { apt-get update -qq >/dev/null; apt-get install -y -qq rsyslog >/dev/null; }
+systemctl enable --now rsyslog >/dev/null 2>&1 || true`
+
+// ensureRsyslog installs (if needed) + enables rsyslog on a systemd-image node.
+// Best-effort: a failure is logged but never fails the deployment.
+func (a *App) ensureRsyslog(ctx context.Context, id, os string, logln func(string)) {
+	s := rsyslogScriptRHEL
+	if isDebianOS(os) {
+		s = rsyslogScriptDebian
+	}
+	if _, err := a.docker.Exec(ctx, id, []string{"bash", "-c", s}, nil); err != nil {
+		logln("rsyslog setup skipped: " + err.Error())
+	} else {
+		logln("rsyslog installed + enabled")
+	}
+}
+
 // genSecret returns prefix + 8 uppercase hex chars (e.g. LdapAdm!A02FB5C6).
 func genSecret(prefix string) string {
 	b := make([]byte, 4)
@@ -181,6 +281,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	others := 0
 	labels := map[string]int{}
 	seenImg := map[string]bool{}
+	exportReq := map[int][]string{} // requested host port → node labels (PXC + ProxySQL)
 	pmmCat := loadPMMCatalog()
 	for _, n := range doc.Nodes {
 		labels[strings.TrimSpace(n.Label)]++
@@ -198,6 +299,36 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			others++
 			if !pmmCat.validPMMTag(n.Version) {
 				out = append(out, issue{"warning", "Unknown PMM version " + n.Version + " for node " + n.Label + " — run `make versions`"})
+			}
+		case "proxysql":
+			others++
+			if n.FrameID != "" {
+				break // ProxySQL cluster member — validated via its frame below
+			}
+			img := pxcImage(n.OS, n.OSVersion, n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+				}
+			}
+			if _, _, ok := backendFrameForProxySQL(doc, n.ID); !ok {
+				out = append(out, issue{"error", "ProxySQL node " + n.Label + " must be linked to a PXC or MySQL cluster — draw an association line from one to it"})
+			}
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		case "ps":
+			others++
+			img := pxcImage(n.OS, n.OSVersion, n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+				}
+			}
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
 			}
 		default:
 			others++
@@ -224,7 +355,6 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 
 	// --- PXC cluster frames ---
 	clusterNames := map[string]int{}
-	exportReq := map[int][]string{} // requested host port → node labels
 	var usedPorts map[int]string
 	for _, f := range doc.Frames {
 		if f.Type != "pxc" {
@@ -258,6 +388,85 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			out = append(out, issue{"error", "Duplicate PXC cluster name: " + name})
 		}
 	}
+
+	// --- ProxySQL cluster frames ---
+	proxyClusterNames := map[string]int{}
+	for _, f := range doc.Frames {
+		if f.Type != "proxysql" {
+			continue
+		}
+		proxyClusterNames[strings.TrimSpace(f.Label)]++
+		members := 0
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != "proxysql" {
+				continue
+			}
+			members++
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		}
+		if members == 0 {
+			out = append(out, issue{"error", "ProxySQL cluster " + f.Label + " needs at least one ProxySQL node"})
+		}
+		img := pxcImage(f.OS, f.OSVersion, f.Arch)
+		if !seenImg[img] {
+			seenImg[img] = true
+			if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+				out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+			}
+		}
+		if _, _, ok := backendFrameForProxySQL(doc, f.ID); !ok {
+			out = append(out, issue{"error", "ProxySQL cluster " + f.Label + " must be linked to a PXC or MySQL cluster — draw an association line from one to it"})
+		}
+	}
+	for name, c := range proxyClusterNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{"error", "Duplicate ProxySQL cluster name: " + name})
+		}
+	}
+
+	// --- MySQL replication frames ---
+	mysqlNames := map[string]int{}
+	for _, f := range doc.Frames {
+		if f.Type != "mysql" {
+			continue
+		}
+		mysqlNames[strings.TrimSpace(f.Label)]++
+		primaries, secondaries := 0, 0
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != "mysql" {
+				continue
+			}
+			if n.Role == "primary" {
+				primaries++
+			} else {
+				secondaries++
+			}
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		}
+		if primaries != 1 {
+			out = append(out, issue{"error", fmt.Sprintf("MySQL replication %s must have exactly one primary (has %d)", f.Label, primaries)})
+		}
+		if secondaries == 0 {
+			out = append(out, issue{"error", "MySQL replication " + f.Label + " needs at least one secondary"})
+		}
+		img := pxcImage(f.OS, f.OSVersion, f.Arch)
+		if !seenImg[img] {
+			seenImg[img] = true
+			if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+				out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+			}
+		}
+	}
+	for name, c := range mysqlNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{"error", "Duplicate MySQL replication name: " + name})
+		}
+	}
+
 	// Export host-port conflicts: within the design, and against ports already
 	// published by other containers (the stack's own containers are excluded so a
 	// redeploy doesn't flag itself).
@@ -337,10 +546,11 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 		a.reconcileStackDNS(bg, st.ID)
 	}
 
-	// Create newly added nodes; keep already-running ones (redeploy). PXC nodes
-	// are provisioned as a unit by their frame, not individually.
+	// Create newly added nodes; keep already-running ones (redeploy). Cluster
+	// members (PXC or ProxySQL, identified by FrameID) are provisioned as a unit by
+	// their frame, not individually.
 	for _, n := range doc.Nodes {
-		if n.Type == "pxc" {
+		if n.FrameID != "" {
 			continue
 		}
 		if d, ok := existing[n.ID]; ok && d.State == DeployRunning {
@@ -351,19 +561,32 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionIntranet(st, n)
 		case "pmm":
 			a.provisionPMM(st, n, doc)
+		case "proxysql":
+			a.provisionProxySQL(st, n, doc)
+		case "ps":
+			a.provisionPerconaServer(st, n, doc)
 		}
 	}
 
-	// PXC cluster frames: (re)provision a frame unless all its member nodes are
-	// already running (cluster formation is sequential and all-or-nothing).
+	// Cluster frames: (re)provision a frame unless all its member nodes are already
+	// running. PXC formation is sequential/all-or-nothing; ProxySQL members are
+	// independent but treated the same for the redeploy gate.
 	for _, f := range doc.Frames {
-		if f.Type != "pxc" {
+		memberType := ""
+		switch f.Type {
+		case "pxc":
+			memberType = "pxc"
+		case "proxysql":
+			memberType = "proxysql"
+		case "mysql":
+			memberType = "mysql"
+		default:
 			continue
 		}
 		members := 0
 		running := 0
 		for _, n := range doc.Nodes {
-			if n.FrameID == f.ID && n.Type == "pxc" {
+			if n.FrameID == f.ID && n.Type == memberType {
 				members++
 				if d, ok := existing[n.ID]; ok && d.State == DeployRunning {
 					running++
@@ -373,7 +596,14 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 		if members > 0 && running == members {
 			continue
 		}
-		a.provisionPXCFrame(st, f, doc)
+		switch f.Type {
+		case "pxc":
+			a.provisionPXCFrame(st, f, doc)
+		case "proxysql":
+			a.provisionProxySQLFrame(st, f, doc)
+		case "mysql":
+			a.provisionMySQLFrame(st, f, doc)
+		}
 	}
 
 	a.store.SetStackStatus(st.ID, StackDeployed)
@@ -533,7 +763,7 @@ dnf -y install oracle-epel-release-el9 >/dev/null 2>&1 || dnf -y install epel-re
 dnf config-manager --set-enabled ol9_codeready_builder >/dev/null 2>&1 || true`},
 
 		{"Install packages", `set -e
-dnf -y install squid bind bind-utils postfix dovecot openldap-servers openldap-clients httpd php php-fpm roundcubemail mod_ssl openssl net-tools >/dev/null`},
+dnf -y install rsyslog squid bind bind-utils postfix dovecot openldap-servers openldap-clients httpd php php-fpm roundcubemail mod_ssl openssl net-tools >/dev/null`},
 
 		{"Create CA", `set -e
 install -d -m 0755 /etc/pki/dbcanvas
@@ -639,9 +869,19 @@ CONF=/etc/httpd/conf.d/roundcubemail.conf
 [ -f "$CONF" ] && sed -i 's/Require local/Require all granted/g' "$CONF" || true
 true`},
 
+		{"Configure Squid", `set -e
+CONF=/etc/squid/squid.conf
+grep -q '^maximum_object_size 150 MB$' "$CONF" || echo 'maximum_object_size 150 MB' >> "$CONF"
+grep -q '^cache_dir ufs /var/spool/squid ' "$CONF" || echo 'cache_dir ufs /var/spool/squid 4000 16 256' >> "$CONF"
+install -d -o squid -g squid /var/spool/squid 2>/dev/null || true`},
+		// NOTE: the cache_dir swap directories are initialized by the squid.service's
+		// own ExecStartPre (cache_swap.sh) on start — do NOT run "squid -z" here: it
+		// leaves a detached instance + /run/squid.pid that makes the subsequent
+		// systemctl start fail with "Squid is already running" (Result: protocol).
+
 		{"Enable services", `set -e
 echo "ServerName intranet.$DOMAIN" > /etc/httpd/conf.d/servername.conf
-for svc in slapd squid named postfix dovecot php-fpm httpd; do
+for svc in rsyslog slapd squid named postfix dovecot php-fpm httpd; do
   systemctl enable "$svc" >/dev/null 2>&1 || true
   systemctl restart "$svc" >/dev/null 2>&1 || true
 done`},
@@ -767,6 +1007,23 @@ func (a *App) refreshPublishedPorts(ctx context.Context, st Stack, nid string, d
 		}
 		if p, ok := readPort("8443/tcp"); ok {
 			cfg.HTTPSPort = p
+		}
+		save(cfg)
+	case "proxysql":
+		var cfg proxysqlConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort(fmt.Sprintf("%d/tcp", proxysqlMySQLPort)); ok {
+			cfg.MySQLPort = p
+		}
+		if p, ok := readPort(fmt.Sprintf("%d/tcp", proxysqlAdminPort)); ok {
+			cfg.AdminPort = p
+		}
+		save(cfg)
+	case "mysql", "ps":
+		var cfg mysqlConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("3306/tcp"); ok {
+			cfg.ExportPort = p
 		}
 		save(cfg)
 	}

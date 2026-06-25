@@ -31,6 +31,7 @@ var pxcPorts = []int{3306, 4567, 4444, 4568}
 type pxcConfig struct {
 	Cluster      string `json:"cluster"`
 	Image        string `json:"image"`
+	OS           string `json:"os"`   // os family (oraclelinux | ubuntu | …) — drives config paths
 	Role         string `json:"role"` // regular | arbitrator
 	Hostname     string `json:"hostname"`
 	FQDN         string `json:"fqdn"`
@@ -48,12 +49,16 @@ type pxcConfig struct {
 // pxcSecrets holds a PXC node's credentials (root is cluster-wide; app/repl come
 // from the environment).
 type pxcSecrets struct {
-	RootUser     string `json:"rootUser"`
-	RootPassword string `json:"rootPassword"`
-	AppUser      string `json:"appUser"`
-	AppPassword  string `json:"appPassword"`
-	ReplUser     string `json:"replUser"`
-	ReplPassword string `json:"replPassword"`
+	RootUser        string `json:"rootUser"`
+	RootPassword    string `json:"rootPassword"`
+	AppUser         string `json:"appUser"`
+	AppPassword     string `json:"appPassword"`
+	ReplUser        string `json:"replUser"`
+	ReplPassword    string `json:"replPassword"`
+	MonitorUser     string `json:"monitorUser"`
+	MonitorPassword string `json:"monitorPassword"`
+	ClusterUser     string `json:"clusterUser"`     // cluster admin user (used by ProxySQL)
+	ClusterPassword string `json:"clusterPassword"` // from CLUSTER_PASSWORD env
 }
 
 func pxcImage(os, osVersion, arch string) string {
@@ -68,6 +73,23 @@ func pxcProduct(major string) string {
 	return "pxc80"
 }
 
+// pxbProduct / pxbPackage map a PXC major series to the matching Percona
+// XtraBackup percona-release product and package. XtraBackup performs the SST
+// (state transfer) that joins nodes to the cluster, so every data node needs it.
+func pxbProduct(major string) string {
+	if major == "8.4" {
+		return "pxb84lts"
+	}
+	return "pxb80"
+}
+
+func pxbPackage(major string) string {
+	if major == "8.4" {
+		return "percona-xtrabackup-84"
+	}
+	return "percona-xtrabackup-80"
+}
+
 func isDebianOS(os string) bool { return os == "ubuntu" || os == "debian" }
 
 func galeraProvider(os string) string {
@@ -75,6 +97,28 @@ func galeraProvider(os string) string {
 		return "/usr/lib/galera4/libgalera_smm.so"
 	}
 	return "/usr/lib64/galera4/libgalera_smm.so"
+}
+
+// pxcCnfPath is where DBCanvas writes the node's mysqld config. On RHEL the
+// global /etc/my.cnf is read directly. On Debian /etc/my.cnf is read *first* but
+// the package's /etc/mysql includes are read *after* and would override it (with
+// an empty wsrep_cluster_address → every node bootstraps standalone), so we write
+// a dedicated file under /etc/mysql and `!include` it last (see pxcDebianIncludeCnf).
+func pxcCnfPath(os string) string {
+	if isDebianOS(os) {
+		return "/etc/mysql/dbcanvas.cnf"
+	}
+	return "/etc/my.cnf"
+}
+
+// pxcLogError is the mysqld error-log path. Debian's apparmor/package layout only
+// permits /var/log/mysql, so use that there (also where any temporary password
+// would be logged); RHEL uses /var/log/mysqld.log.
+func pxcLogError(os string) string {
+	if isDebianOS(os) {
+		return "/var/log/mysql/error.log"
+	}
+	return "/var/log/mysqld.log"
 }
 
 // logUpdatesOption returns the right "replica updates" option for the version:
@@ -197,6 +241,8 @@ func (a *App) provisionPXCFrame(st Stack, frame designFrame, doc designDoc) {
 		RootUser: "root", RootPassword: root,
 		AppUser: "app", AppPassword: envOr("APP_PASSWORD", "app_password"),
 		ReplUser: "repl", ReplPassword: envOr("REPL_PASSWORD", "repl_password"),
+		MonitorUser: "monitor", MonitorPassword: envOr("MONITOR_PASSWORD", "monitor_password"),
+		ClusterUser: "cluster", ClusterPassword: envOr("CLUSTER_PASSWORD", "cluster_password"),
 	}
 	secJSON, _ := json.Marshal(sec)
 
@@ -219,7 +265,7 @@ func (a *App) provisionPXCFrame(st Stack, frame designFrame, doc designDoc) {
 	for i, n := range members {
 		host := hosts[n.ID]
 		cfg := pxcConfig{
-			Cluster: frame.Label, Image: image, Role: roleOf(n), Hostname: host, FQDN: fqdnOf(host, domain),
+			Cluster: frame.Label, Image: image, OS: frame.OS, Role: roleOf(n), Hostname: host, FQDN: fqdnOf(host, domain),
 			ServerID: pxcServerID(host), PXCVersion: frame.PXCVersion, Bootstrap: i == 0 && n.Role != "arbitrator",
 			GTID: frame.GTID, GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
 			Ports: pxcPorts,
@@ -292,7 +338,11 @@ func (a *App) provisionPXCFrame(st Stack, frame designFrame, doc designDoc) {
 			pr := a.pxcNewProg(st.ID, n.ID)
 			if frame.PMMNodeID != "" {
 				pr.phase("Registering with PMM", 92)
-				a.pxcRegisterPMM(ctx, st, n, frame, monitoredBy, sec, pr) // best-effort
+				pmmUser, pmmPass := "", ""
+				if _, u, p, ok := a.pmmServerFor(st, doc, frame.PMMNodeID); ok {
+					pmmUser, pmmPass = u, p
+				}
+				a.pxcRegisterPMM(ctx, st, n, frame, monitoredBy, pmmUser, pmmPass, sec, pr) // best-effort
 			}
 			pr.phase("Running", 100)
 			pr.p.Message = "provisioned"
@@ -381,15 +431,70 @@ func (a *App) pxcPrepareNode(ctx context.Context, st Stack, frame designFrame, n
 		return pr.fail("install %s: %v", pkg, err)
 	}
 	pr.logln(pkg + " installed")
+	a.ensureRsyslog(ctx, id, frame.OS, pr.logln)
+
+	// Data nodes need Percona XtraBackup for SST (wsrep_sst_method=xtrabackup-v2);
+	// the percona-xtrabackup-80/84 package matches the PXC series. Arbitrators run
+	// garbd only (no datadir, no SST), so they skip it.
+	if !arbiter {
+		pr.phase("Installing Percona XtraBackup", 40)
+		xbpkg := pxbPackage(frame.PXCMajor)
+		xbEnv := []string{"PRODUCT=" + pxbProduct(frame.PXCMajor), "PKG=" + xbpkg}
+		xbScript := pxcInstallXtrabackupRHEL
+		if isDebianOS(frame.OS) {
+			xbScript = pxcInstallXtrabackupDebian
+		}
+		if err := a.runStep(ctx, id, xbScript, xbEnv, pr.logln); err != nil {
+			return pr.fail("install %s: %v", xbpkg, err)
+		}
+		pr.logln(xbpkg + " installed")
+
+		// Always install pmm-client (percona-release setup pmm3-client) on data
+		// nodes — regardless of whether PMM monitoring is on now — so monitoring can
+		// be enabled on-the-fly later without an install. Registration is a separate
+		// step; turning monitoring off only deregisters, it never uninstalls this.
+		pr.phase("Installing PMM client", 45)
+		pmmScript := pxcInstallPMMClientRHEL
+		if isDebianOS(frame.OS) {
+			pmmScript = pxcInstallPMMClientDebian
+		}
+		if err := a.runStep(ctx, id, pmmScript, nil, pr.logln); err != nil {
+			return pr.fail("install pmm-client: %v", err)
+		}
+		pr.logln("pmm-client installed")
+	}
 
 	// garbd nodes are configured later; regular nodes get their my.cnf now.
 	if !arbiter {
 		cnf := pxcMyCnf(frame, n, host, domain, clusterAddr)
-		if err := a.docker.CopyFile(ctx, id, "/etc", "my.cnf", 0o644, []byte(cnf)); err != nil {
-			return pr.fail("write my.cnf: %v", err)
+		dir, base := pxcCnfDir(frame.OS)
+		if err := a.docker.CopyFile(ctx, id, dir, base, 0o644, []byte(cnf)); err != nil {
+			return pr.fail("write %s: %v", pxcCnfPath(frame.OS), err)
+		}
+		// On Debian, ensure our file is included last so it wins over the package
+		// defaults (otherwise the empty cluster address bootstraps every node alone).
+		if isDebianOS(frame.OS) {
+			if err := a.runStep(ctx, id, pxcDebianIncludeCnf, nil, pr.logln); err != nil {
+				return pr.fail("include my.cnf: %v", err)
+			}
 		}
 	}
 	return nil
+}
+
+// pxcCnfDir splits pxcCnfPath into the (dir, base) CopyFile expects.
+func pxcCnfDir(os string) (string, string) {
+	if isDebianOS(os) {
+		return "/etc/mysql", "dbcanvas.cnf"
+	}
+	return "/etc", "my.cnf"
+}
+
+// pxcRootMyCnf renders /root/.my.cnf so the unix root user can run `mysql` without
+// supplying the password. Written after the root password is established (so it
+// doesn't interfere with the bootstrap auth_socket path), mode 0600.
+func pxcRootMyCnf(sec pxcSecrets) []byte {
+	return []byte("[client]\nuser=" + sec.RootUser + "\npassword=" + sec.RootPassword + "\nsocket=/var/lib/mysql/mysql.sock\n")
 }
 
 // pxcMyCnf renders /etc/my.cnf for a regular node (no SSL yet — certs are applied
@@ -399,7 +504,13 @@ func pxcMyCnf(frame designFrame, n designNode, host, domain, clusterAddr string)
 	fmt.Fprintf(&b, "[client]\nsocket=/var/lib/mysql/mysql.sock\n\n[mysqld]\n")
 	fmt.Fprintf(&b, "server-id=%d\n", pxcServerID(host))
 	fmt.Fprintf(&b, "datadir=/var/lib/mysql\nsocket=/var/lib/mysql/mysql.sock\n")
-	fmt.Fprintf(&b, "log-error=/var/log/mysqld.log\npid-file=/var/run/mysqld/mysqld.pid\n")
+	fmt.Fprintf(&b, "log-error=%s\npid-file=/var/run/mysqld/mysqld.pid\n", pxcLogError(frame.OS))
+	// Listen on all interfaces (Debian's package config defaults to 127.0.0.1,
+	// which would block the published host port and cross-node client access).
+	fmt.Fprintf(&b, "bind-address=0.0.0.0\n")
+	// Slow query log on by default (file in the mysql-owned datadir so mysqld can
+	// always create it).
+	fmt.Fprintf(&b, "slow_query_log=ON\nslow_query_log_file=/var/lib/mysql/slow.log\nlong_query_time=2\n")
 	if frame.GTID {
 		fmt.Fprintf(&b, "gtid_mode=ON\nenforce_gtid_consistency=ON\nlog_bin=binlog\n%s\n", logUpdatesOption(frame.PXCMajor, frame.PXCVersion))
 	}
@@ -421,14 +532,25 @@ func pxcMyCnf(frame designFrame, n designNode, host, domain, clusterAddr string)
 func (a *App) pxcBootstrap(ctx context.Context, st Stack, frame designFrame, n designNode, host, domain, intranetID string, sec pxcSecrets, pr *pxcProg) error {
 	dep, _ := a.store.GetDeployment(st.ID, n.ID)
 	id := dep.ContainerID
-	env := []string{"ROOT_PW=" + sec.RootPassword, "APP_USER=" + sec.AppUser, "APP_PW=" + sec.AppPassword, "REPL_USER=" + sec.ReplUser, "REPL_PW=" + sec.ReplPassword}
+	env := []string{
+		"ROOT_PW=" + sec.RootPassword,
+		"APP_USER=" + sec.AppUser, "APP_PW=" + sec.AppPassword,
+		"REPL_USER=" + sec.ReplUser, "REPL_PW=" + sec.ReplPassword,
+		"MON_USER=" + sec.MonitorUser, "MON_PW=" + sec.MonitorPassword,
+		"CLUSTER_USER=" + sec.ClusterUser, "CLUSTER_PW=" + sec.ClusterPassword,
+		"LOGERR=" + pxcLogError(frame.OS),
+	}
 	if err := a.runStep(ctx, id, pxcBootstrapScript, env, pr.logln); err != nil {
 		return pr.fail("bootstrap: %v", err)
 	}
-	pr.logln("cluster bootstrapped; root password set; app/repl users created")
+	pr.logln("cluster bootstrapped; root password set; app/repl/monitor users created")
+	// Let the unix root user run mysql without typing the password.
+	if err := a.docker.CopyFile(ctx, id, "/root", ".my.cnf", 0o600, pxcRootMyCnf(sec)); err != nil {
+		return pr.fail("write /root/.my.cnf: %v", err)
+	}
 	if frame.GenerateCert {
 		pr.phase("Issuing certificate", 80)
-		if err := a.pxcApplyCert(ctx, id, intranetID, fqdnOf(host, domain), "mysql@bootstrap", frame.CertTTLValue, frame.CertTTLUnit, pr.logln); err != nil {
+		if err := a.pxcApplyCert(ctx, id, intranetID, fqdnOf(host, domain), "mysql@bootstrap", frame.OS, frame.CertTTLValue, frame.CertTTLUnit, pr.logln); err != nil {
 			return pr.fail("%v", err)
 		}
 	}
@@ -440,13 +562,17 @@ func (a *App) pxcBootstrap(ctx context.Context, st Stack, frame designFrame, n d
 func (a *App) pxcJoin(ctx context.Context, st Stack, frame designFrame, n designNode, host, domain, intranetID string, sec pxcSecrets, pr *pxcProg) error {
 	dep, _ := a.store.GetDeployment(st.ID, n.ID)
 	id := dep.ContainerID
-	if err := a.runStep(ctx, id, pxcJoinScript, nil, pr.logln); err != nil {
+	if err := a.runStep(ctx, id, pxcJoinScript, []string{"LOGERR=" + pxcLogError(frame.OS)}, pr.logln); err != nil {
 		return pr.fail("join: %v", err)
 	}
 	pr.logln("joined cluster (synced)")
+	// Root password is replicated from the donor via SST; drop the same /root/.my.cnf.
+	if err := a.docker.CopyFile(ctx, id, "/root", ".my.cnf", 0o600, pxcRootMyCnf(sec)); err != nil {
+		return pr.fail("write /root/.my.cnf: %v", err)
+	}
 	if frame.GenerateCert {
 		pr.phase("Issuing certificate", 80)
-		if err := a.pxcApplyCert(ctx, id, intranetID, fqdnOf(host, domain), "mysql", frame.CertTTLValue, frame.CertTTLUnit, pr.logln); err != nil {
+		if err := a.pxcApplyCert(ctx, id, intranetID, fqdnOf(host, domain), "mysql", frame.OS, frame.CertTTLValue, frame.CertTTLUnit, pr.logln); err != nil {
 			return pr.fail("%v", err)
 		}
 	}
@@ -457,7 +583,11 @@ func (a *App) pxcJoin(ctx context.Context, st Stack, frame designFrame, n design
 func (a *App) pxcStartGarbd(ctx context.Context, st Stack, n designFrameNode, frame designFrame, clusterAddr string, pr *pxcProg) error {
 	dep, _ := a.store.GetDeployment(st.ID, n.ID)
 	id := dep.ContainerID
-	env := []string{"GROUP=" + frame.Label, "NODES=" + clusterAddr}
+	garbConf := "/etc/sysconfig/garb"
+	if isDebianOS(frame.OS) {
+		garbConf = "/etc/default/garb"
+	}
+	env := []string{"GROUP=" + frame.Label, "NODES=" + clusterAddr, "GARBCONF=" + garbConf}
 	if err := a.runStep(ctx, id, pxcGarbdScript, env, pr.logln); err != nil {
 		return pr.fail("start garbd: %v", err)
 	}
@@ -469,7 +599,7 @@ func (a *App) pxcStartGarbd(ctx context.Context, st Stack, n designFrameNode, fr
 // client certs into /var/lib/mysql (owned by mysql) with the given TTL, points
 // my.cnf at them, and restarts the given mysql unit. Returns an error (callers
 // own progress reporting), so it is reusable for post-deploy regeneration.
-func (a *App) pxcApplyCert(ctx context.Context, containerID, intranetID, fqdn, unit string, ttlValue int, ttlUnit string, logln func(string)) error {
+func (a *App) pxcApplyCert(ctx context.Context, containerID, intranetID, fqdn, unit, os string, ttlValue int, ttlUnit string, logln func(string)) error {
 	if logln == nil {
 		logln = func(string) {}
 	}
@@ -503,6 +633,7 @@ func (a *App) pxcApplyCert(ctx context.Context, containerID, intranetID, fqdn, u
 		"FQDN=" + fqdn,
 		"VALUE=" + strconv.Itoa(ttlValue), "UNIT=" + ttlUnit,
 		"UNITSVC=" + unit,
+		"CNF=" + pxcCnfPath(os), "LOGERR=" + pxcLogError(os),
 	}
 	if err := a.runStep(ctx, containerID, pxcCertScript, env, logln); err != nil {
 		return fmt.Errorf("generate certificate: %w", err)
@@ -513,22 +644,77 @@ func (a *App) pxcApplyCert(ctx context.Context, containerID, intranetID, fqdn, u
 
 // pxcRegisterPMM installs pmm-client and registers the node's MySQL with the PMM
 // server. Best-effort — failures are logged but do not fail the deployment.
-func (a *App) pxcRegisterPMM(ctx context.Context, st Stack, n designNode, frame designFrame, pmmFQDN string, sec pxcSecrets, pr *pxcProg) {
+func (a *App) pxcRegisterPMM(ctx context.Context, st Stack, n designNode, frame designFrame, pmmFQDN, pmmUser, pmmPass string, sec pxcSecrets, pr *pxcProg) {
 	if pmmFQDN == "" {
 		return
 	}
 	dep, _ := a.store.GetDeployment(st.ID, n.ID)
-	id := dep.ContainerID
-	env := []string{"PMM_FQDN=" + pmmFQDN, "ROOT_PW=" + sec.RootPassword, "NODE=" + n.Label}
-	script := pxcPMMRHEL
-	if isDebianOS(frame.OS) {
-		script = pxcPMMDebian
-	}
-	if _, err := a.docker.Exec(ctx, id, []string{"bash", "-c", script}, env); err != nil {
+	if err := a.pxcPMMExec(ctx, dep.ContainerID, frame.OS, pxcPMMEnv(pmmFQDN, pmmUser, pmmPass, sec, n.Label)); err != nil {
 		pr.logln("PMM registration skipped: " + err.Error())
 	} else {
 		pr.logln("registered with PMM at " + pmmFQDN)
 	}
+}
+
+// pxcPMMEnv builds the exec environment for the PMM register script. PMM server
+// creds default to admin/admin when unknown (best-effort deploy path). The MySQL
+// service is added as root over the local socket (DB_USER/DB_PW): root won't
+// authenticate over TCP (root@localhost doesn't match 127.0.0.1, and caching_sha2
+// over plain TCP needs the server key), but root@localhost connects fine over the
+// socket. (The monitor user is reserved for ProxySQL, not PMM.)
+func pxcPMMEnv(pmmFQDN, pmmUser, pmmPass string, sec pxcSecrets, node string) []string {
+	if pmmUser == "" {
+		pmmUser = "admin"
+	}
+	if pmmPass == "" {
+		pmmPass = "admin"
+	}
+	dbUser := sec.RootUser
+	if dbUser == "" {
+		dbUser = "root"
+	}
+	return []string{
+		"PMM_FQDN=" + pmmFQDN, "PMM_USER=" + pmmUser, "PMM_PASS=" + pmmPass,
+		"DB_USER=" + dbUser, "DB_PW=" + sec.RootPassword,
+		"NODE=" + node,
+	}
+}
+
+// pxcPMMExec runs the OS-appropriate PMM register script in a node container.
+func (a *App) pxcPMMExec(ctx context.Context, containerID, os string, env []string) error {
+	script := pxcPMMRHEL
+	if isDebianOS(os) {
+		script = pxcPMMDebian
+	}
+	_, err := a.docker.Exec(ctx, containerID, []string{"bash", "-c", script}, env)
+	return err
+}
+
+// pmmServerFor resolves a frame's PMM node into the FQDN + admin credentials of a
+// running PMM server. ok is false when no PMM node is selected or it is not running.
+func (a *App) pmmServerFor(st Stack, doc designDoc, pmmNodeID string) (fqdn, user, pass string, ok bool) {
+	if pmmNodeID == "" {
+		return "", "", "", false
+	}
+	hosts := stackHostnames(doc)
+	domain := envOr("DOMAIN", "example.net")
+	for _, n := range doc.Nodes {
+		if n.ID != pmmNodeID || n.Type != "pmm" {
+			continue
+		}
+		dep, err := a.store.GetDeployment(st.ID, n.ID)
+		if err != nil || dep.ContainerID == "" || dep.State != DeployRunning {
+			return "", "", "", false
+		}
+		var s pmmSecrets
+		json.Unmarshal(dep.Secrets, &s)
+		u := s.AdminUser
+		if u == "" {
+			u = "admin"
+		}
+		return fqdnOf(hosts[n.ID], domain), u, s.AdminPassword, true
+	}
+	return "", "", "", false
 }
 
 // designFrameNode is just designNode (alias for readability in garbd handling).
@@ -549,21 +735,66 @@ percona-release setup -y "$PRODUCT" >/dev/null 2>&1
 apt-get update -qq >/dev/null
 apt-get install -y -qq "$PKG" >/dev/null`
 
+// pxcInstallXtrabackup{RHEL,Debian} enable the XtraBackup repo for the cluster's
+// PXC series (percona-release setup pxb80 | pxb84lts) and install the matching
+// percona-xtrabackup-80 | -84 package used for SST.
+const pxcInstallXtrabackupRHEL = `set -e
+percona-release setup -y "$PRODUCT" >/dev/null 2>&1
+dnf -y -q install "$PKG" >/dev/null`
+
+const pxcInstallXtrabackupDebian = `set -e
+export DEBIAN_FRONTEND=noninteractive
+percona-release setup -y "$PRODUCT" >/dev/null 2>&1
+apt-get update -qq >/dev/null
+apt-get install -y -qq "$PKG" >/dev/null`
+
+// pxcDebianIncludeCnf appends a trailing `!include /etc/mysql/dbcanvas.cnf` to
+// Debian's /etc/mysql/my.cnf so our settings are read last and win over the
+// package's includedirs (whose empty wsrep_cluster_address would otherwise make
+// every node bootstrap its own single-node cluster).
+const pxcDebianIncludeCnf = `set -e
+MYCNF=/etc/mysql/my.cnf
+[ -e "$MYCNF" ] || : > "$MYCNF"
+grep -q '/etc/mysql/dbcanvas.cnf' "$MYCNF" || printf '\n!include /etc/mysql/dbcanvas.cnf\n' >> "$MYCNF"`
+
 // pxcBootstrapScript bootstraps the cluster on the first node and sets up users.
 // (systemctl start blocks until mysqld signals ready, so no extra wait is needed.)
+// Root auth differs by distro: RHEL/OL logs a temporary password; Debian/Ubuntu
+// leaves root@localhost on auth_socket (no password). We handle both, plus the
+// already-set case on redeploy.
 const pxcBootstrapScript = `set -e
-rm -f /var/log/mysqld.log 2>/dev/null || true
+LOGERR=${LOGERR:-/var/log/mysqld.log}
+rm -f "$LOGERR" 2>/dev/null || true
 systemctl reset-failed mysql@bootstrap 2>/dev/null || true
 systemctl start mysql@bootstrap
-TMP=$(grep -i 'temporary password' /var/log/mysqld.log 2>/dev/null | tail -1 | sed 's/.*localhost: //')
-if [ -n "$TMP" ]; then
-  mysql -uroot --connect-expired-password -p"$TMP" -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$ROOT_PW';"
+if mysql -uroot -p"$ROOT_PW" -e "SELECT 1" >/dev/null 2>&1; then
+  : # root password already set (redeploy)
+else
+  TMP=$(grep -i 'temporary password' "$LOGERR" 2>/dev/null | tail -1 | sed 's/.*localhost: //')
+  if [ -n "$TMP" ]; then
+    # RHEL/OL: the temp password is EXPIRED — ALTER USER is allowed while expired,
+    # but a SELECT is not, so set the password directly (no probe query first).
+    mysql -uroot --connect-expired-password -p"$TMP" -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$ROOT_PW';"
+  else
+    # Debian: connect over the local socket as the root OS user (auth_socket) and set a password.
+    mysql -uroot -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH caching_sha2_password BY '$ROOT_PW';"
+  fi
 fi
+# Relax validate_password so the .env app/repl/monitor/cluster passwords are accepted
+# (tolerated if the component isn't installed).
+mysql -uroot -p"$ROOT_PW" -e "SET GLOBAL validate_password.policy=LOW; SET GLOBAL validate_password.length=6;" 2>/dev/null || true
 mysql -uroot -p"$ROOT_PW" <<SQL
 CREATE USER IF NOT EXISTS '$APP_USER'@'%' IDENTIFIED BY '$APP_PW';
 GRANT ALL PRIVILEGES ON *.* TO '$APP_USER'@'%';
 CREATE USER IF NOT EXISTS '$REPL_USER'@'%' IDENTIFIED BY '$REPL_PW';
 GRANT REPLICATION SLAVE ON *.* TO '$REPL_USER'@'%';
+CREATE USER IF NOT EXISTS '$MON_USER'@'%' IDENTIFIED BY '$MON_PW' WITH MAX_USER_CONNECTIONS 10;
+ALTER USER '$MON_USER'@'%' IDENTIFIED BY '$MON_PW';
+GRANT SELECT, PROCESS, REPLICATION CLIENT, RELOAD, BACKUP_ADMIN ON *.* TO '$MON_USER'@'%';
+GRANT SELECT ON performance_schema.* TO '$MON_USER'@'%';
+CREATE USER IF NOT EXISTS '$CLUSTER_USER'@'%' IDENTIFIED BY '$CLUSTER_PW';
+ALTER USER '$CLUSTER_USER'@'%' IDENTIFIED BY '$CLUSTER_PW';
+GRANT ALL PRIVILEGES ON *.* TO '$CLUSTER_USER'@'%' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
 SQL
 echo "wsrep_cluster_size: $(mysql -uroot -p"$ROOT_PW" -N -e "SHOW STATUS LIKE 'wsrep_cluster_size'" 2>/dev/null | awk '{print $2}')"`
@@ -572,13 +803,16 @@ echo "wsrep_cluster_size: $(mysql -uroot -p"$ROOT_PW" -N -e "SHOW STATUS LIKE 'w
 // mysql.service is Type=notify, so systemctl start blocks until mysqld is synced
 // and ready — no separate (password-protected) status poll is needed.
 const pxcJoinScript = `set -e
+LOGERR=${LOGERR:-/var/log/mysqld.log}
 systemctl reset-failed mysql 2>/dev/null || true
 systemctl start mysql
-systemctl is-active --quiet mysql || { echo "mysql failed to join:"; grep -iE 'ERROR|Aborting' /var/log/mysqld.log | tail -8; exit 1; }`
+systemctl is-active --quiet mysql || { echo "mysql failed to join:"; grep -iE 'ERROR|Aborting' "$LOGERR" 2>/dev/null | tail -8; exit 1; }`
 
-// pxcGarbdScript configures and starts the arbitrator daemon.
+// pxcGarbdScript configures and starts the arbitrator daemon. The config file is
+// /etc/sysconfig/garb on RHEL and /etc/default/garb on Debian (passed as GARBCONF).
 const pxcGarbdScript = `set -e
-cat > /etc/sysconfig/garb <<EOF
+mkdir -p "$(dirname "$GARBCONF")"
+cat > "$GARBCONF" <<EOF
 GALERA_NODES="$(echo "$NODES" | sed 's/\([^,]*\)/\1:4567/g')"
 GALERA_GROUP="$GROUP"
 GALERA_OPTIONS=""
@@ -600,31 +834,72 @@ END=$(date -u -d "+$SECS seconds" +%Y%m%d%H%M%SZ)
 DIR=/var/lib/mysql
 CA=/tmp/dbca-ca.crt; CAKEY=/tmp/dbca-ca.key
 [ -f "$CA" ] && [ -f "$CAKEY" ] || { echo "CA material missing"; exit 1; }
+command -v openssl >/dev/null 2>&1 || { echo "openssl not installed in this image"; exit 1; }
 cp -f "$CA" "$DIR/ca.pem"
-openssl req -newkey rsa:2048 -nodes -keyout "$DIR/server-key.pem" -out /tmp/s.csr -subj "/O=DBCanvas/CN=$FQDN" >/dev/null 2>&1
-openssl x509 -req -in /tmp/s.csr -CA "$CA" -CAkey "$CAKEY" -CAcreateserial -out "$DIR/server-cert.pem" -not_after "$END" >/dev/null 2>&1
-openssl req -newkey rsa:2048 -nodes -keyout "$DIR/client-key.pem" -out /tmp/c.csr -subj "/O=DBCanvas/CN=$FQDN-client" >/dev/null 2>&1
-openssl x509 -req -in /tmp/c.csr -CA "$CA" -CAkey "$CAKEY" -CAcreateserial -out "$DIR/client-cert.pem" -not_after "$END" >/dev/null 2>&1
+# Errors are intentionally NOT discarded so a failure surfaces in the deploy log.
+openssl req -newkey rsa:2048 -nodes -keyout "$DIR/server-key.pem" -out /tmp/s.csr -subj "/O=DBCanvas/CN=$FQDN" >/dev/null
+openssl x509 -req -in /tmp/s.csr -CA "$CA" -CAkey "$CAKEY" -CAcreateserial -out "$DIR/server-cert.pem" -not_after "$END" >/dev/null
+openssl req -newkey rsa:2048 -nodes -keyout "$DIR/client-key.pem" -out /tmp/c.csr -subj "/O=DBCanvas/CN=$FQDN-client" >/dev/null
+openssl x509 -req -in /tmp/c.csr -CA "$CA" -CAkey "$CAKEY" -CAcreateserial -out "$DIR/client-cert.pem" -not_after "$END" >/dev/null
 chown mysql:mysql "$DIR/ca.pem" "$DIR/server-cert.pem" "$DIR/server-key.pem" "$DIR/client-cert.pem" "$DIR/client-key.pem"
 chmod 600 "$DIR/server-key.pem" "$DIR/client-key.pem"
 chmod 644 "$DIR/ca.pem" "$DIR/server-cert.pem" "$DIR/client-cert.pem"
 rm -f /tmp/dbca-ca.crt /tmp/dbca-ca.key /tmp/s.csr /tmp/c.csr /tmp/dbca-ca.srl
-grep -q '^ssl-ca=' /etc/my.cnf || cat >> /etc/my.cnf <<EOF
+CNF=${CNF:-/etc/my.cnf}
+LOGERR=${LOGERR:-/var/log/mysqld.log}
+grep -q '^ssl-ca=' "$CNF" 2>/dev/null || cat >> "$CNF" <<EOF
 ssl-ca=/var/lib/mysql/ca.pem
 ssl-cert=/var/lib/mysql/server-cert.pem
 ssl-key=/var/lib/mysql/server-key.pem
 EOF
 systemctl restart "$UNITSVC"
-systemctl is-active --quiet "$UNITSVC" || { echo "mysql failed to restart with TLS"; tail -8 /var/log/mysqld.log; exit 1; }`
+systemctl is-active --quiet "$UNITSVC" || { echo "mysql failed to restart with TLS"; tail -8 "$LOGERR" 2>/dev/null; exit 1; }`
 
+// pxcInstallPMMClient{RHEL,Debian} install the PMM client (percona-release setup
+// pmm3-client → dnf/apt install pmm-client). Run on every data node at deploy,
+// independent of whether monitoring is enabled, so it can be turned on later
+// without an install. Fails loudly so a broken install surfaces.
+const pxcInstallPMMClientRHEL = `set -e
+percona-release setup -y pmm3-client >/dev/null 2>&1
+dnf -y -q install pmm-client >/dev/null`
+
+const pxcInstallPMMClientDebian = `set -e
+export DEBIAN_FRONTEND=noninteractive
+percona-release setup -y pmm3-client >/dev/null 2>&1
+apt-get update -qq >/dev/null
+apt-get install -y -qq pmm-client >/dev/null`
+
+// pxcPMM{RHEL,Debian} point an already-installed pmm-client at the PMM server and
+// register this node's MySQL. pmm-client is installed separately at deploy
+// (pxcInstallPMMClient*); the install is re-run here too so the step is
+// self-healing for clusters provisioned before that became unconditional. config
+// + add fail loudly (no `|| true`); only the pre-add `remove` is tolerant.
+// pmm-admin config talks to the *local* pmm-agent over its API (127.0.0.1:7777),
+// so the agent must be enabled + running first. The RHEL package starts it at
+// install; the Debian package leaves it disabled — hence `systemctl enable --now
+// pmm-agent` before config (and again after, since config may restart it).
 const pxcPMMRHEL = `set -e
-percona-release enable -y pmm3-client >/dev/null 2>&1 || percona-release enable -y original >/dev/null 2>&1 || true
-dnf -y -q install pmm-client >/dev/null 2>&1 || true
-pmm-admin config --server-insecure-tls --server-url="https://admin:admin@$PMM_FQDN:8443" >/dev/null 2>&1 || true
-pmm-admin add mysql --username=root --password="$ROOT_PW" --host=127.0.0.1 --port=3306 "$NODE" >/dev/null 2>&1 || true`
+command -v pmm-admin >/dev/null 2>&1 || { percona-release setup -y pmm3-client >/dev/null 2>&1; dnf -y -q install pmm-client >/dev/null; }
+systemctl enable --now pmm-agent >/dev/null 2>&1 || true
+pmm-admin config --force --server-insecure-tls --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443" >/dev/null
+systemctl enable --now pmm-agent >/dev/null 2>&1 || true
+pmm-admin remove mysql "$NODE" >/dev/null 2>&1 || true
+QS=perfschema
+[ "$(mysql --socket=/var/lib/mysql/mysql.sock -u"$DB_USER" -p"$DB_PW" -N -e 'SELECT @@global.slow_query_log' 2>/dev/null)" = "1" ] && QS=slowlog
+pmm-admin add mysql --username="$DB_USER" --password="$DB_PW" --socket=/var/lib/mysql/mysql.sock --query-source="$QS" "$NODE"`
 
 const pxcPMMDebian = `set -e
-percona-release enable -y pmm3-client >/dev/null 2>&1 || true
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq pmm-client >/dev/null 2>&1 || true
-pmm-admin config --server-insecure-tls --server-url="https://admin:admin@$PMM_FQDN:8443" >/dev/null 2>&1 || true
-pmm-admin add mysql --username=root --password="$ROOT_PW" --host=127.0.0.1 --port=3306 "$NODE" >/dev/null 2>&1 || true`
+export DEBIAN_FRONTEND=noninteractive
+command -v pmm-admin >/dev/null 2>&1 || { percona-release setup -y pmm3-client >/dev/null 2>&1; apt-get update -qq >/dev/null; apt-get install -y -qq pmm-client >/dev/null; }
+systemctl enable --now pmm-agent >/dev/null 2>&1 || true
+pmm-admin config --force --server-insecure-tls --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443" >/dev/null
+systemctl enable --now pmm-agent >/dev/null 2>&1 || true
+pmm-admin remove mysql "$NODE" >/dev/null 2>&1 || true
+QS=perfschema
+[ "$(mysql --socket=/var/lib/mysql/mysql.sock -u"$DB_USER" -p"$DB_PW" -N -e 'SELECT @@global.slow_query_log' 2>/dev/null)" = "1" ] && QS=slowlog
+pmm-admin add mysql --username="$DB_USER" --password="$DB_PW" --socket=/var/lib/mysql/mysql.sock --query-source="$QS" "$NODE"`
+
+// pxcPMMRemoveScript deregisters a node's MySQL service from PMM and unregisters
+// the node from the server (best-effort; used when monitoring is turned off).
+const pxcPMMRemoveScript = `pmm-admin remove mysql "$NODE" >/dev/null 2>&1 || true
+pmm-admin unregister --force >/dev/null 2>&1 || true`

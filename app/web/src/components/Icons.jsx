@@ -28,12 +28,18 @@ export const Icon = {
       <rect x="3" y="16" width="7" height="5" rx="1.5" />
     </Svg>
   ),
-  // Database cluster: a stacked cylinder (classic DB symbol) for PXC nodes.
+  // Database cluster: three database cylinders (PXC frame + nodes).
   Database: (p) => (
     <Svg {...p}>
-      <ellipse cx="12" cy="5" rx="7" ry="2.6" />
-      <path d="M5 5v6c0 1.45 3.13 2.6 7 2.6s7-1.15 7-2.6V5" />
-      <path d="M5 11v6c0 1.45 3.13 2.6 7 2.6s7-1.15 7-2.6v-6" />
+      {/* top member */}
+      <ellipse cx="12" cy="4" rx="3" ry="1.3" />
+      <path d="M9 4v5c0 .8 1.34 1.3 3 1.3s3-.5 3-1.3V4" />
+      {/* bottom-left member */}
+      <ellipse cx="6" cy="12" rx="3" ry="1.3" />
+      <path d="M3 12v5c0 .8 1.34 1.3 3 1.3s3-.5 3-1.3v-5" />
+      {/* bottom-right member */}
+      <ellipse cx="18" cy="12" rx="3" ry="1.3" />
+      <path d="M15 12v5c0 .8 1.34 1.3 3 1.3s3-.5 3-1.3v-5" />
     </Svg>
   ),
   // Monitoring: a metrics panel with a live activity/pulse trace.
@@ -51,6 +57,21 @@ export const Icon = {
       <circle cx="9" cy="8" r="2.4" fill="var(--surface)" />
       <line x1="4" y1="16" x2="20" y2="16" />
       <circle cx="15" cy="16" r="2.4" fill="var(--surface)" />
+    </Svg>
+  ),
+  // ProxySQL: a proxy/router box routing a client (left) to three cluster
+  // backends (right) — the MySQL proxy fronting a PXC cluster.
+  ProxySQL: (p) => (
+    <Svg {...p}>
+      <circle cx="3.2" cy="12" r="1.5" />
+      <line x1="4.7" y1="12" x2="8" y2="12" />
+      <rect x="8" y="8.5" width="5.5" height="7" rx="1.5" />
+      <line x1="13.5" y1="10.5" x2="17.4" y2="5.5" />
+      <line x1="13.5" y1="12" x2="17.8" y2="12" />
+      <line x1="13.5" y1="13.5" x2="17.4" y2="18.5" />
+      <circle cx="19" cy="5" r="1.6" />
+      <circle cx="19.4" cy="12" r="1.6" />
+      <circle cx="19" cy="19" r="1.6" />
     </Svg>
   ),
   Nodes: (p) => (

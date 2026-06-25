@@ -53,6 +53,8 @@ func main() {
 
 	mux.HandleFunc("GET /api/catalog/pmm", app.handlePMMCatalog)
 	mux.HandleFunc("GET /api/catalog/pxc", app.handlePXCCatalog)
+	mux.HandleFunc("GET /api/catalog/proxysql", app.handleProxySQLCatalog)
+	mux.HandleFunc("GET /api/catalog/ps", app.handlePSCatalog)
 
 	mux.HandleFunc("GET /api/stacks", app.handleListStacks)
 	mux.HandleFunc("POST /api/stacks", app.handleCreateStack)
@@ -94,6 +96,9 @@ func main() {
 	// PXC node management.
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/pxc/cert", app.handlePXCCertInfo)
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/pxc/cert", app.handlePXCCertGenerate)
+
+	// PXC cluster (frame) management — toggle PMM monitoring post-deploy.
+	mux.HandleFunc("POST /api/stacks/{id}/frames/{fid}/pmm", app.handlePXCFrameMonitor)
 
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/term", app.handleNodeTerminal)
 

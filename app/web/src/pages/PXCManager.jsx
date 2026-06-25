@@ -114,10 +114,12 @@ function CredsTab({ cfg, sec }) {
     { k: 'App password', v: sec.appPassword },
     { k: 'Repl user', v: sec.replUser || 'repl' },
     { k: 'Repl password', v: sec.replPassword },
+    { k: 'Monitor user', v: sec.monitorUser || 'monitor' },
+    { k: 'Monitor password', v: sec.monitorPassword },
   ]
   return (
     <div className="space-y-2">
-      <div className="text-[11px] text-muted">App/repl passwords come from the host .env (APP_PASSWORD / REPL_PASSWORD).</div>
+      <div className="text-[11px] text-muted">App/repl/monitor passwords come from the host .env (APP_PASSWORD / REPL_PASSWORD / MONITOR_PASSWORD).</div>
       {rows.map((r) => (
         <div key={r.k}>
           <div className="text-xs text-muted">{r.k}</div>
