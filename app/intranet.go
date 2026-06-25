@@ -53,7 +53,11 @@ type designEdge struct {
 	ID   string  `json:"id"`
 	From edgeEnd `json:"from"`
 	To   edgeEnd `json:"to"`
-	Type string  `json:"type"`
+	// "directional" — a data-flow link (e.g. backend cluster → ProxySQL).
+	// "async"/"bidir" — a cross-cluster replication link between two cluster members
+	// (From is the source, To the replica; "bidir" replicates both ways). See
+	// replication.go.
+	Type string `json:"type"`
 }
 
 type edgeEnd struct {
@@ -510,6 +514,42 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		}
 	}
 
+	// --- cross-cluster replication links (async / bidirectional) ---
+	// Each replication edge must connect two replication-capable members in
+	// *different* clusters, both with GTID enabled (auto-positioning); a server-id
+	// collision between the endpoints breaks replication.
+	replPairs := map[string]bool{}
+	for _, e := range doc.Edges {
+		if !isReplEdge(e) {
+			continue
+		}
+		src, fa, ok1 := replMember(doc, e.From.Node)
+		dst, fb, ok2 := replMember(doc, e.To.Node)
+		if !ok1 || !ok2 {
+			out = append(out, issue{"error", "A replication link must connect two PXC or Percona Server cluster members"})
+			continue
+		}
+		if fa.ID == fb.ID {
+			out = append(out, issue{"error", fmt.Sprintf("Replication link %s ↔ %s must connect members in different clusters", src.Label, dst.Label)})
+			continue
+		}
+		key := src.ID + "|" + dst.ID
+		rev := dst.ID + "|" + src.ID
+		if replPairs[key] || replPairs[rev] {
+			out = append(out, issue{"error", fmt.Sprintf("Duplicate replication link between %s and %s", src.Label, dst.Label)})
+		}
+		replPairs[key] = true
+		if !fa.GTID || !fb.GTID {
+			out = append(out, issue{"warning", fmt.Sprintf("Replication link %s ↔ %s uses binary-log file/position (GTID off on a cluster) — only writes made after deploy replicate; seed existing data first", src.Label, dst.Label)})
+		}
+		if memberServerID(src) == memberServerID(dst) {
+			out = append(out, issue{"warning", fmt.Sprintf("Replication link %s ↔ %s: both resolve to server-id %d — rename one so the ids differ", src.Label, dst.Label, memberServerID(src))})
+		}
+		if e.Type == "bidir" {
+			out = append(out, issue{"warning", fmt.Sprintf("Bidirectional replication %s ↔ %s is multi-writer — avoid writing the same rows on both sides", src.Label, dst.Label)})
+		}
+	}
+
 	// Export host-port conflicts: within the design, and against ports already
 	// published by other containers (the stack's own containers are excluded so a
 	// redeploy doesn't flag itself).
@@ -652,6 +692,11 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionInnoDBFrame(st, f, doc)
 		}
 	}
+
+	// Final phase: configure cross-cluster replication links (async / bidirectional)
+	// drawn between cluster members. It waits for the clusters to come up, then
+	// reconciles channels (creating new ones, pruning removed ones) on each redeploy.
+	go a.reconcileReplication(st, doc)
 
 	a.store.SetStackStatus(st.ID, StackDeployed)
 	out, _ := a.store.ListDeployments(st.ID)

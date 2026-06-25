@@ -1499,3 +1499,72 @@ router, Access showing the router RW/RO host ports, Credentials).
   were **not** run against real containers; a live deploy (and `make versions` to
   populate `pdps:`) is needed to confirm — the package names and the raw-GR static
   router config are the most likely spots to need a tweak.
+
+## 13. Cross-cluster replication links (async / bidirectional)
+
+A **replication link** is an association line drawn between two **cluster member
+nodes** — a **PXC** member or a **Percona Server replication** member — that live in
+**different** frames. It sets up MySQL channel-based replication between the two
+clusters, configured as the **final phase of a deploy** (so the clusters are already
+up and their `repl` users exist) and **reconciled on every redeploy**.
+
+- **async** — directed `source → replica`; the arrow points at the replica, which
+  pulls from the source over one channel.
+- **bidirectional** — both nodes replicate from each other (a channel on each side);
+  multi-writer and conflict-prone (a validation warning says so).
+
+### Canvas / endpoints
+Every PXC and Percona Server replication **member card** now exposes 4 hover-revealed
+ports (the card is wrapped in a non-clipping `group` div so the ports sit outside its
+rounded border; ProxySQL/InnoDB members stay portless). `rectOf`/`hitPort` resolve
+member endpoints at the small member geometry. `endpointKind` gains **`replmember`**
+for PXC/Percona-Server members — distinct from the frame-level `backend` ports that
+still drive the ProxySQL association. `tryConnect` rejects same-frame pairs and (via
+the existing one-edge-per-pair guard) a second link between the same two nodes; on a
+valid drop it opens **`ReplicationLinkModal`** (Async A→B / Async B→A / Bidirectional).
+A replication edge renders green + dashed with an arrowhead at the replica (and a
+second arrowhead at the source for bidirectional), captioned "async/bidirectional
+replication". Selecting it shows **`ReplicationLinkForm`** — switch async direction or
+async↔bidirectional (the "modify" path; options anchored to a sorted node pair so the
+active choice doesn't jump), or delete. Changes take effect on the next Deploy.
+
+### Backend — `app/replication.go`
+`designEdge.Type` carries `"async"`/`"bidir"` for these links. `replicationLinks(doc)`
+expands edges into directed `source→replica` links (bidir → two). `reconcileReplication`
+runs in a goroutine kicked off at the end of `handleDeployStack`: it waits for the
+involved members to be running, then on each replica runs **`replChannelApply`** —
+`CHANGE REPLICATION SOURCE TO … GET_SOURCE_PUBLIC_KEY=1, <pos> FOR CHANNEL
+'xrepl_<source host>'; START REPLICA FOR CHANNEL …` (modern 8.0.23+/8.4-safe
+keywords; **no RESET**, so each node keeps its own cluster's data). **GTID is not
+required:** when **both** clusters have GTID on, `<pos>` is `SOURCE_AUTO_POSITION=1`
+(the replica fetches the GTIDs it is missing); otherwise it falls back to binary-log
+**file/position** — `reconcileReplication` reads the source's current coordinates
+(`sourceBinlogPos`: `SHOW BINARY LOG STATUS` on 8.4 / `SHOW MASTER STATUS` on 8.0) and
+sets `SOURCE_LOG_FILE`/`SOURCE_LOG_POS`, so only writes made after deploy replicate
+(seed existing data first). To make a PXC node usable as an async source/replica
+without GTID, **`pxcMyCnf` now enables `log_bin` (+ `log_replica_updates`)
+unconditionally** (previously only under GTID). The shared `repl`/`REPL_PASSWORD` user
+created by every cluster's bootstrap is used to auth to the source. Channels removed
+from the canvas are torn down by **`replChannelPrune`** (`STOP REPLICA` + `RESET REPLICA
+ALL FOR CHANNEL` for any `xrepl_*` channel not in the kept set), so a redeploy
+reconciles to match the design. Progress is appended to the replica's deployment log
+via `replLogln` (the node stays "running"; replication is annotated, not a separate
+node). `validateStack` checks each link connects members in **different** clusters,
+warns when GTID is off on a side (file/position — only post-deploy writes replicate),
+warns on a **server-id collision** between the endpoints (`memberServerID`) and on
+bidirectional multi-writer, and errors on a duplicate pair.
+
+### Decisions
+Apply timing **at deploy / reconcile-on-redeploy** (not a separate post-deploy action);
+GTID **best-effort auto-position** (divergent pre-existing data is the operator's
+concern). Member labels are unique stack-wide so same-type links (PXC↔PXC, PS↔PS) get
+distinct server-ids; only a mixed PXC↔PS pair can collide (validation warns).
+
+### Verification performed
+- `go build`/`vet`/`test`, `gofmt`, and the web build pass.
+- **Caveat — not validated on a live deployment.** The cross-cluster `CHANGE
+  REPLICATION SOURCE … FOR CHANNEL` flow (both GTID auto-position and file/position),
+  GTID consistency between two independently-bootstrapped clusters, PXC as an async
+  source/replica (now that `log_bin` is always on; Galera applies the stream
+  cluster-wide), and the `caching_sha2`-over-TCP repl auth are **build-verified only**
+  and need a live deploy to confirm.

@@ -410,6 +410,7 @@ function StackEditor({ stackId, onBack }) {
   const [menu, setMenu] = useState(null)
   const [connect, setConnect] = useState(null)
   const [linkPrompt, setLinkPrompt] = useState(null) // ProxySQL↔ProxySQL: choose flow direction
+  const [replPrompt, setReplPrompt] = useState(null) // member↔member: choose replication direction/type
   const [saveState, setSaveState] = useState('saved') // saved | saving
   const [deployments, setDeployments] = useState([])
   const [issues, setIssues] = useState(null) // validate results panel
@@ -501,7 +502,9 @@ function StackEditor({ stackId, onBack }) {
   // the fixed node size, a PXC cluster frame its own geometry.
   const rectOf = useCallback((id) => {
     const n = refs.current.nodes.find((x) => x.id === id)
-    if (n) return { x: n.x, y: n.y, w: NODE_W, h: NODE_H }
+    // A cluster member (inside a frame) uses the small member-card geometry; a free
+    // node uses the full node size.
+    if (n) return n.frameId ? { x: n.x, y: n.y, w: PXC_NODE_W, h: PXC_NODE_H } : { x: n.x, y: n.y, w: NODE_W, h: NODE_H }
     const f = refs.current.frames.find((x) => x.id === id)
     if (f) return { x: f.x, y: f.y, w: f.w, h: f.h }
     return null
@@ -520,7 +523,13 @@ function StackEditor({ stackId, onBack }) {
       }
     }
     for (const n of refs.current.nodes) {
-      if (n.frameId || !NODE_TYPES[n.type]?.ports) continue
+      if (n.frameId) {
+        // PXC and Percona Server replication members expose ports for cross-cluster
+        // replication links; other members (ProxySQL, InnoDB) do not.
+        if (n.type === 'pxc' || n.type === 'mysql') consider(n.id, { x: n.x, y: n.y, w: PXC_NODE_W, h: PXC_NODE_H })
+        continue
+      }
+      if (!NODE_TYPES[n.type]?.ports) continue
       consider(n.id, { x: n.x, y: n.y, w: NODE_W, h: NODE_H })
     }
     for (const f of refs.current.frames) {
@@ -658,9 +667,15 @@ function StackEditor({ stackId, onBack }) {
   // Member nodes inside a frame are not linkable (no ports).
   // 'backend' = a PXC or MySQL cluster frame (source only); 'proxysql' = standalone
   // ProxySQL node; 'proxysql-frame' = ProxySQL cluster frame.
+  // 'replmember' = a PXC or Percona Server replication member node (a source/replica
+  // for a cross-cluster replication link).
   function endpointKind(id) {
     const n = refs.current.nodes.find((x) => x.id === id)
-    if (n) return n.type === 'proxysql' && !n.frameId ? 'proxysql' : null
+    if (n) {
+      if (n.type === 'proxysql' && !n.frameId) return 'proxysql'
+      if ((n.type === 'pxc' || n.type === 'mysql') && n.frameId) return 'replmember'
+      return null
+    }
     const f = refs.current.frames.find((x) => x.id === id)
     if (f) return (f.type === 'pxc' || f.type === 'mysql') ? 'backend' : f.type === 'proxysql' ? 'proxysql-frame' : null
     return null
@@ -691,13 +706,32 @@ function StackEditor({ stackId, onBack }) {
     if (k2 === 'backend' && isProxyDest(k1)) return createFlow(e2, e1, { singleOutgoing: true })
     // ProxySQL node ↔ ProxySQL node: ask which way the data flows.
     if (k1 === 'proxysql' && k2 === 'proxysql') { setLinkPrompt({ e1, e2 }); return }
+    // Cluster member ↔ cluster member (PXC/Percona Server, different frames): a
+    // cross-cluster replication link. Ask for async direction or bidirectional.
+    if (k1 === 'replmember' && k2 === 'replmember') {
+      const n1 = refs.current.nodes.find((x) => x.id === e1.node)
+      const n2 = refs.current.nodes.find((x) => x.id === e2.node)
+      if (!n1 || !n2 || n1.frameId === n2.frameId) return // same cluster — already replicating
+      setReplPrompt({ e1, e2 })
+      return
+    }
     // Everything else (frame↔frame, ProxySQL cluster frame as source, node↔cluster
     // frame, self) is not allowed.
+  }
+  // createReplEdge adds a cross-cluster replication link. mode "async" → From is the
+  // source, To the replica (arrow at the replica). mode "bidir" → both replicate
+  // from each other (double-headed). One link per node pair (tryConnect rejects a
+  // second); change direction/type later from the link's Properties panel.
+  function createReplEdge(fromEnd, toEnd, mode) {
+    const id = uid('e')
+    setEdges((es) => [...es, { id, from: fromEnd, to: toEnd, type: mode }])
+    setSelected({ kind: 'edge', id })
   }
 
   // mutations
   const patchNode = (id, patch) => setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, ...patch } : n)))
   const patchFrame = (id, patch) => setFrames((fs) => fs.map((f) => (f.id === id ? { ...f, ...patch } : f)))
+  const patchEdge = (id, patch) => setEdges((es) => es.map((e) => (e.id === id ? { ...e, ...patch } : e)))
   function deleteNode(id) {
     // A PXC member belongs to a frame: re-lay the frame after removing it (and
     // drop the frame entirely if it was the last node), so the menu/manager
@@ -709,6 +743,8 @@ function StackEditor({ stackId, onBack }) {
       const r = relayout(node.frameId, frames, nodes.filter((n) => n.id !== id))
       setFrames(r.frames)
       setNodes(r.nodes)
+      // Drop any replication links attached to the removed member.
+      setEdges((es) => es.filter((e) => e.from.node !== id && e.to.node !== id))
       setSelected((s) => (s?.kind === 'node' && s.id === id ? { kind: 'frame', id: node.frameId } : s))
       return
     }
@@ -888,6 +924,7 @@ function StackEditor({ stackId, onBack }) {
     const r = relayout(frameId, frames, nodes.filter((n) => n.id !== id))
     setFrames(r.frames)
     setNodes(r.nodes)
+    setEdges((es) => es.filter((e) => e.from.node !== id && e.to.node !== id))
     setSelected((s) => (s?.kind === 'node' && s.id === id ? { kind: 'frame', id: frameId } : s))
   }
   function addNode(type) {
@@ -1120,16 +1157,21 @@ function StackEditor({ stackId, onBack }) {
                 const p1 = portPoint(r1, ed.to.port)
                 const d = edgePath(p0, ed.from.port, p1, ed.to.port)
                 const on = selected?.kind === 'edge' && selected.id === ed.id
-                // Caption an association line (any link involving a ProxySQL node or
-                // ProxySQL cluster frame).
+                const repl = ed.type === 'async' || ed.type === 'bidir'
+                // Caption: a cross-cluster replication link, or an association line
+                // (any link involving a ProxySQL node or ProxySQL cluster frame).
                 const proxyNodeEnd = nodes.some((n) => (n.id === ed.from.node || n.id === ed.to.node) && n.type === 'proxysql')
                 const proxyFrameEnd = frames.some((fr) => (fr.id === ed.from.node || fr.id === ed.to.node) && fr.type === 'proxysql')
-                const caption = proxyNodeEnd || proxyFrameEnd ? 'forwards SQL traffic to' : null
+                const caption = repl
+                  ? (ed.type === 'bidir' ? 'bidirectional replication' : 'async replication')
+                  : (proxyNodeEnd || proxyFrameEnd ? 'forwards SQL traffic to' : null)
                 return (
                   <g key={ed.id}>
                     <path d={d} fill="none" stroke="transparent" strokeWidth="16" className="pointer-events-auto cursor-pointer"
                       onPointerDown={(e) => { e.stopPropagation(); setSelected({ kind: 'edge', id: ed.id }) }} />
-                    <path d={d} fill="none" stroke={on ? 'var(--primary)' : 'var(--muted)'} strokeWidth={on ? 3 : 2} markerEnd="url(#stk-arrow)" />
+                    <path d={d} fill="none" stroke={on ? 'var(--primary)' : repl ? 'var(--success)' : 'var(--muted)'} strokeWidth={on ? 3 : 2}
+                      strokeDasharray={repl ? '7 4' : undefined}
+                      markerEnd="url(#stk-arrow)" markerStart={ed.type === 'bidir' ? 'url(#stk-arrow)' : undefined} />
                     {caption && (
                       <text x={(p0.x + p1.x) / 2} y={(p0.y + p1.y) / 2 - 5} textAnchor="middle"
                         style={{ fill: 'var(--muted)', fontSize: '9px', paintOrder: 'stroke', stroke: 'var(--bg)', strokeWidth: 3.5, strokeLinejoin: 'round' }}>
@@ -1183,28 +1225,37 @@ function StackEditor({ stackId, onBack }) {
                     else if (f.type === 'innodb') sub = 'GR member'
                     else if (arb) sub = 'Arbitrator · garbd'
                     const barCol = (f.type === 'pxc' && arb) || (f.type === 'mysql' && !isPrimary) ? '#64748b' : col
+                    // PXC and Percona Server replication members expose ports for
+                    // cross-cluster replication links (the wrapper, not the clipped
+                    // card, carries them so they sit outside the rounded border).
+                    const canRepl = f.type === 'pxc' || f.type === 'mysql'
                     return (
-                      <div key={n.id}
-                        onPointerDown={(e) => selectFrameNode(e, n.id)}
-                        onContextMenu={(e) => openMenu(e, n.id)}
-                        className={`absolute flex cursor-pointer flex-col overflow-hidden rounded-lg border bg-surface shadow-sm ${non ? 'ring-2 ring-primary' : ''}`}
-                        style={{ left: n.x - f.x, top: n.y - f.y, width: PXC_NODE_W, height: PXC_NODE_H }}
-                      >
-                        <div className="h-1 w-full shrink-0" style={{ background: barCol }} />
-                        <div className="flex flex-1 flex-col justify-center px-2 py-1">
-                          <div className="flex items-center gap-1">
-                            <span className="min-w-0 flex-1 truncate text-xs font-semibold text-fg">{n.label}</span>
-                            {dep?.state === 'provisioning' ? (
-                              <ProgressRing percent={dep.progress?.percent || 0} size={15} />
-                            ) : dep ? (
-                              <span className="h-2 w-2 shrink-0 rounded-full" title={dep.state}
-                                style={{ background: `var(--${DEPLOY_TONE[dep.state] === 'success' ? 'success' : dep.state === 'error' ? 'danger' : 'warning'})` }} />
-                            ) : null}
+                      <div key={n.id} className="group absolute"
+                        style={{ left: n.x - f.x, top: n.y - f.y, width: PXC_NODE_W, height: PXC_NODE_H }}>
+                        <div
+                          onPointerDown={(e) => selectFrameNode(e, n.id)}
+                          onContextMenu={(e) => openMenu(e, n.id)}
+                          className={`absolute inset-0 flex cursor-pointer flex-col overflow-hidden rounded-lg border bg-surface shadow-sm ${non ? 'ring-2 ring-primary' : ''}`}
+                        >
+                          <div className="h-1 w-full shrink-0" style={{ background: barCol }} />
+                          <div className="flex flex-1 flex-col justify-center px-2 py-1">
+                            <div className="flex items-center gap-1">
+                              <span className="min-w-0 flex-1 truncate text-xs font-semibold text-fg">{n.label}</span>
+                              {dep?.state === 'provisioning' ? (
+                                <ProgressRing percent={dep.progress?.percent || 0} size={15} />
+                              ) : dep ? (
+                                <span className="h-2 w-2 shrink-0 rounded-full" title={dep.state}
+                                  style={{ background: `var(--${DEPLOY_TONE[dep.state] === 'success' ? 'success' : dep.state === 'error' ? 'danger' : 'warning'})` }} />
+                              ) : null}
+                            </div>
+                            <div className="mt-0.5 truncate text-[10px] text-muted">{sub}</div>
+                            <div className="truncate text-[9px] font-medium text-fg/80">{pxcOSLabel(f)} · {f.arch || 'amd64'}</div>
+                            {n.exportEnabled && <div className="text-[9px] font-medium text-primary">⇅ export</div>}
                           </div>
-                          <div className="mt-0.5 truncate text-[10px] text-muted">{sub}</div>
-                          <div className="truncate text-[9px] font-medium text-fg/80">{pxcOSLabel(f)} · {f.arch || 'amd64'}</div>
-                          {n.exportEnabled && <div className="text-[9px] font-medium text-primary">⇅ export</div>}
                         </div>
+                        {canRepl && (
+                          <PortHandles ownerId={n.id} connecting={!!connect} snapPort={connect?.targetId === n.id ? connect.targetPort : null} onStart={startConnect} />
+                        )}
                       </div>
                     )
                   })}
@@ -1274,6 +1325,7 @@ function StackEditor({ stackId, onBack }) {
         depByNode={depByNode}
         patchNode={patchNode}
         patchFrame={patchFrame}
+        patchEdge={patchEdge}
         deleteNode={deleteNode}
         deleteEdge={deleteEdge}
         deleteFrame={deleteFrame}
@@ -1290,6 +1342,14 @@ function StackEditor({ stackId, onBack }) {
           prompt={linkPrompt} nodes={nodes} edges={edges}
           onClose={() => setLinkPrompt(null)}
           onChoose={(fromEnd, toEnd) => { createFlow(fromEnd, toEnd); setLinkPrompt(null) }}
+        />
+      )}
+
+      {replPrompt && (
+        <ReplicationLinkModal
+          prompt={replPrompt} nodes={nodes} frames={frames}
+          onClose={() => setReplPrompt(null)}
+          onChoose={(fromEnd, toEnd, mode) => { createReplEdge(fromEnd, toEnd, mode); setReplPrompt(null) }}
         />
       )}
 
@@ -2671,7 +2731,7 @@ function loadProps() {
   try { return JSON.parse(localStorage.getItem(PROPS_KEY) || '{}') } catch { return {} }
 }
 
-function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, deleteNode, deleteEdge, deleteFrame }) {
+function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame }) {
   const selNode = selected?.kind === 'node' ? nodes.find((n) => n.id === selected.id) : null
   const selDep = selNode ? depByNode[selNode.id] : null
   const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb')) || selected?.kind === 'frame'
@@ -2712,7 +2772,7 @@ function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, p
       </button>
     </div>
   )
-  const body = <Body selected={selected} stackId={stackId} nodes={nodes} edges={edges} frames={frames} depByNode={depByNode} patchNode={patchNode} patchFrame={patchFrame} deleteNode={deleteNode} deleteEdge={deleteEdge} deleteFrame={deleteFrame} />
+  const body = <Body selected={selected} stackId={stackId} nodes={nodes} edges={edges} frames={frames} depByNode={depByNode} patchNode={patchNode} patchFrame={patchFrame} patchEdge={patchEdge} deleteNode={deleteNode} deleteEdge={deleteEdge} deleteFrame={deleteFrame} />
 
   if (docked) {
     return (
@@ -2747,7 +2807,7 @@ function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, p
   )
 }
 
-function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, deleteNode, deleteEdge, deleteFrame }) {
+function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame }) {
   if (!selected) return <p className="text-sm text-muted">Select a node, link or PXC cluster to edit it. Add an Intranet node from the toolbar to begin.</p>
 
   if (selected.kind === 'frame') {
@@ -2884,6 +2944,9 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
 
   const ed = edges.find((x) => x.id === selected.id)
   if (!ed) return null
+  if (ed.type === 'async' || ed.type === 'bidir') {
+    return <ReplicationLinkForm ed={ed} nodes={nodes} patchEdge={patchEdge} deleteEdge={deleteEdge} />
+  }
   return (
     <div className="space-y-3">
       <div className="rounded-lg bg-surface2 px-3 py-2 text-sm">
@@ -2895,5 +2958,95 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         <Icon.Trash size={16} /> Delete link
       </Button>
     </div>
+  )
+}
+
+// ReplicationLinkForm edits a cross-cluster replication link: switch between async
+// (either direction) and bidirectional, or delete it. Changes take effect on the
+// next Deploy (replication is reconciled at deploy time). Options are anchored to a
+// stable node pair (sorted ids) so the active choice doesn't jump when reversed.
+function ReplicationLinkForm({ ed, nodes, patchEdge, deleteEdge }) {
+  const ends = { [ed.from.node]: ed.from, [ed.to.node]: ed.to }
+  const [idA, idB] = [ed.from.node, ed.to.node].sort()
+  const endA = ends[idA]
+  const endB = ends[idB]
+  const labelOf = (id) => nodes.find((n) => n.id === id)?.label || id
+  const lA = labelOf(idA)
+  const lB = labelOf(idB)
+  const current = ed.type === 'bidir' ? 'bidir' : (ed.from.node === idA ? 'ab' : 'ba')
+  const opts = [
+    { key: 'ab', label: `${lA} → ${lB}`, hint: 'async', apply: () => patchEdge(ed.id, { type: 'async', from: endA, to: endB }) },
+    { key: 'ba', label: `${lB} → ${lA}`, hint: 'async', apply: () => patchEdge(ed.id, { type: 'async', from: endB, to: endA }) },
+    { key: 'bidir', label: `${lA} ↔ ${lB}`, hint: 'bidirectional', apply: () => patchEdge(ed.id, { type: 'bidir' }) },
+  ]
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Replication link</span>
+        <Badge tone="success">{ed.type === 'bidir' ? 'bidirectional' : 'async'}</Badge>
+      </div>
+      <p className="text-xs text-muted">
+        Cross-cluster replication between two cluster members. The arrow points from source to replica;
+        bidirectional makes each a replica of the other. Applied (and reconciled) on the next Deploy.
+      </p>
+      <div className="space-y-2">
+        {opts.map((o) => (
+          <button key={o.key} onClick={o.apply}
+            className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-sm ${current === o.key ? 'border-primary bg-primary/10' : 'hover:border-primary hover:bg-primary/5'}`}>
+            <span className="font-mono">{o.label}</span>
+            <span className="text-[11px] text-muted">{o.hint}</span>
+          </button>
+        ))}
+      </div>
+      {ed.type === 'bidir' && (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+          Bidirectional replication is multi-writer — avoid writing the same rows on both sides.
+        </div>
+      )}
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteEdge(ed.id)}>
+        <Icon.Trash size={16} /> Delete replication link
+      </Button>
+    </div>
+  )
+}
+
+// ReplicationLinkModal asks for the direction/type when a replication link is drawn
+// between two cluster members (PXC or Percona Server, in different frames).
+function ReplicationLinkModal({ prompt, nodes, frames, onClose, onChoose }) {
+  const { e1, e2 } = prompt
+  const node = (id) => nodes.find((n) => n.id === id)
+  const n1 = node(e1.node)
+  const n2 = node(e2.node)
+  const frameLabel = (n) => frames.find((f) => f.id === n?.frameId)?.label || ''
+  const l1 = n1?.label || 'node'
+  const l2 = n2?.label || 'node'
+  const opts = [
+    { from: e1, to: e2, mode: 'async', label: `${l1} → ${l2}`, hint: 'async — replica reads from source' },
+    { from: e2, to: e1, mode: 'async', label: `${l2} → ${l1}`, hint: 'async — replica reads from source' },
+    { from: e1, to: e2, mode: 'bidir', label: `${l1} ↔ ${l2}`, hint: 'bidirectional — each replicates from the other' },
+  ]
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
+      <div className="w-full max-w-sm rounded-xl border bg-surface p-5 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+        <h3 className="mb-1 text-sm font-semibold">Set up replication</h3>
+        <p className="mb-3 text-xs text-muted">
+          Between <span className="font-semibold">{l1}</span> ({frameLabel(n1)}) and <span className="font-semibold">{l2}</span> ({frameLabel(n2)}).
+          Configured at deploy time (GTID auto-position when both clusters use GTID, else binlog file/position).
+        </p>
+        <div className="space-y-2">
+          {opts.map((o, i) => (
+            <button key={i} onClick={() => onChoose(o.from, o.to, o.mode)}
+              className="flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm hover:border-primary hover:bg-primary/10">
+              <span className="font-mono">{o.label}</span>
+              <span className="ml-2 text-[11px] text-muted">{o.hint}</span>
+            </button>
+          ))}
+        </div>
+        <div className="mt-4 flex justify-end">
+          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
 }

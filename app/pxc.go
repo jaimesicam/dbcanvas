@@ -512,8 +512,12 @@ func pxcMyCnf(frame designFrame, n designNode, host, domain, clusterAddr string)
 	// always create it).
 	fmt.Fprintf(&b, "slow_query_log=ON\nslow_query_log_file=/var/lib/mysql/slow.log\nlong_query_time=2\n")
 	if frame.GTID {
-		fmt.Fprintf(&b, "gtid_mode=ON\nenforce_gtid_consistency=ON\nlog_bin=binlog\n%s\n", logUpdatesOption(frame.PXCMajor, frame.PXCVersion))
+		fmt.Fprintf(&b, "gtid_mode=ON\nenforce_gtid_consistency=ON\n")
 	}
+	// Binary logging is on regardless of GTID (with replica-update logging) so a PXC
+	// node can act as an async source or replica for a cross-cluster replication link
+	// — GTID auto-position when both clusters use GTID, binlog file/position otherwise.
+	fmt.Fprintf(&b, "log_bin=binlog\n%s\n", logUpdatesOption(frame.PXCMajor, frame.PXCVersion))
 	fmt.Fprintf(&b, "binlog_format=ROW\ninnodb_autoinc_lock_mode=2\npxc_strict_mode=ENFORCING\n")
 	// Cluster traffic runs unencrypted on the isolated stack network; client
 	// (3306) TLS is provided separately by the per-node certs when enabled.
