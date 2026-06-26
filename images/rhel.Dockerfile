@@ -12,6 +12,12 @@ FROM ${BASE_IMAGE}
 # Tell systemd it is running inside a container.
 ENV container=docker
 
+# Force dnf to resolve over IPv4 (ip_resolve=4) so a host without working IPv6
+# doesn't stall on AAAA when downloading packages — both during this build and for
+# every node instance started from the image. Mirrors Squid's dns_v4_first and
+# bind's filter-aaaa.
+RUN grep -q '^ip_resolve=' /etc/dnf/dnf.conf 2>/dev/null || echo 'ip_resolve=4' >> /etc/dnf/dnf.conf
+
 # Install systemd (PID 1) plus the required tooling. percona-toolkit is pulled
 # from the dedicated Percona Toolkit repo (`percona-release setup pt`), which is
 # the only one carrying percona-toolkit on EL10 (the generic "tools" repo lacks

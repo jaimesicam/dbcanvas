@@ -261,6 +261,24 @@ func (a *App) ensureRsyslog(ctx context.Context, id, os string, logln func(strin
 	}
 }
 
+// dnfIPv4Script forces dnf to resolve over IPv4 (ip_resolve=4), so an OEL node on a
+// host without working IPv6 doesn't stall on AAAA when downloading packages. Mirrors
+// Squid's dns_v4_first and bind's filter-aaaa. Idempotent.
+const dnfIPv4Script = `grep -q '^ip_resolve=' /etc/dnf/dnf.conf 2>/dev/null || echo 'ip_resolve=4' >> /etc/dnf/dnf.conf`
+
+// ensureDNFIPv4 applies dnfIPv4Script on RHEL-family (Oracle Linux) nodes before any
+// package download. No-op on Debian/Ubuntu (apt). Best-effort.
+func (a *App) ensureDNFIPv4(ctx context.Context, id, os string, logln func(string)) {
+	if isDebianOS(os) {
+		return
+	}
+	if _, err := a.docker.Exec(ctx, id, []string{"bash", "-c", dnfIPv4Script}, nil); err != nil {
+		logln("ip_resolve=4 setup skipped: " + err.Error())
+	} else {
+		logln("dnf ip_resolve=4 set")
+	}
+}
+
 // genSecret returns prefix + 8 uppercase hex chars (e.g. LdapAdm!A02FB5C6).
 func genSecret(prefix string) string {
 	b := make([]byte, 4)
@@ -917,6 +935,9 @@ func (a *App) provisionIntranet(st Stack, n designNode) {
 			failNode("systemd did not start: %v", err)
 			return
 		}
+		// The Intranet image is always Oracle Linux — force dnf over IPv4 before its
+		// package installs.
+		a.ensureDNFIPv4(ctx, id, "oraclelinux", logln)
 
 		env := []string{
 			"DOMAIN=" + sec.Domain,

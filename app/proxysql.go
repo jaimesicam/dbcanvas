@@ -410,6 +410,7 @@ func (a *App) proxysqlPrepareMember(ctx context.Context, st Stack, frame designF
 	if err := a.docker.WaitSystemd(ctx, id, 90*time.Second); err != nil {
 		return pr.fail("systemd did not start: %v", err)
 	}
+	a.ensureDNFIPv4(ctx, id, frame.OS, pr.logln)
 
 	debian := isDebianOS(frame.OS)
 	if frame.UseProxy {
@@ -587,6 +588,7 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 			failNode("systemd did not start: %v", err)
 			return
 		}
+		a.ensureDNFIPv4(ctx, id, p.OS, logln)
 
 		debian := isDebianOS(p.OS)
 
