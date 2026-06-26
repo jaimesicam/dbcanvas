@@ -1677,14 +1677,19 @@ OracleLinux-9 systemd containers:
 
 ## 15. PS MongoDB Sharded Cluster frame
 
-A **PS MongoDB Sharded Cluster** frame: a **fixed 13-node** Percona Server for
-MongoDB sharded cluster — **3 shards × 3-node replica set** (9 `mongod`) + a
-**3-node config-server replica set** (CSRS, 3 `mongod`) + **1 `mongos` router** (the
-"mongosh" node — a query router with the `mongosh` shell). The topology is fixed:
-no node can be added or removed. Node properties mirror the PXC frame **minus any
-replication configuration** (the sharded layout is not user-editable). Internal auth
-uses a shared **keyFile** (the same random bytes on every member); apps connect
-through the `mongos` router.
+A **PS MongoDB Sharded Cluster** frame: a Percona Server for MongoDB sharded
+cluster, always **1 `mongos` router** (the "mongosh" node — a query router with the
+`mongosh` shell) + **3 shards** + a **config-server replica set**, in one of two
+**setups** chosen in the frame form before deploy (locked after):
+- **standard** — 3 shards × **3-node** replica set (9 `mongod`) + a **3-node**
+  config-server replica set (CSRS) + mongos = **13 nodes** (HA).
+- **minimum** — 3 **single-node** shards + **1** config server + mongos =
+  **5 nodes** (smallest working sharded cluster).
+
+Either way the member set is fixed (no add/remove). Node properties mirror the PXC
+frame **minus any replication configuration** (the sharded layout is not
+user-editable). Internal auth uses a shared **keyFile** (the same random bytes on
+every member); apps connect through the `mongos` router.
 
 ### `make versions`: PS MongoDB catalog
 `images/versions.sh` probes each built image with `percona-release setup
@@ -1697,13 +1702,17 @@ lists). `versions.go` `loadPSMDBCatalog()` reuses the generic `loadImageCatalog`
 (in `mongodb.go`) maps `6.0→psmdb-60`, `7.0→psmdb-70`, else `psmdb-80`.
 
 ### Data model
-`designFrame` `Type=="psmdb"` + `psmdbMajor`/`psmdbVersion`; reuses `os`/`osVersion`/
-`arch`, `rootPassword` (the MongoDB **admin** password), `pmmNodeId`, `useProxy`,
-`generateCert`/`certTtl*`. **No** gtid/replMode. Members: `designNode` `Type=="psmdb"`
-+ `FrameID` + `Role` (`"shard"|"config"|"mongos"`) + `Shard int` (shard index for
-shard members) + export (only meaningful on the `mongos` node).
+`designFrame` `Type=="psmdb"` + `psmdbMajor`/`psmdbVersion` + `psmdbSetup`
+(`"standard"|"minimum"`); reuses `os`/`osVersion`/`arch`, `rootPassword` (the MongoDB
+**admin** password), `pmmNodeId`, `useProxy`, `generateCert`/`certTtl*`. **No**
+gtid/replMode. Members: `designNode` `Type=="psmdb"` + `FrameID` + `Role`
+(`"shard"|"config"|"mongos"`) + `Shard int` (shard index for shard members) + export
+(only meaningful on the `mongos` node).
 
 ### Provisioning — `app/mongodb.go`
+The provisioner is **count-agnostic** — it builds each replica set from whatever
+members are present, so the standard and minimum setups share one code path (a
+1-node config/shard RS is just `rs.initiate` with a single member).
 `provisionMongoDBFrame` partitions members by role, reuses the admin password +
 keyFile across redeploys (or generates them), and records each member's profile
 (`mongoConfig`) + `mongoSecrets` (`adminUser`/`adminPassword`/`keyFile` — keyFile
@@ -1726,33 +1735,39 @@ never surfaced). A goroutine then:
   (`intranet.go` frame switch + per-node `case`) and validation handle `psmdb`.
 
 ### Validation
-`validateStack` `case psmdb`: image exists; member set intact (**exactly 1 mongos,
-3-node CSRS, 3 shards each with a 3-node RS**); unique cluster name; `mongos`
+`validateStack` `case psmdb`: image exists; member set intact **per setup**
+(standard → 3-node CSRS + 3 shards × 3-node RS; minimum → 1 config server + 3
+single-node shards; both → exactly 1 mongos); unique cluster name; `mongos`
 host-port export feeds the shared `exportReq` conflict check.
 
 ### Frontend
 `NODE_TYPES.psmdb` (green, DB-cylinder icon) + **"PS MongoDB Sharded Cluster"**
-toolbar button; **`addMongoDBCluster`** builds the fixed 13 members
-(`mongos`/`cfg1..3`/`s0r1..3`/`s1r1..3`/`s2r1..3`). A custom **`layoutPSMDBFrame`**
-(grouped grid — `mongos` + config RS on the top row, each shard a column of 3)
+toolbar button; **`addMongoDBCluster(setup)`** (default `standard`) builds the members
+via **`psmdbMembers(fid, setup)`** (`mongos` + `cfgN` config RS + `sNrM` shard RS, with
+RS size 3/config 3 for standard or RS size 1/config 1 for minimum). The frame-form
+**Setup** select calls **`rebuildMongoCluster(frameId, setup)`** (pre-deploy only) to
+swap the whole member set. A custom **`layoutPSMDBFrame`** (grouped grid — `mongos` +
+config RS on the top row, each shard a column; columns/rows sized to the member count)
 replaces the single-row `layoutFrame` via `relayoutFrame`. Every add/remove path is
 gated for `psmdb`: no frame +/- buttons, no "Delete node" in the context menu /
 member form, Delete-key/`deleteNode` no-op on members (the **frame** is still
 deletable = delete the whole cluster). Member sub-labels read "mongos router" /
-"config server" / "shard N member". **`MongoDBFrameForm`** (catalog OS/version/arch +
-PS MongoDB major/minor, admin password, PMM/proxy/cert — **no replication options**)
-and **`MongoDBMemberForm`** (read-only role; 27017 host-export only on the `mongos`
-node). A running member shows **`MongoDBManager`** (Overview incl. role/RS/shard/
-configDB, Access showing the `mongosh` connect string through the router, Credentials
-admin user/password).
+"config server" / "shard N member". **`MongoDBFrameForm`** (Setup select + catalog
+OS/version/arch + PS MongoDB major/minor, admin password, PMM/proxy/cert — **no
+replication options**) and **`MongoDBMemberForm`** (read-only role; 27017 host-export
+only on the `mongos` node). A running member shows **`MongoDBManager`** (Overview incl.
+role/RS/shard/configDB, Access showing the `mongosh` connect string through the router,
+Credentials admin user/password).
 
 ### Verification performed (live)
 - `make versions` populates `percona_server_mongodb:` (OL8/9 `6.0`/`7.0`/`8.0`
   per-image minor lists; OL10 empty — no EL10 packages yet); `go build`/`gofmt`,
   `bash -n images/versions.sh`, and the web build pass.
-- **Live deploy** of the full **13-node** cluster on OracleLinux-9 systemd containers
-  (`useProxy:false`): all 13 nodes `running`; `sh.status()` shows **3 shards** added;
-  the config RS + each shard RS report **1 PRIMARY + 2 SECONDARY**; an authenticated
-  admin connection through `mongos` works.
-- The exact design `addMongoDBCluster()` produces (roles/shards, 13 members) passes
-  `validate` with no issues.
+- **Live deploy — standard (13 nodes)** on OracleLinux-9 systemd containers
+  (`useProxy:false`): all `running`; `sh.status()` shows **3 shards** added; the config
+  RS + each shard RS report **1 PRIMARY + 2 SECONDARY**; authenticated admin via
+  `mongos` works.
+- **Live deploy — minimum (5 nodes):** all `running`; 3 single-node shards
+  (`rs0`/`rs1`/`rs2`) registered; an authenticated write+read through `mongos` succeeds.
+- The exact designs `addMongoDBCluster()` produces for both setups pass `validate`
+  with no issues.

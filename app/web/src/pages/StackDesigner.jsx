@@ -135,32 +135,33 @@ function layoutFrame(frame, frameNodes) {
   return { frame: { ...frame, w, h }, nodes: positioned }
 }
 
-// layoutPSMDBFrame lays out the fixed 13-node sharded cluster as a grouped grid:
-// a top row with the mongos router + the 3 config-server RS members, then one
-// column per shard (3 members each) below. The single-row layoutFrame is
-// unusable for 13 nodes.
+// layoutPSMDBFrame lays out a sharded cluster as a grouped grid: a top row with
+// the mongos router + the config-server RS members, then one column per shard
+// (its replica-set members stacked below). Sizes adapt to the member count so it
+// fits both the standard (13-node) and minimum (5-node) setups; the single-row
+// layoutFrame is unusable here.
 function layoutPSMDBFrame(frame, frameNodes) {
-  const byId = (role, shard, idx) =>
-    frameNodes.find((n) => n.role === role && (shard === undefined || n.shard === shard) && n._slot === idx)
   // Stable ordering independent of array order: derive columns/rows from role.
   const mongos = frameNodes.filter((n) => n.role === 'mongos')
   const config = frameNodes.filter((n) => n.role === 'config')
-  const shards = [0, 1, 2].map((s) => frameNodes.filter((n) => n.role === 'shard' && n.shard === s))
-  const cols = 4 // mongos + 3 config in the top row; 3 shard columns below leave room
+  const shardIdx = [...new Set(frameNodes.filter((n) => n.role === 'shard').map((n) => n.shard))].sort((a, b) => a - b)
+  const shards = shardIdx.map((s) => frameNodes.filter((n) => n.role === 'shard' && n.shard === s))
   const colW = PXC_NODE_W + FRAME_GAP
   const rowH = PXC_NODE_H + FRAME_GAP
-  const ncols = Math.max(cols, 3)
+  // columns: max(top row = 1 mongos + config members, shard columns).
+  const ncols = Math.max(1 + config.length, shards.length, 3)
   const w = FRAME_PAD * 2 + ncols * PXC_NODE_W + (ncols - 1) * FRAME_GAP
-  // rows: top row (mongos + config) = 1; shard members = 3
-  const nrows = 1 + 3
+  // rows: 1 top row + the tallest shard replica set.
+  const maxShardRows = shards.reduce((m, s) => Math.max(m, s.length), 0)
+  const nrows = 1 + maxShardRows
   const h = FRAME_TITLE + FRAME_PAD * 2 + nrows * PXC_NODE_H + (nrows - 1) * FRAME_GAP
   const ox = frame.x + FRAME_PAD
   const oy = frame.y + FRAME_TITLE + FRAME_PAD
   const positioned = []
-  // Top row: mongos at col 0, config RS at cols 1..3.
+  // Top row: mongos at col 0, config RS at cols 1..n.
   mongos.forEach((nd) => positioned.push({ ...nd, x: ox, y: oy }))
   config.forEach((nd, i) => positioned.push({ ...nd, x: ox + (i + 1) * colW, y: oy }))
-  // Shard columns: shard s in column s, members stacked in rows 1..3.
+  // Shard columns: each shard a column, members stacked in the rows below.
   shards.forEach((members, s) => {
     members.forEach((nd, r) => positioned.push({ ...nd, x: ox + s * colW, y: oy + (r + 1) * rowH }))
   })
@@ -231,7 +232,7 @@ const frameVersionLabel = (f) => {
   if (f?.type === 'proxysql') return `ProxySQL ${f?.proxysqlVersion || f?.proxysqlMajor || ''}`.trim()
   if (f?.type === 'mysql') return `Percona Server ${f?.psVersion || f?.psMajor || ''} replication`.trim()
   if (f?.type === 'innodb') return `${f?.replMode === 'groupreplication' ? 'Group Replication' : 'InnoDB Cluster'}${f?.pdpsRepo ? ` · ${f.pdpsRepo}` : ''}`
-  if (f?.type === 'psmdb') return `PS MongoDB ${f?.psmdbVersion || f?.psmdbMajor || ''} sharded`.trim()
+  if (f?.type === 'psmdb') return `PS MongoDB ${f?.psmdbVersion || f?.psmdbMajor || ''} sharded · ${f?.psmdbSetup === 'minimum' ? 'minimum' : 'standard'}`.replace(/\s+/g, ' ').trim()
   return pxcVersionLabel(f)
 }
 
@@ -948,11 +949,31 @@ function StackEditor({ stackId, onBack }) {
     setNodes(r.nodes)
     setSelected({ kind: 'frame', id: fid })
   }
-  // addMongoDBCluster builds the fixed 13-node PS MongoDB sharded cluster: 1
-  // mongos router + a 3-node config-server replica set + 3 shards × 3-node
-  // replica set. Topology is fixed — no add/remove. Member labels:
-  //   mongos (role mongos), cfgNN (role config), sNrM (role shard, shard N).
-  function addMongoDBCluster() {
+  // psmdbMembers builds the member nodes for a PS MongoDB sharded cluster of the
+  // given setup, always 1 mongos + 3 shards + a config-server RS:
+  //   standard → 3-node config RS + 3 shards × 3-node RS (13 nodes)
+  //   minimum  → 1 config server + 3 single-node shard RS    (5 nodes)
+  // Member labels: mongos (role mongos), cfgNN (role config), sNrM (role shard).
+  function psmdbMembers(fid, setup) {
+    const rs = setup === 'minimum' ? 1 : 3
+    const cfgN = setup === 'minimum' ? 1 : 3
+    const mk = (label, role, shard, slot) => {
+      const nd = { id: uid('psmdb'), type: 'psmdb', label, frameId: fid, role, _slot: slot, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
+      if (shard !== undefined) nd.shard = shard
+      return nd
+    }
+    const out = []
+    out.push(mk('mongos', 'mongos', undefined, 0)) // the "mongosh" node
+    for (let i = 0; i < cfgN; i++) out.push(mk(`cfg${i + 1}`, 'config', undefined, i)) // config RS
+    for (let s = 0; s < 3; s++) {
+      for (let r = 0; r < rs; r++) out.push(mk(`s${s}r${r + 1}`, 'shard', s, r)) // shard RS
+    }
+    return out
+  }
+  // addMongoDBCluster builds a PS MongoDB sharded cluster frame. Topology is fixed
+  // per setup (no add/remove); the setup can be switched in the frame form before
+  // deploy.
+  function addMongoDBCluster(setup = 'standard') {
     if (!nodes.some((n) => n.type === 'intranet')) return
     const fid = uid('frame')
     const fx = (-view.x + 200) / view.z
@@ -960,29 +981,24 @@ function StackEditor({ stackId, onBack }) {
     const frame = {
       id: fid, type: 'psmdb', label: nextNamedCluster(frames, 'psmdb'), x: fx, y: fy, w: 0, h: 0,
       os: 'oraclelinux', osVersion: '9', arch: 'amd64', psmdbMajor: '8.0', psmdbVersion: '',
-      rootPassword: '', pmmNodeId: '', useProxy: true,
+      psmdbSetup: setup, rootPassword: '', pmmNodeId: '', useProxy: true,
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
     }
-    const used = new Set(nodes.filter((n) => n.type === 'psmdb').map((n) => n.label))
-    const mk = (label, role, shard, slot) => {
-      used.add(label)
-      const nd = { id: uid('psmdb'), type: 'psmdb', label, frameId: fid, role, _slot: slot, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
-      if (shard !== undefined) nd.shard = shard
-      return nd
-    }
-    const newNodes = []
-    // mongos router (the "mongosh" node).
-    newNodes.push(mk('mongos', 'mongos', undefined, 0))
-    // config-server replica set (CSRS).
-    for (let i = 0; i < 3; i++) newNodes.push(mk(`cfg${i + 1}`, 'config', undefined, i))
-    // 3 shards, 3-node replica set each.
-    for (let s = 0; s < 3; s++) {
-      for (let r = 0; r < 3; r++) newNodes.push(mk(`s${s}r${r + 1}`, 'shard', s, r))
-    }
-    const r = relayout(fid, [...frames, frame], [...nodes, ...newNodes])
+    const r = relayout(fid, [...frames, frame], [...nodes, ...psmdbMembers(fid, setup)])
     setFrames(r.frames)
     setNodes(r.nodes)
     setSelected({ kind: 'frame', id: fid })
+  }
+  // rebuildMongoCluster swaps a PS MongoDB frame's members for a different setup
+  // (standard ↔ minimum). Only allowed before deploy; replication links never
+  // attach to psmdb members, so none need pruning.
+  function rebuildMongoCluster(frameId, setup) {
+    const frame = frames.find((f) => f.id === frameId)
+    if (!frame || frame.type !== 'psmdb') return
+    const others = nodes.filter((n) => n.frameId !== frameId)
+    const r = relayout(frameId, frames.map((f) => (f.id === frameId ? { ...f, psmdbSetup: setup } : f)), [...others, ...psmdbMembers(frameId, setup)])
+    setFrames(r.frames)
+    setNodes(r.nodes)
   }
   // Frame +/- buttons dispatch by frame type.
   function addFrameMember(frame) {
@@ -2700,7 +2716,7 @@ function InnoDBMemberForm({ node: n, frame, patchNode, dep, deployed }) {
 // MongoDBFrameForm edits a PS MongoDB Sharded Cluster frame: catalog-driven
 // OS/version/arch + PS MongoDB major/minor, admin (root) password, PMM/proxy/cert.
 // The 13-node sharded topology is fixed — there are no replication options.
-function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed }) {
+function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, rebuildCluster, deployed }) {
   const [cat, setCat] = useState(null)
   useEffect(() => {
     let alive = true
@@ -2750,9 +2766,18 @@ function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed }
         <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
+      <Field label="Setup" hint={deployed ? 'Locked.' : 'Standard is HA; minimum is the smallest working sharded cluster.'}>
+        <select className={`${inputCls} ${lock}`} value={f.psmdbSetup || 'standard'} disabled={deployed}
+          onChange={(e) => rebuildCluster?.(f.id, e.target.value)}>
+          <option value="standard">standard — 3 shards × 3-node RS + 3-node config RS (13 nodes)</option>
+          <option value="minimum">minimum — 3 single-node shards + 1 config server (5 nodes)</option>
+        </select>
+      </Field>
+
       <div className="rounded-lg border border-dashed px-2.5 py-1.5 text-xs text-muted">
-        Fixed topology: 3 shards × 3-node replica set (9 mongod) + 3-node config-server
-        replica set + 1 mongos router. Nodes can't be added or removed.
+        {(f.psmdbSetup || 'standard') === 'minimum'
+          ? '3 single-node shards + 1 config server + 1 mongos router. Nodes can\'t be added or removed.'
+          : '3 shards × 3-node replica set (9 mongod) + 3-node config-server replica set + 1 mongos router. Nodes can\'t be added or removed.'}
       </div>
 
       <div className="grid grid-cols-2 gap-2">
@@ -3089,7 +3114,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       return <InnoDBFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
     }
     if (f.type === 'psmdb') {
-      return <MongoDBFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+      return <MongoDBFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} rebuildCluster={rebuildMongoCluster} deployed={deployed} />
     }
     return <PXCFrameForm frame={f} stackId={stackId} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} running={running} />
   }

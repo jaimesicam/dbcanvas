@@ -107,9 +107,10 @@ type designFrame struct {
 	MySQLRouter bool   `json:"mysqlRouter"` // install + run MySQL Router on each member
 	// PS MongoDB Sharded Cluster frame config (Type=="psmdb"; reuses OS/OSVersion/
 	// Arch, RootPassword, PMMNodeID, UseProxy, GenerateCert/CertTTL above). Fixed
-	// topology (3 shards × 3 + 3 config + 1 mongos); no replication config.
+	// topology per setup; no replication config.
 	PSMDBMajor   string `json:"psmdbMajor"`   // "6.0" | "7.0" | "8.0"
 	PSMDBVersion string `json:"psmdbVersion"` // minor (e.g. 8.0.26-11); "" → latest
+	PSMDBSetup   string `json:"psmdbSetup"`   // "standard" (3×3 + 3 cfg) | "minimum" (3×1 + 1 cfg)
 }
 
 type designDoc struct {
@@ -547,18 +548,24 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 				shardMembers[n.Shard]++
 			}
 		}
+		// Expected member counts per setup: standard = 3-node config RS + 3 shards ×
+		// 3-node RS; minimum = 1 config server + 3 single-node shards.
+		wantCfg, wantRS := 3, 3
+		if f.PSMDBSetup == "minimum" {
+			wantCfg, wantRS = 1, 1
+		}
 		if mongos != 1 {
 			out = append(out, issue{"error", "PS MongoDB cluster " + f.Label + " must have exactly one mongos router"})
 		}
-		if config != 3 {
-			out = append(out, issue{"error", "PS MongoDB cluster " + f.Label + " must have a 3-node config-server replica set"})
+		if config != wantCfg {
+			out = append(out, issue{"error", fmt.Sprintf("PS MongoDB cluster %s must have a %d-node config-server replica set", f.Label, wantCfg)})
 		}
 		if len(shardMembers) != 3 {
 			out = append(out, issue{"error", "PS MongoDB cluster " + f.Label + " must have 3 shards"})
 		}
 		for s, m := range shardMembers {
-			if m != 3 {
-				out = append(out, issue{"error", fmt.Sprintf("PS MongoDB cluster %s: shard %d must have a 3-node replica set", f.Label, s)})
+			if m != wantRS {
+				out = append(out, issue{"error", fmt.Sprintf("PS MongoDB cluster %s: shard %d must have a %d-node replica set", f.Label, s, wantRS)})
 			}
 		}
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
