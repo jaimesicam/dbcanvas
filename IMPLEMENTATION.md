@@ -1835,3 +1835,40 @@ roles.
   standalone), enforces auth, and accepts an authenticated write+read; its 27017 is
   published to the host.
 - The exact designs the frontend builds for both pass `validate` with no issues.
+
+## 17. PMM3 monitoring for the MongoDB node types
+
+The MongoDB shapes (sharded `psmdb`, replica set `psmrs`, standalone `psm`) now join
+**PMM3** the same way the SQL node types do, following the official guide
+(`.../install-pmm-client/connect-database/mongodb.html`).
+
+- **pmm-client is installed on every mongo node unconditionally** at deploy
+  (`mongoPrepareNode` runs the shared `pxcInstallPMMClient{RHEL,Debian}` after the
+  PSMDB packages), so monitoring can be turned on later without a reinstall — even
+  the `mongos` node gets it.
+- **Registration** (only when a PMM node is selected) happens in each provisioner's
+  finalize, gated on **`mongoWaitPMM`** (bounded wait — the PMM server is heavy and
+  usually comes up after the DB nodes):
+  - **`mongoEnsurePMMUser`** creates the `pmmMonitor` role + `pmm` user per the docs
+    (`pmmMonitor` + `read@local` + `clusterMonitor`, plus `directShardOperations` on
+    8.0). It authenticates as the cluster admin; on a sharded **shard** (no admin
+    user) it first creates the admin via the localhost exception — which only permits
+    creating the *first user*, not roles — then authenticates to create the role+user.
+    The user is created on each replica-set **primary** and replicates to the set.
+  - **`mongoRegisterPMM`** runs `pmm-admin config --force --server-insecure-tls
+    --server-url=https://<user>:<pass>@<pmm-fqdn>:8443` then `pmm-admin add mongodb
+    --username=pmm --password=… --host=127.0.0.1 --port=27017 [--cluster=<rs/cluster>]
+    --enable-all-collectors <node>` on every mongod, plus the `mongos`. The
+    `--cluster` name is the replica-set name (`psmrs`) or the sharded-cluster label
+    (`psmdb`); standalone nodes omit it.
+- **Topology specifics:** for the sharded cluster the `pmm` user goes on the config
+  RS (admin auth) and on each shard RS (localhost-exception path); `mongos`
+  authenticates the cluster-wide user via the config servers. The `pmm` user/password
+  live in `mongoSecrets` (`pmmUser`/`pmmPassword`), stable across redeploys.
+
+### Verification performed (live)
+- `go build`/`gofmt`/`go vet` and the web build pass.
+- **Live deploy** with an Intranet + PMM node + a 3-node PSM replica set + a PSM
+  standalone, all `Monitored by` the PMM node: each mongo node installs pmm-client;
+  `pmm-admin list` on the nodes shows their `mongodb` + `mongodb_exporter` services
+  `Running`, and the PMM server inventory lists the MongoDB services.

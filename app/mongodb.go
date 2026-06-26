@@ -60,6 +60,8 @@ type mongoSecrets struct {
 	AdminUser     string `json:"adminUser"`
 	AdminPassword string `json:"adminPassword"`
 	KeyFile       string `json:"keyFile"`
+	PMMUser       string `json:"pmmUser"`     // MongoDB user PMM uses to scrape metrics
+	PMMPassword   string `json:"pmmPassword"` // its password (stable across redeploys)
 }
 
 // psmdbRepo maps a major series to its percona-release repository name.
@@ -130,9 +132,10 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 	}
 	members = append(members, *mongos)
 
-	// Secrets: reuse the admin password + keyFile across redeploys when present.
+	// Secrets: reuse the admin password + keyFile + PMM password across redeploys.
 	admin := strings.TrimSpace(frame.RootPassword)
 	keyFile := ""
+	pmmPass := ""
 	for _, n := range members {
 		if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
 			var s mongoSecrets
@@ -143,6 +146,9 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 				if s.KeyFile != "" {
 					keyFile = s.KeyFile
 				}
+				if s.PMMPassword != "" {
+					pmmPass = s.PMMPassword
+				}
 			}
 		}
 	}
@@ -152,7 +158,10 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 	if keyFile == "" {
 		keyFile = genKeyFile()
 	}
-	sec := mongoSecrets{AdminUser: "admin", AdminPassword: admin, KeyFile: keyFile}
+	if pmmPass == "" {
+		pmmPass = genSecret("MongoPMM!")
+	}
+	sec := mongoSecrets{AdminUser: "admin", AdminPassword: admin, KeyFile: keyFile, PMMUser: "pmm", PMMPassword: pmmPass}
 	secJSON, _ := json.Marshal(sec)
 
 	image := pxcImage(frame.OS, frame.OSVersion, frame.Arch)
@@ -275,6 +284,19 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 			return
 		}
 
+		// ---- PMM: create the monitoring user + register each node (when a running
+		// PMM node is selected). The pmm user goes on the config RS (admin auth) and
+		// each shard RS (shards have no admin → created via the localhost exception).
+		if pmmFQDN, pmmUser, pmmPass, ok := a.mongoWaitPMM(st, doc, frame.PMMNodeID, 12*time.Minute); ok {
+			a.mongoEnsurePMMUser(ctx, st, config[0], major, sec, progs[config[0].ID])
+			for _, i := range shardIdx {
+				a.mongoEnsurePMMUser(ctx, st, shards[i][0], major, sec, progs[shards[i][0].ID])
+			}
+			for _, n := range members {
+				a.mongoRegisterPMM(ctx, st, n, frame.OS, pmmFQDN, pmmUser, pmmPass, frame.Label, sec, progs[n.ID])
+			}
+		}
+
 		// ---- Phase 4: finalize ----
 		for _, n := range members {
 			pr := progs[n.ID]
@@ -315,9 +337,10 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 		rs = "rs"
 	}
 
-	// Secrets: reuse the admin password + keyFile across redeploys when present.
+	// Secrets: reuse the admin password + keyFile + PMM password across redeploys.
 	admin := strings.TrimSpace(frame.RootPassword)
 	keyFile := ""
+	pmmPass := ""
 	for _, n := range members {
 		if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
 			var s mongoSecrets
@@ -328,6 +351,9 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 				if s.KeyFile != "" {
 					keyFile = s.KeyFile
 				}
+				if s.PMMPassword != "" {
+					pmmPass = s.PMMPassword
+				}
 			}
 		}
 	}
@@ -337,7 +363,10 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 	if keyFile == "" {
 		keyFile = genKeyFile()
 	}
-	sec := mongoSecrets{AdminUser: "admin", AdminPassword: admin, KeyFile: keyFile}
+	if pmmPass == "" {
+		pmmPass = genSecret("MongoPMM!")
+	}
+	sec := mongoSecrets{AdminUser: "admin", AdminPassword: admin, KeyFile: keyFile, PMMUser: "pmm", PMMPassword: pmmPass}
 	secJSON, _ := json.Marshal(sec)
 
 	image := pxcImage(frame.OS, frame.OSVersion, frame.Arch)
@@ -415,6 +444,15 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 			return
 		}
 
+		// PMM: create the monitoring user on the primary (replicates to the set) and
+		// register each member with --cluster=<replica-set name>.
+		if pmmFQDN, pmmUser, pmmPass, ok := a.mongoWaitPMM(st, doc, frame.PMMNodeID, 12*time.Minute); ok {
+			a.mongoEnsurePMMUser(ctx, st, members[0], major, sec, progs[members[0].ID])
+			for _, n := range members {
+				a.mongoRegisterPMM(ctx, st, n, frame.OS, pmmFQDN, pmmUser, pmmPass, rs, sec, progs[n.ID])
+			}
+		}
+
 		for _, n := range members {
 			pr := progs[n.ID]
 			pr.phase("Running", 100)
@@ -454,16 +492,25 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 	}
 
 	admin := strings.TrimSpace(n.RootPassword)
+	pmmPass := ""
 	if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
 		var s mongoSecrets
-		if json.Unmarshal(dep.Secrets, &s) == nil && s.AdminPassword != "" {
-			admin = s.AdminPassword
+		if json.Unmarshal(dep.Secrets, &s) == nil {
+			if s.AdminPassword != "" {
+				admin = s.AdminPassword
+			}
+			if s.PMMPassword != "" {
+				pmmPass = s.PMMPassword
+			}
 		}
 	}
 	if admin == "" {
 		admin = genSecret("MongoAdm!")
 	}
-	sec := mongoSecrets{AdminUser: "admin", AdminPassword: admin} // no keyFile → standalone
+	if pmmPass == "" {
+		pmmPass = genSecret("MongoPMM!")
+	}
+	sec := mongoSecrets{AdminUser: "admin", AdminPassword: admin, PMMUser: "pmm", PMMPassword: pmmPass} // no keyFile → standalone
 
 	monitoredBy := ""
 	if n.PMMNodeID != "" {
@@ -502,6 +549,12 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 		a.reconcileStackDNS(ctx, st.ID)
 		if err := a.mongoCreateAdmin(ctx, st, n, sec, pr); err != nil {
 			return
+		}
+
+		// PMM: create the monitoring user + register the standalone (no --cluster).
+		if pmmFQDN, pmmUser, pmmPass, ok := a.mongoWaitPMM(st, doc, n.PMMNodeID, 12*time.Minute); ok {
+			a.mongoEnsurePMMUser(ctx, st, nn, major, sec, pr)
+			a.mongoRegisterPMM(ctx, st, nn, frame.OS, pmmFQDN, pmmUser, pmmPass, "", sec, pr)
 		}
 
 		pr.phase("Running", 100)
@@ -593,6 +646,17 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	pr.logln("installed: " + pkgs)
 	a.ensureRsyslog(ctx, id, frame.OS, pr.logln)
 
+	// Always install pmm-client (pmm3-client) — independent of whether monitoring is
+	// enabled — so it can be turned on later without a reinstall (same as PXC).
+	pmmInstall := pxcInstallPMMClientRHEL
+	if debian {
+		pmmInstall = pxcInstallPMMClientDebian
+	}
+	if err := a.runStep(ctx, id, pmmInstall, nil, pr.logln); err != nil {
+		return pr.fail("install pmm-client: %v", err)
+	}
+	pr.logln("pmm-client installed")
+
 	// Shared keyFile (same bytes everywhere) for internal cluster auth. Standalone
 	// nodes have no keyFile (sec.KeyFile == "").
 	if sec.KeyFile != "" {
@@ -662,6 +726,99 @@ func (a *App) mongoCreateAdmin(ctx context.Context, st Stack, primary designNode
 	}
 	pr.logln("admin user created on config replica set")
 	return nil
+}
+
+// ------------------------------------------------------------------ PMM
+
+// mongoWaitPMM resolves the selected PMM node, waiting (bounded) for it to finish
+// provisioning — the PMM server is heavy and often comes up after the database
+// nodes. Returns ok=false when no PMM node is selected or it never becomes ready.
+func (a *App) mongoWaitPMM(st Stack, doc designDoc, pmmNodeID string, timeout time.Duration) (fqdn, user, pass string, ok bool) {
+	if pmmNodeID == "" {
+		return "", "", "", false
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		if f, u, p, k := a.pmmServerFor(st, doc, pmmNodeID); k {
+			return f, u, p, true
+		}
+		if time.Now().After(deadline) {
+			return "", "", "", false
+		}
+		time.Sleep(5 * time.Second)
+	}
+}
+
+// mongoPMMRoles returns the JS roles array for the PMM monitoring user. Per the PMM3
+// docs: pmmMonitor + read@local + clusterMonitor, plus directShardOperations on 8.0+.
+func mongoPMMRoles(major string) string {
+	roles := `[{db:"admin",role:"pmmMonitor"},{db:"local",role:"read"},{db:"admin",role:"clusterMonitor"}`
+	if strings.HasPrefix(strings.TrimSpace(major), "8.") {
+		roles += `,{db:"admin",role:"directShardOperations"}`
+	}
+	return roles + "]"
+}
+
+// mongoPMMUserJS builds the mongosh script that (idempotently) creates the pmmMonitor
+// role and the PMM user with the given roles.
+func mongoPMMUserJS(user, pass, rolesJS string) string {
+	const priv = `[{resource:{db:"",collection:""},actions:["dbHash","find","listIndexes","listCollections","collStats","dbStats","indexStats"]},` +
+		`{resource:{db:"",collection:"system.version"},actions:["find"]},` +
+		`{resource:{db:"",collection:"system.profile"},actions:["dbStats","collStats","indexStats"]}]`
+	return fmt.Sprintf(`var a=db.getSiblingDB("admin");
+try{a.createRole({role:"pmmMonitor",privileges:%s,roles:[]})}catch(e){if(!/already exists/i.test(e.message))throw e}
+try{a.createUser({user:%q,pwd:%q,roles:%s})}catch(e){if(/already exists/i.test(e.message)){a.updateUser(%q,{pwd:%q,roles:%s})}else throw e}`,
+		priv, user, pass, rolesJS, user, pass, rolesJS)
+}
+
+// mongoEnsurePMMUser creates/updates the PMM monitoring user on a replica-set primary
+// (or standalone). It authenticates as admin when those creds work, otherwise falls
+// back to the localhost exception (used by sharded shards, which have no admin user).
+func (a *App) mongoEnsurePMMUser(ctx context.Context, st Stack, node designNode, major string, sec mongoSecrets, pr *pxcProg) error {
+	dep, err := a.store.GetDeployment(st.ID, node.ID)
+	if err != nil || dep.ContainerID == "" {
+		return nil
+	}
+	js := mongoPMMUserJS(sec.PMMUser, sec.PMMPassword, mongoPMMRoles(major))
+	env := []string{"ADMIN_USER=" + sec.AdminUser, "ADMIN_PW=" + sec.AdminPassword, "PMM_JS=" + js}
+	if err := a.runStep(ctx, dep.ContainerID, mongoPMMUserScript, env, pr.logln); err != nil {
+		return pr.fail("create PMM user: %v", err)
+	}
+	pr.logln("PMM monitoring user ready")
+	return nil
+}
+
+// mongoRegisterPMM points the node's pmm-client at the PMM server and registers its
+// mongodb service (with --cluster for replica-set / sharded members). Best-effort:
+// failures are logged but do not fail the deployment.
+func (a *App) mongoRegisterPMM(ctx context.Context, st Stack, node designNode, os, pmmFQDN, pmmUser, pmmPass, cluster string, sec mongoSecrets, pr *pxcProg) {
+	if pmmFQDN == "" {
+		return
+	}
+	dep, err := a.store.GetDeployment(st.ID, node.ID)
+	if err != nil || dep.ContainerID == "" {
+		return
+	}
+	if pmmUser == "" {
+		pmmUser = "admin"
+	}
+	if pmmPass == "" {
+		pmmPass = "admin"
+	}
+	script := mongoPMMAddRHEL
+	if isDebianOS(os) {
+		script = mongoPMMAddDebian
+	}
+	env := []string{
+		"PMM_FQDN=" + pmmFQDN, "PMM_USER=" + pmmUser, "PMM_PASS=" + pmmPass,
+		"PMM_DB_USER=" + sec.PMMUser, "PMM_DB_PW=" + sec.PMMPassword,
+		"NODE=" + node.Label, "CLUSTER=" + cluster,
+	}
+	if _, err := a.docker.Exec(ctx, dep.ContainerID, []string{"bash", "-c", script}, env); err != nil {
+		pr.logln("PMM registration skipped: " + err.Error())
+	} else {
+		pr.logln("registered with PMM at " + pmmFQDN)
+	}
 }
 
 // mongoStartMongos writes mongos.conf + the mongos systemd unit and starts it.
@@ -799,6 +956,39 @@ for s in $SHARDS; do
   mongosh --quiet --port 27017 -u "$ADMIN_USER" -p "$ADMIN_PW" --authenticationDatabase admin --eval 'sh.addShard("'"$s"'")' 2>&1 | grep -viE 'already a member|already exists' || true
 done
 mongosh --quiet --port 27017 -u "$ADMIN_USER" -p "$ADMIN_PW" --authenticationDatabase admin --eval 'sh.status()' >/dev/null`
+
+// mongoPMMUserScript creates the PMM role + user, authenticated as the cluster admin.
+// When admin auth fails (a sharded shard has no admin user), it first creates the
+// admin via the localhost exception — which only permits creating the first user, not
+// roles — then authenticates to create the pmmMonitor role + PMM user. PMM_JS carries
+// the role/user creation JS (built in Go). Run on a replica-set PRIMARY.
+const mongoPMMUserScript = `set -e
+if ! mongosh --quiet --port 27017 -u "$ADMIN_USER" -p "$ADMIN_PW" --authenticationDatabase admin --eval 'db.adminCommand({ping:1})' >/dev/null 2>&1; then
+  mongosh --quiet --port 27017 --eval 'db.getSiblingDB("admin").createUser({user:"'"$ADMIN_USER"'",pwd:"'"$ADMIN_PW"'",roles:[{role:"root",db:"admin"}]})' 2>&1 | grep -viE 'already exists' || true
+fi
+mongosh --quiet --port 27017 -u "$ADMIN_USER" -p "$ADMIN_PW" --authenticationDatabase admin --eval "$PMM_JS"`
+
+// mongoPMMAdd{RHEL,Debian} point pmm-client at the PMM server and register this
+// node's mongodb service (idempotent: a prior service of the same name is removed
+// first). pmm-admin config talks to the local pmm-agent, so it is enabled first.
+const mongoPMMAddRHEL = `set -e
+command -v pmm-admin >/dev/null 2>&1 || { percona-release setup -y pmm3-client >/dev/null 2>&1; dnf -y -q install pmm-client >/dev/null; }
+systemctl enable --now pmm-agent >/dev/null 2>&1 || true
+pmm-admin config --force --server-insecure-tls --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443" >/dev/null
+systemctl enable --now pmm-agent >/dev/null 2>&1 || true
+pmm-admin remove mongodb "$NODE" >/dev/null 2>&1 || true
+CL=""; [ -n "$CLUSTER" ] && CL="--cluster=$CLUSTER"
+pmm-admin add mongodb --username="$PMM_DB_USER" --password="$PMM_DB_PW" --host=127.0.0.1 --port=27017 $CL --enable-all-collectors "$NODE"`
+
+const mongoPMMAddDebian = `set -e
+export DEBIAN_FRONTEND=noninteractive
+command -v pmm-admin >/dev/null 2>&1 || { percona-release setup -y pmm3-client >/dev/null 2>&1; apt-get update -qq >/dev/null; apt-get install -y -qq pmm-client >/dev/null; }
+systemctl enable --now pmm-agent >/dev/null 2>&1 || true
+pmm-admin config --force --server-insecure-tls --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443" >/dev/null
+systemctl enable --now pmm-agent >/dev/null 2>&1 || true
+pmm-admin remove mongodb "$NODE" >/dev/null 2>&1 || true
+CL=""; [ -n "$CLUSTER" ] && CL="--cluster=$CLUSTER"
+pmm-admin add mongodb --username="$PMM_DB_USER" --password="$PMM_DB_PW" --host=127.0.0.1 --port=27017 $CL --enable-all-collectors "$NODE"`
 
 const mongosUnit = `[Unit]
 Description=Percona Server for MongoDB mongos router
