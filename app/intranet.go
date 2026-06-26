@@ -965,6 +965,9 @@ true`},
 CONF=/etc/squid/squid.conf
 grep -q '^maximum_object_size 150 MB$' "$CONF" || echo 'maximum_object_size 150 MB' >> "$CONF"
 grep -q '^cache_dir ufs /var/spool/squid ' "$CONF" || echo 'cache_dir ufs /var/spool/squid 4000 16 256' >> "$CONF"
+# Prefer IPv4 for upstream lookups: hosts without working IPv6 otherwise see Squid
+# try AAAA first and time out ("All mirrors were tried" on dnf/yum).
+grep -q '^dns_v4_first on$' "$CONF" || echo 'dns_v4_first on' >> "$CONF"
 install -d -o squid -g squid /var/spool/squid 2>/dev/null || true`},
 		// NOTE: the cache_dir swap directories are initialized by the squid.service's
 		// own ExecStartPre (cache_swap.sh) on start — do NOT run "squid -z" here: it

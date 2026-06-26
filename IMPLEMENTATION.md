@@ -1568,3 +1568,109 @@ distinct server-ids; only a mixed PXC↔PS pair can collide (validation warns).
   source/replica (now that `log_bin` is always on; Galera applies the stream
   cluster-wide), and the `caching_sha2`-over-TCP repl auth are **build-verified only**
   and need a live deploy to confirm.
+
+## 14. InnoDB / GR live-deploy fixes (datadir init + MySQL Shell)
+
+The §12 InnoDB / Group Replication frame was **build-verified only**; the first
+live deploys failed in several ways. This section is the result of debugging
+against real containers until **both modes deploy green** (single member: member
+`ONLINE`, MySQL Router up; InnoDB Cluster `cluster.status()` = OK). All fixes are
+in `app/innodb.go`.
+
+### Datadir initialization (`innodbBaseScript`) — both modes
+**Symptom.** mysqld aborted on first start with `Table 'mysql.user' doesn't exist`
+(also `mysql.plugin` / `mysql.component`) — the datadir was never initialized, so
+the node sat in provisioning forever.
+
+**Cause.** In `groupreplication` mode `innodbMyCnf` writes the full GR block
+(`plugin_load_add=group_replication.so` + `group_replication_*`) into
+`/etc/my.cnf` **before the first start**, and the package's first-start
+auto-initialize loads that plugin and aborts, leaving an empty datadir.
+
+**Fix.** `innodbBaseScript` initializes the datadir explicitly before starting the
+service, guarded on `[ ! -d /var/lib/mysql/mysql ]` (redeploys keep their data).
+Getting this right took three follow-on corrections, each found by reading the
+real error:
+1. **GR-free init config** — `mysqld --defaults-file=/tmp/mysql-init.cnf
+   --initialize-insecure` with a minimal config so init can't load the GR plugin;
+   the later normal `systemctl start` reads the full `my.cnf` with system tables
+   present. `--initialize-insecure` leaves `root@localhost` password-less, handled
+   by the existing `mysqlSetRootPW` else-branch.
+2. **Error-log ownership** — the script deletes the package's `/var/log/mysqld.log`,
+   but `/var/log` is root-owned so the dropped-privilege (`user=mysql`) `mysqld
+   --initialize` can't recreate it (`Could not open file … Permission denied`,
+   which cascades to a misleading "data directory unusable"). Recreate it owned by
+   mysql first: `install -m 0640 -o mysql -g mysql /dev/null "$LOGERR"`.
+3. **Empty datadir** — `mysqld --initialize` refuses a non-empty datadir, and
+   `rm -rf /var/lib/mysql/*` misses dotfiles; use `find /var/lib/mysql -mindepth 1
+   -delete`. Also `install -d -o mysql /var/run/mysqld` for the pid file.
+
+A `say_err` helper greps the real `[ERROR]` line and prints it **last**, because
+`runStep` truncates captured output to the final 160 chars (otherwise all that
+shows is mysqld's `Shutdown complete`).
+
+### InnoDB Cluster mode (`innodbShellClusterScript`) — MySQL Shell
+Three distinct problems, in order of discovery:
+
+1. **`configureInstance` hang.** Run without `interactive:false`, MySQL Shell
+   prompts `perform changes? [y/n]` to set
+   `binlog_transaction_dependency_tracking=WRITESET` and blocks forever on the
+   no-TTY exec. **`{interactive:false}` makes it auto-apply** the fix (verified:
+   exits 0, variable becomes `WRITESET`). Required on every `configureInstance`.
+2. **`createCluster` SEGFAULT.** MySQL Shell **8.0.46 segfaults** in
+   `createCluster`'s "adopt existing replication group" path — i.e. when a prior
+   failed attempt left Group Replication running with stale/invalid metadata. On a
+   clean, configured instance `createCluster` succeeds. **Fix:** before creating,
+   force a clean slate (`SET GLOBAL super_read_only=OFF; STOP GROUP_REPLICATION;
+   DROP SCHEMA IF EXISTS mysql_innodb_cluster_metadata; RESET REPLICA ALL FOR
+   CHANNEL 'group_replication_recovery'`, all error-tolerant) so `createCluster`
+   takes the working "new group" path. A `getCluster` probe first reuses an
+   existing cluster on redeploy (so a healthy cluster is never torn down).
+3. **Invisible errors + hangs.** All Shell calls go through `sh_run TIMEOUT JS`,
+   which bounds each call with `timeout` (the deploy goroutine uses
+   `context.Background()`, so an unbounded `mysqlsh` hangs forever) and, on
+   failure, greps the real `ERROR`/`Dba.`/`Cluster.` line and prints it last to
+   beat the 160-char truncation. `addInstance` (multi-member, clone recovery) is
+   wrapped in a `try/catch` that ignores "already a member".
+
+### Multi-member fixes (3-node), found by live test
+Single-member worked but 3-node deploys failed, one bug per mode:
+
+1. **InnoDB Cluster — cluster admin user missing on joiners.**
+   `Dba.configureInstance: Access denied for user 'cluster'@'…' (1045)`. The
+   `cluster` admin account was created only on the primary (in
+   `innodbShellClusterScript`), but `configureInstance`/`addInstance` connect to
+   each joiner **as `cluster@joiner` before it is cloned**, so the account must
+   already exist there. **Fix:** create the cluster admin user on **every** member
+   in `innodbBaseScript` (`SET sql_log_bin=0; CREATE USER … GRANT ALL … WITH GRANT
+   OPTION`), passing `CLUSTER_USER`/`CLUSTER_PW` to that step.
+2. **Group Replication — recovery auth over non-TLS.** A joiner's distributed
+   recovery connects to the donor as `repl` (caching_sha2_password) and fails with
+   `Authentication requires secure connection` (`MY-002061`): without TLS,
+   caching_sha2 needs the server's public key. **Fix:** add
+   `group_replication_recovery_get_public_key=ON` to the GR `my.cnf` block
+   (`innodbMyCnf`, `groupreplication` only — InnoDB Cluster mode uses Shell-managed
+   SSL recovery and isn't affected).
+
+### Squid proxy reliability (`intranet.go`, "Configure Squid")
+Package installs through the Intranet Squid proxy (`useProxy`) failed with "All
+mirrors were tried" — Squid tried IPv6/AAAA first in an IPv4-only environment.
+Added `dns_v4_first on` to `/etc/squid/squid.conf` (idempotent). Single-member
+installs through the proxy then succeed; concurrent 3-node installs can still
+strain one proxy, so the four-way live test below used direct egress
+(`useProxy:false`) to isolate cluster behavior.
+
+### Frontend
+The member sub-label is now **"Cluster member"** for InnoDB Cluster nodes and
+stays **"GR member"** for raw Group Replication (`StackDesigner.jsx`, keyed on
+`frame.replMode`).
+
+### Verification performed (live, all four combinations green)
+Driven through the running app (`POST /api/stacks/{id}/deploy`) against real
+OracleLinux-9 systemd containers:
+- **1-node innodbcluster** → `cluster.status()` `OK`, member `ONLINE`/`R/W`, Router up.
+- **1-node groupreplication** → member `ONLINE`/`PRIMARY`, Router up.
+- **3-node innodbcluster** → status `OK`: `innodb01` PRIMARY + `innodb02`/`innodb03`
+  SECONDARY, all `ONLINE` (clone recovery).
+- **3-node groupreplication** → `innodb01` PRIMARY + two SECONDARY, all `ONLINE`
+  (incremental recovery).

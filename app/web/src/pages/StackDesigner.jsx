@@ -1222,7 +1222,7 @@ function StackEditor({ stackId, onBack }) {
                     let sub = 'Galera data node'
                     if (f.type === 'proxysql') sub = 'ProxySQL'
                     else if (f.type === 'mysql') sub = isPrimary ? 'Primary' : 'Secondary · read-only'
-                    else if (f.type === 'innodb') sub = 'GR member'
+                    else if (f.type === 'innodb') sub = f.replMode === 'groupreplication' ? 'GR member' : 'Cluster member'
                     else if (arb) sub = 'Arbitrator · garbd'
                     const barCol = (f.type === 'pxc' && arb) || (f.type === 'mysql' && !isPrimary) ? '#64748b' : col
                     // PXC and Percona Server replication members expose ports for

@@ -366,6 +366,7 @@ func (a *App) innodbPrepareNode(ctx context.Context, st Stack, frame designFrame
 		"RESET_CMD=" + mysqlResetCmd(psMajorOfRepo(frame.PDPSRepo)),
 		"ROOT_PW=" + sec.RootPassword,
 		"REPL_USER=" + sec.ReplUser, "REPL_PW=" + sec.ReplPassword,
+		"CLUSTER_USER=" + sec.ClusterUser, "CLUSTER_PW=" + sec.ClusterPassword,
 	}
 	if err := a.runStep(ctx, id, innodbBaseScript, env, pr.logln); err != nil {
 		return pr.fail("base setup: %v", err)
@@ -418,6 +419,11 @@ func innodbMyCnf(frame designFrame, host, domain, groupName, seedList, mode stri
 		fmt.Fprintf(&b, "group_replication_single_primary_mode=ON\n")
 		fmt.Fprintf(&b, "group_replication_enforce_update_everywhere_checks=OFF\n")
 		fmt.Fprintf(&b, "group_replication_ip_allowlist=%q\n", "AUTOMATIC")
+		// The recovery channel auths to the donor as the repl user
+		// (caching_sha2_password). Without TLS, caching_sha2 refuses unless it can
+		// fetch the server's public key — so a joiner's distributed recovery fails
+		// with "Authentication requires secure connection". Allow the key fetch.
+		fmt.Fprintf(&b, "group_replication_recovery_get_public_key=ON\n")
 	}
 	return b.String()
 }
@@ -531,18 +537,46 @@ percona-release enable -y "$PDPS_REPO" >/dev/null 2>&1 || percona-release enable
 apt-get update -qq >/dev/null
 apt-get install -y -qq $PKGS >/dev/null`
 
-// innodbBaseScript starts mysqld (GR not started yet), sets the root password,
-// relaxes validate_password, creates the GR recovery user (not binlogged), clears
-// GTID state, and points the recovery channel at the recovery user.
+// innodbBaseScript initializes the datadir (if empty), starts mysqld (GR not started
+// yet), sets the root password, relaxes validate_password, creates the GR recovery
+// user (not binlogged), clears GTID state, and points the recovery channel at it.
+//
+// In GR mode /etc/my.cnf already carries plugin_load_add=group_replication.so + the
+// group_replication_* block. The package's first-start auto-initialize loads that
+// plugin and aborts, leaving an empty datadir (mysql.user et al. missing) so mysqld
+// then fails to start. Initialize the datadir explicitly with a minimal, GR-free
+// defaults file first; the subsequent normal start reads the full my.cnf with the
+// system tables already in place. Guarded on an uninitialized datadir, so redeploys
+// keep their data.
 const innodbBaseScript = `set -e
 LOGERR=${LOGERR:-/var/log/mysqld.log}
+# Recreate the error log owned by mysql: we delete the package's copy, but /var/log
+# is root-owned so the dropped-privilege mysqld (--initialize / normal start runs as
+# user=mysql) can't recreate it there ("Could not open file ... Permission denied").
 rm -f "$LOGERR" 2>/dev/null || true
+install -m 0640 -o mysql -g mysql /dev/null "$LOGERR" 2>/dev/null || { touch "$LOGERR"; chown mysql:mysql "$LOGERR" 2>/dev/null || true; }
+# Surface the real [ERROR] line (not the truncated "Shutdown complete" tail) when a
+# step fails: mysqld logs are long and runStep only keeps the last 160 chars.
+say_err() { echo "$1:"; grep -iE '\[ERROR\]|error' "$LOGERR" /tmp/mysql-init.log 2>/dev/null | grep -viE 'log-error|--log-error' | tail -4; }
+install -d -m 0755 -o mysql -g mysql /var/run/mysqld 2>/dev/null || true
+if [ ! -d /var/lib/mysql/mysql ]; then
+  # Clear everything incl. dotfiles (mysqld --initialize refuses a non-empty datadir).
+  find /var/lib/mysql -mindepth 1 -delete 2>/dev/null || true
+  printf '[mysqld]\nuser=mysql\ndatadir=/var/lib/mysql\nsocket=/var/lib/mysql/mysql.sock\nlog-error=%s\npid-file=/var/run/mysqld/mysqld.pid\n' "$LOGERR" > /tmp/mysql-init.cnf
+  mysqld --defaults-file=/tmp/mysql-init.cnf --initialize-insecure >/tmp/mysql-init.log 2>&1 || { say_err "datadir initialize failed"; exit 1; }
+  chown -R mysql:mysql /var/lib/mysql
+fi
 systemctl reset-failed "$UNIT" 2>/dev/null || true
-systemctl start "$UNIT"
+systemctl start "$UNIT" || { say_err "mysqld failed to start"; exit 1; }
 ` + mysqlSetRootPW + `
 mysql -uroot -p"$ROOT_PW" -e "SET GLOBAL validate_password.policy=LOW; SET GLOBAL validate_password.length=6;" 2>/dev/null || true
 mysql -uroot -p"$ROOT_PW" -e "SET sql_log_bin=0; CREATE USER IF NOT EXISTS '$REPL_USER'@'%' IDENTIFIED BY '$REPL_PW'; GRANT REPLICATION SLAVE, BACKUP_ADMIN, CONNECTION_ADMIN ON *.* TO '$REPL_USER'@'%'; GRANT GROUP_REPLICATION_STREAM ON *.* TO '$REPL_USER'@'%';" 2>/dev/null || \
 mysql -uroot -p"$ROOT_PW" -e "SET sql_log_bin=0; CREATE USER IF NOT EXISTS '$REPL_USER'@'%' IDENTIFIED BY '$REPL_PW'; GRANT REPLICATION SLAVE, BACKUP_ADMIN ON *.* TO '$REPL_USER'@'%';"
+# Cluster admin user on EVERY member (sql_log_bin=0, so it is local — not GTID/
+# replicated). InnoDB Cluster mode connects to each joiner as this user for
+# configureInstance/addInstance *before* the joiner is cloned, so it must exist
+# locally up front (the primary-only copy arrives too late). Harmless for raw GR.
+mysql -uroot -p"$ROOT_PW" -e "SET sql_log_bin=0; CREATE USER IF NOT EXISTS '$CLUSTER_USER'@'%' IDENTIFIED BY '$CLUSTER_PW'; GRANT ALL PRIVILEGES ON *.* TO '$CLUSTER_USER'@'%' WITH GRANT OPTION;"
 mysql -uroot -p"$ROOT_PW" -e "$RESET_CMD" 2>/dev/null || true
 mysql -uroot -p"$ROOT_PW" -e "CHANGE REPLICATION SOURCE TO SOURCE_USER='$REPL_USER', SOURCE_PASSWORD='$REPL_PW' FOR CHANNEL 'group_replication_recovery';" 2>/dev/null || true`
 
@@ -583,6 +617,11 @@ done
 
 // innodbShellClusterScript creates an InnoDB Cluster with MySQL Shell on the primary
 // and adds the other members (clone recovery). Connects as the 'cluster' user.
+// Every Shell call runs with interactive:false so it never blocks on the wizard's
+// [y/n] prompt (the exec has no TTY/stdin, so a prompt would hang forever), and under
+// `timeout` so a stalled clone/RESTART surfaces as an error instead of hanging the
+// deploy. createCluster/addInstance are guarded so the runStep retry loop is
+// idempotent (a re-run finds the cluster/member already there instead of erroring).
 const innodbShellClusterScript = `set -e
 mysql <<SQL
 CREATE USER IF NOT EXISTS '$APP_USER'@'%' IDENTIFIED BY '$APP_PW';
@@ -594,12 +633,38 @@ GRANT ALL PRIVILEGES ON *.* TO '$CLUSTER_USER'@'%' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
 SQL
 ADMIN="$CLUSTER_USER:$CLUSTER_PW@localhost:3306"
-mysqlsh --uri "$ADMIN" --js -e "dba.configureInstance('$ADMIN', {restart:false});" >/dev/null 2>&1 || true
-mysqlsh --uri "$ADMIN" --js -e "dba.createCluster('$CLUSTER', {adoptFromGR:false});"
+# sh_run TIMEOUT JS: run a MySQL Shell snippet; on success echo its output, on failure
+# surface the real error LAST (runStep keeps only the final 160 chars, and mysqlsh
+# otherwise ends by echoing the statement, which hides the actual message).
+sh_run() {
+  if timeout "$1" mysqlsh --uri "$ADMIN" --js -e "$2" >/tmp/sh.log 2>&1; then cat /tmp/sh.log; return 0; fi
+  echo "MySQL Shell step failed:"; grep -iE 'ERROR|exception|Dba\.|Cluster\.' /tmp/sh.log | tail -4 || true; return 1
+}
+# interactive:false makes configureInstance auto-apply required fixes (e.g.
+# binlog_transaction_dependency_tracking=WRITESET); without it Shell prompts
+# "perform changes? [y/n]" and hangs forever on the no-TTY exec.
+sh_run 300 "dba.configureInstance('$ADMIN', {interactive:false, restart:false});"
+# Reuse an existing cluster on redeploy; otherwise create fresh. MySQL Shell 8.0.46
+# SEGFAULTS in createCluster's "adopt existing GR" path (when a prior attempt left
+# Group Replication running with stale/invalid metadata), so first force a clean
+# slate — stop any running GR and drop leftover metadata — and let createCluster take
+# the working "new group" path. The clean-up is idempotent (errors tolerated).
+if timeout 60 mysqlsh --uri "$ADMIN" --js -e "dba.getCluster('$CLUSTER')" >/dev/null 2>&1; then
+  echo "cluster '$CLUSTER' already exists"
+else
+  mysql --force >/dev/null 2>&1 <<'CLEAN' || true
+SET GLOBAL super_read_only=OFF;
+STOP GROUP_REPLICATION;
+SET GLOBAL super_read_only=OFF;
+DROP SCHEMA IF EXISTS mysql_innodb_cluster_metadata;
+RESET REPLICA ALL FOR CHANNEL 'group_replication_recovery';
+CLEAN
+  sh_run 300 "dba.createCluster('$CLUSTER');"
+fi
 IFS=','; for h in $MEMBERS; do
   [ -n "$h" ] || continue
-  mysqlsh --uri "$ADMIN" --js -e "dba.configureInstance('$CLUSTER_USER:$CLUSTER_PW@$h:3306', {restart:false});" >/dev/null 2>&1 || true
-  mysqlsh --uri "$ADMIN" --js -e "var c=dba.getCluster('$CLUSTER'); c.addInstance('$CLUSTER_USER:$CLUSTER_PW@$h:3306', {recoveryMethod:'clone'});"
+  sh_run 300 "dba.configureInstance('$CLUSTER_USER:$CLUSTER_PW@$h:3306', {interactive:false, restart:false});"
+  sh_run 600 "var c=dba.getCluster('$CLUSTER'); try { c.addInstance('$CLUSTER_USER:$CLUSTER_PW@$h:3306', {recoveryMethod:'clone'}); } catch (e) { if (String(e).indexOf('already') < 0) throw e; }"
 done`
 
 // innodbRouterBootstrapScript bootstraps MySQL Router against the InnoDB Cluster
