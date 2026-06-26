@@ -1872,3 +1872,80 @@ The MongoDB shapes (sharded `psmdb`, replica set `psmrs`, standalone `psm`) now 
   standalone, all `Monitored by` the PMM node: each mongo node installs pmm-client;
   `pmm-admin list` on the nodes shows their `mongodb` + `mongodb_exporter` services
   `Running`, and the PMM server inventory lists the MongoDB services.
+
+## 18. Dock the Deployment console under Properties (right column)
+
+The Deployment console (`DeploymentConsole` in `app/web/src/pages/StackDesigner.jsx`)
+previously docked as a **full-width bar pinned to the viewport bottom**
+(`position: fixed; left:0; right:0; bottom:0`), overlapping the canvas and the
+Properties panel. Docked is the **default** layout (`loadDeployLayout` →
+`docked: true`), so this was the normal experience.
+
+Now, when docked, the console sits **at the bottom of the rightmost column, under
+the Properties panel**, sharing that column's width.
+
+- **`StackProperties`** hosts the console. It takes three new props —
+  `deployOpen` (`deployPanel === 'open'`), `deployments`, and `onDeployMinimize`
+  (`() => setDeployPanel('min')`) — passed from the page (the old standalone
+  `{deployPanel === 'open' && <DeploymentConsole/>}` render in the page body was
+  removed; the minimized-button portal stays).
+  - The docked branch became a **flex column** (`relative flex shrink-0 flex-col
+    gap-4`, fixed `width`): the Properties card is `min-h-0 flex-1 overflow-auto`
+    (so it scrolls and yields space), and the console renders as the in-flow child
+    below it (`<DeploymentConsole … inline columnWidth={width} />`).
+  - The detached branch (Properties floating) still portals the Properties window,
+    and additionally renders the docked console as a fallback pinned to the
+    right-column bottom (`<DeploymentConsole … columnWidth={width} />`, no `inline`).
+- **`DeploymentConsole`** gained `inline` + `columnWidth` props and three layout
+  modes (was: detached-float vs. fixed full-width bottom):
+  - **detached** (`!layout.docked`) → fixed floating panel, portal to `<body>`
+    (unchanged).
+  - **docked + `inline`** → in-flow flex child (`height: layout.height`,
+    `shrink-0 overflow-hidden rounded-xl`); **returned directly, not portaled**, so
+    the Properties column positions it.
+  - **docked + not `inline`** (Properties detached) → fixed `right:0; bottom:0;
+    width: columnWidth; height: layout.height`, portaled.
+  - Return rule: `inline && !detached ? node : createPortal(node, document.body)`.
+  - The top **height resize handle** (`kind: 'height'`, `d.y0 - e.clientY`) is
+    unchanged and works for the in-column panel (dragging up grows it; Properties
+    shrinks via `flex-1`).
+
+The Dock/Detach (`Icon.Frame`) and Minimize (`—`) buttons and all per-node
+progress rendering are unchanged.
+
+### Verification performed
+- `npm run build` (Vite) passes.
+
+## 19. Rename MongoDB + InnoDB entities to PSMDB / InnoDB Cluster
+
+Display-only rename of four creatable entities in
+`app/web/src/pages/StackDesigner.jsx` to standardize the abbreviation (PSM →
+**PSMDB**, "Percona Server for MongoDB"). **No internal type slugs changed** —
+`innodb`, `psmdb`, `psmrs`, `psm` node/frame `type`s, hostnames, and persisted
+designs are untouched, so this is purely cosmetic.
+
+| Old name | New name |
+| --- | --- |
+| `InnoDB / Group Replication` | `InnoDB Cluster / GR` |
+| `PS MongoDB Sharded Cluster` | `PSMDB Sharded Cluster` |
+| `PSM Replica Set` / `PS MongoDB Replica Set` | `PSMDB RS` |
+| `PSM` / `PS MongoDB (standalone)` | `PSMDB` / `PSMDB (standalone)` |
+
+Touched, per entity:
+- **Toolbar buttons** (the "+ …" add buttons) for all four.
+- **`NODE_TYPES` short labels** (shown on node cards and the read-only "Type"
+  field — `def.label`, display-only since `nextLabel` derives hostnames from
+  `def.slug`, not the label): `innodb` `'InnoDB / GR' → 'InnoDB Cluster / GR'`,
+  `psmrs` `'PSM RS' → 'PSMDB RS'`, `psm` `'PSM' → 'PSMDB'`. The `psmdb` member
+  label stays `'PS MongoDB'` (the sharded-cluster *frame* is what's renamed, and
+  it avoids colliding with the standalone `PSMDB`).
+- **Property-panel / frame-form headers**: `InnoDBFrameForm`, `MongoDBFrameForm`,
+  `PSMRSFrameForm`, `PSMStandaloneForm`.
+- **Code comments** referencing the entity names, for consistency.
+
+Product-name references in sub-text and field labels (e.g. "PS MongoDB member",
+"PS MongoDB major") were intentionally left — those name the upstream product,
+not the renamed entity.
+
+### Verification performed
+- `npm run build` (Vite) passes.

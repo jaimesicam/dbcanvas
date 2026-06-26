@@ -64,16 +64,16 @@ const NODE_TYPES = {
     color: '#2563eb',
     icon: 'Database',
   },
-  // InnoDB / Group Replication members live inside an InnoDB/GR frame.
+  // InnoDB Cluster / GR members live inside an InnoDB Cluster/GR frame.
   innodb: {
-    label: 'InnoDB / GR',
+    label: 'InnoDB Cluster / GR',
     slug: 'innodb',
     sub: 'Group Replication member',
     color: '#0891b2',
     icon: 'Database',
   },
   // PS MongoDB members (mongod shard/config + mongos router) live inside a fixed
-  // PS MongoDB Sharded Cluster frame.
+  // PSMDB Sharded Cluster frame.
   psmdb: {
     label: 'PS MongoDB',
     slug: 'psmdb',
@@ -81,9 +81,9 @@ const NODE_TYPES = {
     color: '#10b981',
     icon: 'Database',
   },
-  // PS MongoDB replica-set members live inside a PSM RS frame.
+  // PS MongoDB replica-set members live inside a PSMDB RS frame.
   psmrs: {
-    label: 'PSM RS',
+    label: 'PSMDB RS',
     slug: 'psmrs',
     sub: 'PS MongoDB replica-set member',
     color: '#059669',
@@ -91,7 +91,7 @@ const NODE_TYPES = {
   },
   // Standalone single Percona Server for MongoDB instance (no replication).
   psm: {
-    label: 'PSM',
+    label: 'PSMDB',
     slug: 'psm',
     sub: 'PS MongoDB (standalone)',
     color: '#059669',
@@ -1257,16 +1257,16 @@ function StackEditor({ stackId, onBack }) {
             <Icon.Plus size={16} /> Percona Server Replication
           </Button>
           <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addInnoDBCluster}>
-            <Icon.Plus size={16} /> InnoDB / Group Replication
+            <Icon.Plus size={16} /> InnoDB Cluster / GR
           </Button>
           <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addMongoDBCluster()}>
-            <Icon.Plus size={16} /> PS MongoDB Sharded Cluster
+            <Icon.Plus size={16} /> PSMDB Sharded Cluster
           </Button>
           <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addMongoRSCluster}>
-            <Icon.Plus size={16} /> PSM Replica Set
+            <Icon.Plus size={16} /> PSMDB RS
           </Button>
           <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('psm')}>
-            <Icon.Plus size={16} /> PSM
+            <Icon.Plus size={16} /> PSMDB
           </Button>
           <div className="mx-1 h-5 w-px bg-border" />
           <Button size="sm" variant="outline" disabled={!!busy} onClick={runValidate}>
@@ -1515,6 +1515,9 @@ function StackEditor({ stackId, onBack }) {
         deleteEdge={deleteEdge}
         deleteFrame={deleteFrame}
         rebuildMongoCluster={rebuildMongoCluster}
+        deployOpen={deployPanel === 'open'}
+        deployments={deployments}
+        onDeployMinimize={() => setDeployPanel('min')}
       />
 
       {menu && (
@@ -1539,9 +1542,6 @@ function StackEditor({ stackId, onBack }) {
         />
       )}
 
-      {deployPanel === 'open' && (
-        <DeploymentConsole deployments={deployments} nodes={nodes} onMinimize={() => setDeployPanel('min')} />
-      )}
       {deployPanel === 'min' && createPortal(
         <button
           onClick={() => setDeployPanel('open')}
@@ -1564,7 +1564,11 @@ function loadDeployLayout() {
   catch { return { docked: true, height: 280, float: { x: 120, y: 120, w: 640, h: 360 } } }
 }
 
-function DeploymentConsole({ deployments, nodes, onMinimize }) {
+// When docked (the default) the console lives at the bottom of the rightmost
+// Properties column: `inline` renders it as an in-flow flex child of that column;
+// if Properties is detached it falls back to a fixed panel pinned to the right
+// edge bottom (`columnWidth` wide). Detached, it floats freely via a portal.
+function DeploymentConsole({ deployments, nodes, onMinimize, inline = false, columnWidth = 320 }) {
   const [layout, setLayout] = useState(loadDeployLayout)
   const drag = useRef(null)
   useEffect(() => { try { localStorage.setItem(DEPLOY_KEY, JSON.stringify(layout)) } catch { /* */ } }, [layout])
@@ -1589,12 +1593,21 @@ function DeploymentConsole({ deployments, nodes, onMinimize }) {
   const label = (nid) => nodes.find((n) => n.id === nid)?.label || nid
 
   const detached = !layout.docked
-  const style = detached
-    ? { position: 'fixed', left: layout.float.x, top: layout.float.y, width: layout.float.w, height: layout.float.h }
-    : { position: 'fixed', left: 0, right: 0, bottom: 0, height: layout.height }
+  let style, cls = 'z-40 flex flex-col border bg-surface shadow-2xl'
+  if (detached) {
+    style = { position: 'fixed', left: layout.float.x, top: layout.float.y, width: layout.float.w, height: layout.float.h }
+  } else if (inline) {
+    // in-flow child at the bottom of the Properties column
+    style = { height: layout.height }
+    cls += ' shrink-0 overflow-hidden rounded-xl'
+  } else {
+    // docked but Properties is detached: pin to the right-column bottom
+    style = { position: 'fixed', right: 0, bottom: 0, width: columnWidth, height: layout.height }
+    cls += ' overflow-hidden rounded-xl'
+  }
 
-  return createPortal(
-    <div className="z-40 flex flex-col border bg-surface shadow-2xl" style={style}>
+  const node = (
+    <div className={cls} style={style}>
       {!detached && (
         <div onPointerDown={(e) => { drag.current = { kind: 'height', y0: e.clientY, h0: layout.height } }}
           className="h-1.5 w-full cursor-ns-resize bg-border/60 hover:bg-primary" />
@@ -1646,9 +1659,12 @@ function DeploymentConsole({ deployments, nodes, onMinimize }) {
           <svg viewBox="0 0 10 10" className="h-full w-full"><path d="M9 1 L1 9 M9 5 L5 9" stroke="currentColor" fill="none" /></svg>
         </div>
       )}
-    </div>,
-    document.body,
+    </div>
   )
+
+  // Inline docked → render in flow (the column positions it); otherwise (detached
+  // float, or docked-while-Properties-detached) it's fixed, so portal to <body>.
+  return inline && !detached ? node : createPortal(node, document.body)
 }
 
 // LinkDirectionModal asks which way data flows when two ProxySQL nodes are linked.
@@ -2627,7 +2643,7 @@ function ProxySQLFrameMemberForm({ node: n, frame, patchNode, dep, deployed }) {
   )
 }
 
-// InnoDBFrameForm edits an InnoDB / Group Replication frame: image OS/version/arch,
+// InnoDBFrameForm edits an InnoDB Cluster / GR frame: image OS/version/arch,
 // the PDPS repository (which sets the Percona Server version), the replication mode
 // (InnoDB Cluster vs raw Group Replication), root password, PMM/proxy/cert, and the
 // MySQL Router toggle. It has no association endpoints (Router is built in).
@@ -2668,7 +2684,7 @@ function InnoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed })
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">InnoDB / Group Replication</span>
+        <span className="text-sm font-semibold">InnoDB Cluster / GR</span>
         <Badge tone="primary">{members} node{members === 1 ? '' : 's'}</Badge>
       </div>
 
@@ -2783,7 +2799,7 @@ function InnoDBMemberForm({ node: n, frame, patchNode, dep, deployed }) {
   )
 }
 
-// MongoDBFrameForm edits a PS MongoDB Sharded Cluster frame: catalog-driven
+// MongoDBFrameForm edits a PSMDB Sharded Cluster frame: catalog-driven
 // OS/version/arch + PS MongoDB major/minor, admin (root) password, PMM/proxy/cert.
 // The 13-node sharded topology is fixed — there are no replication options.
 function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, rebuildCluster, deployed }) {
@@ -2828,7 +2844,7 @@ function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, rebuildClu
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">PS MongoDB Sharded Cluster</span>
+        <span className="text-sm font-semibold">PSMDB Sharded Cluster</span>
         <Badge tone="primary">{total} node{total === 1 ? '' : 's'}</Badge>
       </div>
 
@@ -2956,8 +2972,8 @@ function MongoDBMemberForm({ node: n, frame, patchNode, dep, deployed }) {
 }
 
 // MongoCatalogFields renders the shared catalog-driven OS/version/arch + PS MongoDB
-// major/minor selects used by both the PSM RS frame form (patch=patchFrame, obj=frame)
-// and the standalone PSM node form (patch=patchNode, obj=node). `patch(id, {...})`
+// major/minor selects used by both the PSMDB RS frame form (patch=patchFrame, obj=frame)
+// and the standalone PSMDB node form (patch=patchNode, obj=node). `patch(id, {...})`
 // applies the change. Cascade-normalizes invalid dependent selects like PXCFrameForm.
 function useMongoCatalog(obj, deployed, patch) {
   const [cat, setCat] = useState(null)
@@ -3039,7 +3055,7 @@ function PSMRSFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed }) 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">PS MongoDB Replica Set</span>
+        <span className="text-sm font-semibold">PSMDB RS</span>
         <Badge tone="primary">{members} node{members === 1 ? '' : 's'}</Badge>
       </div>
 
@@ -3132,7 +3148,7 @@ function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">PS MongoDB (standalone)</span>
+        <span className="text-sm font-semibold">PSMDB (standalone)</span>
         {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
       </div>
 
@@ -3326,7 +3342,7 @@ function loadProps() {
   try { return JSON.parse(localStorage.getItem(PROPS_KEY) || '{}') } catch { return {} }
 }
 
-function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster }) {
+function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster, deployOpen, deployments, onDeployMinimize }) {
   const selNode = selected?.kind === 'node' ? nodes.find((n) => n.id === selected.id) : null
   const selDep = selNode ? depByNode[selNode.id] : null
   const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm')) || selected?.kind === 'frame'
@@ -3369,36 +3385,51 @@ function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, p
   )
   const body = <Body selected={selected} stackId={stackId} nodes={nodes} edges={edges} frames={frames} depByNode={depByNode} patchNode={patchNode} patchFrame={patchFrame} patchEdge={patchEdge} deleteNode={deleteNode} deleteEdge={deleteEdge} deleteFrame={deleteFrame} rebuildMongoCluster={rebuildMongoCluster} />
 
+  // Docked deployment console lives at the bottom of this column (under Properties).
+  const deployConsole = deployOpen && (
+    <DeploymentConsole deployments={deployments} nodes={nodes} onMinimize={onDeployMinimize} inline columnWidth={width} />
+  )
+
   if (docked) {
     return (
-      <div className="relative shrink-0" style={{ width }}>
+      <div className="relative flex shrink-0 flex-col gap-4" style={{ width }}>
         <div
           onPointerDown={(e) => { drag.current = { kind: 'w', x0: e.clientX, w0: width } }}
           className="absolute left-0 top-0 z-10 h-full w-1.5 -translate-x-1 cursor-ew-resize hover:bg-primary"
           title="Drag to resize"
         />
-        <div className="h-full overflow-auto rounded-xl border bg-surface p-4">
+        <div className="min-h-0 flex-1 overflow-auto rounded-xl border bg-surface p-4">
           <Header move={false} />
           {body}
         </div>
+        {deployConsole}
       </div>
     )
   }
-  return createPortal(
-    <div className="fixed z-40 flex flex-col overflow-hidden rounded-xl border bg-surface shadow-2xl"
-      style={{ left: flt.x, top: flt.y, width: flt.w, height: flt.h }}>
-      <div className="flex-1 overflow-auto p-4">
-        <Header move />
-        {body}
-      </div>
-      <div
-        onPointerDown={(e) => { drag.current = { kind: 'wh', x0: e.clientX, y0: e.clientY, w0: flt.w, h0: flt.h } }}
-        className="absolute bottom-0 right-0 h-4 w-4 cursor-nwse-resize text-muted"
-      >
-        <svg viewBox="0 0 10 10" className="h-full w-full"><path d="M9 1 L1 9 M9 5 L5 9" stroke="currentColor" fill="none" /></svg>
-      </div>
-    </div>,
-    document.body,
+  return (
+    <>
+      {createPortal(
+        <div className="fixed z-40 flex flex-col overflow-hidden rounded-xl border bg-surface shadow-2xl"
+          style={{ left: flt.x, top: flt.y, width: flt.w, height: flt.h }}>
+          <div className="flex-1 overflow-auto p-4">
+            <Header move />
+            {body}
+          </div>
+          <div
+            onPointerDown={(e) => { drag.current = { kind: 'wh', x0: e.clientX, y0: e.clientY, w0: flt.w, h0: flt.h } }}
+            className="absolute bottom-0 right-0 h-4 w-4 cursor-nwse-resize text-muted"
+          >
+            <svg viewBox="0 0 10 10" className="h-full w-full"><path d="M9 1 L1 9 M9 5 L5 9" stroke="currentColor" fill="none" /></svg>
+          </div>
+        </div>,
+        document.body,
+      )}
+      {/* Properties is detached, so the docked console can't sit under it — pin it
+          to the right-column bottom instead (handled by DeploymentConsole). */}
+      {deployOpen && (
+        <DeploymentConsole deployments={deployments} nodes={nodes} onMinimize={onDeployMinimize} columnWidth={width} />
+      )}
+    </>
   )
 }
 
@@ -3451,7 +3482,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       return <MySQLMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} nodes={nodes} patchNode={patchNode} dep={dep} deployed={deployed} />
     }
 
-    // InnoDB / Group Replication member node.
+    // InnoDB Cluster / GR member node.
     if (n.type === 'innodb') {
       if (dep && dep.state === 'running') {
         return <InnoDBManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
