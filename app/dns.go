@@ -222,7 +222,10 @@ func reverseZone(domain string, serial int64, recs []dnsRecord, owner func(strin
 // and serves the reverse zone when one could be derived.
 func namedConf(domain, reverseZoneName, listenIP string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, `options {
+	fmt.Fprintf(&b, `plugin query "/usr/lib64/named/filter-aaaa.so" {
+    filter-aaaa-on-v4 yes;
+};
+options {
     listen-on port 53 { 127.0.0.1; %s; };
     listen-on-v6 { none; };
     directory "/var/named";

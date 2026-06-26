@@ -1039,6 +1039,23 @@ install -d -o squid -g squid /var/spool/squid 2>/dev/null || true`},
 		// leaves a detached instance + /run/squid.pid that makes the subsequent
 		// systemctl start fail with "Squid is already running" (Result: protocol).
 
+		{"Configure named", `set -e
+# Load the filter-aaaa plugin so AAAA records are stripped from IPv4 queries
+# (matches Squid's dns_v4_first — hosts without working IPv6 otherwise stall on
+# AAAA). Inserted before the options{} block; reconcileStackDNS keeps it when it
+# rewrites named.conf with the stack's zones. Idempotent.
+CONF=/etc/named.conf
+if [ -f "$CONF" ] && ! grep -q 'filter-aaaa.so' "$CONF"; then
+  TMP=$(mktemp)
+  printf '%s\n' \
+    'plugin query "/usr/lib64/named/filter-aaaa.so" {' \
+    '    filter-aaaa-on-v4 yes;' \
+    '};' > "$TMP"
+  cat "$CONF" >> "$TMP"
+  cat "$TMP" > "$CONF"
+  rm -f "$TMP"
+fi`},
+
 		{"Enable services", `set -e
 echo "ServerName intranet.$DOMAIN" > /etc/httpd/conf.d/servername.conf
 for svc in rsyslog slapd squid named postfix dovecot php-fpm httpd; do
