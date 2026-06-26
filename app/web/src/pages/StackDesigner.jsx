@@ -975,6 +975,7 @@ function StackEditor({ stackId, onBack }) {
   // deploy.
   function addMongoDBCluster(setup = 'standard') {
     if (!nodes.some((n) => n.type === 'intranet')) return
+    setup = setup === 'minimum' ? 'minimum' : 'standard'
     const fid = uid('frame')
     const fx = (-view.x + 200) / view.z
     const fy = (-view.y + 200) / view.z
@@ -1197,7 +1198,7 @@ function StackEditor({ stackId, onBack }) {
           <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addInnoDBCluster}>
             <Icon.Plus size={16} /> InnoDB / Group Replication
           </Button>
-          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addMongoDBCluster}>
+          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addMongoDBCluster()}>
             <Icon.Plus size={16} /> PS MongoDB Sharded Cluster
           </Button>
           <div className="mx-1 h-5 w-px bg-border" />
