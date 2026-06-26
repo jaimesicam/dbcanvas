@@ -52,6 +52,7 @@ export const stackApi = {
   pxcCatalog: () => request('GET', '/api/catalog/pxc'),
   proxysqlCatalog: () => request('GET', '/api/catalog/proxysql'),
   psCatalog: () => request('GET', '/api/catalog/ps'),
+  psmdbCatalog: () => request('GET', '/api/catalog/psmdb'),
   pdpsCatalog: () => request('GET', '/api/catalog/pdps'),
 }
 

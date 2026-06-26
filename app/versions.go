@@ -164,11 +164,13 @@ type PXCImage struct {
 	Versions  map[string][]string `json:"versions"` // "8.0" → [...], "8.4" → [...]
 }
 
-// loadPXCCatalog / loadProxySQLCatalog / loadPSCatalog parse the per-image
-// `percona_xtradb_cluster` / `proxysql` / `percona_server` sections of versions.yaml.
+// loadPXCCatalog / loadProxySQLCatalog / loadPSCatalog / loadPSMDBCatalog parse the
+// per-image `percona_xtradb_cluster` / `proxysql` / `percona_server` /
+// `percona_server_mongodb` sections of versions.yaml.
 func loadPXCCatalog() []PXCImage      { return loadImageCatalog("percona_xtradb_cluster") }
 func loadProxySQLCatalog() []PXCImage { return loadImageCatalog("proxysql") }
 func loadPSCatalog() []PXCImage       { return loadImageCatalog("percona_server") }
+func loadPSMDBCatalog() []PXCImage    { return loadImageCatalog("percona_server_mongodb") }
 
 // loadImageCatalog parses the per-image `<wantSection>` major-series map of
 // versions.yaml (each image's installable versions keyed by series). It mirrors
@@ -294,6 +296,14 @@ func (a *App) handlePSCatalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"images": loadPSCatalog()})
+}
+
+func (a *App) handlePSMDBCatalog(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.currentUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"images": loadPSMDBCatalog()})
 }
 
 // loadPDPSCatalog reads the top-level `pdps:` list of percona-release repositories

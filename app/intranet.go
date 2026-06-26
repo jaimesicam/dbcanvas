@@ -28,7 +28,8 @@ type designNode struct {
 	// PXC node fields — a PXC node belongs to a PXC frame (FrameID) and is either
 	// a data member ("regular") or a voting-only "arbitrator" (garbd).
 	FrameID        string `json:"frameId"`
-	Role           string `json:"role"`           // "regular" | "arbitrator"
+	Role           string `json:"role"`           // PXC: "regular"|"arbitrator"; psmdb: "shard"|"config"|"mongos"
+	Shard          int    `json:"shard"`          // psmdb shard index (0-based) for role=="shard"
 	ExportEnabled  bool   `json:"exportEnabled"`  // publish the DB port to the host
 	ExportHostPort int    `json:"exportHostPort"` // desired host port (0 = random/unused)
 	// ProxySQL node fields (ignored by other node types). os/osVersion/arch are the
@@ -104,6 +105,11 @@ type designFrame struct {
 	// GTID is always on). The Percona Server version comes from the PDPS repo.
 	PDPSRepo    string `json:"pdpsRepo"`    // percona-release repo, e.g. "pdps-84-lts"
 	MySQLRouter bool   `json:"mysqlRouter"` // install + run MySQL Router on each member
+	// PS MongoDB Sharded Cluster frame config (Type=="psmdb"; reuses OS/OSVersion/
+	// Arch, RootPassword, PMMNodeID, UseProxy, GenerateCert/CertTTL above). Fixed
+	// topology (3 shards × 3 + 3 config + 1 mongos); no replication config.
+	PSMDBMajor   string `json:"psmdbMajor"`   // "6.0" | "7.0" | "8.0"
+	PSMDBVersion string `json:"psmdbVersion"` // minor (e.g. 8.0.26-11); "" → latest
 }
 
 type designDoc struct {
@@ -514,6 +520,61 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		}
 	}
 
+	// --- PS MongoDB sharded-cluster frames ---
+	// The topology is fixed by the designer (1 mongos + 3-node config RS + 3 shards
+	// × 3-node RS); validate the member set is intact and the image exists.
+	psmdbNames := map[string]int{}
+	for _, f := range doc.Frames {
+		if f.Type != "psmdb" {
+			continue
+		}
+		psmdbNames[strings.TrimSpace(f.Label)]++
+		config, mongos := 0, 0
+		shardMembers := map[int]int{}
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != "psmdb" {
+				continue
+			}
+			switch n.Role {
+			case "config":
+				config++
+			case "mongos":
+				mongos++
+				if n.ExportEnabled && n.ExportHostPort > 0 {
+					exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+				}
+			default:
+				shardMembers[n.Shard]++
+			}
+		}
+		if mongos != 1 {
+			out = append(out, issue{"error", "PS MongoDB cluster " + f.Label + " must have exactly one mongos router"})
+		}
+		if config != 3 {
+			out = append(out, issue{"error", "PS MongoDB cluster " + f.Label + " must have a 3-node config-server replica set"})
+		}
+		if len(shardMembers) != 3 {
+			out = append(out, issue{"error", "PS MongoDB cluster " + f.Label + " must have 3 shards"})
+		}
+		for s, m := range shardMembers {
+			if m != 3 {
+				out = append(out, issue{"error", fmt.Sprintf("PS MongoDB cluster %s: shard %d must have a 3-node replica set", f.Label, s)})
+			}
+		}
+		img := pxcImage(f.OS, f.OSVersion, f.Arch)
+		if !seenImg[img] {
+			seenImg[img] = true
+			if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+				out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+			}
+		}
+	}
+	for name, c := range psmdbNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{"error", "Duplicate PS MongoDB cluster name: " + name})
+		}
+	}
+
 	// --- cross-cluster replication links (async / bidirectional) ---
 	// Each replication edge must connect two replication-capable members in
 	// *different* clusters, both with GTID enabled (auto-positioning); a server-id
@@ -665,6 +726,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			memberType = "mysql"
 		case "innodb":
 			memberType = "innodb"
+		case "psmdb":
+			memberType = "psmdb"
 		default:
 			continue
 		}
@@ -690,6 +753,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionMySQLFrame(st, f, doc)
 		case "innodb":
 			a.provisionInnoDBFrame(st, f, doc)
+		case "psmdb":
+			a.provisionMongoDBFrame(st, f, doc)
 		}
 	}
 

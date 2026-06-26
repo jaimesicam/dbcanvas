@@ -1674,3 +1674,85 @@ OracleLinux-9 systemd containers:
   SECONDARY, all `ONLINE` (clone recovery).
 - **3-node groupreplication** → `innodb01` PRIMARY + two SECONDARY, all `ONLINE`
   (incremental recovery).
+
+## 15. PS MongoDB Sharded Cluster frame
+
+A **PS MongoDB Sharded Cluster** frame: a **fixed 13-node** Percona Server for
+MongoDB sharded cluster — **3 shards × 3-node replica set** (9 `mongod`) + a
+**3-node config-server replica set** (CSRS, 3 `mongod`) + **1 `mongos` router** (the
+"mongosh" node — a query router with the `mongosh` shell). The topology is fixed:
+no node can be added or removed. Node properties mirror the PXC frame **minus any
+replication configuration** (the sharded layout is not user-editable). Internal auth
+uses a shared **keyFile** (the same random bytes on every member); apps connect
+through the `mongos` router.
+
+### `make versions`: PS MongoDB catalog
+`images/versions.sh` probes each built image with `percona-release setup
+psmdb-60|70|80` then `repoquery`/`madison percona-server-mongodb-server`, fenced with
+`@@PSMDB60@@`/`@@PSMDB70@@`/`@@PSMDB80@@` and filtered to `^6\.0\.`/`^7\.0\.`/`^8\.0\.`.
+The writer's generalized `emit_series` (variadic key/list pairs) emits a
+**`percona_server_mongodb:`** per-image major-series map (`6.0`/`7.0`/`8.0` → minor
+lists). `versions.go` `loadPSMDBCatalog()` reuses the generic `loadImageCatalog`
+→ **`GET /api/catalog/psmdb`** → `stackApi.psmdbCatalog()`. `psmdbRepo(major)`
+(in `mongodb.go`) maps `6.0→psmdb-60`, `7.0→psmdb-70`, else `psmdb-80`.
+
+### Data model
+`designFrame` `Type=="psmdb"` + `psmdbMajor`/`psmdbVersion`; reuses `os`/`osVersion`/
+`arch`, `rootPassword` (the MongoDB **admin** password), `pmmNodeId`, `useProxy`,
+`generateCert`/`certTtl*`. **No** gtid/replMode. Members: `designNode` `Type=="psmdb"`
++ `FrameID` + `Role` (`"shard"|"config"|"mongos"`) + `Shard int` (shard index for
+shard members) + export (only meaningful on the `mongos` node).
+
+### Provisioning — `app/mongodb.go`
+`provisionMongoDBFrame` partitions members by role, reuses the admin password +
+keyFile across redeploys (or generates them), and records each member's profile
+(`mongoConfig`) + `mongoSecrets` (`adminUser`/`adminPassword`/`keyFile` — keyFile
+never surfaced). A goroutine then:
+- **Phase 1 (parallel `mongoPrepareNode`):** create the container (the `mongos` node
+  publishes 27017 when export is on); install `percona-release setup psmdb-NN` +
+  `percona-server-mongodb-server`/`-tools` (shard/config) or
+  `percona-server-mongodb-mongos` + `percona-mongodb-mongosh` (mongos); write the
+  shared `/etc/mongo.keyFile` (0400, owned `mongod`); write `mongod.conf`
+  (`replSetName`, `sharding.clusterRole=configsvr|shardsvr`, `bindIpAll`, keyFile) and
+  start `mongod` (config + shard nodes; the `mongos` node only preps dirs).
+- **Phase 2:** `rs.initiate` the config RS (`cfg`) and each shard RS (`rs0/rs1/rs2`),
+  waiting for a PRIMARY.
+- **Phase 3:** create the cluster **admin** user (root role) via the localhost
+  exception on the config-RS primary.
+- **Phase 4:** write `mongos.conf` (`sharding.configDB=cfg/host1,2,3`, keyFile), start
+  `mongos` via a custom **`mongos.service`** systemd unit (PSMDB ships only
+  `mongod.service`), then `sh.addShard("rsN/host1:27017,host2,host3")` for each shard.
+- **Phase 5:** TLS (Intranet CA) / PMM register / finalize. Deploy dispatch
+  (`intranet.go` frame switch + per-node `case`) and validation handle `psmdb`.
+
+### Validation
+`validateStack` `case psmdb`: image exists; member set intact (**exactly 1 mongos,
+3-node CSRS, 3 shards each with a 3-node RS**); unique cluster name; `mongos`
+host-port export feeds the shared `exportReq` conflict check.
+
+### Frontend
+`NODE_TYPES.psmdb` (green, DB-cylinder icon) + **"PS MongoDB Sharded Cluster"**
+toolbar button; **`addMongoDBCluster`** builds the fixed 13 members
+(`mongos`/`cfg1..3`/`s0r1..3`/`s1r1..3`/`s2r1..3`). A custom **`layoutPSMDBFrame`**
+(grouped grid — `mongos` + config RS on the top row, each shard a column of 3)
+replaces the single-row `layoutFrame` via `relayoutFrame`. Every add/remove path is
+gated for `psmdb`: no frame +/- buttons, no "Delete node" in the context menu /
+member form, Delete-key/`deleteNode` no-op on members (the **frame** is still
+deletable = delete the whole cluster). Member sub-labels read "mongos router" /
+"config server" / "shard N member". **`MongoDBFrameForm`** (catalog OS/version/arch +
+PS MongoDB major/minor, admin password, PMM/proxy/cert — **no replication options**)
+and **`MongoDBMemberForm`** (read-only role; 27017 host-export only on the `mongos`
+node). A running member shows **`MongoDBManager`** (Overview incl. role/RS/shard/
+configDB, Access showing the `mongosh` connect string through the router, Credentials
+admin user/password).
+
+### Verification performed (live)
+- `make versions` populates `percona_server_mongodb:` (OL8/9 `6.0`/`7.0`/`8.0`
+  per-image minor lists; OL10 empty — no EL10 packages yet); `go build`/`gofmt`,
+  `bash -n images/versions.sh`, and the web build pass.
+- **Live deploy** of the full **13-node** cluster on OracleLinux-9 systemd containers
+  (`useProxy:false`): all 13 nodes `running`; `sh.status()` shows **3 shards** added;
+  the config RS + each shard RS report **1 PRIMARY + 2 SECONDARY**; an authenticated
+  admin connection through `mongos` works.
+- The exact design `addMongoDBCluster()` produces (roles/shards, 13 members) passes
+  `validate` with no issues.

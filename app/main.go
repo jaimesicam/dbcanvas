@@ -55,6 +55,7 @@ func main() {
 	mux.HandleFunc("GET /api/catalog/pxc", app.handlePXCCatalog)
 	mux.HandleFunc("GET /api/catalog/proxysql", app.handleProxySQLCatalog)
 	mux.HandleFunc("GET /api/catalog/ps", app.handlePSCatalog)
+	mux.HandleFunc("GET /api/catalog/psmdb", app.handlePSMDBCatalog)
 	mux.HandleFunc("GET /api/catalog/pdps", app.handlePDPSCatalog)
 
 	mux.HandleFunc("GET /api/stacks", app.handleListStacks)

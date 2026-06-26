@@ -88,6 +88,14 @@ echo '@@PXC84@@'; elsearch percona-xtradb-cluster  | grep -E '^8\.4\.' | sort -r
 percona-release setup proxysql >/dev/null 2>&1
 echo '@@PROXYSQL2@@'; elsearch proxysql2 | grep -E '^2\.' | sort -rV -u
 echo '@@PROXYSQL3@@'; elsearch proxysql3 | grep -E '^3\.' | sort -rV -u
+# Percona Server for MongoDB: each psmdb-NN repo carries one major series
+# (6.0/7.0/8.0); the percona-server-mongodb meta package is the versioned one.
+percona-release setup psmdb-60 >/dev/null 2>&1
+echo '@@PSMDB60@@'; elsearch percona-server-mongodb | grep -E '^6\.0\.' | sort -rV -u
+percona-release setup psmdb-70 >/dev/null 2>&1
+echo '@@PSMDB70@@'; elsearch percona-server-mongodb | grep -E '^7\.0\.' | sort -rV -u
+percona-release setup psmdb-80 >/dev/null 2>&1
+echo '@@PSMDB80@@'; elsearch percona-server-mongodb | grep -E '^8\.0\.' | sort -rV -u
 echo '@@END@@'
 EOS
 }
@@ -116,6 +124,12 @@ echo '@@PXC84@@'; madison percona-xtradb-cluster  | grep -E '^8\.4\.' | sort -rV
 percona-release setup proxysql >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@PROXYSQL2@@'; madison proxysql2 | grep -E '^2\.' | sort -rV -u
 echo '@@PROXYSQL3@@'; madison proxysql3 | grep -E '^3\.' | sort -rV -u
+percona-release setup psmdb-60 >/dev/null 2>&1; apt-get update >/dev/null 2>&1
+echo '@@PSMDB60@@'; madison percona-server-mongodb | grep -E '^6\.0\.' | sort -rV -u
+percona-release setup psmdb-70 >/dev/null 2>&1; apt-get update >/dev/null 2>&1
+echo '@@PSMDB70@@'; madison percona-server-mongodb | grep -E '^7\.0\.' | sort -rV -u
+percona-release setup psmdb-80 >/dev/null 2>&1; apt-get update >/dev/null 2>&1
+echo '@@PSMDB80@@'; madison percona-server-mongodb | grep -E '^8\.0\.' | sort -rV -u
 echo '@@END@@'
 EOS
 }
@@ -191,6 +205,7 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
   echo "==> probing ${tag} (${platform}) for installable versions" >&2
 
   ps80="" ; ps84="" ; pxc80="" ; pxc84="" ; psql2="" ; psql3=""
+  mdb60="" ; mdb70="" ; mdb80=""
   if [ -n "$probe" ]; then
     if out="$(docker run --rm "$tag" bash -lc "$probe" 2>/dev/null)"; then
       ps80="$(printf '%s\n' "$out" | section PS80)"
@@ -199,6 +214,9 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
       pxc84="$(printf '%s\n' "$out" | section PXC84)"
       psql2="$(printf '%s\n' "$out" | section PROXYSQL2)"
       psql3="$(printf '%s\n' "$out" | section PROXYSQL3)"
+      mdb60="$(printf '%s\n' "$out" | section PSMDB60)"
+      mdb70="$(printf '%s\n' "$out" | section PSMDB70)"
+      mdb80="$(printf '%s\n' "$out" | section PSMDB80)"
     else
       echo "    FAIL  could not run ${tag} (recording empty version lists)" >&2
     fi
@@ -210,25 +228,26 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
   px4=$(printf '%s' "$pxc84" | grep -c . || true)
   pq2=$(printf '%s' "$psql2" | grep -c . || true)
   pq3=$(printf '%s' "$psql3" | grep -c . || true)
-  echo "    ps: ${n80}+${n84}  pxc: ${px0}+${px4}  proxysql: ${pq2}+${pq3}" >&2
+  m6=$(printf '%s' "$mdb60" | grep -c . || true)
+  m7=$(printf '%s' "$mdb70" | grep -c . || true)
+  m8=$(printf '%s' "$mdb80" | grep -c . || true)
+  echo "    ps: ${n80}+${n84}  pxc: ${px0}+${px4}  proxysql: ${pq2}+${pq3}  psmdb: ${m6}+${m7}+${m8}" >&2
 
-  # emit_series <indent-key> <key1> <list1> <key2> <list2>: emit a major-series
-  # map under `key:` with two series (e.g. "8.0"/"8.4" or "2"/"3").
+  # emit_series <indent-key> <key1> <list1> [<key2> <list2> ...]: emit a major-series
+  # map under `key:` with one or more series (e.g. "8.0"/"8.4", "2"/"3", or the three
+  # MongoDB series "6.0"/"7.0"/"8.0").
   emit_series() {
-    local key="$1" k1="$2" v1="$3" k2="$4" v2="$5"
+    local key="$1"; shift
     echo "    ${key}:"
-    if [ -n "$v1" ]; then
-      echo "      \"${k1}\":"
-      while IFS= read -r v; do [ -n "$v" ] && echo "        - ${v}"; done <<<"$v1"
-    else
-      echo "      \"${k1}\": []"
-    fi
-    if [ -n "$v2" ]; then
-      echo "      \"${k2}\":"
-      while IFS= read -r v; do [ -n "$v" ] && echo "        - ${v}"; done <<<"$v2"
-    else
-      echo "      \"${k2}\": []"
-    fi
+    while [ "$#" -ge 2 ]; do
+      local k="$1" v="$2"; shift 2
+      if [ -n "$v" ]; then
+        echo "      \"${k}\":"
+        while IFS= read -r vv; do [ -n "$vv" ] && echo "        - ${vv}"; done <<<"$v"
+      else
+        echo "      \"${k}\": []"
+      fi
+    done
   }
 
   {
@@ -242,6 +261,7 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
     emit_series percona_server         "8.0" "$ps80"  "8.4" "$ps84"
     emit_series percona_xtradb_cluster "8.0" "$pxc80" "8.4" "$pxc84"
     emit_series proxysql               "2"   "$psql2" "3"   "$psql3"
+    emit_series percona_server_mongodb "6.0" "$mdb60" "7.0" "$mdb70" "8.0" "$mdb80"
   } >>"$TMP"
 done < <(parse_entries)
 

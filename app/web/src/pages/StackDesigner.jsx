@@ -9,6 +9,7 @@ import PXCManager from './PXCManager.jsx'
 import ProxySQLManager from './ProxySQLManager.jsx'
 import MySQLManager from './MySQLManager.jsx'
 import InnoDBManager from './InnoDBManager.jsx'
+import MongoDBManager from './MongoDBManager.jsx'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import {
   PORTS, dist, portPoint, edgePath, screenToWorld, zoomAt,
@@ -71,6 +72,15 @@ const NODE_TYPES = {
     color: '#0891b2',
     icon: 'Database',
   },
+  // PS MongoDB members (mongod shard/config + mongos router) live inside a fixed
+  // PS MongoDB Sharded Cluster frame.
+  psmdb: {
+    label: 'PS MongoDB',
+    slug: 'psmdb',
+    sub: 'PS MongoDB member',
+    color: '#10b981',
+    icon: 'Database',
+  },
   // Standalone single Percona Server instance (no replication).
   ps: {
     label: 'Percona Server',
@@ -125,6 +135,46 @@ function layoutFrame(frame, frameNodes) {
   return { frame: { ...frame, w, h }, nodes: positioned }
 }
 
+// layoutPSMDBFrame lays out the fixed 13-node sharded cluster as a grouped grid:
+// a top row with the mongos router + the 3 config-server RS members, then one
+// column per shard (3 members each) below. The single-row layoutFrame is
+// unusable for 13 nodes.
+function layoutPSMDBFrame(frame, frameNodes) {
+  const byId = (role, shard, idx) =>
+    frameNodes.find((n) => n.role === role && (shard === undefined || n.shard === shard) && n._slot === idx)
+  // Stable ordering independent of array order: derive columns/rows from role.
+  const mongos = frameNodes.filter((n) => n.role === 'mongos')
+  const config = frameNodes.filter((n) => n.role === 'config')
+  const shards = [0, 1, 2].map((s) => frameNodes.filter((n) => n.role === 'shard' && n.shard === s))
+  const cols = 4 // mongos + 3 config in the top row; 3 shard columns below leave room
+  const colW = PXC_NODE_W + FRAME_GAP
+  const rowH = PXC_NODE_H + FRAME_GAP
+  const ncols = Math.max(cols, 3)
+  const w = FRAME_PAD * 2 + ncols * PXC_NODE_W + (ncols - 1) * FRAME_GAP
+  // rows: top row (mongos + config) = 1; shard members = 3
+  const nrows = 1 + 3
+  const h = FRAME_TITLE + FRAME_PAD * 2 + nrows * PXC_NODE_H + (nrows - 1) * FRAME_GAP
+  const ox = frame.x + FRAME_PAD
+  const oy = frame.y + FRAME_TITLE + FRAME_PAD
+  const positioned = []
+  // Top row: mongos at col 0, config RS at cols 1..3.
+  mongos.forEach((nd) => positioned.push({ ...nd, x: ox, y: oy }))
+  config.forEach((nd, i) => positioned.push({ ...nd, x: ox + (i + 1) * colW, y: oy }))
+  // Shard columns: shard s in column s, members stacked in rows 1..3.
+  shards.forEach((members, s) => {
+    members.forEach((nd, r) => positioned.push({ ...nd, x: ox + s * colW, y: oy + (r + 1) * rowH }))
+  })
+  // Preserve original order for any node not matched (defensive).
+  const placedIds = new Set(positioned.map((n) => n.id))
+  frameNodes.forEach((nd) => { if (!placedIds.has(nd.id)) positioned.push({ ...nd, x: ox, y: oy }) })
+  return { frame: { ...frame, w, h }, nodes: positioned }
+}
+
+// relayoutFrame picks the right layout for a frame type.
+function relayoutFrame(frame, frameNodes) {
+  return frame.type === 'psmdb' ? layoutPSMDBFrame(frame, frameNodes) : layoutFrame(frame, frameNodes)
+}
+
 // nextClusterName → pxc-cluster-NN, unique across all PXC frames (from 00).
 function nextClusterName(frames) {
   let max = -1
@@ -163,7 +213,7 @@ function nextMemberName(usedSet, prefix) {
 }
 
 // Per-frame-type presentation: accent color and the description line.
-const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2' }
+const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', psmdb: '#10b981' }
 const frameColor = (f) => FRAME_COLORS[f?.type] || '#a855f7'
 
 const osLabel = (type, os) => (NODE_TYPES[type]?.osOptions.find((o) => o.id === os)?.label) || os
@@ -181,6 +231,7 @@ const frameVersionLabel = (f) => {
   if (f?.type === 'proxysql') return `ProxySQL ${f?.proxysqlVersion || f?.proxysqlMajor || ''}`.trim()
   if (f?.type === 'mysql') return `Percona Server ${f?.psVersion || f?.psMajor || ''} replication`.trim()
   if (f?.type === 'innodb') return `${f?.replMode === 'groupreplication' ? 'Group Replication' : 'InnoDB Cluster'}${f?.pdpsRepo ? ` · ${f.pdpsRepo}` : ''}`
+  if (f?.type === 'psmdb') return `PS MongoDB ${f?.psmdbVersion || f?.psmdbMajor || ''} sharded`.trim()
   return pxcVersionLabel(f)
 }
 
@@ -556,7 +607,7 @@ function StackEditor({ stackId, onBack }) {
         setFrames((fs) => fs.map((f) => (f.id === d.id ? { ...f, x: nx, y: ny } : f)))
         if (frame) {
           const mine = refs.current.nodes.filter((n) => n.frameId === d.id)
-          const laid = new Map(layoutFrame({ ...frame, x: nx, y: ny }, mine).nodes.map((n) => [n.id, n]))
+          const laid = new Map(relayoutFrame({ ...frame, x: nx, y: ny }, mine).nodes.map((n) => [n.id, n]))
           setNodes((ns) => ns.map((n) => laid.get(n.id) || n))
         }
       } else if (d.kind === 'connect') {
@@ -737,6 +788,9 @@ function StackEditor({ stackId, onBack }) {
     // drop the frame entirely if it was the last node), so the menu/manager
     // delete behaves like the frame's own remove control.
     const node = nodes.find((n) => n.id === id)
+    // PS MongoDB sharded-cluster topology is fixed: members can't be removed
+    // individually (delete the whole frame to remove the cluster).
+    if (node?.type === 'psmdb') return
     if (node?.frameId) {
       const siblings = nodes.filter((n) => n.frameId === node.frameId)
       if (siblings.length <= 1) { deleteFrame(node.frameId); return }
@@ -777,7 +831,7 @@ function StackEditor({ stackId, onBack }) {
     if (!frame) return { frames: framesArr, nodes: nodesArr }
     const mine = nodesArr.filter((n) => n.frameId === frameId)
     const others = nodesArr.filter((n) => n.frameId !== frameId)
-    const r = layoutFrame(frame, mine)
+    const r = relayoutFrame(frame, mine)
     return {
       frames: framesArr.map((f) => (f.id === frameId ? r.frame : f)),
       nodes: [...others, ...r.nodes],
@@ -888,6 +942,42 @@ function StackEditor({ stackId, onBack }) {
       const name = nextMemberName(used, 'innodb')
       used.add(name)
       newNodes.push({ id: uid('innodb'), type: 'innodb', label: name, frameId: fid, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 })
+    }
+    const r = relayout(fid, [...frames, frame], [...nodes, ...newNodes])
+    setFrames(r.frames)
+    setNodes(r.nodes)
+    setSelected({ kind: 'frame', id: fid })
+  }
+  // addMongoDBCluster builds the fixed 13-node PS MongoDB sharded cluster: 1
+  // mongos router + a 3-node config-server replica set + 3 shards × 3-node
+  // replica set. Topology is fixed — no add/remove. Member labels:
+  //   mongos (role mongos), cfgNN (role config), sNrM (role shard, shard N).
+  function addMongoDBCluster() {
+    if (!nodes.some((n) => n.type === 'intranet')) return
+    const fid = uid('frame')
+    const fx = (-view.x + 200) / view.z
+    const fy = (-view.y + 200) / view.z
+    const frame = {
+      id: fid, type: 'psmdb', label: nextNamedCluster(frames, 'psmdb'), x: fx, y: fy, w: 0, h: 0,
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64', psmdbMajor: '8.0', psmdbVersion: '',
+      rootPassword: '', pmmNodeId: '', useProxy: true,
+      generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
+    }
+    const used = new Set(nodes.filter((n) => n.type === 'psmdb').map((n) => n.label))
+    const mk = (label, role, shard, slot) => {
+      used.add(label)
+      const nd = { id: uid('psmdb'), type: 'psmdb', label, frameId: fid, role, _slot: slot, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
+      if (shard !== undefined) nd.shard = shard
+      return nd
+    }
+    const newNodes = []
+    // mongos router (the "mongosh" node).
+    newNodes.push(mk('mongos', 'mongos', undefined, 0))
+    // config-server replica set (CSRS).
+    for (let i = 0; i < 3; i++) newNodes.push(mk(`cfg${i + 1}`, 'config', undefined, i))
+    // 3 shards, 3-node replica set each.
+    for (let s = 0; s < 3; s++) {
+      for (let r = 0; r < 3; r++) newNodes.push(mk(`s${s}r${r + 1}`, 'shard', s, r))
     }
     const r = relayout(fid, [...frames, frame], [...nodes, ...newNodes])
     setFrames(r.frames)
@@ -1037,7 +1127,10 @@ function StackEditor({ stackId, onBack }) {
       }
       actions.push({ sep: true })
     }
-    actions.push({ label: 'Delete node', danger: true, fn: () => deleteNode(id) })
+    // PS MongoDB members are part of a fixed topology — no individual delete.
+    if (nodes.find((n) => n.id === id)?.type !== 'psmdb') {
+      actions.push({ label: 'Delete node', danger: true, fn: () => deleteNode(id) })
+    }
     return actions
   }
 
@@ -1087,6 +1180,9 @@ function StackEditor({ stackId, onBack }) {
           </Button>
           <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addInnoDBCluster}>
             <Icon.Plus size={16} /> InnoDB / Group Replication
+          </Button>
+          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addMongoDBCluster}>
+            <Icon.Plus size={16} /> PS MongoDB Sharded Cluster
           </Button>
           <div className="mx-1 h-5 w-px bg-border" />
           <Button size="sm" variant="outline" disabled={!!busy} onClick={runValidate}>
@@ -1207,12 +1303,15 @@ function StackEditor({ stackId, onBack }) {
                       <div className="truncate text-xs font-semibold text-fg">{f.label}</div>
                       <div className="truncate text-[10px] text-muted">{frameVersionLabel(f)} · {kids.length} node{kids.length === 1 ? '' : 's'}</div>
                     </div>
-                    <div className="ml-auto flex items-center gap-0.5">
-                      <button title="Add node" onPointerDown={(e) => e.stopPropagation()} onClick={() => addFrameMember(f)}
-                        className="rounded px-1.5 text-sm leading-none text-muted hover:bg-surface hover:text-fg">+</button>
-                      <button title="Remove a node" onPointerDown={(e) => e.stopPropagation()} onClick={() => removePXCNode(f.id)}
-                        className="rounded px-1.5 text-sm leading-none text-muted hover:bg-surface hover:text-fg">−</button>
-                    </div>
+                    {/* PS MongoDB has a fixed topology — no add/remove controls. */}
+                    {f.type !== 'psmdb' && (
+                      <div className="ml-auto flex items-center gap-0.5">
+                        <button title="Add node" onPointerDown={(e) => e.stopPropagation()} onClick={() => addFrameMember(f)}
+                          className="rounded px-1.5 text-sm leading-none text-muted hover:bg-surface hover:text-fg">+</button>
+                        <button title="Remove a node" onPointerDown={(e) => e.stopPropagation()} onClick={() => removePXCNode(f.id)}
+                          className="rounded px-1.5 text-sm leading-none text-muted hover:bg-surface hover:text-fg">−</button>
+                      </div>
+                    )}
                   </div>
                   {kids.map((n) => {
                     const non = selected?.kind === 'node' && selected.id === n.id
@@ -1223,6 +1322,7 @@ function StackEditor({ stackId, onBack }) {
                     if (f.type === 'proxysql') sub = 'ProxySQL'
                     else if (f.type === 'mysql') sub = isPrimary ? 'Primary' : 'Secondary · read-only'
                     else if (f.type === 'innodb') sub = f.replMode === 'groupreplication' ? 'GR member' : 'Cluster member'
+                    else if (f.type === 'psmdb') sub = n.role === 'mongos' ? 'mongos router' : n.role === 'config' ? 'config server' : `shard ${n.shard} member`
                     else if (arb) sub = 'Arbitrator · garbd'
                     const barCol = (f.type === 'pxc' && arb) || (f.type === 'mysql' && !isPrimary) ? '#64748b' : col
                     // PXC and Percona Server replication members expose ports for
@@ -2597,6 +2697,169 @@ function InnoDBMemberForm({ node: n, frame, patchNode, dep, deployed }) {
   )
 }
 
+// MongoDBFrameForm edits a PS MongoDB Sharded Cluster frame: catalog-driven
+// OS/version/arch + PS MongoDB major/minor, admin (root) password, PMM/proxy/cert.
+// The 13-node sharded topology is fixed — there are no replication options.
+function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed }) {
+  const [cat, setCat] = useState(null)
+  useEffect(() => {
+    let alive = true
+    stackApi.psmdbCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    return () => { alive = false }
+  }, [])
+  const imgs = cat || []
+  const lock = deployed ? 'opacity-70' : ''
+
+  const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
+  const osVersions = [...new Set(imgs.filter((i) => i.os === f.os).map((i) => i.osVersion))]
+  const archs = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === f.osVersion).map((i) => i.arch))]
+  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion && i.arch === f.arch)
+  const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
+  const minors = (entry?.versions?.[f.psmdbMajor]) || []
+
+  // Cascade-normalize the selection when a higher-level field changes (same logic
+  // as PXCFrameForm), so major/minor never go stale for the chosen image.
+  useEffect(() => {
+    if (deployed || !imgs.length) return
+    const patch = {}
+    const osVer = osVersions.includes(f.osVersion) ? f.osVersion : (osVersions[0] ?? f.osVersion)
+    if (osVer !== f.osVersion) patch.osVersion = osVer
+    const archList = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === osVer).map((i) => i.arch))]
+    const arch = archList.includes(f.arch) ? f.arch : (archList[0] ?? f.arch)
+    if (arch !== f.arch) patch.arch = arch
+    const e2 = imgs.find((i) => i.os === f.os && i.osVersion === osVer && i.arch === arch)
+    const majorList = e2 ? Object.keys(e2.versions || {}).filter((m) => (e2.versions[m] || []).length) : []
+    const major = majorList.includes(f.psmdbMajor) ? f.psmdbMajor : (majorList[0] ?? f.psmdbMajor)
+    if (major !== f.psmdbMajor) patch.psmdbMajor = major
+    const minorList = (e2?.versions?.[major]) || []
+    if (f.psmdbVersion && !minorList.includes(f.psmdbVersion)) patch.psmdbVersion = ''
+    if (Object.keys(patch).length) patchFrame(f.id, patch)
+  }, [imgs, f.id, f.os, f.osVersion, f.arch, f.psmdbMajor, f.psmdbVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pmmNodes = nodes.filter((n) => n.type === 'pmm')
+  const total = nodes.filter((n) => n.frameId === f.id).length
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">PS MongoDB Sharded Cluster</span>
+        <Badge tone="primary">{total} node{total === 1 ? '' : 's'}</Badge>
+      </div>
+
+      <Field label="Cluster name" hint="Must be unique across the stack.">
+        <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+      </Field>
+
+      <div className="rounded-lg border border-dashed px-2.5 py-1.5 text-xs text-muted">
+        Fixed topology: 3 shards × 3-node replica set (9 mongod) + 3-node config-server
+        replica set + 1 mongos router. Nodes can't be added or removed.
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+          <select className={`${inputCls} ${lock}`} value={f.os} disabled={deployed} onChange={(e) => patchFrame(f.id, { os: e.target.value })}>
+            {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="OS version">
+          <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
+            {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Platform / arch">
+          <select className={`${inputCls} ${lock}`} value={f.arch} disabled={deployed} onChange={(e) => patchFrame(f.id, { arch: e.target.value })}>
+            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="PS MongoDB major">
+          <select className={`${inputCls} ${lock}`} value={f.psmdbMajor} disabled={deployed} onChange={(e) => patchFrame(f.id, { psmdbMajor: e.target.value, psmdbVersion: '' })}>
+            {majors.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+      </div>
+
+      <Field label="PS MongoDB minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+        <select className={`${inputCls} ${lock}`} value={f.psmdbVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { psmdbVersion: e.target.value })}>
+          <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
+          {minors.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </Field>
+
+      <Field label="Admin (root) password" hint={deployed ? 'Set at deploy.' : 'Leave empty to auto-generate.'}>
+        <input className={`${inputCls} ${lock}`} value={f.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchFrame(f.id, { rootPassword: e.target.value })} />
+      </Field>
+
+      <Field label="Monitored by (PMM)" hint="Optional — registers each node with a PMM node.">
+        <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
+          <option value="">none</option>
+          {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </Field>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for downloads</span>
+      </label>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
+        <span>Generate per-node certificates from Intranet CA</span>
+      </label>
+      {f.generateCert && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted">Cert TTL</span>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={f.certTtlUnit || 'days'} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
+            <option value="minutes">minutes</option>
+            <option value="hours">hours</option>
+            <option value="days">days</option>
+          </select>
+        </div>
+      )}
+
+      <p className="text-xs text-muted">Apps connect through the mongos router; enable host-port export on the mongos node to reach it from the host.</p>
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteFrame(f.id)}>
+        <Icon.Trash size={16} /> Delete cluster
+      </Button>
+    </div>
+  )
+}
+
+// MongoDBMemberForm edits a PS MongoDB member: read-only role/shard (the topology
+// is fixed); only the mongos router can export its 27017 port to the host.
+function MongoDBMemberForm({ node: n, frame, patchNode, dep, deployed }) {
+  const roleText = n.role === 'mongos' ? 'mongos router' : n.role === 'config' ? 'config server' : `shard ${n.shard} member`
+  return (
+    <div className="space-y-3">
+      {dep && (
+        <div className="flex items-center justify-between rounded-lg bg-surface2 px-3 py-2 text-sm">
+          <span className="text-muted">Deployment</span>
+          <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+        </div>
+      )}
+      <Field label="Node name" hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
+      <Field label="Cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <Field label="Role"><input className={`${inputCls} opacity-70`} value={roleText} readOnly /></Field>
+      {n.role === 'mongos' ? (
+        <>
+          <p className="text-xs text-muted">The mongos router is the cluster entry point; export 27017 so apps connect from the host.</p>
+          <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+            <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
+            <span>Export mongos port to the host (27017)</span>
+          </label>
+          {n.exportEnabled && (
+            <Field label="Host port" hint="0 / empty = random unused port. Must not clash with another node.">
+              <input type="number" min="0" max="65535" className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.exportHostPort || 0} disabled={deployed}
+                onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
+            </Field>
+          )}
+        </>
+      ) : (
+        <p className="text-xs text-muted">Shard and config-server members are internal to the cluster — connect through the mongos router.</p>
+      )}
+    </div>
+  )
+}
+
 // Minimap: a scaled overview of the canvas in the bottom-right corner showing
 // every node (colored by type) and the current viewport. Click or drag inside it
 // to recenter the main view on that point.
@@ -2734,7 +2997,7 @@ function loadProps() {
 function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame }) {
   const selNode = selected?.kind === 'node' ? nodes.find((n) => n.id === selected.id) : null
   const selDep = selNode ? depByNode[selNode.id] : null
-  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb')) || selected?.kind === 'frame'
+  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb')) || selected?.kind === 'frame'
 
   const saved = useRef(loadProps()).current
   const [docked, setDocked] = useState(saved.docked !== false)
@@ -2825,6 +3088,9 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     if (f.type === 'innodb') {
       return <InnoDBFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
     }
+    if (f.type === 'psmdb') {
+      return <MongoDBFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+    }
     return <PXCFrameForm frame={f} stackId={stackId} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} running={running} />
   }
 
@@ -2856,6 +3122,14 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <InnoDBManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <InnoDBMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} patchNode={patchNode} dep={dep} deployed={deployed} />
+    }
+
+    // PS MongoDB sharded-cluster member node.
+    if (n.type === 'psmdb') {
+      if (dep && dep.state === 'running') {
+        return <MongoDBManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <MongoDBMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} patchNode={patchNode} dep={dep} deployed={deployed} />
     }
 
     const def = NODE_TYPES[n.type] || NODE_TYPES.intranet
