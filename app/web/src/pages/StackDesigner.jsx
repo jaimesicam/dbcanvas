@@ -81,6 +81,31 @@ const NODE_TYPES = {
     color: '#10b981',
     icon: 'Database',
   },
+  // PS MongoDB replica-set members live inside a PSM RS frame.
+  psmrs: {
+    label: 'PSM RS',
+    slug: 'psmrs',
+    sub: 'PS MongoDB replica-set member',
+    color: '#059669',
+    icon: 'Database',
+  },
+  // Standalone single Percona Server for MongoDB instance (no replication).
+  psm: {
+    label: 'PSM',
+    slug: 'psm',
+    sub: 'PS MongoDB (standalone)',
+    color: '#059669',
+    icon: 'Database',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
+    defaults: {
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64', psmdbMajor: '8.0', psmdbVersion: '',
+      rootPassword: '', pmmNodeId: '', useProxy: true,
+      generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
+      exportEnabled: false, exportHostPort: 0,
+    },
+  },
   // Standalone single Percona Server instance (no replication).
   ps: {
     label: 'Percona Server',
@@ -214,7 +239,7 @@ function nextMemberName(usedSet, prefix) {
 }
 
 // Per-frame-type presentation: accent color and the description line.
-const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', psmdb: '#10b981' }
+const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', psmdb: '#10b981', psmrs: '#059669' }
 const frameColor = (f) => FRAME_COLORS[f?.type] || '#a855f7'
 
 const osLabel = (type, os) => (NODE_TYPES[type]?.osOptions.find((o) => o.id === os)?.label) || os
@@ -233,6 +258,7 @@ const frameVersionLabel = (f) => {
   if (f?.type === 'mysql') return `Percona Server ${f?.psVersion || f?.psMajor || ''} replication`.trim()
   if (f?.type === 'innodb') return `${f?.replMode === 'groupreplication' ? 'Group Replication' : 'InnoDB Cluster'}${f?.pdpsRepo ? ` · ${f.pdpsRepo}` : ''}`
   if (f?.type === 'psmdb') return `PS MongoDB ${f?.psmdbVersion || f?.psmdbMajor || ''} sharded · ${f?.psmdbSetup === 'minimum' ? 'minimum' : 'standard'}`.replace(/\s+/g, ' ').trim()
+  if (f?.type === 'psmrs') return `PS MongoDB ${f?.psmdbVersion || f?.psmdbMajor || ''} replica set`.replace(/\s+/g, ' ').trim()
   return pxcVersionLabel(f)
 }
 
@@ -247,7 +273,7 @@ const proxyModeOpts = (backendType) => PROXY_MODE_OPTS[backendType === 'mysql' ?
 
 // nodeOSLabel renders a free node's OS line; ProxySQL carries its own os/version
 // (like a PXC frame), other nodes map via their osOptions.
-const nodeOSLabel = (n) => (n.type === 'proxysql' || n.type === 'ps' ? pxcOSLabel(n) : osLabel(n.type, n.os))
+const nodeOSLabel = (n) => (n.type === 'proxysql' || n.type === 'ps' || n.type === 'psm' ? pxcOSLabel(n) : osLabel(n.type, n.os))
 
 // Auto-numbered per-type labels: a non-singleton node is named "<slug>-NN" with
 // NN zero-padded from 01 and increasing per node type (pmm-01, pmm-02, …, and in
@@ -1001,6 +1027,36 @@ function StackEditor({ stackId, onBack }) {
     setFrames(r.frames)
     setNodes(r.nodes)
   }
+  function newPSMRSMember(frameId) {
+    const used = new Set(nodes.filter((n) => n.type === 'psmrs').map((n) => n.label))
+    return { id: uid('psmrs'), type: 'psmrs', label: nextMemberName(used, 'psmrs'), frameId, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
+  }
+  // addMongoRSCluster builds a PS MongoDB replica-set frame with 3 members
+  // (resizable 1–9). Members all run mongod in one replica set; an admin user is
+  // created on the elected primary.
+  function addMongoRSCluster() {
+    if (!nodes.some((n) => n.type === 'intranet')) return
+    const fid = uid('frame')
+    const fx = (-view.x + 200) / view.z
+    const fy = (-view.y + 200) / view.z
+    const frame = {
+      id: fid, type: 'psmrs', label: nextNamedCluster(frames, 'psmrs'), x: fx, y: fy, w: 0, h: 0,
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64', psmdbMajor: '8.0', psmdbVersion: '',
+      rootPassword: '', pmmNodeId: '', useProxy: true,
+      generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
+    }
+    const used = new Set(nodes.filter((n) => n.type === 'psmrs').map((n) => n.label))
+    const newNodes = []
+    for (let i = 0; i < 3; i++) {
+      const name = nextMemberName(used, 'psmrs')
+      used.add(name)
+      newNodes.push({ id: uid('psmrs'), type: 'psmrs', label: name, frameId: fid, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 })
+    }
+    const r = relayout(fid, [...frames, frame], [...nodes, ...newNodes])
+    setFrames(r.frames)
+    setNodes(r.nodes)
+    setSelected({ kind: 'frame', id: fid })
+  }
   // Frame +/- buttons dispatch by frame type.
   function addFrameMember(frame) {
     if (frame.type === 'proxysql') {
@@ -1014,6 +1070,11 @@ function StackEditor({ stackId, onBack }) {
       setNodes(r.nodes)
     } else if (frame.type === 'innodb') {
       const r = relayout(frame.id, frames, [...nodes, newInnoDBMember(frame.id)])
+      setFrames(r.frames)
+      setNodes(r.nodes)
+    } else if (frame.type === 'psmrs') {
+      if (nodes.filter((n) => n.frameId === frame.id).length >= 9) return // max 9 members
+      const r = relayout(frame.id, frames, [...nodes, newPSMRSMember(frame.id)])
       setFrames(r.frames)
       setNodes(r.nodes)
     } else {
@@ -1201,6 +1262,12 @@ function StackEditor({ stackId, onBack }) {
           <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addMongoDBCluster()}>
             <Icon.Plus size={16} /> PS MongoDB Sharded Cluster
           </Button>
+          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addMongoRSCluster}>
+            <Icon.Plus size={16} /> PSM Replica Set
+          </Button>
+          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('psm')}>
+            <Icon.Plus size={16} /> PSM
+          </Button>
           <div className="mx-1 h-5 w-px bg-border" />
           <Button size="sm" variant="outline" disabled={!!busy} onClick={runValidate}>
             <Icon.Check size={15} /> {busy === 'validate' ? 'Validating…' : 'Validate'}
@@ -1340,6 +1407,7 @@ function StackEditor({ stackId, onBack }) {
                     else if (f.type === 'mysql') sub = isPrimary ? 'Primary' : 'Secondary · read-only'
                     else if (f.type === 'innodb') sub = f.replMode === 'groupreplication' ? 'GR member' : 'Cluster member'
                     else if (f.type === 'psmdb') sub = n.role === 'mongos' ? 'mongos router' : n.role === 'config' ? 'config server' : `shard ${n.shard} member`
+                    else if (f.type === 'psmrs') sub = 'replica-set member'
                     else if (arb) sub = 'Arbitrator · garbd'
                     const barCol = (f.type === 'pxc' && arb) || (f.type === 'mysql' && !isPrimary) ? '#64748b' : col
                     // PXC and Percona Server replication members expose ports for
@@ -2887,6 +2955,243 @@ function MongoDBMemberForm({ node: n, frame, patchNode, dep, deployed }) {
   )
 }
 
+// MongoCatalogFields renders the shared catalog-driven OS/version/arch + PS MongoDB
+// major/minor selects used by both the PSM RS frame form (patch=patchFrame, obj=frame)
+// and the standalone PSM node form (patch=patchNode, obj=node). `patch(id, {...})`
+// applies the change. Cascade-normalizes invalid dependent selects like PXCFrameForm.
+function useMongoCatalog(obj, deployed, patch) {
+  const [cat, setCat] = useState(null)
+  useEffect(() => {
+    let alive = true
+    stackApi.psmdbCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    return () => { alive = false }
+  }, [])
+  const imgs = cat || []
+  const osVersions = [...new Set(imgs.filter((i) => i.os === obj.os).map((i) => i.osVersion))]
+  useEffect(() => {
+    if (deployed || !imgs.length) return
+    const p = {}
+    const osVer = osVersions.includes(obj.osVersion) ? obj.osVersion : (osVersions[0] ?? obj.osVersion)
+    if (osVer !== obj.osVersion) p.osVersion = osVer
+    const archList = [...new Set(imgs.filter((i) => i.os === obj.os && i.osVersion === osVer).map((i) => i.arch))]
+    const arch = archList.includes(obj.arch) ? obj.arch : (archList[0] ?? obj.arch)
+    if (arch !== obj.arch) p.arch = arch
+    const e2 = imgs.find((i) => i.os === obj.os && i.osVersion === osVer && i.arch === arch)
+    const majorList = e2 ? Object.keys(e2.versions || {}).filter((m) => (e2.versions[m] || []).length) : []
+    const major = majorList.includes(obj.psmdbMajor) ? obj.psmdbMajor : (majorList[0] ?? obj.psmdbMajor)
+    if (major !== obj.psmdbMajor) p.psmdbMajor = major
+    const minorList = (e2?.versions?.[major]) || []
+    if (obj.psmdbVersion && !minorList.includes(obj.psmdbVersion)) p.psmdbVersion = ''
+    if (Object.keys(p).length) patch(obj.id, p)
+  }, [imgs, obj.id, obj.os, obj.osVersion, obj.arch, obj.psmdbMajor, obj.psmdbVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+  return imgs
+}
+
+function MongoCatalogFields({ obj, imgs, deployed, patch }) {
+  const lock = deployed ? 'opacity-70' : ''
+  const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
+  const osVersions = [...new Set(imgs.filter((i) => i.os === obj.os).map((i) => i.osVersion))]
+  const archs = [...new Set(imgs.filter((i) => i.os === obj.os && i.osVersion === obj.osVersion).map((i) => i.arch))]
+  const entry = imgs.find((i) => i.os === obj.os && i.osVersion === obj.osVersion && i.arch === obj.arch)
+  const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
+  const minors = (entry?.versions?.[obj.psmdbMajor]) || []
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+          <select className={`${inputCls} ${lock}`} value={obj.os} disabled={deployed} onChange={(e) => patch(obj.id, { os: e.target.value })}>
+            {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="OS version">
+          <select className={`${inputCls} ${lock}`} value={obj.osVersion} disabled={deployed} onChange={(e) => patch(obj.id, { osVersion: e.target.value })}>
+            {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Platform / arch">
+          <select className={`${inputCls} ${lock}`} value={obj.arch} disabled={deployed} onChange={(e) => patch(obj.id, { arch: e.target.value })}>
+            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="PS MongoDB major">
+          <select className={`${inputCls} ${lock}`} value={obj.psmdbMajor} disabled={deployed} onChange={(e) => patch(obj.id, { psmdbMajor: e.target.value, psmdbVersion: '' })}>
+            {majors.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+      </div>
+      <Field label="PS MongoDB minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+        <select className={`${inputCls} ${lock}`} value={obj.psmdbVersion} disabled={deployed} onChange={(e) => patch(obj.id, { psmdbVersion: e.target.value })}>
+          <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
+          {minors.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </Field>
+    </>
+  )
+}
+
+// PSMRSFrameForm edits a PS MongoDB replica-set frame: catalog OS/version/arch + PS
+// MongoDB major/minor, admin password, PMM/proxy/cert. Members are resizable 1–9.
+function PSMRSFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed }) {
+  const imgs = useMongoCatalog(f, deployed, patchFrame)
+  const lock = deployed ? 'opacity-70' : ''
+  const pmmNodes = nodes.filter((n) => n.type === 'pmm')
+  const members = nodes.filter((n) => n.frameId === f.id).length
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">PS MongoDB Replica Set</span>
+        <Badge tone="primary">{members} node{members === 1 ? '' : 's'}</Badge>
+      </div>
+
+      <Field label="Replica-set name" hint="Becomes the replica-set name; must be unique across the stack.">
+        <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+      </Field>
+
+      <MongoCatalogFields obj={f} imgs={imgs} deployed={deployed} patch={patchFrame} />
+
+      <Field label="Admin (root) password" hint={deployed ? 'Set at deploy.' : 'Leave empty to auto-generate.'}>
+        <input className={`${inputCls} ${lock}`} value={f.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchFrame(f.id, { rootPassword: e.target.value })} />
+      </Field>
+
+      <Field label="Monitored by (PMM)" hint="Optional — registers each member with a PMM node.">
+        <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
+          <option value="">none</option>
+          {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </Field>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for downloads</span>
+      </label>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
+        <span>Generate per-node certificates from Intranet CA</span>
+      </label>
+      {f.generateCert && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted">Cert TTL</span>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={f.certTtlUnit || 'days'} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
+            <option value="minutes">minutes</option>
+            <option value="hours">hours</option>
+            <option value="days">days</option>
+          </select>
+        </div>
+      )}
+
+      {(members < 3 || members % 2 === 0) && (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+          {members < 3 && <div>At least 3 members are recommended for election quorum ({members} now).</div>}
+          {members % 2 === 0 && <div>An odd number of members keeps quorum on a split network ({members} now).</div>}
+        </div>
+      )}
+      <p className="text-xs text-muted">Use the +/− buttons on the frame to resize the replica set (1–9 members).</p>
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteFrame(f.id)}>
+        <Icon.Trash size={16} /> Delete replica set
+      </Button>
+    </div>
+  )
+}
+
+// PSMRSMemberForm edits a PS MongoDB replica-set member: only host-port export
+// (OS/version come from the frame; the replica set auto-elects the primary).
+function PSMRSMemberForm({ node: n, frame, patchNode, dep, deployed }) {
+  return (
+    <div className="space-y-3">
+      {dep && (
+        <div className="flex items-center justify-between rounded-lg bg-surface2 px-3 py-2 text-sm">
+          <span className="text-muted">Deployment</span>
+          <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+        </div>
+      )}
+      <Field label="Node name" hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
+      <Field label="Replica set"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <p className="text-xs text-muted">The replica set auto-elects the primary; secondaries serve reads.</p>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
+        <span>Export mongod port to the host (27017)</span>
+      </label>
+      {n.exportEnabled && (
+        <Field label="Host port" hint="0 / empty = random unused port. Must not clash with another node.">
+          <input type="number" min="0" max="65535" className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.exportHostPort || 0} disabled={deployed}
+            onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
+        </Field>
+      )}
+    </div>
+  )
+}
+
+// PSMStandaloneForm edits a standalone PS MongoDB node: catalog OS/version/arch + PS
+// MongoDB major/minor, admin password, PMM/proxy/cert and host export. (Same options
+// as the replica-set frame, minus replication.)
+function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }) {
+  const imgs = useMongoCatalog(n, deployed, patchNode)
+  const lock = deployed ? 'opacity-70' : ''
+  const pmmNodes = nodes.filter((x) => x.type === 'pmm')
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">PS MongoDB (standalone)</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+
+      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+
+      <MongoCatalogFields obj={n} imgs={imgs} deployed={deployed} patch={patchNode} />
+
+      <Field label="Admin (root) password" hint={deployed ? 'Set at deploy.' : 'Leave empty to auto-generate.'}>
+        <input className={`${inputCls} ${lock}`} value={n.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchNode(n.id, { rootPassword: e.target.value })} />
+      </Field>
+
+      <Field label="Monitored by (PMM)" hint="Optional — registers this server with a PMM node.">
+        <select className={`${inputCls} ${lock}`} value={n.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchNode(n.id, { pmmNodeId: e.target.value })}>
+          <option value="">none</option>
+          {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </Field>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for downloads</span>
+      </label>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.generateCert} disabled={deployed} onChange={(e) => patchNode(n.id, { generateCert: e.target.checked })} />
+        <span>Generate certificate from Intranet CA</span>
+      </label>
+      {n.generateCert && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted">Cert TTL</span>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={n.certTtlValue || 365} onChange={(e) => patchNode(n.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={n.certTtlUnit || 'days'} onChange={(e) => patchNode(n.id, { certTtlUnit: e.target.value })}>
+            <option value="minutes">minutes</option>
+            <option value="hours">hours</option>
+            <option value="days">days</option>
+          </select>
+        </div>
+      )}
+
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
+        <span>Export mongod port (27017) to the host</span>
+      </label>
+      {n.exportEnabled && (
+        <Field label="Host port" hint="0 / empty = random unused port.">
+          <input type="number" min="0" max="65535" className={`${inputCls} ${lock}`} value={n.exportHostPort || 0} disabled={deployed}
+            onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
+        </Field>
+      )}
+
+      {!deployed && <p className="text-xs text-muted">Access links and credentials appear here after deploy.</p>}
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
 // Minimap: a scaled overview of the canvas in the bottom-right corner showing
 // every node (colored by type) and the current viewport. Click or drag inside it
 // to recenter the main view on that point.
@@ -3024,7 +3329,7 @@ function loadProps() {
 function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster }) {
   const selNode = selected?.kind === 'node' ? nodes.find((n) => n.id === selected.id) : null
   const selDep = selNode ? depByNode[selNode.id] : null
-  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb')) || selected?.kind === 'frame'
+  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm')) || selected?.kind === 'frame'
 
   const saved = useRef(loadProps()).current
   const [docked, setDocked] = useState(saved.docked !== false)
@@ -3118,6 +3423,9 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     if (f.type === 'psmdb') {
       return <MongoDBFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} rebuildCluster={rebuildMongoCluster} deployed={deployed} />
     }
+    if (f.type === 'psmrs') {
+      return <PSMRSFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+    }
     return <PXCFrameForm frame={f} stackId={stackId} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} running={running} />
   }
 
@@ -3157,6 +3465,22 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <MongoDBManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <MongoDBMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} patchNode={patchNode} dep={dep} deployed={deployed} />
+    }
+
+    // PS MongoDB replica-set member node.
+    if (n.type === 'psmrs') {
+      if (dep && dep.state === 'running') {
+        return <MongoDBManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <PSMRSMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} patchNode={patchNode} dep={dep} deployed={deployed} />
+    }
+
+    // Standalone PS MongoDB node.
+    if (n.type === 'psm') {
+      if (dep && dep.state === 'running') {
+        return <MongoDBManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <PSMStandaloneForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
 
     const def = NODE_TYPES[n.type] || NODE_TYPES.intranet

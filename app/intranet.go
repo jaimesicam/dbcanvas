@@ -46,6 +46,10 @@ type designNode struct {
 	RootPassword string `json:"rootPassword"` // "" → auto-generated
 	CertTTLValue int    `json:"certTtlValue"`
 	CertTTLUnit  string `json:"certTtlUnit"`
+	// Standalone PS MongoDB node fields (Type=="psm"; reuses OS/OSVersion/Arch,
+	// RootPassword (admin pw), PMMNodeID, UseProxy, GenerateCert/CertTTL, export above).
+	PSMDBMajor   string `json:"psmdbMajor"`   // "6.0" | "7.0" | "8.0"
+	PSMDBVersion string `json:"psmdbVersion"` // minor; "" → latest
 }
 
 // designEdge is a connection drawn on the canvas. The endpoints' Node field holds
@@ -334,7 +338,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			if n.ExportEnabled && n.ExportHostPort > 0 {
 				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
 			}
-		case "ps":
+		case "ps", "psm":
 			others++
 			img := pxcImage(n.OS, n.OSVersion, n.Arch)
 			if !seenImg[img] {
@@ -582,6 +586,44 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		}
 	}
 
+	// --- PS MongoDB replica-set frames (Type=="psmrs") ---
+	psmrsNames := map[string]int{}
+	for _, f := range doc.Frames {
+		if f.Type != "psmrs" {
+			continue
+		}
+		psmrsNames[strings.TrimSpace(f.Label)]++
+		members := 0
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != "psmrs" {
+				continue
+			}
+			members++
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		}
+		if members < 1 {
+			out = append(out, issue{"error", "PS MongoDB replica set " + f.Label + " needs at least one node"})
+		} else if members > 9 {
+			out = append(out, issue{"error", "PS MongoDB replica set " + f.Label + " allows at most 9 nodes"})
+		} else if members%2 == 0 {
+			out = append(out, issue{"warning", "PS MongoDB replica set " + f.Label + ": an odd number of members keeps election quorum on a split network"})
+		}
+		img := pxcImage(f.OS, f.OSVersion, f.Arch)
+		if !seenImg[img] {
+			seenImg[img] = true
+			if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+				out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+			}
+		}
+	}
+	for name, c := range psmrsNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{"error", "Duplicate PS MongoDB replica-set name: " + name})
+		}
+	}
+
 	// --- cross-cluster replication links (async / bidirectional) ---
 	// Each replication edge must connect two replication-capable members in
 	// *different* clusters, both with GTID enabled (auto-positioning); a server-id
@@ -716,6 +758,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionProxySQL(st, n, doc)
 		case "ps":
 			a.provisionPerconaServer(st, n, doc)
+		case "psm":
+			a.provisionMongoStandalone(st, n, doc)
 		}
 	}
 
@@ -735,6 +779,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			memberType = "innodb"
 		case "psmdb":
 			memberType = "psmdb"
+		case "psmrs":
+			memberType = "psmrs"
 		default:
 			continue
 		}
@@ -762,6 +808,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionInnoDBFrame(st, f, doc)
 		case "psmdb":
 			a.provisionMongoDBFrame(st, f, doc)
+		case "psmrs":
+			a.provisionMongoRSFrame(st, f, doc)
 		}
 	}
 
@@ -1218,6 +1266,16 @@ func (a *App) refreshPublishedPorts(ctx context.Context, st Stack, nid string, d
 		}
 		if p, ok := readPort("6447/tcp"); ok {
 			cfg.ROPort = p
+		}
+		save(cfg)
+	case "psmdb", "psmrs", "psm":
+		var cfg mongoConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("27017/tcp"); ok {
+			cfg.ExportPort = p
+			if cfg.Role == "mongos" {
+				cfg.MongosPort = p
+			}
 		}
 		save(cfg)
 	}

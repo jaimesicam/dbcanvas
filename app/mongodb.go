@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -45,6 +46,7 @@ type mongoConfig struct {
 	PSMDBMajor   string `json:"psmdbMajor"`
 	Version      string `json:"version"`
 	MongosPort   int    `json:"mongosPort"` // host-published mongos port (mongos node, 0 if unpublished)
+	ExportPort   int    `json:"exportPort"` // host-published 27017 for a member/standalone (0 if unpublished)
 	ConfigDB     string `json:"configDB"`   // configDB connection string (mongos)
 	GenerateCert bool   `json:"generateCert"`
 	UseProxy     bool   `json:"useProxy"`
@@ -287,6 +289,230 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 	}()
 }
 
+// provisionMongoRSFrame brings up a single Percona Server for MongoDB replica set
+// (Type=="psmrs"): N mongod members with a shared keyFile for internal auth, one
+// rs.initiate over all members, and an `admin` (root) user created on the primary.
+func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) {
+	domain := envOr("DOMAIN", "example.net")
+	hosts := stackHostnames(doc)
+
+	var members []designNode
+	for _, n := range doc.Nodes {
+		if n.FrameID == frame.ID && n.Type == "psmrs" {
+			m := n
+			m.Role = "member"
+			members = append(members, m)
+		}
+	}
+	sort.Slice(members, func(i, j int) bool { return members[i].Label < members[j].Label })
+	if len(members) == 0 {
+		log.Printf("stack %d psmrs %s: no members", st.ID, frame.Label)
+		return
+	}
+
+	rs := sanitizeName(frame.Label)
+	if rs == "" {
+		rs = "rs"
+	}
+
+	// Secrets: reuse the admin password + keyFile across redeploys when present.
+	admin := strings.TrimSpace(frame.RootPassword)
+	keyFile := ""
+	for _, n := range members {
+		if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
+			var s mongoSecrets
+			if json.Unmarshal(dep.Secrets, &s) == nil {
+				if s.AdminPassword != "" {
+					admin = s.AdminPassword
+				}
+				if s.KeyFile != "" {
+					keyFile = s.KeyFile
+				}
+			}
+		}
+	}
+	if admin == "" {
+		admin = genSecret("MongoAdm!")
+	}
+	if keyFile == "" {
+		keyFile = genKeyFile()
+	}
+	sec := mongoSecrets{AdminUser: "admin", AdminPassword: admin, KeyFile: keyFile}
+	secJSON, _ := json.Marshal(sec)
+
+	image := pxcImage(frame.OS, frame.OSVersion, frame.Arch)
+	major := frame.PSMDBMajor
+	if major == "" {
+		major = "8.0"
+	}
+	monitoredBy := ""
+	if frame.PMMNodeID != "" {
+		for _, n := range doc.Nodes {
+			if n.ID == frame.PMMNodeID {
+				monitoredBy = fqdnOf(hosts[n.ID], domain)
+			}
+		}
+	}
+
+	for _, n := range members {
+		host := hosts[n.ID]
+		cfg := mongoConfig{
+			Cluster: frame.Label, Image: image, OS: frame.OS, Arch: archOr(frame.Arch),
+			Role: "member", ReplSet: rs, Hostname: host, FQDN: fqdnOf(host, domain),
+			PSMDBMajor: major, Version: frame.PSMDBVersion,
+			GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
+			Ports: []int{mongoPort},
+		}
+		cfgJSON, _ := json.Marshal(cfg)
+		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
+	}
+
+	go func() {
+		ctx := context.Background()
+		progs := map[string]*pxcProg{}
+		for _, n := range members {
+			progs[n.ID] = a.pxcNewProg(st.ID, n.ID)
+			a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
+			progs[n.ID].phase("Waiting for Intranet to be ready", 5)
+		}
+		failAll := func(format string, args ...any) {
+			for _, n := range members {
+				progs[n.ID].fail(format, args...)
+			}
+		}
+		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		if werr != nil {
+			failAll("%v", werr)
+			return
+		}
+
+		// Phase 1 (parallel): container + install + keyFile + config + start mongod.
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		failed := false
+		for _, n := range members {
+			wg.Add(1)
+			go func(n designNode) {
+				defer wg.Done()
+				if err := a.mongoPrepareNode(ctx, st, frame, n, hosts[n.ID], image, major, rs, "", intranetIP, domain, sec, progs[n.ID]); err != nil {
+					mu.Lock()
+					failed = true
+					mu.Unlock()
+				}
+			}(n)
+		}
+		wg.Wait()
+		if failed {
+			return
+		}
+		a.reconcileStackDNS(ctx, st.ID)
+
+		// Phase 2: initiate the replica set + create the admin user on the primary.
+		if err := a.mongoInitReplicaSet(ctx, st, rs, members, hosts, domain, "", progs); err != nil {
+			return
+		}
+		if err := a.mongoCreateAdmin(ctx, st, members[0], sec, progs[members[0].ID]); err != nil {
+			return
+		}
+
+		for _, n := range members {
+			pr := progs[n.ID]
+			pr.phase("Running", 100)
+			pr.p.Message = "provisioned"
+			pr.save()
+			a.store.SetDeploymentState(st.ID, n.ID, DeployRunning)
+		}
+		a.reconcileStackDNS(ctx, st.ID)
+		log.Printf("stack %d psmrs %s: provisioned (%d members, rs=%s)", st.ID, frame.Label, len(members), rs)
+	}()
+}
+
+// provisionMongoStandalone provisions a standalone Percona Server for MongoDB node
+// (Type=="psm"): a single mongod with authorization enabled (no replica set, no
+// keyFile) and an `admin` (root) user created via the localhost exception.
+func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
+	domain := envOr("DOMAIN", "example.net")
+	hosts := stackHostnames(doc)
+	host := hosts[n.ID]
+	if host == "" {
+		host = sanitizeName(n.Label)
+	}
+
+	// Synthetic frame carrying the node's own image/options (mongoPrepareNode reads
+	// frame.OS/UseProxy/PSMDBVersion).
+	frame := designFrame{
+		Type: "psm", Label: n.Label,
+		OS: n.OS, OSVersion: n.OSVersion, Arch: n.Arch,
+		PSMDBMajor: n.PSMDBMajor, PSMDBVersion: n.PSMDBVersion,
+		UseProxy: n.UseProxy, GenerateCert: n.GenerateCert,
+		CertTTLValue: n.CertTTLValue, CertTTLUnit: n.CertTTLUnit, PMMNodeID: n.PMMNodeID,
+	}
+	image := pxcImage(n.OS, n.OSVersion, n.Arch)
+	major := n.PSMDBMajor
+	if major == "" {
+		major = "8.0"
+	}
+
+	admin := strings.TrimSpace(n.RootPassword)
+	if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
+		var s mongoSecrets
+		if json.Unmarshal(dep.Secrets, &s) == nil && s.AdminPassword != "" {
+			admin = s.AdminPassword
+		}
+	}
+	if admin == "" {
+		admin = genSecret("MongoAdm!")
+	}
+	sec := mongoSecrets{AdminUser: "admin", AdminPassword: admin} // no keyFile → standalone
+
+	monitoredBy := ""
+	if n.PMMNodeID != "" {
+		for _, m := range doc.Nodes {
+			if m.ID == n.PMMNodeID && m.Type == "pmm" {
+				monitoredBy = fqdnOf(hosts[m.ID], domain)
+			}
+		}
+	}
+	cfg := mongoConfig{
+		Cluster: "", Image: image, OS: n.OS, Arch: archOr(n.Arch), Role: "standalone",
+		Hostname: host, FQDN: fqdnOf(host, domain), PSMDBMajor: major, Version: n.PSMDBVersion,
+		GenerateCert: n.GenerateCert, UseProxy: n.UseProxy, MonitoredBy: monitoredBy,
+		Ports: []int{mongoPort},
+	}
+	cfgJSON, _ := json.Marshal(cfg)
+	secJSON, _ := json.Marshal(sec)
+	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
+
+	go func() {
+		ctx := context.Background()
+		pr := a.pxcNewProg(st.ID, n.ID)
+		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
+		pr.phase("Waiting for Intranet to be ready", 5)
+		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		if werr != nil {
+			pr.fail("%v", werr)
+			return
+		}
+
+		nn := n
+		nn.Role = "standalone"
+		if err := a.mongoPrepareNode(ctx, st, frame, nn, host, image, major, "", "", intranetIP, domain, sec, pr); err != nil {
+			return
+		}
+		a.reconcileStackDNS(ctx, st.ID)
+		if err := a.mongoCreateAdmin(ctx, st, n, sec, pr); err != nil {
+			return
+		}
+
+		pr.phase("Running", 100)
+		pr.p.Message = "provisioned"
+		pr.save()
+		a.store.SetDeploymentState(st.ID, n.ID, DeployRunning)
+		a.reconcileStackDNS(ctx, st.ID)
+		log.Printf("stack %d psm %s: provisioned (standalone)", st.ID, n.Label)
+	}()
+}
+
 // mongoPrepareNode creates the container, installs Percona Server for MongoDB, writes
 // the shared keyFile and the mongod/mongos config, and starts mongod (config/shard
 // members; the mongos node is started later in Phase 3).
@@ -304,7 +530,7 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 		Network: networkName(st.ID), Aliases: []string{host},
 		DNS: []string{intranetIP}, DNSSearch: []string{domain},
 	}
-	if n.Role == "mongos" && n.ExportEnabled {
+	if n.ExportEnabled {
 		spec.PublishMap = []PortMap{{ContainerPort: mongoPort, HostPort: n.ExportHostPort}}
 	}
 	id, err := a.docker.ContainerCreate(ctx, spec)
@@ -316,6 +542,25 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	}
 	a.pointResolverAtIntranet(ctx, id, intranetIP, domain)
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: a.depConfig(st.ID, n.ID), Secrets: a.depSecrets(st.ID, n.ID)})
+
+	// Record the auto-assigned host port for an exported node so the manager can
+	// show the connect string (mongos also keeps it under MongosPort).
+	if n.ExportEnabled {
+		if hp, e := a.docker.ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", mongoPort)); e == nil {
+			if p, e2 := strconv.Atoi(hp); e2 == nil {
+				if dep, e3 := a.store.GetDeployment(st.ID, n.ID); e3 == nil {
+					var cfg mongoConfig
+					json.Unmarshal(dep.Config, &cfg)
+					cfg.ExportPort = p
+					if n.Role == "mongos" {
+						cfg.MongosPort = p
+					}
+					cfgJSON, _ := json.Marshal(cfg)
+					a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON, Secrets: dep.Secrets})
+				}
+			}
+		}
+	}
 
 	pr.phase("Waiting for systemd", 22)
 	if err := a.docker.WaitSystemd(ctx, id, 90*time.Second); err != nil {
@@ -348,9 +593,12 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	pr.logln("installed: " + pkgs)
 	a.ensureRsyslog(ctx, id, frame.OS, pr.logln)
 
-	// Shared keyFile (same bytes everywhere) for internal cluster auth.
-	if err := a.docker.CopyFile(ctx, id, "/etc", "mongo.keyFile", 0o400, []byte(sec.KeyFile)); err != nil {
-		return pr.fail("write keyFile: %v", err)
+	// Shared keyFile (same bytes everywhere) for internal cluster auth. Standalone
+	// nodes have no keyFile (sec.KeyFile == "").
+	if sec.KeyFile != "" {
+		if err := a.docker.CopyFile(ctx, id, "/etc", "mongo.keyFile", 0o400, []byte(sec.KeyFile)); err != nil {
+			return pr.fail("write keyFile: %v", err)
+		}
 	}
 
 	if n.Role == "mongos" {
@@ -362,12 +610,16 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 		return nil
 	}
 
-	// Write mongod.conf (config or shard role) and start mongod.
-	clusterRole := "shardsvr"
-	if n.Role == "config" {
+	// Write mongod.conf and start mongod. Sharded members carry a clusterRole; a
+	// plain replica-set member ("member") or standalone ("standalone") has none.
+	clusterRole := ""
+	switch n.Role {
+	case "config":
 		clusterRole = "configsvr"
+	case "shard":
+		clusterRole = "shardsvr"
 	}
-	conf := mongodConfYAML(replSet, clusterRole)
+	conf := mongodConfYAML(replSet, clusterRole, sec.KeyFile != "")
 	if err := a.docker.CopyFile(ctx, id, "/etc", "mongod.conf", 0o644, []byte(conf)); err != nil {
 		return pr.fail("write mongod.conf: %v", err)
 	}
@@ -442,15 +694,26 @@ func (a *App) mongoAddShards(ctx context.Context, st Stack, mongos designNode, s
 
 // ------------------------------------------------------------------ config
 
-func mongodConfYAML(replSet, clusterRole string) string {
+// mongodConfYAML renders mongod.conf. replSet=="" → standalone (no replication
+// block); clusterRole=="" → no sharding block; useKeyFile=false → authorization
+// only (no keyFile, for a standalone with no internal cluster auth).
+func mongodConfYAML(replSet, clusterRole string, useKeyFile bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "storage:\n  dbPath: %s\n", mongoDataDir)
 	fmt.Fprintf(&b, "systemLog:\n  destination: file\n  path: %s/mongod.log\n  logAppend: true\n", mongoLogDir)
 	fmt.Fprintf(&b, "net:\n  port: %d\n  bindIpAll: true\n", mongoPort)
 	fmt.Fprintf(&b, "processManagement:\n  fork: false\n  pidFilePath: %s/mongod.pid\n", mongoRunDir)
-	fmt.Fprintf(&b, "security:\n  keyFile: %s\n  authorization: enabled\n", mongoKeyFile)
-	fmt.Fprintf(&b, "replication:\n  replSetName: %s\n", replSet)
-	fmt.Fprintf(&b, "sharding:\n  clusterRole: %s\n", clusterRole)
+	if useKeyFile {
+		fmt.Fprintf(&b, "security:\n  keyFile: %s\n  authorization: enabled\n", mongoKeyFile)
+	} else {
+		fmt.Fprintf(&b, "security:\n  authorization: enabled\n")
+	}
+	if replSet != "" {
+		fmt.Fprintf(&b, "replication:\n  replSetName: %s\n", replSet)
+	}
+	if clusterRole != "" {
+		fmt.Fprintf(&b, "sharding:\n  clusterRole: %s\n", clusterRole)
+	}
 	return b.String()
 }
 

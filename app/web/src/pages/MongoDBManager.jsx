@@ -42,10 +42,12 @@ function CopyRow({ label, value }) {
   )
 }
 
-// roleText renders a member's place in the sharded topology.
+// roleText renders a member's place in its topology.
 function roleText(cfg) {
   if (cfg.role === 'mongos') return 'mongos router'
   if (cfg.role === 'config') return `config server (${cfg.replSet})`
+  if (cfg.role === 'member') return `replica-set member (${cfg.replSet})`
+  if (cfg.role === 'standalone') return 'standalone server'
   return `shard ${cfg.shard} member (${cfg.replSet})`
 }
 
@@ -56,12 +58,14 @@ export default function MongoDBManager({ stackId, nodeId, dep, onDeleteNode }) {
   const sec = dep.secrets || {}
   const host = typeof location !== 'undefined' ? location.hostname : 'localhost'
   const isMongos = cfg.role === 'mongos'
+  // Sharded shard/config members are meant to be reached via the router; mongos,
+  // replica-set members and standalone nodes are reachable directly.
+  const isInternal = cfg.role === 'config' || cfg.role === 'shard'
+  const exportPort = isMongos ? (cfg.mongosPort || cfg.exportPort) : cfg.exportPort
 
-  // Connect string apps use through the mongos router. When the mongos port is
-  // exported, apps can reach it from the host; otherwise it's in-cluster only.
   const adminUser = sec.adminUser || 'admin'
-  const hostConn = isMongos && cfg.mongosPort
-    ? `mongosh "mongodb://${adminUser}@${host}:${cfg.mongosPort}/?authSource=admin"`
+  const hostConn = exportPort
+    ? `mongosh "mongodb://${adminUser}@${host}:${exportPort}/?authSource=admin"`
     : ''
   const inClusterConn = `mongosh "mongodb://${adminUser}@${cfg.fqdn}:27017/?authSource=admin"`
 
@@ -88,7 +92,7 @@ export default function MongoDBManager({ stackId, nodeId, dep, onDeleteNode }) {
           <KV k="FQDN" v={cfg.fqdn} mono />
           <KV k="PS MongoDB" v={`${cfg.psmdbMajor || ''}${cfg.version ? ` (${cfg.version})` : ''}`} />
           {isMongos && <KV k="configDB" v={cfg.configDB} mono />}
-          {isMongos && <KV k="Exported port" v={cfg.mongosPort || 'not published'} />}
+          {!isInternal && <KV k="Exported port" v={exportPort || 'not published'} />}
           <KV k="TLS" v={cfg.generateCert ? 'Intranet CA' : 'none'} />
           <KV k="Monitored by" v={cfg.monitoredBy} mono />
           <KV k="Image" v={cfg.image} mono />
@@ -104,21 +108,25 @@ export default function MongoDBManager({ stackId, nodeId, dep, onDeleteNode }) {
 
       {tab === 'access' && (
         <div className="space-y-2">
-          {isMongos ? (
-            <>
-              <div className="text-[11px] text-muted">Apps connect to the sharded cluster through this mongos router.</div>
-              {cfg.mongosPort ? (
-                <CopyRow label={`From the host (mongos ${cfg.mongosPort})`} value={hostConn} />
-              ) : (
-                <div className="text-xs text-muted">mongos port not published to the host (enable export on this node to expose 27017).</div>
-              )}
-              <CopyRow label="In-cluster (from another container)" value={inClusterConn} />
-            </>
-          ) : (
+          {isInternal ? (
             <div className="text-xs text-muted">
               {cfg.role === 'config' ? 'Config servers' : 'Shard members'} are internal to the cluster. Connect applications through the mongos router instead.
               <div className="mt-2"><CopyRow label="Direct (admin, debugging)" value={inClusterConn} /></div>
             </div>
+          ) : (
+            <>
+              <div className="text-[11px] text-muted">
+                {isMongos ? 'Apps connect to the sharded cluster through this mongos router.'
+                  : cfg.role === 'standalone' ? 'Connect applications directly to this standalone server.'
+                    : 'Connect applications to the replica set (this member auto-elects with its peers).'}
+              </div>
+              {exportPort ? (
+                <CopyRow label={`From the host (${exportPort})`} value={hostConn} />
+              ) : (
+                <div className="text-xs text-muted">Port not published to the host (enable export on this node to expose 27017).</div>
+              )}
+              <CopyRow label="In-cluster (from another container)" value={inClusterConn} />
+            </>
           )}
         </div>
       )}

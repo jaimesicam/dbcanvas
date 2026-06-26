@@ -1771,3 +1771,67 @@ Credentials admin user/password).
   (`rs0`/`rs1`/`rs2`) registered; an authenticated write+read through `mongos` succeeds.
 - The exact designs `addMongoDBCluster()` produces for both setups pass `validate`
   with no issues.
+
+## 16. PS MongoDB replica set (PSM RS) + standalone (PSM)
+
+Two more Percona Server for MongoDB shapes that reuse the `mongodb.go` building
+blocks:
+- **PSM RS frame** (`Type=="psmrs"`): a single MongoDB **replica set** — N `mongod`
+  members (default 3, **resizable 1–9** via the frame +/− buttons) with a shared
+  keyFile for internal auth, one `rs.initiate` over all members, and an `admin`
+  (root) user on the elected primary. No sharding, config servers or mongos.
+- **PSM standalone node** (`Type=="psm"`): a single `mongod` with
+  `security.authorization: enabled` (no replica set, **no keyFile**), an `admin`
+  user created via the localhost exception. A free node (like the standalone
+  Percona Server `ps`).
+
+Node properties for both mirror the PXC frame: catalog OS/version/arch + PS MongoDB
+major/minor, admin password, PMM, Intranet proxy, TLS cert, host-port export.
+
+### Backend — `app/mongodb.go`
+`mongodConfYAML(replSet, clusterRole, useKeyFile)` was generalized: it omits the
+`replication` block when `replSet==""` (standalone), omits `sharding` when
+`clusterRole==""`, and emits `authorization` only (no `keyFile`) when
+`useKeyFile==false`. `mongoPrepareNode` now derives the cluster role from `n.Role`
+(`config`→configsvr, `shard`→shardsvr, else none), writes the keyFile only when
+`sec.KeyFile!=""`, publishes 27017 for **any** exported node (not just mongos), and
+records the auto-assigned host port into `mongoConfig.ExportPort` (mongos also keeps
+`MongosPort`). Two new provisioners:
+- **`provisionMongoRSFrame`** — parallel prepare (role `member`, replSet =
+  `sanitizeName(frame.Label)`, keyFile), `rs.initiate` all members, create admin on
+  member 0, finalize.
+- **`provisionMongoStandalone`** — a synthetic frame from the node; prepare (role
+  `standalone`, no replSet, no keyFile, authorization on), create admin via the
+  localhost exception, finalize.
+
+### Data model / dispatch / validation / ports — `app/intranet.go`
+`designNode` gains `psmdbMajor`/`psmdbVersion` (for the `psm` node). Deploy dispatch
+adds `psm` (node) + `psmrs` (frame, member gate). `validateStack`: `psm` joins the
+`ps` node case (image + export conflict); a new `psmrs` block checks 1–9 members,
+unique name, image, and an odd-count warning. `refreshPublishedPorts` adds a
+`psmdb`/`psmrs`/`psm` case reading `27017/tcp` into `ExportPort` (+ `MongosPort` for
+mongos).
+
+### Frontend — `app/web/src/pages/StackDesigner.jsx`
+`NODE_TYPES.psmrs` (frame member) + `NODE_TYPES.psm` (free node, with
+osOptions/defaults) + `FRAME_COLORS.psmrs`; `frameVersionLabel` psmrs branch;
+`nodeOSLabel` includes `psm`. **`addMongoRSCluster`** builds a 3-member frame;
+`addFrameMember`/`removePXCNode` resize it within 1–9 (`newPSMRSMember`). Toolbar
+buttons **"PSM Replica Set"** and **"PSM"**. A shared **`useMongoCatalog`** hook +
+**`MongoCatalogFields`** component drive the OS/version/arch + PS MongoDB
+major/minor selects for both **`PSMRSFrameForm`** (admin pw, PMM/proxy/cert, quorum
+guidance) and **`PSMStandaloneForm`** (same + host export); **`PSMRSMemberForm`** is
+the per-member export form. Running nodes show the (generalized) **`MongoDBManager`**
+— `roleText` handles `member`/`standalone`, and the Access tab shows a direct
+`mongosh` connect string (host port when exported, else in-cluster) for non-sharded
+roles.
+
+### Verification performed (live)
+- `go build`/`gofmt`/`go vet` and the web build pass.
+- **Live deploy** (one stack, `useProxy:false`): a 3-node PSM replica set + a PSM
+  standalone (export on). All `running`; the replica set `rs.status()` shows
+  **`psmrs01` PRIMARY + `psmrs02`/`psmrs03` SECONDARY** with an authenticated
+  write+read; the standalone reports **`NoReplicationEnabled`** (genuinely
+  standalone), enforces auth, and accepts an authenticated write+read; its 27017 is
+  published to the host.
+- The exact designs the frontend builds for both pass `validate` with no issues.
