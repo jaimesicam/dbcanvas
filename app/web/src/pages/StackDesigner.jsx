@@ -1446,6 +1446,7 @@ function StackEditor({ stackId, onBack }) {
         deleteNode={deleteNode}
         deleteEdge={deleteEdge}
         deleteFrame={deleteFrame}
+        rebuildMongoCluster={rebuildMongoCluster}
       />
 
       {menu && (
@@ -3020,7 +3021,7 @@ function loadProps() {
   try { return JSON.parse(localStorage.getItem(PROPS_KEY) || '{}') } catch { return {} }
 }
 
-function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame }) {
+function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster }) {
   const selNode = selected?.kind === 'node' ? nodes.find((n) => n.id === selected.id) : null
   const selDep = selNode ? depByNode[selNode.id] : null
   const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb')) || selected?.kind === 'frame'
@@ -3061,7 +3062,7 @@ function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, p
       </button>
     </div>
   )
-  const body = <Body selected={selected} stackId={stackId} nodes={nodes} edges={edges} frames={frames} depByNode={depByNode} patchNode={patchNode} patchFrame={patchFrame} patchEdge={patchEdge} deleteNode={deleteNode} deleteEdge={deleteEdge} deleteFrame={deleteFrame} />
+  const body = <Body selected={selected} stackId={stackId} nodes={nodes} edges={edges} frames={frames} depByNode={depByNode} patchNode={patchNode} patchFrame={patchFrame} patchEdge={patchEdge} deleteNode={deleteNode} deleteEdge={deleteEdge} deleteFrame={deleteFrame} rebuildMongoCluster={rebuildMongoCluster} />
 
   if (docked) {
     return (
@@ -3096,7 +3097,7 @@ function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, p
   )
 }
 
-function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame }) {
+function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster }) {
   if (!selected) return <p className="text-sm text-muted">Select a node, link or PXC cluster to edit it. Add an Intranet node from the toolbar to begin.</p>
 
   if (selected.kind === 'frame') {
