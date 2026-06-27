@@ -34,6 +34,10 @@ const (
 	seaweedS3Port  = 8333
 	seaweedWebPort = 8080
 	seaweedRegion  = "us-east-1"
+	// In-container paths for the optional S3 TLS material (staged before start when
+	// TLS is enabled; weed serves the S3 API over HTTPS via -s3.cert.file/-s3.key.file).
+	seaweedTLSCert = "/etc/seaweedfs/tls/s3.crt"
+	seaweedTLSKey  = "/etc/seaweedfs/tls/s3.key"
 )
 
 // seaweedConfig is the non-secret profile shown for a deployed SeaweedFS node.
@@ -46,7 +50,9 @@ type seaweedConfig struct {
 	Bucket           string `json:"bucket"`
 	Region           string `json:"region"`
 	WebPort          int    `json:"webPort"`          // host port mapped to container 8080 (web UI)
-	InternalEndpoint string `json:"internalEndpoint"` // http://<fqdn>:8333 — S3 endpoint for in-stack DB nodes
+	InternalEndpoint string `json:"internalEndpoint"` // http(s)://<fqdn>:8333 — S3 endpoint for in-stack DB nodes
+	TLS              bool   `json:"tls"`              // S3 endpoint served over HTTPS
+	GenerateCert     bool   `json:"generateCert"`     // TLS cert signed by the Intranet CA (else self-signed)
 }
 
 // seaweedSecrets holds the S3 secret key (generated or user-supplied).
@@ -117,10 +123,15 @@ func (a *App) provisionSeaweedFS(st Stack, n designNode, doc designDoc) {
 	}
 	sec.AccessKey = ak
 
+	scheme := "http"
+	if n.TLS {
+		scheme = "https"
+	}
 	cfg := seaweedConfig{
 		Image: ref, Hostname: host, FQDN: fqdn, Alias: host,
 		AccessKey: ak, Bucket: strings.TrimSpace(n.Bucket), Region: seaweedRegion,
-		InternalEndpoint: fmt.Sprintf("http://%s:%d", fqdn, seaweedS3Port),
+		InternalEndpoint: fmt.Sprintf("%s://%s:%d", scheme, fqdn, seaweedS3Port),
+		TLS:              n.TLS, GenerateCert: n.TLS && n.GenerateCert,
 	}
 	cfgJSON, _ := json.Marshal(cfg)
 	secJSON, _ := json.Marshal(sec)
@@ -162,21 +173,61 @@ func (a *App) provisionSeaweedFS(st Stack, n designNode, doc designDoc) {
 		// The Intranet is the stack's DNS authority, so the SeaweedFS node must not
 		// start until it is up — the DB nodes resolve seaweedfs's FQDN through it.
 		setPhase("Waiting for Intranet to be ready", 15)
-		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
 		if werr != nil {
 			failNode("%v", werr)
 			return
 		}
 		logln("Intranet is running (resolver at " + intranetIP + ")")
 
+		// When TLS is on, issue the S3 server certificate up front (Intranet-CA-signed
+		// or self-signed) so it can be staged into the container before start.
+		var tlsCert, tlsKey []byte
+		if n.TLS {
+			setPhase("Issuing TLS certificate", 20)
+			var caCrt, caKey []byte
+			if n.GenerateCert {
+				if err := a.waitIntranetCAReady(ctx, intranetID, 120*time.Second); err != nil {
+					failNode("%v", err)
+					return
+				}
+				crt, cerr := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
+				if cerr != nil || len(crt) == 0 {
+					failNode("read Intranet CA cert: %v", cerr)
+					return
+				}
+				key, kerr := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.key")
+				if kerr != nil || len(key) == 0 {
+					failNode("read Intranet CA key: %v", kerr)
+					return
+				}
+				caCrt, caKey = crt, key
+			}
+			c, k, cerr := signTLSCert(caCrt, caKey, fqdn, []string{fqdn, host}, certTTL(n.CertTTLValue, n.CertTTLUnit))
+			if cerr != nil {
+				failNode("issue TLS certificate: %v", cerr)
+				return
+			}
+			tlsCert, tlsKey = c, k
+			if n.GenerateCert {
+				logln("S3 TLS certificate signed by the Intranet CA")
+			} else {
+				logln("S3 TLS certificate self-signed")
+			}
+		}
+
 		setPhase("Creating container", 25)
 		name := containerName(st.ID, n.ID)
 		if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
 			a.docker.ContainerRemove(ctx, cid)
 		}
+		cmd := []string{"server", "-dir=/data", "-s3", "-s3.config=/etc/seaweedfs/s3.json"}
+		if n.TLS {
+			cmd = append(cmd, "-s3.cert.file="+seaweedTLSCert, "-s3.key.file="+seaweedTLSKey)
+		}
 		id, err := a.docker.ContainerCreate(ctx, ContainerSpec{
 			Name: name, Image: ref, Hostname: host,
-			Cmd:     []string{"server", "-dir=/data", "-s3", "-s3.config=/etc/seaweedfs/s3.json"},
+			Cmd:     cmd,
 			Network: networkName(st.ID), Aliases: []string{host},
 			PublishPorts: []int{seaweedWebPort},
 			DNS:          []string{intranetIP}, DNSSearch: []string{domain},
@@ -192,6 +243,13 @@ func (a *App) provisionSeaweedFS(st Stack, n designNode, doc designDoc) {
 		if err := a.docker.PutArchive(ctx, id, "/etc", seaweedTar("seaweedfs/s3.json", s3cfg)); err != nil {
 			failNode("stage s3 config: %v", err)
 			return
+		}
+		// Stage the TLS cert+key (world-readable: weed runs as a non-root user).
+		if n.TLS {
+			if err := a.docker.PutArchive(ctx, id, "/etc", seaweedTLSTar(tlsCert, tlsKey)); err != nil {
+				failNode("stage TLS certificate: %v", err)
+				return
+			}
 		}
 
 		if err := a.docker.ContainerStart(ctx, id); err != nil {
@@ -247,6 +305,43 @@ func (a *App) runShStep(ctx context.Context, id, script string, env []string, lo
 		time.Sleep(3 * time.Second)
 	}
 	return fmt.Errorf("%s", lastLines(lastErr, 160))
+}
+
+// certTTL converts a TTL value/unit (as carried on the node) into a duration,
+// defaulting to 365 days when unset/invalid.
+func certTTL(value int, unit string) time.Duration {
+	if value <= 0 {
+		return 365 * 24 * time.Hour
+	}
+	switch unit {
+	case "minutes":
+		return time.Duration(value) * time.Minute
+	case "hours":
+		return time.Duration(value) * time.Hour
+	default: // "days"
+		return time.Duration(value) * 24 * time.Hour
+	}
+}
+
+// seaweedTLSTar builds an uncompressed tar carrying the S3 cert + key under
+// /etc/seaweedfs/tls/ (extracted at /etc), with explicit parent-dir entries so the
+// directories are created. World-readable (0644): weed runs as a non-root user, so
+// it must be able to read the key; the container is the trust boundary.
+func seaweedTLSTar(certPEM, keyPEM []byte) []byte {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for _, dir := range []string{"seaweedfs/", "seaweedfs/tls/"} {
+		tw.WriteHeader(&tar.Header{Name: dir, Mode: 0755, Typeflag: tar.TypeDir, ModTime: time.Now()})
+	}
+	for _, f := range []struct {
+		name    string
+		content []byte
+	}{{"seaweedfs/tls/s3.crt", certPEM}, {"seaweedfs/tls/s3.key", keyPEM}} {
+		tw.WriteHeader(&tar.Header{Name: f.name, Mode: 0644, ModTime: time.Now(), Size: int64(len(f.content))})
+		tw.Write(f.content)
+	}
+	tw.Close()
+	return buf.Bytes()
 }
 
 // seaweedS3ConfigJSON builds the SeaweedFS S3 identities config granting the

@@ -85,6 +85,7 @@ function Overview({ cfg, dep, onDeleteNode }) {
       <KV k="Network alias" v={cfg.alias} mono />
       <KV k="Bucket" v={cfg.bucket} mono />
       <KV k="Region" v={cfg.region || 'us-east-1'} mono />
+      <KV k="S3 TLS" v={cfg.tls ? (cfg.generateCert ? 'HTTPS · Intranet-CA cert' : 'HTTPS · self-signed') : 'disabled (HTTP)'} />
       <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
       {web && (
         <a href={web} target="_blank" rel="noreferrer"
@@ -135,7 +136,8 @@ function AccessTab({ cfg, sec }) {
       <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] text-muted">
         The S3 API stays on <span className="font-mono">:8333</span> (reached in-network by the database
         nodes); the <span className="font-mono">:8080</span> web interface is what's published to your host.
-        SeaweedFS requires <span className="font-mono">path-style</span> addressing over plain HTTP — the
+        SeaweedFS requires <span className="font-mono">path-style</span> addressing
+        {cfg.tls ? <> over <span className="font-mono">HTTPS</span>{cfg.generateCert ? ' (Intranet-CA cert)' : ' (self-signed — TLS verification is skipped)'}</> : <> over plain <span className="font-mono">HTTP</span></>} — the
         snippets in the <span className="font-medium text-fg/80">Backups</span> tab already set these.
       </div>
     </div>

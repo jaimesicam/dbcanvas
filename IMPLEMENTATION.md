@@ -2061,6 +2061,34 @@ interactive shell that prints a prompt. OL9 still gets `bash -i`; alpine gets
 container is the security boundary, so a world-readable S3 config inside it is
 fine.
 
+### SeaweedFS S3 TLS (optional, Intranet-CA-signed)
+The S3 endpoint can be served over **HTTPS**. The node gains a **`TLS`** field
+(`designNode.TLS`); when set, `provisionSeaweedFS` appends
+`-s3.cert.file=/etc/seaweedfs/tls/s3.crt -s3.key.file=/etc/seaweedfs/tls/s3.key` to
+the `weed server` command and the `InternalEndpoint` scheme becomes `https://`. When
+**`GenerateCert`** is also set the certificate is **signed by the Intranet CA** (so a
+client that trusts it verifies the server); otherwise it is **self-signed**.
+
+The SeaweedFS image ships **no `openssl`** (and `weed` runs non-root), so unlike the
+systemd nodes (which shell out to in-container openssl) the certificate is signed
+**in Go** — new **`app/certs.go`**: `signTLSCert(caCertPEM, caKeyPEM, cn, dnsNames,
+ttl)` generates an RSA-2048 key and either signs against the parsed Intranet CA
+(`parseCA` handles PKCS#8 or PKCS#1) or self-signs. The cert+key are staged before
+start via **`seaweedTLSTar`** (world-readable `0644`, explicit parent-dir entries,
+like `seaweedTar`). Reuses the Intranet-CA plumbing (`waitIntranetCAReady`,
+`readContainerFile` for `/etc/pki/dbcanvas/ca.{crt,key}`) and the
+`CertTTLValue`/`CertTTLUnit` fields (via `certTTL`).
+
+`seaweedConfig` gains `TLS` + `GenerateCert`; the Manager's Overview shows the S3-TLS
+mode and the Access note reflects HTTPS (and whether verification applies). The backup
+snippets read `internalEndpoint`, so they switch to `https://` automatically.
+
+**Verification:** `go test` covers `signTLSCert` (CA-signed cert chains to the CA with
+the right SANs + cert/key pair; self-signed path; ~365-day default TTL). Live smoke
+test: ran `chrislusf/seaweedfs` with `-s3.cert.file/-s3.key.file` + a staged cert —
+the S3 API answers over **HTTPS** (GET → 403 auth-required), presents the cert with
+the expected CN + DNS SAN, and **rejects plain HTTP** on the TLS port (400).
+
 ### Percona XtraBackup on Percona Server (standalone + replication)
 SeaweedFS is a backup target, so the **Percona Server** node types now ship the
 matching backup tool. PXC data nodes already installed Percona XtraBackup (§8 — for
@@ -2088,3 +2116,206 @@ MongoDB/PSMDB types use Percona Backup for MongoDB instead.)
   the prompt `/data # ` renders immediately and after each command (`whoami` → root,
   arithmetic evaluated), where the old `exec bash || exec sh` exited 127 and showed
   nothing.
+
+## 21. Patroni PostgreSQL cluster frame + HAProxy node + PPG catalog
+
+A **Patroni PostgreSQL cluster** frame (`Type=="patroni"`) plus an **HAProxy** node
+(`Type=="haproxy"`) bring PostgreSQL HA to the designer. Each Patroni member
+co-locates three services installed at deploy on the **systemd OS images** (`make
+images`): **PostgreSQL** (Percona Distribution for PostgreSQL), **Patroni** (the HA
+template that runs PostgreSQL and elects a leader), and an **etcd** member (the DCS
+Patroni stores cluster state in). The etcd members form one cluster across all nodes
+(quorum → **3–7 nodes, odd recommended**); Patroni bootstraps PostgreSQL on the node
+that wins the leader lock and clones the rest as streaming replicas. Options mirror
+the PXC frame (catalog OS/version/arch, superuser password, PMM monitor, Squid
+proxy, Intranet-CA TLS) **minus GTID**, **plus** an optional **pgBackRest → SeaweedFS
+S3** backup/clone. An **HAProxy** node linked to the frame by a canvas association
+line routes **writes → the current leader (:5000)** and **reads → replicas (:5001)**
+via Patroni's REST health checks, with a **stats page (:7000)**.
+
+### Part A — PPG version catalog (`images/versions.sh`, `app/versions.go`, `app/main.go`)
+`rhel_probe`/`debian_probe` gain PostgreSQL probing: for majors **13–17**,
+`percona-release setup ppg-NN` then enumerate **`percona-postgresql-NN`** (fenced
+`@@PPG13@@`…`@@PPG17@@`, filtered `^NN\.`). The writer adds `emit_series
+percona_postgresql "13" … "17"` so each image entry carries a `percona_postgresql:`
+major-series map. `versions.go` adds `loadPPGCatalog() = loadImageCatalog("percona_postgresql")`
++ `handlePPGCatalog`, **and** a generic `loadImagesCatalog() = loadImageCatalog("")`
+(every built image, **no** version map — for nodes that only need the OS matrix) +
+`handleImagesCatalog`. Routes: **`GET /api/catalog/ppg`**, **`GET /api/catalog/images`**;
+`stackApi.ppgCatalog()` / `imagesCatalog()`.
+
+### Part B/C — Data model + dispatch (`app/intranet.go`)
+`designFrame` gains patroni fields (reusing `OS`/`OSVersion`/`Arch`, `RootPassword`
+= superuser pw, `PMMNodeID`, `UseProxy`, `GenerateCert`/`CertTTL`): **`PGMajor`**,
+**`PGVersion`**, **`UsePgBackRest`**, **`SeaweedFSNodeID`**. Patroni members are
+`Type=="patroni"` + `FrameID` + `ExportEnabled`/`ExportHostPort` (publish 5432); an
+HAProxy node is a free `Type=="haproxy"` reusing `OS`/`OSVersion`/`Arch`,
+`ExportEnabled`, `PMMNodeID`, `UseProxy`. Deploy dispatch adds `case "haproxy"`
+(free-node loop) and `case "patroni"` → `memberType="patroni"` + `provisionPatroniFrame`.
+**`patroniFrameForHAProxy(doc, haproxyNodeID)`** is a near-clone of
+`backendFrameForProxySQL` — an undirected BFS over the edges to the nearest
+`Type=="patroni"` frame.
+
+### Part D — Patroni provisioning (`app/patroni.go`)
+`provisionPatroniFrame(st, f, doc)` (modeled on `provisionPXCFrame`): credentials
+**`pgSecrets`** (`postgres` superuser + `replicator`, reused across redeploys else
+generated), then an async goroutine —
+1. `waitIntranet`; when pgBackRest is on, `waitSeaweedRunning` (the S3 config/secret
+   must be readable before writing `pgbackrest.conf`).
+2. **Parallel `patroniPrepareNode`**: create the container (systemd image,
+   `DNS=[intranetIP]`, publish 5432 when export on), install `percona-postgresql-NN`
+   + `-contrib` + `percona-patroni` + `etcd` (+ `percona-pgbackrest`) + `pmm-client`,
+   stage optional TLS into `/etc/patroni`, then write the **etcd** EnvironmentFile
+   (`/etc/etcd/etcd.conf`; every node a member, `initial-cluster` = all peers),
+   **`/etc/pgbackrest/pgbackrest.conf`** (S3 → SeaweedFS, `repo1-s3-uri-style=path`,
+   stanza = sanitized cluster name) when enabled, and **`/etc/patroni/patroni.yml`**
+   (scope = cluster, `etcd3.hosts` = all `:2379`, `restapi` `:8008`, bootstrap
+   `initdb`/`pg_hba` scram, superuser+replication auth; when pgBackRest:
+   `create_replica_methods:[pgbackrest, basebackup]` + `archive_command`).
+3. **Start etcd** on all nodes (idempotent `new`/`existing` state) → `patroniWaitEtcd`
+   (each `etcdctl endpoint health`).
+4. **Start Patroni** (systemd drop-in pins `ExecStart=patroni /etc/patroni/patroni.yml`)
+   → `patroniWaitCluster` polls each node's REST (`/leader` 200 = leader, `/health`
+   200 = running) until one leader + all members are up; returns the leader's node id.
+5. When pgBackRest: on the leader, `pgbackrest stanza-create` + initial **full backup**
+   (`runuser -u postgres`).
+6. PMM (`pmm-admin add postgresql`, best-effort) + record each node's role
+   (leader/replica) → running.
+Helpers: `patroniPrepareNode`, `patroniApplyCert` (CA staged like `pxcApplyCert`, into
+`/etc/patroni`, postgres-owned), `patroniWaitEtcd`, `patroniWaitCluster`,
+**`waitPatroniRunning`** (member FQDNs + creds, for HAProxy), `waitSeaweedRunning`,
+`patroniRegisterPMM`, `patroniLeaderContainer`, config builders (`patroniEtcdConf`,
+`patroniYAML`, `patroniPgBackRestConf`). Ports: PG **5432**, REST **8008**, etcd
+client **2379** / peer **2380**.
+
+### Part E — HAProxy provisioning (`app/haproxy.go`)
+`provisionHAProxy(st, n, doc)` (modeled on `provisionProxySQLInstance`):
+`waitIntranet` → `patroniFrameForHAProxy` (fail if unlinked) → `waitPatroniRunning`
+(member FQDNs) → create container (publish **5000/5001/7000** when export on) →
+install `haproxy` (distro pkg; Squid proxy when `UseProxy`) + `pmm-client` → write
+**`/etc/haproxy/haproxy.cfg`**: a **write** front-end (`bind :5000`, `option httpchk
+GET /primary` against each member `:8008` — only the leader returns 200), a **read**
+front-end (`:5001`, round-robin, `GET /replica`), and a **stats** page (`:7000`) →
+`haproxy -c` validate + start → optional PMM (`pmm-admin add haproxy`). `haproxyConfig`
+records the linked cluster, member FQDNs, and published ports.
+
+### Part F/G — Validation + lifecycle ports (`app/intranet.go`)
+`validateStack`: a **patroni** node case isn't needed (members fall through to
+`default`); a **patroni-frame** block enforces **3 ≤ members ≤ 7** (error), odd-count
+(warning), unique cluster name, member 5432 export joins the shared `exportReq`
+conflict check, and `UsePgBackRest` ⇒ `SeaweedFSNodeID` set **and** referencing a
+`seaweedfs` node in the design. A **haproxy** node case checks the image exists, that
+it links to a patroni frame (`patroniFrameForHAProxy`, error otherwise), and joins
+the export conflict check. `refreshPublishedPorts` adds `patroni` (5432 →
+`ExportPort`) and `haproxy` (5000/5001/7000 → `WritePort`/`ReadPort`/`StatsPort`).
+
+### Part H — Routes (`app/main.go`)
+`GET /api/catalog/ppg`, `GET /api/catalog/images`, and
+**`POST /api/stacks/{id}/frames/{fid}/patroni/backup`** → `handlePatroniBackup`
+(owner-scoped; finds the running leader via `patroniLeaderContainer` and runs an
+on-demand `pgbackrest --type=full backup`).
+
+### Part I — Frontend (`StackDesigner.jsx` + managers)
+- **`NODE_TYPES.patroni`** (PG blue `#336791`, `Database` icon — member render only)
+  and **`NODE_TYPES.haproxy`** (`ports:true`, reuses the `ProxySQL` icon, green,
+  imagesCatalog OS). **`FRAME_COLORS.patroni`**; `frameVersionLabel` patroni branch;
+  `nodeOSLabel`/`wide` include `haproxy`/`patroni`.
+- **Toolbar**: **"Patroni Cluster"** → `addPatroniCluster` (3 members `patroniNN`,
+  cluster `patroni-cluster-NN`) and **"HAProxy"** → `addNode('haproxy')`.
+- **Member +/−**: `addFrameMember`/`removePXCNode` patroni branch — **min 3 / max 7**.
+- **Association framework** (extended): `endpointKind` → patroni frame `'patroni'`,
+  haproxy node `'haproxy'`; `hitPort` includes patroni frames; `tryConnect` adds
+  **patroni (source) ↔ haproxy** → `createFlow(patroniFrame→haproxy, {singleOutgoing})`
+  (HAProxy single-incoming via the dest guard). The patroni frame renders the shared
+  `PortHandles`; patroni members don't (no replication links).
+- **`PatroniFrameForm`** (`usePPGCatalog` cascade like the Mongo forms): OS/version/
+  arch + PG major/minor, superuser password, **"Use pgBackRest (SeaweedFS S3)"** →
+  a SeaweedFS-node `<select>`, PMM/proxy/cert, 3–7/odd quorum guidance. **`PatroniMemberForm`**:
+  5432 host export. **`HAProxyForm`**: linked-cluster banner (BFS to the patroni frame,
+  error until linked), imagesCatalog OS/version/arch, PMM/proxy, 5000/5001/7000 export.
+- **`PatroniManager.jsx`** (running member): **Overview** (cluster/role/FQDN/PG
+  version/etcd/pgBackRest/host 5432 + delete), **Credentials** (superuser +
+  replication + psql URI), and a **Backup** tab (when pgBackRest) with a **Backup now**
+  button → `patroniApi(id, fid).backup()`. **`HAProxyManager.jsx`**: **Overview**
+  (linked cluster, write/read/stats host ports + a stats-page link) and **Access**
+  (psql URIs/commands for the write + read ports). `stackApi` adds `ppgCatalog`,
+  `imagesCatalog`, and `patroniApi(id, fid).backup()`.
+
+### Verification performed
+- `bash -n images/versions.sh`; `go build`/`go vet`/`go test`, `gofmt -l` (clean);
+  web build (`npm run build`); app image rebuilt (`docker compose build`) and
+  restarted — the new `/api/catalog/ppg` + `/api/catalog/images` routes respond.
+- **Live-validated against the real Oracle Linux 9 image** (throwaway containers off
+  `dbcanvas-systemd:oraclelinux-9-amd64`), which **corrected several wrong initial
+  assumptions** (see below): the full **5-package install completes**
+  (`percona-postgresql16-server` + `-contrib` + `percona-patroni` + `etcd` +
+  `percona-pgbackrest`, with EPEL for `libssh2`), the binaries land
+  (`/usr/bin/patroni`, `/usr/bin/etcd`, `/usr/pgsql-16/bin/postgres`, `pgbackrest`),
+  and **`patroni --validate-config` accepts the generated config** (only DNS
+  resolution of the etcd FQDNs fails in isolation — a schema pass).
+- **Full multi-node deploy (3-node etcd quorum + leader election + HAProxy routing +
+  pgBackRest round-trip): pending** — it runs under an authenticated UI session.
+  Checklist: `patronictl list` 1 Leader + 2 streaming replicas; `etcdctl endpoint
+  health` on all 3; HAProxy `:5000` → writable leader / `:5001` → read-only replica,
+  follows a `switchover`; pgBackRest stanza + backup in the SeaweedFS bucket; **Backup
+  now**; PMM shows the postgresql/haproxy services.
+
+### Live-test corrections (applied)
+Probing the OL9 image revealed the placeholder package/path assumptions were wrong;
+the code now uses the **verified** names:
+- **PostgreSQL packages (EL):** the server is **`percona-postgresqlNN-server`** (no
+  hyphen) + `percona-postgresqlNN-contrib` — not `percona-postgresql-NN`. The
+  version-probe package is **`percona-postgresqlNN`**, whose NVR carries an **epoch**
+  (`percona-postgresql16-1:16.14-…`), so `versions.sh` strips the leading `N:`
+  (`sed 's/^[0-9]+://'`) before the `^NN\.` filter. `pgServerPackages(os, major)` is
+  OS-aware (Debian keeps the PGDG `percona-postgresql-NN`).
+- **etcd uses a YAML config**, not an `ETCD_*` EnvironmentFile: the EL unit runs
+  `etcd --config-file /etc/etcd/etcd.conf.yaml`. `patroniEtcdConf` emits YAML
+  (`name:`/`initial-cluster:`/`initial-cluster-state:`…); the start script flips
+  `initial-cluster-state` to `existing` on redeploy via `sed`.
+- **Patroni config path:** the packaged unit reads
+  `PATRONI_CONFIG_LOCATION=/etc/patroni/postgresql.yml` and runs as `User=postgres`,
+  so DBCanvas writes **`/etc/patroni/postgresql.yml`** (no systemd drop-in needed).
+- **pgBackRest needs `libssh2`**, carried only by **EPEL** on OL — the install enables
+  `oracle-epel-release-el<major>` (`WITH_EPEL`/`EPELPKG`) before installing when
+  pgBackRest is on.
+- `runuser -u postgres` (not `sudo`, which the image lacks) runs the `pgbackrest`
+  stanza-create + backup; `curl`/`openssl`/`python3` confirmed present.
+- **Config-dir 404s:** Docker's copy API returns `(404)` when the destination
+  directory is missing, and neither `percona-pgbackrest` (`/etc/pgbackrest`) nor
+  `percona-patroni` (`/etc/patroni`) reliably ships its config dir. A
+  `patroniConfigDirsScript` (`mkdir -p /etc/etcd /etc/patroni`) runs before the
+  config writes, and `patroniPgBackRestDirsScript` (now including `/etc/pgbackrest`)
+  runs **before** the `pgbackrest.conf` CopyFile. (Surfaced live as
+  `write pgbackrest.conf: docker copy archive: (404)`.)
+- **HAProxy startup resilience:** `default-server … init-addr last,libc,none` so
+  `haproxy -c`/start succeeds even if a backend FQDN is momentarily unresolvable
+  (the server starts disabled and is enabled once DNS resolves) instead of failing
+  the whole config.
+- **etcd multi-node bootstrap deadlock (critical):** etcd's unit is `Type=notify`
+  and does **not** signal ready until the cluster reaches quorum. The first version
+  started etcd per node with a *blocking* `systemctl restart` + an `is-active` gate,
+  so node 1 hung forever waiting for peers that the sequential caller hadn't started
+  yet (live symptom: node 1 etcd stuck `activating`, pre-voting, peers
+  `…:2380 connection refused`). Fixed: `systemctl --no-block restart etcd` on every
+  node (returns immediately, no `is-active` gate), and `patroniWaitEtcd` then polls
+  all nodes' `etcdctl endpoint health` until quorum forms. Also: the member-dir
+  heuristic that flipped `initial-cluster-state` to `existing` was wrong (etcd creates
+  `member/` the instant it starts, so a stale partial bootstrap forced the join path);
+  the start script now **`rm -rf /var/lib/etcd/member` and always bootstraps `new`**,
+  matching the recreate-container-on-redeploy model. **Validated:** a real 3-node
+  systemd-container test forms quorum (all members `started`, `endpoint health`
+  healthy on all 3).
+
+### Live-test — single-node runtime validated
+Ran the full runtime in a **privileged systemd OL9 container** (same launch flags the
+app uses: `--privileged --cgroupns=host -v /sys/fs/cgroup:rw --tmpfs /run`,
+`/usr/sbin/init`): installed the packages, wrote the **exact** etcd YAML + Patroni
+config the Go builders emit (single member on `127.0.0.1`), and started the services.
+**Result:** `etcd` came up healthy (`etcdctl endpoint health`); **Patroni bootstrapped
+PostgreSQL and became `Leader / running`** (`patronictl list`), and the REST role probe
+returned `/leader → 200` (confirming `patroniRoleScript`). HAProxy's generated config
+**passed `haproxy -c`** (with `init-addr` it validates even without DNS); `pgbackrest`
+installs (EPEL) and runs as postgres with `/etc/pgbackrest` present. **Still pending:**
+the multi-node election + replica streaming + HAProxy failover routing + the pgBackRest
+S3 round-trip to a live SeaweedFS — these need the 3-node UI deploy.

@@ -56,6 +56,8 @@ func main() {
 	mux.HandleFunc("GET /api/catalog/proxysql", app.handleProxySQLCatalog)
 	mux.HandleFunc("GET /api/catalog/ps", app.handlePSCatalog)
 	mux.HandleFunc("GET /api/catalog/psmdb", app.handlePSMDBCatalog)
+	mux.HandleFunc("GET /api/catalog/ppg", app.handlePPGCatalog)
+	mux.HandleFunc("GET /api/catalog/images", app.handleImagesCatalog)
 	mux.HandleFunc("GET /api/catalog/pdps", app.handlePDPSCatalog)
 
 	mux.HandleFunc("GET /api/stacks", app.handleListStacks)
@@ -101,6 +103,9 @@ func main() {
 
 	// PXC cluster (frame) management — toggle PMM monitoring post-deploy.
 	mux.HandleFunc("POST /api/stacks/{id}/frames/{fid}/pmm", app.handlePXCFrameMonitor)
+
+	// Patroni cluster (frame) management — run an on-demand pgBackRest backup.
+	mux.HandleFunc("POST /api/stacks/{id}/frames/{fid}/patroni/backup", app.handlePatroniBackup)
 
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/term", app.handleNodeTerminal)
 

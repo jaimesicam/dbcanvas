@@ -56,6 +56,10 @@ type designNode struct {
 	AccessKey string `json:"accessKey"` // S3 AWS_ACCESS_KEY_ID ("" → "seaweedfs")
 	SecretKey string `json:"secretKey"` // S3 AWS_SECRET_ACCESS_KEY ("" → generated)
 	Bucket    string `json:"bucket"`    // S3 bucket to create (required)
+	// TLS serves the S3 endpoint over HTTPS. When GenerateCert is also set the
+	// certificate is signed by the Intranet CA (else it is self-signed). Reuses
+	// GenerateCert + CertTTLValue/CertTTLUnit above.
+	TLS bool `json:"tls"`
 }
 
 // designEdge is a connection drawn on the canvas. The endpoints' Node field holds
@@ -121,6 +125,13 @@ type designFrame struct {
 	PSMDBMajor   string `json:"psmdbMajor"`   // "6.0" | "7.0" | "8.0"
 	PSMDBVersion string `json:"psmdbVersion"` // minor (e.g. 8.0.26-11); "" → latest
 	PSMDBSetup   string `json:"psmdbSetup"`   // "standard" (3×3 + 3 cfg) | "minimum" (3×1 + 1 cfg)
+	// Patroni PostgreSQL cluster frame config (Type=="patroni"; reuses OS/OSVersion/
+	// Arch, RootPassword (postgres superuser pw), PMMNodeID, UseProxy, GenerateCert/
+	// CertTTL above). Each member co-locates PostgreSQL + Patroni + an etcd member.
+	PGMajor         string `json:"pgMajor"`         // Percona PostgreSQL "13".."17"
+	PGVersion       string `json:"pgVersion"`       // minor (e.g. 16.4); "" → latest
+	UsePgBackRest   bool   `json:"usePgBackRest"`   // configure pgBackRest → SeaweedFS S3 (clone + backup)
+	SeaweedFSNodeID string `json:"seaweedfsNodeId"` // SeaweedFS node id backing pgBackRest (when UsePgBackRest)
 }
 
 type designDoc struct {
@@ -161,6 +172,39 @@ func backendFrameForProxySQL(doc designDoc, startID string) (designFrame, string
 		}
 	}
 	return designFrame{}, "", false
+}
+
+// patroniFrameForHAProxy returns the Patroni cluster frame an HAProxy node is
+// associated with via the canvas graph. Mirrors backendFrameForProxySQL: an
+// undirected BFS over the edges to the nearest Type=="patroni" frame.
+func patroniFrameForHAProxy(doc designDoc, startID string) (designFrame, bool) {
+	frames := map[string]designFrame{}
+	for _, f := range doc.Frames {
+		if f.Type == "patroni" {
+			frames[f.ID] = f
+		}
+	}
+	adj := map[string][]string{}
+	for _, e := range doc.Edges {
+		adj[e.From.Node] = append(adj[e.From.Node], e.To.Node)
+		adj[e.To.Node] = append(adj[e.To.Node], e.From.Node)
+	}
+	visited := map[string]bool{startID: true}
+	queue := []string{startID}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, nb := range adj[cur] {
+			if f, ok := frames[nb]; ok {
+				return f, true
+			}
+			if !visited[nb] {
+				visited[nb] = true
+				queue = append(queue, nb)
+			}
+		}
+	}
+	return designFrame{}, false
 }
 
 // nodeConfig is the non-secret profile shown for a deployed node.
@@ -378,6 +422,21 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			others++
 			if !validBucketName(n.Bucket) {
 				out = append(out, issue{"error", "SeaweedFS node " + n.Label + " needs a valid bucket name (3–63 chars: lowercase letters, digits, dots and hyphens; start/end alphanumeric)"})
+			}
+		case "haproxy":
+			others++
+			img := pxcImage(n.OS, n.OSVersion, n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+				}
+			}
+			if _, ok := patroniFrameForHAProxy(doc, n.ID); !ok {
+				out = append(out, issue{"error", "HAProxy node " + n.Label + " must be linked to a Patroni cluster — draw an association line from one to it"})
+			}
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
 			}
 		default:
 			others++
@@ -653,6 +712,60 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		}
 	}
 
+	// --- Patroni PostgreSQL cluster frames (Type=="patroni") ---
+	// Each member co-locates PostgreSQL + Patroni + an etcd member; etcd needs a
+	// quorum so 3–7 nodes (odd recommended). When pgBackRest is enabled it must
+	// point at a SeaweedFS node present in the design.
+	patroniNames := map[string]int{}
+	seaweedIDs := map[string]bool{}
+	for _, n := range doc.Nodes {
+		if n.Type == "seaweedfs" {
+			seaweedIDs[n.ID] = true
+		}
+	}
+	for _, f := range doc.Frames {
+		if f.Type != "patroni" {
+			continue
+		}
+		patroniNames[strings.TrimSpace(f.Label)]++
+		members := 0
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != "patroni" {
+				continue
+			}
+			members++
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		}
+		if members < 3 {
+			out = append(out, issue{"error", "Patroni cluster " + f.Label + " needs at least 3 nodes (etcd quorum)"})
+		} else if members > 7 {
+			out = append(out, issue{"error", "Patroni cluster " + f.Label + " allows at most 7 nodes"})
+		} else if members%2 == 0 {
+			out = append(out, issue{"warning", "Patroni cluster " + f.Label + ": an odd number of members keeps etcd quorum on a split network"})
+		}
+		if f.UsePgBackRest {
+			if f.SeaweedFSNodeID == "" {
+				out = append(out, issue{"error", "Patroni cluster " + f.Label + " has pgBackRest enabled but no SeaweedFS node selected"})
+			} else if !seaweedIDs[f.SeaweedFSNodeID] {
+				out = append(out, issue{"error", "Patroni cluster " + f.Label + ": the selected pgBackRest SeaweedFS node is not in the design"})
+			}
+		}
+		img := pxcImage(f.OS, f.OSVersion, f.Arch)
+		if !seenImg[img] {
+			seenImg[img] = true
+			if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+				out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+			}
+		}
+	}
+	for name, c := range patroniNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{"error", "Duplicate Patroni cluster name: " + name})
+		}
+	}
+
 	// --- cross-cluster replication links (async / bidirectional) ---
 	// Each replication edge must connect two replication-capable members in
 	// *different* clusters, both with GTID enabled (auto-positioning); a server-id
@@ -791,6 +904,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionMongoStandalone(st, n, doc)
 		case "seaweedfs":
 			a.provisionSeaweedFS(st, n, doc)
+		case "haproxy":
+			a.provisionHAProxy(st, n, doc)
 		}
 	}
 
@@ -812,6 +927,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			memberType = "psmdb"
 		case "psmrs":
 			memberType = "psmrs"
+		case "patroni":
+			memberType = "patroni"
 		default:
 			continue
 		}
@@ -841,6 +958,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionMongoDBFrame(st, f, doc)
 		case "psmrs":
 			a.provisionMongoRSFrame(st, f, doc)
+		case "patroni":
+			a.provisionPatroniFrame(st, f, doc)
 		}
 	}
 
@@ -1317,6 +1436,26 @@ func (a *App) refreshPublishedPorts(ctx context.Context, st Stack, nid string, d
 		json.Unmarshal(dep.Config, &cfg)
 		if p, ok := readPort(fmt.Sprintf("%d/tcp", seaweedWebPort)); ok {
 			cfg.WebPort = p
+		}
+		save(cfg)
+	case "patroni":
+		var cfg patroniConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("5432/tcp"); ok {
+			cfg.ExportPort = p
+		}
+		save(cfg)
+	case "haproxy":
+		var cfg haproxyConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort(fmt.Sprintf("%d/tcp", haproxyWritePort)); ok {
+			cfg.WritePort = p
+		}
+		if p, ok := readPort(fmt.Sprintf("%d/tcp", haproxyReadPort)); ok {
+			cfg.ReadPort = p
+		}
+		if p, ok := readPort(fmt.Sprintf("%d/tcp", haproxyStatsPort)); ok {
+			cfg.StatsPort = p
 		}
 		save(cfg)
 	}

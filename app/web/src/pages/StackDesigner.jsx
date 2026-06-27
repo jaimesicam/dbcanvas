@@ -11,6 +11,8 @@ import MySQLManager from './MySQLManager.jsx'
 import InnoDBManager from './InnoDBManager.jsx'
 import MongoDBManager from './MongoDBManager.jsx'
 import SeaweedFSManager from './SeaweedFSManager.jsx'
+import PatroniManager from './PatroniManager.jsx'
+import HAProxyManager from './HAProxyManager.jsx'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import {
   PORTS, dist, portPoint, edgePath, screenToWorld, zoomAt,
@@ -90,6 +92,14 @@ const NODE_TYPES = {
     color: '#059669',
     icon: 'Database',
   },
+  // Patroni members (PostgreSQL + Patroni + etcd) live inside a Patroni cluster frame.
+  patroni: {
+    label: 'Patroni',
+    slug: 'patroni',
+    sub: 'PostgreSQL + Patroni + etcd',
+    color: '#336791',
+    icon: 'Database',
+  },
   // Standalone single Percona Server for MongoDB instance (no replication).
   psm: {
     label: 'PSMDB',
@@ -136,6 +146,23 @@ const NODE_TYPES = {
     defaults: {
       os: 'oraclelinux', osVersion: '9', arch: 'amd64',
       proxysqlMajor: '2', proxysqlVersion: '', mode: 'singlewrite',
+      exportEnabled: false, exportHostPort: 0, pmmNodeId: '', useProxy: true,
+    },
+  },
+  // HAProxy — a TCP load balancer fronting a Patroni cluster. Links to a Patroni
+  // cluster frame (data flows Patroni → HAProxy); routes writes to the leader and
+  // reads to the replicas via Patroni's REST health checks.
+  haproxy: {
+    label: 'HAProxy',
+    slug: 'haproxy',
+    sub: 'HAProxy — PostgreSQL load balancer',
+    color: '#22c55e',
+    icon: 'ProxySQL',
+    singleton: false,
+    ports: true,
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
+    defaults: {
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64',
       exportEnabled: false, exportHostPort: 0, pmmNodeId: '', useProxy: true,
     },
   },
@@ -253,7 +280,7 @@ function nextMemberName(usedSet, prefix) {
 }
 
 // Per-frame-type presentation: accent color and the description line.
-const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', psmdb: '#10b981', psmrs: '#059669' }
+const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', psmdb: '#10b981', psmrs: '#059669', patroni: '#336791' }
 const frameColor = (f) => FRAME_COLORS[f?.type] || '#a855f7'
 
 const osLabel = (type, os) => (NODE_TYPES[type]?.osOptions.find((o) => o.id === os)?.label) || os
@@ -273,6 +300,7 @@ const frameVersionLabel = (f) => {
   if (f?.type === 'innodb') return `${f?.replMode === 'groupreplication' ? 'Group Replication' : 'InnoDB Cluster'}${f?.pdpsRepo ? ` · ${f.pdpsRepo}` : ''}`
   if (f?.type === 'psmdb') return `PS MongoDB ${f?.psmdbVersion || f?.psmdbMajor || ''} sharded · ${f?.psmdbSetup === 'minimum' ? 'minimum' : 'standard'}`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'psmrs') return `PS MongoDB ${f?.psmdbVersion || f?.psmdbMajor || ''} replica set`.replace(/\s+/g, ' ').trim()
+  if (f?.type === 'patroni') return `Percona PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · Patroni`.replace(/\s+/g, ' ').trim()
   return pxcVersionLabel(f)
 }
 
@@ -287,7 +315,7 @@ const proxyModeOpts = (backendType) => PROXY_MODE_OPTS[backendType === 'mysql' ?
 
 // nodeOSLabel renders a free node's OS line; ProxySQL carries its own os/version
 // (like a PXC frame), other nodes map via their osOptions.
-const nodeOSLabel = (n) => (n.type === 'proxysql' || n.type === 'ps' || n.type === 'psm' ? pxcOSLabel(n) : osLabel(n.type, n.os))
+const nodeOSLabel = (n) => (n.type === 'proxysql' || n.type === 'ps' || n.type === 'psm' || n.type === 'haproxy' ? pxcOSLabel(n) : osLabel(n.type, n.os))
 
 // Auto-numbered per-type labels: a non-singleton node is named "<slug>-NN" with
 // NN zero-padded from 01 and increasing per node type (pmm-01, pmm-02, …, and in
@@ -625,7 +653,7 @@ function StackEditor({ stackId, onBack }) {
       consider(n.id, { x: n.x, y: n.y, w: NODE_W, h: NODE_H })
     }
     for (const f of refs.current.frames) {
-      if (f.type === 'pxc' || f.type === 'proxysql' || f.type === 'mysql') consider(f.id, { x: f.x, y: f.y, w: f.w, h: f.h })
+      if (f.type === 'pxc' || f.type === 'proxysql' || f.type === 'mysql' || f.type === 'patroni') consider(f.id, { x: f.x, y: f.y, w: f.w, h: f.h })
     }
     return best
   }
@@ -765,11 +793,17 @@ function StackEditor({ stackId, onBack }) {
     const n = refs.current.nodes.find((x) => x.id === id)
     if (n) {
       if (n.type === 'proxysql' && !n.frameId) return 'proxysql'
+      if (n.type === 'haproxy' && !n.frameId) return 'haproxy'
       if ((n.type === 'pxc' || n.type === 'mysql') && n.frameId) return 'replmember'
       return null
     }
     const f = refs.current.frames.find((x) => x.id === id)
-    if (f) return (f.type === 'pxc' || f.type === 'mysql') ? 'backend' : f.type === 'proxysql' ? 'proxysql-frame' : null
+    if (f) {
+      if (f.type === 'pxc' || f.type === 'mysql') return 'backend'
+      if (f.type === 'proxysql') return 'proxysql-frame'
+      if (f.type === 'patroni') return 'patroni'
+      return null
+    }
     return null
   }
   // createFlow adds a directed edge from→to (arrow at the destination). The
@@ -796,6 +830,10 @@ function StackEditor({ stackId, onBack }) {
     // source, max 1 outgoing).
     if (k1 === 'backend' && isProxyDest(k2)) return createFlow(e1, e2, { singleOutgoing: true })
     if (k2 === 'backend' && isProxyDest(k1)) return createFlow(e2, e1, { singleOutgoing: true })
+    // Patroni cluster frame → HAProxy node (frame is the source, max 1 outgoing;
+    // HAProxy takes a single incoming via the createFlow dest guard).
+    if (k1 === 'patroni' && k2 === 'haproxy') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'patroni' && k1 === 'haproxy') return createFlow(e2, e1, { singleOutgoing: true })
     // ProxySQL node ↔ ProxySQL node: ask which way the data flows.
     if (k1 === 'proxysql' && k2 === 'proxysql') { setLinkPrompt({ e1, e2 }); return }
     // Cluster member ↔ cluster member (PXC/Percona Server, different frames): a
@@ -1071,6 +1109,37 @@ function StackEditor({ stackId, onBack }) {
     setNodes(r.nodes)
     setSelected({ kind: 'frame', id: fid })
   }
+  function newPatroniMember(frameId) {
+    const used = new Set(nodes.filter((n) => n.type === 'patroni').map((n) => n.label))
+    return { id: uid('patroni'), type: 'patroni', label: nextMemberName(used, 'patroni'), frameId, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
+  }
+  // addPatroniCluster builds a Patroni PostgreSQL cluster frame with 3 members
+  // (resizable 3–7). Each member co-locates PostgreSQL + Patroni + an etcd member;
+  // one node is elected leader and the rest stream as replicas.
+  function addPatroniCluster() {
+    if (!nodes.some((n) => n.type === 'intranet')) return
+    const fid = uid('frame')
+    const fx = (-view.x + 200) / view.z
+    const fy = (-view.y + 200) / view.z
+    const frame = {
+      id: fid, type: 'patroni', label: nextNamedCluster(frames, 'patroni-cluster'), x: fx, y: fy, w: 0, h: 0,
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64', pgMajor: '16', pgVersion: '',
+      rootPassword: '', pmmNodeId: '', useProxy: true,
+      usePgBackRest: false, seaweedfsNodeId: '',
+      generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
+    }
+    const used = new Set(nodes.filter((n) => n.type === 'patroni').map((n) => n.label))
+    const newNodes = []
+    for (let i = 0; i < 3; i++) {
+      const name = nextMemberName(used, 'patroni')
+      used.add(name)
+      newNodes.push({ id: uid('patroni'), type: 'patroni', label: name, frameId: fid, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 })
+    }
+    const r = relayout(fid, [...frames, frame], [...nodes, ...newNodes])
+    setFrames(r.frames)
+    setNodes(r.nodes)
+    setSelected({ kind: 'frame', id: fid })
+  }
   // Frame +/- buttons dispatch by frame type.
   function addFrameMember(frame) {
     if (frame.type === 'proxysql') {
@@ -1091,6 +1160,11 @@ function StackEditor({ stackId, onBack }) {
       const r = relayout(frame.id, frames, [...nodes, newPSMRSMember(frame.id)])
       setFrames(r.frames)
       setNodes(r.nodes)
+    } else if (frame.type === 'patroni') {
+      if (nodes.filter((n) => n.frameId === frame.id).length >= 7) return // max 7 (etcd quorum)
+      const r = relayout(frame.id, frames, [...nodes, newPatroniMember(frame.id)])
+      setFrames(r.frames)
+      setNodes(r.nodes)
     } else {
       addPXCNode(frame.id)
     }
@@ -1098,6 +1172,9 @@ function StackEditor({ stackId, onBack }) {
   function removePXCNode(frameId) {
     const mine = nodes.filter((n) => n.frameId === frameId)
     if (mine.length <= 1) return // keep at least one node
+    // Patroni needs an etcd quorum: never drop below 3 members.
+    const frame = frames.find((f) => f.id === frameId)
+    if (frame?.type === 'patroni' && mine.length <= 3) return
     removePXCNodeById(frameId, mine[mine.length - 1].id)
   }
   function removePXCNodeById(frameId, id) {
@@ -1282,6 +1359,12 @@ function StackEditor({ stackId, onBack }) {
           <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('psm')}>
             <Icon.Plus size={16} /> PSMDB
           </Button>
+          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addPatroniCluster}>
+            <Icon.Plus size={16} /> Patroni Cluster
+          </Button>
+          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('haproxy')}>
+            <Icon.Plus size={16} /> HAProxy
+          </Button>
           <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('seaweedfs')}>
             <Icon.Plus size={16} /> SeaweedFS
           </Button>
@@ -1425,6 +1508,7 @@ function StackEditor({ stackId, onBack }) {
                     else if (f.type === 'innodb') sub = f.replMode === 'groupreplication' ? 'GR member' : 'Cluster member'
                     else if (f.type === 'psmdb') sub = n.role === 'mongos' ? 'mongos router' : n.role === 'config' ? 'config server' : `shard ${n.shard} member`
                     else if (f.type === 'psmrs') sub = 'replica-set member'
+    else if (f.type === 'patroni') sub = 'Patroni node'
                     else if (arb) sub = 'Arbitrator · garbd'
                     const barCol = (f.type === 'pxc' && arb) || (f.type === 'mysql' && !isPrimary) ? '#64748b' : col
                     // PXC and Percona Server replication members expose ports for
@@ -2380,6 +2464,32 @@ function SeaweedFSForm({ node: n, patchNode, deleteNode, dep, deployed }) {
         nodes); the <span className="font-mono">:8080</span> web interface is published to the host.
       </div>
 
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.tls} disabled={deployed} onChange={(e) => patchNode(n.id, { tls: e.target.checked })} />
+        <span>Serve the S3 endpoint over TLS (HTTPS on :8333)</span>
+      </label>
+      {n.tls && (
+        <>
+          <label className={`flex items-center gap-2 pl-5 text-sm ${deployed ? 'opacity-70' : ''}`}>
+            <input type="checkbox" checked={!!n.generateCert} disabled={deployed} onChange={(e) => patchNode(n.id, { generateCert: e.target.checked })} />
+            <span>Sign the certificate with the Intranet CA</span>
+          </label>
+          {n.generateCert ? (
+            <div className="flex items-center gap-2 pl-5">
+              <span className="text-xs text-muted">Cert TTL</span>
+              <input type="number" min="1" className={`${inputCls} w-20 ${lock}`} value={n.certTtlValue || 365} disabled={deployed} onChange={(e) => patchNode(n.id, { certTtlValue: Number(e.target.value) })} />
+              <select className={`${inputCls} ${lock}`} value={n.certTtlUnit || 'days'} disabled={deployed} onChange={(e) => patchNode(n.id, { certTtlUnit: e.target.value })}>
+                <option value="minutes">minutes</option>
+                <option value="hours">hours</option>
+                <option value="days">days</option>
+              </select>
+            </div>
+          ) : (
+            <p className="pl-5 text-xs text-muted">Self-signed — clients must skip TLS verification (the snippets set this).</p>
+          )}
+        </>
+      )}
+
       {!deployed && <p className="text-xs text-muted">The endpoint URL and copy-paste backup snippets appear here after deploy.</p>}
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
         <Icon.Trash size={16} /> Delete node
@@ -3209,6 +3319,296 @@ function PSMRSMemberForm({ node: n, frame, patchNode, dep, deployed }) {
   )
 }
 
+// usePPGCatalog loads the Percona PostgreSQL catalog and cascade-normalizes a
+// frame's OS/version/arch + PG major/minor selects (same shape as useMongoCatalog).
+function usePPGCatalog(obj, deployed, patch) {
+  const [cat, setCat] = useState(null)
+  useEffect(() => {
+    let alive = true
+    stackApi.ppgCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    return () => { alive = false }
+  }, [])
+  const imgs = cat || []
+  const osVersions = [...new Set(imgs.filter((i) => i.os === obj.os).map((i) => i.osVersion))]
+  useEffect(() => {
+    if (deployed || !imgs.length) return
+    const p = {}
+    const osVer = osVersions.includes(obj.osVersion) ? obj.osVersion : (osVersions[0] ?? obj.osVersion)
+    if (osVer !== obj.osVersion) p.osVersion = osVer
+    const archList = [...new Set(imgs.filter((i) => i.os === obj.os && i.osVersion === osVer).map((i) => i.arch))]
+    const arch = archList.includes(obj.arch) ? obj.arch : (archList[0] ?? obj.arch)
+    if (arch !== obj.arch) p.arch = arch
+    const e2 = imgs.find((i) => i.os === obj.os && i.osVersion === osVer && i.arch === arch)
+    const majorList = e2 ? Object.keys(e2.versions || {}).filter((m) => (e2.versions[m] || []).length) : []
+    const major = majorList.includes(obj.pgMajor) ? obj.pgMajor : (majorList[0] ?? obj.pgMajor)
+    if (major !== obj.pgMajor) p.pgMajor = major
+    const minorList = (e2?.versions?.[major]) || []
+    if (obj.pgVersion && !minorList.includes(obj.pgVersion)) p.pgVersion = ''
+    if (Object.keys(p).length) patch(obj.id, p)
+  }, [imgs, obj.id, obj.os, obj.osVersion, obj.arch, obj.pgMajor, obj.pgVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+  return imgs
+}
+
+// PatroniFrameForm edits a Patroni PostgreSQL cluster frame: catalog OS/version/arch
+// + PG major/minor, superuser password, optional pgBackRest → SeaweedFS S3 backup,
+// PMM/proxy/cert. Members are resizable 3–7 (etcd quorum; odd recommended).
+function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed }) {
+  const imgs = usePPGCatalog(f, deployed, patchFrame)
+  const lock = deployed ? 'opacity-70' : ''
+  const pmmNodes = nodes.filter((n) => n.type === 'pmm')
+  const seaweedNodes = nodes.filter((n) => n.type === 'seaweedfs')
+  const members = frameNodes.length
+
+  const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
+  const osVersions = [...new Set(imgs.filter((i) => i.os === f.os).map((i) => i.osVersion))]
+  const archs = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === f.osVersion).map((i) => i.arch))]
+  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion && i.arch === f.arch)
+  const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
+  const minors = (entry?.versions?.[f.pgMajor]) || []
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Patroni Cluster</span>
+        <Badge tone="primary">{members} node{members === 1 ? '' : 's'}</Badge>
+      </div>
+
+      <Field label="Cluster name" hint="Becomes the Patroni scope + pgBackRest stanza; must be unique across the stack.">
+        <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+      </Field>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+          <select className={`${inputCls} ${lock}`} value={f.os} disabled={deployed} onChange={(e) => patchFrame(f.id, { os: e.target.value })}>
+            {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="OS version">
+          <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
+            {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Platform / arch">
+          <select className={`${inputCls} ${lock}`} value={f.arch} disabled={deployed} onChange={(e) => patchFrame(f.id, { arch: e.target.value })}>
+            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="PostgreSQL major">
+          <select className={`${inputCls} ${lock}`} value={f.pgMajor} disabled={deployed} onChange={(e) => patchFrame(f.id, { pgMajor: e.target.value, pgVersion: '' })}>
+            {majors.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+      </div>
+      <Field label="PostgreSQL minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+        <select className={`${inputCls} ${lock}`} value={f.pgVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { pgVersion: e.target.value })}>
+          <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
+          {minors.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </Field>
+
+      <Field label="Superuser (postgres) password" hint={deployed ? 'Set at deploy.' : 'Leave empty to auto-generate.'}>
+        <input className={`${inputCls} ${lock}`} value={f.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchFrame(f.id, { rootPassword: e.target.value })} />
+      </Field>
+
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!f.usePgBackRest} disabled={deployed} onChange={(e) => patchFrame(f.id, { usePgBackRest: e.target.checked })} />
+        <span>Use pgBackRest (SeaweedFS S3) for cloning + backup</span>
+      </label>
+      {f.usePgBackRest && (
+        <Field label="SeaweedFS node (S3 repository)" hint={seaweedNodes.length ? 'WAL archive + initial full backup land here; replicas clone via pgBackRest.' : 'Add a SeaweedFS node to the stack first.'}>
+          <select className={`${inputCls} ${lock}`} value={f.seaweedfsNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { seaweedfsNodeId: e.target.value })}>
+            <option value="">select a SeaweedFS node…</option>
+            {seaweedNodes.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+        </Field>
+      )}
+
+      <Field label="Monitored by (PMM)" hint="Optional — registers each member's PostgreSQL with a PMM node.">
+        <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
+          <option value="">none</option>
+          {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </Field>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for downloads</span>
+      </label>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
+        <span>Generate per-node certificates from Intranet CA (PostgreSQL TLS)</span>
+      </label>
+      {f.generateCert && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted">Cert TTL</span>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={f.certTtlUnit || 'days'} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
+            <option value="minutes">minutes</option>
+            <option value="hours">hours</option>
+            <option value="days">days</option>
+          </select>
+        </div>
+      )}
+
+      {(members < 3 || members > 7 || members % 2 === 0) && (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+          {members < 3 && <div>At least 3 members are required for etcd quorum ({members} now).</div>}
+          {members > 7 && <div>At most 7 members are allowed ({members} now).</div>}
+          {members % 2 === 0 && members >= 3 && members <= 7 && <div>An odd number of members keeps etcd quorum on a split network ({members} now).</div>}
+        </div>
+      )}
+      <p className="text-xs text-muted">Each member runs PostgreSQL + Patroni + an etcd member. Use the +/− buttons on the frame to resize (3–7 members). Link an HAProxy node to route writes → leader and reads → replicas.</p>
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteFrame(f.id)}>
+        <Icon.Trash size={16} /> Delete cluster
+      </Button>
+    </div>
+  )
+}
+
+// PatroniMemberForm edits a Patroni cluster member: only host-port export of 5432
+// (OS/version come from the frame; Patroni auto-elects the leader).
+function PatroniMemberForm({ node: n, frame, patchNode, dep, deployed }) {
+  return (
+    <div className="space-y-3">
+      {dep && (
+        <div className="flex items-center justify-between rounded-lg bg-surface2 px-3 py-2 text-sm">
+          <span className="text-muted">Deployment</span>
+          <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+        </div>
+      )}
+      <Field label="Node name" hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
+      <Field label="Cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <p className="text-xs text-muted">Runs PostgreSQL + Patroni + an etcd member. Patroni auto-elects the leader; replicas stream from it.</p>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
+        <span>Export PostgreSQL port to the host (5432)</span>
+      </label>
+      {n.exportEnabled && (
+        <Field label="Host port" hint="0 / empty = random unused port. Must not clash with another node.">
+          <input type="number" min="0" max="65535" className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.exportHostPort || 0} disabled={deployed}
+            onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
+        </Field>
+      )}
+    </div>
+  )
+}
+
+// HAProxyForm edits a (not-yet-running) HAProxy node: it must be linked to a
+// Patroni cluster frame by an association line. Image OS/version/arch come from the
+// generic images catalog; host-port export publishes the write/read/stats ports.
+function HAProxyForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep, deployed }) {
+  const [cat, setCat] = useState(null)
+  useEffect(() => {
+    let alive = true
+    stackApi.imagesCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    return () => { alive = false }
+  }, [])
+  const imgs = cat || []
+  const lock = deployed ? 'opacity-70' : ''
+
+  const osFamilies = [...new Set(imgs.map((i) => i.os))]
+  const osVersions = [...new Set(imgs.filter((i) => i.os === n.os).map((i) => i.osVersion))]
+  const archs = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === n.osVersion).map((i) => i.arch))]
+
+  // Snap invalid dependent selects once the catalog loads.
+  useEffect(() => {
+    if (deployed || !imgs.length) return
+    const patch = {}
+    const osVer = osVersions.includes(n.osVersion) ? n.osVersion : (osVersions[0] ?? n.osVersion)
+    if (osVer !== n.osVersion) patch.osVersion = osVer
+    const archList = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === osVer).map((i) => i.arch))]
+    const arch = archList.includes(n.arch) ? n.arch : (archList[0] ?? n.arch)
+    if (arch !== n.arch) patch.arch = arch
+    if (Object.keys(patch).length) patchNode(n.id, patch)
+  }, [imgs, n.id, n.os, n.osVersion, n.arch, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pmmNodes = nodes.filter((x) => x.type === 'pmm')
+  // Walk the association graph to the linked Patroni cluster frame.
+  const linkedFrame = (() => {
+    const adj = {}
+    for (const e of edges) {
+      ;(adj[e.from.node] ||= []).push(e.to.node)
+      ;(adj[e.to.node] ||= []).push(e.from.node)
+    }
+    const seen = new Set([n.id])
+    const queue = [n.id]
+    while (queue.length) {
+      const cur = queue.shift()
+      for (const nb of adj[cur] || []) {
+        const f = frames.find((fr) => fr.id === nb && fr.type === 'patroni')
+        if (f) return f
+        if (!seen.has(nb)) { seen.add(nb); queue.push(nb) }
+      }
+    }
+    return null
+  })()
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">HAProxy</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+
+      {linkedFrame ? (
+        <div className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
+          Routes to Patroni cluster <span className="font-mono font-medium">{linkedFrame.label}</span> — writes → leader (:5000), reads → replicas (:5001).
+        </div>
+      ) : (
+        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+          Not linked. Draw an association line from a Patroni cluster frame to this HAProxy node.
+        </div>
+      )}
+
+      <Field label="Label"><input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} /></Field>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+          <select className={`${inputCls} ${lock}`} value={n.os} disabled={deployed} onChange={(e) => patchNode(n.id, { os: e.target.value })}>
+            {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="OS version">
+          <select className={`${inputCls} ${lock}`} value={n.osVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { osVersion: e.target.value })}>
+            {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+      </div>
+      <Field label="Platform / arch">
+        <select className={`${inputCls} ${lock}`} value={n.arch} disabled={deployed} onChange={(e) => patchNode(n.id, { arch: e.target.value })}>
+          {archs.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+      </Field>
+
+      <Field label="Monitored by (PMM)" hint="Optional — registers the HAProxy service with a PMM node.">
+        <select className={`${inputCls} ${lock}`} value={n.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchNode(n.id, { pmmNodeId: e.target.value })}>
+          <option value="">none</option>
+          {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </Field>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for downloads</span>
+      </label>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
+        <span>Export ports to the host (write 5000 / read 5001 / stats 7000)</span>
+      </label>
+      {n.exportEnabled && (
+        <Field label="Write (leader) host port" hint="0 / empty = random unused port. The read + stats ports get random host ports.">
+          <input type="number" min="0" max="65535" className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.exportHostPort || 0} disabled={deployed}
+            onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
+        </Field>
+      )}
+
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
 // PSMStandaloneForm edits a standalone PS MongoDB node: catalog OS/version/arch + PS
 // MongoDB major/minor, admin password, PMM/proxy/cert and host export. (Same options
 // as the replica-set frame, minus replication.)
@@ -3416,7 +3816,7 @@ function loadProps() {
 function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster, deployOpen, deployments, onDeployMinimize }) {
   const selNode = selected?.kind === 'node' ? nodes.find((n) => n.id === selected.id) : null
   const selDep = selNode ? depByNode[selNode.id] : null
-  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm' || selNode.type === 'seaweedfs')) || selected?.kind === 'frame'
+  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm' || selNode.type === 'seaweedfs' || selNode.type === 'patroni' || selNode.type === 'haproxy')) || selected?.kind === 'frame'
 
   const saved = useRef(loadProps()).current
   const [docked, setDocked] = useState(saved.docked !== false)
@@ -3528,6 +3928,9 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     if (f.type === 'psmrs') {
       return <PSMRSFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
     }
+    if (f.type === 'patroni') {
+      return <PatroniFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+    }
     return <PXCFrameForm frame={f} stackId={stackId} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} running={running} />
   }
 
@@ -3583,6 +3986,22 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <MongoDBManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <PSMStandaloneForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+
+    // Patroni PostgreSQL cluster member node.
+    if (n.type === 'patroni') {
+      if (dep && dep.state === 'running') {
+        return <PatroniManager stackId={stackId} nodeId={n.id} frame={frames.find((fr) => fr.id === n.frameId)} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <PatroniMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} patchNode={patchNode} dep={dep} deployed={deployed} />
+    }
+
+    // HAProxy node (load balancer for a Patroni cluster).
+    if (n.type === 'haproxy') {
+      if (dep && dep.state === 'running') {
+        return <HAProxyManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <HAProxyForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
 
     const def = NODE_TYPES[n.type] || NODE_TYPES.intranet

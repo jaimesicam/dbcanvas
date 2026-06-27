@@ -53,6 +53,8 @@ export const stackApi = {
   proxysqlCatalog: () => request('GET', '/api/catalog/proxysql'),
   psCatalog: () => request('GET', '/api/catalog/ps'),
   psmdbCatalog: () => request('GET', '/api/catalog/psmdb'),
+  ppgCatalog: () => request('GET', '/api/catalog/ppg'),
+  imagesCatalog: () => request('GET', '/api/catalog/images'),
   pdpsCatalog: () => request('GET', '/api/catalog/pdps'),
 }
 
@@ -80,6 +82,15 @@ export function frameApi(id, fid) {
   return {
     // pmmNodeId "" turns monitoring off; a node id registers the cluster with that PMM server.
     setMonitoring: (pmmNodeId) => request('POST', `${base}/pmm`, { pmmNodeId }),
+  }
+}
+
+// Patroni cluster (frame) management. `fid` is the design frame id.
+export function patroniApi(id, fid) {
+  const base = `/api/stacks/${id}/frames/${fid}`
+  return {
+    // Run an on-demand pgBackRest full backup on the current leader.
+    backup: () => request('POST', `${base}/patroni/backup`),
   }
 }
 

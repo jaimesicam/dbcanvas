@@ -171,6 +171,13 @@ func loadPXCCatalog() []PXCImage      { return loadImageCatalog("percona_xtradb_
 func loadProxySQLCatalog() []PXCImage { return loadImageCatalog("proxysql") }
 func loadPSCatalog() []PXCImage       { return loadImageCatalog("percona_server") }
 func loadPSMDBCatalog() []PXCImage    { return loadImageCatalog("percona_server_mongodb") }
+func loadPPGCatalog() []PXCImage      { return loadImageCatalog("percona_postgresql") }
+
+// loadImagesCatalog returns every built image with its os/version/arch/platform
+// but without any version map — used by nodes that only need the OS matrix
+// (e.g. HAProxy), where the per-product catalogs would drop images that have an
+// empty version map for that product.
+func loadImagesCatalog() []PXCImage { return loadImageCatalog("") }
 
 // loadImageCatalog parses the per-image `<wantSection>` major-series map of
 // versions.yaml (each image's installable versions keyed by series). It mirrors
@@ -304,6 +311,22 @@ func (a *App) handlePSMDBCatalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"images": loadPSMDBCatalog()})
+}
+
+func (a *App) handlePPGCatalog(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.currentUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"images": loadPPGCatalog()})
+}
+
+func (a *App) handleImagesCatalog(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.currentUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"images": loadImagesCatalog()})
 }
 
 // loadPDPSCatalog reads the top-level `pdps:` list of percona-release repositories
