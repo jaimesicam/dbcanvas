@@ -505,6 +505,21 @@ func (a *App) mysqlPrepareNode(ctx context.Context, st Stack, frame designFrame,
 		return pr.fail("install percona-server-server: %v", err)
 	}
 	pr.logln("percona-server-server installed")
+
+	// Install Percona XtraBackup matching the Percona Server series (8.0 → pxb80 /
+	// percona-xtrabackup-80, 8.4 → pxb84lts / percona-xtrabackup-84) so the node can
+	// take physical backups (e.g. to a SeaweedFS S3 target via xbcloud).
+	pr.phase("Installing Percona XtraBackup", 45)
+	xbpkg := pxbPackage(frame.PSMajor)
+	xbScript := pxcInstallXtrabackupRHEL
+	if debian {
+		xbScript = pxcInstallXtrabackupDebian
+	}
+	if err := a.runStep(ctx, id, xbScript, []string{"PRODUCT=" + pxbProduct(frame.PSMajor), "PKG=" + xbpkg}, pr.logln); err != nil {
+		return pr.fail("install %s: %v", xbpkg, err)
+	}
+	pr.logln(xbpkg + " installed")
+
 	if err := a.runStep(ctx, id, pmmScript, nil, pr.logln); err != nil {
 		return pr.fail("install pmm-client: %v", err)
 	}

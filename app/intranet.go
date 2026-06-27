@@ -50,6 +50,12 @@ type designNode struct {
 	// RootPassword (admin pw), PMMNodeID, UseProxy, GenerateCert/CertTTL, export above).
 	PSMDBMajor   string `json:"psmdbMajor"`   // "6.0" | "7.0" | "8.0"
 	PSMDBVersion string `json:"psmdbVersion"` // minor; "" → latest
+	// SeaweedFS node fields (Type=="seaweedfs"; an S3-compatible object store used
+	// as a backup target). Runs the chrislusf/seaweedfs image (pulled, not a systemd
+	// image), so it ignores os/arch like PMM.
+	AccessKey string `json:"accessKey"` // S3 AWS_ACCESS_KEY_ID ("" → "seaweedfs")
+	SecretKey string `json:"secretKey"` // S3 AWS_SECRET_ACCESS_KEY ("" → generated)
+	Bucket    string `json:"bucket"`    // S3 bucket to create (required)
 }
 
 // designEdge is a connection drawn on the canvas. The endpoints' Node field holds
@@ -367,6 +373,11 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			}
 			if n.ExportEnabled && n.ExportHostPort > 0 {
 				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		case "seaweedfs":
+			others++
+			if !validBucketName(n.Bucket) {
+				out = append(out, issue{"error", "SeaweedFS node " + n.Label + " needs a valid bucket name (3–63 chars: lowercase letters, digits, dots and hyphens; start/end alphanumeric)"})
 			}
 		default:
 			others++
@@ -778,6 +789,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionPerconaServer(st, n, doc)
 		case "psm":
 			a.provisionMongoStandalone(st, n, doc)
+		case "seaweedfs":
+			a.provisionSeaweedFS(st, n, doc)
 		}
 	}
 
@@ -1297,6 +1310,13 @@ func (a *App) refreshPublishedPorts(ctx context.Context, st Stack, nid string, d
 			if cfg.Role == "mongos" {
 				cfg.MongosPort = p
 			}
+		}
+		save(cfg)
+	case "seaweedfs":
+		var cfg seaweedConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort(fmt.Sprintf("%d/tcp", seaweedWebPort)); ok {
+			cfg.WebPort = p
 		}
 		save(cfg)
 	}

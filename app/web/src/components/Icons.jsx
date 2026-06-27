@@ -260,4 +260,11 @@ export const Icon = {
       <path d="M19 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h6" />
     </Svg>
   ),
+  // Object storage (S3 bucket) — used for the SeaweedFS node.
+  Bucket: (p) => (
+    <Svg {...p}>
+      <path d="M5 7h14l-1.3 12.1a1 1 0 0 1-1 .9H7.3a1 1 0 0 1-1-.9L5 7Z" />
+      <ellipse cx="12" cy="7" rx="7" ry="2.4" />
+    </Svg>
+  ),
 }

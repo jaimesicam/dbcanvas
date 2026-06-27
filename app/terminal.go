@@ -32,8 +32,14 @@ func (a *App) handleNodeTerminal(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Prefer bash, but fall back to sh for minimal images (e.g. the alpine-based
+	// SeaweedFS node) that don't ship bash. Detect with `command -v` first — never
+	// `exec` a possibly-missing binary, since a failed exec makes the shell exit
+	// (the `|| exec sh` is never reached) and the terminal dies blank. `-i` forces
+	// an interactive shell so busybox sh actually prints a prompt.
 	stream, err := a.docker.HijackExec(ctx, dep.ContainerID,
-		[]string{"/bin/bash"}, []string{"TERM=xterm-256color"})
+		[]string{"/bin/sh", "-c", "if command -v bash >/dev/null 2>&1; then exec bash -i; else exec /bin/sh -i; fi"},
+		[]string{"TERM=xterm-256color"})
 	if err != nil {
 		c.Close(websocket.StatusInternalError, "exec failed")
 		return

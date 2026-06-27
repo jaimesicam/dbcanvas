@@ -202,6 +202,7 @@ type ContainerSpec struct {
 	Name         string
 	Image        string
 	Hostname     string
+	Cmd          []string // override the image command (empty = image default)
 	Env          []string
 	Network      string
 	Aliases      []string
@@ -241,6 +242,9 @@ func (d *Docker) ContainerCreate(ctx context.Context, spec ContainerSpec) (strin
 		"Image":    spec.Image,
 		"Hostname": spec.Hostname,
 		"Env":      spec.Env,
+	}
+	if len(spec.Cmd) > 0 {
+		body["Cmd"] = spec.Cmd
 	}
 	if spec.Network != "" {
 		host["NetworkMode"] = spec.Network

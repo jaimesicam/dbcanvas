@@ -1949,3 +1949,142 @@ not the renamed entity.
 
 ### Verification performed
 - `npm run build` (Vite) passes.
+
+## 20. SeaweedFS node (S3 object storage / backup target)
+
+A **SeaweedFS** node (`Type=="seaweedfs"`): an **S3-compatible object store** used
+as a backup target for the database nodes (xtrabackup/xbcloud, Percona Backup for
+MongoDB, pgBackRest). Like the PMM node it runs a **ready-made image**
+(`chrislusf/seaweedfs`, pulled at deploy — **not** a `make images` systemd image)
+and runs unprivileged. It is a free node gated on the Intranet (so the DB nodes can
+resolve its FQDN through the Intranet DNS). Properties: **AWS_ACCESS_KEY_ID**
+(default `seaweedfs`), **AWS_SECRET_ACCESS_KEY** (generated if left empty), and a
+required **bucket name**; **AWS_DEFAULT_REGION** is fixed at `us-east-1` (SeaweedFS
+ignores the region but S3 clients require one). After deploy the node panel shows
+the **endpoint URL** and copy-paste backup snippets.
+
+### Data model — `app/intranet.go`
+`designNode` gains SeaweedFS fields (ignored by other types): `accessKey`,
+`secretKey`, `bucket`. Deploy dispatch adds `case "seaweedfs"` (per-node loop —
+free node, `FrameID==""`). `validateStack` adds a `seaweedfs` case that requires a
+valid bucket name (`validBucketName`: 3–63 chars, lowercase letters/digits/dots/
+hyphens, start/end alphanumeric, no `..`/`.-`/`-.`); it does **not** check an image
+(the image is pulled, like PMM). `refreshPublishedPorts` adds a `seaweedfs` case
+reading `8080/tcp` (the published web-UI port) into `seaweedConfig.WebPort`.
+
+### Provisioning — `app/seaweedfs.go`
+`provisionSeaweedFS(st, n, doc)` records the deployment then runs an async, stepwise
+goroutine (same progress/percent/log model as PMM):
+1. **Pull** `chrislusf/seaweedfs:latest` (`seaweedDefaultTag`) if absent.
+2. **Wait for the Intranet** (`waitIntranet`) — the DB nodes resolve seaweedfs's
+   FQDN through it; the container is created with `DNS=[intranetIP]`.
+3. **Create** the container with `Cmd` =
+   `["server", "-dir=/data", "-s3", "-s3.config=/etc/seaweedfs/s3.json"]`
+   (all-in-one master + volume + filer + S3 gateway: S3 on **8333**, volume web UI
+   on **8080**, filer 8888, master 9333). Only the **8080 web interface** is
+   published to the host (`PublishPorts: [seaweedWebPort]`); the S3 API stays on its
+   **8333** default and is reached **in-network** by the database nodes (it is not
+   host-published). Then — **before start** — `PutArchive` the S3 identities config
+   into `/etc/seaweedfs/s3.json` (a single identity with the access/secret key and
+   `Admin` actions). A new **`ContainerSpec.Cmd`** field (in `docker.go`) carries the
+   command; `seaweedTar` includes an explicit parent-dir entry so `/etc/seaweedfs` is
+   created on extract.
+4. **Start**, record the published host port for the web UI (`WebPort`, from
+   `8080/tcp`).
+5. **Create the bucket** via `weed shell` (`s3.bucket.create` + verify with
+   `s3.bucket.list | grep`), run through **`runShStep`** (a `/bin/sh` variant of
+   PMM's `runStep` — the alpine image has no bash) with 10 retries, which also
+   serves as the readiness gate (weed shell only connects once master+filer are up).
+6. **reconcileStackDNS** so the node gets an A record.
+
+`seaweedConfig` (image/hostname/fqdn/alias/accessKey/bucket/region/`WebPort`/
+`InternalEndpoint` = `http://<fqdn>:8333`) is the non-secret profile; `seaweedSecrets`
+holds the secret key (reused across redeploys, else the user's value, else a 40-char
+`genS3Secret`). Both are served by the existing `GET /api/stacks/{id}/nodes/{nid}`
+(`handleGetNode`) — **no new routes**.
+
+> **Port design (per request):** the host-published port is the SeaweedFS **web
+> interface** (`http://<host>:<WebPort>/ui/index.html`, the volume-server status UI),
+> **not** S3. The **S3 endpoint stays on `:8333`** and is used only in-network by the
+> database nodes (`http://<fqdn>:8333`), which is what all the backup snippets target.
+> `seaweedS3Port=8333` / `seaweedWebPort=8080` are constants in `seaweedfs.go`.
+
+### Terminal — bash→sh fallback (`app/terminal.go`)
+The root-console exec was hard-coded to `/bin/bash`; the alpine SeaweedFS image has
+no bash. **First attempt** ran `sh -c 'exec bash 2>/dev/null || exec sh'` — which was
+wrong: on a missing bash a failed `exec` makes the shell **exit (127)** before the
+`|| exec sh` runs, so the terminal opened **blank/dead**. Even when sh did run,
+busybox `sh` prints **no prompt** unless interactive. The exec now runs
+`sh -c 'if command -v bash >/dev/null 2>&1; then exec bash -i; else exec /bin/sh -i; fi'`
+— detect-then-exec (never `exec` a missing binary) with **`-i`** to force an
+interactive shell that prints a prompt. OL9 still gets `bash -i`; alpine gets
+`sh -i` (prompt `/data # `).
+
+### Frontend
+- **`NODE_TYPES.seaweedfs`** (teal, new **`Icon.Bucket`** glyph, `ports:false`,
+  `osOptions:[{id:'seaweedfs',label:'chrislusf/seaweedfs'}]`, defaults
+  `{accessKey:'seaweedfs', secretKey:'', bucket:''}`) + a **SeaweedFS** toolbar
+  button (gated on Intranet). `nodeOSLabel`'s default branch already renders the
+  image label; `wide` (panel widen) includes `seaweedfs`.
+- **`SeaweedFSForm`** (undeployed): label, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+  (placeholder "auto-generate if empty"), bucket (with live name validation), an
+  AWS_DEFAULT_REGION=us-east-1 note; all credential/bucket fields lock once deployed.
+- **`SeaweedFSManager.jsx`** (running): tabs **Overview** (FQDN/image/alias/bucket/
+  region + an **Open web interface** link to `http://<host>:<WebPort>/ui/index.html`
+  + delete), **Access** (the in-network **S3 endpoint** `internalEndpoint`
+  (`:8333`, used by the DB nodes) + the **web interface** `http://<host>:<WebPort>`
+  (`:8080`), access/secret key, region, bucket — each with a copy button), and
+  **Backups** — copy-paste snippets built from the config/secrets for
+  **xtrabackup → `xbcloud put`**, a **`my.cnf [xbcloud]`** section, **`xbcloud get`**
+  (restore), **Percona Backup for MongoDB** (`pbm config --file`), and **pgBackRest**
+  config. All use the in-stack endpoint and **path-style** addressing
+  (`s3-bucket-lookup=path` / `forcePathStyle:true` / `repo1-s3-uri-style=path`) over
+  plain HTTP, as SeaweedFS requires.
+
+### Verification performed
+- `go build`/`go vet`/`go test`, `gofmt`, and the web build (`npm run build`) all pass.
+- **Live (validated).** A first live deploy crash-looped: `weed`'s S3 server
+  aborted on startup with `fail to read /etc/seaweedfs/s3.json: permission denied`
+  — the recent `chrislusf/seaweedfs` image runs `weed` as a **non-root** user, so a
+  root-owned `0600` config is unreadable to it. **Fix:** `seaweedTar` writes the
+  config **world-readable (`0644`)** (the container is the trust boundary). After
+  the fix, reproduced the exact provisioner steps against the real image (stage
+  `s3.json` 0644 before start → `weed server -s3` stays up, no crash loop; the
+  `weed shell s3.bucket.create`/`s3.bucket.list` script created the bucket and
+  exited 0). An authenticated S3 round-trip on the published port: **PUT 200**,
+  **GET 200** (payload echoed), and **wrong-secret → 403 SignatureDoesNotMatch** —
+  confirming path-style addressing, the credentials, and that auth is enforced.
+
+### Fix — config file permission (`0644`)
+`seaweedTar` now stamps the staged `/etc/seaweedfs/s3.json` mode `0644` (was
+`0600`). The image's non-root `weed` process must be able to read it; the
+container is the security boundary, so a world-readable S3 config inside it is
+fine.
+
+### Percona XtraBackup on Percona Server (standalone + replication)
+SeaweedFS is a backup target, so the **Percona Server** node types now ship the
+matching backup tool. PXC data nodes already installed Percona XtraBackup (§8 — for
+SST); **`mysqlPrepareNode`** (used by both the standalone **Percona Server** `ps`
+node and every **Percona Server Replication** `mysql` member) now installs it too,
+right after `percona-server-server` (~45%), reusing the PXC helpers: `pxbProduct`/
+`pxbPackage` map the **`PSMajor`** series to the percona-release product + package
+(`8.0 → pxb80 / percona-xtrabackup-80`, `8.4 → pxb84lts / percona-xtrabackup-84`),
+installed via `pxcInstallXtrabackup{RHEL,Debian}`. So an `xbcloud put` to the
+SeaweedFS endpoint works out of the box on these nodes. (PXC already had it; the
+MongoDB/PSMDB types use Percona Backup for MongoDB instead.)
+
+### Follow-ups — publish the web UI (not S3) + fix the blank terminal
+- **Publish 8080 (web UI), keep S3 on 8333.** Per request, the host-published port is
+  now the **web interface** (volume-server status UI at `/ui/index.html` on container
+  8080), while the **S3 API stays on 8333** for in-network use by the database nodes.
+  `seaweedfs.go` reverted the `Cmd` to default ports (no `-s3.port`/`-volume.port`),
+  publishes `seaweedWebPort` (8080), and records `WebPort`; `refreshPublishedPorts`
+  reads `8080/tcp`; the manager's Access/Overview show the web link + the `:8333` S3
+  endpoint. **Live-verified:** `curl http://host:<WebPort>/ui/index.html` → **HTTP
+  200** ("SeaweedFS … Volume Server"); S3 still answers on 8333 in-container (403
+  ListBuckets without auth = alive).
+- **Blank terminal fixed** (see *Terminal* above) — detect-then-exec with `-i`.
+  **Live-verified** against the alpine SeaweedFS container under a controlling PTY:
+  the prompt `/data # ` renders immediately and after each command (`whoami` → root,
+  arithmetic evaluated), where the old `exec bash || exec sh` exited 127 and showed
+  nothing.

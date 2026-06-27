@@ -10,6 +10,7 @@ import ProxySQLManager from './ProxySQLManager.jsx'
 import MySQLManager from './MySQLManager.jsx'
 import InnoDBManager from './InnoDBManager.jsx'
 import MongoDBManager from './MongoDBManager.jsx'
+import SeaweedFSManager from './SeaweedFSManager.jsx'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import {
   PORTS, dist, portPoint, edgePath, screenToWorld, zoomAt,
@@ -137,6 +138,19 @@ const NODE_TYPES = {
       proxysqlMajor: '2', proxysqlVersion: '', mode: 'singlewrite',
       exportEnabled: false, exportHostPort: 0, pmmNodeId: '', useProxy: true,
     },
+  },
+  // SeaweedFS — an S3-compatible object store (backup target). Like PMM it runs a
+  // ready-made image (pulled at deploy), not a systemd OS image.
+  seaweedfs: {
+    label: 'SeaweedFS',
+    slug: 'seaweedfs',
+    sub: 'S3-compatible object storage (backups)',
+    color: '#14b8a6',
+    icon: 'Bucket',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'seaweedfs', label: 'chrislusf/seaweedfs' }],
+    defaults: { accessKey: 'seaweedfs', secretKey: '', bucket: '' },
   },
 }
 
@@ -1268,6 +1282,9 @@ function StackEditor({ stackId, onBack }) {
           <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('psm')}>
             <Icon.Plus size={16} /> PSMDB
           </Button>
+          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('seaweedfs')}>
+            <Icon.Plus size={16} /> SeaweedFS
+          </Button>
           <div className="mx-1 h-5 w-px bg-border" />
           <Button size="sm" variant="outline" disabled={!!busy} onClick={runValidate}>
             <Icon.Check size={15} /> {busy === 'validate' ? 'Validating…' : 'Validate'}
@@ -2317,6 +2334,60 @@ function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
   )
 }
 
+// SeaweedFSForm edits a (not-yet-running) SeaweedFS node: the S3 access key
+// (AWS_ACCESS_KEY_ID, defaults to "seaweedfs"), the secret key (left empty to
+// auto-generate), and the bucket to create. The region is fixed at us-east-1.
+function SeaweedFSForm({ node: n, patchNode, deleteNode, dep, deployed }) {
+  const lock = deployed ? 'opacity-70' : ''
+  const bucketOk = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test((n.bucket || '').trim()) &&
+    !/(\.\.|\.-|-\.)/.test((n.bucket || '').trim())
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">SeaweedFS</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <p className="text-xs text-muted">
+        S3-compatible object storage (<span className="font-mono">chrislusf/seaweedfs</span>),
+        used as a backup target for xtrabackup/xbcloud, Percona Backup for MongoDB and pgBackRest.
+      </p>
+
+      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+
+      <Field label="AWS_ACCESS_KEY_ID" hint={deployed ? 'Set at deploy.' : 'Defaults to "seaweedfs".'}>
+        <input className={`${inputCls} ${lock}`} value={n.accessKey ?? 'seaweedfs'} disabled={deployed} placeholder="seaweedfs"
+          onChange={(e) => patchNode(n.id, { accessKey: e.target.value })} />
+      </Field>
+
+      <Field label="AWS_SECRET_ACCESS_KEY" hint={deployed ? 'Generated at deploy — see Access tab.' : 'Leave empty to auto-generate.'}>
+        <input className={`${inputCls} ${lock}`} value={n.secretKey || ''} disabled={deployed} placeholder="(auto-generate if empty)"
+          onChange={(e) => patchNode(n.id, { secretKey: e.target.value })} />
+      </Field>
+
+      <Field label="Bucket name" hint="Required. 3–63 chars: lowercase letters, digits, dots and hyphens.">
+        <input className={`${inputCls} ${lock}`} value={n.bucket || ''} disabled={deployed} placeholder="db-backups"
+          onChange={(e) => patchNode(n.id, { bucket: e.target.value })} />
+      </Field>
+      {!deployed && (n.bucket || '').trim() && !bucketOk && (
+        <p className="text-xs text-danger">Invalid bucket name — must be 3–63 chars and start/end with a letter or digit.</p>
+      )}
+
+      <div className="rounded-lg bg-surface2 px-3 py-2 text-xs text-muted">
+        <span className="font-medium text-fg/80">AWS_DEFAULT_REGION</span> is <span className="font-mono">us-east-1</span>.
+        The S3 endpoint stays on <span className="font-mono">:8333</span> (used in-network by the database
+        nodes); the <span className="font-mono">:8080</span> web interface is published to the host.
+      </div>
+
+      {!deployed && <p className="text-xs text-muted">The endpoint URL and copy-paste backup snippets appear here after deploy.</p>}
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
 // ProxySQLForm edits a (not-yet-running) ProxySQL node: catalog-driven OS/version
 // + ProxySQL major/minor, implementation mode, host-port export and PMM monitor.
 // It must be linked to a PXC cluster frame by an association line on the canvas.
@@ -3345,7 +3416,7 @@ function loadProps() {
 function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster, deployOpen, deployments, onDeployMinimize }) {
   const selNode = selected?.kind === 'node' ? nodes.find((n) => n.id === selected.id) : null
   const selDep = selNode ? depByNode[selNode.id] : null
-  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm')) || selected?.kind === 'frame'
+  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm' || selNode.type === 'seaweedfs')) || selected?.kind === 'frame'
 
   const saved = useRef(loadProps()).current
   const [docked, setDocked] = useState(saved.docked !== false)
@@ -3542,6 +3613,13 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <MySQLManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <PerconaServerForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+    // SeaweedFS object-storage node.
+    if (n.type === 'seaweedfs') {
+      if (dep && dep.state === 'running') {
+        return <SeaweedFSManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <SeaweedFSForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
     return (
       <div className="space-y-3">
