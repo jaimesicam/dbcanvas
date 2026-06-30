@@ -107,6 +107,15 @@ func main() {
 	// Patroni cluster (frame) management — run an on-demand pgBackRest backup.
 	mux.HandleFunc("POST /api/stacks/{id}/frames/{fid}/patroni/backup", app.handlePatroniBackup)
 
+	// Standalone PostgreSQL node — run an on-demand pgBackRest backup.
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/pg/backup", app.handlePGBackup)
+
+	// PS MongoDB cluster/replica-set (frame) — run an on-demand PBM backup.
+	mux.HandleFunc("POST /api/stacks/{id}/frames/{fid}/pbm/backup", app.handleMongoPBMBackup)
+
+	// repmgr cluster (frame) — run an on-demand Barman cloud backup on the primary.
+	mux.HandleFunc("POST /api/stacks/{id}/frames/{fid}/barman/backup", app.handleRepmgrBackup)
+
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/term", app.handleNodeTerminal)
 
 	app.startReaper()

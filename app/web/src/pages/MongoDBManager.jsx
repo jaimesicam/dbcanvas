@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
-import { DEPLOY_TONE } from '../lib/stackApi.js'
+import { DEPLOY_TONE, mongoApi } from '../lib/stackApi.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'access', label: 'Access' },
   { id: 'creds', label: 'Credentials' },
+  { id: 'backup', label: 'Backup' },
 ]
 
 function CopyButton({ text, size = 14 }) {
@@ -51,12 +52,13 @@ function roleText(cfg) {
   return `shard ${cfg.shard} member (${cfg.replSet})`
 }
 
-export default function MongoDBManager({ stackId, nodeId, dep, onDeleteNode }) {
+export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDeleteNode }) {
   const [tab, setTab] = useState('overview')
   const { openTerminal } = useTerminals()
   const cfg = dep.config || {}
   const sec = dep.secrets || {}
   const host = typeof location !== 'undefined' ? location.hostname : 'localhost'
+  const hasBackup = !!cfg.enablePBM
   const isMongos = cfg.role === 'mongos'
   // Sharded shard/config members are meant to be reached via the router; mongos,
   // replica-set members and standalone nodes are reachable directly.
@@ -77,7 +79,7 @@ export default function MongoDBManager({ stackId, nodeId, dep, onDeleteNode }) {
       </div>
 
       <div className="flex flex-wrap gap-1 rounded-lg bg-surface2 p-1">
-        {TABS.map((t) => (
+        {TABS.filter((t) => t.id !== 'backup' || hasBackup).map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${tab === t.id ? 'bg-surface text-fg shadow' : 'text-muted'}`}>
             {t.label}
@@ -94,6 +96,7 @@ export default function MongoDBManager({ stackId, nodeId, dep, onDeleteNode }) {
           {isMongos && <KV k="configDB" v={cfg.configDB} mono />}
           {!isInternal && <KV k="Exported port" v={exportPort || 'not published'} />}
           <KV k="TLS" v={cfg.generateCert ? 'Intranet CA' : 'none'} />
+          <KV k="Backups (PBM)" v={cfg.enablePBM ? (cfg.backupRepo || 'enabled') : 'disabled'} />
           <KV k="Monitored by" v={cfg.monitoredBy} mono />
           <KV k="Image" v={cfg.image} mono />
           <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
@@ -146,6 +149,47 @@ export default function MongoDBManager({ stackId, nodeId, dep, onDeleteNode }) {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {tab === 'backup' && hasBackup && <BackupTab stackId={stackId} frameId={frameId} cfg={cfg} sec={sec} />}
+    </div>
+  )
+}
+
+// BackupTab runs an on-demand Percona Backup for MongoDB (PBM) backup for the whole
+// cluster (coordinated from a config server / RS primary by the backend).
+function BackupTab({ stackId, frameId, cfg, sec }) {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState(null)
+  async function runBackup() {
+    setBusy(true)
+    setMsg(null)
+    try {
+      await mongoApi(stackId, frameId).pbmBackup()
+      setMsg({ tone: 'success', text: 'PBM backup started.' })
+    } catch (e) {
+      setMsg({ tone: 'danger', text: e.message || 'Backup failed.' })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="space-y-3 text-sm">
+      <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] text-muted">
+        Percona Backup for MongoDB (<span className="font-mono">pbm-agent</span> on every member) backs the
+        cluster up to the SeaweedFS S3 store (<span className="font-mono">{cfg.backupRepo || 'SeaweedFS'}</span>).
+        Backups are cluster-wide; this runs <span className="font-mono">pbm backup</span> from a coordinating
+        member. List/restore with <span className="font-mono">pbm list</span> / <span className="font-mono">pbm restore</span> from a root console.
+      </div>
+      <Button size="sm" className="w-full" disabled={busy} onClick={runBackup}>
+        <Icon.Arrow size={15} /> {busy ? 'Starting backup…' : 'Backup now'}
+      </Button>
+      {sec.pbmUser && <CopyRow label="PBM user" value={sec.pbmUser} />}
+      {sec.pbmPassword && <CopyRow label="PBM password" value={sec.pbmPassword} />}
+      {msg && (
+        <div className={`rounded-lg border px-2.5 py-1.5 text-xs ${msg.tone === 'danger' ? 'border-danger/30 bg-danger/15 text-danger' : 'border-success/30 bg-success/15 text-success'}`}>
+          {msg.text}
         </div>
       )}
     </div>

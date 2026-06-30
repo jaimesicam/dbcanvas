@@ -85,6 +85,33 @@ export function frameApi(id, fid) {
   }
 }
 
+// Standalone PostgreSQL node management. `nid` is the design node id.
+export function pgApi(id, nid) {
+  const base = `/api/stacks/${id}/nodes/${nid}`
+  return {
+    // Run an on-demand pgBackRest full backup.
+    backup: () => request('POST', `${base}/pg/backup`),
+  }
+}
+
+// PS MongoDB cluster/replica-set (frame) management. `fid` is the design frame id.
+export function mongoApi(id, fid) {
+  const base = `/api/stacks/${id}/frames/${fid}`
+  return {
+    // Run an on-demand Percona Backup for MongoDB (PBM) backup.
+    pbmBackup: () => request('POST', `${base}/pbm/backup`),
+  }
+}
+
+// repmgr cluster (frame) management. `fid` is the design frame id.
+export function repmgrApi(id, fid) {
+  const base = `/api/stacks/${id}/frames/${fid}`
+  return {
+    // Run an on-demand Barman cloud backup on the current primary.
+    backup: () => request('POST', `${base}/barman/backup`),
+  }
+}
+
 // Patroni cluster (frame) management. `fid` is the design frame id.
 export function patroniApi(id, fid) {
   const base = `/api/stacks/${id}/frames/${fid}`

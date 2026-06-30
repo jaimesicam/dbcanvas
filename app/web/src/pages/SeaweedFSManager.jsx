@@ -222,7 +222,9 @@ storage:
       access-key-id: ${ak}
       secret-access-key: ${sk}`
 
-  const pgbackrest = `# pgBackRest — /etc/pgbackrest/pgbackrest.conf
+  const pgbackrestConf = `# 1) pgBackRest repository config — /etc/pgbackrest/pgbackrest.conf
+#    (the [global] block points the S3 repo at this SeaweedFS node; add one
+#     [<stanza>] block per PostgreSQL cluster you back up).
 [global]
 repo1-type=s3
 repo1-s3-endpoint=${endpointHostPort}
@@ -232,7 +234,57 @@ repo1-s3-region=${region}
 repo1-s3-key=${ak}
 repo1-s3-key-secret=${sk}
 repo1-s3-verify-tls=n
-repo1-path=/pgbackrest`
+repo1-path=/pgbackrest
+start-fast=y
+log-level-console=info
+
+[<stanza>]
+pg1-path=<data-dir>     # e.g. /var/lib/pgsql/16/data (EL) or /var/lib/postgresql/16/main (Debian)
+pg1-port=5432`
+
+  const pgbackrestArchive = `# 2) Enable WAL archiving in postgresql.conf, then restart PostgreSQL:
+archive_mode = on
+archive_command = 'pgbackrest --stanza=<stanza> archive-push %p'
+wal_level = replica
+max_wal_senders = 3`
+
+  const pgbackrestRun = `# 3) Create the stanza, verify it, and take backups (run as the postgres user):
+runuser -u postgres -- pgbackrest --stanza=<stanza> stanza-create
+runuser -u postgres -- pgbackrest --stanza=<stanza> check
+runuser -u postgres -- pgbackrest --stanza=<stanza> --type=full backup
+runuser -u postgres -- pgbackrest --stanza=<stanza> --type=incr backup   # incremental
+runuser -u postgres -- pgbackrest --stanza=<stanza> info                 # list backups
+
+# Restore (stop PostgreSQL and empty the data dir first):
+runuser -u postgres -- pgbackrest --stanza=<stanza> --delta restore`
+
+  const barmanCreds = `# 1) AWS credentials for barman-cloud (as the postgres user):
+#    ~postgres/.aws/credentials
+[default]
+aws_access_key_id = ${ak}
+aws_secret_access_key = ${sk}
+
+#    ~postgres/.aws/config — SeaweedFS needs path-style addressing:
+[default]
+region = ${region}
+s3 =
+    addressing_style = path`
+
+  const barmanArchive = `# 2) Install barman-cloud + boto3 (from the PGDG / apt.postgresql.org repos),
+#    then enable WAL archiving in postgresql.conf and restart PostgreSQL
+#    (<server> = a name for the cluster):
+#    EL:     dnf install barman-cli python3-boto3
+#    Debian: apt-get install barman-cli-cloud python3-boto3
+archive_mode = on
+archive_command = 'barman-cloud-wal-archive --cloud-provider aws-s3 --endpoint-url ${endpoint} s3://${bucket}/barman/<server> <server> %p'`
+
+  const barmanRun = `# 3) Take / list / restore base backups (run as the postgres user):
+runuser -u postgres -- barman-cloud-backup --cloud-provider aws-s3 --endpoint-url ${endpoint} s3://${bucket}/barman/<server> <server>
+runuser -u postgres -- barman-cloud-backup-list --cloud-provider aws-s3 --endpoint-url ${endpoint} s3://${bucket}/barman/<server> <server>
+
+# Restore a base backup into an empty data dir, then fetch WAL:
+runuser -u postgres -- barman-cloud-restore --cloud-provider aws-s3 --endpoint-url ${endpoint} s3://${bucket}/barman/<server> <server> <backup-id> <data-dir>
+restore_command = 'barman-cloud-wal-restore --cloud-provider aws-s3 --endpoint-url ${endpoint} s3://${bucket}/barman/<server> <server> %f %p'`
 
   return (
     <div className="space-y-4">
@@ -244,7 +296,40 @@ repo1-path=/pgbackrest`
       <Snippet title="my.cnf [xbcloud] section" note="Lets you drop the repeated --s3-* flags." code={myCnf} />
       <Snippet title="xbcloud get (restore)" code={xbcloudGet} />
       <Snippet title="Percona Backup for MongoDB (pbm)" code={pbm} />
-      <Snippet title="pgBackRest config" code={pgbackrest} />
+
+      <div className="space-y-2 rounded-lg border border-border bg-surface2/40 p-2">
+        <div className="text-xs font-semibold text-fg">pgBackRest → SeaweedFS S3</div>
+        <div className="text-[11px] text-muted">
+          Back up a PostgreSQL node to this SeaweedFS bucket in three steps: point the repo at
+          the S3 endpoint, turn on WAL archiving, then create the stanza and take a backup.
+          Replace <span className="font-mono">&lt;stanza&gt;</span> with a name for the cluster
+          (e.g. its hostname) and <span className="font-mono">&lt;data-dir&gt;</span> with the
+          PostgreSQL data directory. DBCanvas&apos;s <span className="font-medium text-fg/80">PostgreSQL</span>{' '}
+          and <span className="font-medium text-fg/80">Patroni</span> nodes do all of this automatically
+          when their <span className="font-mono">Use pgBackRest</span> option points at this node —
+          these snippets are for a manual or external client.
+        </div>
+        <Snippet title="1 · pgbackrest.conf (repository + stanza)" code={pgbackrestConf} />
+        <Snippet title="2 · postgresql.conf (WAL archiving)" code={pgbackrestArchive} />
+        <Snippet title="3 · stanza-create + backup + restore" code={pgbackrestRun} />
+      </div>
+
+      <div className="space-y-2 rounded-lg border border-border bg-surface2/40 p-2">
+        <div className="text-xs font-semibold text-fg">Barman (cloud) → SeaweedFS S3</div>
+        <div className="text-[11px] text-muted">
+          Barman&apos;s cloud utilities (<span className="font-mono">barman-cloud-backup</span> /
+          <span className="font-mono"> -wal-archive</span>) push WAL + base backups straight to this SeaweedFS
+          bucket — no separate Barman server. They use <span className="font-mono">boto3</span>, which works over
+          plain HTTP <em>or</em> HTTPS (TLS not required). Replace <span className="font-mono">&lt;server&gt;</span>
+          with a name for the cluster and <span className="font-mono">&lt;data-dir&gt;</span> with the PostgreSQL
+          data directory. DBCanvas&apos;s <span className="font-medium text-fg/80">repmgr cluster</span> nodes do all
+          of this automatically when their <span className="font-mono">Use Barman</span> option points at this node —
+          these snippets are for a manual or external client.
+        </div>
+        <Snippet title="1 · ~postgres/.aws credentials + config" code={barmanCreds} />
+        <Snippet title="2 · postgresql.conf (WAL archiving)" code={barmanArchive} />
+        <Snippet title="3 · backup / list / restore" code={barmanRun} />
+      </div>
     </div>
   )
 }

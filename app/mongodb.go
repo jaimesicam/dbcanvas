@@ -52,6 +52,8 @@ type mongoConfig struct {
 	UseProxy     bool   `json:"useProxy"`
 	MonitoredBy  string `json:"monitoredBy"`
 	Ports        []int  `json:"ports"`
+	EnablePBM    bool   `json:"enablePBM"`  // Percona Backup for MongoDB → SeaweedFS S3
+	BackupRepo   string `json:"backupRepo"` // e.g. "PBM → SeaweedFS S3 (bucket/prefix)" when enabled
 }
 
 // mongoSecrets holds the cluster admin credentials and the shared internal-auth
@@ -62,6 +64,8 @@ type mongoSecrets struct {
 	KeyFile       string `json:"keyFile"`
 	PMMUser       string `json:"pmmUser"`     // MongoDB user PMM uses to scrape metrics
 	PMMPassword   string `json:"pmmPassword"` // its password (stable across redeploys)
+	PBMUser       string `json:"pbmUser"`     // MongoDB user Percona Backup for MongoDB uses
+	PBMPassword   string `json:"pbmPassword"` // its password (stable across redeploys)
 }
 
 // psmdbRepo maps a major series to its percona-release repository name.
@@ -132,10 +136,11 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 	}
 	members = append(members, *mongos)
 
-	// Secrets: reuse the admin password + keyFile + PMM password across redeploys.
+	// Secrets: reuse the admin password + keyFile + PMM/PBM password across redeploys.
 	admin := strings.TrimSpace(frame.RootPassword)
 	keyFile := ""
 	pmmPass := ""
+	pbmPass := ""
 	for _, n := range members {
 		if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
 			var s mongoSecrets
@@ -149,6 +154,9 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 				if s.PMMPassword != "" {
 					pmmPass = s.PMMPassword
 				}
+				if s.PBMPassword != "" {
+					pbmPass = s.PBMPassword
+				}
 			}
 		}
 	}
@@ -161,13 +169,20 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 	if pmmPass == "" {
 		pmmPass = genSecret("MongoPMM!")
 	}
-	sec := mongoSecrets{AdminUser: "admin", AdminPassword: admin, KeyFile: keyFile, PMMUser: "pmm", PMMPassword: pmmPass}
+	if pbmPass == "" {
+		pbmPass = genSecret("MongoPBM!")
+	}
+	sec := mongoSecrets{AdminUser: "admin", AdminPassword: admin, KeyFile: keyFile, PMMUser: "pmm", PMMPassword: pmmPass, PBMUser: "pbm", PBMPassword: pbmPass}
 	secJSON, _ := json.Marshal(sec)
 
 	image := pxcImage(frame.OS, frame.OSVersion, frame.Arch)
 	major := frame.PSMDBMajor
 	if major == "" {
 		major = "8.0"
+	}
+	pbmRepo := ""
+	if frame.EnablePBM {
+		pbmRepo = "PBM → SeaweedFS S3"
 	}
 
 	// configDB connection string for mongos: cfg/host1:27017,host2:27017,host3:27017
@@ -205,6 +220,7 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 			Role: n.Role, Shard: n.Shard, ReplSet: replSetOf(n), Hostname: host, FQDN: fqdnOf(host, domain),
 			PSMDBMajor: major, Version: frame.PSMDBVersion, ConfigDB: configDB,
 			GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
+			EnablePBM: frame.EnablePBM, BackupRepo: pbmRepo,
 			Ports: []int{mongoPort},
 		}
 		cfgJSON, _ := json.Marshal(cfg)
@@ -297,6 +313,32 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 			}
 		}
 
+		// ---- Percona Backup for MongoDB: configure pbm-agent on every mongod member
+		// + register the SeaweedFS S3 store (best-effort; the cluster stays up if it
+		// fails). The PBM user goes on the config RS (admin auth) + each shard RS
+		// (localhost-exception path). Storage is set once, from a config server.
+		if frame.EnablePBM {
+			pr := progs[config[0].ID]
+			pr.phase("Configuring Percona Backup for MongoDB", 96)
+			if swCfg, swSec, err := a.waitSeaweedRunning(ctx, st.ID, frame.SeaweedFSNodeID, 10*time.Minute); err != nil {
+				pr.logln("PBM setup skipped: " + err.Error())
+			} else {
+				a.mongoEnsurePBMUser(ctx, st, config[0], sec, progs[config[0].ID])
+				for _, i := range shardIdx {
+					a.mongoEnsurePBMUser(ctx, st, shards[i][0], sec, progs[shards[i][0].ID])
+				}
+				for _, n := range config {
+					a.mongoSetupPBMAgent(ctx, st, n, frame.OS, sec, progs[n.ID])
+				}
+				for _, i := range shardIdx {
+					for _, n := range shards[i] {
+						a.mongoSetupPBMAgent(ctx, st, n, frame.OS, sec, progs[n.ID])
+					}
+				}
+				a.mongoConfigurePBMStorage(ctx, st, config[0], frame, swCfg, swSec, sec, progs[config[0].ID])
+			}
+		}
+
 		// ---- Phase 4: finalize ----
 		for _, n := range members {
 			pr := progs[n.ID]
@@ -337,10 +379,11 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 		rs = "rs"
 	}
 
-	// Secrets: reuse the admin password + keyFile + PMM password across redeploys.
+	// Secrets: reuse the admin password + keyFile + PMM/PBM password across redeploys.
 	admin := strings.TrimSpace(frame.RootPassword)
 	keyFile := ""
 	pmmPass := ""
+	pbmPass := ""
 	for _, n := range members {
 		if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
 			var s mongoSecrets
@@ -354,6 +397,9 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 				if s.PMMPassword != "" {
 					pmmPass = s.PMMPassword
 				}
+				if s.PBMPassword != "" {
+					pbmPass = s.PBMPassword
+				}
 			}
 		}
 	}
@@ -366,13 +412,20 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 	if pmmPass == "" {
 		pmmPass = genSecret("MongoPMM!")
 	}
-	sec := mongoSecrets{AdminUser: "admin", AdminPassword: admin, KeyFile: keyFile, PMMUser: "pmm", PMMPassword: pmmPass}
+	if pbmPass == "" {
+		pbmPass = genSecret("MongoPBM!")
+	}
+	sec := mongoSecrets{AdminUser: "admin", AdminPassword: admin, KeyFile: keyFile, PMMUser: "pmm", PMMPassword: pmmPass, PBMUser: "pbm", PBMPassword: pbmPass}
 	secJSON, _ := json.Marshal(sec)
 
 	image := pxcImage(frame.OS, frame.OSVersion, frame.Arch)
 	major := frame.PSMDBMajor
 	if major == "" {
 		major = "8.0"
+	}
+	pbmRepo := ""
+	if frame.EnablePBM {
+		pbmRepo = "PBM → SeaweedFS S3"
 	}
 	monitoredBy := ""
 	if frame.PMMNodeID != "" {
@@ -390,6 +443,7 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 			Role: "member", ReplSet: rs, Hostname: host, FQDN: fqdnOf(host, domain),
 			PSMDBMajor: major, Version: frame.PSMDBVersion,
 			GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
+			EnablePBM: frame.EnablePBM, BackupRepo: pbmRepo,
 			Ports: []int{mongoPort},
 		}
 		cfgJSON, _ := json.Marshal(cfg)
@@ -450,6 +504,22 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 			a.mongoEnsurePMMUser(ctx, st, members[0], major, sec, progs[members[0].ID])
 			for _, n := range members {
 				a.mongoRegisterPMM(ctx, st, n, frame.OS, pmmFQDN, pmmUser, pmmPass, rs, sec, progs[n.ID])
+			}
+		}
+
+		// PBM: configure pbm-agent on every member + register the SeaweedFS S3 store
+		// (best-effort). The PBM user is created on the primary (replicates to the set).
+		if frame.EnablePBM {
+			pr := progs[members[0].ID]
+			pr.phase("Configuring Percona Backup for MongoDB", 96)
+			if swCfg, swSec, err := a.waitSeaweedRunning(ctx, st.ID, frame.SeaweedFSNodeID, 10*time.Minute); err != nil {
+				pr.logln("PBM setup skipped: " + err.Error())
+			} else {
+				a.mongoEnsurePBMUser(ctx, st, members[0], sec, progs[members[0].ID])
+				for _, n := range members {
+					a.mongoSetupPBMAgent(ctx, st, n, frame.OS, sec, progs[n.ID])
+				}
+				a.mongoConfigurePBMStorage(ctx, st, members[0], frame, swCfg, swSec, sec, progs[members[0].ID])
 			}
 		}
 
@@ -657,6 +727,20 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 		return pr.fail("install pmm-client: %v", err)
 	}
 	pr.logln("pmm-client installed")
+
+	// Install Percona Backup for MongoDB on every member of a sharded cluster /
+	// replica set (not the standalone psm node) — always, so PBM backups can be
+	// turned on later without a reinstall (same pattern as pmm-client).
+	if frame.Type == "psmdb" || frame.Type == "psmrs" {
+		pbmInstall := pbmInstallRHEL
+		if debian {
+			pbmInstall = pbmInstallDebian
+		}
+		if err := a.runStep(ctx, id, pbmInstall, nil, pr.logln); err != nil {
+			return pr.fail("install percona-backup-mongodb: %v", err)
+		}
+		pr.logln("percona-backup-mongodb installed")
+	}
 
 	// Shared keyFile (same bytes everywhere) for internal cluster auth. Standalone
 	// nodes have no keyFile (sec.KeyFile == "").

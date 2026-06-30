@@ -2319,3 +2319,432 @@ returned `/leader → 200` (confirming `patroniRoleScript`). HAProxy's generated
 installs (EPEL) and runs as postgres with `/etc/pgbackrest` present. **Still pending:**
 the multi-node election + replica streaming + HAProxy failover routing + the pgBackRest
 S3 round-trip to a live SeaweedFS — these need the 3-node UI deploy.
+
+## 22. Standalone PostgreSQL node (PG) + optional pgBackRest → SeaweedFS S3
+
+A standalone **PostgreSQL** node (`Type=="pg"`): a single read/write PostgreSQL
+instance (Percona Distribution for PostgreSQL) installed at deploy time on a
+systemd OS image (`make images`). Its properties **mirror the standalone Percona
+Server node** (§11 `ps`) — catalog OS/version/arch, PostgreSQL major/minor,
+superuser password, PMM monitor, Intranet Squid proxy, Intranet-CA TLS, host-port
+export — **plus** an optional **pgBackRest → SeaweedFS S3** backup, the same option
+the Patroni cluster frame (§21) carries. Unlike the Patroni frame there is **no
+Patroni/etcd and no replication**: PostgreSQL is bootstrapped directly from the
+packaged systemd unit. It is a free node gated on the Intranet (DNS/CA/proxy), and
+publishes PostgreSQL on **5432** to the host when export is on.
+
+### Data model + dispatch + validation + ports — `app/intranet.go`
+`designNode` gains PG-only fields (ignored by other types): `PGMajor`, `PGVersion`,
+`UsePgBackRest`, `SeaweedFSNodeID` (it reuses `OS`/`OSVersion`/`Arch`, `RootPassword`
+= the postgres superuser password, `PMMNodeID`, `UseProxy`, `GenerateCert`/`CertTTL*`,
+`ExportEnabled`/`ExportHostPort`). Deploy dispatch adds `case "pg"` (per-node loop —
+free node). `validateStack` adds a `pg` case: image exists (`make images`), 5432
+export joins the shared host-port conflict check, and `UsePgBackRest` ⇒ a
+`SeaweedFSNodeID` set **and** referencing a `seaweedfs` node in the design (else an
+error — mirroring the patroni-frame rule). `refreshPublishedPorts` adds a `pg` case
+reading `5432/tcp` into `pgConfig.ExportPort`.
+
+### Provisioning — `app/pg.go`
+`provisionPG(st, n, doc)` records the deployment (`pgConfig` non-secret profile +
+`pgSecrets` reused from §21 — only the `postgres` superuser is used; the replication
+fields stay empty), then runs an async, stepwise goroutine (same progress/percent/log
+model as the other nodes):
+1. `waitIntranet`; when pgBackRest is on, `waitSeaweedRunning` (§21) so the S3
+   config/secret are readable before writing `pgbackrest.conf`.
+2. **Create + start** the container (systemd image, `DNS=[intranetIP]`, publish 5432
+   via `PublishMap` when export on), point its resolver at the Intranet.
+3. **Install** the PostgreSQL packages (`pgServerPackages` — EL
+   `percona-postgresqlNN-server` + `-contrib`, Debian `percona-postgresql-NN`) via
+   `percona-release setup ppg-NN` (reusing `patroniInstallRHEL`/`Debian`), plus
+   `percona-pgbackrest` (with EPEL for libssh2 on EL) when enabled, and **pmm-client**
+   (always, so monitoring can be turned on later). `UseProxy` routes egress through
+   the Intranet Squid first.
+4. **Initialise the data dir** (`pgInitScript`, guarded on `PG_VERSION`): EL runs
+   `initdb` directly as postgres into the packaged unit's data dir
+   (`/var/lib/pgsql/NN/data`); Debian registers a cluster with `pg_createcluster NN main`.
+5. When pgBackRest: create the config/runtime dirs (`patroniPgBackRestDirsScript`)
+   and write `/etc/pgbackrest/pgbackrest.conf` (`patroniPgBackRestConf` — S3 →
+   SeaweedFS, `repo1-s3-uri-style=path`, stanza = sanitized label) **before** start,
+   so `archive-push` works once the stanza exists.
+6. Optional **TLS** (`pgApplyCert`): the Intranet CA is staged and a server cert+key
+   signed into the data dir (postgres-owned, TTL via openssl `-not_after`), referenced
+   by `ssl_cert_file`/`ssl_key_file`/`ssl_ca_file`.
+7. **Configure** (`pgConfigureScript`, OS-aware config dir via `pgConfDir` — the data
+   dir on EL, `/etc/postgresql/NN/main` on Debian): append `listen_addresses='*'`,
+   `port=5432`, `password_encryption=scram-sha-256`, the `host all all 0.0.0.0/0
+   scram-sha-256` HBA line, and (when enabled) WAL archiving + TLS — appended last so
+   they win.
+8. **Start** the service (`pgStartScript`; `pgServiceName` = `postgresql-NN` on EL /
+   `postgresql@NN-main` on Debian), reconcile DNS, then **set the superuser password**
+   (`pgSetPasswordScript`: `runuser -u postgres psql … ALTER USER postgres PASSWORD
+   :'pw'` — peer auth over the local socket, the password quoted safely via a psql
+   variable).
+9. When pgBackRest: `pgbackrest stanza-create` + initial **full backup** (reusing
+   `patroniBackupScript`; non-fatal). PMM registration (best-effort, reusing
+   `patroniPMM{RHEL,Debian}` with the superuser) when a PMM node is selected. Record
+   `running`.
+
+`handlePGBackup` (route **`POST /api/stacks/{id}/nodes/{nid}/pg/backup`**, owner-scoped)
+runs an on-demand `pgbackrest --type=full backup` (`patroniBackupNowScript`) in the
+node's container when pgBackRest is enabled and the node is running.
+
+### Frontend — `app/web/src/pages/StackDesigner.jsx` + `PGManager.jsx`
+- **`NODE_TYPES.pg`** (PG blue `#336791`, `Database` icon, `ports:false`,
+  `osOptions:[{id:'oraclelinux'}]`, defaults incl. `pgMajor:'16'`,
+  `usePgBackRest:false`, `seaweedfsNodeId:''`, cert/export defaults) + a **PostgreSQL**
+  toolbar button (gated on Intranet, placed before "Patroni Cluster"). `nodeOSLabel`
+  and the manager-panel `wide` list include `pg`.
+- **`PostgreSQLForm`** (undeployed): the `usePPGCatalog` cascade (OS/version/arch + PG
+  major/minor, reused from the Patroni form), superuser password, a **Use pgBackRest
+  (SeaweedFS S3)** checkbox → a SeaweedFS-node `<select>`, PMM monitor, Intranet proxy,
+  Intranet-CA cert + TTL, and 5432 host export. All lock once deployed.
+- A running PG node renders **`PGManager.jsx`** (panel widens): **Overview**
+  (FQDN/PG version/image/role/pgBackRest/TLS/monitored-by/host port + delete),
+  **Credentials** (superuser + psql URIs for the published host port and the in-stack
+  FQDN), and a **Backup** tab (when pgBackRest) with a **Backup now** button →
+  `pgApi(id, nid).backup()` (new in `lib/stackApi.js`).
+
+### Verification performed
+- `go build`/`go vet`/`go test`, `gofmt -l` (clean), and the web build (`npm run build`)
+  all pass.
+- **Caveat — not validated on a live deployment.** The standalone PostgreSQL bootstrap
+  reuses the §21 PPG packages/paths and pgBackRest plumbing (which were live-probed on
+  Oracle Linux 9), but the non-Patroni path here (`initdb` into the packaged unit's
+  data dir, the `postgresql-NN` service name, the configure/start/set-password scripts,
+  and the pgBackRest stanza+backup on a plain server) is **build-verified only**; the
+  Debian `pg_createcluster` path especially needs a live deploy to confirm.
+
+### Live-deploy fix — superuser password (psql variable on stdin, not `-c`)
+The first live deploy looped on `set superuser password: ERROR: syntax error at or
+near ":" … ALTER USER postgres PASSWORD :'pw'`. `pgSetPasswordScript` quoted the
+password with a psql variable (`:'pw'`) but ran it via **`psql -c`** — and psql only
+expands `:'var'` for **stdin/file** input, never for a `-c` command string (a `-c`
+string must be fully server-parseable, with no psql-specific features). So the literal
+`:'pw'` reached the server. **Fix:** feed the SQL on **stdin** instead —
+`printf '%s\n' "ALTER USER postgres PASSWORD :'pw';" | runuser -u postgres -- psql -v
+ON_ERROR_STOP=1 -v pw="$SUPERPW"` — keeping the safe `:'pw'` quoting (handles arbitrary
+passwords) while letting psql actually interpolate it.
+
+### SeaweedFS node — pgBackRest backup documentation (`SeaweedFSManager.jsx`)
+The SeaweedFS node's **Backups** tab previously showed only the `pgbackrest.conf`
+`[global]` block. It now carries a full **pgBackRest → SeaweedFS S3** how-to (a bordered
+section under the xtrabackup/PBM snippets), in three copyable steps templated with the
+node's live endpoint/credentials/bucket/region:
+1. **`pgbackrest.conf`** — the `[global]` S3 repo block **plus** a `[<stanza>]` block
+   (with `pg1-path`/`pg1-port`) and a note on the per-OS data-dir paths.
+2. **`postgresql.conf`** — `archive_mode`/`archive_command=pgbackrest … archive-push`,
+   `wal_level`, `max_wal_senders`.
+3. **Commands** — `stanza-create`, `check`, `--type=full|incr backup`, `info`, and a
+   `--delta restore`, all as the postgres user.
+
+A note points out that DBCanvas's own **PostgreSQL** (§22) and **Patroni** (§21) nodes
+do all of this automatically when their *Use pgBackRest* option targets the node; the
+snippets are for a manual/external client.
+
+## 23. Percona Backup for MongoDB (PBM) for PSMDB Sharded Cluster + PSMDB RS
+
+The **PSMDB Sharded Cluster** (`Type=="psmdb"`) and **PSMDB RS** (`Type=="psmrs"`)
+frames now install **Percona Backup for MongoDB** on every member and can back the
+cluster up to a **SeaweedFS S3** node. `percona-backup-mongodb` is installed on all
+members **unconditionally** (like pmm-client, so backups can be turned on later
+without a reinstall); a frame option enables `pbm-agent` on every mongod member and
+registers the S3 store on a chosen SeaweedFS node.
+
+### Install (always) — `app/mongodb.go`
+`mongoPrepareNode` installs PBM right after pmm-client on every member of a
+`psmdb`/`psmrs` frame (not the standalone `psm` node): `pbmInstall{RHEL,Debian}` =
+**`percona-release enable pbm`** then `dnf install percona-backup-mongodb` (OEL) /
+`apt-get install percona-backup-mongodb` (Ubuntu). The package ships the `pbm` CLI +
+the `pbm-agent` unit; the unit is left unconfigured/stopped until backup is enabled.
+
+### Data model — `app/intranet.go` + `app/mongodb.go`
+`designFrame` gains **`EnablePBM bool`** (`enablePBM`) and reuses **`SeaweedFSNodeID`**
+(shared with the Patroni fields). `mongoConfig` gains `EnablePBM` + `BackupRepo`;
+`mongoSecrets` gains `PBMUser`/`PBMPassword` (user `pbm`, password `MongoPBM!…`,
+stable across redeploys, seeded like the PMM password).
+
+### Provisioning — `app/pbm.go`
+When `EnablePBM` is set, after the cluster is up + PMM is registered, a **best-effort**
+PBM phase runs (the cluster stays `running` even if PBM setup fails — failures are
+logged, the node is **not** marked errored):
+1. `waitSeaweedRunning` (§21) for the selected SeaweedFS node's S3 config/secret.
+2. **`mongoEnsurePBMUser`** creates the documented PBM user + `pbmAnyAction` role
+   (`readWrite`/`backup`/`clusterMonitor`/`restore`/`pbmAnyAction` on `admin`),
+   reusing `mongoPMMUserScript`'s auth-or-localhost-exception flow. Sharded: on the
+   **config-RS primary** + **each shard-RS primary** (replicates within each set);
+   RS: on the **RS primary**.
+3. **`mongoSetupPBMAgent`** on every **mongod** member (config + shard members; all
+   RS members — **never mongos**): write the `pbm-agent` EnvironmentFile
+   (`/etc/sysconfig/pbm-agent` on EL, `/etc/default/pbm-agent` on Debian) with
+   `PBM_MONGODB_URI=mongodb://pbm:<pw>@localhost:27017/?authSource=admin` (credentials
+   percent-encoded via `pbmMongoURI`), then `systemctl enable --now pbm-agent`.
+4. **`mongoConfigurePBMStorage`** runs once from a coordinating member (a config server
+   for sharded, the RS primary for a replica set): write `pbmStorageYAML` and run
+   `pbm config --file` — S3 → SeaweedFS (`type: s3`, `forcePathStyle: true`, a
+   per-cluster `prefix: pbm/<cluster>`, `insecureSkipTLSVerify` when the S3 endpoint is
+   HTTPS). `pbmConfigScript` waits for the agents to connect (`pbm status`) before
+   applying.
+
+`handleMongoPBMBackup` (route **`POST /api/stacks/{id}/frames/{fid}/pbm/backup`**,
+owner-scoped) runs an on-demand `pbm backup`, coordinated from a running config server
+(sharded) or any running member (RS).
+
+### Validation — `app/intranet.go` (`pbmFrameIssues`)
+Both the `psmdb` and `psmrs` validation blocks call `pbmFrameIssues`: when `EnablePBM`
+is set, the frame must reference a `seaweedfs` node present in the design (mirrors the
+Patroni pgBackRest rule).
+
+### Frontend — `StackDesigner.jsx` + `MongoDBManager.jsx`
+- A shared **`PBMOptions`** component (an "Enable backups with Percona Backup for
+  MongoDB" checkbox + a SeaweedFS-node `<select>` when enabled) is rendered in both
+  **`MongoDBFrameForm`** and **`PSMRSFrameForm`** (after the PMM picker). Frame defaults
+  add `enablePBM:false`/`seaweedfsNodeId:''`.
+- **`MongoDBManager`** takes `frameId` and gains a **Backup** tab (shown only when
+  `cfg.enablePBM`): a **Backup now** button → `mongoApi(id, fid).pbmBackup()` (new in
+  `lib/stackApi.js`), the PBM user/password, and a note pointing to `pbm list` /
+  `pbm restore` from a root console. The Overview gains a "Backups (PBM)" row.
+
+### Verification performed
+- `go build`/`go vet`/`go test`, `gofmt -l` (clean), and the web build (`npm run build`)
+  all pass.
+- **Caveat — not validated on a live deployment.** The PBM install (`percona-release
+  enable pbm` + `percona-backup-mongodb`), the `pbm-agent` EnvironmentFile + service,
+  the PBM user/role, and `pbm config`/`pbm backup` against a live SeaweedFS S3 follow
+  the PBM docs but are **build-verified only**; a live deploy (sharded + RS) should
+  confirm — the sharded-cluster coordination (CLI against the config-server RS) and the
+  SeaweedFS path-style S3 round-trip are the most likely spots to need a tweak.
+
+## 24. pgBackRest requires an S3-TLS SeaweedFS node (validation)
+
+pgBackRest's S3 client only speaks **HTTPS**, so it cannot use a plain-HTTP SeaweedFS
+endpoint. Validation now enforces this for **both** pgBackRest consumers — the Patroni
+cluster frame (§21) and the standalone PostgreSQL node (§22).
+
+- **`app/pg.go`**: new **`pgBackRestSeaweedIssues(who, seaweedNodeID, doc)`** returns
+  the SeaweedFS-backing issues for a pgBackRest user — an error when no node is
+  selected, when the selected node isn't in the design, **or when the selected
+  SeaweedFS node does not have S3 TLS enabled** (`designNode.TLS`, the §20 option). The
+  message: *"… pgBackRest requires the SeaweedFS node <label> to have S3 TLS enabled
+  (pgBackRest's S3 client needs HTTPS)"*.
+- **`app/intranet.go`**: the standalone-`pg` case and the patroni-frame block both call
+  the helper (replacing their inline "no node / not in design" checks; the now-unused
+  `seaweedIDs` map was removed). `repo1-s3-verify-tls=n` in `patroniPgBackRestConf`
+  still stands, so a **self-signed** (TLS on, cert off) SeaweedFS works — verification
+  is skipped, but the transport is the required HTTPS.
+- **Frontend** (`StackDesigner.jsx`): the SeaweedFS selector in `PostgreSQLForm` and
+  `PatroniFrameForm` notes "The node must have S3 TLS enabled (pgBackRest needs HTTPS)"
+  and annotates non-TLS nodes in the dropdown with "— needs S3 TLS".
+
+(PBM/MongoDB §23 is unaffected — PBM supports plain-HTTP S3, so its SeaweedFS node has
+no TLS requirement.)
+
+### Verification performed
+- `go build`/`go vet`/`go test`, `gofmt -l` (clean), and the web build all pass.
+
+## 25. repmgr PostgreSQL cluster frame + Barman (cloud) → SeaweedFS S3
+
+A **repmgr cluster** frame (`Type=="repmgr"`): a group of PostgreSQL nodes (Percona
+Distribution for PostgreSQL) on the systemd OS images using **streaming replication
+managed by repmgr** — one node bootstraps as primary, the rest are cloned as standbys,
+and **`repmgrd`** on every node provides automatic failover. Its options mirror the
+Patroni frame (§21) — catalog OS/version/arch, PG major/minor, superuser password,
+PMM, Squid proxy, Intranet-CA TLS, 5432 host export — but it uses **repmgr** instead of
+Patroni/etcd and, for backups, **Barman cloud** (`barman-cloud-backup` /
+`-wal-archive`) pushing to a **SeaweedFS S3** node instead of pgBackRest. **3–7 nodes**
+(min 3, max 7). No canvas association/HAProxy (apps connect to the primary; failover is
+handled by repmgrd).
+
+### Data model — `app/intranet.go`
+`designFrame` gains **`UseBarman bool`** (reusing `SeaweedFSNodeID`, plus the Patroni
+PG fields `PGMajor`/`PGVersion` and `OS`/`OSVersion`/`Arch`/`RootPassword`/`PMMNodeID`/
+`UseProxy`/`GenerateCert`/`CertTTL`). Members are `Type=="repmgr"` + `FrameID` +
+`ExportEnabled`/`ExportHostPort`. Deploy dispatch + the frames loop add a `repmgr`
+case; `refreshPublishedPorts` reads `5432/tcp` into `repmgrConfig.ExportPort`.
+
+### Provisioning — `app/repmgr.go`
+`provisionRepmgrFrame` (modeled on `provisionPatroniFrame`): credentials `pgSecrets`
+(`postgres` superuser + a `repmgr` SUPERUSER/REPLICATION role used for both streaming
+replication and repmgr metadata), then an async goroutine —
+1. `waitIntranet`; when Barman is on, `waitSeaweedRunning` for the S3 config/secret.
+2. **Parallel `repmgrPrepareNode`**: create the container (systemd image,
+   `DNS=[intranetIP]`, publish 5432 when export on), install `percona-postgresqlNN-*` +
+   the repmgr package (`repmgrPackages`: EL `percona-repmgrNN`, Debian
+   `postgresql-NN-repmgr`) + pmm-client; when Barman is on, **install barman-cloud**
+   (`barman-cli-cloud` + `python3-boto3` from the PGDG / apt.postgresql.org repos — see
+   §26(d); originally pip, which couldn't resolve on EL9) and stage
+   `~postgres/.aws/{credentials,config}` (the config forces
+   **path-style** S3 addressing, which SeaweedFS requires). Write `/etc/repmgr.conf`
+   (node_id, conninfo, `failover=automatic`, promote/follow commands) + `~/.pgpass`.
+3. **Primary** (`repmgrSetupPrimary`, member 0): `initdb` (reuses `pgInitScript`),
+   optional TLS, append replication/repmgr settings to postgresql.conf + pg_hba
+   (`wal_level=replica`, `max_wal_senders`, `shared_preload_libraries='repmgr'`, and the
+   Barman `archive_command` when enabled), start PostgreSQL, set the superuser password,
+   create the `repmgr` role + `repmgr` database, `repmgr primary register`.
+4. **Standbys** (sequential `repmgrSetupStandby`): `repmgr standby clone --fast-checkpoint
+   -F` from the primary, optional per-node TLS, start PostgreSQL, `repmgr standby register`.
+5. **repmgrd** on every node via a small `repmgrd.service` unit (PGDG ships no clean unit).
+6. When Barman: initial `barman-cloud-backup` on the primary (best-effort). PMM register
+   (reusing the §21 `patroniRegisterPMM`). Record `running`.
+
+`handleRepmgrBackup` (route **`POST /api/stacks/{id}/frames/{fid}/barman/backup`**)
+runs an on-demand `barman-cloud-backup` on the **current primary** (found via
+`pg_is_in_recovery()`, so it's correct after a failover).
+
+### Validation — `app/intranet.go` + `app/repmgr.go`
+A `repmgr`-frame block enforces **3 ≤ members ≤ 7** (error), odd-count (warning), unique
+cluster name, the 5432 export joins the shared host-port conflict check, and
+`UseBarman` ⇒ a SeaweedFS node present in the design (`barmanSeaweedIssues`). **Unlike
+pgBackRest, Barman does *not* require S3 TLS** — barman-cloud/boto3 work over plain HTTP.
+
+### Frontend — `StackDesigner.jsx` + `RepmgrManager.jsx`
+- **`NODE_TYPES.repmgr`** (cyan `#0e7490`, `Database` icon) + `FRAME_COLORS.repmgr`;
+  `frameVersionLabel`/member sub-label/`nodeOSLabel`/`wide`/minimap include `repmgr`.
+  The frame renders **without `PortHandles`** (no association, like InnoDB).
+- **Toolbar** "repmgr Cluster" → `addRepmgrCluster` (3 members `repmgrNN`, cluster
+  `repmgr-cluster-NN`); frame **+/−** resizes 3–7 (`addFrameMember`/`removePXCNode`).
+- **`RepmgrFrameForm`** (PPG catalog cascade, superuser pw, **Use Barman** checkbox →
+  SeaweedFS `<select>`, PMM/proxy/cert, 3–7 guidance) + **`RepmgrMemberForm`** (5432
+  export). A running member shows **`RepmgrManager.jsx`** (Overview incl. role/node_id/
+  Barman, Credentials, and a Backup tab with **Backup now** → `repmgrApi(id, fid).backup()`).
+- **SeaweedFS Backups tab** (`SeaweedFSManager.jsx`) gained a **"Barman (cloud) →
+  SeaweedFS S3"** section (3 copyable steps: `~postgres/.aws` credentials+config,
+  postgresql.conf `archive_command`, and backup/list/restore commands), templated with
+  the node's live endpoint/credentials/bucket/region — alongside the existing
+  xtrabackup/PBM/pgBackRest snippets.
+
+### Verification performed
+- `go build`/`go vet`/`go test`, `gofmt -l` (clean), and the web build all pass.
+- **Caveat — not validated on a live deployment.** The repmgr package names
+  (`percona-repmgrNN` / `postgresql-NN-repmgr`), the `repmgr primary/standby
+  register`/`clone` flow, the `repmgrd.service` unit, the barman-cloud pip install, and
+  the barman-cloud S3 round-trip to SeaweedFS follow the repmgr/Barman docs but are
+  **build-verified only**; a live deploy should confirm — the repmgr package/service
+  names and the barman-cloud S3 path-style addressing are the most likely spots to need
+  a tweak. **(The repmgr package source was corrected in §26 — see below.)**
+
+## 26. Watchtower node (PMM upgrades) + toolbar colors + repmgr PGDG fix
+
+Three changes in one session:
+
+### (a) Toolbar buttons match node/frame colors — `StackDesigner.jsx`
+A `typeColor(t)` helper (`FRAME_COLORS[t] || NODE_TYPES[t]?.color`) + `addBtnStyle(t)`
+returns inline `{ backgroundColor, borderColor, color:'#fff' }`. Every "add" button in
+the toolbar (Intranet, PMM3, PXC/ProxySQL/Percona Server/InnoDB/PSMDB/Patroni/repmgr
+clusters, standalone PG/PS/PSMDB, HAProxy, SeaweedFS, Watchtower) is tinted with its
+type's canvas color; the shared `disabled:opacity-50` still fades disabled buttons.
+
+### (b) Watchtower node + PMM association
+A **Watchtower** node (`Type=="watchtower"`, per-stack **singleton**) running
+`percona/watchtower:latest` (pulled at deploy) with the **docker socket mounted** and its
+**HTTP API enabled** (`WATCHTOWER_HTTP_API_TOKEN=<generated>` + `WATCHTOWER_HTTP_API_UPDATE=1`).
+A PMM node can be **associated** with it so PMM drives in-app server upgrades.
+
+- **`app/docker.go`** — `ContainerSpec` gains **`Binds []string`** (extra `src:dst[:mode]`
+  bind mounts), merged into the HostConfig `Binds` in `ContainerCreate` (after the
+  privileged cgroup binds). Used for the docker socket.
+- **`app/watchtower.go`** (new) — `provisionWatchtower` (pull image → `waitIntranet` →
+  create with `Env=[token, update]`, `Binds=["/var/run/docker.sock:/var/run/docker.sock"]`,
+  network alias `watchtower`, `DNS=[intranetIP]` → start → `reconcileStackDNS`). The API
+  **token is reused across redeploys** (read back from `Secrets`). `watchtowerConfig`
+  (image/hostname/fqdn/alias/apiPort 8080) + `watchtowerSecrets` (apiToken).
+  `waitWatchtower` (bounded) returns the running Watchtower's FQDN + token;
+  `watchtowerHostEnv` builds `PMM_WATCHTOWER_HOST=http://<fqdn>:8080` + `PMM_WATCHTOWER_TOKEN`.
+- **`app/pmm.go`** — when `n.WatchtowerNodeID != ""`, `provisionPMM` waits (best-effort)
+  for the Watchtower and sets the two `PMM_WATCHTOWER_*` env vars on the PMM container
+  (`ContainerSpec.Env`); if the Watchtower never comes up PMM still starts without it.
+- **`app/intranet.go`** — `designNode` gains **`WatchtowerNodeID`**; deploy dispatch +
+  `validateDesign` add a `watchtower` case (singleton check; a PMM whose `WatchtowerNodeID`
+  references a missing/non-watchtower node is an error). No published ports.
+- **`StackDesigner.jsx`** — `NODE_TYPES.watchtower` (slate `#475569`, `Server` icon,
+  singleton, `percona/watchtower` image); toolbar button (disabled once one exists);
+  **`PMMOptions`** gains a **Watchtower `<select>`** (`watchtowerNodeId`); property-panel
+  dispatch renders **`WatchtowerForm`** (pre-deploy) / **`WatchtowerManager`** (running —
+  shows image/host/API URL/token).
+
+### (c) repmgr installs from PGDG, not Percona — `app/repmgr.go`
+`percona-repmgrNN` does **not** exist in the Percona repo (`Unable to find a match`).
+repmgr is shipped by **PGDG**, so the whole repmgr frame now installs PostgreSQL **and**
+repmgr from PGDG (its on-disk layout — `/usr/pgsql-NN/bin`, `/var/lib/pgsql/NN/data`,
+`postgresql-NN.service` — is identical to Percona's, so the `pg.go` path helpers still
+apply). `repmgrAllPackages` returns EL `postgresqlNN-server` + `postgresqlNN-contrib` +
+**`repmgr_NN`** (underscore) / Debian `postgresql-NN` + `postgresql-NN-repmgr`. New
+`repmgrInstallRHEL` installs `pgdg-redhat-repo-latest.noarch.rpm` (EL/arch detected via
+`rpm -E %rhel` + `uname -m`), `dnf module disable postgresql`, then the packages (EPEL
+on for deps); `repmgrInstallDebian` adds `apt.postgresql.org` (`<codename>-pgdg`) with its
+signing key, then installs. `frameVersionLabel` for repmgr now reads "PostgreSQL … ·
+repmgr (PGDG)" (dropped "Percona"). The §25 `percona-repmgrNN` caveat is resolved here.
+
+### (d) Barman installs from PGDG packages, not pip — `app/repmgr.go`
+The pip install (`barman[cloud]` / `barman boto3`) failed on a live repmgr+Barman deploy
+with **`ResolutionImpossible`** — pip's resolver can't satisfy barman's dependency set
+against EL9's dnf-managed system Python. Since the repmgr frame already adds the PGDG
+(EL) / apt.postgresql.org (Debian) repos, `barmanInstallRHEL/Debian` now install the
+distro-packaged **`barman-cli-cloud`** (provides the `barman-cloud-*` binaries) plus
+**`python3-boto3`** (the aws-s3 provider; `barman-cli-cloud` only *Recommends* it, so it's
+explicit). Both scripts assert `barman-cloud-backup` is on PATH **and** `import boto3`
+works. The SeaweedFS "Barman (cloud)" doc snippet (`SeaweedFSManager.jsx`) now shows the
+`dnf/apt install barman-cli-cloud python3-boto3` commands instead of `pip3 install`.
+
+### Verification performed
+- `go build`/`go vet`/`go test`, `gofmt -l` (clean), and the web build all pass.
+- **Caveat — not validated on a live deployment.** The Watchtower HTTP-API ⇄ PMM upgrade
+  flow and the PGDG repmgr/Barman install (repo rpm URL, `repmgr_NN`, `barman-cli-cloud` +
+  `python3-boto3`, module-disable) are **build-verified only**; a live deploy should confirm.
+
+## 27. Fix Roundcube/dovecot crash under Rosetta (Apple Silicon) — `app/intranet.go`
+
+On macOS/Apple Silicon with Rancher Desktop, an **amd64** Intranet runs under Rosetta and
+`php-fpm` (Roundcube) + `dovecot` crashed at start:
+
+```
+dovecot[…]: rosetta error: mmap_anonymous_rw mmap failed, size=1000
+php-fpm.service: Main process exited, code=dumped, status=11/SEGV
+```
+
+### Root cause
+The §-existing "Relax sandboxing for emulation" step cleared only
+`MemoryDenyWriteExecute=no` + `SystemCallFilter=`. But on **EL9 the units that actually
+crash don't set either directive** — so the step was a **no-op** for them. Inspected
+in-container (`oraclelinux-9-amd64`): `php-fpm.service` ships `PrivateTmp=true`;
+`dovecot.service` ships `PrivateTmp=true`, **`ProtectSystem=full`**, **`PrivateDevices=true`**.
+`PrivateDevices`/`ProtectSystem` set up a private mount namespace, a stripped `/dev`, an
+`~@raw-io` seccomp filter and RO `/usr` — confinement the Rosetta translator can't work
+under (it can't obtain the anonymous RW code-cache mapping it later flips to RX).
+
+### Fix
+The "Relax sandboxing for emulation" drop-in (`/etc/systemd/system/<svc>.service.d/
+10-dbcanvas-emulation.conf`, written for php-fpm/dovecot/httpd/postfix/named/slapd/squid/
+rsyslog when `$EMULATED`) now **fully un-confines** the daemons: adds
+`PrivateDevices=no`, `PrivateTmp=no`, `ProtectSystem=no`, `ProtectHome=no`,
+`ProtectKernelTunables/Modules=no`, `ProtectControlGroups=no`, `RestrictNamespaces=no`,
+`RestrictRealtime=no`, `SystemCallArchitectures=` (allow non-native syscall ABI),
+`RestrictAddressFamilies=` and `LockPersonality=no`, on top of the original
+`MemoryDenyWriteExecute=no` + `SystemCallFilter=` (kept as belt-and-suspenders for other
+unit/OS versions). Emulation detection (`HostArch` arm + node `Arch==amd64`) is unchanged.
+These are localhost-only dev services, so the hardening loss is moot.
+
+### Verification performed
+- `go build`/`go vet`/`gofmt -l` clean.
+- Drop-in applied in a live `oraclelinux-9-amd64` container: `systemd-analyze verify
+  php-fpm.service dovecot.service` reports no directive errors, and `cat-config` confirms
+  the overrides follow (and thus win over) the units' `PrivateDevices/ProtectSystem/
+  PrivateTmp`.
+- **Caveat — not validated on Apple Silicon.** This dev host is x86_64, so the actual
+  Rosetta round-trip could not be reproduced; the user should confirm php-fpm/dovecot now
+  start on macOS/Rancher with an amd64 Intranet. (Native **arm64** Intranet — the default
+  when the dbcanvas server itself runs on Apple Silicon — avoids Rosetta entirely.)
+
+## 28. Barman installs from `barman-cli` on EL (not `barman-cli-cloud`) — `app/repmgr.go`
+
+§26(d) installed `barman-cli-cloud` on both EL and Debian, but a live repmgr+Barman deploy
+failed on EL: `Unable to find a match: barman-cli-cloud`. The package name differs by
+repo — **PGDG's EL/yum repo ships the `barman-cloud-*` binaries inside `barman-cli`**
+(there is no `barman-cli-cloud` there); only apt.postgresql.org splits them into
+`barman-cli-cloud`. Fixes:
+- `barmanInstallRHEL` now installs **`barman-cli`** (+ `python3-boto3`).
+- `barmanInstallDebian` keeps `barman-cli-cloud` but **falls back to `barman-cli`** if it's
+  unavailable; both still verify `barman-cloud-backup` is on PATH and `import boto3` works.
+- The SeaweedFS "Barman (cloud)" doc snippet (`SeaweedFSManager.jsx`) EL line now reads
+  `dnf install barman-cli python3-boto3`.
+
+`go build`/`go vet`/`gofmt -l` + web build all pass.

@@ -88,6 +88,28 @@ func (d *Docker) Ping(ctx context.Context) error {
 	return nil
 }
 
+// HostArch returns the Docker daemon's host architecture (e.g. "x86_64",
+// "aarch64") from /info, or "" if it can't be determined. Used to detect
+// cross-arch emulation (an amd64 container on an arm64 host runs under QEMU or,
+// on Apple Silicon + Rancher/colima, Rosetta).
+func (d *Docker) HostArch(ctx context.Context) string {
+	resp, err := d.do(ctx, "GET", "/info", nil)
+	if err != nil {
+		return ""
+	}
+	defer drain(resp)
+	if resp.StatusCode != 200 {
+		return ""
+	}
+	var info struct {
+		Architecture string `json:"Architecture"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&info) != nil {
+		return ""
+	}
+	return info.Architecture
+}
+
 // ImageExists reports whether an image reference is present locally. The ref
 // (repo:tag) is used verbatim — Docker matches the literal name, and escaping
 // the ':' would break the lookup.
@@ -213,6 +235,7 @@ type ContainerSpec struct {
 	DNS          []string  // resolv.conf nameservers (empty = Docker default embedded DNS)
 	DNSSearch    []string  // resolv.conf search domains
 	IPv4Address  string    // static IPv4 on Network (empty = auto-assign)
+	Binds        []string  // extra bind mounts ("src:dst[:mode]"), e.g. the docker socket
 }
 
 // PortMap publishes a container TCP port to a specific host port (HostPort 0
@@ -255,6 +278,10 @@ func (d *Docker) ContainerCreate(ctx context.Context, spec ContainerSpec) (strin
 		body["NetworkingConfig"] = map[string]any{
 			"EndpointsConfig": map[string]any{spec.Network: endpoint},
 		}
+	}
+	if len(spec.Binds) > 0 {
+		existing, _ := host["Binds"].([]string)
+		host["Binds"] = append(existing, spec.Binds...)
 	}
 	if len(spec.DNS) > 0 {
 		host["Dns"] = spec.DNS

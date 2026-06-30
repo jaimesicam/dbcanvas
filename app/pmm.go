@@ -150,6 +150,20 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 		}
 		logln("Intranet is running (resolver at " + intranetIP + ")")
 
+		// If a Watchtower node is associated, point PMM at it so the UI can trigger
+		// server upgrades (PMM_WATCHTOWER_HOST/TOKEN). Best-effort: if the Watchtower
+		// node never comes up we still bring PMM online without the integration.
+		var wtEnv []string
+		if n.WatchtowerNodeID != "" {
+			setPhase("Waiting for Watchtower", 18)
+			if wfqdn, wtoken, ok := a.waitWatchtower(ctx, st.ID, n.WatchtowerNodeID, 10*time.Minute); ok {
+				wtEnv = watchtowerHostEnv(wfqdn, wtoken)
+				logln("associated with Watchtower at " + wfqdn)
+			} else {
+				logln("warning: Watchtower node not ready; PMM upgrades via Watchtower disabled")
+			}
+		}
+
 		setPhase("Creating container", 20)
 		name := containerName(st.ID, n.ID)
 		if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
@@ -157,6 +171,7 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 		}
 		id, err := a.docker.ContainerCreate(ctx, ContainerSpec{
 			Name: name, Image: ref, Hostname: host,
+			Env:     wtEnv,
 			Network: networkName(st.ID), Aliases: []string{host},
 			PublishPorts: []int{8080, 8443},
 			DNS:          []string{intranetIP}, DNSSearch: []string{domain},

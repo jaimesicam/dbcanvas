@@ -22,9 +22,10 @@ type designNode struct {
 	OSVersion string `json:"osVersion"` // OS release (e.g. "9", "24.04") — used by ProxySQL
 	Arch      string `json:"arch"`
 	// PMM node fields (ignored by other node types).
-	Version       string `json:"version"`       // PMM minor version tag ("" → catalog default)
-	AdminPassword string `json:"adminPassword"` // PMM admin password ("" → auto-generated)
-	GenerateCert  bool   `json:"generateCert"`  // sign nginx certs from the Intranet CA on deploy
+	Version          string `json:"version"`          // PMM minor version tag ("" → catalog default)
+	AdminPassword    string `json:"adminPassword"`    // PMM admin password ("" → auto-generated)
+	GenerateCert     bool   `json:"generateCert"`     // sign nginx certs from the Intranet CA on deploy
+	WatchtowerNodeID string `json:"watchtowerNodeId"` // PMM: Watchtower node enabling in-app upgrades (optional)
 	// PXC node fields — a PXC node belongs to a PXC frame (FrameID) and is either
 	// a data member ("regular") or a voting-only "arbitrator" (garbd).
 	FrameID        string `json:"frameId"`
@@ -60,6 +61,14 @@ type designNode struct {
 	// certificate is signed by the Intranet CA (else it is self-signed). Reuses
 	// GenerateCert + CertTTLValue/CertTTLUnit above.
 	TLS bool `json:"tls"`
+	// Standalone PostgreSQL node fields (Type=="pg"; a single PostgreSQL instance,
+	// optionally backed up to SeaweedFS S3 via pgBackRest). Reuses OS/OSVersion/Arch,
+	// RootPassword (postgres superuser pw), PMMNodeID, UseProxy, GenerateCert/CertTTL,
+	// ExportEnabled/ExportHostPort above.
+	PGMajor         string `json:"pgMajor"`         // Percona PostgreSQL "13".."17"
+	PGVersion       string `json:"pgVersion"`       // minor; "" → latest
+	UsePgBackRest   bool   `json:"usePgBackRest"`   // configure pgBackRest → SeaweedFS S3 backup
+	SeaweedFSNodeID string `json:"seaweedfsNodeId"` // SeaweedFS node id backing pgBackRest
 }
 
 // designEdge is a connection drawn on the canvas. The endpoints' Node field holds
@@ -125,13 +134,22 @@ type designFrame struct {
 	PSMDBMajor   string `json:"psmdbMajor"`   // "6.0" | "7.0" | "8.0"
 	PSMDBVersion string `json:"psmdbVersion"` // minor (e.g. 8.0.26-11); "" → latest
 	PSMDBSetup   string `json:"psmdbSetup"`   // "standard" (3×3 + 3 cfg) | "minimum" (3×1 + 1 cfg)
+	// Percona Backup for MongoDB (PBM) → SeaweedFS S3, for psmdb/psmrs frames. When
+	// EnablePBM is set, pbm-agent is configured on every mongod member and the S3
+	// store (SeaweedFSNodeID, reused from the Patroni fields above) is registered.
+	EnablePBM bool `json:"enablePBM"`
 	// Patroni PostgreSQL cluster frame config (Type=="patroni"; reuses OS/OSVersion/
 	// Arch, RootPassword (postgres superuser pw), PMMNodeID, UseProxy, GenerateCert/
 	// CertTTL above). Each member co-locates PostgreSQL + Patroni + an etcd member.
 	PGMajor         string `json:"pgMajor"`         // Percona PostgreSQL "13".."17"
 	PGVersion       string `json:"pgVersion"`       // minor (e.g. 16.4); "" → latest
 	UsePgBackRest   bool   `json:"usePgBackRest"`   // configure pgBackRest → SeaweedFS S3 (clone + backup)
-	SeaweedFSNodeID string `json:"seaweedfsNodeId"` // SeaweedFS node id backing pgBackRest (when UsePgBackRest)
+	SeaweedFSNodeID string `json:"seaweedfsNodeId"` // SeaweedFS node id backing pgBackRest/Barman (when enabled)
+	// repmgr PostgreSQL cluster frame config (Type=="repmgr"; reuses OS/OSVersion/Arch,
+	// RootPassword (postgres superuser pw), PMMNodeID, UseProxy, GenerateCert/CertTTL,
+	// PGMajor/PGVersion above). Each member runs PostgreSQL + repmgr (streaming
+	// replication + repmgrd failover); backups go to Barman cloud (→ SeaweedFS S3).
+	UseBarman bool `json:"useBarman"` // configure Barman cloud → SeaweedFS S3 (uses SeaweedFSNodeID)
 }
 
 type designDoc struct {
@@ -366,11 +384,18 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		out = append(out, issue{"warning", "Stack has no nodes to deploy"})
 	}
 	intranet := 0
+	watchtower := 0
 	others := 0
 	labels := map[string]int{}
 	seenImg := map[string]bool{}
 	exportReq := map[int][]string{} // requested host port → node labels (PXC + ProxySQL)
+	watchtowerIDs := map[string]bool{}
 	pmmCat := loadPMMCatalog()
+	for _, n := range doc.Nodes {
+		if n.Type == "watchtower" {
+			watchtowerIDs[n.ID] = true
+		}
+	}
 	for _, n := range doc.Nodes {
 		labels[strings.TrimSpace(n.Label)]++
 		switch n.Type {
@@ -388,6 +413,12 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			if !pmmCat.validPMMTag(n.Version) {
 				out = append(out, issue{"warning", "Unknown PMM version " + n.Version + " for node " + n.Label + " — run `make versions`"})
 			}
+			if n.WatchtowerNodeID != "" && !watchtowerIDs[n.WatchtowerNodeID] {
+				out = append(out, issue{"error", "PMM node " + n.Label + " is associated with a Watchtower node that is not on the canvas — add a Watchtower node or clear the association"})
+			}
+		case "watchtower":
+			watchtower++
+			others++
 		case "proxysql":
 			others++
 			if n.FrameID != "" {
@@ -418,6 +449,21 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			if n.ExportEnabled && n.ExportHostPort > 0 {
 				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
 			}
+		case "pg":
+			others++
+			img := pxcImage(n.OS, n.OSVersion, n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+				}
+			}
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+			if n.UsePgBackRest {
+				out = append(out, pgBackRestSeaweedIssues("PostgreSQL node "+n.Label, n.SeaweedFSNodeID, doc)...)
+			}
 		case "seaweedfs":
 			others++
 			if !validBucketName(n.Bucket) {
@@ -444,6 +490,9 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	}
 	if intranet > 1 {
 		out = append(out, issue{"error", "Only one Intranet node is allowed per stack"})
+	}
+	if watchtower > 1 {
+		out = append(out, issue{"error", "Only one Watchtower node is allowed per stack"})
 	}
 	// The Intranet provides DNS, mail, LDAP and the CA for the whole stack, so it
 	// is required before any other node can be deployed.
@@ -660,6 +709,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 				out = append(out, issue{"error", fmt.Sprintf("PS MongoDB cluster %s: shard %d must have a %d-node replica set", f.Label, s, wantRS)})
 			}
 		}
+		out = append(out, pbmFrameIssues(f, doc)...)
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {
 			seenImg[img] = true
@@ -698,6 +748,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		} else if members%2 == 0 {
 			out = append(out, issue{"warning", "PS MongoDB replica set " + f.Label + ": an odd number of members keeps election quorum on a split network"})
 		}
+		out = append(out, pbmFrameIssues(f, doc)...)
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {
 			seenImg[img] = true
@@ -717,12 +768,6 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	// quorum so 3–7 nodes (odd recommended). When pgBackRest is enabled it must
 	// point at a SeaweedFS node present in the design.
 	patroniNames := map[string]int{}
-	seaweedIDs := map[string]bool{}
-	for _, n := range doc.Nodes {
-		if n.Type == "seaweedfs" {
-			seaweedIDs[n.ID] = true
-		}
-	}
 	for _, f := range doc.Frames {
 		if f.Type != "patroni" {
 			continue
@@ -746,11 +791,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			out = append(out, issue{"warning", "Patroni cluster " + f.Label + ": an odd number of members keeps etcd quorum on a split network"})
 		}
 		if f.UsePgBackRest {
-			if f.SeaweedFSNodeID == "" {
-				out = append(out, issue{"error", "Patroni cluster " + f.Label + " has pgBackRest enabled but no SeaweedFS node selected"})
-			} else if !seaweedIDs[f.SeaweedFSNodeID] {
-				out = append(out, issue{"error", "Patroni cluster " + f.Label + ": the selected pgBackRest SeaweedFS node is not in the design"})
-			}
+			out = append(out, pgBackRestSeaweedIssues("Patroni cluster "+f.Label, f.SeaweedFSNodeID, doc)...)
 		}
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {
@@ -763,6 +804,49 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	for name, c := range patroniNames {
 		if c > 1 && name != "" {
 			out = append(out, issue{"error", "Duplicate Patroni cluster name: " + name})
+		}
+	}
+
+	// --- repmgr PostgreSQL cluster frames (Type=="repmgr") ---
+	// Streaming replication + repmgrd failover; 3–7 nodes (odd recommended). When
+	// Barman is enabled it must point at a SeaweedFS node present in the design.
+	repmgrNames := map[string]int{}
+	for _, f := range doc.Frames {
+		if f.Type != "repmgr" {
+			continue
+		}
+		repmgrNames[strings.TrimSpace(f.Label)]++
+		members := 0
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != "repmgr" {
+				continue
+			}
+			members++
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		}
+		if members < 3 {
+			out = append(out, issue{"error", "repmgr cluster " + f.Label + " needs at least 3 nodes"})
+		} else if members > 7 {
+			out = append(out, issue{"error", "repmgr cluster " + f.Label + " allows at most 7 nodes"})
+		} else if members%2 == 0 {
+			out = append(out, issue{"warning", "repmgr cluster " + f.Label + ": an odd number of members keeps a clear quorum on a split network"})
+		}
+		if f.UseBarman {
+			out = append(out, barmanSeaweedIssues("repmgr cluster "+f.Label, f.SeaweedFSNodeID, doc)...)
+		}
+		img := pxcImage(f.OS, f.OSVersion, f.Arch)
+		if !seenImg[img] {
+			seenImg[img] = true
+			if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+				out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+			}
+		}
+	}
+	for name, c := range repmgrNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{"error", "Duplicate repmgr cluster name: " + name})
 		}
 	}
 
@@ -900,10 +984,14 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionProxySQL(st, n, doc)
 		case "ps":
 			a.provisionPerconaServer(st, n, doc)
+		case "pg":
+			a.provisionPG(st, n, doc)
 		case "psm":
 			a.provisionMongoStandalone(st, n, doc)
 		case "seaweedfs":
 			a.provisionSeaweedFS(st, n, doc)
+		case "watchtower":
+			a.provisionWatchtower(st, n, doc)
 		case "haproxy":
 			a.provisionHAProxy(st, n, doc)
 		}
@@ -929,6 +1017,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			memberType = "psmrs"
 		case "patroni":
 			memberType = "patroni"
+		case "repmgr":
+			memberType = "repmgr"
 		default:
 			continue
 		}
@@ -960,6 +1050,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionMongoRSFrame(st, f, doc)
 		case "patroni":
 			a.provisionPatroniFrame(st, f, doc)
+		case "repmgr":
+			a.provisionRepmgrFrame(st, f, doc)
 		}
 	}
 
@@ -1071,6 +1163,19 @@ func (a *App) provisionIntranet(st Stack, n designNode) {
 		// package installs.
 		a.ensureDNFIPv4(ctx, id, "oraclelinux", logln)
 
+		// Detect cross-arch emulation: an amd64 Intranet on an arm64 Docker host runs
+		// under QEMU or, on Apple Silicon + Rancher/colima, Rosetta. The "Relax
+		// sandboxing for emulation" step keys off EMULATED to disarm the systemd
+		// hardening that breaks the translator's RW→RX code-cache mappings.
+		emulated := ""
+		if ha := a.docker.HostArch(ctx); ha != "" {
+			hostArm := strings.Contains(ha, "arm") || strings.Contains(ha, "aarch64")
+			if hostArm && archOr(n.Arch) == "amd64" {
+				emulated = "1"
+				logln("detected x86-64 emulation on an " + ha + " host — relaxing systemd sandboxing for php-fpm/dovecot")
+			}
+		}
+
 		env := []string{
 			"DOMAIN=" + sec.Domain,
 			"BASE_DN=" + sec.BaseDN,
@@ -1078,6 +1183,7 @@ func (a *App) provisionIntranet(st Stack, n designNode) {
 			"LDAP_ADMIN_PW=" + sec.LDAPAdminPassword,
 			"MAIL_ADMIN=admin",
 			"MAIL_ADMIN_PW=" + sec.MailAdminPassword,
+			"EMULATED=" + emulated,
 		}
 		steps := intranetSteps()
 		for i, step := range steps {
@@ -1129,6 +1235,44 @@ dnf config-manager --set-enabled ol9_codeready_builder >/dev/null 2>&1 || true`}
 
 		{"Install packages", `set -e
 dnf -y install rsyslog squid bind bind-utils postfix dovecot openldap-servers openldap-clients httpd php php-fpm roundcubemail mod_ssl openssl net-tools >/dev/null`},
+
+		// Under x86-64 emulation on an arm64 host (e.g. Rosetta on Apple Silicon via
+		// Rancher Desktop), the binary translator needs anonymous RW mappings (which it
+		// later makes executable) for its code cache, and access to the unrestricted
+		// /dev + syscall ABI. systemd service confinement breaks that, so php-fpm and
+		// dovecot crash with "rosetta error: mmap_anonymous_rw mmap failed" / SIGSEGV.
+		// The EL9 units that actually crash don't set MemoryDenyWriteExecute or
+		// SystemCallFilter at all — what bites is the sandbox/namespace hardening they
+		// DO ship: dovecot.service has PrivateDevices=true + ProtectSystem=full (private
+		// /dev, ~@raw-io seccomp, RO /usr) and both have PrivateTmp=true. So when
+		// emulation is detected, fully un-confine the long-running daemons (these are
+		// localhost-only dev services; the hardening loss is moot). The arch + addr-family
+		// + W^X clears are belt-and-suspenders for other unit versions / OSes.
+		// Runs before any service starts (slapd comes up in "Configure OpenLDAP").
+		{"Relax sandboxing for emulation", `set -e
+[ -n "$EMULATED" ] || exit 0
+for svc in php-fpm dovecot httpd postfix named slapd squid rsyslog; do
+  d="/etc/systemd/system/${svc}.service.d"
+  install -d "$d"
+  cat > "$d/10-dbcanvas-emulation.conf" <<'UNIT'
+[Service]
+MemoryDenyWriteExecute=no
+SystemCallFilter=
+SystemCallArchitectures=
+RestrictAddressFamilies=
+LockPersonality=no
+PrivateDevices=no
+PrivateTmp=no
+ProtectSystem=no
+ProtectHome=no
+ProtectKernelTunables=no
+ProtectKernelModules=no
+ProtectControlGroups=no
+RestrictNamespaces=no
+RestrictRealtime=no
+UNIT
+done
+systemctl daemon-reload`},
 
 		{"Create CA", `set -e
 install -d -m 0755 /etc/pki/dbcanvas
@@ -1440,6 +1584,20 @@ func (a *App) refreshPublishedPorts(ctx context.Context, st Stack, nid string, d
 		save(cfg)
 	case "patroni":
 		var cfg patroniConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("5432/tcp"); ok {
+			cfg.ExportPort = p
+		}
+		save(cfg)
+	case "pg":
+		var cfg pgConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("5432/tcp"); ok {
+			cfg.ExportPort = p
+		}
+		save(cfg)
+	case "repmgr":
+		var cfg repmgrConfig
 		json.Unmarshal(dep.Config, &cfg)
 		if p, ok := readPort("5432/tcp"); ok {
 			cfg.ExportPort = p

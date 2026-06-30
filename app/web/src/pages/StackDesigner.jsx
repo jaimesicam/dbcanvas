@@ -13,6 +13,8 @@ import MongoDBManager from './MongoDBManager.jsx'
 import SeaweedFSManager from './SeaweedFSManager.jsx'
 import PatroniManager from './PatroniManager.jsx'
 import HAProxyManager from './HAProxyManager.jsx'
+import PGManager from './PGManager.jsx'
+import RepmgrManager from './RepmgrManager.jsx'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import {
   PORTS, dist, portPoint, edgePath, screenToWorld, zoomAt,
@@ -48,7 +50,7 @@ const NODE_TYPES = {
     singleton: false,
     ports: false,
     osOptions: [{ id: 'pmm', label: 'percona/pmm-server' }],
-    defaults: { version: '', adminPassword: '', generateCert: false },
+    defaults: { version: '', adminPassword: '', generateCert: false, watchtowerNodeId: '' },
   },
   // PXC nodes live inside a PXC cluster frame (not added from the toolbar
   // directly); this entry only supplies the color/icon used to render them.
@@ -100,6 +102,15 @@ const NODE_TYPES = {
     color: '#336791',
     icon: 'Database',
   },
+  // repmgr members (PostgreSQL + repmgr streaming replication) live inside a repmgr
+  // cluster frame.
+  repmgr: {
+    label: 'repmgr',
+    slug: 'repmgr',
+    sub: 'PostgreSQL + repmgr',
+    color: '#0e7490',
+    icon: 'Database',
+  },
   // Standalone single Percona Server for MongoDB instance (no replication).
   psm: {
     label: 'PSMDB',
@@ -130,6 +141,24 @@ const NODE_TYPES = {
     defaults: {
       os: 'oraclelinux', osVersion: '9', arch: 'amd64', psMajor: '8.0', psVersion: '',
       rootPassword: '', gtid: true, pmmNodeId: '', useProxy: true,
+      generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
+      exportEnabled: false, exportHostPort: 0,
+    },
+  },
+  // Standalone single PostgreSQL instance (no Patroni/etcd/replication).
+  pg: {
+    label: 'PostgreSQL',
+    slug: 'pg',
+    sub: 'PostgreSQL (standalone)',
+    color: '#336791',
+    icon: 'Database',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
+    defaults: {
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64', pgMajor: '16', pgVersion: '',
+      rootPassword: '', pmmNodeId: '', useProxy: true,
+      usePgBackRest: false, seaweedfsNodeId: '',
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
       exportEnabled: false, exportHostPort: 0,
     },
@@ -178,6 +207,20 @@ const NODE_TYPES = {
     ports: false,
     osOptions: [{ id: 'seaweedfs', label: 'chrislusf/seaweedfs' }],
     defaults: { accessKey: 'seaweedfs', secretKey: '', bucket: '' },
+  },
+  // Watchtower — a per-stack singleton running percona/watchtower with the docker
+  // socket mounted and its HTTP API enabled. A PMM node associated with it can
+  // trigger in-app server upgrades. Runs a ready-made image (pulled at deploy).
+  watchtower: {
+    label: 'Watchtower',
+    slug: 'watchtower',
+    sub: 'Container auto-upgrades (PMM)',
+    color: '#475569',
+    icon: 'Server',
+    singleton: true,
+    ports: false,
+    osOptions: [{ id: 'watchtower', label: 'percona/watchtower' }],
+    defaults: {},
   },
 }
 
@@ -280,7 +323,16 @@ function nextMemberName(usedSet, prefix) {
 }
 
 // Per-frame-type presentation: accent color and the description line.
-const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', psmdb: '#10b981', psmrs: '#059669', patroni: '#336791' }
+const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', psmdb: '#10b981', psmrs: '#059669', patroni: '#336791', repmgr: '#0e7490' }
+
+// typeColor maps a node/frame type to its canvas color so a toolbar "add" button can
+// be tinted to match the node/frame it creates. addBtnStyle turns that into inline
+// styles (disabled buttons keep the tint but the shared disabled:opacity-50 fades it).
+const typeColor = (t) => FRAME_COLORS[t] || NODE_TYPES[t]?.color || null
+const addBtnStyle = (t) => {
+  const c = typeColor(t)
+  return c ? { backgroundColor: c, borderColor: c, color: '#fff' } : undefined
+}
 const frameColor = (f) => FRAME_COLORS[f?.type] || '#a855f7'
 
 const osLabel = (type, os) => (NODE_TYPES[type]?.osOptions.find((o) => o.id === os)?.label) || os
@@ -301,6 +353,7 @@ const frameVersionLabel = (f) => {
   if (f?.type === 'psmdb') return `PS MongoDB ${f?.psmdbVersion || f?.psmdbMajor || ''} sharded · ${f?.psmdbSetup === 'minimum' ? 'minimum' : 'standard'}`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'psmrs') return `PS MongoDB ${f?.psmdbVersion || f?.psmdbMajor || ''} replica set`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'patroni') return `Percona PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · Patroni`.replace(/\s+/g, ' ').trim()
+  if (f?.type === 'repmgr') return `PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · repmgr (PGDG)`.replace(/\s+/g, ' ').trim()
   return pxcVersionLabel(f)
 }
 
@@ -315,7 +368,7 @@ const proxyModeOpts = (backendType) => PROXY_MODE_OPTS[backendType === 'mysql' ?
 
 // nodeOSLabel renders a free node's OS line; ProxySQL carries its own os/version
 // (like a PXC frame), other nodes map via their osOptions.
-const nodeOSLabel = (n) => (n.type === 'proxysql' || n.type === 'ps' || n.type === 'psm' || n.type === 'haproxy' ? pxcOSLabel(n) : osLabel(n.type, n.os))
+const nodeOSLabel = (n) => (n.type === 'proxysql' || n.type === 'ps' || n.type === 'pg' || n.type === 'psm' || n.type === 'haproxy' ? pxcOSLabel(n) : osLabel(n.type, n.os))
 
 // Auto-numbered per-type labels: a non-singleton node is named "<slug>-NN" with
 // NN zero-padded from 01 and increasing per node type (pmm-01, pmm-02, …, and in
@@ -653,7 +706,7 @@ function StackEditor({ stackId, onBack }) {
       consider(n.id, { x: n.x, y: n.y, w: NODE_W, h: NODE_H })
     }
     for (const f of refs.current.frames) {
-      if (f.type === 'pxc' || f.type === 'proxysql' || f.type === 'mysql' || f.type === 'patroni') consider(f.id, { x: f.x, y: f.y, w: f.w, h: f.h })
+      if (f.type === 'pxc' || f.type === 'proxysql' || f.type === 'mysql' || f.type === 'patroni' || f.type === 'repmgr') consider(f.id, { x: f.x, y: f.y, w: f.w, h: f.h })
     }
     return best
   }
@@ -1061,6 +1114,7 @@ function StackEditor({ stackId, onBack }) {
       id: fid, type: 'psmdb', label: nextNamedCluster(frames, 'psmdb'), x: fx, y: fy, w: 0, h: 0,
       os: 'oraclelinux', osVersion: '9', arch: 'amd64', psmdbMajor: '8.0', psmdbVersion: '',
       psmdbSetup: setup, rootPassword: '', pmmNodeId: '', useProxy: true,
+      enablePBM: false, seaweedfsNodeId: '',
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
     }
     const r = relayout(fid, [...frames, frame], [...nodes, ...psmdbMembers(fid, setup)])
@@ -1095,6 +1149,7 @@ function StackEditor({ stackId, onBack }) {
       id: fid, type: 'psmrs', label: nextNamedCluster(frames, 'psmrs'), x: fx, y: fy, w: 0, h: 0,
       os: 'oraclelinux', osVersion: '9', arch: 'amd64', psmdbMajor: '8.0', psmdbVersion: '',
       rootPassword: '', pmmNodeId: '', useProxy: true,
+      enablePBM: false, seaweedfsNodeId: '',
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
     }
     const used = new Set(nodes.filter((n) => n.type === 'psmrs').map((n) => n.label))
@@ -1140,6 +1195,36 @@ function StackEditor({ stackId, onBack }) {
     setNodes(r.nodes)
     setSelected({ kind: 'frame', id: fid })
   }
+  function newRepmgrMember(frameId) {
+    const used = new Set(nodes.filter((n) => n.type === 'repmgr').map((n) => n.label))
+    return { id: uid('repmgr'), type: 'repmgr', label: nextMemberName(used, 'repmgr'), frameId, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
+  }
+  // addRepmgrCluster builds a repmgr PostgreSQL cluster frame with 3 members
+  // (resizable 3–7). Streaming replication managed by repmgr; repmgrd does failover.
+  function addRepmgrCluster() {
+    if (!nodes.some((n) => n.type === 'intranet')) return
+    const fid = uid('frame')
+    const fx = (-view.x + 200) / view.z
+    const fy = (-view.y + 200) / view.z
+    const frame = {
+      id: fid, type: 'repmgr', label: nextNamedCluster(frames, 'repmgr-cluster'), x: fx, y: fy, w: 0, h: 0,
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64', pgMajor: '16', pgVersion: '',
+      rootPassword: '', pmmNodeId: '', useProxy: true,
+      useBarman: false, seaweedfsNodeId: '',
+      generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
+    }
+    const used = new Set(nodes.filter((n) => n.type === 'repmgr').map((n) => n.label))
+    const newNodes = []
+    for (let i = 0; i < 3; i++) {
+      const name = nextMemberName(used, 'repmgr')
+      used.add(name)
+      newNodes.push({ id: uid('repmgr'), type: 'repmgr', label: name, frameId: fid, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 })
+    }
+    const r = relayout(fid, [...frames, frame], [...nodes, ...newNodes])
+    setFrames(r.frames)
+    setNodes(r.nodes)
+    setSelected({ kind: 'frame', id: fid })
+  }
   // Frame +/- buttons dispatch by frame type.
   function addFrameMember(frame) {
     if (frame.type === 'proxysql') {
@@ -1165,6 +1250,11 @@ function StackEditor({ stackId, onBack }) {
       const r = relayout(frame.id, frames, [...nodes, newPatroniMember(frame.id)])
       setFrames(r.frames)
       setNodes(r.nodes)
+    } else if (frame.type === 'repmgr') {
+      if (nodes.filter((n) => n.frameId === frame.id).length >= 7) return // max 7
+      const r = relayout(frame.id, frames, [...nodes, newRepmgrMember(frame.id)])
+      setFrames(r.frames)
+      setNodes(r.nodes)
     } else {
       addPXCNode(frame.id)
     }
@@ -1172,9 +1262,9 @@ function StackEditor({ stackId, onBack }) {
   function removePXCNode(frameId) {
     const mine = nodes.filter((n) => n.frameId === frameId)
     if (mine.length <= 1) return // keep at least one node
-    // Patroni needs an etcd quorum: never drop below 3 members.
+    // Patroni/repmgr need ≥3 members: never drop below 3.
     const frame = frames.find((f) => f.id === frameId)
-    if (frame?.type === 'patroni' && mine.length <= 3) return
+    if ((frame?.type === 'patroni' || frame?.type === 'repmgr') && mine.length <= 3) return
     removePXCNodeById(frameId, mine[mine.length - 1].id)
   }
   function removePXCNodeById(frameId, id) {
@@ -1326,47 +1416,56 @@ function StackEditor({ stackId, onBack }) {
           <Badge tone="primary">{ttlLabel(stack.ttl)}</Badge>
           <Badge tone={STATUS_TONE[stack.status] || 'muted'}>{stack.status}</Badge>
           <div className="mx-1 h-5 w-px bg-border" />
-          <Button size="sm" disabled={hasIntranet} onClick={() => addNode('intranet')}>
+          <Button size="sm" disabled={hasIntranet} style={addBtnStyle('intranet')} onClick={() => addNode('intranet')}>
             <Icon.Plus size={16} /> Intranet
           </Button>
-          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('pmm')}>
+          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('pmm')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('pmm')}>
             <Icon.Plus size={16} /> PMM3
           </Button>
-          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addPXCCluster}>
+          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('pxc')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addPXCCluster}>
             <Icon.Plus size={16} /> PXC Cluster
           </Button>
-          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('proxysql')}>
+          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('proxysql')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('proxysql')}>
             <Icon.Plus size={16} /> ProxySQL
           </Button>
-          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addProxySQLCluster}>
+          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('proxysql')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addProxySQLCluster}>
             <Icon.Plus size={16} /> ProxySQL Cluster
           </Button>
-          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('ps')}>
+          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('ps')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('ps')}>
             <Icon.Plus size={16} /> Percona Server
           </Button>
-          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addMySQLCluster}>
+          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('mysql')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addMySQLCluster}>
             <Icon.Plus size={16} /> Percona Server Replication
           </Button>
-          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addInnoDBCluster}>
+          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('innodb')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addInnoDBCluster}>
             <Icon.Plus size={16} /> InnoDB Cluster / GR
           </Button>
-          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addMongoDBCluster()}>
+          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('psmdb')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addMongoDBCluster()}>
             <Icon.Plus size={16} /> PSMDB Sharded Cluster
           </Button>
-          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addMongoRSCluster}>
+          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('psmrs')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addMongoRSCluster}>
             <Icon.Plus size={16} /> PSMDB RS
           </Button>
-          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('psm')}>
+          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('psm')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('psm')}>
             <Icon.Plus size={16} /> PSMDB
           </Button>
-          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addPatroniCluster}>
+          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('pg')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('pg')}>
+            <Icon.Plus size={16} /> PostgreSQL
+          </Button>
+          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('patroni')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addPatroniCluster}>
             <Icon.Plus size={16} /> Patroni Cluster
           </Button>
-          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('haproxy')}>
+          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('repmgr')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addRepmgrCluster}>
+            <Icon.Plus size={16} /> repmgr Cluster
+          </Button>
+          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('haproxy')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('haproxy')}>
             <Icon.Plus size={16} /> HAProxy
           </Button>
-          <Button size="sm" disabled={!hasIntranet} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('seaweedfs')}>
+          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('seaweedfs')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('seaweedfs')}>
             <Icon.Plus size={16} /> SeaweedFS
+          </Button>
+          <Button size="sm" disabled={!hasIntranet || nodes.some((n) => n.type === 'watchtower')} style={addBtnStyle('watchtower')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('watchtower')}>
+            <Icon.Plus size={16} /> Watchtower
           </Button>
           <div className="mx-1 h-5 w-px bg-border" />
           <Button size="sm" variant="outline" disabled={!!busy} onClick={runValidate}>
@@ -1509,6 +1608,7 @@ function StackEditor({ stackId, onBack }) {
                     else if (f.type === 'psmdb') sub = n.role === 'mongos' ? 'mongos router' : n.role === 'config' ? 'config server' : `shard ${n.shard} member`
                     else if (f.type === 'psmrs') sub = 'replica-set member'
     else if (f.type === 'patroni') sub = 'Patroni node'
+                    else if (f.type === 'repmgr') sub = 'PostgreSQL + repmgr'
                     else if (arb) sub = 'Arbitrator · garbd'
                     const barCol = (f.type === 'pxc' && arb) || (f.type === 'mysql' && !isPrimary) ? '#64748b' : col
                     // PXC and Percona Server replication members expose ports for
@@ -1545,8 +1645,8 @@ function StackEditor({ stackId, onBack }) {
                       </div>
                     )
                   })}
-                  {/* Association endpoints — InnoDB/GR has none (router is built in). */}
-                  {f.type !== 'innodb' && (
+                  {/* Association endpoints — InnoDB/GR + repmgr have none. */}
+                  {f.type !== 'innodb' && f.type !== 'repmgr' && (
                     <PortHandles ownerId={f.id} connecting={!!connect} snapPort={connect?.targetId === f.id ? connect.targetPort : null} onStart={startConnect} />
                   )}
                 </div>
@@ -1854,7 +1954,7 @@ function Row({ k, v }) {
 // PMMOptions renders the PMM-only node settings: minor-version picker (from the
 // catalog produced by `make versions`), admin password (auto-generated when
 // empty), and the Intranet-CA certificate toggle.
-function PMMOptions({ n, patchNode, deployed }) {
+function PMMOptions({ n, nodes = [], patchNode, deployed }) {
   const [cat, setCat] = useState(null)
   useEffect(() => {
     let alive = true
@@ -1863,6 +1963,7 @@ function PMMOptions({ n, patchNode, deployed }) {
   }, [])
   const versions = cat?.versions || []
   const defaultTag = cat?.defaultTag || '3'
+  const watchtowers = nodes.filter((x) => x.type === 'watchtower')
   return (
     <>
       <Field
@@ -1907,6 +2008,22 @@ function PMMOptions({ n, patchNode, deployed }) {
           Requires an Intranet node in the stack. New certs are written to <span className="font-mono">/srv/nginx</span> at deploy.
         </p>
       )}
+      <Field
+        label="Watchtower"
+        hint={deployed ? 'Set at deploy time.' : watchtowers.length ? 'Associate a Watchtower so PMM can perform in-app server upgrades.' : 'Add a Watchtower node to enable in-app upgrades.'}
+      >
+        <select
+          className={`${inputCls} ${deployed ? 'opacity-70' : ''}`}
+          value={n.watchtowerNodeId || ''}
+          disabled={deployed || watchtowers.length === 0}
+          onChange={(e) => patchNode(n.id, { watchtowerNodeId: e.target.value })}
+        >
+          <option value="">none</option>
+          {watchtowers.map((w) => (
+            <option key={w.id} value={w.id}>{w.label}</option>
+          ))}
+        </select>
+      </Field>
     </>
   )
 }
@@ -2418,6 +2535,127 @@ function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
   )
 }
 
+// PostgreSQLForm edits a standalone PostgreSQL node: catalog-driven OS/version +
+// PostgreSQL major/minor, superuser password, an optional pgBackRest → SeaweedFS S3
+// backup (like the Patroni frame), PMM/proxy/cert and host export. A single
+// read/write instance — no Patroni/etcd/replication.
+function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }) {
+  const imgs = usePPGCatalog(n, deployed, patchNode)
+  const lock = deployed ? 'opacity-70' : ''
+  const pmmNodes = nodes.filter((x) => x.type === 'pmm')
+  const seaweedNodes = nodes.filter((x) => x.type === 'seaweedfs')
+
+  const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
+  const osVersions = [...new Set(imgs.filter((i) => i.os === n.os).map((i) => i.osVersion))]
+  const archs = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === n.osVersion).map((i) => i.arch))]
+  const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion && i.arch === n.arch)
+  const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
+  const minors = (entry?.versions?.[n.pgMajor]) || []
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">PostgreSQL</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+
+      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+          <select className={`${inputCls} ${lock}`} value={n.os} disabled={deployed} onChange={(e) => patchNode(n.id, { os: e.target.value })}>
+            {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="OS version">
+          <select className={`${inputCls} ${lock}`} value={n.osVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { osVersion: e.target.value })}>
+            {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Platform / arch">
+          <select className={`${inputCls} ${lock}`} value={n.arch} disabled={deployed} onChange={(e) => patchNode(n.id, { arch: e.target.value })}>
+            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="PostgreSQL major">
+          <select className={`${inputCls} ${lock}`} value={n.pgMajor} disabled={deployed} onChange={(e) => patchNode(n.id, { pgMajor: e.target.value, pgVersion: '' })}>
+            {majors.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+      </div>
+
+      <Field label="PostgreSQL minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+        <select className={`${inputCls} ${lock}`} value={n.pgVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { pgVersion: e.target.value })}>
+          <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
+          {minors.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </Field>
+
+      <Field label="Superuser (postgres) password" hint={deployed ? 'Set at deploy.' : 'Leave empty to auto-generate.'}>
+        <input className={`${inputCls} ${lock}`} value={n.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchNode(n.id, { rootPassword: e.target.value })} />
+      </Field>
+
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.usePgBackRest} disabled={deployed} onChange={(e) => patchNode(n.id, { usePgBackRest: e.target.checked })} />
+        <span>Use pgBackRest (SeaweedFS S3) for backup</span>
+      </label>
+      {n.usePgBackRest && (
+        <Field label="SeaweedFS node (S3 repository)" hint={seaweedNodes.length ? 'WAL archive + an initial full backup land here. The node must have S3 TLS enabled (pgBackRest needs HTTPS).' : 'Add a SeaweedFS node (with S3 TLS enabled) to the stack first.'}>
+          <select className={`${inputCls} ${lock}`} value={n.seaweedfsNodeId || ''} disabled={deployed} onChange={(e) => patchNode(n.id, { seaweedfsNodeId: e.target.value })}>
+            <option value="">select a SeaweedFS node…</option>
+            {seaweedNodes.map((s) => <option key={s.id} value={s.id}>{s.label}{s.tls ? '' : ' — needs S3 TLS'}</option>)}
+          </select>
+        </Field>
+      )}
+
+      <Field label="Monitored by (PMM)" hint="Optional — registers this server with a PMM node.">
+        <select className={`${inputCls} ${lock}`} value={n.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchNode(n.id, { pmmNodeId: e.target.value })}>
+          <option value="">none</option>
+          {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </Field>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for downloads</span>
+      </label>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.generateCert} disabled={deployed} onChange={(e) => patchNode(n.id, { generateCert: e.target.checked })} />
+        <span>Generate certificate from Intranet CA (PostgreSQL TLS)</span>
+      </label>
+      {n.generateCert && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted">Cert TTL</span>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={n.certTtlValue || 365} onChange={(e) => patchNode(n.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={n.certTtlUnit || 'days'} onChange={(e) => patchNode(n.id, { certTtlUnit: e.target.value })}>
+            <option value="minutes">minutes</option>
+            <option value="hours">hours</option>
+            <option value="days">days</option>
+          </select>
+        </div>
+      )}
+
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
+        <span>Export DB port (5432) to the host</span>
+      </label>
+      {n.exportEnabled && (
+        <Field label="Host port" hint="0 / empty = random unused port.">
+          <input type="number" min="0" max="65535" className={`${inputCls} ${lock}`} value={n.exportHostPort || 0} disabled={deployed}
+            onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
+        </Field>
+      )}
+
+      {!deployed && <p className="text-xs text-muted">A single read/write PostgreSQL instance (no replication). Access links and credentials appear here after deploy.</p>}
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
 // SeaweedFSForm edits a (not-yet-running) SeaweedFS node: the S3 access key
 // (AWS_ACCESS_KEY_ID, defaults to "seaweedfs"), the secret key (left empty to
 // auto-generate), and the bucket to create. The region is fixed at us-east-1.
@@ -2492,6 +2730,67 @@ function SeaweedFSForm({ node: n, patchNode, deleteNode, dep, deployed }) {
 
       {!deployed && <p className="text-xs text-muted">The endpoint URL and copy-paste backup snippets appear here after deploy.</p>}
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// WatchtowerForm edits a (not-yet-running) Watchtower node. It is a per-stack
+// singleton with no tunables — it runs percona/watchtower with the docker socket
+// mounted and its HTTP API enabled so an associated PMM node can drive upgrades.
+function WatchtowerForm({ node: n, patchNode, deleteNode, dep, deployed }) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Watchtower</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <p className="text-xs text-muted">
+        Runs <span className="font-mono">percona/watchtower</span> with the Docker socket mounted and its
+        HTTP API enabled. Associate it from a PMM node (its options) so PMM can trigger in-app server
+        upgrades. One Watchtower per stack.
+      </p>
+
+      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+
+      <div className="rounded-lg bg-surface2 px-3 py-2 text-xs text-muted">
+        Reachable in-network at <span className="font-mono">http://watchtower:8080</span>. A unique HTTP API
+        token is generated at deploy and shown here; nothing is published to the host.
+      </div>
+
+      {!deployed && <p className="text-xs text-muted">The API token appears here after deploy.</p>}
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// WatchtowerManager shows a deployed Watchtower's profile (image, alias, API token).
+function WatchtowerManager({ stackId, nodeId, dep, onDeleteNode }) {
+  const cfg = dep?.config || {}
+  const sec = dep?.secrets || {}
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Watchtower</span>
+        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+      </div>
+      <p className="text-xs text-muted">
+        Container auto-upgrades for PMM. Associate it from a PMM node to enable in-app upgrades.
+      </p>
+      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
+        <div className="flex justify-between gap-3"><span className="text-muted">Image</span><span className="font-mono text-xs">{cfg.image || 'percona/watchtower:latest'}</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Host</span><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">API</span><span className="font-mono text-xs">http://{cfg.alias || 'watchtower'}:{cfg.apiPort || 8080}</span></div>
+        {sec.apiToken && (
+          <div className="flex justify-between gap-3"><span className="text-muted">API token</span><span className="break-all font-mono text-xs">{sec.apiToken}</span></div>
+        )}
+      </div>
+      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
       </Button>
     </div>
@@ -2980,6 +3279,31 @@ function InnoDBMemberForm({ node: n, frame, patchNode, dep, deployed }) {
   )
 }
 
+// PBMOptions renders the "Enable Percona Backup for MongoDB" checkbox + the
+// SeaweedFS-node selector, shared by the PSMDB sharded-cluster and replica-set
+// frame forms. percona-backup-mongodb is installed on every member regardless;
+// enabling this configures pbm-agent + the S3 store on the selected SeaweedFS node.
+function PBMOptions({ f, nodes, patchFrame, deployed }) {
+  const lock = deployed ? 'opacity-70' : ''
+  const seaweedNodes = nodes.filter((n) => n.type === 'seaweedfs')
+  return (
+    <>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!f.enablePBM} disabled={deployed} onChange={(e) => patchFrame(f.id, { enablePBM: e.target.checked })} />
+        <span>Enable backups with Percona Backup for MongoDB (PBM)</span>
+      </label>
+      {f.enablePBM && (
+        <Field label="SeaweedFS node (S3 backup storage)" hint={seaweedNodes.length ? 'pbm-agent runs on every member; backups land in this node\'s S3 bucket.' : 'Add a SeaweedFS node to the stack first.'}>
+          <select className={`${inputCls} ${lock}`} value={f.seaweedfsNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { seaweedfsNodeId: e.target.value })}>
+            <option value="">select a SeaweedFS node…</option>
+            {seaweedNodes.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+        </Field>
+      )}
+    </>
+  )
+}
+
 // MongoDBFrameForm edits a PSMDB Sharded Cluster frame: catalog-driven
 // OS/version/arch + PS MongoDB major/minor, admin (root) password, PMM/proxy/cert.
 // The 13-node sharded topology is fixed — there are no replication options.
@@ -3087,6 +3411,8 @@ function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, rebuildClu
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
         </select>
       </Field>
+
+      <PBMOptions f={f} nodes={nodes} patchFrame={patchFrame} deployed={deployed} />
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
@@ -3257,6 +3583,8 @@ function PSMRSFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed }) 
         </select>
       </Field>
 
+      <PBMOptions f={f} nodes={nodes} patchFrame={patchFrame} deployed={deployed} />
+
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span>
@@ -3415,10 +3743,10 @@ function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame
         <span>Use pgBackRest (SeaweedFS S3) for cloning + backup</span>
       </label>
       {f.usePgBackRest && (
-        <Field label="SeaweedFS node (S3 repository)" hint={seaweedNodes.length ? 'WAL archive + initial full backup land here; replicas clone via pgBackRest.' : 'Add a SeaweedFS node to the stack first.'}>
+        <Field label="SeaweedFS node (S3 repository)" hint={seaweedNodes.length ? 'WAL archive + initial full backup land here; replicas clone via pgBackRest. The node must have S3 TLS enabled (pgBackRest needs HTTPS).' : 'Add a SeaweedFS node (with S3 TLS enabled) to the stack first.'}>
           <select className={`${inputCls} ${lock}`} value={f.seaweedfsNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { seaweedfsNodeId: e.target.value })}>
             <option value="">select a SeaweedFS node…</option>
-            {seaweedNodes.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            {seaweedNodes.map((s) => <option key={s.id} value={s.id}>{s.label}{s.tls ? '' : ' — needs S3 TLS'}</option>)}
           </select>
         </Field>
       )}
@@ -3479,6 +3807,150 @@ function PatroniMemberForm({ node: n, frame, patchNode, dep, deployed }) {
       <Field label="Node name" hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
       <Field label="Cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
       <p className="text-xs text-muted">Runs PostgreSQL + Patroni + an etcd member. Patroni auto-elects the leader; replicas stream from it.</p>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
+        <span>Export PostgreSQL port to the host (5432)</span>
+      </label>
+      {n.exportEnabled && (
+        <Field label="Host port" hint="0 / empty = random unused port. Must not clash with another node.">
+          <input type="number" min="0" max="65535" className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.exportHostPort || 0} disabled={deployed}
+            onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
+        </Field>
+      )}
+    </div>
+  )
+}
+
+// RepmgrFrameForm edits a repmgr PostgreSQL cluster frame: catalog OS/version/arch +
+// PG major/minor, superuser password, optional Barman cloud → SeaweedFS S3 backup,
+// PMM/proxy/cert. Members are resizable 3–7.
+function RepmgrFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed }) {
+  const imgs = usePPGCatalog(f, deployed, patchFrame)
+  const lock = deployed ? 'opacity-70' : ''
+  const pmmNodes = nodes.filter((n) => n.type === 'pmm')
+  const seaweedNodes = nodes.filter((n) => n.type === 'seaweedfs')
+  const members = frameNodes.length
+
+  const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
+  const osVersions = [...new Set(imgs.filter((i) => i.os === f.os).map((i) => i.osVersion))]
+  const archs = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === f.osVersion).map((i) => i.arch))]
+  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion && i.arch === f.arch)
+  const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
+  const minors = (entry?.versions?.[f.pgMajor]) || []
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">repmgr Cluster</span>
+        <Badge tone="primary">{members} node{members === 1 ? '' : 's'}</Badge>
+      </div>
+
+      <Field label="Cluster name" hint="Becomes the Barman server name; must be unique across the stack.">
+        <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+      </Field>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+          <select className={`${inputCls} ${lock}`} value={f.os} disabled={deployed} onChange={(e) => patchFrame(f.id, { os: e.target.value })}>
+            {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="OS version">
+          <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
+            {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Platform / arch">
+          <select className={`${inputCls} ${lock}`} value={f.arch} disabled={deployed} onChange={(e) => patchFrame(f.id, { arch: e.target.value })}>
+            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="PostgreSQL major">
+          <select className={`${inputCls} ${lock}`} value={f.pgMajor} disabled={deployed} onChange={(e) => patchFrame(f.id, { pgMajor: e.target.value, pgVersion: '' })}>
+            {majors.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+      </div>
+      <Field label="PostgreSQL minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+        <select className={`${inputCls} ${lock}`} value={f.pgVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { pgVersion: e.target.value })}>
+          <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
+          {minors.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </Field>
+
+      <Field label="Superuser (postgres) password" hint={deployed ? 'Set at deploy.' : 'Leave empty to auto-generate.'}>
+        <input className={`${inputCls} ${lock}`} value={f.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchFrame(f.id, { rootPassword: e.target.value })} />
+      </Field>
+
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!f.useBarman} disabled={deployed} onChange={(e) => patchFrame(f.id, { useBarman: e.target.checked })} />
+        <span>Use Barman (SeaweedFS S3) for backups</span>
+      </label>
+      {f.useBarman && (
+        <Field label="SeaweedFS node (S3 backup storage)" hint={seaweedNodes.length ? 'WAL archive + base backups land here via barman-cloud (works over HTTP or HTTPS).' : 'Add a SeaweedFS node to the stack first.'}>
+          <select className={`${inputCls} ${lock}`} value={f.seaweedfsNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { seaweedfsNodeId: e.target.value })}>
+            <option value="">select a SeaweedFS node…</option>
+            {seaweedNodes.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+        </Field>
+      )}
+
+      <Field label="Monitored by (PMM)" hint="Optional — registers each member's PostgreSQL with a PMM node.">
+        <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
+          <option value="">none</option>
+          {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </Field>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for downloads</span>
+      </label>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
+        <span>Generate per-node certificates from Intranet CA (PostgreSQL TLS)</span>
+      </label>
+      {f.generateCert && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted">Cert TTL</span>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={f.certTtlUnit || 'days'} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
+            <option value="minutes">minutes</option>
+            <option value="hours">hours</option>
+            <option value="days">days</option>
+          </select>
+        </div>
+      )}
+
+      {(members < 3 || members > 7 || members % 2 === 0) && (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+          {members < 3 && <div>At least 3 members are required ({members} now).</div>}
+          {members > 7 && <div>At most 7 members are allowed ({members} now).</div>}
+          {members % 2 === 0 && members >= 3 && members <= 7 && <div>An odd number of members keeps a clear quorum on a split network ({members} now).</div>}
+        </div>
+      )}
+      <p className="text-xs text-muted">Each member runs PostgreSQL + repmgr; member 1 starts as the primary and the rest stream as standbys. repmgrd handles automatic failover. Use the +/− buttons on the frame to resize (3–7 members).</p>
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteFrame(f.id)}>
+        <Icon.Trash size={16} /> Delete cluster
+      </Button>
+    </div>
+  )
+}
+
+// RepmgrMemberForm edits a repmgr cluster member: only host-port export of 5432
+// (OS/version come from the frame; repmgr manages roles + failover).
+function RepmgrMemberForm({ node: n, frame, patchNode, dep, deployed }) {
+  return (
+    <div className="space-y-3">
+      {dep && (
+        <div className="flex items-center justify-between rounded-lg bg-surface2 px-3 py-2 text-sm">
+          <span className="text-muted">Deployment</span>
+          <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+        </div>
+      )}
+      <Field label="Node name" hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
+      <Field label="Cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <p className="text-xs text-muted">Runs PostgreSQL + repmgr. The cluster's first node bootstraps as primary; this node streams from it (repmgr can fail over to it).</p>
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
         <span>Export PostgreSQL port to the host (5432)</span>
@@ -3816,7 +4288,7 @@ function loadProps() {
 function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster, deployOpen, deployments, onDeployMinimize }) {
   const selNode = selected?.kind === 'node' ? nodes.find((n) => n.id === selected.id) : null
   const selDep = selNode ? depByNode[selNode.id] : null
-  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm' || selNode.type === 'seaweedfs' || selNode.type === 'patroni' || selNode.type === 'haproxy')) || selected?.kind === 'frame'
+  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm' || selNode.type === 'seaweedfs' || selNode.type === 'patroni' || selNode.type === 'haproxy' || selNode.type === 'pg' || selNode.type === 'repmgr')) || selected?.kind === 'frame'
 
   const saved = useRef(loadProps()).current
   const [docked, setDocked] = useState(saved.docked !== false)
@@ -3931,6 +4403,9 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     if (f.type === 'patroni') {
       return <PatroniFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
     }
+    if (f.type === 'repmgr') {
+      return <RepmgrFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+    }
     return <PXCFrameForm frame={f} stackId={stackId} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} running={running} />
   }
 
@@ -3967,7 +4442,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     // PS MongoDB sharded-cluster member node.
     if (n.type === 'psmdb') {
       if (dep && dep.state === 'running') {
-        return <MongoDBManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+        return <MongoDBManager stackId={stackId} nodeId={n.id} frameId={n.frameId} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <MongoDBMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} patchNode={patchNode} dep={dep} deployed={deployed} />
     }
@@ -3975,7 +4450,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     // PS MongoDB replica-set member node.
     if (n.type === 'psmrs') {
       if (dep && dep.state === 'running') {
-        return <MongoDBManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+        return <MongoDBManager stackId={stackId} nodeId={n.id} frameId={n.frameId} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <PSMRSMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} patchNode={patchNode} dep={dep} deployed={deployed} />
     }
@@ -3994,6 +4469,14 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <PatroniManager stackId={stackId} nodeId={n.id} frame={frames.find((fr) => fr.id === n.frameId)} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <PatroniMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} patchNode={patchNode} dep={dep} deployed={deployed} />
+    }
+
+    // repmgr PostgreSQL cluster member node.
+    if (n.type === 'repmgr') {
+      if (dep && dep.state === 'running') {
+        return <RepmgrManager stackId={stackId} nodeId={n.id} frame={frames.find((fr) => fr.id === n.frameId)} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <RepmgrMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} patchNode={patchNode} dep={dep} deployed={deployed} />
     }
 
     // HAProxy node (load balancer for a Patroni cluster).
@@ -4033,12 +4516,26 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       }
       return <PerconaServerForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
+    // Standalone PostgreSQL node.
+    if (n.type === 'pg') {
+      if (dep && dep.state === 'running') {
+        return <PGManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <PostgreSQLForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
     // SeaweedFS object-storage node.
     if (n.type === 'seaweedfs') {
       if (dep && dep.state === 'running') {
         return <SeaweedFSManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <SeaweedFSForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+    // Watchtower singleton node (container auto-upgrades for PMM).
+    if (n.type === 'watchtower') {
+      if (dep && dep.state === 'running') {
+        return <WatchtowerManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <WatchtowerForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
     return (
       <div className="space-y-3">
@@ -4078,7 +4575,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
             ))}
           </select>
         </Field>
-        {n.type === 'pmm' && <PMMOptions n={n} patchNode={patchNode} deployed={deployed} />}
+        {n.type === 'pmm' && <PMMOptions n={n} nodes={nodes} patchNode={patchNode} deployed={deployed} />}
         <div className="grid grid-cols-2 gap-2">
           <Field label="X">
             <input type="number" className={inputCls} value={Math.round(n.x)} onChange={(e) => patchNode(n.id, { x: +e.target.value })} />
