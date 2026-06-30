@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -243,3 +245,199 @@ command -v pmm-admin >/dev/null 2>&1 || { echo "pmm-client not installed"; exit 
 const valkeyRegisterPMMScript = `set -e
 pmm-admin config --force --server-insecure-tls --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443" "$NODE" >/dev/null 2>&1 || \
 pmm-admin config --force --server-insecure-tls --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443" >/dev/null`
+
+// ------------------------------------------------------------ Valkey cluster
+
+// provisionValkeyClusterFrame brings up a Valkey Cluster: every member runs
+// valkey/valkey-bundle with cluster-enabled, then one member runs `valkey-cli --cluster
+// create` over all members (all-master, 3–7 shards). Shared default-user password +
+// optional LDAP across the cluster.
+func (a *App) provisionValkeyClusterFrame(st Stack, frame designFrame, doc designDoc) {
+	domain := envOr("DOMAIN", "example.net")
+	baseDN := domainToDN(domain)
+	hosts := stackHostnames(doc)
+
+	var members []designNode
+	for _, n := range doc.Nodes {
+		if n.FrameID == frame.ID && n.Type == "valkeycluster" {
+			members = append(members, n)
+		}
+	}
+	sort.Slice(members, func(i, j int) bool { return members[i].Label < members[j].Label })
+	if len(members) < 3 {
+		log.Printf("stack %d valkeycluster %s: need >=3 members, have %d", st.ID, frame.Label, len(members))
+		return
+	}
+
+	// Shared default-user password, reused across redeploys.
+	pw := strings.TrimSpace(frame.RootPassword)
+	for _, n := range members {
+		if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
+			var s valkeySecrets
+			if json.Unmarshal(dep.Secrets, &s) == nil && s.Password != "" {
+				pw = s.Password
+				break
+			}
+		}
+	}
+	if pw == "" {
+		pw = genSecret("Valkey!")
+	}
+	sec := valkeySecrets{Password: pw}
+	secJSON, _ := json.Marshal(sec)
+
+	monitoredBy := ""
+	if frame.PMMNodeID != "" {
+		for _, m := range doc.Nodes {
+			if m.ID == frame.PMMNodeID && m.Type == "pmm" {
+				monitoredBy = fqdnOf(hosts[m.ID], domain)
+			}
+		}
+	}
+	ldapServers := ""
+	if frame.UseLDAP {
+		ldapServers = fmt.Sprintf("ldap://intranet.%s:389", domain)
+	}
+	for _, n := range members {
+		host := hosts[n.ID]
+		cfg := valkeyConfig{
+			Image: valkeyImage, Role: "cluster", Hostname: host, FQDN: fqdnOf(host, domain),
+			UseLDAP: frame.UseLDAP, LDAPServers: ldapServers, MonitoredBy: monitoredBy, Ports: []int{valkeyPort},
+		}
+		cfgJSON, _ := json.Marshal(cfg)
+		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
+	}
+
+	go func() {
+		ctx := context.Background()
+		progs := map[string]*pxcProg{}
+		for _, n := range members {
+			progs[n.ID] = a.pxcNewProg(st.ID, n.ID)
+			a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
+			progs[n.ID].phase("Waiting for Intranet to be ready", 5)
+		}
+		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		if werr != nil {
+			for _, n := range members {
+				progs[n.ID].fail("%v", werr)
+			}
+			return
+		}
+		if ok, _ := a.docker.ImageExists(ctx, valkeyImage); !ok {
+			if err := a.docker.ImagePull(ctx, valkeyImageRepo, valkeyImageTag); err != nil {
+				for _, n := range members {
+					progs[n.ID].fail("pull image: %v", err)
+				}
+				return
+			}
+		}
+
+		// Phase 1 (parallel): create + configure + start every member.
+		var wg sync.WaitGroup
+		failed := false
+		var mu sync.Mutex
+		conf := valkeyConfFile(pw, domain, baseDN, frame.UseLDAP, true)
+		for _, n := range members {
+			wg.Add(1)
+			go func(n designNode) {
+				defer wg.Done()
+				if err := a.valkeyStartMember(ctx, st, n, hosts[n.ID], intranetIP, domain, conf, pw, progs[n.ID]); err != nil {
+					mu.Lock()
+					failed = true
+					mu.Unlock()
+				}
+			}(n)
+		}
+		wg.Wait()
+		if failed {
+			return
+		}
+		a.reconcileStackDNS(ctx, st.ID)
+
+		// Phase 2: form the cluster from the first member.
+		first := members[0]
+		fdep, _ := a.store.GetDeployment(st.ID, first.ID)
+		var nodeArgs []string
+		for _, n := range members {
+			nodeArgs = append(nodeArgs, fmt.Sprintf("%s:%d", fqdnOf(hosts[n.ID], domain), valkeyPort))
+		}
+		progs[first.ID].phase("Forming cluster", 70)
+		if err := a.runStep(ctx, fdep.ContainerID, valkeyClusterCreateScript, []string{"PW=" + pw, "NODES=" + strings.Join(nodeArgs, " ")}, progs[first.ID].logln); err != nil {
+			progs[first.ID].fail("form cluster: %v", err)
+			return
+		}
+
+		// Phase 3: pmm-client per member (best-effort).
+		pmmFQDN, pmmUser, pmmPass, havePMM := a.pmmServerFor(st, doc, frame.PMMNodeID)
+		for _, n := range members {
+			dep, _ := a.store.GetDeployment(st.ID, n.ID)
+			pr := progs[n.ID]
+			pr.phase("Installing pmm-client", 88)
+			if err := a.runStep(ctx, dep.ContainerID, valkeyInstallPMMScript, nil, pr.logln); err == nil && havePMM {
+				a.runStep(ctx, dep.ContainerID, valkeyRegisterPMMScript, []string{"PMM_FQDN=" + pmmFQDN, "PMM_USER=" + pmmUser, "PMM_PASS=" + pmmPass, "NODE=" + hosts[n.ID]}, pr.logln)
+			}
+			a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: dep.ContainerID, State: DeployRunning, Config: a.depConfig(st.ID, n.ID), Secrets: secJSON})
+			pr.phase("Running", 100)
+			pr.p.Message = "provisioned"
+			pr.save()
+		}
+		a.reconcileStackDNS(ctx, st.ID)
+		log.Printf("stack %d valkeycluster %s: provisioned (%d shards)", st.ID, frame.Label, len(members))
+	}()
+}
+
+// valkeyStartMember creates + configures + starts one cluster member and waits for PING.
+func (a *App) valkeyStartMember(ctx context.Context, st Stack, n designNode, host, intranetIP, domain, conf, pw string, pr *pxcProg) error {
+	pr.phase("Creating container", 25)
+	name := containerName(st.ID, n.ID)
+	if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
+		a.docker.ContainerRemove(ctx, cid)
+	}
+	spec := ContainerSpec{
+		Name: name, Image: valkeyImage, Hostname: host,
+		Cmd:     []string{"valkey-server", valkeyConfPath},
+		Network: networkName(st.ID), Aliases: []string{host},
+		DNS: []string{intranetIP}, DNSSearch: []string{domain},
+	}
+	if n.ExportEnabled {
+		spec.PublishMap = []PortMap{{ContainerPort: valkeyPort, HostPort: n.ExportHostPort}}
+	}
+	id, err := a.docker.ContainerCreate(ctx, spec)
+	if err != nil {
+		return pr.fail("create container: %v", err)
+	}
+	if err := a.docker.CopyFile(ctx, id, "/etc", "dbcanvas-valkey.conf", 0o644, []byte(conf)); err != nil {
+		return pr.fail("write valkey.conf: %v", err)
+	}
+	if err := a.docker.ContainerStart(ctx, id); err != nil {
+		return pr.fail("start container: %v", err)
+	}
+	if n.ExportEnabled {
+		if hp, e := a.docker.ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", valkeyPort)); e == nil {
+			if p, e2 := strconv.Atoi(hp); e2 == nil {
+				if dep, e3 := a.store.GetDeployment(st.ID, n.ID); e3 == nil {
+					var cfg valkeyConfig
+					json.Unmarshal(dep.Config, &cfg)
+					cfg.ExportPort = p
+					cfgJSON, _ := json.Marshal(cfg)
+					a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON, Secrets: dep.Secrets})
+				}
+			}
+		}
+	} else {
+		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: a.depConfig(st.ID, n.ID), Secrets: a.depSecrets(st.ID, n.ID)})
+	}
+	pr.phase("Waiting for Valkey", 45)
+	return a.runStep(ctx, id, valkeyPingScript, []string{"PW=" + pw}, pr.logln)
+}
+
+// valkeyClusterCreateScript forms the cluster (idempotent: skips if already ok).
+const valkeyClusterCreateScript = `set -e
+valkey-cli -a "$PW" --no-auth-warning CLUSTER INFO 2>/dev/null | grep -q 'cluster_state:ok' && { echo "cluster already formed"; exit 0; }
+valkey-cli -a "$PW" --no-auth-warning --cluster create $NODES --cluster-replicas 0 --cluster-yes
+# Slot assignment is immediate but cluster_state:ok needs a few seconds of gossip.
+for i in $(seq 1 20); do
+  valkey-cli -a "$PW" --no-auth-warning CLUSTER INFO 2>/dev/null | grep -q 'cluster_state:ok' && { echo "cluster_state:ok"; exit 0; }
+  sleep 2
+done
+echo "cluster did not reach state ok:"; valkey-cli -a "$PW" --no-auth-warning CLUSTER INFO 2>/dev/null | head; exit 1`

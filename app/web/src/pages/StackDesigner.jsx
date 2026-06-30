@@ -371,7 +371,7 @@ function nextMemberName(usedSet, prefix) {
 }
 
 // Per-frame-type presentation: accent color and the description line.
-const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', psmdb: '#10b981', psmrs: '#059669', patroni: '#336791', repmgr: '#0e7490' }
+const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', psmdb: '#10b981', psmrs: '#059669', patroni: '#336791', repmgr: '#0e7490', valkeycluster: '#7c3aed' }
 
 // typeColor maps a node/frame type to its canvas color so a toolbar "add" button can
 // be tinted to match the node/frame it creates. addBtnStyle turns that into inline
@@ -402,6 +402,7 @@ const frameVersionLabel = (f) => {
   if (f?.type === 'psmrs') return `PS MongoDB ${f?.psmdbVersion || f?.psmdbMajor || ''} replica set`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'patroni') return `Percona PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · Patroni`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'repmgr') return `PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · repmgr (PGDG)`.replace(/\s+/g, ' ').trim()
+  if (f?.type === 'valkeycluster') return 'Valkey Cluster · valkey/valkey-bundle'
   return pxcVersionLabel(f)
 }
 
@@ -1276,6 +1277,33 @@ function StackEditor({ stackId, onBack }) {
     setNodes(r.nodes)
     setSelected({ kind: 'frame', id: fid })
   }
+  function newValkeyMember(frameId) {
+    const used = new Set(nodes.filter((n) => n.type === 'valkeycluster').map((n) => n.label))
+    return { id: uid('valkey'), type: 'valkeycluster', label: nextMemberName(used, 'valkey'), frameId, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
+  }
+  // addValkeyCluster builds a Valkey Cluster frame with 3 members (resizable 3–7,
+  // all-master shards via valkey-cli --cluster create).
+  function addValkeyCluster() {
+    if (!nodes.some((n) => n.type === 'intranet')) return
+    const fid = uid('frame')
+    const fx = (-view.x + 200) / view.z
+    const fy = (-view.y + 200) / view.z
+    const frame = {
+      id: fid, type: 'valkeycluster', label: nextNamedCluster(frames, 'valkey-cluster'), x: fx, y: fy, w: 0, h: 0,
+      rootPassword: '', pmmNodeId: '', useLdap: false,
+    }
+    const used = new Set(nodes.filter((n) => n.type === 'valkeycluster').map((n) => n.label))
+    const newNodes = []
+    for (let i = 0; i < 3; i++) {
+      const name = nextMemberName(used, 'valkey')
+      used.add(name)
+      newNodes.push({ id: uid('valkey'), type: 'valkeycluster', label: name, frameId: fid, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 })
+    }
+    const r = relayout(fid, [...frames, frame], [...nodes, ...newNodes])
+    setFrames(r.frames)
+    setNodes(r.nodes)
+    setSelected({ kind: 'frame', id: fid })
+  }
   // Frame +/- buttons dispatch by frame type.
   function addFrameMember(frame) {
     if (frame.type === 'proxysql') {
@@ -1306,6 +1334,11 @@ function StackEditor({ stackId, onBack }) {
       const r = relayout(frame.id, frames, [...nodes, newRepmgrMember(frame.id)])
       setFrames(r.frames)
       setNodes(r.nodes)
+    } else if (frame.type === 'valkeycluster') {
+      if (nodes.filter((n) => n.frameId === frame.id).length >= 7) return // max 7
+      const r = relayout(frame.id, frames, [...nodes, newValkeyMember(frame.id)])
+      setFrames(r.frames)
+      setNodes(r.nodes)
     } else {
       addPXCNode(frame.id)
     }
@@ -1315,7 +1348,7 @@ function StackEditor({ stackId, onBack }) {
     if (mine.length <= 1) return // keep at least one node
     // Patroni/repmgr need ≥3 members: never drop below 3.
     const frame = frames.find((f) => f.id === frameId)
-    if ((frame?.type === 'patroni' || frame?.type === 'repmgr') && mine.length <= 3) return
+    if ((frame?.type === 'patroni' || frame?.type === 'repmgr' || frame?.type === 'valkeycluster') && mine.length <= 3) return
     removePXCNodeById(frameId, mine[mine.length - 1].id)
   }
   function removePXCNodeById(frameId, id) {
@@ -1509,6 +1542,9 @@ function StackEditor({ stackId, onBack }) {
           <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('repmgr')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addRepmgrCluster}>
             <Icon.Plus size={16} /> repmgr Cluster
           </Button>
+          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('valkeycluster')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addValkeyCluster}>
+            <Icon.Plus size={16} /> Valkey Cluster
+          </Button>
           <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('haproxy')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('haproxy')}>
             <Icon.Plus size={16} /> HAProxy
           </Button>
@@ -1669,6 +1705,7 @@ function StackEditor({ stackId, onBack }) {
                     else if (f.type === 'psmrs') sub = 'replica-set member'
     else if (f.type === 'patroni') sub = 'Patroni node'
                     else if (f.type === 'repmgr') sub = 'PostgreSQL + repmgr'
+                    else if (f.type === 'valkeycluster') sub = 'Valkey shard'
                     else if (arb) sub = 'Arbitrator · garbd'
                     const barCol = (f.type === 'pxc' && arb) || (f.type === 'mysql' && !isPrimary) ? '#64748b' : col
                     // PXC and Percona Server replication members expose ports for
@@ -1695,7 +1732,7 @@ function StackEditor({ stackId, onBack }) {
                               ) : null}
                             </div>
                             <div className="mt-0.5 truncate text-[10px] text-muted">{sub}</div>
-                            <div className="truncate text-[9px] font-medium text-fg/80">{pxcOSLabel(f)} · {f.arch || 'amd64'}</div>
+                            <div className="truncate text-[9px] font-medium text-fg/80">{f.type === 'valkeycluster' ? 'valkey/valkey-bundle' : `${pxcOSLabel(f)} · ${f.arch || 'amd64'}`}</div>
                             {n.exportEnabled && <div className="text-[9px] font-medium text-primary">⇅ export</div>}
                           </div>
                         </div>
@@ -1705,8 +1742,8 @@ function StackEditor({ stackId, onBack }) {
                       </div>
                     )
                   })}
-                  {/* Association endpoints — InnoDB/GR + repmgr have none. */}
-                  {f.type !== 'innodb' && f.type !== 'repmgr' && (
+                  {/* Association endpoints — InnoDB/GR, repmgr + Valkey cluster have none. */}
+                  {f.type !== 'innodb' && f.type !== 'repmgr' && f.type !== 'valkeycluster' && (
                     <PortHandles ownerId={f.id} connecting={!!connect} snapPort={connect?.targetId === f.id ? connect.targetPort : null} onStart={startConnect} />
                   )}
                 </div>
@@ -3122,6 +3159,82 @@ function ValkeyManager({ dep, onDeleteNode }) {
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
       </Button>
+    </div>
+  )
+}
+
+// ValkeyClusterFrameForm edits a Valkey Cluster frame: shared default-user password,
+// optional LDAP, PMM monitor. 3–7 all-master shards (resize with the frame +/-).
+function ValkeyClusterFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed }) {
+  const lock = deployed ? 'opacity-70' : ''
+  const pmmNodes = nodes.filter((x) => x.type === 'pmm')
+  const count = frameNodes.length
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Valkey Cluster</span>
+        <Badge tone="muted">{count} node{count === 1 ? '' : 's'}</Badge>
+      </div>
+      <p className="text-xs text-muted">
+        {count} all-master shard{count === 1 ? '' : 's'} of <span className="font-mono">valkey/valkey-bundle</span>,
+        formed with <span className="font-mono">valkey-cli --cluster create</span>. Use the frame +/- to resize (3–7).
+      </p>
+
+      <Field label="Cluster name" hint="Frame label; must be unique.">
+        <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+      </Field>
+
+      <Field label="Password (default user)" hint={deployed ? 'Set at deploy.' : 'requirepass/masterauth. Empty = auto-generate.'}>
+        <input className={`${inputCls} ${lock}`} value={f.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchFrame(f.id, { rootPassword: e.target.value })} />
+      </Field>
+
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!f.useLdap} disabled={deployed} onChange={(e) => patchFrame(f.id, { useLdap: e.target.checked })} />
+        <span>Enable LDAP auth (Intranet OpenLDAP)</span>
+      </label>
+
+      <Field label="Monitored by (PMM)" hint="Optional — installs/registers pmm-client on each member.">
+        <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
+          <option value="">none</option>
+          {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </Field>
+
+      {count < 3 && <p className="text-xs text-amber-500">A Valkey cluster needs at least 3 nodes.</p>}
+      {count > 7 && <p className="text-xs text-amber-500">A Valkey cluster allows at most 7 nodes.</p>}
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteFrame(f.id)}>
+        <Icon.Trash size={16} /> Delete cluster
+      </Button>
+    </div>
+  )
+}
+
+// ValkeyClusterMemberForm edits one Valkey cluster member (label + host-port export).
+function ValkeyClusterMemberForm({ node: n, frame: f, patchNode, dep, deployed }) {
+  const lock = deployed ? 'opacity-70' : ''
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Valkey member</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <p className="text-xs text-muted">Member of <span className="font-mono">{f?.label || 'valkey cluster'}</span>. Auth/LDAP/PMM are set on the cluster frame.</p>
+
+      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
+        <span>Export Valkey port (6379) to the host</span>
+      </label>
+      {n.exportEnabled && (
+        <Field label="Host port" hint="0 / empty = random unused port.">
+          <input type="number" min="0" max="65535" className={`${inputCls} ${lock}`} value={n.exportHostPort || 0} disabled={deployed}
+            onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
+        </Field>
+      )}
+      {!deployed && <p className="text-xs text-muted">Use the frame +/- to add or remove members (3–7).</p>}
     </div>
   )
 }
@@ -4770,6 +4883,9 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     if (f.type === 'repmgr') {
       return <RepmgrFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
     }
+    if (f.type === 'valkeycluster') {
+      return <ValkeyClusterFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+    }
     return <PXCFrameForm frame={f} stackId={stackId} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} running={running} />
   }
 
@@ -4841,6 +4957,13 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <RepmgrManager stackId={stackId} nodeId={n.id} frame={frames.find((fr) => fr.id === n.frameId)} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <RepmgrMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} patchNode={patchNode} dep={dep} deployed={deployed} />
+    }
+    // Valkey cluster member node.
+    if (n.type === 'valkeycluster') {
+      if (dep && dep.state === 'running') {
+        return <ValkeyManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <ValkeyClusterMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} patchNode={patchNode} dep={dep} deployed={deployed} />
     }
 
     // HAProxy node (load balancer for a Patroni cluster).

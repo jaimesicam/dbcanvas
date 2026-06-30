@@ -165,6 +165,9 @@ type designFrame struct {
 	// PGMajor/PGVersion above). Each member runs PostgreSQL + repmgr (streaming
 	// replication + repmgrd failover); backups go to Barman cloud (→ SeaweedFS S3).
 	UseBarman bool `json:"useBarman"` // configure Barman cloud → SeaweedFS S3 (uses SeaweedFSNodeID)
+	// Valkey cluster frame config (Type=="valkeycluster"; members run valkey/valkey-bundle).
+	// Reuses RootPassword (default-user password), PMMNodeID. 3–7 all-master shards.
+	UseLDAP bool `json:"useLdap"` // wire valkey-ldap to the Intranet OpenLDAP
 }
 
 type designDoc struct {
@@ -716,6 +719,35 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		}
 	}
 
+	// --- Valkey cluster frames (3–7 all-master shards) ---
+	valkeyNames := map[string]int{}
+	for _, f := range doc.Frames {
+		if f.Type != "valkeycluster" {
+			continue
+		}
+		valkeyNames[strings.TrimSpace(f.Label)]++
+		members := 0
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != "valkeycluster" {
+				continue
+			}
+			members++
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		}
+		if members < 3 {
+			out = append(out, issue{"error", "Valkey cluster " + f.Label + " needs at least 3 nodes"})
+		} else if members > 7 {
+			out = append(out, issue{"error", "Valkey cluster " + f.Label + " allows at most 7 nodes"})
+		}
+	}
+	for name, c := range valkeyNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{"error", "Duplicate Valkey cluster name: " + name})
+		}
+	}
+
 	// --- PS MongoDB sharded-cluster frames ---
 	// The topology is fixed by the designer (1 mongos + 3-node config RS + 3 shards
 	// × 3-node RS); validate the member set is intact and the image exists.
@@ -1079,6 +1111,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			memberType = "patroni"
 		case "repmgr":
 			memberType = "repmgr"
+		case "valkeycluster":
+			memberType = "valkeycluster"
 		default:
 			continue
 		}
@@ -1112,6 +1146,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionPatroniFrame(st, f, doc)
 		case "repmgr":
 			a.provisionRepmgrFrame(st, f, doc)
+		case "valkeycluster":
+			a.provisionValkeyClusterFrame(st, f, doc)
 		}
 	}
 

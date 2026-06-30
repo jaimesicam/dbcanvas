@@ -3251,3 +3251,36 @@ export port, password, valkey-cli connect strings).
 ### Still to do (noted)
 - Valkey **cluster** frame (3 default, 3–7) — like PXC.
 - **Node palette redesign** (vertical, categorized, dockable left / undock + stretch).
+
+## 46. Valkey Cluster frame (3–7 all-master shards)
+
+The cluster half of the Valkey work (palette redesign still pending). A **`valkeycluster`**
+frame is the Valkey analogue of the PXC frame: 3 members by default, resizable 3–7 via the
+frame +/-, each running valkey/valkey-bundle with `cluster-enabled`, formed into an
+all-master cluster with `valkey-cli --cluster create ... --cluster-replicas 0`.
+
+### Backend — `app/valkey.go` + `app/intranet.go`
+`provisionValkeyClusterFrame`: shared default-user password (requirepass/masterauth, reused
+across redeploys) + optional LDAP, set on the frame. Phase 1 (parallel) creates/configures/
+starts every member (`valkeyStartMember`, cluster conf via `valkeyConfFile(..., cluster=true)`);
+phase 2 forms the cluster from the first member (`valkeyClusterCreateScript`, idempotent —
+skips if already `cluster_state:ok`, polls for ok after create since gossip needs a few
+seconds); phase 3 installs pmm-client per member + registers with PMM. designFrame gains
+`UseLDAP`; wired into the deploy frame loop (memberType/provision), the redeploy gate, and
+validateDesign (3 ≤ members ≤ 7, unique cluster name, host-port export conflicts).
+
+### Frontend — `StackDesigner.jsx`
+`FRAME_COLORS.valkeycluster` + `frameVersionLabel`; `addValkeyCluster` (3 `valkeyNN`
+members, `valkey-cluster-NN`), `addFrameMember`/`removePXCNode` enforce 3–7; toolbar
+"Valkey Cluster" button; member cards show "Valkey shard" + `valkey/valkey-bundle` and have
+no association ports; `ValkeyClusterFrameForm` (password, LDAP toggle, PMM, 3–7 guidance) +
+`ValkeyClusterMemberForm` (label, host-port export); running members reuse `ValkeyManager`.
+
+### Verification performed
+- `go build`/`vet`/`gofmt -l` + web build pass.
+- **Live** (3× valkey/valkey-bundle on a network): members start, `valkey-cli --cluster
+  create --cluster-replicas 0 --cluster-yes` forms the cluster, `cluster_state` reaches
+  **ok** after ~4s of gossip (hence the poll), and a cross-node `SET`/`GET` routes correctly.
+
+### Still to do
+- **Node palette redesign** (vertical, categorized, dockable left / undock + stretch).
