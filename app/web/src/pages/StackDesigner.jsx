@@ -802,7 +802,10 @@ function StackEditor({ stackId, onBack }) {
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [])
+    // Re-run once the canvas actually mounts: StackEditor renders a "Loading…"
+    // placeholder while stack is null, so wrapRef.current is null on first mount and
+    // the listener would otherwise never attach (breaking wheel zoom).
+  }, [stack])
 
   // delete key
   useEffect(() => {
