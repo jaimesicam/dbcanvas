@@ -129,7 +129,9 @@ function EmailTab({ api, domain, webmailPort }) {
     try { await fn(); await load() } catch (e) { setErr(e.message) } finally { setBusy(false) }
   }
 
-  const webmailUrl = webmailPort ? `http://${location.hostname}:${webmailPort}/roundcubemail/` : null
+  // Roundcube is served by PHP's built-in server (php -S) at the port root, not under
+  // httpd's /roundcubemail alias — so the URL is the bare host:port.
+  const webmailUrl = webmailPort ? `http://${location.hostname}:${webmailPort}/` : null
 
   return (
     <div className="space-y-3">

@@ -2791,3 +2791,42 @@ Confirmed the dead-ends:
 Real fixes are environment-level: run the Intranet as **native arm64** (no Rosetta — the
 default when the dbcanvas server runs on Apple Silicon), or switch Rancher Desktop's VM
 emulation from **Rosetta (VZ) to QEMU**. `go build`/`vet`/`gofmt -l` clean.
+
+## 31. Roundcube via `php -S` (no httpd/php-fpm) — restore Rosetta-working webmail
+
+§30 concluded webmail couldn't work under Rosetta, but the user pointed at the older
+`db-canvas/oel9-systemd` intranet container, which *did* work on macOS/Rancher. Inspecting
+it revealed the technique: a custom `dbpg-roundcube.service` serving Roundcube with **PHP's
+built-in web server** instead of httpd + php-fpm:
+
+```
+ExecStart=/usr/bin/php -d error_reporting=0 -S 0.0.0.0:80 -t /usr/share/roundcubemail
+Restart=always
+```
+
+The current repo had regressed to httpd→php-fpm (Alias `/roundcubemail`). Under Rosetta the
+`mmap_anonymous_rw mmap failed` crash is **transient** at process start; a single `php -S`
+process with **`Restart=always`** keeps relaunching until a start lands, whereas php-fpm's
+master/worker model under httpd dies and its unit gives up. The fix ports the working
+approach back:
+
+- **`intranet.go` "Configure webmail"** — initialize the sqlite schema in a **retry loop**
+  (the `php` CLI can SIGSEGV mid-init under Rosetta) and fail the step if the db never
+  appears; then write **`/etc/systemd/system/dbcanvas-roundcube.service`** (`php -S` on
+  container port 80, `Restart=always`, `RestartSec=2`). Dropped the httpd
+  `roundcubemail.conf` `Require all granted` tweak.
+- **"Enable services"** — start `dbcanvas-roundcube` instead of `php-fpm`/`httpd` (both
+  still installed via the roundcubemail RPM, just not started).
+- **"Relax sandboxing for emulation"** — now adds **`Restart=always`/`RestartSec=2`** (plus
+  the harmless MDW/SCF clears) to dovecot/postfix/named/slapd/squid/rsyslog so they too
+  ride out transient Rosetta start failures. Still gated on `$EMULATED`.
+- **`IntranetManager.jsx`** — webmail link is now `http://host:port/` (php -S serves
+  Roundcube at the root, not under httpd's `/roundcubemail` alias).
+
+### Verification performed
+- `go build`/`vet`/`gofmt -l` + web build clean.
+- Functionally verified in a live EL9 amd64 container: with httpd/php-fpm stopped, the
+  `dbcanvas-roundcube` (`php -S`) unit is active and `GET /` → 200 serving the "DBCanvas
+  Webmail" login page, `?_task=login` → 200, and a skin CSS asset → 200. (Native x86 here;
+  the Restart=always behavior under actual Rosetta still wants a macOS confirm, but this is
+  a faithful port of the user's previously-working config.)

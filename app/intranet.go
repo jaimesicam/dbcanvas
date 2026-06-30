@@ -1237,22 +1237,26 @@ dnf config-manager --set-enabled ol9_codeready_builder >/dev/null 2>&1 || true`}
 dnf -y install rsyslog squid bind bind-utils postfix dovecot openldap-servers openldap-clients httpd php php-fpm roundcubemail mod_ssl openssl net-tools >/dev/null`},
 
 		// Under x86-64 emulation on an arm64 host (e.g. Rosetta on Apple Silicon via
-		// Rancher Desktop), the binary translator needs anonymous RW mappings (which it
-		// later makes executable) for its code cache. systemd service hardening —
-		// MemoryDenyWriteExecute / SystemCallFilter — blocks those, so php-fpm and
-		// dovecot crash with "rosetta error: mmap_anonymous_rw mmap failed" / SIGSEGV.
-		// When emulation is detected, drop those two directives for the long-running
-		// daemons (these are localhost-only dev services; the hardening loss is moot).
+		// Rancher Desktop), the binary translator intermittently fails to obtain its
+		// code-cache mapping at process start and the daemon dies with "rosetta error:
+		// mmap_anonymous_rw mmap failed" / SIGSEGV. The retry is what makes it work: with
+		// Restart=always systemd keeps relaunching until a start lands (the failure is
+		// transient). So when emulation is detected, add Restart=always to the
+		// long-running daemons (Roundcube already gets it via dbcanvas-roundcube.service).
+		// The MemoryDenyWriteExecute/SystemCallFilter clears are harmless belt-and-
+		// suspenders for unit versions that do set them. (Localhost-only dev services.)
 		// Runs before any service starts (slapd comes up in "Configure OpenLDAP").
 		{"Relax sandboxing for emulation", `set -e
 [ -n "$EMULATED" ] || exit 0
-for svc in php-fpm dovecot httpd postfix named slapd squid rsyslog; do
+for svc in dovecot postfix named slapd squid rsyslog; do
   d="/etc/systemd/system/${svc}.service.d"
   install -d "$d"
   cat > "$d/10-dbcanvas-emulation.conf" <<'UNIT'
 [Service]
 MemoryDenyWriteExecute=no
 SystemCallFilter=
+Restart=always
+RestartSec=2
 UNIT
 done
 systemctl daemon-reload`},
@@ -1355,11 +1359,34 @@ $config['support_url'] = '';
 $config['product_name'] = 'DBCanvas Webmail';
 RCCFG
 chown apache:apache "$RC" 2>/dev/null || true
-php -r '$f="/var/lib/roundcubemail/roundcube.db"; if(!file_exists($f)){$db=new PDO("sqlite:".$f); $db->exec(file_get_contents("/usr/share/roundcubemail/SQL/sqlite.initial.sql"));}' 2>/dev/null || true
+# Initialize the sqlite schema. Under Rosetta the php CLI can intermittently SIGSEGV
+# in the translator ("mmap_anonymous_rw mmap failed"), so retry until the db exists.
+for i in $(seq 1 10); do
+  [ -s /var/lib/roundcubemail/roundcube.db ] && break
+  php -r '$f="/var/lib/roundcubemail/roundcube.db"; $db=new PDO("sqlite:".$f); $db->exec(file_get_contents("/usr/share/roundcubemail/SQL/sqlite.initial.sql"));' 2>/dev/null || true
+  sleep 1
+done
+[ -s /var/lib/roundcubemail/roundcube.db ] || { echo "roundcube sqlite db not initialized"; exit 1; }
 chown -R apache:apache /var/lib/roundcubemail 2>/dev/null || true
-CONF=/etc/httpd/conf.d/roundcubemail.conf
-[ -f "$CONF" ] && sed -i 's/Require local/Require all granted/g' "$CONF" || true
-true`},
+# Serve Roundcube with PHP's built-in web server instead of httpd + php-fpm. Under
+# x86-64 emulation (Rosetta on Apple Silicon) httpd's php-fpm master/worker model
+# crashes and its unit gives up; a single "php -S" process with Restart=always rides
+# out Rosetta's intermittent mmap failures. It binds the container's published port 80
+# and serves Roundcube at the root (the frontend links to http://host:port/).
+cat > /etc/systemd/system/dbcanvas-roundcube.service <<'UNIT'
+[Unit]
+Description=DBCanvas Roundcube webmail (php built-in server)
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/php -d error_reporting=0 -S 0.0.0.0:80 -t /usr/share/roundcubemail
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload`},
 
 		{"Configure Squid", `set -e
 CONF=/etc/squid/squid.conf
@@ -1392,8 +1419,10 @@ if [ -f "$CONF" ] && ! grep -q 'filter-aaaa.so' "$CONF"; then
 fi`},
 
 		{"Enable services", `set -e
-echo "ServerName intranet.$DOMAIN" > /etc/httpd/conf.d/servername.conf
-for svc in rsyslog slapd squid named postfix dovecot php-fpm httpd; do
+# Webmail runs as dbcanvas-roundcube (php -S); httpd/php-fpm are intentionally not
+# started (the roundcubemail package pulls them in, but php -S replaces both — see
+# "Configure webmail").
+for svc in rsyslog slapd squid named postfix dovecot dbcanvas-roundcube; do
   systemctl enable "$svc" >/dev/null 2>&1 || true
   systemctl restart "$svc" >/dev/null 2>&1 || true
 done`},
