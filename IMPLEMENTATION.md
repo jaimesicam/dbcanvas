@@ -2915,3 +2915,21 @@ turn opcache off and `php -S` still serves the Roundcube login (`GET /` → 200,
 Webmail"). Keeps the apache user + 8080 + runtime db auto-create from §32/§34.
 `go build`/`vet`/`gofmt -l` clean. (Still needs a macOS/Rosetta confirm, but this is the
 concrete config delta from the setup that worked there.)
+
+## 36. Rosetta dovecot fix: mmap_disable = yes (compared against working image)
+
+After the §35 opcache fix the webmail UI worked on macOS but dovecot crashed under Rosetta
+with SIGTRAP (`comm="dovecot" exe="/mnt/lima-rosetta/rosetta" sig=5`). `diff`ing
+`dovecot -n` against the old working `db-canvas` intranet showed the relevant delta:
+the old image set **`mmap_disable = yes`**, the current one didn't.
+
+Dovecot mmaps its index/cache files by default; under Rosetta that mmap fails (same family
+as the opcache/php-fpm crashes) and dovecot dies. Fix (`app/intranet.go`): add
+`mmap_disable = yes` to the `/etc/dovecot/conf.d/99-dbcanvas.conf` it writes (forces plain
+read/write I/O for indexes). Matches the working image; harmless on native hosts (minor
+index I/O cost). Verified the config parses (`dovecot -n` OK) and dovecot starts.
+`go build`/`vet`/`gofmt -l` clean.
+
+(The other `dovecot -n` differences — mail_location path, first_valid_uid 5000 vs 1000,
+PLAIN vs SHA512-CRYPT passdb, imap-only vs imap+lmtp, ssl — are intentional dbcanvas config
+choices, not the crash cause.)

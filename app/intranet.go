@@ -1320,8 +1320,13 @@ install -d /etc/dovecot
 [ -f /etc/dovecot/users ] || echo "$MAIL_ADMIN@$DOMAIN:{PLAIN}$MAIL_ADMIN_PW::::::" > /etc/dovecot/users
 # Wire dovecot to authenticate the virtual users (passwd-file) over plaintext
 # IMAP on localhost, with maildirs matching postfix's virtual_mailbox_base.
+# mmap_disable=yes: dovecot mmaps its index/cache files by default, but under x86-64
+# emulation (Rosetta on Apple Silicon) that mmap fails and dovecot crashes (SIGTRAP);
+# forcing plain read/write avoids it. The old working image set this too. Harmless
+# elsewhere (minor index I/O cost only).
 cat > /etc/dovecot/conf.d/99-dbcanvas.conf <<'DCONF'
 protocols = imap
+mmap_disable = yes
 ssl = no
 disable_plaintext_auth = no
 auth_mechanisms = plain login
