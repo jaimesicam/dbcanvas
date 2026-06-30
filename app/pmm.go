@@ -83,10 +83,20 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 	fqdn := fqdnOf(host, domain)
 
 	// Reuse the admin password across redeploys; otherwise take the user's value
-	// or generate one when left empty.
+	// or generate one when left empty. Also reuse the published host ports so the PMM
+	// server keeps the same URLs across a redeploy AND across a Watchtower upgrade.
 	var sec pmmSecrets
-	if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
-		json.Unmarshal(dep.Secrets, &sec)
+	httpPort, httpsPort := 0, 0
+	if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil {
+		if len(dep.Secrets) > 0 {
+			json.Unmarshal(dep.Secrets, &sec)
+		}
+		if len(dep.Config) > 0 {
+			var old pmmConfig
+			if json.Unmarshal(dep.Config, &old) == nil {
+				httpPort, httpsPort = old.HTTPPort, old.HTTPSPort
+			}
+		}
 	}
 	if sec.AdminPassword == "" {
 		pw := strings.TrimSpace(n.AdminPassword)
@@ -95,13 +105,26 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 		}
 		sec = pmmSecrets{AdminUser: "admin", AdminPassword: pw}
 	}
+	// Pin fixed host ports (allocate free ones on first deploy). Publishing explicit
+	// HostPorts — rather than Docker's ephemeral empty binding — is what makes them
+	// survive Watchtower recreating the PMM container during an in-GUI upgrade.
+	if httpPort == 0 {
+		if p, e := freeHostPort(); e == nil {
+			httpPort = p
+		}
+	}
+	if httpsPort == 0 {
+		if p, e := freeHostPort(); e == nil {
+			httpsPort = p
+		}
+	}
 
 	cfg := pmmConfig{
 		Image: ref, Version: tag, Arch: archOr(n.Arch),
 		Hostname: host, FQDN: fqdn, Alias: host,
 		AdminUser: sec.AdminUser, SMTPHost: "intranet." + domain + ":25",
-		GenerateCert: n.GenerateCert,
-		Services:     []string{"Grafana", "VictoriaMetrics", "ClickHouse", "PostgreSQL", "QAN", "nginx (TLS)"},
+		GenerateCert: n.GenerateCert, HTTPPort: httpPort, HTTPSPort: httpsPort,
+		Services: []string{"Grafana", "VictoriaMetrics", "ClickHouse", "PostgreSQL", "QAN", "nginx (TLS)"},
 	}
 	cfgJSON, _ := json.Marshal(cfg)
 	secJSON, _ := json.Marshal(sec)
@@ -173,8 +196,8 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 			Name: name, Image: ref, Hostname: host,
 			Env:     wtEnv,
 			Network: networkName(st.ID), Aliases: []string{host},
-			PublishPorts: []int{8080, 8443},
-			DNS:          []string{intranetIP}, DNSSearch: []string{domain},
+			PublishMap: []PortMap{{ContainerPort: 8080, HostPort: httpPort}, {ContainerPort: 8443, HostPort: httpsPort}},
+			DNS:        []string{intranetIP}, DNSSearch: []string{domain},
 		})
 		if err != nil {
 			failNode("create container: %v", err)

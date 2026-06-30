@@ -245,6 +245,19 @@ type PortMap struct {
 	HostPort      int
 }
 
+// freeHostPort asks the OS for an unused TCP port (bind :0, then release it). Used to
+// publish a container port to a *fixed* host port that survives an out-of-band recreate
+// (e.g. Watchtower upgrading the PMM server) — Docker's empty-HostPort ephemeral binding
+// is re-assigned on every recreate, so the published port changes.
+func freeHostPort() (int, error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port, nil
+}
+
 // ContainerCreate creates a container and returns its id.
 func (d *Docker) ContainerCreate(ctx context.Context, spec ContainerSpec) (string, error) {
 	host := map[string]any{

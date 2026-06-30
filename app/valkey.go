@@ -228,23 +228,36 @@ done
 echo "valkey not answering authenticated PING"; exit 1`
 
 // valkeyInstallPMMScript installs pmm-client into the (Debian-based) bundle image via
-// percona-release. Best-effort.
+// percona-release (+ procps for the process check). Best-effort.
 const valkeyInstallPMMScript = `set -e
 export DEBIAN_FRONTEND=noninteractive
-command -v pmm-admin >/dev/null 2>&1 && exit 0
+[ -x /usr/sbin/pmm-agent ] && exit 0
 apt-get update -qq >/dev/null 2>&1 || true
-apt-get install -y -qq wget gnupg2 ca-certificates >/dev/null 2>&1 || true
+apt-get install -y -qq wget gnupg2 ca-certificates procps >/dev/null 2>&1 || true
 wget -qO /tmp/percona-release.deb https://repo.percona.com/apt/percona-release_latest.generic_all.deb
 dpkg -i /tmp/percona-release.deb >/dev/null 2>&1 || { apt-get update -qq >/dev/null; apt-get -y -qq -f install >/dev/null; }
 percona-release setup -y pmm3-client >/dev/null 2>&1 || percona-release enable -y pmm3-client >/dev/null 2>&1 || true
 apt-get update -qq >/dev/null
 apt-get install -y -qq pmm-client >/dev/null
-command -v pmm-admin >/dev/null 2>&1 || { echo "pmm-client not installed"; exit 1; }`
+[ -x /usr/sbin/pmm-agent ] || { echo "pmm-client not installed"; exit 1; }`
 
-// valkeyRegisterPMMScript points pmm-admin at the PMM server (node-level metrics).
+// valkeyRegisterPMMScript registers the node with the PMM server and starts pmm-agent.
+// The valkey/valkey-bundle image has no systemd, so pmm-agent (which on a systemd host
+// runs as pmm-agent.service) must be launched in the background here: `pmm-agent setup`
+// writes the config + registers the node, then the daemon is started so it joins and
+// reports node metrics. (No systemd → it does not auto-restart on a container restart.)
 const valkeyRegisterPMMScript = `set -e
-pmm-admin config --force --server-insecure-tls --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443" "$NODE" >/dev/null 2>&1 || \
-pmm-admin config --force --server-insecure-tls --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443" >/dev/null`
+CFG=/usr/local/percona/pmm/config/pmm-agent.yaml
+install -d /usr/local/percona/pmm/config
+/usr/sbin/pmm-agent setup --config-file="$CFG" \
+  --server-address="$PMM_FQDN:8443" --server-username="$PMM_USER" --server-password="$PMM_PASS" \
+  --server-insecure-tls --paths-base=/usr/local/percona/pmm "$NODE" container >/dev/null 2>&1 \
+  || { echo "pmm-agent setup failed (is $PMM_FQDN:8443 reachable?)"; exit 1; }
+if ! pgrep -f "pmm-agent --config-file=$CFG" >/dev/null 2>&1; then
+  setsid /usr/sbin/pmm-agent --config-file="$CFG" >/var/log/pmm-agent.log 2>&1 < /dev/null &
+fi
+sleep 3
+pgrep -f "pmm-agent --config-file=$CFG" >/dev/null 2>&1 || { echo "pmm-agent did not start"; tail -20 /var/log/pmm-agent.log 2>/dev/null; exit 1; }`
 
 // ------------------------------------------------------------ Valkey cluster
 

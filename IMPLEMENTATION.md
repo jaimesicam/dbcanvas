@@ -3325,3 +3325,31 @@ Two fixes reported against §45/§46:
    password succeeds (`ACL WHOAMI` → alice) and a wrong password returns WRONGPASS.
 
 Web build passes. (LDAP users live in the Intranet OpenLDAP under ou=People.)
+
+## 49. Stable PMM ports across Watchtower upgrades + Valkey pmm-agent (no systemd)
+
+Two fixes:
+
+### (a) PMM keeps its published ports across an in-GUI (Watchtower) upgrade — `pmm.go` + `docker.go`
+PMM was published with Docker's *empty-HostPort* ephemeral binding, so when Watchtower
+recreates the PMM container during an in-GUI server upgrade it re-assigns **new** host
+ports (the access URLs changed). Now PMM publishes **fixed** host ports: `pmm.go` reuses
+the previously-assigned ports from the stored config across redeploys, and allocates free
+ones on first deploy via a new `freeHostPort()` helper (bind `:0`, release, reuse the
+number); the container is created with explicit `PortBindings` (`PublishMap` HostPort),
+which Watchtower preserves on recreate. So the PMM URLs stay stable across both dbcanvas
+redeploys and Watchtower upgrades.
+
+### (b) Valkey pmm-agent runs without systemd — `valkey.go`
+The valkey/valkey-bundle image has no systemd, so the old `pmm-admin config` path (which
+relies on `pmm-agent.service`) never started the agent — the node never joined PMM. Now,
+after installing pmm-client, the Valkey PMM step runs `pmm-agent setup` (writes
+`/usr/local/percona/pmm/config/pmm-agent.yaml` + registers the node with the server) and
+then launches **`/usr/sbin/pmm-agent --config-file=…` in the background** (`setsid`), so it
+joins and reports node metrics. Applies to both the standalone node and every cluster
+member. (Verified: pmm-client 3.8.1 installs on the bundle's Debian 13; `pmm-agent setup`
+flags + the binary path `/usr/sbin/pmm-agent` + config path are correct; setup registers
+against a reachable server. No systemd → the agent doesn't auto-restart on a bare container
+restart; a redeploy relaunches it. Full join needs a live PMM server to confirm.)
+
+`go build`/`vet`/`gofmt -l` clean.
