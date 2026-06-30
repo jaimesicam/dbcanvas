@@ -2761,3 +2761,33 @@ dir → 404, to an existing dir → 200.
 Fix: before the two `CopyFile` calls, run `install -d -m 700 "$HOME/.aws"` (HOME=pgHome).
 Mirrors the same fix Patroni already uses for `/etc/pgbackrest` (§24). `go build`/`vet`/
 `gofmt -l` clean.
+
+## 30. Revert §27 — Rosetta crash is the translator itself, not systemd confinement
+
+A post-§27 deploy still crashed php-fpm/dovecot on Apple Silicon, with audit records
+proving the fault is in Rosetta, not the sandbox:
+
+```
+comm="php"     exe="/mnt/lima-rosetta/rosetta" sig=11
+comm="php-fpm" exe="/mnt/lima-rosetta/rosetta" sig=11
+comm="dovecot" exe="/mnt/lima-rosetta/rosetta" sig=5
+```
+
+Even the bare `php` CLI (the Roundcube DB-init `php -r` step) segfaults inside
+`/mnt/lima-rosetta/rosetta` — so un-confining the systemd units (§27) cannot help, and
+just weakened the daemons for no benefit. **§27's expansion is reverted**; the
+"Relax sandboxing for emulation" step is back to its original two-directive form
+(MemoryDenyWriteExecute / SystemCallFilter).
+
+Confirmed the dead-ends:
+- **No mod_php on EL9** — RHEL/Oracle Linux 8+ dropped the Apache PHP module; the only
+  PHP SAPI is php-fpm (httpd proxies `.php` to `/run/php-fpm/www.sock`). Verified against
+  the reference `db-canvas/oel9-systemd` intranet container, which uses exactly that
+  `<IfModule !mod_php.c>` FPM-proxy wiring. That container only "works" because it runs
+  **native x86_64** (no Rosetta) on the dev host.
+- Roundcube-without-php-fpm wouldn't help anyway: mod_php would load the same Zend engine
+  that crashes, and dovecot (needed for IMAP) crashes independently.
+
+Real fixes are environment-level: run the Intranet as **native arm64** (no Rosetta — the
+default when the dbcanvas server runs on Apple Silicon), or switch Rancher Desktop's VM
+emulation from **Rosetta (VZ) to QEMU**. `go build`/`vet`/`gofmt -l` clean.

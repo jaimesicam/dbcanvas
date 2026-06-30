@@ -1238,16 +1238,11 @@ dnf -y install rsyslog squid bind bind-utils postfix dovecot openldap-servers op
 
 		// Under x86-64 emulation on an arm64 host (e.g. Rosetta on Apple Silicon via
 		// Rancher Desktop), the binary translator needs anonymous RW mappings (which it
-		// later makes executable) for its code cache, and access to the unrestricted
-		// /dev + syscall ABI. systemd service confinement breaks that, so php-fpm and
+		// later makes executable) for its code cache. systemd service hardening —
+		// MemoryDenyWriteExecute / SystemCallFilter — blocks those, so php-fpm and
 		// dovecot crash with "rosetta error: mmap_anonymous_rw mmap failed" / SIGSEGV.
-		// The EL9 units that actually crash don't set MemoryDenyWriteExecute or
-		// SystemCallFilter at all — what bites is the sandbox/namespace hardening they
-		// DO ship: dovecot.service has PrivateDevices=true + ProtectSystem=full (private
-		// /dev, ~@raw-io seccomp, RO /usr) and both have PrivateTmp=true. So when
-		// emulation is detected, fully un-confine the long-running daemons (these are
-		// localhost-only dev services; the hardening loss is moot). The arch + addr-family
-		// + W^X clears are belt-and-suspenders for other unit versions / OSes.
+		// When emulation is detected, drop those two directives for the long-running
+		// daemons (these are localhost-only dev services; the hardening loss is moot).
 		// Runs before any service starts (slapd comes up in "Configure OpenLDAP").
 		{"Relax sandboxing for emulation", `set -e
 [ -n "$EMULATED" ] || exit 0
@@ -1258,18 +1253,6 @@ for svc in php-fpm dovecot httpd postfix named slapd squid rsyslog; do
 [Service]
 MemoryDenyWriteExecute=no
 SystemCallFilter=
-SystemCallArchitectures=
-RestrictAddressFamilies=
-LockPersonality=no
-PrivateDevices=no
-PrivateTmp=no
-ProtectSystem=no
-ProtectHome=no
-ProtectKernelTunables=no
-ProtectKernelModules=no
-ProtectControlGroups=no
-RestrictNamespaces=no
-RestrictRealtime=no
 UNIT
 done
 systemctl daemon-reload`},
