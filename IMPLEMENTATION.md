@@ -2892,3 +2892,26 @@ the config and makes `/var/lib/roundcubemail` apache-writable; the long-running
 `dbcanvas-roundcube.service` (php -S, `Restart=always`) creates the db on first hit and
 rides out any transient Rosetta crash until a request lands. `go build`/`vet`/`gofmt -l`
 clean.
+
+## 35. The real Rosetta webmail fix: disable php opcache/JIT (not the user/db)
+
+§31–§34 chased symptoms; comparing the old working `db-canvas` intranet against the current
+one found the actual difference: **php-opcache**. The old image had **no `php-opcache`
+package** (no `/etc/php.d/10-opcache.ini`, no Zend OPcache module). The current image ships
+it with `opcache.enable_cli => On` and `opcache.jit => tracing`.
+
+OPcache and its JIT allocate **executable memory via mmap** — exactly the operation Rosetta
+can't satisfy (`mmap_anonymous_rw mmap failed`). So with opcache on, `php -S` (CLI SAPI,
+enable_cli=On) starts fine but **SIGSEGVs the instant it executes Roundcube code on a
+request** — which is precisely the audit trail (server "started", then `Accepted` →
+`status=11/SEGV` every request, `Restart=always` looping to the limit). It is **not** about
+the apache user (root would crash too — cf. the stray `uid=0 php sig=5`), so the §32
+unprivileged setup is kept.
+
+Fix (`app/intranet.go`): the `dbcanvas-roundcube.service` `ExecStart` now passes
+`-d opcache.enable=0 -d opcache.enable_cli=0`, disabling opcache/JIT for the webmail server
+(matching the old image's behavior without removing the package). Verified on x86: the flags
+turn opcache off and `php -S` still serves the Roundcube login (`GET /` → 200, "DBCanvas
+Webmail"). Keeps the apache user + 8080 + runtime db auto-create from §32/§34.
+`go build`/`vet`/`gofmt -l` clean. (Still needs a macOS/Rosetta confirm, but this is the
+concrete config delta from the setup that worked there.)

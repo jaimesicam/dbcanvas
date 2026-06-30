@@ -1366,12 +1366,18 @@ chown apache:apache "$RC" 2>/dev/null || true
 # the db lands at /var/lib/roundcubemail/roundcube.db on first hit (Restart=always rides
 # out any transient Rosetta crash until a request lands).
 chown -R apache:apache /var/lib/roundcubemail 2>/dev/null || true
-# Serve Roundcube with PHP's built-in web server instead of httpd + php-fpm. Under
-# x86-64 emulation (Rosetta on Apple Silicon) httpd's php-fpm master/worker model
-# crashes and its unit gives up; a single "php -S" process with Restart=always rides
-# out Rosetta's intermittent mmap failures. Runs as the unprivileged apache user, so
-# it binds 8080 (not the privileged 80) — dbcanvas publishes that to an auto host
-# port. Serves Roundcube at the root (the frontend links to http://host:port/).
+# Serve Roundcube with PHP's built-in web server instead of httpd + php-fpm. httpd's
+# php-fpm master/worker model fares worse under emulation; a single "php -S" process is
+# simpler. Runs as the unprivileged apache user, so it binds 8080 (not the privileged
+# 80) — dbcanvas publishes that to an auto host port — and serves Roundcube at the root
+# (the frontend links to http://host:port/).
+#
+# opcache is DISABLED (-d opcache.enable=0 -d opcache.enable_cli=0). This is the fix for
+# Apple Silicon / Rosetta: php-opcache (+ its tracing JIT) allocates executable memory via
+# mmap, which the Rosetta translator can't satisfy ("mmap_anonymous_rw mmap failed") — so
+# with opcache on, php SIGSEGVs the instant it executes Roundcube code on a request. The
+# old working image simply had no php-opcache package; we keep the package but turn it off
+# for this server. (Harmless on native x86/arm too — webmail doesn't need opcache.)
 cat > /etc/systemd/system/dbcanvas-roundcube.service <<'UNIT'
 [Unit]
 Description=DBCanvas Roundcube webmail (php built-in server)
@@ -1380,7 +1386,7 @@ After=network.target
 [Service]
 User=apache
 Group=apache
-ExecStart=/usr/bin/php -d error_reporting=0 -S 0.0.0.0:8080 -t /usr/share/roundcubemail
+ExecStart=/usr/bin/php -d error_reporting=0 -d opcache.enable=0 -d opcache.enable_cli=0 -S 0.0.0.0:8080 -t /usr/share/roundcubemail
 Restart=always
 RestartSec=2
 
