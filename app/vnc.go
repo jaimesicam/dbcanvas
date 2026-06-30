@@ -12,21 +12,22 @@ import (
 	"time"
 )
 
-// Ubuntu VNC node (Type=="vnc"): a desktop "jump box" for troubleshooting. It runs
-// the stock ubuntu:24.04 image (pulled at deploy) with an XFCE desktop served over a
-// web-based VNC client (TigerVNC + noVNC/websockify), plus percona-release and the
-// Percona client tools (MySQL/PSMDB/Valkey/PostgreSQL) and ldap-utils preinstalled.
-// A sudo-enabled login user (credentials from the node properties) lets the operator
-// install more packages for ad-hoc debugging.
+// Ubuntu VNC node (Type=="vnc"): a desktop "jump box" for troubleshooting. It runs on
+// the same systemd Ubuntu image as the database nodes (dbcanvas-systemd:ubuntu-<ver>-
+// <arch>), so the desktop stack runs as real systemd services that survive restarts.
 //
-// There is no systemd in the base image: the container runs `sleep infinity` as PID 1
-// and the desktop stack is installed + launched via exec steps. The launch step is
-// idempotent so a redeploy brings the session back up.
+// It provides an XFCE desktop over a browser-based VNC client (TigerVNC + noVNC/
+// websockify), Firefox, the OpenSSH client, and percona-release with the Percona client
+// tools (MySQL/PSMDB/Valkey/PostgreSQL) + percona-toolkit + ldap-utils. A sudo-enabled
+// login user (credentials from the node properties) lets the operator install more
+// packages for ad-hoc debugging. Per-stack singleton.
+//
+// Services: the packaged `tigervncserver@:1` unit (driven by /etc/tigervnc/
+// vncserver.users + the user's ~/.vnc/config) runs Xvnc on display :1 (rfb 5901), and a
+// small `dbcanvas-novnc` unit runs websockify serving noVNC on 6080 (published to the
+// host).
 
 const (
-	vncImage     = "ubuntu:24.04"
-	vncImageRepo = "ubuntu"
-	vncImageTag  = "24.04"
 	vncWebPort   = 6080 // in-container noVNC (websockify) port, published to the host
 	vncRFBPort   = 5901 // Xvnc display :1
 	vncGeometry  = "1440x900"
@@ -35,12 +36,15 @@ const (
 
 // vncConfig is the non-secret profile shown for a deployed VNC node.
 type vncConfig struct {
-	Image    string `json:"image"`
-	Hostname string `json:"hostname"`
-	FQDN     string `json:"fqdn"`
-	WebPort  int    `json:"webPort"` // published host port → container noVNC 6080 (0 if unpublished)
-	VNCUser  string `json:"vncUser"`
-	UseProxy bool   `json:"useProxy"`
+	Image     string `json:"image"`
+	OS        string `json:"os"`
+	OSVersion string `json:"osVersion"`
+	Arch      string `json:"arch"`
+	Hostname  string `json:"hostname"`
+	FQDN      string `json:"fqdn"`
+	WebPort   int    `json:"webPort"` // published host port → container noVNC 6080 (0 if unpublished)
+	VNCUser   string `json:"vncUser"`
+	UseProxy  bool   `json:"useProxy"`
 }
 
 // vncSecrets holds the desktop/VNC password (also the sudo user's password).
@@ -55,8 +59,8 @@ func genVNCPassword() string {
 	return hex.EncodeToString(b) // 8 lowercase hex chars
 }
 
-// provisionVNC records the deployment then runs an async goroutine that pulls
-// ubuntu:24.04, installs the desktop + VNC + Percona clients, and starts the session.
+// provisionVNC records the deployment then runs an async goroutine that brings up the
+// systemd container, installs the desktop + Firefox + clients, and starts the services.
 func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 	domain := envOr("DOMAIN", "example.net")
 	host := stackHostnames(doc)[n.ID]
@@ -64,6 +68,16 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 		host = sanitizeName(n.Label)
 	}
 	fqdn := fqdnOf(host, domain)
+
+	os := n.OS
+	if os == "" {
+		os = "ubuntu"
+	}
+	osVersion := n.OSVersion
+	if osVersion == "" {
+		osVersion = "24.04"
+	}
+	image := pxcImage(os, osVersion, n.Arch)
 
 	user := strings.TrimSpace(n.VNCUser)
 	if user == "" {
@@ -83,7 +97,7 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 	sec := vncSecrets{VNCPassword: pw}
 	secJSON, _ := json.Marshal(sec)
 
-	cfg := vncConfig{Image: vncImage, Hostname: host, FQDN: fqdn, VNCUser: user, UseProxy: n.UseProxy}
+	cfg := vncConfig{Image: image, OS: os, OSVersion: osVersion, Arch: archOr(n.Arch), Hostname: host, FQDN: fqdn, VNCUser: user, UseProxy: n.UseProxy}
 	cfgJSON, _ := json.Marshal(cfg)
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 
@@ -92,30 +106,25 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 		pr := a.pxcNewProg(st.ID, n.ID)
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 
-		pr.phase("Pulling image", 6)
-		if ok, _ := a.docker.ImageExists(ctx, vncImage); !ok {
-			pr.logln("pulling " + vncImage)
-			if err := a.docker.ImagePull(ctx, vncImageRepo, vncImageTag); err != nil {
-				pr.fail("pull image: %v", err)
-				return
-			}
+		if ok, _ := a.docker.ImageExists(ctx, image); !ok {
+			pr.fail("image %s not found — run `make images` first", image)
+			return
 		}
 
-		pr.phase("Waiting for Intranet to be ready", 12)
+		pr.phase("Waiting for Intranet to be ready", 8)
 		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
 		if werr != nil {
 			pr.fail("%v", werr)
 			return
 		}
 
-		pr.phase("Creating container", 18)
+		pr.phase("Creating container", 14)
 		name := containerName(st.ID, n.ID)
 		if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
 			a.docker.ContainerRemove(ctx, cid)
 		}
 		id, err := a.docker.ContainerCreate(ctx, ContainerSpec{
-			Name: name, Image: vncImage, Hostname: host,
-			Cmd:     []string{"sleep", "infinity"},
+			Name: name, Image: image, Hostname: host, Privileged: true,
 			Network: networkName(st.ID), Aliases: []string{host},
 			PublishMap: []PortMap{{ContainerPort: vncWebPort}},
 			DNS:        []string{intranetIP}, DNSSearch: []string{domain},
@@ -140,38 +149,49 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 		cfgJSON, _ = json.Marshal(cfg)
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON, Secrets: secJSON})
 
+		pr.phase("Waiting for systemd", 18)
+		if err := a.docker.WaitSystemd(ctx, id, 90*time.Second); err != nil {
+			pr.fail("systemd did not start: %v", err)
+			return
+		}
+
 		if n.UseProxy {
 			if err := a.runStep(ctx, id, pkgProxyDebian, []string{"PROXY=http://intranet." + domain + ":3128"}, pr.logln); err != nil {
 				pr.logln("configure apt proxy skipped: " + err.Error())
 			}
 		}
 
-		pr.phase("Installing desktop + VNC", 35)
+		pr.phase("Installing desktop + VNC + SSH", 32)
 		if err := a.runStep(ctx, id, vncInstallDesktopScript, nil, pr.logln); err != nil {
 			pr.fail("install desktop/VNC: %v", err)
 			return
 		}
-		pr.logln("XFCE desktop + TigerVNC + noVNC installed")
+		pr.logln("XFCE desktop + TigerVNC + noVNC + openssh-client installed")
 
-		pr.phase("Installing Percona clients", 60)
+		pr.phase("Installing Firefox", 50)
+		if err := a.runStep(ctx, id, vncInstallFirefoxScript, nil, pr.logln); err != nil {
+			pr.logln("Firefox install had issues (continuing; install manually with sudo): " + err.Error())
+		}
+
+		pr.phase("Installing Percona clients", 65)
 		if err := a.runStep(ctx, id, vncInstallClientsScript, nil, pr.logln); err != nil {
 			// Best-effort: the desktop is still usable and the operator has sudo.
 			pr.logln("Percona client install had issues (continuing; install manually with sudo): " + err.Error())
 		} else {
-			pr.logln("percona-release + clients installed (ps/psmdb/valkey/ppg, ldap-utils)")
+			pr.logln("percona-release + clients installed (ps/psmdb/valkey/ppg, percona-toolkit, ldap-utils)")
 		}
 
-		pr.phase("Creating desktop user", 80)
-		if err := a.runStep(ctx, id, vncSetupUserScript, []string{"VNCUSER=" + user, "VNCPW=" + pw}, pr.logln); err != nil {
+		pr.phase("Creating desktop user", 82)
+		if err := a.runStep(ctx, id, vncSetupUserScript, []string{"VNCUSER=" + user, "VNCPW=" + pw, "GEOMETRY=" + vncGeometry}, pr.logln); err != nil {
 			pr.fail("create desktop user: %v", err)
 			return
 		}
 		pr.logln("user " + user + " created (sudo) + VNC password set")
 
-		pr.phase("Starting desktop session", 92)
-		if err := a.runStep(ctx, id, vncStartScript,
-			[]string{"VNCUSER=" + user, "GEOMETRY=" + vncGeometry, "WEBPORT=" + strconv.Itoa(vncWebPort), "RFBPORT=" + strconv.Itoa(vncRFBPort)}, pr.logln); err != nil {
-			pr.fail("start desktop session: %v", err)
+		pr.phase("Starting desktop services", 92)
+		if err := a.runStep(ctx, id, vncStartServicesScript,
+			[]string{"WEBPORT=" + strconv.Itoa(vncWebPort), "RFBPORT=" + strconv.Itoa(vncRFBPort)}, pr.logln); err != nil {
+			pr.fail("start desktop services: %v", err)
 			return
 		}
 
@@ -184,21 +204,35 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 	}()
 }
 
-// vncInstallDesktopScript installs the XFCE desktop, TigerVNC and noVNC/websockify.
+// vncInstallDesktopScript installs the XFCE desktop, TigerVNC, noVNC/websockify and the
+// OpenSSH client.
 const vncInstallDesktopScript = `set -e
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq --no-install-recommends \
   xfce4 xfce4-goodies xfce4-terminal dbus-x11 xterm \
   tigervnc-standalone-server tigervnc-common tigervnc-tools \
-  novnc websockify python3 \
+  novnc websockify python3 openssh-client \
   wget gnupg2 lsb-release curl ca-certificates sudo net-tools nano vim less procps >/dev/null
 # noVNC ships vnc.html under /usr/share/novnc; ensure an index points at it.
 [ -f /usr/share/novnc/index.html ] || ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html 2>/dev/null || true`
 
-// vncInstallClientsScript installs percona-release and the Percona client tools plus
-// ldap-utils. Each client install is best-effort (|| true) so one bad package name in
-// a future repo refresh never blocks the others — the operator has sudo to fix it.
+// vncInstallFirefoxScript installs Firefox from Mozilla's APT repository. (Ubuntu's own
+// "firefox" package is a snap transitional that does not run in a container.) Best-effort.
+const vncInstallFirefoxScript = `set -e
+export DEBIAN_FRONTEND=noninteractive
+install -d -m 0755 /etc/apt/keyrings
+wget -qO /etc/apt/keyrings/packages.mozilla.org.asc https://packages.mozilla.org/apt/repo-signing-key.gpg
+echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" > /etc/apt/sources.list.d/mozilla.list
+printf 'Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000\n' > /etc/apt/preferences.d/mozilla
+apt-get update -qq || true
+apt-get install -y -qq firefox >/dev/null 2>&1 || apt-get install -y -qq firefox-esr >/dev/null 2>&1 || true
+# Best-effort: report status but never fail the deploy (the operator has sudo).
+command -v firefox >/dev/null 2>&1 && echo "firefox: $(firefox --version 2>/dev/null | head -1)" || echo "firefox not installed (install manually with sudo)"`
+
+// vncInstallClientsScript installs percona-release and the Percona client tools, plus
+// percona-toolkit and ldap-utils. Each install is best-effort (|| true) so one bad
+// package name in a future repo refresh never blocks the others — the operator has sudo.
 const vncInstallClientsScript = `set -e
 export DEBIAN_FRONTEND=noninteractive
 wget -qO /tmp/percona-release.deb https://repo.percona.com/apt/percona-release_latest.generic_all.deb
@@ -216,7 +250,9 @@ echo "clients present:"
 for c in mysql mongosh psql valkey-cli ldapsearch pt-query-digest; do command -v "$c" >/dev/null 2>&1 && echo "  $c: $(command -v $c)" || echo "  $c: MISSING (install with sudo)"; done`
 
 // vncSetupUserScript creates the sudo login user, sets its password + the VNC auth
-// password (TigerVNC, 8-char), and writes the XFCE xstartup. Idempotent.
+// password (TigerVNC, 8-char), writes the per-user ~/.vnc/config (key=value: xfce
+// session, geometry, no localhost-only, VncAuth) + xstartup, and maps display :1 to the
+// user in /etc/tigervnc/vncserver.users for the packaged tigervncserver@ unit. Idempotent.
 const vncSetupUserScript = `set -e
 id "$VNCUSER" >/dev/null 2>&1 || useradd -m -s /bin/bash "$VNCUSER"
 echo "$VNCUSER:$VNCPW" | chpasswd
@@ -228,6 +264,7 @@ install -d -o "$VNCUSER" -g "$VNCUSER" -m 700 "$HOME_DIR/.vnc"
 VNCPASSWD=$(command -v tigervncpasswd || command -v vncpasswd)
 printf '%s\n' "$VNCPW" | "$VNCPASSWD" -f > "$HOME_DIR/.vnc/passwd"
 chmod 600 "$HOME_DIR/.vnc/passwd"
+printf 'session=xfce\ngeometry=%s\nlocalhost=no\nsecuritytypes=VncAuth\n' "$GEOMETRY" > "$HOME_DIR/.vnc/config"
 cat > "$HOME_DIR/.vnc/xstartup" <<'XS'
 #!/bin/sh
 unset SESSION_MANAGER
@@ -235,36 +272,34 @@ unset DBUS_SESSION_BUS_ADDRESS
 exec dbus-launch --exit-with-session startxfce4
 XS
 chmod 755 "$HOME_DIR/.vnc/xstartup"
-chown -R "$VNCUSER":"$VNCUSER" "$HOME_DIR/.vnc"`
+chown -R "$VNCUSER":"$VNCUSER" "$HOME_DIR/.vnc"
+install -d /etc/tigervnc
+echo ":1=$VNCUSER" > /etc/tigervnc/vncserver.users`
 
-// vncStartScript (re)launches Xvnc (display :1) as the user and websockify/noVNC on
-// the web port. Idempotent — kills any existing session first. Also persists a small
-// start script so the session can be relaunched after a container restart.
-const vncStartScript = `set -e
-HOME_DIR=$(getent passwd "$VNCUSER" | cut -d: -f6)
-VNCSRV=$(command -v tigervncserver || command -v vncserver)
-cat > /usr/local/bin/dbcanvas-vnc-start.sh <<SH
-#!/bin/bash
-set -e
-VNCSRV="$VNCSRV"
-runuser -l "$VNCUSER" -c "\$VNCSRV -kill :1 >/dev/null 2>&1 || true"
-# Stop a previous noVNC by its recorded PID (do NOT pkill -f websockify: the deploy
-# step's own command line contains that word and would get killed too).
-[ -f /run/dbcanvas-novnc.pid ] && kill "\$(cat /run/dbcanvas-novnc.pid)" 2>/dev/null || true
-sleep 1
-runuser -l "$VNCUSER" -c "\$VNCSRV :1 -geometry $GEOMETRY -depth 24 -localhost no -SecurityTypes VncAuth -rfbport $RFBPORT"
-nohup websockify --web=/usr/share/novnc $WEBPORT localhost:$RFBPORT >/var/log/websockify.log 2>&1 &
-echo \$! > /run/dbcanvas-novnc.pid
-SH
-chmod 755 /usr/local/bin/dbcanvas-vnc-start.sh
-/usr/local/bin/dbcanvas-vnc-start.sh
-# Verify Xvnc (rfb $RFBPORT) and the noVNC web port are listening. (Checking the
-# listening ports is reliable; tigervncserver -list formats the display without a colon.)
+// vncStartServicesScript writes the websockify unit and enables both systemd services
+// (the packaged tigervncserver@:1 for Xvnc, dbcanvas-novnc for the noVNC web bridge),
+// then verifies the rfb + web ports are listening.
+const vncStartServicesScript = `set -e
+cat > /etc/systemd/system/dbcanvas-novnc.service <<UNIT
+[Unit]
+Description=DBCanvas noVNC (websockify)
+After=tigervncserver@:1.service network-online.target
+[Service]
+ExecStart=/usr/bin/websockify --web=/usr/share/novnc $WEBPORT localhost:$RFBPORT
+Restart=always
+RestartSec=2
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl reset-failed "tigervncserver@:1" dbcanvas-novnc 2>/dev/null || true
+systemctl enable --now "tigervncserver@:1"
+systemctl enable --now dbcanvas-novnc
 for port in $RFBPORT $WEBPORT; do
   OK=0
-  for i in $(seq 1 15); do
+  for i in $(seq 1 20); do
     (exec 3<>/dev/tcp/127.0.0.1/$port) 2>/dev/null && { exec 3>&-; OK=1; break; }
     sleep 1
   done
-  [ "$OK" = 1 ] || { echo "port $port not listening after start"; tail -20 "$HOME_DIR/.vnc/"*.log /var/log/websockify.log 2>/dev/null; exit 1; }
+  [ "$OK" = 1 ] || { echo "port $port not listening after start"; systemctl --no-pager status "tigervncserver@:1" dbcanvas-novnc 2>&1 | tail -20; exit 1; }
 done`

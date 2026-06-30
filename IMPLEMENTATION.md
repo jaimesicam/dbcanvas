@@ -3085,3 +3085,40 @@ counts `vnc` and errors "Only one Ubuntu VNC node is allowed per stack".
   websockify survives (PID file), `xfce4-session` running, and from the **host**
   `GET /vnc.html` → 200.
 - Percona clients incl. `pt-query-digest` (percona-toolkit) install + resolve.
+
+## 41. Ubuntu VNC rebased on the systemd image + Firefox + openssh-client
+
+Reworked the §39/§40 VNC node to run on the **same systemd Ubuntu image as the database
+nodes** (`dbcanvas-systemd:ubuntu-<ver>-<arch>` via `pxcImage`) instead of stock
+ubuntu:24.04, so the desktop runs as real systemd services (survives restarts), and added
+Firefox + the OpenSSH client.
+
+### Backend — `app/vnc.go` (rewritten) + `app/intranet.go`
+- Container is now **privileged with systemd as PID 1** (no `sleep infinity`); waits for
+  systemd, then installs/configures via exec steps. Node carries `os`/`osVersion`/`arch`
+  (defaults ubuntu/24.04/amd64); `validateDesign` checks the image exists (`make images`).
+- **Services as systemd units** (the §40 sleep-infinity + nohup launcher is gone):
+  the packaged **`tigervncserver@:1`** unit (driven by `/etc/tigervnc/vncserver.users`
+  =`:1=<user>` and the user's **`~/.vnc/config`** — `session=xfce`, geometry, `localhost=no`,
+  `securitytypes=VncAuth`) runs Xvnc on 5901; a small **`dbcanvas-novnc`** unit runs
+  websockify serving noVNC on 6080 (published). Both `enable --now`; the step verifies the
+  rfb + web ports listen. (Key gotcha found + handled: `/etc/tigervnc/vncserver-config-*`
+  is Perl-eval'd; only the per-user `~/.vnc/config` is key=value — so the options live
+  there.)
+- **Firefox** from **Mozilla's APT repo** (Ubuntu's `firefox` is a snap that won't run in a
+  container) — signing key + pinned source; best-effort (never fails the deploy).
+- **openssh-client** added to the desktop install; **percona-toolkit** + the Percona
+  clients + ldap-utils unchanged from §39/§40.
+
+### Frontend — `StackDesigner.jsx`
+`NODE_TYPES.vnc` defaults `os/osVersion/arch`; `VNCForm` gains Ubuntu version (24.04/22.04)
++ arch (amd64/arm64) selects; `nodeOSLabel` shows "Ubuntu <ver>"; description mentions
+Firefox/SSH/toolkit.
+
+### Verification performed
+- `go build`/`vet`/`gofmt -l` + web build pass.
+- **End-to-end in a live `dbcanvas-systemd:ubuntu-24.04-amd64` container**: systemd boots;
+  desktop+vnc+openssh-client install; **Firefox 152 from Mozilla repo** installs and
+  `firefox --version` runs; `tigervncserver@:1` + `dbcanvas-novnc` both **active** (5901 +
+  6080 listening); xfce4-session running; from the **host** `GET /vnc.html` → 200; Percona
+  clients incl. `pt-query-digest` install.

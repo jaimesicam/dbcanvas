@@ -248,8 +248,11 @@ const NODE_TYPES = {
     icon: 'Monitor',
     singleton: true,
     ports: false,
-    osOptions: [{ id: 'ubuntu', label: 'ubuntu:24.04' }],
-    defaults: { vncUser: 'dbadmin', vncPassword: '', useProxy: true },
+    osOptions: [{ id: 'ubuntu', label: 'Ubuntu' }],
+    defaults: {
+      os: 'ubuntu', osVersion: '24.04', arch: 'amd64',
+      vncUser: 'dbadmin', vncPassword: '', useProxy: true,
+    },
   },
 }
 
@@ -397,7 +400,7 @@ const proxyModeOpts = (backendType) => PROXY_MODE_OPTS[backendType === 'mysql' ?
 
 // nodeOSLabel renders a free node's OS line; ProxySQL carries its own os/version
 // (like a PXC frame), other nodes map via their osOptions.
-const nodeOSLabel = (n) => (n.type === 'proxysql' || n.type === 'ps' || n.type === 'pg' || n.type === 'psm' || n.type === 'haproxy' ? pxcOSLabel(n) : osLabel(n.type, n.os))
+const nodeOSLabel = (n) => (n.type === 'proxysql' || n.type === 'ps' || n.type === 'pg' || n.type === 'psm' || n.type === 'haproxy' || n.type === 'vnc' ? pxcOSLabel(n) : osLabel(n.type, n.os))
 
 // Auto-numbered per-type labels: a non-singleton node is named "<slug>-NN" with
 // NN zero-padded from 01 and increasing per node type (pmm-01, pmm-02, …, and in
@@ -2912,14 +2915,29 @@ function VNCForm({ node: n, patchNode, deleteNode, dep, deployed }) {
         {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
       </div>
       <p className="text-xs text-muted">
-        XFCE desktop over a browser-based VNC client (<span className="font-mono">ubuntu:24.04</span>), with the
-        Percona clients (MySQL/PSMDB/Valkey/PostgreSQL) + ldap-utils preinstalled. The login user has sudo for
-        installing more tools.
+        XFCE desktop over a browser-based VNC client (on the systemd Ubuntu image), with Firefox, the OpenSSH
+        client, the Percona clients (MySQL/PSMDB/Valkey/PostgreSQL), percona-toolkit + ldap-utils preinstalled.
+        The login user has sudo for installing more tools.
       </p>
 
       <Field label="Label" hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Ubuntu version" hint="Systemd image (make images).">
+          <select className={`${inputCls} ${lock}`} value={n.osVersion || '24.04'} disabled={deployed} onChange={(e) => patchNode(n.id, { osVersion: e.target.value })}>
+            <option value="24.04">24.04</option>
+            <option value="22.04">22.04</option>
+          </select>
+        </Field>
+        <Field label="Arch" hint="Image architecture.">
+          <select className={`${inputCls} ${lock}`} value={n.arch || 'amd64'} disabled={deployed} onChange={(e) => patchNode(n.id, { arch: e.target.value })}>
+            <option value="amd64">amd64</option>
+            <option value="arm64">arm64</option>
+          </select>
+        </Field>
+      </div>
 
       <Field label="Desktop user" hint="Linux login user (has passwordless sudo).">
         <input className={`${inputCls} ${lock}`} value={n.vncUser ?? 'dbadmin'} disabled={deployed} onChange={(e) => patchNode(n.id, { vncUser: e.target.value })} />

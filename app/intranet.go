@@ -443,6 +443,13 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		case "vnc":
 			vnc++
 			others++
+			img := pxcImage(n.OS, n.OSVersion, n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+				}
+			}
 		case "proxysql":
 			others++
 			if n.FrameID != "" {
