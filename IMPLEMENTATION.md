@@ -2933,3 +2933,21 @@ index I/O cost). Verified the config parses (`dovecot -n` OK) and dovecot starts
 (The other `dovecot -n` differences — mail_location path, first_valid_uid 5000 vs 1000,
 PLAIN vs SHA512-CRYPT passdb, imap-only vs imap+lmtp, ssl — are intentional dbcanvas config
 choices, not the crash cause.)
+
+## 37. The actual Rosetta dovecot fix: default_vsz_limit = 1G
+
+§36's `mmap_disable` didn't fix dovecot — the crash was still `rosetta error:
+mmap_anonymous_rw mmap failed, size=1000` (Rosetta's *own* translation mmap, not dovecot's
+index mmap). The real delta from the working image: dovecot caps each process's address
+space (`default_vsz_limit`) at **256 M** by default, but the Rosetta translator needs a much
+larger virtual mapping for its runtime/code cache — under 256 M even a 4 KB mmap fails and
+dovecot dies (SIGTRAP). The old working `db-canvas` image set **`default_vsz_limit = 1 G`**.
+
+Fix (`app/intranet.go`): add `default_vsz_limit = 1G` to the dovecot `99-dbcanvas.conf`
+(kept `mmap_disable = yes` too — both were in the working image). Verified `doveconf` reports
+`1 G`, config parses, dovecot starts. `go build`/`gofmt -l` clean.
+
+This is the same class of Rosetta limitation seen throughout (§31/§35/§36): anything that
+mmaps fails — php-fpm/httpd (→ php -S), php opcache/JIT (→ disabled), and dovecot under a
+tight VSZ cap (→ raised). The common thread is giving the translator room / avoiding the
+mmaps it can't satisfy.

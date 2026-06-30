@@ -1320,12 +1320,16 @@ install -d /etc/dovecot
 [ -f /etc/dovecot/users ] || echo "$MAIL_ADMIN@$DOMAIN:{PLAIN}$MAIL_ADMIN_PW::::::" > /etc/dovecot/users
 # Wire dovecot to authenticate the virtual users (passwd-file) over plaintext
 # IMAP on localhost, with maildirs matching postfix's virtual_mailbox_base.
-# mmap_disable=yes: dovecot mmaps its index/cache files by default, but under x86-64
-# emulation (Rosetta on Apple Silicon) that mmap fails and dovecot crashes (SIGTRAP);
-# forcing plain read/write avoids it. The old working image set this too. Harmless
-# elsewhere (minor index I/O cost only).
+# Rosetta (Apple Silicon) hardening, matching the old working image:
+#  - default_vsz_limit=1G: dovecot caps each process's address space at 256M by default,
+#    but the Rosetta translator needs a far larger virtual mapping for its runtime/code
+#    cache — under the 256M cap even a 4KB mmap fails ("rosetta error: mmap_anonymous_rw
+#    mmap failed, size=1000") and dovecot dies (SIGTRAP). Raising the cap gives it room.
+#  - mmap_disable=yes: dovecot also mmaps its own index/cache files; force plain read/write.
+# Both are harmless on native hosts (a little extra address space / minor index I/O cost).
 cat > /etc/dovecot/conf.d/99-dbcanvas.conf <<'DCONF'
 protocols = imap
+default_vsz_limit = 1G
 mmap_disable = yes
 ssl = no
 disable_plaintext_auth = no
