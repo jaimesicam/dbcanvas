@@ -72,6 +72,12 @@ func pmmAlias(label string) string {
 // provisionPMM records the deployment and starts an async provisioning goroutine
 // for a PMM node. doc is the full design, used to locate the Intranet node for
 // the SMTP target and (when enabled) certificate signing.
+// pmmDataVolume is the stable name of a PMM node's /srv data volume (persists across
+// upgrades; removed when the stack is destroyed).
+func pmmDataVolume(stackID int64, nodeID string) string {
+	return fmt.Sprintf("dbcanvas-pmm-%d-%s", stackID, nodeID)
+}
+
 func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 	domain := envOr("DOMAIN", "example.net")
 	cat := loadPMMCatalog()
@@ -196,7 +202,7 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 		// volume so a PMM server upgrade (in-GUI/Watchtower recreate) keeps all data —
 		// otherwise the recreated container starts empty and you get "session closed" on
 		// login (the Grafana DB / signing key are gone).
-		srvVol := fmt.Sprintf("dbcanvas-pmm-%d-%s", st.ID, n.ID)
+		srvVol := pmmDataVolume(st.ID, n.ID)
 		if err := a.docker.VolumeCreate(ctx, srvVol); err != nil {
 			logln("warning: could not create PMM data volume: " + err.Error())
 		}

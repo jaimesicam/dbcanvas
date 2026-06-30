@@ -3413,3 +3413,14 @@ cert tab work again after an upgrade with no redeploy. Verified live that a dele
 under the same name resolves to the new id.
 
 `go build`/`vet`/`gofmt -l` + web build pass.
+
+## 52. Remove the PMM /srv volume on stack destroy
+
+The §50 PMM `/srv` data volume is a *named* volume, so `ContainerRemove` (which only drops
+anonymous volumes) left it behind when a stack was destroyed — leaking one volume per PMM
+node across deploy/destroy cycles. `teardownStack` now also calls `docker.VolumeRemove`
+(new best-effort `DELETE /volumes/<name>?force=true`) for each deployment, using the shared
+`pmmDataVolume(stackID, nodeID)` name. The name is namespaced (`dbcanvas-pmm-…`) so it's a
+no-op for non-PMM nodes. Verified the volume lifecycle: it survives container removal,
+removes cleanly once the container is gone, and removing a missing volume is harmless.
+`go build`/`vet`/`gofmt -l` clean.

@@ -395,6 +395,15 @@ func (d *Docker) VolumeCreate(ctx context.Context, name string) error {
 	return nil
 }
 
+// VolumeRemove force-deletes a named volume (best-effort). A no-op if it doesn't exist.
+// Used to clean up persistent data volumes (e.g. PMM's /srv) when a stack is destroyed.
+func (d *Docker) VolumeRemove(ctx context.Context, name string) {
+	resp, err := d.do(ctx, "DELETE", "/volumes/"+name+"?force=true", nil)
+	if err == nil {
+		drain(resp)
+	}
+}
+
 // ContainerState returns the running state string (e.g. "running", "exited").
 func (d *Docker) ContainerState(ctx context.Context, id string) (string, error) {
 	resp, err := d.do(ctx, "GET", "/containers/"+id+"/json", nil)

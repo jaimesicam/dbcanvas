@@ -1784,6 +1784,9 @@ func (a *App) teardownStack(stackID int64) {
 		if d.ContainerID != "" {
 			a.docker.ContainerRemove(ctx, d.ContainerID)
 		}
+		// Remove the node's named data volume (only PMM creates one; the name is
+		// namespaced so this is a no-op for other node types).
+		a.docker.VolumeRemove(ctx, pmmDataVolume(stackID, d.NodeID))
 		a.store.DeleteDeployment(stackID, d.NodeID)
 	}
 	a.docker.NetworkRemove(ctx, networkName(stackID))
