@@ -3390,3 +3390,26 @@ running pmm-agent / not being added). Verified the ACL live (pmm user: INFO ok, 
 denied). PMM_PASSWORD comes from the env (default pmm_password).
 
 `go build`/`vet`/`gofmt -l` + web build pass. (Full PMM join/dashboards need a live stack.)
+
+## 51. PMM context-menu consoles + reconcile stale container id after Watchtower upgrade
+
+Follow-ups to §50:
+
+### Right-click "Enter root console" on a PMM node — `StackDesigner.jsx`
+The §50 root/pmm split was only on the property panel; the canvas **right-click menu** still
+had a single "Enter root console" that execs as the default (pmm) user. The node context
+menu now special-cases PMM: **Enter root console** (`user=0`) + **Enter PMM console**
+(default). Other node types keep the single root console (their exec default is already root).
+
+### Console/cert broken after a Watchtower PMM upgrade — `intranet_mgmt.go` + `pmm_mgmt.go`
+Watchtower upgrades by **deleting the old PMM container and creating a new one** (same name,
+**new id**). dbcanvas had the *old* id persisted, so exec-based features failed with
+`docker exec create: No such container: <old-id> (404)` — the console wouldn't open and the
+Certificate tab errored. Added `reconcileContainerID`: on each management call it re-resolves
+the container **by name** (which Watchtower preserves) via `ContainerByName` (exact `^/name$`
+filter, `all=true`) and persists the refreshed id if it drifted. Wired into both
+`loadRunningNode` (terminal, email, LDAP, …) and `loadRunningPMM` (cert), so the console and
+cert tab work again after an upgrade with no redeploy. Verified live that a delete+recreate
+under the same name resolves to the new id.
+
+`go build`/`vet`/`gofmt -l` + web build pass.

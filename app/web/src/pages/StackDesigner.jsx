@@ -1470,7 +1470,14 @@ function StackEditor({ stackId, onBack }) {
       actions.push({ label: 'View config / profile', fn: () => showConfig(id) })
       if (dep.state === 'running') {
         const node = nodes.find((n) => n.id === id)
-        actions.push({ label: 'Enter root console', fn: () => openTerminal({ stackId: stack.id, nodeId: id, title: `${node?.label || 'node'} · root` }) })
+        if (node?.type === 'pmm') {
+          // The PMM image runs as the unprivileged pmm user, so a plain exec is the pmm
+          // console; root needs -u 0.
+          actions.push({ label: 'Enter root console', fn: () => openTerminal({ stackId: stack.id, nodeId: id, title: `${node.label} · root`, user: '0' }) })
+          actions.push({ label: 'Enter PMM console', fn: () => openTerminal({ stackId: stack.id, nodeId: id, title: `${node.label} · pmm` }) })
+        } else {
+          actions.push({ label: 'Enter root console', fn: () => openTerminal({ stackId: stack.id, nodeId: id, title: `${node?.label || 'node'} · root` }) })
+        }
         actions.push({ label: 'Stop', fn: () => nodeAction(id, 'stop') })
         actions.push({ label: 'Restart', fn: () => nodeAction(id, 'restart') })
       } else if (dep.state === 'stopped' || dep.state === 'error') {

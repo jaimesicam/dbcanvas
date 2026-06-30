@@ -33,6 +33,7 @@ func (a *App) loadRunningPMM(w http.ResponseWriter, r *http.Request) (Stack, Dep
 		writeErr(w, http.StatusConflict, "node is not running")
 		return Stack{}, Deployment{}, false
 	}
+	dep = a.reconcileContainerID(r.Context(), st.ID, r.PathValue("nid"), dep)
 	return st, dep, true
 }
 

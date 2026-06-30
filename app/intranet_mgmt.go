@@ -36,9 +36,24 @@ func (a *App) loadRunningNode(w http.ResponseWriter, r *http.Request) (Deploymen
 		writeErr(w, http.StatusConflict, "node is not running")
 		return Deployment{}, nodeSecrets{}, false
 	}
+	dep = a.reconcileContainerID(r.Context(), st.ID, r.PathValue("nid"), dep)
 	var sec nodeSecrets
 	json.Unmarshal(dep.Secrets, &sec)
 	return dep, sec, true
+}
+
+// reconcileContainerID re-resolves a node's container by name and persists the stored
+// deployment if the id drifted. An out-of-band recreate — e.g. Watchtower upgrading the
+// PMM server — keeps the container *name* but assigns a new id, leaving the persisted id
+// stale so exec/cert/terminal fail with "No such container" (404). Resolving by name
+// (which Watchtower preserves) repairs it transparently.
+func (a *App) reconcileContainerID(ctx context.Context, stackID int64, nid string, dep Deployment) Deployment {
+	name := containerName(stackID, nid)
+	if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok && cid != "" && cid != dep.ContainerID {
+		dep.ContainerID = cid
+		a.store.UpsertDeployment(Deployment{StackID: stackID, NodeID: nid, ContainerID: cid, State: dep.State, Config: dep.Config, Secrets: dep.Secrets})
+	}
+	return dep
 }
 
 // execScript runs a bash script in the container and returns stdout, mapping a
