@@ -3175,3 +3175,26 @@ trusts the Keycloak HTTPS endpoint for the device-/auth-code login.
   localhost-allowed host, e.g. `mongosh mongodb://127.0.0.1 --authenticationMechanism
   MONGODB-OIDC --oidcFlows device-auth` (the earlier ALLOWED_HOSTS error was from using the
   FQDN; mongosh restricts OIDC to localhost/allow-listed hosts by default).
+
+## 43. Fix OIDC issuer mismatch (use the Keycloak FQDN, not the bare alias)
+
+After §42, mongosh failed with `discovered metadata issuer does not match the expected
+issuer`: mongod was configured with `https://keycloak:8443/realms/mongodb` (bare alias) but
+Keycloak's `--hostname=https://<fqdn>:8443` makes its discovered issuer
+`https://keycloak.example.net:8443/...`. Root cause: `provisionMongoStandalone` rebuilt the
+issuer in its goroutine from `waitKeycloak`, which returned the Keycloak **bare hostname**.
+Fix: `waitKeycloak` now returns the Keycloak **FQDN** (`keycloakConfig.FQDN`), so the
+configured issuer exactly matches Keycloak's discovered issuer.
+
+### Verification performed (full live end-to-end)
+Keycloak (HTTPS, CA-signed, `--hostname=FQDN`) + the kcadm realm setup + a real
+percona-server-mongodb node with the OIDC config + the Intranet CA trusted, on a shared
+network:
+- discovered issuer == configured issuer (`https://keycloak.example.net:8443/realms/mongodb`);
+- the issuer metadata fetch validates over TLS via the **system trust** (HTTP 200, no `-k`);
+- `mongosh --oidcFlows device-auth` now **passes the issuer check** and prints the
+  device-code verification prompt (previously it errored in <2s);
+- a token minted for the sample user `dbauser01` carries `aud:[mongodb-client,…]`,
+  `MyClaim:[dbadmins]`, and `iss:https://keycloak.example.net:8443/realms/mongodb` — exactly
+  what mongod needs to authenticate `keycloak/dbauser01` and grant the `keycloak/dbadmins`
+  role. (Only the interactive browser approval step remains, inherent to device/auth-code.)

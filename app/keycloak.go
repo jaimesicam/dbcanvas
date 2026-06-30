@@ -226,8 +226,11 @@ func (a *App) waitKeycloak(ctx context.Context, stackID int64, nodeID string, ti
 				var cfg keycloakConfig
 				var sec keycloakSecrets
 				json.Unmarshal(dep.Secrets, &sec)
-				if json.Unmarshal(dep.Config, &cfg) == nil && cfg.Hostname != "" {
-					return cfg.Hostname, cfg.SSL, dep.ContainerID, sec.AdminPassword, true
+				if json.Unmarshal(dep.Config, &cfg) == nil && cfg.FQDN != "" {
+					// Return the FQDN: Keycloak's --hostname uses it, so the discovered
+					// issuer is https://<fqdn>:8443/... — mongod's configured issuer must
+					// match that exactly (a bare alias triggers an issuer-mismatch error).
+					return cfg.FQDN, cfg.SSL, dep.ContainerID, sec.AdminPassword, true
 				}
 			}
 		}
