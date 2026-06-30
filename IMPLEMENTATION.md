@@ -3212,3 +3212,42 @@ The MongoDB manager's OIDC connect hints (`MongoDBManager.jsx`) now show the cor
 commands: from another host (e.g. the VNC desktop) `mongosh --host <fqdn> --authenticationMechanism
 MONGODB-OIDC --oidcFlows auth-code --oidcTrustedEndpoint` (auth-code opens Firefox; device-auth
 prints a code), plus the localhost form that needs no flag. Web build passes.
+
+## 45. Valkey standalone node (valkey/valkey-bundle) + LDAP + pmm-client
+
+First half of the Valkey work (cluster frame + palette redesign to follow). A standalone
+**`valkey`** node — the Valkey analogue of the standalone Percona Server node — runs the
+upstream **`valkey/valkey-bundle`** image (Debian 13; bundles valkey-server + the
+json/search/bloom/**ldap** modules), pulled at deploy. (The pulled image obsoletes the
+original "add valkey to make versions" ask — there's no repo to probe.)
+
+### Backend — `app/valkey.go` (new) + `app/intranet.go`
+`provisionValkeyStandalone` pulls the image, stages a `valkey.conf` into the created
+(not-yet-started) container, and starts `valkey-server /etc/dbcanvas-valkey.conf`:
+- **Credentials**: a default-user password (`requirepass`/`masterauth`) — from the node's
+  RootPassword or auto-generated — shown in the manager.
+- **LDAP (optional)**: when enabled, the conf `loadmodule`s libvalkey_ldap.so first (so the
+  `ldap.*` directives parse) and points it at the Intranet OpenLDAP
+  (`ldap.servers ldap://intranet.<domain>:389`, `auth_mode bind`, `bind_dn_prefix uid=`,
+  `bind_dn_suffix ,ou=People,<baseDN>`). The bundle entrypoint auto-loads the other modules
+  and skips re-loading ldap.
+- **pmm-client**: installed via percona-release + `percona-release setup pmm3-client`
+  (works on Debian 13/trixie) and registered with an associated PMM server.
+- Reuses RootPassword/PMMNodeID/ExportEnabled+HostPort; adds designNode `UseLDAP`. Wired
+  into validateDesign (host-port conflict check) + deploy dispatch (`case "valkey"`).
+
+### Frontend — `StackDesigner.jsx`
+`NODE_TYPES.valkey` (purple, Database icon, image `valkey/valkey-bundle`) + toolbar button
++ `ValkeyForm` (password, Enable-LDAP toggle, PMM, export) / `ValkeyManager` (host, LDAP,
+export port, password, valkey-cli connect strings).
+
+### Verification performed
+- `go build`/`vet`/`gofmt -l` + web build pass.
+- **Live** (valkey/valkey-bundle): the exact flow — create → copy conf to /etc → start —
+  runs; `valkey-cli -a <pw> PING` → PONG; all four modules load (no double-load); the
+  `ldap.*` directives apply from the conf; and pmm-client installs on the Debian-13 image.
+  (Full LDAP *bind* against a live slapd, and PMM dashboards, want a real stack to confirm.)
+
+### Still to do (noted)
+- Valkey **cluster** frame (3 default, 3–7) — like PXC.
+- **Node palette redesign** (vertical, categorized, dockable left / undock + stretch).

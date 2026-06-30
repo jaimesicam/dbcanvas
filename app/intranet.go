@@ -63,6 +63,9 @@ type designNode struct {
 	// Ubuntu VNC node fields (Type=="vnc"; a desktop jump box). Reuses UseProxy above.
 	VNCUser     string `json:"vncUser"`     // sudo login + VNC user ("" → "dbadmin")
 	VNCPassword string `json:"vncPassword"` // desktop/VNC password ("" → auto-generated, 8 chars)
+	// Valkey node fields (Type=="valkey" standalone / "valkeycluster" members). Reuses
+	// RootPassword (default-user password), PMMNodeID, UseProxy, ExportEnabled/HostPort.
+	UseLDAP bool `json:"useLdap"` // wire the valkey-ldap module to the Intranet OpenLDAP
 	// SeaweedFS node fields (Type=="seaweedfs"; an S3-compatible object store used
 	// as a backup target). Runs the chrislusf/seaweedfs image (pulled, not a systemd
 	// image), so it ignores os/arch like PMM.
@@ -451,6 +454,11 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 				if ok, _ := a.docker.ImageExists(ctx, img); !ok {
 					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
 				}
+			}
+		case "valkey":
+			others++
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
 			}
 		case "proxysql":
 			others++
@@ -1042,6 +1050,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionKeycloak(st, n, doc)
 		case "vnc":
 			a.provisionVNC(st, n, doc)
+		case "valkey":
+			a.provisionValkeyStandalone(st, n, doc)
 		case "haproxy":
 			a.provisionHAProxy(st, n, doc)
 		}

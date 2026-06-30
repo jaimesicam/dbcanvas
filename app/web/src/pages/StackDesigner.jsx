@@ -254,6 +254,22 @@ const NODE_TYPES = {
       vncUser: 'dbadmin', vncPassword: '', useProxy: true,
     },
   },
+  // Standalone Valkey (valkey/valkey-bundle image, pulled at deploy). Analogue of the
+  // standalone Percona Server node: a password (requirepass) + optional LDAP auth.
+  valkey: {
+    label: 'Valkey',
+    slug: 'valkey',
+    sub: 'Valkey (standalone)',
+    color: '#7c3aed',
+    icon: 'Database',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'valkey', label: 'valkey/valkey-bundle' }],
+    defaults: {
+      rootPassword: '', useLdap: false, pmmNodeId: '',
+      exportEnabled: false, exportHostPort: 0,
+    },
+  },
 }
 
 // ---------------------------------------------------------- PXC cluster frames
@@ -1507,6 +1523,9 @@ function StackEditor({ stackId, onBack }) {
           </Button>
           <Button size="sm" disabled={!hasIntranet || nodes.some((n) => n.type === 'vnc')} style={addBtnStyle('vnc')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('vnc')}>
             <Icon.Plus size={16} /> Ubuntu VNC
+          </Button>
+          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('valkey')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('valkey')}>
+            <Icon.Plus size={16} /> Valkey
           </Button>
           <div className="mx-1 h-5 w-px bg-border" />
           <Button size="sm" variant="outline" disabled={!!busy} onClick={runValidate}>
@@ -3012,6 +3031,93 @@ function VNCManager({ dep, onDeleteNode }) {
         {sec.vncPassword && (
           <div className="flex justify-between gap-3"><span className="text-muted">VNC password</span><span className="break-all font-mono text-xs">{sec.vncPassword}</span></div>
         )}
+      </div>
+      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// ValkeyForm edits a (not-yet-running) standalone Valkey node: password (requirepass),
+// optional LDAP auth against the Intranet OpenLDAP, PMM monitoring and host-port export.
+function ValkeyForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }) {
+  const lock = deployed ? 'opacity-70' : ''
+  const pmmNodes = nodes.filter((x) => x.type === 'pmm')
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Valkey (standalone)</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <p className="text-xs text-muted">
+        Runs <span className="font-mono">valkey/valkey-bundle</span> (pulled at deploy). pmm-client is installed
+        via percona-release.
+      </p>
+
+      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+
+      <Field label="Password (default user)" hint={deployed ? 'Set at deploy.' : 'requirepass for the default user. Empty = auto-generate.'}>
+        <input className={`${inputCls} ${lock}`} value={n.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchNode(n.id, { rootPassword: e.target.value })} />
+      </Field>
+
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.useLdap} disabled={deployed} onChange={(e) => patchNode(n.id, { useLdap: e.target.checked })} />
+        <span>Enable LDAP auth (Intranet OpenLDAP)</span>
+      </label>
+      {n.useLdap && <p className="text-xs text-muted">Wires the valkey-ldap module to <span className="font-mono">ldap://intranet:389</span> (users under <span className="font-mono">ou=People</span>).</p>}
+
+      <Field label="Monitored by (PMM)" hint="Optional — installs/registers pmm-client.">
+        <select className={`${inputCls} ${lock}`} value={n.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchNode(n.id, { pmmNodeId: e.target.value })}>
+          <option value="">none</option>
+          {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </Field>
+
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
+        <span>Export Valkey port (6379) to the host</span>
+      </label>
+      {n.exportEnabled && (
+        <Field label="Host port" hint="0 / empty = random unused port.">
+          <input type="number" min="0" max="65535" className={`${inputCls} ${lock}`} value={n.exportHostPort || 0} disabled={deployed}
+            onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
+        </Field>
+      )}
+
+      {!deployed && <p className="text-xs text-muted">Connection info + password appear here after deploy.</p>}
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// ValkeyManager shows a deployed standalone Valkey's connection info + credentials.
+function ValkeyManager({ dep, onDeleteNode }) {
+  const cfg = dep?.config || {}
+  const sec = dep?.secrets || {}
+  const host = typeof location !== 'undefined' ? location.hostname : 'localhost'
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Valkey (standalone)</span>
+        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+      </div>
+      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
+        <div className="flex justify-between gap-3"><span className="text-muted">Image</span><span className="font-mono text-xs">{cfg.image || 'valkey/valkey-bundle'}</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Host</span><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">LDAP</span><span className="font-mono text-xs">{cfg.useLdap ? (cfg.ldapServers || 'enabled') : 'disabled'}</span></div>
+        {cfg.exportPort ? <div className="flex justify-between gap-3"><span className="text-muted">Exported port</span><span className="font-mono text-xs">{host}:{cfg.exportPort}</span></div> : null}
+        <div className="flex justify-between gap-3"><span className="text-muted">Monitored by</span><span className="font-mono text-xs">{cfg.monitoredBy || '—'}</span></div>
+        {sec.password && <div className="flex justify-between gap-3"><span className="text-muted">Password</span><span className="break-all font-mono text-xs">{sec.password}</span></div>}
+      </div>
+      <div className="rounded-lg bg-surface2 px-3 py-2 text-xs space-y-1">
+        <div className="text-muted">Connect (valkey-cli):</div>
+        {cfg.exportPort ? <div className="break-all font-mono">valkey-cli -h {host} -p {cfg.exportPort} -a '{sec.password || ''}'</div> : null}
+        <div className="break-all font-mono">valkey-cli -h {cfg.fqdn} -p 6379 -a '{sec.password || ''}'  <span className="text-muted">(in-cluster)</span></div>
       </div>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
@@ -4808,6 +4914,13 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <VNCManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <VNCForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+    // Standalone Valkey node.
+    if (n.type === 'valkey') {
+      if (dep && dep.state === 'running') {
+        return <ValkeyManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <ValkeyForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
     return (
       <div className="space-y-3">
