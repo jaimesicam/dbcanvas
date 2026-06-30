@@ -2748,3 +2748,16 @@ repo — **PGDG's EL/yum repo ships the `barman-cloud-*` binaries inside `barman
   `dnf install barman-cli python3-boto3`.
 
 `go build`/`go vet`/`gofmt -l` + web build all pass.
+
+## 29. Fix repmgr+Barman "write AWS credentials: docker copy archive: (404)" — `app/repmgr.go`
+
+First live repmgr+Barman+SeaweedFS deploy failed at "write AWS credentials" with a Docker
+`(404)`. Root cause: the Docker `PUT /containers/{id}/archive?path=<dir>` endpoint extracts
+only into an **existing** directory (a missing path 404s), but the Barman step copied
+`credentials`/`config` into `~postgres/.aws` which was never created — `barmanChownScript`
+(which touches `.aws`) only runs *after* the copies. Reproduced locally: copy to a missing
+dir → 404, to an existing dir → 200.
+
+Fix: before the two `CopyFile` calls, run `install -d -m 700 "$HOME/.aws"` (HOME=pgHome).
+Mirrors the same fix Patroni already uses for `/etc/pgbackrest` (§24). `go build`/`vet`/
+`gofmt -l` clean.

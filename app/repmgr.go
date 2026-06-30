@@ -433,6 +433,11 @@ func (a *App) repmgrPrepareNode(ctx context.Context, st Stack, frame designFrame
 			region = seaweedRegion
 		}
 		home := pgHome(frame.OS)
+		// The Docker archive endpoint extracts only into an existing directory (a
+		// missing path 404s), so ~/.aws must exist before the credentials/config copies.
+		if err := a.runStep(ctx, id, `install -d -m 700 "$HOME/.aws"`, []string{"HOME=" + home}, pr.logln); err != nil {
+			return pr.fail("create ~/.aws: %v", err)
+		}
 		if err := a.docker.CopyFile(ctx, id, home+"/.aws", "credentials", 0o600, []byte(barmanAWSCredentials(ak, swSec.SecretKey))); err != nil {
 			return pr.fail("write AWS credentials: %v", err)
 		}
