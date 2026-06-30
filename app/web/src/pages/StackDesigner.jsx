@@ -236,7 +236,7 @@ const NODE_TYPES = {
     singleton: true,
     ports: false,
     osOptions: [{ id: 'keycloak', label: 'quay.io/keycloak/keycloak' }],
-    defaults: {},
+    defaults: { generateCert: true, certTtlValue: 365, certTtlUnit: 'days' },
   },
   // Ubuntu VNC — a desktop "jump box" (XFCE over web VNC) with the Percona client
   // tools preinstalled, for ad-hoc troubleshooting. Runs ubuntu:24.04 (pulled at deploy).
@@ -2854,10 +2854,31 @@ function KeycloakForm({ node: n, patchNode, deleteNode, dep, deployed }) {
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={n.generateCert !== false} disabled={deployed} onChange={(e) => patchNode(n.id, { generateCert: e.target.checked })} />
+        <span>Use Intranet CA SSL (HTTPS issuer)</span>
+      </label>
+      <p className="text-xs text-muted">
+        {n.generateCert !== false
+          ? 'Serves HTTPS on 8443 with an Intranet-CA cert; the OIDC issuer is https://<host>:8443. Required for MongoDB OIDC.'
+          : 'HTTP only — MongoDB OIDC will not work (it requires an HTTPS issuer). Enable SSL to use it with PSMDB.'}
+      </p>
+      {n.generateCert !== false && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted">Cert TTL</span>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={n.certTtlValue || 365} disabled={deployed} onChange={(e) => patchNode(n.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={n.certTtlUnit || 'days'} disabled={deployed} onChange={(e) => patchNode(n.id, { certTtlUnit: e.target.value })}>
+            <option value="minutes">minutes</option>
+            <option value="hours">hours</option>
+            <option value="days">days</option>
+          </select>
+        </div>
+      )}
+
       <div className="rounded-lg bg-surface2 px-3 py-2 text-xs text-muted">
         Admin console is published to the host on auto-assigned ports (8080 http / 8443 https). The bootstrap
-        admin user + password appear here after deploy. Create the realm, OIDC client, groups and users in the
-        console (see docs).
+        admin user + password appear here after deploy. When a PSMDB node enables OIDC, its realm, client,
+        groups and sample users are created automatically.
       </div>
 
       {!deployed && <p className="text-xs text-muted">Console URL + admin credentials appear here after deploy.</p>}
@@ -2889,7 +2910,8 @@ function KeycloakManager({ dep, onDeleteNode }) {
       )}
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
         <div className="flex justify-between gap-3"><span className="text-muted">Image</span><span className="font-mono text-xs">{cfg.image || 'quay.io/keycloak/keycloak'}</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">Issuer host</span><span className="font-mono text-xs">http://{cfg.hostname || 'keycloak'}:8080</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Issuer base</span><span className="font-mono text-xs">{cfg.ssl ? `https://${cfg.fqdn || cfg.hostname}:8443` : `http://${cfg.hostname || 'keycloak'}:8080`}</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">TLS</span><span className="font-mono text-xs">{cfg.ssl ? 'Intranet CA' : 'none (HTTP)'}</span></div>
         {cfg.httpPort ? <div className="flex justify-between gap-3"><span className="text-muted">Console (http)</span><span className="font-mono text-xs">{host}:{cfg.httpPort}</span></div> : null}
         {cfg.httpsPort ? <div className="flex justify-between gap-3"><span className="text-muted">Console (https)</span><span className="font-mono text-xs">{host}:{cfg.httpsPort}</span></div> : null}
         <div className="flex justify-between gap-3"><span className="text-muted">Admin user</span><span className="font-mono text-xs">{cfg.adminUser || 'admin'}</span></div>

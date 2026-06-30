@@ -3122,3 +3122,56 @@ Firefox/SSH/toolkit.
   `firefox --version` runs; `tigervncserver@:1` + `dbcanvas-novnc` both **active** (5901 +
   6080 listening); xfce4-session running; from the **host** `GET /vnc.html` → 200; Percona
   clients incl. `pt-query-digest` install.
+
+## 42. Keycloak HTTPS (Intranet CA) + programmatic OIDC setup for PSMDB
+
+The §38 PSMDB↔Keycloak OIDC didn't actually work: MongoDB OIDC **requires an HTTPS
+issuer** (`Need to specify https: when accessing non-local URL 'http://keycloak:8080/...'`),
+and the realm/client/users were left as manual console steps. This makes it work end to end.
+
+### Keycloak HTTPS — `app/keycloak.go` + `app/intranet.go` + frontend
+- Keycloak node gains an **Intranet CA SSL** option (reuses `GenerateCert`/CertTTL; default
+  **on**). When set, `provisionKeycloak` signs a server cert for the Keycloak FQDN with the
+  Intranet CA (`signTLSCert`), stages it into `/opt/keycloak/conf/tls.{crt,key}` on the
+  created (not-yet-started) container, and runs `start-dev --http-enabled --https-port=8443
+  --https-certificate-file/key --hostname=https://<fqdn>:8443`. The token issuer becomes
+  `https://<fqdn>:8443/realms/<realm>`. `keycloakIssuer(host, ssl)` + `keycloakConfig.SSL`;
+  `waitKeycloak` now also returns ssl + the container id + admin password (for kcadm).
+- **Validation**: a PSMDB node with OIDC enabled now requires the linked Keycloak to have
+  SSL on (else a clear error) — you can't deploy MongoDB OIDC against an HTTP Keycloak.
+
+### PSMDB OIDC — `app/mongodb.go`
+- Issuer is now `https://<keycloak-fqdn>:8443/realms/<realm>` (FQDN via stack DNS).
+- mongod **trusts the Intranet CA** (`mongoCATrustScript`: stage `ca.crt` into the anchors,
+  `update-ca-trust`, restart mongod) so it can fetch the issuer's JWKS over HTTPS.
+- **Programmatic Keycloak setup** (`keycloakSetupScript`, run via kcadm *inside the Keycloak
+  container*): creates the realm, the public OIDC client (standard flow + **OAuth2 device
+  grant**, redirect `http://localhost:27097/redirect`), the **audience** mapper + (for the
+  group path) the **group-membership** mapper (claim = the configured authorizationClaim,
+  `full.path=false`), the `dbadmins`/`developers` groups, and two **sample users**
+  (`dbauser01`→dbadmins, `devuser01`→developers) with a generated password. Idempotent.
+- For the username path (`useAuthorizationClaim=false`) it also creates the matching
+  `$external` MongoDB users (`keycloak/<user>@<domain>`). Sample username list + password
+  are surfaced in the MongoDB manager (overview + credentials tab).
+
+### Ubuntu VNC trusts the Intranet CA — `app/vnc.go`
+After the desktop install, the Intranet `ca.crt` is added to the system trust
+(`update-ca-certificates`) and Firefox **enterprise roots** are enabled
+(`/etc/firefox/policies/policies.json` → `ImportEnterpriseRoots`), so the desktop browser
+trusts the Keycloak HTTPS endpoint for the device-/auth-code login.
+
+### Verification performed
+- `go build`/`vet`/`gofmt -l` + web build pass.
+- **Live**: Keycloak 26.5.5 boots `start-dev` with the CA-signed cert; realm issuer is
+  `https://keycloak.example.net:8443/realms/mongodb`, the cert validates against the CA, and
+  the realm exposes a `device_authorization_endpoint`.
+- **Live**: `keycloakSetupScript` run **twice** (idempotent) creates the realm, the client
+  (device-grant + standard flow + public + redirect URI), both protocol mappers
+  (`MyClaim`, `full.path=false`), the two groups, and the two sample users joined to their
+  groups.
+- Caveat: the interactive mongosh device-auth/auth-code token round-trip wasn't exercised
+  here (needs a browser), but every required piece (HTTPS issuer, CA trust, audience +
+  group claim, roles, sample users) is in place and individually verified. Connect with a
+  localhost-allowed host, e.g. `mongosh mongodb://127.0.0.1 --authenticationMechanism
+  MONGODB-OIDC --oidcFlows device-auth` (the earlier ALLOWED_HOSTS error was from using the
+  FQDN; mongosh restricts OIDC to localhost/allow-listed hosts by default).

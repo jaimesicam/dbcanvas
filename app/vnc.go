@@ -112,7 +112,7 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 		}
 
 		pr.phase("Waiting for Intranet to be ready", 8)
-		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
 		if werr != nil {
 			pr.fail("%v", werr)
 			return
@@ -168,6 +168,18 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 		}
 		pr.logln("XFCE desktop + TigerVNC + noVNC + openssh-client installed")
 
+		// Trust the Intranet CA (system store + Firefox enterprise roots) so the desktop
+		// browser and CLI tools trust stack TLS endpoints (e.g. a Keycloak HTTPS issuer).
+		if caCrt, e := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt"); e == nil && len(caCrt) > 0 {
+			if err := a.docker.CopyFile(ctx, id, "/usr/local/share/ca-certificates", "dbcanvas-ca.crt", 0o644, caCrt); err == nil {
+				if err := a.runStep(ctx, id, vncTrustCAScript, nil, pr.logln); err != nil {
+					pr.logln("trust Intranet CA skipped: " + err.Error())
+				} else {
+					pr.logln("Intranet CA trusted (system + Firefox)")
+				}
+			}
+		}
+
 		pr.phase("Installing Firefox", 50)
 		if err := a.runStep(ctx, id, vncInstallFirefoxScript, nil, pr.logln); err != nil {
 			pr.logln("Firefox install had issues (continuing; install manually with sudo): " + err.Error())
@@ -216,6 +228,16 @@ apt-get install -y -qq --no-install-recommends \
   wget gnupg2 lsb-release curl ca-certificates sudo net-tools nano vim less procps >/dev/null
 # noVNC ships vnc.html under /usr/share/novnc; ensure an index points at it.
 [ -f /usr/share/novnc/index.html ] || ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html 2>/dev/null || true`
+
+// vncTrustCAScript adds the staged Intranet CA to the Ubuntu system trust store and
+// enables Firefox "enterprise roots" so the browser also trusts it (e.g. for a Keycloak
+// HTTPS issuer). The CA file is copied to /usr/local/share/ca-certificates beforehand.
+const vncTrustCAScript = `set -e
+update-ca-certificates >/dev/null 2>&1 || true
+install -d /etc/firefox/policies
+cat > /etc/firefox/policies/policies.json <<'JSON'
+{ "policies": { "Certificates": { "ImportEnterpriseRoots": true } } }
+JSON`
 
 // vncInstallFirefoxScript installs Firefox from Mozilla's APT repository. (Ubuntu's own
 // "firefox" package is a snap transitional that does not run in a container.) Best-effort.

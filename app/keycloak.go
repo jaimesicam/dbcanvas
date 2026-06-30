@@ -44,6 +44,7 @@ type keycloakConfig struct {
 	HTTPPort  int    `json:"httpPort"`  // published host port → container 8080 (0 if unpublished)
 	HTTPSPort int    `json:"httpsPort"` // published host port → container 8443 (0 if unpublished)
 	AdminUser string `json:"adminUser"`
+	SSL       bool   `json:"ssl"` // serves HTTPS with an Intranet-CA cert (required for MongoDB OIDC)
 }
 
 // keycloakSecrets holds the bootstrap admin password.
@@ -52,8 +53,12 @@ type keycloakSecrets struct {
 }
 
 // keycloakIssuer returns the OIDC issuer base URL a MongoDB node uses to reach this
-// Keycloak in-network (http://<host>:8080). The realm is appended by the caller.
-func keycloakIssuer(host string) string {
+// Keycloak in-network. The realm is appended by the caller. MongoDB OIDC requires an
+// HTTPS issuer for non-local hosts, so an SSL Keycloak issues https://<fqdn>:8443.
+func keycloakIssuer(host string, ssl bool) string {
+	if ssl {
+		return fmt.Sprintf("https://%s:%d", host, keycloakHTTPSPort)
+	}
 	return fmt.Sprintf("http://%s:%d", host, keycloakHTTPPort)
 }
 
@@ -82,7 +87,7 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 	sec := keycloakSecrets{AdminPassword: adminPW}
 	secJSON, _ := json.Marshal(sec)
 
-	cfg := keycloakConfig{Image: keycloakImage, Hostname: host, FQDN: fqdn, Alias: host, AdminUser: "admin"}
+	cfg := keycloakConfig{Image: keycloakImage, Hostname: host, FQDN: fqdn, Alias: host, AdminUser: "admin", SSL: n.GenerateCert}
 	cfgJSON, _ := json.Marshal(cfg)
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 
@@ -101,10 +106,33 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 		}
 
 		pr.phase("Waiting for Intranet to be ready", 30)
-		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
 		if werr != nil {
 			pr.fail("%v", werr)
 			return
+		}
+
+		// When SSL is requested, sign a server cert for the Keycloak FQDN with the
+		// Intranet CA — MongoDB OIDC requires an HTTPS issuer.
+		var tlsCert, tlsKey []byte
+		if n.GenerateCert {
+			pr.phase("Issuing TLS certificate", 45)
+			if err := a.waitIntranetCAReady(ctx, intranetID, 120*time.Second); err != nil {
+				pr.fail("%v", err)
+				return
+			}
+			caCrt, cerr := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
+			caKey, kerr := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.key")
+			if cerr != nil || kerr != nil || len(caCrt) == 0 || len(caKey) == 0 {
+				pr.fail("read Intranet CA: %v %v", cerr, kerr)
+				return
+			}
+			c, k, serr := signTLSCert(caCrt, caKey, fqdn, []string{fqdn, host, "keycloak"}, certTTL(n.CertTTLValue, n.CertTTLUnit))
+			if serr != nil {
+				pr.fail("sign certificate: %v", serr)
+				return
+			}
+			tlsCert, tlsKey = c, k
 		}
 
 		pr.phase("Creating container", 55)
@@ -116,9 +144,20 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 		if host != "keycloak" {
 			aliases = append(aliases, "keycloak")
 		}
+		cmd := []string{"start-dev", fmt.Sprintf("--https-port=%d", keycloakHTTPSPort)}
+		if n.GenerateCert {
+			cmd = []string{
+				"start-dev",
+				"--http-enabled=true", fmt.Sprintf("--http-port=%d", keycloakHTTPPort),
+				fmt.Sprintf("--https-port=%d", keycloakHTTPSPort),
+				"--https-certificate-file=/opt/keycloak/conf/tls.crt",
+				"--https-certificate-key-file=/opt/keycloak/conf/tls.key",
+				fmt.Sprintf("--hostname=https://%s:%d", fqdn, keycloakHTTPSPort),
+			}
+		}
 		id, err := a.docker.ContainerCreate(ctx, ContainerSpec{
 			Name: name, Image: keycloakImage, Hostname: host,
-			Cmd: []string{"start-dev", fmt.Sprintf("--https-port=%d", keycloakHTTPSPort)},
+			Cmd: cmd,
 			Env: []string{
 				"KC_BOOTSTRAP_ADMIN_USERNAME=" + cfg.AdminUser,
 				"KC_BOOTSTRAP_ADMIN_PASSWORD=" + adminPW,
@@ -130,6 +169,17 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 		if err != nil {
 			pr.fail("create container: %v", err)
 			return
+		}
+		// Stage the cert into the created (not-yet-started) container before launch.
+		if n.GenerateCert {
+			if err := a.docker.CopyFile(ctx, id, "/opt/keycloak/conf", "tls.crt", 0o644, tlsCert); err != nil {
+				pr.fail("copy tls cert: %v", err)
+				return
+			}
+			if err := a.docker.CopyFile(ctx, id, "/opt/keycloak/conf", "tls.key", 0o644, tlsKey); err != nil {
+				pr.fail("copy tls key: %v", err)
+				return
+			}
 		}
 		if err := a.docker.ContainerStart(ctx, id); err != nil {
 			pr.fail("start container: %v", err)
@@ -159,26 +209,29 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 }
 
 // waitKeycloak waits (bounded) for a Keycloak node to be running and returns its
-// in-network host (for building the OIDC issuer). ok=false if it never comes up.
-func (a *App) waitKeycloak(ctx context.Context, stackID int64, nodeID string, timeout time.Duration) (host string, ok bool) {
+// in-network host + whether it serves SSL (for building the OIDC issuer) + the
+// container id + admin password (for kcadm). ok=false if it never comes up.
+func (a *App) waitKeycloak(ctx context.Context, stackID int64, nodeID string, timeout time.Duration) (host string, ssl bool, containerID, adminPW string, ok bool) {
 	if nodeID == "" {
-		return "", false
+		return "", false, "", "", false
 	}
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		dep, err := a.store.GetDeployment(stackID, nodeID)
 		if err == nil {
 			if dep.State == DeployError {
-				return "", false
+				return "", false, "", "", false
 			}
 			if dep.State == DeployRunning {
 				var cfg keycloakConfig
+				var sec keycloakSecrets
+				json.Unmarshal(dep.Secrets, &sec)
 				if json.Unmarshal(dep.Config, &cfg) == nil && cfg.Hostname != "" {
-					return cfg.Hostname, true
+					return cfg.Hostname, cfg.SSL, dep.ContainerID, sec.AdminPassword, true
 				}
 			}
 		}
 		time.Sleep(3 * time.Second)
 	}
-	return "", false
+	return "", false, "", "", false
 }

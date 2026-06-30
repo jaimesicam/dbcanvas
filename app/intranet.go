@@ -405,6 +405,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	exportReq := map[int][]string{} // requested host port → node labels (PXC + ProxySQL)
 	watchtowerIDs := map[string]bool{}
 	keycloakIDs := map[string]bool{}
+	keycloakSSL := map[string]bool{}
 	pmmCat := loadPMMCatalog()
 	for _, n := range doc.Nodes {
 		if n.Type == "watchtower" {
@@ -412,6 +413,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		}
 		if n.Type == "keycloak" {
 			keycloakIDs[n.ID] = true
+			keycloakSSL[n.ID] = n.GenerateCert
 		}
 	}
 	for _, n := range doc.Nodes {
@@ -480,8 +482,12 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			if n.ExportEnabled && n.ExportHostPort > 0 {
 				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
 			}
-			if n.Type == "psm" && n.EnableOIDC && !keycloakIDs[n.KeycloakNodeID] {
-				out = append(out, issue{"error", "PSMDB node " + n.Label + " has Keycloak OIDC enabled but is not linked to a Keycloak node — add a Keycloak node and select it"})
+			if n.Type == "psm" && n.EnableOIDC {
+				if !keycloakIDs[n.KeycloakNodeID] {
+					out = append(out, issue{"error", "PSMDB node " + n.Label + " has Keycloak OIDC enabled but is not linked to a Keycloak node — add a Keycloak node and select it"})
+				} else if !keycloakSSL[n.KeycloakNodeID] {
+					out = append(out, issue{"error", "PSMDB node " + n.Label + " uses Keycloak OIDC, which requires an HTTPS issuer — enable \"Use Intranet CA SSL\" on the Keycloak node"})
+				}
 			}
 		case "pg":
 			others++

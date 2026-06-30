@@ -56,11 +56,12 @@ type mongoConfig struct {
 	BackupRepo   string `json:"backupRepo"` // e.g. "PBM → SeaweedFS S3 (bucket/prefix)" when enabled
 	// Keycloak OIDC (standalone psm node only).
 	OIDCEnabled      bool   `json:"oidcEnabled"`
-	OIDCIssuer       string `json:"oidcIssuer"`   // http://<keycloak>:8080/realms/<realm>
+	OIDCIssuer       string `json:"oidcIssuer"`   // https://<keycloak-fqdn>:8443/realms/<realm>
 	OIDCClientID     string `json:"oidcClientId"` // == audience
 	OIDCRealm        string `json:"oidcRealm"`
 	OIDCAuthClaim    string `json:"oidcAuthClaim"` // group claim (when useAuthorizationClaim)
 	OIDCUseAuthClaim bool   `json:"oidcUseAuthClaim"`
+	OIDCSampleUsers  string `json:"oidcSampleUsers"` // sample Keycloak users created (for the manager)
 }
 
 // mongoSecrets holds the cluster admin credentials and the shared internal-auth
@@ -73,6 +74,8 @@ type mongoSecrets struct {
 	PMMPassword   string `json:"pmmPassword"` // its password (stable across redeploys)
 	PBMUser       string `json:"pbmUser"`     // MongoDB user Percona Backup for MongoDB uses
 	PBMPassword   string `json:"pbmPassword"` // its password (stable across redeploys)
+	// Password for the sample Keycloak OIDC users created at deploy (lab convenience).
+	OIDCSamplePassword string `json:"oidcSamplePassword"`
 }
 
 // psmdbRepo maps a major series to its percona-release repository name.
@@ -570,6 +573,7 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 
 	admin := strings.TrimSpace(n.RootPassword)
 	pmmPass := ""
+	oidcSamplePW := ""
 	if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
 		var s mongoSecrets
 		if json.Unmarshal(dep.Secrets, &s) == nil {
@@ -579,6 +583,7 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 			if s.PMMPassword != "" {
 				pmmPass = s.PMMPassword
 			}
+			oidcSamplePW = s.OIDCSamplePassword
 		}
 	}
 	if admin == "" {
@@ -587,7 +592,7 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 	if pmmPass == "" {
 		pmmPass = genSecret("MongoPMM!")
 	}
-	sec := mongoSecrets{AdminUser: "admin", AdminPassword: admin, PMMUser: "pmm", PMMPassword: pmmPass} // no keyFile → standalone
+	sec := mongoSecrets{AdminUser: "admin", AdminPassword: admin, PMMUser: "pmm", PMMPassword: pmmPass, OIDCSamplePassword: oidcSamplePW} // no keyFile → standalone
 
 	monitoredBy := ""
 	if n.PMMNodeID != "" {
@@ -598,22 +603,27 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 		}
 	}
 
-	// Keycloak OIDC: build the issuer from the linked Keycloak node's in-network host
-	// (http://<keycloak>:8080/realms/<realm>). Keycloak runs in dev mode with that host
-	// as its hostname, so its token issuer matches this string.
+	// Keycloak OIDC: build the issuer from the linked Keycloak node. MongoDB OIDC
+	// requires an HTTPS issuer, so an SSL Keycloak gives https://<fqdn>:8443/realms/<realm>
+	// (validation guarantees the linked Keycloak has SSL on). Keycloak's --hostname fixes
+	// its token issuer to that exact string.
 	realm, clientID, authClaim := mongoOIDCDefaults(n)
 	oidcIssuer := ""
+	sampleUsers := ""
 	if n.EnableOIDC {
-		kcHost := hosts[n.KeycloakNodeID]
-		if kcHost == "" {
-			for _, m := range doc.Nodes {
-				if m.Type == "keycloak" {
-					kcHost = hosts[m.ID]
-					break
-				}
+		kcHost, kcSSL := "", false
+		for _, m := range doc.Nodes {
+			if m.Type == "keycloak" && (m.ID == n.KeycloakNodeID || n.KeycloakNodeID == "") {
+				kcHost = hosts[m.ID]
+				kcSSL = m.GenerateCert
+				break
 			}
 		}
-		oidcIssuer = keycloakIssuer(kcHost) + "/realms/" + realm
+		oidcIssuer = keycloakIssuer(fqdnOf(kcHost, domain), kcSSL) + "/realms/" + realm
+		sampleUsers = "dbauser01 (dbadmins), devuser01 (developers)"
+		if sec.OIDCSamplePassword == "" {
+			sec.OIDCSamplePassword = genSecret("KcUser!")
+		}
 	}
 
 	cfg := mongoConfig{
@@ -627,6 +637,7 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 		OIDCRealm:        realm,
 		OIDCAuthClaim:    authClaim,
 		OIDCUseAuthClaim: n.OIDCUseAuthClaim,
+		OIDCSampleUsers:  sampleUsers,
 	}
 	cfgJSON, _ := json.Marshal(cfg)
 	secJSON, _ := json.Marshal(sec)
@@ -637,19 +648,30 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 		pr := a.pxcNewProg(st.ID, n.ID)
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 		pr.phase("Waiting for Intranet to be ready", 5)
-		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
 		if werr != nil {
 			pr.fail("%v", werr)
 			return
 		}
 
-		// When OIDC is enabled, wait (best-effort) for Keycloak to be up, then render
-		// the mongod MONGODB-OIDC setParameter block.
+		// When OIDC is enabled, wait for Keycloak (with SSL) to be up, derive the HTTPS
+		// issuer from its authoritative host, and render the mongod setParameter block.
 		setParams := ""
+		kcContainerID, kcAdminPW := "", ""
 		if n.EnableOIDC {
 			pr.phase("Waiting for Keycloak", 8)
-			a.waitKeycloak(ctx, st.ID, n.KeycloakNodeID, 10*time.Minute)
+			kcHost, kcSSL, kcID, kcPW, ok := a.waitKeycloak(ctx, st.ID, n.KeycloakNodeID, 10*time.Minute)
+			if !ok {
+				pr.fail("Keycloak node is not ready — cannot configure MONGODB-OIDC")
+				return
+			}
+			oidcIssuer = keycloakIssuer(kcHost, kcSSL) + "/realms/" + realm
+			kcContainerID, kcAdminPW = kcID, kcPW
 			setParams = mongoOIDCSetParameter(oidcIssuer, clientID, authClaim, n.OIDCUseAuthClaim)
+			// Persist the resolved issuer for the manager.
+			cfg.OIDCIssuer = oidcIssuer
+			cfgJSON, _ = json.Marshal(cfg)
+			a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployProvisioning, Config: cfgJSON, Secrets: secJSON})
 		}
 
 		nn := n
@@ -658,6 +680,23 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 			return
 		}
 		a.reconcileStackDNS(ctx, st.ID)
+
+		// OIDC: mongod fetches the issuer's JWKS over HTTPS, so trust the Intranet CA
+		// (then restart mongod so it picks the new trust up).
+		if n.EnableOIDC {
+			pr.phase("Trusting Intranet CA", 60)
+			id := a.containerOf(st.ID, n.ID)
+			if caCrt, e := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt"); e == nil && len(caCrt) > 0 {
+				if err := a.docker.CopyFile(ctx, id, "/etc/pki/ca-trust/source/anchors", "dbcanvas-ca.crt", 0o644, caCrt); err == nil {
+					if err := a.runStep(ctx, id, mongoCATrustScript, nil, pr.logln); err != nil {
+						pr.fail("trust Intranet CA: %v", err)
+						return
+					}
+					pr.logln("Intranet CA trusted; mongod restarted")
+				}
+			}
+		}
+
 		if err := a.mongoCreateAdmin(ctx, st, n, sec, pr); err != nil {
 			return
 		}
@@ -665,7 +704,7 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 		// Group-enumeration roles for Keycloak OIDC (useAuthorizationClaim=true): a
 		// member of the Keycloak "developers"/"dbadmins" group maps to the matching
 		// keycloak/<group> role. (When useAuthorizationClaim is off, users are created
-		// in $external by name instead, which is left to the operator.)
+		// in $external by name instead — see below.)
 		if n.EnableOIDC && n.OIDCUseAuthClaim {
 			pr.phase("Creating OIDC roles", 72)
 			rdep, _ := a.store.GetDeployment(st.ID, n.ID)
@@ -674,6 +713,38 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 				pr.logln("create OIDC roles failed: " + err.Error())
 			} else {
 				pr.logln("OIDC group roles created (keycloak/developers, keycloak/dbadmins)")
+			}
+		}
+
+		// Programmatically configure Keycloak (realm, OIDC client with device+auth-code
+		// flows, group/audience mappers, groups, sample users) via kcadm in the Keycloak
+		// container — replacing the manual console steps.
+		if n.EnableOIDC && kcContainerID != "" {
+			pr.phase("Configuring Keycloak (kcadm)", 76)
+			env := []string{
+				"KC_ADMIN_PW=" + kcAdminPW,
+				"REALM=" + realm,
+				"CLIENT_ID=" + clientID,
+				"AUTH_CLAIM=" + authClaim,
+				"USE_CLAIM=" + strconv.FormatBool(n.OIDCUseAuthClaim),
+				"DOMAIN=" + domain,
+				"SAMPLE_PW=" + sec.OIDCSamplePassword,
+			}
+			if err := a.runStep(ctx, kcContainerID, keycloakSetupScript, env, pr.logln); err != nil {
+				pr.logln("Keycloak setup had issues (configure manually in the console): " + err.Error())
+			} else {
+				pr.logln("Keycloak realm/client/groups/users configured (realm " + realm + ")")
+			}
+		}
+
+		// When authorizing by username ($external), create the matching MongoDB users for
+		// the sample Keycloak users.
+		if n.EnableOIDC && !n.OIDCUseAuthClaim {
+			pr.phase("Creating $external users", 78)
+			rdep, _ := a.store.GetDeployment(st.ID, n.ID)
+			if err := a.runStep(ctx, rdep.ContainerID, mongoOIDCExternalUsersScript,
+				[]string{"ADMIN_USER=" + sec.AdminUser, "ADMIN_PW=" + sec.AdminPassword, "USERS_JS=" + mongoOIDCExternalUsersJS(domain)}, pr.logln); err != nil {
+				pr.logln("create $external users failed: " + err.Error())
 			}
 		}
 
@@ -1071,6 +1142,16 @@ try{a.createRole({role:"keycloak/developers",privileges:[],roles:["readWriteAnyD
 try{a.createRole({role:"keycloak/dbadmins",privileges:[],roles:["root"]})}catch(e){if(!/already exists/i.test(e.message))throw e}`
 }
 
+// mongoOIDCExternalUsersJS returns the mongosh script that (idempotently) creates the
+// $external MongoDB users matching the sample Keycloak users, for the username path
+// (useAuthorizationClaim=false). The username is <authNamePrefix>/<email>.
+func mongoOIDCExternalUsersJS(domain string) string {
+	return fmt.Sprintf(`var e=db.getSiblingDB("$external");
+function mk(u,r){try{e.createUser({user:u,roles:[{role:r,db:"admin"}]})}catch(x){if(!/already exists/i.test(x.message))throw x}}
+mk("keycloak/dbauser01@%s","keycloak/dbadmins");
+mk("keycloak/devuser01@%s","keycloak/developers");`, domain, domain)
+}
+
 func mongosConfYAML(configDB string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "systemLog:\n  destination: file\n  path: %s/mongos.log\n  logAppend: true\n", mongoLogDir)
@@ -1136,6 +1217,68 @@ mongosh --quiet --port 27017 -u "$ADMIN_USER" -p "$ADMIN_PW" --authenticationDat
 // admin user. Idempotent (the JS swallows "already exists").
 const mongoOIDCRolesScript = `set -e
 mongosh --quiet --port 27017 -u "$ADMIN_USER" -p "$ADMIN_PW" --authenticationDatabase admin --eval "$ROLES_JS"`
+
+// mongoOIDCExternalUsersScript creates the sample $external users (USERS_JS) as admin.
+const mongoOIDCExternalUsersScript = `set -e
+mongosh --quiet --port 27017 -u "$ADMIN_USER" -p "$ADMIN_PW" --authenticationDatabase admin --eval "$USERS_JS"`
+
+// mongoCATrustScript adds the staged Intranet CA to the system trust store (so mongod
+// can validate the Keycloak HTTPS issuer's certificate when it fetches the JWKS) and
+// restarts mongod so it picks up the new trust, waiting for it to answer a ping again.
+const mongoCATrustScript = `set -e
+update-ca-trust extract 2>/dev/null || update-ca-trust 2>/dev/null || true
+systemctl restart mongod
+OK=0
+for i in $(seq 1 30); do
+  mongosh --quiet --port 27017 --eval 'db.adminCommand({ping:1})' >/dev/null 2>&1 && { OK=1; break; }
+  sleep 2
+done
+[ "$OK" = 1 ] || { echo "mongod did not come back after CA trust:"; tail -20 /var/log/mongo/mongod.log 2>/dev/null; exit 1; }`
+
+// keycloakSetupScript runs inside the Keycloak container and (idempotently) creates the
+// realm, the OIDC client (standard + device-auth flows), the group-membership +
+// audience protocol mappers, the dbadmins/developers groups, and two sample users
+// joined to those groups. Replaces the manual console walkthrough. Env: KC_ADMIN_PW,
+// REALM, CLIENT_ID, AUTH_CLAIM, USE_CLAIM, DOMAIN, SAMPLE_PW.
+const keycloakSetupScript = `set -e
+KC=/opt/keycloak/bin/kcadm.sh
+$KC config credentials --server http://localhost:8080 --realm master --user admin --password "$KC_ADMIN_PW" >/dev/null
+# Realm
+$KC get "realms/$REALM" >/dev/null 2>&1 || $KC create realms -s realm="$REALM" -s enabled=true -s sslRequired=external >/dev/null
+# Public OIDC client with standard + device-authorization-grant flows.
+CID=$($KC get clients -r "$REALM" -q clientId="$CLIENT_ID" --fields id --format csv --noquotes 2>/dev/null | tail -n1)
+if [ -z "$CID" ]; then
+  cat > /tmp/dbc-client.json <<JSON
+{"clientId":"$CLIENT_ID","protocol":"openid-connect","enabled":true,"publicClient":true,"standardFlowEnabled":true,"directAccessGrantsEnabled":false,"attributes":{"oauth2.device.authorization.grant.enabled":"true"},"redirectUris":["http://localhost:27097/redirect"]}
+JSON
+  $KC create clients -r "$REALM" -f /tmp/dbc-client.json >/dev/null
+  CID=$($KC get clients -r "$REALM" -q clientId="$CLIENT_ID" --fields id --format csv --noquotes | tail -n1)
+fi
+# Audience mapper (always) + group-membership mapper (when authorizing by group claim).
+$KC get "clients/$CID/protocol-mappers/models" -r "$REALM" --fields name --format csv --noquotes 2>/dev/null | grep -q '^"\?mongodb-audience' || \
+  $KC create "clients/$CID/protocol-mappers/models" -r "$REALM" -s name=mongodb-audience -s protocol=openid-connect -s protocolMapper=oidc-audience-mapper -s 'config."included.client.audience"='"$CLIENT_ID" -s 'config."access.token.claim"=true' >/dev/null
+if [ "$USE_CLAIM" = "true" ]; then
+  $KC get "clients/$CID/protocol-mappers/models" -r "$REALM" --fields name --format csv --noquotes 2>/dev/null | grep -q 'group-membership-mapper' || \
+    $KC create "clients/$CID/protocol-mappers/models" -r "$REALM" -s name=group-membership-mapper -s protocol=openid-connect -s protocolMapper=oidc-group-membership-mapper -s 'config."claim.name"='"$AUTH_CLAIM" -s 'config."full.path"=false' -s 'config."access.token.claim"=true' -s 'config."id.token.claim"=true' >/dev/null
+  for g in dbadmins developers; do
+    $KC get groups -r "$REALM" --fields name --format csv --noquotes 2>/dev/null | grep -q "\"\?$g\"\?" || $KC create groups -r "$REALM" -s name="$g" >/dev/null
+  done
+fi
+# Sample users joined to their groups.
+mkuser() {
+  U=$1; FN=$2; LN=$3; GRP=$4
+  $KC create users -r "$REALM" -s username="$U" -s enabled=true -s email="$U@$DOMAIN" -s emailVerified=true -s firstName="$FN" -s lastName="$LN" >/dev/null 2>&1 || true
+  UID1=$($KC get users -r "$REALM" -q username="$U" --fields id --format csv --noquotes | tail -n1)
+  [ -n "$UID1" ] || return 0
+  $KC set-password -r "$REALM" --userid "$UID1" --new-password "$SAMPLE_PW" --temporary=false >/dev/null 2>&1 || true
+  if [ "$USE_CLAIM" = "true" ]; then
+    GID=$($KC get groups -r "$REALM" --fields id,name --format csv --noquotes | grep ",\?$GRP\"\?$" | head -n1 | cut -d, -f1 | tr -d '"')
+    [ -n "$GID" ] && $KC update "users/$UID1/groups/$GID" -r "$REALM" -n >/dev/null 2>&1 || true
+  fi
+}
+mkuser dbauser01 Dana Admin dbadmins
+mkuser devuser01 Devin Lopez developers
+echo "keycloak realm '$REALM' configured (client $CLIENT_ID, users dbauser01/devuser01)"`
 
 // mongoStartMongosScript starts the mongos router and waits until it answers a ping.
 const mongoStartMongosScript = `set -e

@@ -99,6 +99,7 @@ export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDelete
           <KV k="Backups (PBM)" v={cfg.enablePBM ? (cfg.backupRepo || 'enabled') : 'disabled'} />
           {cfg.oidcEnabled && <KV k="OIDC (Keycloak)" v={cfg.oidcIssuer} mono />}
           {cfg.oidcEnabled && <KV k="OIDC client" v={`${cfg.oidcClientId || ''}${cfg.oidcUseAuthClaim ? ` · groups via ${cfg.oidcAuthClaim}` : ' · by username'}`} />}
+          {cfg.oidcEnabled && cfg.oidcSampleUsers && <KV k="Sample users" v={cfg.oidcSampleUsers} />}
           <KV k="Monitored by" v={cfg.monitoredBy} mono />
           <KV k="Image" v={cfg.image} mono />
           <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
@@ -149,6 +150,7 @@ export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDelete
           {[
             { k: 'Admin user', v: sec.adminUser || 'admin' },
             { k: 'Admin password', v: sec.adminPassword },
+            ...(cfg.oidcEnabled && sec.oidcSamplePassword ? [{ k: 'Keycloak sample users password (dbauser01 / devuser01)', v: sec.oidcSamplePassword }] : []),
           ].map((r) => (
             <div key={r.k}>
               <div className="text-xs text-muted">{r.k}</div>
