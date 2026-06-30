@@ -54,6 +54,13 @@ type mongoConfig struct {
 	Ports        []int  `json:"ports"`
 	EnablePBM    bool   `json:"enablePBM"`  // Percona Backup for MongoDB → SeaweedFS S3
 	BackupRepo   string `json:"backupRepo"` // e.g. "PBM → SeaweedFS S3 (bucket/prefix)" when enabled
+	// Keycloak OIDC (standalone psm node only).
+	OIDCEnabled      bool   `json:"oidcEnabled"`
+	OIDCIssuer       string `json:"oidcIssuer"`   // http://<keycloak>:8080/realms/<realm>
+	OIDCClientID     string `json:"oidcClientId"` // == audience
+	OIDCRealm        string `json:"oidcRealm"`
+	OIDCAuthClaim    string `json:"oidcAuthClaim"` // group claim (when useAuthorizationClaim)
+	OIDCUseAuthClaim bool   `json:"oidcUseAuthClaim"`
 }
 
 // mongoSecrets holds the cluster admin credentials and the shared internal-auth
@@ -254,7 +261,7 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 			wg.Add(1)
 			go func(n designNode) {
 				defer wg.Done()
-				if err := a.mongoPrepareNode(ctx, st, frame, n, hosts[n.ID], image, major, replSetOf(n), configDB, intranetIP, domain, sec, progs[n.ID]); err != nil {
+				if err := a.mongoPrepareNode(ctx, st, frame, n, hosts[n.ID], image, major, replSetOf(n), configDB, intranetIP, domain, "", sec, progs[n.ID]); err != nil {
 					mu.Lock()
 					failed = true
 					mu.Unlock()
@@ -477,7 +484,7 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 			wg.Add(1)
 			go func(n designNode) {
 				defer wg.Done()
-				if err := a.mongoPrepareNode(ctx, st, frame, n, hosts[n.ID], image, major, rs, "", intranetIP, domain, sec, progs[n.ID]); err != nil {
+				if err := a.mongoPrepareNode(ctx, st, frame, n, hosts[n.ID], image, major, rs, "", intranetIP, domain, "", sec, progs[n.ID]); err != nil {
 					mu.Lock()
 					failed = true
 					mu.Unlock()
@@ -590,11 +597,36 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 			}
 		}
 	}
+
+	// Keycloak OIDC: build the issuer from the linked Keycloak node's in-network host
+	// (http://<keycloak>:8080/realms/<realm>). Keycloak runs in dev mode with that host
+	// as its hostname, so its token issuer matches this string.
+	realm, clientID, authClaim := mongoOIDCDefaults(n)
+	oidcIssuer := ""
+	if n.EnableOIDC {
+		kcHost := hosts[n.KeycloakNodeID]
+		if kcHost == "" {
+			for _, m := range doc.Nodes {
+				if m.Type == "keycloak" {
+					kcHost = hosts[m.ID]
+					break
+				}
+			}
+		}
+		oidcIssuer = keycloakIssuer(kcHost) + "/realms/" + realm
+	}
+
 	cfg := mongoConfig{
 		Cluster: "", Image: image, OS: n.OS, Arch: archOr(n.Arch), Role: "standalone",
 		Hostname: host, FQDN: fqdnOf(host, domain), PSMDBMajor: major, Version: n.PSMDBVersion,
 		GenerateCert: n.GenerateCert, UseProxy: n.UseProxy, MonitoredBy: monitoredBy,
-		Ports: []int{mongoPort},
+		Ports:            []int{mongoPort},
+		OIDCEnabled:      n.EnableOIDC,
+		OIDCIssuer:       oidcIssuer,
+		OIDCClientID:     clientID,
+		OIDCRealm:        realm,
+		OIDCAuthClaim:    authClaim,
+		OIDCUseAuthClaim: n.OIDCUseAuthClaim,
 	}
 	cfgJSON, _ := json.Marshal(cfg)
 	secJSON, _ := json.Marshal(sec)
@@ -611,14 +643,38 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 			return
 		}
 
+		// When OIDC is enabled, wait (best-effort) for Keycloak to be up, then render
+		// the mongod MONGODB-OIDC setParameter block.
+		setParams := ""
+		if n.EnableOIDC {
+			pr.phase("Waiting for Keycloak", 8)
+			a.waitKeycloak(ctx, st.ID, n.KeycloakNodeID, 10*time.Minute)
+			setParams = mongoOIDCSetParameter(oidcIssuer, clientID, authClaim, n.OIDCUseAuthClaim)
+		}
+
 		nn := n
 		nn.Role = "standalone"
-		if err := a.mongoPrepareNode(ctx, st, frame, nn, host, image, major, "", "", intranetIP, domain, sec, pr); err != nil {
+		if err := a.mongoPrepareNode(ctx, st, frame, nn, host, image, major, "", "", intranetIP, domain, setParams, sec, pr); err != nil {
 			return
 		}
 		a.reconcileStackDNS(ctx, st.ID)
 		if err := a.mongoCreateAdmin(ctx, st, n, sec, pr); err != nil {
 			return
+		}
+
+		// Group-enumeration roles for Keycloak OIDC (useAuthorizationClaim=true): a
+		// member of the Keycloak "developers"/"dbadmins" group maps to the matching
+		// keycloak/<group> role. (When useAuthorizationClaim is off, users are created
+		// in $external by name instead, which is left to the operator.)
+		if n.EnableOIDC && n.OIDCUseAuthClaim {
+			pr.phase("Creating OIDC roles", 72)
+			rdep, _ := a.store.GetDeployment(st.ID, n.ID)
+			if err := a.runStep(ctx, rdep.ContainerID, mongoOIDCRolesScript,
+				[]string{"ADMIN_USER=" + sec.AdminUser, "ADMIN_PW=" + sec.AdminPassword, "ROLES_JS=" + mongoOIDCRolesJS()}, pr.logln); err != nil {
+				pr.logln("create OIDC roles failed: " + err.Error())
+			} else {
+				pr.logln("OIDC group roles created (keycloak/developers, keycloak/dbadmins)")
+			}
 		}
 
 		// PMM: create the monitoring user + register the standalone (no --cluster).
@@ -639,7 +695,7 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 // mongoPrepareNode creates the container, installs Percona Server for MongoDB, writes
 // the shared keyFile and the mongod/mongos config, and starts mongod (config/shard
 // members; the mongos node is started later in Phase 3).
-func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame, n designNode, host, image, major, replSet, configDB, intranetIP, domain string, sec mongoSecrets, pr *pxcProg) error {
+func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame, n designNode, host, image, major, replSet, configDB, intranetIP, domain, setParams string, sec mongoSecrets, pr *pxcProg) error {
 	if host == "" {
 		host = sanitizeName(n.Label)
 	}
@@ -768,7 +824,7 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	case "shard":
 		clusterRole = "shardsvr"
 	}
-	conf := mongodConfYAML(replSet, clusterRole, sec.KeyFile != "")
+	conf := mongodConfYAML(replSet, clusterRole, sec.KeyFile != "", setParams)
 	if err := a.docker.CopyFile(ctx, id, "/etc", "mongod.conf", 0o644, []byte(conf)); err != nil {
 		return pr.fail("write mongod.conf: %v", err)
 	}
@@ -938,8 +994,9 @@ func (a *App) mongoAddShards(ctx context.Context, st Stack, mongos designNode, s
 
 // mongodConfYAML renders mongod.conf. replSet=="" → standalone (no replication
 // block); clusterRole=="" → no sharding block; useKeyFile=false → authorization
-// only (no keyFile, for a standalone with no internal cluster auth).
-func mongodConfYAML(replSet, clusterRole string, useKeyFile bool) string {
+// only (no keyFile, for a standalone with no internal cluster auth). setParams, when
+// non-empty, is an already-rendered "setParameter:" block (e.g. MONGODB-OIDC).
+func mongodConfYAML(replSet, clusterRole string, useKeyFile bool, setParams string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "storage:\n  dbPath: %s\n", mongoDataDir)
 	fmt.Fprintf(&b, "systemLog:\n  destination: file\n  path: %s/mongod.log\n  logAppend: true\n", mongoLogDir)
@@ -956,7 +1013,62 @@ func mongodConfYAML(replSet, clusterRole string, useKeyFile bool) string {
 	if clusterRole != "" {
 		fmt.Fprintf(&b, "sharding:\n  clusterRole: %s\n", clusterRole)
 	}
+	if setParams != "" {
+		b.WriteString(setParams)
+	}
 	return b.String()
+}
+
+// mongoOIDCDefaults fills the OIDC fields of a psm node with the documented defaults.
+func mongoOIDCDefaults(n designNode) (realm, clientID, authClaim string) {
+	realm = strings.TrimSpace(n.OIDCRealm)
+	if realm == "" {
+		realm = "mongodb"
+	}
+	clientID = strings.TrimSpace(n.OIDCClientID)
+	if clientID == "" {
+		clientID = "mongodb-client"
+	}
+	authClaim = strings.TrimSpace(n.OIDCAuthClaim)
+	if authClaim == "" {
+		authClaim = "MyClaim"
+	}
+	return
+}
+
+// mongoOIDCSetParameter renders the mongod.conf setParameter block enabling
+// MONGODB-OIDC against the given Keycloak identity provider. The audience equals the
+// clientId (per the Keycloak→PSMDB mapping); authNamePrefix is fixed to "keycloak"
+// (the keycloak/<group> roles below depend on it). SCRAM mechanisms are kept so the
+// admin/PMM/PBM users still authenticate.
+func mongoOIDCSetParameter(issuer, clientID, authClaim string, useAuthClaim bool) string {
+	m := map[string]any{
+		"issuer":                issuer,
+		"audience":              clientID,
+		"authNamePrefix":        "keycloak",
+		"clientId":              clientID,
+		"useAuthorizationClaim": useAuthClaim,
+		"supportsHumanFlows":    true,
+	}
+	if useAuthClaim {
+		m["authorizationClaim"] = authClaim
+	}
+	prov, _ := json.Marshal(m)
+	var b strings.Builder
+	b.WriteString("setParameter:\n")
+	b.WriteString("  authenticationMechanisms: SCRAM-SHA-1,SCRAM-SHA-256,MONGODB-OIDC\n")
+	fmt.Fprintf(&b, "  oidcIdentityProviders: '[ %s ]'\n", string(prov))
+	return b.String()
+}
+
+// mongoOIDCRolesJS returns the mongosh script that (idempotently) creates the group
+// roles used for Keycloak group enumeration (useAuthorizationClaim=true): the
+// keycloak/developers role grants readWriteAnyDatabase and keycloak/dbadmins grants
+// root, matching the documented setup.
+func mongoOIDCRolesJS() string {
+	return `var a=db.getSiblingDB("admin");
+try{a.createRole({role:"keycloak/developers",privileges:[],roles:["readWriteAnyDatabase"]})}catch(e){if(!/already exists/i.test(e.message))throw e}
+try{a.createRole({role:"keycloak/dbadmins",privileges:[],roles:["root"]})}catch(e){if(!/already exists/i.test(e.message))throw e}`
 }
 
 func mongosConfYAML(configDB string) string {
@@ -1019,6 +1131,11 @@ done
 const mongoCreateAdminScript = `set -e
 mongosh --quiet --port 27017 --eval 'db.getSiblingDB("admin").createUser({user:"'"$ADMIN_USER"'",pwd:"'"$ADMIN_PW"'",roles:[{role:"root",db:"admin"}]})' 2>&1 | grep -viE 'already exists' || true
 mongosh --quiet --port 27017 -u "$ADMIN_USER" -p "$ADMIN_PW" --authenticationDatabase admin --eval 'db.adminCommand({ping:1})' >/dev/null`
+
+// mongoOIDCRolesScript creates the Keycloak group-enumeration roles (ROLES_JS) as the
+// admin user. Idempotent (the JS swallows "already exists").
+const mongoOIDCRolesScript = `set -e
+mongosh --quiet --port 27017 -u "$ADMIN_USER" -p "$ADMIN_PW" --authenticationDatabase admin --eval "$ROLES_JS"`
 
 // mongoStartMongosScript starts the mongos router and waits until it answers a ping.
 const mongoStartMongosScript = `set -e

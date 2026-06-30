@@ -51,6 +51,15 @@ type designNode struct {
 	// RootPassword (admin pw), PMMNodeID, UseProxy, GenerateCert/CertTTL, export above).
 	PSMDBMajor   string `json:"psmdbMajor"`   // "6.0" | "7.0" | "8.0"
 	PSMDBVersion string `json:"psmdbVersion"` // minor; "" → latest
+	// Keycloak OIDC authentication for a standalone PS MongoDB node (Type=="psm").
+	// When EnableOIDC is set, mongod is configured with a MONGODB-OIDC identity
+	// provider pointing at the selected Keycloak node (KeycloakNodeID).
+	EnableOIDC       bool   `json:"enableOIDC"`
+	KeycloakNodeID   string `json:"keycloakNodeId"`   // Keycloak node providing OIDC (required when EnableOIDC)
+	OIDCRealm        string `json:"oidcRealm"`        // Keycloak realm ("" → "mongodb")
+	OIDCClientID     string `json:"oidcClientId"`     // OIDC client id == audience ("" → "mongodb-client")
+	OIDCAuthClaim    string `json:"oidcAuthClaim"`    // group/authorization token claim ("" → "MyClaim")
+	OIDCUseAuthClaim bool   `json:"oidcUseAuthClaim"` // true → authorize via group claim (creates keycloak/* roles)
 	// SeaweedFS node fields (Type=="seaweedfs"; an S3-compatible object store used
 	// as a backup target). Runs the chrislusf/seaweedfs image (pulled, not a systemd
 	// image), so it ignores os/arch like PMM.
@@ -385,15 +394,20 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	}
 	intranet := 0
 	watchtower := 0
+	keycloak := 0
 	others := 0
 	labels := map[string]int{}
 	seenImg := map[string]bool{}
 	exportReq := map[int][]string{} // requested host port → node labels (PXC + ProxySQL)
 	watchtowerIDs := map[string]bool{}
+	keycloakIDs := map[string]bool{}
 	pmmCat := loadPMMCatalog()
 	for _, n := range doc.Nodes {
 		if n.Type == "watchtower" {
 			watchtowerIDs[n.ID] = true
+		}
+		if n.Type == "keycloak" {
+			keycloakIDs[n.ID] = true
 		}
 	}
 	for _, n := range doc.Nodes {
@@ -418,6 +432,9 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			}
 		case "watchtower":
 			watchtower++
+			others++
+		case "keycloak":
+			keycloak++
 			others++
 		case "proxysql":
 			others++
@@ -448,6 +465,9 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			}
 			if n.ExportEnabled && n.ExportHostPort > 0 {
 				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+			if n.Type == "psm" && n.EnableOIDC && !keycloakIDs[n.KeycloakNodeID] {
+				out = append(out, issue{"error", "PSMDB node " + n.Label + " has Keycloak OIDC enabled but is not linked to a Keycloak node — add a Keycloak node and select it"})
 			}
 		case "pg":
 			others++
@@ -493,6 +513,9 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	}
 	if watchtower > 1 {
 		out = append(out, issue{"error", "Only one Watchtower node is allowed per stack"})
+	}
+	if keycloak > 1 {
+		out = append(out, issue{"error", "Only one Keycloak node is allowed per stack"})
 	}
 	// The Intranet provides DNS, mail, LDAP and the CA for the whole stack, so it
 	// is required before any other node can be deployed.
@@ -992,6 +1015,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionSeaweedFS(st, n, doc)
 		case "watchtower":
 			a.provisionWatchtower(st, n, doc)
+		case "keycloak":
+			a.provisionKeycloak(st, n, doc)
 		case "haproxy":
 			a.provisionHAProxy(st, n, doc)
 		}
@@ -1555,6 +1580,16 @@ func (a *App) refreshPublishedPorts(ctx context.Context, st Stack, nid string, d
 		save(cfg)
 	case "pmm":
 		var cfg pmmConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("8080/tcp"); ok {
+			cfg.HTTPPort = p
+		}
+		if p, ok := readPort("8443/tcp"); ok {
+			cfg.HTTPSPort = p
+		}
+		save(cfg)
+	case "keycloak":
+		var cfg keycloakConfig
 		json.Unmarshal(dep.Config, &cfg)
 		if p, ok := readPort("8080/tcp"); ok {
 			cfg.HTTPPort = p

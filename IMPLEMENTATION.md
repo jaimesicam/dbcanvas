@@ -2951,3 +2951,52 @@ This is the same class of Rosetta limitation seen throughout (§31/§35/§36): a
 mmaps fails — php-fpm/httpd (→ php -S), php opcache/JIT (→ disabled), and dovecot under a
 tight VSZ cap (→ raised). The common thread is giving the translator room / avoiding the
 mmaps it can't satisfy.
+
+## 38. Keycloak node (singleton) + PSMDB MONGODB-OIDC authentication
+
+Adds a Keycloak OIDC identity provider node and an option on the standalone PSMDB (`psm`)
+node to authenticate via MONGODB-OIDC against it.
+
+### Keycloak node — `app/keycloak.go` (new) + `app/intranet.go`
+A per-stack **singleton** `keycloak` node runs `quay.io/keycloak/keycloak:26.5.5` in dev
+mode (`Cmd: start-dev --https-port=8443`, env `KC_BOOTSTRAP_ADMIN_USERNAME/PASSWORD`). Image
+is pulled at deploy; the admin console is published to the host on auto-assigned ports
+(8080 http / 8443 https), recorded in `keycloakConfig` (HTTPPort/HTTPSPort). Network alias
+`keycloak` + container hostname = node host, so in dev mode Keycloak's token issuer matches
+`http://<host>:8080/realms/<realm>` — which is what a MongoDB node points at. The bootstrap
+admin password is generated + reused across redeploys (`keycloakSecrets`). `waitKeycloak`
+gates dependents; `keycloakIssuer(host)` builds the issuer base. Wired into `intranet.go`:
+designNode OIDC fields, deploy dispatch (`case "keycloak"`), `validateDesign` (singleton
+count + "only one Keycloak per stack"), and `refreshPublishedPorts` (re-reads 8080/8443).
+
+### PSMDB OIDC — `app/mongodb.go` + `app/intranet.go`
+The `psm` node gains `EnableOIDC` + `KeycloakNodeID` + `OIDCRealm`/`OIDCClientID`/
+`OIDCAuthClaim`/`OIDCUseAuthClaim` (defaults mongodb / mongodb-client / MyClaim / true).
+`mongodConfYAML` gained a `setParams` arg; `mongoOIDCSetParameter` renders the
+`setParameter:` block — `authenticationMechanisms: SCRAM-SHA-1,SCRAM-SHA-256,MONGODB-OIDC`
+plus a single `oidcIdentityProviders` entry (issuer, audience==clientId, authNamePrefix
+`keycloak`, clientId, useAuthorizationClaim, supportsHumanFlows, and authorizationClaim when
+the group claim is used). `provisionMongoStandalone` resolves the Keycloak host, waits for
+it, writes the block, and — when `useAuthorizationClaim` — creates the group-enumeration
+roles `keycloak/developers` (readWriteAnyDatabase) + `keycloak/dbadmins` (root) via
+`mongoOIDCRolesScript`. validateDesign errors if OIDC is enabled without a linked Keycloak
+node. (Sharded/replica-set frames pass `setParams=""` — OIDC is standalone-only for now.)
+
+### Frontend — `StackDesigner.jsx` + `MongoDBManager.jsx`
+`NODE_TYPES.keycloak` (singleton, indigo `#4f46e5`, `Users` icon) + toolbar button +
+`KeycloakForm`/`KeycloakManager` (manager shows console URL/ports + bootstrap admin creds).
+`PSMStandaloneForm` gains a "Keycloak OIDC authentication" section (Keycloak `<select>`,
+realm, client id, authorize-by-group toggle → authorization claim). `MongoDBManager`
+overview shows the OIDC issuer/client when enabled, and the access tab shows the
+`mongosh --authenticationMechanism MONGODB-OIDC --oidcFlows device-auth/auth-code` hints.
+
+### Verification performed
+- `go build`/`vet`/`gofmt -l` + web build all pass.
+- Rendered mongod OIDC config verified by a throwaway Go test (issuer/audience/authClaim
+  present, authorizationClaim omitted when useAuthClaim=false) and confirmed valid YAML
+  with the `oidcIdentityProviders` JSON re-parsing.
+- Keycloak image pulled and **booted with the exact Cmd/env** — "Keycloak 26.5.5 … started
+  … Listening on: http://0.0.0.0:8080", port 8080 reachable.
+- **Caveat — not validated as a full live OIDC login.** The realm/client/groups/users are
+  set up in the Keycloak console (per the documented steps); the in-network issuer vs.
+  host-mongosh issuer resolution depends on the operator's setup as noted.

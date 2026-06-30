@@ -126,6 +126,8 @@ const NODE_TYPES = {
       rootPassword: '', pmmNodeId: '', useProxy: true,
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
       exportEnabled: false, exportHostPort: 0,
+      enableOIDC: false, keycloakNodeId: '', oidcRealm: 'mongodb',
+      oidcClientId: 'mongodb-client', oidcAuthClaim: 'MyClaim', oidcUseAuthClaim: true,
     },
   },
   // Standalone single Percona Server instance (no replication).
@@ -220,6 +222,20 @@ const NODE_TYPES = {
     singleton: true,
     ports: false,
     osOptions: [{ id: 'watchtower', label: 'percona/watchtower' }],
+    defaults: {},
+  },
+  // Keycloak — a per-stack singleton OpenID Connect identity provider. A standalone
+  // PSMDB node can enable MONGODB-OIDC authentication against it. Runs the upstream
+  // keycloak image in dev mode (pulled at deploy); console published to the host.
+  keycloak: {
+    label: 'Keycloak',
+    slug: 'keycloak',
+    sub: 'OIDC identity provider',
+    color: '#4f46e5',
+    icon: 'Users',
+    singleton: true,
+    ports: false,
+    osOptions: [{ id: 'keycloak', label: 'quay.io/keycloak/keycloak' }],
     defaults: {},
   },
 }
@@ -1466,6 +1482,9 @@ function StackEditor({ stackId, onBack }) {
           </Button>
           <Button size="sm" disabled={!hasIntranet || nodes.some((n) => n.type === 'watchtower')} style={addBtnStyle('watchtower')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('watchtower')}>
             <Icon.Plus size={16} /> Watchtower
+          </Button>
+          <Button size="sm" disabled={!hasIntranet || nodes.some((n) => n.type === 'keycloak')} style={addBtnStyle('keycloak')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('keycloak')}>
+            <Icon.Plus size={16} /> Keycloak
           </Button>
           <div className="mx-1 h-5 w-px bg-border" />
           <Button size="sm" variant="outline" disabled={!!busy} onClick={runValidate}>
@@ -2797,6 +2816,75 @@ function WatchtowerManager({ stackId, nodeId, dep, onDeleteNode }) {
   )
 }
 
+// KeycloakForm edits a (not-yet-running) Keycloak node. Per-stack singleton, no
+// tunables — it runs the keycloak image in dev mode; a PSMDB node references it to
+// enable MONGODB-OIDC. The realm/client/users are set up in the console after deploy.
+function KeycloakForm({ node: n, patchNode, deleteNode, dep, deployed }) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Keycloak</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <p className="text-xs text-muted">
+        OpenID Connect identity provider (<span className="font-mono">quay.io/keycloak/keycloak</span>, dev
+        mode). Enable Keycloak OIDC on a PSMDB node to authenticate with it. One Keycloak per stack.
+      </p>
+
+      <Field label="Label" hint="Becomes the node hostname (also the OIDC issuer host); must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+
+      <div className="rounded-lg bg-surface2 px-3 py-2 text-xs text-muted">
+        Admin console is published to the host on auto-assigned ports (8080 http / 8443 https). The bootstrap
+        admin user + password appear here after deploy. Create the realm, OIDC client, groups and users in the
+        console (see docs).
+      </div>
+
+      {!deployed && <p className="text-xs text-muted">Console URL + admin credentials appear here after deploy.</p>}
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// KeycloakManager shows a deployed Keycloak's console URL + bootstrap admin creds.
+function KeycloakManager({ dep, onDeleteNode }) {
+  const cfg = dep?.config || {}
+  const sec = dep?.secrets || {}
+  const host = typeof location !== 'undefined' ? location.hostname : 'localhost'
+  const consoleURL = cfg.httpPort ? `http://${host}:${cfg.httpPort}` : null
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Keycloak</span>
+        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+      </div>
+      <p className="text-xs text-muted">OIDC identity provider. Set up the realm/client/groups/users in the console.</p>
+      {consoleURL && (
+        <a href={consoleURL} target="_blank" rel="noreferrer"
+          className="flex items-center justify-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/15">
+          <Icon.External size={15} /> Open admin console
+        </a>
+      )}
+      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
+        <div className="flex justify-between gap-3"><span className="text-muted">Image</span><span className="font-mono text-xs">{cfg.image || 'quay.io/keycloak/keycloak'}</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Issuer host</span><span className="font-mono text-xs">http://{cfg.hostname || 'keycloak'}:8080</span></div>
+        {cfg.httpPort ? <div className="flex justify-between gap-3"><span className="text-muted">Console (http)</span><span className="font-mono text-xs">{host}:{cfg.httpPort}</span></div> : null}
+        {cfg.httpsPort ? <div className="flex justify-between gap-3"><span className="text-muted">Console (https)</span><span className="font-mono text-xs">{host}:{cfg.httpsPort}</span></div> : null}
+        <div className="flex justify-between gap-3"><span className="text-muted">Admin user</span><span className="font-mono text-xs">{cfg.adminUser || 'admin'}</span></div>
+        {sec.adminPassword && (
+          <div className="flex justify-between gap-3"><span className="text-muted">Admin password</span><span className="break-all font-mono text-xs">{sec.adminPassword}</span></div>
+        )}
+      </div>
+      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
 // ProxySQLForm edits a (not-yet-running) ProxySQL node: catalog-driven OS/version
 // + ProxySQL major/minor, implementation mode, host-port export and PMM monitor.
 // It must be linked to a PXC cluster frame by an association line on the canvas.
@@ -4088,6 +4176,7 @@ function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
   const imgs = useMongoCatalog(n, deployed, patchNode)
   const lock = deployed ? 'opacity-70' : ''
   const pmmNodes = nodes.filter((x) => x.type === 'pmm')
+  const keycloakNodes = nodes.filter((x) => x.type === 'keycloak')
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -4142,6 +4231,40 @@ function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
             onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
         </Field>
       )}
+
+      <div className="rounded-md border border-border/60 p-2 space-y-2">
+        <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+          <input type="checkbox" checked={!!n.enableOIDC} disabled={deployed} onChange={(e) => patchNode(n.id, { enableOIDC: e.target.checked })} />
+          <span>Keycloak OIDC authentication (MONGODB-OIDC)</span>
+        </label>
+        {n.enableOIDC && (
+          <div className="space-y-2 pl-1">
+            <Field label="Keycloak node" hint={keycloakNodes.length ? 'OIDC identity provider for this MongoDB.' : 'Add a Keycloak node first.'}>
+              <select className={`${inputCls} ${lock}`} value={n.keycloakNodeId || ''} disabled={deployed || keycloakNodes.length === 0} onChange={(e) => patchNode(n.id, { keycloakNodeId: e.target.value })}>
+                <option value="">none</option>
+                {keycloakNodes.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Realm" hint="Keycloak realm holding the OIDC client.">
+              <input className={`${inputCls} ${lock}`} value={n.oidcRealm ?? 'mongodb'} disabled={deployed} onChange={(e) => patchNode(n.id, { oidcRealm: e.target.value })} />
+            </Field>
+            <Field label="Client ID" hint="OIDC client id; also used as the token audience.">
+              <input className={`${inputCls} ${lock}`} value={n.oidcClientId ?? 'mongodb-client'} disabled={deployed} onChange={(e) => patchNode(n.id, { oidcClientId: e.target.value })} />
+            </Field>
+            <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+              <input type="checkbox" checked={n.oidcUseAuthClaim !== false} disabled={deployed} onChange={(e) => patchNode(n.id, { oidcUseAuthClaim: e.target.checked })} />
+              <span>Authorize by group claim</span>
+            </label>
+            {n.oidcUseAuthClaim !== false ? (
+              <Field label="Authorization claim" hint="Token claim with the user's groups. Creates keycloak/developers + keycloak/dbadmins roles.">
+                <input className={`${inputCls} ${lock}`} value={n.oidcAuthClaim ?? 'MyClaim'} disabled={deployed} onChange={(e) => patchNode(n.id, { oidcAuthClaim: e.target.value })} />
+              </Field>
+            ) : (
+              <p className="text-xs text-muted">Users are authorized by username — create them in the <span className="font-mono">$external</span> database after deploy.</p>
+            )}
+          </div>
+        )}
+      </div>
 
       {!deployed && <p className="text-xs text-muted">Access links and credentials appear here after deploy.</p>}
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
@@ -4536,6 +4659,13 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <WatchtowerManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <WatchtowerForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+    // Keycloak singleton node (OIDC identity provider).
+    if (n.type === 'keycloak') {
+      if (dep && dep.state === 'running') {
+        return <KeycloakManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <KeycloakForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
     return (
       <div className="space-y-3">

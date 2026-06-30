@@ -97,6 +97,8 @@ export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDelete
           {!isInternal && <KV k="Exported port" v={exportPort || 'not published'} />}
           <KV k="TLS" v={cfg.generateCert ? 'Intranet CA' : 'none'} />
           <KV k="Backups (PBM)" v={cfg.enablePBM ? (cfg.backupRepo || 'enabled') : 'disabled'} />
+          {cfg.oidcEnabled && <KV k="OIDC (Keycloak)" v={cfg.oidcIssuer} mono />}
+          {cfg.oidcEnabled && <KV k="OIDC client" v={`${cfg.oidcClientId || ''}${cfg.oidcUseAuthClaim ? ` · groups via ${cfg.oidcAuthClaim}` : ' · by username'}`} />}
           <KV k="Monitored by" v={cfg.monitoredBy} mono />
           <KV k="Image" v={cfg.image} mono />
           <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
@@ -129,6 +131,13 @@ export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDelete
                 <div className="text-xs text-muted">Port not published to the host (enable export on this node to expose 27017).</div>
               )}
               <CopyRow label="In-cluster (from another container)" value={inClusterConn} />
+              {cfg.oidcEnabled && (
+                <div className="mt-2 space-y-1 border-t border-border/60 pt-2">
+                  <div className="text-[11px] text-muted">Keycloak OIDC (MONGODB-OIDC) — after setting up the realm/client/groups/users:</div>
+                  <CopyRow label="Authenticate (device-auth flow)" value="mongosh --authenticationMechanism MONGODB-OIDC --oidcFlows device-auth" />
+                  <CopyRow label="Authorize (auth-code flow)" value="mongosh --authenticationMechanism MONGODB-OIDC --oidcFlows auth-code" />
+                </div>
+              )}
             </>
           )}
         </div>
