@@ -398,6 +398,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	intranet := 0
 	watchtower := 0
 	keycloak := 0
+	vnc := 0
 	others := 0
 	labels := map[string]int{}
 	seenImg := map[string]bool{}
@@ -440,6 +441,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			keycloak++
 			others++
 		case "vnc":
+			vnc++
 			others++
 		case "proxysql":
 			others++
@@ -521,6 +523,9 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	}
 	if keycloak > 1 {
 		out = append(out, issue{"error", "Only one Keycloak node is allowed per stack"})
+	}
+	if vnc > 1 {
+		out = append(out, issue{"error", "Only one Ubuntu VNC node is allowed per stack"})
 	}
 	// The Intranet provides DNS, mail, LDAP and the CA for the whole stack, so it
 	// is required before any other node can be deployed.

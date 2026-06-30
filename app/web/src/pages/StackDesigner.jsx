@@ -246,7 +246,7 @@ const NODE_TYPES = {
     sub: 'Desktop + web VNC (DB clients)',
     color: '#dd4814',
     icon: 'Monitor',
-    singleton: false,
+    singleton: true,
     ports: false,
     osOptions: [{ id: 'ubuntu', label: 'ubuntu:24.04' }],
     defaults: { vncUser: 'dbadmin', vncPassword: '', useProxy: true },
@@ -1499,7 +1499,7 @@ function StackEditor({ stackId, onBack }) {
           <Button size="sm" disabled={!hasIntranet || nodes.some((n) => n.type === 'keycloak')} style={addBtnStyle('keycloak')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('keycloak')}>
             <Icon.Plus size={16} /> Keycloak
           </Button>
-          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('vnc')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('vnc')}>
+          <Button size="sm" disabled={!hasIntranet || nodes.some((n) => n.type === 'vnc')} style={addBtnStyle('vnc')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('vnc')}>
             <Icon.Plus size={16} /> Ubuntu VNC
           </Button>
           <div className="mx-1 h-5 w-px bg-border" />

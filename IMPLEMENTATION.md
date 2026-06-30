@@ -3048,3 +3048,40 @@ user, VNC password).
   `ldapsearch` present.
 - Caveat: no auto-restart of the session on a bare `docker restart` (no systemd) — a
   redeploy relaunches it via the idempotent start step.
+
+## 40. Ubuntu VNC fixes: start-step false failure, singleton, percona-toolkit
+
+First live deploy of the §39 VNC node failed at "start desktop session" (10 attempts).
+Two bugs + two requested changes:
+
+### (a) Start step verified wrong — `app/vnc.go`
+`vncStartScript` verified the session with `tigervncserver -list | grep ':1'`, but `-list`
+prints the display as `1` (no colon), so the check always failed and the step exited
+non-zero (the logged "error" was just the tigervncserver success banner on stderr). The VNC
+session was actually up. Now verifies by checking the **listening ports** (5901 + the noVNC
+web port) via `/dev/tcp`.
+
+### (b) `pkill -f websockify` killed the deploy step itself — `app/vnc.go`
+The launch helper ran `pkill -f 'websockify'` to stop a prior instance, but the deploy
+step's own command line contains the word "websockify" (it writes the helper via a
+heredoc), so pkill SIGTERM'd its own shell (exit 143) and also killed the just-started
+websockify. Replaced with a **PID file** (`/run/dbcanvas-novnc.pid`) + `nohup` — no
+broad pattern match. (Also confirmed TigerVNC 1.13 kills Xvnc if `xstartup` exits within
+3s; the real `exec dbus-launch --exit-with-session startxfce4` stays alive, so this is
+fine — only a stub xstartup would trip it.)
+
+### (c) Singleton — `StackDesigner.jsx` + `app/intranet.go`
+`NODE_TYPES.vnc.singleton = true`; toolbar button disabled once one exists; validateDesign
+counts `vnc` and errors "Only one Ubuntu VNC node is allowed per stack".
+
+### (d) percona-toolkit — `app/vnc.go`
+`vncInstallClientsScript` now also `percona-release enable tools` and installs
+`percona-toolkit` (pt-* utilities); the clients report includes `pt-query-digest`.
+
+### Verification performed
+- `go build`/`vet`/`gofmt -l` + web build pass.
+- **Full real-flow test in a live ubuntu:24.04 container** (xfce4 + real
+  `dbus-launch startxfce4` xstartup + the corrected start helper): start step **exit 0**,
+  websockify survives (PID file), `xfce4-session` running, and from the **host**
+  `GET /vnc.html` → 200.
+- Percona clients incl. `pt-query-digest` (percona-toolkit) install + resolve.

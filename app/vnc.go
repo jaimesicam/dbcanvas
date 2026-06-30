@@ -203,16 +203,17 @@ const vncInstallClientsScript = `set -e
 export DEBIAN_FRONTEND=noninteractive
 wget -qO /tmp/percona-release.deb https://repo.percona.com/apt/percona-release_latest.generic_all.deb
 dpkg -i /tmp/percona-release.deb >/dev/null 2>&1 || { apt-get update -qq; apt-get -y -qq -f install >/dev/null; }
-for r in ps-80 psmdb-80 ppg-17 valkey-91; do percona-release enable "$r" >/dev/null 2>&1 || true; done
+for r in ps-80 psmdb-80 ppg-17 valkey-91 tools; do percona-release enable "$r" >/dev/null 2>&1 || true; done
 apt-get update -qq
 apt-get install -y -qq ldap-utils >/dev/null 2>&1 || true
 apt-get install -y -qq percona-server-client >/dev/null 2>&1 || true       # Percona Server (MySQL) client
 apt-get install -y -qq percona-mongodb-mongosh >/dev/null 2>&1 || true      # PSMDB shell (mongosh)
 apt-get install -y -qq percona-postgresql-client-17 >/dev/null 2>&1 || true # Percona PostgreSQL client (psql)
 apt-get install -y -qq percona-valkey-tools >/dev/null 2>&1 || apt-get install -y -qq valkey-tools >/dev/null 2>&1 || true  # Valkey client (valkey-cli)
+apt-get install -y -qq percona-toolkit >/dev/null 2>&1 || true             # Percona Toolkit (pt-* utilities)
 # Report what landed so the deploy log shows which clients are present.
 echo "clients present:"
-for c in mysql mongosh psql valkey-cli ldapsearch; do command -v "$c" >/dev/null 2>&1 && echo "  $c: $(command -v $c)" || echo "  $c: MISSING (install with sudo)"; done`
+for c in mysql mongosh psql valkey-cli ldapsearch pt-query-digest; do command -v "$c" >/dev/null 2>&1 && echo "  $c: $(command -v $c)" || echo "  $c: MISSING (install with sudo)"; done`
 
 // vncSetupUserScript creates the sudo login user, sets its password + the VNC auth
 // password (TigerVNC, 8-char), and writes the XFCE xstartup. Idempotent.
@@ -231,8 +232,6 @@ cat > "$HOME_DIR/.vnc/xstartup" <<'XS'
 #!/bin/sh
 unset SESSION_MANAGER
 unset DBUS_SESSION_BUS_ADDRESS
-export XDG_RUNTIME_DIR=/tmp/runtime-$(id -un)
-[ -d "$XDG_RUNTIME_DIR" ] || mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
 exec dbus-launch --exit-with-session startxfce4
 XS
 chmod 755 "$HOME_DIR/.vnc/xstartup"
@@ -249,18 +248,23 @@ cat > /usr/local/bin/dbcanvas-vnc-start.sh <<SH
 set -e
 VNCSRV="$VNCSRV"
 runuser -l "$VNCUSER" -c "\$VNCSRV -kill :1 >/dev/null 2>&1 || true"
-pkill -f 'websockify' 2>/dev/null || true
+# Stop a previous noVNC by its recorded PID (do NOT pkill -f websockify: the deploy
+# step's own command line contains that word and would get killed too).
+[ -f /run/dbcanvas-novnc.pid ] && kill "\$(cat /run/dbcanvas-novnc.pid)" 2>/dev/null || true
 sleep 1
 runuser -l "$VNCUSER" -c "\$VNCSRV :1 -geometry $GEOMETRY -depth 24 -localhost no -SecurityTypes VncAuth -rfbport $RFBPORT"
-setsid websockify --web=/usr/share/novnc $WEBPORT localhost:$RFBPORT >/var/log/websockify.log 2>&1 &
+nohup websockify --web=/usr/share/novnc $WEBPORT localhost:$RFBPORT >/var/log/websockify.log 2>&1 &
+echo \$! > /run/dbcanvas-novnc.pid
 SH
 chmod 755 /usr/local/bin/dbcanvas-vnc-start.sh
 /usr/local/bin/dbcanvas-vnc-start.sh
-sleep 2
-# Verify the Xvnc display and the noVNC web port are up.
-runuser -l "$VNCUSER" -c "$VNCSRV -list" 2>/dev/null | grep -q ':1' || { echo 'Xvnc :1 did not start:'; tail -20 "$HOME_DIR/.vnc/"*.log 2>/dev/null; exit 1; }
-for i in $(seq 1 10); do
-  (exec 3<>/dev/tcp/127.0.0.1/$WEBPORT) 2>/dev/null && { exec 3>&-; OK=1; break; }
-  sleep 1
-done
-[ "$OK" = 1 ] || { echo "noVNC web port $WEBPORT not listening"; cat /var/log/websockify.log 2>/dev/null | tail -20; exit 1; }`
+# Verify Xvnc (rfb $RFBPORT) and the noVNC web port are listening. (Checking the
+# listening ports is reliable; tigervncserver -list formats the display without a colon.)
+for port in $RFBPORT $WEBPORT; do
+  OK=0
+  for i in $(seq 1 15); do
+    (exec 3<>/dev/tcp/127.0.0.1/$port) 2>/dev/null && { exec 3>&-; OK=1; break; }
+    sleep 1
+  done
+  [ "$OK" = 1 ] || { echo "port $port not listening after start"; tail -20 "$HOME_DIR/.vnc/"*.log /var/log/websockify.log 2>/dev/null; exit 1; }
+done`
