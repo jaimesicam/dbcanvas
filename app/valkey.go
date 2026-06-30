@@ -196,19 +196,8 @@ func (a *App) provisionValkeyStandalone(st Stack, n designNode, doc designDoc) {
 			pr.logln("valkey-ldap wired to ldap://intranet." + domain + ":389 (ou=People," + baseDN + ")")
 		}
 
-		// Install pmm-client (percona-release + pmm3-client) — best-effort — and register
-		// the node with an associated PMM server.
-		pr.phase("Installing pmm-client", 60)
-		if err := a.runStep(ctx, id, valkeyInstallPMMScript, nil, pr.logln); err != nil {
-			pr.logln("pmm-client install skipped: " + err.Error())
-		} else if pmmFQDN, pmmUser, pmmPass, ok := a.pmmServerFor(st, doc, n.PMMNodeID); ok {
-			env := []string{"PMM_FQDN=" + pmmFQDN, "PMM_USER=" + pmmUser, "PMM_PASS=" + pmmPass, "NODE=" + host}
-			if err := a.runStep(ctx, id, valkeyRegisterPMMScript, env, pr.logln); err != nil {
-				pr.logln("PMM registration skipped: " + err.Error())
-			} else {
-				pr.logln("registered with PMM (" + pmmFQDN + ")")
-			}
-		}
+		// pmm-client: install, start pmm-agent (no systemd), and add valkey to monitoring.
+		a.valkeySetupPMM(ctx, st, doc, id, host, "", pw, n.PMMNodeID, pr)
 
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployRunning, Config: cfgJSON, Secrets: secJSON})
 		a.reconcileStackDNS(ctx, st.ID)
@@ -258,6 +247,48 @@ if ! pgrep -f "pmm-agent --config-file=$CFG" >/dev/null 2>&1; then
 fi
 sleep 3
 pgrep -f "pmm-agent --config-file=$CFG" >/dev/null 2>&1 || { echo "pmm-agent did not start"; tail -20 /var/log/pmm-agent.log 2>/dev/null; exit 1; }`
+
+// valkeyAddServiceScript creates the read-only "pmm" monitoring user in Valkey (per the
+// Percona valkey-redis docs) and registers the instance with `pmm-admin add valkey`
+// using that user. Idempotent. Env: DEFAULT_PW (default-user password), PMM_USER_PW
+// (the pmm user's password from PMM_PASSWORD), SVC (service name), CLUSTER_ARG.
+const valkeyAddServiceScript = `set -e
+valkey-cli -a "$DEFAULT_PW" --no-auth-warning ACL SETUSER pmm on ">$PMM_USER_PW" "~*" +@read +info "+config|get" +slowlog +latency >/dev/null
+pmm-admin add valkey "$SVC" 127.0.0.1:6379 --username=pmm --password="$PMM_USER_PW" $CLUSTER_ARG >/dev/null 2>&1 || \
+pmm-admin add valkey "$SVC" 127.0.0.1:6379 --username=pmm --password="$PMM_USER_PW" $CLUSTER_ARG --skip-connection-check >/dev/null`
+
+// valkeySetupPMM installs pmm-client, starts pmm-agent (the bundle has no systemd) and
+// adds the Valkey instance to monitoring with a dedicated read-only "pmm" user. Shared
+// by the standalone node and every cluster member. cluster is the cluster label (""
+// for a standalone); defaultPW is the Valkey default-user (requirepass) password. All
+// steps are best-effort — the node stays up even if monitoring can't be wired.
+func (a *App) valkeySetupPMM(ctx context.Context, st Stack, doc designDoc, containerID, host, cluster, defaultPW, pmmNodeID string, pr *pxcProg) {
+	pr.phase("Installing pmm-client", 90)
+	if err := a.runStep(ctx, containerID, valkeyInstallPMMScript, nil, pr.logln); err != nil {
+		pr.logln("pmm-client install skipped: " + err.Error())
+		return
+	}
+	pmmFQDN, pmmUser, pmmPass, ok := a.pmmServerFor(st, doc, pmmNodeID)
+	if !ok {
+		return
+	}
+	pr.phase("Joining PMM", 94)
+	if err := a.runStep(ctx, containerID, valkeyRegisterPMMScript,
+		[]string{"PMM_FQDN=" + pmmFQDN, "PMM_USER=" + pmmUser, "PMM_PASS=" + pmmPass, "NODE=" + host}, pr.logln); err != nil {
+		pr.logln("pmm-agent join skipped: " + err.Error())
+		return
+	}
+	clusterArg := ""
+	if cluster != "" {
+		clusterArg = "--cluster=" + cluster
+	}
+	if err := a.runStep(ctx, containerID, valkeyAddServiceScript,
+		[]string{"DEFAULT_PW=" + defaultPW, "PMM_USER_PW=" + envOr("PMM_PASSWORD", "pmm_password"), "SVC=" + host, "CLUSTER_ARG=" + clusterArg}, pr.logln); err != nil {
+		pr.logln("pmm-admin add valkey skipped: " + err.Error())
+	} else {
+		pr.logln("added to PMM monitoring (valkey, user pmm) on " + pmmFQDN)
+	}
+}
 
 // ------------------------------------------------------------ Valkey cluster
 
@@ -380,15 +411,11 @@ func (a *App) provisionValkeyClusterFrame(st Stack, frame designFrame, doc desig
 			return
 		}
 
-		// Phase 3: pmm-client per member (best-effort).
-		pmmFQDN, pmmUser, pmmPass, havePMM := a.pmmServerFor(st, doc, frame.PMMNodeID)
+		// Phase 3: pmm-client per member — install, start pmm-agent (no systemd), add valkey.
 		for _, n := range members {
 			dep, _ := a.store.GetDeployment(st.ID, n.ID)
 			pr := progs[n.ID]
-			pr.phase("Installing pmm-client", 88)
-			if err := a.runStep(ctx, dep.ContainerID, valkeyInstallPMMScript, nil, pr.logln); err == nil && havePMM {
-				a.runStep(ctx, dep.ContainerID, valkeyRegisterPMMScript, []string{"PMM_FQDN=" + pmmFQDN, "PMM_USER=" + pmmUser, "PMM_PASS=" + pmmPass, "NODE=" + hosts[n.ID]}, pr.logln)
-			}
+			a.valkeySetupPMM(ctx, st, doc, dep.ContainerID, hosts[n.ID], frame.Label, pw, frame.PMMNodeID, pr)
 			a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: dep.ContainerID, State: DeployRunning, Config: a.depConfig(st.ID, n.ID), Secrets: secJSON})
 			pr.phase("Running", 100)
 			pr.p.Message = "provisioned"

@@ -38,7 +38,7 @@ export function TerminalProvider({ children }) {
     setSessions((ss) => ss.map((s) => (s.id === id ? { ...s, status } : s)))
   }, [])
 
-  const openTerminal = useCallback(({ stackId, nodeId, title }) => {
+  const openTerminal = useCallback(({ stackId, nodeId, title, user }) => {
     // A fresh session id every call → multiple concurrent terminals per node.
     const n = ++counter.current
     const id = `${stackId}:${nodeId}#${n}`
@@ -51,7 +51,8 @@ export function TerminalProvider({ children }) {
     term.loadAddon(fit)
 
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    const ws = new WebSocket(`${proto}://${location.host}/api/stacks/${stackId}/nodes/${nodeId}/term`)
+    const q = user ? `?user=${encodeURIComponent(user)}` : ''
+    const ws = new WebSocket(`${proto}://${location.host}/api/stacks/${stackId}/nodes/${nodeId}/term${q}`)
     ws.binaryType = 'arraybuffer'
     const enc = new TextEncoder()
 

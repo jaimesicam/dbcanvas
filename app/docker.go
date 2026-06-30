@@ -372,11 +372,27 @@ func (d *Docker) ContainerRestart(ctx context.Context, id string) error {
 }
 
 // ContainerRemove force-removes a container and its anonymous volumes (best-effort).
+// Named volumes (e.g. the PMM /srv data volume) are NOT removed by this.
 func (d *Docker) ContainerRemove(ctx context.Context, id string) {
 	resp, err := d.do(ctx, "DELETE", "/containers/"+id+"?force=true&v=true", nil)
 	if err == nil {
 		drain(resp)
 	}
+}
+
+// VolumeCreate ensures a named Docker volume exists (idempotent — creating one that
+// already exists returns it). Used to persist a container's data across recreate (e.g.
+// PMM's /srv survives an in-GUI/Watchtower upgrade).
+func (d *Docker) VolumeCreate(ctx context.Context, name string) error {
+	resp, err := d.do(ctx, "POST", "/volumes/create", map[string]any{"Name": name})
+	if err != nil {
+		return err
+	}
+	defer drain(resp)
+	if resp.StatusCode != 201 {
+		return errBody("create volume", resp)
+	}
+	return nil
 }
 
 // ContainerState returns the running state string (e.g. "running", "exited").
@@ -665,13 +681,16 @@ func (e *ExecConn) Close() error                { return e.c.Close() }
 // HijackExec creates a TTY exec in the container and returns the raw
 // bidirectional stream (used to bridge a browser terminal). With Tty:true the
 // stream is *not* multiplexed — it is raw pty bytes both ways.
-func (d *Docker) HijackExec(ctx context.Context, containerID string, cmd, env []string) (*ExecConn, error) {
+func (d *Docker) HijackExec(ctx context.Context, containerID string, cmd, env []string, user string) (*ExecConn, error) {
 	create := map[string]any{
 		"AttachStdin": true, "AttachStdout": true, "AttachStderr": true,
 		"Tty": true, "Cmd": cmd,
 	}
 	if len(env) > 0 {
 		create["Env"] = env
+	}
+	if user != "" {
+		create["User"] = user
 	}
 	resp, err := d.do(ctx, "POST", "/containers/"+containerID+"/exec", create)
 	if err != nil {

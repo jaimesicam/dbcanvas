@@ -37,9 +37,12 @@ func (a *App) handleNodeTerminal(w http.ResponseWriter, r *http.Request) {
 	// `exec` a possibly-missing binary, since a failed exec makes the shell exit
 	// (the `|| exec sh` is never reached) and the terminal dies blank. `-i` forces
 	// an interactive shell so busybox sh actually prints a prompt.
+	// Optional ?user=<uid|name> override (e.g. user=0 for a root console on images
+	// whose default exec user is unprivileged, like the PMM server which runs as pmm).
+	user := r.URL.Query().Get("user")
 	stream, err := a.docker.HijackExec(ctx, dep.ContainerID,
 		[]string{"/bin/sh", "-c", "if command -v bash >/dev/null 2>&1; then exec bash -i; else exec /bin/sh -i; fi"},
-		[]string{"TERM=xterm-256color"})
+		[]string{"TERM=xterm-256color"}, user)
 	if err != nil {
 		c.Close(websocket.StatusInternalError, "exec failed")
 		return

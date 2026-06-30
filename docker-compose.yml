@@ -20,6 +20,8 @@ services:
       REPL_PASSWORD: ${REPL_PASSWORD:-repl_password}
       MONITOR_PASSWORD: ${MONITOR_PASSWORD:-monitor_password}
       CLUSTER_PASSWORD: ${CLUSTER_PASSWORD:-cluster_password}
+      # Password for the "pmm" monitoring user created in Valkey (PMM add valkey).
+      PMM_PASSWORD: ${PMM_PASSWORD:-pmm_password}
     ports:
       # Publish on APP_HOST (default 127.0.0.1 = private). Set APP_HOST=0.0.0.0
       # in .env to expose on all host interfaces.

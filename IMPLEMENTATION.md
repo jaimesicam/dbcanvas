@@ -3353,3 +3353,40 @@ against a reachable server. No systemd → the agent doesn't auto-restart on a b
 restart; a redeploy relaunches it. Full join needs a live PMM server to confirm.)
 
 `go build`/`vet`/`gofmt -l` clean.
+
+## 50. PMM /srv volume + root/pmm consoles + port label; Valkey PMM add + PMM_PASSWORD
+
+A batch of PMM + Valkey monitoring fixes.
+
+### .env / compose — `PMM_PASSWORD`
+Added `PMM_PASSWORD=pmm_password` to `.env` and `PMM_PASSWORD: ${PMM_PASSWORD:-pmm_password}`
+to the app service in docker-compose.yml. It's the password for the read-only **`pmm`**
+monitoring user created in Valkey.
+
+### PMM data survives an upgrade — `docker.go` + `pmm.go`
+PMM had no persistent storage, so an in-GUI/Watchtower upgrade (container recreate) started
+fresh — losing the Grafana DB + signing key, which is why login gave **"session closed"**
+after upgrade. Now PMM mounts a **stable named volume** (`dbcanvas-pmm-<stack>-<node>`) at
+**`/srv`** (new `docker.VolumeCreate`; bind `vol:/srv`). Named volumes survive container
+recreate (dbcanvas redeploy *and* Watchtower), so all PMM data persists. (Combined with the
+§49 fixed host ports, the URLs + data both stay put across upgrades.)
+
+### Root vs PMM console — `docker.go` + `terminal.go` + frontend
+The PMM container runs as the unprivileged `pmm` user, so "Open root console" actually gave
+a *pmm* shell. The terminal exec now takes an optional `?user=` (→ exec `User`); the PMM
+manager shows **two** buttons — **Root console** (`user=0`) and **PMM console** (default) —
+with a note. `HijackExec` gained a `user` param; `openTerminal({…, user})` appends it.
+
+### PMM port label — `PMMManager.jsx`
+Fixed the wrong "HTTP · 8443→container 8080" → **"HTTP · 8080"** (HTTPS row already correct).
+
+### Valkey added to PMM monitoring — `valkey.go`
+Standalone + every cluster member now: install pmm-client → run pmm-agent in the background
+(§49) → **create the read-only `pmm` ACL user** (`ACL SETUSER pmm on >$PMM_PASSWORD ~*
++@read +info +config|get +slowlog +latency`, per the Percona valkey-redis doc) → **`pmm-admin
+add valkey <node> 127.0.0.1:6379 --username=pmm --password=$PMM_PASSWORD [--cluster=<frame>]`**.
+Unified into one `valkeySetupPMM` helper used by both paths (fixes the cluster members not
+running pmm-agent / not being added). Verified the ACL live (pmm user: INFO ok, writes
+denied). PMM_PASSWORD comes from the env (default pmm_password).
+
+`go build`/`vet`/`gofmt -l` + web build pass. (Full PMM join/dashboards need a live stack.)

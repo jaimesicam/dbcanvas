@@ -72,7 +72,8 @@ export default function PMMManager({ stackId, nodeId, dep, onDeleteNode }) {
           cfg={cfg}
           dep={dep}
           onDeleteNode={onDeleteNode}
-          onOpenTerminal={() => openTerminal({ stackId, nodeId, title: 'pmm · root' })}
+          onRootConsole={() => openTerminal({ stackId, nodeId, title: 'pmm · root', user: '0' })}
+          onPmmConsole={() => openTerminal({ stackId, nodeId, title: 'pmm · pmm' })}
         />
       )}
       {tab === 'access' && <AccessTab cfg={cfg} sec={sec} />}
@@ -81,7 +82,7 @@ export default function PMMManager({ stackId, nodeId, dep, onDeleteNode }) {
   )
 }
 
-function Overview({ cfg, dep, onDeleteNode, onOpenTerminal }) {
+function Overview({ cfg, dep, onDeleteNode, onRootConsole, onPmmConsole }) {
   return (
     <div className="space-y-2 text-sm">
       <KV k="FQDN" v={cfg.fqdn} mono />
@@ -97,9 +98,15 @@ function Overview({ cfg, dep, onDeleteNode, onOpenTerminal }) {
           {cfg.services.map((s) => <Badge key={s} tone="primary">{s}</Badge>)}
         </div>
       )}
-      <Button variant="outline" size="sm" className="mt-2 w-full" onClick={onOpenTerminal}>
-        <Icon.Nodes size={16} /> Open root console
-      </Button>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <Button variant="outline" size="sm" onClick={onRootConsole}>
+          <Icon.Nodes size={16} /> Root console
+        </Button>
+        <Button variant="outline" size="sm" onClick={onPmmConsole}>
+          <Icon.Nodes size={16} /> PMM console
+        </Button>
+      </div>
+      <p className="text-[11px] text-muted">The PMM console logs in as the unprivileged <span className="font-mono">pmm</span> user; the root console execs as uid 0.</p>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
       </Button>
@@ -127,7 +134,7 @@ function AccessTab({ cfg, sec }) {
       )}
       <div className="space-y-2">
         <div className="text-xs font-medium text-muted">Service endpoints</div>
-        <Endpoint label="HTTP · 8443→container 8080" url={httpUrl} />
+        <Endpoint label="HTTP · 8080" url={httpUrl} />
         <Endpoint label="HTTPS · 8443" url={httpsUrl} />
       </div>
       <div className="space-y-2">

@@ -192,11 +192,20 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 		if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
 			a.docker.ContainerRemove(ctx, cid)
 		}
+		// Persist /srv (Grafana DB, VictoriaMetrics, ClickHouse, etc.) in a stable named
+		// volume so a PMM server upgrade (in-GUI/Watchtower recreate) keeps all data —
+		// otherwise the recreated container starts empty and you get "session closed" on
+		// login (the Grafana DB / signing key are gone).
+		srvVol := fmt.Sprintf("dbcanvas-pmm-%d-%s", st.ID, n.ID)
+		if err := a.docker.VolumeCreate(ctx, srvVol); err != nil {
+			logln("warning: could not create PMM data volume: " + err.Error())
+		}
 		id, err := a.docker.ContainerCreate(ctx, ContainerSpec{
 			Name: name, Image: ref, Hostname: host,
 			Env:     wtEnv,
 			Network: networkName(st.ID), Aliases: []string{host},
 			PublishMap: []PortMap{{ContainerPort: 8080, HostPort: httpPort}, {ContainerPort: 8443, HostPort: httpsPort}},
+			Binds:      []string{srvVol + ":/srv"},
 			DNS:        []string{intranetIP}, DNSSearch: []string{domain},
 		})
 		if err != nil {
