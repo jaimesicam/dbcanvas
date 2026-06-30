@@ -3168,10 +3168,12 @@ function ValkeyManager({ dep, onDeleteNode }) {
   const cfg = dep?.config || {}
   const sec = dep?.secrets || {}
   const host = typeof location !== 'undefined' ? location.hostname : 'localhost'
+  const isCluster = cfg.role === 'cluster'
+  const clusterFlag = isCluster ? '-c ' : ''
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Valkey (standalone)</span>
+        <span className="text-sm font-semibold">{isCluster ? 'Valkey (cluster member)' : 'Valkey (standalone)'}</span>
         <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
       </div>
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
@@ -3180,13 +3182,23 @@ function ValkeyManager({ dep, onDeleteNode }) {
         <div className="flex justify-between gap-3"><span className="text-muted">LDAP</span><span className="font-mono text-xs">{cfg.useLdap ? (cfg.ldapServers || 'enabled') : 'disabled'}</span></div>
         {cfg.exportPort ? <div className="flex justify-between gap-3"><span className="text-muted">Exported port</span><span className="font-mono text-xs">{host}:{cfg.exportPort}</span></div> : null}
         <div className="flex justify-between gap-3"><span className="text-muted">Monitored by</span><span className="font-mono text-xs">{cfg.monitoredBy || '—'}</span></div>
-        {sec.password && <div className="flex justify-between gap-3"><span className="text-muted">Password</span><span className="break-all font-mono text-xs">{sec.password}</span></div>}
+        {sec.password && <div className="flex justify-between gap-3"><span className="text-muted">Default password</span><span className="break-all font-mono text-xs">{sec.password}</span></div>}
       </div>
       <div className="rounded-lg bg-surface2 px-3 py-2 text-xs space-y-1">
-        <div className="text-muted">Connect (valkey-cli):</div>
-        {cfg.exportPort ? <div className="break-all font-mono">valkey-cli -h {host} -p {cfg.exportPort} -a '{sec.password || ''}'</div> : null}
-        <div className="break-all font-mono">valkey-cli -h {cfg.fqdn} -p 6379 -a '{sec.password || ''}'  <span className="text-muted">(in-cluster)</span></div>
+        <div className="text-muted">Connect as the default user ({clusterFlag ? 'cluster mode' : 'direct'}):</div>
+        {cfg.exportPort ? <div className="break-all font-mono">valkey-cli {clusterFlag}-h {host} -p {cfg.exportPort} -a '{sec.password || ''}'</div> : null}
+        <div className="break-all font-mono">valkey-cli {clusterFlag}-h {cfg.fqdn} -p 6379 -a '{sec.password || ''}'  <span className="text-muted">(in-cluster)</span></div>
       </div>
+      {cfg.useLdap && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs space-y-1">
+          <div className="font-semibold text-primary">LDAP login (Intranet OpenLDAP)</div>
+          <div className="text-muted">The LDAP user must first exist as a Valkey ACL user (passwordless — the password is verified against LDAP). As the default user, create it:</div>
+          <div className="break-all font-mono">valkey-cli {clusterFlag}-h {cfg.fqdn} -p 6379 -a '{sec.password || ''}' ACL SETUSER alice on '~*' +@all</div>
+          <div className="text-muted">Then connect as the LDAP user (uid=alice,ou=People; password from LDAP):</div>
+          <div className="break-all font-mono">valkey-cli {clusterFlag}-h {cfg.fqdn} -p 6379 --user alice -a '&lt;ldap-password&gt;'</div>
+          <div className="text-muted">From the host use <span className="font-mono">-h {host} -p {cfg.exportPort || '&lt;export-port&gt;'}</span> (enable export to reach it from outside the stack).</div>
+        </div>
+      )}
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
       </Button>

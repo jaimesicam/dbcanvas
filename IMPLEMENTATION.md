@@ -3305,3 +3305,23 @@ The top toolbar now carries only the stack actions (Validate/Deploy/Destroy + st
 short hint / a "Palette" re-dock button. Web build passes. (Drag/resize are interactive and
 want a browser to feel out, but the structure builds and mirrors the existing pointer-drag
 machinery.)
+
+## 48. Valkey cluster-member manager title + LDAP connect instructions
+
+Two fixes reported against §45/§46:
+
+1. **Wrong title for cluster members** — a running Valkey *cluster* member reused
+   `ValkeyManager`, whose header read "Valkey (standalone)". `ValkeyManager` is now
+   role-aware (`cfg.role === 'cluster'` → "Valkey (cluster member)"), and its connect
+   examples use `valkey-cli -c` (cluster mode) for members.
+
+2. **No LDAP connect instructions** — added an "LDAP login" panel to `ValkeyManager`
+   (shown when `cfg.useLdap`). It documents the verified valkey-ldap flow, established live
+   against an OpenLDAP server: an LDAP user can only `AUTH` once a **matching passwordless
+   Valkey ACL user exists** (the module verifies the password via an LDAP bind). So the
+   panel shows, as the default user, `... ACL SETUSER alice on ~* +@all`, then connecting as
+   the LDAP user `valkey-cli --user alice -a <ldap-password>` (binds `uid=alice,ou=People,
+   <baseDN>`). Verified end to end: with the ACL user present, `AUTH`/`--user` with the LDAP
+   password succeeds (`ACL WHOAMI` → alice) and a wrong password returns WRONGPASS.
+
+Web build passes. (LDAP users live in the Intranet OpenLDAP under ou=People.)
