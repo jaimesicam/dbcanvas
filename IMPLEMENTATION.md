@@ -2830,3 +2830,25 @@ approach back:
   Webmail" login page, `?_task=login` → 200, and a skin CSS asset → 200. (Native x86 here;
   the Restart=always behavior under actual Rosetta still wants a macOS confirm, but this is
   a faithful port of the user's previously-working config.)
+
+## 32. Roundcube php -S as apache on 8080 (not root:80); drop squid dns_v4_first
+
+Follow-ups to §31:
+
+### Webmail no longer runs as root — `app/intranet.go`
+The `dbcanvas-roundcube.service` (php -S) previously ran as **root** on port 80 (matching
+the old db-canvas unit). Now it runs as the unprivileged **apache** user, which can't bind
+<1024, so it binds **8080**. The container's published port changed 80→8080 accordingly:
+`ContainerCreate(PublishPort: 8080)`, the post-start `ContainerPort(id, "8080/tcp")`, and
+`refreshPublishedPorts`'s intranet `readPort("8080/tcp")`. dbcanvas still publishes that to
+an auto host port, so the recorded `WebmailPort` / frontend `http://host:port/` link are
+unchanged. Verified live: the unit runs as `apache`, `GET /:8080` → 200, and a login hit
+sets `roundcube_sessid` (sessions writable — apache is in group apache and
+`/var/lib/php/session` is group-writable; `/var/lib/roundcubemail` is apache-owned).
+
+### Removed Squid `dns_v4_first` — `app/intranet.go`
+The "Configure Squid" step no longer appends `dns_v4_first on` to squid.conf. (The two
+comments that referenced it — in `dnfIPv4Script` and the "Configure named" filter-aaaa
+step — were updated; dnf `ip_resolve=4` and bind's filter-aaaa remain.)
+
+`go build`/`vet`/`gofmt -l` clean.

@@ -331,7 +331,7 @@ func (a *App) ensureRsyslog(ctx context.Context, id, os string, logln func(strin
 
 // dnfIPv4Script forces dnf to resolve over IPv4 (ip_resolve=4), so an OEL node on a
 // host without working IPv6 doesn't stall on AAAA when downloading packages. Mirrors
-// Squid's dns_v4_first and bind's filter-aaaa. Idempotent.
+// bind's filter-aaaa. Idempotent.
 const dnfIPv4Script = `grep -q '^ip_resolve=' /etc/dnf/dnf.conf 2>/dev/null || echo 'ip_resolve=4' >> /etc/dnf/dnf.conf`
 
 // ensureDNFIPv4 applies dnfIPv4Script on RHEL-family (Oracle Linux) nodes before any
@@ -1133,7 +1133,7 @@ func (a *App) provisionIntranet(st Stack, n designNode) {
 		id, err := a.docker.ContainerCreate(ctx, ContainerSpec{
 			Name: name, Image: intranetImage(n.Arch), Hostname: "intranet",
 			Network: networkName(st.ID), Aliases: []string{"intranet", "intranet." + domain},
-			Privileged: true, PublishPort: 80, IPv4Address: staticIntranetIP(subnet),
+			Privileged: true, PublishPort: 8080, IPv4Address: staticIntranetIP(subnet),
 		})
 		if err != nil {
 			failNode("create container: %v", err)
@@ -1145,7 +1145,7 @@ func (a *App) provisionIntranet(st Stack, n designNode) {
 		}
 
 		// record the auto-assigned (unused) host port for RoundCube
-		if hp, e := a.docker.ContainerPort(ctx, id, "80/tcp"); e == nil && hp != "" {
+		if hp, e := a.docker.ContainerPort(ctx, id, "8080/tcp"); e == nil && hp != "" {
 			if p, e2 := strconv.Atoi(hp); e2 == nil {
 				cfg.WebmailPort = p
 			}
@@ -1371,15 +1371,18 @@ chown -R apache:apache /var/lib/roundcubemail 2>/dev/null || true
 # Serve Roundcube with PHP's built-in web server instead of httpd + php-fpm. Under
 # x86-64 emulation (Rosetta on Apple Silicon) httpd's php-fpm master/worker model
 # crashes and its unit gives up; a single "php -S" process with Restart=always rides
-# out Rosetta's intermittent mmap failures. It binds the container's published port 80
-# and serves Roundcube at the root (the frontend links to http://host:port/).
+# out Rosetta's intermittent mmap failures. Runs as the unprivileged apache user, so
+# it binds 8080 (not the privileged 80) — dbcanvas publishes that to an auto host
+# port. Serves Roundcube at the root (the frontend links to http://host:port/).
 cat > /etc/systemd/system/dbcanvas-roundcube.service <<'UNIT'
 [Unit]
 Description=DBCanvas Roundcube webmail (php built-in server)
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/php -d error_reporting=0 -S 0.0.0.0:80 -t /usr/share/roundcubemail
+User=apache
+Group=apache
+ExecStart=/usr/bin/php -d error_reporting=0 -S 0.0.0.0:8080 -t /usr/share/roundcubemail
 Restart=always
 RestartSec=2
 
@@ -1392,9 +1395,6 @@ systemctl daemon-reload`},
 CONF=/etc/squid/squid.conf
 grep -q '^maximum_object_size 150 MB$' "$CONF" || echo 'maximum_object_size 150 MB' >> "$CONF"
 grep -q '^cache_dir ufs /var/spool/squid ' "$CONF" || echo 'cache_dir ufs /var/spool/squid 4000 16 256' >> "$CONF"
-# Prefer IPv4 for upstream lookups: hosts without working IPv6 otherwise see Squid
-# try AAAA first and time out ("All mirrors were tried" on dnf/yum).
-grep -q '^dns_v4_first on$' "$CONF" || echo 'dns_v4_first on' >> "$CONF"
 install -d -o squid -g squid /var/spool/squid 2>/dev/null || true`},
 		// NOTE: the cache_dir swap directories are initialized by the squid.service's
 		// own ExecStartPre (cache_swap.sh) on start — do NOT run "squid -z" here: it
@@ -1403,8 +1403,8 @@ install -d -o squid -g squid /var/spool/squid 2>/dev/null || true`},
 
 		{"Configure named", `set -e
 # Load the filter-aaaa plugin so AAAA records are stripped from IPv4 queries
-# (matches Squid's dns_v4_first — hosts without working IPv6 otherwise stall on
-# AAAA). Inserted before the options{} block; reconcileStackDNS keeps it when it
+# (hosts without working IPv6 otherwise stall on AAAA). Inserted before the
+# options{} block; reconcileStackDNS keeps it when it
 # rewrites named.conf with the stack's zones. Idempotent.
 CONF=/etc/named.conf
 if [ -f "$CONF" ] && ! grep -q 'filter-aaaa.so' "$CONF"; then
@@ -1536,7 +1536,7 @@ func (a *App) refreshPublishedPorts(ctx context.Context, st Stack, nid string, d
 	case "intranet":
 		var cfg nodeConfig
 		json.Unmarshal(dep.Config, &cfg)
-		if p, ok := readPort("80/tcp"); ok {
+		if p, ok := readPort("8080/tcp"); ok {
 			cfg.WebmailPort = p
 		}
 		save(cfg)
