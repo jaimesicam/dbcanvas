@@ -272,8 +272,9 @@ s3 =
 
   const barmanArchive = `# 2) Install barman-cloud + boto3 (from the PGDG / apt.postgresql.org repos),
 #    then enable WAL archiving in postgresql.conf and restart PostgreSQL
-#    (<server> = a name for the cluster):
-#    EL:     dnf install barman-cli python3-boto3
+#    (<server> = a name for the cluster). NOTE on EL: PGDG builds barman for python3.12,
+#    so boto3 must go into THAT interpreter (system python3-boto3 lands in 3.9):
+#    EL:     dnf install barman-cli python3.12-pip && python3.12 -m pip install boto3
 #    Debian: apt-get install barman-cli-cloud python3-boto3
 archive_mode = on
 archive_command = 'barman-cloud-wal-archive --cloud-provider aws-s3 --endpoint-url ${endpoint} s3://${bucket}/barman/<server> <server> %p'`

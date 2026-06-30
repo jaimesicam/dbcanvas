@@ -2852,3 +2852,24 @@ comments that referenced it — in `dnfIPv4Script` and the "Configure named" fil
 step — were updated; dnf `ip_resolve=4` and bind's filter-aaaa remain.)
 
 `go build`/`vet`/`gofmt -l` clean.
+
+## 33. Fix Barman "No module named 'botocore'" — boto3 must target barman's python
+
+A live repmgr+Barman backup failed: `Barman cloud backup exception: No module named
+'botocore'`. Root cause (reproduced): on EL9 PGDG builds barman for **python3.12**
+(`barman-cloud-backup` shebang `#!/usr/bin/python3.12`, `Requires: python3.12`), but the
+system `python3` is **3.9**. §28/§32's `dnf install python3-boto3` lands boto3 in 3.9, and
+there is **no `python3.12-boto3` RPM** — so barman-cloud (3.12) can't import botocore. The
+old install check `python3 -c 'import boto3'` (3.9) passed → false confidence.
+
+Fix (`app/repmgr.go` `barmanInstallRHEL`): derive the interpreter from the
+`barman-cloud-backup` shebang, install `<pyver>-pip` (python3.12-pip is in AppStream) and
+`<interp> -m pip install boto3` into *that* interpreter (dnf python3-boto3 fallback), then
+verify `import boto3, botocore` **under that interpreter**. Installing only boto3 into the
+otherwise-empty 3.12 site avoids the ResolutionImpossible the full `barman[cloud]` pip route
+hit against 3.9. `barmanInstallDebian` now also verifies against the shebang interpreter.
+The SeaweedFS doc snippet's EL line updated to
+`dnf install barman-cli python3.12-pip && python3.12 -m pip install boto3`.
+
+Verified live in an EL9 container: pip installs boto3 1.43.x into python3.12 and
+`barman-cloud-backup --help` imports cleanly. `go build`/`vet`/`gofmt -l` + web build pass.

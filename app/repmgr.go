@@ -718,25 +718,39 @@ apt-get install -y -qq $PKGS >/dev/null`
 
 // barmanInstall{RHEL,Debian} install the barman-cloud utilities from the PGDG /
 // apt.postgresql.org repos (already added for repmgr), plus boto3 for the aws-s3
-// provider. The pip route is avoided: on EL9's system Python the barman[cloud]
-// dependency set can't be resolved against the dnf-managed packages (pip's resolver
-// reports ResolutionImpossible). The distro packages carry pinned, compatible deps.
-// Package naming differs by repo: PGDG's EL/yum repo ships the barman-cloud-* binaries
-// in **barman-cli** (there is no barman-cli-cloud there), whereas apt.postgresql.org
-// splits them into **barman-cli-cloud**. Debian falls back to barman-cli just in case.
+// provider. Package naming differs by repo: PGDG's EL/yum repo ships the barman-cloud-*
+// binaries in **barman-cli** (there is no barman-cli-cloud there), whereas
+// apt.postgresql.org splits them into **barman-cli-cloud**. Debian falls back to barman-cli.
+//
+// boto3 must be importable by the *interpreter barman-cloud-backup actually runs under*,
+// not the system python3. On EL9 PGDG builds barman for python3.12 (system python3 is
+// 3.9) and there is no python3.12-boto3 RPM — so a `dnf install python3-boto3` lands in
+// 3.9 and `barman-cloud-backup` then dies with "No module named 'botocore'". We derive
+// the interpreter from the script shebang, pip-install boto3 into it (python3.12-pip is
+// in AppStream), and verify against that interpreter. (Installing only boto3 into the
+// otherwise-empty 3.12 site avoids the ResolutionImpossible that the full barman[cloud]
+// pip route hit against 3.9's dnf-managed barman.)
 const barmanInstallRHEL = `set -e
 dnf -y -q install barman-cli >/dev/null
-# boto3 (EPEL) is needed for the aws-s3 cloud provider; barman-cli only
-# Recommends it, so install it explicitly.
-dnf -y -q install python3-boto3 >/dev/null 2>&1 || true
-command -v barman-cloud-backup >/dev/null 2>&1 || { echo "barman-cloud-backup not on PATH after install"; exit 1; }
-python3 -c 'import boto3' >/dev/null 2>&1 || { echo "python3 boto3 not importable (needed for the aws-s3 provider)"; exit 1; }`
+BCB="$(command -v barman-cloud-backup)" || { echo "barman-cloud-backup not on PATH after install"; exit 1; }
+PYINT="$(head -1 "$BCB" | sed 's|^#!||; s| .*||')"
+[ -x "$PYINT" ] || PYINT=/usr/bin/python3
+PYVER="$(basename "$PYINT")"
+if ! "$PYINT" -c 'import botocore' >/dev/null 2>&1; then
+  dnf -y -q install "${PYVER}-pip" >/dev/null 2>&1 || true
+  "$PYINT" -m pip install --quiet --upgrade boto3 >/dev/null 2>&1 || dnf -y -q install python3-boto3 >/dev/null 2>&1 || true
+fi
+"$PYINT" -c 'import boto3, botocore' >/dev/null 2>&1 || { echo "boto3/botocore not importable under $PYINT (barman-cloud needs it for the aws-s3 provider)"; exit 1; }`
 
 const barmanInstallDebian = `set -e
 export DEBIAN_FRONTEND=noninteractive
 apt-get install -y -qq barman-cli-cloud python3-boto3 >/dev/null 2>&1 || { apt-get update -qq >/dev/null; apt-get install -y -qq barman-cli-cloud python3-boto3 >/dev/null 2>&1 || apt-get install -y -qq barman-cli python3-boto3 >/dev/null; }
-command -v barman-cloud-backup >/dev/null 2>&1 || { echo "barman-cloud-backup not on PATH after install"; exit 1; }
-python3 -c 'import boto3' >/dev/null 2>&1 || { echo "python3 boto3 not importable (needed for the aws-s3 provider)"; exit 1; }`
+BCB="$(command -v barman-cloud-backup)" || { echo "barman-cloud-backup not on PATH after install"; exit 1; }
+# Verify boto3 against the interpreter barman actually uses (its shebang), not whichever
+# python3 happens to be first on PATH.
+PYINT="$(head -1 "$BCB" | sed 's|^#!||; s| .*||')"
+[ -x "$PYINT" ] || PYINT=/usr/bin/python3
+"$PYINT" -c 'import boto3, botocore' >/dev/null 2>&1 || { echo "boto3/botocore not importable under $PYINT (barman-cloud needs it for the aws-s3 provider)"; exit 1; }`
 
 // barmanChownScript fixes ownership of the staged AWS credentials (postgres reads them).
 const barmanChownScript = `set -e
