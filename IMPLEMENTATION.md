@@ -2873,3 +2873,22 @@ The SeaweedFS doc snippet's EL line updated to
 
 Verified live in an EL9 container: pip installs boto3 1.43.x into python3.12 and
 `barman-cloud-backup --help` imports cleanly. `go build`/`vet`/`gofmt -l` + web build pass.
+
+## 34. Webmail deploy no longer fails on the sqlite pre-init under Rosetta
+
+The §31 "Configure webmail" step pre-created the Roundcube sqlite db with a one-shot
+`php -r '... new PDO(sqlite) ...'` in a retry loop, failing the step (`exit 1`) if the db
+never appeared. On macOS/Rosetta that **one-shot php CLI SIGSEGVs every time** (transient
+mmap failure, but a single short-lived process never gets a good run), so all 10 attempts
+failed and the whole Intranet deploy aborted at "Configure webmail". (The logged error was
+the xtrace echo of the php line — note the normalized `2> /dev/null` — i.e. the step hit
+the fatal `exit 1`.)
+
+Fix (`app/intranet.go`): **drop the `php -r` pre-init and the fatal check.** Roundcube
+creates the sqlite db + schema itself on first request (verified: wiping the db and hitting
+`php -S` once regenerates the full 176 KB schema, apache-owned — matching the old db-canvas
+container whose db was likewise created at runtime by `php -S`). The step now just writes
+the config and makes `/var/lib/roundcubemail` apache-writable; the long-running
+`dbcanvas-roundcube.service` (php -S, `Restart=always`) creates the db on first hit and
+rides out any transient Rosetta crash until a request lands. `go build`/`vet`/`gofmt -l`
+clean.

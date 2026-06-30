@@ -1359,14 +1359,12 @@ $config['support_url'] = '';
 $config['product_name'] = 'DBCanvas Webmail';
 RCCFG
 chown apache:apache "$RC" 2>/dev/null || true
-# Initialize the sqlite schema. Under Rosetta the php CLI can intermittently SIGSEGV
-# in the translator ("mmap_anonymous_rw mmap failed"), so retry until the db exists.
-for i in $(seq 1 10); do
-  [ -s /var/lib/roundcubemail/roundcube.db ] && break
-  php -r '$f="/var/lib/roundcubemail/roundcube.db"; $db=new PDO("sqlite:".$f); $db->exec(file_get_contents("/usr/share/roundcubemail/SQL/sqlite.initial.sql"));' 2>/dev/null || true
-  sleep 1
-done
-[ -s /var/lib/roundcubemail/roundcube.db ] || { echo "roundcube sqlite db not initialized"; exit 1; }
+# Do NOT pre-create the sqlite db with a one-shot "php -r": under Rosetta that php CLI
+# invocation SIGSEGVs every time ("mmap_anonymous_rw mmap failed") and would fail the
+# deploy. Roundcube creates the db + schema itself on first request, so we just make the
+# directory writable by the apache user that dbcanvas-roundcube.service (php -S) runs as;
+# the db lands at /var/lib/roundcubemail/roundcube.db on first hit (Restart=always rides
+# out any transient Rosetta crash until a request lands).
 chown -R apache:apache /var/lib/roundcubemail 2>/dev/null || true
 # Serve Roundcube with PHP's built-in web server instead of httpd + php-fpm. Under
 # x86-64 emulation (Rosetta on Apple Silicon) httpd's php-fpm master/worker model
