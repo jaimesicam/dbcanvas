@@ -3198,3 +3198,17 @@ network:
   `MyClaim:[dbadmins]`, and `iss:https://keycloak.example.net:8443/realms/mongodb` — exactly
   what mongod needs to authenticate `keycloak/dbauser01` and grant the `keycloak/dbadmins`
   role. (Only the interactive browser approval step remains, inherent to device/auth-code.)
+
+## 44. mongosh OIDC from a remote host needs --oidcTrustedEndpoint
+
+OIDC worked from the PSMDB server (`127.0.0.1`) but failed from the Ubuntu VNC desktop with
+`Host 'psm-01.example.net:27017' is not valid for OIDC authentication with ALLOWED_HOSTS of
+'*.mongodb.net,…,localhost,127.0.0.1,…'`. This is a **mongosh client-side safety check**:
+by default it only performs OIDC against localhost / a few Atlas domains. Connecting to the
+node's FQDN/hostname from another machine is rejected unless you mark it trusted with
+**`--oidcTrustedEndpoint`** (confirmed via `mongosh --help`). Not a server/deploy issue.
+
+The MongoDB manager's OIDC connect hints (`MongoDBManager.jsx`) now show the correct
+commands: from another host (e.g. the VNC desktop) `mongosh --host <fqdn> --authenticationMechanism
+MONGODB-OIDC --oidcFlows auth-code --oidcTrustedEndpoint` (auth-code opens Firefox; device-auth
+prints a code), plus the localhost form that needs no flag. Web build passes.

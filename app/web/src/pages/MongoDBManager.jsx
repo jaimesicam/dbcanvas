@@ -134,9 +134,14 @@ export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDelete
               <CopyRow label="In-cluster (from another container)" value={inClusterConn} />
               {cfg.oidcEnabled && (
                 <div className="mt-2 space-y-1 border-t border-border/60 pt-2">
-                  <div className="text-[11px] text-muted">Keycloak OIDC (MONGODB-OIDC) — after setting up the realm/client/groups/users:</div>
-                  <CopyRow label="Authenticate (device-auth flow)" value="mongosh --authenticationMechanism MONGODB-OIDC --oidcFlows device-auth" />
-                  <CopyRow label="Authorize (auth-code flow)" value="mongosh --authenticationMechanism MONGODB-OIDC --oidcFlows auth-code" />
+                  <div className="text-[11px] text-muted">
+                    Keycloak OIDC — log in as a sample user (e.g. <span className="font-mono">dbauser01</span>).
+                    From another host (e.g. the Ubuntu VNC desktop) add <span className="font-mono">--oidcTrustedEndpoint</span>,
+                    since mongosh otherwise only allows OIDC to localhost.
+                  </div>
+                  <CopyRow label="From the VNC desktop (auth-code, opens a browser)" value={`mongosh --host ${cfg.fqdn} --authenticationMechanism MONGODB-OIDC --oidcFlows auth-code --oidcTrustedEndpoint`} />
+                  <CopyRow label="Headless (device-auth, enter a code in a browser)" value={`mongosh --host ${cfg.fqdn} --authenticationMechanism MONGODB-OIDC --oidcFlows device-auth --oidcTrustedEndpoint`} />
+                  <CopyRow label="On the server itself (localhost, no flag needed)" value="mongosh --authenticationMechanism MONGODB-OIDC --oidcFlows device-auth" />
                 </div>
               )}
             </>
