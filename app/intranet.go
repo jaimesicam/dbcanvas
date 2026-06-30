@@ -60,6 +60,9 @@ type designNode struct {
 	OIDCClientID     string `json:"oidcClientId"`     // OIDC client id == audience ("" → "mongodb-client")
 	OIDCAuthClaim    string `json:"oidcAuthClaim"`    // group/authorization token claim ("" → "MyClaim")
 	OIDCUseAuthClaim bool   `json:"oidcUseAuthClaim"` // true → authorize via group claim (creates keycloak/* roles)
+	// Ubuntu VNC node fields (Type=="vnc"; a desktop jump box). Reuses UseProxy above.
+	VNCUser     string `json:"vncUser"`     // sudo login + VNC user ("" → "dbadmin")
+	VNCPassword string `json:"vncPassword"` // desktop/VNC password ("" → auto-generated, 8 chars)
 	// SeaweedFS node fields (Type=="seaweedfs"; an S3-compatible object store used
 	// as a backup target). Runs the chrislusf/seaweedfs image (pulled, not a systemd
 	// image), so it ignores os/arch like PMM.
@@ -435,6 +438,8 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			others++
 		case "keycloak":
 			keycloak++
+			others++
+		case "vnc":
 			others++
 		case "proxysql":
 			others++
@@ -1017,6 +1022,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionWatchtower(st, n, doc)
 		case "keycloak":
 			a.provisionKeycloak(st, n, doc)
+		case "vnc":
+			a.provisionVNC(st, n, doc)
 		case "haproxy":
 			a.provisionHAProxy(st, n, doc)
 		}
@@ -1596,6 +1603,13 @@ func (a *App) refreshPublishedPorts(ctx context.Context, st Stack, nid string, d
 		}
 		if p, ok := readPort("8443/tcp"); ok {
 			cfg.HTTPSPort = p
+		}
+		save(cfg)
+	case "vnc":
+		var cfg vncConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort(fmt.Sprintf("%d/tcp", vncWebPort)); ok {
+			cfg.WebPort = p
 		}
 		save(cfg)
 	case "proxysql":

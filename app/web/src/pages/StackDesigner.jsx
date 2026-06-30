@@ -238,6 +238,19 @@ const NODE_TYPES = {
     osOptions: [{ id: 'keycloak', label: 'quay.io/keycloak/keycloak' }],
     defaults: {},
   },
+  // Ubuntu VNC — a desktop "jump box" (XFCE over web VNC) with the Percona client
+  // tools preinstalled, for ad-hoc troubleshooting. Runs ubuntu:24.04 (pulled at deploy).
+  vnc: {
+    label: 'Ubuntu VNC',
+    slug: 'vnc',
+    sub: 'Desktop + web VNC (DB clients)',
+    color: '#dd4814',
+    icon: 'Monitor',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'ubuntu', label: 'ubuntu:24.04' }],
+    defaults: { vncUser: 'dbadmin', vncPassword: '', useProxy: true },
+  },
 }
 
 // ---------------------------------------------------------- PXC cluster frames
@@ -1485,6 +1498,9 @@ function StackEditor({ stackId, onBack }) {
           </Button>
           <Button size="sm" disabled={!hasIntranet || nodes.some((n) => n.type === 'keycloak')} style={addBtnStyle('keycloak')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('keycloak')}>
             <Icon.Plus size={16} /> Keycloak
+          </Button>
+          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('vnc')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('vnc')}>
+            <Icon.Plus size={16} /> Ubuntu VNC
           </Button>
           <div className="mx-1 h-5 w-px bg-border" />
           <Button size="sm" variant="outline" disabled={!!busy} onClick={runValidate}>
@@ -2876,6 +2892,82 @@ function KeycloakManager({ dep, onDeleteNode }) {
         <div className="flex justify-between gap-3"><span className="text-muted">Admin user</span><span className="font-mono text-xs">{cfg.adminUser || 'admin'}</span></div>
         {sec.adminPassword && (
           <div className="flex justify-between gap-3"><span className="text-muted">Admin password</span><span className="break-all font-mono text-xs">{sec.adminPassword}</span></div>
+        )}
+      </div>
+      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// VNCForm edits a (not-yet-running) Ubuntu VNC node: the desktop login user + VNC
+// password and whether to route apt through the Intranet proxy.
+function VNCForm({ node: n, patchNode, deleteNode, dep, deployed }) {
+  const lock = deployed ? 'opacity-70' : ''
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Ubuntu VNC</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <p className="text-xs text-muted">
+        XFCE desktop over a browser-based VNC client (<span className="font-mono">ubuntu:24.04</span>), with the
+        Percona clients (MySQL/PSMDB/Valkey/PostgreSQL) + ldap-utils preinstalled. The login user has sudo for
+        installing more tools.
+      </p>
+
+      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+
+      <Field label="Desktop user" hint="Linux login user (has passwordless sudo).">
+        <input className={`${inputCls} ${lock}`} value={n.vncUser ?? 'dbadmin'} disabled={deployed} onChange={(e) => patchNode(n.id, { vncUser: e.target.value })} />
+      </Field>
+
+      <Field label="Password" hint={deployed ? 'Set at deploy.' : 'Desktop + VNC password. Empty = auto-generate. VNC uses the first 8 characters.'}>
+        <input className={`${inputCls} ${lock}`} value={n.vncPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchNode(n.id, { vncPassword: e.target.value })} />
+      </Field>
+
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for downloads</span>
+      </label>
+
+      {!deployed && <p className="text-xs text-muted">The web desktop URL + credentials appear here after deploy.</p>}
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// VNCManager shows a deployed VNC node's web desktop URL + credentials.
+function VNCManager({ dep, onDeleteNode }) {
+  const cfg = dep?.config || {}
+  const sec = dep?.secrets || {}
+  const host = typeof location !== 'undefined' ? location.hostname : 'localhost'
+  const url = cfg.webPort ? `http://${host}:${cfg.webPort}/vnc.html` : null
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Ubuntu VNC</span>
+        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+      </div>
+      <p className="text-xs text-muted">XFCE desktop with Percona clients. Open the web desktop and enter the VNC password.</p>
+      {url && (
+        <a href={url} target="_blank" rel="noreferrer"
+          className="flex items-center justify-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/15">
+          <Icon.External size={15} /> Open web desktop
+        </a>
+      )}
+      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
+        <div className="flex justify-between gap-3"><span className="text-muted">Image</span><span className="font-mono text-xs">{cfg.image || 'ubuntu:24.04'}</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Host</span><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></div>
+        {cfg.webPort ? <div className="flex justify-between gap-3"><span className="text-muted">Web desktop</span><span className="font-mono text-xs">{host}:{cfg.webPort}/vnc.html</span></div> : null}
+        <div className="flex justify-between gap-3"><span className="text-muted">Desktop user</span><span className="font-mono text-xs">{cfg.vncUser || 'dbadmin'} (sudo)</span></div>
+        {sec.vncPassword && (
+          <div className="flex justify-between gap-3"><span className="text-muted">VNC password</span><span className="break-all font-mono text-xs">{sec.vncPassword}</span></div>
         )}
       </div>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
@@ -4666,6 +4758,13 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <KeycloakManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <KeycloakForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+    // Ubuntu VNC desktop node.
+    if (n.type === 'vnc') {
+      if (dep && dep.state === 'running') {
+        return <VNCManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <VNCForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
     return (
       <div className="space-y-3">

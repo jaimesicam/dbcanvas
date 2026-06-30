@@ -3000,3 +3000,51 @@ overview shows the OIDC issuer/client when enabled, and the access tab shows the
 - **Caveat — not validated as a full live OIDC login.** The realm/client/groups/users are
   set up in the Keycloak console (per the documented steps); the in-network issuer vs.
   host-mongosh issuer resolution depends on the operator's setup as noted.
+
+## 39. Ubuntu VNC node — web desktop jump box with Percona clients
+
+A new **`vnc`** node (non-singleton): an XFCE desktop served over a browser-based VNC
+client, with the Percona DB clients preinstalled, for ad-hoc troubleshooting.
+
+### Backend — `app/vnc.go` (new) + `app/intranet.go`
+`provisionVNC` pulls **ubuntu:24.04** (no systemd → runs `sleep infinity` as PID 1) and
+installs/configures via exec steps:
+- **Desktop + web VNC** (`vncInstallDesktopScript`): `xfce4`/`xfce4-goodies`/`dbus-x11`,
+  `tigervnc-standalone-server` + **`tigervnc-tools`** (the latter provides
+  `tigervncpasswd`, required by the tigervncserver wrapper), `novnc` + `websockify`.
+- **Percona clients** (`vncInstallClientsScript`, best-effort): `percona-release` deb, then
+  `percona-release enable ps-80 psmdb-80 ppg-17 valkey-91` and install
+  `percona-server-client` (mysql), `percona-mongodb-mongosh` (mongosh),
+  `percona-postgresql-client-17` (psql), `percona-valkey-tools` (valkey-cli; falls back to
+  `valkey-tools`), and `ldap-utils` (ldapsearch). Each `|| true` so a future repo hiccup
+  never blocks the desktop; the step logs which clients landed.
+- **Sudo user** (`vncSetupUserScript`): creates the login user (default `dbadmin`) with the
+  node-property password, adds it to `sudo` with a NOPASSWD sudoers drop-in, writes the
+  8-char TigerVNC auth via `tigervncpasswd -f`, and an XFCE `~/.vnc/xstartup`
+  (`dbus-launch --exit-with-session startxfce4`).
+- **Launch** (`vncStartScript`, idempotent): writes `/usr/local/bin/dbcanvas-vnc-start.sh`
+  and runs it — `tigervncserver :1` (VncAuth, rfbport 5901) + `websockify --web=/usr/share/
+  novnc 6080 localhost:5901`; verifies Xvnc :1 and the web port are listening. Container
+  port 6080 is published to an auto host port (`vncConfig.WebPort`); the manager links to
+  `http://<host>:<port>/vnc.html`.
+
+DNS points at the Intranet (so it resolves the stack's DB nodes by FQDN); apt optionally
+routes through the Intranet Squid proxy (`UseProxy`). `intranet.go`: designNode `VNCUser`/
+`VNCPassword`, deploy dispatch + validate `case "vnc"`, and `refreshPublishedPorts` re-reads
+the 6080 host port on restart.
+
+### Frontend — `StackDesigner.jsx`
+`NODE_TYPES.vnc` (orange `#dd4814`, `Monitor` icon, non-singleton) + toolbar button +
+`VNCForm` (desktop user, password, proxy) / `VNCManager` (web-desktop link, host:port,
+user, VNC password).
+
+### Verification performed
+- `go build`/`vet`/`gofmt -l` + web build pass.
+- **End-to-end in a live ubuntu:24.04 container**: desktop+VNC install, `tigervncpasswd -f`
+  password, `tigervncserver :1` started XFCE (xfce4-session/panel running), websockify up,
+  and from the **host** `GET /vnc.html` → 200 / `GET /` → 200 through the published port.
+- **All Percona clients install and run**: `mysql` (Percona Server 8.0.46), `mongosh`
+  (2.8.3), `psql` (Percona PostgreSQL 17.10), `valkey-cli` (9.1.0 via percona-valkey-tools),
+  `ldapsearch` present.
+- Caveat: no auto-restart of the session on a bare `docker restart` (no systemd) — a
+  redeploy relaunches it via the idempotent start step.
