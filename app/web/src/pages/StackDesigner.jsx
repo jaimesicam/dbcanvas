@@ -628,6 +628,10 @@ function StackEditor({ stackId, onBack }) {
   const [edges, setEdges] = useState([])
   const [frames, setFrames] = useState([])
   const [view, setView] = useState({ x: 40, y: 20, z: 1 })
+  // Node palette: docked to the left by default; can be undocked into a floating,
+  // resizable panel (drag by its header, resize via the corner handle) and re-docked.
+  const [paletteDocked, setPaletteDocked] = useState(true)
+  const [palettePos, setPalettePos] = useState({ x: 24, y: 24 })
   const [selected, setSelected] = useState(null)
   const [menu, setMenu] = useState(null)
   const [connect, setConnect] = useState(null)
@@ -767,6 +771,10 @@ function StackEditor({ stackId, onBack }) {
       if (!d) return
       if (d.kind === 'pan') {
         setView((v) => ({ ...v, x: d.ox + (e.clientX - d.sx), y: d.oy + (e.clientY - d.sy) }))
+        return
+      }
+      if (d.kind === 'palette') {
+        setPalettePos({ x: Math.max(0, d.ox + (e.clientX - d.sx)), y: Math.max(0, d.oy + (e.clientY - d.sy)) })
         return
       }
       const w = getWorld(e.clientX, e.clientY)
@@ -1489,6 +1497,72 @@ function StackEditor({ stackId, onBack }) {
 
   const hasIntranet = nodes.some((n) => n.type === 'intranet')
 
+  // Node palette: categorized add-buttons (vertical). Used both docked-left and floating.
+  const has = (t) => nodes.some((n) => n.type === t)
+  const paletteGroups = [
+    { title: 'Core', items: [
+      { label: 'Intranet', type: 'intranet', onClick: () => addNode('intranet'), off: hasIntranet },
+      { label: 'PMM3', type: 'pmm', onClick: () => addNode('pmm') },
+      { label: 'Watchtower', type: 'watchtower', onClick: () => addNode('watchtower'), off: has('watchtower') },
+      { label: 'Keycloak', type: 'keycloak', onClick: () => addNode('keycloak'), off: has('keycloak') },
+    ] },
+    { title: 'MySQL', items: [
+      { label: 'PXC Cluster', type: 'pxc', onClick: addPXCCluster },
+      { label: 'ProxySQL', type: 'proxysql', onClick: () => addNode('proxysql') },
+      { label: 'ProxySQL Cluster', type: 'proxysql', onClick: addProxySQLCluster },
+      { label: 'Percona Server', type: 'ps', onClick: () => addNode('ps') },
+      { label: 'PS Replication', type: 'mysql', onClick: addMySQLCluster },
+      { label: 'InnoDB / GR', type: 'innodb', onClick: addInnoDBCluster },
+    ] },
+    { title: 'MongoDB', items: [
+      { label: 'PSMDB Sharded', type: 'psmdb', onClick: () => addMongoDBCluster() },
+      { label: 'PSMDB Replica Set', type: 'psmrs', onClick: addMongoRSCluster },
+      { label: 'PSMDB Standalone', type: 'psm', onClick: () => addNode('psm') },
+    ] },
+    { title: 'PostgreSQL', items: [
+      { label: 'PostgreSQL', type: 'pg', onClick: () => addNode('pg') },
+      { label: 'Patroni Cluster', type: 'patroni', onClick: addPatroniCluster },
+      { label: 'repmgr Cluster', type: 'repmgr', onClick: addRepmgrCluster },
+    ] },
+    { title: 'Valkey', items: [
+      { label: 'Valkey Cluster', type: 'valkeycluster', onClick: addValkeyCluster },
+      { label: 'Valkey', type: 'valkey', onClick: () => addNode('valkey') },
+    ] },
+    { title: 'Storage & Tools', items: [
+      { label: 'HAProxy', type: 'haproxy', onClick: () => addNode('haproxy') },
+      { label: 'SeaweedFS', type: 'seaweedfs', onClick: () => addNode('seaweedfs') },
+      { label: 'Ubuntu VNC', type: 'vnc', onClick: () => addNode('vnc'), off: has('vnc') },
+    ] },
+  ]
+  const paletteBody = (
+    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 py-2">
+      {paletteGroups.map((g) => (
+        <div key={g.title}>
+          <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">{g.title}</div>
+          <div className="space-y-1">
+            {g.items.map((it) => {
+              const disabled = it.off || (it.type !== 'intranet' && !hasIntranet)
+              return (
+                <button key={it.label} disabled={disabled} onClick={it.onClick}
+                  style={addBtnStyle(it.type)}
+                  title={!hasIntranet && it.type !== 'intranet' ? 'Add an Intranet node first' : ''}
+                  className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium shadow-sm disabled:opacity-40">
+                  <Icon.Plus size={13} /> <span className="truncate">{it.label}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+  const paletteHeader = (onToggle, dockLabel, dockIcon, onDrag) => (
+    <div className={`flex shrink-0 items-center justify-between border-b px-2 py-1.5 ${onDrag ? 'cursor-move' : ''}`} onPointerDown={onDrag}>
+      <span className="text-xs font-semibold">Palette</span>
+      <button title={dockLabel} onClick={onToggle} className="text-muted hover:text-fg">{dockIcon}</button>
+    </div>
+  )
+
   return (
     <div className="flex h-[78vh] gap-4">
       <div className="flex min-w-0 flex-1 flex-col gap-3">
@@ -1500,69 +1574,10 @@ function StackEditor({ stackId, onBack }) {
           <Badge tone="primary">{ttlLabel(stack.ttl)}</Badge>
           <Badge tone={STATUS_TONE[stack.status] || 'muted'}>{stack.status}</Badge>
           <div className="mx-1 h-5 w-px bg-border" />
-          <Button size="sm" disabled={hasIntranet} style={addBtnStyle('intranet')} onClick={() => addNode('intranet')}>
-            <Icon.Plus size={16} /> Intranet
-          </Button>
-          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('pmm')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('pmm')}>
-            <Icon.Plus size={16} /> PMM3
-          </Button>
-          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('pxc')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addPXCCluster}>
-            <Icon.Plus size={16} /> PXC Cluster
-          </Button>
-          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('proxysql')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('proxysql')}>
-            <Icon.Plus size={16} /> ProxySQL
-          </Button>
-          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('proxysql')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addProxySQLCluster}>
-            <Icon.Plus size={16} /> ProxySQL Cluster
-          </Button>
-          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('ps')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('ps')}>
-            <Icon.Plus size={16} /> Percona Server
-          </Button>
-          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('mysql')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addMySQLCluster}>
-            <Icon.Plus size={16} /> Percona Server Replication
-          </Button>
-          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('innodb')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addInnoDBCluster}>
-            <Icon.Plus size={16} /> InnoDB Cluster / GR
-          </Button>
-          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('psmdb')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addMongoDBCluster()}>
-            <Icon.Plus size={16} /> PSMDB Sharded Cluster
-          </Button>
-          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('psmrs')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addMongoRSCluster}>
-            <Icon.Plus size={16} /> PSMDB RS
-          </Button>
-          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('psm')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('psm')}>
-            <Icon.Plus size={16} /> PSMDB
-          </Button>
-          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('pg')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('pg')}>
-            <Icon.Plus size={16} /> PostgreSQL
-          </Button>
-          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('patroni')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addPatroniCluster}>
-            <Icon.Plus size={16} /> Patroni Cluster
-          </Button>
-          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('repmgr')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addRepmgrCluster}>
-            <Icon.Plus size={16} /> repmgr Cluster
-          </Button>
-          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('valkeycluster')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={addValkeyCluster}>
-            <Icon.Plus size={16} /> Valkey Cluster
-          </Button>
-          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('haproxy')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('haproxy')}>
-            <Icon.Plus size={16} /> HAProxy
-          </Button>
-          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('seaweedfs')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('seaweedfs')}>
-            <Icon.Plus size={16} /> SeaweedFS
-          </Button>
-          <Button size="sm" disabled={!hasIntranet || nodes.some((n) => n.type === 'watchtower')} style={addBtnStyle('watchtower')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('watchtower')}>
-            <Icon.Plus size={16} /> Watchtower
-          </Button>
-          <Button size="sm" disabled={!hasIntranet || nodes.some((n) => n.type === 'keycloak')} style={addBtnStyle('keycloak')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('keycloak')}>
-            <Icon.Plus size={16} /> Keycloak
-          </Button>
-          <Button size="sm" disabled={!hasIntranet || nodes.some((n) => n.type === 'vnc')} style={addBtnStyle('vnc')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('vnc')}>
-            <Icon.Plus size={16} /> Ubuntu VNC
-          </Button>
-          <Button size="sm" disabled={!hasIntranet} style={addBtnStyle('valkey')} title={hasIntranet ? '' : 'Add an Intranet node first'} onClick={() => addNode('valkey')}>
-            <Icon.Plus size={16} /> Valkey
-          </Button>
+          {paletteDocked && <span className="text-xs text-muted">Add nodes from the palette →</span>}
+          {!paletteDocked && (
+            <Button size="sm" variant="outline" onClick={() => setPaletteDocked(true)}><Icon.Plus size={15} /> Palette</Button>
+          )}
           <div className="mx-1 h-5 w-px bg-border" />
           <Button size="sm" variant="outline" disabled={!!busy} onClick={runValidate}>
             <Icon.Check size={15} /> {busy === 'validate' ? 'Validating…' : 'Validate'}
@@ -1601,7 +1616,14 @@ function StackEditor({ stackId, onBack }) {
           </div>
         )}
 
-        {/* canvas */}
+        {/* canvas + node palette (docked left, or floating) */}
+        <div className="flex min-h-0 flex-1 gap-3">
+        {paletteDocked && (
+          <div className="flex w-[200px] shrink-0 flex-col overflow-hidden rounded-xl border bg-surface">
+            {paletteHeader(() => setPaletteDocked(false), 'Undock (float)', <Icon.External size={14} />, null)}
+            {paletteBody}
+          </div>
+        )}
         <div
           ref={wrapRef}
           onPointerDown={startPan}
@@ -1609,6 +1631,14 @@ function StackEditor({ stackId, onBack }) {
           className="relative flex-1 overflow-hidden rounded-xl border bg-bg"
           style={{ touchAction: 'none' }}
         >
+          {!paletteDocked && (
+            <div className="absolute z-20 flex flex-col rounded-xl border bg-surface shadow-lg"
+              onPointerDown={(e) => e.stopPropagation()}
+              style={{ left: palettePos.x, top: palettePos.y, width: 210, height: 380, minWidth: 170, minHeight: 220, resize: 'both', overflow: 'hidden' }}>
+              {paletteHeader(() => setPaletteDocked(true), 'Dock left', <Icon.ArrowLeft size={14} />, (e) => { e.stopPropagation(); dragRef.current = { kind: 'palette', sx: e.clientX, sy: e.clientY, ox: palettePos.x, oy: palettePos.y } })}
+              {paletteBody}
+            </div>
+          )}
           <div
             className="pointer-events-none absolute inset-0"
             style={{
@@ -1796,6 +1826,7 @@ function StackEditor({ stackId, onBack }) {
           </div>
 
           <Minimap nodes={nodes} view={view} setView={setView} wrapRef={wrapRef} selectedId={selected?.kind === 'node' ? selected.id : null} />
+        </div>
         </div>
       </div>
 

@@ -3284,3 +3284,24 @@ no association ports; `ValkeyClusterFrameForm` (password, LDAP toggle, PMM, 3–
 
 ### Still to do
 - **Node palette redesign** (vertical, categorized, dockable left / undock + stretch).
+
+## 47. Node palette redesign — categorized vertical dock (undock/float/resize)
+
+The horizontal toolbar of ~20 "Add" buttons was replaced with a **categorized vertical
+palette** (`StackDesigner.jsx`). Groups: Core (Intranet/PMM3/Watchtower/Keycloak), MySQL
+(PXC/ProxySQL/ProxySQL Cluster/Percona Server/PS Replication/InnoDB-GR), MongoDB (Sharded/
+Replica Set/Standalone), PostgreSQL (PostgreSQL/Patroni/repmgr), Valkey (Cluster/standalone),
+Storage & Tools (HAProxy/SeaweedFS/Ubuntu VNC). Each button keeps its node/frame color tint
+and the "Add an Intranet node first" gating.
+
+- **Docked (default)**: a 200px panel to the left of the canvas (flex sibling), scrollable,
+  with an **Undock** button in its header.
+- **Floating**: an absolutely-positioned panel over the canvas — **draggable** by its header
+  (via the shared pointer-drag handler, `dragRef.kind==='palette'` → `palettePos`) and
+  **resizable** (native CSS `resize: both`), with a **Dock** button to re-pin it left. Its
+  pointer events are stopped from reaching the canvas pan handler.
+
+The top toolbar now carries only the stack actions (Validate/Deploy/Destroy + status) and a
+short hint / a "Palette" re-dock button. Web build passes. (Drag/resize are interactive and
+want a browser to feel out, but the structure builds and mirrors the existing pointer-drag
+machinery.)
