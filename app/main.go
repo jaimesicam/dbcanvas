@@ -83,6 +83,10 @@ func main() {
 	mux.HandleFunc("GET /api/datagen/jobs/{job}", app.handleDataGenJob)
 	mux.HandleFunc("POST /api/datagen/jobs/{job}/cancel", app.handleDataGenCancel)
 
+	// Dashboard — cheap summary + focus-gated live OS stats.
+	mux.HandleFunc("GET /api/dashboard/summary", app.handleDashboardSummary)
+	mux.HandleFunc("GET /api/dashboard/stats", app.handleDashboardStats)
+
 	// Notifications — bell + live SSE stream.
 	mux.HandleFunc("GET /api/notifications", app.handleListNotifications)
 	mux.HandleFunc("GET /api/notifications/stream", app.handleNotifStream)

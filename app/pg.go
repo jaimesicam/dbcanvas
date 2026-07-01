@@ -445,6 +445,7 @@ func (a *App) handlePGBackup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "pgBackRest backup failed: "+lastLines(res.Stderr+res.Stdout, 200))
 		return
 	}
+	a.notifyStack(st.ID, "backup.done", "success", "Backup completed", node.Label+": pgBackRest backup finished.", nid)
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 

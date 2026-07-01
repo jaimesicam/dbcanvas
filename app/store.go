@@ -412,6 +412,33 @@ func (s *Store) DeleteStack(id int64) error {
 }
 
 // ListExpiredStacks returns non-expired stacks whose expiry has passed.
+// ListStacksExpiringSoon returns deployed stacks whose TTL runs out within the window.
+func (s *Store) ListStacksExpiringSoon(within time.Duration) ([]Stack, error) {
+	now := time.Now().UTC()
+	rows, err := s.db.Query(
+		"SELECT id, name, owner_id, ttl, status, created_at, expires_at FROM stacks "+
+			"WHERE expires_at IS NOT NULL AND expires_at >= ? AND expires_at < ? AND status = ?",
+		now.Format(time.RFC3339), now.Add(within).Format(time.RFC3339), StackDeployed,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	stacks := []Stack{}
+	for rows.Next() {
+		var st Stack
+		var exp sql.NullString
+		if err := rows.Scan(&st.ID, &st.Name, &st.OwnerID, &st.TTL, &st.Status, &st.CreatedAt, &exp); err != nil {
+			return nil, err
+		}
+		if exp.Valid {
+			st.ExpiresAt = &exp.String
+		}
+		stacks = append(stacks, st)
+	}
+	return stacks, rows.Err()
+}
+
 func (s *Store) ListExpiredStacks() ([]Stack, error) {
 	rows, err := s.db.Query(
 		"SELECT id, name, owner_id, ttl, status, created_at, expires_at FROM stacks "+

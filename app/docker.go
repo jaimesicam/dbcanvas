@@ -680,6 +680,123 @@ func (d *Docker) ExecInput(ctx context.Context, id, user string, cmd, env []stri
 	return ExecResult{Stdout: string(stdout), Stderr: string(stderr), Code: info.ExitCode}, nil
 }
 
+// ContainerInfo is a lightweight listing entry for a managed container.
+type ContainerInfo struct {
+	ID    string
+	Name  string
+	State string // running | exited | …
+}
+
+// ListManaged returns dbcanvas stack containers (names like dbcanvas-<stackID>-<node>),
+// excluding the app container itself.
+func (d *Docker) ListManaged(ctx context.Context) ([]ContainerInfo, error) {
+	resp, err := d.do(ctx, "GET", "/containers/json?all=true", nil)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != 200 {
+		return nil, errBody("list containers", resp)
+	}
+	var arr []struct {
+		ID    string   `json:"Id"`
+		Names []string `json:"Names"`
+		State string   `json:"State"`
+	}
+	if err := json.Unmarshal(drain(resp), &arr); err != nil {
+		return nil, err
+	}
+	out := []ContainerInfo{}
+	for _, c := range arr {
+		name := ""
+		if len(c.Names) > 0 {
+			name = strings.TrimPrefix(c.Names[0], "/")
+		}
+		if !strings.HasPrefix(name, "dbcanvas-") || strings.HasPrefix(name, "dbcanvas-app") {
+			continue
+		}
+		out = append(out, ContainerInfo{ID: c.ID, Name: name, State: c.State})
+	}
+	return out, nil
+}
+
+// ContainerStat is a one-shot resource sample for a running container.
+type ContainerStat struct {
+	CPUPercent float64 `json:"cpuPercent"`
+	MemUsed    int64   `json:"memUsed"`
+	MemLimit   int64   `json:"memLimit"`
+	MemPercent float64 `json:"memPercent"`
+	NetRx      int64   `json:"netRx"`
+	NetTx      int64   `json:"netTx"`
+}
+
+// ContainerStats fetches a single (non-streaming) resource sample. With stream=false the
+// daemon includes precpu_stats, so CPU% is computed against the previous cycle.
+func (d *Docker) ContainerStats(ctx context.Context, id string) (ContainerStat, error) {
+	resp, err := d.do(ctx, "GET", "/containers/"+id+"/stats?stream=false", nil)
+	if err != nil {
+		return ContainerStat{}, err
+	}
+	if resp.StatusCode != 200 {
+		return ContainerStat{}, errBody("container stats", resp)
+	}
+	var s struct {
+		CPU struct {
+			CPUUsage struct {
+				Total int64 `json:"total_usage"`
+			} `json:"cpu_usage"`
+			SystemUsage int64 `json:"system_cpu_usage"`
+			OnlineCPUs  int   `json:"online_cpus"`
+		} `json:"cpu_stats"`
+		PreCPU struct {
+			CPUUsage struct {
+				Total int64 `json:"total_usage"`
+			} `json:"cpu_usage"`
+			SystemUsage int64 `json:"system_cpu_usage"`
+		} `json:"precpu_stats"`
+		Memory struct {
+			Usage int64            `json:"usage"`
+			Limit int64            `json:"limit"`
+			Stats map[string]int64 `json:"stats"`
+		} `json:"memory_stats"`
+		Networks map[string]struct {
+			RxBytes int64 `json:"rx_bytes"`
+			TxBytes int64 `json:"tx_bytes"`
+		} `json:"networks"`
+	}
+	if err := json.Unmarshal(drain(resp), &s); err != nil {
+		return ContainerStat{}, err
+	}
+	var out ContainerStat
+	cpuDelta := float64(s.CPU.CPUUsage.Total - s.PreCPU.CPUUsage.Total)
+	sysDelta := float64(s.CPU.SystemUsage - s.PreCPU.SystemUsage)
+	cpus := float64(s.CPU.OnlineCPUs)
+	if cpus == 0 {
+		cpus = 1
+	}
+	if cpuDelta > 0 && sysDelta > 0 {
+		out.CPUPercent = (cpuDelta / sysDelta) * cpus * 100
+	}
+	// Used = usage minus reclaimable page cache (cgroup v2 inactive_file / v1 cache).
+	used := s.Memory.Usage
+	if v, ok := s.Memory.Stats["inactive_file"]; ok {
+		used -= v
+	} else if v, ok := s.Memory.Stats["cache"]; ok {
+		used -= v
+	}
+	if used < 0 {
+		used = 0
+	}
+	out.MemUsed, out.MemLimit = used, s.Memory.Limit
+	if s.Memory.Limit > 0 {
+		out.MemPercent = float64(used) / float64(s.Memory.Limit) * 100
+	}
+	for _, n := range s.Networks {
+		out.NetRx += n.RxBytes
+		out.NetTx += n.TxBytes
+	}
+	return out, nil
+}
+
 // demuxStream splits Docker's multiplexed stdout/stderr stream (8-byte frame
 // headers: [type][000][big-endian size]).
 func demuxStream(r io.Reader) (stdout, stderr []byte) {

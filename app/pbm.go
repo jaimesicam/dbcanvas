@@ -257,6 +257,7 @@ func (a *App) handleMongoPBMBackup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "PBM backup failed: "+lastLines(res.Stderr+res.Stdout, 300))
 		return
 	}
+	a.notifyStack(st.ID, "backup.done", "success", "Backup completed", frame.Label+": PBM backup finished.", "")
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 

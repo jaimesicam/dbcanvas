@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -189,10 +190,29 @@ func (a *App) startReaper() {
 		ticker := time.NewTicker(60 * time.Second)
 		defer ticker.Stop()
 		a.reapExpiredStacks()
+		a.warnExpiringStacks()
 		for range ticker.C {
 			a.reapExpiredStacks()
+			a.warnExpiringStacks()
 		}
 	}()
+}
+
+var expiryWarned sync.Map // stackID -> true, to warn only once
+
+// warnExpiringStacks notifies owners ~15 min before a stack's TTL auto-destroys it.
+func (a *App) warnExpiringStacks() {
+	soon, err := a.store.ListStacksExpiringSoon(15 * time.Minute)
+	if err != nil {
+		return
+	}
+	for _, st := range soon {
+		if _, done := expiryWarned.LoadOrStore(st.ID, true); done {
+			continue
+		}
+		a.notifyStack(st.ID, "stack.expiring", "warning", "Stack expiring soon",
+			st.Name+" will be auto-destroyed within 15 minutes (TTL). Extend it to keep it.", "")
+	}
 }
 
 // reapExpiredStacks marks stacks past their TTL as expired and tears down their

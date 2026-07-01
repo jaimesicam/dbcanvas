@@ -3566,3 +3566,38 @@ over the SSE stream; an empty-parent FK run produced a `datagen.error` notificat
 reason; mark-all-read cleared the unread count. `go build`/`vet`/`gofmt -l` + `npm run build`
 clean. Still to come per the plan: dashboard summary counters (admin vs. user) and
 focus-gated live OS stats, then extended event types (TTL/backups/watchtower/thresholds).
+
+## 56. Dashboard (summary + focus-gated live stats) + extended events — phases 2–4
+
+Replaced the mock Dashboard with real, scope-aware data and added the remaining event types.
+
+- `app/dashboard.go`:
+  - `GET /api/dashboard/summary` — cheap, store-derived: stack counts (deployed/draft/
+    expired), node counts by state, running DB nodes by engine, nodes by type, in-memory
+    data-gen job counts, recent activity (notifications), and (admin only) user total +
+    pending-approval count. Admin sees all stacks; a user sees only their own.
+  - `GET /api/dashboard/stats` — **focus-gated** live OS stats. `sampleStats` calls Docker
+    `/containers/{id}/stats?stream=false` concurrently (worker pool of 6) for managed
+    running containers, cached ≤2s. Because it only runs when a client hits the endpoint
+    (and the client only polls while the dashboard tab is visible/focused), there is **zero
+    background sampling** when nobody is watching. Returns aggregate CPU%/mem + top-N by CPU,
+    filtered to the user's own containers (admin: all **DB-tracked** stacks — orphaned
+    containers whose stack no longer exists in the DB are excluded), mapped via the
+    `dbcanvas-<stackID>-` name prefix.
+- `app/docker.go`: `ListManaged` (managed stack containers) + `ContainerStats` (CPU% from
+  cpu/precpu deltas × online CPUs; mem = usage − reclaimable cache; net rx/tx).
+- Frontend `Dashboard.jsx` rewrite + `lib/dashApi.js`: scope badge, live indicator, counters
+  (stacks/nodes/containers/CPU/memory/users-or-jobs), a focus-gated live CPU sparkline, top
+  containers table, by-engine / by-type breakdowns, and a real activity feed. The
+  `useFocusGatedInterval` hook polls only while `document.visibilityState==='visible' &&
+  document.hasFocus()`, and stops on blur/hide and on unmount (leaving the page).
+- Extended events (phase 4): admin "New account awaiting approval" on register; owner "Stack
+  expiring soon" ~15 min before TTL reap (reaper `warnExpiringStacks`, warn-once via
+  `sync.Map`); "Backup completed" on pg / patroni / repmgr / PBM on-demand backups;
+  "High resource usage" alerts from the stats sampler (CPU or mem ≥90%, 10-min per-container
+  cooldown, emitted to the owner).
+
+Verified live: summary returned correct counts for the deployed stack (19 nodes running,
+byEngine mysql 10 / postgres 7, byType breakdown, users 1/pending 0) with the activity feed;
+stats returned a real Docker sample (23 managed containers, meaningful non-zero CPU%,
+21 GB/725 GB memory, top-by-CPU). `go build`/`vet`/`gofmt -l` + `npm run build` clean.

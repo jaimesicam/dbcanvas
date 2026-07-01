@@ -187,7 +187,7 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to hash password")
 		return
 	}
-	_, err = a.store.CreateUser(strings.TrimSpace(c.Username), hash, RoleUser, StatusPending)
+	nu, err := a.store.CreateUser(strings.TrimSpace(c.Username), hash, RoleUser, StatusPending)
 	if err != nil {
 		if errors.Is(err, ErrUserExists) {
 			writeErr(w, http.StatusConflict, "username already exists")
@@ -196,6 +196,8 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to create user")
 		return
 	}
+	a.notify(Notification{Scope: "admin", Type: "user.pending", Severity: "warning",
+		Title: "New account awaiting approval", Body: nu.Username + " registered and needs approval."})
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"status":  "pending",
 		"message": "Your account was created and is awaiting administrator approval.",
