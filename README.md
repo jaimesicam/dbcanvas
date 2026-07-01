@@ -28,17 +28,6 @@ browser ──HTTP──> DBCanvas (Go binary, :APP_PORT)                       
                          └────────────────────────────────────────────────────┘
 ```
 
-## Screenshots
-
-> **Note:** the images below live in `docs/screenshots/`. They aren't committed yet —
-> drop PNGs with these names in that folder (see `docs/screenshots/README.md`) and they'll
-> render here.
-
-| | |
-| --- | --- |
-| ![Dashboard](docs/screenshots/dashboard.png) **Dashboard** — counters + focus-gated live OS-stat bar charts | ![Database Stacks](docs/screenshots/stack-designer.png) **Database Stacks** — design & deploy on a canvas |
-| ![Data Generator](docs/screenshots/data-generator.png) **Data Generator** — per-column generators + live progress | ![Notifications](docs/screenshots/notifications.png) **Notifications** — live bell for stack/data-gen events |
-
 ## What's inside
 
 ### Database Stacks
