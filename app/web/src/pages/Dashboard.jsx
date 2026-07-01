@@ -91,12 +91,12 @@ export default function Dashboard() {
     (rows || [])
       .map((r) => ({ name: r.name, value: r[key] || 0, display: fmt(r[key] || 0) }))
       .sort((a, b) => b.value - a.value)
-      .slice(0, 8)
+      .slice(0, 5)
   const pct = (v) => `${v.toFixed(1)}%`
   const rate = (v) => `${fmtBytes(v)}/s`
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="flex items-center gap-2">
         <Badge tone={admin ? 'primary' : 'muted'}>{admin ? 'System-wide' : 'Your account'}</Badge>
         <span className="flex items-center gap-1.5 text-xs text-muted">
@@ -120,7 +120,7 @@ export default function Dashboard() {
           : <Stat label="Data-gen jobs" value={sum ? sum.dataGen.active + sum.dataGen.done + sum.dataGen.error : '—'} sub={`${sum?.dataGen.active ?? 0} active`} />}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <Card title="Top containers" subtitle="By CPU" className="lg:col-span-2">
           <TopBars items={bars(stats?.nodes, 'cpuPercent', pct)} empty="No running containers" accent="var(--color-primary)" />
         </Card>
@@ -130,14 +130,14 @@ export default function Dashboard() {
       </div>
 
       {/* Per-node network / disk rates */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Card title="Top network in" subtitle="Per node (live)"><TopBars items={bars(rates, 'netIn', rate)} accent="var(--color-success)" /></Card>
         <Card title="Top network out" subtitle="Per node (live)"><TopBars items={bars(rates, 'netOut', rate)} accent="var(--color-accent)" /></Card>
         <Card title="Top disk in" subtitle="Per node (live)"><TopBars items={bars(rates, 'diskIn', rate)} accent="var(--color-warning)" /></Card>
         <Card title="Top disk out" subtitle="Per node (live)"><TopBars items={bars(rates, 'diskOut', rate)} accent="var(--color-primary)" /></Card>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <Card title="Node types">
           <Breakdown data={sum?.byType} />
         </Card>
@@ -154,7 +154,7 @@ function Stat({ label, value, sub, tone = 'muted' }) {
   return (
     <Card>
       <div className="text-xs text-muted">{label}</div>
-      <div className={`mt-1 text-2xl font-semibold ${color}`}>{value}</div>
+      <div className={`mt-0.5 text-xl font-semibold ${color}`}>{value}</div>
       {sub && <div className="mt-0.5 text-xs text-muted">{sub}</div>}
     </Card>
   )
@@ -167,17 +167,17 @@ const shortName = (n) => n.replace(/^dbcanvas-/, '').replace(/-[a-z0-9]{6,}-(\d+
 // TopBars renders a ranked horizontal bar chart (top-N). HTML/CSS bars keep the app's
 // font crisp and animate smoothly — no distorted SVG text.
 function TopBars({ items, empty = 'Waiting for samples…', accent = 'var(--color-primary)' }) {
-  if (!items || !items.length) return <div className="py-10 text-center text-sm text-muted">{empty}</div>
+  if (!items || !items.length) return <div className="py-6 text-center text-sm text-muted">{empty}</div>
   const max = Math.max(...items.map((i) => i.value), 1e-9)
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {items.map((it) => (
         <div key={it.name}>
-          <div className="mb-1 flex items-baseline justify-between gap-3">
-            <span className="truncate text-xs font-medium text-fg">{shortName(it.name)}</span>
-            <span className="shrink-0 text-xs tabular-nums text-muted">{it.display}</span>
+          <div className="mb-0.5 flex items-baseline justify-between gap-3">
+            <span className="truncate text-xs text-fg/90">{shortName(it.name)}</span>
+            <span className="shrink-0 text-[11px] tabular-nums text-muted">{it.display}</span>
           </div>
-          <div className="h-2 overflow-hidden rounded-full bg-surface2">
+          <div className="h-1.5 overflow-hidden rounded-full bg-surface2">
             <div
               className="h-full rounded-full transition-[width] duration-500 ease-out"
               style={{ width: `${it.value <= 0 ? 0 : Math.max(3, (it.value / max) * 100)}%`, background: accent }}
