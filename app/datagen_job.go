@@ -37,6 +37,8 @@ type dgGenConfig struct {
 
 type dgJob struct {
 	ID       string    `json:"id"`
+	StackID  int64     `json:"-"`
+	Table    string    `json:"-"`
 	Total    int64     `json:"total"`
 	Inserted int64     `json:"inserted"`
 	Errors   int64     `json:"errors"`
@@ -225,7 +227,8 @@ func (a *App) handleDataGenGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job := &dgJob{ID: newJobID(), Total: cfg.Rows, Status: "running", Start: time.Now()}
+	job := &dgJob{ID: newJobID(), StackID: st.ID, Table: cfg.Schema + "." + cfg.Table,
+		Total: cfg.Rows, Status: "running", Start: time.Now()}
 	ctx, cancel := context.WithCancel(context.Background())
 	job.cancel = cancel
 	dgJobs.Lock()
@@ -241,6 +244,17 @@ func (a *App) runGenJob(ctx context.Context, c dbConn, cfg dgGenConfig, meta dgT
 		job.End = time.Now()
 		if job.Status == "running" {
 			job.Status = "done"
+		}
+		switch job.Status {
+		case "done":
+			a.notifyStack(job.StackID, "datagen.done", "success", "Data generation completed",
+				fmt.Sprintf("Inserted %s rows into %s.", fmtInt(atomic.LoadInt64(&job.Inserted)), job.Table), "")
+		case "error":
+			a.notifyStack(job.StackID, "datagen.error", "error", "Data generation failed",
+				job.Table+": "+job.Message, "")
+		case "canceled":
+			a.notifyStack(job.StackID, "datagen.canceled", "warning", "Data generation canceled",
+				fmt.Sprintf("%s — inserted %s rows before cancel.", job.Table, fmtInt(atomic.LoadInt64(&job.Inserted))), "")
 		}
 	}()
 
@@ -337,6 +351,23 @@ func (a *App) runGenJob(ctx context.Context, c dbConn, cfg dgGenConfig, meta dgT
 		}(wkr)
 	}
 	wg.Wait()
+}
+
+// fmtInt formats an integer with thousands separators (fmt-only, no extra imports).
+func fmtInt(n int64) string {
+	s := fmt.Sprintf("%d", n)
+	neg := ""
+	if len(s) > 0 && s[0] == '-' {
+		neg, s = "-", s[1:]
+	}
+	var out []byte
+	for i := 0; i < len(s); i++ {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			out = append(out, ',')
+		}
+		out = append(out, s[i])
+	}
+	return neg + string(out)
 }
 
 func truncErr(s string) string {

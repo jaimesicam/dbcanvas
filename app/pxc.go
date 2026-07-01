@@ -193,6 +193,7 @@ func (pr *pxcProg) fail(format string, a ...any) error {
 	pr.p.Message = msg
 	pr.save()
 	pr.a.store.SetDeploymentState(pr.stackID, pr.nodeID, DeployError)
+	pr.a.notifyStack(pr.stackID, "node.error", "error", "Node deployment failed", pr.nodeID+": "+msg, pr.nodeID)
 	return fmt.Errorf("%s", msg)
 }
 

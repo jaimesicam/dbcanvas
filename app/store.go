@@ -94,7 +94,22 @@ CREATE TABLE IF NOT EXISTS deployments (
   config_json  TEXT,
   secrets_json TEXT,
   PRIMARY KEY (stack_id, node_id)
-);`
+);
+CREATE TABLE IF NOT EXISTS notifications (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL,       -- owner (0 = admin-only broadcast)
+  scope      TEXT NOT NULL,          -- 'user'|'admin'
+  type       TEXT NOT NULL,          -- e.g. node.error, stack.deployed, datagen.done
+  severity   TEXT NOT NULL,          -- info|success|warning|error
+  title      TEXT NOT NULL,
+  body       TEXT,
+  stack_id   INTEGER,
+  node_id    TEXT,
+  job_id     TEXT,
+  read_at    TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, id DESC);`
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, err

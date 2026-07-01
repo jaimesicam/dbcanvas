@@ -4,6 +4,7 @@ import { useTheme, THEMES } from './theme/ThemeProvider.jsx'
 import { Icon } from './components/Icons.jsx'
 import { Badge, Button } from './components/ui.jsx'
 import { TerminalProvider } from './terminal/TerminalProvider.jsx'
+import { notifApi, relTime } from './lib/notifApi.js'
 
 import Dashboard from './pages/Dashboard.jsx'
 import StackDesigner from './pages/StackDesigner.jsx'
@@ -150,10 +151,7 @@ function Topbar({ title, hint, onSearch, user, onLogout }) {
           <kbd className="hidden rounded bg-surface2 px-1.5 text-xs sm:inline">⌘K</kbd>
         </button>
         <ThemePicker />
-        <button className="relative rounded-lg p-2 text-muted hover:bg-surface2 hover:text-fg">
-          <Icon.Bell size={18} />
-          <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-danger" />
-        </button>
+        <NotificationBell />
         <AccountMenu user={user} onLogout={onLogout} />
       </div>
     </header>
@@ -202,6 +200,101 @@ function ThemePicker() {
       )}
     </div>
   )
+}
+
+function NotificationBell() {
+  const [items, setItems] = useState([])
+  const [unread, setUnread] = useState(0)
+  const [open, setOpen] = useState(false)
+  const ref = useOutsideClose(open, setOpen)
+
+  useEffect(() => {
+    notifApi.list().then((d) => { setItems(d.items || []); setUnread(d.unread || 0) }).catch(() => {})
+  }, [])
+
+  // Live push over SSE; the browser auto-reconnects on error.
+  useEffect(() => {
+    const es = new EventSource('/api/notifications/stream')
+    es.onmessage = (e) => {
+      try {
+        const n = JSON.parse(e.data)
+        setItems((prev) => [n, ...prev].slice(0, 50))
+        setUnread((u) => u + 1)
+      } catch { /* ignore heartbeats */ }
+    }
+    return () => es.close()
+  }, [])
+
+  const markAll = async () => {
+    setUnread(0)
+    setItems((prev) => prev.map((n) => (n.readAt ? n : { ...n, readAt: 'now' })))
+    await notifApi.markAll().catch(() => {})
+  }
+
+  const routeFor = (n) => {
+    if ((n.type || '').startsWith('datagen')) return 'data-generator'
+    if ((n.type || '').startsWith('user')) return 'users'
+    return 'stack-designer'
+  }
+  const clickItem = async (n) => {
+    if (!n.readAt) {
+      setUnread((u) => Math.max(0, u - 1))
+      setItems((prev) => prev.map((x) => (x.id === n.id ? { ...x, readAt: 'now' } : x)))
+      notifApi.markRead(n.id).catch(() => {})
+    }
+    location.hash = routeFor(n)
+    setOpen(false)
+  }
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="relative rounded-lg p-2 text-muted hover:bg-surface2 hover:text-fg"
+        title="Notifications"
+      >
+        <Icon.Bell size={18} />
+        {unread > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold text-white">
+            {unread > 99 ? '99+' : unread}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="absolute right-0 z-30 mt-2 w-80 overflow-hidden rounded-lg border bg-surface shadow-2xl">
+          <div className="flex items-center justify-between border-b px-3 py-2">
+            <span className="text-sm font-semibold">Notifications</span>
+            <button onClick={markAll} className="text-xs text-muted hover:text-fg" disabled={unread === 0}>
+              Mark all read
+            </button>
+          </div>
+          <div className="max-h-96 overflow-y-auto">
+            {items.length === 0 && <div className="px-3 py-8 text-center text-sm text-muted">No notifications yet</div>}
+            {items.map((n) => (
+              <button
+                key={n.id}
+                onClick={() => clickItem(n)}
+                className={`flex w-full items-start gap-2.5 border-b px-3 py-2.5 text-left last:border-0 hover:bg-surface2 ${n.readAt ? 'opacity-60' : ''}`}
+              >
+                <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${dotColor(n.severity)}`} />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="truncate text-sm font-medium">{n.title}</span>
+                    <span className="shrink-0 text-[11px] text-muted">{relTime(n.createdAt)}</span>
+                  </span>
+                  {n.body && <span className="mt-0.5 block break-words text-xs text-muted">{n.body}</span>}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function dotColor(sev) {
+  return { info: 'bg-muted', success: 'bg-primary', warning: 'bg-warning', error: 'bg-danger' }[sev] || 'bg-muted'
 }
 
 function AccountMenu({ user, onLogout }) {

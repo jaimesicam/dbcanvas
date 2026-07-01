@@ -83,6 +83,12 @@ func main() {
 	mux.HandleFunc("GET /api/datagen/jobs/{job}", app.handleDataGenJob)
 	mux.HandleFunc("POST /api/datagen/jobs/{job}/cancel", app.handleDataGenCancel)
 
+	// Notifications — bell + live SSE stream.
+	mux.HandleFunc("GET /api/notifications", app.handleListNotifications)
+	mux.HandleFunc("GET /api/notifications/stream", app.handleNotifStream)
+	mux.HandleFunc("POST /api/notifications/read-all", app.handleMarkAllRead)
+	mux.HandleFunc("POST /api/notifications/{id}/read", app.handleMarkNotificationRead)
+
 	// Intranet node management (Phase 3) — all via docker exec into the container.
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/email/users", app.handleEmailList)
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/email/users", app.emailMutate(emailAddScript, true))

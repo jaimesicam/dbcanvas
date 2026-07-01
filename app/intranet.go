@@ -1157,6 +1157,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 	go a.reconcileReplication(st, doc)
 
 	a.store.SetStackStatus(st.ID, StackDeployed)
+	a.notifyStack(st.ID, "stack.deploying", "info", "Deployment started",
+		"Provisioning "+st.Name+" — you'll be notified of any node failures.", "")
 	out, _ := a.store.ListDeployments(st.ID)
 	writeJSON(w, http.StatusAccepted, map[string]any{"deployments": out})
 }
@@ -1777,6 +1779,10 @@ func (a *App) handleDestroyStack(w http.ResponseWriter, r *http.Request) {
 func (a *App) teardownStack(stackID int64) {
 	if a.docker == nil {
 		return
+	}
+	if st, err := a.store.GetStack(stackID); err == nil {
+		a.notifyStack(stackID, "stack.destroyed", "info", "Stack destroyed",
+			st.Name+" and its containers were removed.", "")
 	}
 	ctx := context.Background()
 	deps, _ := a.store.ListDeployments(stackID)

@@ -3537,3 +3537,32 @@ auto_increment id + generated column. `go build`/`vet`/`gofmt -l` and `npm run b
 (The shared app orchestration — `ExecInput` stdin, workers, uniqueness — is already
 end-to-end-verified on PostgreSQL; full app-path confirmation for MySQL wants a deployed
 PXC/PS/InnoDB node.) Design: `docs/DATA_GENERATOR.md`.
+
+## 55. Notifications (bell) — phase 1 of the dashboard/notifications plan
+
+Replaced the decorative top-right bell with a live notification center backed by a persisted
+event store and a Server-Sent-Events stream.
+
+- Store: new `notifications` table (`user_id, scope, type, severity, title, body, stack_id,
+  node_id, job_id, read_at, created_at`) + `CreateNotification`/`ListNotifications`/
+  `CountUnread`/`MarkNotificationRead`/`MarkAllRead`. Scope: a user sees rows where
+  `user_id` = them; an admin sees all rows.
+- `app/notifications.go`: an in-memory SSE hub (`notifBus`) with per-subscriber user/admin
+  filtering; `a.notify` (persist + publish) and `a.notifyStack` (resolve owner via GetStack);
+  handlers `GET /api/notifications`, `GET /api/notifications/stream` (SSE, 25s heartbeat),
+  `POST /api/notifications/{id}/read`, `POST /api/notifications/read-all`.
+- Emit hooks (central choke points): `pxcProg.fail` → per-node deploy failure (covers every
+  provisioner); `handleDeployStack` → "Deployment started"; `teardownStack` → "Stack
+  destroyed" (also fires on TTL reap); `runGenJob` defer → data-gen completed / failed /
+  canceled (with row count / error reason).
+- Frontend: `lib/notifApi.js` + `NotificationBell` in `App.jsx` — unread badge, dropdown
+  with severity dots + relative time, click-through routing (datagen→Data Generator,
+  stack→Database Stacks), mark-all-read, and a live `EventSource` subscription (browser
+  auto-reconnect).
+
+Verified live against the running app + deployed stack: a data-gen run produced a
+`datagen.done` (success) notification delivered both via `GET /api/notifications` and pushed
+over the SSE stream; an empty-parent FK run produced a `datagen.error` notification with the
+reason; mark-all-read cleared the unread count. `go build`/`vet`/`gofmt -l` + `npm run build`
+clean. Still to come per the plan: dashboard summary counters (admin vs. user) and
+focus-gated live OS stats, then extended event types (TTL/backups/watchtower/thresholds).
