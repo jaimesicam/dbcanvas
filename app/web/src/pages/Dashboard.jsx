@@ -119,7 +119,7 @@ export default function Dashboard() {
           <NodeTable rows={cpuTop} render={(c) => `${(c.cpuPercent || 0).toFixed(1)}%`} valueHead="CPU" />
         </Card>
         <Card title="By engine" subtitle="Running DB nodes">
-          <Breakdown data={sum?.byEngine} labels={{ postgres: 'PostgreSQL', mysql: 'MySQL/PXC' }} />
+          <Breakdown data={sum?.byEngine} labels={{ postgres: 'PostgreSQL', mysql: 'MySQL/PXC', mongodb: 'MongoDB', valkey: 'Valkey' }} />
         </Card>
       </div>
 

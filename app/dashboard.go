@@ -13,6 +13,23 @@ import (
 // stats, sampled lazily on request with a short cache). Admins see everything; a regular
 // user sees only their own stacks' data.
 
+// dbEngineOf maps a node type to a database-engine family for the "By engine" breakdown.
+// Broader than engineForType (which is scoped to the Data Generator's engines); non-DB
+// node types (intranet, pmm, proxysql, …) return "".
+func dbEngineOf(t string) string {
+	switch t {
+	case "pg", "patroni", "repmgr":
+		return "postgres"
+	case "pxc", "ps", "mysql", "innodb":
+		return "mysql"
+	case "psm", "psmdb", "psmrs":
+		return "mongodb"
+	case "valkey", "valkeycluster":
+		return "valkey"
+	}
+	return ""
+}
+
 // ------------------------------------------------------------- summary
 
 type dashUsers struct {
@@ -93,7 +110,7 @@ func (a *App) handleDashboardSummary(w http.ResponseWriter, r *http.Request) {
 			if t != "" {
 				sum.ByType[t]++
 			}
-			if eng := engineForType(t); eng != "" && d.State == DeployRunning {
+			if eng := dbEngineOf(t); eng != "" && d.State == DeployRunning {
 				sum.ByEngine[eng]++
 			}
 		}
