@@ -70,8 +70,10 @@ func (a *App) pgQueryJSON(ctx context.Context, c pgConn, db, sql string, out any
 
 // pgExec runs a statement (INSERT etc.) and returns rows affected (from the psql tag) or error.
 func (a *App) pgExec(ctx context.Context, c pgConn, db, sql string) error {
-	res, err := a.docker.ExecAs(ctx, c.ContainerID, "postgres",
-		[]string{"psql", "-v", "ON_ERROR_STOP=1", "-U", c.Super, "-d", db, "-qc", sql}, nil)
+	// SQL is piped via stdin (psql -f -), not argv, so large multi-row INSERT batches
+	// can't hit the OS argument-length limit.
+	res, err := a.docker.ExecInput(ctx, c.ContainerID, "postgres",
+		[]string{"psql", "-v", "ON_ERROR_STOP=1", "-U", c.Super, "-d", db, "-q", "-f", "-"}, nil, []byte(sql))
 	if err != nil {
 		return err
 	}

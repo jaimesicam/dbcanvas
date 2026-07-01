@@ -253,17 +253,29 @@ func (a *App) runGenJob(ctx context.Context, c pgConn, cfg dgGenConfig, meta dgT
 	if seed == 0 {
 		seed = time.Now().UnixNano()
 	}
-	var remaining = cfg.Rows
+	// Hand out globally unique row-index ranges so sequential/unique generators never
+	// overlap across workers. take() returns (count, startIndex).
+	var next int64
 	var remMu sync.Mutex
-	take := func() int64 {
+	take := func() (int64, int64) {
 		remMu.Lock()
 		defer remMu.Unlock()
-		n := int64(cfg.Batch)
-		if n > remaining {
-			n = remaining
+		if next >= cfg.Rows {
+			return 0, 0
 		}
-		remaining -= n
-		return n
+		n := int64(cfg.Batch)
+		if next+n > cfg.Rows {
+			n = cfg.Rows - next
+		}
+		start := next
+		next += n
+		return n, start
+	}
+
+	// Per-job nonce keeps unique-column values from colliding with other jobs' data.
+	nonce := job.ID
+	if len(nonce) > 6 {
+		nonce = nonce[:6]
 	}
 
 	var wg sync.WaitGroup
@@ -271,21 +283,20 @@ func (a *App) runGenJob(ctx context.Context, c pgConn, cfg dgGenConfig, meta dgT
 		wg.Add(1)
 		go func(wkr int) {
 			defer wg.Done()
-			gc := &genCtx{rng: newRand(seed + int64(wkr)*1_000_003), fk: fk,
+			gc := &genCtx{rng: newRand(seed + int64(wkr)*1_000_003), fk: fk, uniq: nonce,
 				tsStart: time.Now().Add(-720 * time.Hour), tsStep: time.Minute}
-			var base int64
 			for {
 				if ctx.Err() != nil {
 					return
 				}
-				n := take()
+				n, start := take()
 				if n <= 0 {
 					return
 				}
 				var b strings.Builder
 				b.WriteString(insertPrefix)
 				for i := int64(0); i < n; i++ {
-					gc.row = base + i
+					gc.row = start + i
 					if i > 0 {
 						b.WriteByte(',')
 					}
@@ -298,7 +309,6 @@ func (a *App) runGenJob(ctx context.Context, c pgConn, cfg dgGenConfig, meta dgT
 					}
 					b.WriteByte(')')
 				}
-				base += n
 				if err := a.pgExec(ctx, c, cfg.Database, b.String()); err != nil {
 					atomic.AddInt64(&job.Errors, n)
 					job.Message = truncErr(err.Error())

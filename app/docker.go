@@ -603,6 +603,83 @@ func (d *Docker) ExecAs(ctx context.Context, id, user string, cmd []string, env 
 	return ExecResult{Stdout: string(stdout), Stderr: string(stderr), Code: info.ExitCode}, nil
 }
 
+// ExecInput runs a command with data piped to its stdin, capturing stdout/stderr and the
+// exit code. Used for payloads that would exceed the argv size limit if passed via -c.
+func (d *Docker) ExecInput(ctx context.Context, id, user string, cmd, env []string, stdin []byte) (ExecResult, error) {
+	create := map[string]any{
+		"AttachStdin": true, "AttachStdout": true, "AttachStderr": true,
+		"Tty": false, "Cmd": cmd,
+	}
+	if user != "" {
+		create["User"] = user
+	}
+	if len(env) > 0 {
+		create["Env"] = env
+	}
+	resp, err := d.do(ctx, "POST", "/containers/"+id+"/exec", create)
+	if err != nil {
+		return ExecResult{}, err
+	}
+	if resp.StatusCode != 201 {
+		return ExecResult{}, errBody("exec create", resp)
+	}
+	var ec struct {
+		ID string `json:"Id"`
+	}
+	if err := json.Unmarshal(drain(resp), &ec); err != nil {
+		return ExecResult{}, err
+	}
+
+	conn, err := net.Dial("unix", d.sock)
+	if err != nil {
+		return ExecResult{}, err
+	}
+	defer conn.Close()
+	body := `{"Detach":false,"Tty":false}`
+	req := "POST /exec/" + ec.ID + "/start HTTP/1.1\r\n" +
+		"Host: docker\r\nContent-Type: application/json\r\n" +
+		"Connection: Upgrade\r\nUpgrade: tcp\r\n" +
+		fmt.Sprintf("Content-Length: %d\r\n\r\n", len(body)) + body
+	if _, err := conn.Write([]byte(req)); err != nil {
+		return ExecResult{}, err
+	}
+	br := bufio.NewReader(conn)
+	statusLine, err := br.ReadString('\n')
+	if err != nil {
+		return ExecResult{}, err
+	}
+	if !strings.Contains(statusLine, " 101") && !strings.Contains(statusLine, " 200") {
+		return ExecResult{}, fmt.Errorf("exec start: unexpected status %q", strings.TrimSpace(statusLine))
+	}
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil {
+			return ExecResult{}, err
+		}
+		if line == "\r\n" || line == "\n" {
+			break
+		}
+	}
+	// Write the payload, then half-close stdin so the process sees EOF and runs.
+	if _, err := conn.Write(stdin); err != nil {
+		return ExecResult{}, err
+	}
+	if uc, ok := conn.(*net.UnixConn); ok {
+		uc.CloseWrite()
+	}
+	stdout, stderr := demuxStream(br)
+
+	resp, err = d.do(ctx, "GET", "/exec/"+ec.ID+"/json", nil)
+	if err != nil {
+		return ExecResult{}, err
+	}
+	var info struct {
+		ExitCode int `json:"ExitCode"`
+	}
+	json.Unmarshal(drain(resp), &info)
+	return ExecResult{Stdout: string(stdout), Stderr: string(stderr), Code: info.ExitCode}, nil
+}
+
 // demuxStream splits Docker's multiplexed stdout/stderr stream (8-byte frame
 // headers: [type][000][big-endian size]).
 func demuxStream(r io.Reader) (stdout, stderr []byte) {

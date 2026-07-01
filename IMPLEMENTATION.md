@@ -3489,3 +3489,18 @@ elsewhere) so psql runs as the postgres OS user and authenticates over the local
 without a password. Verified end-to-end against a live deployed stack: connections →
 databases → columns (correct inference incl. identity/FK) → generate 200 rows, 0 errors,
 valid FK values.
+
+**Fix — UNIQUE-column collisions + arg-length limit (found generating into a table with a
+UNIQUE email):** two problems surfaced at scale.
+1. *Duplicate keys.* Generators didn't guarantee uniqueness, and each worker's row index
+   restarted at 0 (overlapping across workers), so a UNIQUE column (e.g. `email`) hit
+   `duplicate key value violates unique constraint` — and since a batch is one multi-row
+   INSERT, one dup failed the whole batch. Now `take()` hands out **globally unique row-index
+   ranges**, and `colGen.value` embeds a per-job nonce + that index into UNIQUE/PK string
+   values (`uniquify`: before `@` for emails, else before the closing quote).
+2. *`exec /usr/bin/psql: argument list too long`.* Batches were passed via `psql -c`
+   (argv), so wide rows × large batch exceeded the OS `execve` limit. Added
+   `docker.ExecInput` (attaches stdin, half-closes, demuxes output) and switched `pgExec` to
+   `psql -f -`, piping the SQL over **stdin**. Verified live: 200,000 rows into
+   `sample.public.sample_customers`, batch 2000 × 6 workers, **0 errors, 200k distinct
+   emails, ~89k rows/s**.

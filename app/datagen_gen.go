@@ -229,9 +229,10 @@ func inferGenerator(c dgColumn, meta dgTableMeta) string {
 // ------------------------------------------------------------- value generation
 
 type genCtx struct {
-	rng *rand.Rand
-	fk  map[string][]string // column → sampled literals from the referenced table
-	row int64               // running row index (sequential ints / timestamps)
+	rng  *rand.Rand
+	fk   map[string][]string // column → sampled literals from the referenced table
+	row  int64               // globally unique row index (sequential ints / timestamps / uniqueness)
+	uniq string              // per-job nonce for unique-column values
 	// time-series
 	tsStart  time.Time
 	tsStep   time.Duration
@@ -262,8 +263,34 @@ func (g colGen) optS(k, def string) string {
 	return def
 }
 
-// value returns a SQL literal for one row (or "NULL"/"DEFAULT").
+// value returns a SQL literal for one row (or "NULL"/"DEFAULT"), enforcing per-column
+// uniqueness for UNIQUE / PRIMARY KEY string columns by embedding a per-job nonce and the
+// globally unique row index.
 func (g colGen) value(ctx *genCtx) string {
+	lit := g.valueRaw(ctx)
+	if (g.col.IsUnique || g.col.IsPrimaryKey) && strings.HasPrefix(lit, "'") && g.gen != genConstant {
+		tok := ctx.uniq + strconv.FormatInt(ctx.row, 36)
+		lit = clip(uniquify(lit, g.gen, tok), g.col)
+	}
+	return lit
+}
+
+// uniquify injects a uniqueness token into a string literal: before '@' for emails,
+// otherwise before the closing quote.
+func uniquify(lit, gen, tok string) string {
+	if len(lit) < 2 {
+		return lit
+	}
+	if gen == genEmail {
+		if at := strings.IndexByte(lit, '@'); at > 0 {
+			return lit[:at] + tok + lit[at:]
+		}
+	}
+	return lit[:len(lit)-1] + tok + "'"
+}
+
+// valueRaw returns a SQL literal for one row (or "NULL"/"DEFAULT").
+func (g colGen) valueRaw(ctx *genCtx) string {
 	// NULL percentage applies to any nullable column.
 	if g.col.Nullable {
 		if p := g.optF("nullPct", 0); p > 0 && ctx.rng.Float64()*100 < p {
