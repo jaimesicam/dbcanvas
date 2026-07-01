@@ -68,7 +68,7 @@ export default function App() {
           {!collapsed && (
             <div className="leading-tight">
               <div className="text-sm font-semibold">DBCanvas</div>
-              <div className="text-xs text-muted">Interaction Lab</div>
+              <div className="text-xs text-muted">Database Interaction Lab</div>
             </div>
           )}
         </div>
