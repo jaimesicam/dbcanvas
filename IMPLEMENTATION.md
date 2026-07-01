@@ -3504,3 +3504,36 @@ UNIQUE email):** two problems surfaced at scale.
    `psql -f -`, piping the SQL over **stdin**. Verified live: 200,000 rows into
    `sample.public.sample_customers`, batch 2000 × 6 workers, **0 errors, 200k distinct
    emails, ~89k rows/s**.
+
+## 54. Data Generator — MySQL/PXC engine
+
+Added the MySQL/PXC engine alongside PostgreSQL. The generator library, inference rules, FK
+sampler, uniqueness enforcement, worker/batch engine, progress, and the whole frontend
+wizard are shared; only the SQL dialect + client differ.
+
+- Engine dispatch: `pgConn` → `dbConn{Engine,…}`; `engineForType` maps node types
+  (`pg`/`patroni`/`repmgr`→postgres, `pxc`/`ps`/`mysql`/`innodb`→mysql). `dbConnFor` loads
+  `pgSecrets` or `pxcSecrets` (RootUser/RootPassword) accordingly. `pgQueryJSON`/`pgExec`
+  became `queryJSON`/`execSQL` that branch by engine; MySQL uses the `mysql` client
+  authenticating as root via `MYSQL_PWD` (no password on argv), reading SQL from stdin.
+- Introspection: `tableMeta` dispatches to `pgTableMeta` (pg_catalog) or the new
+  `myTableMeta` (`app/datagen_mysql.go`, information_schema → JSON). Handles auto_increment
+  (→ isIdentity), generated columns, `COLUMN_KEY` PK/unique, single-column FKs, and parses
+  enum/set members from `COLUMN_TYPE`. Connections + databases + tables handlers now branch
+  by engine (MySQL: `information_schema.schemata`/`.tables`; a schema *is* a database).
+- Dialect: `qIdent(engine,…)` backticks vs double-quotes; FK sampling uses `QUOTE()`+`RAND()`
+  (MySQL) vs `quote_nullable()`+`random()` (pg); JSON literals skip the `::jsonb` cast on
+  MySQL. Type-safe numeric ranges (`intMax`/`decMax`) so values never overflow the column
+  type (e.g. MySQL `tinyint`), and `tinyint(1)` infers as boolean.
+- Frontend copy generalized (PostgreSQL & MySQL/PXC); each connection chip shows its engine.
+
+Verified the MySQL SQL path live against `percona/percona-server:8.0` with a table exercising
+`auto_increment`, a `STORED` generated column, `varchar`, `tinyint`, `tinyint(1)`, `enum`,
+`set`, `decimal(12,2)`, `text`, `timestamp`, and a FK: databases/tables/columns introspection
+return correct JSON (booleans as JSON true/false → bool fields; enum/set members parsed);
+FK sampling via `QUOTE()` yields insertable literals; a generated multi-row INSERT (backtick
+idents, `tinyint(1)`→bool, enum/set, decimal, FK) succeeds and MySQL auto-fills the
+auto_increment id + generated column. `go build`/`vet`/`gofmt -l` and `npm run build` clean.
+(The shared app orchestration — `ExecInput` stdin, workers, uniqueness — is already
+end-to-end-verified on PostgreSQL; full app-path confirmation for MySQL wants a deployed
+PXC/PS/InnoDB node.) Design: `docs/DATA_GENERATOR.md`.

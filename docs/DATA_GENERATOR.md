@@ -4,9 +4,9 @@ An embedded feature under **Database Stacks** that generates realistic test data
 tables in databases provisioned by dbcanvas. It targets testing, demos, troubleshooting,
 benchmarking, performance validation, and app development.
 
-Engines: **PostgreSQL** (implemented) and **MySQL/PXC** (designed; see roadmap). This
-document describes the whole feature; sections tagged _(roadmap)_ are designed but not yet
-built. The shipped slice covers the full PostgreSQL workflow end-to-end.
+Engines: **PostgreSQL** and **MySQL/PXC** (both implemented). This document describes the
+whole feature; sections tagged _(roadmap)_ are designed but not yet built. The core
+workflow works end-to-end for both engines.
 
 ---
 
@@ -63,13 +63,15 @@ One JSON-returning query per concern (all via `psql -tAqc`, unmarshalled in Go):
 _(roadmap)_ CHECK constraints (`pg_get_constraintdef`), composite FKs, chunk interval /
 compression settings, existing time range, index list.
 
-## 5. MySQL/PXC metadata inspection _(roadmap)_
+## 5. MySQL/PXC metadata inspection
 
-Same shape, sourced from `information_schema` via `docker exec mysql`:
-`COLUMNS` (type, nullability, default, `EXTRA` → `auto_increment`/`STORED GENERATED`,
-`CHARACTER_MAXIMUM_LENGTH`, `NUMERIC_PRECISION/SCALE`, enum/set members from `COLUMN_TYPE`),
-`STATISTICS` (PK/unique), `KEY_COLUMN_USAGE` + `REFERENTIAL_CONSTRAINTS` (FKs),
-`TABLES.TABLE_ROWS` (estimate). Writes route to the PXC primary / writer.
+Sourced from `information_schema` via the `mysql` client (auth as root through `MYSQL_PWD`),
+returning JSON (`JSON_ARRAYAGG`/`JSON_OBJECT`): `COLUMNS` (`COLUMN_TYPE` + `DATA_TYPE`,
+nullability, default, `EXTRA` → `auto_increment`, `GENERATION_EXPRESSION` → generated,
+`CHARACTER_MAXIMUM_LENGTH`, `NUMERIC_PRECISION/SCALE`, `COLUMN_KEY` → PK/unique, enum/set
+members parsed from `COLUMN_TYPE`), `KEY_COLUMN_USAGE` (single-column FKs), `TABLES.TABLE_ROWS`
+(estimate). In MySQL a schema **is** a database. Any PXC member is writable (multi-primary);
+for MySQL replication / InnoDB cluster, target the primary/writer node.
 
 ## 6. Column generator template design
 
@@ -159,7 +161,7 @@ timestamp/timestamptz, json/jsonb, inet/cidr/macaddr/macaddr8, enums, identity &
 (DB-managed), pgvector `vector`/`halfvec`/`sparsevec`. _(roadmap)_ interval, bytea, xml,
 arrays, range/domain types.
 
-**MySQL/PXC _(roadmap)_:** tinyint…bigint, decimal/float/double, bit, boolean, char/varchar,
+**MySQL/PXC (implemented):** tinyint…bigint, decimal/float/double, bit, boolean, char/varchar,
 text family, date/time/datetime/timestamp/year, json, binary/varbinary/blob family, enum/set,
 generated & auto-increment (DB-managed).
 
@@ -235,9 +237,14 @@ Request body for **preview** and **generate** (`POST …/preview`, `POST …/gen
 
 ## Source map
 
-- `app/datagen.go` — connections, database/table/column introspection, `tableMeta`.
-- `app/datagen_gen.go` — generator IDs, inference, per-column value generation.
+- `app/datagen.go` — engine dispatch (`dbConn`, `queryJSON`/`execSQL`), connections,
+  database/table listing, PostgreSQL `pgTableMeta`.
+- `app/datagen_mysql.go` — MySQL/PXC `myTableMeta` (information_schema) + enum/set parsing.
+- `app/datagen_gen.go` — generator IDs, inference, per-column value generation (engine-aware
+  type ranges + JSON cast).
 - `app/datagen_data.go` — realistic-data libraries (names, cities, companies, …).
-- `app/datagen_job.go` — config, FK sampling, worker/batch engine, progress, cancel.
+- `app/datagen_job.go` — config, FK sampling (quote_nullable / QUOTE), worker/batch engine
+  (identifier quoting per engine), progress, cancel.
+- `app/docker.go` — `ExecInput` (stdin-piped exec) used for both `psql -f -` and `mysql`.
 - `app/web/src/pages/DataGenerator.jsx` — wizard UI.
 - `app/web/src/lib/datagenApi.js` — API wrapper + generator labels.

@@ -20,25 +20,60 @@ import (
 
 // -------------------------------------------------------------------- exec helpers
 
-// pgConn resolves a running pg-family node to its container + superuser creds.
-type pgConn struct {
+// dbConn resolves a running DB node to its container, engine, and admin creds.
+type dbConn struct {
 	ContainerID string
-	Super       string
+	Engine      string // "postgres" | "mysql"
+	Super       string // admin user (postgres / root)
 	Password    string
 }
 
-func (a *App) pgConnFor(st Stack, nid string) (pgConn, bool) {
+// engineForType maps a design node type to a Data Generator engine ("" = unsupported).
+func engineForType(t string) string {
+	switch t {
+	case "pg", "patroni", "repmgr":
+		return "postgres"
+	case "pxc", "ps", "mysql", "innodb":
+		return "mysql"
+	}
+	return ""
+}
+
+func (a *App) dbConnFor(st Stack, nid string) (dbConn, bool) {
 	dep, err := a.store.GetDeployment(st.ID, nid)
 	if err != nil || dep.ContainerID == "" || dep.State != DeployRunning {
-		return pgConn{}, false
+		return dbConn{}, false
+	}
+	engine := engineForType(nodeTypeIn(st, nid))
+	if engine == "" {
+		return dbConn{}, false
 	}
 	dep = a.reconcileContainerID(context.Background(), st.ID, nid, dep)
-	var s pgSecrets
-	json.Unmarshal(dep.Secrets, &s)
-	if s.SuperUser == "" {
-		s.SuperUser = "postgres"
+	c := dbConn{ContainerID: dep.ContainerID, Engine: engine}
+	if engine == "postgres" {
+		var s pgSecrets
+		json.Unmarshal(dep.Secrets, &s)
+		c.Super, c.Password = s.Super(), s.SuperPassword
+	} else {
+		var s pxcSecrets
+		json.Unmarshal(dep.Secrets, &s)
+		c.Super = s.RootUser
+		if c.Super == "" {
+			c.Super = "root"
+		}
+		c.Password = s.RootPassword
 	}
-	return pgConn{ContainerID: dep.ContainerID, Super: s.Super(), Password: s.SuperPassword}, true
+	return c, true
+}
+
+// nodeTypeIn returns the design node type for nid in stack st.
+func nodeTypeIn(st Stack, nid string) string {
+	for _, n := range buildDoc(st).Nodes {
+		if n.ID == nid {
+			return n.Type
+		}
+	}
+	return ""
 }
 
 // Super returns the superuser, defaulting to postgres.
@@ -49,12 +84,20 @@ func (s pgSecrets) Super() string {
 	return s.SuperUser
 }
 
-// pgQueryJSON runs a query whose single-row single-column result is JSON and unmarshals it.
-// psql runs as the postgres OS user (matching the pg image's local `peer` auth), so it
-// authenticates over the local socket without a password.
-func (a *App) pgQueryJSON(ctx context.Context, c pgConn, db, sql string, out any) error {
-	res, err := a.docker.ExecAs(ctx, c.ContainerID, "postgres",
-		[]string{"psql", "-U", c.Super, "-d", db, "-tAqc", sql}, nil)
+// queryJSON runs a query whose single-row single-column result is JSON and unmarshals it.
+// PostgreSQL: psql runs as the postgres OS user (matching the image's local `peer` auth).
+// MySQL: the mysql client authenticates as root via MYSQL_PWD (no password on argv).
+func (a *App) queryJSON(ctx context.Context, c dbConn, db, sql string, out any) error {
+	var res ExecResult
+	var err error
+	if c.Engine == "mysql" {
+		res, err = a.docker.ExecInput(ctx, c.ContainerID, "",
+			[]string{"mysql", "-u", c.Super, "-N", "--raw", "-B"},
+			[]string{"MYSQL_PWD=" + c.Password}, []byte(sql))
+	} else {
+		res, err = a.docker.ExecAs(ctx, c.ContainerID, "postgres",
+			[]string{"psql", "-U", c.Super, "-d", db, "-tAqc", sql}, nil)
+	}
 	if err != nil {
 		return err
 	}
@@ -62,18 +105,25 @@ func (a *App) pgQueryJSON(ctx context.Context, c pgConn, db, sql string, out any
 		return fmt.Errorf("%s", strings.TrimSpace(res.Stderr))
 	}
 	txt := strings.TrimSpace(res.Stdout)
-	if txt == "" {
+	if txt == "" || txt == "NULL" {
 		txt = "null"
 	}
 	return json.Unmarshal([]byte(txt), out)
 }
 
-// pgExec runs a statement (INSERT etc.) and returns rows affected (from the psql tag) or error.
-func (a *App) pgExec(ctx context.Context, c pgConn, db, sql string) error {
-	// SQL is piped via stdin (psql -f -), not argv, so large multi-row INSERT batches
-	// can't hit the OS argument-length limit.
-	res, err := a.docker.ExecInput(ctx, c.ContainerID, "postgres",
-		[]string{"psql", "-v", "ON_ERROR_STOP=1", "-U", c.Super, "-d", db, "-q", "-f", "-"}, nil, []byte(sql))
+// execSQL runs a statement (INSERT etc.). SQL is piped via stdin — not argv — so large
+// multi-row INSERT batches can't hit the OS argument-length limit.
+func (a *App) execSQL(ctx context.Context, c dbConn, db, sql string) error {
+	var res ExecResult
+	var err error
+	if c.Engine == "mysql" {
+		res, err = a.docker.ExecInput(ctx, c.ContainerID, "",
+			[]string{"mysql", "-u", c.Super, "-D", db},
+			[]string{"MYSQL_PWD=" + c.Password}, []byte(sql))
+	} else {
+		res, err = a.docker.ExecInput(ctx, c.ContainerID, "postgres",
+			[]string{"psql", "-v", "ON_ERROR_STOP=1", "-U", c.Super, "-d", db, "-q", "-f", "-"}, nil, []byte(sql))
+	}
 	if err != nil {
 		return err
 	}
@@ -111,7 +161,8 @@ func (a *App) handleDataGenConnections(w http.ResponseWriter, r *http.Request) {
 		}
 		doc := buildDoc(st)
 		for _, n := range doc.Nodes {
-			if n.Type != "pg" && n.Type != "patroni" && n.Type != "repmgr" {
+			engine := engineForType(n.Type)
+			if engine == "" {
 				continue
 			}
 			if dep, err := a.store.GetDeployment(st.ID, n.ID); err != nil || dep.State != DeployRunning {
@@ -119,23 +170,23 @@ func (a *App) handleDataGenConnections(w http.ResponseWriter, r *http.Request) {
 			}
 			out = append(out, dgConnection{
 				StackID: st.ID, StackName: st.Name, NodeID: n.ID,
-				Label: n.Label, Engine: "postgres", Type: n.Type,
+				Label: n.Label, Engine: engine, Type: n.Type,
 			})
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
-// loadDGNode resolves + authorizes a stack/node and returns a live pgConn.
-func (a *App) loadDGNode(w http.ResponseWriter, r *http.Request) (pgConn, bool) {
+// loadDGNode resolves + authorizes a stack/node and returns a live dbConn.
+func (a *App) loadDGNode(w http.ResponseWriter, r *http.Request) (dbConn, bool) {
 	st, _, ok := a.loadOwnedStack(w, r)
 	if !ok {
-		return pgConn{}, false
+		return dbConn{}, false
 	}
-	c, ok := a.pgConnFor(st, r.PathValue("nid"))
+	c, ok := a.dbConnFor(st, r.PathValue("nid"))
 	if !ok {
 		writeErr(w, http.StatusConflict, "node is not running")
-		return pgConn{}, false
+		return dbConn{}, false
 	}
 	return c, true
 }
@@ -147,8 +198,15 @@ func (a *App) handleDataGenDatabases(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var dbs []string
-	if err := a.pgQueryJSON(r.Context(), c, "postgres",
-		`SELECT COALESCE(json_agg(datname ORDER BY datname),'[]') FROM pg_database WHERE datistemplate=false AND datallowconn`, &dbs); err != nil {
+	var err error
+	if c.Engine == "mysql" {
+		err = a.queryJSON(r.Context(), c, "",
+			`SELECT COALESCE(JSON_ARRAYAGG(schema_name),JSON_ARRAY()) FROM information_schema.schemata WHERE schema_name NOT IN ('mysql','information_schema','performance_schema','sys')`, &dbs)
+	} else {
+		err = a.queryJSON(r.Context(), c, "postgres",
+			`SELECT COALESCE(json_agg(datname ORDER BY datname),'[]') FROM pg_database WHERE datistemplate=false AND datallowconn`, &dbs)
+	}
+	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -169,12 +227,18 @@ func (a *App) handleDataGenTables(w http.ResponseWriter, r *http.Request) {
 	}
 	db := dbParam(r)
 	var tables []dgTable
-	q := `SELECT COALESCE(json_agg(t),'[]') FROM (
-	  SELECT n.nspname AS schema, c.relname AS table, GREATEST(c.reltuples,0)::bigint AS "estRows"
-	  FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-	  WHERE c.relkind IN ('r','p') AND n.nspname NOT IN ('pg_catalog','information_schema','_timescaledb_internal','_timescaledb_catalog','_timescaledb_config','timescaledb_information','timescaledb_experimental')
-	  ORDER BY n.nspname, c.relname) t`
-	if err := a.pgQueryJSON(r.Context(), c, db, q, &tables); err != nil {
+	var q string
+	if c.Engine == "mysql" {
+		q = fmt.Sprintf(`SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT('schema',table_schema,'table',table_name,'estRows',IFNULL(table_rows,0))),JSON_ARRAY())
+		  FROM information_schema.tables WHERE table_type='BASE TABLE' AND table_schema=%s ORDER BY table_name`, sqlLit(db))
+	} else {
+		q = `SELECT COALESCE(json_agg(t),'[]') FROM (
+		  SELECT n.nspname AS schema, c.relname AS table, GREATEST(c.reltuples,0)::bigint AS "estRows"
+		  FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+		  WHERE c.relkind IN ('r','p') AND n.nspname NOT IN ('pg_catalog','information_schema','_timescaledb_internal','_timescaledb_catalog','_timescaledb_config','timescaledb_information','timescaledb_experimental')
+		  ORDER BY n.nspname, c.relname) t`
+	}
+	if err := a.queryJSON(r.Context(), c, db, q, &tables); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -232,9 +296,18 @@ func (a *App) handleDataGenColumns(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, meta)
 }
 
-// tableMeta introspects a table's columns + constraints + pgvector/TimescaleDB metadata
-// and fills each column's inferred generator + choices.
-func (a *App) tableMeta(ctx context.Context, c pgConn, db, schema, table string) (dgTableMeta, error) {
+// tableMeta introspects a table and fills each column's inferred generator + choices,
+// dispatching to the engine-specific implementation.
+func (a *App) tableMeta(ctx context.Context, c dbConn, db, schema, table string) (dgTableMeta, error) {
+	if c.Engine == "mysql" {
+		return a.myTableMeta(ctx, c, db, schema, table)
+	}
+	return a.pgTableMeta(ctx, c, db, schema, table)
+}
+
+// pgTableMeta introspects a PostgreSQL table's columns + constraints + pgvector/TimescaleDB
+// metadata and fills each column's inferred generator + choices.
+func (a *App) pgTableMeta(ctx context.Context, c dbConn, db, schema, table string) (dgTableMeta, error) {
 	if !identOK(schema) || !identOK(table) {
 		return dgTableMeta{}, fmt.Errorf("invalid schema/table")
 	}
@@ -263,7 +336,7 @@ func (a *App) tableMeta(ctx context.Context, c pgConn, db, schema, table string)
 	  LEFT JOIN pg_attrdef ad ON ad.adrelid=a.attrelid AND ad.adnum=a.attnum
 	  WHERE n.nspname=%s AND c.relname=%s AND a.attnum>0 AND NOT a.attisdropped) x`,
 		sqlLit(schema), sqlLit(table))
-	if err := a.pgQueryJSON(ctx, c, db, colQ, &cols); err != nil {
+	if err := a.queryJSON(ctx, c, db, colQ, &cols); err != nil {
 		return dgTableMeta{}, err
 	}
 
@@ -274,7 +347,7 @@ func (a *App) tableMeta(ctx context.Context, c pgConn, db, schema, table string)
 		Column string `json:"column"`
 		Kind   string `json:"kind"`
 	}
-	a.pgQueryJSON(ctx, c, db, fmt.Sprintf(`SELECT COALESCE(json_agg(k),'[]') FROM (
+	a.queryJSON(ctx, c, db, fmt.Sprintf(`SELECT COALESCE(json_agg(k),'[]') FROM (
 	  SELECT a.attname AS column, CASE WHEN i.indisprimary THEN 'pk' ELSE 'unique' END AS kind
 	  FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace
 	  JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=ANY(i.indkey)
@@ -295,7 +368,7 @@ func (a *App) tableMeta(ctx context.Context, c pgConn, db, schema, table string)
 		RefTable  string `json:"refTable"`
 		RefColumn string `json:"refColumn"`
 	}
-	a.pgQueryJSON(ctx, c, db, fmt.Sprintf(`SELECT COALESCE(json_agg(f),'[]') FROM (
+	a.queryJSON(ctx, c, db, fmt.Sprintf(`SELECT COALESCE(json_agg(f),'[]') FROM (
 	  SELECT att.attname AS column, rn.nspname AS "refSchema", rc.relname AS "refTable", ratt.attname AS "refColumn"
 	  FROM pg_constraint con
 	  JOIN pg_class c ON c.oid=con.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace
@@ -313,7 +386,7 @@ func (a *App) tableMeta(ctx context.Context, c pgConn, db, schema, table string)
 	var hyper []struct {
 		TimeColumn string `json:"timeColumn"`
 	}
-	a.pgQueryJSON(ctx, c, db, fmt.Sprintf(`SELECT COALESCE(json_agg(h),'[]') FROM (
+	a.queryJSON(ctx, c, db, fmt.Sprintf(`SELECT COALESCE(json_agg(h),'[]') FROM (
 	  SELECT column_name AS "timeColumn" FROM timescaledb_information.dimensions
 	  WHERE hypertable_schema=%s AND hypertable_name=%s AND dimension_type='Time' LIMIT 1) h`,
 		sqlLit(schema), sqlLit(table)), &hyper)

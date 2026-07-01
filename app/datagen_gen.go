@@ -64,7 +64,7 @@ func generatorChoices(c dgColumn, meta dgTableMeta) []string {
 	if len(c.Enum) > 0 {
 		return append([]string{genEnum}, base...)
 	}
-	switch pgKind(c.UDT) {
+	switch typeKind(c.UDT) {
 	case "int":
 		return append(base, genSeqInt, genRandInt, genRandBig, genUuid)
 	case "float":
@@ -87,16 +87,19 @@ func generatorChoices(c dgColumn, meta dgTableMeta) []string {
 	}
 }
 
-// pgKind buckets a udt name into a coarse family.
-func pgKind(udt string) string {
+// typeKind buckets a udt name into a coarse family (covers both PostgreSQL and MySQL type names).
+func typeKind(udt string) string {
 	switch strings.TrimPrefix(udt, "_") {
-	case "int2", "int4", "int8", "smallint", "integer", "bigint":
+	case "int2", "int4", "int8", "smallint", "integer", "bigint", // postgres
+		"tinyint", "mediumint", "int", "bit": // mysql
 		return "int"
-	case "numeric", "decimal", "float4", "float8", "real", "money":
+	case "numeric", "decimal", "float4", "float8", "real", "money", // postgres
+		"float", "double", "double precision", "dec", "fixed": // mysql
 		return "float"
 	case "bool", "boolean":
 		return "bool"
-	case "date", "time", "timetz", "timestamp", "timestamptz":
+	case "date", "time", "timetz", "timestamp", "timestamptz", // postgres
+		"datetime", "year": // mysql
 		return "time"
 	case "uuid":
 		return "uuid"
@@ -104,9 +107,44 @@ func pgKind(udt string) string {
 		return "json"
 	case "inet", "cidr", "macaddr", "macaddr8":
 		return "net"
-	default:
+	default: // char/varchar/text/blob/enum/set/…
 		return "text"
 	}
+}
+
+// intMax returns a type-safe default upper bound for a random integer so generated values
+// never overflow the column's SQL type (MySQL tinyint/smallint especially).
+func intMax(udt string) float64 {
+	switch strings.TrimPrefix(udt, "_") {
+	case "bit":
+		return 1
+	case "int1", "tinyint":
+		return 120
+	case "int2", "smallint":
+		return 32000
+	case "mediumint":
+		return 8000000
+	case "int8", "bigint":
+		return 1_000_000_000
+	default: // int4 / integer / int
+		return 1_000_000
+	}
+}
+
+// decMax returns a default upper bound for a decimal that fits the column's precision/scale.
+func decMax(c dgColumn) float64 {
+	if c.NumPrecision > 0 {
+		intDigits := c.NumPrecision - c.NumScale
+		if intDigits < 1 {
+			intDigits = 1
+		}
+		m := math.Pow(10, float64(intDigits)) - 1
+		if m > 1_000_000 {
+			return 1_000_000
+		}
+		return m
+	}
+	return 10000
 }
 
 var reFirst = mustRe(`(?i)(^|_)(first_?name|fname|given_?name|forename)($|_)`)
@@ -147,8 +185,11 @@ func inferGenerator(c dgColumn, meta dgTableMeta) string {
 	if len(c.Enum) > 0 {
 		return genEnum
 	}
+	if c.DataType == "tinyint(1)" { // MySQL boolean idiom
+		return genBool
+	}
 	n := c.Name
-	kind := pgKind(c.UDT)
+	kind := typeKind(c.UDT)
 	// Time-series hypertable time column.
 	if meta.IsHypertable && n == meta.TimeColumn {
 		return genTSTime
@@ -229,10 +270,11 @@ func inferGenerator(c dgColumn, meta dgTableMeta) string {
 // ------------------------------------------------------------- value generation
 
 type genCtx struct {
-	rng  *rand.Rand
-	fk   map[string][]string // column → sampled literals from the referenced table
-	row  int64               // globally unique row index (sequential ints / timestamps / uniqueness)
-	uniq string              // per-job nonce for unique-column values
+	rng    *rand.Rand
+	fk     map[string][]string // column → sampled literals from the referenced table
+	row    int64               // globally unique row index (sequential ints / timestamps / uniqueness)
+	uniq   string              // per-job nonce for unique-column values
+	engine string              // "postgres" | "mysql"
 	// time-series
 	tsStart  time.Time
 	tsStep   time.Duration
@@ -310,7 +352,7 @@ func (g colGen) valueRaw(ctx *genCtx) string {
 		return "NULL"
 	case genConstant:
 		c := g.optS("value", "")
-		if pgKind(g.col.UDT) == "int" || pgKind(g.col.UDT) == "float" || pgKind(g.col.UDT) == "bool" {
+		if typeKind(g.col.UDT) == "int" || typeKind(g.col.UDT) == "float" || typeKind(g.col.UDT) == "bool" {
 			if c == "" {
 				return "0"
 			}
@@ -320,12 +362,12 @@ func (g colGen) valueRaw(ctx *genCtx) string {
 	case genSeqInt:
 		return strconv.FormatInt(int64(g.optF("start", 1))+ctx.row, 10)
 	case genRandInt:
-		lo, hi := int64(g.optF("min", 0)), int64(g.optF("max", 100000))
+		lo, hi := int64(g.optF("min", 0)), int64(g.optF("max", intMax(g.col.UDT)))
 		return strconv.FormatInt(lo+r.Int63n(maxI(hi-lo, 1)), 10)
 	case genRandBig:
-		return strconv.FormatInt(r.Int63(), 10)
+		return strconv.FormatInt(r.Int63n(int64(intMax(g.col.UDT))+1), 10)
 	case genDecimal:
-		lo, hi := g.optF("min", 0), g.optF("max", 10000)
+		lo, hi := g.optF("min", 0), g.optF("max", decMax(g.col))
 		scale := g.col.NumScale
 		if scale == 0 {
 			scale = 2
@@ -381,6 +423,9 @@ func (g colGen) valueRaw(ctx *genCtx) string {
 		return q(fmt.Sprintf("device-%04d", r.Intn(int(g.optF("devices", 100)))))
 	case genJSONObj:
 		obj := fmt.Sprintf(`{"id":%d,"name":%q,"active":%v}`, r.Intn(100000), pick(r, firstNames), r.Intn(2) == 0)
+		if ctx.engine == "mysql" { // MySQL casts the string on insert into a JSON column
+			return sqlLit(obj)
+		}
 		if g.col.UDT == "jsonb" {
 			return sqlLit(obj) + "::jsonb"
 		}

@@ -91,7 +91,7 @@ func resolveColGens(meta dgTableMeta, cfg dgGenConfig) []colGen {
 // sampleFKs pre-queries each FK column's referenced table for ready-to-inject literals
 // (quote_nullable → correct quoting for the ref column's type). Returns a warning string
 // and whether a non-nullable FK has no rows (fatal).
-func (a *App) sampleFKs(ctx context.Context, c pgConn, db string, gens []colGen, n int) (map[string][]string, string, bool) {
+func (a *App) sampleFKs(ctx context.Context, c dbConn, db string, gens []colGen, n int) (map[string][]string, string, bool) {
 	if n <= 0 {
 		n = 500
 	}
@@ -103,10 +103,17 @@ func (a *App) sampleFKs(ctx context.Context, c pgConn, db string, gens []colGen,
 			continue
 		}
 		ref := g.col.FK
-		q := fmt.Sprintf(`SELECT COALESCE(json_agg(q),'[]') FROM (SELECT quote_nullable(%s) AS q FROM %s.%s WHERE %s IS NOT NULL ORDER BY random() LIMIT %d) s`,
-			qIdent(ref.Column), qIdent(ref.Schema), qIdent(ref.Table), qIdent(ref.Column), n)
+		col := qIdent(c.Engine, ref.Column)
+		var q string
+		if c.Engine == "mysql" {
+			q = fmt.Sprintf(`SELECT COALESCE(JSON_ARRAYAGG(q),JSON_ARRAY()) FROM (SELECT QUOTE(%s) AS q FROM %s.%s WHERE %s IS NOT NULL ORDER BY RAND() LIMIT %d) s`,
+				col, qIdent(c.Engine, ref.Schema), qIdent(c.Engine, ref.Table), col, n)
+		} else {
+			q = fmt.Sprintf(`SELECT COALESCE(json_agg(q),'[]') FROM (SELECT quote_nullable(%s) AS q FROM %s.%s WHERE %s IS NOT NULL ORDER BY random() LIMIT %d) s`,
+				col, qIdent(c.Engine, ref.Schema), qIdent(c.Engine, ref.Table), col, n)
+		}
 		var vals []string
-		a.pgQueryJSON(ctx, c, db, q, &vals)
+		a.queryJSON(ctx, c, db, q, &vals)
 		fk[g.col.Name] = vals
 		if len(vals) == 0 {
 			warn = append(warn, fmt.Sprintf("FK %s → %s.%s(%s) has no rows", g.col.Name, ref.Schema, ref.Table, ref.Column))
@@ -118,7 +125,13 @@ func (a *App) sampleFKs(ctx context.Context, c pgConn, db string, gens []colGen,
 	return fk, strings.Join(warn, "; "), fatal
 }
 
-func qIdent(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
+// qIdent quotes an identifier: backticks for MySQL, double-quotes for PostgreSQL.
+func qIdent(engine, s string) string {
+	if engine == "mysql" {
+		return "`" + strings.ReplaceAll(s, "`", "``") + "`"
+	}
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
+}
 
 // ------------------------------------------------------------- preview
 
@@ -143,7 +156,7 @@ func (a *App) handleDataGenPreview(w http.ResponseWriter, r *http.Request) {
 		seed = time.Now().UnixNano()
 	}
 	fk, _, _ := a.sampleFKs(r.Context(), c, cfg.Database, gens, 200)
-	gc := &genCtx{rng: newRand(seed), fk: fk, tsStart: time.Now().Add(-720 * time.Hour), tsStep: time.Minute}
+	gc := &genCtx{rng: newRand(seed), fk: fk, engine: c.Engine, tsStart: time.Now().Add(-720 * time.Hour), tsStep: time.Minute}
 	nrows := 10
 	rows := make([]map[string]string, 0, nrows)
 	for i := 0; i < nrows; i++ {
@@ -182,7 +195,7 @@ func (a *App) handleDataGenGenerate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	c, ok := a.pgConnFor(st, r.PathValue("nid"))
+	c, ok := a.dbConnFor(st, r.PathValue("nid"))
 	if !ok {
 		writeErr(w, http.StatusConflict, "node is not running")
 		return
@@ -223,7 +236,7 @@ func (a *App) handleDataGenGenerate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"jobId": job.ID})
 }
 
-func (a *App) runGenJob(ctx context.Context, c pgConn, cfg dgGenConfig, meta dgTableMeta, gens []colGen, job *dgJob) {
+func (a *App) runGenJob(ctx context.Context, c dbConn, cfg dgGenConfig, meta dgTableMeta, gens []colGen, job *dgJob) {
 	defer func() {
 		job.End = time.Now()
 		if job.Status == "running" {
@@ -242,10 +255,10 @@ func (a *App) runGenJob(ctx context.Context, c pgConn, cfg dgGenConfig, meta dgT
 		return
 	}
 
-	tableRef := qIdent(cfg.Schema) + "." + qIdent(cfg.Table)
+	tableRef := qIdent(c.Engine, cfg.Schema) + "." + qIdent(c.Engine, cfg.Table)
 	colList := make([]string, len(gens))
 	for i, g := range gens {
-		colList[i] = qIdent(g.col.Name)
+		colList[i] = qIdent(c.Engine, g.col.Name)
 	}
 	insertPrefix := "INSERT INTO " + tableRef + " (" + strings.Join(colList, ",") + ") VALUES "
 
@@ -283,7 +296,7 @@ func (a *App) runGenJob(ctx context.Context, c pgConn, cfg dgGenConfig, meta dgT
 		wg.Add(1)
 		go func(wkr int) {
 			defer wg.Done()
-			gc := &genCtx{rng: newRand(seed + int64(wkr)*1_000_003), fk: fk, uniq: nonce,
+			gc := &genCtx{rng: newRand(seed + int64(wkr)*1_000_003), fk: fk, uniq: nonce, engine: c.Engine,
 				tsStart: time.Now().Add(-720 * time.Hour), tsStep: time.Minute}
 			for {
 				if ctx.Err() != nil {
@@ -309,7 +322,7 @@ func (a *App) runGenJob(ctx context.Context, c pgConn, cfg dgGenConfig, meta dgT
 					}
 					b.WriteByte(')')
 				}
-				if err := a.pgExec(ctx, c, cfg.Database, b.String()); err != nil {
+				if err := a.execSQL(ctx, c, cfg.Database, b.String()); err != nil {
 					atomic.AddInt64(&job.Errors, n)
 					job.Message = truncErr(err.Error())
 					if cfg.StopOnError {

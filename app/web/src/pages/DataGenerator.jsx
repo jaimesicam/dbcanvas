@@ -118,11 +118,11 @@ export default function DataGenerator() {
       )}
 
       {/* Step 1 — connection */}
-      <Card title="1 · Connection" subtitle="Running PostgreSQL nodes from your Database Stacks">
+      <Card title="1 · Connection" subtitle="Running PostgreSQL & MySQL/PXC nodes from your Database Stacks">
         {conns === null ? (
           <p className="text-sm text-muted">Loading connections…</p>
         ) : conns.length === 0 ? (
-          <p className="text-sm text-muted">No running PostgreSQL nodes. Deploy a stack with a Postgres / Patroni / repmgr node first.</p>
+          <p className="text-sm text-muted">No running database nodes. Deploy a stack with a PostgreSQL (pg / Patroni / repmgr) or MySQL (PXC / Percona Server / InnoDB) node first.</p>
         ) : (
           <div className="flex flex-wrap gap-2">
             {conns.map((c) => {
@@ -131,7 +131,7 @@ export default function DataGenerator() {
                 <button key={`${c.stackId}:${c.nodeId}`} onClick={() => pickConn(c)}
                   className={`rounded-lg border px-3 py-2 text-left text-sm transition ${on ? 'border-primary bg-primary/10' : 'hover:bg-surface2'}`}>
                   <div className="font-medium">{c.label || c.nodeId}</div>
-                  <div className="text-xs text-muted">{c.stackName} · {c.type}</div>
+                  <div className="text-xs text-muted">{c.stackName} · {c.type} · {c.engine === 'mysql' ? 'MySQL' : 'PostgreSQL'}</div>
                 </button>
               )
             })}
