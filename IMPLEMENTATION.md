@@ -3475,3 +3475,17 @@ so an empty result serializes to `[]` → the page shows "No running PostgreSQL 
 page also normalizes the response (`Array.isArray(d) ? d : []`) and, on a failed request
 (e.g. the Go backend not yet rebuilt/restarted so `/api/datagen/*` 404s), sets `conns=[]`
 and shows an actionable error instead of spinning forever.
+
+**Fix — connections always empty (found via live server):** the connections handler ran
+`buildDoc` over stacks from `ListStacks`, but `ListStacks` doesn't select `design_json`
+(only `GetStack` does), so every stack had an empty design ⇒ zero nodes ⇒ `[]`. Now the
+handler reloads each stack via `a.store.GetStack(s.ID)` before scanning nodes.
+
+**Fix — psql peer authentication (found via live server):** `pgQueryJSON`/`pgExec` ran
+`docker exec psql -U postgres`, which runs as root; the pg image uses `--auth-local=peer`,
+so `psql: FATAL: Peer authentication failed for user "postgres"`. Switched both to
+`docker.ExecAs(ctx, id, "postgres", …)` (matching the `runuser -u postgres` pattern used
+elsewhere) so psql runs as the postgres OS user and authenticates over the local socket
+without a password. Verified end-to-end against a live deployed stack: connections →
+databases → columns (correct inference incl. identity/FK) → generate 200 rows, 0 errors,
+valid FK values.

@@ -50,10 +50,11 @@ func (s pgSecrets) Super() string {
 }
 
 // pgQueryJSON runs a query whose single-row single-column result is JSON and unmarshals it.
+// psql runs as the postgres OS user (matching the pg image's local `peer` auth), so it
+// authenticates over the local socket without a password.
 func (a *App) pgQueryJSON(ctx context.Context, c pgConn, db, sql string, out any) error {
-	res, err := a.docker.Exec(ctx, c.ContainerID,
-		[]string{"psql", "-U", c.Super, "-d", db, "-tAqc", sql},
-		[]string{"PGPASSWORD=" + c.Password})
+	res, err := a.docker.ExecAs(ctx, c.ContainerID, "postgres",
+		[]string{"psql", "-U", c.Super, "-d", db, "-tAqc", sql}, nil)
 	if err != nil {
 		return err
 	}
@@ -69,9 +70,8 @@ func (a *App) pgQueryJSON(ctx context.Context, c pgConn, db, sql string, out any
 
 // pgExec runs a statement (INSERT etc.) and returns rows affected (from the psql tag) or error.
 func (a *App) pgExec(ctx context.Context, c pgConn, db, sql string) error {
-	res, err := a.docker.Exec(ctx, c.ContainerID,
-		[]string{"psql", "-v", "ON_ERROR_STOP=1", "-U", c.Super, "-d", db, "-qc", sql},
-		[]string{"PGPASSWORD=" + c.Password})
+	res, err := a.docker.ExecAs(ctx, c.ContainerID, "postgres",
+		[]string{"psql", "-v", "ON_ERROR_STOP=1", "-U", c.Super, "-d", db, "-qc", sql}, nil)
 	if err != nil {
 		return err
 	}
@@ -101,7 +101,12 @@ func (a *App) handleDataGenConnections(w http.ResponseWriter, r *http.Request) {
 	}
 	stacks, _ := a.store.ListStacks(u.ID, u.Role == RoleAdmin)
 	out := []dgConnection{}
-	for _, st := range stacks {
+	for _, s := range stacks {
+		// ListStacks omits design_json; reload the full stack so buildDoc sees its nodes.
+		st, err := a.store.GetStack(s.ID)
+		if err != nil {
+			continue
+		}
 		doc := buildDoc(st)
 		for _, n := range doc.Nodes {
 			if n.Type != "pg" && n.Type != "patroni" && n.Type != "repmgr" {
