@@ -73,6 +73,16 @@ func main() {
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/stop", app.handleNodeAction("stop"))
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/restart", app.handleNodeAction("restart"))
 
+	// Data Generator — introspect + generate test data for PostgreSQL stack tables.
+	mux.HandleFunc("GET /api/datagen/connections", app.handleDataGenConnections)
+	mux.HandleFunc("GET /api/datagen/stacks/{id}/nodes/{nid}/databases", app.handleDataGenDatabases)
+	mux.HandleFunc("GET /api/datagen/stacks/{id}/nodes/{nid}/tables", app.handleDataGenTables)
+	mux.HandleFunc("GET /api/datagen/stacks/{id}/nodes/{nid}/columns", app.handleDataGenColumns)
+	mux.HandleFunc("POST /api/datagen/stacks/{id}/nodes/{nid}/preview", app.handleDataGenPreview)
+	mux.HandleFunc("POST /api/datagen/stacks/{id}/nodes/{nid}/generate", app.handleDataGenGenerate)
+	mux.HandleFunc("GET /api/datagen/jobs/{job}", app.handleDataGenJob)
+	mux.HandleFunc("POST /api/datagen/jobs/{job}/cancel", app.handleDataGenCancel)
+
 	// Intranet node management (Phase 3) — all via docker exec into the container.
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/email/users", app.handleEmailList)
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/email/users", app.emailMutate(emailAddScript, true))

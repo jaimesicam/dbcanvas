@@ -3424,3 +3424,54 @@ node across deploy/destroy cycles. `teardownStack` now also calls `docker.Volume
 no-op for non-PMM nodes. Verified the volume lifecycle: it survives container removal,
 removes cleanly once the container is gone, and removing a missing volume is harmless.
 `go build`/`vet`/`gofmt -l` clean.
+
+## 53. Data Generator feature (PostgreSQL) + nav cleanup
+
+Removed the four demo pages (Interactions/Controls, Node Editor, Data Table, Kanban) and
+their nav entries; added a new **Data Generator** nav entry directly below Database Stacks.
+
+New feature: generate realistic test data for tables in databases provisioned by Database
+Stacks. This session ships the full **PostgreSQL** slice (pg / patroni / repmgr nodes);
+MySQL/PXC and advanced options are designed in `docs/DATA_GENERATOR.md`.
+
+Architecture — all SQL runs via `docker exec psql` inside the node container using the
+deployment's stored superuser secret (works whether or not 5432 is published; no DB driver
+on the app network). Introspection queries return JSON (`json_agg`) unmarshalled in Go.
+
+- `app/datagen.go` — `pgConnFor`/`pgQueryJSON`/`pgExec`; connections list (running pg-family
+  nodes across the user's stacks); databases/tables introspection; `tableMeta` (columns via
+  `pg_attribute`/`format_type` → type, nullability, default, identity/generated, char len,
+  numeric precision/scale, **pgvector dimension**, **enum labels**; PK/unique via `pg_index`;
+  single-column **FKs** via `pg_constraint`; **TimescaleDB** hypertable + time column, with
+  the extension-absent error treated as "not a hypertable").
+- `app/datagen_gen.go` — generator IDs, `generatorChoices`, `inferGenerator` (DB-managed →
+  default; FK → sampler; vector → embedding; enum → labels; hypertable time col; name
+  regexes; type fallback), and `value()` emitting a SQL literal per row (length-clipped,
+  scale-aware; vector `'[…]'::vector`; FK picks from the sampled pool).
+- `app/datagen_data.go` — realistic-data libraries + `mustRe`.
+- `app/datagen_job.go` — request config, **FK pre-sampling** (`quote_nullable` → ready
+  literals; fatal if a NOT NULL FK's parent is empty), preview (10 rows, no writes), and the
+  generation engine: N workers (1–16) pull mutex-guarded batches, each builds one multi-row
+  `INSERT … VALUES` run with `ON_ERROR_STOP=1`; atomic progress; `stopOnError` cancels;
+  progress + cancel endpoints. Per-worker seeded RNG.
+- Routes in `main.go` under `/api/datagen/…`.
+- Frontend `app/web/src/pages/DataGenerator.jsx` + `lib/datagenApi.js`: connection → db →
+  table wizard, per-column generator template with comboboxes + inline options + skip, run
+  options (rows/batch/workers/FK sample/seed/stop-on-error), preview table, and live job
+  progress (rows/s, elapsed, ETA, errors) with cancel.
+
+Verified live against `pgvector/pgvector:pg16` with a schema exercising identity, generated
+column, `varchar(50)`, numeric(10,2), enum, `vector(3)`, and a FK: the column/FK/tables
+queries return correct JSON (identity/generated/vector-dim/enum/char-len all detected); FK
+sampling via `quote_nullable` yields insertable literals; a generated multi-row INSERT with
+vector/enum/NULL/bool/FK succeeds and the DB auto-fills identity + generated columns. The
+hypertable query errors cleanly when TimescaleDB is absent (ignored). `go build`/`vet`/
+`gofmt -l` and `npm run build` clean. Design: `docs/DATA_GENERATOR.md`.
+
+**Fix — connections stuck on "Loading…":** the connections handler built its result with
+`var out []dgConnection`; when empty, a nil slice marshals to JSON `null`, and the page
+(`conns === null` ⇒ "Loading connections…") never advanced. Now `out := []dgConnection{}`
+so an empty result serializes to `[]` → the page shows "No running PostgreSQL nodes". The
+page also normalizes the response (`Array.isArray(d) ? d : []`) and, on a failed request
+(e.g. the Go backend not yet rebuilt/restarted so `/api/datagen/*` 404s), sets `conns=[]`
+and shows an actionable error instead of spinning forever.

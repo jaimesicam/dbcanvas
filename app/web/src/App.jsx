@@ -7,19 +7,13 @@ import { TerminalProvider } from './terminal/TerminalProvider.jsx'
 
 import Dashboard from './pages/Dashboard.jsx'
 import StackDesigner from './pages/StackDesigner.jsx'
-import Controls from './pages/Controls.jsx'
-import NodeEditorFrames from './pages/NodeEditorFrames.jsx'
-import DataTable from './pages/DataTable.jsx'
-import Kanban from './pages/Kanban.jsx'
+import DataGenerator from './pages/DataGenerator.jsx'
 import ManageUsers from './pages/ManageUsers.jsx'
 
 const NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: 'Dashboard', page: Dashboard, hint: 'Widgets & live charts' },
   { id: 'stack-designer', label: 'Database Stacks', icon: 'Grid', page: StackDesigner, hint: 'Design & deploy stacks' },
-  { id: 'controls', label: 'Interactions', icon: 'Sliders', page: Controls, hint: 'Inputs, drag, gestures' },
-  { id: 'nodes-frames', label: 'Node Editor', icon: 'Nodes', page: NodeEditorFrames, hint: 'Frames + properties panel' },
-  { id: 'table', label: 'Data Table', icon: 'Table', page: DataTable, hint: 'Sort, filter, select' },
-  { id: 'kanban', label: 'Kanban', icon: 'Kanban', page: Kanban, hint: 'Drag-and-drop board' },
+  { id: 'data-generator', label: 'Data Generator', icon: 'Table', page: DataGenerator, hint: 'Generate test data for stack tables' },
 ]
 const ADMIN_NAV = { id: 'users', label: 'Manage Users', icon: 'Users', page: ManageUsers, hint: 'Approve & manage accounts' }
 
