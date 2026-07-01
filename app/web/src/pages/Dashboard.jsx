@@ -101,9 +101,11 @@ export default function Dashboard() {
 
       {/* Counters */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <Stat label="Stacks" value={sum?.stacks.total ?? '—'} sub={`${sum?.stacks.deployed ?? 0} deployed`} />
-        <Stat label="Nodes running" value={sum?.nodes.running ?? '—'}
-          sub={sum?.nodes.error ? `${sum.nodes.error} error` : 'all healthy'} tone={sum?.nodes.error ? 'danger' : 'primary'} />
+        <Stat label="Stacks deployed" value={sum ? `${sum.stacks.deployed}/${sum.stacks.total}` : '—'}
+          sub={sum ? [sum.stacks.draft ? `${sum.stacks.draft} draft` : '', sum.stacks.expired ? `${sum.stacks.expired} expired` : ''].filter(Boolean).join(' · ') || 'all deployed' : ''} />
+        <Stat label="Nodes running" value={sum ? `${sum.nodes.running}/${sum.nodes.total}` : '—'}
+          sub={sum?.nodes.error ? `${sum.nodes.error} error` : (sum?.nodes.other ? `${sum.nodes.other} provisioning` : 'all healthy')}
+          tone={sum?.nodes.error ? 'danger' : 'primary'} />
         <Stat label="Containers" value={stats?.containers ?? '—'} sub="live" />
         <Stat label="CPU" value={stats ? `${stats.cpuPercent.toFixed(0)}%` : '—'} sub="aggregate" />
         <Stat label="Memory" value={stats ? fmtBytes(stats.memUsed) : '—'} sub={stats ? `of ${fmtBytes(stats.memLimit)}` : ''} />

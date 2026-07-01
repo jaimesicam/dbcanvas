@@ -23,15 +23,23 @@ type dashUsers struct {
 type dashSummary struct {
 	Scope  string `json:"scope"`
 	Stacks struct {
-		Total, Deployed, Draft, Expired int
+		Total    int `json:"total"`
+		Deployed int `json:"deployed"`
+		Draft    int `json:"draft"`
+		Expired  int `json:"expired"`
 	} `json:"stacks"`
 	Nodes struct {
-		Total, Running, Error, Other int
+		Total   int `json:"total"`
+		Running int `json:"running"`
+		Error   int `json:"error"`
+		Other   int `json:"other"`
 	} `json:"nodes"`
 	ByEngine map[string]int `json:"byEngine"`
 	ByType   map[string]int `json:"byType"`
 	DataGen  struct {
-		Active, Done, Error int
+		Active int `json:"active"`
+		Done   int `json:"done"`
+		Error  int `json:"error"`
 	} `json:"dataGen"`
 	Users    *dashUsers     `json:"users,omitempty"`
 	Activity []Notification `json:"activity"`
