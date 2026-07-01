@@ -719,7 +719,8 @@ func (d *Docker) ListManaged(ctx context.Context) ([]ContainerInfo, error) {
 	return out, nil
 }
 
-// ContainerStat is a one-shot resource sample for a running container.
+// ContainerStat is a one-shot resource sample for a running container. Net/block counters
+// are cumulative since container start; callers diff consecutive samples to derive rates.
 type ContainerStat struct {
 	CPUPercent float64 `json:"cpuPercent"`
 	MemUsed    int64   `json:"memUsed"`
@@ -727,6 +728,8 @@ type ContainerStat struct {
 	MemPercent float64 `json:"memPercent"`
 	NetRx      int64   `json:"netRx"`
 	NetTx      int64   `json:"netTx"`
+	BlkRead    int64   `json:"blkRead"`
+	BlkWrite   int64   `json:"blkWrite"`
 }
 
 // ContainerStats fetches a single (non-streaming) resource sample. With stream=false the
@@ -762,6 +765,12 @@ func (d *Docker) ContainerStats(ctx context.Context, id string) (ContainerStat, 
 			RxBytes int64 `json:"rx_bytes"`
 			TxBytes int64 `json:"tx_bytes"`
 		} `json:"networks"`
+		Blkio struct {
+			IoServiceBytes []struct {
+				Op    string `json:"op"`
+				Value int64  `json:"value"`
+			} `json:"io_service_bytes_recursive"`
+		} `json:"blkio_stats"`
 	}
 	if err := json.Unmarshal(drain(resp), &s); err != nil {
 		return ContainerStat{}, err
@@ -793,6 +802,14 @@ func (d *Docker) ContainerStats(ctx context.Context, id string) (ContainerStat, 
 	for _, n := range s.Networks {
 		out.NetRx += n.RxBytes
 		out.NetTx += n.TxBytes
+	}
+	for _, b := range s.Blkio.IoServiceBytes {
+		switch {
+		case strings.EqualFold(b.Op, "read"):
+			out.BlkRead += b.Value
+		case strings.EqualFold(b.Op, "write"):
+			out.BlkWrite += b.Value
+		}
 	}
 	return out, nil
 }

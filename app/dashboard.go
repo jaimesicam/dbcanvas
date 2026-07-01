@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -260,31 +259,24 @@ func (a *App) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
 			mine = append(mine, row)
 		}
 	}
-	// Aggregate + top-N by CPU.
+	// Aggregate + full per-node list (the client derives rates + ranks the tables).
 	var totCPU, totMemUsed, totMemLimit float64
-	running := 0
+	nodes := []containerStatRow{}
 	for _, row := range mine {
-		if row.State == "running" {
-			running++
-			totCPU += row.CPUPercent
-			totMemUsed += float64(row.MemUsed)
-			totMemLimit += float64(row.MemLimit)
+		if row.State != "running" {
+			continue
 		}
-	}
-	sort.Slice(mine, func(i, j int) bool { return mine[i].CPUPercent > mine[j].CPUPercent })
-	top := mine
-	if len(top) > 8 {
-		top = top[:8]
-	}
-	if top == nil {
-		top = []containerStatRow{}
+		totCPU += row.CPUPercent
+		totMemUsed += float64(row.MemUsed)
+		totMemLimit += float64(row.MemLimit)
+		nodes = append(nodes, row)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"containers":   running,
+		"containers":   len(nodes),
 		"cpuPercent":   totCPU,
 		"memUsed":      int64(totMemUsed),
 		"memLimit":     int64(totMemLimit),
-		"top":          top,
+		"nodes":        nodes,
 		"sampledAtSec": time.Now().Unix(),
 	})
 }

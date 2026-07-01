@@ -5,7 +5,8 @@ import { relTime } from '../lib/notifApi.js'
 
 // Dashboard — store-backed summary counters plus focus-gated live OS stats. The live sample
 // polls only while this page is mounted AND the tab is visible/focused, so there is no
-// CPU/disk cost when nobody is looking.
+// CPU/disk cost when nobody is looking. Network/disk are shown as per-node rates (bytes/s)
+// derived by diffing consecutive samples.
 
 // useFocusGatedInterval runs cb every ms, but only while the tab is visible and focused.
 // It stops on blur/hide and on unmount (leaving the dashboard).
@@ -52,14 +53,32 @@ function useFocusGatedInterval(cb, ms, onActive) {
 export default function Dashboard() {
   const [sum, setSum] = useState(null)
   const [stats, setStats] = useState(null)
-  const [cpuHist, setCpuHist] = useState([])
+  const [rates, setRates] = useState([])
   const [live, setLive] = useState(false)
+  const prev = useRef(null) // { at, byName } for rate deltas
 
   const loadSummary = useCallback(() => { dashApi.summary().then(setSum).catch(() => {}) }, [])
   const loadStats = useCallback(() => {
     dashApi.stats().then((d) => {
       setStats(d)
-      setCpuHist((prev) => [...prev, d.cpuPercent || 0].slice(-48))
+      const nodes = d.nodes || []
+      const now = d.sampledAtSec || Date.now() / 1000
+      const p = prev.current
+      if (p && now > p.at) {
+        const dt = now - p.at
+        const r = (cur, was) => (was != null && cur >= was ? Math.max(0, (cur - was) / dt) : 0)
+        setRates(nodes.map((n) => {
+          const o = p.byName[n.name]
+          return {
+            name: n.name,
+            netIn: r(n.netRx, o?.netRx),
+            netOut: r(n.netTx, o?.netTx),
+            diskIn: r(n.blkRead, o?.blkRead),
+            diskOut: r(n.blkWrite, o?.blkWrite),
+          }
+        }))
+      }
+      prev.current = { at: now, byName: Object.fromEntries(nodes.map((n) => [n.name, n])) }
     }).catch(() => {})
   }, [])
 
@@ -68,6 +87,7 @@ export default function Dashboard() {
   useFocusGatedInterval(loadStats, 4000, setLive)
 
   const admin = sum?.scope === 'admin'
+  const cpuTop = (stats?.nodes || []).slice().sort((a, b) => b.cpuPercent - a.cpuPercent).slice(0, 8)
 
   return (
     <div className="space-y-4">
@@ -92,18 +112,21 @@ export default function Dashboard() {
           : <Stat label="Data-gen jobs" value={sum ? sum.dataGen.active + sum.dataGen.done + sum.dataGen.error : '—'} sub={`${sum?.dataGen.active ?? 0} active`} />}
       </div>
 
-      {/* CPU sparkline */}
-      <Card title="Live CPU" subtitle="Aggregate across containers (focus-gated)">
-        <Sparkline data={cpuHist} />
-      </Card>
-
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card title="Top containers" subtitle="By CPU" className="lg:col-span-2">
-          <TopContainers rows={stats?.top || []} />
+          <NodeTable rows={cpuTop} render={(c) => `${(c.cpuPercent || 0).toFixed(1)}%`} valueHead="CPU" />
         </Card>
         <Card title="By engine" subtitle="Running DB nodes">
           <Breakdown data={sum?.byEngine} labels={{ postgres: 'PostgreSQL', mysql: 'MySQL/PXC' }} />
         </Card>
+      </div>
+
+      {/* Per-node network / disk rates */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card title="Top network in" subtitle="Per node (live)"><RateTable rows={rates} metric="netIn" /></Card>
+        <Card title="Top network out" subtitle="Per node (live)"><RateTable rows={rates} metric="netOut" /></Card>
+        <Card title="Top disk in" subtitle="Per node (live)"><RateTable rows={rates} metric="diskIn" /></Card>
+        <Card title="Top disk out" subtitle="Per node (live)"><RateTable rows={rates} metric="diskOut" /></Card>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -129,31 +152,42 @@ function Stat({ label, value, sub, tone = 'muted' }) {
   )
 }
 
-function Sparkline({ data }) {
-  if (!data || data.length < 2) return <div className="flex h-28 items-center justify-center text-sm text-muted">Waiting for samples…</div>
-  const w = 600, h = 110, max = Math.max(10, ...data)
-  const pts = data.map((v, i) => `${(i / (data.length - 1)) * w},${h - (v / max) * (h - 8) - 4}`).join(' ')
-  return (
-    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="h-28 w-full">
-      <polyline points={pts} fill="none" stroke="var(--color-primary)" strokeWidth="2" vectorEffect="non-scaling-stroke" />
-      <text x="2" y="12" className="fill-muted text-[10px]">{max.toFixed(0)}%</text>
-    </svg>
-  )
-}
+const shortName = (n) => n.replace(/^dbcanvas-/, '')
 
-function TopContainers({ rows }) {
+// NodeTable renders a name + one metric column (used for the CPU table).
+function NodeTable({ rows, render, valueHead }) {
   if (!rows.length) return <div className="py-6 text-center text-sm text-muted">No running containers</div>
   return (
     <table className="w-full text-sm">
       <thead className="text-xs text-muted">
-        <tr><th className="px-2 py-1 text-left">Container</th><th className="px-2 py-1 text-right">CPU</th><th className="px-2 py-1 text-right">Memory</th></tr>
+        <tr><th className="px-2 py-1 text-left">Node</th><th className="px-2 py-1 text-right">{valueHead}</th></tr>
       </thead>
       <tbody>
         {rows.map((c) => (
           <tr key={c.name} className="border-t">
-            <td className="px-2 py-1 font-mono text-xs">{c.name.replace(/^dbcanvas-/, '')}</td>
-            <td className="px-2 py-1 text-right">{(c.cpuPercent || 0).toFixed(1)}%</td>
-            <td className="px-2 py-1 text-right text-muted">{fmtBytes(c.memUsed)}</td>
+            <td className="px-2 py-1 font-mono text-xs">{shortName(c.name)}</td>
+            <td className="px-2 py-1 text-right tabular-nums">{render(c)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+// RateTable ranks nodes by a per-second byte rate (top 8).
+function RateTable({ rows, metric }) {
+  const sorted = (rows || []).slice().sort((a, b) => b[metric] - a[metric]).slice(0, 8)
+  if (!sorted.length) return <div className="py-6 text-center text-sm text-muted">Waiting for samples…</div>
+  return (
+    <table className="w-full text-sm">
+      <thead className="text-xs text-muted">
+        <tr><th className="px-2 py-1 text-left">Node</th><th className="px-2 py-1 text-right">Rate</th></tr>
+      </thead>
+      <tbody>
+        {sorted.map((c) => (
+          <tr key={c.name} className="border-t">
+            <td className="px-2 py-1 font-mono text-xs">{shortName(c.name)}</td>
+            <td className="px-2 py-1 text-right tabular-nums text-muted">{fmtBytes(c[metric])}/s</td>
           </tr>
         ))}
       </tbody>
