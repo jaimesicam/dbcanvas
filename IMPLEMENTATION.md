@@ -3588,10 +3588,10 @@ Replaced the mock Dashboard with real, scope-aware data and added the remaining 
   cpu/precpu deltas × online CPUs; mem = usage − reclaimable cache; net rx/tx; block-IO
   read/write from `blkio_stats.io_service_bytes_recursive`).
 - Frontend `Dashboard.jsx` rewrite + `lib/dashApi.js`: scope badge, live indicator, counters
-  (stacks/nodes/containers/CPU/memory/users-or-jobs), a "Top containers by CPU" table, four
-  per-node **rate** tables (Top network in / out, Top disk in / out — bytes/s derived by
-  diffing consecutive samples client-side), by-engine / by-type breakdowns, and a real
-  activity feed. The `useFocusGatedInterval` hook polls only while
+  (stacks/nodes/containers/CPU/memory/users-or-jobs), five ranked horizontal **bar charts**
+  (`TopBars`, HTML/CSS — crisp font, animated, color-accented): Top containers by CPU, and
+  per-node Top network in / out and Top disk in / out (bytes/s derived by diffing consecutive
+  samples client-side), plus by-engine / by-type breakdowns and a real activity feed. The `useFocusGatedInterval` hook polls only while
   `document.visibilityState==='visible' && document.hasFocus()`, and stops on blur/hide and
   on unmount (leaving the page). (The stats endpoint returns the full per-node list; the
   client ranks each table.)
