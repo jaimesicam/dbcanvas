@@ -681,7 +681,10 @@ func pxcPMMEnv(pmmFQDN, pmmUser, pmmPass string, sec pxcSecrets, node string) []
 	}
 	return []string{
 		"PMM_FQDN=" + pmmFQDN, "PMM_USER=" + pmmUser, "PMM_PASS=" + pmmPass,
+		// DB_USER/DB_PW are root, used to create the dedicated 'pmm' account;
+		// PMM_PW is that account's password (PMM connects as 'pmm').
 		"DB_USER=" + dbUser, "DB_PW=" + sec.RootPassword,
+		"PMM_PW=" + envOr("PMM_PASSWORD", "pmm_password"),
 		"NODE=" + node,
 	}
 }
@@ -890,9 +893,18 @@ systemctl enable --now pmm-agent >/dev/null 2>&1 || true
 pmm-admin config --force --server-insecure-tls --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443" >/dev/null
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
 pmm-admin remove mysql "$NODE" >/dev/null 2>&1 || true
+# Dedicated least-privilege PMM monitoring account (per the Percona PMM docs),
+# created via root. On PXC the DDL replicates cluster-wide; IF NOT EXISTS keeps
+# it idempotent when this runs on every node.
+mysql --socket=/var/lib/mysql/mysql.sock -u"$DB_USER" -p"$DB_PW" 2>/dev/null <<SQL || true
+CREATE USER IF NOT EXISTS 'pmm'@'%' IDENTIFIED BY '$PMM_PW' WITH MAX_USER_CONNECTIONS 10;
+ALTER USER 'pmm'@'%' IDENTIFIED BY '$PMM_PW';
+GRANT SELECT, PROCESS, REPLICATION CLIENT, RELOAD, BACKUP_ADMIN ON *.* TO 'pmm'@'%';
+GRANT SELECT ON performance_schema.* TO 'pmm'@'%';
+SQL
 QS=perfschema
-[ "$(mysql --socket=/var/lib/mysql/mysql.sock -u"$DB_USER" -p"$DB_PW" -N -e 'SELECT @@global.slow_query_log' 2>/dev/null)" = "1" ] && QS=slowlog
-pmm-admin add mysql --username="$DB_USER" --password="$DB_PW" --socket=/var/lib/mysql/mysql.sock --query-source="$QS" "$NODE"`
+[ "$(mysql --socket=/var/lib/mysql/mysql.sock -upmm -p"$PMM_PW" -N -e 'SELECT @@global.slow_query_log' 2>/dev/null)" = "1" ] && QS=slowlog
+pmm-admin add mysql --username=pmm --password="$PMM_PW" --socket=/var/lib/mysql/mysql.sock --query-source="$QS" "$NODE"`
 
 const pxcPMMDebian = `set -e
 export DEBIAN_FRONTEND=noninteractive
@@ -901,9 +913,18 @@ systemctl enable --now pmm-agent >/dev/null 2>&1 || true
 pmm-admin config --force --server-insecure-tls --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443" >/dev/null
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
 pmm-admin remove mysql "$NODE" >/dev/null 2>&1 || true
+# Dedicated least-privilege PMM monitoring account (per the Percona PMM docs),
+# created via root. On PXC the DDL replicates cluster-wide; IF NOT EXISTS keeps
+# it idempotent when this runs on every node.
+mysql --socket=/var/lib/mysql/mysql.sock -u"$DB_USER" -p"$DB_PW" 2>/dev/null <<SQL || true
+CREATE USER IF NOT EXISTS 'pmm'@'%' IDENTIFIED BY '$PMM_PW' WITH MAX_USER_CONNECTIONS 10;
+ALTER USER 'pmm'@'%' IDENTIFIED BY '$PMM_PW';
+GRANT SELECT, PROCESS, REPLICATION CLIENT, RELOAD, BACKUP_ADMIN ON *.* TO 'pmm'@'%';
+GRANT SELECT ON performance_schema.* TO 'pmm'@'%';
+SQL
 QS=perfschema
-[ "$(mysql --socket=/var/lib/mysql/mysql.sock -u"$DB_USER" -p"$DB_PW" -N -e 'SELECT @@global.slow_query_log' 2>/dev/null)" = "1" ] && QS=slowlog
-pmm-admin add mysql --username="$DB_USER" --password="$DB_PW" --socket=/var/lib/mysql/mysql.sock --query-source="$QS" "$NODE"`
+[ "$(mysql --socket=/var/lib/mysql/mysql.sock -upmm -p"$PMM_PW" -N -e 'SELECT @@global.slow_query_log' 2>/dev/null)" = "1" ] && QS=slowlog
+pmm-admin add mysql --username=pmm --password="$PMM_PW" --socket=/var/lib/mysql/mysql.sock --query-source="$QS" "$NODE"`
 
 // pxcPMMRemoveScript deregisters a node's MySQL service from PMM and unregisters
 // the node from the server (best-effort; used when monitoring is turned off).

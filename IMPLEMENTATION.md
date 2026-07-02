@@ -3779,3 +3779,46 @@ replaced with the new intent.
   gated helper).
 - Not runtime-verified (would require an image rebuild + deploy); the change is a conditional
   wrap on the exact variable already governing PMM registration.
+
+## 62. PMM uses a dedicated least-privilege monitoring account per engine — `.env.example`, `app/pxc.go`, `app/patroni.go`, `app/pg.go`, `app/mongodb.go`
+
+Per the Percona PMM docs (connect-database), the `pmm-admin add <engine>` step should connect
+as a **dedicated, least-privilege monitoring user**, not root/superuser. Previously MySQL-family
+nodes registered as **root** and PostgreSQL-family nodes as the **postgres superuser**. Now every
+monitored node uses a dedicated **`pmm`** account whose password defaults to **`PMM_PASSWORD`**
+(new in `.env.example`, default `pmm_password`; already wired through compose).
+
+- **`.env.example`** — added `PMM_PASSWORD=pmm_password` with a comment; clarified that
+  `MONITOR_PASSWORD` is ProxySQL's health-check user, not PMM's.
+- **MySQL family** (`pxcPMM{RHEL,Debian}`, shared by PXC / MySQL replication / InnoDB-GR /
+  standalone Percona Server via `pxcPMMExec`): the register script now creates
+  `'pmm'@'%'` via root — `CREATE USER … IDENTIFIED BY '$PMM_PW' WITH MAX_USER_CONNECTIONS 10` +
+  `GRANT SELECT, PROCESS, REPLICATION CLIENT, RELOAD, BACKUP_ADMIN ON *.*` (+ `SELECT` on
+  `performance_schema`), then `pmm-admin add mysql --username=pmm --password=$PMM_PW`. On PXC the
+  DDL replicates cluster-wide; `IF NOT EXISTS` + `ALTER USER` keep it idempotent on every node.
+  `pxcPMMEnv` now also passes `PMM_PW` (root creds stay, to create the account).
+- **PostgreSQL family** (`patroniPMM{RHEL,Debian}`, shared by pg standalone / Patroni / repmgr):
+  the register script creates a `pmm` role **on the primary only** (guarded by
+  `pg_is_in_recovery()`; the role replicates to standbys), `WITH LOGIN SUPERUSER PASSWORD :'pw'`
+  as the docs recommend, via the proven `runuser -u postgres -- psql` + **stdin** pattern (psql
+  only expands `:'pw'` on stdin, never `-c`; Patroni's pg_hba is `local all all trust`). Then
+  `pmm-admin add postgresql --username=pmm`. `DB_USER/DB_PW` were dropped from the PG env builders
+  (`patroniRegisterPMM`, `pgRegisterPMM`) since peer auth needs no superuser password; `PMM_PW`
+  added. `pg_hba` already allows the pmm role's `host … 127.0.0.1` connection.
+- **MongoDB** — already created a dedicated `pmm` user with an appropriate role (custom
+  `pmmMonitor` + `read@local` + `clusterMonitor`, plus `directShardOperations` on 8.x, matching
+  the docs); only its password default changed from `genSecret("MongoPMM!")` to
+  `envOr("PMM_PASSWORD", "pmm_password")` (3 sites: RS frame, sharded frame, standalone).
+- **Valkey** already used a dedicated read-only `pmm` ACL user with `PMM_PASSWORD` — unchanged.
+- **ProxySQL / HAProxy** monitor a proxy/LB (ProxySQL admin interface, HAProxy stats), not a
+  database, so the DB-account recommendation doesn't apply; left as-is.
+
+Combined with §61 (skip pmm-client when unmonitored), the `pmm` account is created only on nodes
+associated with a PMM server. Existing deployments keep working: for Mongo the password is reused
+across redeploys if already stored; MySQL/PG create/refresh the `pmm` account on (re)deploy.
+
+### Verification performed
+- `go build ./...`, `go vet`, `gofmt -l` clean.
+- `bash -n` syntax-checked the rewritten MySQL and PostgreSQL register scripts (heredoc + guarded
+  role creation) — both OK.
+- Not runtime-verified (needs an image rebuild + PXC/PG/Mongo deploy with a PMM node).

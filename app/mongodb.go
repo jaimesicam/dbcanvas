@@ -177,7 +177,7 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 		keyFile = genKeyFile()
 	}
 	if pmmPass == "" {
-		pmmPass = genSecret("MongoPMM!")
+		pmmPass = envOr("PMM_PASSWORD", "pmm_password")
 	}
 	if pbmPass == "" {
 		pbmPass = genSecret("MongoPBM!")
@@ -420,7 +420,7 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 		keyFile = genKeyFile()
 	}
 	if pmmPass == "" {
-		pmmPass = genSecret("MongoPMM!")
+		pmmPass = envOr("PMM_PASSWORD", "pmm_password")
 	}
 	if pbmPass == "" {
 		pbmPass = genSecret("MongoPBM!")
@@ -590,7 +590,7 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 		admin = genSecret("MongoAdm!")
 	}
 	if pmmPass == "" {
-		pmmPass = genSecret("MongoPMM!")
+		pmmPass = envOr("PMM_PASSWORD", "pmm_password")
 	}
 	sec := mongoSecrets{AdminUser: "admin", AdminPassword: admin, PMMUser: "pmm", PMMPassword: pmmPass, OIDCSamplePassword: oidcSamplePW} // no keyFile → standalone
 

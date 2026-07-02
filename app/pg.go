@@ -396,7 +396,9 @@ func (a *App) pgRegisterPMM(ctx context.Context, st Stack, n designNode, doc des
 	}
 	env := []string{
 		"PMM_FQDN=" + pmmFQDN, "PMM_USER=" + pmmUser, "PMM_PASS=" + pmmPass,
-		"DB_USER=" + sec.SuperUser, "DB_PW=" + sec.SuperPassword,
+		// PMM connects as the dedicated 'pmm' role (created via local peer auth);
+		// PMM_PW is that role's password.
+		"PMM_PW=" + envOr("PMM_PASSWORD", "pmm_password"),
 		"NODE=" + n.Label,
 	}
 	if _, err := a.docker.Exec(ctx, dep.ContainerID, []string{"bash", "-c", script}, env); err != nil {

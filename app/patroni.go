@@ -686,7 +686,9 @@ func (a *App) patroniRegisterPMM(ctx context.Context, st Stack, n designNode, fr
 	}
 	env := []string{
 		"PMM_FQDN=" + pmmFQDN, "PMM_USER=" + pmmUser, "PMM_PASS=" + pmmPass,
-		"DB_USER=" + sec.SuperUser, "DB_PW=" + sec.SuperPassword,
+		// PMM connects as the dedicated 'pmm' role (created on the primary via local
+		// peer auth); PMM_PW is that role's password.
+		"PMM_PW=" + envOr("PMM_PASSWORD", "pmm_password"),
 		"NODE=" + n.Label,
 	}
 	if _, err := a.docker.Exec(ctx, dep.ContainerID, []string{"bash", "-c", script}, env); err != nil {
@@ -1053,7 +1055,17 @@ systemctl enable --now pmm-agent >/dev/null 2>&1 || true
 pmm-admin config --force --server-insecure-tls --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443" >/dev/null
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
 pmm-admin remove postgresql "$NODE" >/dev/null 2>&1 || true
-pmm-admin add postgresql --username="$DB_USER" --password="$DB_PW" --host=127.0.0.1 --port=5432 "$NODE"`
+# Dedicated PMM monitoring role (per the Percona PMM docs). Created on the primary
+# only (a standby is read-only; the role replicates to it), as the postgres OS user
+# over the local socket. SUPERUSER as the docs recommend; :'pw' expands on stdin.
+if [ "$(runuser -u postgres -- psql -tAc 'SELECT pg_is_in_recovery()' 2>/dev/null)" = "f" ]; then
+  if runuser -u postgres -- psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='pmm'" 2>/dev/null | grep -q 1; then
+    printf '%s\n' "ALTER ROLE pmm WITH LOGIN SUPERUSER PASSWORD :'pw';" | runuser -u postgres -- psql -v ON_ERROR_STOP=1 -v pw="$PMM_PW" >/dev/null 2>&1 || true
+  else
+    printf '%s\n' "CREATE ROLE pmm WITH LOGIN SUPERUSER PASSWORD :'pw';" | runuser -u postgres -- psql -v ON_ERROR_STOP=1 -v pw="$PMM_PW" >/dev/null 2>&1 || true
+  fi
+fi
+pmm-admin add postgresql --username=pmm --password="$PMM_PW" --host=127.0.0.1 --port=5432 "$NODE"`
 
 const patroniPMMDebian = `set -e
 export DEBIAN_FRONTEND=noninteractive
@@ -1062,4 +1074,14 @@ systemctl enable --now pmm-agent >/dev/null 2>&1 || true
 pmm-admin config --force --server-insecure-tls --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443" >/dev/null
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
 pmm-admin remove postgresql "$NODE" >/dev/null 2>&1 || true
-pmm-admin add postgresql --username="$DB_USER" --password="$DB_PW" --host=127.0.0.1 --port=5432 "$NODE"`
+# Dedicated PMM monitoring role (per the Percona PMM docs). Created on the primary
+# only (a standby is read-only; the role replicates to it), as the postgres OS user
+# over the local socket. SUPERUSER as the docs recommend; :'pw' expands on stdin.
+if [ "$(runuser -u postgres -- psql -tAc 'SELECT pg_is_in_recovery()' 2>/dev/null)" = "f" ]; then
+  if runuser -u postgres -- psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='pmm'" 2>/dev/null | grep -q 1; then
+    printf '%s\n' "ALTER ROLE pmm WITH LOGIN SUPERUSER PASSWORD :'pw';" | runuser -u postgres -- psql -v ON_ERROR_STOP=1 -v pw="$PMM_PW" >/dev/null 2>&1 || true
+  else
+    printf '%s\n' "CREATE ROLE pmm WITH LOGIN SUPERUSER PASSWORD :'pw';" | runuser -u postgres -- psql -v ON_ERROR_STOP=1 -v pw="$PMM_PW" >/dev/null 2>&1 || true
+  fi
+fi
+pmm-admin add postgresql --username=pmm --password="$PMM_PW" --host=127.0.0.1 --port=5432 "$NODE"`
