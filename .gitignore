@@ -6,6 +6,11 @@ node_modules/
 dist/
 *.log
 
+# Screenshot-capture tooling — maintainer-only, kept out of the repo.
+# The generated screenshots (docs/screenshots/*.png) ARE committed; only the
+# machinery that produces them is ignored.
+/app/web/scripts/
+
 # Go
 /app/*.db
 /app/*.db-*

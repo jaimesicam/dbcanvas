@@ -11,6 +11,11 @@ center for what's happening across your stacks.
 It's built for testing, demos, training, troubleshooting, benchmarking, and application
 development — spin up a production-shaped cluster in minutes, exercise it, and tear it down.
 
+![The Database Stacks canvas with a deployed 7-node stack](docs/screenshots/stacks-canvas.png)
+
+> *Above: a deployed stack — an Intranet (DNS/LDAP/CA), a PMM monitor, a standalone
+> PostgreSQL, a 3-node Percona XtraDB Cluster, and an Ubuntu VNC desktop — all running.*
+
 The control-plane is a single small (~22 MB) Go binary that serves the embedded React SPA
 **and** the JSON API on one port, keeps its own metadata in SQLite, and talks to the Docker
 daemon to provision the stack containers alongside itself.
@@ -49,6 +54,26 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
 - **Operations** — cross-cluster replication links, per-node web terminals, certificate
   management, on-demand backups, and TTL-based auto-teardown.
 
+Every deployed node gets a **management panel** — runtime profile, endpoints, credentials,
+certificates, backups, and one-click consoles:
+
+![PMM node management panel](docs/screenshots/pmm-node.png)
+
+**Web terminals.** Drop into a root (or service) shell on any node, right in the browser —
+sessions survive navigation and can be docked or floated:
+
+![A live per-node web terminal running psql](docs/screenshots/terminal.png)
+
+**Monitoring with PMM.** Add a PMM node and point databases at it; DB nodes register
+themselves, so Percona Monitoring & Management comes up already watching the stack:
+
+![Percona Monitoring & Management monitoring the deployed stack](docs/screenshots/pmm-web.png)
+
+**Ubuntu VNC desktop.** An optional XFCE desktop jump-box (Firefox + Percona clients)
+reachable over a browser-based VNC client — handy for GUI database tools inside the stack network:
+
+![The Ubuntu VNC desktop node](docs/screenshots/vnc-desktop.png)
+
 ### Data Generator
 Generate realistic test data for existing tables in your deployed **PostgreSQL** and
 **MySQL/PXC** databases. Pick a running connection, browse to a table, and DBCanvas
@@ -59,12 +84,20 @@ columns, **pgvector** embeddings and **TimescaleDB** time-series (PostgreSQL), c
 rows / batch size / worker threads, a preview, and a live progress readout. See
 [`docs/DATA_GENERATOR.md`](docs/DATA_GENERATOR.md).
 
+![Data Generator populating a foreign-key-rich table](docs/screenshots/data-generator.png)
+
+> *Generating into `order_items`: the two foreign keys are auto-detected and populated with
+> the **Foreign key sampler** (drawing real `orders`/`products` ids), while the other columns
+> get inferred generators.*
+
 ### Dashboard
 Scope-aware overview: an **admin** sees everything, a regular user sees only their own
 stacks. Counters (stacks, nodes, containers, by engine/type, users) plus **live OS stats**
 (CPU, memory, and per-node network/disk rates as ranked bar charts). The live sampling is
 **focus-gated** — it polls only while the dashboard tab is visible and focused, so there's
 no background CPU/disk cost when you're not looking.
+
+![The live Dashboard](docs/screenshots/dashboard.png)
 
 ### Notifications
 A live bell (Server-Sent Events) that surfaces what happens across your stacks: node
