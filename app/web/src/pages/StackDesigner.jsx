@@ -123,7 +123,7 @@ const NODE_TYPES = {
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: {
       os: 'oraclelinux', osVersion: '9', arch: 'amd64', psmdbMajor: '8.0', psmdbVersion: '',
-      rootPassword: '', pmmNodeId: '', useProxy: true,
+      rootPassword: '', pmmNodeId: '', useProxy: false,
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
       exportEnabled: false, exportHostPort: 0,
       enableOIDC: false, keycloakNodeId: '', oidcRealm: 'mongodb',
@@ -142,7 +142,7 @@ const NODE_TYPES = {
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: {
       os: 'oraclelinux', osVersion: '9', arch: 'amd64', psMajor: '8.0', psVersion: '',
-      rootPassword: '', gtid: true, pmmNodeId: '', useProxy: true,
+      rootPassword: '', gtid: true, pmmNodeId: '', useProxy: false,
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
       exportEnabled: false, exportHostPort: 0,
     },
@@ -159,7 +159,7 @@ const NODE_TYPES = {
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: {
       os: 'oraclelinux', osVersion: '9', arch: 'amd64', pgMajor: '16', pgVersion: '',
-      rootPassword: '', pmmNodeId: '', useProxy: true,
+      rootPassword: '', pmmNodeId: '', useProxy: false,
       usePgBackRest: false, seaweedfsNodeId: '',
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
       exportEnabled: false, exportHostPort: 0,
@@ -177,7 +177,7 @@ const NODE_TYPES = {
     defaults: {
       os: 'oraclelinux', osVersion: '9', arch: 'amd64',
       proxysqlMajor: '2', proxysqlVersion: '', mode: 'singlewrite',
-      exportEnabled: false, exportHostPort: 0, pmmNodeId: '', useProxy: true,
+      exportEnabled: false, exportHostPort: 0, pmmNodeId: '', useProxy: false,
     },
   },
   // HAProxy — a TCP load balancer fronting a Patroni cluster. Links to a Patroni
@@ -194,7 +194,7 @@ const NODE_TYPES = {
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: {
       os: 'oraclelinux', osVersion: '9', arch: 'amd64',
-      exportEnabled: false, exportHostPort: 0, pmmNodeId: '', useProxy: true,
+      exportEnabled: false, exportHostPort: 0, pmmNodeId: '', useProxy: false,
     },
   },
   // SeaweedFS — an S3-compatible object store (backup target). Like PMM it runs a
@@ -251,7 +251,7 @@ const NODE_TYPES = {
     osOptions: [{ id: 'ubuntu', label: 'Ubuntu' }],
     defaults: {
       os: 'ubuntu', osVersion: '24.04', arch: 'amd64',
-      vncUser: 'dbadmin', vncPassword: '', useProxy: true,
+      vncUser: 'dbadmin', vncPassword: '', useProxy: false,
     },
   },
   // Standalone Valkey (valkey/valkey-bundle image, pulled at deploy). Analogue of the
@@ -1037,7 +1037,7 @@ function StackEditor({ stackId, onBack }) {
     const frame = {
       id: fid, type: 'pxc', label: nextClusterName(frames), x: fx, y: fy, w: 0, h: 0,
       os: 'oraclelinux', osVersion: '9', arch: 'amd64', pxcMajor: '8.0', pxcVersion: '',
-      rootPassword: '', pmmNodeId: '', useProxy: true, gtid: true,
+      rootPassword: '', pmmNodeId: '', useProxy: false, gtid: true,
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
     }
     const used = new Set(nodes.filter((n) => n.type === 'pxc').map((n) => n.label))
@@ -1072,7 +1072,7 @@ function StackEditor({ stackId, onBack }) {
     const frame = {
       id: fid, type: 'proxysql', label: nextNamedCluster(frames, 'proxysql-cluster'), x: fx, y: fy, w: 0, h: 0,
       os: 'oraclelinux', osVersion: '9', arch: 'amd64', proxysqlMajor: '2', proxysqlVersion: '',
-      mode: 'singlewrite', pmmNodeId: '', useProxy: true,
+      mode: 'singlewrite', pmmNodeId: '', useProxy: false,
     }
     const used = new Set(nodes.filter((n) => n.type === 'proxysql').map((n) => n.label))
     const newNodes = []
@@ -1098,7 +1098,7 @@ function StackEditor({ stackId, onBack }) {
     const frame = {
       id: fid, type: 'mysql', label: nextNamedCluster(frames, 'psrepl'), x: fx, y: fy, w: 0, h: 0,
       os: 'oraclelinux', osVersion: '9', arch: 'amd64', psMajor: '8.0', psVersion: '',
-      rootPassword: '', pmmNodeId: '', useProxy: true, gtid: true, replMode: 'async',
+      rootPassword: '', pmmNodeId: '', useProxy: false, gtid: true, replMode: 'async',
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
     }
     const used = new Set(nodes.filter((n) => n.type === 'mysql').map((n) => n.label))
@@ -1125,7 +1125,7 @@ function StackEditor({ stackId, onBack }) {
     const frame = {
       id: fid, type: 'innodb', label: nextNamedCluster(frames, 'innodb'), x: fx, y: fy, w: 0, h: 0,
       os: 'oraclelinux', osVersion: '9', arch: 'amd64', pdpsRepo: '', replMode: 'innodbcluster',
-      rootPassword: '', pmmNodeId: '', useProxy: true, mysqlRouter: true,
+      rootPassword: '', pmmNodeId: '', useProxy: false, mysqlRouter: true,
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
     }
     const used = new Set(nodes.filter((n) => n.type === 'innodb').map((n) => n.label))
@@ -1173,7 +1173,7 @@ function StackEditor({ stackId, onBack }) {
     const frame = {
       id: fid, type: 'psmdb', label: nextNamedCluster(frames, 'psmdb'), x: fx, y: fy, w: 0, h: 0,
       os: 'oraclelinux', osVersion: '9', arch: 'amd64', psmdbMajor: '8.0', psmdbVersion: '',
-      psmdbSetup: setup, rootPassword: '', pmmNodeId: '', useProxy: true,
+      psmdbSetup: setup, rootPassword: '', pmmNodeId: '', useProxy: false,
       enablePBM: false, seaweedfsNodeId: '',
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
     }
@@ -1208,7 +1208,7 @@ function StackEditor({ stackId, onBack }) {
     const frame = {
       id: fid, type: 'psmrs', label: nextNamedCluster(frames, 'psmrs'), x: fx, y: fy, w: 0, h: 0,
       os: 'oraclelinux', osVersion: '9', arch: 'amd64', psmdbMajor: '8.0', psmdbVersion: '',
-      rootPassword: '', pmmNodeId: '', useProxy: true,
+      rootPassword: '', pmmNodeId: '', useProxy: false,
       enablePBM: false, seaweedfsNodeId: '',
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
     }
@@ -1239,7 +1239,7 @@ function StackEditor({ stackId, onBack }) {
     const frame = {
       id: fid, type: 'patroni', label: nextNamedCluster(frames, 'patroni-cluster'), x: fx, y: fy, w: 0, h: 0,
       os: 'oraclelinux', osVersion: '9', arch: 'amd64', pgMajor: '16', pgVersion: '',
-      rootPassword: '', pmmNodeId: '', useProxy: true,
+      rootPassword: '', pmmNodeId: '', useProxy: false,
       usePgBackRest: false, seaweedfsNodeId: '',
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
     }
@@ -1269,7 +1269,7 @@ function StackEditor({ stackId, onBack }) {
     const frame = {
       id: fid, type: 'repmgr', label: nextNamedCluster(frames, 'repmgr-cluster'), x: fx, y: fy, w: 0, h: 0,
       os: 'oraclelinux', osVersion: '9', arch: 'amd64', pgMajor: '16', pgVersion: '',
-      rootPassword: '', pmmNodeId: '', useProxy: true,
+      rootPassword: '', pmmNodeId: '', useProxy: false,
       useBarman: false, seaweedfsNodeId: '',
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
     }

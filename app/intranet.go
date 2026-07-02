@@ -365,8 +365,13 @@ func (a *App) ensureDNFIPv4(ctx context.Context, id, os string, logln func(strin
 	}
 }
 
-// genSecret returns prefix + 8 uppercase hex chars (e.g. LdapAdm!A02FB5C6).
+// genSecret returns prefix + 8 uppercase hex chars (e.g. LdapAdm^(A02FB5C6).
+// The '!' historically used as the prefix separator is replaced with "^(":
+// unlike '!' (shell history expansion) or '$' (variable interpolation), these
+// characters are not interpolated by shells, so generated passwords stay safe
+// to paste into terminal / psql / mysql contexts.
 func genSecret(prefix string) string {
+	prefix = strings.ReplaceAll(prefix, "!", "^(")
 	b := make([]byte, 4)
 	rand.Read(b)
 	return prefix + strings.ToUpper(hex.EncodeToString(b))
