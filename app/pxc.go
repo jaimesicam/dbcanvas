@@ -451,19 +451,19 @@ func (a *App) pxcPrepareNode(ctx context.Context, st Stack, frame designFrame, n
 		}
 		pr.logln(xbpkg + " installed")
 
-		// Always install pmm-client (percona-release setup pmm3-client) on data
-		// nodes — regardless of whether PMM monitoring is on now — so monitoring can
-		// be enabled on-the-fly later without an install. Registration is a separate
-		// step; turning monitoring off only deregisters, it never uninstalls this.
-		pr.phase("Installing PMM client", 45)
-		pmmScript := pxcInstallPMMClientRHEL
-		if isDebianOS(frame.OS) {
-			pmmScript = pxcInstallPMMClientDebian
+		// Install pmm-client only when the cluster is monitored by a PMM server.
+		// Enabling monitoring later re-runs provisioning, which installs it then.
+		if frame.PMMNodeID != "" {
+			pr.phase("Installing PMM client", 45)
+			pmmScript := pxcInstallPMMClientRHEL
+			if isDebianOS(frame.OS) {
+				pmmScript = pxcInstallPMMClientDebian
+			}
+			if err := a.runStep(ctx, id, pmmScript, nil, pr.logln); err != nil {
+				return pr.fail("install pmm-client: %v", err)
+			}
+			pr.logln("pmm-client installed")
 		}
-		if err := a.runStep(ctx, id, pmmScript, nil, pr.logln); err != nil {
-			return pr.fail("install pmm-client: %v", err)
-		}
-		pr.logln("pmm-client installed")
 	}
 
 	// garbd nodes are configured later; regular nodes get their my.cnf now.

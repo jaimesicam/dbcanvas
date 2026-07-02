@@ -435,10 +435,13 @@ func (a *App) proxysqlPrepareMember(ctx context.Context, st Stack, frame designF
 	if err := a.runStep(ctx, id, clientScript, []string{"PRODUCT=" + psClientProduct(pxcMajor)}, pr.logln); err != nil {
 		return pr.fail("install percona-server-client: %v", err)
 	}
-	if err := a.runStep(ctx, id, pmmScript, nil, pr.logln); err != nil {
-		return pr.fail("install pmm-client: %v", err)
+	// Install pmm-client only when the cluster is monitored by a PMM server.
+	if frame.PMMNodeID != "" {
+		if err := a.runStep(ctx, id, pmmScript, nil, pr.logln); err != nil {
+			return pr.fail("install pmm-client: %v", err)
+		}
 	}
-	pr.logln("packages installed (proxysql, mysql client, pmm-client)")
+	pr.logln("packages installed (proxysql, mysql client)")
 	a.ensureRsyslog(ctx, id, frame.OS, pr.logln)
 
 	pr.phase("Starting ProxySQL", 70)
@@ -632,11 +635,13 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 		}
 		logln("percona-server-client installed")
 
-		// pmm-client is always installed so monitoring can be enabled later.
-		setPhase("Installing PMM client", 66)
-		if err := a.runStep(ctx, id, pmmScript, nil, logln); err != nil {
-			failNode("install pmm-client: %v", err)
-			return
+		// Install pmm-client only when this ProxySQL is monitored by a PMM server.
+		if p.PMMNodeID != "" {
+			setPhase("Installing PMM client", 66)
+			if err := a.runStep(ctx, id, pmmScript, nil, logln); err != nil {
+				failNode("install pmm-client: %v", err)
+				return
+			}
 		}
 		logln("pmm-client installed")
 		a.ensureRsyslog(ctx, id, p.OS, logln)

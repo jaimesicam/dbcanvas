@@ -401,16 +401,18 @@ func (a *App) repmgrPrepareNode(ctx context.Context, st Stack, frame designFrame
 	pr.logln("PostgreSQL " + major + " + repmgr installed (PGDG)")
 	a.ensureRsyslog(ctx, id, frame.OS, pr.logln)
 
-	// pmm-client is always installed so monitoring can be enabled later.
-	pr.phase("Installing PMM client", 42)
-	pmmScript := pxcInstallPMMClientRHEL
-	if debian {
-		pmmScript = pxcInstallPMMClientDebian
-	}
-	if err := a.runStep(ctx, id, pmmScript, nil, pr.logln); err != nil {
-		pr.logln("pmm-client install skipped: " + err.Error())
-	} else {
-		pr.logln("pmm-client installed")
+	// Install pmm-client only when the cluster is monitored by a PMM server.
+	if frame.PMMNodeID != "" {
+		pr.phase("Installing PMM client", 42)
+		pmmScript := pxcInstallPMMClientRHEL
+		if debian {
+			pmmScript = pxcInstallPMMClientDebian
+		}
+		if err := a.runStep(ctx, id, pmmScript, nil, pr.logln); err != nil {
+			pr.logln("pmm-client install skipped: " + err.Error())
+		} else {
+			pr.logln("pmm-client installed")
+		}
 	}
 
 	// Barman cloud utilities + AWS credentials (when enabled) — installed on every

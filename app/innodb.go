@@ -343,8 +343,11 @@ func (a *App) innodbPrepareNode(ctx context.Context, st Stack, frame designFrame
 		return pr.fail("install packages: %v", err)
 	}
 	pr.logln("installed: " + pkgs)
-	if err := a.runStep(ctx, id, pmmScript, nil, pr.logln); err != nil {
-		return pr.fail("install pmm-client: %v", err)
+	// Install pmm-client only when the cluster is monitored by a PMM server.
+	if frame.PMMNodeID != "" {
+		if err := a.runStep(ctx, id, pmmScript, nil, pr.logln); err != nil {
+			return pr.fail("install pmm-client: %v", err)
+		}
 	}
 	a.ensureRsyslog(ctx, id, frame.OS, pr.logln)
 

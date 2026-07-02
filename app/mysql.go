@@ -520,10 +520,14 @@ func (a *App) mysqlPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	}
 	pr.logln(xbpkg + " installed")
 
-	if err := a.runStep(ctx, id, pmmScript, nil, pr.logln); err != nil {
-		return pr.fail("install pmm-client: %v", err)
+	// Install pmm-client only when monitored by a PMM server (frame carries the
+	// association; standalone Percona Server passes a synthetic frame with it set).
+	if frame.PMMNodeID != "" {
+		if err := a.runStep(ctx, id, pmmScript, nil, pr.logln); err != nil {
+			return pr.fail("install pmm-client: %v", err)
+		}
+		pr.logln("pmm-client installed")
 	}
-	pr.logln("pmm-client installed")
 	a.ensureRsyslog(ctx, id, frame.OS, pr.logln)
 
 	cnf := mysqlMyCnf(frame, host)

@@ -235,15 +235,19 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 		pr.logln("PostgreSQL " + major + " installed")
 		a.ensureRsyslog(ctx, id, n.OS, pr.logln)
 
-		pr.phase("Installing PMM client", 45)
-		pmmScript := pxcInstallPMMClientRHEL
-		if debian {
-			pmmScript = pxcInstallPMMClientDebian
-		}
-		if err := a.runStep(ctx, id, pmmScript, nil, pr.logln); err != nil {
-			pr.logln("pmm-client install skipped: " + err.Error())
-		} else {
-			pr.logln("pmm-client installed")
+		// Install pmm-client only when this node is monitored by a PMM server;
+		// unmonitored nodes skip it entirely.
+		if n.PMMNodeID != "" {
+			pr.phase("Installing PMM client", 45)
+			pmmScript := pxcInstallPMMClientRHEL
+			if debian {
+				pmmScript = pxcInstallPMMClientDebian
+			}
+			if err := a.runStep(ctx, id, pmmScript, nil, pr.logln); err != nil {
+				pr.logln("pmm-client install skipped: " + err.Error())
+			} else {
+				pr.logln("pmm-client installed")
+			}
 		}
 
 		dataDir := pgDataDir(n.OS, major)

@@ -188,16 +188,18 @@ func (a *App) provisionHAProxy(st Stack, n designNode, doc designDoc) {
 		logln("haproxy installed")
 		a.ensureRsyslog(ctx, id, n.OS, logln)
 
-		// pmm-client is always installed so monitoring can be enabled later.
-		setPhase("Installing PMM client", 62)
-		pmmScript := pxcInstallPMMClientRHEL
-		if debian {
-			pmmScript = pxcInstallPMMClientDebian
-		}
-		if err := a.runStep(ctx, id, pmmScript, nil, logln); err != nil {
-			logln("pmm-client install skipped: " + err.Error())
-		} else {
-			logln("pmm-client installed")
+		// Install pmm-client only when this node is monitored by a PMM server.
+		if n.PMMNodeID != "" {
+			setPhase("Installing PMM client", 62)
+			pmmScript := pxcInstallPMMClientRHEL
+			if debian {
+				pmmScript = pxcInstallPMMClientDebian
+			}
+			if err := a.runStep(ctx, id, pmmScript, nil, logln); err != nil {
+				logln("pmm-client install skipped: " + err.Error())
+			} else {
+				logln("pmm-client installed")
+			}
 		}
 
 		setPhase("Configuring HAProxy", 78)

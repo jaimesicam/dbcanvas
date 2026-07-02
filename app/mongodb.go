@@ -844,16 +844,18 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	pr.logln("installed: " + pkgs)
 	a.ensureRsyslog(ctx, id, frame.OS, pr.logln)
 
-	// Always install pmm-client (pmm3-client) — independent of whether monitoring is
-	// enabled — so it can be turned on later without a reinstall (same as PXC).
-	pmmInstall := pxcInstallPMMClientRHEL
-	if debian {
-		pmmInstall = pxcInstallPMMClientDebian
+	// Install pmm-client only when monitored by a PMM server (the frame carries the
+	// association; a standalone node passes a synthetic frame with it set).
+	if frame.PMMNodeID != "" {
+		pmmInstall := pxcInstallPMMClientRHEL
+		if debian {
+			pmmInstall = pxcInstallPMMClientDebian
+		}
+		if err := a.runStep(ctx, id, pmmInstall, nil, pr.logln); err != nil {
+			return pr.fail("install pmm-client: %v", err)
+		}
+		pr.logln("pmm-client installed")
 	}
-	if err := a.runStep(ctx, id, pmmInstall, nil, pr.logln); err != nil {
-		return pr.fail("install pmm-client: %v", err)
-	}
-	pr.logln("pmm-client installed")
 
 	// Install Percona Backup for MongoDB on every member of a sharded cluster /
 	// replica set (not the standalone psm node) — always, so PBM backups can be

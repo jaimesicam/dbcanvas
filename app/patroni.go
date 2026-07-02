@@ -438,16 +438,18 @@ func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFram
 	pr.logln("PostgreSQL " + major + " + Patroni + etcd installed")
 	a.ensureRsyslog(ctx, id, frame.OS, pr.logln)
 
-	// pmm-client is always installed so monitoring can be enabled later.
-	pr.phase("Installing PMM client", 45)
-	pmmScript := pxcInstallPMMClientRHEL
-	if debian {
-		pmmScript = pxcInstallPMMClientDebian
-	}
-	if err := a.runStep(ctx, id, pmmScript, nil, pr.logln); err != nil {
-		pr.logln("pmm-client install skipped: " + err.Error())
-	} else {
-		pr.logln("pmm-client installed")
+	// Install pmm-client only when the cluster is monitored by a PMM server.
+	if frame.PMMNodeID != "" {
+		pr.phase("Installing PMM client", 45)
+		pmmScript := pxcInstallPMMClientRHEL
+		if debian {
+			pmmScript = pxcInstallPMMClientDebian
+		}
+		if err := a.runStep(ctx, id, pmmScript, nil, pr.logln); err != nil {
+			pr.logln("pmm-client install skipped: " + err.Error())
+		} else {
+			pr.logln("pmm-client installed")
+		}
 	}
 
 	// Optional per-node TLS cert (signed by the Intranet CA) staged into /etc/patroni

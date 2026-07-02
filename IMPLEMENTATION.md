@@ -3744,3 +3744,38 @@ saved designs keep their existing value; only newly added nodes default off.
   contains no `!` (e.g. `PgSuper^(A02FB5C6`).
 - `vite build` clean; confirmed no `useProxy: true` remains in `StackDesigner.jsx` and no
   `useProxy ?? true` / `|| true` fallback exists.
+
+## 61. Skip pmm-client install on unmonitored nodes — all provisioners
+
+Previously every node/cluster **always** installed `pmm-client` during provisioning (comments:
+"so monitoring can be enabled later without a reinstall"), even when no PMM server was
+associated. Now the install is gated on the same `PMMNodeID != ""` condition already used to
+decide whether to register with PMM: **no monitoring → pmm-client is never installed.**
+
+The upfront `pmm-client` install step in each provisioner is wrapped in the node/cluster's PMM
+gate:
+
+- **Standalone / single nodes** (`n.PMMNodeID`): `pg.go` (PostgreSQL), `haproxy.go`,
+  `proxysql.go` `provisionProxySQLInstance` (via `p.PMMNodeID`).
+- **Cluster frames** (`frame.PMMNodeID`): `pxc.go`, `innodb.go`, `patroni.go`, `repmgr.go`,
+  `proxysql.go` `proxysqlPrepareMember`.
+- **Shared prepare helpers** gated on `frame.PMMNodeID` — `mysqlPrepareNode` (covers the MySQL
+  replication frame *and* standalone Percona Server, which passes a synthetic frame carrying
+  `PMMNodeID`) and `mongoPrepareNode` (RS / sharded / standalone, standalone likewise passes a
+  synthetic frame).
+- **Valkey** already gated its pmm-client install behind `n.PMMNodeID` / `frame.PMMNodeID` via
+  `valkeySetupPMM`, so it needed no change.
+
+Monitored nodes are unaffected — the gate is true, so the install runs exactly as before, then
+registration proceeds. Enabling monitoring later (redeploy with a PMM node associated) re-runs
+provisioning, which installs pmm-client then; the `*PMMAdd` register scripts also keep their
+`command -v pmm-admin || install` on-demand fallback. Obsolete "always installed" comments were
+replaced with the new intent.
+
+### Verification performed
+- `go build ./...`, `go vet`, `gofmt -l` clean.
+- Statically confirmed all 11 `runStep(..., pmmScript/pmmInstall, ...)` install invocations are
+  now preceded by a `PMMNodeID != ""` gate (script-checked, one per provisioner + valkey via its
+  gated helper).
+- Not runtime-verified (would require an image rebuild + deploy); the change is a conditional
+  wrap on the exact variable already governing PMM registration.
