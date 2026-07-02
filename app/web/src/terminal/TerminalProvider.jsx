@@ -139,9 +139,19 @@ export function TerminalProvider({ children }) {
 function TerminalLayer() {
   const { sessions, activeId, open, setActiveId, setOpen, closeTerminal, detachTerminal, attachTerminal, setFloat, termsRef } = useTerminals()
   const [layout, setLayout] = useState(loadLayout)
+  const [menu, setMenu] = useState(null) // { x, y, id } for the right-click context menu
   const areaRef = useRef(null)
   const floatRefs = useRef(new Map()) // id -> body slot element
   const drag = useRef(null)
+
+  // Right-click actions, shared by docked tabs and floating windows.
+  const openMenu = (id) => (e) => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, id }) }
+  // Maximize is offered only for docked tabs: detach into a full-viewport window.
+  const maximize = (s) => { detachTerminal(s.id); setFloat(s.id, { max: true }) }
+  const minimize = (s) => {
+    if (s.floating) { setFloat(s.id, { max: false }); attachTerminal(s.id) }
+    setOpen(false)
+  }
 
   useEffect(() => {
     try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)) } catch { /* */ }
@@ -199,7 +209,15 @@ function TerminalLayer() {
       if (d.kind === 'height') {
         setLayout((l) => ({ ...l, height: Math.min(Math.max(140, d.h0 + (d.y0 - e.clientY)), window.innerHeight - 80) }))
       } else if (d.kind === 'fmove') {
-        setFloat(d.id, { x: d.fx + (e.clientX - d.x0), y: d.fy + (e.clientY - d.y0) })
+        // Clamp so the title bar can never be dragged off-screen (it holds the
+        // only Dock/Maximize/Close controls). Keep the whole window's top edge in
+        // view vertically, and at least KEEP px reachable on either side.
+        const KEEP = 64
+        const nx = d.fx + (e.clientX - d.x0)
+        const ny = d.fy + (e.clientY - d.y0)
+        const x = Math.min(Math.max(nx, KEEP - d.w), window.innerWidth - KEEP)
+        const y = Math.min(Math.max(ny, 0), window.innerHeight - 28)
+        setFloat(d.id, { x, y })
       }
     }
     const onUp = () => { drag.current = null }
@@ -217,13 +235,17 @@ function TerminalLayer() {
       {/* floating per-tab windows */}
       {floating.map((s) => {
         const f = s.float || { x: 120, y: 96, w: 580, h: 320 }
+        const geo = f.max
+          ? { left: 0, top: 0, width: '100vw', height: '100vh', borderRadius: 0 }
+          : { left: f.x, top: f.y, width: f.w, height: f.h, resize: 'both' }
         return (
           <div key={s.id} className="fixed z-40 flex flex-col rounded-lg border bg-surface shadow-2xl"
-            style={{ left: f.x, top: f.y, width: f.w, height: f.h, resize: 'both', overflow: 'hidden' }}>
+            style={{ ...geo, overflow: 'hidden' }}>
             <div
               className="flex items-center gap-1.5 border-b bg-surface2 px-2 py-1"
-              style={{ cursor: 'move' }}
-              onPointerDown={(e) => { if (e.target.closest('button')) return; drag.current = { kind: 'fmove', id: s.id, x0: e.clientX, y0: e.clientY, fx: f.x, fy: f.y } }}
+              style={{ cursor: f.max ? 'default' : 'move' }}
+              onContextMenu={openMenu(s.id)}
+              onPointerDown={(e) => { if (f.max || e.target.closest('button')) return; drag.current = { kind: 'fmove', id: s.id, x0: e.clientX, y0: e.clientY, fx: f.x, fy: f.y, w: e.currentTarget.parentElement?.offsetWidth || f.w } }}
             >
               <span className={statusDot(s.status)} />
               <span className="min-w-0 flex-1 truncate text-xs text-fg">{s.title}</span>
@@ -251,7 +273,7 @@ function TerminalLayer() {
           <div className="flex items-center gap-1 border-b bg-surface2 px-2 py-1">
             <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
               {docked.map((s) => (
-                <div key={s.id} onClick={() => setActiveId(s.id)}
+                <div key={s.id} onClick={() => setActiveId(s.id)} onContextMenu={openMenu(s.id)}
                   className={`flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs ${s.id === activeId ? 'bg-surface text-fg shadow' : 'text-muted hover:bg-surface'}`}>
                   <span className={statusDot(s.status)} />
                   <span className="max-w-[140px] truncate">{s.title}</span>
@@ -265,6 +287,30 @@ function TerminalLayer() {
           <div ref={areaRef} className="relative flex-1 overflow-hidden bg-[#0e1117]" />
         </div>
       )}
+
+      {/* right-click context menu */}
+      {menu && (() => {
+        const s = sessions.find((x) => x.id === menu.id)
+        if (!s) return null
+        const run = (fn) => () => { fn(s); setMenu(null) }
+        const item = (label, glyph, onClick, danger) => (
+          <button onClick={onClick}
+            className={`flex w-full items-center gap-2 px-3 py-1.5 text-left ${danger ? 'text-muted hover:bg-danger/10 hover:text-danger' : 'text-fg hover:bg-surface2'}`}>
+            <span className="w-4 text-center text-muted">{glyph}</span>{label}
+          </button>
+        )
+        return (
+          <>
+            <div className="fixed inset-0 z-50" onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null) }} />
+            <div className="fixed z-50 min-w-[160px] rounded-md border bg-surface py-1 text-xs shadow-xl"
+              style={{ left: Math.min(menu.x, window.innerWidth - 172), top: Math.min(menu.y, window.innerHeight - 108) }}>
+              {!s.floating && item('Maximize', '⛶', run(maximize))}
+              {item('Minimize', '—', run(minimize))}
+              {item('Close', '✕', run((x) => closeTerminal(x.id)), true)}
+            </div>
+          </>
+        )
+      })()}
     </>
   )
 }

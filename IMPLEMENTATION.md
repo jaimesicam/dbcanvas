@@ -3648,3 +3648,38 @@ pidfile and already reads `/etc/repmgr/<major>/repmgr.conf`:
   `enabled`+`active`; the old `repmgrd.service` gone; `repmgr daemon status` showed all three
   nodes running repmgrd with live upstream monitoring.
 - `go build`/`vet`/`gofmt -l` clean.
+
+## 58. Terminal right-click context menu: Maximize / Minimize / Close — `app/web/src/terminal/TerminalProvider.jsx`
+
+Both terminal surfaces (docked dock tabs and detached floating windows) now expose a
+right-click context menu with the three classic window controls. Mapped onto the existing
+session model (no new persisted state beyond a `max` flag on `float`):
+
+- **Maximize** — floats the session filling the viewport (`100vw`/`100vh`, square corners,
+  move/resize disabled) via `detachTerminal` then `setFloat(id, { max: true })`. **Offered
+  only for docked tabs** — once the off-screen drag bug (below) was fixed there was no reason
+  to maximize an already-floating window, so the context-menu item is gated on `!s.floating`
+  and the floating titlebar's `⛶`/`❐` button was removed. A maximized window is returned to
+  normal via **Dock** (or Close).
+- **Minimize** — docks the session (clearing `max`, `attachTerminal`) and collapses the dock
+  (`setOpen(false)`). Works from either surface.
+- **Close** — `closeTerminal(id)`, styled as the danger item.
+
+Implementation notes: `openMenu(id)` sets `menu = { x, y, id }` and `preventDefault`s the
+native menu; the menu renders as a fixed positioned list clamped to the viewport, over a
+full-screen transparent backdrop that closes it on any click / re-right-click. Floating window
+geometry is computed from `f.max` (`geo` object), and the titlebar drag handler is a no-op
+while maximized. Existing `floatSlot` ResizeObserver + the per-render `fit()` effect re-fit
+xterm when the window grows/shrinks, so no extra fit wiring was needed.
+
+Follow-up — **title bar can no longer be dragged off-screen.** The `fmove` drag applied
+the pointer delta with no bounds, so dragging a floating window up past `y=0` hid the title
+bar (the only place with the Dock/Maximize/Close controls) with no way to recover it. The
+handler now clamps: `y ∈ [0, innerHeight-28]` (top edge always in view) and
+`x ∈ [KEEP-w, innerWidth-KEEP]` with `KEEP=64` (at least 64px reachable on either side). The
+window width for the clamp is read from the live DOM element at pointer-down
+(`parentElement.offsetWidth`) rather than `float.w`, since the window uses native
+`resize: both` which changes actual size without updating state.
+
+### Verification performed
+- `vite build` clean (48 modules transformed, no errors).
