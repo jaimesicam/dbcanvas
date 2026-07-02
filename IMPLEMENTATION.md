@@ -3683,3 +3683,64 @@ window width for the clamp is read from the live DOM element at pointer-down
 
 ### Verification performed
 - `vite build` clean (48 modules transformed, no errors).
+
+## 59. README screenshots + isolated headless-capture tooling — `README.md`, `docs/screenshots/`, `app/web/scripts/` (gitignored)
+
+The README now showcases the product with real, in-action screenshots woven into the feature
+sections: the Database Stacks canvas (deployed 7-node stack), a node management panel, PMM
+monitoring the stack, a live per-node web terminal, the Ubuntu VNC desktop, the Data Generator
+mid-run (FK-aware), and the live Dashboard. The seven PNGs live in `docs/screenshots/` and are
+tracked; a small `docs/screenshots/README.md` indexes them.
+
+**Capture tooling — deliberately isolated and NOT shipped.** `app/web/scripts/screenshots.mjs`
+drives a running instance with Playwright's bundled Chromium: it authenticates via the API (the
+request client shares the browser context's cookie jar, so pages load authenticated), forces the
+theme (`localStorage` init script), and captures at 1440×900 @2x dark. Static mode shots the
+hash routes (`#dashboard`/`#stack-designer`/`#data-generator`); with `SHOTS_STACK=<name>` it also
+opens the stack canvas, left-clicks a node for its inspector, drives the Data Generator flow
+(connection → db → table → Generate) **before** opening a terminal (the terminal dock persists
+across navigation and would otherwise cover the page), opens a per-node root console and runs a
+`psql \dt`, then logs into the PMM (Grafana) and noVNC UIs on their published ports. Config via
+`SHOTS_*` env (base URL, user/pass, theme, viewport, output dir); output path is anchored to the
+script's own location via `import.meta.url`.
+
+Crucially the tool lives in **its own package** (`app/web/scripts/package.json`, Playwright as its
+only dependency) and the whole `/app/web/scripts/` directory is **gitignored**. This keeps
+Playwright out of the app's `package.json`/lock, so the multi-stage Docker build's `npm ci`
+(Dockerfile stage 1) never installs it and it never reaches dbcanvas users — the runtime image is
+still just the single static Go binary on distroless. Per an explicit privacy request, no tracked
+file references the tooling: the `make screenshots` target, README command-table row, and how-to
+prose were all removed; only the generated images (and their captions) are committed.
+
+### Verification performed
+- Deployed a demo stack (Intranet + PMM + standalone PostgreSQL + 3-node PXC + Ubuntu VNC,
+  intranet proxy off) via the API, seeded an FK-rich `shop` schema, and captured all seven shots
+  end-to-end; each was visually inspected (authenticated app, correct theme, live data).
+- Confirmed `app/web/package.json`/`package-lock.json` carry zero Playwright references and are
+  unchanged from HEAD, so `make compose` is unaffected.
+
+## 60. Safer generated passwords + Intranet-proxy default off — `app/intranet.go`, `app/web/src/pages/StackDesigner.jsx`
+
+**Generated passwords no longer contain `!`.** `genSecret(prefix)` (which returns `prefix` + 8
+uppercase hex chars and backs all 14 credential prefixes — `PgSuper!`, `PmmAdm!`, `MyRoot!`,
+`PxcRoot!`, `LdapAdm!`, `MailAdm!`, `KcAdmin!`, `Valkey!`, `MongoAdm!`, etc.) now
+`strings.ReplaceAll(prefix, "!", "^(")`. The `!` separator triggered shell **history expansion**;
+`$` would be **variable-interpolated**; `^` and `(` are neither, so passwords stay safe to paste
+into terminal / psql / mysql contexts. The change is central (one function), so every current and
+future call site is covered. Consumption is already interpolation-safe — secrets are passed as
+literal env values to `runStep` (bash does not re-expand a variable's value), psql uses `:'pw'`
+quoting, and `.my.cnf`/config files are written as raw bytes via `CopyFile` — so `^`/`(` don't
+break provisioning. `genVNCPassword` (8 lowercase hex) and the SeaweedFS secret key (hex) never
+used specials and are unchanged. Existing deployed stacks keep their stored passwords (genSecret
+only runs when minting a *new* secret), so there's no migration or breakage.
+
+**Intranet proxy defaults to off.** All 14 node-creation templates in `StackDesigner.jsx` flipped
+`useProxy: true → false`, so the "route package egress via the Intranet Squid proxy" checkbox is
+unchecked by default on every node type. There is no fallback default that would re-enable it, and
+saved designs keep their existing value; only newly added nodes default off.
+
+### Verification performed
+- `go build ./...`, `go vet`, `gofmt -l` clean; ran `genSecret` standalone to confirm output
+  contains no `!` (e.g. `PgSuper^(A02FB5C6`).
+- `vite build` clean; confirmed no `useProxy: true` remains in `StackDesigner.jsx` and no
+  `useProxy ?? true` / `|| true` fallback exists.
