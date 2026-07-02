@@ -3605,3 +3605,46 @@ Verified live: summary returned correct counts for the deployed stack (19 nodes 
 byEngine mysql 10 / postgres 7, byType breakdown, users 1/pending 0) with the activity feed;
 stats returned a real Docker sample (23 managed containers, meaningful non-zero CPU%,
 21 GB/725 GB memory, top-by-CPU). `go build`/`vet`/`gofmt -l` + `npm run build` clean.
+
+---
+
+## 57. repmgr: boot-persistent via the packaged unit + single config location — `app/repmgr.go`
+
+A live repmgr cluster showed **automatic failover was silently off**: `repmgrd` was
+"enabled" but **inactive (dead)**. Root cause: our hand-rolled `repmgrd.service` was
+`Type=simple`, but **repmgrd forks to daemonize** — so ExecStart exited `0/SUCCESS`
+immediately and systemd marked the unit dead (`repmgr daemon status` showed the standbys as
+`repmgrd: not running`). Compounding it, the config lived in **two places**: our
+`/etc/repmgr.conf` (the one actually used) and the PGDG default `/etc/repmgr/<major>/repmgr.conf`
+(shipped by the package, unused) — confusing to operate.
+
+Fix — stop reinventing the unit; use the PGDG-packaged one, which is `Type=forking` with a
+pidfile and already reads `/etc/repmgr/<major>/repmgr.conf`:
+
+- **Single config location.** New helpers `pgRepmgrConfDir(major)` / `pgRepmgrConfPath(major)`
+  → `/etc/repmgr/<major>` and `/etc/repmgr/<major>/repmgr.conf`. `repmgrPrepareNode` now
+  `install -d`s that dir and writes the config **there** (not `/etc/repmgr.conf`).
+  `repmgrConf()`'s `promote_command`/`follow_command`, the primary-register, standby
+  clone/register scripts, and the chown all take the path via a `CONF=` env — no `/etc/repmgr.conf`
+  reference remains. (The §25 config comment "renders /etc/repmgr.conf" is obsolete.)
+- **Boot-persistent daemon via the packaged unit.** `repmgrdStartScript` was rewritten: it
+  removes any stale hand-rolled `/etc/systemd/system/repmgrd.service`, and enables+starts the
+  **packaged** unit — on EL `repmgr-<major>.service`, on Debian `repmgrd.service` (first
+  flipping `/etc/default/repmgrd` `REPMGRD_ENABLED=yes` + `REPMGRD_CONF=$CONF`). It picks
+  whichever unit exists (`systemctl list-unit-files`), `systemctl enable --now`s it, and
+  verifies `is-active`. Phase 4 now passes `MAJOR`/`CONF` instead of `BINDIR`.
+- **PostgreSQL** was already boot-enabled (`pgStartScript` does `systemctl enable`); this makes
+  repmgr match, so both survive a container/host restart.
+
+### Verification performed
+- Diagnosed on a **live** 3-node OL9 cluster (stack 119): `postgresql-16` enabled+active but
+  `repmgrd` enabled+**inactive**; journal showed repmgrd starting, connecting, then
+  `Deactivated successfully` (exit 0). Manually pointing config at `/etc/repmgr/16/repmgr.conf`
+  and `systemctl enable --now repmgr-16` brought the daemon up on all three nodes
+  (`repmgr daemon status`: all `running`, standbys `Upstream last seen: 0 second(s) ago`).
+- **Fresh redeploy from the new code** (rebuilt image, destroy→deploy stack 119): all nodes
+  reached `running`; `/etc/repmgr.conf` **absent**; `/etc/repmgr/16/repmgr.conf` present with
+  `-f /etc/repmgr/16/repmgr.conf` in promote/follow; `postgresql-16` **and** `repmgr-16` both
+  `enabled`+`active`; the old `repmgrd.service` gone; `repmgr daemon status` showed all three
+  nodes running repmgrd with live upstream monitoring.
+- `go build`/`vet`/`gofmt -l` clean.

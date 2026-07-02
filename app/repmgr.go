@@ -277,12 +277,12 @@ func (a *App) provisionRepmgrFrame(st Stack, frame designFrame, doc designDoc) {
 			}
 		}
 
-		// ---- Phase 4: start repmgrd on every node (automatic failover) ----
+		// ---- Phase 4: enable + start repmgrd on every node (automatic failover) ----
 		for _, n := range members {
 			pr := a.pxcNewProg(st.ID, n.ID)
 			pr.phase("Starting repmgrd", 82)
 			dep, _ := a.store.GetDeployment(st.ID, n.ID)
-			if err := a.runStep(ctx, dep.ContainerID, repmgrdStartScript, []string{"BINDIR=" + pgBinDir(frame.OS, major)}, pr.logln); err != nil {
+			if err := a.runStep(ctx, dep.ContainerID, repmgrdStartScript, []string{"MAJOR=" + major, "CONF=" + pgRepmgrConfPath(major)}, pr.logln); err != nil {
 				pr.logln("repmgrd start failed (failover disabled): " + err.Error())
 			}
 		}
@@ -450,8 +450,14 @@ func (a *App) repmgrPrepareNode(ctx context.Context, st Stack, frame designFrame
 		pr.logln("Barman cloud installed (S3 → SeaweedFS)")
 	}
 
-	// Write repmgr.conf (per node; node_id + conninfo to itself).
-	if err := a.docker.CopyFile(ctx, id, "/etc", "repmgr.conf", 0o644, []byte(repmgrConf(nodeID, host, fqdn, frame, sec))); err != nil {
+	// Write repmgr.conf into the canonical PGDG location (per node; node_id +
+	// conninfo to itself) — the same file the packaged repmgr service unit reads.
+	// The package ships the dir, but create it defensively (CopyFile needs it).
+	confDir := pgRepmgrConfDir(major)
+	if err := a.runStep(ctx, id, `install -d -m 755 -o postgres -g postgres "$DIR"`, []string{"DIR=" + confDir}, pr.logln); err != nil {
+		return pr.fail("create repmgr conf dir: %v", err)
+	}
+	if err := a.docker.CopyFile(ctx, id, confDir, "repmgr.conf", 0o644, []byte(repmgrConf(nodeID, host, fqdn, frame, sec))); err != nil {
 		return pr.fail("write repmgr.conf: %v", err)
 	}
 	// .pgpass so repmgr can authenticate to peers without prompting.
@@ -459,7 +465,7 @@ func (a *App) repmgrPrepareNode(ctx context.Context, st Stack, frame designFrame
 	if err := a.docker.CopyFile(ctx, id, home, ".pgpass", 0o600, []byte(fmt.Sprintf("*:*:*:%s:%s\n", sec.ReplUser, sec.ReplPassword))); err != nil {
 		return pr.fail("write .pgpass: %v", err)
 	}
-	if err := a.runStep(ctx, id, repmgrConfChownScript, []string{"HOME=" + home}, pr.logln); err != nil {
+	if err := a.runStep(ctx, id, repmgrConfChownScript, []string{"HOME=" + home, "CONF=" + pgRepmgrConfPath(major)}, pr.logln); err != nil {
 		return pr.fail("fix repmgr file ownership: %v", err)
 	}
 	return nil
@@ -515,7 +521,7 @@ func (a *App) repmgrSetupPrimary(ctx context.Context, st Stack, frame designFram
 	if err := a.runStep(ctx, id, repmgrCreateRoleScript, []string{"REPLUSER=" + sec.ReplUser, "REPLPW=" + sec.ReplPassword}, pr.logln); err != nil {
 		return pr.fail("create repmgr role/db: %v", err)
 	}
-	if err := a.runStep(ctx, id, repmgrPrimaryRegisterScript, []string{"BINDIR=" + pgBinDir(frame.OS, major)}, pr.logln); err != nil {
+	if err := a.runStep(ctx, id, repmgrPrimaryRegisterScript, []string{"BINDIR=" + pgBinDir(frame.OS, major), "CONF=" + pgRepmgrConfPath(major)}, pr.logln); err != nil {
 		return pr.fail("repmgr primary register: %v", err)
 	}
 	pr.logln("primary registered with repmgr (node " + strconv.Itoa(1) + ")")
@@ -538,6 +544,7 @@ func (a *App) repmgrSetupStandby(ctx context.Context, st Stack, frame designFram
 	env := []string{
 		"BINDIR=" + pgBinDir(frame.OS, major), "DATADIR=" + dataDir,
 		"PRIMARY=" + primaryFQDN, "REPLUSER=" + sec.ReplUser,
+		"CONF=" + pgRepmgrConfPath(major),
 	}
 	if err := a.runStep(ctx, id, repmgrStandbyCloneScript, env, pr.logln); err != nil {
 		return pr.fail("repmgr standby clone: %v", err)
@@ -551,7 +558,7 @@ func (a *App) repmgrSetupStandby(ctx context.Context, st Stack, frame designFram
 	if err := a.runStep(ctx, id, pgStartScript, []string{"SERVICE=" + service}, pr.logln); err != nil {
 		return pr.fail("start PostgreSQL: %v", err)
 	}
-	if err := a.runStep(ctx, id, repmgrStandbyRegisterScript, []string{"BINDIR=" + pgBinDir(frame.OS, major)}, pr.logln); err != nil {
+	if err := a.runStep(ctx, id, repmgrStandbyRegisterScript, []string{"BINDIR=" + pgBinDir(frame.OS, major), "CONF=" + pgRepmgrConfPath(major)}, pr.logln); err != nil {
 		return pr.fail("repmgr standby register: %v", err)
 	}
 	pr.logln("standby cloned + registered with repmgr")
@@ -662,10 +669,19 @@ func barmanBackupEnv(label string, sw seaweedConfig) []string {
 
 // --------------------------------------------------------------- config files
 
-// repmgrConf renders /etc/repmgr.conf for one node.
+// pgRepmgrConfDir / pgRepmgrConfPath return the canonical, PGDG-packaged repmgr
+// config location: a single per-major file (`/etc/repmgr/<major>/repmgr.conf`) on
+// both EL (`repmgr_NN`) and Debian (`postgresql-NN-repmgr`). The packaged service
+// unit already reads exactly this path, so we write only here — never the ad-hoc
+// `/etc/repmgr.conf`, which left the config split across two places.
+func pgRepmgrConfDir(major string) string  { return "/etc/repmgr/" + ppgMajorOf(major) }
+func pgRepmgrConfPath(major string) string { return pgRepmgrConfDir(major) + "/repmgr.conf" }
+
+// repmgrConf renders the per-node repmgr config (written to pgRepmgrConfPath).
 func repmgrConf(nodeID int, host, fqdn string, frame designFrame, sec pgSecrets) string {
 	major := ppgMajorOf(frame.PGMajor)
 	bindir := pgBinDir(frame.OS, major)
+	conf := pgRepmgrConfPath(major)
 	var b strings.Builder
 	fmt.Fprintf(&b, "node_id=%d\n", nodeID)
 	fmt.Fprintf(&b, "node_name='%s'\n", host)
@@ -673,8 +689,8 @@ func repmgrConf(nodeID int, host, fqdn string, frame designFrame, sec pgSecrets)
 	fmt.Fprintf(&b, "data_directory='%s'\n", pgDataDir(frame.OS, major))
 	fmt.Fprintf(&b, "pg_bindir='%s'\n", bindir)
 	fmt.Fprintf(&b, "failover='automatic'\n")
-	fmt.Fprintf(&b, "promote_command='%s/repmgr standby promote -f /etc/repmgr.conf --log-to-file'\n", bindir)
-	fmt.Fprintf(&b, "follow_command='%s/repmgr standby follow -f /etc/repmgr.conf --log-to-file --upstream-node-id=%%n'\n", bindir)
+	fmt.Fprintf(&b, "promote_command='%s/repmgr standby promote -f %s --log-to-file'\n", bindir, conf)
+	fmt.Fprintf(&b, "follow_command='%s/repmgr standby follow -f %s --log-to-file --upstream-node-id=%%n'\n", bindir, conf)
 	fmt.Fprintf(&b, "reconnect_attempts=6\n")
 	fmt.Fprintf(&b, "reconnect_interval=10\n")
 	fmt.Fprintf(&b, "monitoring_history=yes\n")
@@ -760,7 +776,7 @@ chmod 700 "$HOME/.aws"; chmod 600 "$HOME/.aws/"* 2>/dev/null || true`
 
 // repmgrConfChownScript makes repmgr.conf + .pgpass readable by postgres.
 const repmgrConfChownScript = `set -e
-chown postgres:postgres /etc/repmgr.conf 2>/dev/null || true
+chown postgres:postgres "$CONF" 2>/dev/null || true
 chown postgres:postgres "$HOME/.pgpass" 2>/dev/null || true
 chmod 600 "$HOME/.pgpass" 2>/dev/null || true`
 
@@ -819,40 +835,57 @@ runuser -u postgres -- psql -v ON_ERROR_STOP=1 -c "ALTER ROLE \"$REPLUSER\" SET 
 
 // repmgrPrimaryRegisterScript registers the primary with repmgr (idempotent via -F).
 const repmgrPrimaryRegisterScript = `set -e
-runuser -u postgres -- "$BINDIR/repmgr" -f /etc/repmgr.conf primary register -F 2>&1 | tail -20`
+runuser -u postgres -- "$BINDIR/repmgr" -f "$CONF" primary register -F 2>&1 | tail -20`
 
 // repmgrStandbyCloneScript clones the standby from the primary then prepares to start.
 const repmgrStandbyCloneScript = `set -e
 install -d -m 700 -o postgres -g postgres "$DATADIR"
 find "$DATADIR" -mindepth 1 -delete 2>/dev/null || true
-runuser -u postgres -- "$BINDIR/repmgr" -h "$PRIMARY" -U "$REPLUSER" -d repmgr -f /etc/repmgr.conf standby clone --fast-checkpoint -F 2>&1 | tail -30`
+runuser -u postgres -- "$BINDIR/repmgr" -h "$PRIMARY" -U "$REPLUSER" -d repmgr -f "$CONF" standby clone --fast-checkpoint -F 2>&1 | tail -30`
 
 // repmgrStandbyRegisterScript registers the standby after it is streaming.
 const repmgrStandbyRegisterScript = `set -e
-runuser -u postgres -- "$BINDIR/repmgr" -f /etc/repmgr.conf standby register -F 2>&1 | tail -20`
+runuser -u postgres -- "$BINDIR/repmgr" -f "$CONF" standby register -F 2>&1 | tail -20`
 
-// repmgrdStartScript runs repmgrd (automatic failover) via a small systemd unit.
+// repmgrdStartScript enables + starts repmgrd (automatic failover) via the
+// PGDG-packaged service unit, so it is boot-persistent alongside PostgreSQL.
+//
+// We deliberately do NOT hand-roll a unit: repmgrd forks to daemonize, so a
+// naive Type=simple unit's ExecStart exits 0 immediately and systemd marks the
+// service dead (failover silently off). The packaged unit is Type=forking with a
+// pidfile and already reads $CONF (/etc/repmgr/<major>/repmgr.conf): on EL it is
+// `repmgr-<major>.service`; on Debian it is `repmgrd.service` driven by
+// /etc/default/repmgrd. We enable whichever exists.
 const repmgrdStartScript = `set -e
-cat > /etc/systemd/system/repmgrd.service <<UNIT
-[Unit]
-Description=repmgr daemon
-After=network-online.target
-Wants=network-online.target
-[Service]
-Type=simple
-User=postgres
-Group=postgres
-ExecStart=$BINDIR/repmgrd -f /etc/repmgr.conf --no-pid-file
-Restart=on-failure
-RestartSec=5
-[Install]
-WantedBy=multi-user.target
-UNIT
+# Remove any stale hand-rolled unit from an older build (Debian's packaged unit
+# lives under /lib, so this only clears our old override).
+rm -f /etc/systemd/system/repmgrd.service 2>/dev/null || true
+if [ -f /etc/default/repmgrd ]; then
+  # Debian: the packaged repmgrd.service is gated on this file.
+  if grep -q '^#*REPMGRD_ENABLED=' /etc/default/repmgrd; then
+    sed -i 's|^#*REPMGRD_ENABLED=.*|REPMGRD_ENABLED=yes|' /etc/default/repmgrd
+  else
+    echo 'REPMGRD_ENABLED=yes' >> /etc/default/repmgrd
+  fi
+  if grep -q '^#*REPMGRD_CONF=' /etc/default/repmgrd; then
+    sed -i "s|^#*REPMGRD_CONF=.*|REPMGRD_CONF=\"$CONF\"|" /etc/default/repmgrd
+  else
+    echo "REPMGRD_CONF=\"$CONF\"" >> /etc/default/repmgrd
+  fi
+fi
+if systemctl list-unit-files | grep -q "^repmgr-${MAJOR}\.service"; then
+  SVC="repmgr-${MAJOR}"
+elif systemctl list-unit-files | grep -q "^repmgrd\.service"; then
+  SVC="repmgrd"
+else
+  echo "no packaged repmgr service unit found"; exit 1
+fi
 systemctl daemon-reload
-systemctl reset-failed repmgrd 2>/dev/null || true
-systemctl enable --now repmgrd >/dev/null 2>&1 || systemctl restart repmgrd
-sleep 2
-systemctl is-active --quiet repmgrd || { echo "repmgrd failed to start:"; journalctl -u repmgrd --no-pager 2>/dev/null | tail -15; exit 1; }`
+systemctl reset-failed "$SVC" 2>/dev/null || true
+systemctl enable --now "$SVC"
+sleep 3
+systemctl is-active --quiet "$SVC" || { echo "$SVC failed to start:"; journalctl -u "$SVC" --no-pager 2>/dev/null | tail -20; exit 1; }
+echo "$SVC enabled + running (boot-persistent)"`
 
 // repmgrIsPrimaryScript prints "primary" when this node's PostgreSQL is not in recovery.
 const repmgrIsPrimaryScript = `R=$(runuser -u postgres -- psql -tAc 'SELECT pg_is_in_recovery()' 2>/dev/null)
