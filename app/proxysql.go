@@ -108,6 +108,17 @@ func psClientProduct(pxcMajor string) string {
 	return "ps80"
 }
 
+// proxysqlAdminPassword is the ProxySQL admin-interface (6032) password, taken from
+// .env (re-read on every deploy). ProxySQL ships with admin/admin; proxysqlStartScript
+// rewrites the credential to this value on first start.
+func proxysqlAdminPassword() string { return envOr("PROXYSQL_ADMIN_PASSWORD", "admin_password") }
+
+// proxysqlStartEnv is the admin credential env for proxysqlStartScript (which sets
+// the 6032 admin password on first start).
+func proxysqlStartEnv() []string {
+	return []string{"ADMIN_USER=admin", "ADMIN_PW=" + proxysqlAdminPassword()}
+}
+
 func proxysqlAlias(label string) string {
 	a := sanitizeName(strings.TrimSpace(label))
 	if a == "" {
@@ -186,9 +197,7 @@ func (a *App) provisionProxySQLFrame(st Stack, frame designFrame, doc designDoc)
 		if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
 			json.Unmarshal(dep.Secrets, &sec)
 		}
-		if sec.AdminUser == "" {
-			sec.AdminUser, sec.AdminPassword = "admin", "admin"
-		}
+		sec.AdminUser, sec.AdminPassword = "admin", proxysqlAdminPassword()
 		cfg := proxysqlConfig{
 			Image: image, OS: frame.OS, Arch: archOr(frame.Arch),
 			Major: proxysqlMajorOf(frame.ProxySQLMajor), ProxySQLVersion: frame.ProxySQLVersion,
@@ -216,7 +225,7 @@ func (a *App) provisionProxySQLFrame(st Stack, frame designFrame, doc designDoc)
 			}
 		}
 
-		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
 		if werr != nil {
 			failAll("%v", werr)
 			return
@@ -233,14 +242,14 @@ func (a *App) provisionProxySQLFrame(st Stack, frame designFrame, doc designDoc)
 		var mysqlMembers []string
 		var pxcSec pxcSecrets
 		if backendKind == "mysql" {
-			ph, ms, sc, cerr := a.waitMySQLRunning(ctx, st.ID, backFrame, doc, domain, 15*time.Minute)
+			ph, ms, sc, cerr := a.waitMySQLRunning(ctx, st.ID, backFrame, doc, domain, deployTimeout())
 			if cerr != nil {
 				failAll("%v", cerr)
 				return
 			}
 			clusterHost, mysqlMembers, pxcSec, clientSeries = ph, ms, sc, psMajorOf(backFrame.PSMajor)
 		} else {
-			ch, sc, cerr := a.waitPXCRunning(ctx, st.ID, backFrame, doc, domain, 15*time.Minute)
+			ch, sc, cerr := a.waitPXCRunning(ctx, st.ID, backFrame, doc, domain, deployTimeout())
 			if cerr != nil {
 				failAll("%v", cerr)
 				return
@@ -288,7 +297,7 @@ func (a *App) provisionProxySQLFrame(st Stack, frame designFrame, doc designDoc)
 			fqdns = append(fqdns, fqdnOf(hosts[n.ID], domain))
 		}
 		clEnv := []string{
-			"ADMIN_USER=admin", "ADMIN_PW=admin",
+			"ADMIN_USER=admin", "ADMIN_PW=" + proxysqlAdminPassword(),
 			"CL_USER=cluster", "CL_PW=" + pxcSec.ClusterPassword,
 			"SERVERS=" + strings.Join(fqdns, ","),
 		}
@@ -310,7 +319,7 @@ func (a *App) provisionProxySQLFrame(st Stack, frame designFrame, doc designDoc)
 		}
 		if backendKind == "mysql" {
 			progs[primary.ID].phase("Configuring ProxySQL for MySQL (primary)", 88)
-			env := proxysqlMySQLEnv(proxysqlSecrets{AdminUser: "admin", AdminPassword: "admin", AppUser: pxcSec.AppUser, AppPassword: pxcSec.AppPassword, MonitorUser: monUser, MonitorPassword: pxcSec.MonitorPassword}, mysqlMembers, frame.Mode)
+			env := proxysqlMySQLEnv(proxysqlSecrets{AdminUser: "admin", AdminPassword: proxysqlAdminPassword(), AppUser: pxcSec.AppUser, AppPassword: pxcSec.AppPassword, MonitorUser: monUser, MonitorPassword: pxcSec.MonitorPassword}, mysqlMembers, frame.Mode)
 			if err := a.runStep(ctx, pdep.ContainerID, proxysqlMySQLConfigureScript, env, progs[primary.ID].logln); err != nil {
 				progs[primary.ID].fail("configure ProxySQL for MySQL: %v", err)
 				return
@@ -318,7 +327,7 @@ func (a *App) provisionProxySQLFrame(st Stack, frame designFrame, doc designDoc)
 			progs[primary.ID].logln("ProxySQL manually configured for MySQL on primary; syncs to the cluster")
 		} else {
 			cfgEnv := []string{
-				"PSQL_ADMIN_USER=admin", "PSQL_ADMIN_PW=admin",
+				"PSQL_ADMIN_USER=admin", "PSQL_ADMIN_PW=" + proxysqlAdminPassword(),
 				"CLUSTER_USER=" + pxcSec.ClusterUser, "CLUSTER_PW=" + pxcSec.ClusterPassword,
 				"CLUSTER_HOST=" + clusterHost,
 				"MON_USER=" + monUser, "MON_PW=" + pxcSec.MonitorPassword,
@@ -445,7 +454,7 @@ func (a *App) proxysqlPrepareMember(ctx context.Context, st Stack, frame designF
 	a.ensureRsyslog(ctx, id, frame.OS, pr.logln)
 
 	pr.phase("Starting ProxySQL", 70)
-	if err := a.runStep(ctx, id, proxysqlStartScript, nil, pr.logln); err != nil {
+	if err := a.runStep(ctx, id, proxysqlStartScript, proxysqlStartEnv(), pr.logln); err != nil {
 		return pr.fail("start proxysql: %v", err)
 	}
 	return nil
@@ -471,14 +480,12 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 		}
 	}
 
-	// Admin-interface credential: reuse across redeploys, else default admin/admin.
+	// Admin-interface credential comes from .env (re-read on every deploy).
 	var sec proxysqlSecrets
 	if dep, err := a.store.GetDeployment(st.ID, p.NodeID); err == nil && len(dep.Secrets) > 0 {
 		json.Unmarshal(dep.Secrets, &sec)
 	}
-	if sec.AdminUser == "" {
-		sec.AdminUser, sec.AdminPassword = "admin", "admin"
-	}
+	sec.AdminUser, sec.AdminPassword = "admin", proxysqlAdminPassword()
 
 	cfg := proxysqlConfig{
 		Image: image, OS: p.OS, Arch: archOr(p.Arch),
@@ -516,7 +523,7 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 
 		// The Intranet is the stack's DNS resolver / CA, so ProxySQL must wait for it.
 		setPhase("Waiting for Intranet to be ready", 5)
-		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
 		if werr != nil {
 			failNode("%v", werr)
 			return
@@ -534,14 +541,14 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 		var mysqlMembers []string
 		var pxcSec pxcSecrets
 		if backendKind == "mysql" {
-			ph, ms, sc, cerr := a.waitMySQLRunning(ctx, st.ID, frame, doc, domain, 15*time.Minute)
+			ph, ms, sc, cerr := a.waitMySQLRunning(ctx, st.ID, frame, doc, domain, deployTimeout())
 			if cerr != nil {
 				failNode("%v", cerr)
 				return
 			}
 			clusterHost, mysqlMembers, pxcSec, clientSeries = ph, ms, sc, psMajorOf(frame.PSMajor)
 		} else {
-			ch, sc, cerr := a.waitPXCRunning(ctx, st.ID, frame, doc, domain, 15*time.Minute)
+			ch, sc, cerr := a.waitPXCRunning(ctx, st.ID, frame, doc, domain, deployTimeout())
 			if cerr != nil {
 				failNode("%v", cerr)
 				return
@@ -665,7 +672,7 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 			// manually over the admin interface (6032), so proxysql must be running
 			// first (the proxysql-admin path starts it itself; here we do it).
 			setPhase("Configuring ProxySQL (MySQL backend)", 80)
-			if err := a.runStep(ctx, id, proxysqlStartScript, nil, logln); err != nil {
+			if err := a.runStep(ctx, id, proxysqlStartScript, proxysqlStartEnv(), logln); err != nil {
 				failNode("start proxysql: %v", err)
 				return
 			}
@@ -676,6 +683,12 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 			logln("ProxySQL manually configured for MySQL replication (mode=" + cfg.Mode + ")")
 		} else {
 			setPhase("Configuring proxysql-admin", 80)
+			// Start proxysql first so its 6032 admin password is set to the .env value
+			// before proxysql-admin --enable connects with it.
+			if err := a.runStep(ctx, id, proxysqlStartScript, proxysqlStartEnv(), logln); err != nil {
+				failNode("start proxysql: %v", err)
+				return
+			}
 			cfgEnv := []string{
 				"PSQL_ADMIN_USER=" + sec.AdminUser, "PSQL_ADMIN_PW=" + sec.AdminPassword,
 				"CLUSTER_USER=" + sec.ClusterUser, "CLUSTER_PW=" + sec.ClusterPassword,
@@ -792,7 +805,7 @@ func (a *App) proxysqlRegisterPMM(ctx context.Context, st Stack, nodeID, os stri
 		}
 	}
 	env := []string{
-		"PMM_FQDN=" + pmmFQDN, "PMM_USER=" + pmmUser, "PMM_PASS=" + pmmPass,
+		"PMM_FQDN=" + pmmFQDN, "PMM_USER=" + pmmUser, "PMM_PASS=" + pmmPass, "PMM_URL=" + pmmServerURL(pmmFQDN, pmmUser, pmmPass),
 		"ADMIN_USER=" + sec.AdminUser, "ADMIN_PW=" + sec.AdminPassword,
 		"NODE=" + label,
 	}
@@ -843,11 +856,23 @@ apt-get update -qq >/dev/null
 apt-get install -y -qq percona-server-client >/dev/null`
 
 // proxysqlStartScript enables + starts the proxysql service so its admin interface
-// (6032) is reachable (needed before configuring native clustering).
+// (6032) is reachable (needed before configuring native clustering), then rewrites
+// the admin credential to the .env password. ProxySQL ships with admin/admin; this
+// connects with whichever works (the target password on a redeploy, else the
+// admin/admin default on a fresh node) and, if still on the default, sets the
+// admin-admin_credentials to $ADMIN_USER:$ADMIN_PW and persists it to disk.
 const proxysqlStartScript = `set -e
 systemctl enable --now proxysql >/dev/null 2>&1 || systemctl restart proxysql
-for i in $(seq 1 20); do mysql -uadmin -padmin -h127.0.0.1 -P6032 --protocol=tcp -N -e "SELECT 1" >/dev/null 2>&1 && exit 0; sleep 2; done
-echo "proxysql admin interface (6032) did not come up"; exit 1`
+CONN=""
+for i in $(seq 1 20); do
+  if mysql -u"$ADMIN_USER" -p"$ADMIN_PW" -h127.0.0.1 -P6032 --protocol=tcp -N -e "SELECT 1" >/dev/null 2>&1; then CONN=new; break; fi
+  if mysql -uadmin -padmin -h127.0.0.1 -P6032 --protocol=tcp -N -e "SELECT 1" >/dev/null 2>&1; then CONN=def; break; fi
+  sleep 2
+done
+[ -n "$CONN" ] || { echo "proxysql admin interface (6032) did not come up"; exit 1; }
+if [ "$CONN" = def ] && [ "$ADMIN_USER:$ADMIN_PW" != "admin:admin" ]; then
+  mysql -uadmin -padmin -h127.0.0.1 -P6032 --protocol=tcp -e "UPDATE global_variables SET variable_value='$ADMIN_USER:$ADMIN_PW' WHERE variable_name='admin-admin_credentials'; LOAD ADMIN VARIABLES TO RUNTIME; SAVE ADMIN VARIABLES TO DISK;"
+fi`
 
 // proxysqlClusterScript joins a ProxySQL instance to the native ProxySQL cluster:
 // it registers a dedicated cluster sync credential and lists every member in
@@ -937,7 +962,7 @@ fi`
 const proxysqlPMMRHEL = `set -e
 command -v pmm-admin >/dev/null 2>&1 || { percona-release setup -y pmm3-client >/dev/null 2>&1; dnf -y -q install pmm-client >/dev/null; }
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
-pmm-admin config --force --server-insecure-tls --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443" >/dev/null
+pmm-admin config --force --server-insecure-tls --server-url="$PMM_URL" >/dev/null
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
 pmm-admin remove proxysql "$NODE" >/dev/null 2>&1 || true
 pmm-admin add proxysql --username="$ADMIN_USER" --password="$ADMIN_PW" --host=127.0.0.1 --port=6032 "$NODE"`
@@ -946,7 +971,7 @@ const proxysqlPMMDebian = `set -e
 export DEBIAN_FRONTEND=noninteractive
 command -v pmm-admin >/dev/null 2>&1 || { percona-release setup -y pmm3-client >/dev/null 2>&1; apt-get update -qq >/dev/null; apt-get install -y -qq pmm-client >/dev/null; }
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
-pmm-admin config --force --server-insecure-tls --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443" >/dev/null
+pmm-admin config --force --server-insecure-tls --server-url="$PMM_URL" >/dev/null
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
 pmm-admin remove proxysql "$NODE" >/dev/null 2>&1 || true
 pmm-admin add proxysql --username="$ADMIN_USER" --password="$ADMIN_PW" --host=127.0.0.1 --port=6032 "$NODE"`

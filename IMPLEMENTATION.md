@@ -3822,3 +3822,328 @@ across redeploys if already stored; MySQL/PG create/refresh the `pmm` account on
 - `bash -n` syntax-checked the rewritten MySQL and PostgreSQL register scripts (heredoc + guarded
   role creation) — both OK.
 - Not runtime-verified (needs an image rebuild + PXC/PG/Mongo deploy with a PMM node).
+
+## 63. Dashboard: "Top containers · By memory" panel — `app/web/src/pages/Dashboard.jsx`
+
+Added a memory ranking next to the CPU one. The first dashboard row is now three equal columns —
+**Top containers · By CPU**, **Top containers · By memory**, **By engine** — instead of a
+double-width CPU card + engine card. The new card reuses the existing `TopBars` component and the
+`bars(stats?.nodes, 'memUsed', fmtBytes)` helper (per-node `memUsed` already ships in each
+`ContainerStat`), sorted desc, top 5, formatted as bytes to match the Memory stat tile; accent
+`var(--color-accent)` to distinguish it from CPU's primary.
+
+### Verification performed
+- `vite build` clean.
+
+## 64. Fix: PMM registration broke when the PMM password had URL-unsafe chars — `app/pmm.go` + all PMM register scripts
+
+Symptom: MySQL/PXC, MongoDB, ProxySQL, HAProxy and standalone/Patroni/repmgr PostgreSQL all
+failed to connect to PMM (`pmm-admin status`: "pmm-agent is running, but not set up"). Valkey was
+unaffected.
+
+Root cause: every register script ran `pmm-admin config --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443"`,
+embedding the PMM admin password **unencoded** in the URL. After §60, generated passwords contain
+`^` (e.g. `PmmAdm^(…`), and `^` is illegal in URL userinfo, so `pmm-admin` aborted with
+`net/url: invalid userinfo` — and `set -e` killed the whole register before `pmm-admin add`. Valkey
+survived because it uses `pmm-agent setup` with **separate** `--server-username/--server-password`
+flags (no URL). `pmm-admin config` only accepts `--server-url`, so the URL must be encoded.
+
+Fix: build the server URL in Go with proper percent-encoding and pass it as `PMM_URL`:
+
+- New helper `pmmServerURL(fqdn, user, pass)` in `app/pmm.go` uses `net/url` (`url.UserPassword` +
+  `url.URL.String()`), so `^`→`%5E`, `(`→`%28`, and any other special char is encoded.
+- The six PMM register env builders (`pxcPMMEnv`, `patroniRegisterPMM`, `pgRegisterPMM`,
+  `mongoRegisterPMM`, `proxysqlRegisterPMM`, HAProxy's) now also pass
+  `PMM_URL=` + `pmmServerURL(...)`.
+- All 10 `pmm-admin config` lines (pxc/patroni/mongodb/proxysql/haproxy, RHEL+Debian) now use
+  `--server-url="$PMM_URL"` instead of the hand-built URL. Valkey's `pmm-agent setup` path is
+  untouched (already correct).
+
+This is a latent bug independent of §60 — any password with `@`, `/`, `#`, `^`, … (including a
+user-set `PMM_PASSWORD`) would have broken the raw URL. Encoding fixes all cases.
+
+### Verification performed
+- Reproduced on a live stack (122: PXC + ProxySQL + MongoDB + PMM): `pmm-admin config` with the
+  raw URL failed `invalid userinfo`; with the `net/url`-encoded URL it returned "Registered".
+- Ran the corrected full registration on each node: MySQL (`Connected: true`, mysqld_exporter +
+  slowlog agent **Running**), MongoDB and ProxySQL services added with exporters. `go build`,
+  `go vet`, `gofmt` clean; Go helper output matches the verified-working encoded URL.
+
+## 65. Fix: cross-cluster replication broke on colliding server-ids — `app/pxc.go`, `app/mysql.go`, `app/innodb.go`
+
+Symptom: an async replication link from a MySQL replication cluster's primary (`mysql01`) to a
+PXC node (`pxc01`) never started — the replica log repeated
+`MY-013117 … source and replica have equal MySQL server ids`.
+
+Root cause: `mysqlServerID`, `pxcServerID` and `innodbServerID` each derived the server-id from
+only the **trailing number** of the node name (stripping the engine prefix), so `mysql01`→1 and
+`pxc01`→1 (and 2↔2, 3↔3). Distinct clusters therefore reused the same server-ids, and MySQL
+refuses replication between two servers that share one. (validateStack already *warned* "rename
+one so the ids differ", but nothing enforced it — poor UX.)
+
+Fix: a shared `serverIDFor(host)` hashes the **full**, stack-unique hostname (labels are unique
+across a stack) into a stable server-id in `1..~0xFFFFFFF`, so `mysql01` and `pxc01` no longer
+collide. All three per-engine functions now delegate to it. Collision probability is negligible
+for a stack's handful of nodes, and the existing validateStack warning remains as a safety net.
+
+### Verification performed
+- Reproduced on live stack 123: `pxc01` and `mysql01` both had `server_id=1`; the replica I/O
+  thread died with MY-013117.
+- `serverIDFor` gives distinct ids (mysql01=221100480, pxc01=83638004, …).
+- Hotfixed the running `pxc01` (`SET GLOBAL server_id`) + re-ran the app's exact channel setup:
+  `Replica_IO_Running: Yes`, `Replica_SQL_Running: Yes`, `Seconds_Behind_Source: 0`, GTID set
+  retrieved from the source, no errors. `go build`/`vet`/`gofmt` clean.
+
+## 66. Root password from ROOT_PASSWORD env (fixes cross-cluster replication) — `.env.example`, `docker-compose.yml`, `app/pxc.go`, `app/mysql.go`, `app/innodb.go`
+
+Symptom: cross-cluster replication (e.g. a bidirectional link between two PXC clusters) would
+not sync. On the affected stack, `root@localhost` could not be authenticated with the node's
+*stored* password on the MySQL/PXC nodes, so the replication reconcile — which runs
+`mysql -uroot -p"$ROOT_PW" …` on each replica to configure/start channels — could not reliably
+manage the channels, and bidirectional sync never came up.
+
+Root cause / change: MySQL-family root passwords were auto-generated per cluster
+(`genSecret("PxcRoot!")` / `genSecret("MyRoot!")`), which produced random, per-cluster values
+(and, post-§60, ones containing `^(`). Now every MySQL-family node defaults its root password to
+a single, deterministic, known value from **`ROOT_PASSWORD`** (default `root_password`), matching
+the existing `APP_PASSWORD`/`REPL_PASSWORD`/… convention:
+
+- **`.env.example`** + **`docker-compose.yml`**: add `ROOT_PASSWORD` (default `root_password`).
+- **PXC** (`pxc.go`), **MySQL replication** (`mysql.go` frame), **standalone Percona Server**
+  (`mysql.go`), **InnoDB/GR** (`innodb.go`): the root-password fallback changed from
+  `genSecret(...)` to `envOr("ROOT_PASSWORD", "root_password")`. Precedence is unchanged:
+  stored secret (redeploy) → explicit canvas value (`frame.RootPassword`) → `ROOT_PASSWORD`.
+
+### Verification performed
+- Reproduced on a live multi-cluster stack: PXC nodes rejected root auth with the stored
+  password, and a `pxc03 ↔ pxc02` bidir link was not syncing.
+- Rebuilt the image and deployed a fresh two-cluster PXC bidir stack:
+  - root auth works on both nodes with `root_password` (`SELECT @@server_id` → 137889959 /
+    137442225 — also distinct, per §65);
+  - both bidir channels (`xrepl_pxca1`, `xrepl_pxcb1`) show `Replica_IO_Running: Yes` +
+    `Replica_SQL_Running: Yes`, no errors;
+  - a row inserted on pxca1 appears on pxcb1 and a row inserted on pxcb1 appears on pxca1 —
+    both nodes show both rows.
+- `go build`/`vet`/`gofmt` clean. Existing stacks keep their stored passwords; the fix applies to
+  new deploys (a broken existing stack must be redeployed to pick up a known root password).
+
+## 67. Fix: weak `ROOT_PASSWORD` rejected by `validate_password` on first root set — `app/mysql.go`, `app/pxc.go`
+
+Symptom (OL9 stack, deploy retried 10×): attempt 1 failed with
+`ERROR 1819 (HY000) … Your password does not satisfy the current policy requirements`, then
+attempts 2–10 all failed with `ERROR 1045 (28000): Access denied for user 'root'@'localhost'
+(using password: NO)`. No MySQL/PXC node ever got a usable root password, so bootstrap and the
+whole cross-cluster mesh could not come up.
+
+Root cause: §66 made the default root password the weak `root_password` (all-lowercase, no digit
+or special char). On RHEL/OL, Percona Server ships the **`validate_password` component at
+`MEDIUM`/length 8** (confirmed live: `SELECT COMPONENT_URN FROM mysql.component` →
+`component_validate_password`; `@@validate_password.policy=MEDIUM`, `.length=8`). The very first
+root set happens from the **expired temporary password**, where *only* `ALTER USER` is permitted —
+so we cannot relax the policy first, and `ALTER USER … IDENTIFIED BY 'root_password'` is rejected
+(→ 1819). The scripts begin with `rm -f "$LOGERR"`, so on each retry the temporary-password log
+line is deleted and the datadir (already initialized) issues no new one; `TMP` comes up empty and
+control falls into the else/`mysql -uroot` (no-password) branch — which on RHEL is *not*
+auth_socket — producing the "using password: NO" cascade for attempts 2–10.
+
+Fix (both shared scripts, `mysqlSetRootPW` in `mysql.go` and the inline `pxcBootstrapScript` in
+`pxc.go`):
+- **Expired-temp path**: try `ALTER USER … BY '$ROOT_PW'` first; if the policy rejects it, set a
+  strong **interim** password `Dbc#Interim7Pw` (satisfies any default policy; also clears the
+  password-expired flag), then — now a full, non-expired root — `SET GLOBAL
+  validate_password.policy=LOW; …length=6`, then `ALTER USER … BY '$ROOT_PW'`.
+- **Debian auth_socket path**: we are already a full (non-expired) root over the local socket, so
+  relax `validate_password` *before* setting the password (handles the case where Debian also
+  ships the component).
+
+Also reviewed (per the report) the "complex" canvas — stack 127 `StackBest`: 5 Percona Server
+replication clusters (mysql01–15) + 2 PXC clusters (pxc01–06) wired into one cross-cluster mesh
+of async + bidirectional links (incl. a multi-source node, `mysql07`, replicating from both
+`mysql01` and `pxc01`, and relay chains like `mysql07 → mysql01 → mysql04`). Confirmed the design
+handles it: `serverIDFor` (§65) yields **21/21 unique server-ids** across all nodes;
+`log_replica_updates=ON` is set unconditionally on every MySQL/PXC/InnoDB node so relay chaining
+forwards writes; GTID + unique ids protect the bidir cycles from loops; per-source named channels
+(`xrepl_<host>`) give each multi-source replica an independent channel; and `validateStack` warns
+on any endpoint server-id collision.
+
+### Verification performed
+- Reproduced live on `dbcanvas-127-mysql-mr46380r-3` (`mysql01`): root could not log in with
+  `root_password` and the temp-password log line was gone — the exact stuck state.
+- Confirmed the policy is the cause (`validate_password` = `MEDIUM`/8 via a `--skip-grant-tables`
+  boot), and that the fix sequence works: relaxing to `LOW`/6 then
+  `ALTER USER 'root'@'localhost' IDENTIFIED BY 'root_password'` succeeds and
+  `mysql -uroot -proot_password` logs in (recovered `mysql01` to a working state via an
+  `--init-file` one-shot).
+- `go build ./...` (from `app/`) clean. The remaining broken nodes need a redeploy with the
+  rebuilt binary to pick up the fix (fresh datadir → temp password → interim-password path).
+
+## 68. Rename `ROOT_PASSWORD` → `MYSQL_ROOT_PASSWORD` — `.env.example`, `.env`, `docker-compose.yml`, `app/mysql.go`, `app/pxc.go`, `app/innodb.go`
+
+The root-password env var (§66) is renamed to `MYSQL_ROOT_PASSWORD` to make it self-describing
+and consistent with the MySQL ecosystem's conventional name. Pure rename, behavior unchanged:
+
+- **`.env.example`** / **`.env`**: `ROOT_PASSWORD=root_password` → `MYSQL_ROOT_PASSWORD=root_password`.
+- **`docker-compose.yml`**: `MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}`.
+- **`app/mysql.go`** (frame + standalone Percona Server), **`app/pxc.go`**, **`app/innodb.go`**:
+  `envOr("ROOT_PASSWORD", "root_password")` → `envOr("MYSQL_ROOT_PASSWORD", "root_password")`.
+
+Precedence is unchanged: stored secret (redeploy) → explicit canvas value (`frame.RootPassword`)
+→ `MYSQL_ROOT_PASSWORD` (default `root_password`). `go build ./...` (from `app/`) clean.
+
+## 69. Fix: cross-cluster GTID replication from an SST-joined PXC source fails 1236 — `app/replication.go`
+
+Symptom (stack 128 `StackTest`, a mesh of 5 PS-replication + 2 PXC clusters): the async links
+`pxc03 → mysql07` and `pxc03 → mysql10` never came up, while `pxc01 → mysql01`, `mysql04 ↔ mysql01`
+and `pxc04 ↔ pxc01` did. The two failing replicas ended up with **no channel at all**.
+
+Root cause: a GTID-auto channel (`SOURCE_AUTO_POSITION=1`) makes the replica ask the source for
+*every* GTID it is missing, starting from the beginning of history. The replica has its own local
+GTIDs (its bootstrap/user-creation transactions under its own server UUID), so auto-position asks
+the source for the source's *entire* executed set. That works from **pxc01** (the cluster's
+*bootstrap* node — it generated every transaction and still has all binlogs, `gtid_purged` empty),
+but **fails from pxc03** (and pxc02): those nodes joined via **SST/xtrabackup**, so they never had
+the cluster's early binlogs — `pxc03` has `gtid_purged=cded9700…:1-13`. The replica's I/O thread
+dies with `ERROR 1236 … the source purged required binary logs … missing transactions are
+cded9700…:1-13`. Then, because the failed `replChannelApply` leaves the channel out of the prune
+step's `KEEP` list, the half-configured channel is **removed** — hence zero channels.
+
+Fix (`reconcileReplication` + `replChannelApply`): on a **freshly-created** auto channel, seed the
+replica's GTID state with the source's current `gtid_executed` so auto-position replicates only
+changes made *after* the link — the same "from now on" semantics the file/position path already
+documents. Concretely:
+
+- New helper `sourceGTIDExecuted` reads the source's `@@global.gtid_executed` with `mysql -N --raw`
+  (`--raw` disables batch-mode escaping — a multi-UUID set is otherwise printed with a literal
+  `\n` between UUIDs) and strips whitespace to a single-line set. Passed as `SRC_GTID` to the apply
+  step (only on the `auto` path; best-effort — an empty read just falls back to plain auto-position).
+- `replChannelApply`, when `AUTO=1` **and the channel does not yet exist**, computes
+  `GTID_SUBTRACT($SRC_GTID, @@global.gtid_executed)` and, if non-empty,
+  `SET GLOBAL gtid_purged='+<missing>'` before `CHANGE REPLICATION SOURCE`. The channel-exists guard
+  is essential: seeding must happen **once at creation**, never on a later reconcile (which would
+  wrongly mark transactions committed on the source since as already-applied and skip them).
+
+### Verification performed (live on stack 128)
+- Reproduced the exact `1236` on `mysql07←pxc03`; confirmed `pxc01 gtid_purged` empty vs
+  `pxc03 gtid_purged=cded9700…:1-13` (SST-joined) — the reason `pxc01` worked and `pxc03` didn't.
+- Applied the seeding fix by hand on `mysql07` and `mysql10`: both channels reach
+  `Replica_IO_Running: Yes` + `Replica_SQL_Running: Yes`, 0 lag; a table+rows created on `pxc03`
+  *after* the link replicate to both (`finalcheck` → `9`). Repaired the live stack's two broken
+  links this way and cleaned up the test DBs.
+- Note the pre-existing caveat still applies (documented for the file/pos path): "from now on"
+  replication does not back-fill schema/data created *before* the link — seed data first if the
+  clusters aren't empty. On a fresh deploy the channel is created right after bootstrap (empty
+  DBs), so all subsequent schema+data replicate cleanly.
+- `go build ./...`, `go vet ./...`, `gofmt -l` all clean. The existing stack was hand-repaired; a
+  redeploy with the rebuilt binary applies the fix automatically to new channels.
+
+## 70. All DB/ProxySQL credentials from `.env` + a stack-wide reset barrier before replication — `.env`, `.env.example`, `docker-compose.yml`, `app/pxc.go`, `app/mysql.go`, `app/innodb.go`, `app/patroni.go`, `app/repmgr.go`, `app/pg.go`, `app/valkey.go`, `app/mongodb.go`, `app/proxysql.go`, `app/replication.go`, `app/intranet.go`, `app/main.go`, `app/web/src/pages/StackDesigner.jsx`
+
+Two coupled changes: (1) make **every** database and ProxySQL credential come exclusively from
+`.env` (no per-node canvas passwords; a redeploy re-reads `.env`), and (2) fix cross-cluster
+replication reliability by resetting **every** MySQL-family server to a clean, empty GTID baseline
+*before* any replication link (intra-cluster attach or cross-cluster channel) is set up.
+
+### 70.1 Credentials read exclusively from `.env`
+
+New variables in **`.env`** and **`.env.example`** (defaults shown):
+
+| Var | Default | Applies to |
+| --- | --- | --- |
+| `MYSQL_ADMIN_PASSWORD` | `admin_password` | new `admin`@`%` remote superuser on every MySQL-family node |
+| `POSTGRES_PASSWORD` | `postgres_password` | PostgreSQL superuser (standalone PG, Patroni, repmgr) |
+| `VALKEY_PASSWORD` | `valkey_password` | Valkey default-user password (standalone + cluster) |
+| `PROXYSQL_ADMIN_PASSWORD` | `admin_password` | ProxySQL 6032 admin password (standalone + cluster) |
+| `MONGODB_ADMIN_PASSWORD` | `admin_password` | MongoDB admin user (standalone, replica set, sharded) |
+
+Naming convention (documented in `.env.example`): a `<ENGINE>_*` variable is exclusive to that
+engine family; the rest (`APP`/`REPL`/`MONITOR`/`CLUSTER`/`PMM`) are shared where relevant.
+
+- **`admin`@`%` superuser** (new): `root@localhost` cannot connect over TCP, so every MySQL-family
+  engine now also creates a network-reachable full-privilege `admin`@`%` from `MYSQL_ADMIN_PASSWORD`.
+  `pxcSecrets` gained `AdminUser`/`AdminPassword`; the shared SQL fragment `mysqlAdminUserSQL` and the
+  helper `mysqlFamilySecrets()` (in `app/pxc.go`) build the account + secret set for PXC, MySQL
+  replication, InnoDB/GR, and standalone Percona Server. Root stays on `MYSQL_ROOT_PASSWORD`.
+- **PostgreSQL**: new `pgFamilySecrets()` (`app/patroni.go`) → superuser from `POSTGRES_PASSWORD`,
+  internal replication role from the shared `REPL_PASSWORD`. Used by `provisionPG`, Patroni, and
+  repmgr (repmgr overrides the repl role name to `repmgr`).
+- **Valkey**: `VALKEY_PASSWORD` for standalone + cluster.
+- **MongoDB**: admin from `MONGODB_ADMIN_PASSWORD` (the internal keyFile/PMM/PBM secrets stay
+  reused across redeploys, since they are non-canvas).
+- **ProxySQL**: admin from `PROXYSQL_ADMIN_PASSWORD`. ProxySQL ships with `admin/admin`, so
+  `proxysqlStartScript` now connects with whichever works (the target password on a redeploy, else
+  the `admin/admin` default) and rewrites `admin-admin_credentials` to the `.env` value (persisted to
+  disk). Every downstream step (native-cluster join, `proxysql-admin.cnf`, MySQL-backend wiring, PMM
+  registration) threads the real password through.
+
+The **canvas password inputs were removed** (`StackDesigner.jsx`, 12 `<Field>` blocks across
+PXC/MySQL/InnoDB/PS/PG/Valkey/Mongo frames+nodes). The old precedence "stored secret → canvas
+`RootPassword` → env" is gone; the value is now simply the `.env` var on every deploy. Non-password
+identities that must stay stable (InnoDB GR group name, Mongo keyFile) are still reused from stored
+config.
+
+### 70.2 Stack-wide reset barrier before replication
+
+Previously each cluster frame provisioned independently and cross-cluster channels were bolted on at
+the end, so links were configured against clusters that had each accumulated their *own* GTID history
+at different times — fragile, and the reason bidirectional/mesh links intermittently failed to
+configure. New strategy: **bring every MySQL-family server up, create its `.env` credentials, reset
+its binlog/GTID — and only once ALL of them have reached that baseline, set up replication.**
+
+- **`deployBarrier`** (`app/replication.go`): a per-stack rendezvous stored on `App.barriers`
+  (`sync.Map`, added in `app/main.go`), seeded in `handleDeployStack` (`app/intranet.go`) with every
+  `pxc` + `mysql` member being provisioned this pass (frames already fully running are skipped, so it
+  never deadlocks). `arrive(id)` is idempotent; `wait(timeout)` releases when all arrive or the
+  timeout elapses (a stuck node can't hang the deploy).
+- **MySQL replication** (`app/mysql.go`): split into `mysqlSetupBaseline` (start → root + `admin` +
+  app/repl/monitor/cluster users created **locally on every node** → `RESET`) run in parallel for all
+  members, then each member `arrive`s the barrier, the frame `wait`s, and only then
+  `mysqlAttachReplica` wires each secondary via `AUTO_POSITION=1`. Creating users locally is
+  required because the `RESET` purges them from the binlog, so a secondary attaching from the empty
+  primary can't inherit them via replication. Scripts: `mysqlBaselineScript` (users **then** reset)
+  and `mysqlAttachScript` (attach only — no start/root/reset); the old
+  `mysqlPrimaryScript`/`mysqlReplicaScript`/`mysqlReplicaSemisyncPreScript` were removed.
+- **PXC** (`app/pxc.go`): the bootstrap now creates `admin`@`%` and runs `$RESET_CMD` right after
+  user creation (before joiners SST, so joiners inherit the empty baseline). Each member `arrive`s the
+  barrier once the cluster is formed. Galera formation is intra-cluster "replication" that can't be
+  deferred, so only PXC's *cross-cluster* links wait on the barrier.
+- **`reconcileReplication`** (`app/replication.go`) waits on the barrier before configuring any
+  cross-cluster channel, then (as before) waits for the involved nodes to be `Running`. With every
+  cluster at an empty GTID baseline, `AUTO_POSITION` has nothing to back-fill and channels attach
+  cleanly (the §69 `gtid_purged` seeding remains as defensive cover for dirty/redeploy cases).
+- **InnoDB/GR** manages its own GTID/group formation and does not participate in cross-cluster
+  replication, so it is **not** in the barrier — it only picks up the `.env` credential + `admin`
+  account changes. ProxySQL has no binlog/RESET; it stays post-barrier (it already waits for its
+  backend).
+
+### Verification performed
+- `go build ./...`, `go vet ./...`, `gofmt -l` (from `app/`) all clean; `npm run build` (from
+  `app/web`) succeeds. Full end-to-end deploy of a cross-replication mesh not yet re-run on live
+  Docker — the orchestration/scripts are in place and compile clean; a redeploy exercises them.
+
+---
+
+## 71. Configurable `DEPLOYMENT_TIMEOUT` for dependency-readiness waits — `.env`, `.env.example`, `docker-compose.yml`, `app/main.go` + all provisioners
+
+**Problem.** Large stacks that spin up many containers hit failures like
+`associated PXC cluster pxc-cluster-02 did not become ready within 15m0s`. The
+per-dependency wait ceilings were hard-coded (5–20m) and too short when dozens of
+containers are provisioning concurrently.
+
+**Change.** A single knob governs how long a provisioner waits for a dependency
+(an associated cluster, node, or shared service) to become ready before failing
+the deploy:
+- `deployTimeout()` (`app/main.go`, next to `envOr`) reads `DEPLOYMENT_TIMEOUT`
+  (interpreted as **minutes**, positive integer), defaulting to **60**.
+- Every dependency-readiness wait now passes `deployTimeout()` instead of a fixed
+  duration — `waitIntranet`, `waitSeaweedRunning`, `waitKeycloak`, `waitWatchtower`,
+  `mongoWaitPMM`, `waitPXCRunning`, `waitMySQLRunning`, `waitPatroniRunning`,
+  `patroniWaitCluster`, `patroniWaitEtcd`, `waitNodeRunning`, and the replication
+  reset barriers (`b.wait` / `barrier.wait`). 41 call sites across `app/*.go`.
+  (The non-deploy `time.Minute` uses — TTL sweeps, HTTP header timeouts, cert
+  validity, dashboard throttles — are untouched.)
+- `DEPLOYMENT_TIMEOUT=60` added to `.env` + `.env.example` (documented) and
+  forwarded to the app container in `docker-compose.yml` (`${DEPLOYMENT_TIMEOUT:-60}`).
+
+### Verification performed
+- `go build ./...` clean from `app/` (removed the now-unused `time` import in
+  `app/valkey.go`); `docker compose config` validates.

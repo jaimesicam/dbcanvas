@@ -141,34 +141,10 @@ func (a *App) provisionRepmgrFrame(st Stack, frame designFrame, doc designDoc) {
 		return
 	}
 
-	// Cluster-wide credentials: superuser (postgres) + a `repmgr` superuser/replication
-	// role used for both streaming replication and repmgr metadata. Reused across redeploys.
-	var sec pgSecrets
-	for _, n := range members {
-		if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
-			var s pgSecrets
-			if json.Unmarshal(dep.Secrets, &s) == nil && s.SuperPassword != "" {
-				sec = s
-				break
-			}
-		}
-	}
-	if sec.SuperUser == "" {
-		sec.SuperUser = "postgres"
-	}
-	if sec.SuperPassword == "" {
-		if rp := strings.TrimSpace(frame.RootPassword); rp != "" {
-			sec.SuperPassword = rp
-		} else {
-			sec.SuperPassword = genSecret("PgSuper!")
-		}
-	}
-	if sec.ReplUser == "" {
-		sec.ReplUser = "repmgr"
-	}
-	if sec.ReplPassword == "" {
-		sec.ReplPassword = genSecret("PgRepmgr!")
-	}
+	// Cluster-wide credentials come from .env (re-read on every deploy). repmgr uses a
+	// role named `repmgr` for both streaming replication and its metadata.
+	sec := pgFamilySecrets()
+	sec.ReplUser = "repmgr"
 	secJSON, _ := json.Marshal(sec)
 
 	image := pxcImage(frame.OS, frame.OSVersion, frame.Arch)
@@ -213,7 +189,7 @@ func (a *App) provisionRepmgrFrame(st Stack, frame designFrame, doc designDoc) {
 			a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 			a.pxcNewProg(st.ID, n.ID).phase("Waiting for Intranet to be ready", 5)
 		}
-		intranetID, intranetIP, err := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		intranetID, intranetIP, err := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
 		if err != nil {
 			for _, n := range members {
 				a.pxcNewProg(st.ID, n.ID).fail("%v", err)
@@ -228,7 +204,7 @@ func (a *App) provisionRepmgrFrame(st Stack, frame designFrame, doc designDoc) {
 			for _, n := range members {
 				a.pxcNewProg(st.ID, n.ID).phase("Waiting for SeaweedFS (Barman store)", 8)
 			}
-			c, s, werr := a.waitSeaweedRunning(ctx, st.ID, frame.SeaweedFSNodeID, 10*time.Minute)
+			c, s, werr := a.waitSeaweedRunning(ctx, st.ID, frame.SeaweedFSNodeID, deployTimeout())
 			if werr != nil {
 				for _, n := range members {
 					a.pxcNewProg(st.ID, n.ID).fail("%v", werr)

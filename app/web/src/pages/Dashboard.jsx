@@ -121,8 +121,11 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        <Card title="Top containers" subtitle="By CPU" className="lg:col-span-2">
+        <Card title="Top containers" subtitle="By CPU">
           <TopBars items={bars(stats?.nodes, 'cpuPercent', pct)} empty="No running containers" accent="var(--color-primary)" />
+        </Card>
+        <Card title="Top containers" subtitle="By memory">
+          <TopBars items={bars(stats?.nodes, 'memUsed', fmtBytes)} empty="No running containers" accent="var(--color-accent)" />
         </Card>
         <Card title="By engine" subtitle="Running DB nodes">
           <Breakdown data={sum?.byEngine} labels={{ postgres: 'PostgreSQL', mysql: 'MySQL/PXC', mongodb: 'MongoDB', valkey: 'Valkey' }} />

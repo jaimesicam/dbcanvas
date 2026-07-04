@@ -70,6 +70,18 @@ type pgSecrets struct {
 	ReplPassword  string `json:"replPassword"`
 }
 
+// pgFamilySecrets builds the credential set for any PostgreSQL engine (standalone
+// Percona PostgreSQL, Patroni, repmgr). The superuser password comes from
+// POSTGRES_PASSWORD; the internal replication user reuses the shared REPL_PASSWORD.
+// Every value comes from .env (re-read on every deploy) — no node-property or
+// stored-secret overrides.
+func pgFamilySecrets() pgSecrets {
+	return pgSecrets{
+		SuperUser: "postgres", SuperPassword: envOr("POSTGRES_PASSWORD", "postgres_password"),
+		ReplUser: "replicator", ReplPassword: envOr("REPL_PASSWORD", "repl_password"),
+	}
+}
+
 // ppgProduct maps a PostgreSQL major series to its percona-release product
 // (e.g. "16" → "ppg-16"); pgServerPackages to the OS-specific server + contrib
 // package names; pgBinDir/pgDataDir to the OS-specific binary + data directories.
@@ -155,34 +167,8 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 		return
 	}
 
-	// Cluster-wide credentials: reuse across redeploys, else generate. The superuser
-	// password seeds from the frame's RootPassword field when provided.
-	var sec pgSecrets
-	for _, n := range members {
-		if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
-			var s pgSecrets
-			if json.Unmarshal(dep.Secrets, &s) == nil && s.SuperPassword != "" {
-				sec = s
-				break
-			}
-		}
-	}
-	if sec.SuperUser == "" {
-		sec.SuperUser = "postgres"
-	}
-	if sec.SuperPassword == "" {
-		if rp := strings.TrimSpace(frame.RootPassword); rp != "" {
-			sec.SuperPassword = rp
-		} else {
-			sec.SuperPassword = genSecret("PgSuper!")
-		}
-	}
-	if sec.ReplUser == "" {
-		sec.ReplUser = "replicator"
-	}
-	if sec.ReplPassword == "" {
-		sec.ReplPassword = genSecret("PgRepl!")
-	}
+	// Cluster-wide credentials come from .env (re-read on every deploy).
+	sec := pgFamilySecrets()
 	secJSON, _ := json.Marshal(sec)
 
 	image := pxcImage(frame.OS, frame.OSVersion, frame.Arch)
@@ -230,7 +216,7 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 			a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 			a.pxcNewProg(st.ID, n.ID).phase("Waiting for Intranet to be ready", 5)
 		}
-		intranetID, intranetIP, err := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		intranetID, intranetIP, err := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
 		if err != nil {
 			for _, n := range members {
 				a.pxcNewProg(st.ID, n.ID).fail("%v", err)
@@ -245,7 +231,7 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 			for _, n := range members {
 				a.pxcNewProg(st.ID, n.ID).phase("Waiting for SeaweedFS (pgBackRest store)", 8)
 			}
-			c, s, werr := a.waitSeaweedRunning(ctx, st.ID, frame.SeaweedFSNodeID, 10*time.Minute)
+			c, s, werr := a.waitSeaweedRunning(ctx, st.ID, frame.SeaweedFSNodeID, deployTimeout())
 			if werr != nil {
 				for _, n := range members {
 					a.pxcNewProg(st.ID, n.ID).fail("%v", werr)
@@ -288,7 +274,7 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 				return
 			}
 		}
-		if err := a.patroniWaitEtcd(ctx, st, members, 5*time.Minute); err != nil {
+		if err := a.patroniWaitEtcd(ctx, st, members, deployTimeout()); err != nil {
 			for _, n := range members {
 				a.pxcNewProg(st.ID, n.ID).fail("%v", err)
 			}
@@ -305,7 +291,7 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 				return
 			}
 		}
-		leaderID, err := a.patroniWaitCluster(ctx, st, frame, members, 15*time.Minute)
+		leaderID, err := a.patroniWaitCluster(ctx, st, frame, members, deployTimeout())
 		if err != nil {
 			for _, n := range members {
 				a.pxcNewProg(st.ID, n.ID).fail("%v", err)
@@ -685,7 +671,7 @@ func (a *App) patroniRegisterPMM(ctx context.Context, st Stack, n designNode, fr
 		script = patroniPMMDebian
 	}
 	env := []string{
-		"PMM_FQDN=" + pmmFQDN, "PMM_USER=" + pmmUser, "PMM_PASS=" + pmmPass,
+		"PMM_FQDN=" + pmmFQDN, "PMM_USER=" + pmmUser, "PMM_PASS=" + pmmPass, "PMM_URL=" + pmmServerURL(pmmFQDN, pmmUser, pmmPass),
 		// PMM connects as the dedicated 'pmm' role (created on the primary via local
 		// peer auth); PMM_PW is that role's password.
 		"PMM_PW=" + envOr("PMM_PASSWORD", "pmm_password"),
@@ -1052,7 +1038,7 @@ rm -f /tmp/dbca-ca.crt /tmp/dbca-ca.key /tmp/s.csr /tmp/dbca-ca.srl`
 const patroniPMMRHEL = `set -e
 command -v pmm-admin >/dev/null 2>&1 || { percona-release setup -y pmm3-client >/dev/null 2>&1; dnf -y -q install pmm-client >/dev/null; }
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
-pmm-admin config --force --server-insecure-tls --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443" >/dev/null
+pmm-admin config --force --server-insecure-tls --server-url="$PMM_URL" >/dev/null
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
 pmm-admin remove postgresql "$NODE" >/dev/null 2>&1 || true
 # Dedicated PMM monitoring role (per the Percona PMM docs). Created on the primary
@@ -1071,7 +1057,7 @@ const patroniPMMDebian = `set -e
 export DEBIAN_FRONTEND=noninteractive
 command -v pmm-admin >/dev/null 2>&1 || { percona-release setup -y pmm3-client >/dev/null 2>&1; apt-get update -qq >/dev/null; apt-get install -y -qq pmm-client >/dev/null; }
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
-pmm-admin config --force --server-insecure-tls --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443" >/dev/null
+pmm-admin config --force --server-insecure-tls --server-url="$PMM_URL" >/dev/null
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
 pmm-admin remove postgresql "$NODE" >/dev/null 2>&1 || true
 # Dedicated PMM monitoring role (per the Percona PMM docs). Created on the primary

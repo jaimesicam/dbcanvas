@@ -20,8 +20,19 @@ services:
       REPL_PASSWORD: ${REPL_PASSWORD:-repl_password}
       MONITOR_PASSWORD: ${MONITOR_PASSWORD:-monitor_password}
       CLUSTER_PASSWORD: ${CLUSTER_PASSWORD:-cluster_password}
+      # Root/superuser + admin passwords for MySQL/PXC/GR/InnoDB nodes.
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}
+      MYSQL_ADMIN_PASSWORD: ${MYSQL_ADMIN_PASSWORD:-admin_password}
+      # Superuser/admin passwords for the other database + ProxySQL engines.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_password}
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD:-valkey_password}
+      PROXYSQL_ADMIN_PASSWORD: ${PROXYSQL_ADMIN_PASSWORD:-admin_password}
+      MONGODB_ADMIN_PASSWORD: ${MONGODB_ADMIN_PASSWORD:-admin_password}
       # Password for the "pmm" monitoring user created in Valkey (PMM add valkey).
       PMM_PASSWORD: ${PMM_PASSWORD:-pmm_password}
+      # Minutes a provisioner waits for a dependency (cluster/node/service) to
+      # become ready before failing the deploy. Raise for large stacks.
+      DEPLOYMENT_TIMEOUT: ${DEPLOYMENT_TIMEOUT:-60}
     ports:
       # Publish on APP_HOST (default 127.0.0.1 = private). Set APP_HOST=0.0.0.0
       # in .env to expose on all host interfaces.

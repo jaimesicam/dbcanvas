@@ -9,7 +9,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -20,6 +22,9 @@ var embeddedFS embed.FS
 type App struct {
 	store  *Store
 	docker *Docker
+	// barriers holds the per-stack replication barrier for an in-flight deploy
+	// (stackID -> *deployBarrier). See replication.go.
+	barriers sync.Map
 }
 
 func main() {
@@ -209,6 +214,19 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// deployTimeout is how long a provisioner waits for a dependency (a cluster,
+// node, or shared service) to become ready before giving up. Configurable via
+// DEPLOYMENT_TIMEOUT (in minutes); defaults to 60. Large stacks with many
+// containers routinely need well over the old fixed 15m before everything is up.
+func deployTimeout() time.Duration {
+	if v := strings.TrimSpace(os.Getenv("DEPLOYMENT_TIMEOUT")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return time.Duration(n) * time.Minute
+		}
+	}
+	return 60 * time.Minute
 }
 
 // --- JSON helpers ---

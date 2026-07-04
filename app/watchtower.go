@@ -97,7 +97,7 @@ func (a *App) provisionWatchtower(st Stack, n designNode, doc designDoc) {
 		}
 
 		pr.phase("Waiting for Intranet to be ready", 30)
-		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
 		if werr != nil {
 			pr.fail("%v", werr)
 			return

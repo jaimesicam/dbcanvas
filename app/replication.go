@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -37,6 +38,79 @@ import (
 // STATUS (8.0) to read the source position.
 
 const replChannelPrefix = "xrepl_"
+
+// ------------------------------------------------------------------ deploy barrier
+//
+// A deploy sets up replication (intra-cluster attach and cross-cluster channels)
+// only AFTER every MySQL-family replication participant (PXC + MySQL-replication
+// members) in the stack has reached a clean, credentialed, GTID-reset baseline.
+// The barrier is the rendezvous: each such node "arrives" once its server is up,
+// its .env credentials are created, and its binlog/GTID has been reset; the MySQL
+// replica-attach step and reconcileReplication both wait on it. This guarantees a
+// shared empty GTID baseline across all clusters so cross-cluster channels attach
+// cleanly (AUTO_POSITION with nothing to backfill).
+
+type deployBarrier struct {
+	mu      sync.Mutex
+	pending map[string]bool
+	done    chan struct{}
+}
+
+func newDeployBarrier(ids []string) *deployBarrier {
+	b := &deployBarrier{pending: map[string]bool{}, done: make(chan struct{})}
+	for _, id := range ids {
+		b.pending[id] = true
+	}
+	if len(b.pending) == 0 {
+		close(b.done)
+	}
+	return b
+}
+
+// arrive marks a participant as ready; it is idempotent and safe to call from the
+// success path and from a deferred safety-net drain. When the last participant
+// arrives, waiters are released.
+func (b *deployBarrier) arrive(id string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.pending[id] {
+		return
+	}
+	delete(b.pending, id)
+	if len(b.pending) == 0 {
+		select {
+		case <-b.done:
+		default:
+			close(b.done)
+		}
+	}
+}
+
+// wait blocks until every participant has arrived or the timeout elapses (a stuck
+// node must not hang the whole deploy — replication for it will simply be logged
+// as failed downstream).
+func (b *deployBarrier) wait(timeout time.Duration) {
+	select {
+	case <-b.done:
+	case <-time.After(timeout):
+	}
+}
+
+// setDeployBarrier installs the barrier for a stack's in-flight deploy, seeded with
+// the node ids that must reach the reset baseline before replication is set up.
+func (a *App) setDeployBarrier(stackID int64, ids []string) *deployBarrier {
+	b := newDeployBarrier(ids)
+	a.barriers.Store(stackID, b)
+	return b
+}
+
+// deployBarrierFor returns the stack's current deploy barrier (nil if none).
+func (a *App) deployBarrierFor(stackID int64) *deployBarrier {
+	if v, ok := a.barriers.Load(stackID); ok {
+		return v.(*deployBarrier)
+	}
+	return nil
+}
 
 func isReplEdge(e designEdge) bool { return e.Type == "async" || e.Type == "bidir" }
 
@@ -141,6 +215,26 @@ func (a *App) sourceBinlogPos(ctx context.Context, containerID, rootPW, major st
 	return fields[0], fields[1], nil
 }
 
+// sourceGTIDExecuted reads a source's current @@global.gtid_executed as a single-line,
+// whitespace-free GTID set. Used to seed a fresh GTID-auto channel's replica so it
+// starts from "now" instead of walking the source's whole history — which fails when
+// the source (e.g. an SST-joined PXC node) has purged its early binlogs. `--raw`
+// disables MySQL's batch-mode escaping (a multi-UUID set is otherwise printed with a
+// literal "\n" between UUIDs), then all whitespace is stripped to rejoin the UUIDs.
+func (a *App) sourceGTIDExecuted(ctx context.Context, containerID, rootPW string) (string, error) {
+	res, err := a.docker.Exec(ctx, containerID, []string{"bash", "-c", `mysql -uroot -p"$ROOT_PW" -N --raw -e "SELECT @@global.gtid_executed"`}, []string{"ROOT_PW=" + rootPW})
+	if err != nil {
+		return "", err
+	}
+	var sb strings.Builder
+	for _, r := range res.Stdout {
+		if r != ' ' && r != '\t' && r != '\n' && r != '\r' {
+			sb.WriteRune(r)
+		}
+	}
+	return sb.String(), nil
+}
+
 // waitNodeRunning blocks until a node's deployment reaches the running state (or
 // errors / times out).
 func (a *App) waitNodeRunning(stackID int64, nodeID string, timeout time.Duration) bool {
@@ -199,6 +293,14 @@ func (a *App) reconcileReplication(st Stack, doc designDoc) {
 		return
 	}
 
+	// Cross-cluster channels are configured only after every MySQL-family
+	// participant in this deploy has reached its reset baseline (credentials set,
+	// binlog/GTID cleared). This gives all clusters a shared empty GTID baseline
+	// before any replication link is created.
+	if b := a.deployBarrierFor(st.ID); b != nil {
+		b.wait(deployTimeout())
+	}
+
 	// Wait for every node referenced by a link to be running before configuring.
 	involved := map[string]bool{}
 	for _, l := range links {
@@ -206,7 +308,7 @@ func (a *App) reconcileReplication(st Stack, doc designDoc) {
 		involved[l.dst.ID] = true
 	}
 	for id := range involved {
-		if !a.waitNodeRunning(st.ID, id, 15*time.Minute) {
+		if !a.waitNodeRunning(st.ID, id, deployTimeout()) {
 			label := id
 			if n, ok := members[id]; ok {
 				label = n.Label
@@ -223,6 +325,7 @@ func (a *App) reconcileReplication(st Stack, doc designDoc) {
 		channel, sourceFQDN, replUser, replPW, srcLabel string
 		auto                                            bool
 		logFile, logPos                                 string
+		srcGTID                                         string // source gtid_executed, to seed a fresh auto channel
 	}
 	desired := map[string][]chanSpec{}
 	for _, l := range links {
@@ -244,7 +347,16 @@ func (a *App) reconcileReplication(st Stack, doc designDoc) {
 			srcLabel:   l.src.Label,
 			auto:       l.srcFrame.GTID && l.dstFrame.GTID,
 		}
-		if !spec.auto {
+		if spec.auto {
+			// Seed a freshly-created auto channel from the source's current position so
+			// it replicates ongoing changes only. Best-effort: an empty/failed read just
+			// falls back to plain auto-position (fine when the source kept all binlogs).
+			if g, e := a.sourceGTIDExecuted(ctx, sdep.ContainerID, ssec.RootPassword); e == nil {
+				spec.srcGTID = g
+			} else {
+				log.Printf("stack %d replication %s←%s: read source gtid_executed: %v", st.ID, l.dst.Label, l.src.Label, e)
+			}
+		} else {
 			file, pos, e := a.sourceBinlogPos(ctx, sdep.ContainerID, ssec.RootPassword, frameMajor(l.srcFrame))
 			if e != nil {
 				a.replLogln(st.ID, l.dst.ID, fmt.Sprintf("cross-cluster replication from %s FAILED: %v", l.src.Label, e))
@@ -271,7 +383,7 @@ func (a *App) reconcileReplication(st Stack, doc designDoc) {
 			}
 			method := "GTID auto-position"
 			if c.auto {
-				env = append(env, "AUTO=1")
+				env = append(env, "AUTO=1", "SRC_GTID="+c.srcGTID)
 			} else {
 				env = append(env, "AUTO=0", "LOG_FILE="+c.logFile, "LOG_POS="+c.logPos)
 				method = fmt.Sprintf("file/position %s:%s", c.logFile, c.logPos)
@@ -293,14 +405,28 @@ func (a *App) reconcileReplication(st Stack, doc designDoc) {
 // ------------------------------------------------------------------ scripts
 
 // replChannelApply (re)configures one cross-cluster channel on a replica and starts
-// it. With $AUTO=1 it uses GTID auto-positioning (fetches the GTIDs missing from the
-// source); otherwise it starts from the binlog file/position in $LOG_FILE/$LOG_POS.
-// No RESET — the node keeps its own cluster's data. GET_SOURCE_PUBLIC_KEY lets the
-// repl user's caching_sha2_password auth work over a non-TLS link.
+// it. With $AUTO=1 it uses GTID auto-positioning; otherwise it starts from the binlog
+// file/position in $LOG_FILE/$LOG_POS. No RESET — the node keeps its own cluster's
+// data. GET_SOURCE_PUBLIC_KEY lets the repl user's caching_sha2_password auth work
+// over a non-TLS link.
+//
+// On a *fresh* auto channel, if $SRC_GTID (the source's current gtid_executed) is
+// given, its transactions the replica doesn't yet have are added to the replica's
+// gtid_purged (via GTID_SUBTRACT + the "+" form). This makes auto-position replicate
+// only changes made *after* the link is set up — matching the file/position path — and
+// avoids a fatal 1236 when the source (e.g. an SST-joined PXC node) has purged the
+// early binlogs that plain auto-position would otherwise request. The channel-exists
+// guard ensures this seeding happens once at creation, never on a later reconcile
+// (which would wrongly skip transactions committed on the source since).
 const replChannelApply = `set -e
 mysql -uroot -p"$ROOT_PW" -e "STOP REPLICA FOR CHANNEL '$CHANNEL';" 2>/dev/null || true
 if [ "$AUTO" = 1 ]; then
   POS="SOURCE_AUTO_POSITION=1"
+  EXISTS=$(mysql -uroot -p"$ROOT_PW" -N -e "SELECT COUNT(*) FROM performance_schema.replication_connection_configuration WHERE CHANNEL_NAME='$CHANNEL'" 2>/dev/null)
+  if [ "$EXISTS" = 0 ] && [ -n "$SRC_GTID" ]; then
+    MISSING=$(mysql -uroot -p"$ROOT_PW" -N --raw -e "SELECT GTID_SUBTRACT('$SRC_GTID', @@global.gtid_executed)" 2>/dev/null | tr -d '[:space:]')
+    [ -n "$MISSING" ] && mysql -uroot -p"$ROOT_PW" -e "SET GLOBAL gtid_purged='+$MISSING';"
+  fi
 else
   POS="SOURCE_LOG_FILE='$LOG_FILE', SOURCE_LOG_POS=$LOG_POS"
 fi

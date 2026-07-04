@@ -91,25 +91,8 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 	major := ppgMajorOf(n.PGMajor)
 	image := pxcImage(n.OS, n.OSVersion, n.Arch)
 
-	// Superuser credentials: reuse across redeploys, else seed from the node's
-	// RootPassword field, else generate.
-	var sec pgSecrets
-	if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
-		var s pgSecrets
-		if json.Unmarshal(dep.Secrets, &s) == nil && s.SuperPassword != "" {
-			sec = s
-		}
-	}
-	if sec.SuperUser == "" {
-		sec.SuperUser = "postgres"
-	}
-	if sec.SuperPassword == "" {
-		if rp := strings.TrimSpace(n.RootPassword); rp != "" {
-			sec.SuperPassword = rp
-		} else {
-			sec.SuperPassword = genSecret("PgSuper!")
-		}
-	}
+	// Superuser credentials come from .env (re-read on every deploy).
+	sec := pgSecrets{SuperUser: "postgres", SuperPassword: envOr("POSTGRES_PASSWORD", "postgres_password")}
 
 	monitoredBy := ""
 	if n.PMMNodeID != "" {
@@ -141,7 +124,7 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 
 		pr.phase("Waiting for Intranet to be ready", 5)
-		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
 		if werr != nil {
 			pr.fail("%v", werr)
 			return
@@ -152,7 +135,7 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 		var swSec seaweedSecrets
 		if n.UsePgBackRest {
 			pr.phase("Waiting for SeaweedFS (pgBackRest store)", 8)
-			c, s, e := a.waitSeaweedRunning(ctx, st.ID, n.SeaweedFSNodeID, 10*time.Minute)
+			c, s, e := a.waitSeaweedRunning(ctx, st.ID, n.SeaweedFSNodeID, deployTimeout())
 			if e != nil {
 				pr.fail("%v", e)
 				return
@@ -395,7 +378,7 @@ func (a *App) pgRegisterPMM(ctx context.Context, st Stack, n designNode, doc des
 		script = patroniPMMDebian
 	}
 	env := []string{
-		"PMM_FQDN=" + pmmFQDN, "PMM_USER=" + pmmUser, "PMM_PASS=" + pmmPass,
+		"PMM_FQDN=" + pmmFQDN, "PMM_USER=" + pmmUser, "PMM_PASS=" + pmmPass, "PMM_URL=" + pmmServerURL(pmmFQDN, pmmUser, pmmPass),
 		// PMM connects as the dedicated 'pmm' role (created via local peer auth);
 		// PMM_PW is that role's password.
 		"PMM_PW=" + envOr("PMM_PASSWORD", "pmm_password"),

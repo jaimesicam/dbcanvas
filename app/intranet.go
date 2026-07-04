@@ -1094,6 +1094,32 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Seed the stack-wide replication barrier with every PXC + MySQL-replication
+	// member being (re)provisioned this pass (frames already fully running are
+	// skipped, matching the provision gate below). Intra-cluster attach and
+	// cross-cluster channels are held until all of them reach their reset baseline.
+	var barrierIDs []string
+	for _, f := range doc.Frames {
+		if f.Type != "pxc" && f.Type != "mysql" {
+			continue
+		}
+		var ids []string
+		running := 0
+		for _, n := range doc.Nodes {
+			if n.FrameID == f.ID && n.Type == f.Type {
+				ids = append(ids, n.ID)
+				if d, ok := existing[n.ID]; ok && d.State == DeployRunning {
+					running++
+				}
+			}
+		}
+		if len(ids) > 0 && running == len(ids) {
+			continue // frame skipped (already fully running) — not part of this pass
+		}
+		barrierIDs = append(barrierIDs, ids...)
+	}
+	a.setDeployBarrier(st.ID, barrierIDs)
+
 	// Cluster frames: (re)provision a frame unless all its member nodes are already
 	// running. PXC formation is sequential/all-or-nothing; ProxySQL members are
 	// independent but treated the same for the redeploy gate.

@@ -173,7 +173,7 @@ func (a *App) provisionSeaweedFS(st Stack, n designNode, doc designDoc) {
 		// The Intranet is the stack's DNS authority, so the SeaweedFS node must not
 		// start until it is up — the DB nodes resolve seaweedfs's FQDN through it.
 		setPhase("Waiting for Intranet to be ready", 15)
-		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
 		if werr != nil {
 			failNode("%v", werr)
 			return

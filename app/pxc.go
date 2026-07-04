@@ -51,6 +51,8 @@ type pxcConfig struct {
 type pxcSecrets struct {
 	RootUser        string `json:"rootUser"`
 	RootPassword    string `json:"rootPassword"`
+	AdminUser       string `json:"adminUser"`     // remote superuser admin@'%' (MYSQL_ADMIN_PASSWORD)
+	AdminPassword   string `json:"adminPassword"` // root@localhost can't connect over the network
 	AppUser         string `json:"appUser"`
 	AppPassword     string `json:"appPassword"`
 	ReplUser        string `json:"replUser"`
@@ -64,6 +66,30 @@ type pxcSecrets struct {
 func pxcImage(os, osVersion, arch string) string {
 	return "dbcanvas-systemd:" + os + "-" + osVersion + "-" + archOr(arch)
 }
+
+// mysqlFamilySecrets builds the credential set for any MySQL-family engine (PXC,
+// MySQL replication, InnoDB / Group Replication, standalone Percona Server). Every
+// password comes exclusively from the environment (.env) — node-property and
+// stored-secret overrides were removed, so a redeploy re-reads .env. root@localhost
+// is the local superuser; admin@'%' (MYSQL_ADMIN_PASSWORD) is the network-reachable
+// superuser, since root@localhost cannot connect over TCP.
+func mysqlFamilySecrets() pxcSecrets {
+	return pxcSecrets{
+		RootUser: "root", RootPassword: envOr("MYSQL_ROOT_PASSWORD", "root_password"),
+		AdminUser: "admin", AdminPassword: envOr("MYSQL_ADMIN_PASSWORD", "admin_password"),
+		AppUser: "app", AppPassword: envOr("APP_PASSWORD", "app_password"),
+		ReplUser: "repl", ReplPassword: envOr("REPL_PASSWORD", "repl_password"),
+		MonitorUser: "monitor", MonitorPassword: envOr("MONITOR_PASSWORD", "monitor_password"),
+		ClusterUser: "cluster", ClusterPassword: envOr("CLUSTER_PASSWORD", "cluster_password"),
+	}
+}
+
+// mysqlAdminUserSQL is the SQL fragment that creates/updates the admin@'%' remote
+// superuser. Shared by every MySQL-family bootstrap so the account is identical
+// across engines. Env: $ADMIN_USER, $ADMIN_PW.
+const mysqlAdminUserSQL = `CREATE USER IF NOT EXISTS '$ADMIN_USER'@'%' IDENTIFIED BY '$ADMIN_PW';
+ALTER USER '$ADMIN_USER'@'%' IDENTIFIED BY '$ADMIN_PW';
+GRANT ALL PRIVILEGES ON *.* TO '$ADMIN_USER'@'%' WITH GRANT OPTION;`
 
 // pxcProduct maps a PXC major series to its percona-release product name.
 func pxcProduct(major string) string {
@@ -144,14 +170,8 @@ func logUpdatesOption(major, version string) string {
 	return "log_slave_updates=ON"
 }
 
-// pxcServerID derives a stable, unique server-id from a pxcNN node name.
-func pxcServerID(name string) int {
-	digits := strings.TrimLeft(strings.TrimPrefix(name, "pxc"), "0")
-	if v, err := strconv.Atoi(digits); err == nil && v > 0 {
-		return v
-	}
-	return int(fnv32(name)%100000) + 1
-}
+// pxcServerID derives a stable, unique server-id from a PXC node name.
+func pxcServerID(name string) int { return serverIDFor(name) }
 
 func fnv32(s string) uint32 {
 	var h uint32 = 2166136261
@@ -160,6 +180,17 @@ func fnv32(s string) uint32 {
 		h *= 16777619
 	}
 	return h
+}
+
+// serverIDFor derives a stable MySQL server-id from a node's stack-unique
+// hostname. It hashes the *full* name — not just the trailing number — so ids
+// stay unique across clusters (e.g. mysql01 vs pxc01, which otherwise both got
+// server-id 1). Cross-cluster async replication requires distinct ids: MySQL
+// stops the replica I/O thread when source and replica share a server-id.
+// Range 1..~268M keeps it a valid, positive server-id with negligible collision
+// probability (validateStack still warns on the astronomically rare clash).
+func serverIDFor(host string) int {
+	return int(fnv32(host)%0xFFFFFFF) + 1
 }
 
 // --- progress helper (shared shape with the other provisioners) ---
@@ -223,28 +254,8 @@ func (a *App) provisionPXCFrame(st Stack, frame designFrame, doc designDoc) {
 	byLabel(arbiters)
 	members := append(append([]designNode{}, regulars...), arbiters...)
 
-	// Cluster-wide root password: reuse across redeploys, else the frame value,
-	// else a generated one. App/repl come from the environment.
-	root := strings.TrimSpace(frame.RootPassword)
-	for _, n := range members {
-		if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
-			var s pxcSecrets
-			if json.Unmarshal(dep.Secrets, &s) == nil && s.RootPassword != "" {
-				root = s.RootPassword
-				break
-			}
-		}
-	}
-	if root == "" {
-		root = genSecret("PxcRoot!")
-	}
-	sec := pxcSecrets{
-		RootUser: "root", RootPassword: root,
-		AppUser: "app", AppPassword: envOr("APP_PASSWORD", "app_password"),
-		ReplUser: "repl", ReplPassword: envOr("REPL_PASSWORD", "repl_password"),
-		MonitorUser: "monitor", MonitorPassword: envOr("MONITOR_PASSWORD", "monitor_password"),
-		ClusterUser: "cluster", ClusterPassword: envOr("CLUSTER_PASSWORD", "cluster_password"),
-	}
+	// All credentials come from .env (re-read on every deploy).
+	sec := mysqlFamilySecrets()
 	secJSON, _ := json.Marshal(sec)
 
 	image := pxcImage(frame.OS, frame.OSVersion, frame.Arch)
@@ -278,11 +289,23 @@ func (a *App) provisionPXCFrame(st Stack, frame designFrame, doc designDoc) {
 	go func() {
 		ctx := context.Background()
 		baseProg := a.pxcNewProg(st.ID, members[0].ID)
+		// A PXC cluster reaches its reset baseline as it forms (bootstrap creates the
+		// credentials and clears GTID; joiners inherit that clean state via SST). This
+		// deferred drain releases the stack-wide barrier for every member no matter how
+		// the goroutine exits; the success path arrives them explicitly after Phase 2.
+		barrier := a.deployBarrierFor(st.ID)
+		if barrier != nil {
+			defer func() {
+				for _, n := range members {
+					barrier.arrive(n.ID)
+				}
+			}()
+		}
 		for _, n := range members {
 			a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 			a.pxcNewProg(st.ID, n.ID).phase("Waiting for Intranet to be ready", 5)
 		}
-		intranetID, intranetIP, err := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		intranetID, intranetIP, err := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
 		if err != nil {
 			for _, n := range members {
 				a.pxcNewProg(st.ID, n.ID).fail("%v", err)
@@ -331,6 +354,14 @@ func (a *App) provisionPXCFrame(st Stack, frame designFrame, doc designDoc) {
 			pr.phase("Starting arbitrator (garbd)", 70)
 			if err := a.pxcStartGarbd(ctx, st, n, frame, clusterAddr, pr); err != nil {
 				return
+			}
+		}
+
+		// Cluster is formed and at its reset baseline — release the barrier so cross-
+		// cluster replication can proceed once every stack participant has arrived.
+		if barrier != nil {
+			for _, n := range members {
+				barrier.arrive(n.ID)
 			}
 		}
 
@@ -540,16 +571,18 @@ func (a *App) pxcBootstrap(ctx context.Context, st Stack, frame designFrame, n d
 	id := dep.ContainerID
 	env := []string{
 		"ROOT_PW=" + sec.RootPassword,
+		"ADMIN_USER=" + sec.AdminUser, "ADMIN_PW=" + sec.AdminPassword,
 		"APP_USER=" + sec.AppUser, "APP_PW=" + sec.AppPassword,
 		"REPL_USER=" + sec.ReplUser, "REPL_PW=" + sec.ReplPassword,
 		"MON_USER=" + sec.MonitorUser, "MON_PW=" + sec.MonitorPassword,
 		"CLUSTER_USER=" + sec.ClusterUser, "CLUSTER_PW=" + sec.ClusterPassword,
+		"RESET_CMD=" + mysqlResetCmd(frame.PXCMajor),
 		"LOGERR=" + pxcLogError(frame.OS),
 	}
 	if err := a.runStep(ctx, id, pxcBootstrapScript, env, pr.logln); err != nil {
 		return pr.fail("bootstrap: %v", err)
 	}
-	pr.logln("cluster bootstrapped; root password set; app/repl/monitor users created")
+	pr.logln("cluster bootstrapped; root/admin passwords set; app/repl/monitor/cluster users created; GTID reset")
 	// Let the unix root user run mysql without typing the password.
 	if err := a.docker.CopyFile(ctx, id, "/root", ".my.cnf", 0o600, pxcRootMyCnf(sec)); err != nil {
 		return pr.fail("write /root/.my.cnf: %v", err)
@@ -680,7 +713,7 @@ func pxcPMMEnv(pmmFQDN, pmmUser, pmmPass string, sec pxcSecrets, node string) []
 		dbUser = "root"
 	}
 	return []string{
-		"PMM_FQDN=" + pmmFQDN, "PMM_USER=" + pmmUser, "PMM_PASS=" + pmmPass,
+		"PMM_FQDN=" + pmmFQDN, "PMM_USER=" + pmmUser, "PMM_PASS=" + pmmPass, "PMM_URL=" + pmmServerURL(pmmFQDN, pmmUser, pmmPass),
 		// DB_USER/DB_PW are root, used to create the dedicated 'pmm' account;
 		// PMM_PW is that account's password (PMM connects as 'pmm').
 		"DB_USER=" + dbUser, "DB_PW=" + sec.RootPassword,
@@ -783,9 +816,17 @@ else
   if [ -n "$TMP" ]; then
     # RHEL/OL: the temp password is EXPIRED — ALTER USER is allowed while expired,
     # but a SELECT is not, so set the password directly (no probe query first).
-    mysql -uroot --connect-expired-password -p"$TMP" -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$ROOT_PW';"
+    # validate_password can't be relaxed while expired, so if it rejects a weak
+    # $ROOT_PW set a strong interim password, relax the policy, then apply $ROOT_PW.
+    if ! mysql -uroot --connect-expired-password -p"$TMP" -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$ROOT_PW';" 2>/dev/null; then
+      mysql -uroot --connect-expired-password -p"$TMP" -e "ALTER USER 'root'@'localhost' IDENTIFIED BY 'Dbc#Interim7Pw';"
+      mysql -uroot -p'Dbc#Interim7Pw' -e "SET GLOBAL validate_password.policy=LOW; SET GLOBAL validate_password.length=6;" 2>/dev/null || true
+      mysql -uroot -p'Dbc#Interim7Pw' -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$ROOT_PW';"
+    fi
   else
-    # Debian: connect over the local socket as the root OS user (auth_socket) and set a password.
+    # Debian: connect over the local socket as the root OS user (auth_socket). We're
+    # a full (non-expired) root here, so relax validate_password before setting a pw.
+    mysql -uroot -e "SET GLOBAL validate_password.policy=LOW; SET GLOBAL validate_password.length=6;" 2>/dev/null || true
     mysql -uroot -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH caching_sha2_password BY '$ROOT_PW';"
   fi
 fi
@@ -793,6 +834,7 @@ fi
 # (tolerated if the component isn't installed).
 mysql -uroot -p"$ROOT_PW" -e "SET GLOBAL validate_password.policy=LOW; SET GLOBAL validate_password.length=6;" 2>/dev/null || true
 mysql -uroot -p"$ROOT_PW" <<SQL
+` + mysqlAdminUserSQL + `
 CREATE USER IF NOT EXISTS '$APP_USER'@'%' IDENTIFIED BY '$APP_PW';
 GRANT ALL PRIVILEGES ON *.* TO '$APP_USER'@'%';
 CREATE USER IF NOT EXISTS '$REPL_USER'@'%' IDENTIFIED BY '$REPL_PW';
@@ -806,6 +848,11 @@ ALTER USER '$CLUSTER_USER'@'%' IDENTIFIED BY '$CLUSTER_PW';
 GRANT ALL PRIVILEGES ON *.* TO '$CLUSTER_USER'@'%' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
 SQL
+# Clear GTID/binlog history now that credentials exist — the joiners have not yet
+# SST'd, so they inherit this clean, empty baseline from the donor. A shared empty
+# GTID baseline across every cluster is what lets cross-cluster replication attach
+# cleanly (AUTO_POSITION with nothing to backfill) once all servers are ready.
+mysql -uroot -p"$ROOT_PW" -e "$RESET_CMD" 2>/dev/null || true
 echo "wsrep_cluster_size: $(mysql -uroot -p"$ROOT_PW" -N -e "SHOW STATUS LIKE 'wsrep_cluster_size'" 2>/dev/null | awk '{print $2}')"`
 
 // pxcJoinScript starts a joining node, which SSTs from the donor. The PXC
@@ -890,7 +937,7 @@ apt-get install -y -qq pmm-client >/dev/null`
 const pxcPMMRHEL = `set -e
 command -v pmm-admin >/dev/null 2>&1 || { percona-release setup -y pmm3-client >/dev/null 2>&1; dnf -y -q install pmm-client >/dev/null; }
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
-pmm-admin config --force --server-insecure-tls --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443" >/dev/null
+pmm-admin config --force --server-insecure-tls --server-url="$PMM_URL" >/dev/null
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
 pmm-admin remove mysql "$NODE" >/dev/null 2>&1 || true
 # Dedicated least-privilege PMM monitoring account (per the Percona PMM docs),
@@ -910,7 +957,7 @@ const pxcPMMDebian = `set -e
 export DEBIAN_FRONTEND=noninteractive
 command -v pmm-admin >/dev/null 2>&1 || { percona-release setup -y pmm3-client >/dev/null 2>&1; apt-get update -qq >/dev/null; apt-get install -y -qq pmm-client >/dev/null; }
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
-pmm-admin config --force --server-insecure-tls --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443" >/dev/null
+pmm-admin config --force --server-insecure-tls --server-url="$PMM_URL" >/dev/null
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
 pmm-admin remove mysql "$NODE" >/dev/null 2>&1 || true
 # Dedicated least-privilege PMM monitoring account (per the Percona PMM docs),

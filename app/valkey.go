@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
 
 // Valkey nodes run the upstream valkey/valkey-bundle image (Debian-based; bundles
@@ -92,16 +91,8 @@ func (a *App) provisionValkeyStandalone(st Stack, n designNode, doc designDoc) {
 	}
 	fqdn := fqdnOf(host, domain)
 
-	pw := strings.TrimSpace(n.RootPassword)
-	if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
-		var s valkeySecrets
-		if json.Unmarshal(dep.Secrets, &s) == nil && s.Password != "" {
-			pw = s.Password
-		}
-	}
-	if pw == "" {
-		pw = genSecret("Valkey!")
-	}
+	// Default-user password comes from .env (re-read on every deploy).
+	pw := envOr("VALKEY_PASSWORD", "valkey_password")
 	sec := valkeySecrets{Password: pw}
 	secJSON, _ := json.Marshal(sec)
 
@@ -140,7 +131,7 @@ func (a *App) provisionValkeyStandalone(st Stack, n designNode, doc designDoc) {
 		}
 
 		pr.phase("Waiting for Intranet to be ready", 14)
-		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
 		if werr != nil {
 			pr.fail("%v", werr)
 			return
@@ -313,20 +304,8 @@ func (a *App) provisionValkeyClusterFrame(st Stack, frame designFrame, doc desig
 		return
 	}
 
-	// Shared default-user password, reused across redeploys.
-	pw := strings.TrimSpace(frame.RootPassword)
-	for _, n := range members {
-		if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
-			var s valkeySecrets
-			if json.Unmarshal(dep.Secrets, &s) == nil && s.Password != "" {
-				pw = s.Password
-				break
-			}
-		}
-	}
-	if pw == "" {
-		pw = genSecret("Valkey!")
-	}
+	// Shared default-user password comes from .env (re-read on every deploy).
+	pw := envOr("VALKEY_PASSWORD", "valkey_password")
 	sec := valkeySecrets{Password: pw}
 	secJSON, _ := json.Marshal(sec)
 
@@ -360,7 +339,7 @@ func (a *App) provisionValkeyClusterFrame(st Stack, frame designFrame, doc desig
 			a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 			progs[n.ID].phase("Waiting for Intranet to be ready", 5)
 		}
-		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
 		if werr != nil {
 			for _, n := range members {
 				progs[n.ID].fail("%v", werr)

@@ -55,13 +55,7 @@ func mysqlUnit(os string) string {
 }
 
 // mysqlServerID derives a stable, unique server-id from a mysqlNN node name.
-func mysqlServerID(name string) int {
-	digits := strings.TrimLeft(strings.TrimPrefix(name, "mysql"), "0")
-	if v, err := strconv.Atoi(digits); err == nil && v > 0 {
-		return v
-	}
-	return int(fnv32(name)%100000) + 1
-}
+func mysqlServerID(name string) int { return serverIDFor(name) }
 
 func mysqlReplMode(m string) string {
 	if m == "semisync" {
@@ -116,28 +110,8 @@ func (a *App) provisionMySQLFrame(st Stack, frame designFrame, doc designDoc) {
 	sort.Slice(secondaries, func(i, j int) bool { return secondaries[i].Label < secondaries[j].Label })
 	members := append([]designNode{primary}, secondaries...)
 
-	// Cluster-wide root password (reuse across redeploys, else frame value, else
-	// generated). App/repl/monitor/cluster come from the environment.
-	root := strings.TrimSpace(frame.RootPassword)
-	for _, n := range members {
-		if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
-			var s pxcSecrets
-			if json.Unmarshal(dep.Secrets, &s) == nil && s.RootPassword != "" {
-				root = s.RootPassword
-				break
-			}
-		}
-	}
-	if root == "" {
-		root = genSecret("MyRoot!")
-	}
-	sec := pxcSecrets{
-		RootUser: "root", RootPassword: root,
-		AppUser: "app", AppPassword: envOr("APP_PASSWORD", "app_password"),
-		ReplUser: "repl", ReplPassword: envOr("REPL_PASSWORD", "repl_password"),
-		MonitorUser: "monitor", MonitorPassword: envOr("MONITOR_PASSWORD", "monitor_password"),
-		ClusterUser: "cluster", ClusterPassword: envOr("CLUSTER_PASSWORD", "cluster_password"),
-	}
+	// All credentials come from .env (re-read on every deploy).
+	sec := mysqlFamilySecrets()
 	secJSON, _ := json.Marshal(sec)
 
 	image := pxcImage(frame.OS, frame.OSVersion, frame.Arch)
@@ -184,7 +158,7 @@ func (a *App) provisionMySQLFrame(st Stack, frame designFrame, doc designDoc) {
 				progs[n.ID].fail(format, args...)
 			}
 		}
-		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
 		if werr != nil {
 			failAll("%v", werr)
 			return
@@ -211,18 +185,63 @@ func (a *App) provisionMySQLFrame(st Stack, frame designFrame, doc designDoc) {
 		}
 		a.reconcileStackDNS(ctx, st.ID)
 
-		// ---- Phase 2: bootstrap the primary ----
-		pp := progs[primary.ID]
-		pp.phase("Configuring primary", 60)
-		if err := a.mysqlSetupPrimary(ctx, st, frame, primary, major, sec, pp); err != nil {
+		// The stack-wide barrier: every MySQL-family participant must reach its reset
+		// baseline before any replication (intra-cluster attach or cross-cluster
+		// channels) is set up. A deferred drain guarantees this frame's members always
+		// release the barrier, even on an early failure return below.
+		barrier := a.deployBarrierFor(st.ID)
+		if barrier != nil {
+			defer func() {
+				for _, n := range members {
+					barrier.arrive(n.ID)
+				}
+			}()
+		}
+
+		// ---- Phase 2 (parallel): baseline every member — start, .env credentials
+		// (incl. admin@'%'), GTID reset. No replication is wired yet. ----
+		var wg2 sync.WaitGroup
+		var mu2 sync.Mutex
+		baseFailed := false
+		for _, n := range members {
+			role := "secondary"
+			if n.ID == primary.ID {
+				role = "primary"
+			}
+			wg2.Add(1)
+			go func(n designNode, role string) {
+				defer wg2.Done()
+				pr := progs[n.ID]
+				pr.phase("Setting credentials + reset baseline", 60)
+				if err := a.mysqlSetupBaseline(ctx, st, frame, n, role, major, sec, pr); err != nil {
+					mu2.Lock()
+					baseFailed = true
+					mu2.Unlock()
+					return
+				}
+				if barrier != nil {
+					barrier.arrive(n.ID)
+				}
+			}(n, role)
+		}
+		wg2.Wait()
+		if baseFailed {
 			return
 		}
 
-		// ---- Phase 3: attach each secondary ----
+		// ---- Barrier: wait for every MySQL-family node in the stack to be baselined. ----
+		if barrier != nil {
+			for _, n := range members {
+				progs[n.ID].phase("Waiting for all servers to reach baseline", 68)
+			}
+			barrier.wait(deployTimeout())
+		}
+
+		// ---- Phase 3: attach each secondary to the primary (intra-cluster replication). ----
 		for _, n := range secondaries {
 			pr := progs[n.ID]
-			pr.phase("Attaching replica", 70)
-			if err := a.mysqlSetupReplica(ctx, st, frame, n, primaryFQDN, major, sec, pr); err != nil {
+			pr.phase("Attaching replica", 72)
+			if err := a.mysqlAttachReplica(ctx, st, frame, n, primaryFQDN, sec, pr); err != nil {
 				return
 			}
 		}
@@ -278,23 +297,8 @@ func (a *App) provisionPerconaServer(st Stack, n designNode, doc designDoc) {
 	major := psMajorOf(n.PSMajor)
 	image := pxcImage(n.OS, n.OSVersion, n.Arch)
 
-	root := strings.TrimSpace(n.RootPassword)
-	if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
-		var s pxcSecrets
-		if json.Unmarshal(dep.Secrets, &s) == nil && s.RootPassword != "" {
-			root = s.RootPassword
-		}
-	}
-	if root == "" {
-		root = genSecret("MyRoot!")
-	}
-	sec := pxcSecrets{
-		RootUser: "root", RootPassword: root,
-		AppUser: "app", AppPassword: envOr("APP_PASSWORD", "app_password"),
-		ReplUser: "repl", ReplPassword: envOr("REPL_PASSWORD", "repl_password"),
-		MonitorUser: "monitor", MonitorPassword: envOr("MONITOR_PASSWORD", "monitor_password"),
-		ClusterUser: "cluster", ClusterPassword: envOr("CLUSTER_PASSWORD", "cluster_password"),
-	}
+	// All credentials come from .env (re-read on every deploy).
+	sec := mysqlFamilySecrets()
 	monitoredBy := ""
 	if n.PMMNodeID != "" {
 		for _, m := range doc.Nodes {
@@ -318,7 +322,7 @@ func (a *App) provisionPerconaServer(st Stack, n designNode, doc designDoc) {
 		pr := a.pxcNewProg(st.ID, n.ID)
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 		pr.phase("Waiting for Intranet to be ready", 5)
-		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
 		if werr != nil {
 			pr.fail("%v", werr)
 			return
@@ -328,7 +332,7 @@ func (a *App) provisionPerconaServer(st Stack, n designNode, doc designDoc) {
 		}
 		a.reconcileStackDNS(ctx, st.ID)
 		pr.phase("Configuring Percona Server", 60)
-		if err := a.mysqlSetupPrimary(ctx, st, frame, n, major, sec, pr); err != nil {
+		if err := a.mysqlSetupBaseline(ctx, st, frame, n, "standalone", major, sec, pr); err != nil {
 			return
 		}
 		// Let the unix root user run mysql without typing the password.
@@ -561,55 +565,60 @@ func mysqlMyCnf(frame designFrame, host string) string {
 	return b.String()
 }
 
-// mysqlSetupPrimary starts the primary, sets the root password, creates the
-// app/repl/monitor/cluster users, and (for semi-sync) enables the source plugin.
-func (a *App) mysqlSetupPrimary(ctx context.Context, st Stack, frame designFrame, n designNode, major string, sec pxcSecrets, pr *pxcProg) error {
+// mysqlSetupBaseline brings ONE member (primary or secondary) to the pre-replication
+// baseline: it starts the server, sets the root password, creates the admin@'%'
+// superuser plus the app/repl/monitor/cluster users LOCALLY (every node creates its
+// own — see the note below), then clears binlog/GTID history. For semi-sync it also
+// installs+enables the role's plugin so the threads register before any attach.
+//
+// Credentials are created on every node (not just the primary) because the following
+// RESET purges them from the binlog, so a secondary attaching later via
+// AUTO_POSITION from the empty primary would never receive them via replication.
+func (a *App) mysqlSetupBaseline(ctx context.Context, st Stack, frame designFrame, n designNode, role, major string, sec pxcSecrets, pr *pxcProg) error {
 	dep, _ := a.store.GetDeployment(st.ID, n.ID)
 	id := dep.ContainerID
 	env := []string{
 		"UNIT=" + mysqlUnit(frame.OS), "LOGERR=" + pxcLogError(frame.OS),
 		"RESET_CMD=" + mysqlResetCmd(major),
 		"ROOT_PW=" + sec.RootPassword,
+		"ADMIN_USER=" + sec.AdminUser, "ADMIN_PW=" + sec.AdminPassword,
 		"APP_USER=" + sec.AppUser, "APP_PW=" + sec.AppPassword,
 		"REPL_USER=" + sec.ReplUser, "REPL_PW=" + sec.ReplPassword,
 		"MON_USER=" + sec.MonitorUser, "MON_PW=" + sec.MonitorPassword,
 		"CLUSTER_USER=" + sec.ClusterUser, "CLUSTER_PW=" + sec.ClusterPassword,
 	}
-	if err := a.runStep(ctx, id, mysqlPrimaryScript, env, pr.logln); err != nil {
-		return pr.fail("configure primary: %v", err)
+	if err := a.runStep(ctx, id, mysqlBaselineScript, env, pr.logln); err != nil {
+		return pr.fail("configure %s baseline: %v", role, err)
 	}
-	pr.logln("primary ready; root password set; app/repl/monitor/cluster users created")
+	pr.logln(role + " baseline ready; root/admin passwords set; app/repl/monitor/cluster users created; GTID reset")
 	if mysqlReplMode(frame.ReplMode) == "semisync" {
-		plugin, so, enableVar := semisyncSource(major)
-		if err := a.runStep(ctx, id, mysqlSemisyncScript, []string{"ROOT_PW=" + sec.RootPassword, "PLUGIN=" + plugin, "SONAME=" + so, "ENABLEVAR=" + enableVar}, pr.logln); err != nil {
-			return pr.fail("enable semi-sync source: %v", err)
+		var plugin, so, enableVar string
+		if role == "primary" {
+			plugin, so, enableVar = semisyncSource(major)
+		} else {
+			plugin, so, enableVar = semisyncReplica(major)
 		}
-		pr.logln("semi-sync source enabled")
+		if err := a.runStep(ctx, id, mysqlSemisyncScript, []string{"ROOT_PW=" + sec.RootPassword, "PLUGIN=" + plugin, "SONAME=" + so, "ENABLEVAR=" + enableVar}, pr.logln); err != nil {
+			return pr.fail("enable semi-sync %s: %v", role, err)
+		}
+		pr.logln("semi-sync " + role + " enabled")
 	}
 	return nil
 }
 
-// mysqlSetupReplica starts a secondary, sets its root password, attaches it to the
-// primary via GTID auto-positioning, enables semi-sync (if requested), and makes
-// it super_read_only (persisted).
-func (a *App) mysqlSetupReplica(ctx context.Context, st Stack, frame designFrame, n designNode, primaryFQDN, major string, sec pxcSecrets, pr *pxcProg) error {
+// mysqlAttachReplica attaches an already-baselined secondary to the primary via GTID
+// auto-positioning and makes it super_read_only (persisted). The server is already
+// running and its GTID already reset by the baseline step, so this only wires and
+// starts replication — run after the stack-wide barrier releases.
+func (a *App) mysqlAttachReplica(ctx context.Context, st Stack, frame designFrame, n designNode, primaryFQDN string, sec pxcSecrets, pr *pxcProg) error {
 	dep, _ := a.store.GetDeployment(st.ID, n.ID)
 	id := dep.ContainerID
-	if mysqlReplMode(frame.ReplMode) == "semisync" {
-		plugin, so, enableVar := semisyncReplica(major)
-		// Enable the replica plugin before START REPLICA so the IO thread registers.
-		if err := a.runStep(ctx, id, mysqlReplicaSemisyncPreScript, []string{"UNIT=" + mysqlUnit(frame.OS), "LOGERR=" + pxcLogError(frame.OS), "ROOT_PW=" + sec.RootPassword, "PLUGIN=" + plugin, "SONAME=" + so, "ENABLEVAR=" + enableVar}, pr.logln); err != nil {
-			return pr.fail("enable semi-sync replica: %v", err)
-		}
-	}
 	env := []string{
-		"UNIT=" + mysqlUnit(frame.OS), "LOGERR=" + pxcLogError(frame.OS),
-		"RESET_CMD=" + mysqlResetCmd(major),
 		"ROOT_PW=" + sec.RootPassword,
 		"REPL_USER=" + sec.ReplUser, "REPL_PW=" + sec.ReplPassword,
 		"SOURCE_HOST=" + primaryFQDN,
 	}
-	if err := a.runStep(ctx, id, mysqlReplicaScript, env, pr.logln); err != nil {
+	if err := a.runStep(ctx, id, mysqlAttachScript, env, pr.logln); err != nil {
 		return pr.fail("attach replica: %v", err)
 	}
 	pr.logln("replica attached (GTID auto-position); super_read_only enabled")
@@ -634,35 +643,45 @@ apt-get install -y -qq percona-server-server >/dev/null`
 // ALONE: with an expired temp password only ALTER USER is permitted, so prefixing
 // it with anything (e.g. SET sql_log_bin=0) fails with ERROR 1820. The replica's
 // later RESET clears the GTID this creates, so binlogging it here is harmless.
+//
+// validate_password (installed by default on Percona Server) rejects a weak
+// $ROOT_PW with ERROR 1819. On the expired-temp path we cannot relax the policy
+// first (only ALTER USER is permitted while expired), so we set a strong interim
+// password, relax the policy, then apply the desired $ROOT_PW. On the Debian
+// auth_socket path we're a full (non-expired) root, so we can relax up front.
 const mysqlSetRootPW = `if mysql -uroot -p"$ROOT_PW" -e "SELECT 1" >/dev/null 2>&1; then
   :
 else
   TMP=$(grep -i 'temporary password' "$LOGERR" 2>/dev/null | tail -1 | sed 's/.*localhost: //')
   if [ -n "$TMP" ]; then
-    mysql -uroot --connect-expired-password -p"$TMP" -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$ROOT_PW';"
+    if ! mysql -uroot --connect-expired-password -p"$TMP" -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$ROOT_PW';" 2>/dev/null; then
+      mysql -uroot --connect-expired-password -p"$TMP" -e "ALTER USER 'root'@'localhost' IDENTIFIED BY 'Dbc#Interim7Pw';"
+      mysql -uroot -p'Dbc#Interim7Pw' -e "SET GLOBAL validate_password.policy=LOW; SET GLOBAL validate_password.length=6;" 2>/dev/null || true
+      mysql -uroot -p'Dbc#Interim7Pw' -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$ROOT_PW';"
+    fi
   else
+    mysql -uroot -e "SET GLOBAL validate_password.policy=LOW; SET GLOBAL validate_password.length=6;" 2>/dev/null || true
     mysql -uroot -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH caching_sha2_password BY '$ROOT_PW';"
   fi
 fi`
 
-// mysqlPrimaryScript starts the primary and creates the users (which replicate to
-// the secondaries via GTID).
-const mysqlPrimaryScript = `set -e
+// mysqlBaselineScript brings a member (primary or secondary) to the pre-replication
+// baseline: start the server, set the root password, create the admin@'%' superuser
+// and the app/repl/monitor/cluster users LOCALLY, then clear binlog/GTID history so
+// the node starts from an empty, shared baseline. Run on EVERY member — because the
+// RESET purges the user-creation from the binlog, a secondary can't inherit these
+// users via replication, so each node creates its own (see mysqlSetupBaseline).
+const mysqlBaselineScript = `set -e
 LOGERR=${LOGERR:-/var/log/mysqld.log}
-rm -f "$LOGERR" 2>/dev/null || true
-systemctl reset-failed "$UNIT" 2>/dev/null || true
-systemctl start "$UNIT"
+systemctl is-active --quiet "$UNIT" || { rm -f "$LOGERR" 2>/dev/null || true; systemctl reset-failed "$UNIT" 2>/dev/null || true; systemctl start "$UNIT"; }
 ` + mysqlSetRootPW + `
-# Clear GTID/binlog history (incl. the root-password change above) so the cluster's
-# replicated transactions start from a clean, shared baseline.
-mysql -uroot -p"$ROOT_PW" -e "$RESET_CMD" 2>/dev/null || true
-# Relax validate_password so the .env app/repl/monitor/cluster passwords are
-# accepted (tolerated if the component isn't installed). Replicas receive the
-# already-hashed CREATE USER form, so they don't re-validate.
+# Relax validate_password so the .env passwords are accepted (tolerated if the
+# component isn't installed).
 mysql -uroot -p"$ROOT_PW" -e "SET GLOBAL validate_password.policy=LOW; SET GLOBAL validate_password.length=6;" 2>/dev/null || true
 mysql -uroot -p"$ROOT_PW" <<SQL
 SET GLOBAL super_read_only=OFF;
 SET GLOBAL read_only=OFF;
+` + mysqlAdminUserSQL + `
 CREATE USER IF NOT EXISTS '$APP_USER'@'%' IDENTIFIED BY '$APP_PW';
 GRANT ALL PRIVILEGES ON *.* TO '$APP_USER'@'%';
 CREATE USER IF NOT EXISTS '$REPL_USER'@'%' IDENTIFIED BY '$REPL_PW';
@@ -676,7 +695,10 @@ ALTER USER '$CLUSTER_USER'@'%' IDENTIFIED BY '$CLUSTER_PW';
 GRANT ALL PRIVILEGES ON *.* TO '$CLUSTER_USER'@'%' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
 SQL
-echo "primary gtid_executed: $(mysql -uroot -p"$ROOT_PW" -N -e "SELECT @@global.gtid_executed" 2>/dev/null | tr '\n' ' ')"`
+# Clear GTID/binlog history now that every local user exists, so the node starts
+# replication from an empty, shared GTID baseline.
+mysql -uroot -p"$ROOT_PW" -e "$RESET_CMD" 2>/dev/null || true
+echo "gtid_executed after reset: $(mysql -uroot -p"$ROOT_PW" -N -e "SELECT @@global.gtid_executed" 2>/dev/null | tr '\n' ' ')"`
 
 // mysqlSemisyncScript installs + enables a semi-sync plugin (source or replica)
 // and persists the enable variable. Idempotent (ignores already-installed).
@@ -684,29 +706,13 @@ const mysqlSemisyncScript = `set -e
 mysql -uroot -p"$ROOT_PW" -e "INSTALL PLUGIN $PLUGIN SONAME '$SONAME';" 2>/dev/null || true
 mysql -uroot -p"$ROOT_PW" -e "SET PERSIST $ENABLEVAR=1;"`
 
-// mysqlReplicaSemisyncPreScript starts the secondary, sets root, and enables the
-// replica semi-sync plugin before replication starts.
-const mysqlReplicaSemisyncPreScript = `set -e
-LOGERR=${LOGERR:-/var/log/mysqld.log}
-rm -f "$LOGERR" 2>/dev/null || true
-systemctl reset-failed "$UNIT" 2>/dev/null || true
-systemctl start "$UNIT"
-` + mysqlSetRootPW + `
-mysql -uroot -p"$ROOT_PW" -e "INSTALL PLUGIN $PLUGIN SONAME '$SONAME';" 2>/dev/null || true
-mysql -uroot -p"$ROOT_PW" -e "SET PERSIST $ENABLEVAR=1;"`
-
-// mysqlReplicaScript starts the secondary (if not already up), sets root, attaches
-// to the primary with GTID auto-positioning, waits for the threads to run, then
-// makes it super_read_only (persisted across restarts). GET_SOURCE_PUBLIC_KEY=1 is
+// mysqlAttachScript attaches an already-baselined, already-running secondary to the
+// primary with GTID auto-positioning, waits for the threads to run, then makes it
+// super_read_only (persisted). No server start / root set / RESET — the baseline
+// step already did those and left an empty GTID baseline. GET_SOURCE_PUBLIC_KEY=1 is
 // required for the repl user's caching_sha2_password auth over a non-TLS link.
-const mysqlReplicaScript = `set -e
-LOGERR=${LOGERR:-/var/log/mysqld.log}
-systemctl is-active --quiet "$UNIT" || { systemctl reset-failed "$UNIT" 2>/dev/null || true; rm -f "$LOGERR" 2>/dev/null || true; systemctl start "$UNIT"; }
-` + mysqlSetRootPW + `
+const mysqlAttachScript = `set -e
 mysql -uroot -p"$ROOT_PW" -e "STOP REPLICA;" 2>/dev/null || true
-# Clear this replica's own GTID history (init + the local root-password change) so
-# AUTO_POSITION fetches the full history from the primary with no errant GTIDs.
-mysql -uroot -p"$ROOT_PW" -e "$RESET_CMD" 2>/dev/null || true
 mysql -uroot -p"$ROOT_PW" -e "CHANGE REPLICATION SOURCE TO SOURCE_HOST='$SOURCE_HOST', SOURCE_PORT=3306, SOURCE_USER='$REPL_USER', SOURCE_PASSWORD='$REPL_PW', SOURCE_AUTO_POSITION=1, GET_SOURCE_PUBLIC_KEY=1;"
 mysql -uroot -p"$ROOT_PW" -e "START REPLICA;"
 OK=0

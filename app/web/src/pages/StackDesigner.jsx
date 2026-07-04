@@ -2253,10 +2253,6 @@ function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, delete
         </select>
       </Field>
 
-      <Field label="Root password" hint={deployed ? 'Set at deploy.' : 'Leave empty to auto-generate.'}>
-        <input className={`${inputCls} ${lock}`} value={f.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchFrame(f.id, { rootPassword: e.target.value })} />
-      </Field>
-
       <Field label="Monitored by (PMM)" hint={running ? 'Pick a PMM node (or none), then apply to the running cluster.' : 'Optional — registers the cluster with a PMM node.'}>
         <select className={inputCls} value={f.pmmNodeId || ''} onChange={(e) => { patchFrame(f.id, { pmmNodeId: e.target.value }); setMonMsg(''); setMonErr('') }}>
           <option value="">none</option>
@@ -2445,10 +2441,6 @@ function MySQLFrameForm({ frame: f, nodes, frames, edges, patchFrame, deleteFram
         </select>
       </Field>
 
-      <Field label="Root password" hint={deployed ? 'Set at deploy.' : 'Leave empty to auto-generate.'}>
-        <input className={`${inputCls} ${lock}`} value={f.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchFrame(f.id, { rootPassword: e.target.value })} />
-      </Field>
-
       <Field label="Monitored by (PMM)" hint="Optional — registers each node with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
           <option value="">none</option>
@@ -2616,10 +2608,6 @@ function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
         </select>
       </Field>
 
-      <Field label="Root password" hint={deployed ? 'Set at deploy.' : 'Leave empty to auto-generate.'}>
-        <input className={`${inputCls} ${lock}`} value={n.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchNode(n.id, { rootPassword: e.target.value })} />
-      </Field>
-
       <Field label="Monitored by (PMM)" hint="Optional — registers this server with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={n.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchNode(n.id, { pmmNodeId: e.target.value })}>
           <option value="">none</option>
@@ -2726,10 +2714,6 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
           <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
           {minors.map((v) => <option key={v} value={v}>{v}</option>)}
         </select>
-      </Field>
-
-      <Field label="Superuser (postgres) password" hint={deployed ? 'Set at deploy.' : 'Leave empty to auto-generate.'}>
-        <input className={`${inputCls} ${lock}`} value={n.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchNode(n.id, { rootPassword: e.target.value })} />
       </Field>
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
@@ -3134,10 +3118,6 @@ function ValkeyForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }) {
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
-      <Field label="Password (default user)" hint={deployed ? 'Set at deploy.' : 'requirepass for the default user. Empty = auto-generate.'}>
-        <input className={`${inputCls} ${lock}`} value={n.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchNode(n.id, { rootPassword: e.target.value })} />
-      </Field>
-
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.useLdap} disabled={deployed} onChange={(e) => patchNode(n.id, { useLdap: e.target.checked })} />
         <span>Enable LDAP auth (Intranet OpenLDAP)</span>
@@ -3232,10 +3212,6 @@ function ValkeyClusterFrameForm({ frame: f, nodes, frameNodes, patchFrame, delet
 
       <Field label="Cluster name" hint="Frame label; must be unique.">
         <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
-      </Field>
-
-      <Field label="Password (default user)" hint={deployed ? 'Set at deploy.' : 'requirepass/masterauth. Empty = auto-generate.'}>
-        <input className={`${inputCls} ${lock}`} value={f.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchFrame(f.id, { rootPassword: e.target.value })} />
       </Field>
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
@@ -3695,10 +3671,6 @@ function InnoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed })
         </Field>
       </div>
 
-      <Field label="Root password" hint={deployed ? 'Set at deploy.' : 'Leave empty to auto-generate.'}>
-        <input className={`${inputCls} ${lock}`} value={f.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchFrame(f.id, { rootPassword: e.target.value })} />
-      </Field>
-
       <Field label="Monitored by (PMM)" hint="Optional — registers each node with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
           <option value="">none</option>
@@ -3893,10 +3865,6 @@ function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, rebuildClu
         </select>
       </Field>
 
-      <Field label="Admin (root) password" hint={deployed ? 'Set at deploy.' : 'Leave empty to auto-generate.'}>
-        <input className={`${inputCls} ${lock}`} value={f.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchFrame(f.id, { rootPassword: e.target.value })} />
-      </Field>
-
       <Field label="Monitored by (PMM)" hint="Optional — registers each node with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
           <option value="">none</option>
@@ -4064,10 +4032,6 @@ function PSMRSFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed }) 
 
       <MongoCatalogFields obj={f} imgs={imgs} deployed={deployed} patch={patchFrame} />
 
-      <Field label="Admin (root) password" hint={deployed ? 'Set at deploy.' : 'Leave empty to auto-generate.'}>
-        <input className={`${inputCls} ${lock}`} value={f.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchFrame(f.id, { rootPassword: e.target.value })} />
-      </Field>
-
       <Field label="Monitored by (PMM)" hint="Optional — registers each member with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
           <option value="">none</option>
@@ -4226,10 +4190,6 @@ function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame
         </select>
       </Field>
 
-      <Field label="Superuser (postgres) password" hint={deployed ? 'Set at deploy.' : 'Leave empty to auto-generate.'}>
-        <input className={`${inputCls} ${lock}`} value={f.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchFrame(f.id, { rootPassword: e.target.value })} />
-      </Field>
-
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.usePgBackRest} disabled={deployed} onChange={(e) => patchFrame(f.id, { usePgBackRest: e.target.checked })} />
         <span>Use pgBackRest (SeaweedFS S3) for cloning + backup</span>
@@ -4368,10 +4328,6 @@ function RepmgrFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame,
           <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
           {minors.map((v) => <option key={v} value={v}>{v}</option>)}
         </select>
-      </Field>
-
-      <Field label="Superuser (postgres) password" hint={deployed ? 'Set at deploy.' : 'Leave empty to auto-generate.'}>
-        <input className={`${inputCls} ${lock}`} value={f.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchFrame(f.id, { rootPassword: e.target.value })} />
       </Field>
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
@@ -4593,10 +4549,6 @@ function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
       </Field>
 
       <MongoCatalogFields obj={n} imgs={imgs} deployed={deployed} patch={patchNode} />
-
-      <Field label="Admin (root) password" hint={deployed ? 'Set at deploy.' : 'Leave empty to auto-generate.'}>
-        <input className={`${inputCls} ${lock}`} value={n.rootPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchNode(n.id, { rootPassword: e.target.value })} />
-      </Field>
 
       <Field label="Monitored by (PMM)" hint="Optional — registers this server with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={n.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchNode(n.id, { pmmNodeId: e.target.value })}>

@@ -59,13 +59,7 @@ func innodbReplMode(m string) string {
 }
 
 // innodbServerID derives a stable server-id from an innodbNN node name.
-func innodbServerID(name string) int {
-	digits := strings.TrimLeft(strings.TrimPrefix(name, "innodb"), "0")
-	if v, err := strconv.Atoi(digits); err == nil && v > 0 {
-		return v
-	}
-	return int(fnv32(name)%100000) + 1
-}
+func innodbServerID(name string) int { return serverIDFor(name) }
 
 // genUUID returns a random RFC-4122 v4 UUID (used for the GR group name).
 func genUUID() string {
@@ -96,33 +90,21 @@ func (a *App) provisionInnoDBFrame(st Stack, frame designFrame, doc designDoc) {
 		return
 	}
 
-	// Cluster-wide root password + a stable group name: reuse across redeploys.
-	root := strings.TrimSpace(frame.RootPassword)
+	// Credentials come from .env (re-read on every deploy). The Group Replication
+	// group name is a stable non-secret identity, so it is still reused across
+	// redeploys from the stored config.
+	sec := mysqlFamilySecrets()
 	groupName := ""
 	for _, n := range members {
-		if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
-			var s pxcSecrets
-			if json.Unmarshal(dep.Secrets, &s) == nil && s.RootPassword != "" {
-				root = s.RootPassword
-			}
+		if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Config) > 0 {
 			var c innodbConfig
 			if json.Unmarshal(dep.Config, &c) == nil && c.GroupName != "" {
 				groupName = c.GroupName
 			}
 		}
 	}
-	if root == "" {
-		root = genSecret("MyRoot!")
-	}
 	if groupName == "" {
 		groupName = genUUID()
-	}
-	sec := pxcSecrets{
-		RootUser: "root", RootPassword: root,
-		AppUser: "app", AppPassword: envOr("APP_PASSWORD", "app_password"),
-		ReplUser: "repl", ReplPassword: envOr("REPL_PASSWORD", "repl_password"),
-		MonitorUser: "monitor", MonitorPassword: envOr("MONITOR_PASSWORD", "monitor_password"),
-		ClusterUser: "cluster", ClusterPassword: envOr("CLUSTER_PASSWORD", "cluster_password"),
 	}
 	secJSON, _ := json.Marshal(sec)
 
@@ -167,7 +149,7 @@ func (a *App) provisionInnoDBFrame(st Stack, frame designFrame, doc designDoc) {
 				progs[n.ID].fail(format, args...)
 			}
 		}
-		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
 		if werr != nil {
 			failAll("%v", werr)
 			return
@@ -441,6 +423,7 @@ func (a *App) innodbFormGroup(ctx context.Context, st Stack, members []designNod
 	bp.phase("Bootstrapping group", 65)
 	env := []string{
 		"REPL_USER=" + sec.ReplUser, "REPL_PW=" + sec.ReplPassword,
+		"ADMIN_USER=" + sec.AdminUser, "ADMIN_PW=" + sec.AdminPassword,
 		"APP_USER=" + sec.AppUser, "APP_PW=" + sec.AppPassword,
 		"MON_USER=" + sec.MonitorUser, "MON_PW=" + sec.MonitorPassword,
 		"CLUSTER_USER=" + sec.ClusterUser, "CLUSTER_PW=" + sec.ClusterPassword,
@@ -477,6 +460,7 @@ func (a *App) innodbCreateCluster(ctx context.Context, st Stack, frame designFra
 	env := []string{
 		"CLUSTER=" + sanitizeName(frame.Label),
 		"ROOT_PW=" + sec.RootPassword,
+		"ADMIN_USER=" + sec.AdminUser, "ADMIN_PW=" + sec.AdminPassword,
 		"APP_USER=" + sec.AppUser, "APP_PW=" + sec.AppPassword,
 		"MON_USER=" + sec.MonitorUser, "MON_PW=" + sec.MonitorPassword,
 		"CLUSTER_USER=" + sec.ClusterUser, "CLUSTER_PW=" + sec.ClusterPassword,
@@ -596,6 +580,7 @@ for i in $(seq 1 30); do
 done
 [ "$OK" = 1 ] || { echo "group did not come ONLINE:"; mysql -e "SELECT * FROM performance_schema.replication_group_members\G" 2>/dev/null | head -20; exit 1; }
 mysql <<SQL
+` + mysqlAdminUserSQL + `
 CREATE USER IF NOT EXISTS '$APP_USER'@'%' IDENTIFIED BY '$APP_PW';
 GRANT ALL PRIVILEGES ON *.* TO '$APP_USER'@'%';
 CREATE USER IF NOT EXISTS '$MON_USER'@'%' IDENTIFIED BY '$MON_PW' WITH MAX_USER_CONNECTIONS 10;
@@ -628,6 +613,7 @@ done
 // idempotent (a re-run finds the cluster/member already there instead of erroring).
 const innodbShellClusterScript = `set -e
 mysql <<SQL
+` + mysqlAdminUserSQL + `
 CREATE USER IF NOT EXISTS '$APP_USER'@'%' IDENTIFIED BY '$APP_PW';
 GRANT ALL PRIVILEGES ON *.* TO '$APP_USER'@'%';
 CREATE USER IF NOT EXISTS '$MON_USER'@'%' IDENTIFIED BY '$MON_PW' WITH MAX_USER_CONNECTIONS 10;

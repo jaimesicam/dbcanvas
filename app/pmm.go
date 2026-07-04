@@ -8,10 +8,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// pmmServerURL builds the URL for `pmm-admin config --server-url`, percent-encoding
+// the credentials via net/url. The admin password can contain characters (e.g. '^')
+// that are illegal in raw URL userinfo — embedding them unencoded makes pmm-admin
+// fail with "invalid userinfo", so the whole PMM registration aborts.
+func pmmServerURL(fqdn, user, pass string) string {
+	u := url.URL{Scheme: "https", User: url.UserPassword(user, pass), Host: fqdn + ":8443"}
+	return u.String()
+}
 
 // PMM (Percona Monitoring and Management) v3 node. Unlike the Intranet node
 // (built from a systemd OS image by `make images`), PMM ships as the
@@ -172,7 +182,7 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 		// The Intranet is the stack's DNS resolver (and SMTP relay / LDAP / CA), so
 		// the PMM node must not start until the Intranet is fully up and running.
 		setPhase("Waiting for Intranet to be ready", 15)
-		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
 		if werr != nil {
 			failNode("%v", werr)
 			return
@@ -185,7 +195,7 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 		var wtEnv []string
 		if n.WatchtowerNodeID != "" {
 			setPhase("Waiting for Watchtower", 18)
-			if wfqdn, wtoken, ok := a.waitWatchtower(ctx, st.ID, n.WatchtowerNodeID, 10*time.Minute); ok {
+			if wfqdn, wtoken, ok := a.waitWatchtower(ctx, st.ID, n.WatchtowerNodeID, deployTimeout()); ok {
 				wtEnv = watchtowerHostEnv(wfqdn, wtoken)
 				logln("associated with Watchtower at " + wfqdn)
 			} else {

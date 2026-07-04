@@ -103,7 +103,7 @@ func (a *App) provisionHAProxy(st Stack, n designNode, doc designDoc) {
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 
 		setPhase("Waiting for Intranet to be ready", 5)
-		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
 		if werr != nil {
 			failNode("%v", werr)
 			return
@@ -117,7 +117,7 @@ func (a *App) provisionHAProxy(st Stack, n designNode, doc designDoc) {
 			return
 		}
 		setPhase("Waiting for Patroni cluster", 15)
-		members, _, cerr := a.waitPatroniRunning(ctx, st.ID, frame, doc, domain, 20*time.Minute)
+		members, _, cerr := a.waitPatroniRunning(ctx, st.ID, frame, doc, domain, deployTimeout())
 		if cerr != nil {
 			failNode("%v", cerr)
 			return
@@ -259,7 +259,7 @@ func (a *App) haproxyRegisterPMM(ctx context.Context, st Stack, n designNode, do
 		script = haproxyPMMDebian
 	}
 	env := []string{
-		"PMM_FQDN=" + pmmFQDN, "PMM_USER=" + pmmUser, "PMM_PASS=" + pmmPass,
+		"PMM_FQDN=" + pmmFQDN, "PMM_USER=" + pmmUser, "PMM_PASS=" + pmmPass, "PMM_URL=" + pmmServerURL(pmmFQDN, pmmUser, pmmPass),
 		"NODE=" + n.Label,
 	}
 	if _, err := a.docker.Exec(ctx, dep.ContainerID, []string{"bash", "-c", script}, env); err != nil {
@@ -352,7 +352,7 @@ systemctl is-active --quiet haproxy || { echo "haproxy failed to start:"; journa
 const haproxyPMMRHEL = `set -e
 command -v pmm-admin >/dev/null 2>&1 || { percona-release setup -y pmm3-client >/dev/null 2>&1; dnf -y -q install pmm-client >/dev/null; }
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
-pmm-admin config --force --server-insecure-tls --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443" >/dev/null
+pmm-admin config --force --server-insecure-tls --server-url="$PMM_URL" >/dev/null
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
 pmm-admin remove haproxy "$NODE" >/dev/null 2>&1 || true
 pmm-admin add haproxy --listen-port=7000 "$NODE"`
@@ -361,7 +361,7 @@ const haproxyPMMDebian = `set -e
 export DEBIAN_FRONTEND=noninteractive
 command -v pmm-admin >/dev/null 2>&1 || { percona-release setup -y pmm3-client >/dev/null 2>&1; apt-get update -qq >/dev/null; apt-get install -y -qq pmm-client >/dev/null; }
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
-pmm-admin config --force --server-insecure-tls --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443" >/dev/null
+pmm-admin config --force --server-insecure-tls --server-url="$PMM_URL" >/dev/null
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
 pmm-admin remove haproxy "$NODE" >/dev/null 2>&1 || true
 pmm-admin add haproxy --listen-port=7000 "$NODE"`

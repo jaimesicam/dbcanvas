@@ -106,7 +106,7 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 		}
 
 		pr.phase("Waiting for Intranet to be ready", 30)
-		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
 		if werr != nil {
 			pr.fail("%v", werr)
 			return

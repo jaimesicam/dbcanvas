@@ -146,8 +146,9 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 	}
 	members = append(members, *mongos)
 
-	// Secrets: reuse the admin password + keyFile + PMM/PBM password across redeploys.
-	admin := strings.TrimSpace(frame.RootPassword)
+	// The admin password comes from .env (re-read on every deploy). The internal
+	// keyFile + PMM/PBM passwords are non-canvas secrets, still reused across redeploys.
+	admin := envOr("MONGODB_ADMIN_PASSWORD", "admin_password")
 	keyFile := ""
 	pmmPass := ""
 	pbmPass := ""
@@ -155,9 +156,6 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 		if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
 			var s mongoSecrets
 			if json.Unmarshal(dep.Secrets, &s) == nil {
-				if s.AdminPassword != "" {
-					admin = s.AdminPassword
-				}
 				if s.KeyFile != "" {
 					keyFile = s.KeyFile
 				}
@@ -169,9 +167,6 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 				}
 			}
 		}
-	}
-	if admin == "" {
-		admin = genSecret("MongoAdm!")
 	}
 	if keyFile == "" {
 		keyFile = genKeyFile()
@@ -250,7 +245,7 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 				progs[n.ID].fail(format, args...)
 			}
 		}
-		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
 		if werr != nil {
 			failAll("%v", werr)
 			return
@@ -313,7 +308,7 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 		// ---- PMM: create the monitoring user + register each node (when a running
 		// PMM node is selected). The pmm user goes on the config RS (admin auth) and
 		// each shard RS (shards have no admin → created via the localhost exception).
-		if pmmFQDN, pmmUser, pmmPass, ok := a.mongoWaitPMM(st, doc, frame.PMMNodeID, 12*time.Minute); ok {
+		if pmmFQDN, pmmUser, pmmPass, ok := a.mongoWaitPMM(st, doc, frame.PMMNodeID, deployTimeout()); ok {
 			a.mongoEnsurePMMUser(ctx, st, config[0], major, sec, progs[config[0].ID])
 			for _, i := range shardIdx {
 				a.mongoEnsurePMMUser(ctx, st, shards[i][0], major, sec, progs[shards[i][0].ID])
@@ -330,7 +325,7 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 		if frame.EnablePBM {
 			pr := progs[config[0].ID]
 			pr.phase("Configuring Percona Backup for MongoDB", 96)
-			if swCfg, swSec, err := a.waitSeaweedRunning(ctx, st.ID, frame.SeaweedFSNodeID, 10*time.Minute); err != nil {
+			if swCfg, swSec, err := a.waitSeaweedRunning(ctx, st.ID, frame.SeaweedFSNodeID, deployTimeout()); err != nil {
 				pr.logln("PBM setup skipped: " + err.Error())
 			} else {
 				a.mongoEnsurePBMUser(ctx, st, config[0], sec, progs[config[0].ID])
@@ -389,8 +384,9 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 		rs = "rs"
 	}
 
-	// Secrets: reuse the admin password + keyFile + PMM/PBM password across redeploys.
-	admin := strings.TrimSpace(frame.RootPassword)
+	// The admin password comes from .env (re-read on every deploy). The internal
+	// keyFile + PMM/PBM passwords are non-canvas secrets, still reused across redeploys.
+	admin := envOr("MONGODB_ADMIN_PASSWORD", "admin_password")
 	keyFile := ""
 	pmmPass := ""
 	pbmPass := ""
@@ -398,9 +394,6 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 		if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
 			var s mongoSecrets
 			if json.Unmarshal(dep.Secrets, &s) == nil {
-				if s.AdminPassword != "" {
-					admin = s.AdminPassword
-				}
 				if s.KeyFile != "" {
 					keyFile = s.KeyFile
 				}
@@ -412,9 +405,6 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 				}
 			}
 		}
-	}
-	if admin == "" {
-		admin = genSecret("MongoAdm!")
 	}
 	if keyFile == "" {
 		keyFile = genKeyFile()
@@ -473,7 +463,7 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 				progs[n.ID].fail(format, args...)
 			}
 		}
-		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
 		if werr != nil {
 			failAll("%v", werr)
 			return
@@ -510,7 +500,7 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 
 		// PMM: create the monitoring user on the primary (replicates to the set) and
 		// register each member with --cluster=<replica-set name>.
-		if pmmFQDN, pmmUser, pmmPass, ok := a.mongoWaitPMM(st, doc, frame.PMMNodeID, 12*time.Minute); ok {
+		if pmmFQDN, pmmUser, pmmPass, ok := a.mongoWaitPMM(st, doc, frame.PMMNodeID, deployTimeout()); ok {
 			a.mongoEnsurePMMUser(ctx, st, members[0], major, sec, progs[members[0].ID])
 			for _, n := range members {
 				a.mongoRegisterPMM(ctx, st, n, frame.OS, pmmFQDN, pmmUser, pmmPass, rs, sec, progs[n.ID])
@@ -522,7 +512,7 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 		if frame.EnablePBM {
 			pr := progs[members[0].ID]
 			pr.phase("Configuring Percona Backup for MongoDB", 96)
-			if swCfg, swSec, err := a.waitSeaweedRunning(ctx, st.ID, frame.SeaweedFSNodeID, 10*time.Minute); err != nil {
+			if swCfg, swSec, err := a.waitSeaweedRunning(ctx, st.ID, frame.SeaweedFSNodeID, deployTimeout()); err != nil {
 				pr.logln("PBM setup skipped: " + err.Error())
 			} else {
 				a.mongoEnsurePBMUser(ctx, st, members[0], sec, progs[members[0].ID])
@@ -571,23 +561,19 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 		major = "8.0"
 	}
 
-	admin := strings.TrimSpace(n.RootPassword)
+	// The admin password comes from .env (re-read on every deploy); the internal PMM
+	// password + OIDC sample password are non-canvas secrets, reused across redeploys.
+	admin := envOr("MONGODB_ADMIN_PASSWORD", "admin_password")
 	pmmPass := ""
 	oidcSamplePW := ""
 	if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
 		var s mongoSecrets
 		if json.Unmarshal(dep.Secrets, &s) == nil {
-			if s.AdminPassword != "" {
-				admin = s.AdminPassword
-			}
 			if s.PMMPassword != "" {
 				pmmPass = s.PMMPassword
 			}
 			oidcSamplePW = s.OIDCSamplePassword
 		}
-	}
-	if admin == "" {
-		admin = genSecret("MongoAdm!")
 	}
 	if pmmPass == "" {
 		pmmPass = envOr("PMM_PASSWORD", "pmm_password")
@@ -648,7 +634,7 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 		pr := a.pxcNewProg(st.ID, n.ID)
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 		pr.phase("Waiting for Intranet to be ready", 5)
-		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, 10*time.Minute)
+		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
 		if werr != nil {
 			pr.fail("%v", werr)
 			return
@@ -660,7 +646,7 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 		kcContainerID, kcAdminPW := "", ""
 		if n.EnableOIDC {
 			pr.phase("Waiting for Keycloak", 8)
-			kcHost, kcSSL, kcID, kcPW, ok := a.waitKeycloak(ctx, st.ID, n.KeycloakNodeID, 10*time.Minute)
+			kcHost, kcSSL, kcID, kcPW, ok := a.waitKeycloak(ctx, st.ID, n.KeycloakNodeID, deployTimeout())
 			if !ok {
 				pr.fail("Keycloak node is not ready — cannot configure MONGODB-OIDC")
 				return
@@ -749,7 +735,7 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 		}
 
 		// PMM: create the monitoring user + register the standalone (no --cluster).
-		if pmmFQDN, pmmUser, pmmPass, ok := a.mongoWaitPMM(st, doc, n.PMMNodeID, 12*time.Minute); ok {
+		if pmmFQDN, pmmUser, pmmPass, ok := a.mongoWaitPMM(st, doc, n.PMMNodeID, deployTimeout()); ok {
 			a.mongoEnsurePMMUser(ctx, st, nn, major, sec, pr)
 			a.mongoRegisterPMM(ctx, st, nn, frame.OS, pmmFQDN, pmmUser, pmmPass, "", sec, pr)
 		}
@@ -1024,7 +1010,7 @@ func (a *App) mongoRegisterPMM(ctx context.Context, st Stack, node designNode, o
 		script = mongoPMMAddDebian
 	}
 	env := []string{
-		"PMM_FQDN=" + pmmFQDN, "PMM_USER=" + pmmUser, "PMM_PASS=" + pmmPass,
+		"PMM_FQDN=" + pmmFQDN, "PMM_USER=" + pmmUser, "PMM_PASS=" + pmmPass, "PMM_URL=" + pmmServerURL(pmmFQDN, pmmUser, pmmPass),
 		"PMM_DB_USER=" + sec.PMMUser, "PMM_DB_PW=" + sec.PMMPassword,
 		"NODE=" + node.Label, "CLUSTER=" + cluster,
 	}
@@ -1321,7 +1307,7 @@ mongosh --quiet --port 27017 -u "$ADMIN_USER" -p "$ADMIN_PW" --authenticationDat
 const mongoPMMAddRHEL = `set -e
 command -v pmm-admin >/dev/null 2>&1 || { percona-release setup -y pmm3-client >/dev/null 2>&1; dnf -y -q install pmm-client >/dev/null; }
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
-pmm-admin config --force --server-insecure-tls --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443" >/dev/null
+pmm-admin config --force --server-insecure-tls --server-url="$PMM_URL" >/dev/null
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
 pmm-admin remove mongodb "$NODE" >/dev/null 2>&1 || true
 CL=""; [ -n "$CLUSTER" ] && CL="--cluster=$CLUSTER"
@@ -1331,7 +1317,7 @@ const mongoPMMAddDebian = `set -e
 export DEBIAN_FRONTEND=noninteractive
 command -v pmm-admin >/dev/null 2>&1 || { percona-release setup -y pmm3-client >/dev/null 2>&1; apt-get update -qq >/dev/null; apt-get install -y -qq pmm-client >/dev/null; }
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
-pmm-admin config --force --server-insecure-tls --server-url="https://$PMM_USER:$PMM_PASS@$PMM_FQDN:8443" >/dev/null
+pmm-admin config --force --server-insecure-tls --server-url="$PMM_URL" >/dev/null
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
 pmm-admin remove mongodb "$NODE" >/dev/null 2>&1 || true
 CL=""; [ -n "$CLUSTER" ] && CL="--cluster=$CLUSTER"
