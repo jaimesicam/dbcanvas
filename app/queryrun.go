@@ -44,13 +44,9 @@ func qrNewID() string {
 	return hex.EncodeToString(b)
 }
 
-// handleQueryRunTargets lists the running DB nodes the caller may target.
-func (a *App) handleQueryRunTargets(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
-	if !ok {
-		writeErr(w, http.StatusUnauthorized, "authentication required")
-		return
-	}
+// listSQLTargets returns the running MySQL/PXC + PostgreSQL nodes the user may target
+// (owner-scoped; admins see all). Shared by the Query Runner and Benchmark.
+func (a *App) listSQLTargets(u User) []qrTarget {
 	stacks, _ := a.store.ListStacks(u.ID, u.Role == RoleAdmin)
 	out := []qrTarget{}
 	for _, s := range stacks {
@@ -78,7 +74,63 @@ func (a *App) handleQueryRunTargets(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
-	writeJSON(w, http.StatusOK, out)
+	return out
+}
+
+// resolveNodeCreds validates ownership + that the node is a running supported SQL
+// target, returning its engine, container id, label, and network-account credentials
+// (MySQL admin@'%', Postgres superuser). Shared by the Query Runner and Benchmark.
+func (a *App) resolveNodeCreds(u User, stackID int64, nodeID string) (engine, containerID, label, user, pass string, err error) {
+	st, e := a.store.GetStack(stackID)
+	if e != nil {
+		return "", "", "", "", "", fmt.Errorf("target stack not found")
+	}
+	if st.OwnerID != u.ID && u.Role != RoleAdmin {
+		return "", "", "", "", "", fmt.Errorf("not your stack")
+	}
+	var node designNode
+	found := false
+	for _, n := range buildDoc(st).Nodes {
+		if n.ID == nodeID {
+			node, found = n, true
+			break
+		}
+	}
+	if !found {
+		return "", "", "", "", "", fmt.Errorf("node not found in stack")
+	}
+	engine = engineForType(node.Type)
+	if engine == "" {
+		return "", "", "", "", "", fmt.Errorf("node type %q is not a supported target", node.Type)
+	}
+	dep, e2 := a.store.GetDeployment(stackID, nodeID)
+	if e2 != nil || dep.State != DeployRunning || dep.ContainerID == "" {
+		return "", "", "", "", "", fmt.Errorf("node is not running")
+	}
+	label, containerID = node.Label, dep.ContainerID
+	if engine == "mysql" {
+		var s pxcSecrets
+		json.Unmarshal(dep.Secrets, &s)
+		user, pass = s.AdminUser, s.AdminPassword
+		if user == "" {
+			user = "admin"
+		}
+	} else {
+		var s pgSecrets
+		json.Unmarshal(dep.Secrets, &s)
+		user, pass = s.Super(), s.SuperPassword
+	}
+	return engine, containerID, label, user, pass, nil
+}
+
+// handleQueryRunTargets lists the running DB nodes the caller may target.
+func (a *App) handleQueryRunTargets(w http.ResponseWriter, r *http.Request) {
+	u, ok := a.currentUser(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	writeJSON(w, http.StatusOK, a.listSQLTargets(u))
 }
 
 type qrRunRequest struct {

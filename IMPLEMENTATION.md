@@ -4238,3 +4238,45 @@ failed with `lookup ps-01.example.net … no such host`. Fix:
   `pg_sleep(3)` was active, then stopped) — confirming per-query self-exclusion. MySQL
   uses `admin@'%'` (has `PROCESS`); Postgres uses the superuser (sees all of
   `pg_stat_activity`).
+
+---
+
+## 74. Benchmark tool — OLTP/OLAP/read-write/read-only workloads — `app/benchmark.go`, `app/benchmark_run.go`, `app/web/src/pages/Benchmark.jsx`, `app/web/src/lib/benchmarkApi.js`, `app/main.go`, `app/web/src/App.jsx`, `docs/BENCHMARK.md`
+
+**Feature.** A `#benchmark` page (nav: "Benchmark") that loads a purpose-built dataset
+into a chosen database and drives it with one of four **workload profiles** — **OLTP**,
+**OLAP**, **read-write**, **read-only** — against a canvas-provisioned MySQL/PXC or
+PostgreSQL node, reporting throughput (TPS/QPS) + latency (p50/p95/p99, per-statement
+breakdown). Design in `docs/BENCHMARK_PLAN.md`; usage in `docs/BENCHMARK.md`. Distinct
+from the Query Runner but shares its connectivity.
+
+**Schema (my design, `bench_*`).** An e-commerce star schema: `bench_customer` +
+`bench_product` dimensions, `bench_order` + `bench_order_item` header/line facts, with
+**enforced real foreign keys** (order→customer, item→order ON DELETE CASCADE,
+item→product). Loader assigns ids (no AUTO_INCREMENT/SERIAL) so DDL is portable; a
+`bench_meta` marker stores scale+seed for reuse. Scale 1 ≈ ½M rows.
+
+**Options (per the request).** Server (owner-scoped picker), **Database** to create the
+tables in (+ **create if missing** — Postgres uses the `postgres` maintenance DB since
+CREATE DATABASE can't run in a txn), workload, scale, threads, duration, warmup,
+**Keep data after run** (off drops only the `bench_*` tables — never the database; on
+reuses the dataset on the next same-scale run), and seed.
+
+**Engine.** Reuses the shared `a.dialNodeDSN` + `a.resolveNodeCreds` (factored out of
+the Query Runner) for the network-join + native-driver connection. Lifecycle: prepare
+(create db/schema/load) → warmup (unrecorded) → measure (threads × duration, shared
+`database/sql` pool) → cleanup. Workers run per-profile transaction units (OLTP/RW in
+`BEGIN…COMMIT`, RO/OLAP autocommit); per-statement-type + per-transaction latency via a
+reservoir-sampled `latAcc`. Deterministic bulk load via batched multi-row INSERTs
+(parents before children for the FK). Caps: scale ≤ 50, threads ≤ 128, duration ≤ 3600s.
+
+**Shared refactor.** Extracted `dialNodeDSN`, `listSQLTargets`, `resolveNodeCreds` in
+`queryrun*.go`; the Query Runner now calls them too.
+
+### Verification performed
+- `go build`/`go vet`/`gofmt`/`npm run build` clean; binary re-embeds the new `dist`.
+  The API layer is live (targets + validation respond correctly on :8090). **The
+  DB-execution path (DDL/FKs, bulk load, per-engine workload SQL) is NOT yet run against
+  a live node** — the MySQL+PG test stack expired via its TTL between sessions, leaving
+  no running DB node to benchmark. Needs a live run against a fresh MySQL and PostgreSQL
+  node to confirm load + all four workloads end-to-end.

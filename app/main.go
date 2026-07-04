@@ -94,6 +94,12 @@ func main() {
 	mux.HandleFunc("POST /api/queryrun/runs/{id}/stop", app.handleQueryRunStop)
 	mux.HandleFunc("GET /api/queryrun/history", app.handleQueryRunHistory)
 
+	mux.HandleFunc("GET /api/benchmark/targets", app.handleBenchTargets)
+	mux.HandleFunc("POST /api/benchmark/runs", app.handleBenchStart)
+	mux.HandleFunc("GET /api/benchmark/runs/{id}", app.handleBenchStatus)
+	mux.HandleFunc("POST /api/benchmark/runs/{id}/stop", app.handleBenchStop)
+	mux.HandleFunc("GET /api/benchmark/history", app.handleBenchHistory)
+
 	// Dashboard — cheap summary + focus-gated live OS stats.
 	mux.HandleFunc("GET /api/dashboard/summary", app.handleDashboardSummary)
 	mux.HandleFunc("GET /api/dashboard/stats", app.handleDashboardStats)

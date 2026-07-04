@@ -153,33 +153,43 @@ func (run *qrRun) launch(ctx context.Context) {
 	}()
 }
 
-// dial attaches the app container to the query's stack network (idempotent) and
-// resolves the node's IP on it, then builds the driver DSN. Runs inside the async
-// run goroutine, never the HTTP handler.
-func (run *qrRun) dial(ctx context.Context, q *qrQuery) error {
-	netName := networkName(q.stackID)
-	if err := run.app.docker.NetworkConnect(ctx, netName, qrAppContainerID()); err != nil {
-		return fmt.Errorf("join stack network: %v", err)
+// dialNodeDSN joins the node's stack Docker network (idempotent) and builds a native
+// driver DSN dialing the node's container IP directly — Docker's embedded DNS doesn't
+// know the Intranet's *.<domain> names. Shared by the Query Runner and Benchmark.
+// An empty database means the engine default (MySQL: none; Postgres: "postgres").
+func (a *App) dialNodeDSN(ctx context.Context, stackID int64, containerID, engine, user, pass, database string) (string, string, error) {
+	netName := networkName(stackID)
+	if err := a.docker.NetworkConnect(ctx, netName, qrAppContainerID()); err != nil {
+		return "", "", fmt.Errorf("join stack network: %v", err)
 	}
-	ip, err := run.app.docker.ContainerIP(ctx, q.nodeContainerID, netName)
+	ip, err := a.docker.ContainerIP(ctx, containerID, netName)
 	if err != nil || ip == "" {
-		return fmt.Errorf("could not resolve node address on the stack network")
+		return "", "", fmt.Errorf("could not resolve node address on the stack network")
 	}
-	if q.engine == "mysql" {
-		q.dsn = qrMySQLDSN(q.dbUser, q.dbPass, fmt.Sprintf("%s:3306", ip), q.database)
-	} else {
-		db := q.database
-		if db == "" {
-			db = "postgres"
-		}
-		q.dsn = (&url.URL{
-			Scheme:   "postgres",
-			User:     url.UserPassword(q.dbUser, q.dbPass),
-			Host:     fmt.Sprintf("%s:5432", ip),
-			Path:     "/" + db,
-			RawQuery: "sslmode=prefer&connect_timeout=10",
-		}).String()
+	if engine == "mysql" {
+		return "mysql", qrMySQLDSN(user, pass, fmt.Sprintf("%s:3306", ip), database), nil
 	}
+	db := database
+	if db == "" {
+		db = "postgres"
+	}
+	dsn := (&url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(user, pass),
+		Host:     fmt.Sprintf("%s:5432", ip),
+		Path:     "/" + db,
+		RawQuery: "sslmode=prefer&connect_timeout=10",
+	}).String()
+	return "pgx", dsn, nil
+}
+
+// dial resolves the query's connection at run start (off the HTTP handler).
+func (run *qrRun) dial(ctx context.Context, q *qrQuery) error {
+	driver, dsn, err := run.app.dialNodeDSN(ctx, q.stackID, q.nodeContainerID, q.engine, q.dbUser, q.dbPass, q.database)
+	if err != nil {
+		return err
+	}
+	q.driver, q.dsn = driver, dsn
 	return nil
 }
 
