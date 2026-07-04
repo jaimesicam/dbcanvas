@@ -382,31 +382,35 @@ func (run *benchRun) tq(ctx context.Context, e execer, typ string, record bool, 
 		err = rows.Err()
 		rows.Close()
 	}
-	if record {
-		if a := run.stmts[typ]; a != nil {
-			if err != nil {
-				a.recErr()
-			} else {
-				a.rec(time.Since(t0))
-			}
-		}
-	}
+	run.recStmt(ctx, typ, record, t0, err)
 	return err
 }
 
 func (run *benchRun) te(ctx context.Context, e execer, typ string, record bool, query string, args ...any) error {
 	t0 := time.Now()
 	_, err := e.ExecContext(ctx, query, args...)
-	if record {
-		if a := run.stmts[typ]; a != nil {
-			if err != nil {
-				a.recErr()
-			} else {
-				a.rec(time.Since(t0))
-			}
-		}
-	}
+	run.recStmt(ctx, typ, record, t0, err)
 	return err
+}
+
+// recStmt records one statement's latency (on success) or error (on failure).
+// A failure whose context has been cancelled is a window-close/stop teardown, not a
+// workload error, so it is dropped — mirroring the ctx.Err() guard in unit().
+func (run *benchRun) recStmt(ctx context.Context, typ string, record bool, t0 time.Time, err error) {
+	if !record {
+		return
+	}
+	a := run.stmts[typ]
+	if a == nil {
+		return
+	}
+	if err != nil {
+		if ctx.Err() == nil {
+			a.recErr()
+		}
+		return
+	}
+	a.rec(time.Since(t0))
 }
 
 func benchPickStatus(rng *rand.Rand) string { return benchStatuses[rng.Intn(len(benchStatuses))] }

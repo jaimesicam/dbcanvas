@@ -39,7 +39,7 @@ order items (~½M rows). Raise it for bigger runs.
 | **Threads** | Concurrent workers driving the workload. |
 | **Duration (s)** | Length of the measured phase. |
 | **Warmup (s)** | Unmeasured ramp before recording (default 5). |
-| **Keep data after run** | On: the `bench_*` tables are left in place and **reused** by a later run at the same scale+seed (skips the load). Off: they're dropped after the run. The database itself is never dropped. |
+| **Keep data after run** | On: the `bench_*` tables are left in place after the run, and — when the **next run also has this on** at the same scale+seed — reused (skipping the load). Off: the dataset is (re)loaded fresh for this run and the `bench_*` tables are dropped afterwards. So reuse needs Keep-data enabled on **both** the run that leaves the data and the run that consumes it; a Keep-data-off run always does a clean load + drop. The database itself is never dropped. |
 | **Seed** | Deterministic data + access pattern (0 = random). |
 
 ## Lifecycle
