@@ -197,6 +197,34 @@ func (d *Docker) NetworkRemove(ctx context.Context, name string) {
 	}
 }
 
+// NetworkConnect attaches a container to a network. Idempotent: a container already
+// on the network is treated as success. Used by the Query Runner to join a stack's
+// network so it can reach that stack's DB nodes over TCP.
+func (d *Docker) NetworkConnect(ctx context.Context, network, container string) error {
+	resp, err := d.do(ctx, "POST", "/networks/"+url.PathEscape(network)+"/connect", map[string]any{"Container": container})
+	if err != nil {
+		return err
+	}
+	switch resp.StatusCode {
+	case 200, 201:
+		drain(resp)
+		return nil
+	case 403: // "already exists in network" — already attached
+		drain(resp)
+		return nil
+	default:
+		return errBody("network connect", resp)
+	}
+}
+
+// NetworkDisconnect detaches a container from a network (best-effort, forced).
+func (d *Docker) NetworkDisconnect(ctx context.Context, network, container string) {
+	resp, err := d.do(ctx, "POST", "/networks/"+url.PathEscape(network)+"/disconnect", map[string]any{"Container": container, "Force": true})
+	if err == nil {
+		drain(resp)
+	}
+}
+
 // ContainerByName returns the id of a container with the exact name, if any.
 func (d *Docker) ContainerByName(ctx context.Context, name string) (string, bool, error) {
 	filters := `{"name":["^/` + name + `$"]}`

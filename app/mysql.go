@@ -241,7 +241,7 @@ func (a *App) provisionMySQLFrame(st Stack, frame designFrame, doc designDoc) {
 		for _, n := range secondaries {
 			pr := progs[n.ID]
 			pr.phase("Attaching replica", 72)
-			if err := a.mysqlAttachReplica(ctx, st, frame, n, primaryFQDN, sec, pr); err != nil {
+			if err := a.mysqlAttachReplica(ctx, st, frame, n, primary.ID, primaryFQDN, sec, pr); err != nil {
 				return
 			}
 		}
@@ -606,11 +606,13 @@ func (a *App) mysqlSetupBaseline(ctx context.Context, st Stack, frame designFram
 	return nil
 }
 
-// mysqlAttachReplica attaches an already-baselined secondary to the primary via GTID
-// auto-positioning and makes it super_read_only (persisted). The server is already
-// running and its GTID already reset by the baseline step, so this only wires and
-// starts replication — run after the stack-wide barrier releases.
-func (a *App) mysqlAttachReplica(ctx context.Context, st Stack, frame designFrame, n designNode, primaryFQDN string, sec pxcSecrets, pr *pxcProg) error {
+// mysqlAttachReplica attaches an already-baselined secondary to the primary and makes
+// it super_read_only (persisted). The server is already running and reset by the
+// baseline step, so this only wires and starts replication — run after the stack-wide
+// barrier releases. GTID frames use auto-positioning; non-GTID frames fall back to
+// binary-log file/position captured from the primary now (AUTO_POSITION requires
+// gtid_mode=ON, so it can't be used when the frame has GTID off).
+func (a *App) mysqlAttachReplica(ctx context.Context, st Stack, frame designFrame, n designNode, primaryID, primaryFQDN string, sec pxcSecrets, pr *pxcProg) error {
 	dep, _ := a.store.GetDeployment(st.ID, n.ID)
 	id := dep.ContainerID
 	env := []string{
@@ -618,10 +620,25 @@ func (a *App) mysqlAttachReplica(ctx context.Context, st Stack, frame designFram
 		"REPL_USER=" + sec.ReplUser, "REPL_PW=" + sec.ReplPassword,
 		"SOURCE_HOST=" + primaryFQDN,
 	}
+	method := "GTID auto-position"
+	if frame.GTID {
+		env = append(env, "AUTO=1")
+	} else {
+		pdep, err := a.store.GetDeployment(st.ID, primaryID)
+		if err != nil || pdep.ContainerID == "" {
+			return pr.fail("attach replica: primary not available to read binlog position")
+		}
+		file, pos, err := a.sourceBinlogPos(ctx, pdep.ContainerID, sec.RootPassword, frameMajor(frame))
+		if err != nil {
+			return pr.fail("attach replica: read primary binlog position: %v", err)
+		}
+		env = append(env, "AUTO=0", "LOG_FILE="+file, "LOG_POS="+pos)
+		method = fmt.Sprintf("file/position %s:%s", file, pos)
+	}
 	if err := a.runStep(ctx, id, mysqlAttachScript, env, pr.logln); err != nil {
 		return pr.fail("attach replica: %v", err)
 	}
-	pr.logln("replica attached (GTID auto-position); super_read_only enabled")
+	pr.logln(fmt.Sprintf("replica attached (%s); super_read_only enabled", method))
 	return nil
 }
 
@@ -707,13 +724,20 @@ mysql -uroot -p"$ROOT_PW" -e "INSTALL PLUGIN $PLUGIN SONAME '$SONAME';" 2>/dev/n
 mysql -uroot -p"$ROOT_PW" -e "SET PERSIST $ENABLEVAR=1;"`
 
 // mysqlAttachScript attaches an already-baselined, already-running secondary to the
-// primary with GTID auto-positioning, waits for the threads to run, then makes it
-// super_read_only (persisted). No server start / root set / RESET — the baseline
-// step already did those and left an empty GTID baseline. GET_SOURCE_PUBLIC_KEY=1 is
-// required for the repl user's caching_sha2_password auth over a non-TLS link.
+// primary, waits for the threads to run, then makes it super_read_only (persisted).
+// With $AUTO=1 (frame has GTID on) it uses GTID auto-positioning; otherwise it starts
+// from the primary's binlog file/position in $LOG_FILE/$LOG_POS (AUTO_POSITION=1 is
+// rejected when gtid_mode=OFF). No server start / root set / RESET — the baseline step
+// already did those and left an empty baseline. GET_SOURCE_PUBLIC_KEY=1 is required for
+// the repl user's caching_sha2_password auth over a non-TLS link.
 const mysqlAttachScript = `set -e
+if [ "$AUTO" = 1 ]; then
+  POS="SOURCE_AUTO_POSITION=1"
+else
+  POS="SOURCE_LOG_FILE='$LOG_FILE', SOURCE_LOG_POS=$LOG_POS"
+fi
 mysql -uroot -p"$ROOT_PW" -e "STOP REPLICA;" 2>/dev/null || true
-mysql -uroot -p"$ROOT_PW" -e "CHANGE REPLICATION SOURCE TO SOURCE_HOST='$SOURCE_HOST', SOURCE_PORT=3306, SOURCE_USER='$REPL_USER', SOURCE_PASSWORD='$REPL_PW', SOURCE_AUTO_POSITION=1, GET_SOURCE_PUBLIC_KEY=1;"
+mysql -uroot -p"$ROOT_PW" -e "CHANGE REPLICATION SOURCE TO SOURCE_HOST='$SOURCE_HOST', SOURCE_PORT=3306, SOURCE_USER='$REPL_USER', SOURCE_PASSWORD='$REPL_PW', $POS, GET_SOURCE_PUBLIC_KEY=1;"
 mysql -uroot -p"$ROOT_PW" -e "START REPLICA;"
 OK=0
 for i in $(seq 1 30); do

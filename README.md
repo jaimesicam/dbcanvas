@@ -150,6 +150,7 @@ account. Design a stack in **Database Stacks**, deploy it, and watch the bell + 
 | `APP_PORT` | `8080` | Port the app listens on (host + container). |
 | `PMM_PASSWORD` | `pmm_password` | Password for the `pmm` monitoring user created on DB nodes. |
 | `DOCKER_PLATFORM` | `linux/amd64` | Target platform for the image build. |
+| `DEPLOYMENT_TIMEOUT` | `60` | Minutes a provisioner waits for a dependency (cluster, node, or shared service) to become ready before failing the deploy. Raise it for large stacks with many containers. |
 
 The container always listens on all interfaces internally; host-side exposure is controlled
 by the compose publish binding, not by `APP_HOST` inside the container.

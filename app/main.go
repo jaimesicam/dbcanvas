@@ -88,6 +88,12 @@ func main() {
 	mux.HandleFunc("GET /api/datagen/jobs/{job}", app.handleDataGenJob)
 	mux.HandleFunc("POST /api/datagen/jobs/{job}/cancel", app.handleDataGenCancel)
 
+	mux.HandleFunc("GET /api/queryrun/targets", app.handleQueryRunTargets)
+	mux.HandleFunc("POST /api/queryrun/runs", app.handleQueryRunStart)
+	mux.HandleFunc("GET /api/queryrun/runs/{id}", app.handleQueryRunStatus)
+	mux.HandleFunc("POST /api/queryrun/runs/{id}/stop", app.handleQueryRunStop)
+	mux.HandleFunc("GET /api/queryrun/history", app.handleQueryRunHistory)
+
 	// Dashboard — cheap summary + focus-gated live OS stats.
 	mux.HandleFunc("GET /api/dashboard/summary", app.handleDashboardSummary)
 	mux.HandleFunc("GET /api/dashboard/stats", app.handleDashboardStats)

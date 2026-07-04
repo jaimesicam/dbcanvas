@@ -1826,5 +1826,8 @@ func (a *App) teardownStack(stackID int64) {
 		a.docker.VolumeRemove(ctx, pmmDataVolume(stackID, d.NodeID))
 		a.store.DeleteDeployment(stackID, d.NodeID)
 	}
+	// The Query Runner may have joined this network to reach the stack's DB nodes;
+	// detach the app first so the network can be removed.
+	a.docker.NetworkDisconnect(ctx, networkName(stackID), qrAppContainerID())
 	a.docker.NetworkRemove(ctx, networkName(stackID))
 }

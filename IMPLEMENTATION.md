@@ -4147,3 +4147,94 @@ the deploy:
 ### Verification performed
 - `go build ./...` clean from `app/` (removed the now-unused `time` import in
   `app/valkey.go`); `docker compose config` validates.
+
+---
+
+## 72. Fix: intra-cluster MySQL replication forced GTID auto-position on non-GTID frames — `app/mysql.go`
+
+**Problem.** A MySQL-replication frame with **GTID off** failed to attach its
+secondaries: `my.cnf` leaves `gtid_mode=OFF` (only set when `frame.GTID`), yet
+`mysqlAttachScript` always issued `CHANGE REPLICATION SOURCE … SOURCE_AUTO_POSITION=1`,
+which MySQL rejects unless `GTID_MODE=ON` — "trying to set up GTID replication when
+GTID is disabled."
+
+**Change (per-link positioning).** Attach now mirrors the cross-cluster path
+(`app/replication.go`, which already picks per link via `srcFrame.GTID && dstFrame.GTID`):
+- `mysqlAttachScript` branches on `$AUTO` — `SOURCE_AUTO_POSITION=1` when `1`, else
+  `SOURCE_LOG_FILE=…, SOURCE_LOG_POS=…`.
+- `mysqlAttachReplica` sets `AUTO=1` when `frame.GTID`; otherwise it reads the
+  primary's current binlog coordinates (reusing `sourceBinlogPos` +
+  `frameMajor`) and passes `LOG_FILE`/`LOG_POS`. Needed the primary's node id, so
+  the signature gained `primaryID` (call site passes `primary.ID`).
+- So each replica uses GTID only when **both** endpoints have GTID; otherwise binary
+  log file/position. In a mixed chain `a(non)→b(gtid)→c(gtid)→d(non)`, `d←c` and
+  `b←a` use file/position while `c←b` uses GTID — the cross-cluster path already did
+  this; this fix brings the intra-cluster path in line.
+
+### Verification performed
+- `go build ./...` + `go vet ./...` clean. Runtime not exercised (needs a deployed
+  non-GTID MySQL replication frame); the fix reuses the proven cross-cluster
+  binlog-position helpers.
+
+---
+
+## 73. Query Runner (Phase 1) — parallel query orchestration with processlist gating — `app/queryrun.go`, `app/queryrun_run.go`, `app/web/src/pages/QueryRunner.jsx`, `app/web/src/lib/queryrunApi.js`, `app/main.go`, `app/web/src/App.jsx`, `go.mod`, `docs/QUERY_RUNNER.md`
+
+**Feature.** A `#queryrun` page (nav: "Query Runner") that runs one or more SQL
+queries **concurrently**, each against a **canvas-provisioned** MySQL/PXC or
+PostgreSQL node, with per-query load params (count / threads / time limit) and an
+optional **processlist "run condition" gate**. Distinct from a benchmark. Design
+recorded in `docs/QUERY_RUNNER_PLAN.md`; usage in `docs/QUERY_RUNNER.md`.
+
+**Backend.**
+- **Native TCP drivers** (new deps): `github.com/go-sql-driver/mysql`,
+  `github.com/jackc/pgx/v5` (stdlib driver `pgx`) — a deliberate departure from the
+  otherwise stdlib-only backend (hand-rolling the wire protocols isn't viable).
+- `app/queryrun.go` — targets endpoint + handlers. **Targets are canvas-only,
+  owner-scoped** (admins see all); `qrResolveConn` maps a node to its in-network
+  host:port (over the shared Docker network — no host ports needed) and network
+  account (MySQL `admin@'%'`, Postgres superuser). **Passwords never reach the
+  browser.**
+- `app/queryrun_run.go` — run registry + engine. Each query opens a pooled
+  `database/sql` connection sized to its thread count; a shared atomic counter
+  makes **Count total across all threads**; a `context` deadline enforces the time
+  limit; latency stats (min/avg/max, reservoir-sampled p95). The **gate** polls the
+  target's processlist (`information_schema.PROCESSLIST` / `pg_stat_activity`),
+  matches a **Go RE2** pattern, and opens per `no_match`/`match` × `every`/`once`.
+  **Self-exclusion:** every statement (load + polls) carries a `dbcanvas-qr` marker
+  the gate ignores, so a query never blocks on itself.
+- Routes: `GET /api/queryrun/targets`, `POST /api/queryrun/runs`,
+  `GET /api/queryrun/runs/{id}`, `POST /api/queryrun/runs/{id}/stop`,
+  `GET /api/queryrun/history`. Caps: 16 queries/run, 64 threads/query, 3600 s.
+
+**Frontend.** `pages/QueryRunner.jsx` + `lib/queryrunApi.js`: query cards with a
+**Server dropdown** (not manual host/port/creds), count/threads/time-limit, the gate
+controls (pattern/condition/check/poll), **+ Add another query**, **Run/Stop**, live
+per-query stats (executed/errors/latency/gate state), and a session **History** list.
+
+**Deferred to later phases:** persistent SQLite History (currently in-memory,
+this-session), mandated-TLS targets, richer result inspection.
+
+### Connectivity (resolved during live testing) — `app/docker.go`, `app/queryrun.go`, `app/queryrun_run.go`, `app/intranet.go`
+The app container runs only on `dbcanvas_default`, not on stack networks, and Docker's
+embedded DNS doesn't know the Intranet's `*.<domain>` names — so the first attempt
+failed with `lookup ps-01.example.net … no such host`. Fix:
+- `Docker.NetworkConnect`/`NetworkDisconnect` added. At **run time** the run **joins the
+  target's `dbcanvas-stack-<id>` network** (idempotent) and dials the node's **container
+  IP** (via `ContainerIP`) on the standard port — no host ports, no DNS.
+- The network-join is done in the **async run goroutine, not the HTTP handler**: attaching
+  the app to a new network briefly resets its in-flight connections, so doing it in the
+  handler made the *first* run after boot return an empty reply. `qrBuildQuery` now only
+  validates + gathers creds/container-id synchronously; `qrRun.dial` does the join + IP +
+  DSN at run start.
+- Stack destroy (`handleDestroyStack`) now `NetworkDisconnect`s the app before
+  `NetworkRemove`, so a lingering Query Runner attachment can't block network cleanup.
+
+### Verification performed
+- `go build`/`go vet`/`gofmt`/`npm run build` clean. **Exercised live on :8090** against a
+  running MySQL (`ps-01`) + PostgreSQL (`pg-01`) stack: both engines connect and run;
+  `count` totals across threads; latency stats populate; the processlist gate works for
+  `no_match`, `match`, and **cross-query** (Query 2 fired 1000× only while Query 1's
+  `pg_sleep(3)` was active, then stopped) — confirming per-query self-exclusion. MySQL
+  uses `admin@'%'` (has `PROCESS`); Postgres uses the superuser (sees all of
+  `pg_stat_activity`).

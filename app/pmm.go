@@ -136,7 +136,8 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 	}
 
 	cfg := pmmConfig{
-		Image: ref, Version: tag, Arch: archOr(n.Arch),
+		// PMM (percona/pmm-server) has no arm64 image yet — always amd64.
+		Image: ref, Version: tag, Arch: "amd64",
 		Hostname: host, FQDN: fqdn, Alias: host,
 		AdminUser: sec.AdminUser, SMTPHost: "intranet." + domain + ":25",
 		GenerateCert: n.GenerateCert, HTTPPort: httpPort, HTTPSPort: httpsPort,

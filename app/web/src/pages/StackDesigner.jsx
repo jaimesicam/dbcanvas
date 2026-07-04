@@ -5073,14 +5073,15 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
             ))}
           </select>
         </Field>
-        <Field label="Architecture" hint={deployed ? 'Locked — the node is deployed.' : 'Must have a matching image built (make images).'}>
+        <Field label="Architecture" hint={deployed ? 'Locked — the node is deployed.' : n.type === 'pmm' ? 'PMM currently ships amd64 only.' : 'Must have a matching image built (make images).'}>
           <select
             className={`${inputCls} ${deployed ? 'opacity-70' : ''}`}
-            value={n.arch || 'amd64'}
+            value={n.type === 'pmm' ? 'amd64' : (n.arch || 'amd64')}
             disabled={deployed}
             onChange={(e) => patchNode(n.id, { arch: e.target.value })}
           >
-            {ARCH_OPTIONS.map((o) => (
+            {/* PMM (percona/pmm-server) has no arm64 image yet — offer amd64 only. */}
+            {(n.type === 'pmm' ? ARCH_OPTIONS.filter((o) => o.id !== 'arm64') : ARCH_OPTIONS).map((o) => (
               <option key={o.id} value={o.id}>{o.label}</option>
             ))}
           </select>
