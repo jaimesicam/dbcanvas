@@ -4275,8 +4275,19 @@ reservoir-sampled `latAcc`. Deterministic bulk load via batched multi-row INSERT
 
 ### Verification performed
 - `go build`/`go vet`/`gofmt`/`npm run build` clean; binary re-embeds the new `dist`.
-  The API layer is live (targets + validation respond correctly on :8090). **The
-  DB-execution path (DDL/FKs, bulk load, per-engine workload SQL) is NOT yet run against
-  a live node** — the MySQL+PG test stack expired via its TTL between sessions, leaving
-  no running DB node to benchmark. Needs a live run against a fresh MySQL and PostgreSQL
-  node to confirm load + all four workloads end-to-end.
+- **End-to-end DB-execution path verified against live nodes** (deployed a fresh
+  `bench-e2e` stack: standalone Percona Server 8.0 + PostgreSQL 16). All four workloads
+  ran on **both** engines (8 runs, scale 1 ≈ 361k rows, 4 threads × 10s):
+  - MySQL — OLTP 354 TPS, RW 355 TPS, RO ~993 TPS / 11.9k QPS, OLAP 19 q/s.
+  - Postgres — OLTP 1305 TPS, RW 1542 TPS, RO ~208 TPS / 2.5k QPS, OLAP 125 q/s.
+  - Confirmed: FK schema + bulk load; all five OLAP queries (q1–q5) per engine;
+    per-statement + txn p50/p95/p99 latency; **data reuse** (Keep-data run skips the
+    load — `rowsLoaded=0`); and **cleanup** (Keep-data off drops only the `bench_*`
+    tables, `dbcanvas_bench` DB preserved — verified 0 bench tables remaining on both).
+- Reuse gate: `prepare` reuses an existing dataset only when the **current** run also
+  has Keep-data on (`cfg.KeepData && datasetMatches`); a Keep-data-off run always does a
+  clean reload + drop-after (correct "clean run" semantics). Minor: `docs/BENCHMARK.md`
+  describes the producer side of Keep-data but not that the consumer must also enable it
+  to skip the load.
+- Small per-run error counts (≈ thread count) are in-flight statements cancelled when
+  the measured window closes — a metric artifact, not a workload failure.
