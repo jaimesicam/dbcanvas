@@ -102,8 +102,11 @@ func proxysqlMySQLEnv(sec proxysqlSecrets, members []string, mode string) []stri
 // psClientProduct maps a PXC major series to the percona-release product for the
 // matching Percona Server client (ps84lts for 8.4, ps80 otherwise).
 func psClientProduct(pxcMajor string) string {
-	if pxcMajor == "8.4" {
+	switch pxcMajor {
+	case "8.4":
 		return "ps84lts"
+	case "5.7":
+		return "ps57"
 	}
 	return "ps80"
 }

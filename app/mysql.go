@@ -421,10 +421,66 @@ func (a *App) waitMySQLRunning(ctx context.Context, stackID int64, frame designF
 
 // psMajorOf normalizes a Percona Server major series (default "8.0").
 func psMajorOf(major string) string {
-	if major == "8.4" {
+	switch major {
+	case "8.4":
 		return "8.4"
+	case "5.7":
+		return "5.7"
 	}
 	return "8.0"
+}
+
+// psServerPackage is the OS package that installs the Percona Server daemon for a
+// series. 8.0/8.4 share the unsuffixed percona-server-server; the legacy 5.7 series
+// keeps a version-suffixed name that also differs between package managers.
+func psServerPackage(os, major string) string {
+	if major == "5.7" {
+		if isDebianOS(os) {
+			return "percona-server-server-5.7"
+		}
+		return "Percona-Server-server-57"
+	}
+	return "percona-server-server"
+}
+
+// psAuthPlugin is the authentication plugin used for accounts DBCanvas sets a password
+// on. 8.0+ default to caching_sha2_password; 5.7 predates it, so it uses the classic
+// mysql_native_password (also why 5.7 links need no GET_SOURCE_PUBLIC_KEY handshake).
+func psAuthPlugin(major string) string {
+	if major == "5.7" {
+		return "mysql_native_password"
+	}
+	return "caching_sha2_password"
+}
+
+// validatePasswordRelax returns the SET statements that lower the validate_password
+// policy so the .env credentials are accepted. 5.7 exposes validate_password as a
+// plugin with underscore system variables (validate_password_policy); 8.0+ expose it
+// as a component with dotted variables (validate_password.policy).
+func validatePasswordRelax(major string) string {
+	if major == "5.7" {
+		return "SET GLOBAL validate_password_policy=LOW; SET GLOBAL validate_password_length=6;"
+	}
+	return "SET GLOBAL validate_password.policy=LOW; SET GLOBAL validate_password.length=6;"
+}
+
+// persistScope is the SET variable scope that survives a restart: 8.0+ have SET PERSIST
+// (which writes mysqld-auto.cnf); 5.7 has only SET GLOBAL (runtime-only).
+func persistScope(major string) string {
+	if major == "5.7" {
+		return "GLOBAL"
+	}
+	return "PERSIST"
+}
+
+// monitorGrants is the privilege list granted to the PMM monitor user on *.*. 8.0+
+// include BACKUP_ADMIN (a dynamic privilege introduced in 8.0); 5.7 predates dynamic
+// privileges entirely, so granting it there is a syntax error — drop it on 5.7.
+func monitorGrants(major string) string {
+	if major == "5.7" {
+		return "SELECT, PROCESS, REPLICATION CLIENT, RELOAD"
+	}
+	return "SELECT, PROCESS, REPLICATION CLIENT, RELOAD, BACKUP_ADMIN"
 }
 
 // mysqlResetCmd is the statement that clears a server's binary logs + GTID state so
@@ -505,10 +561,11 @@ func (a *App) mysqlPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	if debian {
 		instScript, pmmScript = mysqlInstallDebian, pxcInstallPMMClientDebian
 	}
-	if err := a.runStep(ctx, id, instScript, []string{"PRODUCT=" + psClientProduct(psMajorOf(frame.PSMajor))}, pr.logln); err != nil {
-		return pr.fail("install percona-server-server: %v", err)
+	psPkg := psServerPackage(frame.OS, psMajorOf(frame.PSMajor))
+	if err := a.runStep(ctx, id, instScript, []string{"PRODUCT=" + psClientProduct(psMajorOf(frame.PSMajor)), "PKG=" + psPkg}, pr.logln); err != nil {
+		return pr.fail("install %s: %v", psPkg, err)
 	}
-	pr.logln("percona-server-server installed")
+	pr.logln(psPkg + " installed")
 
 	// Install Percona XtraBackup matching the Percona Server series (8.0 → pxb80 /
 	// percona-xtrabackup-80, 8.4 → pxb84lts / percona-xtrabackup-84) so the node can
@@ -580,6 +637,8 @@ func (a *App) mysqlSetupBaseline(ctx context.Context, st Stack, frame designFram
 	env := []string{
 		"UNIT=" + mysqlUnit(frame.OS), "LOGERR=" + pxcLogError(frame.OS),
 		"RESET_CMD=" + mysqlResetCmd(major),
+		"VPRELAX=" + validatePasswordRelax(major), "AUTH_PLUGIN=" + psAuthPlugin(major),
+		"MON_GRANTS=" + monitorGrants(major),
 		"ROOT_PW=" + sec.RootPassword,
 		"ADMIN_USER=" + sec.AdminUser, "ADMIN_PW=" + sec.AdminPassword,
 		"APP_USER=" + sec.AppUser, "APP_PW=" + sec.AppPassword,
@@ -598,7 +657,7 @@ func (a *App) mysqlSetupBaseline(ctx context.Context, st Stack, frame designFram
 		} else {
 			plugin, so, enableVar = semisyncReplica(major)
 		}
-		if err := a.runStep(ctx, id, mysqlSemisyncScript, []string{"ROOT_PW=" + sec.RootPassword, "PLUGIN=" + plugin, "SONAME=" + so, "ENABLEVAR=" + enableVar}, pr.logln); err != nil {
+		if err := a.runStep(ctx, id, mysqlSemisyncScript, []string{"ROOT_PW=" + sec.RootPassword, "PLUGIN=" + plugin, "SONAME=" + so, "ENABLEVAR=" + enableVar, "SETVAR=" + persistScope(major)}, pr.logln); err != nil {
 			return pr.fail("enable semi-sync %s: %v", role, err)
 		}
 		pr.logln("semi-sync " + role + " enabled")
@@ -635,7 +694,11 @@ func (a *App) mysqlAttachReplica(ctx context.Context, st Stack, frame designFram
 		env = append(env, "AUTO=0", "LOG_FILE="+file, "LOG_POS="+pos)
 		method = fmt.Sprintf("file/position %s:%s", file, pos)
 	}
-	if err := a.runStep(ctx, id, mysqlAttachScript, env, pr.logln); err != nil {
+	script := mysqlAttachScript
+	if psMajorOf(frame.PSMajor) == "5.7" {
+		script = mysqlAttachScript57
+	}
+	if err := a.runStep(ctx, id, script, env, pr.logln); err != nil {
 		return pr.fail("attach replica: %v", err)
 	}
 	pr.logln(fmt.Sprintf("replica attached (%s); super_read_only enabled", method))
@@ -647,13 +710,13 @@ func (a *App) mysqlAttachReplica(ctx context.Context, st Stack, frame designFram
 const mysqlInstallRHEL = `set -e
 dnf -y -q module disable mysql >/dev/null 2>&1 || true
 percona-release setup -y "$PRODUCT" >/dev/null 2>&1
-dnf -y -q install percona-server-server >/dev/null`
+dnf -y -q install "$PKG" >/dev/null`
 
 const mysqlInstallDebian = `set -e
 export DEBIAN_FRONTEND=noninteractive
 percona-release setup -y "$PRODUCT" >/dev/null 2>&1
 apt-get update -qq >/dev/null
-apt-get install -y -qq percona-server-server >/dev/null`
+apt-get install -y -qq "$PKG" >/dev/null`
 
 // mysqlSetRootPW is shared shell that sets root@localhost to $ROOT_PW regardless of
 // distro (RHEL expired temp password / Debian auth_socket). The ALTER USER is run
@@ -666,6 +729,10 @@ apt-get install -y -qq percona-server-server >/dev/null`
 // first (only ALTER USER is permitted while expired), so we set a strong interim
 // password, relax the policy, then apply the desired $ROOT_PW. On the Debian
 // auth_socket path we're a full (non-expired) root, so we can relax up front.
+//
+// $VPRELAX (the validate_password relax statements) and $AUTH_PLUGIN vary by series
+// (component vs plugin variables; caching_sha2_password vs mysql_native_password for
+// 5.7), so both are supplied by the caller — see validatePasswordRelax / psAuthPlugin.
 const mysqlSetRootPW = `if mysql -uroot -p"$ROOT_PW" -e "SELECT 1" >/dev/null 2>&1; then
   :
 else
@@ -673,28 +740,60 @@ else
   if [ -n "$TMP" ]; then
     if ! mysql -uroot --connect-expired-password -p"$TMP" -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$ROOT_PW';" 2>/dev/null; then
       mysql -uroot --connect-expired-password -p"$TMP" -e "ALTER USER 'root'@'localhost' IDENTIFIED BY 'Dbc#Interim7Pw';"
-      mysql -uroot -p'Dbc#Interim7Pw' -e "SET GLOBAL validate_password.policy=LOW; SET GLOBAL validate_password.length=6;" 2>/dev/null || true
+      mysql -uroot -p'Dbc#Interim7Pw' -e "$VPRELAX" 2>/dev/null || true
       mysql -uroot -p'Dbc#Interim7Pw' -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$ROOT_PW';"
     fi
   else
-    mysql -uroot -e "SET GLOBAL validate_password.policy=LOW; SET GLOBAL validate_password.length=6;" 2>/dev/null || true
-    mysql -uroot -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH caching_sha2_password BY '$ROOT_PW';"
+    mysql -uroot -e "$VPRELAX" 2>/dev/null || true
+    mysql -uroot -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH $AUTH_PLUGIN BY '$ROOT_PW';"
   fi
 fi`
 
+// mysqlDatadirInit is the datadir-preparation prelude shared by the async-replication
+// baseline (mysqlBaselineScript) and the InnoDB/GR baseline (innodbBaseScript). It
+// (re)creates the mysql-owned error log (unconditionally, at the top — /var/log is
+// root-owned, so the dropped-privilege mysqld running as user=mysql can't recreate a
+// deleted log there), defines say_err() to surface the real [ERROR] line, then, when the
+// datadir is NOT already initialized, wipes it and initializes it explicitly with a
+// minimal, replication-free defaults file so the system tables exist before the first
+// start. Leaves mysqld stopped — the caller starts it.
+//
+// "Initialized" is detected by the presence of the privilege store — mysql.ibd (the
+// 8.0/8.4 mysql-schema tablespace) or mysql/user.frm (the 5.7 MyISAM table). Checking the
+// mysql/ directory alone is NOT sufficient: the package's first-start auto-init can be
+// interrupted (deploy timeout, container restart) and leave that directory present but
+// WITHOUT the tables inside it. mysqld then sees a populated datadir, skips its own init,
+// and aborts on the missing privilege tables ("Table 'mysql.user' doesn't exist" /
+// "Data Dictionary initialization failed") — restart-looping at 100% CPU under the
+// package unit's Restart=on-failure. The file-presence check re-initializes that
+// half-baked state while still preserving a genuinely initialized datadir on redeploy.
+const mysqlDatadirInit = `LOGERR=${LOGERR:-/var/log/mysqld.log}
+rm -f "$LOGERR" 2>/dev/null || true
+install -m 0640 -o mysql -g mysql /dev/null "$LOGERR" 2>/dev/null || { touch "$LOGERR"; chown mysql:mysql "$LOGERR" 2>/dev/null || true; }
+say_err() { echo "$1:"; grep -iE '\[ERROR\]|error' "$LOGERR" /tmp/mysql-init.log 2>/dev/null | grep -viE 'log-error|--log-error' | tail -4; }
+install -d -m 0755 -o mysql -g mysql /var/run/mysqld 2>/dev/null || true
+if [ ! -f /var/lib/mysql/mysql.ibd ] && [ ! -f /var/lib/mysql/mysql/user.frm ]; then
+  # Clear everything incl. dotfiles (mysqld --initialize refuses a non-empty datadir).
+  find /var/lib/mysql -mindepth 1 -delete 2>/dev/null || true
+  printf '[mysqld]\nuser=mysql\ndatadir=/var/lib/mysql\nsocket=/var/lib/mysql/mysql.sock\nlog-error=%s\npid-file=/var/run/mysqld/mysqld.pid\n' "$LOGERR" > /tmp/mysql-init.cnf
+  mysqld --defaults-file=/tmp/mysql-init.cnf --initialize-insecure >/tmp/mysql-init.log 2>&1 || { say_err "datadir initialize failed"; exit 1; }
+  chown -R mysql:mysql /var/lib/mysql
+fi`
+
 // mysqlBaselineScript brings a member (primary or secondary) to the pre-replication
-// baseline: start the server, set the root password, create the admin@'%' superuser
-// and the app/repl/monitor/cluster users LOCALLY, then clear binlog/GTID history so
-// the node starts from an empty, shared baseline. Run on EVERY member — because the
-// RESET purges the user-creation from the binlog, a secondary can't inherit these
-// users via replication, so each node creates its own (see mysqlSetupBaseline).
+// baseline: initialize the datadir (if empty/half-initialized — see mysqlDatadirInit),
+// start the server, set the root password, create the admin@'%' superuser and the
+// app/repl/monitor/cluster users LOCALLY, then clear binlog/GTID history so the node
+// starts from an empty, shared baseline. Run on EVERY member — because the RESET purges
+// the user-creation from the binlog, a secondary can't inherit these users via
+// replication, so each node creates its own (see mysqlSetupBaseline).
 const mysqlBaselineScript = `set -e
-LOGERR=${LOGERR:-/var/log/mysqld.log}
-systemctl is-active --quiet "$UNIT" || { rm -f "$LOGERR" 2>/dev/null || true; systemctl reset-failed "$UNIT" 2>/dev/null || true; systemctl start "$UNIT"; }
+` + mysqlDatadirInit + `
+systemctl is-active --quiet "$UNIT" || { systemctl reset-failed "$UNIT" 2>/dev/null || true; systemctl start "$UNIT" || { say_err "mysqld failed to start"; exit 1; }; }
 ` + mysqlSetRootPW + `
 # Relax validate_password so the .env passwords are accepted (tolerated if the
 # component isn't installed).
-mysql -uroot -p"$ROOT_PW" -e "SET GLOBAL validate_password.policy=LOW; SET GLOBAL validate_password.length=6;" 2>/dev/null || true
+mysql -uroot -p"$ROOT_PW" -e "$VPRELAX" 2>/dev/null || true
 mysql -uroot -p"$ROOT_PW" <<SQL
 SET GLOBAL super_read_only=OFF;
 SET GLOBAL read_only=OFF;
@@ -705,7 +804,7 @@ CREATE USER IF NOT EXISTS '$REPL_USER'@'%' IDENTIFIED BY '$REPL_PW';
 GRANT REPLICATION SLAVE ON *.* TO '$REPL_USER'@'%';
 CREATE USER IF NOT EXISTS '$MON_USER'@'%' IDENTIFIED BY '$MON_PW' WITH MAX_USER_CONNECTIONS 10;
 ALTER USER '$MON_USER'@'%' IDENTIFIED BY '$MON_PW';
-GRANT SELECT, PROCESS, REPLICATION CLIENT, RELOAD, BACKUP_ADMIN ON *.* TO '$MON_USER'@'%';
+GRANT $MON_GRANTS ON *.* TO '$MON_USER'@'%';
 GRANT SELECT ON performance_schema.* TO '$MON_USER'@'%';
 CREATE USER IF NOT EXISTS '$CLUSTER_USER'@'%' IDENTIFIED BY '$CLUSTER_PW';
 ALTER USER '$CLUSTER_USER'@'%' IDENTIFIED BY '$CLUSTER_PW';
@@ -721,7 +820,7 @@ echo "gtid_executed after reset: $(mysql -uroot -p"$ROOT_PW" -N -e "SELECT @@glo
 // and persists the enable variable. Idempotent (ignores already-installed).
 const mysqlSemisyncScript = `set -e
 mysql -uroot -p"$ROOT_PW" -e "INSTALL PLUGIN $PLUGIN SONAME '$SONAME';" 2>/dev/null || true
-mysql -uroot -p"$ROOT_PW" -e "SET PERSIST $ENABLEVAR=1;"`
+mysql -uroot -p"$ROOT_PW" -e "SET $SETVAR $ENABLEVAR=1;"`
 
 // mysqlAttachScript attaches an already-baselined, already-running secondary to the
 // primary, waits for the threads to run, then makes it super_read_only (persisted).
@@ -747,3 +846,27 @@ for i in $(seq 1 30); do
 done
 [ "$OK" = 1 ] || { echo "replica threads not running:"; mysql -uroot -p"$ROOT_PW" -e "SHOW REPLICA STATUS\G" 2>/dev/null | grep -iE 'Running|Last_(IO|SQL)_Error' | head -8; exit 1; }
 mysql -uroot -p"$ROOT_PW" -e "SET PERSIST read_only=ON; SET PERSIST super_read_only=ON; SET GLOBAL super_read_only=ON;"`
+
+// mysqlAttachScript57 is the Percona Server 5.7 counterpart of mysqlAttachScript.
+// 5.7 predates the modern replication vocabulary: it uses CHANGE MASTER TO with
+// MASTER_* options (MASTER_AUTO_POSITION / MASTER_LOG_FILE+POS), START/STOP SLAVE,
+// SHOW SLAVE STATUS (Slave_IO_Running / Slave_SQL_Running), needs no
+// GET_SOURCE_PUBLIC_KEY (repl user authenticates with mysql_native_password), and has
+// no SET PERSIST — read_only is set with SET GLOBAL (runtime-only, re-applied on deploy).
+const mysqlAttachScript57 = `set -e
+if [ "$AUTO" = 1 ]; then
+  POS="MASTER_AUTO_POSITION=1"
+else
+  POS="MASTER_LOG_FILE='$LOG_FILE', MASTER_LOG_POS=$LOG_POS"
+fi
+mysql -uroot -p"$ROOT_PW" -e "STOP SLAVE;" 2>/dev/null || true
+mysql -uroot -p"$ROOT_PW" -e "CHANGE MASTER TO MASTER_HOST='$SOURCE_HOST', MASTER_PORT=3306, MASTER_USER='$REPL_USER', MASTER_PASSWORD='$REPL_PW', $POS;"
+mysql -uroot -p"$ROOT_PW" -e "START SLAVE;"
+OK=0
+for i in $(seq 1 30); do
+  S=$(mysql -uroot -p"$ROOT_PW" -e "SHOW SLAVE STATUS\G" 2>/dev/null)
+  if echo "$S" | grep -q "Slave_IO_Running: Yes" && echo "$S" | grep -q "Slave_SQL_Running: Yes"; then OK=1; break; fi
+  sleep 2
+done
+[ "$OK" = 1 ] || { echo "replica threads not running:"; mysql -uroot -p"$ROOT_PW" -e "SHOW SLAVE STATUS\G" 2>/dev/null | grep -iE 'Running|Last_(IO|SQL)_Error' | head -8; exit 1; }
+mysql -uroot -p"$ROOT_PW" -e "SET GLOBAL read_only=ON; SET GLOBAL super_read_only=ON;"`

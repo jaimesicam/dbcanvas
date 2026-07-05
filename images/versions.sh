@@ -60,9 +60,10 @@ parse_entries() {
 
 # ---- in-container probe scripts, one per OS family ----
 # Each prints version lines (newest first) fenced by @@PS80@@ / @@PS84@@ /
-# @@PXC80@@ / @@PXC84@@ / @@PROXYSQL2@@ / @@PROXYSQL3@@ / @@END@@ markers —
-# Percona Server and Percona XtraDB Cluster (each 8.0 and 8.4) plus ProxySQL
-# (major series 2 and 3, from the proxysql2 / proxysql3 packages).
+# @@PS57@@ / @@PXC80@@ / @@PXC84@@ / @@PROXYSQL2@@ / @@PROXYSQL3@@ / @@END@@
+# markers — Percona Server (8.0, 8.4 and the legacy 5.7 series) and Percona
+# XtraDB Cluster (8.0 and 8.4) plus ProxySQL (major series 2 and 3, from the
+# proxysql2 / proxysql3 packages).
 
 rhel_probe() {
   cat <<'EOS'
@@ -79,6 +80,10 @@ percona-release setup ps80     >/dev/null 2>&1
 echo '@@PS80@@';  elsearch percona-server-server   | grep -E '^8\.0\.' | sort -rV -u
 percona-release setup ps84lts  >/dev/null 2>&1
 echo '@@PS84@@';  elsearch percona-server-server   | grep -E '^8\.4\.' | sort -rV -u
+# Legacy Percona Server 5.7 (EOL) — on EL the package keeps its own suffixed name
+# (Percona-Server-server-57), unlike the unsuffixed 8.0/8.4 server package.
+percona-release setup ps57     >/dev/null 2>&1
+echo '@@PS57@@';  elsearch Percona-Server-server-57 | grep -E '^5\.7\.' | sort -rV -u
 percona-release setup pxc80    >/dev/null 2>&1
 echo '@@PXC80@@'; elsearch percona-xtradb-cluster  | grep -E '^8\.0\.' | sort -rV -u
 percona-release setup pxc84lts >/dev/null 2>&1
@@ -133,6 +138,9 @@ percona-release setup ps80     >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@PS80@@';  madison percona-server-server   | grep -E '^8\.0\.' | sort -rV -u
 percona-release setup ps84lts  >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@PS84@@';  madison percona-server-server   | grep -E '^8\.4\.' | sort -rV -u
+# Legacy Percona Server 5.7 (EOL) — on Debian the package is percona-server-server-5.7.
+percona-release setup ps57     >/dev/null 2>&1; apt-get update >/dev/null 2>&1
+echo '@@PS57@@';  madison percona-server-server-5.7 | grep -E '^5\.7\.' | sort -rV -u
 percona-release setup pxc80    >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@PXC80@@'; madison percona-xtradb-cluster  | grep -E '^8\.0\.' | sort -rV -u
 percona-release setup pxc84lts >/dev/null 2>&1; apt-get update >/dev/null 2>&1
@@ -230,13 +238,14 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
 
   echo "==> probing ${tag} (${platform}) for installable versions" >&2
 
-  ps80="" ; ps84="" ; pxc80="" ; pxc84="" ; psql2="" ; psql3=""
+  ps80="" ; ps84="" ; ps57="" ; pxc80="" ; pxc84="" ; psql2="" ; psql3=""
   mdb60="" ; mdb70="" ; mdb80=""
   pg13="" ; pg14="" ; pg15="" ; pg16="" ; pg17=""
   if [ -n "$probe" ]; then
     if out="$(docker run --rm "$tag" bash -lc "$probe" 2>/dev/null)"; then
       ps80="$(printf '%s\n' "$out" | section PS80)"
       ps84="$(printf '%s\n' "$out" | section PS84)"
+      ps57="$(printf '%s\n' "$out" | section PS57)"
       pxc80="$(printf '%s\n' "$out" | section PXC80)"
       pxc84="$(printf '%s\n' "$out" | section PXC84)"
       psql2="$(printf '%s\n' "$out" | section PROXYSQL2)"
@@ -256,6 +265,7 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
 
   n80=$(printf '%s' "$ps80" | grep -c . || true)
   n84=$(printf '%s' "$ps84" | grep -c . || true)
+  n57=$(printf '%s' "$ps57" | grep -c . || true)
   px0=$(printf '%s' "$pxc80" | grep -c . || true)
   px4=$(printf '%s' "$pxc84" | grep -c . || true)
   pq2=$(printf '%s' "$psql2" | grep -c . || true)
@@ -268,7 +278,7 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
   g15=$(printf '%s' "$pg15" | grep -c . || true)
   g16=$(printf '%s' "$pg16" | grep -c . || true)
   g17=$(printf '%s' "$pg17" | grep -c . || true)
-  echo "    ps: ${n80}+${n84}  pxc: ${px0}+${px4}  proxysql: ${pq2}+${pq3}  psmdb: ${m6}+${m7}+${m8}  ppg: ${g13}+${g14}+${g15}+${g16}+${g17}" >&2
+  echo "    ps: ${n80}+${n84}+${n57}  pxc: ${px0}+${px4}  proxysql: ${pq2}+${pq3}  psmdb: ${m6}+${m7}+${m8}  ppg: ${g13}+${g14}+${g15}+${g16}+${g17}" >&2
 
   # emit_series <indent-key> <key1> <list1> [<key2> <list2> ...]: emit a major-series
   # map under `key:` with one or more series (e.g. "8.0"/"8.4", "2"/"3", or the three
@@ -295,7 +305,7 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
     echo "    tag: ${tag}"
     echo "    base: ${base}"
     echo "    built_at: ${built}"
-    emit_series percona_server         "8.0" "$ps80"  "8.4" "$ps84"
+    emit_series percona_server         "8.0" "$ps80"  "8.4" "$ps84"  "5.7" "$ps57"
     emit_series percona_xtradb_cluster "8.0" "$pxc80" "8.4" "$pxc84"
     emit_series proxysql               "2"   "$psql2" "3"   "$psql3"
     emit_series percona_server_mongodb "6.0" "$mdb60" "7.0" "$mdb70" "8.0" "$mdb80"

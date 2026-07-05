@@ -103,15 +103,22 @@ func pxcProduct(major string) string {
 // XtraBackup percona-release product and package. XtraBackup performs the SST
 // (state transfer) that joins nodes to the cluster, so every data node needs it.
 func pxbProduct(major string) string {
-	if major == "8.4" {
+	switch major {
+	case "8.4":
 		return "pxb84lts"
+	case "5.7":
+		// Percona Server 5.7 pairs with the legacy XtraBackup 2.4 series.
+		return "pxb-24"
 	}
 	return "pxb80"
 }
 
 func pxbPackage(major string) string {
-	if major == "8.4" {
+	switch major {
+	case "8.4":
 		return "percona-xtrabackup-84"
+	case "5.7":
+		return "percona-xtrabackup-24"
 	}
 	return "percona-xtrabackup-80"
 }
@@ -152,6 +159,10 @@ func pxcLogError(os string) string {
 func logUpdatesOption(major, version string) string {
 	if major == "8.4" {
 		return "log_replica_updates=ON"
+	}
+	// 5.7 predates the log_replica_updates rename; it only has log_slave_updates.
+	if major == "5.7" {
+		return "log_slave_updates=ON"
 	}
 	// version like "8.0.45-36.1"; extract the patch number.
 	patch := 99

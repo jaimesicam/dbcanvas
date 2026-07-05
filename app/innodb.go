@@ -537,23 +537,7 @@ apt-get install -y -qq $PKGS >/dev/null`
 // system tables already in place. Guarded on an uninitialized datadir, so redeploys
 // keep their data.
 const innodbBaseScript = `set -e
-LOGERR=${LOGERR:-/var/log/mysqld.log}
-# Recreate the error log owned by mysql: we delete the package's copy, but /var/log
-# is root-owned so the dropped-privilege mysqld (--initialize / normal start runs as
-# user=mysql) can't recreate it there ("Could not open file ... Permission denied").
-rm -f "$LOGERR" 2>/dev/null || true
-install -m 0640 -o mysql -g mysql /dev/null "$LOGERR" 2>/dev/null || { touch "$LOGERR"; chown mysql:mysql "$LOGERR" 2>/dev/null || true; }
-# Surface the real [ERROR] line (not the truncated "Shutdown complete" tail) when a
-# step fails: mysqld logs are long and runStep only keeps the last 160 chars.
-say_err() { echo "$1:"; grep -iE '\[ERROR\]|error' "$LOGERR" /tmp/mysql-init.log 2>/dev/null | grep -viE 'log-error|--log-error' | tail -4; }
-install -d -m 0755 -o mysql -g mysql /var/run/mysqld 2>/dev/null || true
-if [ ! -d /var/lib/mysql/mysql ]; then
-  # Clear everything incl. dotfiles (mysqld --initialize refuses a non-empty datadir).
-  find /var/lib/mysql -mindepth 1 -delete 2>/dev/null || true
-  printf '[mysqld]\nuser=mysql\ndatadir=/var/lib/mysql\nsocket=/var/lib/mysql/mysql.sock\nlog-error=%s\npid-file=/var/run/mysqld/mysqld.pid\n' "$LOGERR" > /tmp/mysql-init.cnf
-  mysqld --defaults-file=/tmp/mysql-init.cnf --initialize-insecure >/tmp/mysql-init.log 2>&1 || { say_err "datadir initialize failed"; exit 1; }
-  chown -R mysql:mysql /var/lib/mysql
-fi
+` + mysqlDatadirInit + `
 systemctl reset-failed "$UNIT" 2>/dev/null || true
 systemctl start "$UNIT" || { say_err "mysqld failed to start"; exit 1; }
 ` + mysqlSetRootPW + `

@@ -4291,3 +4291,162 @@ reservoir-sampled `latAcc`. Deterministic bulk load via batched multi-row INSERT
   to skip the load.
 - Small per-run error counts (≈ thread count) are in-flight statements cancelled when
   the measured window closes — a metric artifact, not a workload failure.
+
+## 75. Percona Server 5.7 (legacy) as a deployable series for "Percona Server" + "PS Replication" — `images/versions.sh`, `versions.yaml`, `app/pxc.go`, `app/proxysql.go`, `app/mysql.go`, `app/replication.go`
+
+**Goal.** Add the legacy **Percona Server 5.7** series to version discovery and let both
+the standalone **Percona Server** node (`ps`) and the **PS Replication** frame (`mysql`)
+deploy it — alongside the existing 8.0 / 8.4 series.
+
+**Discovery (`make versions`).** `images/versions.sh` now probes the `ps57` repo in both
+OS-family probes, emitting a new `@@PS57@@` section that is folded into each image's
+`percona_server:` map as a `"5.7"` series (order `8.0`, `8.4`, `5.7`). The package name
+diverges from 8.0/8.4's unsuffixed `percona-server-server`: on EL it is
+`Percona-Server-server-57` (queried case-insensitively via `elsearch`), on Debian
+`percona-server-server-5.7`. Empty series (no packages for that OS) are recorded `[]`, so
+the picker simply omits 5.7 there. `versions.yaml` regenerated for the current image
+matrix — 5.7 is installable on **OL8** (5.7.30-33.1 … 5.7.44-48.1), **OL9** and
+**Ubuntu 22.04** (5.7.41-44 … 5.7.44-48), and **absent** on OL10 / Ubuntu 24.04 (`[]`).
+
+**Frontend.** No change needed — the PS-major `<select>` in both the PS Replication frame
+form and the standalone Percona Server form is fully catalog-driven
+(`Object.keys(entry.versions).filter(len>0)`), so `5.7` appears wherever the catalog
+offers it. Default stays `8.0` (list head), so 5.7 is strictly opt-in.
+
+**Backend — series-safe provisioning.** 5.7 predates almost all of the modern MySQL
+vocabulary the provisioners use, so each series-specific helper/script gained a 5.7 branch:
+- `psServerPackage(os,major)` (new) — the daemon package (`Percona-Server-server-57` /
+  `percona-server-server-5.7`), threaded into `mysqlInstall{RHEL,Debian}` via `$PKG`.
+- `psClientProduct` → `ps57`; `pxbProduct`/`pxbPackage` → `pxb-24` /
+  `percona-xtrabackup-24` (5.7 pairs with the legacy **XtraBackup 2.4** series);
+  `logUpdatesOption` → `log_slave_updates` (no `log_replica_updates` in 5.7); `psMajorOf`
+  learns `5.7`.
+- `psAuthPlugin` (new) → `mysql_native_password` (no `caching_sha2_password`, hence no
+  `GET_SOURCE_PUBLIC_KEY` handshake); `validatePasswordRelax` (new) → plugin-style
+  `validate_password_policy`/`_length` (vs the 8.0+ component `validate_password.policy`);
+  `persistScope` (new) → `SET GLOBAL` (5.7 has no `SET PERSIST`). `mysqlSetRootPW` /
+  `mysqlBaselineScript` / `mysqlSemisyncScript` now take these as env (`$VPRELAX`,
+  `$AUTH_PLUGIN`, `$SETVAR`) so a single script body serves every series.
+- Replication uses the legacy grammar on 5.7: intra-cluster attach picks
+  `mysqlAttachScript57` (`CHANGE MASTER TO … MASTER_AUTO_POSITION` / `START SLAVE` /
+  `SHOW SLAVE STATUS` / `Slave_IO|SQL_Running`, `SET GLOBAL read_only`), and cross-cluster
+  channels pick `replChannelApply57` / `replChannelPrune57` (same grammar `… FOR CHANNEL`)
+  selected per replica-node series via `memberReplMajor(doc,n)`. `sourceBinlogPos` already
+  maps 5.7 → `SHOW MASTER STATUS` (non-8.4 branch). GTID `gtid_purged` seeding is
+  best-effort on 5.7 (its `+` incremental form is rejected when `gtid_executed` is
+  non-empty; plain auto-position is the fallback).
+
+### Verification performed
+- `go build` / `go vet` / `go test` clean; `bash -n images/versions.sh` clean.
+- **End-to-end against live Percona Server 5.7.44-48** — two OL8 systemd containers
+  provisioned exactly as the app does (privileged + host cgroup + `/run` tmpfs):
+  - Install via `ps57` → `Percona-Server-server-57` on both.
+  - Baseline (both): temp-password path → `validate_password_policy` relax →
+    `mysql_native_password` root → user creation → `RESET MASTER`; `gtid_executed` empty,
+    root plugin confirmed `mysql_native_password`.
+  - GTID replica attach (`mysqlAttachScript57`, `MASTER_AUTO_POSITION=1`) → both slave
+    threads `Yes`, `Auto_Position: 1`; a row written on the primary (`demo.t = 42`)
+    replicated to the replica, which enforced `super_read_only = 1`.
+  - Semi-sync (`INSTALL PLUGIN semisync_master.so` + `SET GLOBAL
+    rpl_semi_sync_master_enabled=1`) → enabled `1`.
+  - XtraBackup 2.4 (`pxb-24` → `percona-xtrabackup-24`) installs and recognizes the live
+    5.7 server's arguments.
+- Discovery data confirmed by probing every built image directly (amd64 == arm64) before
+  writing `versions.yaml`; `make versions` remains the authoritative regenerator.
+
+---
+
+## 76. Fix: MySQL async baseline aborts on a half-initialized datadir — `app/mysql.go`
+
+**Symptom.** Provisioning a **PS Replication** member (seen on Percona Server 5.7) failed at
+the baseline step with mysqld aborting on:
+
+```
+[ERROR] Fatal error: Can't open and lock privilege tables: Table 'mysql.user' doesn't exist
+mysqld: Table 'mysql.plugin' doesn't exist
+```
+
+The datadir already held an InnoDB tablespace, doublewrite buffer and SSL certs, but the
+system tables (`mysql.user`, `mysql.plugin`, `mysql.gtid_executed`) were missing.
+
+**Cause.** `mysqlBaselineScript` started the server with a bare `systemctl start "$UNIT"`,
+trusting the package's first-start auto-init to populate the datadir. When that auto-init is
+interrupted (deploy timeout, container restart) it can leave `/var/lib/mysql` **non-empty but
+incomplete**. On the next start mysqld sees a populated datadir, skips initialization, and
+aborts because the privilege tables were never created. The InnoDB Cluster/GR path
+(`innodbBaseScript`) already guarded against this; the async-replication path did not.
+
+**Fix.** Mirror the `innodbBaseScript` datadir guard into `mysqlBaselineScript`: when the
+system-table directory `/var/lib/mysql/mysql` is absent, wipe the datadir
+(`find /var/lib/mysql -mindepth 1 -delete` — `mysqld --initialize` refuses a non-empty dir)
+and initialize it explicitly with `mysqld --initialize-insecure` using a minimal,
+replication-free defaults file, then `chown -R mysql:mysql`. Guarded on the presence of the
+system-table dir, so redeploys keep their data. Added a shared `say_err()` helper (same as
+innodb) to surface the real `[ERROR]` line on init/start failure, and wired it into the
+existing `systemctl start` branch. Works across 5.7 / 8.0 / 8.4 (all support
+`--initialize-insecure`; the empty-password root left by the insecure init is then set via the
+existing `mysqlSetRootPW` else-branch). `go build ./...` clean.
+
+---
+
+## 77. Fix (real): the datadir guard from §76 still crash-looped mysqld — `app/mysql.go`, `app/innodb.go`
+
+**Symptom (reported).** After §76, MySQL nodes still failed: mysqld pegged a core at 100% CPU
+and kept restarting instead of coming up.
+
+**Root cause.** §76's guard, `[ ! -d /var/lib/mysql/mysql ]`, keys on the **mysql/ directory**,
+which is *not* a reliable "initialized" signal. An interrupted first-start auto-init leaves the
+`mysql/` directory present but **without the privilege tables inside it** — on 8.0/8.4 the
+privilege store is the single tablespace `/var/lib/mysql/mysql.ibd` (not files under `mysql/`),
+and on 5.7 it is `mysql/user.frm` + `user.MYD/MYI`. So the directory can exist while the tables
+do not. In that state the guard is *false* → re-init is **skipped** → `systemctl start` launches
+mysqld against a half-baked datadir → it aborts ("`Table 'mysql.user' doesn't exist`" /
+"`Data Dictionary initialization failed`"). Under the package unit's `Restart=on-failure` this
+crash-loops, burning CPU. Reproduced directly in an OL9 systemd container for both 8.0
+(`mysql.ibd` removed, `mysql/` dir kept) and 5.7 (`user.*` removed, `mysql/` dir kept): the
+old guard chose SKIP-and-crash in both.
+
+Secondary bug in the same script: `mysqlBaselineScript` recreated the mysql-owned error log
+only *inside* the guard block, then did `rm -f "$LOGERR"` in the start branch. On a redeploy
+(guard skipped) that deleted the log with no recreation; since `/var/log` is root-owned and
+mysqld drops to `user=mysql`, it then couldn't recreate the log → "Permission denied" abort.
+
+**Fix.** Extracted the datadir prelude into a shared `mysqlDatadirInit` constant used by *both*
+`mysqlBaselineScript` and `innodbBaseScript` (they were meant to mirror each other and shared
+the same latent bug). Changes vs §76:
+- **Robust "initialized" check:** `[ ! -f /var/lib/mysql/mysql.ibd ] && [ ! -f /var/lib/mysql/mysql/user.frm ]`
+  — re-initialize unless the actual privilege store is present (8.0/8.4 `mysql.ibd` *or* 5.7
+  `mysql/user.frm`). Catches empty **and** half-initialized datadirs; still preserves a genuinely
+  initialized datadir on redeploy.
+- **Error log recreated unconditionally at the top** (mysql-owned), and the destructive
+  `rm -f "$LOGERR"` removed from the start branch — matching the proven `innodbBaseScript`
+  ordering.
+
+**Verification (end-to-end, OL9 systemd containers, provisioned as the app does — privileged +
+host cgroup + `/run` tmpfs, app-rendered `/etc/my.cnf` with `gtid_mode=ON`/`log_bin`):**
+- 5.7: clean init → active; half-init (`user.*` removed, `mysql/` kept) → re-init → active;
+  redeploy on intact datadir → "preserving", a pre-created DB survived.
+- 8.0: clean init → active; half-init (`mysql.ibd` removed, `mysql/` kept) → re-init → active
+  (old guard would SKIP-and-crash); redeploy on intact datadir → "preserving", pre-created DB
+  survived.
+- `go build ./...` + `go vet ./...` clean. Rebuilt the app image and redeployed a MySQL 5.7
+  async-replication stack (intranet + primary + secondary) through the running app at
+  `http://localhost:8090` — see §77b for the full green result.
+
+### 77b. Follow-on 5.7 bug surfaced by the green deploy: `BACKUP_ADMIN` in the monitor GRANT — `app/mysql.go`, `app/pxc.go`
+
+With the datadir fix in place, mysqld came up and the baseline reached user-creation (proving the
+crash-loop was gone), then failed on `GRANT SELECT, PROCESS, REPLICATION CLIENT, RELOAD,
+BACKUP_ADMIN ON *.* TO 'monitor'@'%'` — `BACKUP_ADMIN` is an 8.0 *dynamic* privilege that does not
+exist in 5.7 (syntax error, retried 10×). Added `monitorGrants(major)`: 5.7 →
+`SELECT, PROCESS, REPLICATION CLIENT, RELOAD` (no BACKUP_ADMIN), 8.0+ keep BACKUP_ADMIN. Threaded
+into `mysqlBaselineScript` as `$MON_GRANTS` (env value with spaces, like the existing `$VPRELAX`/
+`$RESET_CMD`). Covers both the MySQL-replication frame and the standalone `ps` node (same
+`mysqlSetupBaseline`). PXC/InnoDB are 8.0/8.4-only, so unaffected.
+
+**Green end-to-end (live, `http://localhost:8090`).** Redeployed stack 137 (OL9, PS **5.7.44-48**,
+async + GTID): both members reached **running (100%)**. Verified on the live cluster — monitor
+grant is now `SELECT, RELOAD, PROCESS, REPLICATION CLIENT` (no BACKUP_ADMIN); a row written on the
+primary (`repltest.t = 42`) replicated to the secondary; `Slave_IO_Running`/`Slave_SQL_Running` =
+Yes with `Auto_Position: 1`; secondary `@@super_read_only = 1`.
+
