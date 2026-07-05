@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -196,6 +197,17 @@ func frameMajor(f designFrame) string {
 	return "8.0"
 }
 
+// memberReplMajor returns the MySQL major series of the frame a replication member
+// belongs to, used to pick series-safe channel scripts on the replica side.
+func memberReplMajor(doc designDoc, n designNode) string {
+	for _, f := range doc.Frames {
+		if f.ID == n.FrameID {
+			return frameMajor(f)
+		}
+	}
+	return "8.0"
+}
+
 // sourceBinlogPos reads a source's current binary-log coordinates (for file/position
 // replication when GTID is off). 8.4 renamed SHOW MASTER STATUS → SHOW BINARY LOG
 // STATUS. The first two whitespace-separated fields are File and Position.
@@ -320,12 +332,13 @@ func (a *App) reconcileReplication(st Stack, doc designDoc) {
 	ctx := context.Background()
 
 	// Desired channels per replica node. GTID auto-position when both clusters use
-	// GTID; otherwise binlog file/position captured from the source right now.
+	// GTID; otherwise binlog file/position. The source's coordinates (gtid_executed
+	// or binlog file/pos) are read at APPLY time, not here — see the ordering note in
+	// the apply loop below.
 	type chanSpec struct {
 		channel, sourceFQDN, replUser, replPW, srcLabel string
 		auto                                            bool
-		logFile, logPos                                 string
-		srcGTID                                         string // source gtid_executed, to seed a fresh auto channel
+		srcNodeID, srcRootPW, srcMajor                  string // source, read for its position at apply time
 	}
 	desired := map[string][]chanSpec{}
 	for _, l := range links {
@@ -339,56 +352,103 @@ func (a *App) reconcileReplication(st Stack, doc designDoc) {
 		}
 		var ssec pxcSecrets
 		json.Unmarshal(sdep.Secrets, &ssec)
-		spec := chanSpec{
+		desired[l.dst.ID] = append(desired[l.dst.ID], chanSpec{
 			channel:    replChannelName(srcHost),
 			sourceFQDN: fqdnOf(srcHost, domain),
 			replUser:   ssec.ReplUser,
 			replPW:     ssec.ReplPassword,
 			srcLabel:   l.src.Label,
 			auto:       l.srcFrame.GTID && l.dstFrame.GTID,
-		}
-		if spec.auto {
-			// Seed a freshly-created auto channel from the source's current position so
-			// it replicates ongoing changes only. Best-effort: an empty/failed read just
-			// falls back to plain auto-position (fine when the source kept all binlogs).
-			if g, e := a.sourceGTIDExecuted(ctx, sdep.ContainerID, ssec.RootPassword); e == nil {
-				spec.srcGTID = g
-			} else {
-				log.Printf("stack %d replication %s←%s: read source gtid_executed: %v", st.ID, l.dst.Label, l.src.Label, e)
-			}
-		} else {
-			file, pos, e := a.sourceBinlogPos(ctx, sdep.ContainerID, ssec.RootPassword, frameMajor(l.srcFrame))
-			if e != nil {
-				a.replLogln(st.ID, l.dst.ID, fmt.Sprintf("cross-cluster replication from %s FAILED: %v", l.src.Label, e))
-				log.Printf("stack %d replication %s←%s: read source position: %v", st.ID, l.dst.Label, l.src.Label, e)
-				continue
-			}
-			spec.logFile, spec.logPos = file, pos
-		}
-		desired[l.dst.ID] = append(desired[l.dst.ID], spec)
+			srcNodeID:  l.src.ID,
+			srcRootPW:  ssec.RootPassword,
+			srcMajor:   frameMajor(l.srcFrame),
+		})
 	}
 
-	for id, n := range members {
+	// Configure replicas in replication-dependency order: a replica that is ITSELF a
+	// source for another link is configured before the replicas it feeds. This matters
+	// for chained/bidirectional topologies (e.g. mysql01 ↔ mysql04 → mysql07). A fresh
+	// auto channel seeds the replica's gtid_purged from the source's *current*
+	// gtid_executed; a source that is itself a downstream replica only acquires its
+	// upstream's GTIDs (into its own gtid_purged, via that same seeding) once its own
+	// channel is applied. If a chained replica were seeded before that, it would omit
+	// those upstream GTIDs and later request them via AUTO_POSITION — but the source
+	// holds them only in gtid_purged (never in a serveable binlog), yielding a fatal
+	// 1236. Applying in dependency order and reading the source's position at apply time
+	// makes each seed reflect the source's full, settled GTID set.
+	replicaSet := map[string]bool{}
+	for id := range desired {
+		replicaSet[id] = true
+	}
+	order := replicaApplyOrder(links, replicaSet)
+	inOrder := map[string]bool{}
+	for _, id := range order {
+		inOrder[id] = true
+	}
+	// Every other member is still visited so stale DBCanvas channels get pruned.
+	var rest []string
+	for id := range members {
+		if !inOrder[id] {
+			rest = append(rest, id)
+		}
+	}
+	sort.Strings(rest)
+	order = append(order, rest...)
+
+	for _, id := range order {
+		n, ok := members[id]
+		if !ok {
+			continue
+		}
 		dep, err := a.store.GetDeployment(st.ID, id)
 		if err != nil || dep.ContainerID == "" || dep.State != DeployRunning {
 			continue
 		}
 		var rsec pxcSecrets
 		json.Unmarshal(dep.Secrets, &rsec)
+		// The channel scripts run on the replica (this member), so pick the variant
+		// that matches this node's series (5.7 uses the legacy CHANGE MASTER vocabulary).
+		applyScript, pruneScript := replChannelApply, replChannelPrune
+		if memberReplMajor(doc, n) == "5.7" {
+			applyScript, pruneScript = replChannelApply57, replChannelPrune57
+		}
 		var keep []string
 		for _, c := range desired[id] {
 			env := []string{
 				"ROOT_PW=" + rsec.RootPassword, "CHANNEL=" + c.channel,
 				"SOURCE_HOST=" + c.sourceFQDN, "REPL_USER=" + c.replUser, "REPL_PW=" + c.replPW,
 			}
+			// Read the source's position NOW (in dependency order) so a chained source's
+			// inherited upstream GTIDs are already reflected in the seed — see the note above.
+			sdep, serr := a.store.GetDeployment(st.ID, c.srcNodeID)
+			if serr != nil || sdep.ContainerID == "" {
+				a.replLogln(st.ID, id, fmt.Sprintf("cross-cluster replication from %s FAILED: source not available", c.srcLabel))
+				log.Printf("stack %d replication %s←%s: source deployment unavailable", st.ID, n.Label, c.srcLabel)
+				continue
+			}
 			method := "GTID auto-position"
 			if c.auto {
-				env = append(env, "AUTO=1", "SRC_GTID="+c.srcGTID)
+				// Seed a freshly-created auto channel from the source's current position so
+				// it replicates ongoing changes only. Best-effort: an empty/failed read just
+				// falls back to plain auto-position (fine when the source kept all binlogs).
+				srcGTID := ""
+				if g, e := a.sourceGTIDExecuted(ctx, sdep.ContainerID, c.srcRootPW); e == nil {
+					srcGTID = g
+				} else {
+					log.Printf("stack %d replication %s←%s: read source gtid_executed: %v", st.ID, n.Label, c.srcLabel, e)
+				}
+				env = append(env, "AUTO=1", "SRC_GTID="+srcGTID)
 			} else {
-				env = append(env, "AUTO=0", "LOG_FILE="+c.logFile, "LOG_POS="+c.logPos)
-				method = fmt.Sprintf("file/position %s:%s", c.logFile, c.logPos)
+				file, pos, e := a.sourceBinlogPos(ctx, sdep.ContainerID, c.srcRootPW, c.srcMajor)
+				if e != nil {
+					a.replLogln(st.ID, id, fmt.Sprintf("cross-cluster replication from %s FAILED: %v", c.srcLabel, e))
+					log.Printf("stack %d replication %s←%s: read source position: %v", st.ID, n.Label, c.srcLabel, e)
+					continue
+				}
+				env = append(env, "AUTO=0", "LOG_FILE="+file, "LOG_POS="+pos)
+				method = fmt.Sprintf("file/position %s:%s", file, pos)
 			}
-			if err := a.runStep(ctx, dep.ContainerID, replChannelApply, env, func(s string) { a.replLogln(st.ID, id, s) }); err != nil {
+			if err := a.runStep(ctx, dep.ContainerID, applyScript, env, func(s string) { a.replLogln(st.ID, id, s) }); err != nil {
 				a.replLogln(st.ID, id, fmt.Sprintf("cross-cluster replication from %s FAILED: %v", c.srcLabel, err))
 				log.Printf("stack %d replication %s←%s: %v", st.ID, n.Label, c.srcLabel, err)
 				continue
@@ -397,9 +457,66 @@ func (a *App) reconcileReplication(st Stack, doc designDoc) {
 			keep = append(keep, c.channel)
 		}
 		// Drop any DBCanvas channels this node should no longer carry (best-effort).
-		a.runStep(ctx, dep.ContainerID, replChannelPrune, []string{"ROOT_PW=" + rsec.RootPassword, "KEEP=" + strings.Join(keep, " ")}, func(s string) { a.replLogln(st.ID, id, s) })
+		a.runStep(ctx, dep.ContainerID, pruneScript, []string{"ROOT_PW=" + rsec.RootPassword, "KEEP=" + strings.Join(keep, " ")}, func(s string) { a.replLogln(st.ID, id, s) })
 	}
 	log.Printf("stack %d replication: reconciled %d link(s) across %d member(s)", st.ID, len(links), len(members))
+}
+
+// replicaApplyOrder orders the replica nodes (the keys of desired) so that a replica
+// which is also a replication source for another replica is configured before the
+// replicas it feeds. It is a topological sort over the "source→replica" edges that run
+// between two replica nodes; edges whose source is not itself a replica (a plain cluster
+// primary) impose no constraint. Bidirectional links form cycles, which are broken by
+// emitting the least-depended-upon remaining node (smallest in-degree, ties by id) —
+// within a cycle the seeds are mutually consistent, so any break is safe. See the note
+// in reconcileReplication for why the order matters.
+func replicaApplyOrder(links []replLink, replicas map[string]bool) []string {
+	isRep := replicas
+	adj := map[string][]string{}
+	indeg := map[string]int{}
+	for id := range replicas {
+		indeg[id] = 0
+	}
+	seen := map[string]bool{}
+	for _, l := range links {
+		if !isRep[l.src.ID] || !isRep[l.dst.ID] || l.src.ID == l.dst.ID {
+			continue
+		}
+		key := l.src.ID + "\x00" + l.dst.ID
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		adj[l.src.ID] = append(adj[l.src.ID], l.dst.ID)
+		indeg[l.dst.ID]++
+	}
+	placed := map[string]bool{}
+	var out []string
+	for len(out) < len(replicas) {
+		// Pick the unplaced node with the smallest in-degree (ties by id): a ready node
+		// (in-degree 0) whenever one exists, otherwise the node that breaks a cycle with
+		// the fewest violated dependencies.
+		cand := ""
+		for id := range replicas {
+			if placed[id] {
+				continue
+			}
+			if cand == "" || indeg[id] < indeg[cand] || (indeg[id] == indeg[cand] && id < cand) {
+				cand = id
+			}
+		}
+		if cand == "" {
+			break
+		}
+		placed[cand] = true
+		out = append(out, cand)
+		for _, m := range adj[cand] {
+			if !placed[m] {
+				indeg[m]--
+			}
+		}
+	}
+	return out
 }
 
 // ------------------------------------------------------------------ scripts
@@ -449,6 +566,46 @@ for ch in $(mysql -uroot -p"$ROOT_PW" -N -e "SELECT CHANNEL_NAME FROM performanc
   if [ "$keep" = 0 ]; then
     mysql -uroot -p"$ROOT_PW" -e "STOP REPLICA FOR CHANNEL '$ch';" 2>/dev/null || true
     mysql -uroot -p"$ROOT_PW" -e "RESET REPLICA ALL FOR CHANNEL '$ch';" 2>/dev/null || true
+    echo "removed stale replication channel $ch"
+  fi
+done`
+
+// replChannelApply57 / replChannelPrune57 are the Percona Server 5.7 counterparts of
+// replChannelApply / replChannelPrune. 5.7 supports named channels but only through the
+// legacy vocabulary: CHANGE MASTER TO … FOR CHANNEL, START/STOP SLAVE FOR CHANNEL,
+// SHOW SLAVE STATUS FOR CHANNEL, RESET SLAVE ALL FOR CHANNEL (Slave_IO/SQL_Running).
+// The repl user uses mysql_native_password, so no GET_SOURCE_PUBLIC_KEY is needed.
+// The gtid_purged seed uses 5.7's incremental "+" form only best-effort — 5.7 rejects
+// it when gtid_executed is non-empty, in which case plain auto-position is used.
+const replChannelApply57 = `set -e
+mysql -uroot -p"$ROOT_PW" -e "STOP SLAVE FOR CHANNEL '$CHANNEL';" 2>/dev/null || true
+if [ "$AUTO" = 1 ]; then
+  POS="MASTER_AUTO_POSITION=1"
+  EXISTS=$(mysql -uroot -p"$ROOT_PW" -N -e "SELECT COUNT(*) FROM performance_schema.replication_connection_configuration WHERE CHANNEL_NAME='$CHANNEL'" 2>/dev/null)
+  if [ "$EXISTS" = 0 ] && [ -n "$SRC_GTID" ]; then
+    MISSING=$(mysql -uroot -p"$ROOT_PW" -N --raw -e "SELECT GTID_SUBTRACT('$SRC_GTID', @@global.gtid_executed)" 2>/dev/null | tr -d '[:space:]')
+    [ -n "$MISSING" ] && mysql -uroot -p"$ROOT_PW" -e "SET GLOBAL gtid_purged='+$MISSING';" 2>/dev/null || true
+  fi
+else
+  POS="MASTER_LOG_FILE='$LOG_FILE', MASTER_LOG_POS=$LOG_POS"
+fi
+mysql -uroot -p"$ROOT_PW" -e "CHANGE MASTER TO MASTER_HOST='$SOURCE_HOST', MASTER_PORT=3306, MASTER_USER='$REPL_USER', MASTER_PASSWORD='$REPL_PW', $POS FOR CHANNEL '$CHANNEL';"
+mysql -uroot -p"$ROOT_PW" -e "START SLAVE FOR CHANNEL '$CHANNEL';"
+OK=0
+for i in $(seq 1 15); do
+  S=$(mysql -uroot -p"$ROOT_PW" -e "SHOW SLAVE STATUS FOR CHANNEL '$CHANNEL'\G" 2>/dev/null)
+  if echo "$S" | grep -q "Slave_IO_Running: Yes" && echo "$S" | grep -q "Slave_SQL_Running: Yes"; then OK=1; break; fi
+  sleep 2
+done
+[ "$OK" = 1 ] || { echo "channel $CHANNEL threads not running:"; mysql -uroot -p"$ROOT_PW" -e "SHOW SLAVE STATUS FOR CHANNEL '$CHANNEL'\G" 2>/dev/null | grep -iE 'Running|Last_(IO|SQL)_Error' | head -8; exit 1; }`
+
+const replChannelPrune57 = `set -e
+for ch in $(mysql -uroot -p"$ROOT_PW" -N -e "SELECT CHANNEL_NAME FROM performance_schema.replication_connection_configuration WHERE CHANNEL_NAME LIKE 'xrepl\\_%'" 2>/dev/null); do
+  keep=0
+  for k in $KEEP; do [ "$ch" = "$k" ] && keep=1; done
+  if [ "$keep" = 0 ]; then
+    mysql -uroot -p"$ROOT_PW" -e "STOP SLAVE FOR CHANNEL '$ch';" 2>/dev/null || true
+    mysql -uroot -p"$ROOT_PW" -e "RESET SLAVE ALL FOR CHANNEL '$ch';" 2>/dev/null || true
     echo "removed stale replication channel $ch"
   fi
 done`

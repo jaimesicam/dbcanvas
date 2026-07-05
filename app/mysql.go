@@ -619,6 +619,14 @@ func mysqlMyCnf(frame designFrame, host string) string {
 		fmt.Fprintf(&b, "gtid_mode=ON\nenforce_gtid_consistency=ON\n")
 	}
 	fmt.Fprintf(&b, "log_bin=binlog\n%s\nbinlog_format=ROW\n", logUpdatesOption(frame.PSMajor, frame.PSVersion))
+	// Percona Server 5.7 defaults the replication metadata to FILE-based repositories,
+	// which cannot carry more than the default channel — a named cross-cluster channel
+	// (xrepl_*, see replication.go) then fails to CHANGE MASTER with ERROR 3077 ("To have
+	// multiple channels, repository cannot be of type TABLE"). 8.0+ are already TABLE by
+	// default (and removed these variables), so set them only on 5.7.
+	if psMajorOf(frame.PSMajor) == "5.7" {
+		fmt.Fprintf(&b, "master_info_repository=TABLE\nrelay_log_info_repository=TABLE\n")
+	}
 	return b.String()
 }
 

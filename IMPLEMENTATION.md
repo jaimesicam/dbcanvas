@@ -4460,3 +4460,82 @@ fetch) plus repo-aware caching — `*.rpm` / `*.deb|udeb|ddeb` bodies held long 
 Implemented idempotently: guarded on a `^collapsed_forwarding on$` marker, the block is written
 to a temp file and spliced in with `awk` ahead of the first `refresh_pattern` line (temp-file
 approach avoids awk/sed escaping of the `\.`/`$` patterns). Re-runs are no-ops.
+
+---
+
+## 79. Fix: chained/bidirectional cross-cluster replication left a downstream replica stuck on error 1236 — `app/replication.go` (+ `app/replication_test.go`); plus PS 5.7 named-channel repository fix — `app/mysql.go`
+
+**Reported symptom.** In an *intranet* stack with three PS Replication frames wired
+`psrepl-00 (mysql01, 5.7) ↔ psrepl-01 (mysql04, 8.0) → psrepl-02 (mysql07, 8.0)` — i.e. a
+**bidirectional** link mysql01 ↔ mysql04 and an **async** link mysql04 → mysql07 — **mysql07
+was not replicating from mysql04**. The `xrepl_mysql04` channel existed on mysql07 but its IO
+thread was down:
+
+```
+Last_IO_Error: Got fatal error 1236 from source when reading data from binary log:
+'Cannot replicate because the source purged required binary logs. …
+ The GTID set sent by the replica is 'e183d0f3-…:1-4, …'
+```
+
+**Root cause (the 1236).** `reconcileReplication` (the final deploy phase) built its per-replica
+channel specs in **one up-front pass**, reading each source's `@@global.gtid_executed` *before
+applying any channel*, then applied all channels in `map`-iteration (random) order. In a chained
+topology the source of one link is itself the **replica** of another:
+
+- Setting up mysql04 ← mysql01 seeds **mysql04's** `gtid_purged` with mysql01's GTIDs
+  (`e1d30209:1-2`) via the existing `SET GLOBAL gtid_purged='+…'` seed — mysql04 marks them
+  *applied-without-data* (`Retrieved_Gtid_Set` empty; not in its binlog, so **unserveable
+  downstream**).
+- mysql07's seed snapshot of mysql04 was taken **earlier**, so it contained only mysql04's own
+  GTIDs (`e2512547:1-4`), **not** `e1d30209:1-2`.
+- mysql07 therefore lacked `e1d30209:1-2`, requested them from mysql04 via `AUTO_POSITION`, and
+  mysql04 could not supply them (they live only in its `gtid_purged`) → **fatal 1236**, IO
+  thread stops.
+
+**Fix.** Configure cross-cluster channels in **replication-dependency order** and read each
+source's position **at apply time** (not in an up-front snapshot):
+
+- New `replicaApplyOrder(links, replicas)` — a topological sort over the *source→replica* edges
+  that run **between two replica nodes** (a plain cluster primary that is not itself a replica
+  imposes no constraint). Bidirectional links are cycles; they are broken by emitting the
+  least-depended-upon remaining node (smallest in-degree, ties by id) — within a cycle the seeds
+  are mutually consistent so any break is safe.
+- `chanSpec` no longer carries the pre-read `srcGTID`/`logFile`/`logPos`; it carries the source's
+  identity (`srcNodeID`, `srcRootPW`, `srcMajor`). In the apply loop (now ordered) the source's
+  `gtid_executed` (auto) or binlog file/pos (file/position) is read **immediately before**
+  applying the channel. Because mysql04's own `xrepl_mysql01` channel is applied first, mysql04's
+  `gtid_executed` already includes `e1d30209:1-2` when mysql07 is seeded from it — so mysql07's
+  `gtid_purged` inherits those GTIDs transitively and never requests them → no 1236. All other
+  members are still visited afterwards (unordered) so stale-channel pruning is unchanged.
+
+`replication_test.go` adds `TestReplicaApplyOrderChain` (asserts mysql04 precedes mysql07 for the
+mysql01 ↔ mysql04 → mysql07 topology) and `TestReplicaApplyOrderPlainPrimary` (a source that is
+not itself a replica imposes no ordering).
+
+**Second, separate bug found while deploying (PS 5.7 named channels).** mysql01 is Percona Server
+**5.7**, and its cross-cluster channel (from the bidirectional link) failed to be created at all:
+
+```
+ERROR 3077 (HY000): To have multiple channels, repository cannot be of type FILE;
+Please check the repository configuration and convert them to TABLE.
+```
+
+5.7 defaults `master_info_repository`/`relay_log_info_repository` to **FILE**, which cannot carry
+a *named* (multi-source) channel — only the anonymous default channel. Fix: `mysqlMyCnf` now emits
+`master_info_repository=TABLE` + `relay_log_info_repository=TABLE` **for 5.7 only** (8.0+ default
+to TABLE and removed these variables). Verified live on the deployed mysql01: after the repos were
+TABLE the named channel created cleanly (no 3077) and its **IO thread ran**.
+
+**Known limitation (not fixed — inherent).** Even past 3077, mysql01 (5.7) cannot apply mysql04's
+(8.0) transactions: an 8.0 `CREATE USER … caching_sha2_password` DDL carries the 8.0-only
+collation id 255 (`utf8mb4_0900_ai_ci`), which 5.7 has no charset for →
+`Last_SQL_Error: Character set '#255' is not a compiled character set`. Replicating 8.0 → 5.7 is
+fundamentally unsound; a 5.7 ↔ 8.0 **bidirectional** link is a topology mistake, not a DBCanvas
+bug. The async 8.0 ← 8.0 path (mysql07 ← mysql04) — the reported issue — is fully fixed.
+
+**Verification.** `go build ./...`, `go vet ./...`, `go test ./... -run TestReplicaApplyOrder`
+all clean. Rebuilt the app image and did a full clean redeploy of the 18-node intranet stack
+(stack 138): mysql07's `xrepl_mysql04` came up **`Replica_IO_Running: Yes` / `SQL_Running: Yes`**,
+and mysql07's `gtid_executed` now contains mysql01's `…:1-2` (seeded transitively via mysql04).
+All 8.0 cross-cluster channels healthy: mysql04←mysql01, mysql07←mysql04, pxc01←mysql09,
+pxc05←pxc02 (each IO+SQL running).
