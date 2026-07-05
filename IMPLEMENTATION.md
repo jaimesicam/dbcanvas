@@ -4450,3 +4450,13 @@ grant is now `SELECT, RELOAD, PROCESS, REPLICATION CLIENT` (no BACKUP_ADMIN); a 
 primary (`repltest.t = 42`) replicated to the secondary; `Slave_IO_Running`/`Slave_SQL_Running` =
 Yes with `Auto_Position: 1`; secondary `@@super_read_only = 1`.
 
+## 78. Intranet Squid: collapsed_forwarding + package-repo refresh_pattern rules — `app/intranet.go`
+
+Added to the "Configure Squid" provisioning step, inserted **before the stock `refresh_pattern`
+block** in `/etc/squid/squid.conf` (more specific rules must precede Squid's catch-all):
+`collapsed_forwarding on` (coalesce concurrent misses for the same object into one upstream
+fetch) plus repo-aware caching — `*.rpm` / `*.deb|udeb|ddeb` bodies held long (10080/90%/43200),
+`/repodata/` and `/dists/` metadata held short (0/20%/1440 and 0/20%/60), and a `.` catch-all.
+Implemented idempotently: guarded on a `^collapsed_forwarding on$` marker, the block is written
+to a temp file and spliced in with `awk` ahead of the first `refresh_pattern` line (temp-file
+approach avoids awk/sed escaping of the `\.`/`$` patterns). Re-runs are no-ops.

@@ -1537,7 +1537,29 @@ systemctl daemon-reload`},
 CONF=/etc/squid/squid.conf
 grep -q '^maximum_object_size 150 MB$' "$CONF" || echo 'maximum_object_size 150 MB' >> "$CONF"
 grep -q '^cache_dir ufs /var/spool/squid ' "$CONF" || echo 'cache_dir ufs /var/spool/squid 4000 16 256' >> "$CONF"
-install -d -o squid -g squid /var/spool/squid 2>/dev/null || true`},
+install -d -o squid -g squid /var/spool/squid 2>/dev/null || true
+# Enable collapsed_forwarding + package-repo-aware refresh_pattern rules so distro
+# package/metadata caches (rpm/deb bodies long, repodata/dists short) behave well and
+# concurrent misses for the same object collapse to one upstream fetch. Inserted before
+# the stock refresh_pattern block so these more specific rules win. Idempotent (guarded
+# on the collapsed_forwarding marker); read from a temp file to avoid awk/sed escaping.
+if ! grep -q '^collapsed_forwarding on$' "$CONF"; then
+  BLOCK=$(mktemp)
+  cat > "$BLOCK" <<'REFRESH'
+collapsed_forwarding on
+refresh_pattern -i \.rpm$                  10080 90% 43200
+refresh_pattern -i \.(deb|udeb|ddeb)$      10080 90% 43200
+refresh_pattern -i /repodata/              0     20% 1440
+refresh_pattern -i /dists/                 0     20% 60
+refresh_pattern .                          0     20% 4320
+REFRESH
+  TMP=$(mktemp)
+  awk -v block="$BLOCK" '
+    !ins && /^refresh_pattern/ { while ((getline line < block) > 0) print line; close(block); ins=1 }
+    { print }
+  ' "$CONF" > "$TMP" && cat "$TMP" > "$CONF"
+  rm -f "$TMP" "$BLOCK"
+fi`},
 		// NOTE: the cache_dir swap directories are initialized by the squid.service's
 		// own ExecStartPre (cache_swap.sh) on start — do NOT run "squid -z" here: it
 		// leaves a detached instance + /run/squid.pid that makes the subsequent
