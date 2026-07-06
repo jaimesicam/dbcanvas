@@ -4629,3 +4629,49 @@ PMM` stack: while provisioning, removing or adding a node via the API returned *
 while a position-only change returned **200**; after both nodes were `running`, deleting the
 PMM node from the canvas removed its container **and** its `dbcanvas-pmm-*` volume **and**
 its deployment record in real time (~1 s), leaving the Intranet node running.
+
+---
+
+## 82. Per-node TLS certificates + usage docs for MongoDB (PSMDB sharded / replica set / standalone) — `app/mongodb.go`, `app/web/src/pages/MongoDBManager.jsx`
+
+**Goal.** When **Generate per-node certificates** is enabled on a PSMDB Sharded cluster,
+PSMDB Replica Set, or PSMDB Standalone node, actually issue a CA-signed cert on each node
+and document, in the node's property panel, how to use it for MongoDB TLS — **server
+configuration** and **client**.
+
+**Gap found.** The designer already exposed the "Generate per-node certificates from
+Intranet CA" toggle for the psmdb/psmrs frames and the psm node, but the backend never
+acted on it for MongoDB (unlike PXC/MySQL, which wire certs into `my.cnf` via
+`pxcApplyCert`). Enabling it was a no-op.
+
+**Backend (`mongodb.go`).** New `mongoApplyCert` + `mongoCertScript`: reads the Intranet
+CA (`/etc/pki/dbcanvas/ca.{crt,key}`), stages it, and runs `openssl` in the node to issue
+a server cert (`CN=<fqdn>`, SAN the FQDN + short host, EKU serverAuth+clientAuth) signed by
+the CA, writing `/etc/mongo/certs/server.pem` (**cert then key**, the format mongod's
+`certificateKeyFile` wants) + `ca.crt`, owned by `mongod`. Called from `mongoPrepareNode`
+(the shared per-node setup) for **every** role — config, shard, mongos, standalone — so it
+covers all three node types; `mongoPrepareNode` gained an `intranetID` parameter (call
+sites updated; the psmrs provisioner now keeps the previously-discarded `intranetID`). It
+**does not auto-enable** mongod TLS — cluster-wide TLS is an all-members-at-once operator
+step, so the material is issued and the manager documents how to turn it on. Best-effort:
+a cert failure is logged, never fatal.
+
+**Frontend (`MongoDBManager.jsx`).** New **TLS** tab (shown only when `generateCert`),
+covering all three node types: the on-node cert paths (`server.pem`, `ca.crt`), a
+copyable **server configuration** block for the right file (`/etc/mongod.conf`, or
+`/etc/mongos.conf` on a mongos) — the `net.tls` block with `requireTLS`,
+`certificateKeyFile`, `CAFile`, and `allowConnectionsWithoutCertificates: true` (needed so
+password auth works over TLS without a client cert; a comment notes dropping it to require
+X.509) — plus **client** invocations: in-cluster `mongosh --tls --tlsCAFile …`, a
+from-the-host variant when the port is published, and an optional X.509 client-cert flow.
+For clusters the intro notes enabling on every member + rolling out via `preferTLS` first.
+The overview TLS row now reads "cert issued (see TLS tab)".
+
+**Verification.** `go build`/`vet`/`test` and `npm run build` clean. Deployed a live
+`intranet + PSMDB Standalone` with per-node certs on: `/etc/mongo/certs/server.pem`
+(cert+key) and `ca.crt` were written `mongod`-owned; `openssl verify -CAfile ca.crt`
+returned **OK** (issuer `DBCanvas CA`), subject `CN=mongo01.example.net`, SAN + EKU as
+expected. Applying the documented server config flipped mongod to `requireTLS` (plaintext
+now rejected), and the documented client command
+(`mongosh --tls --tlsCAFile … -u admin -p`) connected → `{ ok: 1 }` — which is what caught
+the missing `allowConnectionsWithoutCertificates`, now in the documented config.

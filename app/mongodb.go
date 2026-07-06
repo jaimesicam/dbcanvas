@@ -259,7 +259,7 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 			wg.Add(1)
 			go func(n designNode) {
 				defer wg.Done()
-				if err := a.mongoPrepareNode(ctx, st, frame, n, hosts[n.ID], image, major, replSetOf(n), configDB, intranetIP, domain, "", sec, progs[n.ID]); err != nil {
+				if err := a.mongoPrepareNode(ctx, st, frame, n, hosts[n.ID], image, major, replSetOf(n), configDB, intranetID, intranetIP, domain, "", sec, progs[n.ID]); err != nil {
 					mu.Lock()
 					failed = true
 					mu.Unlock()
@@ -354,7 +354,6 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 		}
 		a.reconcileStackDNS(ctx, st.ID)
 		log.Printf("stack %d psmdb %s: provisioned (%d members, %d shards)", st.ID, frame.Label, len(members), len(shardIdx))
-		_ = intranetID
 	}()
 }
 
@@ -463,7 +462,7 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 				progs[n.ID].fail(format, args...)
 			}
 		}
-		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
+		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
 		if werr != nil {
 			failAll("%v", werr)
 			return
@@ -477,7 +476,7 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 			wg.Add(1)
 			go func(n designNode) {
 				defer wg.Done()
-				if err := a.mongoPrepareNode(ctx, st, frame, n, hosts[n.ID], image, major, rs, "", intranetIP, domain, "", sec, progs[n.ID]); err != nil {
+				if err := a.mongoPrepareNode(ctx, st, frame, n, hosts[n.ID], image, major, rs, "", intranetID, intranetIP, domain, "", sec, progs[n.ID]); err != nil {
 					mu.Lock()
 					failed = true
 					mu.Unlock()
@@ -662,7 +661,7 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 
 		nn := n
 		nn.Role = "standalone"
-		if err := a.mongoPrepareNode(ctx, st, frame, nn, host, image, major, "", "", intranetIP, domain, setParams, sec, pr); err != nil {
+		if err := a.mongoPrepareNode(ctx, st, frame, nn, host, image, major, "", "", intranetID, intranetIP, domain, setParams, sec, pr); err != nil {
 			return
 		}
 		a.reconcileStackDNS(ctx, st.ID)
@@ -752,7 +751,7 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 // mongoPrepareNode creates the container, installs Percona Server for MongoDB, writes
 // the shared keyFile and the mongod/mongos config, and starts mongod (config/shard
 // members; the mongos node is started later in Phase 3).
-func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame, n designNode, host, image, major, replSet, configDB, intranetIP, domain, setParams string, sec mongoSecrets, pr *pxcProg) error {
+func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame, n designNode, host, image, major, replSet, configDB, intranetID, intranetIP, domain, setParams string, sec mongoSecrets, pr *pxcProg) error {
 	if host == "" {
 		host = sanitizeName(n.Label)
 	}
@@ -865,6 +864,14 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 		}
 	}
 
+	// Per-node TLS material (CA-signed) when requested. Written to every node type
+	// (config / shard / mongos / standalone); TLS is not auto-enabled — the manager's
+	// TLS tab documents how to turn it on. Best-effort.
+	if frame.GenerateCert {
+		pr.phase("Issuing certificate", 52)
+		a.mongoApplyCert(ctx, id, intranetID, fqdnOf(host, domain), host, frame.CertTTLValue, frame.CertTTLUnit, pr.logln)
+	}
+
 	if n.Role == "mongos" {
 		// mongos has no datadir/replset; its config + unit are written in Phase 3.
 		// Just lay down the shared dirs/keyFile ownership now.
@@ -893,6 +900,90 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	}
 	return nil
 }
+
+// mongoCertDir is where a node's per-node TLS material lives when GenerateCert is on.
+const mongoCertDir = "/etc/mongo/certs"
+
+// mongoApplyCert issues a per-node CA-signed certificate for a MongoDB node and writes
+// it as a MongoDB-style PEM (certificate followed by its private key — the format
+// mongod's certificateKeyFile wants) plus the CA cert, under mongoCertDir, owned by
+// mongod. It deliberately does NOT enable TLS in mongod.conf: turning on cluster TLS is
+// an all-members-at-once operator step (see the node's TLS docs in the manager), so this
+// only makes the signed material available on the node. Best-effort — a failure is
+// logged, never fatal (the node runs fine without TLS).
+func (a *App) mongoApplyCert(ctx context.Context, containerID, intranetID, fqdn, host string, ttlValue int, ttlUnit string, logln func(string)) {
+	if logln == nil {
+		logln = func(string) {}
+	}
+	if err := a.waitIntranetCAReady(ctx, intranetID, 120*time.Second); err != nil {
+		logln("per-node certificate skipped: " + err.Error())
+		return
+	}
+	caCrt, err := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
+	if err != nil {
+		logln("per-node certificate skipped: read CA cert: " + err.Error())
+		return
+	}
+	caKey, err := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.key")
+	if err != nil {
+		logln("per-node certificate skipped: read CA key: " + err.Error())
+		return
+	}
+	if err := a.docker.PutArchive(ctx, containerID, "/tmp", tarFiles(map[string]fileEntry{
+		"dbca-ca.crt": {0o644, 0, caCrt},
+		"dbca-ca.key": {0o644, 0, caKey},
+	})); err != nil {
+		logln("per-node certificate skipped: stage CA: " + err.Error())
+		return
+	}
+	if ttlValue <= 0 {
+		ttlValue, ttlUnit = 365, "days"
+	}
+	switch ttlUnit {
+	case "minutes", "hours", "days":
+	default:
+		ttlUnit = "days"
+	}
+	env := []string{
+		"FQDN=" + fqdn, "HOST=" + host, "DIR=" + mongoCertDir,
+		"VALUE=" + strconv.Itoa(ttlValue), "UNIT=" + ttlUnit,
+	}
+	if err := a.runStep(ctx, containerID, mongoCertScript, env, logln); err != nil {
+		logln("per-node certificate FAILED: " + err.Error())
+		return
+	}
+	logln("per-node certificate written to " + mongoCertDir + "/server.pem (TLS not auto-enabled — see the node's TLS tab)")
+}
+
+// mongoCertScript generates a CA-signed server certificate (CN=$FQDN, SAN the FQDN +
+// short host, serverAuth+clientAuth) and writes $DIR/server.pem (cert then key), plus
+// the CA at $DIR/ca.crt, owned by mongod. Uses the CA staged at /tmp by mongoApplyCert.
+const mongoCertScript = `set -e
+command -v openssl >/dev/null 2>&1 || { echo "openssl not installed in this image"; exit 1; }
+CA=/tmp/dbca-ca.crt; CAKEY=/tmp/dbca-ca.key
+[ -f "$CA" ] && [ -f "$CAKEY" ] || { echo "CA material missing"; exit 1; }
+case "$UNIT" in
+  minutes) SECS=$((VALUE*60));;
+  hours)   SECS=$((VALUE*3600));;
+  *)       SECS=$((VALUE*86400));;
+esac
+END=$(date -u -d "+$SECS seconds" +%Y%m%d%H%M%SZ)
+install -d -m 0750 "$DIR"
+openssl req -newkey rsa:2048 -nodes -keyout "$DIR/server-key.pem" -out /tmp/mongo.csr -subj "/O=DBCanvas/CN=$FQDN" >/dev/null 2>&1
+cat >/tmp/mongo.ext <<EXT
+basicConstraints=CA:FALSE
+keyUsage=digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth,clientAuth
+subjectAltName=DNS:$FQDN,DNS:$HOST
+EXT
+openssl x509 -req -in /tmp/mongo.csr -CA "$CA" -CAkey "$CAKEY" -CAcreateserial \
+  -out "$DIR/server-cert.pem" -extfile /tmp/mongo.ext -not_after "$END" >/dev/null 2>&1
+cat "$DIR/server-cert.pem" "$DIR/server-key.pem" > "$DIR/server.pem"
+cp -f "$CA" "$DIR/ca.crt"
+id mongod >/dev/null 2>&1 && chown -R mongod:mongod "$DIR" 2>/dev/null || true
+chmod 640 "$DIR/server.pem" "$DIR/server-key.pem"; chmod 644 "$DIR/ca.crt" "$DIR/server-cert.pem"
+rm -f /tmp/mongo.csr /tmp/mongo.ext /tmp/dbca-ca.crt /tmp/dbca-ca.key /tmp/dbca-ca.srl
+openssl x509 -in "$DIR/server-cert.pem" -noout -enddate | sed 's/notAfter=//'`
 
 // mongoInitReplicaSet runs rs.initiate on the first member of a replica set (via the
 // localhost exception, before any user exists) and waits for a PRIMARY.

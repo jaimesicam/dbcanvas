@@ -7,6 +7,7 @@ import { useTerminals } from '../terminal/TerminalProvider.jsx'
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'access', label: 'Access' },
+  { id: 'tls', label: 'TLS' },
   { id: 'creds', label: 'Credentials' },
   { id: 'backup', label: 'Backup' },
 ]
@@ -39,6 +40,19 @@ function CopyRow({ label, value }) {
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{value || '—'}</span>
         {value && <CopyButton text={value} />}
       </div>
+    </div>
+  )
+}
+
+// CodeBlock is a labelled, copyable multi-line snippet (config / command).
+function CodeBlock({ label, text }) {
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-xs font-medium text-muted">{label}</span>
+        <CopyButton text={text} />
+      </div>
+      <pre className="max-h-56 overflow-auto whitespace-pre rounded-lg border bg-bg p-2 font-mono text-[11px] leading-relaxed text-fg">{text}</pre>
     </div>
   )
 }
@@ -79,7 +93,7 @@ export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDelete
       </div>
 
       <div className="flex flex-wrap gap-1 rounded-lg bg-surface2 p-1">
-        {TABS.filter((t) => t.id !== 'backup' || hasBackup).map((t) => (
+        {TABS.filter((t) => (t.id !== 'backup' || hasBackup) && (t.id !== 'tls' || cfg.generateCert)).map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${tab === t.id ? 'bg-surface text-fg shadow' : 'text-muted'}`}>
             {t.label}
@@ -95,7 +109,7 @@ export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDelete
           <KV k="PS MongoDB" v={`${cfg.psmdbMajor || ''}${cfg.version ? ` (${cfg.version})` : ''}`} />
           {isMongos && <KV k="configDB" v={cfg.configDB} mono />}
           {!isInternal && <KV k="Exported port" v={exportPort || 'not published'} />}
-          <KV k="TLS" v={cfg.generateCert ? 'Intranet CA' : 'none'} />
+          <KV k="TLS" v={cfg.generateCert ? 'cert issued (see TLS tab)' : 'none'} />
           <KV k="Backups (PBM)" v={cfg.enablePBM ? (cfg.backupRepo || 'enabled') : 'disabled'} />
           {cfg.oidcEnabled && <KV k="OIDC (Keycloak)" v={cfg.oidcIssuer} mono />}
           {cfg.oidcEnabled && <KV k="OIDC client" v={`${cfg.oidcClientId || ''}${cfg.oidcUseAuthClaim ? ` · groups via ${cfg.oidcAuthClaim}` : ' · by username'}`} />}
@@ -147,6 +161,61 @@ export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDelete
             </>
           )}
         </div>
+      )}
+
+      {tab === 'tls' && cfg.generateCert && (
+        (() => {
+          const dir = '/etc/mongo/certs'
+          const svcFile = isMongos ? '/etc/mongos.conf' : '/etc/mongod.conf'
+          const svc = isMongos ? 'mongos' : 'mongod'
+          const isCluster = cfg.role !== 'standalone'
+          const serverCfg =
+`# ${svcFile} — merge into the existing net: block, then restart the service.
+net:
+  tls:
+    mode: requireTLS
+    certificateKeyFile: ${dir}/server.pem            # this node's cert + key
+    CAFile: ${dir}/ca.crt                             # Intranet CA (verifies peers/clients)
+    allowConnectionsWithoutCertificates: true         # allow password auth over TLS (no client cert)
+
+# systemctl restart ${svc}
+# Drop allowConnectionsWithoutCertificates to REQUIRE X.509 client certs (see below).`
+          const clientInCluster =
+`mongosh --tls --tlsCAFile ${dir}/ca.crt \\
+  --host ${cfg.fqdn} --port 27017 \\
+  -u ${adminUser} -p --authenticationDatabase admin`
+          const clientHost = exportPort
+? `# Copy the CA locally first (from a root console: cat ${dir}/ca.crt), then:
+mongosh --tls --tlsCAFile ./ca.crt \\
+  --host ${host} --port ${exportPort} \\
+  -u ${adminUser} -p --authenticationDatabase admin`
+            : ''
+          const x509 =
+`# Optional — X.509 client-certificate auth (the issued cert also has clientAuth).
+# On the server, create an $external user named after a client cert's subject:
+db.getSiblingDB("$external").runCommand({ createUser: "CN=<client>,O=DBCanvas",
+  roles: [ { role: "readWrite", db: "admin" } ] })
+# Connect with a client cert + key PEM:
+mongosh --tls --tlsCAFile ${dir}/ca.crt --tlsCertificateKeyFile client.pem \\
+  --host ${cfg.fqdn} --authenticationDatabase '$external' \\
+  --authenticationMechanism MONGODB-X509`
+          return (
+            <div className="space-y-3">
+              <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+                A per-node certificate signed by the Intranet CA has been issued and stored on this
+                node. TLS is <span className="font-semibold">not auto-enabled</span> — apply the server
+                config below to turn it on{isCluster ? ', then repeat on every member (and the mongos) and restart each' : ' and restart mongod'}.
+                {isCluster && <> For a rolling enable without downtime, use <span className="font-mono">mode: preferTLS</span> first, then switch to <span className="font-mono">requireTLS</span>.</>}
+              </div>
+              <CopyRow label="Certificate + key (PEM)" value={`${dir}/server.pem`} />
+              <CopyRow label="CA certificate" value={`${dir}/ca.crt`} />
+              <CodeBlock label={`Server configuration — ${svcFile}`} text={serverCfg} />
+              <CodeBlock label="Client — in-cluster (mongosh over TLS)" text={clientInCluster} />
+              {clientHost && <CodeBlock label={`Client — from the host (port ${exportPort})`} text={clientHost} />}
+              <CodeBlock label="Client — X.509 certificate auth (optional)" text={x509} />
+            </div>
+          )
+        })()
       )}
 
       {tab === 'creds' && (
