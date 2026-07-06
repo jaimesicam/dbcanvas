@@ -4675,3 +4675,33 @@ expected. Applying the documented server config flipped mongod to `requireTLS` (
 now rejected), and the documented client command
 (`mongosh --tls --tlsCAFile … -u admin -p`) connected → `{ ok: 1 }` — which is what caught
 the missing `allowConnectionsWithoutCertificates`, now in the documented config.
+
+---
+
+## 83. Confirm before deleting a deployed node/cluster — `app/web/src/pages/StackDesigner.jsx`
+
+**Goal.** Deleting a node from the canvas tears down its container + volumes in real time
+(§81). For a **deployed** node that is destructive and irreversible, so prompt for
+confirmation first. A never-deployed (draft) node still deletes instantly — nothing to
+tear down.
+
+**Implementation.** `deleteNode`/`deleteFrame` were split into a wrapper (guard + deployed
+check) and the raw `doDeleteNode`/`doDeleteFrame` that mutate the canvas. When the target
+has a live deployment (`depByNode[id]`), the wrapper opens a `DeleteConfirmModal` (a
+`createPortal` dialog matching the existing LinkDirection/Replication modals, with a
+danger-styled "permanently remove … can't be undone" message and Cancel/Delete); confirm
+runs the raw delete, which then autosaves and triggers the §81 server-side teardown.
+Because every delete path routes through these two functions — keyboard Delete
+(`deleteSelected`), the node/frame context menus, the property-panel "Delete node"/"Delete
+frame" and manager `onDeleteNode` buttons, and the cluster "−" member control
+(`removePXCNode`, which now confirms when the dropped member is deployed) — all are
+covered. The `deploying` freeze from §81 still short-circuits first (no deletes mid-deploy).
+`askDelete` stores the pending action as `confirmDel.onConfirm`; the modal is stable while
+open, so its closure over the current nodes/frames is safe.
+
+**Verification.** `npm run build` / `go build` clean. Drove the real UI with Playwright: on
+the deployed stack 138, selecting a running node (`pmm-01`) and pressing Delete showed the
+"Delete node "pmm-01"? … permanently remove its container and volumes" modal (screenshot
+captured); Cancel left the node and its deployment intact (no page errors). On a fresh draft
+stack, adding an Intranet + PMM node and deleting the (undeployed) PMM node removed it
+**instantly with no modal** — confirming the prompt is scoped to deployed nodes only.

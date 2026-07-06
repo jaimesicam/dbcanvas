@@ -637,6 +637,7 @@ function StackEditor({ stackId, onBack }) {
   const [connect, setConnect] = useState(null)
   const [linkPrompt, setLinkPrompt] = useState(null) // ProxySQL↔ProxySQL: choose flow direction
   const [replPrompt, setReplPrompt] = useState(null) // member↔member: choose replication direction/type
+  const [confirmDel, setConfirmDel] = useState(null) // confirm deleting a deployed node/cluster
   const [saveState, setSaveState] = useState('saved') // saved | saving
   const [deployments, setDeployments] = useState([])
   const [issues, setIssues] = useState(null) // validate results panel
@@ -980,18 +981,29 @@ function StackEditor({ stackId, onBack }) {
   const patchNode = (id, patch) => setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, ...patch } : n)))
   const patchFrame = (id, patch) => setFrames((fs) => fs.map((f) => (f.id === id ? { ...f, ...patch } : f)))
   const patchEdge = (id, patch) => setEdges((es) => es.map((e) => (e.id === id ? { ...e, ...patch } : e)))
+  // askDelete opens the confirmation modal (used before destroying a *deployed*
+  // node/cluster, whose containers + volumes get torn down in real time).
+  function askDelete(kind, label, onConfirm, count) {
+    setConfirmDel({ kind, label, count, onConfirm })
+  }
   function deleteNode(id) {
     if (deploying) return
-    // A PXC member belongs to a frame: re-lay the frame after removing it (and
-    // drop the frame entirely if it was the last node), so the menu/manager
-    // delete behaves like the frame's own remove control.
     const node = nodes.find((n) => n.id === id)
     // PS MongoDB sharded-cluster topology is fixed: members can't be removed
     // individually (delete the whole frame to remove the cluster).
     if (node?.type === 'psmdb') return
+    // A deployed node has live containers/volumes — confirm before deleting.
+    if (depByNode[id]) { askDelete('node', node?.label || 'node', () => doDeleteNode(id)); return }
+    doDeleteNode(id)
+  }
+  function doDeleteNode(id) {
+    // A PXC member belongs to a frame: re-lay the frame after removing it (and
+    // drop the frame entirely if it was the last node), so the menu/manager
+    // delete behaves like the frame's own remove control.
+    const node = nodes.find((n) => n.id === id)
     if (node?.frameId) {
       const siblings = nodes.filter((n) => n.frameId === node.frameId)
-      if (siblings.length <= 1) { deleteFrame(node.frameId); return }
+      if (siblings.length <= 1) { doDeleteFrame(node.frameId); return }
       const r = relayout(node.frameId, frames, nodes.filter((n) => n.id !== id))
       setFrames(r.frames)
       setNodes(r.nodes)
@@ -1010,6 +1022,16 @@ function StackEditor({ stackId, onBack }) {
   }
   function deleteFrame(id) {
     if (deploying) return
+    // Confirm when the cluster has deployed members (their containers + volumes go).
+    const deployedMembers = nodes.filter((n) => n.frameId === id && depByNode[n.id]).length
+    if (deployedMembers > 0) {
+      const label = frames.find((f) => f.id === id)?.label || 'cluster'
+      askDelete('frame', label, () => doDeleteFrame(id), deployedMembers)
+      return
+    }
+    doDeleteFrame(id)
+  }
+  function doDeleteFrame(id) {
     const memberIds = new Set(nodes.filter((n) => n.frameId === id).map((n) => n.id))
     setNodes((ns) => ns.filter((n) => n.frameId !== id))
     setFrames((fs) => fs.filter((f) => f.id !== id))
@@ -1366,7 +1388,10 @@ function StackEditor({ stackId, onBack }) {
     // Patroni/repmgr need ≥3 members: never drop below 3.
     const frame = frames.find((f) => f.id === frameId)
     if ((frame?.type === 'patroni' || frame?.type === 'repmgr' || frame?.type === 'valkeycluster') && mine.length <= 3) return
-    removePXCNodeById(frameId, mine[mine.length - 1].id)
+    const target = mine[mine.length - 1]
+    // Confirm when the member being dropped is deployed (its container + volume go).
+    if (depByNode[target.id]) { askDelete('node', target.label || 'node', () => removePXCNodeById(frameId, target.id)); return }
+    removePXCNodeById(frameId, target.id)
   }
   function removePXCNodeById(frameId, id) {
     if (deploying) return
@@ -1893,6 +1918,14 @@ function StackEditor({ stackId, onBack }) {
         />
       )}
 
+      {confirmDel && (
+        <DeleteConfirmModal
+          info={confirmDel}
+          onCancel={() => setConfirmDel(null)}
+          onConfirm={() => { const fn = confirmDel.onConfirm; setConfirmDel(null); if (fn) fn() }}
+        />
+      )}
+
       {deployPanel === 'min' && createPortal(
         <button
           onClick={() => setDeployPanel('open')}
@@ -2016,6 +2049,30 @@ function DeploymentConsole({ deployments, nodes, onMinimize, inline = false, col
   // Inline docked → render in flow (the column positions it); otherwise (detached
   // float, or docked-while-Properties-detached) it's fixed, so portal to <body>.
   return inline && !detached ? node : createPortal(node, document.body)
+}
+
+// DeleteConfirmModal guards deletion of a *deployed* node or cluster, whose containers
+// and volumes are torn down in real time (and can't be undone).
+function DeleteConfirmModal({ info, onCancel, onConfirm }) {
+  const isFrame = info.kind === 'frame'
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={onCancel}>
+      <div className="w-full max-w-sm rounded-xl border bg-surface p-5 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+        <h3 className="mb-1 text-sm font-semibold">Delete {isFrame ? 'cluster' : 'node'} “{info.label}”?</h3>
+        <p className="mb-4 text-xs text-muted">
+          {isFrame
+            ? <>This cluster has {info.count} deployed node{info.count === 1 ? '' : 's'}. Deleting it will <span className="font-semibold text-danger">permanently remove</span> their containers and volumes.</>
+            : <>This node is deployed. Deleting it will <span className="font-semibold text-danger">permanently remove</span> its container and volumes.</>}
+          {' '}This can’t be undone.
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
+          <Button variant="danger" size="sm" onClick={onConfirm}>Delete</Button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
 }
 
 // LinkDirectionModal asks which way data flows when two ProxySQL nodes are linked.
