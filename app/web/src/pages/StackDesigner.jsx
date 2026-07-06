@@ -15,6 +15,7 @@ import PatroniManager from './PatroniManager.jsx'
 import HAProxyManager from './HAProxyManager.jsx'
 import PGManager from './PGManager.jsx'
 import RepmgrManager from './RepmgrManager.jsx'
+import SpockManager from './SpockManager.jsx'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import {
   PORTS, dist, portPoint, edgePath, screenToWorld, zoomAt,
@@ -109,6 +110,13 @@ const NODE_TYPES = {
     slug: 'repmgr',
     sub: 'PostgreSQL + repmgr',
     color: '#0e7490',
+    icon: 'Database',
+  },
+  spock: {
+    label: 'Spock',
+    slug: 'spock',
+    sub: 'PostgreSQL + Spock (multi-master)',
+    color: '#dc2626',
     icon: 'Database',
   },
   // Standalone single Percona Server for MongoDB instance (no replication).
@@ -372,7 +380,7 @@ function nextMemberName(usedSet, prefix) {
 }
 
 // Per-frame-type presentation: accent color and the description line.
-const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', psmdb: '#10b981', psmrs: '#059669', patroni: '#336791', repmgr: '#0e7490', valkeycluster: '#7c3aed' }
+const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', psmdb: '#10b981', psmrs: '#059669', patroni: '#336791', repmgr: '#0e7490', spock: '#dc2626', valkeycluster: '#7c3aed' }
 
 // typeColor maps a node/frame type to its canvas color so a toolbar "add" button can
 // be tinted to match the node/frame it creates. addBtnStyle turns that into inline
@@ -403,6 +411,7 @@ const frameVersionLabel = (f) => {
   if (f?.type === 'psmrs') return `PS MongoDB ${f?.psmdbVersion || f?.psmdbMajor || ''} replica set`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'patroni') return `Percona PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · Patroni`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'repmgr') return `PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · repmgr (PGDG)`.replace(/\s+/g, ' ').trim()
+  if (f?.type === 'spock') return `PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · Spock multi-master`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'valkeycluster') return 'Valkey Cluster · valkey/valkey-bundle'
   return pxcVersionLabel(f)
 }
@@ -766,7 +775,7 @@ function StackEditor({ stackId, onBack }) {
       consider(n.id, { x: n.x, y: n.y, w: NODE_W, h: NODE_H })
     }
     for (const f of refs.current.frames) {
-      if (f.type === 'pxc' || f.type === 'proxysql' || f.type === 'mysql' || f.type === 'patroni' || f.type === 'repmgr') consider(f.id, { x: f.x, y: f.y, w: f.w, h: f.h })
+      if (f.type === 'pxc' || f.type === 'proxysql' || f.type === 'mysql' || f.type === 'patroni' || f.type === 'repmgr' || f.type === 'spock') consider(f.id, { x: f.x, y: f.y, w: f.w, h: f.h })
     }
     return best
   }
@@ -1321,6 +1330,35 @@ function StackEditor({ stackId, onBack }) {
     setNodes(r.nodes)
     setSelected({ kind: 'frame', id: fid })
   }
+  function newSpockMember(frameId) {
+    const used = new Set(nodes.filter((n) => n.type === 'spock').map((n) => n.label))
+    return { id: uid('spock'), type: 'spock', label: nextMemberName(used, 'spock'), frameId, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
+  }
+  // addSpockCluster builds a Spock PostgreSQL cluster frame with 3 members (resizable
+  // 2–7). Every member is writable — full-mesh active-active via pgEdge Spock.
+  function addSpockCluster() {
+    if (!nodes.some((n) => n.type === 'intranet')) return
+    const fid = uid('frame')
+    const fx = (-view.x + 200) / view.z
+    const fy = (-view.y + 200) / view.z
+    const frame = {
+      id: fid, type: 'spock', label: nextNamedCluster(frames, 'spock-cluster'), x: fx, y: fy, w: 0, h: 0,
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64', pgMajor: '16', pgVersion: '',
+      pmmNodeId: '', useProxy: false,
+      generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
+    }
+    const used = new Set(nodes.filter((n) => n.type === 'spock').map((n) => n.label))
+    const newNodes = []
+    for (let i = 0; i < 3; i++) {
+      const name = nextMemberName(used, 'spock')
+      used.add(name)
+      newNodes.push({ id: uid('spock'), type: 'spock', label: name, frameId: fid, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 })
+    }
+    const r = relayout(fid, [...frames, frame], [...nodes, ...newNodes])
+    setFrames(r.frames)
+    setNodes(r.nodes)
+    setSelected({ kind: 'frame', id: fid })
+  }
   function newValkeyMember(frameId) {
     const used = new Set(nodes.filter((n) => n.type === 'valkeycluster').map((n) => n.label))
     return { id: uid('valkey'), type: 'valkeycluster', label: nextMemberName(used, 'valkey'), frameId, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
@@ -1379,6 +1417,11 @@ function StackEditor({ stackId, onBack }) {
       const r = relayout(frame.id, frames, [...nodes, newRepmgrMember(frame.id)])
       setFrames(r.frames)
       setNodes(r.nodes)
+    } else if (frame.type === 'spock') {
+      if (nodes.filter((n) => n.frameId === frame.id).length >= 7) return // max 7
+      const r = relayout(frame.id, frames, [...nodes, newSpockMember(frame.id)])
+      setFrames(r.frames)
+      setNodes(r.nodes)
     } else if (frame.type === 'valkeycluster') {
       if (nodes.filter((n) => n.frameId === frame.id).length >= 7) return // max 7
       const r = relayout(frame.id, frames, [...nodes, newValkeyMember(frame.id)])
@@ -1395,6 +1438,7 @@ function StackEditor({ stackId, onBack }) {
     // Patroni/repmgr need ≥3 members: never drop below 3.
     const frame = frames.find((f) => f.id === frameId)
     if ((frame?.type === 'patroni' || frame?.type === 'repmgr' || frame?.type === 'valkeycluster') && mine.length <= 3) return
+    if (frame?.type === 'spock' && mine.length <= 2) return // Spock keeps ≥2 members
     const target = mine[mine.length - 1]
     // Confirm when the member being dropped is deployed (its container + volume go).
     if (depByNode[target.id]) { askDelete('node', target.label || 'node', () => removePXCNodeById(frameId, target.id)); return }
@@ -1575,6 +1619,7 @@ function StackEditor({ stackId, onBack }) {
       { label: 'PostgreSQL', type: 'pg', onClick: () => addNode('pg') },
       { label: 'Patroni Cluster', type: 'patroni', onClick: addPatroniCluster },
       { label: 'repmgr Cluster', type: 'repmgr', onClick: addRepmgrCluster },
+      { label: 'Spock Cluster', type: 'spock', onClick: addSpockCluster },
     ] },
     { title: 'Valkey', items: [
       { label: 'Valkey Cluster', type: 'valkeycluster', onClick: addValkeyCluster },
@@ -1791,6 +1836,7 @@ function StackEditor({ stackId, onBack }) {
                     else if (f.type === 'psmrs') sub = 'replica-set member'
     else if (f.type === 'patroni') sub = 'Patroni node'
                     else if (f.type === 'repmgr') sub = 'PostgreSQL + repmgr'
+                    else if (f.type === 'spock') sub = 'PostgreSQL + Spock'
                     else if (f.type === 'valkeycluster') sub = 'Valkey shard'
                     else if (arb) sub = 'Arbitrator · garbd'
                     const barCol = (f.type === 'pxc' && arb) || (f.type === 'mysql' && !isPrimary) ? '#64748b' : col
@@ -4494,6 +4540,133 @@ function RepmgrMemberForm({ node: n, frame, patchNode, dep, deployed }) {
   )
 }
 
+// SpockFrameForm edits a Spock PostgreSQL cluster frame: catalog OS/version/arch + PG
+// major/minor, PMM/proxy/cert. Every member is writable (full-mesh active-active). 2–7
+// members; no odd-count requirement (no quorum/failover). Spock is compiled from source.
+function SpockFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed }) {
+  const imgs = usePPGCatalog(f, deployed, patchFrame)
+  const lock = deployed ? 'opacity-70' : ''
+  const pmmNodes = nodes.filter((n) => n.type === 'pmm')
+  const members = frameNodes.length
+
+  // Spock compiles PostgreSQL from source with its patches — Oracle Linux only for now.
+  const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))].filter((o) => o === 'oraclelinux')
+  const osVersions = [...new Set(imgs.filter((i) => i.os === f.os).map((i) => i.osVersion))]
+  const archs = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === f.osVersion).map((i) => i.arch))]
+  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion && i.arch === f.arch)
+  // Spock 5.x supports PG 15/16/17 — restrict the major picker accordingly.
+  const majors = (entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []).filter((m) => Number(m) >= 15)
+  const minors = (entry?.versions?.[f.pgMajor]) || []
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Spock Cluster</span>
+        <Badge tone="primary">{members} node{members === 1 ? '' : 's'}</Badge>
+      </div>
+
+      <Field label="Cluster name" hint="Must be unique across the stack.">
+        <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+      </Field>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+          <select className={`${inputCls} ${lock}`} value={f.os} disabled={deployed} onChange={(e) => patchFrame(f.id, { os: e.target.value })}>
+            {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="OS version">
+          <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
+            {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Platform / arch">
+          <select className={`${inputCls} ${lock}`} value={f.arch} disabled={deployed} onChange={(e) => patchFrame(f.id, { arch: e.target.value })}>
+            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="PostgreSQL major" hint="Spock supports 15–17.">
+          <select className={`${inputCls} ${lock}`} value={f.pgMajor} disabled={deployed} onChange={(e) => patchFrame(f.id, { pgMajor: e.target.value, pgVersion: '' })}>
+            {majors.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+      </div>
+      <Field label="PostgreSQL minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+        <select className={`${inputCls} ${lock}`} value={f.pgVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { pgVersion: e.target.value })}>
+          <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
+          {minors.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </Field>
+
+      <Field label="Monitored by (PMM)" hint="Optional — registers each member's PostgreSQL with a PMM node.">
+        <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
+          <option value="">none</option>
+          {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </Field>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for downloads</span>
+      </label>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
+        <span>Generate per-node certificates from Intranet CA (PostgreSQL TLS)</span>
+      </label>
+      {f.generateCert && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted">Cert TTL</span>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={f.certTtlUnit || 'days'} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
+            <option value="minutes">minutes</option>
+            <option value="hours">hours</option>
+            <option value="days">days</option>
+          </select>
+        </div>
+      )}
+
+      {(members < 2 || members > 7) && (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+          {members < 2 && <div>At least 2 members are required ({members} now).</div>}
+          {members > 7 && <div>At most 7 members are allowed ({members} now).</div>}
+        </div>
+      )}
+      <p className="text-xs text-muted">Every member compiles a <span className="text-fg/80">patched PostgreSQL from source</span> (Spock's patches) plus the pgEdge Spock extension — a full-mesh active-active cluster where any node is writable and changes replicate to all others (last-update-wins conflicts). A demo database <span className="font-mono">spockdemo</span> is set up for replication. Oracle Linux only; the source build adds several minutes per node. Use the +/− buttons to resize (2–7 members).</p>
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteFrame(f.id)}>
+        <Icon.Trash size={16} /> Delete cluster
+      </Button>
+    </div>
+  )
+}
+
+// SpockMemberForm edits a Spock cluster member: only host-port export of 5432 (OS/version
+// come from the frame; every member is an equal writable node in the mesh).
+function SpockMemberForm({ node: n, frame, patchNode, dep, deployed }) {
+  return (
+    <div className="space-y-3">
+      {dep && (
+        <div className="flex items-center justify-between rounded-lg bg-surface2 px-3 py-2 text-sm">
+          <span className="text-muted">Deployment</span>
+          <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+        </div>
+      )}
+      <Field label="Node name" hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
+      <Field label="Cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <p className="text-xs text-muted">PostgreSQL + Spock — a writable member of the active-active mesh. Writes here replicate to every peer, and it receives their writes too.</p>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
+        <span>Export PostgreSQL port to the host (5432)</span>
+      </label>
+      {n.exportEnabled && (
+        <Field label="Host port" hint="0 / empty = random unused port. Must not clash with another node.">
+          <input type="number" min="0" max="65535" className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.exportHostPort || 0} disabled={deployed}
+            onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
+        </Field>
+      )}
+    </div>
+  )
+}
+
 // HAProxyForm edits a (not-yet-running) HAProxy node: it must be linked to exactly one
 // Patroni or PXC cluster frame by an association line (mutually exclusive). Image
 // OS/version/arch come from the generic images catalog; host-port export publishes the
@@ -4849,7 +5022,7 @@ function loadProps() {
 function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster, deployOpen, deployments, onDeployMinimize }) {
   const selNode = selected?.kind === 'node' ? nodes.find((n) => n.id === selected.id) : null
   const selDep = selNode ? depByNode[selNode.id] : null
-  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm' || selNode.type === 'seaweedfs' || selNode.type === 'patroni' || selNode.type === 'haproxy' || selNode.type === 'pg' || selNode.type === 'repmgr')) || selected?.kind === 'frame'
+  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm' || selNode.type === 'seaweedfs' || selNode.type === 'patroni' || selNode.type === 'haproxy' || selNode.type === 'pg' || selNode.type === 'repmgr' || selNode.type === 'spock')) || selected?.kind === 'frame'
 
   const saved = useRef(loadProps()).current
   const [docked, setDocked] = useState(saved.docked !== false)
@@ -4967,6 +5140,9 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     if (f.type === 'repmgr') {
       return <RepmgrFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
     }
+    if (f.type === 'spock') {
+      return <SpockFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+    }
     if (f.type === 'valkeycluster') {
       return <ValkeyClusterFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
     }
@@ -5041,6 +5217,13 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <RepmgrManager stackId={stackId} nodeId={n.id} frame={frames.find((fr) => fr.id === n.frameId)} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <RepmgrMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} patchNode={patchNode} dep={dep} deployed={deployed} />
+    }
+    // Spock cluster member node.
+    if (n.type === 'spock') {
+      if (dep && dep.state === 'running') {
+        return <SpockManager stackId={stackId} nodeId={n.id} frame={frames.find((fr) => fr.id === n.frameId)} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <SpockMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} patchNode={patchNode} dep={dep} deployed={deployed} />
     }
     // Valkey cluster member node.
     if (n.type === 'valkeycluster') {

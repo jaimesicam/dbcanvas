@@ -165,6 +165,11 @@ type designFrame struct {
 	// PGMajor/PGVersion above). Each member runs PostgreSQL + repmgr (streaming
 	// replication + repmgrd failover); backups go to Barman cloud (→ SeaweedFS S3).
 	UseBarman bool `json:"useBarman"` // configure Barman cloud → SeaweedFS S3 (uses SeaweedFSNodeID)
+	// Spock PostgreSQL cluster frame config (Type=="spock"; reuses OS/OSVersion/Arch,
+	// PGMajor/PGVersion, PMMNodeID, UseProxy, GenerateCert/CertTTL above). Every member
+	// is a PGDG PostgreSQL with the pgEdge Spock extension compiled from source, wired
+	// into a full-mesh active-active (multi-master) logical-replication topology. No
+	// extra fields — the demo database + git ref are fixed/env-driven (see spock.go).
 	// Valkey cluster frame config (Type=="valkeycluster"; members run valkey/valkey-bundle).
 	// Reuses RootPassword (default-user password), PMMNodeID. 3–7 all-master shards.
 	UseLDAP bool `json:"useLdap"` // wire valkey-ldap to the Intranet OpenLDAP
@@ -955,6 +960,44 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		}
 	}
 
+	// --- Spock PostgreSQL cluster frames (Type=="spock") ---
+	// Multi-master active-active via pgEdge Spock logical replication; every member is
+	// writable (no quorum/failover), so 2–7 nodes with no odd-count requirement.
+	spockNames := map[string]int{}
+	for _, f := range doc.Frames {
+		if f.Type != "spock" {
+			continue
+		}
+		spockNames[strings.TrimSpace(f.Label)]++
+		members := 0
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != "spock" {
+				continue
+			}
+			members++
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		}
+		if members < 2 {
+			out = append(out, issue{"error", "Spock cluster " + f.Label + " needs at least 2 nodes"})
+		} else if members > 7 {
+			out = append(out, issue{"error", "Spock cluster " + f.Label + " allows at most 7 nodes"})
+		}
+		img := pxcImage(f.OS, f.OSVersion, f.Arch)
+		if !seenImg[img] {
+			seenImg[img] = true
+			if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+				out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+			}
+		}
+	}
+	for name, c := range spockNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{"error", "Duplicate Spock cluster name: " + name})
+		}
+	}
+
 	// --- cross-cluster replication links (async / bidirectional) ---
 	// Each replication edge must connect two replication-capable members in
 	// *different* clusters, both with GTID enabled (auto-positioning); a server-id
@@ -1153,6 +1196,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			memberType = "patroni"
 		case "repmgr":
 			memberType = "repmgr"
+		case "spock":
+			memberType = "spock"
 		case "valkeycluster":
 			memberType = "valkeycluster"
 		default:
@@ -1188,6 +1233,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionPatroniFrame(st, f, doc)
 		case "repmgr":
 			a.provisionRepmgrFrame(st, f, doc)
+		case "spock":
+			a.provisionSpockFrame(st, f, doc)
 		case "valkeycluster":
 			a.provisionValkeyClusterFrame(st, f, doc)
 		}
@@ -1802,6 +1849,13 @@ func (a *App) refreshPublishedPorts(ctx context.Context, st Stack, nid string, d
 		save(cfg)
 	case "repmgr":
 		var cfg repmgrConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("5432/tcp"); ok {
+			cfg.ExportPort = p
+		}
+		save(cfg)
+	case "spock":
+		var cfg spockConfig
 		json.Unmarshal(dep.Config, &cfg)
 		if p, ok := readPort("5432/tcp"); ok {
 			cfg.ExportPort = p

@@ -4836,3 +4836,56 @@ showed `/etc/mongo/server.pem` (real location is `/etc/mongo/certs/`, from §82)
 added a note to the PostgreSQL snippet that DBCanvas keeps per-node certs in the data
 directory (standalone, where the relative names resolve) or `/etc/patroni` (Patroni cluster).
 `npm run build` clean; the rebuilt bundle contains the corrected paths and none of the old ones.
+
+---
+
+## 88. Spock PostgreSQL frame — multi-master (active-active) via pgEdge Spock — `app/spock.go`, `app/intranet.go`, `app/web/src/pages/{StackDesigner,SpockManager}.jsx`
+
+**Goal.** A new `spock` PostgreSQL cluster frame: a full-mesh, active-active (multi-master)
+cluster using pgEdge's Spock logical-replication extension
+(<https://github.com/pgEdge/spock>). Every member is writable; a write on any node
+replicates to all others (last-update-wins conflicts).
+
+**Key discovery — Spock needs a *patched* PostgreSQL.** Spock is not just an extension you
+compile against stock PostgreSQL: every version (3.3 → 5.0.10 → main) ships PostgreSQL
+**source patches** (`patches/<major>/pg<major>-*.diff` — a logical commit clock adding
+`remoteTransactionStopTimestamp`, an `AttributeOpts.log_old_value` field, per-subtxn commit
+timestamps) and won't compile without them. PGDG **binary** packages can't run Spock. So the
+frame **compiles PostgreSQL from source** (postgresql.org `REL_<major>_STABLE`) with Spock's
+patches applied, then builds the Spock extension against it — all under `/usr/pgsql-<major>`.
+(Confirmed with the user before pivoting to a from-source build.)
+
+**Backend (`spock.go`).** `provisionSpockFrame` mirrors the repmgr frame's structure:
+- *Per member (parallel):* install the build toolchain + PG build deps from base + **CRB**
+  (CodeReady Builder — provides `perl(IPC::Run)` etc., not in EPEL) + EPEL (`jansson-devel`,
+  `redhat-rpm-config`, `openssl/krb5/lz4/zstd/icu/libxml2/readline`-devel …); `git clone`
+  postgres `REL_<major>_STABLE` + spock `v5.0.10`; apply `patches/<major>/pg<major>-*.diff`;
+  `./configure --prefix=/usr/pgsql-<major> --with-openssl/libxml/icu/lz4/zstd/gssapi`;
+  `make -j$(nproc) && make install` (+ contrib); build Spock (`make USE_PGXS=1 with_llvm=no
+  PG_CONFIG=…`); symlink client tools onto PATH. The compile step is idempotent (skips if the
+  build already exists) and unbounded (runStep uses the no-deadline background context, so a
+  ~10-min compile isn't killed). Then create the `postgres` user, `initdb`, configure
+  `postgresql.conf` (`wal_level=logical`, `shared_preload_libraries='spock'`,
+  `track_commit_timestamp=on`, bumped worker/slot/sender limits) + `pg_hba`, write a systemd
+  unit, start, set the superuser password. Oracle Linux only (source build).
+- *Then:* on every node create the demo DB `spockdemo`, `CREATE EXTENSION spock`,
+  `spock.node_create`, a demo table, and `repset_add_all_tables('default', …)`.
+- *Then:* a **full mesh** of `spock.sub_create` (each node subscribes to every other,
+  `forward_origins := '{}'` so each change reaches every node exactly once — no loops).
+Reuses `pgFamilySecrets`/`pgApplyCert`; adds `waitSpockRunning` for a future HAProxy
+round-robin association. Wired into the deploy dispatch, member-gate, validation (2–7
+members, no odd requirement), and node-detail in `intranet.go`.
+
+**Frontend.** New **Spock Cluster** palette entry (PostgreSQL group); `spock` node type,
+frame color, layout/label/version registration, `addSpockCluster` (3 members, resizable
+2–7); `SpockFrameForm` (Oracle Linux only, PG major restricted to 15–17); `SpockMemberForm`;
+and `SpockManager` with a Replication tab documenting the active-active model, a
+multi-master try-it snippet, adding tables (`repset_add_table` / `replicate_ddl` — DDL isn't
+auto-replicated), and `sub_show_status`.
+
+**Verification.** `go build/vet/test` and `npm run build` clean. Nailed the compile recipe
+in a throwaway container first, then deployed intranet + a 3-node Spock cluster on a live
+host: all three compiled patched PG 16 + Spock 5.0.10, each `spock.node` lists all 3 peers,
+every subscription reports **`replicating`** (`sub_show_status`), and the multi-master test —
+inserting a distinct row on each of the three nodes — showed **all three rows on all three
+nodes**. Test stack removed.
