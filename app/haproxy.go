@@ -10,19 +10,32 @@ import (
 	"time"
 )
 
-// HAProxy node. HAProxy is a TCP/HTTP load balancer placed in front of a Patroni
-// PostgreSQL cluster. It runs on a systemd OS image (built by `make images`), is
-// wired to a Patroni cluster frame via a canvas association line, and is
-// configured to route application traffic using Patroni's REST health checks:
-// writes go to the current leader (:5000 → the member whose :8008 /primary returns
-// 200) and reads are load-balanced across replicas (:5001 → /replica). A stats
-// page is served on :7000. The three ports can be published to the host.
+// HAProxy node. HAProxy is a TCP/HTTP load balancer placed in front of ONE backend
+// database cluster (mutually exclusive) — either a Patroni PostgreSQL cluster or a
+// Percona XtraDB Cluster (PXC). It runs on a systemd OS image (built by `make images`)
+// and is wired to the cluster frame via a canvas association line. The routing differs
+// by backend:
+//
+//	Patroni — writes go to the current leader (:5000 → the member whose Patroni REST
+//	          :8008 /primary returns 200); reads round-robin the replicas (:5001 →
+//	          /replica).
+//	PXC     — writes go to a single active node, the rest kept as backups (:5000), to
+//	          avoid multi-master write conflicts; reads round-robin all synced nodes
+//	          (:5001). Health is the PXC "clustercheck" HTTP endpoint on each node's
+//	          :9200, which reports 200 only while the node is wsrep-Synced. See
+//	          https://docs.percona.com/percona-xtradb-cluster/8.0/haproxy.html and
+//	          https://docs.percona.com/percona-xtradb-cluster/8.0/haproxy-config.html
+//
+// A stats page is served on :7000. The three ports can be published to the host.
 
-// haproxy front-end ports: writes → leader, reads → replicas, stats UI.
+// haproxy front-end ports: writes → primary/writer, reads → replicas, stats UI.
 const (
 	haproxyWritePort = 5000
 	haproxyReadPort  = 5001
 	haproxyStatsPort = 7000
+	// PXC backend: MySQL client port and the clustercheck (mysqlchk) health port.
+	pxcMySQLPort        = 3306
+	pxcClusterCheckPort = 9200
 )
 
 var haproxyPorts = []int{haproxyWritePort, haproxyReadPort, haproxyStatsPort}
@@ -34,8 +47,9 @@ type haproxyConfig struct {
 	Arch        string   `json:"arch"`
 	Hostname    string   `json:"hostname"`
 	FQDN        string   `json:"fqdn"`
-	Cluster     string   `json:"cluster"`     // associated Patroni cluster name
-	Members     []string `json:"members"`     // Patroni member FQDNs in the backend
+	Backend     string   `json:"backend"`     // "patroni" | "pxc" — the backend cluster kind
+	Cluster     string   `json:"cluster"`     // associated cluster name
+	Members     []string `json:"members"`     // backend member FQDNs
 	UseProxy    bool     `json:"useProxy"`    // route package egress via the Intranet Squid proxy
 	MonitoredBy string   `json:"monitoredBy"` // PMM node FQDN, if any
 	Ports       []int    `json:"ports"`
@@ -109,21 +123,44 @@ func (a *App) provisionHAProxy(st Stack, n designNode, doc designDoc) {
 			return
 		}
 
-		// Resolve the linked Patroni cluster and wait for it to be running so its
-		// members exist as backends before we write the config.
-		frame, ok := patroniFrameForHAProxy(doc, n.ID)
+		// Resolve the single associated backend cluster (Patroni or PXC — mutually
+		// exclusive) and wait for it to be running so its members exist before we write
+		// the config. PXC members carry their container ids so clustercheck can be set up.
+		frame, kind, ok := haproxyBackend(doc, n.ID)
 		if !ok {
-			failNode("no Patroni cluster is associated — link one to this HAProxy")
+			failNode("HAProxy must be linked to exactly one Patroni or PXC cluster")
 			return
 		}
-		setPhase("Waiting for Patroni cluster", 15)
-		members, _, cerr := a.waitPatroniRunning(ctx, st.ID, frame, doc, domain, deployTimeout())
-		if cerr != nil {
-			failNode("%v", cerr)
+		cfg.Backend = kind
+		var members []string
+		var pxcMembers []pxcMember
+		var pxcSec pxcSecrets
+		switch kind {
+		case "patroni":
+			setPhase("Waiting for Patroni cluster", 15)
+			m, _, cerr := a.waitPatroniRunning(ctx, st.ID, frame, doc, domain, deployTimeout())
+			if cerr != nil {
+				failNode("%v", cerr)
+				return
+			}
+			members = m
+		case "pxc":
+			setPhase("Waiting for PXC cluster", 15)
+			ms, sc, cerr := a.waitPXCMembers(ctx, st.ID, frame, doc, domain, deployTimeout())
+			if cerr != nil {
+				failNode("%v", cerr)
+				return
+			}
+			pxcMembers, pxcSec = ms, sc
+			for _, m := range ms {
+				members = append(members, m.FQDN)
+			}
+		default:
+			failNode("unsupported backend cluster type %q", kind)
 			return
 		}
 		cfg.Cluster, cfg.Members = frame.Label, members
-		logln("Patroni cluster " + frame.Label + " is running (" + strconv.Itoa(len(members)) + " members)")
+		logln(kind + " cluster " + frame.Label + " is running (" + strconv.Itoa(len(members)) + " members)")
 
 		setPhase("Creating container", 25)
 		name := containerName(st.ID, n.ID)
@@ -202,8 +239,22 @@ func (a *App) provisionHAProxy(st Stack, n designNode, doc designDoc) {
 			}
 		}
 
+		// PXC backend: set up the clustercheck (mysqlchk) HTTP health endpoint on :9200
+		// of every data member, which HAProxy polls to route only to Synced nodes.
+		var cfgFile string
+		switch kind {
+		case "pxc":
+			setPhase("Configuring PXC clustercheck", 70)
+			if err := a.pxcSetupClustercheck(ctx, pxcMembers, pxcSec, logln); err != nil {
+				failNode("%v", err)
+				return
+			}
+			cfgFile = haproxyPXCCfg(frame.Label, members)
+		default: // patroni
+			cfgFile = haproxyCfg(frame.Label, members)
+		}
+
 		setPhase("Configuring HAProxy", 78)
-		cfgFile := haproxyCfg(frame.Label, members)
 		if err := a.docker.CopyFile(ctx, id, "/etc/haproxy", "haproxy.cfg", 0o644, []byte(cfgFile)); err != nil {
 			failNode("write haproxy.cfg: %v", err)
 			return
@@ -212,7 +263,11 @@ func (a *App) provisionHAProxy(st Stack, n designNode, doc designDoc) {
 			failNode("start haproxy: %v", err)
 			return
 		}
-		logln("haproxy started (write :5000 → leader, read :5001 → replicas, stats :7000)")
+		if kind == "pxc" {
+			logln("haproxy started (write :5000 → single writer, read :5001 → round-robin synced nodes, stats :7000)")
+		} else {
+			logln("haproxy started (write :5000 → leader, read :5001 → replicas, stats :7000)")
+		}
 
 		if n.PMMNodeID != "" {
 			setPhase("Registering with PMM", 92)
@@ -267,6 +322,78 @@ func (a *App) haproxyRegisterPMM(ctx context.Context, st Stack, n designNode, do
 	} else {
 		logln("registered with PMM at " + pmmFQDN)
 	}
+}
+
+// --------------------------------------------------------------- PXC backend
+
+// pxcMember is a running PXC data member: its FQDN (backend address) and container id
+// (where clustercheck is set up).
+type pxcMember struct {
+	FQDN        string
+	ContainerID string
+}
+
+// waitPXCMembers blocks until every regular (data) member of a PXC frame is running,
+// then returns each member's FQDN + container id and the shared cluster secrets.
+func (a *App) waitPXCMembers(ctx context.Context, stackID int64, frame designFrame, doc designDoc, domain string, timeout time.Duration) ([]pxcMember, pxcSecrets, error) {
+	hosts := stackHostnames(doc)
+	var regulars []designNode
+	for _, n := range doc.Nodes {
+		if n.FrameID == frame.ID && n.Type == "pxc" && n.Role != "arbitrator" {
+			regulars = append(regulars, n)
+		}
+	}
+	if len(regulars) == 0 {
+		return nil, pxcSecrets{}, fmt.Errorf("PXC cluster %s has no regular (data) node", frame.Label)
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		allRunning := true
+		var sec pxcSecrets
+		var ms []pxcMember
+		for _, n := range regulars {
+			dep, err := a.store.GetDeployment(stackID, n.ID)
+			if err != nil {
+				allRunning = false
+				break
+			}
+			if dep.State == DeployError {
+				return nil, pxcSecrets{}, fmt.Errorf("PXC cluster %s failed to provision", frame.Label)
+			}
+			if dep.State != DeployRunning || dep.ContainerID == "" {
+				allRunning = false
+				break
+			}
+			json.Unmarshal(dep.Secrets, &sec)
+			ms = append(ms, pxcMember{FQDN: fqdnOf(hosts[n.ID], domain), ContainerID: dep.ContainerID})
+		}
+		if allRunning {
+			return ms, sec, nil
+		}
+		time.Sleep(3 * time.Second)
+	}
+	return nil, pxcSecrets{}, fmt.Errorf("PXC cluster %s did not become ready within %s", frame.Label, timeout)
+}
+
+// pxcSetupClustercheck installs the PXC "clustercheck" HTTP health endpoint on every
+// data member so HAProxy can route only to Synced nodes (per the Percona docs). The
+// `clustercheck`@'localhost' MySQL user (PROCESS priv) it authenticates as is created in
+// every node's baseline from CLUSTERCHECK_PASSWORD — so it already exists cluster-wide
+// without a post-baseline write that could become an errant cross-cluster transaction —
+// so here we only lay down, on each member, a check script + a systemd socket-activated
+// service on :9200 (mysqlchk) that returns HTTP 200 while wsrep_local_state is Synced (4),
+// else 503.
+func (a *App) pxcSetupClustercheck(ctx context.Context, members []pxcMember, sec pxcSecrets, logln func(string)) error {
+	if len(members) == 0 {
+		return fmt.Errorf("no PXC members to configure clustercheck on")
+	}
+	for _, m := range members {
+		if err := a.runStep(ctx, m.ContainerID, pxcClusterCheckServiceScript, []string{"CC_PW=" + sec.ClusterCheckPassword}, logln); err != nil {
+			return fmt.Errorf("configure clustercheck on %s: %w", m.FQDN, err)
+		}
+	}
+	logln(fmt.Sprintf("clustercheck (mysqlchk) listening on :%d of %d member(s)", pxcClusterCheckPort, len(members)))
+	return nil
 }
 
 // --------------------------------------------------------------- config file
@@ -326,7 +453,121 @@ func haproxyCfg(cluster string, members []string) string {
 	return b.String()
 }
 
+// haproxyPXCCfg renders /etc/haproxy/haproxy.cfg for a Percona XtraDB Cluster backend
+// (see the Percona haproxy-config docs). A write front-end (:5000) sends traffic to a
+// single active node — the rest are `backup`, promoted only if it fails — to avoid
+// multi-master write conflicts; a read front-end (:5001) round-robins all nodes. Both
+// health-check each node's clustercheck endpoint (:9200) via option httpchk, so only
+// wsrep-Synced nodes receive traffic. DB traffic itself is proxied in TCP mode to :3306.
+func haproxyPXCCfg(cluster string, members []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "global\n")
+	fmt.Fprintf(&b, "    maxconn 1000\n")
+	fmt.Fprintf(&b, "    log 127.0.0.1 local0\n\n")
+	fmt.Fprintf(&b, "defaults\n")
+	fmt.Fprintf(&b, "    log global\n")
+	fmt.Fprintf(&b, "    mode tcp\n")
+	fmt.Fprintf(&b, "    retries 3\n")
+	fmt.Fprintf(&b, "    timeout client 30m\n")
+	fmt.Fprintf(&b, "    timeout connect 4s\n")
+	fmt.Fprintf(&b, "    timeout server 30m\n")
+	fmt.Fprintf(&b, "    timeout check 5s\n\n")
+
+	fmt.Fprintf(&b, "listen stats\n")
+	fmt.Fprintf(&b, "    mode http\n")
+	fmt.Fprintf(&b, "    bind *:%d\n", haproxyStatsPort)
+	fmt.Fprintf(&b, "    stats enable\n")
+	fmt.Fprintf(&b, "    stats uri /\n")
+	fmt.Fprintf(&b, "    stats refresh 5s\n\n")
+
+	shortHost := func(fqdn string) string {
+		if i := strings.Index(fqdn, "."); i > 0 {
+			return fqdn[:i]
+		}
+		return fqdn
+	}
+
+	// Writer: a single active node, the rest kept as backups (single-writer).
+	fmt.Fprintf(&b, "listen %s_write\n", sanitizeName(cluster))
+	fmt.Fprintf(&b, "    bind *:%d\n", haproxyWritePort)
+	fmt.Fprintf(&b, "    option httpchk\n")
+	fmt.Fprintf(&b, "    http-check expect status 200\n")
+	fmt.Fprintf(&b, "    default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions init-addr last,libc,none\n")
+	for i, m := range members {
+		backup := ""
+		if i > 0 {
+			backup = " backup"
+		}
+		fmt.Fprintf(&b, "    server %s %s:%d maxconn 1000 check port %d%s\n", shortHost(m), m, pxcMySQLPort, pxcClusterCheckPort, backup)
+	}
+	b.WriteString("\n")
+
+	// Reader: round-robin across all Synced nodes.
+	fmt.Fprintf(&b, "listen %s_read\n", sanitizeName(cluster))
+	fmt.Fprintf(&b, "    bind *:%d\n", haproxyReadPort)
+	fmt.Fprintf(&b, "    balance roundrobin\n")
+	fmt.Fprintf(&b, "    option httpchk\n")
+	fmt.Fprintf(&b, "    http-check expect status 200\n")
+	fmt.Fprintf(&b, "    default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions init-addr last,libc,none\n")
+	for _, m := range members {
+		fmt.Fprintf(&b, "    server %s %s:%d maxconn 1000 check port %d\n", shortHost(m), m, pxcMySQLPort, pxcClusterCheckPort)
+	}
+	return b.String()
+}
+
 // ------------------------------------------------------------------ scripts
+
+// pxcClusterCheckServiceScript installs the mysqlchk health endpoint on a PXC member: a
+// check script that reports the node's wsrep sync state as an HTTP response, wired to a
+// systemd socket on :9200 (Accept=yes → one instance per connection with stdio bound to
+// the socket, exactly like the classic xinetd mysqlchk from the Percona docs). HAProxy's
+// httpchk polls it; the node answers 200 only while Synced.
+const pxcClusterCheckServiceScript = `set -e
+cat >/etc/dbcanvas-clustercheck.cnf <<CNF
+[client]
+user=clustercheck
+password=$CC_PW
+socket=/var/lib/mysql/mysql.sock
+CNF
+chmod 600 /etc/dbcanvas-clustercheck.cnf
+cat >/usr/local/bin/dbcanvas-clustercheck <<'SCRIPT'
+#!/bin/bash
+# PXC clustercheck for HAProxy: HTTP 200 when this node is wsrep-Synced (4), else 503.
+# Drain the incoming HTTP request first so no unread data remains when we exit —
+# otherwise the kernel RSTs the socket and HAProxy's httpchk reports it as a failed
+# "Connection reset by peer" check.
+while IFS= read -r -t 1 line; do line=${line%$'\r'}; [ -z "$line" ] && break; done
+STATE=$(mysql --defaults-extra-file=/etc/dbcanvas-clustercheck.cnf -N -e "SHOW STATUS LIKE 'wsrep_local_state'" 2>/dev/null | awk '{print $2}')
+if [ "$STATE" = "4" ]; then
+  BODY="Percona XtraDB Cluster Node is synced."
+  printf 'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\nContent-Length: %d\r\n\r\n%s' "${#BODY}" "$BODY"
+else
+  BODY="Percona XtraDB Cluster Node is not synced."
+  printf 'HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\nConnection: close\r\nContent-Length: %d\r\n\r\n%s' "${#BODY}" "$BODY"
+fi
+SCRIPT
+chmod +x /usr/local/bin/dbcanvas-clustercheck
+cat >/etc/systemd/system/mysqlchk.socket <<'UNIT'
+[Unit]
+Description=PXC clustercheck (mysqlchk) socket for HAProxy
+[Socket]
+ListenStream=9200
+Accept=yes
+[Install]
+WantedBy=sockets.target
+UNIT
+cat >/etc/systemd/system/mysqlchk@.service <<'UNIT'
+[Unit]
+Description=PXC clustercheck (mysqlchk) per-connection responder
+[Service]
+ExecStart=/usr/local/bin/dbcanvas-clustercheck
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+UNIT
+systemctl daemon-reload
+systemctl reset-failed mysqlchk.socket 2>/dev/null || true
+systemctl enable --now mysqlchk.socket`
 
 const haproxyInstallRHEL = `set -e
 dnf -y -q install haproxy >/dev/null`

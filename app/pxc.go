@@ -61,6 +61,11 @@ type pxcSecrets struct {
 	MonitorPassword string `json:"monitorPassword"`
 	ClusterUser     string `json:"clusterUser"`     // cluster admin user (used by ProxySQL)
 	ClusterPassword string `json:"clusterPassword"` // from CLUSTER_PASSWORD env
+	// clustercheck@'localhost' (PROCESS priv) — read by the PXC clustercheck / mysqlchk
+	// health endpoint HAProxy polls. Created in every MySQL-family node's baseline (like
+	// the users above) so it exists cluster-wide without a post-baseline write.
+	ClusterCheckUser     string `json:"clusterCheckUser"`
+	ClusterCheckPassword string `json:"clusterCheckPassword"` // from CLUSTERCHECK_PASSWORD env
 }
 
 func pxcImage(os, osVersion, arch string) string {
@@ -81,6 +86,7 @@ func mysqlFamilySecrets() pxcSecrets {
 		ReplUser: "repl", ReplPassword: envOr("REPL_PASSWORD", "repl_password"),
 		MonitorUser: "monitor", MonitorPassword: envOr("MONITOR_PASSWORD", "monitor_password"),
 		ClusterUser: "cluster", ClusterPassword: envOr("CLUSTER_PASSWORD", "cluster_password"),
+		ClusterCheckUser: "clustercheck", ClusterCheckPassword: envOr("CLUSTERCHECK_PASSWORD", "cluster_password"),
 	}
 }
 
@@ -587,6 +593,7 @@ func (a *App) pxcBootstrap(ctx context.Context, st Stack, frame designFrame, n d
 		"REPL_USER=" + sec.ReplUser, "REPL_PW=" + sec.ReplPassword,
 		"MON_USER=" + sec.MonitorUser, "MON_PW=" + sec.MonitorPassword,
 		"CLUSTER_USER=" + sec.ClusterUser, "CLUSTER_PW=" + sec.ClusterPassword,
+		"CC_USER=" + sec.ClusterCheckUser, "CC_PW=" + sec.ClusterCheckPassword,
 		"RESET_CMD=" + mysqlResetCmd(frame.PXCMajor),
 		"LOGERR=" + pxcLogError(frame.OS),
 	}
@@ -857,6 +864,9 @@ GRANT SELECT ON performance_schema.* TO '$MON_USER'@'%';
 CREATE USER IF NOT EXISTS '$CLUSTER_USER'@'%' IDENTIFIED BY '$CLUSTER_PW';
 ALTER USER '$CLUSTER_USER'@'%' IDENTIFIED BY '$CLUSTER_PW';
 GRANT ALL PRIVILEGES ON *.* TO '$CLUSTER_USER'@'%' WITH GRANT OPTION;
+CREATE USER IF NOT EXISTS '$CC_USER'@'localhost' IDENTIFIED BY '$CC_PW';
+ALTER USER '$CC_USER'@'localhost' IDENTIFIED BY '$CC_PW';
+GRANT PROCESS ON *.* TO '$CC_USER'@'localhost';
 FLUSH PRIVILEGES;
 SQL
 # Clear GTID/binlog history now that credentials exist — the joiners have not yet

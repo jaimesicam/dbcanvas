@@ -20,6 +20,8 @@ services:
       REPL_PASSWORD: ${REPL_PASSWORD:-repl_password}
       MONITOR_PASSWORD: ${MONITOR_PASSWORD:-monitor_password}
       CLUSTER_PASSWORD: ${CLUSTER_PASSWORD:-cluster_password}
+      # clustercheck@'localhost' password — PXC clustercheck health endpoint for HAProxy.
+      CLUSTERCHECK_PASSWORD: ${CLUSTERCHECK_PASSWORD:-cluster_password}
       # Root/superuser + admin passwords for MySQL/PXC/GR/InnoDB nodes.
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}
       MYSQL_ADMIN_PASSWORD: ${MYSQL_ADMIN_PASSWORD:-admin_password}

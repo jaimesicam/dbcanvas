@@ -653,6 +653,7 @@ func (a *App) mysqlSetupBaseline(ctx context.Context, st Stack, frame designFram
 		"REPL_USER=" + sec.ReplUser, "REPL_PW=" + sec.ReplPassword,
 		"MON_USER=" + sec.MonitorUser, "MON_PW=" + sec.MonitorPassword,
 		"CLUSTER_USER=" + sec.ClusterUser, "CLUSTER_PW=" + sec.ClusterPassword,
+		"CC_USER=" + sec.ClusterCheckUser, "CC_PW=" + sec.ClusterCheckPassword,
 	}
 	if err := a.runStep(ctx, id, mysqlBaselineScript, env, pr.logln); err != nil {
 		return pr.fail("configure %s baseline: %v", role, err)
@@ -817,6 +818,9 @@ GRANT SELECT ON performance_schema.* TO '$MON_USER'@'%';
 CREATE USER IF NOT EXISTS '$CLUSTER_USER'@'%' IDENTIFIED BY '$CLUSTER_PW';
 ALTER USER '$CLUSTER_USER'@'%' IDENTIFIED BY '$CLUSTER_PW';
 GRANT ALL PRIVILEGES ON *.* TO '$CLUSTER_USER'@'%' WITH GRANT OPTION;
+CREATE USER IF NOT EXISTS '$CC_USER'@'localhost' IDENTIFIED BY '$CC_PW';
+ALTER USER '$CC_USER'@'localhost' IDENTIFIED BY '$CC_PW';
+GRANT PROCESS ON *.* TO '$CC_USER'@'localhost';
 FLUSH PRIVILEGES;
 SQL
 # Clear GTID/binlog history now that every local user exists, so the node starts

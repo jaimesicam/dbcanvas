@@ -180,13 +180,14 @@ const NODE_TYPES = {
       exportEnabled: false, exportHostPort: 0, pmmNodeId: '', useProxy: false,
     },
   },
-  // HAProxy — a TCP load balancer fronting a Patroni cluster. Links to a Patroni
-  // cluster frame (data flows Patroni → HAProxy); routes writes to the leader and
-  // reads to the replicas via Patroni's REST health checks.
+  // HAProxy — a TCP load balancer fronting ONE database cluster: a Patroni PostgreSQL
+  // cluster OR a Percona XtraDB Cluster (mutually exclusive). Links to the cluster frame
+  // (data flows cluster → HAProxy) and routes writes/reads via the backend's health
+  // checks (Patroni REST for Patroni; clustercheck :9200 for PXC).
   haproxy: {
     label: 'HAProxy',
     slug: 'haproxy',
-    sub: 'HAProxy — PostgreSQL load balancer',
+    sub: 'HAProxy — PostgreSQL / PXC load balancer',
     color: '#22c55e',
     icon: 'ProxySQL',
     singleton: false,
@@ -953,6 +954,12 @@ function StackEditor({ stackId, onBack }) {
     // HAProxy takes a single incoming via the createFlow dest guard).
     if (k1 === 'patroni' && k2 === 'haproxy') return createFlow(e1, e2, { singleOutgoing: true })
     if (k2 === 'patroni' && k1 === 'haproxy') return createFlow(e2, e1, { singleOutgoing: true })
+    // PXC cluster frame → HAProxy node. HAProxy fronts exactly one cluster (Patroni OR
+    // PXC) — its single incoming (createFlow dest guard) enforces the mutual exclusivity.
+    // Only PXC frames qualify here ('backend' also covers MySQL-replication frames).
+    const isPXCFrame = (id) => refs.current.frames.find((x) => x.id === id)?.type === 'pxc'
+    if (k1 === 'backend' && k2 === 'haproxy' && isPXCFrame(e1.node)) return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'backend' && k1 === 'haproxy' && isPXCFrame(e2.node)) return createFlow(e2, e1, { singleOutgoing: true })
     // ProxySQL node ↔ ProxySQL node: ask which way the data flows.
     if (k1 === 'proxysql' && k2 === 'proxysql') { setLinkPrompt({ e1, e2 }); return }
     // Cluster member ↔ cluster member (PXC/Percona Server, different frames): a
@@ -1550,11 +1557,14 @@ function StackEditor({ stackId, onBack }) {
     ] },
     { title: 'MySQL', items: [
       { label: 'PXC Cluster', type: 'pxc', onClick: addPXCCluster },
-      { label: 'ProxySQL', type: 'proxysql', onClick: () => addNode('proxysql') },
-      { label: 'ProxySQL Cluster', type: 'proxysql', onClick: addProxySQLCluster },
       { label: 'Percona Server', type: 'ps', onClick: () => addNode('ps') },
       { label: 'PS Replication', type: 'mysql', onClick: addMySQLCluster },
       { label: 'InnoDB / GR', type: 'innodb', onClick: addInnoDBCluster },
+    ] },
+    { title: 'Load Balancer', items: [
+      { label: 'ProxySQL', type: 'proxysql', onClick: () => addNode('proxysql') },
+      { label: 'ProxySQL Cluster', type: 'proxysql', onClick: addProxySQLCluster },
+      { label: 'HAProxy', type: 'haproxy', onClick: () => addNode('haproxy') },
     ] },
     { title: 'MongoDB', items: [
       { label: 'PSMDB Sharded', type: 'psmdb', onClick: () => addMongoDBCluster() },
@@ -1571,7 +1581,6 @@ function StackEditor({ stackId, onBack }) {
       { label: 'Valkey', type: 'valkey', onClick: () => addNode('valkey') },
     ] },
     { title: 'Storage & Tools', items: [
-      { label: 'HAProxy', type: 'haproxy', onClick: () => addNode('haproxy') },
       { label: 'SeaweedFS', type: 'seaweedfs', onClick: () => addNode('seaweedfs') },
       { label: 'Ubuntu VNC', type: 'vnc', onClick: () => addNode('vnc'), off: has('vnc') },
     ] },
@@ -4485,9 +4494,10 @@ function RepmgrMemberForm({ node: n, frame, patchNode, dep, deployed }) {
   )
 }
 
-// HAProxyForm edits a (not-yet-running) HAProxy node: it must be linked to a
-// Patroni cluster frame by an association line. Image OS/version/arch come from the
-// generic images catalog; host-port export publishes the write/read/stats ports.
+// HAProxyForm edits a (not-yet-running) HAProxy node: it must be linked to exactly one
+// Patroni or PXC cluster frame by an association line (mutually exclusive). Image
+// OS/version/arch come from the generic images catalog; host-port export publishes the
+// write/read/stats ports.
 function HAProxyForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep, deployed }) {
   const [cat, setCat] = useState(null)
   useEffect(() => {
@@ -4515,25 +4525,21 @@ function HAProxyForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep
   }, [imgs, n.id, n.os, n.osVersion, n.arch, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const pmmNodes = nodes.filter((x) => x.type === 'pmm')
-  // Walk the association graph to the linked Patroni cluster frame.
-  const linkedFrame = (() => {
-    const adj = {}
+  // Directly-linked backend cluster frame(s). HAProxy fronts exactly one — a Patroni
+  // PostgreSQL cluster OR a PXC cluster (mutually exclusive).
+  const linkedFrames = (() => {
+    const out = []
+    const seen = new Set()
     for (const e of edges) {
-      ;(adj[e.from.node] ||= []).push(e.to.node)
-      ;(adj[e.to.node] ||= []).push(e.from.node)
+      const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
+      if (!other) continue
+      const f = frames.find((fr) => fr.id === other && (fr.type === 'patroni' || fr.type === 'pxc'))
+      if (f && !seen.has(f.id)) { seen.add(f.id); out.push(f) }
     }
-    const seen = new Set([n.id])
-    const queue = [n.id]
-    while (queue.length) {
-      const cur = queue.shift()
-      for (const nb of adj[cur] || []) {
-        const f = frames.find((fr) => fr.id === nb && fr.type === 'patroni')
-        if (f) return f
-        if (!seen.has(nb)) { seen.add(nb); queue.push(nb) }
-      }
-    }
-    return null
+    return out
   })()
+  const linkedFrame = linkedFrames.length === 1 ? linkedFrames[0] : null
+  const isPXC = linkedFrame?.type === 'pxc'
 
   return (
     <div className="space-y-3">
@@ -4542,13 +4548,17 @@ function HAProxyForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep
         {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
       </div>
 
-      {linkedFrame ? (
+      {linkedFrames.length > 1 ? (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+          Linked to multiple clusters — HAProxy fronts exactly one (Patroni and PXC are mutually exclusive). Remove the extra association line.
+        </div>
+      ) : linkedFrame ? (
         <div className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
-          Routes to Patroni cluster <span className="font-mono font-medium">{linkedFrame.label}</span> — writes → leader (:5000), reads → replicas (:5001).
+          Routes to {isPXC ? 'PXC' : 'Patroni'} cluster <span className="font-mono font-medium">{linkedFrame.label}</span> — {isPXC ? 'writes → single writer (:5000), reads → round-robin (:5001)' : 'writes → leader (:5000), reads → replicas (:5001)'}.
         </div>
       ) : (
         <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
-          Not linked. Draw an association line from a Patroni cluster frame to this HAProxy node.
+          Not linked. Draw an association line from a Patroni or PXC cluster frame to this HAProxy node.
         </div>
       )}
 

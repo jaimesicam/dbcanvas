@@ -4732,3 +4732,64 @@ bindings share the same IP).
 `docker inspect` reported `{"3306/tcp":[{"HostIp":"127.0.0.1","HostPort":"13306"}]}` and
 `docker ps` showed `127.0.0.1:13306->3306/tcp` (was `0.0.0.0:…` before) — the published
 port is bound to loopback only.
+
+---
+
+## 85. HAProxy can front a PXC cluster (mutually exclusive with Patroni); "Load Balancer" palette group; `CLUSTERCHECK_PASSWORD` — `app/haproxy.go`, `app/intranet.go`, `app/pxc.go`, `app/mysql.go`, `.env`, `.env.example`, `docker-compose.yml`, `app/web/src/pages/{StackDesigner,HAProxyManager}.jsx`
+
+**Goal.** Let an HAProxy node front a **Percona XtraDB Cluster** (previously Patroni-only).
+The PXC config differs from Patroni (per the Percona docs —
+<https://docs.percona.com/percona-xtradb-cluster/8.0/haproxy.html>,
+<https://docs.percona.com/percona-xtradb-cluster/8.0/haproxy-config.html>). An HAProxy
+associates with **exactly one** backend cluster (Patroni **or** PXC — mutually exclusive).
+Also: move ProxySQL, ProxySQL Cluster and HAProxy into a **Load Balancer** palette group.
+
+**Association + mutual exclusivity (`intranet.go`).** Replaced `patroniFrameForHAProxy`
+with `haproxyClusterFrames` (the distinct Patroni/PXC frames directly linked to the HAProxy)
+and `haproxyBackend` (returns the single frame + kind, ok only when exactly one). Validation
+now errors on 0 links ("must be linked to a Patroni or PXC cluster") and >1 ("can front only
+one cluster — Patroni and PXC are mutually exclusive"). Frontend `tryConnect` adds a
+PXC-frame → HAProxy rule (only PXC, not MySQL-replication frames); the HAProxy's single
+incoming (createFlow dest guard) enforces exclusivity on the canvas too.
+
+**PXC provisioning (`haproxy.go`).** `provisionHAProxy` branches on the backend kind:
+- **PXC health checks** — the Percona `clustercheck` HTTP endpoint on each data member's
+  `:9200` (mysqlchk), reporting HTTP 200 only while wsrep_local_state is Synced (4). It's a
+  small check script wired to a **systemd socket** (`ListenStream=9200`, `Accept=yes`, stdio
+  bound to the socket — the modern equivalent of the xinetd mysqlchk from the docs). The
+  script **drains the incoming HTTP request** before responding — otherwise the socket has
+  unread data on exit and the kernel RSTs it, which HAProxy's httpchk reports as a failed
+  "Connection reset by peer" check.
+- **PXC haproxy.cfg** (`haproxyPXCCfg`) — a write front-end (`:5000`) sending all traffic to
+  a **single active node**, the rest kept as `backup` (single-writer, to avoid multi-master
+  write conflicts); a read front-end (`:5001`) **round-robin** across all nodes; both
+  `option httpchk` + `check port 9200`; DB traffic proxied in TCP mode to `:3306`. Stats on
+  `:7000`. Reuses the node's existing 5000/5001/7000 ports + host-export.
+
+**`CLUSTERCHECK_PASSWORD` + baseline user (`pxc.go`, `mysql.go`, `.env*`, compose).** The
+`clustercheck`@'localhost' user (PROCESS priv) that the endpoint authenticates as is now
+created in **every MySQL-family node's baseline** — PXC bootstrap and the MySQL/standalone
+Percona Server baseline — from a new `CLUSTERCHECK_PASSWORD` (default `cluster_password`),
+exactly like the app/repl/monitor/cluster users and **before** the GTID `RESET`. This is the
+key correctness point: the earlier approach created the user post-baseline on one node during
+HAProxy provisioning, which in a cross-cluster-replication topology replicates to the other
+cluster as an **errant transaction** → replication errors. Creating it in the baseline means
+it exists cluster-wide with no post-baseline write. `pxcSecrets` gained
+`ClusterCheck{User,Password}`; `pxcSetupClustercheck` no longer creates the user (only installs
+the endpoint, keyed by `CLUSTERCHECK_PASSWORD`). InnoDB/GR is intentionally excluded (it is
+neither HAProxy-fronted nor a cross-cluster-replication participant).
+
+**Frontend.** Palette: new **Load Balancer** group (ProxySQL, ProxySQL Cluster, HAProxy).
+`HAProxyForm` resolves the linked cluster among Patroni/PXC and shows the right banner
+(routing text differs; a warning when >1 cluster is linked). `HAProxyManager` gained a
+backend-aware Overview (write/read labels) and a PXC Access tab documenting the single-writer
+`:5000` / round-robin `:5001` MySQL connection strings and the clustercheck routing.
+
+**Verification.** `go build`/`vet`/`test` and `npm run build` clean. Deployed intranet + a
+3-node PXC cluster + HAProxy on a live host: validation rejected a second (Patroni) link to
+the same HAProxy (mutual exclusivity); `clustercheck`@'localhost' was present on all three
+PXC members from the baseline (`caching_sha2_password`) and authenticated via socket
+(wsrep_local_state=4); the `:9200` endpoint returned HTTP 200; **all HAProxy backends came UP
+automatically** (write pxc1 active + pxc2/3 backup, read all active — Layer7 check 200); a row
+written through `:5000` read back through `:5001`; write `:5000` always hit pxc1 while read
+`:5001` round-robined pxc1/2/3.

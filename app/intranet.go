@@ -210,37 +210,47 @@ func backendFrameForProxySQL(doc designDoc, startID string) (designFrame, string
 	return designFrame{}, "", false
 }
 
-// patroniFrameForHAProxy returns the Patroni cluster frame an HAProxy node is
-// associated with via the canvas graph. Mirrors backendFrameForProxySQL: an
-// undirected BFS over the edges to the nearest Type=="patroni" frame.
-func patroniFrameForHAProxy(doc designDoc, startID string) (designFrame, bool) {
-	frames := map[string]designFrame{}
+// haproxyClusterFrames returns the distinct Patroni or PXC cluster frames directly
+// associated (by an association line) with an HAProxy node. HAProxy fronts exactly one
+// backend cluster, so 0 (unlinked) or >1 (ambiguous — not mutually exclusive) are
+// validation errors; the provisioner uses the single frame. The Patroni and PXC configs
+// differ (Patroni REST health checks vs PXC clustercheck), so the *kind* also selects the
+// provisioning path — see haproxyBackend.
+func haproxyClusterFrames(doc designDoc, startID string) []designFrame {
+	cluster := map[string]designFrame{}
 	for _, f := range doc.Frames {
-		if f.Type == "patroni" {
-			frames[f.ID] = f
+		if f.Type == "patroni" || f.Type == "pxc" {
+			cluster[f.ID] = f
 		}
 	}
-	adj := map[string][]string{}
+	seen := map[string]bool{}
+	var out []designFrame
 	for _, e := range doc.Edges {
-		adj[e.From.Node] = append(adj[e.From.Node], e.To.Node)
-		adj[e.To.Node] = append(adj[e.To.Node], e.From.Node)
-	}
-	visited := map[string]bool{startID: true}
-	queue := []string{startID}
-	for len(queue) > 0 {
-		cur := queue[0]
-		queue = queue[1:]
-		for _, nb := range adj[cur] {
-			if f, ok := frames[nb]; ok {
-				return f, true
-			}
-			if !visited[nb] {
-				visited[nb] = true
-				queue = append(queue, nb)
-			}
+		var other string
+		switch startID {
+		case e.From.Node:
+			other = e.To.Node
+		case e.To.Node:
+			other = e.From.Node
+		default:
+			continue
+		}
+		if f, ok := cluster[other]; ok && !seen[f.ID] {
+			seen[f.ID] = true
+			out = append(out, f)
 		}
 	}
-	return designFrame{}, false
+	return out
+}
+
+// haproxyBackend returns the single backend cluster frame + its kind ("patroni" | "pxc")
+// an HAProxy fronts, ok only when exactly one is associated (the mutual-exclusivity rule).
+func haproxyBackend(doc designDoc, startID string) (designFrame, string, bool) {
+	fr := haproxyClusterFrames(doc, startID)
+	if len(fr) != 1 {
+		return designFrame{}, "", false
+	}
+	return fr[0], fr[0].Type, true
 }
 
 // nodeConfig is the non-secret profile shown for a deployed node.
@@ -534,8 +544,12 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
 				}
 			}
-			if _, ok := patroniFrameForHAProxy(doc, n.ID); !ok {
-				out = append(out, issue{"error", "HAProxy node " + n.Label + " must be linked to a Patroni cluster — draw an association line from one to it"})
+			// HAProxy fronts exactly one backend cluster — a Patroni PostgreSQL cluster
+			// OR a PXC cluster (mutually exclusive; the two use different configs).
+			if hf := haproxyClusterFrames(doc, n.ID); len(hf) == 0 {
+				out = append(out, issue{"error", "HAProxy node " + n.Label + " must be linked to a Patroni or PXC cluster — draw an association line from one to it"})
+			} else if len(hf) > 1 {
+				out = append(out, issue{"error", "HAProxy node " + n.Label + " can front only one cluster — remove the extra association (Patroni and PXC are mutually exclusive)"})
 			}
 			if n.ExportEnabled && n.ExportHostPort > 0 {
 				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)

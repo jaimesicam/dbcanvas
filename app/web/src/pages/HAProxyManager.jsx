@@ -81,14 +81,18 @@ export default function HAProxyManager({ dep, onDeleteNode }) {
 function Overview({ cfg, dep, onDeleteNode }) {
   const host = typeof location !== 'undefined' ? location.hostname : 'localhost'
   const stats = cfg.statsPort ? `http://${host}:${cfg.statsPort}/` : ''
+  const isPXC = cfg.backend === 'pxc'
+  const writeLabel = isPXC ? 'Write port (→ writer · 5000)' : 'Write port (→ leader · 5000)'
+  const readLabel = isPXC ? 'Read port (→ round-robin · 5001)' : 'Read port (→ replicas · 5001)'
   return (
     <div className="space-y-2 text-sm">
       <KV k="FQDN" v={cfg.fqdn} mono />
       <KV k="Image" v={cfg.image} mono />
+      <KV k="Backend" v={isPXC ? 'Percona XtraDB Cluster' : 'Patroni PostgreSQL'} />
       <KV k="Routes to cluster" v={cfg.cluster} mono />
       <KV k="Backend members" v={(cfg.members || []).length ? `${(cfg.members || []).length} member(s)` : '—'} />
-      <KV k="Write port (→ leader · 5000)" v={cfg.writePort ? String(cfg.writePort) : 'not published'} mono />
-      <KV k="Read port (→ replicas · 5001)" v={cfg.readPort ? String(cfg.readPort) : 'not published'} mono />
+      <KV k={writeLabel} v={cfg.writePort ? String(cfg.writePort) : 'not published'} mono />
+      <KV k={readLabel} v={cfg.readPort ? String(cfg.readPort) : 'not published'} mono />
       <KV k="Stats port (7000)" v={cfg.statsPort ? String(cfg.statsPort) : 'not published'} mono />
       <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
       {stats && (
@@ -107,6 +111,7 @@ function Overview({ cfg, dep, onDeleteNode }) {
 function AccessTab({ cfg }) {
   const host = typeof location !== 'undefined' ? location.hostname : 'localhost'
   const stats = cfg.statsPort ? `http://${host}:${cfg.statsPort}/` : ''
+  if (cfg.backend === 'pxc') return <PXCAccess cfg={cfg} host={host} stats={stats} />
   const writeURI = cfg.writePort ? `postgresql://<user>:<pw>@${host}:${cfg.writePort}/postgres` : ''
   const readURI = cfg.readPort ? `postgresql://<user>:<pw>@${host}:${cfg.readPort}/postgres` : ''
   const writePsql = cfg.writePort ? `psql "host=${host} port=${cfg.writePort} dbname=postgres user=postgres"` : ''
@@ -127,6 +132,47 @@ function AccessTab({ cfg }) {
         <div className="text-xs font-medium text-muted">Read (replicas · :5001)</div>
         <Row k="psql URI" v={readURI} />
         <Row k="psql command" v={readPsql} />
+      </div>
+      {stats && (
+        <div className="space-y-2">
+          <div className="text-xs font-medium text-muted">Stats</div>
+          <Row k="HAProxy stats page" v={stats} link />
+        </div>
+      )}
+      {!cfg.writePort && !cfg.readPort && (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+          No host ports published — enable export before deploying to reach HAProxy from your machine. In-stack
+          clients can still reach it at <span className="font-mono">{cfg.fqdn}</span>:5000/5001.
+        </div>
+      )}
+    </div>
+  )
+}
+
+// PXCAccess documents connecting to a Percona XtraDB Cluster behind HAProxy.
+function PXCAccess({ cfg, host, stats }) {
+  const writeCmd = cfg.writePort ? `mysql -h ${host} -P ${cfg.writePort} -u<user> -p` : ''
+  const readCmd = cfg.readPort ? `mysql -h ${host} -P ${cfg.readPort} -u<user> -p` : ''
+  const writeIn = `mysql -h ${cfg.fqdn} -P 5000 -u<user> -p`
+  const readIn = `mysql -h ${cfg.fqdn} -P 5001 -u<user> -p`
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+        HAProxy checks each PXC node's <span className="font-mono">clustercheck</span> endpoint (:9200) and routes
+        only to wsrep-<span className="font-medium text-fg/80">Synced</span> nodes. The <span className="font-medium text-fg/80">write</span> port
+        (:5000) sends all traffic to a single active node — the rest are hot backups, promoted on failure — to avoid
+        multi-master write conflicts. The <span className="font-medium text-fg/80">read</span> port (:5001) round-robins
+        every Synced node. Use any MySQL user (e.g. the app user from <span className="font-mono">.env</span>).
+      </div>
+      <div className="space-y-2">
+        <div className="text-xs font-medium text-muted">Write (single writer · :5000)</div>
+        {writeCmd ? <Row k="From the host" v={writeCmd} /> : null}
+        <Row k="In-stack (from another container)" v={writeIn} />
+      </div>
+      <div className="space-y-2">
+        <div className="text-xs font-medium text-muted">Read (round-robin · :5001)</div>
+        {readCmd ? <Row k="From the host" v={readCmd} /> : null}
+        <Row k="In-stack (from another container)" v={readIn} />
       </div>
       {stats && (
         <div className="space-y-2">
