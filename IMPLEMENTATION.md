@@ -4820,3 +4820,19 @@ host libs aren't installable in this sandbox, but the fix is engine-agnostic: it
 pointer events + React state, no CSS `resize`): opened a node's root console, detached it, and
 dragged the corner grip — the window went 580×320 → 720×410 (grow) and back to 612×332 (shrink),
 with no page errors; the grip renders as a diagonal-line affordance in the corner.
+
+---
+
+## 87. Fix: Intranet "DB Certs" usage docs pointed at the wrong on-node cert paths — `app/web/src/pages/IntranetManager.jsx`
+
+**Symptom.** The DB Certs tab's "How to use" server-config snippets (§80) referenced cert
+paths that don't match where DBCanvas actually stores per-node certificates: MySQL showed
+`/etc/mysql/certs/…` (real location is `/var/lib/mysql`, from `pxcCertScript`) and MongoDB
+showed `/etc/mongo/server.pem` (real location is `/etc/mongo/certs/`, from §82).
+
+**Fix.** Corrected `dbInstructions` to the real paths — MySQL `ssl-ca=/var/lib/mysql/ca.pem`,
+`ssl-cert=/var/lib/mysql/server-cert.pem`, `ssl-key=/var/lib/mysql/server-key.pem`; MongoDB
+`certificateKeyFile: /etc/mongo/certs/server.pem`, `CAFile: /etc/mongo/certs/ca.crt` — and
+added a note to the PostgreSQL snippet that DBCanvas keeps per-node certs in the data
+directory (standalone, where the relative names resolve) or `/etc/patroni` (Patroni cluster).
+`npm run build` clean; the rebuilt bundle contains the corrected paths and none of the old ones.

@@ -379,10 +379,10 @@ function dbInstructions(user, subject, host) {
     MySQL: {
       server:
 `-- On the MySQL server: trust the Intranet CA + require TLS
--- /etc/my.cnf  [mysqld]
-ssl-ca=/etc/mysql/certs/ca.crt
-ssl-cert=/etc/mysql/certs/server-cert.pem
-ssl-key=/etc/mysql/certs/server-key.pem
+-- /etc/my.cnf  [mysqld]  (DBCanvas stores per-node certs in /var/lib/mysql)
+ssl-ca=/var/lib/mysql/ca.pem
+ssl-cert=/var/lib/mysql/server-cert.pem
+ssl-key=/var/lib/mysql/server-key.pem
 require_secure_transport=ON
 
 -- Bind the account to this client certificate:
@@ -396,6 +396,8 @@ CREATE USER '${user}'@'%' REQUIRE SUBJECT '/O=DBCanvas/CN=${user}';
     PostgreSQL: {
       server:
 `# On the PostgreSQL server: postgresql.conf
+# (DBCanvas keeps per-node certs in the data directory for a standalone server —
+#  where these relative names resolve — or in /etc/patroni for a Patroni cluster)
 ssl = on
 ssl_ca_file   = 'ca.crt'
 ssl_cert_file = 'server.crt'
@@ -413,8 +415,8 @@ hostssl  all  ${user}  0.0.0.0/0  cert  clientcert=verify-full`,
 net:
   tls:
     mode: requireTLS
-    certificateKeyFile: /etc/mongo/server.pem   # server cert+key, concatenated
-    CAFile: /etc/mongo/ca.crt
+    certificateKeyFile: /etc/mongo/certs/server.pem   # server cert+key, concatenated
+    CAFile: /etc/mongo/certs/ca.crt
 
 // Create the X.509 user — its name is the certificate subject (RFC2253 order):
 db.getSiblingDB("$external").runCommand({
