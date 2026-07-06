@@ -31,7 +31,7 @@ type dbConn struct {
 // engineForType maps a design node type to a Data Generator engine ("" = unsupported).
 func engineForType(t string) string {
 	switch t {
-	case "pg", "patroni", "repmgr":
+	case "pg", "patroni", "repmgr", "spock":
 		return "postgres"
 	case "pxc", "ps", "mysql", "innodb":
 		return "mysql"

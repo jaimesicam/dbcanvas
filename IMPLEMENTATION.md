@@ -4889,3 +4889,25 @@ host: all three compiled patched PG 16 + Spock 5.0.10, each `spock.node` lists a
 every subscription reports **`replicating`** (`sub_show_status`), and the multi-master test —
 inserting a distinct row on each of the three nodes — showed **all three rows on all three
 nodes**. Test stack removed.
+
+---
+
+## 89. Data Generator / Query Runner / Benchmark / dashboard recognise Spock nodes — `app/datagen.go`, `app/dashboard.go`
+
+**Symptom.** The Data Generator didn't detect nodes in a Spock cluster (§88).
+
+**Cause.** `engineForType` (datagen.go) — which maps a node type to a SQL engine and gates
+which nodes the Data Generator lists — mapped `pg`/`patroni`/`repmgr` to `postgres` but
+omitted the new `spock` type, so Spock members returned `""` (unsupported) and were filtered
+out. The same helper backs `listSQLTargets` (Query Runner + Benchmark), so those missed
+Spock too; the dashboard's separate `dbEngineOf` categorizer likewise omitted it.
+
+**Fix.** Add `spock` to the postgres case in both `engineForType` and `dbEngineOf`. Spock
+members use `pgFamilySecrets` and the standard `postgres` superuser over the local socket
+(peer auth) — the exact `psql -U postgres` path the tools already use for pg/patroni/repmgr —
+so no other change is needed.
+
+**Verification.** Against a live 6-node Spock cluster: the Data Generator connections list
+now shows all 6 (type `spock`, engine `postgres`), and introspection works end-to-end —
+listing databases (`postgres`, `spockdemo`) and tables (including the replicated
+`public.spock_demo`). `go build`/`vet`/`test` clean.
