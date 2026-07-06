@@ -121,6 +121,21 @@ export function patroniApi(id, fid) {
   }
 }
 
+// On-node diagnostic captures (pg_gather for PostgreSQL, pt-stalk for MySQL family).
+// `nid` is the design node id. The *DownloadURL helpers return a plain href (the browser
+// GETs it directly, sending the session cookie, so the file downloads).
+export function diagApi(id, nid) {
+  const base = `/api/stacks/${id}/nodes/${nid}`
+  return {
+    pgGatherStatus: () => request('GET', `${base}/pggather`),
+    pgGatherStart: (database) => request('POST', `${base}/pggather`, { database }),
+    pgGatherDownloadURL: () => `${base}/pggather/download`,
+    ptStalkStatus: () => request('GET', `${base}/ptstalk`),
+    ptStalkStart: () => request('POST', `${base}/ptstalk`),
+    ptStalkDownloadURL: () => `${base}/ptstalk/download`,
+  }
+}
+
 // Intranet node management (Phase 3). `nid` is the design node id.
 export function intranetApi(id, nid) {
   const base = `/api/stacks/${id}/nodes/${nid}`

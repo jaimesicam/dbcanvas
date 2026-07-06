@@ -4911,3 +4911,44 @@ so no other change is needed.
 now shows all 6 (type `spock`, engine `postgres`), and introspection works end-to-end —
 listing databases (`postgres`, `spockdemo`) and tables (including the replicated
 `public.spock_demo`). `go build`/`vet`/`test` clean.
+
+---
+
+## 90. On-node diagnostic captures — pg_gather (PostgreSQL) + pt-stalk (MySQL) — `app/diag.go`, `app/web/src/components/Diagnostics.jsx`, DB-node managers, base images
+
+**Goal.** From a running DB node's properties, capture a diagnostic bundle and download it:
+pg_gather (a `GatherReport.html`) for PostgreSQL nodes; pt-stalk (pt-summary +
+pt-mysql-summary + pt-stalk samples, tarred) for MySQL-family nodes. Pre-install git on all
+DB nodes.
+
+**Images.** Added `git` to `images/rhel.Dockerfile` + `images/debian.Dockerfile` (percona-
+toolkit — pt-summary/pt-mysql-summary/pt-stalk — was already baked in). The pg_gather
+script also fallback-installs git so it works on nodes built from older images.
+
+**Backend (`app/diag.go`).** Async per-node captures tracked in an in-memory `App.captures`
+map, gated by engine via `engineForType` (postgres → pg/patroni/repmgr/spock; mysql →
+pxc/mysql/ps/innodb). Six routes under `/api/stacks/{id}/nodes/{nid}`: `GET|POST /pggather`
++ `GET /pggather/download`, and the `ptstalk` trio.
+- `POST` starts the capture in a goroutine (background context — pt-stalk's ~90s sampling
+  outlives the request) and records running→done/error with the script's last output.
+- `GET` returns status; if there's no in-memory state it probes the node for the result
+  file, so a completed capture survives an app restart.
+- `GET /download` reads the file out of the container (`readContainerFile`) and serves it
+  with a `Content-Disposition` attachment.
+- pg_gather script: clone jobinau/pg_gather, run `gather.sql` against the chosen `$DB`
+  (psql as the postgres OS user, path resolved for PGDG/Debian/source layouts), load the
+  schema + data, build `GatherReport.html`. pt-stalk script: pt-summary + pt-mysql-summary
+  (auth via `/root/.my.cnf`) + `pt-stalk --no-stalk --iterations=2 --sleep=30`, tarred to a
+  fixed path (`uname -n` for the per-host dir — the images lack `hostname`).
+
+**Frontend.** Shared `components/Diagnostics.jsx` exposes `PGGatherCard` (database selector
+via the datagen databases endpoint → generate → poll → download) and `PTStalkCard` (start →
+~90s cooldown notice → poll → download). Added a **Diagnostics** tab wiring the right card
+into PGManager, PatroniManager, RepmgrManager, SpockManager (pg_gather) and PXCManager
+(non-arbiter), MySQLManager, InnoDBManager (pt-stalk). New `diagApi` in `stackApi.js`.
+
+**Verification.** Live: pg_gather on a Spock node — POST→poll→done, downloaded a 214 KB
+GatherReport.html (git fallback-installed, valid HTML). pt-stalk on a standalone Percona
+Server node — POST→poll(~105s)→done, downloaded a 1.06 MB gzip with pt-summary,
+pt-mysql-summary and full pt-stalk samples (MySQL reached via `.my.cnf`). Both served with
+correct attachment headers. `go build`/`vet`/`test` + `npm run build` clean.

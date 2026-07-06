@@ -2,11 +2,13 @@ import { useState } from 'react'
 import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE } from '../lib/stackApi.js'
+import { PGGatherCard } from '../components/Diagnostics.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'creds', label: 'Credentials' },
   { id: 'replication', label: 'Replication' },
+  { id: 'diag', label: 'Diagnostics' },
 ]
 
 function CopyButton({ text, title = 'Copy', size = 14 }) {
@@ -56,7 +58,7 @@ function CodeBlock({ label, text }) {
 
 // SpockManager is the properties-panel console for a deployed Spock cluster member —
 // a writable node in a full-mesh, active-active PostgreSQL cluster.
-export default function SpockManager({ dep, onDeleteNode }) {
+export default function SpockManager({ stackId, nodeId, dep, onDeleteNode }) {
   const [tab, setTab] = useState('overview')
   const cfg = dep.config || {}
   const sec = dep.secrets || {}
@@ -80,6 +82,7 @@ export default function SpockManager({ dep, onDeleteNode }) {
       {tab === 'overview' && <Overview cfg={cfg} dep={dep} onDeleteNode={onDeleteNode} />}
       {tab === 'creds' && <Creds cfg={cfg} sec={sec} />}
       {tab === 'replication' && <Replication cfg={cfg} sec={sec} />}
+      {tab === 'diag' && <PGGatherCard stackId={stackId} nodeId={nodeId} defaultDb={cfg.database} />}
     </div>
   )
 }

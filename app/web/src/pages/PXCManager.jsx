@@ -2,12 +2,14 @@ import { useCallback, useEffect, useState } from 'react'
 import { Button, Badge, inputCls } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { pxcApi, DEPLOY_TONE } from '../lib/stackApi.js'
+import { PTStalkCard } from '../components/Diagnostics.jsx'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'creds', label: 'Credentials' },
   { id: 'cert', label: 'Certificate' },
+  { id: 'diag', label: 'Diagnostics' },
 ]
 
 function CopyButton({ text, size = 14 }) {
@@ -68,6 +70,7 @@ export default function PXCManager({ stackId, nodeId, dep, onDeleteNode }) {
       )}
       {tab === 'creds' && !arbiter && <CredsTab cfg={cfg} sec={sec} />}
       {tab === 'cert' && !arbiter && <CertTab api={api} cfg={cfg} />}
+      {tab === 'diag' && !arbiter && <PTStalkCard stackId={stackId} nodeId={nodeId} />}
     </div>
   )
 }

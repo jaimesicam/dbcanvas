@@ -27,8 +27,9 @@ RUN grep -q '^ip_resolve=' /etc/dnf/dnf.conf 2>/dev/null || echo 'ip_resolve=4' 
 #   - sysstat             → sar/iostat/mpstat
 #   - percona-release     → Percona repository manager
 #   - percona-toolkit     → pt-* DBA tools
+#   - git                 → clone diagnostic tooling (e.g. pg_gather) on DB nodes
 RUN set -eux; \
-    yum -y install systemd net-tools openldap-clients sysstat; \
+    yum -y install systemd net-tools openldap-clients sysstat git; \
     yum -y install https://repo.percona.com/yum/percona-release-latest.noarch.rpm; \
     percona-release setup pt; \
     yum -y install percona-toolkit; \

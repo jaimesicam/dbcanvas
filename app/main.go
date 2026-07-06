@@ -25,6 +25,9 @@ type App struct {
 	// barriers holds the per-stack replication barrier for an in-flight deploy
 	// (stackID -> *deployBarrier). See replication.go.
 	barriers sync.Map
+	// captures holds the state of in-flight/completed on-node diagnostic captures
+	// (pg_gather / pt-stalk), keyed by stack/node/kind. See diag.go.
+	captures sync.Map
 }
 
 func main() {
@@ -77,6 +80,14 @@ func main() {
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/start", app.handleNodeAction("start"))
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/stop", app.handleNodeAction("stop"))
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/restart", app.handleNodeAction("restart"))
+
+	// On-node diagnostic captures. pg_gather (PostgreSQL) + pt-stalk (MySQL family).
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/pggather", app.handlePGGatherStatus)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/pggather", app.handlePGGatherStart)
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/pggather/download", app.handlePGGatherDownload)
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/ptstalk", app.handlePTStalkStatus)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/ptstalk", app.handlePTStalkStart)
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/ptstalk/download", app.handlePTStalkDownload)
 
 	// Data Generator — introspect + generate test data for PostgreSQL stack tables.
 	mux.HandleFunc("GET /api/datagen/connections", app.handleDataGenConnections)

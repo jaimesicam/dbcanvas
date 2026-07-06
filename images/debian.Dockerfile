@@ -20,7 +20,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-      systemd systemd-sysv net-tools ldap-utils sysstat \
+      systemd systemd-sysv net-tools ldap-utils sysstat git \
       wget gnupg2 lsb-release ca-certificates; \
     wget -qO /tmp/percona-release.deb \
       "https://repo.percona.com/apt/percona-release_latest.$(lsb_release -sc)_all.deb"; \

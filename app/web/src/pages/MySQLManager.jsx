@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
+import { PTStalkCard } from '../components/Diagnostics.jsx'
 import { DEPLOY_TONE } from '../lib/stackApi.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'creds', label: 'Credentials' },
+  { id: 'diag', label: 'Diagnostics' },
 ]
 
 function CopyButton({ text, size = 14 }) {
@@ -108,6 +110,7 @@ export default function MySQLManager({ stackId, nodeId, dep, onDeleteNode }) {
           ))}
         </div>
       )}
+      {tab === 'diag' && <PTStalkCard stackId={stackId} nodeId={nodeId} />}
     </div>
   )
 }
