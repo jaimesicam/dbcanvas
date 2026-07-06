@@ -9,6 +9,7 @@ const TABS = [
   { id: 'email', label: 'Email' },
   { id: 'ldap', label: 'LDAP' },
   { id: 'cert', label: 'Certificate' },
+  { id: 'dbcerts', label: 'DB Certs' },
   { id: 'creds', label: 'Credentials' },
 ]
 
@@ -71,6 +72,7 @@ export default function IntranetManager({ stackId, nodeId, dep, onDeleteNode }) 
       {tab === 'email' && <EmailTab api={api} domain={sec.domain} webmailPort={cfg.webmailPort} />}
       {tab === 'ldap' && <LdapTab api={api} sec={sec} />}
       {tab === 'cert' && <CertTab api={api} />}
+      {tab === 'dbcerts' && <DBCertTab api={api} domain={sec.domain} />}
       {tab === 'creds' && <CredsTab sec={sec} />}
     </div>
   )
@@ -348,6 +350,190 @@ function CertTab({ api }) {
           {busy ? 'Generating…' : 'Generate certificate'}
         </Button>
       </div>
+    </div>
+  )
+}
+
+// --------------------------------------------------------------- db certs tab
+
+// A labelled, copyable code/PEM block.
+function CodeBlock({ label, text, mono = true }) {
+  if (!text) return null
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-xs font-medium text-muted">{label}</span>
+        <CopyButton text={text} />
+      </div>
+      <pre className={`max-h-40 overflow-auto whitespace-pre rounded-lg border bg-bg p-2 text-[11px] leading-relaxed text-fg ${mono ? 'font-mono' : ''}`}>{text}</pre>
+    </div>
+  )
+}
+
+// dbInstructions builds server-config + client-invocation snippets for each engine,
+// substituting the certificate's username/subject. `host` is a placeholder the operator
+// replaces with the target DB node FQDN.
+function dbInstructions(user, subject, host) {
+  const subj = subject || `CN=${user},O=DBCanvas`
+  return {
+    MySQL: {
+      server:
+`-- On the MySQL server: trust the Intranet CA + require TLS
+-- /etc/my.cnf  [mysqld]
+ssl-ca=/etc/mysql/certs/ca.crt
+ssl-cert=/etc/mysql/certs/server-cert.pem
+ssl-key=/etc/mysql/certs/server-key.pem
+require_secure_transport=ON
+
+-- Bind the account to this client certificate:
+CREATE USER '${user}'@'%' REQUIRE SUBJECT '/O=DBCanvas/CN=${user}';
+-- (or, to accept any cert signed by the CA:  REQUIRE X509; )`,
+      client:
+`mysql -h ${host} -u ${user} \\
+  --ssl-ca=ca.crt --ssl-cert=${user}.crt --ssl-key=${user}.key \\
+  --ssl-mode=VERIFY_CA`,
+    },
+    PostgreSQL: {
+      server:
+`# On the PostgreSQL server: postgresql.conf
+ssl = on
+ssl_ca_file   = 'ca.crt'
+ssl_cert_file = 'server.crt'
+ssl_key_file  = 'server.key'
+
+# pg_hba.conf — require a client cert whose CN equals the role name
+hostssl  all  ${user}  0.0.0.0/0  cert  clientcert=verify-full`,
+      client:
+`psql "host=${host} dbname=postgres user=${user} \\
+  sslmode=verify-full sslrootcert=ca.crt sslcert=${user}.crt sslkey=${user}.key"`,
+    },
+    MongoDB: {
+      server:
+`# On the MongoDB server: mongod.conf
+net:
+  tls:
+    mode: requireTLS
+    certificateKeyFile: /etc/mongo/server.pem   # server cert+key, concatenated
+    CAFile: /etc/mongo/ca.crt
+
+// Create the X.509 user — its name is the certificate subject (RFC2253 order):
+db.getSiblingDB("$external").runCommand({
+  createUser: "${subj}",
+  roles: [ { role: "readWrite", db: "admin" } ]
+})`,
+      client:
+`# mongosh needs the cert and key in a single file:
+cat ${user}.crt ${user}.key > ${user}.pem
+mongosh --host ${host} --tls --tlsCAFile ca.crt \\
+  --tlsCertificateKeyFile ${user}.pem \\
+  --authenticationDatabase '$external' \\
+  --authenticationMechanism MONGODB-X509`,
+    },
+  }
+}
+
+function DBCertTab({ api, domain }) {
+  const [certs, setCerts] = useState([])
+  const [username, setUsername] = useState('')
+  const [value, setValue] = useState(365)
+  const [unit, setUnit] = useState('days')
+  const [result, setResult] = useState(null) // { username, subject, notAfter, cert, key, caCert }
+  const [engine, setEngine] = useState('MySQL')
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const host = `<db-host${domain ? `.${domain}` : ''}>`
+
+  const load = useCallback(async () => {
+    try { setCerts((await api.dbCertList()).certs || []) } catch (e) { setErr(e.message) }
+  }, [api])
+  useEffect(() => { load() }, [load])
+
+  async function run(fn) {
+    setBusy(true); setErr('')
+    try { await fn(); await load() } catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+
+  const exists = certs.some((c) => c.username === username.trim())
+  const instr = result ? dbInstructions(result.username, result.subject, host) : null
+
+  return (
+    <div className="space-y-3">
+      <Err>{err}</Err>
+
+      {/* generate form */}
+      <div className="space-y-1.5 rounded-lg border border-dashed p-2">
+        <div className="text-xs font-medium text-muted">Issue a client certificate (signed by the Intranet CA)</div>
+        <input className={inputCls} placeholder="username (cert CN)" value={username} onChange={(e) => setUsername(e.target.value)} />
+        <div className="flex gap-1">
+          <input type="number" min="1" className={inputCls} value={value} onChange={(e) => setValue(e.target.value)} />
+          <select className={inputCls} value={unit} onChange={(e) => setUnit(e.target.value)}>
+            <option value="minutes">minutes</option>
+            <option value="hours">hours</option>
+            <option value="days">days</option>
+          </select>
+        </div>
+        <Button size="sm" className="w-full" disabled={busy || !username.trim()}
+          onClick={() => run(async () => { setResult(await api.dbCertGenerate(username.trim(), Number(value), unit)) })}>
+          <Icon.Plus size={15} /> {busy ? 'Generating…' : exists ? 'Regenerate (overwrites)' : 'Generate certificate'}
+        </Button>
+        {exists && <div className="text-[11px] text-warning">A certificate for “{username.trim()}” already exists — generating overwrites it.</div>}
+      </div>
+
+      {/* existing certs */}
+      <div className="space-y-1">
+        <div className="text-xs font-medium text-muted">Issued certificates</div>
+        {certs.length === 0 && <div className="text-xs text-muted">None yet.</div>}
+        {certs.map((c) => (
+          <div key={c.username} className={`rounded-lg border px-2 py-1.5 text-sm ${result?.username === c.username ? 'border-primary bg-primary/5' : 'bg-bg'}`}>
+            <div className="flex items-center gap-1">
+              <button className="min-w-0 flex-1 truncate text-left"
+                onClick={() => run(async () => { setResult(await api.dbCertGet(c.username)) })}>
+                <span className="font-medium">{c.username}</span>
+                {c.notAfter ? <span className="text-muted"> — expires {c.notAfter}</span> : null}
+              </button>
+              <ConfirmButton variant="ghost" size="sm" confirmLabel="Delete?"
+                onConfirm={() => run(async () => { if (result?.username === c.username) setResult(null); await api.dbCertDelete(c.username) })}>
+                <Icon.Trash size={15} />
+              </ConfirmButton>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* generated / selected cert material + usage */}
+      {result && (
+        <div className="space-y-3 rounded-lg border border-primary/40 bg-primary/5 p-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold">{result.username}</span>
+            {result.notAfter && <Badge tone="primary">expires {result.notAfter}</Badge>}
+          </div>
+          {result.subject && <KV k="Subject" v={result.subject} mono />}
+
+          <CodeBlock label="CA certificate — ca.crt" text={result.caCert} />
+          <CodeBlock label={`Certificate — ${result.username}.crt`} text={result.cert} />
+          <CodeBlock label={`Private key — ${result.username}.key`} text={result.key} />
+
+          <div>
+            <div className="mb-1 text-xs font-semibold text-muted">How to use</div>
+            <div className="mb-2 flex flex-wrap gap-1 rounded-lg bg-surface2 p-1">
+              {['MySQL', 'PostgreSQL', 'MongoDB'].map((e) => (
+                <button key={e} onClick={() => setEngine(e)}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${engine === e ? 'bg-surface text-fg shadow' : 'text-muted'}`}>
+                  {e}
+                </button>
+              ))}
+            </div>
+            {instr && (
+              <div className="space-y-2">
+                <CodeBlock label="Server configuration" text={instr[engine].server} />
+                <CodeBlock label="Client invocation" text={instr[engine].client} />
+                <div className="text-[11px] text-muted">Replace <span className="font-mono">{host}</span> with the target database node’s FQDN. Save the three blocks above as <span className="font-mono">ca.crt</span>, <span className="font-mono">{result.username}.crt</span> and <span className="font-mono">{result.username}.key</span>.</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

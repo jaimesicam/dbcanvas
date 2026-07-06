@@ -143,6 +143,11 @@ export function intranetApi(id, nid) {
 
     certInfo: () => request('GET', `${base}/cert`),
     certGenerate: (value, unit) => request('POST', `${base}/cert`, { value, unit }),
+
+    dbCertList: () => request('GET', `${base}/dbcerts`),
+    dbCertGenerate: (username, value, unit) => request('POST', `${base}/dbcerts`, { username, value, unit }),
+    dbCertGet: (username) => request('GET', `${base}/dbcerts/${encodeURIComponent(username)}`),
+    dbCertDelete: (username) => request('POST', `${base}/dbcerts/delete`, { username }),
   }
 }
 

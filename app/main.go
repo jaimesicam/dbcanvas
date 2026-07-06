@@ -130,6 +130,12 @@ func main() {
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/cert", app.handleCertInfo)
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/cert", app.handleCertGenerate)
 
+	// Intranet CA — issue X.509 client certificates for MySQL/PostgreSQL/MongoDB users.
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/dbcerts", app.handleDBCertList)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/dbcerts", app.handleDBCertGenerate)
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/dbcerts/{user}", app.handleDBCertGet)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/dbcerts/delete", app.handleDBCertDelete)
+
 	// PMM node management.
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/pmm/cert", app.handlePMMCertInfo)
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/pmm/cert", app.handlePMMCertGenerate)

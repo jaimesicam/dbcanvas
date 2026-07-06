@@ -4539,3 +4539,49 @@ all clean. Rebuilt the app image and did a full clean redeploy of the 18-node in
 and mysql07's `gtid_executed` now contains mysql01's `…:1-2` (seeded transitively via mysql04).
 All 8.0 cross-cluster channels healthy: mysql04←mysql01, mysql07←mysql04, pxc01←mysql09,
 pxc05←pxc02 (each IO+SQL running).
+
+---
+
+## 80. Intranet CA: issue X.509 client certificates for MySQL/PostgreSQL/MongoDB users — `app/dbcerts.go`, `app/main.go`, `app/web/src/lib/stackApi.js`, `app/web/src/pages/IntranetManager.jsx`
+
+**Goal.** From the Intranet node's property panel, generate a CA-signed X.509 client
+certificate for a database user (prompting **username** + **expiration**), copy the key +
+certificate, and read ready-to-use instructions for MySQL, MongoDB and PostgreSQL —
+covering both **server configuration** and **client invocation**. Regenerating for an
+existing username **overwrites** the previous cert.
+
+**Backend (`app/dbcerts.go`).** The Intranet already holds the stack CA at
+`/etc/pki/dbcanvas/ca.{crt,key}`. New Intranet-scoped endpoints run `openssl` in the
+container (the systemd image ships openssl) to issue a client cert per username —
+subject `/O=DBCanvas/CN=<username>`, EKU `clientAuth,serverAuth`, signed by the CA —
+stored under `/etc/pki/dbcanvas/dbcerts/<username>.{crt,key}` and read back for the
+operator to copy:
+
+- `GET  …/nodes/{nid}/dbcerts` — list issued certs (`username`, `notAfter`, `subject`).
+- `POST …/nodes/{nid}/dbcerts` — `{username, value, unit}` → issue/overwrite; returns
+  the PEM `cert`, `key`, `caCert` plus `subject` (RFC2253) and `notAfter`.
+- `GET  …/nodes/{nid}/dbcerts/{user}` — re-fetch an existing cert's material.
+- `POST …/nodes/{nid}/dbcerts/delete` — `{username}` → remove cert + key.
+
+Username is validated by `validCertUser` (reuses `validName`: letters/digits/`._-`, ≤64;
+rejects `.`/`..` and dot-only names and — via `validName` — `/`), so it is always a safe
+CN and non-traversing basename. Inputs reach the scripts only through the exec
+environment (`CN=…`, `VALUE`/`UNIT`), never string-interpolated. Files are read back with
+the existing `readContainerFile` (base64). Expiration reuses the established
+minutes/hours/days → `-not_after` convention.
+
+**Frontend.** A new **DB Certs** tab in `IntranetManager.jsx`: a generate form (username +
+value/unit, with a "Regenerate (overwrites)" affordance when the name already exists), a
+list of issued certs (open to view / copy, delete with confirm), and, for the
+selected/generated cert, copyable **CA cert / certificate / private key** blocks plus a
+per-engine (MySQL · PostgreSQL · MongoDB) **Server configuration** + **Client invocation**
+guide with the username/subject substituted (e.g. MySQL `REQUIRE SUBJECT` + `--ssl-cert`,
+PostgreSQL `clientcert=verify-full` + `psql sslcert=…`, MongoDB `$external` X.509 user +
+`mongosh --tlsCertificateKeyFile`). Added the four `dbCert*` methods to `intranetApi`.
+
+**Verification.** `go build`/`go vet` clean; `npm run build` clean. Against the live
+Intranet node of stack 138: issued a cert for `appuser` — `openssl verify -CAfile ca.crt`
+returns **OK** (issuer `CN=DBCanvas CA`), EKU is `clientAuth,serverAuth`, subject
+`CN=appuser,O=DBCanvas`; regenerating updated the expiry with the list still showing a
+single entry; GET returned the key; delete removed it; and invalid usernames (`bad/name`,
+`..`) were rejected with 400.
