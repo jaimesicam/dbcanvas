@@ -4705,3 +4705,30 @@ the deployed stack 138, selecting a running node (`pmm-01`) and pressing Delete 
 captured); Cancel left the node and its deployment intact (no page errors). On a fresh draft
 stack, adding an Intranet + PMM node and deleting the (undeployed) PMM node removed it
 **instantly with no modal** — confirming the prompt is scoped to deployed nodes only.
+
+---
+
+## 84. `CONTAINER_BIND_IP` — bind exported node ports to a host interface (default 127.0.0.1) — `app/docker.go`, `.env`, `.env.example`, `docker-compose.yml`
+
+**Goal.** Deployed stack nodes that publish a port to the host (PXC / ProxySQL / Percona
+Server / PostgreSQL / MongoDB mongos+members / Valkey / HAProxy / SeaweedFS / PMM, plus any
+node with export enabled) previously bound to Docker's default `0.0.0.0` — reachable from
+the LAN. Add a `CONTAINER_BIND_IP` option (default **127.0.0.1**) so published ports bind
+only to that host interface.
+
+**Change.** All host-port publishing funnels through one place — `ContainerCreate`'s
+`HostConfig.PortBindings` in `app/docker.go` — so the fix is a single choke point: each
+binding now carries `"HostIp": envOr("CONTAINER_BIND_IP", "127.0.0.1")` (both the
+auto-assigned `PublishPorts` and the explicit `PublishMap` paths). Empty/unset →
+`127.0.0.1`; set `0.0.0.0` to restore all-interfaces, or a specific IPv4 to pin one. The
+var is added to `.env`, `.env.example` (documented next to `APP_HOST`), and passed to the
+app container in `docker-compose.yml` (`CONTAINER_BIND_IP: ${CONTAINER_BIND_IP:-127.0.0.1}`).
+The container still listens on all interfaces *internally*; this only controls the
+host-side binding of the published port. Host-port conflict detection is unaffected (all
+bindings share the same IP).
+
+**Verification.** `go build`/`vet`/`test` clean; the app container shows
+`CONTAINER_BIND_IP=127.0.0.1`. Deployed a Percona Server node with an exported port 13306:
+`docker inspect` reported `{"3306/tcp":[{"HostIp":"127.0.0.1","HostPort":"13306"}]}` and
+`docker ps` showed `127.0.0.1:13306->3306/tcp` (was `0.0.0.0:…` before) — the published
+port is bound to loopback only.

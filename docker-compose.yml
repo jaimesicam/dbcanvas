@@ -33,6 +33,9 @@ services:
       # Minutes a provisioner waits for a dependency (cluster/node/service) to
       # become ready before failing the deploy. Raise for large stacks.
       DEPLOYMENT_TIMEOUT: ${DEPLOYMENT_TIMEOUT:-60}
+      # Host interface that deployed stack nodes bind their published (exported)
+      # ports to. Default 127.0.0.1 (loopback only); set 0.0.0.0 for all interfaces.
+      CONTAINER_BIND_IP: ${CONTAINER_BIND_IP:-127.0.0.1}
     ports:
       # Publish on APP_HOST (default 127.0.0.1 = private). Set APP_HOST=0.0.0.0
       # in .env to expose on all host interfaces.

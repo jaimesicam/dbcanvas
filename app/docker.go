@@ -335,13 +335,17 @@ func (d *Docker) ContainerCreate(ctx context.Context, spec ContainerSpec) (strin
 		ports = append([]int{spec.PublishPort}, ports...)
 	}
 	if len(ports) > 0 || len(spec.PublishMap) > 0 {
+		// Every published port is bound to CONTAINER_BIND_IP on the host (default
+		// 127.0.0.1 = loopback only), not Docker's default 0.0.0.0, so exported DB /
+		// admin ports aren't exposed on the LAN unless explicitly configured.
+		bindIP := envOr("CONTAINER_BIND_IP", "127.0.0.1")
 		exposed := map[string]any{}
 		bindings := map[string]any{}
 		for _, p := range ports {
 			port := fmt.Sprintf("%d/tcp", p)
 			exposed[port] = map[string]any{}
 			// empty HostPort → Docker assigns a free ephemeral host port.
-			bindings[port] = []map[string]string{{"HostPort": ""}}
+			bindings[port] = []map[string]string{{"HostIp": bindIP, "HostPort": ""}}
 		}
 		for _, m := range spec.PublishMap {
 			port := fmt.Sprintf("%d/tcp", m.ContainerPort)
@@ -350,7 +354,7 @@ func (d *Docker) ContainerCreate(ctx context.Context, spec ContainerSpec) (strin
 			if m.HostPort > 0 {
 				hp = fmt.Sprintf("%d", m.HostPort)
 			}
-			bindings[port] = []map[string]string{{"HostPort": hp}}
+			bindings[port] = []map[string]string{{"HostIp": bindIP, "HostPort": hp}}
 		}
 		body["ExposedPorts"] = exposed
 		host["PortBindings"] = bindings
