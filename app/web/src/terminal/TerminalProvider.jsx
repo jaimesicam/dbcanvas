@@ -218,6 +218,13 @@ function TerminalLayer() {
         const x = Math.min(Math.max(nx, KEEP - d.w), window.innerWidth - KEEP)
         const y = Math.min(Math.max(ny, 0), window.innerHeight - 28)
         setFloat(d.id, { x, y })
+      } else if (d.kind === 'fresize') {
+        // Manual resize of a floating window. We don't use CSS `resize: both`
+        // because WebKit/Safari won't fire the native grabber when a child (the
+        // xterm canvas) covers the corner — the drag here works in every browser.
+        const w = Math.max(320, d.w0 + (e.clientX - d.x0))
+        const h = Math.max(180, d.h0 + (e.clientY - d.y0))
+        setFloat(d.id, { w, h })
       }
     }
     const onUp = () => { drag.current = null }
@@ -237,7 +244,7 @@ function TerminalLayer() {
         const f = s.float || { x: 120, y: 96, w: 580, h: 320 }
         const geo = f.max
           ? { left: 0, top: 0, width: '100vw', height: '100vh', borderRadius: 0 }
-          : { left: f.x, top: f.y, width: f.w, height: f.h, resize: 'both' }
+          : { left: f.x, top: f.y, width: f.w, height: f.h }
         return (
           <div key={s.id} className="fixed z-40 flex flex-col rounded-lg border bg-surface shadow-2xl"
             style={{ ...geo, overflow: 'hidden' }}>
@@ -253,6 +260,22 @@ function TerminalLayer() {
               <button title="Close" onClick={() => closeTerminal(s.id)} className="rounded px-1.5 text-muted hover:text-danger">✕</button>
             </div>
             <div ref={floatSlot(s.id)} className="relative flex-1 overflow-hidden bg-[#0e1117]" />
+            {!f.max && (
+              <div
+                title="Resize"
+                onPointerDown={(e) => {
+                  e.preventDefault(); e.stopPropagation()
+                  const win = e.currentTarget.parentElement
+                  drag.current = { kind: 'fresize', id: s.id, x0: e.clientX, y0: e.clientY, w0: win?.offsetWidth || f.w, h0: win?.offsetHeight || f.h }
+                }}
+                className="absolute bottom-0 right-0 z-10 h-4 w-4 cursor-se-resize text-muted hover:text-fg"
+                style={{ touchAction: 'none' }}
+              >
+                <svg viewBox="0 0 10 10" className="absolute bottom-0.5 right-0.5 h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
+                  <path d="M9 3 L3 9 M9 6 L6 9" />
+                </svg>
+              </div>
+            )}
           </div>
         )
       })}

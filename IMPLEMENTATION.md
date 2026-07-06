@@ -4793,3 +4793,30 @@ PXC members from the baseline (`caching_sha2_password`) and authenticated via so
 automatically** (write pxc1 active + pxc2/3 backup, read all active — Layer7 check 200); a row
 written through `:5000` read back through `:5001`; write `:5000` always hit pxc1 while read
 `:5001` round-robined pxc1/2/3.
+
+---
+
+## 86. Fix: undocked terminal windows couldn't be resized in Safari — `app/web/src/terminal/TerminalProvider.jsx`
+
+**Symptom.** A detached (floating) terminal window could not be resized in Safari (it worked
+in Chrome/Firefox).
+
+**Cause.** The floating window relied on the CSS `resize: both` grabber. WebKit/Safari only
+honors CSS `resize` when the element's own content reaches the bottom-right corner — but the
+window's child (the xterm terminal area / its canvas + helper textarea) fills that corner and
+captures the pointer, so the native grabber never fires. Chromium/Gecko are more lenient and
+let the grabber win, which is why it worked there.
+
+**Fix.** Drop CSS `resize` entirely and add an explicit resize handle (a small `cursor-se-resize`
+grip in the bottom-right corner) driven by pointer events — the exact mechanism the window's
+title-bar move and the dock height-splitter already use (and which works in Safari). On
+`pointerdown` it records the window's current size (measured from the element, so it's robust
+regardless of stored geometry); a new `fresize` branch in the shared `pointermove` handler
+updates the window's `w`/`h` via `setFloat` (min 320×180). The existing `ResizeObserver` on the
+floating slot refits xterm as the window grows/shrinks.
+
+**Verification.** `npm run build` clean. Drove the real UI headless (Chromium — the WebKit
+host libs aren't installable in this sandbox, but the fix is engine-agnostic: it uses only
+pointer events + React state, no CSS `resize`): opened a node's root console, detached it, and
+dragged the corner grip — the window went 580×320 → 720×410 (grow) and back to 612×332 (shrink),
+with no page errors; the grip renders as a diagonal-line affordance in the corner.
