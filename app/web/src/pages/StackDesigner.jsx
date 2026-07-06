@@ -852,7 +852,7 @@ function StackEditor({ stackId, onBack }) {
   useEffect(() => {
     function onKey(e) {
       if (e.key === 'Escape') setMenu(null)
-      if (e.key !== 'Delete' && e.key !== 'Backspace') return
+      if (e.key !== 'Delete') return
       const t = e.target
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
       if (selected) { e.preventDefault(); deleteSelected() }

@@ -4952,3 +4952,11 @@ GatherReport.html (git fallback-installed, valid HTML). pt-stalk on a standalone
 Server node — POST→poll(~105s)→done, downloaded a 1.06 MB gzip with pt-summary,
 pt-mysql-summary and full pt-stalk samples (MySQL reached via `.my.cnf`). Both served with
 correct attachment headers. `go build`/`vet`/`test` + `npm run build` clean.
+
+---
+
+## 91. Stack Designer: Backspace no longer deletes the selected node — `app/web/src/pages/StackDesigner.jsx`
+
+The canvas keydown handler treated both `Delete` and `Backspace` as delete triggers for the
+selected node/edge. Backspace is too easy to hit (and conflicts with normal editing/back
+navigation muscle memory), so it was dropped — only `Delete` now removes the selection.
