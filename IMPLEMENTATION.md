@@ -4585,3 +4585,47 @@ returns **OK** (issuer `CN=DBCanvas CA`), EKU is `clientAuth,serverAuth`, subjec
 `CN=appuser,O=DBCanvas`; regenerating updated the expiry with the list still showing a
 single entry; GET returned the key; delete removed it; and invalid usernames (`bad/name`,
 `..`) were rejected with 400.
+
+---
+
+## 81. Real-time teardown of removed nodes + freeze the node set during deploy — `app/intranet.go`, `app/stacks.go`, `app/web/src/pages/StackDesigner.jsx`
+
+**Goal.** (1) When a **deployed** node is deleted from the canvas, remove its container
+**and volumes** immediately (in real time), instead of deferring cleanup to the next
+deploy. (2) While a deployment is running, **you cannot add or remove nodes** on the
+canvas.
+
+**Real-time teardown (backend).** Extracted a shared
+`removeNodeResources(ctx, stackID, dep)` — `ContainerRemove` (already `force=true&v=true`,
+so anonymous volumes, e.g. each systemd node's `/sys/fs/cgroup` volume, go with the
+container) + `VolumeRemove(pmmDataVolume(...))` (the only named volume; namespaced, so a
+no-op for other types) + `DeleteDeployment`. `teardownStack` and the deploy-time
+"remove nodes deleted from the canvas" loop now both call it — the latter previously
+**forgot the PMM volume**, so a PMM node removed at deploy time leaked its `/srv` volume;
+now fixed. `handleUpdateStack` calls new `cleanupRemovedNodes(stackID, design)`: it diffs
+the just-saved design's node ids against the live deployments and, for any deployment no
+longer on the canvas, tears down its container + volumes and drops it from the Intranet
+DNS — in a background goroutine so the autosave stays snappy (the designer's 3 s
+deployment poll reflects the removal). The canvas already debounce-autosaves on delete, so
+this fires within ~1 s of deleting a node. A `node.removed` notification is emitted.
+
+**Freeze node set during deploy (backend guard).** `handleUpdateStack` now rejects a
+design update with **409** when the node-set changed (`sameNodeSet` compares node-id sets;
+option/position edits keep the same set and are allowed) **and** a deploy is in progress
+(`deployInProgress`: any deployment `pending`/`provisioning`). This is the authoritative
+enforcement even if the UI is bypassed.
+
+**Frontend lock.** A `deploying` flag (`busy==='deploy'` or any node
+`pending`/`provisioning`) gates the canvas: the node palette (all add buttons) is disabled,
+the frame member **+/−** controls are disabled, and `deleteNode`/`deleteFrame`/
+`addFrameMember`/`removePXCNode`/`removePXCNodeById` early-return — so keyboard-delete, the
+node/frame context menus, and the property-panel Delete buttons all no-op while deploying
+(this also prevents a local/server divergence that a rejected 409 autosave would cause).
+A palette banner explains the lock. Once every node finishes provisioning the flag clears
+and editing resumes.
+
+**Verification.** `go build`/`vet`/`test` and `npm run build` clean. On a live `intranet +
+PMM` stack: while provisioning, removing or adding a node via the API returned **409**
+while a position-only change returned **200**; after both nodes were `running`, deleting the
+PMM node from the canvas removed its container **and** its `dbcanvas-pmm-*` volume **and**
+its deployment record in real time (~1 s), leaving the Intranet node running.

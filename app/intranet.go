@@ -1040,14 +1040,11 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 		inDesign[n.ID] = true
 	}
 
-	// Remove containers for nodes deleted from the canvas.
+	// Remove containers + volumes for nodes deleted from the canvas.
 	removed := false
 	for _, d := range deps {
 		if !inDesign[d.NodeID] {
-			if d.ContainerID != "" {
-				a.docker.ContainerRemove(bg, d.ContainerID)
-			}
-			a.store.DeleteDeployment(st.ID, d.NodeID)
+			a.removeNodeResources(bg, st.ID, d)
 			removed = true
 		}
 	}
@@ -1827,6 +1824,19 @@ func (a *App) handleDestroyStack(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": StackDraft, "deployments": []Deployment{}})
 }
 
+// removeNodeResources tears down one node's runtime: its container (force + v=true,
+// so anonymous volumes go with it), its named data volume (only PMM creates one; the
+// name is namespaced so this is a no-op for other node types), and its deployment
+// record. Best-effort. Shared by stack teardown, the deploy-time reconcile of nodes
+// deleted from the canvas, and the real-time per-node cleanup.
+func (a *App) removeNodeResources(ctx context.Context, stackID int64, d Deployment) {
+	if d.ContainerID != "" {
+		a.docker.ContainerRemove(ctx, d.ContainerID)
+	}
+	a.docker.VolumeRemove(ctx, pmmDataVolume(stackID, d.NodeID))
+	a.store.DeleteDeployment(stackID, d.NodeID)
+}
+
 // teardownStack stops and removes every container deployed for a stack and
 // removes its network. Best-effort.
 func (a *App) teardownStack(stackID int64) {
@@ -1840,13 +1850,7 @@ func (a *App) teardownStack(stackID int64) {
 	ctx := context.Background()
 	deps, _ := a.store.ListDeployments(stackID)
 	for _, d := range deps {
-		if d.ContainerID != "" {
-			a.docker.ContainerRemove(ctx, d.ContainerID)
-		}
-		// Remove the node's named data volume (only PMM creates one; the name is
-		// namespaced so this is a no-op for other node types).
-		a.docker.VolumeRemove(ctx, pmmDataVolume(stackID, d.NodeID))
-		a.store.DeleteDeployment(stackID, d.NodeID)
+		a.removeNodeResources(ctx, stackID, d)
 	}
 	// The Query Runner may have joined this network to reach the stack's DB nodes;
 	// detach the app first so the network can be removed.

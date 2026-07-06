@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -158,16 +160,93 @@ func (a *App) handleUpdateStack(w http.ResponseWriter, r *http.Request) {
 	if len(body.Design) > 0 {
 		design = body.Design
 	}
+	// While a deployment is in progress, the node set is frozen: reject adding or
+	// removing nodes (option/position edits are still fine). This keeps the canvas
+	// consistent with what the in-flight provisioners are building.
+	if len(body.Design) > 0 && !sameNodeSet(st.Design, design) && a.deployInProgress(st.ID) {
+		writeErr(w, http.StatusConflict, "cannot add or remove nodes while a deployment is in progress")
+		return
+	}
 	if err := a.store.UpdateStack(st.ID, name, design); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to update stack")
 		return
 	}
+	// Real-time cleanup: a node removed from the canvas has its container + volumes
+	// (and deployment record) torn down immediately, not deferred to the next deploy.
+	a.cleanupRemovedNodes(st.ID, design)
 	updated, err := a.store.GetStack(st.ID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to read stack")
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
+}
+
+// nodeIDSet returns the set of node ids declared in a design document.
+func nodeIDSet(design json.RawMessage) map[string]bool {
+	var doc designDoc
+	json.Unmarshal(design, &doc)
+	ids := make(map[string]bool, len(doc.Nodes))
+	for _, n := range doc.Nodes {
+		ids[n.ID] = true
+	}
+	return ids
+}
+
+// sameNodeSet reports whether two designs declare exactly the same set of node ids
+// (order-independent). Used to allow option/position edits but freeze add/remove.
+func sameNodeSet(a, b json.RawMessage) bool {
+	as, bs := nodeIDSet(a), nodeIDSet(b)
+	if len(as) != len(bs) {
+		return false
+	}
+	for id := range as {
+		if !bs[id] {
+			return false
+		}
+	}
+	return true
+}
+
+// deployInProgress reports whether any of a stack's nodes is still being provisioned.
+func (a *App) deployInProgress(stackID int64) bool {
+	deps, _ := a.store.ListDeployments(stackID)
+	for _, d := range deps {
+		if d.State == DeployPending || d.State == DeployProvisioning {
+			return true
+		}
+	}
+	return false
+}
+
+// cleanupRemovedNodes tears down the containers + volumes of any deployed node that no
+// longer appears in the (just-saved) design, and drops it from the Intranet DNS. The
+// docker work runs in the background so the save response stays snappy; the designer's
+// deployment poll reflects the removal within a few seconds.
+func (a *App) cleanupRemovedNodes(stackID int64, design json.RawMessage) {
+	if a.docker == nil {
+		return
+	}
+	inDesign := nodeIDSet(design)
+	deps, _ := a.store.ListDeployments(stackID)
+	var removed []Deployment
+	for _, d := range deps {
+		if !inDesign[d.NodeID] {
+			removed = append(removed, d)
+		}
+	}
+	if len(removed) == 0 {
+		return
+	}
+	go func() {
+		ctx := context.Background()
+		for _, d := range removed {
+			a.removeNodeResources(ctx, stackID, d)
+		}
+		a.reconcileStackDNS(ctx, stackID)
+		a.notifyStack(stackID, "node.removed", "info", "Node(s) removed",
+			fmt.Sprintf("%d deployed node(s) removed from the canvas — their containers and volumes were deleted.", len(removed)), "")
+	}()
 }
 
 func (a *App) handleDeleteStack(w http.ResponseWriter, r *http.Request) {

@@ -694,6 +694,11 @@ function StackEditor({ stackId, onBack }) {
   const depByNode = {}
   for (const d of deployments) depByNode[d.nodeId] = d
 
+  // While a deployment is in progress the node set is frozen: no adding or removing
+  // nodes (the server rejects it too). Option/position edits stay live. Cleared once
+  // every node finishes provisioning.
+  const deploying = busy === 'deploy' || deployments.some((d) => d.state === 'pending' || d.state === 'provisioning')
+
   // auto-open the deployment console while anything is provisioning, but never
   // override the user's minimized choice.
   useEffect(() => {
@@ -976,6 +981,7 @@ function StackEditor({ stackId, onBack }) {
   const patchFrame = (id, patch) => setFrames((fs) => fs.map((f) => (f.id === id ? { ...f, ...patch } : f)))
   const patchEdge = (id, patch) => setEdges((es) => es.map((e) => (e.id === id ? { ...e, ...patch } : e)))
   function deleteNode(id) {
+    if (deploying) return
     // A PXC member belongs to a frame: re-lay the frame after removing it (and
     // drop the frame entirely if it was the last node), so the menu/manager
     // delete behaves like the frame's own remove control.
@@ -1003,6 +1009,7 @@ function StackEditor({ stackId, onBack }) {
     setSelected((s) => (s?.kind === 'edge' && s.id === id ? null : s))
   }
   function deleteFrame(id) {
+    if (deploying) return
     const memberIds = new Set(nodes.filter((n) => n.frameId === id).map((n) => n.id))
     setNodes((ns) => ns.filter((n) => n.frameId !== id))
     setFrames((fs) => fs.filter((f) => f.id !== id))
@@ -1314,6 +1321,7 @@ function StackEditor({ stackId, onBack }) {
   }
   // Frame +/- buttons dispatch by frame type.
   function addFrameMember(frame) {
+    if (deploying) return
     if (frame.type === 'proxysql') {
       const r = relayout(frame.id, frames, [...nodes, newProxySQLMember(frame.id)])
       setFrames(r.frames)
@@ -1352,6 +1360,7 @@ function StackEditor({ stackId, onBack }) {
     }
   }
   function removePXCNode(frameId) {
+    if (deploying) return
     const mine = nodes.filter((n) => n.frameId === frameId)
     if (mine.length <= 1) return // keep at least one node
     // Patroni/repmgr need ≥3 members: never drop below 3.
@@ -1360,6 +1369,7 @@ function StackEditor({ stackId, onBack }) {
     removePXCNodeById(frameId, mine[mine.length - 1].id)
   }
   function removePXCNodeById(frameId, id) {
+    if (deploying) return
     const mine = nodes.filter((n) => n.frameId === frameId)
     if (mine.length <= 1) return // keep at least one node
     const r = relayout(frameId, frames, nodes.filter((n) => n.id !== id))
@@ -1543,16 +1553,21 @@ function StackEditor({ stackId, onBack }) {
   ]
   const paletteBody = (
     <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 py-2">
+      {deploying && (
+        <div className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-[11px] leading-snug text-warning">
+          Deployment in progress — adding and removing nodes is locked until it finishes.
+        </div>
+      )}
       {paletteGroups.map((g) => (
         <div key={g.title}>
           <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">{g.title}</div>
           <div className="space-y-1">
             {g.items.map((it) => {
-              const disabled = it.off || (it.type !== 'intranet' && !hasIntranet)
+              const disabled = it.off || (it.type !== 'intranet' && !hasIntranet) || deploying
               return (
                 <button key={it.label} disabled={disabled} onClick={it.onClick}
                   style={addBtnStyle(it.type)}
-                  title={!hasIntranet && it.type !== 'intranet' ? 'Add an Intranet node first' : ''}
+                  title={deploying ? 'Locked while deploying' : (!hasIntranet && it.type !== 'intranet' ? 'Add an Intranet node first' : '')}
                   className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium shadow-sm disabled:opacity-40">
                   <Icon.Plus size={13} /> <span className="truncate">{it.label}</span>
                 </button>
@@ -1722,10 +1737,10 @@ function StackEditor({ stackId, onBack }) {
                     {/* PS MongoDB has a fixed topology — no add/remove controls. */}
                     {f.type !== 'psmdb' && (
                       <div className="ml-auto flex items-center gap-0.5">
-                        <button title="Add node" onPointerDown={(e) => e.stopPropagation()} onClick={() => addFrameMember(f)}
-                          className="rounded px-1.5 text-sm leading-none text-muted hover:bg-surface hover:text-fg">+</button>
-                        <button title="Remove a node" onPointerDown={(e) => e.stopPropagation()} onClick={() => removePXCNode(f.id)}
-                          className="rounded px-1.5 text-sm leading-none text-muted hover:bg-surface hover:text-fg">−</button>
+                        <button title={deploying ? 'Locked while deploying' : 'Add node'} disabled={deploying} onPointerDown={(e) => e.stopPropagation()} onClick={() => addFrameMember(f)}
+                          className="rounded px-1.5 text-sm leading-none text-muted hover:bg-surface hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent">+</button>
+                        <button title={deploying ? 'Locked while deploying' : 'Remove a node'} disabled={deploying} onPointerDown={(e) => e.stopPropagation()} onClick={() => removePXCNode(f.id)}
+                          className="rounded px-1.5 text-sm leading-none text-muted hover:bg-surface hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent">−</button>
                       </div>
                     )}
                   </div>
