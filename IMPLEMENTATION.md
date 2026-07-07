@@ -5110,3 +5110,32 @@ endpoint for PMM to scrape, so no HAProxy metrics reached the server. Added
 supported OSes (verified `USE_PROMEX=1` on Oracle Linux 9's 2.8.14 and Ubuntu 24.04's 2.8.16;
 `haproxy -c` validates and `GET /metrics` returns `haproxy_*` metrics while `/` keeps serving
 the stats UI). PMM now scrapes metrics on the HAProxy stats port (:7000).
+
+---
+
+## 98. README refresh: current features + new screenshots — `README.md`, `docs/screenshots/`
+
+Updated the top-level README to cover features added since it was last written and refreshed
+the screenshots. Intro now mentions the Query Runner, Benchmark and Visual Summary tools; the
+PostgreSQL line adds **Spock** multi-master clusters; a **Diagnostics captures** note
+(pg_gather / pt-stalk) was added; and new **Query Runner**, **Benchmark**, and **Visual
+Summary** sections were added under "What's inside". Replaced the hero screenshot with a
+deployed multi-cluster **Stack** (two PXC clusters + Patroni + ProxySQL + HAProxy ×2 +
+Intranet + PMM + SeaweedFS, showing the renamed Infrastructure Library and HAProxy "forwards
+SQL traffic to" edges), and added `query-runner.png`, `benchmark.png`, `visual-summary.png`
+(screenshots index updated to match).
+
+---
+
+## 99. Regenerate all README screenshots — `docs/screenshots/`
+
+Re-captured every screenshot referenced by the README against a live 18-node stack so the
+left navigation is current (the older shots predated the Query Runner / Benchmark / Visual
+Summary nav items) and the Database Stacks canvas now shows **all** nodes. Regenerated:
+`stacks-canvas` (full topology zoomed to fit — two PXC clusters, Patroni, ProxySQL, HAProxy
+×2, Intranet, PMM, Ubuntu VNC, SeaweedFS), `dashboard` (live CPU/memory/engine/node-type
+widgets), `pmm-node` (a PMM node's management panel), `data-generator` (FK-sampler on
+`shop.order_items`), `terminal` (a `pxc01` web console querying the generated data),
+`query-runner`, `benchmark`, `visual-summary`, `pmm-web` (the PMM Grafana home monitoring the
+stack), and `vnc-desktop` (the XFCE noVNC desktop). Terminal caption updated (MySQL query
+rather than psql).

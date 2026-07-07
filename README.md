@@ -4,17 +4,20 @@ DBCanvas is a self-hosted lab for **designing, deploying, operating, and stress-
 multi-node database stacks** on your own machine. You lay out a topology on a canvas —
 PostgreSQL, MySQL/PXC, MongoDB, Valkey, plus supporting infrastructure — click **Deploy**,
 and DBCanvas provisions real, running Docker containers wired together (DNS, TLS, LDAP,
-replication, monitoring, backups). It then gives you tools to *use* those databases: a
-**Data Generator** for realistic test data, a live **Dashboard**, and a **notification**
-center for what's happening across your stacks.
+replication, monitoring, backups). It then gives you tools to *use* and *understand* those
+databases: a **Data Generator** for realistic test data, a **Query Runner** and **Benchmark**
+for workloads, a **Visual Summary** that turns pt-stalk captures into charts, a live
+**Dashboard**, and a **notification** center for what's happening across your stacks.
 
 It's built for testing, demos, training, troubleshooting, benchmarking, and application
 development — spin up a production-shaped cluster in minutes, exercise it, and tear it down.
 
-![The Database Stacks canvas with a deployed 7-node stack](docs/screenshots/stacks-canvas.png)
+![The Database Stacks canvas with a deployed 17-node stack](docs/screenshots/stacks-canvas.png)
 
-> *Above: a deployed stack — an Intranet (DNS/LDAP/CA), a PMM monitor, a standalone
-> PostgreSQL, a 3-node Percona XtraDB Cluster, and an Ubuntu VNC desktop — all running.*
+> *Above: part of a deployed **Stack** — an Intranet (DNS/LDAP/CA), a PMM monitor, an Ubuntu
+> VNC desktop, and two bidirectionally-replicated Percona XtraDB Clusters (a Patroni cluster,
+> a ProxySQL cluster, two HAProxy load balancers, and SeaweedFS S3 sit just below). You add
+> nodes from the **Infrastructure Library** on the left and drag ports to connect them.*
 
 The control-plane is a single small (~22 MB) Go binary that serves the embedded React SPA
 **and** the JSON API on one port, keeps its own metadata in SQLite, and talks to the Docker
@@ -40,8 +43,9 @@ A canvas designer that turns a topology into real running containers. Draw nodes
 cluster **frames**, connect them, set a **TTL**, and deploy. Each node type has a management
 panel (web terminal, certificates, users, on-demand backups). Supported nodes:
 
-- **PostgreSQL** — standalone, **Patroni** HA clusters, and **repmgr** clusters
-  (pgBackRest / Barman cloud backups; pgvector & TimescaleDB supported).
+- **PostgreSQL** — standalone, **Patroni** HA clusters, **repmgr** clusters, and **Spock**
+  multi-master (active-active) clusters (pgBackRest / Barman cloud backups; pgvector &
+  TimescaleDB supported).
 - **MySQL / PXC** — **Percona XtraDB Cluster**, Percona Server, MySQL replication, and
   **InnoDB / Group Replication** clusters.
 - **MongoDB** — Percona Server for MongoDB: standalone, replica set, and sharded
@@ -62,7 +66,7 @@ certificates, backups, and one-click consoles:
 **Web terminals.** Drop into a root (or service) shell on any node, right in the browser —
 sessions survive navigation and can be docked or floated:
 
-![A live per-node web terminal running psql](docs/screenshots/terminal.png)
+![A live per-node web terminal querying a table](docs/screenshots/terminal.png)
 
 **Monitoring with PMM.** Add a PMM node and point databases at it; DB nodes register
 themselves, so Percona Monitoring & Management comes up already watching the stack:
@@ -73,6 +77,11 @@ themselves, so Percona Monitoring & Management comes up already watching the sta
 reachable over a browser-based VNC client — handy for GUI database tools inside the stack network:
 
 ![The Ubuntu VNC desktop node](docs/screenshots/vnc-desktop.png)
+
+**Diagnostics captures.** From a running node's panel, capture a diagnostic bundle and
+download it: **pg_gather** (a single `GatherReport.html`) on PostgreSQL nodes, or
+**pt-stalk** + `pt-summary` + `pt-mysql-summary` (a tarball) on MySQL/PXC nodes. Feed a
+pt-stalk archive straight into **Visual Summary** (below) to chart it.
 
 ### Data Generator
 Generate realistic test data for existing tables in your deployed **PostgreSQL** and
@@ -89,6 +98,34 @@ rows / batch size / worker threads, a preview, and a live progress readout. See
 > *Generating into `order_items`: the two foreign keys are auto-detected and populated with
 > the **Foreign key sampler** (drawing real `orders`/`products` ids), while the other columns
 > get inferred generators.*
+
+### Query Runner
+Run ad-hoc SQL across your deployed **PostgreSQL** and **MySQL/PXC** servers. Compose one or
+more queries, point each at a different provisioned server, and fire them **in parallel** —
+each query can repeat a set number of times across multiple threads with a time limit, and an
+optional **run condition** watches that target's processlist before firing (e.g. hold until a
+competing query appears). Per-query timings land in an in-session history.
+
+![The Query Runner](docs/screenshots/query-runner.png)
+
+### Benchmark
+Load a `bench_*` star schema into a chosen database and drive it with a selected **workload** —
+**OLTP** (mixed short transactions), **OLAP** (analytical aggregations), **Read-Write**, or
+**Read-Only** — at a configurable scale, thread count, duration, and warmup, then read back
+throughput + latency.
+
+![The Benchmark tool](docs/screenshots/benchmark.png)
+
+### Visual Summary
+Turn a **pt-stalk** archive — collected from a MySQL/PXC node's **Diagnostics** tab or uploaded
+as a `.tar.gz` — into professional **timeline charts**: CPU / memory / swap, disk
+(utilization, throughput, IOPS, latency, overall + per-device), network throughput and
+connection states, and MySQL/InnoDB internals (buffer pool, history list length, checkpoint
+age, replication lag, deadlocks, rows-scanned-without-index, and more). It's ~90% charts,
+~10% text — with a consolidated, **sortable** processlist and per-session InnoDB transactions —
+and stays resilient when files are missing from the archive.
+
+![Visual Summary — timeline charts from a pt-stalk archive](docs/screenshots/visual-summary.png)
 
 ### Dashboard
 Scope-aware overview: an **admin** sees everything, a regular user sees only their own
