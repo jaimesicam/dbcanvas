@@ -419,6 +419,10 @@ func haproxyCfg(cluster string, members []string) string {
 	fmt.Fprintf(&b, "listen stats\n")
 	fmt.Fprintf(&b, "    mode http\n")
 	fmt.Fprintf(&b, "    bind *:%d\n", haproxyStatsPort)
+	// Expose HAProxy's native Prometheus metrics at /metrics on the stats port so PMM
+	// (pmm-admin add haproxy --listen-port=<stats port>) can scrape them; the HTML stats
+	// page stays served at every other path.
+	fmt.Fprintf(&b, "    http-request use-service prometheus-exporter if { path /metrics }\n")
 	fmt.Fprintf(&b, "    stats enable\n")
 	fmt.Fprintf(&b, "    stats uri /\n")
 	fmt.Fprintf(&b, "    stats refresh 5s\n\n")
@@ -476,6 +480,10 @@ func haproxyPXCCfg(cluster string, members []string) string {
 	fmt.Fprintf(&b, "listen stats\n")
 	fmt.Fprintf(&b, "    mode http\n")
 	fmt.Fprintf(&b, "    bind *:%d\n", haproxyStatsPort)
+	// Expose HAProxy's native Prometheus metrics at /metrics on the stats port so PMM
+	// (pmm-admin add haproxy --listen-port=<stats port>) can scrape them; the HTML stats
+	// page stays served at every other path.
+	fmt.Fprintf(&b, "    http-request use-service prometheus-exporter if { path /metrics }\n")
 	fmt.Fprintf(&b, "    stats enable\n")
 	fmt.Fprintf(&b, "    stats uri /\n")
 	fmt.Fprintf(&b, "    stats refresh 5s\n\n")

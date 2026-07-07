@@ -5097,3 +5097,16 @@ lines; HAProxy → cluster association lines had no caption. Extended the associ
 condition to also match HAProxy nodes so their line carries the same "forwards SQL traffic
 to" label.
 
+
+---
+
+## 97. HAProxy: expose Prometheus /metrics on the stats port for PMM — `app/haproxy.go`
+
+The HAProxy PMM registration already ran `pmm-admin add haproxy --listen-port=7000`, but the
+`listen stats` block only served the HTML stats page — there was no Prometheus `/metrics`
+endpoint for PMM to scrape, so no HAProxy metrics reached the server. Added
+`http-request use-service prometheus-exporter if { path /metrics }` to both stats listeners
+(Patroni and PXC configs). HAProxy's native Prometheus exporter is compiled in on both
+supported OSes (verified `USE_PROMEX=1` on Oracle Linux 9's 2.8.14 and Ubuntu 24.04's 2.8.16;
+`haproxy -c` validates and `GET /metrics` returns `haproxy_*` metrics while `/` keeps serving
+the stats UI). PMM now scrapes metrics on the HAProxy stats port (:7000).
