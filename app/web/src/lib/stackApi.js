@@ -136,6 +136,29 @@ export function diagApi(id, nid) {
   }
 }
 
+// Samba AD DC node management. `nid` is the design node id. The *URL helpers return a plain
+// href the browser GETs directly (session cookie rides along) to download the file.
+export function sambaApi(id, nid) {
+  const base = `/api/stacks/${id}/nodes/${nid}/samba`
+  return {
+    users: () => request('GET', `${base}/users`),
+    userCreate: (body) => request('POST', `${base}/users`, body),
+    userUpdate: (body) => request('POST', `${base}/users/update`, body),
+    userPassword: (username, password) => request('POST', `${base}/users/password`, { username, password }),
+    userDelete: (username) => request('POST', `${base}/users/delete`, { username }),
+    groups: () => request('GET', `${base}/groups`),
+    groupCreate: (group) => request('POST', `${base}/groups`, { group }),
+    groupMembers: (group, uids) => request('POST', `${base}/groups/members`, { group, uids }),
+    groupDelete: (group) => request('POST', `${base}/groups/delete`, { group }),
+    krb5URL: () => `${base}/krb5`,
+    targets: () => request('GET', `${base}/targets`),
+    principals: () => request('GET', `${base}/principals`),
+    principalCreate: (service, fqdn) => request('POST', `${base}/principals`, { service, fqdn }),
+    keytabURL: (principal) => `${base}/keytab?principal=${encodeURIComponent(principal)}`,
+    certGenerate: (value, unit) => request('POST', `${base}/cert`, { value, unit }),
+  }
+}
+
 // Intranet node management (Phase 3). `nid` is the design node id.
 export function intranetApi(id, nid) {
   const base = `/api/stacks/${id}/nodes/${nid}`

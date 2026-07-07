@@ -4,10 +4,12 @@ import { Icon } from '../components/Icons.jsx'
 import { PTStalkCard } from '../components/Diagnostics.jsx'
 import { DEPLOY_TONE } from '../lib/stackApi.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
+import DbLoginGuide from '../components/DbLoginGuide.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'creds', label: 'Credentials' },
+  { id: 'dirlogin', label: 'Directory Login' },
   { id: 'diag', label: 'Diagnostics' },
 ]
 
@@ -47,7 +49,7 @@ export default function MySQLManager({ stackId, nodeId, dep, onDeleteNode }) {
       </div>
 
       <div className="flex flex-wrap gap-1 rounded-lg bg-surface2 p-1">
-        {TABS.map((t) => (
+        {TABS.filter((t) => t.id !== 'dirlogin' || cfg.dirAuth?.enabled).map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${tab === t.id ? 'bg-surface text-fg shadow' : 'text-muted'}`}>
             {t.label}
@@ -110,6 +112,7 @@ export default function MySQLManager({ stackId, nodeId, dep, onDeleteNode }) {
           ))}
         </div>
       )}
+      {tab === 'dirlogin' && <DbLoginGuide engine="ps" info={cfg.dirAuth} />}
       {tab === 'diag' && <PTStalkCard stackId={stackId} nodeId={nodeId} />}
     </div>
   )

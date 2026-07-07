@@ -352,6 +352,11 @@ func (a *App) provisionPerconaServer(st Stack, n designNode, doc designDoc) {
 			}
 			a.pxcPMMExec(ctx, a.containerOf(st.ID, n.ID), n.OS, pxcPMMEnv(monitoredBy, pmmUser, pmmPass, sec, n.Label)) // best-effort
 		}
+		if n.LdapAuth {
+			if err := a.applyDirectoryAuth(ctx, st, n, doc, a.containerOf(st.ID, n.ID), "ps", sec.RootPassword, pr); err != nil {
+				pr.logln("directory authentication skipped: " + err.Error())
+			}
+		}
 		pr.phase("Running", 100)
 		pr.p.Message = "provisioned"
 		pr.save()

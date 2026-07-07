@@ -84,6 +84,14 @@ type designNode struct {
 	PGVersion       string `json:"pgVersion"`       // minor; "" → latest
 	UsePgBackRest   bool   `json:"usePgBackRest"`   // configure pgBackRest → SeaweedFS S3 backup
 	SeaweedFSNodeID string `json:"seaweedfsNodeId"` // SeaweedFS node id backing pgBackRest
+	// Directory authentication (Type=="ps"|"pg"|"psm"). When LdapAuth is set the engine
+	// is configured at deploy to authenticate against the chosen directory node
+	// (LdapDirNodeID → an "intranet" OpenLDAP or "sambaad" AD node). KerberosAuth
+	// (pg/psm only) additionally wires GSSAPI single sign-on and requires a "sambaad"
+	// directory (mints a service principal + keytab on the Samba DC).
+	LdapAuth      bool   `json:"ldapAuth"`
+	LdapDirNodeID string `json:"ldapDirNodeId"`
+	KerberosAuth  bool   `json:"kerberosAuth"`
 }
 
 // designEdge is a connection drawn on the canvas. The endpoints' Node field holds
@@ -425,6 +433,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	watchtower := 0
 	keycloak := 0
 	vnc := 0
+	samba := 0
 	others := 0
 	labels := map[string]int{}
 	seenImg := map[string]bool{}
@@ -432,6 +441,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	watchtowerIDs := map[string]bool{}
 	keycloakIDs := map[string]bool{}
 	keycloakSSL := map[string]bool{}
+	dirNodes := map[string]string{} // node id → "intranet" | "sambaad" (directory nodes)
 	pmmCat := loadPMMCatalog()
 	for _, n := range doc.Nodes {
 		if n.Type == "watchtower" {
@@ -440,6 +450,9 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		if n.Type == "keycloak" {
 			keycloakIDs[n.ID] = true
 			keycloakSSL[n.ID] = n.GenerateCert
+		}
+		if n.Type == "intranet" || n.Type == "sambaad" {
+			dirNodes[n.ID] = n.Type
 		}
 	}
 	for _, n := range doc.Nodes {
@@ -468,6 +481,16 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		case "keycloak":
 			keycloak++
 			others++
+		case "sambaad":
+			samba++
+			others++
+			img := pxcImage("ubuntu", "24.04", n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+				}
+			}
 		case "vnc":
 			vnc++
 			others++
@@ -520,6 +543,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 					out = append(out, issue{"error", "PSMDB node " + n.Label + " uses Keycloak OIDC, which requires an HTTPS issuer — enable \"Use Intranet CA SSL\" on the Keycloak node"})
 				}
 			}
+			out = append(out, dirAuthIssues(n, dirNodes)...)
 		case "pg":
 			others++
 			img := pxcImage(n.OS, n.OSVersion, n.Arch)
@@ -535,6 +559,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			if n.UsePgBackRest {
 				out = append(out, pgBackRestSeaweedIssues("PostgreSQL node "+n.Label, n.SeaweedFSNodeID, doc)...)
 			}
+			out = append(out, dirAuthIssues(n, dirNodes)...)
 		case "seaweedfs":
 			others++
 			if !validBucketName(n.Bucket) {
@@ -574,6 +599,9 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	}
 	if vnc > 1 {
 		out = append(out, issue{"error", "Only one Ubuntu VNC node is allowed per stack"})
+	}
+	if samba > 1 {
+		out = append(out, issue{"error", "Only one Samba AD DC node is allowed per stack"})
 	}
 	// The Intranet provides DNS, mail, LDAP and the CA for the whole stack, so it
 	// is required before any other node can be deployed.
@@ -1123,6 +1151,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 		switch n.Type {
 		case "intranet":
 			a.provisionIntranet(st, n)
+		case "sambaad":
+			a.provisionSambaNode(st, n, doc)
 		case "pmm":
 			a.provisionPMM(st, n, doc)
 		case "proxysql":

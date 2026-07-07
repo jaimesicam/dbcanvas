@@ -4,6 +4,7 @@ import { Icon } from '../components/Icons.jsx'
 import { Card, Button, Badge, Field, ConfirmButton, inputCls } from '../components/ui.jsx'
 import { stackApi, frameApi, TTL_OPTIONS, DEPLOY_TONE } from '../lib/stackApi.js'
 import IntranetManager from './IntranetManager.jsx'
+import SambaManager from './SambaManager.jsx'
 import PMMManager from './PMMManager.jsx'
 import PXCManager from './PXCManager.jsx'
 import ProxySQLManager from './ProxySQLManager.jsx'
@@ -41,6 +42,17 @@ const NODE_TYPES = {
     singleton: true,
     ports: false, // self-contained; no connection endpoints
     osOptions: [{ id: 'oel9', label: 'Oracle Linux 9' }],
+  },
+  sambaad: {
+    label: 'Samba AD DC',
+    slug: 'sambaad',
+    sub: 'Active Directory · LDAP · Kerberos',
+    color: '#0ea5e9',
+    icon: 'Server',
+    singleton: true,
+    ports: false,
+    osOptions: [{ id: 'ubuntu', label: 'Ubuntu 24.04' }],
+    defaults: { osVersion: '24.04', generateCert: false, certTtlValue: 365, certTtlUnit: 'days', useProxy: false },
   },
   pmm: {
     label: 'PMM3',
@@ -1595,6 +1607,7 @@ function StackEditor({ stackId, onBack }) {
   const paletteGroups = [
     { title: 'Core', items: [
       { label: 'Intranet', type: 'intranet', onClick: () => addNode('intranet'), off: hasIntranet },
+      { label: 'Samba AD DC', type: 'sambaad', onClick: () => addNode('sambaad'), off: has('sambaad') },
       { label: 'PMM3', type: 'pmm', onClick: () => addNode('pmm') },
       { label: 'Watchtower', type: 'watchtower', onClick: () => addNode('watchtower'), off: has('watchtower') },
       { label: 'Keycloak', type: 'keycloak', onClick: () => addNode('keycloak'), off: has('keycloak') },
@@ -2655,6 +2668,51 @@ function MySQLMemberForm({ node: n, frame, nodes, patchNode, dep, deployed }) {
   )
 }
 
+// DirectoryAuthFields renders the "Directory authentication" design block shared by the
+// standalone Percona Server / PostgreSQL / PSMDB forms: an LDAP toggle, a directory picker
+// (Intranet OpenLDAP or Samba AD DC nodes in the stack), and — when kerberos is allowed and
+// a Samba directory is chosen — a Kerberos (GSSAPI) toggle.
+function DirectoryAuthFields({ node: n, nodes, patchNode, deployed, kerberos }) {
+  const dirs = nodes.filter((x) => x.type === 'intranet' || x.type === 'sambaad')
+  const isSamba = dirs.find((d) => d.id === n.ldapDirNodeId)?.type === 'sambaad'
+  return (
+    <div className="space-y-2 rounded-lg border border-dashed p-2">
+      <div className="text-xs font-medium text-muted">Directory authentication</div>
+      <label className={`flex items-center gap-2 text-sm ${deployed || dirs.length === 0 ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.ldapAuth} disabled={deployed || dirs.length === 0}
+          onChange={(e) => patchNode(n.id, { ldapAuth: e.target.checked })} />
+        <span>Integrate with LDAP</span>
+      </label>
+      {dirs.length === 0 && <p className="text-xs text-muted">Add an Intranet or Samba AD DC node to enable directory login.</p>}
+      {n.ldapAuth && dirs.length > 0 && (
+        <>
+          <Field label="Directory">
+            <select className={inputCls} value={n.ldapDirNodeId || ''} disabled={deployed}
+              onChange={(e) => {
+                const id = e.target.value
+                const t = dirs.find((d) => d.id === id)?.type
+                patchNode(n.id, { ldapDirNodeId: id, ...(t !== 'sambaad' ? { kerberosAuth: false } : {}) })
+              }}>
+              <option value="">— select —</option>
+              {dirs.map((d) => <option key={d.id} value={d.id}>{d.label} ({d.type === 'sambaad' ? 'Samba AD' : 'Intranet LDAP'})</option>)}
+            </select>
+          </Field>
+          {kerberos && (
+            <>
+              <label className={`flex items-center gap-2 text-sm ${deployed || !isSamba ? 'opacity-60' : ''}`}>
+                <input type="checkbox" checked={!!n.kerberosAuth} disabled={deployed || !isSamba}
+                  onChange={(e) => patchNode(n.id, { kerberosAuth: e.target.checked })} />
+                <span>Kerberos (GSSAPI) single sign-on</span>
+              </label>
+              {!isSamba && <p className="text-xs text-muted">Kerberos requires a Samba AD DC directory.</p>}
+            </>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 // PerconaServerForm edits a standalone Percona Server node: catalog-driven OS/version
 // + Percona Server major/minor, root password, PMM/proxy/GTID/cert and host export.
 // (Same options as the replication frame, minus the replication mode and role.)
@@ -2777,6 +2835,8 @@ function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
         </Field>
       )}
 
+      <DirectoryAuthFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} kerberos={false} />
+
       {!deployed && <p className="text-xs text-muted">Access links and credentials appear here after deploy.</p>}
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
         <Icon.Trash size={16} /> Delete node
@@ -2893,6 +2953,8 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
             onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
         </Field>
       )}
+
+      <DirectoryAuthFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} kerberos={true} />
 
       {!deployed && <p className="text-xs text-muted">A single read/write PostgreSQL instance (no replication). Access links and credentials appear here after deploy.</p>}
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
@@ -3090,6 +3152,59 @@ function KeycloakForm({ node: n, patchNode, deleteNode, dep, deployed }) {
       </div>
 
       {!deployed && <p className="text-xs text-muted">Console URL + admin credentials appear here after deploy.</p>}
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// SambaForm — draft config for the Samba AD DC singleton (Ubuntu 24.04 only).
+function SambaForm({ node: n, patchNode, deleteNode, dep, deployed }) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Samba AD DC</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <p className="text-xs text-muted">
+        An Active Directory Domain Controller — realm from <span className="font-mono">DOMAIN</span>, Administrator
+        password from <span className="font-mono">SAMBA_PASSWORD</span>. Manage LDAP users/groups, download
+        <span className="font-mono"> krb5.conf</span>, and mint per-service Kerberos principals + keytabs. One per stack.
+      </p>
+
+      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+      <Field label="Operating system" hint="Samba AD DC deploys on Ubuntu 24.04 only (complete packages).">
+        <input className={`${inputCls} opacity-70`} value="Ubuntu 24.04" readOnly />
+      </Field>
+
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.generateCert} disabled={deployed} onChange={(e) => patchNode(n.id, { generateCert: e.target.checked })} />
+        <span>Use Intranet CA certificate for LDAPS (TLS)</span>
+      </label>
+      {n.generateCert && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted">Cert TTL</span>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={n.certTtlValue || 365} disabled={deployed} onChange={(e) => patchNode(n.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={n.certTtlUnit || 'days'} disabled={deployed} onChange={(e) => patchNode(n.id, { certTtlUnit: e.target.value })}>
+            <option value="minutes">minutes</option>
+            <option value="hours">hours</option>
+            <option value="days">days</option>
+          </select>
+        </div>
+      )}
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for downloads</span>
+      </label>
+
+      <div className="rounded-lg bg-surface2 px-3 py-2 text-xs text-muted">
+        Plain <span className="font-mono">ldap://</span> binds are allowed (<span className="font-mono">ldap server
+        require strong auth = no</span>). After deploy, use the LDAP, Kerberos and DB-Auth tabs to manage the
+        directory and configure MongoDB / Percona Server / PostgreSQL authentication.
+      </div>
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
         <Icon.Trash size={16} /> Delete node
       </Button>
@@ -4877,6 +4992,8 @@ function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
         )}
       </div>
 
+      <DirectoryAuthFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} kerberos={true} />
+
       {!deployed && <p className="text-xs text-muted">Access links and credentials appear here after deploy.</p>}
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
         <Icon.Trash size={16} /> Delete node
@@ -5246,6 +5363,13 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     // Deployed + running Intranet → full management console.
     if (dep && dep.state === 'running' && n.type === 'intranet') {
       return <IntranetManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+    }
+    // Samba AD DC singleton node.
+    if (n.type === 'sambaad') {
+      if (dep && dep.state === 'running') {
+        return <SambaManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <SambaForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
     // Deployed + running PMM → PMM management console.
     if (dep && dep.state === 'running' && n.type === 'pmm') {
