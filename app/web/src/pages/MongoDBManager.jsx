@@ -3,12 +3,14 @@ import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE, mongoApi } from '../lib/stackApi.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
+import DbLoginGuide from '../components/DbLoginGuide.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'access', label: 'Access' },
   { id: 'tls', label: 'TLS' },
   { id: 'creds', label: 'Credentials' },
+  { id: 'dirlogin', label: 'Directory Login' },
   { id: 'backup', label: 'Backup' },
 ]
 
@@ -93,7 +95,7 @@ export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDelete
       </div>
 
       <div className="flex flex-wrap gap-1 rounded-lg bg-surface2 p-1">
-        {TABS.filter((t) => (t.id !== 'backup' || hasBackup) && (t.id !== 'tls' || cfg.generateCert)).map((t) => (
+        {TABS.filter((t) => (t.id !== 'backup' || hasBackup) && (t.id !== 'tls' || cfg.generateCert) && (t.id !== 'dirlogin' || cfg.dirAuth?.enabled)).map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${tab === t.id ? 'bg-surface text-fg shadow' : 'text-muted'}`}>
             {t.label}
@@ -237,6 +239,7 @@ mongosh --tls --tlsCAFile ${dir}/ca.crt --tlsCertificateKeyFile client.pem \\
         </div>
       )}
 
+      {tab === 'dirlogin' && <DbLoginGuide engine="psm" info={cfg.dirAuth} />}
       {tab === 'backup' && hasBackup && <BackupTab stackId={stackId} frameId={frameId} cfg={cfg} sec={sec} />}
     </div>
   )

@@ -5151,3 +5151,118 @@ DEPLOYMENT_TIMEOUT, DOCKER_PLATFORM), **Credentials** (MYSQL_ROOT/ADMIN, POSTGRE
 VALKEY, PROXYSQL_ADMIN, APP, REPL, MONITOR, CLUSTER, CLUSTERCHECK, PMM — with the note that
 these are the single source of truth and re-read on redeploy), and **Advanced** (DB_PATH,
 DOCKER_SOCK, VERSIONS_FILE, SPOCK_REF) with accurate defaults.
+
+---
+
+## 101. Samba AD DC node — Active Directory / LDAP / Kerberos directory — `app/samba.go`, `app/samba_mgmt.go`, `app/web/src/pages/SambaManager.jsx`, `components/DbLdapAuthGuide.jsx`
+
+**Goal.** A new **Samba Active Directory Domain Controller** node so stacks can use a real
+AD/Kerberos realm: manage LDAP users/groups, download `krb5.conf`, mint per-service Kerberos
+principals (`postgres/<fqdn>`, `mongodb/<fqdn>`) + keytabs for GSSAPI, with optional
+Intranet-CA TLS. Singleton, **Ubuntu 24.04 only**; realm from `DOMAIN`, Administrator
+password from a new **`SAMBA_PASSWORD`** env var (default `SambaPassword2026`, added to
+`.env`/`.env.example`).
+
+**Backend.** `provisionSambaNode` (samba.go, mirrors the VNC/Intranet Ubuntu provisioner):
+privileged container → apt-install `samba` **with recommends** (the AD provisioning templates
+arrive as a recommended package) → `samba-tool domain provision --use-rfc2307 --realm=$REALM
+--domain=$WORKGROUP --dns-backend=SAMBA_INTERNAL --adminpass=$SAMBA_PASSWORD` (idempotent) →
+add `ldap server require strong auth = no` to `[global]` (plain `ldap://` binds) → write an
+explicit `krb5.conf` (KDC pinned to the DC) → optional `sambaApplyCert` (Intranet-CA cert to
+`/var/lib/samba/private/tls/{cert,key,ca}.pem` — Samba's default LDAPS paths) → start
+`samba-ad-dc` → create an `ldapbind` service account + sample user/group. `samba_mgmt.go`
+exposes LDAP users/groups (samba-tool), `krb5` download, `targets` (stack PostgreSQL +
+MongoDB FQDNs), principal create/list (`samba-tool spn add`), `keytab` download
+(`samba-tool domain exportkeytab`), and TLS cert regeneration. Wired into intranet.go
+(dispatch/validation/singleton) + routes in main.go.
+
+**Frontend.** `SambaManager` — tabs Overview / LDAP (user+group CRUD) / Kerberos (krb5.conf
+download, principal picker from stack targets, per-principal keytab download) / Certificate /
+**DB Auth** / Credentials; `SambaForm` (draft) + `NODE_TYPES.sambaad` in the Core palette
+(Ubuntu 24.04 locked). Shared **`DbLdapAuthGuide`** (copy-paste PostgreSQL pg_hba / Percona
+Server authentication_ldap_simple / MongoDB LDAP / GSSAPI snippets) added as a **DB Auth** tab
+to **both** the Samba and Intranet managers.
+
+**Gotchas found + fixed.** Provision needs a **privileged** container (sysvol NT-ACL step →
+`NT_STATUS_ACCESS_DENIED` otherwise) — the deployment already runs nodes privileged. Must NOT
+use `--no-install-recommends` (drops `samba-ad-provision`). Cert signing uses `openssl x509
+-days` + `-extfile` for the SAN (Ubuntu's OpenSSL 3.0.13 lacks `-not_after`/`-copy_extensions`,
+which are 3.2+).
+
+**Verification.** Live stack (Intranet + Samba + standalone PostgreSQL + PSMDB): Samba reached
+running (domain provisioned, strong-auth off, Intranet-CA TLS applied). Via the API: listed +
+created LDAP users, listed groups, downloaded `krb5.conf`, `targets` returned the pg + mongo
+FQDNs, created `postgres/pg1…` and `mongodb/mongo1…` principals, downloaded a keytab and
+confirmed `klist -kt` shows `postgres/pg1.example.net@EXAMPLE.NET`, and `ldapsearch -H
+ldaps://…` validated against the Intranet CA. Playwright confirmed the Kerberos + DB-Auth tabs
+render. `go build/vet/test` + `npm run build` clean; test stack removed.
+
+---
+
+## 102. Samba AD DC — hide AD built-ins + full LDAP management parity with Intranet — `app/samba_mgmt.go`, `app/web/src/pages/SambaManager.jsx`, `app/samba.go`
+
+Follow-up to §101 from review feedback.
+
+- **Hide default AD objects.** The LDAP tab now lists only real, user-created users/groups:
+  `ldbsearch` filters on `!(isCriticalSystemObject=TRUE)` (drops Administrator, Guest, krbtgt,
+  the DC computer, DNS records, and all default AD groups); the two non-critical Samba-default
+  groups `DnsAdmins`/`DnsUpdateProxy` and the `svc-*` Kerberos service accounts are filtered in
+  Go. Provisioning no longer creates the sample `dbuser1`/`db-admins` — only the functional
+  `ldapbind` account.
+- **Feature parity with the Intranet LDAP utility.** Users: list with attributes, create,
+  **edit attributes** (givenName/sn/displayName/mail via `ldbmodify`), set password, delete.
+  Groups: list **with members** (usernames via `samba-tool group listmembers`), create,
+  **set membership** (clear-then-add to match a comma-separated list), delete. New routes
+  (`users/update`, `groups/delete`) + `sambaApi` methods; the SambaManager LDAP tab now mirrors
+  IntranetManager's (select-to-edit user, per-group member "Set", ConfirmButton deletes).
+
+**Verification.** Live intranet+samba deploy: users list showed only `ldapbind` (no built-ins/
+samples), groups empty; created a user, edited its attributes, set its password; created a
+group, set members `[alice, ldapbind]` (both resolved as usernames), cleared, deleted; deleted
+the user. Playwright confirmed the LDAP tab renders the inline editors. `go build/vet/test` +
+`npm run build` clean; test stack removed.
+
+---
+
+## 103. Directory authentication for DB nodes (LDAP + Kerberos) + login instructions — `app/dbauth.go`, provisioners, forms, managers, `DbLoginGuide.jsx`
+
+**Goal.** Let the standalone **Percona Server**, **PostgreSQL** and **PSMDB** nodes actually
+authenticate against a stack directory. A design-time toggle **auto-configures** the engine at
+deploy against a chosen directory node (Intranet OpenLDAP or Samba AD DC), and the deployed
+manager shows **how to log in**. Percona Server = LDAP only; PostgreSQL + PSMDB = LDAP **and**
+Kerberos (GSSAPI). Also: added the missing **copy-ldapsearch** buttons to the Samba LDAP tab.
+
+**Design model.** New `designNode` fields `ldapAuth` / `ldapDirNodeId` / `kerberosAuth`
+(`intranet.go`), validated by `dirAuthIssues` (LDAP needs a directory; Kerberos needs a `sambaad`
+directory). Forms get a shared `DirectoryAuthFields` block (StackDesigner) — an LDAP toggle, a
+directory `<select>`, and a Kerberos toggle enabled only for a Samba directory.
+
+**Auto-config (`app/dbauth.go`, `applyDirectoryAuth`, hooked at the end of `provisionPG` /
+`provisionPerconaServer` / `provisionMongoStandalone`).** Waits for the directory node
+(`resolveDirectory`, derives FQDN/baseDN/bindDN/bindpw + `uid`|`sAMAccountName`), runs an
+engine script, and for Kerberos mints a `postgres|mongodb/<node-fqdn>` principal + keytab on the
+Samba DC (reusing `sambaPrincipalCreateScript`/`sambaKeytabScript`), staging the keytab + krb5.conf
+into the DB container via `PutArchive`. The integration summary is merged into the node's
+`Deployment.Config` under `dirAuth` for the UI.
+
+**Recipes (validated live before wiring):**
+- **PostgreSQL** — pg_hba search+bind `ldap` line (superuser stays scram); Kerberos adds
+  `hostgssenc … gss include_realm=0` + `krb_server_keyfile`. Both coexist: a Kerberos client uses
+  `gssencmode=require` (matches `hostgssenc`), a password client falls through to `ldap`.
+- **Percona Server** — `authentication_ldap_simple`. Its vars are **startup-only** and the plugin
+  must be loaded from **`/etc/my.cnf`** (the `my.cnf.d` dir is not `!includedir`-ed), so config is
+  appended there + mysqld restarted. Client needs `--enable-cleartext-plugin`.
+- **PSMDB** — `security.ldap` (simple bind + `userToDNMapping`) + `authenticationMechanisms: PLAIN`.
+  Kerberos additionally installs **`cyrus-sasl-gssapi`**, wires the keytab (`KRB5_KTNAME` via a
+  systemd drop-in), adds `GSSAPI` + **`saslHostName: <fqdn>`** (mongod otherwise builds a
+  short-hostname acceptor principal that won't match the keytab).
+
+**Login instructions.** New `components/DbLoginGuide.jsx` renders a **Directory Login** tab
+(shown when `dep.config.dirAuth.enabled`) in `PGManager` / `MySQLManager` / `MongoDBManager`, with
+the one-time engine-side user/role step and the copy-paste `psql` / `mysql` / `mongosh` login
+commands (password + `kinit`-based GSSAPI).
+
+**Verification.** Recipes proven per engine in the live containers (LDAP password + wrong-password
+rejection; Kerberos via `kinit` on all of PG + PSMDB). Then a fresh Intranet + Samba + pg + ps +
+psm stack deployed with the flags on, confirming auto-config produces working logins end-to-end.
+`go build/vet/test` + `npm run build` clean.

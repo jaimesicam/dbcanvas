@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Button, Badge, Field, ConfirmButton, inputCls } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
+import DbLdapAuthGuide from '../components/DbLdapAuthGuide.jsx'
 import { intranetApi, DEPLOY_TONE } from '../lib/stackApi.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 
@@ -10,6 +11,7 @@ const TABS = [
   { id: 'ldap', label: 'LDAP' },
   { id: 'cert', label: 'Certificate' },
   { id: 'dbcerts', label: 'DB Certs' },
+  { id: 'dbauth', label: 'DB Auth' },
   { id: 'creds', label: 'Credentials' },
 ]
 
@@ -73,6 +75,7 @@ export default function IntranetManager({ stackId, nodeId, dep, onDeleteNode }) 
       {tab === 'ldap' && <LdapTab api={api} sec={sec} />}
       {tab === 'cert' && <CertTab api={api} />}
       {tab === 'dbcerts' && <DBCertTab api={api} domain={sec.domain} />}
+      {tab === 'dbauth' && <DbLdapAuthGuide kind="ldap" fqdn={'intranet.' + sec.domain} baseDN={'ou=People,' + sec.baseDN} bindDN={sec.ldapAdminDN} />}
       {tab === 'creds' && <CredsTab sec={sec} />}
     </div>
   )

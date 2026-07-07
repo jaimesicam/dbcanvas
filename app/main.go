@@ -93,6 +93,23 @@ func main() {
 	mux.HandleFunc("POST /api/visualsummary/upload", app.handleVisualUpload)
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/visualsummary", app.handleVisualNode)
 
+	// Samba AD DC node management — LDAP users/groups, Kerberos principals/keytabs, TLS.
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/samba/users", app.handleSambaUsers)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/samba/users", app.handleSambaUserCreate)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/samba/users/update", app.handleSambaUserUpdate)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/samba/users/password", app.handleSambaUserPassword)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/samba/users/delete", app.handleSambaUserDelete)
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/samba/groups", app.handleSambaGroups)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/samba/groups", app.handleSambaGroupCreate)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/samba/groups/members", app.handleSambaGroupMembers)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/samba/groups/delete", app.handleSambaGroupDelete)
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/samba/krb5", app.handleSambaKrb5)
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/samba/targets", app.handleSambaTargets)
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/samba/principals", app.handleSambaPrincipals)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/samba/principals", app.handleSambaPrincipalCreate)
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/samba/keytab", app.handleSambaKeytab)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/samba/cert", app.handleSambaCert)
+
 	// Data Generator — introspect + generate test data for PostgreSQL stack tables.
 	mux.HandleFunc("GET /api/datagen/connections", app.handleDataGenConnections)
 	mux.HandleFunc("GET /api/datagen/stacks/{id}/nodes/{nid}/databases", app.handleDataGenDatabases)
