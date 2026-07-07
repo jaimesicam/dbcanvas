@@ -89,6 +89,10 @@ func main() {
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/ptstalk", app.handlePTStalkStart)
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/ptstalk/download", app.handlePTStalkDownload)
 
+	// Visual Summary — parse a pt-stalk archive into timeline charts.
+	mux.HandleFunc("POST /api/visualsummary/upload", app.handleVisualUpload)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/visualsummary", app.handleVisualNode)
+
 	// Data Generator — introspect + generate test data for PostgreSQL stack tables.
 	mux.HandleFunc("GET /api/datagen/connections", app.handleDataGenConnections)
 	mux.HandleFunc("GET /api/datagen/stacks/{id}/nodes/{nid}/databases", app.handleDataGenDatabases)

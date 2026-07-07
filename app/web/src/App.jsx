@@ -11,6 +11,7 @@ import StackDesigner from './pages/StackDesigner.jsx'
 import DataGenerator from './pages/DataGenerator.jsx'
 import QueryRunner from './pages/QueryRunner.jsx'
 import Benchmark from './pages/Benchmark.jsx'
+import VisualSummary from './pages/VisualSummary.jsx'
 import ManageUsers from './pages/ManageUsers.jsx'
 
 const NAV = [
@@ -19,6 +20,7 @@ const NAV = [
   { id: 'data-generator', label: 'Data Generator', icon: 'Table', page: DataGenerator, hint: 'Generate test data for stack tables' },
   { id: 'queryrun', label: 'Query Runner', icon: 'Database', page: QueryRunner, hint: 'Run parallel queries with processlist gating' },
   { id: 'benchmark', label: 'Benchmark', icon: 'Monitor', page: Benchmark, hint: 'OLTP/OLAP/RW/RO throughput + latency' },
+  { id: 'visual-summary', label: 'Visual Summary', icon: 'Monitor', page: VisualSummary, hint: 'Charts from a pt-stalk archive' },
 ]
 const ADMIN_NAV = { id: 'users', label: 'Manage Users', icon: 'Users', page: ManageUsers, hint: 'Approve & manage accounts' }
 

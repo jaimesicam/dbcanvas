@@ -142,7 +142,14 @@ export function PTStalkCard({ stackId, nodeId }) {
       {status.status === 'done' && !running && (
         <div className="space-y-2">
           <div className={`${noteCls} border-success/30 bg-success/15 text-success`}>Capture complete.</div>
-          <DownloadLink href={api.ptStalkDownloadURL()}>Download pt-stalk archive (.tar.gz)</DownloadLink>
+          <div className="flex flex-wrap gap-2">
+            <DownloadLink href={api.ptStalkDownloadURL()}>Download (.tar.gz)</DownloadLink>
+            <button
+              onClick={() => { sessionStorage.setItem('vs.target', JSON.stringify({ stackId, nodeId })); location.hash = 'visual-summary' }}
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium text-fg transition hover:bg-surface2">
+              <Icon.Monitor size={15} /> Visual Summary
+            </button>
+          </div>
         </div>
       )}
       {(err || status.status === 'error') && (

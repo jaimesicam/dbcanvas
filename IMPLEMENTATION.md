@@ -4960,3 +4960,57 @@ correct attachment headers. `go build`/`vet`/`test` + `npm run build` clean.
 The canvas keydown handler treated both `Delete` and `Backspace` as delete triggers for the
 selected node/edge. Backspace is too easy to hit (and conflicts with normal editing/back
 navigation muscle memory), so it was dropped — only `Delete` now removes the selection.
+
+---
+
+## 92. Visual Summary — pt-stalk archive → timeline charts — `app/visualsummary.go`, `app/web/src/pages/VisualSummary.jsx`, `app/web/src/components/TimeChart.jsx`
+
+**Goal.** A tool that turns a pt-stalk/pt-summary/pt-mysql-summary archive (§90) into
+professional timeline charts — ~90% graphical, ~10% text — so an operator can eyeball
+CPU/mem/swap/disk and MySQL/InnoDB behaviour at a glance, then drill into raw files
+elsewhere. Accepts an **uploaded** `.tar.gz` or the **already-collected** pt-stalk from a
+node, and is **resilient**: any missing file just hides its chart.
+
+**Backend (`visualsummary.go`).** A tolerant in-memory tar.gz parser → one normalized JSON
+model (`source`, `summary{facts,findings}`, `cpu`/`disk` tabbed series, a `series` map, and
+an `available` flag map). Each file type has its own parser; a missing/malformed file omits
+its series only. Sources → series:
+- vmstat/mpstat → CPU (overall + **per-CPU** tabs), memory, swap; iostat → disk (overall +
+  **per-device** tabs, %util + throughput). Timestamps synthesized from the filename trigger
+  time + 1s row index (mpstat/processlist carry real times) so all series share an epoch axis.
+- `mysqladmin ext -i1` (1s `SHOW GLOBAL STATUS`) → buffer-pool pages + **read_requests vs
+  reads** (logical vs physical, with derived miss ratio), Handler_read_rnd_next, threads,
+  QPS/mix, InnoDB row ops, row-lock waits, tmp-disk-tables, slow-queries, aborted conns, and
+  **wsrep_*** (Galera) when present (→ engine=pxc). Counters become per-second deltas.
+- innodbstatus → history-list-length + latest deadlock (sparse). Replication lag from
+  `*-slave-status` (Seconds_Behind_Master) **or** `*-replica-status` (Seconds_Behind_Source,
+  MySQL 8.4+). processlist → longest-running queries + a **collapsed thread-state** stacked
+  timeline. pt-summary/pt-mysql-summary → static facts; headline peaks computed as findings.
+- Endpoints: `POST /api/visualsummary/upload` (multipart) and
+  `POST /api/stacks/{id}/nodes/{nid}/visualsummary` (reuses `loadRunningDBNode` +
+  `readContainerFile` to pull the node's `/tmp/ptstalk.tar.gz`).
+
+**Frontend.** `components/TimeChart.jsx` — a dependency-free SVG line/stacked-area chart:
+one y-axis, auto-scaled; gap-aware (breaks across the pt-stalk sleep window); gridlines +
+axes from the app's theme CSS vars; the **validated dataviz reference categorical palette**
+(picked light/dark by surface luminance, fixed order, never cycled); hover crosshair +
+tooltip and a legend carry identity (satisfying the palette's relief rule). `pages/VisualSummary.jsx`
+— drag/drop upload **or** a MySQL/PXC node picker (Query Runner targets); a ~10% text header
+(facts + finding tiles) then a ~90% chart grid, each card rendered only if its series is
+available. CPU (busy modes, idle excluded so usage is visible) and disk cards have Overall +
+per-entity tabs. `lib/visualApi.js`; nav entry in `App.jsx`; and an "Open Visual Summary"
+deep link from the pt-stalk card (`Diagnostics.jsx`, via `sessionStorage`).
+
+**Recommendations to the user (documented, no capture change).** Already charted the extras
+(threads, QPS/mix, row ops, row-lock waits, tmp-disk-tables, slow queries, aborted conns,
+Galera). Future capture ideas: raise pt-stalk depth (more iterations / shorter sleep; sample
+`SHOW ENGINE INNODB STATUS` every second for dense history-list & checkpoint-age); capture
+the slow-query log / `events_statements_summary` for top queries; checkpoint-age / log-seq
+lag; per-schema table I/O.
+
+**Verification.** `go build/vet/test` + `npm run build` clean. Parsed the real sample archive
+(upload): 15 series, CPU 60 pts + 20 per-CPU tabs, disk 60 pts + 4 devices, dense
+buffer-pool/handler/threads, sparse 4-pt history-list, replication correctly **absent**.
+Playwright screenshots confirmed professional rendering (auto-scaled CPU-busy detail, twin
+buffer-pool reads panel, tabs). Resilience: a trimmed archive (no mysqladmin/innodb/iostat)
+parsed to just cpu/memory/swap with no crash. From-node path exercised on a live PS node.
