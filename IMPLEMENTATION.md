@@ -5050,3 +5050,31 @@ throughput 59 pts (human-readable); connection states present (LISTEN on the idl
 socket-queue chart correctly absent (no backlog). Playwright confirmed the disk IOPS/await,
 network throughput, connection-states and checkpoint-age cards render professionally.
 `go build/vet/test` + `npm run build` clean.
+
+---
+
+## 94. Visual Summary — report reorder, sortable processlist/transaction tables — `app/visualsummary.go`, `app/web/src/pages/VisualSummary.jsx`
+
+Follow-up to §92/§93 from review feedback.
+
+- **Reordered** the report into labelled sections: **Operating system → Disk → Network →
+  MySQL / InnoDB** (MySQL network throughput, netstat connection states and socket backlog
+  now sit in a Network group right after Disk, before the MySQL/InnoDB charts).
+- **Consolidated processlist table** — the same running query recurs in every 1s capture, so
+  rows are now consolidated per `(thread Id + query)`: one row keeping the **longest observed
+  Time** and a **Seen** (capture count). Verified on the sample: the event-scheduler thread
+  collapses from 60 captures to a single row (Seen=60, Time=256). Rendered as a **sortable**
+  table (click any column; default Time desc).
+- **InnoDB transactions per session** — parses `LIST OF TRANSACTIONS FOR EACH SESSION` from
+  SHOW ENGINE INNODB STATUS across captures, consolidated per session (MySQL thread id, or trx
+  id when idle): trx id, status, longest Active secs, row locks, lock-wait flag, Seen, query —
+  also a sortable table. InnoDB status blocks are de-duplicated by timestamp so counts aren't
+  doubled by the status1/status2 overlap.
+- Added a reusable `SortableTable` (numeric/string aware, click-to-toggle asc/desc) and
+  reused it for the sustained socket-backlog table; dropped the old fixed "longest-running
+  queries" card (superseded by the sortable processlist).
+
+**Verification.** Parsed the sample: 172 consolidated processlist rows (event-scheduler
+Seen=60), 3 InnoDB transactions. Playwright confirmed the section order
+(Operating system/Disk/Network/MySQL) and that sorting works — clicking **Seen** reorders to
+id 6 (Seen=60) descending / id 1634 (Seen=1) ascending. `go build/vet/test` + `npm run build` clean.

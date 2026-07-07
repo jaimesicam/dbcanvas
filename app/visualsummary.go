@@ -59,9 +59,10 @@ type vsModel struct {
 	} `json:"summary"`
 	CPU         *vsTabbed            `json:"cpu,omitempty"`
 	Disk        *vsTabbed            `json:"disk,omitempty"`
-	Series      map[string]*vsSeries `json:"series"` // memory, swap, bufferPool, …
-	LongQueries []map[string]string  `json:"longQueries,omitempty"`
-	NetQueues   []map[string]string  `json:"netQueues,omitempty"` // sockets with sustained Recv-Q/Send-Q
+	Series      map[string]*vsSeries `json:"series"`                // memory, swap, bufferPool, …
+	Processlist []map[string]string  `json:"processlist,omitempty"` // consolidated processlist (per thread+query)
+	InnodbTrx   []map[string]string  `json:"innodbTrx,omitempty"`   // per-session InnoDB transactions
+	NetQueues   []map[string]string  `json:"netQueues,omitempty"`   // sockets with sustained Recv-Q/Send-Q
 	Deadlock    *vsDeadlock          `json:"deadlock,omitempty"`
 	Available   map[string]bool      `json:"available"`
 	Notes       []string             `json:"notes,omitempty"`
@@ -657,8 +658,6 @@ func parseInnodbStatus(m *vsModel, groups ...[]namedFile) {
 	hist := &vsSeries{Metrics: []string{"value"}, Unit: ""}
 	ckpt := &vsSeries{Metrics: []string{"age"}, Unit: "bytes"}
 	var dead vsDeadlock
-	seenHist := map[int64]bool{}
-	seenCkpt := map[int64]bool{}
 	type block struct {
 		ts   int64
 		text string
@@ -681,13 +680,33 @@ func parseInnodbStatus(m *vsModel, groups ...[]namedFile) {
 		}
 	}
 	sort.Slice(blocks, func(i, j int) bool { return blocks[i].ts < blocks[j].ts })
+	// Dedup blocks sharing a timestamp (innodbstatus1/2 overlap) so counts aren't doubled.
+	seenTs := map[int64]bool{}
+	uniq := blocks[:0]
 	for _, b := range blocks {
-		if mm := histRe.FindStringSubmatch(b.text); mm != nil && !seenHist[b.ts] {
-			seenHist[b.ts] = true
+		if seenTs[b.ts] {
+			continue
+		}
+		seenTs[b.ts] = true
+		uniq = append(uniq, b)
+	}
+	blocks = uniq
+
+	// Per-session transactions, consolidated across captures by MySQL thread id (or trx id).
+	type trxAgg struct {
+		trxId, threadId, status, query string
+		activeSec, rowLocks            float64
+		lockWait                       bool
+		seen                           int
+	}
+	trxConsol := map[string]*trxAgg{}
+	var trxOrder []string
+
+	for _, b := range blocks {
+		if mm := histRe.FindStringSubmatch(b.text); mm != nil {
 			hist.Points = append(hist.Points, vsPoint{T: b.ts, V: map[string]float64{"value": num(mm[1])}})
 		}
-		if mm := ckptAgeRe.FindStringSubmatch(b.text); mm != nil && !seenCkpt[b.ts] {
-			seenCkpt[b.ts] = true
+		if mm := ckptAgeRe.FindStringSubmatch(b.text); mm != nil {
 			ckpt.Points = append(ckpt.Points, vsPoint{T: b.ts, V: map[string]float64{"age": num(mm[1])}})
 		}
 		if i := strings.Index(b.text, "LATEST DETECTED DEADLOCK"); i >= 0 {
@@ -699,6 +718,31 @@ func parseInnodbStatus(m *vsModel, groups ...[]namedFile) {
 				dead.Detected = true
 				dead.When = time.Unix(b.ts, 0).UTC().Format(time.RFC3339)
 				dead.Text = lastLines(seg, 1600)
+			}
+		}
+		for _, t := range parseInnodbTrxBlock(b.text) {
+			key := t.threadId
+			if key == "" {
+				key = "trx:" + t.trxId
+			}
+			a := trxConsol[key]
+			if a == nil {
+				a = &trxAgg{threadId: t.threadId}
+				trxConsol[key] = a
+				trxOrder = append(trxOrder, key)
+			}
+			a.trxId = t.trxId
+			a.status = t.status
+			a.seen++
+			if t.activeSec > a.activeSec {
+				a.activeSec = t.activeSec
+			}
+			if t.rowLocks > a.rowLocks {
+				a.rowLocks = t.rowLocks
+			}
+			a.lockWait = a.lockWait || t.lockWait
+			if t.query != "" {
+				a.query = t.query
 			}
 		}
 	}
@@ -714,6 +758,97 @@ func parseInnodbStatus(m *vsModel, groups ...[]namedFile) {
 		m.Deadlock = &dead
 		m.Available["deadlock"] = true
 	}
+	if len(trxOrder) > 0 {
+		var rows []map[string]string
+		for _, key := range trxOrder {
+			a := trxConsol[key]
+			rows = append(rows, map[string]string{
+				"thread": a.threadId, "trx": a.trxId, "status": a.status,
+				"active": strconv.FormatFloat(a.activeSec, 'f', 0, 64), "rowLocks": strconv.FormatFloat(a.rowLocks, 'f', 0, 64),
+				"lockWait": boolStr(a.lockWait), "seen": strconv.Itoa(a.seen), "query": truncate(a.query, 400)})
+		}
+		sort.Slice(rows, func(i, j int) bool { return num(rows[i]["active"]) > num(rows[j]["active"]) })
+		m.InnodbTrx = rows
+		m.Available["innodbTrx"] = true
+	}
+}
+
+func boolStr(b bool) string {
+	if b {
+		return "yes"
+	}
+	return ""
+}
+
+// trxRec is one parsed InnoDB transaction from the "LIST OF TRANSACTIONS FOR EACH SESSION" section.
+type trxRec struct {
+	trxId, threadId, status, query string
+	activeSec, rowLocks            float64
+	lockWait                       bool
+}
+
+var trxHeadRe = regexp.MustCompile(`^(\d+), (.*)$`)
+var trxActiveRe = regexp.MustCompile(`ACTIVE (\d+) sec`)
+var trxThreadRe = regexp.MustCompile(`MySQL thread id (\d+)`)
+var trxRowLockRe = regexp.MustCompile(`(\d+) row lock\(s\)`)
+
+func parseInnodbTrxBlock(text string) []trxRec {
+	idx := strings.Index(text, "LIST OF TRANSACTIONS FOR EACH SESSION:")
+	if idx < 0 {
+		return nil
+	}
+	seg := text[idx:]
+	if e := strings.Index(seg, "\n--------"); e > 0 {
+		seg = seg[:e]
+	}
+	parts := strings.Split(seg, "---TRANSACTION ")
+	var out []trxRec
+	for _, part := range parts[1:] {
+		lines := strings.Split(part, "\n")
+		if len(lines) == 0 {
+			continue
+		}
+		var rec trxRec
+		if mm := trxHeadRe.FindStringSubmatch(strings.TrimSpace(lines[0])); mm != nil {
+			rec.trxId = mm[1]
+			rec.status = strings.TrimSpace(mm[2])
+		} else {
+			rec.status = strings.TrimSpace(lines[0])
+		}
+		if mm := trxActiveRe.FindStringSubmatch(rec.status); mm != nil {
+			rec.activeSec = num(mm[1])
+		}
+		threadLine := -1
+		for i := 1; i < len(lines); i++ {
+			l := strings.TrimSpace(lines[i])
+			if mm := trxThreadRe.FindStringSubmatch(l); mm != nil {
+				rec.threadId = mm[1]
+				threadLine = i
+			}
+			if mm := trxRowLockRe.FindStringSubmatch(l); mm != nil {
+				rec.rowLocks = num(mm[1])
+			}
+			if strings.HasPrefix(l, "LOCK WAIT") {
+				rec.lockWait = true
+			}
+		}
+		// The query, when present, is the first non-boilerplate line after the thread line.
+		if threadLine >= 0 {
+			for i := threadLine + 1; i < len(lines); i++ {
+				q := strings.TrimSpace(lines[i])
+				if q == "" {
+					continue
+				}
+				if strings.HasPrefix(q, "Trx ") || strings.HasPrefix(q, "mysql tables") || strings.HasPrefix(q, "---") {
+					break
+				}
+				rec.query = q
+				break
+			}
+		}
+		out = append(out, rec)
+	}
+	return out
 }
 
 // ---- replication ----
@@ -765,11 +900,20 @@ var tsLineRe = regexp.MustCompile(`^TS\s+[\d.]+\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}
 func parseProcesslist(m *vsModel, files []namedFile) {
 	states := &vsSeries{Unit: ""}
 	stateKeys := map[string]bool{}
-	var longQ []map[string]string
 	type row struct {
-		user, db, command, state, info string
-		timeSec                        float64
+		id, user, db, command, state, info string
+		timeSec                            float64
 	}
+	// Consolidate identical (thread Id + query) across all captures: a long-running query
+	// recurs every second while it runs — collapse to one row, keeping the longest elapsed
+	// time and how many captures it appeared in (the table stays fully sortable client-side).
+	type plAgg struct {
+		id, user, db, command, state, info string
+		maxTime                            float64
+		seen                               int
+	}
+	consol := map[string]*plAgg{}
+	var order []string
 
 	for _, f := range files {
 		var curT int64
@@ -786,16 +930,22 @@ func parseProcesslist(m *vsModel, files []namedFile) {
 			// State counts for this sample (collapsed).
 			counts := map[string]float64{}
 			for _, rr := range rows {
-				if rr.command == "Daemon" || rr.command == "Sleep" {
-					continue
+				key := rr.id + "\x00" + rr.info
+				a := consol[key]
+				if a == nil {
+					a = &plAgg{id: rr.id, user: rr.user, db: rr.db, command: rr.command, info: rr.info}
+					consol[key] = a
+					order = append(order, key)
 				}
-				st := collapseState(rr.state)
-				counts[st]++
-				stateKeys[st] = true
-				if rr.timeSec >= 5 && rr.command != "" && strings.ToUpper(rr.info) != "NULL" && rr.info != "" {
-					longQ = append(longQ, map[string]string{
-						"time": strconv.FormatFloat(rr.timeSec, 'f', 0, 64), "user": rr.user, "db": rr.db,
-						"state": rr.state, "info": truncate(rr.info, 300)})
+				a.state = rr.state
+				a.seen++
+				if rr.timeSec > a.maxTime {
+					a.maxTime = rr.timeSec
+				}
+				if rr.command != "Daemon" && rr.command != "Sleep" {
+					st := collapseState(rr.state)
+					counts[st]++
+					stateKeys[st] = true
 				}
 			}
 			if curT != 0 && len(counts) > 0 {
@@ -831,6 +981,8 @@ func parseProcesslist(m *vsModel, files []namedFile) {
 				continue
 			}
 			switch k {
+			case "Id":
+				r.id = v
 			case "User":
 				r.user = v
 			case "db":
@@ -857,13 +1009,26 @@ func parseProcesslist(m *vsModel, files []namedFile) {
 		m.Series["threadStates"] = states
 		m.Available["threadStates"] = true
 	}
-	if len(longQ) > 0 {
-		sort.Slice(longQ, func(i, j int) bool { return num(longQ[i]["time"]) > num(longQ[j]["time"]) })
-		if len(longQ) > 20 {
-			longQ = longQ[:20]
+	if len(order) > 0 {
+		var rows []map[string]string
+		for _, key := range order {
+			a := consol[key]
+			info := a.info
+			if strings.ToUpper(info) == "NULL" {
+				info = ""
+			}
+			rows = append(rows, map[string]string{
+				"id": a.id, "user": a.user, "db": a.db, "command": a.command, "state": a.state,
+				"time": strconv.FormatFloat(a.maxTime, 'f', 0, 64), "seen": strconv.Itoa(a.seen),
+				"info": truncate(info, 400),
+			})
 		}
-		m.LongQueries = longQ
-		m.Available["longQueries"] = true
+		sort.Slice(rows, func(i, j int) bool { return num(rows[i]["time"]) > num(rows[j]["time"]) })
+		if len(rows) > 300 {
+			rows = rows[:300]
+		}
+		m.Processlist = rows
+		m.Available["processlist"] = true
 	}
 }
 
@@ -1106,8 +1271,11 @@ func computeFindings(m *vsModel) {
 	if m.Deadlock != nil && m.Deadlock.Detected {
 		f["deadlockDetected"] = 1
 	}
-	if len(m.LongQueries) > 0 {
-		f["maxLongQuerySec"] = num(m.LongQueries[0]["time"])
+	for _, r := range m.Processlist { // sorted by time desc; first running row with a query
+		if r["info"] != "" && r["command"] != "Sleep" && r["command"] != "Daemon" {
+			f["maxLongQuerySec"] = num(r["time"])
+			break
+		}
 	}
 }
 

@@ -118,6 +118,7 @@ function Report({ model }) {
 
       {/* 90% charts */}
       <div className="grid gap-4 lg:grid-cols-2">
+        <SectionHead>Operating system</SectionHead>
         {model.cpu?.overall && (
           <ChartCard title="CPU busy" subtitle="% by mode (excl. idle) · Overall + per-CPU" span>
             <TabbedChart data={model.cpu} labelFor={(k) => 'CPU ' + k} kind="stacked" unit="%"
@@ -135,6 +136,7 @@ function Report({ model }) {
             <TimeChart points={model.series.swap.points} unit="MB" lines={[cl('used', 'swap used', 0)]} />
           </ChartCard>
         )}
+        {model.disk?.overall && <SectionHead>Disk</SectionHead>}
         {model.disk?.overall && (
           <ChartCard title="Disk utilization" subtitle="% busy · Overall + per-device" span>
             <TabbedChart data={model.disk} labelFor={(k) => k} unit="%"
@@ -159,6 +161,25 @@ function Report({ model }) {
               lines={[cl('rAwait', 'read await', 0), cl('wAwait', 'write await', 5)]} />
           </ChartCard>
         )}
+
+        {(has('networkThroughput') || has('netStates') || has('sockQueues')) && <SectionHead>Network</SectionHead>}
+        {has('networkThroughput') && (
+          <ChartCard title="MySQL network throughput" subtitle="bytes in/out per second (human-readable)">
+            <TimeChart points={model.series.networkThroughput.points} unit="B/s" lines={[cl('received', 'received', 0), cl('sent', 'sent', 5)]} />
+          </ChartCard>
+        )}
+        {has('netStates') && (
+          <ChartCard title="Network connection states" subtitle="TCP connections by state (netstat)" span>
+            <StackedStatesChart series={model.series.netStates} />
+          </ChartCard>
+        )}
+        {has('sockQueues') && (
+          <ChartCard title="Socket send/receive backlog" subtitle="count of sockets with non-zero Recv-Q / Send-Q">
+            <TimeChart points={model.series.sockQueues.points} lines={[cl('recvBacklog', 'recv-Q backlog', 6), cl('sendBacklog', 'send-Q backlog', 7)]} />
+          </ChartCard>
+        )}
+
+        <SectionHead>MySQL / InnoDB</SectionHead>
         {has('bufferPool') && (
           <ChartCard title="InnoDB buffer pool pages" subtitle="pages">
             <TimeChart points={model.series.bufferPool.points}
@@ -186,21 +207,6 @@ function Report({ model }) {
         {has('checkpointAge') && (
           <ChartCard title="InnoDB checkpoint age" subtitle="redo since last checkpoint (sparse)">
             <TimeChart points={model.series.checkpointAge.points} unit="B" lines={[cl('age', 'checkpoint age', 5)]} />
-          </ChartCard>
-        )}
-        {has('networkThroughput') && (
-          <ChartCard title="MySQL network throughput" subtitle="bytes in/out per second">
-            <TimeChart points={model.series.networkThroughput.points} unit="B/s" lines={[cl('received', 'received', 0), cl('sent', 'sent', 5)]} />
-          </ChartCard>
-        )}
-        {has('netStates') && (
-          <ChartCard title="Network connection states" subtitle="TCP connections by state (netstat)" span>
-            <StackedStatesChart series={model.series.netStates} />
-          </ChartCard>
-        )}
-        {has('sockQueues') && (
-          <ChartCard title="Socket send/receive backlog" subtitle="count of sockets with non-zero Recv-Q / Send-Q">
-            <TimeChart points={model.series.sockQueues.points} lines={[cl('recvBacklog', 'recv-Q backlog', 6), cl('sendBacklog', 'send-Q backlog', 7)]} />
           </ChartCard>
         )}
         {has('replicationLag') && (
@@ -260,56 +266,25 @@ function Report({ model }) {
         )}
       </div>
 
-      {model.netQueues && model.netQueues.length > 0 && (
-        <Card title="Sockets with sustained send/receive backlog" subtitle="non-zero Recv-Q / Send-Q across multiple captures (possible network/consumer stalls)">
-          <div className="max-h-72 overflow-auto p-3">
-            <table className="w-full text-xs">
-              <thead><tr className="text-left text-muted"><th className="pb-1 pr-2">Local</th><th className="pb-1 pr-2">Foreign</th><th className="pb-1 pr-2">State</th><th className="pb-1 pr-2">Program</th><th className="pb-1 pr-2">max Recv-Q</th><th className="pb-1 pr-2">max Send-Q</th><th className="pb-1">seen</th></tr></thead>
-              <tbody>
-                {model.netQueues.map((q, i) => (
-                  <tr key={i} className="border-t">
-                    <td className="py-1 pr-2 font-mono text-fg">{q.local}</td>
-                    <td className="py-1 pr-2 font-mono text-muted">{q.foreign}</td>
-                    <td className="py-1 pr-2 text-muted">{q.state}</td>
-                    <td className="py-1 pr-2 text-muted">{q.prog}</td>
-                    <td className="py-1 pr-2 font-mono text-fg">{q.maxRecv}</td>
-                    <td className="py-1 pr-2 font-mono text-fg">{q.maxSend}</td>
-                    <td className="py-1 text-muted">{q.hits}×</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {has('processlist') && (
+        <Card title="MySQL processlist" subtitle="consolidated per thread + query — a query recurring across captures is one row (Time = longest observed, Seen = captures). Click a column to sort.">
+          <div className="p-3"><SortableTable columns={PL_COLS} rows={model.processlist} initial={{ key: 'time', dir: 'desc' }} /></div>
         </Card>
       )}
-
-      {(model.deadlock?.detected || (model.longQueries && model.longQueries.length > 0)) && (
-        <div className="grid gap-4 lg:grid-cols-2">
-          {model.longQueries && model.longQueries.length > 0 && (
-            <Card title="Longest-running queries" subtitle="captured in processlist">
-              <div className="max-h-72 overflow-auto p-3">
-                <table className="w-full text-xs">
-                  <thead><tr className="text-left text-muted"><th className="pb-1 pr-2">Time</th><th className="pb-1 pr-2">User</th><th className="pb-1 pr-2">DB</th><th className="pb-1">Query</th></tr></thead>
-                  <tbody>
-                    {model.longQueries.map((q, i) => (
-                      <tr key={i} className="border-t align-top">
-                        <td className="py-1 pr-2 font-mono text-fg">{q.time}s</td>
-                        <td className="py-1 pr-2 text-muted">{q.user}</td>
-                        <td className="py-1 pr-2 text-muted">{q.db}</td>
-                        <td className="py-1 font-mono text-[11px] text-fg break-all">{q.info}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-          )}
-          {model.deadlock?.detected && (
-            <Card title="Latest detected deadlock" subtitle={model.deadlock.when ? new Date(model.deadlock.when).toLocaleString() : ''}>
-              <pre className="max-h-72 overflow-auto whitespace-pre-wrap p-3 font-mono text-[11px] text-fg">{model.deadlock.text}</pre>
-            </Card>
-          )}
-        </div>
+      {has('innodbTrx') && (
+        <Card title="InnoDB transactions per session" subtitle="from SHOW ENGINE INNODB STATUS, consolidated per session (Active = longest observed). Click a column to sort.">
+          <div className="p-3"><SortableTable columns={TRX_COLS} rows={model.innodbTrx} initial={{ key: 'active', dir: 'desc' }} /></div>
+        </Card>
+      )}
+      {model.netQueues && model.netQueues.length > 0 && (
+        <Card title="Sockets with sustained send/receive backlog" subtitle="non-zero Recv-Q / Send-Q across multiple captures (possible network/consumer stalls). Click a column to sort.">
+          <div className="p-3"><SortableTable columns={NETQ_COLS} rows={model.netQueues} initial={{ key: 'maxSend', dir: 'desc' }} /></div>
+        </Card>
+      )}
+      {model.deadlock?.detected && (
+        <Card title="Latest detected deadlock" subtitle={model.deadlock.when ? new Date(model.deadlock.when).toLocaleString() : ''}>
+          <pre className="max-h-72 overflow-auto whitespace-pre-wrap p-3 font-mono text-[11px] text-fg">{model.deadlock.text}</pre>
+        </Card>
       )}
     </div>
   )
@@ -317,6 +292,81 @@ function Report({ model }) {
 
 // cl builds a chart line spec: value key, legend label, palette slot.
 function cl(key, label, color) { return { key, label, color } }
+
+// SectionHead is a full-width group heading inside the chart grid.
+function SectionHead({ children }) {
+  return <div className="lg:col-span-2 pt-1"><h2 className="text-sm font-semibold text-fg">{children}</h2></div>
+}
+
+// SortableTable renders rows (array of string maps) with click-to-sort columns.
+// columns: [{ key, label, numeric?, mono?, muted?, wide? }].
+function SortableTable({ columns, rows, initial }) {
+  const [sortKey, setSortKey] = useState(initial?.key || columns[0].key)
+  const [dir, setDir] = useState(initial?.dir || 'asc')
+  const col = columns.find((c) => c.key === sortKey) || columns[0]
+  const sorted = [...rows].sort((a, b) => {
+    if (col.numeric) return (dir === 'asc' ? 1 : -1) * ((parseFloat(a[sortKey]) || 0) - (parseFloat(b[sortKey]) || 0))
+    return (dir === 'asc' ? 1 : -1) * String(a[sortKey] || '').localeCompare(String(b[sortKey] || ''))
+  })
+  const toggle = (k) => { if (k === sortKey) setDir((d) => (d === 'asc' ? 'desc' : 'asc')); else { setSortKey(k); setDir(k === sortKey ? dir : 'asc') } }
+  return (
+    <div className="max-h-96 overflow-auto rounded-lg border">
+      <table className="w-full text-xs">
+        <thead className="sticky top-0 z-10 bg-surface2">
+          <tr className="text-left">
+            {columns.map((c) => (
+              <th key={c.key} onClick={() => toggle(c.key)}
+                className="cursor-pointer select-none whitespace-nowrap px-2 py-1.5 font-medium text-muted hover:text-fg">
+                {c.label}{sortKey === c.key ? (dir === 'asc' ? ' ▲' : ' ▼') : ''}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((r, i) => (
+            <tr key={i} className="border-t align-top">
+              {columns.map((c) => (
+                <td key={c.key} className={`px-2 py-1 ${c.mono ? 'font-mono' : ''} ${c.wide ? 'min-w-[16rem] break-all text-[11px]' : 'whitespace-nowrap'} ${c.muted ? 'text-muted' : 'text-fg'}`}>
+                  {r[c.key] === '' ? '—' : r[c.key]}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+const PL_COLS = [
+  { key: 'id', label: 'Id', numeric: true, mono: true },
+  { key: 'user', label: 'User', muted: true },
+  { key: 'db', label: 'DB', muted: true },
+  { key: 'command', label: 'Command', muted: true },
+  { key: 'state', label: 'State', muted: true },
+  { key: 'time', label: 'Time (s)', numeric: true, mono: true },
+  { key: 'seen', label: 'Seen', numeric: true, mono: true },
+  { key: 'info', label: 'Query', mono: true, wide: true },
+]
+const TRX_COLS = [
+  { key: 'thread', label: 'Thread', numeric: true, mono: true },
+  { key: 'trx', label: 'Trx id', mono: true, muted: true },
+  { key: 'status', label: 'Status', muted: true },
+  { key: 'active', label: 'Active (s)', numeric: true, mono: true },
+  { key: 'rowLocks', label: 'Row locks', numeric: true, mono: true },
+  { key: 'lockWait', label: 'Lock wait', muted: true },
+  { key: 'seen', label: 'Seen', numeric: true, mono: true },
+  { key: 'query', label: 'Query', mono: true, wide: true },
+]
+const NETQ_COLS = [
+  { key: 'local', label: 'Local', mono: true },
+  { key: 'foreign', label: 'Foreign', mono: true, muted: true },
+  { key: 'state', label: 'State', muted: true },
+  { key: 'prog', label: 'Program', muted: true },
+  { key: 'maxRecv', label: 'max Recv-Q', numeric: true, mono: true },
+  { key: 'maxSend', label: 'max Send-Q', numeric: true, mono: true },
+  { key: 'hits', label: 'Seen', numeric: true, mono: true },
+]
 
 function humanBytes(v) {
   if (v < 1024) return v.toFixed(0) + ' B'
