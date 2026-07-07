@@ -5139,3 +5139,15 @@ widgets), `pmm-node` (a PMM node's management panel), `data-generator` (FK-sampl
 `query-runner`, `benchmark`, `visual-summary`, `pmm-web` (the PMM Grafana home monitoring the
 stack), and `vnc-desktop` (the XFCE noVNC desktop). Terminal caption updated (MySQL query
 rather than psql).
+
+---
+
+## 100. README: complete the Configuration (.env) section — `README.md`
+
+The Configuration table listed only 5 variables; `.env.example` defines 18 (and the binary
+reads a few more). Rewrote the section from `.env.example` + a sweep of every `envOr`/`Getenv`
+call, split into **App & networking** (APP_HOST, APP_PORT, CONTAINER_BIND_IP, DOMAIN,
+DEPLOYMENT_TIMEOUT, DOCKER_PLATFORM), **Credentials** (MYSQL_ROOT/ADMIN, POSTGRES, MONGODB_ADMIN,
+VALKEY, PROXYSQL_ADMIN, APP, REPL, MONITOR, CLUSTER, CLUSTERCHECK, PMM — with the note that
+these are the single source of truth and re-read on redeploy), and **Advanced** (DB_PATH,
+DOCKER_SOCK, VERSIONS_FILE, SPOCK_REF) with accurate defaults.

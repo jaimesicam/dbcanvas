@@ -181,16 +181,48 @@ account. Design a stack in **Database Stacks**, deploy it, and watch the bell + 
 
 ## Configuration (`.env`)
 
+`make compose` creates `.env` from [`.env.example`](.env.example) on first run. Everything has
+a working default — but **change the passwords before exposing anything beyond localhost.**
+
+**App & networking**
+
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `APP_HOST` | `127.0.0.1` | Host interface the published port binds to. `127.0.0.1` is private to this machine; `0.0.0.0` exposes it on all interfaces. |
+| `APP_HOST` | `127.0.0.1` | Host interface the app's published port binds to. `127.0.0.1` = this machine only; `0.0.0.0` = all interfaces (e.g. your LAN). |
 | `APP_PORT` | `8080` | Port the app listens on (host + container). |
-| `PMM_PASSWORD` | `pmm_password` | Password for the `pmm` monitoring user created on DB nodes. |
-| `DOCKER_PLATFORM` | `linux/amd64` | Target platform for the image build. |
-| `DEPLOYMENT_TIMEOUT` | `60` | Minutes a provisioner waits for a dependency (cluster, node, or shared service) to become ready before failing the deploy. Raise it for large stacks with many containers. |
+| `CONTAINER_BIND_IP` | `127.0.0.1` | Host interface that **deployed stack nodes** publish their exposed ports on (PXC, ProxySQL, Percona Server, PostgreSQL, MongoDB, Valkey, HAProxy, SeaweedFS, PMM, …). `0.0.0.0` publishes on all interfaces. |
+| `DOMAIN` | `example.net` | Domain used to configure deployed stacks (Intranet LDAP base DN, DNS, mail, CA). |
+| `DEPLOYMENT_TIMEOUT` | `60` | Minutes a provisioner waits for a dependency (cluster / node / shared service) to become ready before failing the deploy. Raise it for large stacks. |
+| `DOCKER_PLATFORM` | `linux/amd64` | Target platform for the app image build. |
+
+**Credentials** — passwords for deployed database & service nodes. These are the single
+source of truth (they can't be set per-node on the canvas), and a redeploy re-reads them.
+Engine-specific variables (`MYSQL_*`, `POSTGRES_*`, `MONGODB_*`, `VALKEY_*`, `PROXYSQL_*`)
+apply to that engine only; the rest are shared where relevant.
+
+| Variable | Default | Applies to |
+| --- | --- | --- |
+| `MYSQL_ROOT_PASSWORD` | `root_password` | `root@localhost` on every MySQL-family node (PXC, MySQL replication, InnoDB/GR, standalone Percona Server). |
+| `MYSQL_ADMIN_PASSWORD` | `admin_password` | The network-reachable superuser `admin@'%'` on every MySQL-family node. |
+| `POSTGRES_PASSWORD` | `postgres_password` | The `postgres` superuser on every PostgreSQL node (standalone, Patroni, repmgr, Spock). |
+| `MONGODB_ADMIN_PASSWORD` | `admin_password` | The admin user on every PSMDB node (standalone / replica set / sharded). |
+| `VALKEY_PASSWORD` | `valkey_password` | The default user (`requirepass` / `masterauth`) on every Valkey node. |
+| `PROXYSQL_ADMIN_PASSWORD` | `admin_password` | The ProxySQL `admin` user (port 6032) on every ProxySQL node. |
+| `APP_PASSWORD` | `app_password` | The application user created on PXC nodes. |
+| `REPL_PASSWORD` | `repl_password` | The replication user (MySQL-family + PostgreSQL replication). |
+| `MONITOR_PASSWORD` | `monitor_password` | The monitoring user used by ProxySQL's health checks. |
+| `CLUSTER_PASSWORD` | `cluster_password` | The cluster-admin user used by ProxySQL's `proxysql-admin`. |
+| `CLUSTERCHECK_PASSWORD` | `cluster_password` | `clustercheck@localhost`, backing the PXC `:9200` health endpoint an HAProxy polls. |
+| `PMM_PASSWORD` | `pmm_password` | The least-privilege `pmm` monitoring user, created only on nodes associated with a PMM server. |
 
 The container always listens on all interfaces internally; host-side exposure is controlled
 by the compose publish binding, not by `APP_HOST` inside the container.
+
+**Advanced (rarely changed)** — set by `docker-compose.yml` or handy for local dev:
+`DB_PATH` (SQLite file, default `dbcanvas.db`; the container uses a `/data` volume),
+`DOCKER_SOCK` (Docker socket, default `/var/run/docker.sock`), `VERSIONS_FILE` (path to the
+`versions.yaml` catalog), and `SPOCK_REF` (the pgEdge/spock git ref built for Spock clusters,
+default `v5.0.10`).
 
 ## Local development (no Docker for the app)
 
