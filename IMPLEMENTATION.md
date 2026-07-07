@@ -5078,3 +5078,12 @@ Follow-up to §92/§93 from review feedback.
 Seen=60), 3 InnoDB transactions. Playwright confirmed the section order
 (Operating system/Disk/Network/MySQL) and that sorting works — clicking **Seen** reorders to
 id 6 (Seen=60) descending / id 1634 (Seen=1) ascending. `go build/vet/test` + `npm run build` clean.
+
+---
+
+## 95. Rename the Stack Designer "Palette" to "Infrastructure Library" — `app/web/src/pages/StackDesigner.jsx`
+
+Renamed the node-palette panel's user-facing label from **Palette** to **Infrastructure
+Library** (the panel header and the docked "Add nodes from the … →" hint). Internal
+identifiers (`paletteGroups`, `paletteDocked`, etc.) are unchanged.
+

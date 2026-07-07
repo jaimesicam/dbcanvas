@@ -1659,7 +1659,7 @@ function StackEditor({ stackId, onBack }) {
   )
   const paletteHeader = (onToggle, dockLabel, dockIcon, onDrag) => (
     <div className={`flex shrink-0 items-center justify-between border-b px-2 py-1.5 ${onDrag ? 'cursor-move' : ''}`} onPointerDown={onDrag}>
-      <span className="text-xs font-semibold">Palette</span>
+      <span className="text-xs font-semibold">Infrastructure Library</span>
       <button title={dockLabel} onClick={onToggle} className="text-muted hover:text-fg">{dockIcon}</button>
     </div>
   )
@@ -1675,7 +1675,7 @@ function StackEditor({ stackId, onBack }) {
           <Badge tone="primary">{ttlLabel(stack.ttl)}</Badge>
           <Badge tone={STATUS_TONE[stack.status] || 'muted'}>{stack.status}</Badge>
           <div className="mx-1 h-5 w-px bg-border" />
-          {paletteDocked && <span className="text-xs text-muted">Add nodes from the palette →</span>}
+          {paletteDocked && <span className="text-xs text-muted">Add nodes from the Infrastructure Library →</span>}
           {!paletteDocked && (
             <Button size="sm" variant="outline" onClick={() => setPaletteDocked(true)}><Icon.Plus size={15} /> Palette</Button>
           )}
