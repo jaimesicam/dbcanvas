@@ -475,6 +475,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			if n.WatchtowerNodeID != "" && !watchtowerIDs[n.WatchtowerNodeID] {
 				out = append(out, issue{"error", "PMM node " + n.Label + " is associated with a Watchtower node that is not on the canvas — add a Watchtower node or clear the association"})
 			}
+			out = append(out, oidcIssues(n, keycloakIDs, keycloakSSL)...)
 		case "watchtower":
 			watchtower++
 			others++
@@ -560,6 +561,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 				out = append(out, pgBackRestSeaweedIssues("PostgreSQL node "+n.Label, n.SeaweedFSNodeID, doc)...)
 			}
 			out = append(out, dirAuthIssues(n, dirNodes)...)
+			out = append(out, oidcIssues(n, keycloakIDs, keycloakSSL)...)
 		case "seaweedfs":
 			others++
 			if !validBucketName(n.Bucket) {

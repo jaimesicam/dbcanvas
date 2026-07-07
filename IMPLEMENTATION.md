@@ -5266,3 +5266,77 @@ commands (password + `kinit`-based GSSAPI).
 rejection; Kerberos via `kinit` on all of PG + PSMDB). Then a fresh Intranet + Samba + pg + ps +
 psm stack deployed with the flags on, confirming auto-config produces working logins end-to-end.
 `go build/vet/test` + `npm run build` clean.
+
+---
+
+## 104. Keycloak SSO for PMM + PostgreSQL (pg_oidc_validator) — `app/keycloakclient.go`, `app/pmmoidc.go`, `app/pgoidc.go`, forms, managers, `OidcLoginGuide.jsx`
+
+**Goal.** Extend the Keycloak (OIDC) node beyond PSMDB to two more services, auto-configured at
+deploy (toggle → configure → login instructions), both requiring an SSL Keycloak (HTTPS issuer):
+- **PMM ↔ Keycloak** — single sign-on into PMM (Grafana) via generic OAuth.
+- **PostgreSQL (standalone `pg`) ↔ Keycloak** — OAuth login using **PostgreSQL 18's** native
+  `oauth` auth method + the **`pg_oidc_validator`** extension.
+
+**PG 18 support.** Added `"18"` (with ppg-18 minors) to `versions.yaml` so the pg node offers it;
+`ppgMajorOf`/`pgServerPackages` already parameterise on major, so `percona-release setup ppg-18` +
+install flow "just works" (no image rebuild). OIDC forces `pgMajor = 18` (form + validation).
+
+**Shared Keycloak client helper** (`keycloakclient.go`, generalising `keycloakSetupScript`):
+`ensureKeycloakClient` runs `kcadm` in the Keycloak container to ensure a realm + client
+(public/confidential, redirect URIs, device-authorization grant, audience + groups mappers, groups,
+sample users) and returns the client secret.
+
+**PMM** (`pmmoidc.go`, hooked into `provisionPMM`): confidential Keycloak client (redirect
+`https://<pmm-fqdn>:8443/graph/login/generic_oauth`) + `pmm-admins`/`pmm-viewers` groups; then an
+`[auth.generic_oauth]` block + `root_url` in `grafana.ini` (awk section-replace like `pmmSMTPScript`)
+with `role_attribute_path` mapping the `groups` claim → Admin/Viewer, and `tls_skip_verify_insecure`
+(the PMM image's `/etc/pki` is read-only for the runtime user); `supervisorctl restart grafana`.
+
+**PostgreSQL** (`pgoidc.go` `applyPGOIDC`, hooked into `provisionPG`, mirroring `applyDirectoryAuth`):
+public device-flow Keycloak client; install `percona-pg_oidc_validator18` + the client OAuth module
+`percona-postgresql18-libs-oauth` (via `dnf download` + `rpm -Uvh --nodeps` — Percona's package has an
+epoch/arch-qualifier dependency bug); trust the Intranet CA (staged via `PutArchive`); set
+`oauth_validator_libraries=pg_oidc_validator` + `pg_oidc_validator.authn_field=preferred_username`;
+add a `pg_hba` `oauth scope="openid",issuer=<issuer>` line before the scram catch-all (superuser
+stays scram); restart. A PG role per Keycloak username is required (shown in the guide).
+
+**Frontend.** Shared `KeycloakOidcFields` design block on the PMM (`PMMOptions`) and PostgreSQL forms
+(enable + Keycloak-node picker + realm; the pg block locks major to 18). New
+`components/OidcLoginGuide.jsx` rendered in a **"Keycloak SSO"** tab (shown when
+`dep.config.oidc.enabled`) on `PMMManager` (Sign-in URL + group→role note + sample users) and
+`PGManager` (one-time `CREATE ROLE`, client `libpq-oauth` prereqs, `psql … oauth_issuer …` device
+login). Validation (`oidcIssues`, `intranet.go`) requires a linked SSL Keycloak (+ PG 18 for pg).
+
+**Verification.** Both recipes proven live before wiring: PG 18 device-flow login end-to-end
+(`psql … oauth_*` → Keycloak device grant → `pg_oidc_validator` validated the token → mapped
+`preferred_username` → role, returning `alice pg-oidc-ok`); PMM `/graph/login/generic_oauth`
+302-redirects to Keycloak with the correct client/redirect/scopes/PKCE. Then a fresh Intranet +
+Keycloak(SSL) + PMM(OIDC) + pg18(OIDC) stack confirmed auto-config end-to-end. `go build/vet/test` +
+`npm run build` clean.
+
+---
+
+## 105. Kerberos independent of LDAP + krb5 client install — `app/dbauth.go`, `DirectoryAuthFields`, `DbLoginGuide.jsx`, `vnc.go`
+
+Refinements to the directory-auth feature (§101–103):
+
+- **Kerberos is now independent of LDAP.** Previously the Kerberos (GSSAPI) toggle was nested under
+  "Integrate with LDAP" and only enabled when the chosen LDAP directory was Samba. Now the two are
+  separate options: LDAP targets a chosen Intranet/Samba directory, while **Kerberos is available
+  whenever a Samba AD DC node exists** in the stack (Samba is a singleton, always used for the KDC).
+  A node can enable LDAP-against-Intranet **and** Kerberos-against-Samba, Kerberos-only, or LDAP-only.
+  Changes: `DirectoryAuthFields` (two independent controls), `applyDirectoryAuth` (resolves the LDAP
+  directory and the Samba DC separately; engine scripts gate the LDAP block on an `LDAP` flag),
+  `dirAuthIssues` (Kerberos requires a `sambaad` node, not a Samba LDAP directory), `dirAuthInfo`
+  gains an `ldap` flag, and the provision hooks run on `LdapAuth || KerberosAuth`. `DbLoginGuide`
+  shows the LDAP vs Kerberos login blocks per the flags.
+- **krb5 client install.** When Kerberos is enabled, the DB node now installs the Kerberos client
+  tools (`krb5-workstation` on Oracle Linux/RHEL, `krb5-user` on Debian/Ubuntu) via the shared
+  `krb5ClientInstall` snippet. The **Ubuntu VNC** node also installs `krb5-user` (with the other DB
+  clients) so the desktop can `kinit` into Kerberos-enabled databases.
+
+**Verification.** A Kerberos-only stack (LDAP off) confirmed: `dirAuth` = `ldap:false, kerberos:true`;
+`krb5-workstation` installed on pg + psm; pg_hba has `gss` but no `ldap` line; mongod has `GSSAPI` but
+no `security.ldap`; GSSAPI login `karl|kerb-only-ok` works while LDAP-password login is (correctly)
+unavailable. Validation rejects Kerberos without a Samba node; `krb5-user` install confirmed on
+Ubuntu 24.04. `go build/vet/test` + `npm run build` clean.

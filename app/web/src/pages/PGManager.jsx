@@ -4,11 +4,13 @@ import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE, pgApi } from '../lib/stackApi.js'
 import { PGGatherCard } from '../components/Diagnostics.jsx'
 import DbLoginGuide from '../components/DbLoginGuide.jsx'
+import OidcLoginGuide from '../components/OidcLoginGuide.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'creds', label: 'Credentials' },
   { id: 'dirlogin', label: 'Directory Login' },
+  { id: 'sso', label: 'Keycloak SSO' },
   { id: 'backup', label: 'Backup' },
   { id: 'diag', label: 'Diagnostics' },
 ]
@@ -69,7 +71,7 @@ export default function PGManager({ stackId, nodeId, dep, onDeleteNode }) {
       </div>
 
       <div className="flex flex-wrap gap-1 rounded-lg bg-surface2 p-1">
-        {TABS.filter((t) => (t.id !== 'backup' || hasBackup) && (t.id !== 'dirlogin' || cfg.dirAuth?.enabled)).map((t) => (
+        {TABS.filter((t) => (t.id !== 'backup' || hasBackup) && (t.id !== 'dirlogin' || cfg.dirAuth?.enabled) && (t.id !== 'sso' || cfg.oidc?.enabled)).map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
@@ -83,6 +85,7 @@ export default function PGManager({ stackId, nodeId, dep, onDeleteNode }) {
       {tab === 'overview' && <Overview cfg={cfg} dep={dep} onDeleteNode={onDeleteNode} />}
       {tab === 'creds' && <Creds cfg={cfg} sec={sec} />}
       {tab === 'dirlogin' && <DbLoginGuide engine="pg" info={cfg.dirAuth} />}
+      {tab === 'sso' && <OidcLoginGuide engine="pg" info={cfg.oidc} />}
       {tab === 'backup' && hasBackup && <BackupTab stackId={stackId} nodeId={nodeId} cfg={cfg} />}
       {tab === 'diag' && <PGGatherCard stackId={stackId} nodeId={nodeId} defaultDb={cfg.database} />}
     </div>

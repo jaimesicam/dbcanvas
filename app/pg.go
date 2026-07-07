@@ -320,9 +320,14 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 
 		dep, _ := a.store.GetDeployment(st.ID, n.ID)
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: dep.ContainerID, State: DeployRunning, Config: cfgJSON, Secrets: secJSON})
-		if n.LdapAuth {
+		if n.LdapAuth || n.KerberosAuth {
 			if err := a.applyDirectoryAuth(ctx, st, n, doc, dep.ContainerID, "pg", "", pr); err != nil {
 				pr.logln("directory authentication skipped: " + err.Error())
+			}
+		}
+		if n.EnableOIDC {
+			if err := a.applyPGOIDC(ctx, st, n, doc, dep.ContainerID, service, pr); err != nil {
+				pr.logln("Keycloak OIDC skipped: " + err.Error())
 			}
 		}
 		pr.phase("Running", 100)

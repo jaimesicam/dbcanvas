@@ -262,6 +262,7 @@ dpkg -i /tmp/percona-release.deb >/dev/null 2>&1 || { apt-get update -qq; apt-ge
 for r in ps-80 psmdb-80 ppg-17 valkey-91 tools; do percona-release enable "$r" >/dev/null 2>&1 || true; done
 apt-get update -qq
 apt-get install -y -qq ldap-utils >/dev/null 2>&1 || true
+apt-get install -y -qq krb5-user >/dev/null 2>&1 || true                   # Kerberos client (kinit/klist) for GSSAPI logins
 apt-get install -y -qq percona-server-client >/dev/null 2>&1 || true       # Percona Server (MySQL) client
 apt-get install -y -qq percona-mongodb-mongosh >/dev/null 2>&1 || true      # PSMDB shell (mongosh)
 apt-get install -y -qq percona-postgresql-client-17 >/dev/null 2>&1 || true # Percona PostgreSQL client (psql)
@@ -269,7 +270,7 @@ apt-get install -y -qq percona-valkey-tools >/dev/null 2>&1 || apt-get install -
 apt-get install -y -qq percona-toolkit >/dev/null 2>&1 || true             # Percona Toolkit (pt-* utilities)
 # Report what landed so the deploy log shows which clients are present.
 echo "clients present:"
-for c in mysql mongosh psql valkey-cli ldapsearch pt-query-digest; do command -v "$c" >/dev/null 2>&1 && echo "  $c: $(command -v $c)" || echo "  $c: MISSING (install with sudo)"; done`
+for c in mysql mongosh psql valkey-cli ldapsearch kinit pt-query-digest; do command -v "$c" >/dev/null 2>&1 && echo "  $c: $(command -v $c)" || echo "  $c: MISSING (install with sudo)"; done`
 
 // vncSetupUserScript creates the sudo login user, sets its password + the VNC auth
 // password (TigerVNC, 8-char), writes the per-user ~/.vnc/config (key=value: xfce
