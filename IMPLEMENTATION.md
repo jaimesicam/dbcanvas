@@ -5340,3 +5340,15 @@ Refinements to the directory-auth feature (§101–103):
 no `security.ldap`; GSSAPI login `karl|kerb-only-ok` works while LDAP-password login is (correctly)
 unavailable. Validation rejects Kerberos without a Samba node; `krb5-user` install confirmed on
 Ubuntu 24.04. `go build/vet/test` + `npm run build` clean.
+
+---
+
+## 106. Fix: PMM Keycloak SSO "Login provider denied login request" — `app/pmmoidc.go`
+
+The PMM Grafana OAuth config requested `scopes = openid profile email groups`. Keycloak 26
+validates requested scopes against the client's assigned client scopes and rejects the
+unregistered `groups` scope with `invalid_scope`, which Grafana surfaces as **"Login provider
+denied login request"**. Fixed by requesting only `openid profile email` — the `groups` claim is
+already supplied by the client-level group-membership mapper (so `role_attribute_path` still maps
+pmm-admins → Admin). Verified end-to-end: full OAuth login now succeeds and
+`/graph/api/user/orgs` returns `role: Admin` for a pmm-admins user.

@@ -70,7 +70,11 @@ enabled = true
 name = Keycloak
 client_id = $CLIENT_ID
 client_secret = $SECRET
-scopes = openid profile email groups
+# NB: do NOT request a "groups" scope — Keycloak validates requested scopes against the
+# client's assigned client scopes and returns invalid_scope ("Login provider denied login
+# request") for it. The groups claim is supplied by a client-level mapper (below), so it's
+# present in the token/userinfo without being requested as a scope.
+scopes = openid profile email
 auth_url = $ISSUER/protocol/openid-connect/auth
 token_url = $ISSUER/protocol/openid-connect/token
 api_url = $ISSUER/protocol/openid-connect/userinfo
