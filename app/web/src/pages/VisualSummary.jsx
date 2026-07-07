@@ -86,6 +86,7 @@ const FINDING_TILES = [
   { key: 'peakSwapUsedMB', label: 'Peak swap used', unit: ' MB', warn: 1, crit: 512 },
   { key: 'peakBpMissRatioPct', label: 'BP read-miss', unit: '%', warn: 1, crit: 5 },
   { key: 'maxHistoryListLength', label: 'Max history list', unit: '', warn: 1e6, crit: 1e7 },
+  { key: 'maxCheckpointAgeBytes', label: 'Max checkpoint age', unit: ' B', warn: 1e9, crit: 4e9, bytes: true },
   { key: 'maxReplicationLagSec', label: 'Max repl lag', unit: ' s', warn: 1, crit: 30 },
   { key: 'peakHandlerReadRndNextPerSec', label: 'Peak rows/s (no index)', unit: '/s', warn: 1e5, crit: 1e7 },
   { key: 'maxLongQuerySec', label: 'Longest query', unit: ' s', warn: 5, crit: 60 },
@@ -143,7 +144,19 @@ function Report({ model }) {
         {model.disk?.overall && (
           <ChartCard title="Disk throughput" subtitle="KB/s · Overall + per-device" span>
             <TabbedChart data={model.disk} labelFor={(k) => k} unit="KB/s"
-              linesOverall={[cl('rKBs', 'read', 0), cl('wKBs', 'write', 5)]} lines={[cl('rKBs', 'read', 0), cl('wKBs', 'write', 5)]} />
+              lines={[cl('rKBs', 'read', 0), cl('wKBs', 'write', 5)]} />
+          </ChartCard>
+        )}
+        {model.disk?.overall && (
+          <ChartCard title="Disk IOPS" subtitle="operations/s · Overall + per-device" span>
+            <TabbedChart data={model.disk} labelFor={(k) => k} unit="/s"
+              lines={[cl('rs', 'read', 0), cl('ws', 'write', 5), cl('iops', 'total (r+w)', 4)]} />
+          </ChartCard>
+        )}
+        {model.disk?.overall && (
+          <ChartCard title="Disk latency (await)" subtitle="ms · Overall + per-device" span>
+            <TabbedChart data={model.disk} labelFor={(k) => k} unit="ms"
+              lines={[cl('rAwait', 'read await', 0), cl('wAwait', 'write await', 5)]} />
           </ChartCard>
         )}
         {has('bufferPool') && (
@@ -168,6 +181,26 @@ function Report({ model }) {
         {has('historyList') && (
           <ChartCard title="InnoDB history list length" subtitle="undo records pending purge (sparse)">
             <TimeChart points={model.series.historyList.points} lines={[cl('value', 'history list', 4)]} />
+          </ChartCard>
+        )}
+        {has('checkpointAge') && (
+          <ChartCard title="InnoDB checkpoint age" subtitle="redo since last checkpoint (sparse)">
+            <TimeChart points={model.series.checkpointAge.points} unit="B" lines={[cl('age', 'checkpoint age', 5)]} />
+          </ChartCard>
+        )}
+        {has('networkThroughput') && (
+          <ChartCard title="MySQL network throughput" subtitle="bytes in/out per second">
+            <TimeChart points={model.series.networkThroughput.points} unit="B/s" lines={[cl('received', 'received', 0), cl('sent', 'sent', 5)]} />
+          </ChartCard>
+        )}
+        {has('netStates') && (
+          <ChartCard title="Network connection states" subtitle="TCP connections by state (netstat)" span>
+            <StackedStatesChart series={model.series.netStates} />
+          </ChartCard>
+        )}
+        {has('sockQueues') && (
+          <ChartCard title="Socket send/receive backlog" subtitle="count of sockets with non-zero Recv-Q / Send-Q">
+            <TimeChart points={model.series.sockQueues.points} lines={[cl('recvBacklog', 'recv-Q backlog', 6), cl('sendBacklog', 'send-Q backlog', 7)]} />
           </ChartCard>
         )}
         {has('replicationLag') && (
@@ -221,11 +254,34 @@ function Report({ model }) {
           </ChartCard>
         )}
         {has('threadStates') && (
-          <ChartCard title="Thread states" subtitle="what threads were doing (from processlist, sparse)" span>
-            <ThreadStatesChart series={model.series.threadStates} />
+          <ChartCard title="Thread states" subtitle="what threads were doing (from processlist)" span>
+            <StackedStatesChart series={model.series.threadStates} />
           </ChartCard>
         )}
       </div>
+
+      {model.netQueues && model.netQueues.length > 0 && (
+        <Card title="Sockets with sustained send/receive backlog" subtitle="non-zero Recv-Q / Send-Q across multiple captures (possible network/consumer stalls)">
+          <div className="max-h-72 overflow-auto p-3">
+            <table className="w-full text-xs">
+              <thead><tr className="text-left text-muted"><th className="pb-1 pr-2">Local</th><th className="pb-1 pr-2">Foreign</th><th className="pb-1 pr-2">State</th><th className="pb-1 pr-2">Program</th><th className="pb-1 pr-2">max Recv-Q</th><th className="pb-1 pr-2">max Send-Q</th><th className="pb-1">seen</th></tr></thead>
+              <tbody>
+                {model.netQueues.map((q, i) => (
+                  <tr key={i} className="border-t">
+                    <td className="py-1 pr-2 font-mono text-fg">{q.local}</td>
+                    <td className="py-1 pr-2 font-mono text-muted">{q.foreign}</td>
+                    <td className="py-1 pr-2 text-muted">{q.state}</td>
+                    <td className="py-1 pr-2 text-muted">{q.prog}</td>
+                    <td className="py-1 pr-2 font-mono text-fg">{q.maxRecv}</td>
+                    <td className="py-1 pr-2 font-mono text-fg">{q.maxSend}</td>
+                    <td className="py-1 text-muted">{q.hits}×</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
 
       {(model.deadlock?.detected || (model.longQueries && model.longQueries.length > 0)) && (
         <div className="grid gap-4 lg:grid-cols-2">
@@ -262,13 +318,22 @@ function Report({ model }) {
 // cl builds a chart line spec: value key, legend label, palette slot.
 function cl(key, label, color) { return { key, label, color } }
 
+function humanBytes(v) {
+  if (v < 1024) return v.toFixed(0) + ' B'
+  const u = ['KB', 'MB', 'GB', 'TB']; let n = v, i = -1
+  do { n /= 1024; i++ } while (n >= 1024 && i < u.length - 1)
+  return n.toFixed(1) + ' ' + u[i]
+}
 function StatTile({ tile, value }) {
   const tone = value >= tile.crit ? 'text-danger' : value >= tile.warn ? 'text-warning' : 'text-fg'
-  const disp = value >= 1000 ? Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value) : (Math.round(value * 10) / 10)
+  let disp
+  if (tile.bytes) disp = humanBytes(value)
+  else if (value >= 1000) disp = Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value) + tile.unit
+  else disp = (Math.round(value * 10) / 10) + tile.unit
   return (
     <div className="rounded-lg border bg-surface2 px-3 py-2">
       <div className="text-[11px] text-muted">{tile.label}</div>
-      <div className={`text-sm font-semibold ${tone}`}>{disp}{tile.unit}</div>
+      <div className={`text-sm font-semibold ${tone}`}>{disp}</div>
     </div>
   )
 }
@@ -303,9 +368,10 @@ function TabbedChart({ data, lines, linesOverall, labelFor, unit, kind = 'line' 
   )
 }
 
-// ThreadStatesChart collapses the dynamic state keys to the top 7 (+ "other") for a
-// readable stacked-area, since categorical hues are never cycled beyond 8.
-function ThreadStatesChart({ series }) {
+// StackedStatesChart collapses dynamic state keys to the top 7 (+ "other") for a readable
+// stacked-area, since categorical hues are never cycled beyond 8. Used for processlist
+// thread states and netstat connection states.
+function StackedStatesChart({ series }) {
   const totals = {}
   for (const p of series.points) for (const k of series.metrics) totals[k] = (totals[k] || 0) + (p.v[k] || 0)
   const top = Object.keys(totals).sort((a, b) => totals[b] - totals[a])

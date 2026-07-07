@@ -5014,3 +5014,39 @@ buffer-pool/handler/threads, sparse 4-pt history-list, replication correctly **a
 Playwright screenshots confirmed professional rendering (auto-scaled CPU-busy detail, twin
 buffer-pool reads panel, tabs). Resilience: a trimmed archive (no mysqladmin/innodb/iostat)
 parsed to just cpu/memory/swap with no crash. From-node path exercised on a live PS node.
+
+---
+
+## 93. Visual Summary — fixes + network/disk/checkpoint metrics — `app/visualsummary.go`, `app/web/src/pages/VisualSummary.jsx`, `app/web/src/components/TimeChart.jsx`
+
+Follow-up to §92 from review feedback.
+
+**Fixes.**
+- **Replication lag** was wrong: each `*-slave-status` / `*-replica-status` file holds ~30
+  captures (1/s), but every point was stamped with the file's trigger time, collapsing them
+  into one. Now each capture gets a 1s-incremented (or `TS`-line-derived) timestamp — verified
+  a 5-capture file yields 5 distinct points. Also reads MySQL 8.4's `Seconds_Behind_Source`
+  (`*-replica-status`) as well as the older `Seconds_Behind_Master`.
+- **InnoDB status timestamps**: history-list-length was stamped with the filename time. Now
+  each `… INNODB MONITOR OUTPUT` block is split out and timestamped from that header line's
+  real datetime (a file holds 2 blocks; 4 files → several accurate points).
+
+**New metrics.**
+- **InnoDB checkpoint age** — parsed from the `Checkpoint age N` line (sparse), with a
+  headline tile; rendered human-readable (bytes).
+- **Disk** — added IOPS (r/s, w/s, r/s+w/s) and await (r_await, w_await) charts, each Overall
+  + per-device, alongside the existing utilization and throughput cards.
+- **MySQL network throughput** — Bytes_received / Bytes_sent per-second, rendered
+  human-readable (KB/MB/GB via a byte formatter in TimeChart, unit `B/s`).
+- **Network connection states** — netstat TCP `State` counts per capture as a stacked
+  timeline (reuses the collapsed-states chart).
+- **Socket send/receive backlog** — per-capture count of sockets with non-zero Recv-Q /
+  Send-Q, plus a table of sockets with a **sustained** backlog (local/foreign/state/program,
+  max Recv-Q/Send-Q, occurrences). Both hidden when no backlog occurred.
+
+**Verification.** Re-parsed the sample archive: history-list/checkpoint-age now carry real
+distinct InnoDB-monitor timestamps; disk exposes rs/ws/iops/rAwait/wAwait/util; network
+throughput 59 pts (human-readable); connection states present (LISTEN on the idle sample);
+socket-queue chart correctly absent (no backlog). Playwright confirmed the disk IOPS/await,
+network throughput, connection-states and checkpoint-age cards render professionally.
+`go build/vet/test` + `npm run build` clean.

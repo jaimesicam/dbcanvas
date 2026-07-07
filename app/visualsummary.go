@@ -61,6 +61,7 @@ type vsModel struct {
 	Disk        *vsTabbed            `json:"disk,omitempty"`
 	Series      map[string]*vsSeries `json:"series"` // memory, swap, bufferPool, …
 	LongQueries []map[string]string  `json:"longQueries,omitempty"`
+	NetQueues   []map[string]string  `json:"netQueues,omitempty"` // sockets with sustained Recv-Q/Send-Q
 	Deadlock    *vsDeadlock          `json:"deadlock,omitempty"`
 	Available   map[string]bool      `json:"available"`
 	Notes       []string             `json:"notes,omitempty"`
@@ -161,6 +162,9 @@ func parsePtStalk(gzData []byte) (*vsModel, error) {
 
 	// Processlist: long-running queries + collapsed thread-state timeline.
 	parseProcesslist(m, bySuffix["processlist"])
+
+	// netstat: connection-state timeline + sockets with sustained Recv-Q/Send-Q.
+	parseNetstat(m, bySuffix["netstat"])
 
 	// Static facts for the text summary.
 	parsePtSummary(m, flatOf(bySuffix, "pt-summary.out"))
@@ -374,27 +378,32 @@ var iostatDevRe = regexp.MustCompile(`^[a-zA-Z][\w-]*\s`)
 // parseDisk: per-device r/s w/s rkB/s wkB/s await %util (blank-line-separated 1s blocks),
 // plus an overall series (summed throughput + avg %util).
 func parseDisk(files []namedFile) *vsTabbed {
+	metrics := []string{"rs", "ws", "iops", "rKBs", "wKBs", "rAwait", "wAwait", "util"}
 	tabs := map[string]*vsSeries{}
 	var order []string
-	over := &vsSeries{Metrics: []string{"rKBs", "wKBs", "util"}, Unit: ""}
+	over := &vsSeries{Metrics: metrics, Unit: ""}
 	for _, f := range files {
 		block := 0
 		blockDevs := map[string]bool{}
-		var sumR, sumW, sumUtil float64
-		nUtil := 0
+		var sumRs, sumWs, sumRkb, sumWkb, sumRAw, sumWAw, sumUtil float64
+		n := 0
 		flush := func() {
 			if len(blockDevs) == 0 {
 				return
 			}
 			t := f.ts.Add(time.Duration(block) * time.Second).Unix()
-			avg := 0.0
-			if nUtil > 0 {
-				avg = sumUtil / float64(nUtil)
+			avg := func(s float64) float64 {
+				if n == 0 {
+					return 0
+				}
+				return math.Round(s/float64(n)*100) / 100
 			}
-			over.Points = append(over.Points, vsPoint{T: t, V: map[string]float64{"rKBs": sumR, "wKBs": sumW, "util": math.Round(avg*10) / 10}})
+			over.Points = append(over.Points, vsPoint{T: t, V: map[string]float64{
+				"rs": r2(sumRs), "ws": r2(sumWs), "iops": r2(sumRs + sumWs), "rKBs": r2(sumRkb), "wKBs": r2(sumWkb),
+				"rAwait": avg(sumRAw), "wAwait": avg(sumWAw), "util": avg(sumUtil)}})
 			block++
 			blockDevs = map[string]bool{}
-			sumR, sumW, sumUtil, nUtil = 0, 0, 0, 0
+			sumRs, sumWs, sumRkb, sumWkb, sumRAw, sumWAw, sumUtil, n = 0, 0, 0, 0, 0, 0, 0, 0
 		}
 		sc := bufio.NewScanner(bytes.NewReader(f.data))
 		sc.Buffer(make([]byte, 1<<20), 1<<20)
@@ -419,22 +428,26 @@ func parseDisk(files []namedFile) *vsTabbed {
 				flush()
 			}
 			blockDevs[dev] = true
-			rs, rkb, rawait := num(c[1]), num(c[2]), num(c[5])
-			ws, wkb, wawait := num(c[7]), num(c[8]), num(c[11])
+			rs, rkb, rAwait := num(c[1]), num(c[2]), num(c[5])
+			ws, wkb, wAwait := num(c[7]), num(c[8]), num(c[11])
 			util := num(c[22])
-			sumR += rkb
-			sumW += wkb
+			sumRs += rs
+			sumWs += ws
+			sumRkb += rkb
+			sumWkb += wkb
+			sumRAw += rAwait
+			sumWAw += wAwait
 			sumUtil += util
-			nUtil++
+			n++
 			s := tabs[dev]
 			if s == nil {
-				s = &vsSeries{Metrics: []string{"rs", "ws", "rKBs", "wKBs", "await", "util"}, Unit: ""}
+				s = &vsSeries{Metrics: metrics, Unit: ""}
 				tabs[dev] = s
 				order = append(order, dev)
 			}
 			t := f.ts.Add(time.Duration(block) * time.Second).Unix()
 			s.Points = append(s.Points, vsPoint{T: t, V: map[string]float64{
-				"rs": rs, "ws": ws, "rKBs": rkb, "wKBs": wkb, "await": math.Max(rawait, wawait), "util": util}})
+				"rs": rs, "ws": ws, "iops": r2(rs + ws), "rKBs": rkb, "wKBs": wkb, "rAwait": rAwait, "wAwait": wAwait, "util": util}})
 		}
 		flush()
 	}
@@ -444,6 +457,8 @@ func parseDisk(files []namedFile) *vsTabbed {
 	sort.Strings(order)
 	return &vsTabbed{Overall: over, Tabs: tabs, Order: order}
 }
+
+func r2(v float64) float64 { return math.Round(v*100) / 100 }
 
 // ---- MySQL (mysqladmin ext -i1) ----
 
@@ -575,6 +590,7 @@ func deriveMysqlSeries(m *vsModel, snaps []statSnap) bool {
 	rate("innodbRowOps", "/s", []string{"read", "inserted", "updated", "deleted"}, map[string]string{
 		"read": "Innodb_rows_read", "inserted": "Innodb_rows_inserted", "updated": "Innodb_rows_updated", "deleted": "Innodb_rows_deleted"})
 	rate("handlerReadRndNext", "/s", []string{"perSec"}, map[string]string{"perSec": "Handler_read_rnd_next"})
+	rate("networkThroughput", "B/s", []string{"received", "sent"}, map[string]string{"received": "Bytes_received", "sent": "Bytes_sent"})
 	rate("rowLockWaits", "/s", []string{"perSec"}, map[string]string{"perSec": "Innodb_row_lock_waits"})
 	rate("tmpDiskTables", "/s", []string{"perSec"}, map[string]string{"perSec": "Created_tmp_disk_tables"})
 	rate("slowQueries", "/s", []string{"perSec"}, map[string]string{"perSec": "Slow_queries"})
@@ -621,29 +637,67 @@ func hasData(s *vsSeries) bool {
 // ---- InnoDB status (sparse) ----
 
 var histRe = regexp.MustCompile(`History list length\s+(\d+)`)
+var ckptAgeRe = regexp.MustCompile(`Checkpoint age\s+(\d+)`)
 
+// innodbMonRe matches a monitor-output header, e.g.
+//
+//	2026-07-06 22:32:47 132830254241344 INNODB MONITOR OUTPUT
+//
+// The leading datetime is the true capture time.
+var innodbMonRe = regexp.MustCompile(`(?m)^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \d+ INNODB MONITOR OUTPUT`)
+
+// parseInnodbStatus reads every "INNODB MONITOR OUTPUT" block (a file holds 2), timestamps
+// it from the block header, and extracts history list length, checkpoint age, and the
+// latest detected deadlock.
 func parseInnodbStatus(m *vsModel, groups ...[]namedFile) {
 	var files []namedFile
 	for _, g := range groups {
 		files = append(files, g...)
 	}
-	sort.Slice(files, func(i, j int) bool { return files[i].ts.Before(files[j].ts) })
 	hist := &vsSeries{Metrics: []string{"value"}, Unit: ""}
+	ckpt := &vsSeries{Metrics: []string{"age"}, Unit: "bytes"}
 	var dead vsDeadlock
+	seenHist := map[int64]bool{}
+	seenCkpt := map[int64]bool{}
+	type block struct {
+		ts   int64
+		text string
+	}
+	var blocks []block
 	for _, f := range files {
 		text := string(f.data)
-		if mm := histRe.FindStringSubmatch(text); mm != nil {
-			hist.Points = append(hist.Points, vsPoint{T: f.ts.Unix(), V: map[string]float64{"value": num(mm[1])}})
+		locs := innodbMonRe.FindAllStringSubmatchIndex(text, -1)
+		if len(locs) == 0 {
+			blocks = append(blocks, block{ts: f.ts.Unix(), text: text})
+			continue
 		}
-		if i := strings.Index(text, "LATEST DETECTED DEADLOCK"); i >= 0 {
-			seg := text[i:]
+		for i, loc := range locs {
+			t, _ := time.Parse("2006-01-02 15:04:05", text[loc[2]:loc[3]])
+			end := len(text)
+			if i+1 < len(locs) {
+				end = locs[i+1][0]
+			}
+			blocks = append(blocks, block{ts: t.UTC().Unix(), text: text[loc[0]:end]})
+		}
+	}
+	sort.Slice(blocks, func(i, j int) bool { return blocks[i].ts < blocks[j].ts })
+	for _, b := range blocks {
+		if mm := histRe.FindStringSubmatch(b.text); mm != nil && !seenHist[b.ts] {
+			seenHist[b.ts] = true
+			hist.Points = append(hist.Points, vsPoint{T: b.ts, V: map[string]float64{"value": num(mm[1])}})
+		}
+		if mm := ckptAgeRe.FindStringSubmatch(b.text); mm != nil && !seenCkpt[b.ts] {
+			seenCkpt[b.ts] = true
+			ckpt.Points = append(ckpt.Points, vsPoint{T: b.ts, V: map[string]float64{"age": num(mm[1])}})
+		}
+		if i := strings.Index(b.text, "LATEST DETECTED DEADLOCK"); i >= 0 {
+			seg := b.text[i:]
 			if j := strings.Index(seg, "------------\n"); j > 0 {
 				seg = seg[:j+12]
 			}
-			// A deadlock section with an actual timestamp line (not the "no deadlock" note).
-			if strings.Contains(seg, "TRANSACTION") {
+			if strings.Contains(seg, "TRANSACTION") { // an actual deadlock, not the "no deadlock" note
 				dead.Detected = true
-				dead.When = f.ts.UTC().Format(time.RFC3339)
+				dead.When = time.Unix(b.ts, 0).UTC().Format(time.RFC3339)
 				dead.Text = lastLines(seg, 1600)
 			}
 		}
@@ -651,6 +705,10 @@ func parseInnodbStatus(m *vsModel, groups ...[]namedFile) {
 	if len(hist.Points) > 0 {
 		m.Series["historyList"] = hist
 		m.Available["historyList"] = true
+	}
+	if len(ckpt.Points) > 0 {
+		m.Series["checkpointAge"] = ckpt
+		m.Available["checkpointAge"] = true
 	}
 	if dead.Detected {
 		m.Deadlock = &dead
@@ -664,19 +722,37 @@ func parseReplication(m *vsModel, files []namedFile) {
 	sort.Slice(files, func(i, j int) bool { return files[i].ts.Before(files[j].ts) })
 	s := &vsSeries{Metrics: []string{"seconds"}, Unit: "s"}
 	for _, f := range files {
+		// Each file holds ~30 SHOW REPLICA/SLAVE STATUS captures, one per second. Use the
+		// "TS <epoch> <datetime>" marker when present, else synthesize at 1s per capture.
+		idx := 0
+		var curTS int64
 		sc := bufio.NewScanner(bytes.NewReader(f.data))
+		sc.Buffer(make([]byte, 1<<20), 1<<20)
 		for sc.Scan() {
 			line := strings.TrimSpace(sc.Text())
+			if mm := tsLineRe.FindStringSubmatch(line); mm != nil {
+				if t, err := time.Parse("2006-01-02 15:04:05", mm[1]); err == nil {
+					curTS = t.UTC().Unix()
+				}
+				continue
+			}
 			if strings.HasPrefix(line, "Seconds_Behind_Master:") || strings.HasPrefix(line, "Seconds_Behind_Source:") {
 				val := strings.TrimSpace(line[strings.IndexByte(line, ':')+1:])
 				if val == "" || val == "NULL" {
+					idx++
 					continue
 				}
-				s.Points = append(s.Points, vsPoint{T: f.ts.Unix(), V: map[string]float64{"seconds": num(val)}})
+				t := curTS
+				if t == 0 {
+					t = f.ts.Add(time.Duration(idx) * time.Second).Unix()
+				}
+				s.Points = append(s.Points, vsPoint{T: t, V: map[string]float64{"seconds": num(val)}})
+				idx++
 			}
 		}
 	}
 	if len(s.Points) > 0 {
+		sort.Slice(s.Points, func(i, j int) bool { return s.Points[i].T < s.Points[j].T })
 		m.Series["replicationLag"] = s
 		m.Available["replicationLag"] = true
 	}
@@ -822,6 +898,136 @@ func collapseState(s string) string {
 	}
 }
 
+// ---- netstat ----
+
+// parseNetstat builds a connection-state timeline (counts by TCP State per capture) and a
+// socket-queue timeline (count of sockets with non-zero Recv-Q / Send-Q per capture), plus
+// a table of sockets that showed a sustained backlog. Each capture is a "TS <epoch> …" block.
+func parseNetstat(m *vsModel, files []namedFile) {
+	states := &vsSeries{Unit: ""}
+	stateKeys := map[string]bool{}
+	queues := &vsSeries{Metrics: []string{"recvBacklog", "sendBacklog"}, Unit: ""}
+	type qe struct {
+		local, foreign, state, prog string
+		maxRecv, maxSend            float64
+		hits                        int
+	}
+	qmap := map[string]*qe{}
+	var qorder []string
+
+	for _, f := range files {
+		var curT int64
+		var counts map[string]float64
+		var recvN, sendN float64
+		flush := func() {
+			if curT == 0 || counts == nil {
+				return
+			}
+			cp := map[string]float64{}
+			for k, v := range counts {
+				cp[k] = v
+			}
+			states.Points = append(states.Points, vsPoint{T: curT, V: cp})
+			queues.Points = append(queues.Points, vsPoint{T: curT, V: map[string]float64{"recvBacklog": recvN, "sendBacklog": sendN}})
+		}
+		sc := bufio.NewScanner(bytes.NewReader(f.data))
+		sc.Buffer(make([]byte, 1<<20), 1<<20)
+		for sc.Scan() {
+			line := sc.Text()
+			if mm := tsLineRe.FindStringSubmatch(line); mm != nil {
+				flush()
+				if t, err := time.Parse("2006-01-02 15:04:05", mm[1]); err == nil {
+					curT = t.UTC().Unix()
+				} else {
+					curT = f.ts.Unix()
+				}
+				counts = map[string]float64{}
+				recvN, sendN = 0, 0
+				continue
+			}
+			c := strings.Fields(line)
+			if len(c) < 6 || !strings.HasPrefix(c[0], "tcp") {
+				continue
+			}
+			recvQ, sendQ := num(c[1]), num(c[2])
+			state := c[5]
+			if counts == nil {
+				counts = map[string]float64{}
+			}
+			counts[state]++
+			stateKeys[state] = true
+			if recvQ > 0 {
+				recvN++
+			}
+			if sendQ > 0 {
+				sendN++
+			}
+			if recvQ > 0 || sendQ > 0 {
+				prog := ""
+				if len(c) >= 7 {
+					prog = c[6]
+				}
+				key := c[3] + "|" + c[4] + "|" + state
+				e := qmap[key]
+				if e == nil {
+					e = &qe{local: c[3], foreign: c[4], state: state, prog: prog}
+					qmap[key] = e
+					qorder = append(qorder, key)
+				}
+				e.hits++
+				e.maxRecv = math.Max(e.maxRecv, recvQ)
+				e.maxSend = math.Max(e.maxSend, sendQ)
+			}
+		}
+		flush()
+	}
+
+	if len(states.Points) > 0 {
+		var keys []string
+		for k := range stateKeys {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		states.Metrics = keys
+		m.Series["netStates"] = states
+		m.Available["netStates"] = true
+	}
+	// Only surface the queue chart when a backlog actually occurred (else it is a flat zero).
+	backlog := false
+	for _, p := range queues.Points {
+		if p.V["recvBacklog"] > 0 || p.V["sendBacklog"] > 0 {
+			backlog = true
+			break
+		}
+	}
+	if backlog {
+		m.Series["sockQueues"] = queues
+		m.Available["sockQueues"] = true
+	}
+	// Sustained-backlog sockets: appeared with a non-zero queue in ≥2 captures.
+	var rows []map[string]string
+	for _, k := range qorder {
+		e := qmap[k]
+		if e.hits < 2 {
+			continue
+		}
+		rows = append(rows, map[string]string{
+			"local": e.local, "foreign": e.foreign, "state": e.state, "prog": e.prog,
+			"maxRecv": strconv.FormatFloat(e.maxRecv, 'f', 0, 64), "maxSend": strconv.FormatFloat(e.maxSend, 'f', 0, 64),
+			"hits": strconv.Itoa(e.hits)})
+	}
+	if len(rows) > 0 {
+		sort.Slice(rows, func(i, j int) bool {
+			return math.Max(num(rows[i]["maxRecv"]), num(rows[i]["maxSend"])) > math.Max(num(rows[j]["maxRecv"]), num(rows[j]["maxSend"]))
+		})
+		if len(rows) > 20 {
+			rows = rows[:20]
+		}
+		m.NetQueues = rows
+		m.Available["netQueues"] = true
+	}
+}
+
 // ---- static facts ----
 
 func parsePtSummary(m *vsModel, data []byte) {
@@ -887,6 +1093,9 @@ func computeFindings(m *vsModel) {
 	}
 	if s := m.Series["historyList"]; s != nil {
 		f["maxHistoryListLength"] = seriesMax(s, "value")
+	}
+	if s := m.Series["checkpointAge"]; s != nil {
+		f["maxCheckpointAgeBytes"] = seriesMax(s, "age")
 	}
 	if s := m.Series["replicationLag"]; s != nil {
 		f["maxReplicationLagSec"] = seriesMax(s, "seconds")

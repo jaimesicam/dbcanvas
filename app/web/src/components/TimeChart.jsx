@@ -33,6 +33,17 @@ function fmtNum(v) {
   if (a === 0) return '0'
   return v.toFixed(2)
 }
+// fmtBytes renders a byte figure human-readable (KB/MB/GB, base-1024).
+function fmtBytes(v) {
+  if (v === null || v === undefined || Number.isNaN(v)) return '—'
+  const a = Math.abs(v)
+  if (a < 1024) return v.toFixed(0) + ' B'
+  const u = ['KB', 'MB', 'GB', 'TB']
+  let n = v, i = -1
+  do { n /= 1024; i++ } while (Math.abs(n) >= 1024 && i < u.length - 1)
+  return n.toFixed(1) + ' ' + u[i]
+}
+const isBytes = (unit) => unit === 'B' || unit === 'B/s'
 
 // lines: [{ key, label, color }]  color = palette slot index (0..7).
 // kind: 'line' | 'stacked'. points: [{ t, v:{key:num} }].
@@ -147,6 +158,8 @@ export default function TimeChart({ points, lines, unit = '', kind = 'line', hei
 
   const showLegend = lines.length >= 1
   const hv = hover != null ? points[hover] : null
+  const fmtV = isBytes(unit) ? fmtBytes : fmtNum
+  const suffix = (v) => (unit === '%' ? v + '%' : v)
 
   return (
     <div ref={wrapRef} className="relative w-full">
@@ -156,7 +169,7 @@ export default function TimeChart({ points, lines, unit = '', kind = 'line', hei
         {yTicks.map((t, i) => (
           <g key={i}>
             <line x1={pad.l} x2={w - pad.r} y1={y(t)} y2={y(t)} stroke="var(--grid)" strokeWidth="1" />
-            <text x={pad.l - 6} y={y(t) + 3} textAnchor="end" fontSize="10" fill="var(--muted)">{fmtNum(t)}</text>
+            <text x={pad.l - 6} y={y(t) + 3} textAnchor="end" fontSize="10" fill="var(--muted)">{fmtV(t)}</text>
           </g>
         ))}
         {/* x labels */}
@@ -190,7 +203,7 @@ export default function TimeChart({ points, lines, unit = '', kind = 'line', hei
             <div key={ln.key} className="flex items-center gap-1.5 whitespace-nowrap">
               <span className="inline-block h-2 w-2 rounded-sm" style={{ background: colorOf(ln.color) }} />
               <span className="text-muted">{ln.label}</span>
-              <span className="ml-auto font-mono text-fg">{fmtNum(hv.v[ln.key] || 0)}{unit === '%' ? '%' : ''}</span>
+              <span className="ml-auto font-mono text-fg">{suffix(fmtV(hv.v[ln.key] || 0))}</span>
             </div>
           ))}
         </div>
