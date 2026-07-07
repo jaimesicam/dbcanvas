@@ -5087,3 +5087,13 @@ Renamed the node-palette panel's user-facing label from **Palette** to **Infrast
 Library** (the panel header and the docked "Add nodes from the … →" hint). Internal
 identifiers (`paletteGroups`, `paletteDocked`, etc.) are unchanged.
 
+
+---
+
+## 96. Show "forwards SQL traffic to" on HAProxy association lines — `app/web/src/pages/StackDesigner.jsx`
+
+The canvas edge caption "forwards SQL traffic to" was only shown for ProxySQL association
+lines; HAProxy → cluster association lines had no caption. Extended the association-edge
+condition to also match HAProxy nodes so their line carries the same "forwards SQL traffic
+to" label.
+

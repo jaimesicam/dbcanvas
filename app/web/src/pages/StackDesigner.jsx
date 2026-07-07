@@ -1765,8 +1765,8 @@ function StackEditor({ stackId, onBack }) {
                 const on = selected?.kind === 'edge' && selected.id === ed.id
                 const repl = ed.type === 'async' || ed.type === 'bidir'
                 // Caption: a cross-cluster replication link, or an association line
-                // (any link involving a ProxySQL node or ProxySQL cluster frame).
-                const proxyNodeEnd = nodes.some((n) => (n.id === ed.from.node || n.id === ed.to.node) && n.type === 'proxysql')
+                // (any link involving a ProxySQL or HAProxy node, or a ProxySQL cluster frame).
+                const proxyNodeEnd = nodes.some((n) => (n.id === ed.from.node || n.id === ed.to.node) && (n.type === 'proxysql' || n.type === 'haproxy'))
                 const proxyFrameEnd = frames.some((fr) => (fr.id === ed.from.node || fr.id === ed.to.node) && fr.type === 'proxysql')
                 const caption = repl
                   ? (ed.type === 'bidir' ? 'bidirectional replication' : 'async replication')
