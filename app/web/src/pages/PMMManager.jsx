@@ -3,10 +3,12 @@ import { Button, Badge, inputCls } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { pmmApi, DEPLOY_TONE } from '../lib/stackApi.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
+import OidcLoginGuide from '../components/OidcLoginGuide.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'access', label: 'Access' },
+  { id: 'sso', label: 'Keycloak SSO' },
   { id: 'cert', label: 'Certificate' },
 ]
 
@@ -56,7 +58,7 @@ export default function PMMManager({ stackId, nodeId, dep, onDeleteNode }) {
       </div>
 
       <div className="flex flex-wrap gap-1 rounded-lg bg-surface2 p-1">
-        {TABS.map((t) => (
+        {TABS.filter((t) => t.id !== 'sso' || cfg.oidc?.enabled).map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
@@ -77,6 +79,7 @@ export default function PMMManager({ stackId, nodeId, dep, onDeleteNode }) {
         />
       )}
       {tab === 'access' && <AccessTab cfg={cfg} sec={sec} />}
+      {tab === 'sso' && <OidcLoginGuide engine="pmm" info={cfg.oidc} />}
       {tab === 'cert' && <CertTab api={api} generateCert={cfg.generateCert} />}
     </div>
   )

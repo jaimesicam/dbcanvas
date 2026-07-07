@@ -739,7 +739,7 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 			a.mongoRegisterPMM(ctx, st, nn, frame.OS, pmmFQDN, pmmUser, pmmPass, "", sec, pr)
 		}
 
-		if n.LdapAuth {
+		if n.LdapAuth || n.KerberosAuth {
 			if err := a.applyDirectoryAuth(ctx, st, n, doc, a.containerOf(st.ID, n.ID), "psm", "", pr); err != nil {
 				pr.logln("directory authentication skipped: " + err.Error())
 			}

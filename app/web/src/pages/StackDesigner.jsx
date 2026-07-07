@@ -2299,6 +2299,7 @@ function PMMOptions({ n, nodes = [], patchNode, deployed }) {
           ))}
         </select>
       </Field>
+      <KeycloakOidcFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} label="Single sign-on with Keycloak (Grafana OAuth)" />
     </>
   )
 }
@@ -2674,39 +2675,71 @@ function MySQLMemberForm({ node: n, frame, nodes, patchNode, dep, deployed }) {
 // a Samba directory is chosen — a Kerberos (GSSAPI) toggle.
 function DirectoryAuthFields({ node: n, nodes, patchNode, deployed, kerberos }) {
   const dirs = nodes.filter((x) => x.type === 'intranet' || x.type === 'sambaad')
-  const isSamba = dirs.find((d) => d.id === n.ldapDirNodeId)?.type === 'sambaad'
+  const hasSamba = nodes.some((x) => x.type === 'sambaad')
   return (
     <div className="space-y-2 rounded-lg border border-dashed p-2">
       <div className="text-xs font-medium text-muted">Directory authentication</div>
+      {/* LDAP — against a chosen Intranet or Samba directory */}
       <label className={`flex items-center gap-2 text-sm ${deployed || dirs.length === 0 ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.ldapAuth} disabled={deployed || dirs.length === 0}
           onChange={(e) => patchNode(n.id, { ldapAuth: e.target.checked })} />
         <span>Integrate with LDAP</span>
       </label>
-      {dirs.length === 0 && <p className="text-xs text-muted">Add an Intranet or Samba AD DC node to enable directory login.</p>}
+      {dirs.length === 0 && <p className="text-xs text-muted">Add an Intranet or Samba AD DC node to enable LDAP login.</p>}
       {n.ldapAuth && dirs.length > 0 && (
+        <Field label="Directory">
+          <select className={inputCls} value={n.ldapDirNodeId || ''} disabled={deployed}
+            onChange={(e) => patchNode(n.id, { ldapDirNodeId: e.target.value })}>
+            <option value="">— select —</option>
+            {dirs.map((d) => <option key={d.id} value={d.id}>{d.label} ({d.type === 'sambaad' ? 'Samba AD' : 'Intranet LDAP'})</option>)}
+          </select>
+        </Field>
+      )}
+      {/* Kerberos — independent of LDAP; requires a Samba AD DC node in the stack */}
+      {kerberos && (
         <>
-          <Field label="Directory">
-            <select className={inputCls} value={n.ldapDirNodeId || ''} disabled={deployed}
-              onChange={(e) => {
-                const id = e.target.value
-                const t = dirs.find((d) => d.id === id)?.type
-                patchNode(n.id, { ldapDirNodeId: id, ...(t !== 'sambaad' ? { kerberosAuth: false } : {}) })
-              }}>
+          <label className={`flex items-center gap-2 text-sm ${deployed || !hasSamba ? 'opacity-70' : ''}`}>
+            <input type="checkbox" checked={!!n.kerberosAuth} disabled={deployed || !hasSamba}
+              onChange={(e) => patchNode(n.id, { kerberosAuth: e.target.checked })} />
+            <span>Kerberos (GSSAPI) single sign-on</span>
+          </label>
+          {!hasSamba && <p className="text-xs text-muted">Add a Samba AD DC node to enable Kerberos SSO.</p>}
+        </>
+      )}
+    </div>
+  )
+}
+
+// KeycloakOidcFields renders the shared "Keycloak SSO" design block for the PMM and PostgreSQL
+// forms: an enable toggle + a Keycloak-node picker + realm. `pg18` locks the pg node to
+// PostgreSQL 18 (pg_oidc_validator requires it) when OIDC is enabled.
+function KeycloakOidcFields({ node: n, nodes, patchNode, deployed, label, pg18 }) {
+  const kcNodes = nodes.filter((x) => x.type === 'keycloak')
+  const sel = kcNodes.find((k) => k.id === n.keycloakNodeId)
+  const selSSL = sel ? sel.generateCert !== false : true
+  return (
+    <div className="space-y-2 rounded-lg border border-dashed p-2">
+      <div className="text-xs font-medium text-muted">Keycloak SSO</div>
+      <label className={`flex items-center gap-2 text-sm ${deployed || kcNodes.length === 0 ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.enableOIDC} disabled={deployed || kcNodes.length === 0}
+          onChange={(e) => patchNode(n.id, { enableOIDC: e.target.checked, ...(pg18 && e.target.checked ? { pgMajor: '18', pgVersion: '' } : {}) })} />
+        <span>{label}</span>
+      </label>
+      {kcNodes.length === 0 && <p className="text-xs text-muted">Add a Keycloak node (with Intranet CA SSL) to enable SSO.</p>}
+      {n.enableOIDC && kcNodes.length > 0 && (
+        <>
+          <Field label="Keycloak node">
+            <select className={inputCls} value={n.keycloakNodeId || ''} disabled={deployed}
+              onChange={(e) => patchNode(n.id, { keycloakNodeId: e.target.value })}>
               <option value="">— select —</option>
-              {dirs.map((d) => <option key={d.id} value={d.id}>{d.label} ({d.type === 'sambaad' ? 'Samba AD' : 'Intranet LDAP'})</option>)}
+              {kcNodes.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
             </select>
           </Field>
-          {kerberos && (
-            <>
-              <label className={`flex items-center gap-2 text-sm ${deployed || !isSamba ? 'opacity-60' : ''}`}>
-                <input type="checkbox" checked={!!n.kerberosAuth} disabled={deployed || !isSamba}
-                  onChange={(e) => patchNode(n.id, { kerberosAuth: e.target.checked })} />
-                <span>Kerberos (GSSAPI) single sign-on</span>
-              </label>
-              {!isSamba && <p className="text-xs text-muted">Kerberos requires a Samba AD DC directory.</p>}
-            </>
-          )}
+          <Field label="Realm" hint="Keycloak realm holding the OIDC client.">
+            <input className={inputCls} value={n.oidcRealm ?? 'dbcanvas'} disabled={deployed} onChange={(e) => patchNode(n.id, { oidcRealm: e.target.value })} />
+          </Field>
+          {n.keycloakNodeId && !selSSL && <p className="text-xs text-warning">Enable “Use Intranet CA SSL” on the selected Keycloak — OIDC needs an HTTPS issuer.</p>}
+          {pg18 && <p className="text-xs text-muted">Uses PostgreSQL 18 + <span className="font-mono">pg_oidc_validator</span> (set automatically).</p>}
         </>
       )}
     </div>
@@ -2955,6 +2988,8 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
       )}
 
       <DirectoryAuthFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} kerberos={true} />
+
+      <KeycloakOidcFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} label="OAuth login with Keycloak (pg_oidc_validator)" pg18 />
 
       {!deployed && <p className="text-xs text-muted">A single read/write PostgreSQL instance (no replication). Access links and credentials appear here after deploy.</p>}
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>

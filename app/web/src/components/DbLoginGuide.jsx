@@ -38,9 +38,11 @@ export default function DbLoginGuide({ engine, info }) {
   if (engine === 'pg') {
     blocks.push({ label: 'One-time: create a matching role (run as postgres on this node)', text:
 `sudo -u postgres psql -c 'CREATE ROLE ${u} LOGIN;'   # role name = directory username` })
-    blocks.push({ label: 'Log in with an LDAP password', text:
+    if (info.ldap) {
+      blocks.push({ label: 'Log in with an LDAP password', text:
 `psql "host=${node} user=${u} dbname=postgres gssencmode=disable"
 # prompts for ${u}'s directory password` })
+    }
     if (info.kerberos) {
       blocks.push({ label: 'Log in with Kerberos single sign-on', text:
 `kinit ${u}@${realm}                       # get a ticket (once per session)
@@ -54,14 +56,16 @@ GRANT SELECT ON *.* TO '${u}'@'%';   -- grant what you need` })
 `mysql -h ${node} -u ${u} -p --enable-cleartext-plugin
 # enter ${u}'s directory password at the prompt` })
   } else if (engine === 'psm') {
-    blocks.push({ label: "One-time: create the $external user (run as mongo admin)", text:
+    if (info.ldap) {
+      blocks.push({ label: "One-time: create the $external user (run as mongo admin)", text:
 `db.getSiblingDB("$external").runCommand({
   createUser: "${u}",
   roles: [ { role: "readWriteAnyDatabase", db: "admin" } ]
 })` })
-    blocks.push({ label: 'Log in with an LDAP password', text:
+      blocks.push({ label: 'Log in with an LDAP password', text:
 `mongosh --host ${node} --authenticationMechanism PLAIN \\
   --authenticationDatabase '$external' -u ${u} -p` })
+    }
     if (info.kerberos) {
       blocks.push({ label: "One-time: create the $external user named after the Kerberos principal", text:
 `db.getSiblingDB("$external").runCommand({
@@ -75,14 +79,14 @@ mongosh --host ${node} --authenticationMechanism GSSAPI \\
     }
   }
 
+  const modes = [info.ldap && 'an LDAP password', info.kerberos && 'a Kerberos ticket (GSSAPI)'].filter(Boolean).join(' or ')
   return (
     <div className="space-y-3">
       <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
-        This node authenticates against <span className="font-medium">{dir}</span>
-        (<span className="font-mono">{info.dirFQDN}</span>). Create directory users/groups on that
-        node's LDAP tab, then log in here with a directory username
-        {info.kerberos ? ' — by password (LDAP) or Kerberos ticket (GSSAPI).' : ' and its directory password.'}
-        {' '}Replace <span className="font-mono">{u}</span> with a real directory user.
+        {info.ldap && <>This node authenticates against <span className="font-medium">{dir}</span> (<span className="font-mono">{info.dirFQDN}</span>). </>}
+        {info.kerberos && <>Kerberos SSO uses the Samba AD DC (realm <span className="font-mono">{realm}</span>). </>}
+        Create directory users on the Intranet/Samba LDAP tab, then log in here with a directory
+        username using {modes}. Replace <span className="font-mono">{u}</span> with a real directory user.
       </div>
       {blocks.map((b, i) => <Code key={i} label={b.label} text={b.text} />)}
     </div>

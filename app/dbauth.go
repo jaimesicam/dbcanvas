@@ -25,19 +25,38 @@ import (
 //     and saslHostName=<fqdn> (mongod otherwise builds a short-hostname acceptor principal).
 
 // dirAuthIssues validates a DB node's directory-auth selection against the stack's directory
-// nodes (id → "intranet"|"sambaad").
+// nodes (id → "intranet"|"sambaad"). LDAP (a chosen directory) and Kerberos (a Samba AD DC
+// node existing in the stack) are independent options.
 func dirAuthIssues(n designNode, dirNodes map[string]string) []issue {
-	if !n.LdapAuth {
-		return nil
+	var out []issue
+	if n.LdapAuth {
+		if _, ok := dirNodes[n.LdapDirNodeID]; !ok {
+			out = append(out, issue{"error", nodeKindLabel(n.Type) + " node " + n.Label + " has LDAP integration enabled but no directory is selected — add an Intranet or Samba AD DC node and pick it"})
+		}
 	}
-	dirType, ok := dirNodes[n.LdapDirNodeID]
-	if !ok {
-		return []issue{{"error", nodeKindLabel(n.Type) + " node " + n.Label + " has LDAP integration enabled but no directory is selected — add an Intranet or Samba AD DC node and pick it"}}
+	if n.KerberosAuth {
+		hasSamba := false
+		for _, t := range dirNodes {
+			if t == "sambaad" {
+				hasSamba = true
+				break
+			}
+		}
+		if !hasSamba {
+			out = append(out, issue{"error", nodeKindLabel(n.Type) + " node " + n.Label + " has Kerberos enabled, which requires a Samba AD DC node — add a Samba AD DC node or turn off Kerberos"})
+		}
 	}
-	if n.KerberosAuth && dirType != "sambaad" {
-		return []issue{{"error", nodeKindLabel(n.Type) + " node " + n.Label + " has Kerberos enabled, which requires a Samba AD DC directory — select a Samba AD DC node or turn off Kerberos"}}
+	return out
+}
+
+// sambaNodeID returns the (singleton) Samba AD DC node's id, or "" if the stack has none.
+func sambaNodeID(doc designDoc) string {
+	for _, n := range doc.Nodes {
+		if n.Type == "sambaad" {
+			return n.ID
+		}
 	}
-	return nil
+	return ""
 }
 
 func nodeKindLabel(t string) string {
@@ -66,14 +85,16 @@ type dirInfo struct {
 }
 
 // dirAuthInfo is persisted into the DB node's Deployment.Config (key "dirAuth") so the
-// manager's Directory-Login tab can render exact login commands.
+// manager's Directory-Login tab can render exact login commands. LDAP and Kerberos are
+// independent.
 type dirAuthInfo struct {
-	Enabled  bool   `json:"enabled"`
+	Enabled  bool   `json:"enabled"` // ldap || kerberos (controls tab visibility)
+	Ldap     bool   `json:"ldap"`
+	Kerberos bool   `json:"kerberos"`
 	DirType  string `json:"dirType"`
 	DirFQDN  string `json:"dirFQDN"`
 	NodeFQDN string `json:"nodeFQDN"`
 	Realm    string `json:"realm"`
-	Kerberos bool   `json:"kerberos"`
 	UserAttr string `json:"userAttr"`
 }
 
@@ -137,12 +158,37 @@ func (a *App) resolveDirectory(ctx context.Context, st Stack, doc designDoc, dir
 // restart came back for MySQL).
 func (a *App) applyDirectoryAuth(ctx context.Context, st Stack, n designNode, doc designDoc, containerID, engine, rootPW string, pr *pxcProg) error {
 	pr.phase("Configuring directory authentication", 96)
-	dir, err := a.resolveDirectory(ctx, st, doc, n.LdapDirNodeID)
-	if err != nil {
-		return fmt.Errorf("directory: %w", err)
+	domain := envOr("DOMAIN", "example.net")
+
+	// LDAP directory (optional): the chosen Intranet or Samba node.
+	var ldap dirInfo
+	if n.LdapAuth {
+		d, err := a.resolveDirectory(ctx, st, doc, n.LdapDirNodeID)
+		if err != nil {
+			return fmt.Errorf("directory: %w", err)
+		}
+		ldap = d
+		domain = d.Domain
 	}
-	nodeFQDN := fqdnOf(stackHostnames(doc)[n.ID], dir.Domain)
-	kerberos := n.KerberosAuth && dir.Type == "sambaad" && engine != "ps"
+
+	// Kerberos (optional, independent of LDAP; pg/psm only): always via the stack's Samba DC.
+	kerberos := n.KerberosAuth && engine != "ps"
+	var samba dirInfo
+	if kerberos {
+		sid := sambaNodeID(doc)
+		if sid == "" {
+			return fmt.Errorf("Kerberos requires a Samba AD DC node in the stack")
+		}
+		s, err := a.resolveDirectory(ctx, st, doc, sid)
+		if err != nil {
+			return fmt.Errorf("kerberos directory: %w", err)
+		}
+		samba = s
+		if !n.LdapAuth {
+			domain = s.Domain
+		}
+	}
+	nodeFQDN := fqdnOf(stackHostnames(doc)[n.ID], domain)
 
 	// For Kerberos, mint a service principal + keytab on the Samba DC and stage it (+ krb5.conf)
 	// into the DB container.
@@ -153,15 +199,13 @@ func (a *App) applyDirectoryAuth(ctx context.Context, st Stack, n designNode, do
 		if engine == "psm" {
 			svc, keytabPath = "mongodb", "/etc/mongod.keytab"
 		}
-		keytab, krb5, err := a.mintKeytab(ctx, dir.ContainerID, svc, nodeFQDN)
+		keytab, krb5, err := a.mintKeytab(ctx, samba.ContainerID, svc, nodeFQDN)
 		if err != nil {
 			return fmt.Errorf("kerberos keytab: %w", err)
 		}
-		files := map[string]fileEntry{"dbcanvas.krb5.conf": {0o644, 0, krb5}}
-		if err := a.docker.PutArchive(ctx, containerID, "/etc", tarFiles(files)); err != nil {
+		if err := a.docker.PutArchive(ctx, containerID, "/etc", tarFiles(map[string]fileEntry{"dbcanvas.krb5.conf": {0o644, 0, krb5}})); err != nil {
 			return fmt.Errorf("stage krb5.conf: %w", err)
 		}
-		// place the keytab at its final path via a tmp staging + move (PutArchive can't chown-by-name)
 		if err := a.docker.PutArchive(ctx, containerID, "/tmp", tarFiles(map[string]fileEntry{"dbcanvas.keytab": {0o600, 0, keytab}})); err != nil {
 			return fmt.Errorf("stage keytab: %w", err)
 		}
@@ -169,9 +213,10 @@ func (a *App) applyDirectoryAuth(ctx context.Context, st Stack, n designNode, do
 	}
 
 	env := []string{
-		"DIRFQDN=" + dir.FQDN, "BASE=" + dir.BaseDN, "ATTR=" + dir.UserAttr,
-		"BINDDN=" + dir.BindDN, "BINDPW=" + dir.BindPW,
-		"NODEFQDN=" + nodeFQDN, "REALM=" + dir.Realm, "ROOTPW=" + rootPW,
+		"LDAP=" + boolEnv(n.LdapAuth),
+		"DIRFQDN=" + ldap.FQDN, "BASE=" + ldap.BaseDN, "ATTR=" + ldap.UserAttr,
+		"BINDDN=" + ldap.BindDN, "BINDPW=" + ldap.BindPW,
+		"NODEFQDN=" + nodeFQDN, "REALM=" + samba.Realm, "ROOTPW=" + rootPW,
 		"KEYTAB=" + keytabPath, "KRB=" + boolEnv(kerberos),
 	}
 	var script string
@@ -187,11 +232,18 @@ func (a *App) applyDirectoryAuth(ctx context.Context, st Stack, n designNode, do
 		return err
 	}
 
-	info := dirAuthInfo{Enabled: true, DirType: dir.Type, DirFQDN: dir.FQDN, NodeFQDN: nodeFQDN, Realm: dir.Realm, Kerberos: kerberos, UserAttr: dir.UserAttr}
+	info := dirAuthInfo{Enabled: n.LdapAuth || kerberos, Ldap: n.LdapAuth, Kerberos: kerberos,
+		DirType: ldap.Type, DirFQDN: ldap.FQDN, NodeFQDN: nodeFQDN, Realm: samba.Realm, UserAttr: ldap.UserAttr}
 	a.persistDirAuth(st, n.ID, info)
-	msg := "LDAP authentication against " + dir.FQDN
+	var msg string
+	if n.LdapAuth {
+		msg = "LDAP against " + ldap.FQDN
+	}
 	if kerberos {
-		msg += " (+ Kerberos SSO)"
+		if msg != "" {
+			msg += " + "
+		}
+		msg += "Kerberos SSO (realm " + samba.Realm + ")"
 	}
 	pr.logln(msg + " configured")
 	return nil
@@ -249,19 +301,20 @@ DATA=$(dirname "$(find /var/lib/pgsql /var/lib/postgresql -name pg_hba.conf 2>/d
 [ -n "$DATA" ] || { echo "pg_hba.conf not found"; exit 1; }
 HBA="$DATA/pg_hba.conf"; CONF="$DATA/postgresql.conf"
 sed -i "/# dbcanvas-dirauth/d" "$HBA" "$CONF"
-LDAP="host all all 0.0.0.0/0 ldap ldapserver=$DIRFQDN ldapbasedn=\"$BASE\" ldapbinddn=\"$BINDDN\" ldapbindpasswd=\"$BINDPW\" ldapsearchattribute=$ATTR # dbcanvas-dirauth"
-SU="host all postgres 0.0.0.0/0 scram-sha-256 # dbcanvas-dirauth"
-GSS=""
+LDAPLINE=""; SU=""; GSS=""
+[ "$LDAP" = "1" ] && LDAPLINE="host all all 0.0.0.0/0 ldap ldapserver=$DIRFQDN ldapbasedn=\"$BASE\" ldapbinddn=\"$BINDDN\" ldapbindpasswd=\"$BINDPW\" ldapsearchattribute=$ATTR # dbcanvas-dirauth"
+{ [ "$LDAP" = "1" ] || [ "$KRB" = "1" ]; } && SU="host all postgres 0.0.0.0/0 scram-sha-256 # dbcanvas-dirauth"
 if [ "$KRB" = "1" ]; then
+  ` + krb5ClientInstall + `
   mv -f /tmp/dbcanvas.keytab "$KEYTAB"; chown postgres "$KEYTAB" 2>/dev/null || true; chmod 600 "$KEYTAB"
   mv -f /etc/dbcanvas.krb5.conf /etc/krb5.conf
   echo "krb_server_keyfile = '$KEYTAB' # dbcanvas-dirauth" >> "$CONF"
   GSS="hostgssenc all all 0.0.0.0/0 gss include_realm=0 # dbcanvas-dirauth"
 fi
-SU="$SU" GSS="$GSS" LDAP="$LDAP" python3 - "$HBA" <<'PY'
+SU="$SU" GSS="$GSS" LDAPLINE="$LDAPLINE" python3 - "$HBA" <<'PY'
 import os,re,sys
 hba=sys.argv[1]
-add=[l for l in (os.environ["SU"],os.environ["GSS"],os.environ["LDAP"]) if l]
+add=[l for l in (os.environ["SU"],os.environ["GSS"],os.environ["LDAPLINE"]) if l]
 lines=open(hba).read().splitlines(); out=[]; done=False
 for ln in lines:
     if not done and re.match(r"host\s+all\s+all\s+0\.0\.0\.0/0\s+scram-sha-256\s*$", ln):
@@ -272,6 +325,14 @@ open(hba,"w").write("\n".join(out)+"\n")
 PY
 su - postgres -c "psql -tAc 'SELECT pg_reload_conf()'" >/dev/null
 echo "pg_hba.conf updated + reloaded"`
+
+// krb5ClientInstall installs the Kerberos client tools (kinit/klist): krb5-user on Debian/
+// Ubuntu, krb5-workstation on Oracle Linux / RHEL.
+const krb5ClientInstall = `if command -v apt-get >/dev/null 2>&1; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq krb5-user >/dev/null 2>&1 || true
+  else
+    (microdnf install -y krb5-workstation >/dev/null 2>&1 || dnf install -y krb5-workstation >/dev/null 2>&1) || true
+  fi`
 
 // mysqlDirAuthScript loads authentication_ldap_simple via /etc/my.cnf (the .d dir is not
 // included) and restarts mysqld.
@@ -298,25 +359,27 @@ echo "authentication_ldap_simple loaded"`
 // mongoDirAuthScript merges a security.ldap block + PLAIN mechanism into mongod.conf, and when
 // KRB=1 installs cyrus-sasl-gssapi, wires the keytab (KRB5_KTNAME) + saslHostName + GSSAPI.
 const mongoDirAuthScript = `set -e
-KRB="$KRB" DIRFQDN="$DIRFQDN" BASE="$BASE" ATTR="$ATTR" BINDDN="$BINDDN" BINDPW="$BINDPW" NODEFQDN="$NODEFQDN" python3 - <<'PY'
+KRB="$KRB" LDAP="$LDAP" DIRFQDN="$DIRFQDN" BASE="$BASE" ATTR="$ATTR" BINDDN="$BINDDN" BINDPW="$BINDPW" NODEFQDN="$NODEFQDN" python3 - <<'PY'
 import os,re
 conf="/etc/mongod.conf"; t=open(conf).read()
 t=re.sub(r"\n# dbcanvas-dirauth.*?# dbcanvas-dirauth-end\n","\n",t,flags=re.S)
 q=os.environ
-ldap=(
-'security:\n  authorization: enabled\n  ldap:\n'
-f'    servers: "{q["DIRFQDN"]}"\n'
-'    transportSecurity: none\n'
-'    bind:\n'
-f'      queryUser: "{q["BINDDN"]}"\n'
-f'      queryPassword: "{q["BINDPW"]}"\n'
-'    userToDNMapping: ' + "'" + f'[{{match: "(.+)", ldapQuery: "{q["BASE"]}??sub?({q["ATTR"]}={{0}})"}}]' + "'"
-)
-if "security:\n  authorization: enabled" in t:
-    t=t.replace("security:\n  authorization: enabled", ldap, 1)
-else:
-    t=t.rstrip()+"\n"+ldap+"\n"
-mechs="SCRAM-SHA-256,SCRAM-SHA-1,PLAIN"
+if q["LDAP"]=="1":
+    ldap=(
+    'security:\n  authorization: enabled\n  ldap:\n'
+    f'    servers: "{q["DIRFQDN"]}"\n'
+    '    transportSecurity: none\n'
+    '    bind:\n'
+    f'      queryUser: "{q["BINDDN"]}"\n'
+    f'      queryPassword: "{q["BINDPW"]}"\n'
+    '    userToDNMapping: ' + "'" + f'[{{match: "(.+)", ldapQuery: "{q["BASE"]}??sub?({q["ATTR"]}={{0}})"}}]' + "'"
+    )
+    if "security:\n  authorization: enabled" in t:
+        t=t.replace("security:\n  authorization: enabled", ldap, 1)
+    else:
+        t=t.rstrip()+"\n"+ldap+"\n"
+mechs="SCRAM-SHA-256,SCRAM-SHA-1"
+if q["LDAP"]=="1": mechs+=",PLAIN"
 extra=""
 if q["KRB"]=="1":
     mechs+=",GSSAPI"; extra=f'\n  saslHostName: {q["NODEFQDN"]}'
@@ -325,6 +388,7 @@ open(conf,"w").write(t)
 PY
 if [ "$KRB" = "1" ]; then
   (microdnf install -y cyrus-sasl-gssapi krb5-libs >/dev/null 2>&1 || dnf install -y cyrus-sasl-gssapi krb5-libs >/dev/null 2>&1) || true
+  ` + krb5ClientInstall + `
   mv -f /tmp/dbcanvas.keytab "$KEYTAB"; chown mongod "$KEYTAB" 2>/dev/null || true; chmod 600 "$KEYTAB"
   mv -f /etc/dbcanvas.krb5.conf /etc/krb5.conf
   mkdir -p /etc/systemd/system/mongod.service.d
@@ -333,4 +397,4 @@ if [ "$KRB" = "1" ]; then
 fi
 systemctl restart mongod
 for i in $(seq 1 30); do systemctl is-active --quiet mongod && break; sleep 2; done
-echo "mongod LDAP configured"`
+echo "mongod directory auth configured"`
