@@ -89,6 +89,9 @@ type benchRun struct {
 
 	nCust, nProd, nOrd      int64
 	nextOrderID, nextItemID int64 // atomic
+
+	crud   *crudPlan   // CRUD workload only
+	sample *crudSample // CRUD workload only — sampled filter-key pool
 }
 
 func newBenchRun(a *App, ownerID int64, cfg benchConfig, engine, containerID, label, user, pass string) *benchRun {
@@ -189,7 +192,9 @@ func (run *benchRun) execute(ctx context.Context) {
 		run.mu.Unlock()
 	}()
 
-	run.setRanges()
+	if run.cfg.Workload != "crud" {
+		run.setRanges()
+	}
 
 	if run.cfg.CreateDB {
 		run.setPhase("preparing", "creating database")
@@ -220,9 +225,22 @@ func (run *benchRun) execute(ctx context.Context) {
 		return
 	}
 
-	if err := run.prepare(ctx, db); err != nil {
-		run.fail(err.Error())
-		return
+	if run.cfg.Workload == "crud" {
+		run.setPhase("preparing", "introspecting table")
+		plan, perr := run.buildCRUDPlan(ctx)
+		if perr != nil {
+			run.fail(perr.Error())
+			return
+		}
+		run.crud = plan
+		run.sample = &crudSample{}
+		run.crudRefreshSample(ctx, db) // initial pool from existing rows
+		go run.crudSampler(ctx, db)
+	} else {
+		if err := run.prepare(ctx, db); err != nil {
+			run.fail(err.Error())
+			return
+		}
 	}
 	if ctx.Err() != nil {
 		return
@@ -248,8 +266,9 @@ func (run *benchRun) execute(ctx context.Context) {
 	run.measureEnd = time.Now()
 	run.mu.Unlock()
 
-	if !run.cfg.KeepData {
-		// Fresh context so a stopped/expired run still cleans up its tables.
+	if !run.cfg.KeepData && run.cfg.Workload != "crud" {
+		// Fresh context so a stopped/expired run still cleans up its tables. CRUD never
+		// drops the user's own table.
 		cctx, ccancel := context.WithTimeout(context.Background(), 60*time.Second)
 		run.dropSchema(cctx, db)
 		ccancel()
@@ -361,6 +380,8 @@ func (run *benchRun) unit(ctx context.Context, db *sql.DB, s benchSQL, rng *rand
 		err = run.unitRO(ctx, db, s, rng, record)
 	case "rw":
 		err = run.unitRW(ctx, db, s, rng, record)
+	case "crud":
+		err = run.unitCRUD(ctx, db, rng, record)
 	default:
 		err = run.unitOLTP(ctx, db, s, rng, record)
 	}
@@ -554,6 +575,7 @@ type benchRunDTO struct {
 	Engine     string         `json:"engine"`
 	Label      string         `json:"label"`
 	Database   string         `json:"database"`
+	Table      string         `json:"table,omitempty"`
 	Scale      int            `json:"scale"`
 	Threads    int            `json:"threads"`
 	DurationS  int            `json:"durationS"`
@@ -591,7 +613,7 @@ func (run *benchRun) snapshot() benchRunDTO {
 	dto := benchRunDTO{
 		ID: run.id, Status: run.phase, Message: run.message,
 		Workload: run.cfg.Workload, Engine: run.engine, Label: run.label,
-		Database: run.cfg.Database, Scale: run.cfg.Scale, Threads: run.cfg.Threads,
+		Database: run.cfg.Database, Table: run.cfg.Table, Scale: run.cfg.Scale, Threads: run.cfg.Threads,
 		DurationS: run.cfg.DurationS, KeepData: run.cfg.KeepData,
 		RowsLoaded: atomic.LoadInt64(&run.rowsLoaded),
 		RowsTarget: run.nCust + run.nProd + run.nOrd*3,

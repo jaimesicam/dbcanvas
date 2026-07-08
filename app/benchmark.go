@@ -42,19 +42,32 @@ var benchStmtTypes = []string{
 	"olap_q1", "olap_q2", "olap_q3", "olap_q4", "olap_q5",
 }
 
+// benchWeights are the relative CRUD operation weights.
+type benchWeights struct {
+	Insert int `json:"insert"`
+	Update int `json:"update"`
+	Delete int `json:"delete"`
+	Select int `json:"select"`
+}
+
 // benchConfig is the run request.
 type benchConfig struct {
 	StackID   int64  `json:"stackId"`
 	NodeID    string `json:"nodeId"`
 	Database  string `json:"database"`
 	CreateDB  bool   `json:"createDb"`
-	Workload  string `json:"workload"` // oltp | olap | rw | ro
+	Workload  string `json:"workload"` // oltp | olap | rw | ro | crud
 	Scale     int    `json:"scale"`
 	Threads   int    `json:"threads"`
 	DurationS int    `json:"durationS"`
 	WarmupS   int    `json:"warmupS"`
 	KeepData  bool   `json:"keepData"`
 	Seed      int64  `json:"seed"`
+	// CRUD workload: an existing table + how to filter/weight operations.
+	Table         string       `json:"table"`
+	Schema        string       `json:"schema"`
+	FilterColumns []string     `json:"filterColumns"`
+	Weights       benchWeights `json:"weights"`
 }
 
 // ------------------------------------------------------------------- handlers
@@ -81,8 +94,23 @@ func (a *App) handleBenchStart(w http.ResponseWriter, r *http.Request) {
 	}
 	switch cfg.Workload {
 	case "oltp", "olap", "rw", "ro":
+	case "crud":
+		if !benchIdentRe.MatchString(cfg.Table) {
+			writeErr(w, http.StatusBadRequest, "CRUD requires an existing table (simple identifier)")
+			return
+		}
+		if cfg.Schema != "" && !benchIdentRe.MatchString(cfg.Schema) {
+			writeErr(w, http.StatusBadRequest, "invalid schema name")
+			return
+		}
+		for _, col := range cfg.FilterColumns {
+			if !benchIdentRe.MatchString(col) {
+				writeErr(w, http.StatusBadRequest, "invalid filter column: "+col)
+				return
+			}
+		}
 	default:
-		writeErr(w, http.StatusBadRequest, "workload must be one of oltp, olap, rw, ro")
+		writeErr(w, http.StatusBadRequest, "workload must be one of oltp, olap, rw, ro, crud")
 		return
 	}
 	if strings.TrimSpace(cfg.Database) == "" {
@@ -91,6 +119,9 @@ func (a *App) handleBenchStart(w http.ResponseWriter, r *http.Request) {
 	if !benchIdentRe.MatchString(cfg.Database) {
 		writeErr(w, http.StatusBadRequest, "database must be a simple identifier (letters, digits, underscore)")
 		return
+	}
+	if cfg.Workload == "crud" {
+		cfg.CreateDB = false // CRUD targets an existing table; never create/load
 	}
 	cfg.Scale = clampInt(cfg.Scale, 1, benchMaxScale)
 	cfg.Threads = clampInt(cfg.Threads, 1, benchMaxThreads)
