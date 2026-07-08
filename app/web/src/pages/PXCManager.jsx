@@ -164,7 +164,7 @@ function CertTab({ api, cfg }) {
         </div>
       </div>
       <div className="space-y-1.5 rounded-lg border border-dashed p-2">
-        <div className="text-xs font-medium text-muted">Re-issue from Intranet CA (restarts this node's mysqld)</div>
+        <div className="text-xs font-medium text-muted">Re-issue from Intranet CA (overwrites the cert files in place)</div>
         <div className="flex gap-1">
           <input type="number" min="1" className={inputCls} value={value} onChange={(e) => setValue(e.target.value)} />
           <select className={inputCls} value={unit} onChange={(e) => setUnit(e.target.value)}>
@@ -176,7 +176,7 @@ function CertTab({ api, cfg }) {
         <Button size="sm" className="w-full" disabled={busy} onClick={generate}>
           {busy ? 'Generating…' : 'Generate certificate'}
         </Button>
-        <div className="text-[11px] text-muted">Requires a running Intranet node.</div>
+        <div className="text-[11px] text-muted">Requires a running Intranet node. The new cert is written in place — restart this node's mysqld yourself to apply it.</div>
       </div>
     </div>
   )

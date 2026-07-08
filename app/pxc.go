@@ -608,7 +608,7 @@ func (a *App) pxcBootstrap(ctx context.Context, st Stack, frame designFrame, n d
 	}
 	if frame.GenerateCert {
 		pr.phase("Issuing certificate", 80)
-		if err := a.pxcApplyCert(ctx, id, intranetID, fqdnOf(host, domain), "mysql@bootstrap", frame.OS, frame.CertTTLValue, frame.CertTTLUnit, pr.logln); err != nil {
+		if err := a.pxcApplyCert(ctx, id, intranetID, fqdnOf(host, domain), "mysql@bootstrap", frame.OS, frame.CertTTLValue, frame.CertTTLUnit, pr.logln, false); err != nil {
 			return pr.fail("%v", err)
 		}
 	}
@@ -630,7 +630,7 @@ func (a *App) pxcJoin(ctx context.Context, st Stack, frame designFrame, n design
 	}
 	if frame.GenerateCert {
 		pr.phase("Issuing certificate", 80)
-		if err := a.pxcApplyCert(ctx, id, intranetID, fqdnOf(host, domain), "mysql", frame.OS, frame.CertTTLValue, frame.CertTTLUnit, pr.logln); err != nil {
+		if err := a.pxcApplyCert(ctx, id, intranetID, fqdnOf(host, domain), "mysql", frame.OS, frame.CertTTLValue, frame.CertTTLUnit, pr.logln, false); err != nil {
 			return pr.fail("%v", err)
 		}
 	}
@@ -657,7 +657,7 @@ func (a *App) pxcStartGarbd(ctx context.Context, st Stack, n designFrameNode, fr
 // client certs into /var/lib/mysql (owned by mysql) with the given TTL, points
 // my.cnf at them, and restarts the given mysql unit. Returns an error (callers
 // own progress reporting), so it is reusable for post-deploy regeneration.
-func (a *App) pxcApplyCert(ctx context.Context, containerID, intranetID, fqdn, unit, os string, ttlValue int, ttlUnit string, logln func(string)) error {
+func (a *App) pxcApplyCert(ctx context.Context, containerID, intranetID, fqdn, unit, os string, ttlValue int, ttlUnit string, logln func(string), noRestart bool) error {
 	if logln == nil {
 		logln = func(string) {}
 	}
@@ -692,6 +692,7 @@ func (a *App) pxcApplyCert(ctx context.Context, containerID, intranetID, fqdn, u
 		"VALUE=" + strconv.Itoa(ttlValue), "UNIT=" + ttlUnit,
 		"UNITSVC=" + unit,
 		"CNF=" + pxcCnfPath(os), "LOGERR=" + pxcLogError(os),
+		"NORESTART=" + boolEnv(noRestart),
 	}
 	if err := a.runStep(ctx, containerID, pxcCertScript, env, logln); err != nil {
 		return fmt.Errorf("generate certificate: %w", err)
@@ -930,6 +931,13 @@ ssl-ca=/var/lib/mysql/ca.pem
 ssl-cert=/var/lib/mysql/server-cert.pem
 ssl-key=/var/lib/mysql/server-key.pem
 EOF
+# NORESTART=1 (management re-issue on an already-running node): only overwrite the cert
+# files in place and leave mysqld untouched — restarting a PXC member would force it to
+# rejoin the cluster (slow/blocking). The operator restarts the service to apply the new cert.
+if [ "$NORESTART" = "1" ]; then
+  echo "certificate overwritten in place — restart this node's mysqld to apply it"
+  exit 0
+fi
 systemctl restart "$UNITSVC"
 systemctl is-active --quiet "$UNITSVC" || { echo "mysql failed to restart with TLS"; tail -8 "$LOGERR" 2>/dev/null; exit 1; }`
 

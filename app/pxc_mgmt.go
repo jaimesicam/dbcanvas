@@ -61,7 +61,7 @@ func (a *App) handlePXCCertGenerate(w http.ResponseWriter, r *http.Request) {
 	if fqdn == "" {
 		fqdn = fqdnOf(cfg.Hostname, envOr("DOMAIN", "example.net"))
 	}
-	if err := a.pxcApplyCert(r.Context(), dep.ContainerID, intranetID, fqdn, unit, cfg.OS, b.Value, b.Unit, nil); err != nil {
+	if err := a.pxcApplyCert(r.Context(), dep.ContainerID, intranetID, fqdn, unit, cfg.OS, b.Value, b.Unit, nil, true); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

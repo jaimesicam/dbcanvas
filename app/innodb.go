@@ -212,7 +212,7 @@ func (a *App) provisionInnoDBFrame(st Stack, frame designFrame, doc designDoc) {
 			}
 			if frame.GenerateCert {
 				pr.phase("Issuing certificate", 92)
-				if err := a.pxcApplyCert(ctx, dep.ContainerID, intranetID, fqdnOf(hosts[n.ID], domain), mysqlUnit(frame.OS), frame.OS, frame.CertTTLValue, frame.CertTTLUnit, pr.logln); err != nil {
+				if err := a.pxcApplyCert(ctx, dep.ContainerID, intranetID, fqdnOf(hosts[n.ID], domain), mysqlUnit(frame.OS), frame.OS, frame.CertTTLValue, frame.CertTTLUnit, pr.logln, false); err != nil {
 					pr.fail("%v", err)
 					return
 				}
