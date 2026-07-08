@@ -8,9 +8,31 @@ import OidcLoginGuide from '../components/OidcLoginGuide.jsx'
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'access', label: 'Access' },
+  { id: 'ldap', label: 'LDAP' },
   { id: 'sso', label: 'Keycloak SSO' },
   { id: 'cert', label: 'Certificate' },
 ]
+
+// PmmLdapTab explains how to sign in to PMM with a directory (LDAP) account.
+function PmmLdapTab({ info }) {
+  if (!info || !info.enabled) return null
+  const dir = info.dirType === 'sambaad' ? 'Samba AD DC' : 'Intranet OpenLDAP'
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+        PMM authenticates against <span className="font-medium">{dir}</span>
+        (<span className="font-mono">{info.dirFQDN}</span>). Sign in at the PMM login page with your
+        directory <span className="font-mono">{info.userAttr}</span> and password — accounts are created
+        on first login with the Editor role. The built-in <span className="font-mono">admin</span> account
+        still works. Manage users/groups on the directory node's LDAP tab.
+      </div>
+      <a href={info.loginUrl} target="_blank" rel="noreferrer"
+        className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">
+        <Icon.External size={15} /> Open PMM sign-in
+      </a>
+    </div>
+  )
+}
 
 function CopyButton({ text, title = 'Copy', size = 14 }) {
   const [done, setDone] = useState(false)
@@ -58,7 +80,7 @@ export default function PMMManager({ stackId, nodeId, dep, onDeleteNode }) {
       </div>
 
       <div className="flex flex-wrap gap-1 rounded-lg bg-surface2 p-1">
-        {TABS.filter((t) => t.id !== 'sso' || cfg.oidc?.enabled).map((t) => (
+        {TABS.filter((t) => (t.id !== 'sso' || cfg.oidc?.enabled) && (t.id !== 'ldap' || cfg.ldap?.enabled)).map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
@@ -79,6 +101,7 @@ export default function PMMManager({ stackId, nodeId, dep, onDeleteNode }) {
         />
       )}
       {tab === 'access' && <AccessTab cfg={cfg} sec={sec} />}
+      {tab === 'ldap' && <PmmLdapTab info={cfg.ldap} />}
       {tab === 'sso' && <OidcLoginGuide engine="pmm" info={cfg.oidc} />}
       {tab === 'cert' && <CertTab api={api} generateCert={cfg.generateCert} />}
     </div>

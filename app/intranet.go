@@ -476,6 +476,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 				out = append(out, issue{"error", "PMM node " + n.Label + " is associated with a Watchtower node that is not on the canvas — add a Watchtower node or clear the association"})
 			}
 			out = append(out, oidcIssues(n, keycloakIDs, keycloakSSL)...)
+			out = append(out, dirAuthIssues(n, dirNodes)...)
 		case "watchtower":
 			watchtower++
 			others++

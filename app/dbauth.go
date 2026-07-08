@@ -67,6 +67,8 @@ func nodeKindLabel(t string) string {
 		return "PostgreSQL"
 	case "psm":
 		return "PSMDB"
+	case "pmm":
+		return "PMM"
 	}
 	return t
 }

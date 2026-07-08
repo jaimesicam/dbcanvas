@@ -291,6 +291,12 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 
 		a.trustIntranetCA(ctx, st, id, n.OS, logln)
 
+		if n.LdapAuth {
+			if err := a.pmmConfigureLDAP(ctx, st, n, doc, id, setPhase, logln); err != nil {
+				logln("LDAP authentication skipped: " + err.Error())
+			}
+		}
+
 		if n.EnableOIDC {
 			if err := a.pmmConfigureOIDC(ctx, st, n, doc, id, setPhase, logln); err != nil {
 				logln("Keycloak SSO skipped: " + err.Error())

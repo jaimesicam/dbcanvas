@@ -2299,6 +2299,7 @@ function PMMOptions({ n, nodes = [], patchNode, deployed }) {
           ))}
         </select>
       </Field>
+      <DirectoryAuthFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} kerberos={false} />
       <KeycloakOidcFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} label="Single sign-on with Keycloak (Grafana OAuth)" />
     </>
   )

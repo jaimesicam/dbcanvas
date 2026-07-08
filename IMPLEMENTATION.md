@@ -5403,3 +5403,28 @@ multi-select (default = PK, via `datagenApi.columns`), weight inputs; hides Scal
 count grows, table retained), composite PK with random-subset WHERE (0 errors), and a custom non-PK
 filter column (negligible deadlock errors from concurrent DML on a low-cardinality column, as
 expected). `go build/vet/test` + `npm run build` clean; test stack removed.
+
+---
+
+## 109. LDAP authentication for PMM (Intranet or Samba) — `app/pmmldap.go`, pmm.go, forms/manager
+
+PMM (Grafana) can now authenticate users against a stack directory, with the user **choosing
+Intranet OpenLDAP or Samba AD DC** — the same per-node directory picker the DB nodes use.
+
+`pmmConfigureLDAP` (`pmmldap.go`, hooked into `provisionPMM`, gated by `LdapAuth`) reuses
+`resolveDirectory` (dbauth.go) to derive the chosen directory's host / bind DN / base DN / user
+attribute (`uid` for OpenLDAP, `sAMAccountName` for AD), writes `/etc/grafana/ldap.toml` via
+`CopyFile` (root), enables `[auth.ldap]` in `grafana.ini` (awk section-replace like the OIDC path)
+and restarts Grafana. Plain `ldap://` (389) works for both directories (Samba runs with strong-auth
+off). Authenticated users get the Editor org role (`group_dn "*"`); the built-in admin still manages.
+Persists an `ldap` summary into the PMM `Deployment.Config`.
+
+Frontend: the PMM form reuses `DirectoryAuthFields` (kerberos off) — an "Integrate with LDAP" toggle
++ directory picker; validation reuses `dirAuthIssues` (PMM added to `nodeKindLabel`). A new **LDAP**
+tab in `PMMManager` shows the sign-in instructions. LDAP and Keycloak SSO are independent (both may
+be enabled).
+
+**Verified:** a deployed Intranet + Samba + PMM stack — a Samba directory user logged into Grafana
+via LDAP end-to-end (auto-configured); reconfiguring the same PMM with the Intranet OpenLDAP params
+`resolveDirectory` produces also logged in (wrong password → 401). `go build/vet/test` + `npm run
+build` clean; test stack removed.
