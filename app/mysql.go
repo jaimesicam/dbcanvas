@@ -255,7 +255,7 @@ func (a *App) provisionMySQLFrame(st Stack, frame designFrame, doc designDoc) {
 			if frame.GenerateCert {
 				pr.phase("Issuing certificate", 90)
 				host := hosts[n.ID]
-				if err := a.pxcApplyCert(ctx, dep.ContainerID, intranetID, fqdnOf(host, domain), mysqlUnit(frame.OS), frame.OS, frame.CertTTLValue, frame.CertTTLUnit, pr.logln); err != nil {
+				if err := a.pxcApplyCert(ctx, dep.ContainerID, intranetID, fqdnOf(host, domain), mysqlUnit(frame.OS), frame.OS, frame.CertTTLValue, frame.CertTTLUnit, pr.logln, false); err != nil {
 					pr.fail("%v", err)
 					return
 				}
@@ -339,7 +339,7 @@ func (a *App) provisionPerconaServer(st Stack, n designNode, doc designDoc) {
 		a.docker.CopyFile(ctx, a.containerOf(st.ID, n.ID), "/root", ".my.cnf", 0o600, pxcRootMyCnf(sec))
 		if n.GenerateCert {
 			pr.phase("Issuing certificate", 90)
-			if err := a.pxcApplyCert(ctx, a.containerOf(st.ID, n.ID), intranetID, fqdnOf(host, domain), mysqlUnit(n.OS), n.OS, n.CertTTLValue, n.CertTTLUnit, pr.logln); err != nil {
+			if err := a.pxcApplyCert(ctx, a.containerOf(st.ID, n.ID), intranetID, fqdnOf(host, domain), mysqlUnit(n.OS), n.OS, n.CertTTLValue, n.CertTTLUnit, pr.logln, false); err != nil {
 				pr.fail("%v", err)
 				return
 			}

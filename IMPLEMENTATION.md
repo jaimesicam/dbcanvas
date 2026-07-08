@@ -5453,3 +5453,23 @@ the XtraBackup/PMM-client sub-installs are left at latest (their own versioning)
 **Verified:** a stack pinning pg 16.11-2, Percona Server 8.0.43-34.1 and PSMDB 8.0.20-8 installed
 exactly those (not the latest 16.14/8.0.46/8.0.26) — confirmed via `rpm -q`, `SHOW server_version`
 and `SELECT VERSION()`. `go build/vet/test` clean.
+
+---
+
+## 111. Cert re-issue overwrites in place (no mysqld restart) — `app/pxc.go`, pxc_mgmt.go, PXCManager.jsx
+
+Clicking "Generate certificate" on a running MySQL-family node (PXC/Percona Server/InnoDB — all
+share `handlePXCCertGenerate`) restarted mysqld. On a PXC member a restart forces a cluster rejoin
+(SST/IST) that blocks, so the HTTP request hung and the UI button stayed disabled until the tab was
+switched.
+
+`pxcApplyCert` gains a `noRestart` flag. The management re-issue path passes `true`: it overwrites
+the cert files (`ca.pem`/`server-cert.pem`/`server-key.pem`/`client-*`) in place and leaves mysqld
+untouched — the operator restarts the service themselves to apply the new cert (no hot reload).
+Provisioning still passes `false` (restart, since it may be enabling TLS for the first time). The
+PXCManager cert tab wording is updated accordingly.
+
+**Verified:** re-issuing a cert on a running Percona Server node returned HTTP 200 in ~0.26s, left
+mysqld's PID + uptime unchanged (no restart), and overwrote `server-cert.pem` with the new
+30-day-TTL certificate. The fast response lets the button re-enable immediately. `go build/vet/test`
++ `npm run build` clean.
