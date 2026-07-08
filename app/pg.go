@@ -208,7 +208,7 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 		if debian {
 			instScript = patroniInstallDebian
 		}
-		env := []string{"PRODUCT=" + ppgProduct(major), "PKGS=" + strings.Join(pkgs, " ")}
+		env := []string{"PRODUCT=" + ppgProduct(major), "PKGS=" + strings.Join(pkgs, " "), "VER=" + n.PGVersion}
 		if n.UsePgBackRest && !debian {
 			env = append(env, "WITH_EPEL=1", "EPELPKG="+epelPackage(n.OSVersion))
 		}

@@ -365,7 +365,7 @@ func (a *App) repmgrPrepareNode(ctx context.Context, st Stack, frame designFrame
 	pr.phase("Installing PostgreSQL + repmgr (PGDG)", 35)
 	pkgs := repmgrAllPackages(frame.OS, major)
 	instScript := repmgrInstallRHEL
-	env := []string{"PKGS=" + strings.Join(pkgs, " ")}
+	env := []string{"PKGS=" + strings.Join(pkgs, " "), "VER=" + frame.PGVersion}
 	if debian {
 		instScript = repmgrInstallDebian
 	} else {
@@ -690,7 +690,7 @@ func barmanAWSConfig(region string) string {
 // repmgrInstall{RHEL,Debian} install PostgreSQL + repmgr from the PGDG repo. repmgr
 // is not packaged in the Percona repo, so the whole repmgr frame uses PGDG (its
 // PostgreSQL layout matches Percona's, so the pg.go path helpers still apply).
-const repmgrInstallRHEL = `set -e
+const repmgrInstallRHEL = pinInstallRHEL + `set -e
 dnf -y -q install which >/dev/null 2>&1 || true
 if [ -n "$WITH_EPEL" ]; then
   dnf -y -q install "$EPELPKG" >/dev/null 2>&1 || dnf -y -q install epel-release >/dev/null 2>&1 || true
@@ -700,9 +700,9 @@ arch=$(uname -m)
 dnf -y -q install "https://download.postgresql.org/pub/repos/yum/reporpms/EL-${elver}-${arch}/pgdg-redhat-repo-latest.noarch.rpm" >/dev/null
 # The OS-bundled postgresql module masks the PGDG packages; disable it first.
 dnf -qy module disable postgresql >/dev/null 2>&1 || true
-dnf -y -q install $PKGS >/dev/null`
+pin_install $PKGS`
 
-const repmgrInstallDebian = `set -e
+const repmgrInstallDebian = pinInstallDebian + `set -e
 export DEBIAN_FRONTEND=noninteractive
 apt-get install -y -qq curl ca-certificates gnupg lsb-release >/dev/null 2>&1 || { apt-get update -qq >/dev/null; apt-get install -y -qq curl ca-certificates gnupg lsb-release >/dev/null; }
 install -d /usr/share/postgresql-common/pgdg
@@ -710,7 +710,7 @@ curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/post
 codename=$(. /etc/os-release; echo "${VERSION_CODENAME}")
 echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${codename}-pgdg main" > /etc/apt/sources.list.d/pgdg.list
 apt-get update -qq >/dev/null
-apt-get install -y -qq $PKGS >/dev/null`
+pin_install $PKGS`
 
 // barmanInstall{RHEL,Debian} install the barman-cloud utilities from the PGDG /
 // apt.postgresql.org repos (already added for repmgr), plus boto3 for the aws-s3

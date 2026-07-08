@@ -568,7 +568,7 @@ func (a *App) mysqlPrepareNode(ctx context.Context, st Stack, frame designFrame,
 		instScript, pmmScript = mysqlInstallDebian, pxcInstallPMMClientDebian
 	}
 	psPkg := psServerPackage(frame.OS, psMajorOf(frame.PSMajor))
-	if err := a.runStep(ctx, id, instScript, []string{"PRODUCT=" + psClientProduct(psMajorOf(frame.PSMajor)), "PKG=" + psPkg}, pr.logln); err != nil {
+	if err := a.runStep(ctx, id, instScript, []string{"PRODUCT=" + psClientProduct(psMajorOf(frame.PSMajor)), "PKG=" + psPkg, "VER=" + frame.PSVersion}, pr.logln); err != nil {
 		return pr.fail("install %s: %v", psPkg, err)
 	}
 	pr.logln(psPkg + " installed")
@@ -722,16 +722,16 @@ func (a *App) mysqlAttachReplica(ctx context.Context, st Stack, frame designFram
 
 // ------------------------------------------------------------------ scripts
 
-const mysqlInstallRHEL = `set -e
+const mysqlInstallRHEL = pinInstallRHEL + `set -e
 dnf -y -q module disable mysql >/dev/null 2>&1 || true
 percona-release setup -y "$PRODUCT" >/dev/null 2>&1
-dnf -y -q install "$PKG" >/dev/null`
+pin_install "$PKG"`
 
-const mysqlInstallDebian = `set -e
+const mysqlInstallDebian = pinInstallDebian + `set -e
 export DEBIAN_FRONTEND=noninteractive
 percona-release setup -y "$PRODUCT" >/dev/null 2>&1
 apt-get update -qq >/dev/null
-apt-get install -y -qq "$PKG" >/dev/null`
+pin_install "$PKG"`
 
 // mysqlSetRootPW is shared shell that sets root@localhost to $ROOT_PW regardless of
 // distro (RHEL expired temp password / Debian auth_socket). The ALTER USER is run

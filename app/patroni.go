@@ -415,7 +415,7 @@ func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFram
 	if debian {
 		instScript = patroniInstallDebian
 	}
-	env := []string{"PRODUCT=" + ppgProduct(major), "PKGS=" + strings.Join(pkgs, " ")}
+	env := []string{"PRODUCT=" + ppgProduct(major), "PKGS=" + strings.Join(pkgs, " "), "VER=" + frame.PGVersion}
 	if frame.UsePgBackRest && !debian {
 		env = append(env, "WITH_EPEL=1", "EPELPKG="+epelPackage(frame.OSVersion))
 	}
@@ -926,20 +926,20 @@ func yamlEscape(s string) string {
 
 // ------------------------------------------------------------------ scripts
 
-const patroniInstallRHEL = `set -e
+const patroniInstallRHEL = pinInstallRHEL + `set -e
 dnf -y -q install which >/dev/null 2>&1 || true
 # percona-pgbackrest needs libssh2, which lives in EPEL on Oracle Linux.
 if [ -n "$WITH_EPEL" ]; then
   dnf -y -q install "$EPELPKG" >/dev/null 2>&1 || dnf -y -q install epel-release >/dev/null 2>&1 || true
 fi
 percona-release setup -y "$PRODUCT" >/dev/null 2>&1
-dnf -y -q install $PKGS >/dev/null`
+pin_install $PKGS`
 
-const patroniInstallDebian = `set -e
+const patroniInstallDebian = pinInstallDebian + `set -e
 export DEBIAN_FRONTEND=noninteractive
 percona-release setup -y "$PRODUCT" >/dev/null 2>&1
 apt-get update -qq >/dev/null
-apt-get install -y -qq $PKGS >/dev/null`
+pin_install $PKGS`
 
 // patroniConfigDirsScript ensures the etcd + Patroni config directories exist
 // before their files are copied in (Docker's copy API 404s on a missing dir).

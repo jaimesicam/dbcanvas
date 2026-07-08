@@ -515,16 +515,16 @@ func memberNodes(st Stack, frame designFrame) []designNode {
 
 // ------------------------------------------------------------------ scripts
 
-const innodbInstallRHEL = `set -e
+const innodbInstallRHEL = pinInstallRHEL + `set -e
 dnf -y -q module disable mysql >/dev/null 2>&1 || true
 percona-release enable -y "$PDPS_REPO" >/dev/null 2>&1 || percona-release enable "$PDPS_REPO" >/dev/null 2>&1
-dnf -y -q install $PKGS >/dev/null`
+pin_install $PKGS`
 
-const innodbInstallDebian = `set -e
+const innodbInstallDebian = pinInstallDebian + `set -e
 export DEBIAN_FRONTEND=noninteractive
 percona-release enable -y "$PDPS_REPO" >/dev/null 2>&1 || percona-release enable "$PDPS_REPO" >/dev/null 2>&1
 apt-get update -qq >/dev/null
-apt-get install -y -qq $PKGS >/dev/null`
+pin_install $PKGS`
 
 // innodbBaseScript initializes the datadir (if empty), starts mysqld (GR not started
 // yet), sets the root password, relaxes validate_password, creates the GR recovery
