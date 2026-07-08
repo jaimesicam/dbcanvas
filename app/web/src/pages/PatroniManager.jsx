@@ -3,10 +3,12 @@ import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE, patroniApi } from '../lib/stackApi.js'
 import { PGGatherCard } from '../components/Diagnostics.jsx'
+import PGCertTab from '../components/PGCertTab.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'creds', label: 'Credentials' },
+  { id: 'cert', label: 'Certificate' },
   { id: 'backup', label: 'Backup' },
   { id: 'diag', label: 'Diagnostics' },
 ]
@@ -77,6 +79,7 @@ export default function PatroniManager({ stackId, nodeId, frame, dep, onDeleteNo
 
       {tab === 'overview' && <Overview cfg={cfg} dep={dep} onDeleteNode={onDeleteNode} />}
       {tab === 'creds' && <Creds cfg={cfg} sec={sec} />}
+      {tab === 'cert' && <PGCertTab stackId={stackId} nodeId={nodeId} />}
       {tab === 'backup' && hasBackup && <BackupTab stackId={stackId} frameId={frame?.id} cfg={cfg} />}
       {tab === 'diag' && <PGGatherCard stackId={stackId} nodeId={nodeId} defaultDb={cfg.database} />}
     </div>

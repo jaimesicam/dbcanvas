@@ -176,6 +176,14 @@ func main() {
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/pxc/cert", app.handlePXCCertInfo)
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/pxc/cert", app.handlePXCCertGenerate)
 
+	// PostgreSQL-family node management (standalone PostgreSQL, Patroni, repmgr, Spock).
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/pg/cert", app.handlePGCertInfo)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/pg/cert", app.handlePGCertGenerate)
+
+	// MongoDB node management.
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/mongo/cert", app.handleMongoCertInfo)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/mongo/cert", app.handleMongoCertGenerate)
+
 	// PXC cluster (frame) management — toggle PMM monitoring post-deploy.
 	mux.HandleFunc("POST /api/stacks/{id}/frames/{fid}/pmm", app.handlePXCFrameMonitor)
 
