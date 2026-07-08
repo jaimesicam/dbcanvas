@@ -91,6 +91,10 @@ export function pgApi(id, nid) {
   return {
     // Run an on-demand pgBackRest full backup.
     backup: () => request('POST', `${base}/pg/backup`),
+    // Re-issue the node's Intranet-CA server cert (overwrites in place, no restart).
+    // Works for standalone PostgreSQL, Patroni, repmgr and Spock members.
+    certInfo: () => request('GET', `${base}/pg/cert`),
+    certGenerate: (value, unit) => request('POST', `${base}/pg/cert`, { value, unit }),
   }
 }
 
@@ -100,6 +104,16 @@ export function mongoApi(id, fid) {
   return {
     // Run an on-demand Percona Backup for MongoDB (PBM) backup.
     pbmBackup: () => request('POST', `${base}/pbm/backup`),
+  }
+}
+
+// Per-node MongoDB management (`nid` is the design node id). Re-issue the node's
+// Intranet-CA cert (overwrites /etc/mongo/certs in place, no mongod restart).
+export function mongoNodeApi(id, nid) {
+  const base = `/api/stacks/${id}/nodes/${nid}`
+  return {
+    certInfo: () => request('GET', `${base}/mongo/cert`),
+    certGenerate: (value, unit) => request('POST', `${base}/mongo/cert`, { value, unit }),
   }
 }
 

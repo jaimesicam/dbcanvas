@@ -5473,3 +5473,49 @@ PXCManager cert tab wording is updated accordingly.
 mysqld's PID + uptime unchanged (no restart), and overwrote `server-cert.pem` with the new
 30-day-TTL certificate. The fast response lets the button re-enable immediately. `go build/vet/test`
 + `npm run build` clean.
+
+---
+
+## 112. Certificate re-issue for PostgreSQL-family nodes — `app/pg_mgmt.go`, PGCertTab.jsx
+
+PostgreSQL nodes had no way to re-issue their Intranet-CA cert after deploy (unlike the MySQL
+family). Added an overwrite-only re-issue, matching §111's behavior — the cert files are rewritten in
+place and the running server is left untouched; the operator reloads/restarts PostgreSQL to apply.
+
+New `/api/stacks/{id}/nodes/{nid}/pg/cert` (GET info, POST re-issue) → `handlePGCertInfo` /
+`handlePGCertGenerate` (pg_mgmt.go). The handler looks up the node type from the design and
+dispatches: standalone PostgreSQL, repmgr and Spock members sign into the data dir via `pgApplyCert`;
+Patroni members sign into `/etc/patroni` via `patroniApplyCert`. Both cert scripts were already
+restart-free. `generateCert` is flipped on in the node's stored config (merged into the raw JSON so
+each engine's distinct config shape is preserved). Also added the missing nil-`logln` guard to
+`pgApplyCert`/`patroniApplyCert` (they're now called with a nil logger from the handler).
+
+Frontend: shared `PGCertTab` component (current cert + TTL + re-issue) wired into PGManager,
+PatroniManager, RepmgrManager and SpockManager via the per-node `pgApi`.
+
+**Verified:** on a deployed Intranet + standalone PostgreSQL + 3-node Patroni stack, re-issuing on
+both the pg node (data dir) and a Patroni member (`/etc/patroni`) returned HTTP 200, overwrote
+server.crt with the new TTL, and left each postmaster's PID unchanged (no restart). `go
+build/vet/test` + `npm run build` clean; UI Certificate tab renders.
+
+---
+
+## 113. Certificate re-issue for MongoDB nodes — `app/mongo_mgmt.go`, MongoCertReissue.jsx
+
+Rounds out the cert-re-issue family (§111 MySQL, §112 PostgreSQL) with MongoDB. Like the others it
+only overwrites the per-node cert material in place — `mongoApplyCert` never restarts mongod, and
+enabling cluster TLS is an operator step — so the operator applies the new cert via the node's TLS
+docs (restart mongod / roll the members).
+
+New `/api/stacks/{id}/nodes/{nid}/mongo/cert` (GET info, POST re-issue) → `handleMongoCertInfo` /
+`handleMongoCertGenerate` (mongo_mgmt.go). `mongoApplyCert` was refactored from best-effort void to
+return an error (the single provisioning caller still ignores it) so the handler can report
+success/failure; it re-signs `/etc/mongo/certs/server.pem` (+ ca.crt). `generateCert` is flipped on
+in the node's stored config (merged into raw JSON).
+
+Frontend: a `MongoCertReissue` control (current cert + TTL + re-issue) added to the top of the
+existing MongoDB **TLS** tab, using a new per-node `mongoNodeApi`.
+
+**Verified:** on a deployed Intranet + standalone PS MongoDB node, re-issue returned HTTP 200 in
+~0.24s, overwrote server.pem with the new 30-day cert, and left mongod's PID unchanged (no restart).
+The TLS tab renders the control. `go build/vet/test` + `npm run build` clean; test stack removed.

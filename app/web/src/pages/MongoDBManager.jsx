@@ -4,6 +4,7 @@ import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE, mongoApi } from '../lib/stackApi.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import DbLoginGuide from '../components/DbLoginGuide.jsx'
+import MongoCertReissue from '../components/MongoCertReissue.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -209,6 +210,7 @@ mongosh --tls --tlsCAFile ${dir}/ca.crt --tlsCertificateKeyFile client.pem \\
                 config below to turn it on{isCluster ? ', then repeat on every member (and the mongos) and restart each' : ' and restart mongod'}.
                 {isCluster && <> For a rolling enable without downtime, use <span className="font-mono">mode: preferTLS</span> first, then switch to <span className="font-mono">requireTLS</span>.</>}
               </div>
+              <MongoCertReissue stackId={stackId} nodeId={nodeId} />
               <CopyRow label="Certificate + key (PEM)" value={`${dir}/server.pem`} />
               <CopyRow label="CA certificate" value={`${dir}/ca.crt`} />
               <CodeBlock label={`Server configuration — ${svcFile}`} text={serverCfg} />

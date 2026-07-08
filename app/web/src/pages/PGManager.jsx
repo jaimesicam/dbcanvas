@@ -5,12 +5,14 @@ import { DEPLOY_TONE, pgApi } from '../lib/stackApi.js'
 import { PGGatherCard } from '../components/Diagnostics.jsx'
 import DbLoginGuide from '../components/DbLoginGuide.jsx'
 import OidcLoginGuide from '../components/OidcLoginGuide.jsx'
+import PGCertTab from '../components/PGCertTab.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'creds', label: 'Credentials' },
   { id: 'dirlogin', label: 'Directory Login' },
   { id: 'sso', label: 'Keycloak SSO' },
+  { id: 'cert', label: 'Certificate' },
   { id: 'backup', label: 'Backup' },
   { id: 'diag', label: 'Diagnostics' },
 ]
@@ -86,6 +88,7 @@ export default function PGManager({ stackId, nodeId, dep, onDeleteNode }) {
       {tab === 'creds' && <Creds cfg={cfg} sec={sec} />}
       {tab === 'dirlogin' && <DbLoginGuide engine="pg" info={cfg.dirAuth} />}
       {tab === 'sso' && <OidcLoginGuide engine="pg" info={cfg.oidc} />}
+      {tab === 'cert' && <PGCertTab stackId={stackId} nodeId={nodeId} />}
       {tab === 'backup' && hasBackup && <BackupTab stackId={stackId} nodeId={nodeId} cfg={cfg} />}
       {tab === 'diag' && <PGGatherCard stackId={stackId} nodeId={nodeId} defaultDb={cfg.database} />}
     </div>

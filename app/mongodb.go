@@ -917,30 +917,30 @@ const mongoCertDir = "/etc/mongo/certs"
 // an all-members-at-once operator step (see the node's TLS docs in the manager), so this
 // only makes the signed material available on the node. Best-effort — a failure is
 // logged, never fatal (the node runs fine without TLS).
-func (a *App) mongoApplyCert(ctx context.Context, containerID, intranetID, fqdn, host string, ttlValue int, ttlUnit string, logln func(string)) {
+func (a *App) mongoApplyCert(ctx context.Context, containerID, intranetID, fqdn, host string, ttlValue int, ttlUnit string, logln func(string)) error {
 	if logln == nil {
 		logln = func(string) {}
 	}
 	if err := a.waitIntranetCAReady(ctx, intranetID, 120*time.Second); err != nil {
 		logln("per-node certificate skipped: " + err.Error())
-		return
+		return err
 	}
 	caCrt, err := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
 	if err != nil {
 		logln("per-node certificate skipped: read CA cert: " + err.Error())
-		return
+		return err
 	}
 	caKey, err := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.key")
 	if err != nil {
 		logln("per-node certificate skipped: read CA key: " + err.Error())
-		return
+		return err
 	}
 	if err := a.docker.PutArchive(ctx, containerID, "/tmp", tarFiles(map[string]fileEntry{
 		"dbca-ca.crt": {0o644, 0, caCrt},
 		"dbca-ca.key": {0o644, 0, caKey},
 	})); err != nil {
 		logln("per-node certificate skipped: stage CA: " + err.Error())
-		return
+		return err
 	}
 	if ttlValue <= 0 {
 		ttlValue, ttlUnit = 365, "days"
@@ -956,9 +956,10 @@ func (a *App) mongoApplyCert(ctx context.Context, containerID, intranetID, fqdn,
 	}
 	if err := a.runStep(ctx, containerID, mongoCertScript, env, logln); err != nil {
 		logln("per-node certificate FAILED: " + err.Error())
-		return
+		return err
 	}
 	logln("per-node certificate written to " + mongoCertDir + "/server.pem (TLS not auto-enabled — see the node's TLS tab)")
+	return nil
 }
 
 // mongoCertScript generates a CA-signed server certificate (CN=$FQDN, SAN the FQDN +

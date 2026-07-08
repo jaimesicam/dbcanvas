@@ -341,6 +341,9 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 // pgApplyCert stages the Intranet CA into the node and signs a server cert + key
 // into the PostgreSQL data dir (postgres-owned) with the given TTL.
 func (a *App) pgApplyCert(ctx context.Context, containerID, intranetID, fqdn, dataDir string, ttlValue int, ttlUnit string, logln func(string)) error {
+	if logln == nil {
+		logln = func(string) {}
+	}
 	if err := a.waitIntranetCAReady(ctx, intranetID, 120*time.Second); err != nil {
 		return fmt.Errorf("certificate: %w", err)
 	}

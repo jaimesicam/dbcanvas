@@ -3,10 +3,12 @@ import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE } from '../lib/stackApi.js'
 import { PGGatherCard } from '../components/Diagnostics.jsx'
+import PGCertTab from '../components/PGCertTab.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'creds', label: 'Credentials' },
+  { id: 'cert', label: 'Certificate' },
   { id: 'replication', label: 'Replication' },
   { id: 'diag', label: 'Diagnostics' },
 ]
@@ -81,6 +83,7 @@ export default function SpockManager({ stackId, nodeId, dep, onDeleteNode }) {
 
       {tab === 'overview' && <Overview cfg={cfg} dep={dep} onDeleteNode={onDeleteNode} />}
       {tab === 'creds' && <Creds cfg={cfg} sec={sec} />}
+      {tab === 'cert' && <PGCertTab stackId={stackId} nodeId={nodeId} />}
       {tab === 'replication' && <Replication cfg={cfg} sec={sec} />}
       {tab === 'diag' && <PGGatherCard stackId={stackId} nodeId={nodeId} defaultDb={cfg.database} />}
     </div>

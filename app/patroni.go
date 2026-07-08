@@ -498,6 +498,9 @@ func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFram
 // patroniApplyCert stages the Intranet CA into the node and signs a server cert +
 // key into /etc/patroni (owned by postgres) with the given TTL.
 func (a *App) patroniApplyCert(ctx context.Context, containerID, intranetID, fqdn string, ttlValue int, ttlUnit string, logln func(string)) error {
+	if logln == nil {
+		logln = func(string) {}
+	}
 	if err := a.waitIntranetCAReady(ctx, intranetID, 120*time.Second); err != nil {
 		return fmt.Errorf("certificate: %w", err)
 	}
