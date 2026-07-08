@@ -289,6 +289,8 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 		// Publish this node (and refresh all others) in the Intranet DNS zones.
 		a.reconcileStackDNS(ctx, st.ID)
 
+		a.trustIntranetCA(ctx, st, id, n.OS, logln)
+
 		if n.EnableOIDC {
 			if err := a.pmmConfigureOIDC(ctx, st, n, doc, id, setPhase, logln); err != nil {
 				logln("Keycloak SSO skipped: " + err.Error())

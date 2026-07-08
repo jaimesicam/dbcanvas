@@ -198,6 +198,7 @@ func (a *App) provisionHAProxy(st Stack, n designNode, doc designDoc) {
 			failNode("systemd did not start: %v", err)
 			return
 		}
+		a.trustIntranetCA(ctx, st, id, n.OS, logln)
 		a.ensureDNFIPv4(ctx, id, n.OS, logln)
 
 		debian := isDebianOS(n.OS)

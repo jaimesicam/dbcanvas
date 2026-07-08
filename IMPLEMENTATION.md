@@ -5352,3 +5352,25 @@ denied login request"**. Fixed by requesting only `openid profile email` — the
 already supplied by the client-level group-membership mapper (so `role_attribute_path` still maps
 pmm-admins → Admin). Verified end-to-end: full OAuth login now succeeds and
 `/graph/api/user/orgs` returns `role: Admin` for a pmm-admins user.
+
+---
+
+## 107. Trust the Intranet CA on all nodes — `app/catrust.go` + every provisioner
+
+Every node now installs the **Intranet CA into its system trust store** at deploy, so nodes trust
+all Intranet-CA-issued certificates (LDAPS to Samba/OpenLDAP, HTTPS to Keycloak & PMM, TLS-enabled
+databases, SeaweedFS S3 over TLS) without per-feature CA staging.
+
+New helper `trustIntranetCA` (`catrust.go`): reads the Intranet CA (`/etc/pki/dbcanvas/ca.crt`),
+`CopyFile`s it into the node, and refreshes the store — RHEL-family via
+`/etc/pki/ca-trust/source/anchors` + `update-ca-trust`, Debian/Ubuntu via
+`/usr/local/share/ca-certificates` + `update-ca-certificates`. Best-effort (no-op without an
+Intranet; failures logged, not fatal). Because the cert is written by the Docker daemon (root) and
+the refresh runs via `ExecAs root`, it also works on images whose default user is unprivileged
+(**PMM**, **Keycloak**) — the earlier read-only-`/etc/pki` limitation is gone.
+
+Wired into every node provisioner right after the container is up: VNC (refactored — the old inline
+system+Firefox trust now calls the helper, keeping the Firefox enterprise-roots policy),
+PostgreSQL, Percona Server, PSMDB, Patroni, repmgr, Spock, PXC, InnoDB, ProxySQL (frame + standalone),
+HAProxy, Samba AD DC, PMM, Keycloak and SeaweedFS. The Intranet node is excluded (it is the CA
+authority; the CA doesn't exist yet at that point in its own provisioning).

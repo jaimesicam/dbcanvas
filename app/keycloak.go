@@ -201,6 +201,7 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployRunning, Config: cfgJSON, Secrets: secJSON})
 		a.reconcileStackDNS(ctx, st.ID)
+		a.trustIntranetCA(ctx, st, id, n.OS, pr.logln)
 		pr.phase("Running", 100)
 		pr.p.Message = "provisioned"
 		pr.save()

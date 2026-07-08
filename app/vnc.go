@@ -112,7 +112,7 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 		}
 
 		pr.phase("Waiting for Intranet to be ready", 8)
-		intranetID, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
+		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
 		if werr != nil {
 			pr.fail("%v", werr)
 			return
@@ -168,16 +168,11 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 		}
 		pr.logln("XFCE desktop + TigerVNC + noVNC + openssh-client installed")
 
-		// Trust the Intranet CA (system store + Firefox enterprise roots) so the desktop
-		// browser and CLI tools trust stack TLS endpoints (e.g. a Keycloak HTTPS issuer).
-		if caCrt, e := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt"); e == nil && len(caCrt) > 0 {
-			if err := a.docker.CopyFile(ctx, id, "/usr/local/share/ca-certificates", "dbcanvas-ca.crt", 0o644, caCrt); err == nil {
-				if err := a.runStep(ctx, id, vncTrustCAScript, nil, pr.logln); err != nil {
-					pr.logln("trust Intranet CA skipped: " + err.Error())
-				} else {
-					pr.logln("Intranet CA trusted (system + Firefox)")
-				}
-			}
+		// Trust the Intranet CA in the system store (CLI tools) + Firefox enterprise roots
+		// (the desktop browser) so the node trusts stack TLS endpoints (Keycloak/PMM HTTPS, ...).
+		a.trustIntranetCA(ctx, st, id, n.OS, pr.logln)
+		if err := a.runStep(ctx, id, vncFirefoxCAScript, nil, pr.logln); err != nil {
+			pr.logln("Firefox CA policy skipped: " + err.Error())
 		}
 
 		pr.phase("Installing Firefox", 50)
@@ -232,8 +227,9 @@ apt-get install -y -qq --no-install-recommends \
 // vncTrustCAScript adds the staged Intranet CA to the Ubuntu system trust store and
 // enables Firefox "enterprise roots" so the browser also trusts it (e.g. for a Keycloak
 // HTTPS issuer). The CA file is copied to /usr/local/share/ca-certificates beforehand.
-const vncTrustCAScript = `set -e
-update-ca-certificates >/dev/null 2>&1 || true
+// vncFirefoxCAScript makes Firefox import the OS "enterprise roots" (the system trust store,
+// populated by trustIntranetCA) so the desktop browser trusts Intranet-CA endpoints.
+const vncFirefoxCAScript = `set -e
 install -d /etc/firefox/policies
 cat > /etc/firefox/policies/policies.json <<'JSON'
 { "policies": { "Certificates": { "ImportEnterpriseRoots": true } } }

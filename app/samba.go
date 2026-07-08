@@ -137,6 +137,7 @@ func (a *App) provisionSambaNode(st Stack, n designNode, doc designDoc) {
 			pr.fail("systemd did not start: %v", err)
 			return
 		}
+		a.trustIntranetCA(ctx, st, id, n.OS, pr.logln)
 		if n.UseProxy {
 			if err := a.runStep(ctx, id, pkgProxyDebian, []string{"PROXY=http://intranet." + domain + ":3128"}, pr.logln); err != nil {
 				pr.logln("configure apt proxy skipped: " + err.Error())

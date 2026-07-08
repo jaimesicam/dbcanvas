@@ -548,6 +548,7 @@ func (a *App) mysqlPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	if err := a.docker.WaitSystemd(ctx, id, 90*time.Second); err != nil {
 		return pr.fail("systemd did not start: %v", err)
 	}
+	a.trustIntranetCA(ctx, st, id, frame.OS, pr.logln)
 	a.ensureDNFIPv4(ctx, id, frame.OS, pr.logln)
 
 	debian := isDebianOS(frame.OS)

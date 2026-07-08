@@ -266,6 +266,7 @@ func (a *App) provisionSeaweedFS(st Stack, n designNode, doc designDoc) {
 		cfgJSON, _ = json.Marshal(cfg)
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON, Secrets: secJSON})
 		logln(fmt.Sprintf("container started (web UI host port %d)", cfg.WebPort))
+		a.trustIntranetCA(ctx, st, id, n.OS, logln)
 
 		// Create the bucket. The step retries, which also serves as the readiness
 		// gate (weed shell only succeeds once the master + filer are up).

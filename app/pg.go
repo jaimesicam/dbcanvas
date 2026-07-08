@@ -182,6 +182,7 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 			pr.fail("systemd did not start: %v", err)
 			return
 		}
+		a.trustIntranetCA(ctx, st, id, n.OS, pr.logln)
 		a.ensureDNFIPv4(ctx, id, n.OS, pr.logln)
 
 		debian := isDebianOS(n.OS)
