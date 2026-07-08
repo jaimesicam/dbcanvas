@@ -5428,3 +5428,28 @@ be enabled).
 via LDAP end-to-end (auto-configured); reconfiguring the same PMM with the Intranet OpenLDAP params
 `resolveDirectory` produces also logged in (wrong password → 401). `go build/vet/test` + `npm run
 build` clean; test stack removed.
+
+---
+
+## 110. Respect selected minor versions on install — `app/install_pin.go` + every DB install script
+
+Bug: the forms let you pick a specific minor version, but every install script ran
+`dnf/apt install <bare package names>` and ignored it, so deploys always got the **latest** minor.
+
+Fix: a shared `pin_install` shell helper (`install_pin.go`, `pinInstallRHEL`/`pinInstallDebian`).
+Each DB install script now sources it and calls `pin_install <packages…>` with `VER=<selected
+minor>` in the environment. When VER is set, every listed package that actually publishes that
+version is pinned to it (RHEL globs `-<VER>*`; Debian resolves the exact `apt-cache madison` version
+containing VER); dependencies follow, so shared sub-packages get the matching version, while
+separately-versioned packages (e.g. `percona-mongodb-mongosh`) fall back to latest. `VER=""` ⇒ all
+latest (unchanged default).
+
+Wired into every engine's server install + version field: standalone PostgreSQL (`n.PGVersion`),
+Patroni & repmgr (`frame.PGVersion`), Percona Server (`frame.PSVersion`), PXC (`frame.PXCVersion`),
+PSMDB (`frame.PSMDBVersion` — synthetic frame carries it for standalone), ProxySQL
+(`frame.ProxySQLVersion` / `p.Version`). InnoDB/GR has no minor selector (PDPS repo → latest), and
+the XtraBackup/PMM-client sub-installs are left at latest (their own versioning).
+
+**Verified:** a stack pinning pg 16.11-2, Percona Server 8.0.43-34.1 and PSMDB 8.0.20-8 installed
+exactly those (not the latest 16.14/8.0.46/8.0.26) — confirmed via `rpm -q`, `SHOW server_version`
+and `SELECT VERSION()`. `go build/vet/test` clean.

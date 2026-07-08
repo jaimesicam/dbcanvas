@@ -442,7 +442,7 @@ func (a *App) proxysqlPrepareMember(ctx context.Context, st Stack, frame designF
 	if debian {
 		instScript, clientScript, pmmScript = proxysqlInstallDebian, proxysqlInstallClientDebian, pxcInstallPMMClientDebian
 	}
-	if err := a.runStep(ctx, id, instScript, []string{"PKG=" + pkg}, pr.logln); err != nil {
+	if err := a.runStep(ctx, id, instScript, []string{"PKG=" + pkg, "VER=" + frame.ProxySQLVersion}, pr.logln); err != nil {
 		return pr.fail("install %s: %v", pkg, err)
 	}
 	if err := a.runStep(ctx, id, clientScript, []string{"PRODUCT=" + psClientProduct(pxcMajor)}, pr.logln); err != nil {
@@ -631,7 +631,7 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 			clientScript = proxysqlInstallClientDebian
 			pmmScript = pxcInstallPMMClientDebian
 		}
-		if err := a.runStep(ctx, id, instScript, []string{"PKG=" + pkg}, logln); err != nil {
+		if err := a.runStep(ctx, id, instScript, []string{"PKG=" + pkg, "VER=" + p.Version}, logln); err != nil {
 			failNode("install %s: %v", pkg, err)
 			return
 		}
@@ -838,15 +838,15 @@ echo "Acquire::http::Proxy \"$PROXY\";" > /etc/apt/apt.conf.d/01dbcanvas-proxy`
 // proxysql-admin shells out to `which`, which is not present on a minimal OEL
 // image — install it alongside ProxySQL (Debian's `which` ships in debianutils,
 // already present, but install it to be explicit/equivalent).
-const proxysqlInstallRHEL = `set -e
+const proxysqlInstallRHEL = pinInstallRHEL + `set -e
 percona-release setup -y proxysql >/dev/null 2>&1
-dnf -y -q install "$PKG" which >/dev/null`
+pin_install "$PKG" which`
 
-const proxysqlInstallDebian = `set -e
+const proxysqlInstallDebian = pinInstallDebian + `set -e
 export DEBIAN_FRONTEND=noninteractive
 percona-release setup -y proxysql >/dev/null 2>&1
 apt-get update -qq >/dev/null
-apt-get install -y -qq "$PKG" debianutils >/dev/null`
+pin_install "$PKG" debianutils`
 
 // proxysqlInstallClient{RHEL,Debian} install the Percona Server mysql client
 // (percona-server-client) used by proxysql-admin to talk to the PXC cluster.

@@ -473,7 +473,7 @@ func (a *App) pxcPrepareNode(ctx context.Context, st Stack, frame designFrame, n
 	if frame.UseProxy {
 		proxy = "http://intranet." + domain + ":3128"
 	}
-	env := []string{"PRODUCT=" + pxcProduct(frame.PXCMajor), "PKG=" + pkg, "PROXY=" + proxy}
+	env := []string{"PRODUCT=" + pxcProduct(frame.PXCMajor), "PKG=" + pkg, "PROXY=" + proxy, "VER=" + frame.PXCVersion}
 	script := pxcInstallRHEL
 	if isDebianOS(frame.OS) {
 		script = pxcInstallDebian
@@ -783,18 +783,18 @@ type designFrameNode = designNode
 
 // ------------------------------------------------------------------ scripts
 
-const pxcInstallRHEL = `set -e
+const pxcInstallRHEL = pinInstallRHEL + `set -e
 if [ -n "$PROXY" ]; then grep -q '^proxy=' /etc/dnf/dnf.conf 2>/dev/null || echo "proxy=$PROXY" >> /etc/dnf/dnf.conf; fi
 dnf -y -q module disable mysql >/dev/null 2>&1 || true
 percona-release setup -y "$PRODUCT" >/dev/null 2>&1
-dnf -y -q install "$PKG" >/dev/null`
+pin_install "$PKG"`
 
-const pxcInstallDebian = `set -e
+const pxcInstallDebian = pinInstallDebian + `set -e
 export DEBIAN_FRONTEND=noninteractive
 if [ -n "$PROXY" ]; then echo "Acquire::http::Proxy \"$PROXY\";" > /etc/apt/apt.conf.d/01dbcanvas-proxy; fi
 percona-release setup -y "$PRODUCT" >/dev/null 2>&1
 apt-get update -qq >/dev/null
-apt-get install -y -qq "$PKG" >/dev/null`
+pin_install "$PKG"`
 
 // pxcInstallXtrabackup{RHEL,Debian} enable the XtraBackup repo for the cluster's
 // PXC series (percona-release setup pxb80 | pxb84lts) and install the matching

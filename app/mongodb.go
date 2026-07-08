@@ -1249,15 +1249,15 @@ func mongosConfYAML(configDB string) string {
 
 // ------------------------------------------------------------------ scripts
 
-const mongoInstallRHEL = `set -e
+const mongoInstallRHEL = pinInstallRHEL + `set -e
 percona-release enable -y "$PSMDB_REPO" >/dev/null 2>&1 || percona-release enable "$PSMDB_REPO" >/dev/null 2>&1 || percona-release setup -y "$PSMDB_REPO" >/dev/null 2>&1
-dnf -y -q install $PKGS >/dev/null`
+pin_install $PKGS`
 
-const mongoInstallDebian = `set -e
+const mongoInstallDebian = pinInstallDebian + `set -e
 export DEBIAN_FRONTEND=noninteractive
 percona-release enable -y "$PSMDB_REPO" >/dev/null 2>&1 || percona-release enable "$PSMDB_REPO" >/dev/null 2>&1 || percona-release setup -y "$PSMDB_REPO" >/dev/null 2>&1
 apt-get update -qq >/dev/null
-apt-get install -y -qq $PKGS >/dev/null`
+pin_install $PKGS`
 
 // mongoPrepDirsScript ensures the runtime/log dirs exist and own the keyFile (mongos
 // node, which has no mongod package post-install to create them).
