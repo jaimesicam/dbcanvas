@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../components/Icons.jsx'
 import { Card, Button, Badge, Field, inputCls } from '../components/ui.jsx'
 import { benchmarkApi, benchTargetKey } from '../lib/benchmarkApi.js'
+import { datagenApi } from '../lib/datagenApi.js'
 
 // Benchmark — load a purpose-built star schema into a chosen database and drive it with
 // one of four workload profiles (OLTP / OLAP / read-write / read-only), reporting
@@ -12,11 +13,13 @@ const WORKLOADS = [
   { v: 'olap', label: 'OLAP', hint: 'Analytical aggregation queries' },
   { v: 'rw', label: 'Read-Write', hint: 'Write-heavy transactions' },
   { v: 'ro', label: 'Read-Only', hint: 'Point + range reads (replica-safe)' },
+  { v: 'crud', label: 'CRUD', hint: 'Insert/update/delete/select an existing table' },
 ]
 
 const defaults = {
   target: '', database: 'dbcanvas_bench', createDb: true, workload: 'oltp',
   scale: 1, threads: 8, durationS: 30, warmupS: 5, keepData: false, seed: 0,
+  table: '', schema: '', filterColumns: [], weights: { insert: 25, update: 25, delete: 25, select: 25 },
 }
 
 export default function Benchmark() {
@@ -51,16 +54,47 @@ export default function Benchmark() {
 
   const set = (patch) => setCfg((c) => ({ ...c, ...patch }))
 
+  // CRUD: list the tables for the chosen target+database, then introspect the picked table.
+  const [tables, setTables] = useState([])
+  const [colMeta, setColMeta] = useState(null)
+  useEffect(() => {
+    if (cfg.workload !== 'crud' || !cfg.target || !cfg.database) { setTables([]); return }
+    const [sid, nid] = cfg.target.split(':')
+    datagenApi.tables(Number(sid), nid, cfg.database).then((t) => setTables(Array.isArray(t) ? t : [])).catch(() => setTables([]))
+  }, [cfg.workload, cfg.target, cfg.database])
+  useEffect(() => {
+    if (cfg.workload !== 'crud' || !cfg.table || !cfg.target) { setColMeta(null); return }
+    const [sid, nid] = cfg.target.split(':')
+    datagenApi.columns(Number(sid), nid, cfg.database, cfg.schema || '', cfg.table).then((m) => {
+      setColMeta(m)
+      const pk = (m.columns || []).filter((c) => c.isPrimaryKey).map((c) => c.name)
+      set({ filterColumns: pk })
+    }).catch(() => setColMeta(null))
+  }, [cfg.table, cfg.schema])
+
+  const toggleFilterCol = (name) => setCfg((c) => ({
+    ...c, filterColumns: c.filterColumns.includes(name) ? c.filterColumns.filter((x) => x !== name) : [...c.filterColumns, name],
+  }))
+  const isCrud = cfg.workload === 'crud'
+
   async function doRun() {
     setErr(''); setBusy(true)
     try {
       const [stackId, nodeId] = cfg.target.split(':')
       if (!stackId || !nodeId) throw new Error('pick a target server')
+      if (cfg.workload === 'crud' && !cfg.table) throw new Error('pick a table for CRUD')
       const { runId } = await benchmarkApi.start({
         stackId: Number(stackId), nodeId, database: cfg.database, createDb: cfg.createDb,
         workload: cfg.workload, scale: Number(cfg.scale), threads: Number(cfg.threads),
         durationS: Number(cfg.durationS), warmupS: Number(cfg.warmupS),
         keepData: cfg.keepData, seed: Number(cfg.seed) || 0,
+        ...(cfg.workload === 'crud' ? {
+          table: cfg.table, schema: cfg.schema, filterColumns: cfg.filterColumns,
+          weights: {
+            insert: Number(cfg.weights.insert) || 0, update: Number(cfg.weights.update) || 0,
+            delete: Number(cfg.weights.delete) || 0, select: Number(cfg.weights.select) || 0,
+          },
+        } : {}),
       })
       setRunId(runId)
       setRun({ id: runId, status: 'preparing', stmts: [] })
@@ -91,19 +125,21 @@ export default function Benchmark() {
               ))}
             </select>
           </Field>
-          <Field label="Database" hint="bench_* tables live here">
+          <Field label="Database" hint={isCrud ? 'the database holding your table' : 'bench_* tables live here'}>
             <div className="flex items-center gap-2">
               <input value={cfg.database} onChange={(e) => set({ database: e.target.value })} className={inputCls} />
-              <label className="flex shrink-0 items-center gap-1 text-xs text-muted">
-                <input type="checkbox" checked={cfg.createDb} onChange={(e) => set({ createDb: e.target.checked })} /> create
-              </label>
+              {!isCrud && (
+                <label className="flex shrink-0 items-center gap-1 text-xs text-muted">
+                  <input type="checkbox" checked={cfg.createDb} onChange={(e) => set({ createDb: e.target.checked })} /> create
+                </label>
+              )}
             </div>
           </Field>
         </div>
 
         <div className="mt-3">
           <div className="mb-1 text-xs font-medium text-muted">Workload</div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             {WORKLOADS.map((wl) => (
               <button key={wl.v} onClick={() => set({ workload: wl.v })} title={wl.hint}
                 className={`rounded-lg border px-3 py-2 text-left text-sm ${cfg.workload === wl.v ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-surface2'}`}>
@@ -114,15 +150,56 @@ export default function Benchmark() {
           </div>
         </div>
 
+        {isCrud && (
+          <div className="mt-3 space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="Table" hint="CRUD runs against this existing table — it will add & remove rows">
+                <select value={cfg.table} className={inputCls}
+                  onChange={(e) => { const t = tables.find((x) => x.table === e.target.value); set({ table: e.target.value, schema: t?.schema || '', filterColumns: [] }) }}>
+                  <option value="">Select a table…</option>
+                  {tables.map((t) => (
+                    <option key={`${t.schema}.${t.table}`} value={t.table}>{t.schema ? `${t.schema}.` : ''}{t.table}{t.estRows ? ` (~${t.estRows} rows)` : ''}</option>
+                  ))}
+                </select>
+              </Field>
+              <div>
+                <div className="mb-1 text-xs font-medium text-muted">Operation weights (relative)</div>
+                <div className="grid grid-cols-4 gap-2">
+                  {['insert', 'update', 'delete', 'select'].map((op) => (
+                    <label key={op} className="text-[11px] text-muted">
+                      <span className="capitalize">{op}</span>
+                      <input type="number" min="0" value={cfg.weights[op]} onChange={(e) => set({ weights: { ...cfg.weights, [op]: e.target.value } })} className={inputCls} />
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+            {colMeta && (
+              <div>
+                <div className="mb-1 text-xs font-medium text-muted">Filter columns <span className="font-normal text-muted/70">— update/delete/select match rows on a random subset of these (default: primary key)</span></div>
+                <div className="flex flex-wrap gap-2">
+                  {(colMeta.columns || []).map((c) => (
+                    <label key={c.name} className={`flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs ${cfg.filterColumns.includes(c.name) ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-surface2'}`}>
+                      <input type="checkbox" checked={cfg.filterColumns.includes(c.name)} onChange={() => toggleFilterCol(c.name)} />
+                      {c.name}{c.isPrimaryKey ? ' 🔑' : ''}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Field label="Scale" hint="×½M rows"><input type="number" min="1" max="50" value={cfg.scale} onChange={(e) => set({ scale: e.target.value })} className={inputCls} /></Field>
+          {!isCrud && <Field label="Scale" hint="×½M rows"><input type="number" min="1" max="50" value={cfg.scale} onChange={(e) => set({ scale: e.target.value })} className={inputCls} /></Field>}
           <Field label="Threads"><input type="number" min="1" max="128" value={cfg.threads} onChange={(e) => set({ threads: e.target.value })} className={inputCls} /></Field>
           <Field label="Duration (s)"><input type="number" min="1" max="3600" value={cfg.durationS} onChange={(e) => set({ durationS: e.target.value })} className={inputCls} /></Field>
           <Field label="Warmup (s)"><input type="number" min="0" max="600" value={cfg.warmupS} onChange={(e) => set({ warmupS: e.target.value })} className={inputCls} /></Field>
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-4">
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={cfg.keepData} onChange={(e) => set({ keepData: e.target.checked })} /> Keep data after run</label>
+          {!isCrud && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={cfg.keepData} onChange={(e) => set({ keepData: e.target.checked })} /> Keep data after run</label>}
+          {isCrud && <span className="text-xs text-muted">CRUD mutates your table in place (never dropped).</span>}
           <Field label="Seed (0 = random)"><input type="number" value={cfg.seed} onChange={(e) => set({ seed: e.target.value })} className={`${inputCls} w-40`} /></Field>
         </div>
 

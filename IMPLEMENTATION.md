@@ -5374,3 +5374,32 @@ system+Firefox trust now calls the helper, keeping the Firefox enterprise-roots 
 PostgreSQL, Percona Server, PSMDB, Patroni, repmgr, Spock, PXC, InnoDB, ProxySQL (frame + standalone),
 HAProxy, Samba AD DC, PMM, Keycloak and SeaweedFS. The Intranet node is excluded (it is the CA
 authority; the CA doesn't exist yet at that point in its own provisioning).
+
+---
+
+## 108. CRUD benchmark workload — `app/benchmark_crud.go`, benchmark.go/benchmark_run.go, Benchmark.jsx
+
+A fifth Benchmark workload **CRUD** that drives insert/update/delete/select against an **existing
+user table** (instead of the generated `bench_*` star schema). Operations are chosen per iteration
+by **configurable weights**; UPDATE/DELETE/SELECT filter on the primary key (single or composite) or
+**user-selected columns**, randomly using a subset each time. A background sampler refreshes a pool
+of real filter-key tuples every ~3s (`SELECT <cols> … ORDER BY random() LIMIT k`) so those ops hit
+existing rows.
+
+**Reuse:** the Data Generator's `tableMeta` introspection (columns, PK, per-column inferred
+generators) and `colGen.value` (SQL literals) build the INSERT (skipping identity/serial/generated/
+default columns) + UPDATE SET; introspection uses the Data Generator's admin `dbConn` (root/postgres
+over the container CLI — the benchmark's own workload user isn't authorised for that path). WHERE
+values come from the sampler (scanned `[]any` → formatted as literals, avoiding driver placeholder
+pitfalls). The existing run engine (`drive`/`unit`/`tq`/`te`/`latAcc`) tracks per-op latency under
+`insert`/`update`/`delete`/`point_select`; CRUD skips DB/schema create+load and **never drops** the
+target table.
+
+**Config:** `benchConfig` gains `Table`, `Schema`, `FilterColumns`, `Weights{insert,update,delete,
+select}`. Frontend adds a CRUD card: table `<select>` (reuses `datagenApi.tables`), filter-column
+multi-select (default = PK, via `datagenApi.columns`), weight inputs; hides Scale/Create/Keep-data.
+
+**Verified:** on PostgreSQL and Percona Server, single-column PK (weights respected, 0 errors, row
+count grows, table retained), composite PK with random-subset WHERE (0 errors), and a custom non-PK
+filter column (negligible deadlock errors from concurrent DML on a low-cardinality column, as
+expected). `go build/vet/test` + `npm run build` clean; test stack removed.
