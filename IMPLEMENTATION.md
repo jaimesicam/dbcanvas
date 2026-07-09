@@ -5519,3 +5519,54 @@ existing MongoDB **TLS** tab, using a new per-node `mongoNodeApi`.
 **Verified:** on a deployed Intranet + standalone PS MongoDB node, re-issue returned HTTP 200 in
 ~0.24s, overwrote server.pem with the new 30-day cert, and left mongod's PID unchanged (no restart).
 The TLS tab renders the control. `go build/vet/test` + `npm run build` clean; test stack removed.
+
+---
+
+## 114. MongoDB 6.0/7.0 fail to start on OEL9 (Type=forking unit) — `app/mongodb.go`
+
+**Symptom.** Deploying a PS MongoDB node (standalone `psm`, replica set, or sharded) pinned to a
+**6.0 or 7.0** version on Oracle Linux 9 hangs at "Starting mongod" (55%) and never reaches
+`running`. The deployment progress log shows `attempt N/10 failed: Job for mongod.service failed
+because a timeout was exceeded`, retrying until the step gives up. **8.0** deploys fine.
+
+**Cause.** We write `mongod.conf` with `processManagement.fork: false` (mongod stays in the
+foreground) for every version. But the systemd unit shipped by Percona differs by major series:
+
+- **6.0 / 7.0** ship `Type=forking` with `PIDFile=/var/run/mongod.pid` and
+  `ExecStart=... bash -c "${NUMACTL} /usr/bin/mongod ${OPTIONS} > ${STDOUT} 2> ${STDERR}"`. With
+  `fork: false` the process never daemonizes, so systemd's forking start job waits for a fork that
+  never comes and fails at `TimeoutStartSec` — even though mongod is actually up and serving on
+  27017. `mongoStartMongodScript`'s `systemctl enable --now mongod` therefore errors and the whole
+  start step retries fruitlessly.
+- **8.0** ships `Type=simple` (plus `MONGODB_CONFIG_OVERRIDE_NOFORK=1`, no `PIDFile`/redirect),
+  which is immediately active with a foreground mongod — hence 8.0 worked.
+
+**Fix.** `mongoStartMongodScript` now drops in
+`/etc/systemd/system/mongod.service.d/10-dbcanvas-nofork.conf` with `Type=simple` + empty `PIDFile=`
+and runs `systemctl daemon-reload` before starting mongod. This makes systemd track the foreground
+process directly on 6.0/7.0 (and is a harmless no-op on 8.0, which is already `Type=simple`). The
+drop-in sits at the single start choke point shared by the standalone, replica-set and sharded
+provisioners, so all three topologies are covered.
+
+**Verified.** Discovered while testing the full oldest+latest version matrix on OEL9 (see below).
+Live-patching the drop-in onto the four stuck 6.0/7.0 standalone containers flipped their units from
+`activating`→`active` and the in-flight deploys ran through to `running`. After rebuilding the app
+(`docker compose up --build`), a **fresh** stack (Intranet + psm 6.0.4-3 / 6.0.29-23 / 7.0.2-1 /
+7.0.37-20) deployed all four to `running` with no manual intervention, each reporting its pinned
+version. `go build ./...` clean.
+
+### Version compatibility sweep — MySQL / MongoDB / PostgreSQL oldest+latest on OEL9
+
+Deployed standalone nodes on `oraclelinux:9`/amd64 for the oldest and newest patch of every
+installable major.minor series and confirmed each reached `running` with the pinned version
+installed (`§110` version-pin regression coverage):
+
+- **Percona Server (MySQL)** — 6/6 pass: 5.7 (5.7.41-44.1 → 5.7.44-48.1), 8.0 (8.0.30-22.1 →
+  8.0.46-37.1), 8.4 (8.4.0-1.1 → 8.4.8-8.1).
+- **PS MongoDB** — 6/6 pass **after this fix**: 6.0 (6.0.4-3 → 6.0.29-23), 7.0 (7.0.2-1 →
+  7.0.37-20), 8.0 (8.0.4-1 → 8.0.26-11). 6.0/7.0 failed before the §114 fix.
+- **Percona PostgreSQL** — 12/12 pass: 13 (13.10-1 → 13.23-2), 14 (14.7-1 → 14.23-2), 15 (15.2-2 →
+  15.18-2), 16 (16.0-1 → 16.14-2), 17 (17.0-1 → 17.10-1), 18 (18.1-2 → 18.4-2).
+
+Reported `mysqld/mongod/postgres --version` matched the pin in every case. Test stacks removed
+afterward.
