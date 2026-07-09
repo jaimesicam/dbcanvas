@@ -5611,4 +5611,44 @@ All 12 members reached `running`; `postgres --version` matched the pin (git HEAD
 "oldest" members built 18.4; before 115b OEL8 could not build at all. `go build ./...` clean; test
 stacks removed. (Note: the Spock frame's version picker is populated from the PPG *package* catalog,
 which is empty for OEL8 — so OEL8 is currently only reachable for Spock via the API, not the UI
-dropdown; deploying it exercises the source build directly.)
+dropdown; deploying it exercises the source build directly. §116 fixes this.)
+
+---
+
+## 116. `make versions` drives Spock availability — `images/versions.sh`, `app/versions.go`, `main.go`, `StackDesigner.jsx`, `stackApi.js`, `versions.yaml`
+
+**Problem.** The Spock frame's OS / PG-major / PG-minor picker was fed by the **Percona PostgreSQL
+package catalog** (`/api/catalog/ppg`, section `percona_postgresql`). That is the wrong source of
+truth: a Spock member does not install PPG packages — it **compiles PostgreSQL from source** (the
+postgresql.org release tag for the chosen minor + the pinned Spock patch set, see §115a). So the
+picker (a) dropped **Oracle Linux 8**, which has no PPG packages but compiles Spock fine, and (b)
+offered Percona *package* minors (`18.4-2`) rather than the upstream tags Spock actually builds.
+
+**Fix — a dedicated Spock catalog produced by `make versions`.** `images/versions.sh` now discovers
+Spock availability independently of the package probes:
+
+- **Majors** = the numeric PG patch directories in the pinned Spock ref
+  (`git clone --filter=blob:none --sparse … pgEdge/spock`, `SPOCK_REF` kept in sync with
+  `spockRef()`), i.e. the majors Spock actually patches (currently 15–18; a series with no stable
+  release, e.g. 19, is omitted).
+- **Minors** = the `REL_<major>_<minor>` release tags from postgresql.org
+  (`git ls-remote --tags`), numeric only (BETA/RC dropped), newest first, as `<major>.<minor>`.
+- Written as a per-image `spock:` section (same shape as the other catalogs), **only on Oracle Linux
+  images** — `spockPrepareNode` compiles on the RHEL toolchain only, so non-OEL images get an empty
+  section and the picker naturally offers Spock exclusively on Oracle Linux (8/9/10, amd64+arm64).
+
+`app/versions.go` adds `loadSpockCatalog()` (generic `loadImageCatalog("spock")`) and
+`handleSpockCatalog`; `main.go` registers `GET /api/catalog/spock`. Frontend: `stackApi.spockCatalog`,
+a `useSpockCatalog` hook (thin wrapper over the parameterised `usePPGCatalog`), and `SpockFrameForm`
+switched from `usePPGCatalog` → `useSpockCatalog`. Because the minors are now bare upstream versions
+(`18.1`), they flow straight through `spockPGRef` (§115a, which already tolerates the missing
+`-<pkg>` suffix) to `REL_18_1`.
+
+`versions.yaml` regenerated with `spock:` sections (majors 15–18 on all six Oracle Linux images,
+empty on the four Ubuntu images). This is what a full `make versions` re-emits.
+
+**Verified.** `GET /api/catalog/spock` returns Spock on oraclelinux 8/9/10 (amd64+arm64) with majors
+15–18 and upstream minors (e.g. 18 → 18.4…18.0), and no Spock on the Ubuntu images — so the UI now
+offers OEL8 for Spock. End-to-end, a 2-member Spock cluster on **OEL8** deployed with the
+catalog-format bare version `18.1` built PostgreSQL **18.1** on each member and reached `running`.
+`go build ./...` and `bash -n images/versions.sh` clean; test stack removed.
