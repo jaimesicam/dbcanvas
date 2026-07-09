@@ -145,8 +145,9 @@ func (a *App) provisionMySQLFrame(st Stack, frame designFrame, doc designDoc) {
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 	}
 
+	ctx, endScope := a.deployScope(st.ID)
 	go func() {
-		ctx := context.Background()
+		defer endScope()
 		progs := map[string]*pxcProg{}
 		for _, n := range members {
 			progs[n.ID] = a.pxcNewProg(st.ID, n.ID)
@@ -317,8 +318,9 @@ func (a *App) provisionPerconaServer(st Stack, n designNode, doc designDoc) {
 	secJSON, _ := json.Marshal(sec)
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 
+	ctx, endScope := a.deployScope(st.ID)
 	go func() {
-		ctx := context.Background()
+		defer endScope()
 		pr := a.pxcNewProg(st.ID, n.ID)
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 		pr.phase("Waiting for Intranet to be ready", 5)

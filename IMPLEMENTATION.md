@@ -5652,3 +5652,57 @@ empty on the four Ubuntu images). This is what a full `make versions` re-emits.
 offers OEL8 for Spock. End-to-end, a 2-member Spock cluster on **OEL8** deployed with the
 catalog-format bare version `18.1` built PostgreSQL **18.1** on each member and reached `running`.
 `go build ./...` and `bash -n images/versions.sh` clean; test stack removed.
+
+---
+
+## 117. Destroying a stack mid-deploy poisons the next deploy — `app/deployrun.go` (new), intranet.go, pmm.go, pxc.go, docker.go, replication.go, + 19 provisioners
+
+**Symptom.** Click **Destroy** while a stack is still deploying, then **Deploy** again: nodes light up
+with errors and some never come back — they sit in `error` with containers that were never created.
+
+**Cause.** Every provisioner ran its work in `go func() { ctx := context.Background() … }`. That
+context is not cancellable, so `destroy` had no way to stop them: `teardownStack` removed the
+containers, deleted the deployment rows and returned in ~0.6s while the provisioners kept running.
+Reproduced on an Intranet + standalone PostgreSQL stack:
+
+1. Destroy removes the Intranet container and the rows, returns immediately.
+2. Deploy #1's Intranet goroutine is mid-`runStep`; its `docker exec` now gets
+   `No such container: … (404)` and **retries 10×** (~20s) because `runStep`'s retry loop never
+   looked at `ctx`. It then calls `pr.fail`, writing `DeployError` + a failure notification — onto
+   **deploy #2's** freshly created rows.
+3. Deploy #1's `pg1` goroutine is in `waitIntranet`, sees that stale `error` and fails with
+   "Intranet failed to provision — cannot start dependent nodes", wedging deploy #2's `pg1`.
+4. Deploy #2's Intranet eventually reaches `running`, but `pg1` stays `error` forever and its
+   container is never created.
+
+**Fix.** New `deployrun.go` gives each stack's provisioning a cancellable, per-stack scope:
+
+- `deployRun` = `context.CancelFunc` + `sync.WaitGroup`, held in `App.deploys` (`sync.Map`).
+- `beginDeploy` registers the run; a **second concurrent deploy for the same stack is now rejected
+  with 409** instead of racing a duplicate set of provisioners onto the same nodes.
+- `deployScope(stackID)` is called *synchronously* by each provisioner before its `go` statement
+  (so every goroutine has joined the WaitGroup before the handler returns, and `Wait` can't race an
+  `Add`); it returns the run's context + the `done` func the goroutine defers. All 19 provisioner
+  files switched from `context.Background()` to this. `reconcileReplication` now takes a `ctx` too.
+- `teardownStack` calls `cancelDeploy` **first**: cancel, then wait (bounded, 45s) for the
+  goroutines to return, and only then remove containers — so nothing races the teardown.
+- `runStep` and `waitIntranet` check `ctx.Err()` and use a `select` on `ctx.Done()` instead of a
+  bare `time.Sleep`, so a cancelled step aborts at once rather than retrying 10× into a void.
+- `pxcProg.fail` is a no-op (log only) when `deployCancelled(stackID)` — teardown-induced errors are
+  not node failures, and writing them resurrected the deleted rows.
+- `teardownStack` also sweeps containers by name prefix (`ContainersByNamePrefix`, new in
+  docker.go): a provisioner cancelled between `ContainerCreate` and recording the id on its
+  deployment row left an untracked container whose name would collide on the next deploy.
+
+**Verified.** Same reproduction, before → after:
+
+| | before | after |
+| --- | --- | --- |
+| `destroy` returns | 0.6s (doesn't wait) | 20.7s (waits for provisioners) |
+| nodes at t+30s | both `error` | both `provisioning` |
+| final state | intranet `running`, **`pg1` stuck `error`**, no pg container | **both `running`**, pg container created |
+
+Deploy-while-deploying now returns `409 {"error":"a deployment is already in progress for this
+stack"}`; a deploy after destroy returns `202` and succeeds. The cancelled provisioners log
+`aborted (stack destroyed): context canceled` and write no state. No orphan containers remain after
+a destroy issued 0.2s into a deploy. `go build/vet/test` clean.

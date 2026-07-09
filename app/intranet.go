@@ -1113,7 +1113,17 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 	var doc designDoc
 	json.Unmarshal(st.Design, &doc)
 
+	// One deploy at a time per stack: a second one would race a duplicate set of
+	// provisioners onto the same nodes. Provisioners run on this run's context so
+	// a destroy can cancel them.
+	run, fresh := a.beginDeploy(st.ID)
+	if !fresh {
+		writeErr(w, http.StatusConflict, "a deployment is already in progress for this stack")
+		return
+	}
+
 	if err := a.docker.NetworkEnsure(bg, networkName(st.ID)); err != nil {
+		a.abortDeploy(st.ID, run)
 		writeErr(w, http.StatusInternalServerError, "failed to create network: "+err.Error())
 		return
 	}
@@ -1276,7 +1286,15 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 	// Final phase: configure cross-cluster replication links (async / bidirectional)
 	// drawn between cluster members. It waits for the clusters to come up, then
 	// reconciles channels (creating new ones, pruning removed ones) on each redeploy.
-	go a.reconcileReplication(st, doc)
+	replCtx, endRepl := a.deployScope(st.ID)
+	go func() {
+		defer endRepl()
+		a.reconcileReplication(replCtx, st, doc)
+	}()
+
+	// Every provisioner has registered with the run by now; release it once they
+	// all return so a later deploy (or a destroy) is not blocked forever.
+	a.finishDeploy(st.ID, run)
 
 	a.store.SetStackStatus(st.ID, StackDeployed)
 	a.notifyStack(st.ID, "stack.deploying", "info", "Deployment started",
@@ -1318,8 +1336,9 @@ func (a *App) provisionIntranet(st Stack, n designNode) {
 
 	// Each node provisions in its own goroutine, so one failing never blocks the
 	// others. Steps are retried up to 10×; progress is published for the console.
+	ctx, endScope := a.deployScope(st.ID)
 	go func() {
-		ctx := context.Background()
+		defer endScope()
 		prog := &provProgress{Percent: 0, Phase: "Starting", Log: []string{}}
 		save := func() { b, _ := json.Marshal(prog); a.store.SetDeploymentProgress(st.ID, n.ID, b) }
 		logln := func(s string) {
@@ -1944,6 +1963,10 @@ func (a *App) teardownStack(stackID int64) {
 	if a.docker == nil {
 		return
 	}
+	// Stop any in-flight provisioning and wait for those goroutines to return
+	// before removing containers. Otherwise they keep running against resources
+	// we are deleting, and their late writes land on the next deploy's rows.
+	a.cancelDeploy(stackID)
 	if st, err := a.store.GetStack(stackID); err == nil {
 		a.notifyStack(stackID, "stack.destroyed", "info", "Stack destroyed",
 			st.Name+" and its containers were removed.", "")
@@ -1952,6 +1975,15 @@ func (a *App) teardownStack(stackID int64) {
 	deps, _ := a.store.ListDeployments(stackID)
 	for _, d := range deps {
 		a.removeNodeResources(ctx, stackID, d)
+	}
+	// A provisioner cancelled between ContainerCreate and recording the container
+	// id on its deployment row leaves an untracked container behind (and its name
+	// would then collide on the next deploy). Sweep anything still named for this
+	// stack. Safe now that cancelDeploy has waited: nothing can create more.
+	if ids, err := a.docker.ContainersByNamePrefix(ctx, fmt.Sprintf("dbcanvas-%d-", stackID)); err == nil {
+		for _, id := range ids {
+			a.docker.ContainerRemove(ctx, id)
+		}
 	}
 	// The Query Runner may have joined this network to reach the stack's DB nodes;
 	// detach the app first so the network can be removed.

@@ -247,6 +247,32 @@ func (d *Docker) ContainerByName(ctx context.Context, name string) (string, bool
 	return "", false, nil
 }
 
+// ContainersByNamePrefix lists the ids of all containers (running or not) whose
+// name starts with prefix. Docker's `name` filter is a regex match on the full
+// name, so "^/<prefix>" anchors it. Used by teardown to sweep containers a
+// cancelled provisioner created but never recorded against its deployment row.
+func (d *Docker) ContainersByNamePrefix(ctx context.Context, prefix string) ([]string, error) {
+	filters := `{"name":["^/` + prefix + `"]}`
+	resp, err := d.do(ctx, "GET", "/containers/json?all=true&filters="+url.QueryEscape(filters), nil)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != 200 {
+		return nil, errBody("list containers", resp)
+	}
+	var arr []struct {
+		ID string `json:"Id"`
+	}
+	if err := json.Unmarshal(drain(resp), &arr); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(arr))
+	for _, c := range arr {
+		ids = append(ids, c.ID)
+	}
+	return ids, nil
+}
+
 // ContainerSpec describes a container to create.
 type ContainerSpec struct {
 	Name         string

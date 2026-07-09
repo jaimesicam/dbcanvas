@@ -210,8 +210,9 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 	}
 
+	ctx, endScope := a.deployScope(st.ID)
 	go func() {
-		ctx := context.Background()
+		defer endScope()
 		for _, n := range members {
 			a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 			a.pxcNewProg(st.ID, n.ID).phase("Waiting for Intranet to be ready", 5)

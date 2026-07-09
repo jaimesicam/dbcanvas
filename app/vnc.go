@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -101,8 +100,9 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 	cfgJSON, _ := json.Marshal(cfg)
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 
+	ctx, endScope := a.deployScope(st.ID)
 	go func() {
-		ctx := context.Background()
+		defer endScope()
 		pr := a.pxcNewProg(st.ID, n.ID)
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 
