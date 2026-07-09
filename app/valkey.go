@@ -123,12 +123,10 @@ func (a *App) provisionValkeyStandalone(st Stack, n designNode, doc designDoc) {
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 
 		pr.phase("Pulling image", 8)
-		if ok, _ := a.docker.ImageExists(ctx, valkeyImage); !ok {
-			pr.logln("pulling " + valkeyImage)
-			if err := a.docker.ImagePull(ctx, valkeyImageRepo, valkeyImageTag, pullPlatform()); err != nil {
-				pr.fail("pull image: %v", err)
-				return
-			}
+		pr.logln("ensuring " + valkeyImage + " for " + pullPlatform())
+		if err := a.docker.EnsureImage(ctx, valkeyImageRepo, valkeyImageTag, pullPlatform()); err != nil {
+			pr.fail("pull image: %v", err)
+			return
 		}
 
 		pr.phase("Waiting for Intranet to be ready", 14)
@@ -348,13 +346,11 @@ func (a *App) provisionValkeyClusterFrame(st Stack, frame designFrame, doc desig
 			}
 			return
 		}
-		if ok, _ := a.docker.ImageExists(ctx, valkeyImage); !ok {
-			if err := a.docker.ImagePull(ctx, valkeyImageRepo, valkeyImageTag, pullPlatform()); err != nil {
-				for _, n := range members {
-					progs[n.ID].fail("pull image: %v", err)
-				}
-				return
+		if err := a.docker.EnsureImage(ctx, valkeyImageRepo, valkeyImageTag, pullPlatform()); err != nil {
+			for _, n := range members {
+				progs[n.ID].fail("pull image: %v", err)
 			}
+			return
 		}
 
 		// Phase 1 (parallel): create + configure + start every member.

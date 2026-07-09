@@ -294,6 +294,28 @@ func (d *Docker) ContainersByNamePrefix(ctx context.Context, prefix string) ([]s
 	return ids, nil
 }
 
+// EnsureImage makes repo:tag available locally *for platform*.
+//
+// ImageExists is platform-blind: a cached image may carry only another platform's
+// manifest — e.g. a multi-arch image (Keycloak, SeaweedFS, Valkey) pulled implicitly
+// on an arm64 host before we started passing a platform. Skipping the pull because
+// "the image exists" then makes containers/create?platform=… fail with
+//
+//	image with reference <ref> was found but does not provide the specified platform
+//
+// So always attempt the pull: it is cheap when the manifest is already present (the
+// daemon answers "Image is up to date"). If the pull fails but some image is cached,
+// fall back to it, so an air-gapped host that pre-seeded its images still deploys.
+func (d *Docker) EnsureImage(ctx context.Context, repo, tag, platform string) error {
+	if err := d.ImagePull(ctx, repo, tag, platform); err != nil {
+		if ok, _ := d.ImageExists(ctx, repo+":"+tag); ok {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
 // ContainerSpec describes a container to create.
 type ContainerSpec struct {
 	Name         string

@@ -89,12 +89,10 @@ func (a *App) provisionWatchtower(st Stack, n designNode, doc designDoc) {
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 
 		pr.phase("Pulling image", 10)
-		if ok, _ := a.docker.ImageExists(ctx, watchtowerImage); !ok {
-			pr.logln("pulling " + watchtowerImage)
-			if err := a.docker.ImagePull(ctx, "percona/watchtower", "latest", platformAMD64); err != nil {
-				pr.fail("pull image: %v", err)
-				return
-			}
+		pr.logln("ensuring " + watchtowerImage + " for " + platformAMD64)
+		if err := a.docker.EnsureImage(ctx, "percona/watchtower", "latest", platformAMD64); err != nil {
+			pr.fail("pull image: %v", err)
+			return
 		}
 
 		pr.phase("Waiting for Intranet to be ready", 30)
