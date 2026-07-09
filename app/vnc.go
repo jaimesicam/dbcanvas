@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -51,11 +49,15 @@ type vncSecrets struct {
 	VNCPassword string `json:"vncPassword"`
 }
 
-// genVNCPassword returns an 8-character password (TigerVNC truncates VNC auth to 8).
-func genVNCPassword() string {
-	b := make([]byte, 4)
-	rand.Read(b)
-	return hex.EncodeToString(b) // 8 lowercase hex chars
+// vncAuthPassword caps a password at the 8 bytes TigerVNC's VncAuth scheme uses.
+// `vncpasswd -f` truncates silently, so we truncate here too and store the result:
+// what the panel shows is then exactly what authenticates (the default
+// VNC_PASSWORD "vnc_password" logs in as "vnc_pass").
+func vncAuthPassword(pw string) string {
+	if len(pw) > 8 {
+		return pw[:8]
+	}
+	return pw
 }
 
 // provisionVNC records the deployment then runs an async goroutine that brings up the
@@ -91,8 +93,9 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 		}
 	}
 	if pw == "" {
-		pw = genVNCPassword()
+		pw = envOr("VNC_PASSWORD", "vnc_password")
 	}
+	pw = vncAuthPassword(pw)
 	sec := vncSecrets{VNCPassword: pw}
 	secJSON, _ := json.Marshal(sec)
 

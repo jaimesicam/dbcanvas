@@ -82,7 +82,7 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 		}
 	}
 	if adminPW == "" {
-		adminPW = genSecret("KcAdmin!")
+		adminPW = envOr("KEYCLOAK_PASSWORD", "keycloak_password")
 	}
 	sec := keycloakSecrets{AdminPassword: adminPW}
 	secJSON, _ := json.Marshal(sec)

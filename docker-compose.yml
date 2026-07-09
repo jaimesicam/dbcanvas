@@ -32,6 +32,13 @@ services:
       MONGODB_ADMIN_PASSWORD: ${MONGODB_ADMIN_PASSWORD:-admin_password}
       # Password for the "pmm" monitoring user created in Valkey (PMM add valkey).
       PMM_PASSWORD: ${PMM_PASSWORD:-pmm_password}
+      # PMM server's Grafana "admin" user.
+      PMM_ADMIN_PASSWORD: ${PMM_ADMIN_PASSWORD:-admin_password}
+      # Keycloak's "admin" console user.
+      KEYCLOAK_PASSWORD: ${KEYCLOAK_PASSWORD:-keycloak_password}
+      # Ubuntu VNC desktop: the desktop login and the VNC access code. VncAuth
+      # uses only the first 8 characters.
+      VNC_PASSWORD: ${VNC_PASSWORD:-vnc_password}
       # Minutes a provisioner waits for a dependency (cluster/node/service) to
       # become ready before failing the deploy. Raise for large stacks.
       DEPLOYMENT_TIMEOUT: ${DEPLOYMENT_TIMEOUT:-60}

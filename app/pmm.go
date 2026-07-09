@@ -117,7 +117,7 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 	if sec.AdminPassword == "" {
 		pw := strings.TrimSpace(n.AdminPassword)
 		if pw == "" {
-			pw = genSecret("PmmAdm!")
+			pw = envOr("PMM_ADMIN_PASSWORD", "admin_password")
 		}
 		sec = pmmSecrets{AdminUser: "admin", AdminPassword: pw}
 	}

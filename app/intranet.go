@@ -23,7 +23,7 @@ type designNode struct {
 	Arch      string `json:"arch"`
 	// PMM node fields (ignored by other node types).
 	Version          string `json:"version"`          // PMM minor version tag ("" → catalog default)
-	AdminPassword    string `json:"adminPassword"`    // PMM admin password ("" → auto-generated)
+	AdminPassword    string `json:"adminPassword"`    // PMM admin password ("" → PMM_ADMIN_PASSWORD)
 	GenerateCert     bool   `json:"generateCert"`     // sign nginx certs from the Intranet CA on deploy
 	WatchtowerNodeID string `json:"watchtowerNodeId"` // PMM: Watchtower node enabling in-app upgrades (optional)
 	// PXC node fields — a PXC node belongs to a PXC frame (FrameID) and is either
@@ -62,7 +62,7 @@ type designNode struct {
 	OIDCUseAuthClaim bool   `json:"oidcUseAuthClaim"` // true → authorize via group claim (creates keycloak/* roles)
 	// Ubuntu VNC node fields (Type=="vnc"; a desktop jump box). Reuses UseProxy above.
 	VNCUser     string `json:"vncUser"`     // sudo login + VNC user ("" → "dbadmin")
-	VNCPassword string `json:"vncPassword"` // desktop/VNC password ("" → auto-generated, 8 chars)
+	VNCPassword string `json:"vncPassword"` // desktop/VNC password ("" → VNC_PASSWORD; capped at 8 chars)
 	// Valkey node fields (Type=="valkey" standalone / "valkeycluster" members). Reuses
 	// RootPassword (default-user password), PMMNodeID, UseProxy, ExportEnabled/HostPort.
 	UseLDAP bool `json:"useLdap"` // wire the valkey-ldap module to the Intranet OpenLDAP
