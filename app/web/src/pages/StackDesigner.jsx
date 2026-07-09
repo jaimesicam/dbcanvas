@@ -2259,13 +2259,13 @@ function PMMOptions({ n, nodes = [], patchNode, deployed }) {
       </Field>
       <Field
         label="Admin password"
-        hint={deployed ? 'Set at deploy time.' : 'Leave empty to auto-generate a strong password.'}
+        hint={deployed ? 'Set at deploy time.' : 'Leave empty to use PMM_ADMIN_PASSWORD from .env.'}
       >
         <input
           className={`${inputCls} ${deployed ? 'opacity-70' : ''}`}
           value={n.adminPassword || ''}
           disabled={deployed}
-          placeholder="(auto-generate if empty)"
+          placeholder="(PMM_ADMIN_PASSWORD from .env)"
           onChange={(e) => patchNode(n.id, { adminPassword: e.target.value })}
         />
       </Field>
@@ -3324,8 +3324,8 @@ function VNCForm({ node: n, patchNode, deleteNode, dep, deployed }) {
         <input className={`${inputCls} ${lock}`} value={n.vncUser ?? 'dbadmin'} disabled={deployed} onChange={(e) => patchNode(n.id, { vncUser: e.target.value })} />
       </Field>
 
-      <Field label="Password" hint={deployed ? 'Set at deploy.' : 'Desktop + VNC password. Empty = auto-generate. VNC uses the first 8 characters.'}>
-        <input className={`${inputCls} ${lock}`} value={n.vncPassword || ''} disabled={deployed} placeholder="(auto-generate if empty)" onChange={(e) => patchNode(n.id, { vncPassword: e.target.value })} />
+      <Field label="Password" hint={deployed ? 'Set at deploy.' : 'Desktop + VNC password. Empty = VNC_PASSWORD from .env. VNC uses the first 8 characters.'}>
+        <input className={`${inputCls} ${lock}`} value={n.vncPassword || ''} disabled={deployed} placeholder="(VNC_PASSWORD from .env)" onChange={(e) => patchNode(n.id, { vncPassword: e.target.value })} />
       </Field>
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>

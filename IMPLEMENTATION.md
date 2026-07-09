@@ -5787,3 +5787,37 @@ with the error-log tail (identical to the old behaviour). Non-regression on a na
 real 3-node PXC cluster (1 bootstrap + 2 joiners) forms with `wsrep_cluster_size=3`, no `.cache`
 present and `/tmp/pxc-cache-recover.log` absent on every node — i.e. the new branch is never entered.
 `go build/vet/test` clean.
+
+---
+
+## 120. `PMM_ADMIN_PASSWORD`, `KEYCLOAK_PASSWORD`, `VNC_PASSWORD` — `.env`, docker-compose.yml, pmm.go, keycloak.go, vnc.go
+
+Three service passwords were **auto-generated** at deploy (`genSecret("PmmAdm!")`,
+`genSecret("KcAdmin!")`, `genVNCPassword()`), so they were unpredictable and only discoverable from
+the node panel. They now come from `.env` like every other credential:
+
+| Variable | Default | Used by |
+| --- | --- | --- |
+| `PMM_ADMIN_PASSWORD` | `admin_password` | The PMM server's Grafana `admin` user (the PMM web UI login). Distinct from `PMM_PASSWORD`, the least-privilege monitoring account. |
+| `KEYCLOAK_PASSWORD` | `keycloak_password` | The Keycloak node's `admin` console user. |
+| `VNC_PASSWORD` | `vnc_password` | The Ubuntu VNC desktop login and the VNC access code. |
+
+Precedence is unchanged where it existed: an existing deployment secret (so a redeploy keeps the
+password stable) → a per-node password set on the canvas → the `.env` value. Added to `.env`,
+`.env.example`, the `docker-compose.yml` environment block (the app only sees what is passed there)
+and the README env table. `genVNCPassword` is gone, and the PMM/VNC canvas hints no longer say
+"auto-generate".
+
+**VNC's 8-character cap.** TigerVNC's VncAuth carries only 8 bytes and `vncpasswd -f` truncates
+silently, so the default `vnc_password` actually authenticates as `vnc_pass`. Rather than display a
+password that isn't the one that works, `vncAuthPassword` truncates up-front and the **stored**
+secret (and therefore the node panel) shows `vnc_pass`. VNC clients truncate typed input the same
+way, so either string logs in.
+
+**Verified.** `docker compose config` resolves all three from `.env`, and falls back to the documented
+defaults when they are absent; `docker inspect dbcanvas-app-1` shows them in the app's environment.
+End-to-end on a deployed Intranet + Keycloak stack (the same `envOr` wiring all three use): the node
+reached `running` with its stored `adminPassword` equal to `keycloak_password`, and the Keycloak
+container's `KC_BOOTSTRAP_ADMIN_PASSWORD` matched. New `TestVNCAuthPassword` covers the 8-byte cap
+(`vnc_password` → `vnc_pass`, exact-8 and shorter values unchanged). `go build/vet/test` clean; test
+stack removed.
