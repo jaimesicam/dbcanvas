@@ -5706,3 +5706,42 @@ Deploy-while-deploying now returns `409 {"error":"a deployment is already in pro
 stack"}`; a deploy after destroy returns `202` and succeeds. The cancelled provisioners log
 `aborted (stack destroyed): context canceled` and write no state. No orphan containers remain after
 a destroy issued 0.2s into a deploy. `go build/vet/test` clean.
+
+---
+
+## 118. `DOCKER_PLATFORM` selects the build/probe platform — `images/platform.sh` (new), build.sh, versions.sh
+
+**Symptom.** With `DOCKER_PLATFORM=linux/amd64` in `.env`, `make images` still built all ten images
+(5 OS × amd64 **and** arm64) and `make versions` still probed and recorded the arm64 ones — a long
+qemu-emulated run advertising an architecture the install doesn't target.
+
+**Cause.** `DOCKER_PLATFORM` was only consumed by `docker-compose.yml` for the *app* image;
+`images/build.sh` hard-coded `PLATFORMS=("linux/amd64" "linux/arm64")`, and `images/versions.sh`
+probed whatever image entries happened to be in `versions.yaml`.
+
+**Fix.** New `images/platform.sh` resolves the target platform once, shared by both scripts.
+`DOCKER_PLATFORM` is a **single** value — exactly `linux/amd64` or `linux/arm64`. Anything else
+(including a comma-separated list, or a bare `amd64`) is a hard error rather than a silently wrong
+matrix; unset/empty defaults to `linux/amd64`, matching the `docker-compose.yml` fallback. The
+environment wins over `.env` (as docker compose resolves variables), so
+`make images DOCKER_PLATFORM=linux/arm64` works, and surrounding whitespace is trimmed either way.
+
+- `build.sh` builds only that platform (the inner platform loop is gone) and prints which.
+- `versions.sh` **skips** entries on the other platform: it neither probes them nor re-emits them
+  into `versions.yaml`, so the catalog stops advertising an arch the install doesn't target. When
+  nothing matches it names the platform and points at `make images` / changing `DOCKER_PLATFORM`,
+  instead of the generic "no image entries" error.
+
+Because the value stays single, `docker-compose.yml` keeps consuming `${DOCKER_PLATFORM:-linux/amd64}`
+directly for the app image — no Makefile change needed.
+
+**Verified.** In a sandbox with a stubbed `docker`, starting from this repo's mixed catalog
+(5 amd64 + 5 arm64): `linux/amd64` → `make images` builds 5 (was 10) and `make versions` probes 5 while
+dropping the 5 arm64 entries; `linux/arm64` → the mirror image; both preserve the `pmm`/`pdps`
+sections. `linux/amd64,linux/arm64`, `linux/riscv64` and `amd64` all abort with exit 1. Asking for a
+platform that was never built errors with the "run `make images` … or change DOCKER_PLATFORM" hint. A
+real (interrupted) `bash images/versions.sh` on this repo prints `selected platform: linux/amd64` and
+probes only amd64, leaving `versions.yaml` untouched. `bash -n` clean on all three scripts.
+
+Note: `versions.yaml` still carries its arm64 entries until `make versions` is re-run — the scripts
+are what changed, not the recorded catalog.

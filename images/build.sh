@@ -3,7 +3,8 @@
 # Build systemd-enabled base images for selectable container instances.
 #
 # Matrix: {oraclelinux:8, oraclelinux:9, oraclelinux:10, ubuntu:22.04,
-#          ubuntu:24.04} × {linux/amd64, linux/arm64}.
+#          ubuntu:24.04} × the single platform selected by DOCKER_PLATFORM
+# (.env), which must be linux/amd64 or linux/arm64. Unset → linux/amd64.
 #
 # Each image installs systemd (PID 1) plus net-tools, the OpenLDAP client,
 # sysstat, percona-release and percona-toolkit (see images/*.Dockerfile).
@@ -28,34 +29,38 @@ MATRIX=(
   "ubuntu:22.04|ubuntu|22.04|debian.Dockerfile"
   "ubuntu:24.04|ubuntu|24.04|debian.Dockerfile"
 )
-PLATFORMS=("linux/amd64" "linux/arm64")
+# The one platform this installation targets (see platform.sh). Capture into a
+# variable so a bad DOCKER_PLATFORM aborts the build instead of being ignored.
+# shellcheck source=platform.sh
+. "$IMAGES_DIR/platform.sh"
+PLATFORM="$(resolve_platform "$ROOT")" || exit 1
+echo "==> building for platform: ${PLATFORM}"
 
 ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 
 declare -a SUCCESS=()
 declare -a FAILED=()
 
+platform="$PLATFORM"
+arch="${platform#linux/}"
 for entry in "${MATRIX[@]}"; do
   IFS='|' read -r base os version dockerfile <<<"$entry"
-  for platform in "${PLATFORMS[@]}"; do
-    arch="${platform#linux/}"
-    tag="${IMAGE_PREFIX}:${os}-${version}-${arch}"
-    echo "=================================================================="
-    echo "==> building ${tag}  (base=${base}, platform=${platform})"
-    echo "=================================================================="
-    if docker build \
-        --platform "$platform" \
-        --build-arg "BASE_IMAGE=${base}" \
-        -f "$IMAGES_DIR/$dockerfile" \
-        -t "$tag" \
-        "$IMAGES_DIR"; then
-      echo "    OK    ${tag}"
-      SUCCESS+=("${os}|${version}|${platform}|${arch}|${tag}|${base}|$(ts)")
-    else
-      echo "    FAIL  ${tag}  (skipped)"
-      FAILED+=("${tag} (${platform})")
-    fi
-  done
+  tag="${IMAGE_PREFIX}:${os}-${version}-${arch}"
+  echo "=================================================================="
+  echo "==> building ${tag}  (base=${base}, platform=${platform})"
+  echo "=================================================================="
+  if docker build \
+      --platform "$platform" \
+      --build-arg "BASE_IMAGE=${base}" \
+      -f "$IMAGES_DIR/$dockerfile" \
+      -t "$tag" \
+      "$IMAGES_DIR"; then
+    echo "    OK    ${tag}"
+    SUCCESS+=("${os}|${version}|${platform}|${arch}|${tag}|${base}|$(ts)")
+  else
+    echo "    FAIL  ${tag}  (skipped)"
+    FAILED+=("${tag} (${platform})")
+  fi
 done
 
 # ---- write versions.yaml ----
