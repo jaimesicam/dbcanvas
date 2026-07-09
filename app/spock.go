@@ -35,6 +35,21 @@ const spockService = "postgresql-spock"
 // major). Overridable via SPOCK_REF. v5.0.10 is the validated default (PG 15/16/17).
 func spockRef() string { return envOr("SPOCK_REF", "v5.0.10") }
 
+// spockPGRef maps a selected Percona PostgreSQL minor (e.g. "18.1-2") to the
+// matching postgresql.org git tag ("REL_18_1") so the source build honours the
+// pinned minor. An empty version falls back to the major's stable branch tip
+// (REL_<major>_STABLE = latest minor), preserving the previous "latest" default.
+func spockPGRef(major, version string) string {
+	v := version
+	if i := strings.IndexByte(v, '-'); i >= 0 {
+		v = v[:i] // drop Percona packaging suffix ("18.1-2" → "18.1")
+	}
+	if v = strings.TrimSpace(v); v == "" {
+		return "REL_" + ppgMajorOf(major) + "_STABLE"
+	}
+	return "REL_" + strings.ReplaceAll(v, ".", "_")
+}
+
 func spockPrefix(major string) string  { return "/usr/pgsql-" + ppgMajorOf(major) }
 func spockDataDir(major string) string { return "/var/lib/pgsql/" + ppgMajorOf(major) + "/data" }
 
@@ -315,14 +330,15 @@ func (a *App) spockPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	pr.logln("build toolchain + PostgreSQL build deps installed")
 
 	pr.phase("Compiling patched PostgreSQL + Spock (this takes a while)", 30)
+	pgRef := spockPGRef(major, frame.PGVersion)
 	buildEnv := []string{
-		"PGMAJOR=" + major, "PGREF=REL_" + major + "_STABLE",
+		"PGMAJOR=" + major, "PGREF=" + pgRef,
 		"SPOCK_REF=" + spockRef(), "PREFIX=" + prefix,
 	}
 	if err := a.runStep(ctx, id, spockCompileScript, buildEnv, pr.logln); err != nil {
 		return pr.fail("compile PostgreSQL/Spock: %v", err)
 	}
-	pr.logln("PostgreSQL " + major + " (patched) + Spock " + spockRef() + " compiled + installed")
+	pr.logln("PostgreSQL " + pgRef + " (patched) + Spock " + spockRef() + " compiled + installed")
 	a.ensureRsyslog(ctx, id, frame.OS, pr.logln)
 
 	if frame.PMMNodeID != "" {
@@ -419,7 +435,7 @@ dnf config-manager --set-enabled powertools >/dev/null 2>&1 || true
 dnf -y -q install "$EPELPKG" >/dev/null 2>&1 || dnf -y -q install epel-release >/dev/null 2>&1 || true
 dnf -y -q install gcc make git bison flex patch redhat-rpm-config \
   readline-devel zlib-devel openssl-devel libxml2-devel libicu-devel lz4-devel libzstd-devel krb5-devel \
-  perl-devel perl-IPC-Run perl-FindBin jansson-devel >/dev/null`
+  perl-devel perl-IPC-Run 'perl(FindBin)' jansson-devel >/dev/null`
 
 // spockCompileScript compiles PostgreSQL from source (postgresql.org $PGREF) with Spock's
 // patches applied, installs it to $PREFIX, then builds + installs the Spock extension

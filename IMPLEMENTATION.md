@@ -5570,3 +5570,45 @@ installed (`§110` version-pin regression coverage):
 
 Reported `mysqld/mongod/postgres --version` matched the pin in every case. Test stacks removed
 afterward.
+
+---
+
+## 115. Spock cluster: honour the selected PG minor + build on OEL8 — `app/spock.go`
+
+Two defects found while testing Spock clusters across Oracle Linux versions on amd64.
+
+**115a — minor version pin ignored (source build).** Unlike the package-installed engines (§110),
+a Spock member **compiles PostgreSQL from source** (postgresql.org git → apply Spock patches →
+`make install`). The build cloned a hard-coded `PGREF=REL_<major>_STABLE` — the stable *branch tip*,
+i.e. always the newest minor — so selecting e.g. PG 18.1 still produced 18.4. The chosen
+`frame.PGVersion` was never consulted.
+
+Fix: new `spockPGRef(major, version)` maps the selected Percona minor (`"18.1-2"`) to the matching
+postgresql.org tag (`"REL_18_1"`); an empty version keeps the previous "latest" behaviour
+(`REL_<major>_STABLE`). `spockPrepareNode` passes `PGREF=spockPGRef(major, frame.PGVersion)` to the
+compile step, and the progress log now prints the exact ref built.
+
+**115b — build dependencies fail on Oracle Linux 8.** `spockBuildDepsRHEL` installed the package
+`perl-FindBin`, which only exists as a standalone RPM on EL9+. On OEL8 (where `FindBin.pm` ships
+inside `perl-interpreter`) the step failed with `Unable to find a match: perl-FindBin`, so every
+Spock member on OEL8 errored at 22%. Fix: install the capability `'perl(FindBin)'` instead of the
+package name — dnf resolves it to `perl-interpreter` on OEL8 and to `perl-FindBin` on OEL9/10.
+
+(Spock remains Oracle Linux only — `spockPrepareNode` still rejects Debian/Ubuntu, since PostgreSQL
+is compiled from source against the RHEL toolchain.)
+
+**Verified.** After rebuilding the app, deployed on each amd64 Oracle Linux platform (8, 9, 10) two
+2-member Spock clusters pinned to PG 18 oldest-minor (18.1-2) and latest-minor (18.4-2):
+
+| OS platform (amd64) | 18.1-2 cluster | 18.4-2 cluster |
+| --- | --- | --- |
+| oraclelinux 8  | ✅ built 18.1 | ✅ built 18.4 |
+| oraclelinux 9  | ✅ built 18.1 | ✅ built 18.4 |
+| oraclelinux 10 | ✅ built 18.1 | ✅ built 18.4 |
+
+All 12 members reached `running`; `postgres --version` matched the pin (git HEAD parked on the
+`REL_18_1` tag commit for the oldest-minor members) and Spock preloaded on each. Before 115a all
+"oldest" members built 18.4; before 115b OEL8 could not build at all. `go build ./...` clean; test
+stacks removed. (Note: the Spock frame's version picker is populated from the PPG *package* catalog,
+which is empty for OEL8 — so OEL8 is currently only reachable for Spock via the API, not the UI
+dropdown; deploying it exercises the source build directly.)
