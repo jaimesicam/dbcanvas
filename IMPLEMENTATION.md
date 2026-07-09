@@ -5868,3 +5868,38 @@ confirms those two are amd64-only while Keycloak/SeaweedFS/Valkey are multi-arch
 amd64 host, a deployed Intranet + PMM stack reached `running` with the PMM container's image resolving
 to `linux/amd64`, and `docker inspect dbcanvas-app-1` shows `DOCKER_PLATFORM=linux/amd64` in the app's
 environment. `go build/vet/test` clean; test stack removed.
+
+---
+
+## 122. Keycloak: no host port forwarding; console is opened from the Ubuntu VNC desktop — `app/keycloak.go`, intranet.go, StackDesigner.jsx
+
+**Why.** Keycloak published its console on auto-assigned host ports (8080 http / 8443 https), and the
+node panel offered an **Open admin console** link plus **Console (http)** / **Console (https)** rows.
+Those were never usable from the host machine: Keycloak runs in dev mode with its
+`--hostname` / issuer set to the *in-network* FQDN, so a request arriving via a forwarded port is
+redirected back to `keycloak.<domain>`, which the host cannot resolve. The forwarding was dead weight
+(and burned two host ports per stack).
+
+**Change.**
+
+- `provisionKeycloak` no longer sets `PublishMap` — the container exposes 8080/8443 on the stack
+  network only. `keycloakConfig` drops `HTTPPort`/`HTTPSPort`, the post-start port read-back is gone,
+  and the `case "keycloak"` in the node-start port refresh (intranet.go) is removed with it. The
+  container-internal `keycloakHTTPPort`/`keycloakHTTPSPort` constants stay — they still build the
+  `--http-port`/`--https-port` flags and the OIDC issuer URL.
+- The node panel drops the **Open admin console** button and both console-port rows. It now shows a
+  single **Console** row (`http://<fqdn>:8080`, or `https://<fqdn>:8443` with SSL) and a callout:
+  open the **Ubuntu VNC** desktop and browse there — its browser resolves the stack's DNS names and
+  trusts the Intranet CA. The pre-deploy Keycloak form says the same, so the requirement is visible
+  before validation runs.
+- **`validateStack` now requires an Ubuntu VNC node whenever a Keycloak node is on the canvas**
+  ("A Keycloak node requires an Ubuntu VNC node — its admin console is only reachable from inside the
+  stack network"), since that desktop is the only way to reach the console.
+
+**Verified.** Keycloak + Intranet without a VNC node fails validation with exactly that message;
+adding a VNC node validates clean. On a deployed Intranet + Keycloak + VNC stack the Keycloak
+container came up `running` with `HostConfig.PortBindings == {}` (`docker ps` shows `8080/tcp,
+8443/tcp` exposed but unpublished) and its stored config no longer carries `httpPort`/`httpsPort`.
+From a container on the stack network using the Intranet as resolver,
+`http://keycloak.example.net:8080/` returns **HTTP 302** (Keycloak's redirect to `/admin`) — the URL
+the panel now advertises. `go build/vet/test` + the web build clean; test stacks removed.

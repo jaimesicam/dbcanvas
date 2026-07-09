@@ -603,6 +603,11 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	if vnc > 1 {
 		out = append(out, issue{"error", "Only one Ubuntu VNC node is allowed per stack"})
 	}
+	// Keycloak publishes no host ports — its admin console lives on the stack
+	// network and is only reachable from a browser inside it, i.e. the VNC desktop.
+	if keycloak > 0 && vnc == 0 {
+		out = append(out, issue{"error", "A Keycloak node requires an Ubuntu VNC node — its admin console is only reachable from inside the stack network"})
+	}
 	if samba > 1 {
 		out = append(out, issue{"error", "Only one Samba AD DC node is allowed per stack"})
 	}
@@ -1824,16 +1829,8 @@ func (a *App) refreshPublishedPorts(ctx context.Context, st Stack, nid string, d
 			cfg.HTTPSPort = p
 		}
 		save(cfg)
-	case "keycloak":
-		var cfg keycloakConfig
-		json.Unmarshal(dep.Config, &cfg)
-		if p, ok := readPort("8080/tcp"); ok {
-			cfg.HTTPPort = p
-		}
-		if p, ok := readPort("8443/tcp"); ok {
-			cfg.HTTPSPort = p
-		}
-		save(cfg)
+	// keycloak publishes no host ports — its console is stack-network only and is
+	// reached from the Ubuntu VNC desktop, so there is nothing to re-read here.
 	case "vnc":
 		var cfg vncConfig
 		json.Unmarshal(dep.Config, &cfg)

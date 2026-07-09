@@ -3155,6 +3155,11 @@ function KeycloakForm({ node: n, patchNode, deleteNode, dep, deployed }) {
         OpenID Connect identity provider (<span className="font-mono">quay.io/keycloak/keycloak</span>, dev
         mode). Enable Keycloak OIDC on a PSMDB node to authenticate with it. One Keycloak per stack.
       </p>
+      <p className="text-xs text-muted">
+        The admin console is not published to this machine — it is served on the stack network only.
+        Add an <span className="font-semibold">Ubuntu VNC</span> node (required) and browse to the console
+        from its desktop.
+      </p>
 
       <Field label="Label" hint="Becomes the node hostname (also the OIDC issuer host); must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
@@ -3249,11 +3254,15 @@ function SambaForm({ node: n, patchNode, deleteNode, dep, deployed }) {
 }
 
 // KeycloakManager shows a deployed Keycloak's console URL + bootstrap admin creds.
+// No host ports are published: because Keycloak issues tokens for its in-network
+// FQDN, a forwarded port never gave a working console from the host machine. The
+// console is opened from the Ubuntu VNC desktop instead (validateStack requires one).
 function KeycloakManager({ dep, onDeleteNode }) {
   const cfg = dep?.config || {}
   const sec = dep?.secrets || {}
-  const host = typeof location !== 'undefined' ? location.hostname : 'localhost'
-  const consoleURL = cfg.httpPort ? `http://${host}:${cfg.httpPort}` : null
+  const consoleURL = cfg.ssl
+    ? `https://${cfg.fqdn || cfg.hostname}:8443`
+    : `http://${cfg.fqdn || cfg.hostname || 'keycloak'}:8080`
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -3261,18 +3270,17 @@ function KeycloakManager({ dep, onDeleteNode }) {
         <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
       </div>
       <p className="text-xs text-muted">OIDC identity provider. Set up the realm/client/groups/users in the console.</p>
-      {consoleURL && (
-        <a href={consoleURL} target="_blank" rel="noreferrer"
-          className="flex items-center justify-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/15">
-          <Icon.External size={15} /> Open admin console
-        </a>
-      )}
+      <div className="rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-xs text-primary">
+        The admin console is not published to this machine. Open the{' '}
+        <span className="font-semibold">Ubuntu VNC</span> desktop node and browse to{' '}
+        <span className="break-all font-mono">{consoleURL}</span> — its browser resolves the stack&apos;s
+        DNS names and trusts the Intranet CA.
+      </div>
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
         <div className="flex justify-between gap-3"><span className="text-muted">Image</span><span className="font-mono text-xs">{cfg.image || 'quay.io/keycloak/keycloak'}</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Console</span><span className="break-all font-mono text-xs">{consoleURL}</span></div>
         <div className="flex justify-between gap-3"><span className="text-muted">Issuer base</span><span className="font-mono text-xs">{cfg.ssl ? `https://${cfg.fqdn || cfg.hostname}:8443` : `http://${cfg.hostname || 'keycloak'}:8080`}</span></div>
         <div className="flex justify-between gap-3"><span className="text-muted">TLS</span><span className="font-mono text-xs">{cfg.ssl ? 'Intranet CA' : 'none (HTTP)'}</span></div>
-        {cfg.httpPort ? <div className="flex justify-between gap-3"><span className="text-muted">Console (http)</span><span className="font-mono text-xs">{host}:{cfg.httpPort}</span></div> : null}
-        {cfg.httpsPort ? <div className="flex justify-between gap-3"><span className="text-muted">Console (https)</span><span className="font-mono text-xs">{host}:{cfg.httpsPort}</span></div> : null}
         <div className="flex justify-between gap-3"><span className="text-muted">Admin user</span><span className="font-mono text-xs">{cfg.adminUser || 'admin'}</span></div>
         {sec.adminPassword && (
           <div className="flex justify-between gap-3"><span className="text-muted">Admin password</span><span className="break-all font-mono text-xs">{sec.adminPassword}</span></div>
