@@ -125,7 +125,7 @@ func (a *App) provisionValkeyStandalone(st Stack, n designNode, doc designDoc) {
 		pr.phase("Pulling image", 8)
 		if ok, _ := a.docker.ImageExists(ctx, valkeyImage); !ok {
 			pr.logln("pulling " + valkeyImage)
-			if err := a.docker.ImagePull(ctx, valkeyImageRepo, valkeyImageTag); err != nil {
+			if err := a.docker.ImagePull(ctx, valkeyImageRepo, valkeyImageTag, pullPlatform()); err != nil {
 				pr.fail("pull image: %v", err)
 				return
 			}
@@ -144,7 +144,7 @@ func (a *App) provisionValkeyStandalone(st Stack, n designNode, doc designDoc) {
 			a.docker.ContainerRemove(ctx, cid)
 		}
 		spec := ContainerSpec{
-			Name: name, Image: valkeyImage, Hostname: host,
+			Name: name, Image: valkeyImage, Hostname: host, Platform: pullPlatform(),
 			Cmd:     []string{"valkey-server", valkeyConfPath},
 			Network: networkName(st.ID), Aliases: []string{host},
 			DNS: []string{intranetIP}, DNSSearch: []string{domain},
@@ -349,7 +349,7 @@ func (a *App) provisionValkeyClusterFrame(st Stack, frame designFrame, doc desig
 			return
 		}
 		if ok, _ := a.docker.ImageExists(ctx, valkeyImage); !ok {
-			if err := a.docker.ImagePull(ctx, valkeyImageRepo, valkeyImageTag); err != nil {
+			if err := a.docker.ImagePull(ctx, valkeyImageRepo, valkeyImageTag, pullPlatform()); err != nil {
 				for _, n := range members {
 					progs[n.ID].fail("pull image: %v", err)
 				}
@@ -415,7 +415,7 @@ func (a *App) valkeyStartMember(ctx context.Context, st Stack, n designNode, hos
 		a.docker.ContainerRemove(ctx, cid)
 	}
 	spec := ContainerSpec{
-		Name: name, Image: valkeyImage, Hostname: host,
+		Name: name, Image: valkeyImage, Hostname: host, Platform: pullPlatform(),
 		Cmd:     []string{"valkey-server", valkeyConfPath},
 		Network: networkName(st.ID), Aliases: []string{host},
 		DNS: []string{intranetIP}, DNSSearch: []string{domain},

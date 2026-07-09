@@ -174,7 +174,7 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 		setPhase("Pulling image", 5)
 		if ok, _ := a.docker.ImageExists(ctx, ref); !ok {
 			logln("pulling " + ref + " (this can take a while)")
-			if err := a.docker.ImagePull(ctx, repo, tag); err != nil {
+			if err := a.docker.ImagePull(ctx, repo, tag, platformAMD64); err != nil {
 				failNode("pull image %s: %v", ref, err)
 				return
 			}
@@ -219,7 +219,7 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 			logln("warning: could not create PMM data volume: " + err.Error())
 		}
 		id, err := a.docker.ContainerCreate(ctx, ContainerSpec{
-			Name: name, Image: ref, Hostname: host,
+			Name: name, Image: ref, Hostname: host, Platform: platformAMD64,
 			Env:     wtEnv,
 			Network: networkName(st.ID), Aliases: []string{host},
 			PublishMap: []PortMap{{ContainerPort: 8080, HostPort: httpPort}, {ContainerPort: 8443, HostPort: httpsPort}},

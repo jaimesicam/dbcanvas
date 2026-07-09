@@ -91,7 +91,7 @@ func (a *App) provisionWatchtower(st Stack, n designNode, doc designDoc) {
 		pr.phase("Pulling image", 10)
 		if ok, _ := a.docker.ImageExists(ctx, watchtowerImage); !ok {
 			pr.logln("pulling " + watchtowerImage)
-			if err := a.docker.ImagePull(ctx, "percona/watchtower", "latest"); err != nil {
+			if err := a.docker.ImagePull(ctx, "percona/watchtower", "latest", platformAMD64); err != nil {
 				pr.fail("pull image: %v", err)
 				return
 			}
@@ -114,7 +114,7 @@ func (a *App) provisionWatchtower(st Stack, n designNode, doc designDoc) {
 			aliases = append(aliases, "watchtower")
 		}
 		id, err := a.docker.ContainerCreate(ctx, ContainerSpec{
-			Name: name, Image: watchtowerImage, Hostname: host,
+			Name: name, Image: watchtowerImage, Hostname: host, Platform: platformAMD64,
 			Env: []string{
 				"WATCHTOWER_HTTP_API_TOKEN=" + token,
 				"WATCHTOWER_HTTP_API_UPDATE=1",

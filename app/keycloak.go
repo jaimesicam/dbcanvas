@@ -100,7 +100,7 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 		pr.phase("Pulling image", 10)
 		if ok, _ := a.docker.ImageExists(ctx, keycloakImage); !ok {
 			pr.logln("pulling " + keycloakImage)
-			if err := a.docker.ImagePull(ctx, keycloakImageRepo, keycloakImageTag); err != nil {
+			if err := a.docker.ImagePull(ctx, keycloakImageRepo, keycloakImageTag, pullPlatform()); err != nil {
 				pr.fail("pull image: %v", err)
 				return
 			}
@@ -157,7 +157,7 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 			}
 		}
 		id, err := a.docker.ContainerCreate(ctx, ContainerSpec{
-			Name: name, Image: keycloakImage, Hostname: host,
+			Name: name, Image: keycloakImage, Hostname: host, Platform: pullPlatform(),
 			Cmd: cmd,
 			Env: []string{
 				"KC_BOOTSTRAP_ADMIN_USERNAME=" + cfg.AdminUser,

@@ -164,7 +164,7 @@ func (a *App) provisionSeaweedFS(st Stack, n designNode, doc designDoc) {
 		setPhase("Pulling image", 5)
 		if ok, _ := a.docker.ImageExists(ctx, ref); !ok {
 			logln("pulling " + ref + " (this can take a while)")
-			if err := a.docker.ImagePull(ctx, seaweedRepo, seaweedDefaultTag); err != nil {
+			if err := a.docker.ImagePull(ctx, seaweedRepo, seaweedDefaultTag, pullPlatform()); err != nil {
 				failNode("pull image %s: %v", ref, err)
 				return
 			}
@@ -227,7 +227,7 @@ func (a *App) provisionSeaweedFS(st Stack, n designNode, doc designDoc) {
 			cmd = append(cmd, "-s3.cert.file="+seaweedTLSCert, "-s3.key.file="+seaweedTLSKey)
 		}
 		id, err := a.docker.ContainerCreate(ctx, ContainerSpec{
-			Name: name, Image: ref, Hostname: host,
+			Name: name, Image: ref, Hostname: host, Platform: pullPlatform(),
 			Cmd:     cmd,
 			Network: networkName(st.ID), Aliases: []string{host},
 			PublishPorts: []int{seaweedWebPort},
