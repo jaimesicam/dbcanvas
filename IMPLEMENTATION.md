@@ -5745,3 +5745,45 @@ probes only amd64, leaving `versions.yaml` untouched. `bash -n` clean on all thr
 
 Note: `versions.yaml` still carries its arm64 entries until `make versions` is re-run — the scripts
 are what changed, not the recorded catalog.
+
+---
+
+## 119. PXC joiner: recover from an unremovable `/var/lib/mysql/.cache` (Rosetta) — `app/pxc.go`
+
+**Symptom.** On an emulated host (Rosetta), a PXC **joiner** can be left with a
+`/var/lib/mysql/.cache` directory that mysqld cannot remove — the error log shows an access-denied
+failure on that path — so the SST/join never completes and the node's `mysql.service` never becomes
+active. The bootstrap node is unaffected.
+
+**Workaround (operator procedure, now automated).** On the joiner only: remove
+`/var/lib/mysql/.cache` as root, start `mysqld --user=mysql &` once so it recovers the data dir, shut
+it down cleanly with `mysqladmin shutdown -uroot -p<root password>`, then `systemctl start mysql`.
+
+**Implementation.** `pxcJoinScript` now wraps the start in a `start_mysql` helper and, when the unit
+fails **and** `/var/lib/mysql/.cache` exists, runs exactly that recovery before retrying the start:
+
+- `systemctl stop mysql` (best effort) → `rm -rf /var/lib/mysql/.cache`.
+- `mysqld --user=mysql &` with output to `/tmp/pxc-cache-recover.log`, polled for liveness by
+  `mysqladmin ping`. The probe treats **"Access denied" as alive** — the joiner's root password only
+  arrives with the SST, so a credentials error still proves the server is up.
+- Clean stop via `mysqladmin shutdown -uroot -p"$ROOT_PW"`, falling back to a socket-auth shutdown and
+  finally `kill`, then `wait`.
+- `systemctl start mysql` again; on success the join proceeds normally.
+
+If `.cache` is absent, or recovery doesn't help, the script reports the same "mysql failed to join"
+error-log tail as before — the diagnostic path is unchanged. `ROOT_PW` is now passed to the join step
+(`pxcJoin`) alongside `LOGERR`, using the same env naming as `pxcBootstrap`.
+
+**Scoped to joiners.** `pxcJoinScript` has exactly one caller, `pxcJoin`, which
+`provisionPXCFrame` runs only for `regulars[1:]`. The bootstrap node (`regulars[0]`) goes through
+`pxcBootstrapScript` / `mysql@bootstrap` and can never enter this path.
+
+**Verified.** The script's four branches were exercised in a container with stubbed
+`systemctl`/`mysqld`/`mysqladmin`: (1) unit starts first try → exit 0, recovery never runs, `.cache`
+untouched; (2) start fails with `.cache` present → cleared, standalone mysqld started and shut down
+cleanly, second start succeeds → exit 0; (3) start never succeeds with `.cache` present → recovery
+attempted, then exit 1 with the error-log tail; (4) start fails with no `.cache` → no recovery, exit 1
+with the error-log tail (identical to the old behaviour). Non-regression on a native amd64 host: a
+real 3-node PXC cluster (1 bootstrap + 2 joiners) forms with `wsrep_cluster_size=3`, no `.cache`
+present and `/tmp/pxc-cache-recover.log` absent on every node — i.e. the new branch is never entered.
+`go build/vet/test` clean.

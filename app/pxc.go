@@ -629,7 +629,10 @@ func (a *App) pxcBootstrap(ctx context.Context, st Stack, frame designFrame, n d
 func (a *App) pxcJoin(ctx context.Context, st Stack, frame designFrame, n designNode, host, domain, intranetID string, sec pxcSecrets, pr *pxcProg) error {
 	dep, _ := a.store.GetDeployment(st.ID, n.ID)
 	id := dep.ContainerID
-	if err := a.runStep(ctx, id, pxcJoinScript, []string{"LOGERR=" + pxcLogError(frame.OS)}, pr.logln); err != nil {
+	// ROOT_PW lets the .cache recovery path shut its standalone mysqld down cleanly
+	// (the donor's root password arrives with the SST).
+	joinEnv := []string{"LOGERR=" + pxcLogError(frame.OS), "ROOT_PW=" + sec.RootPassword}
+	if err := a.runStep(ctx, id, pxcJoinScript, joinEnv, pr.logln); err != nil {
 		return pr.fail("join: %v", err)
 	}
 	pr.logln("joined cluster (synced)")
@@ -890,11 +893,66 @@ echo "wsrep_cluster_size: $(mysql -uroot -p"$ROOT_PW" -N -e "SHOW STATUS LIKE 'w
 // pxcJoinScript starts a joining node, which SSTs from the donor. The PXC
 // mysql.service is Type=notify, so systemctl start blocks until mysqld is synced
 // and ready — no separate (password-protected) status poll is needed.
+//
+// Emulated-host (Rosetta) workaround: a joiner can be left with a
+// /var/lib/mysql/.cache directory that mysqld cannot remove ("Access denied"),
+// so the join never completes. If the unit fails and that directory is present,
+// clear it as root, bring mysqld up standalone once so it recovers the data dir,
+// shut it down cleanly, then let systemd start it and join. Only joiners run this
+// script — the bootstrap node uses mysql@bootstrap (pxcBootstrapScript) — so the
+// recovery can never touch the node that seeds the cluster.
 const pxcJoinScript = `set -e
 LOGERR=${LOGERR:-/var/log/mysqld.log}
-systemctl reset-failed mysql 2>/dev/null || true
-systemctl start mysql
-systemctl is-active --quiet mysql || { echo "mysql failed to join:"; grep -iE 'ERROR|Aborting' "$LOGERR" 2>/dev/null | tail -8; exit 1; }`
+ROOT_PW=${ROOT_PW:-}
+CACHE=/var/lib/mysql/.cache
+RECOVERLOG=/tmp/pxc-cache-recover.log
+
+start_mysql() {
+  systemctl reset-failed mysql 2>/dev/null || true
+  systemctl start mysql 2>/dev/null || true
+  systemctl is-active --quiet mysql
+}
+
+# "Access denied" means the server is up but the credentials are stale (the root
+# password arrives from the donor via SST) — for a liveness probe that is a yes.
+mysqld_alive() {
+  out=$(mysqladmin ping -uroot -p"$ROOT_PW" 2>&1) || true
+  case "$out" in *"is alive"*|*"Access denied"*) return 0 ;; esac
+  return 1
+}
+
+if start_mysql; then exit 0; fi
+
+if [ -e "$CACHE" ]; then
+  echo "join failed and $CACHE is present — clearing it and recovering"
+  systemctl stop mysql 2>/dev/null || true
+  rm -rf "$CACHE"
+  mysqld --user=mysql >>"$RECOVERLOG" 2>&1 &
+  MPID=$!
+  UP=0
+  for _ in $(seq 1 180); do
+    if mysqld_alive; then UP=1; break; fi
+    kill -0 "$MPID" 2>/dev/null || break
+    sleep 2
+  done
+  if [ "$UP" = 1 ]; then
+    echo "mysqld started standalone; shutting it down cleanly"
+    mysqladmin shutdown -uroot -p"$ROOT_PW" >/dev/null 2>&1 \
+      || mysqladmin shutdown >/dev/null 2>&1 \
+      || kill "$MPID" 2>/dev/null || true
+  else
+    echo "mysqld did not come up standalone after clearing $CACHE:"
+    tail -8 "$RECOVERLOG" 2>/dev/null
+    kill "$MPID" 2>/dev/null || true
+  fi
+  wait "$MPID" 2>/dev/null || true
+  if start_mysql; then
+    echo "joined cluster after clearing $CACHE"
+    exit 0
+  fi
+fi
+
+echo "mysql failed to join:"; grep -iE 'ERROR|Aborting' "$LOGERR" 2>/dev/null | tail -8; exit 1`
 
 // pxcGarbdScript configures and starts the arbitrator daemon. The config file is
 // /etc/sysconfig/garb on RHEL and /etc/default/garb on Debian (passed as GARBCONF).
