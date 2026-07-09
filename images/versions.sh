@@ -36,6 +36,15 @@ fi
 
 ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 
+# Only probe/record the single platform selected by DOCKER_PLATFORM (see
+# platform.sh). Image entries on the other platform are dropped from
+# versions.yaml — `make images` is what puts them back — so the host never
+# probes (or advertises) an architecture it does not target.
+# shellcheck source=platform.sh
+. "$(dirname "${BASH_SOURCE[0]}")/platform.sh"
+PLATFORM="$(resolve_platform "$ROOT")" || exit 1
+echo "==> selected platform: ${PLATFORM}" >&2
+
 # Pull the header values we want to preserve across the rewrite.
 IMAGE_PREFIX="$(grep -E '^image_prefix:' "$OUT" | head -1 | sed -E 's/^image_prefix:[[:space:]]*//')"
 GENERATED_AT="$(grep -E '^generated_at:' "$OUT" | head -1 | sed -E 's/^generated_at:[[:space:]]*//')"
@@ -266,9 +275,17 @@ spock_n=$(printf '%s' "$SPOCK_MAP" | grep -c . || true)
 echo "    spock: ${spock_n} PG major series (Oracle Linux only)" >&2
 
 count=0
+skipped=0
 first_tag=""
 while IFS=$'\t' read -r os version platform arch tag base built; do
   [ -n "$tag" ] || continue
+  # Not the platform this install targets: drop the entry entirely (do not probe
+  # it, do not re-emit it into versions.yaml).
+  if [ "$platform" != "$PLATFORM" ]; then
+    echo "==> skipping ${tag} (${platform}) — DOCKER_PLATFORM is ${PLATFORM}" >&2
+    skipped=$((skipped + 1))
+    continue
+  fi
   count=$((count + 1))
   [ -n "$first_tag" ] || first_tag="$tag"
 
@@ -378,7 +395,12 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
 done < <(parse_entries)
 
 if [ "$count" -eq 0 ]; then
-  echo "ERROR: no image entries found in ${OUT}; run 'make images' first." >&2
+  if [ "$skipped" -gt 0 ]; then
+    echo "ERROR: no ${PLATFORM} image entries in ${OUT} (skipped ${skipped} on another platform)." >&2
+    echo "       Run 'make images' to build them for ${PLATFORM}, or change DOCKER_PLATFORM in .env." >&2
+  else
+    echo "ERROR: no image entries found in ${OUT}; run 'make images' first." >&2
+  fi
   exit 1
 fi
 
@@ -431,5 +453,8 @@ trap - EXIT
 
 echo "" >&2
 echo "==================================================================" >&2
-echo "Probed ${count} image(s) + ${pmm_n} PMM3 version(s) → ${OUT}" >&2
+echo "Probed ${count} ${PLATFORM} image(s) + ${pmm_n} PMM3 version(s) → ${OUT}" >&2
+if [ "$skipped" -gt 0 ]; then
+  echo "Skipped ${skipped} image(s) not on ${PLATFORM}" >&2
+fi
 echo "==================================================================" >&2
