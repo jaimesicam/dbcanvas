@@ -5956,3 +5956,51 @@ reading the actual page/window title for `https://keycloak.example.net:8443`):
 Run as A → B → A → B (reset to the old policy reproduces the error; running the new
 `vncFirefoxCAScript` verbatim from that broken state loads the page), so the policy is the cause and
 the shipped script is the fix. `go build/vet/test` clean; app image rebuilt.
+
+---
+
+## 124. Cached image of the wrong platform breaks `containers/create` — `app/docker.go` + the 5 pulled-image nodes
+
+**Symptom.** On macOS/Rosetta, deploying a Keycloak node fails with
+
+```
+create container: docker create container: image with reference
+quay.io/keycloak/keycloak:26.5.5 was found but does not provide the
+specified platform (linux/amd64) (404)
+```
+
+**Cause.** §121 made `ContainerCreate` send `platform=`, but the guard in front of the pull is
+platform-blind:
+
+```go
+if ok, _ := a.docker.ImageExists(ctx, ref); !ok { a.docker.ImagePull(ctx, repo, tag, platform) }
+```
+
+`ImageExists` only asks "is there an image with this reference", not "does it provide this
+platform". On an arm64 host the multi-arch Keycloak image had already been cached as **arm64** by an
+earlier implicit pull (before §121). The guard therefore skipped the pull, and
+`containers/create?platform=linux/amd64` then refused an image that carries no amd64 manifest.
+
+It surfaced on Keycloak first only because that image was already cached; **SeaweedFS and Valkey are
+multi-arch too** and would fail the same way. PMM and Watchtower are amd64-only, so any cached copy
+is already the right platform.
+
+**Fix.** New `Docker.EnsureImage(ctx, repo, tag, platform)` replaces the `ImageExists`/`ImagePull`
+pair at all five call sites (pmm, watchtower, keycloak, seaweedfs, valkey ×2). It **always attempts
+the pull for the requested platform** — cheap when the manifest is already present, the daemon just
+answers "Image is up to date" — and only falls back to a cached image if the pull fails, so an
+air-gapped host that pre-seeded its images still deploys.
+
+**Verified** against the real daemon:
+
+- Faithful reproduction with an image never pulled on this host: seed `alpine:3.19` as **arm64 only**
+  → `ImageExists` returns 200 (so the old code skips the pull) → `containers/create?platform=linux/amd64`
+  returns **404 … does not provide the specified platform**. Pull with `platform=linux/amd64` first →
+  create returns **201**.
+- Integration test (`TestEnsureImageCrossPlatform`, run against `/var/run/docker.sock`): seed arm64,
+  assert the platform-blind `ImageExists` says "exists", call `EnsureImage(..., "linux/amd64")`, then
+  `ContainerCreate` with `Platform: "linux/amd64"` — passes.
+
+`go build/vet/test` clean; app image rebuilt. Note the same Keycloak reproduction could not be forced
+on this amd64 host (its containerd store still held the amd64 manifest from earlier pulls), which is
+why the control was done with a pristine image.

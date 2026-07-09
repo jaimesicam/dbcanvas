@@ -162,12 +162,10 @@ func (a *App) provisionSeaweedFS(st Stack, n designNode, doc designDoc) {
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 
 		setPhase("Pulling image", 5)
-		if ok, _ := a.docker.ImageExists(ctx, ref); !ok {
-			logln("pulling " + ref + " (this can take a while)")
-			if err := a.docker.ImagePull(ctx, seaweedRepo, seaweedDefaultTag, pullPlatform()); err != nil {
-				failNode("pull image %s: %v", ref, err)
-				return
-			}
+		logln("ensuring " + ref + " for " + pullPlatform() + " (this can take a while)")
+		if err := a.docker.EnsureImage(ctx, seaweedRepo, seaweedDefaultTag, pullPlatform()); err != nil {
+			failNode("pull image %s: %v", ref, err)
+			return
 		}
 		logln("image ready: " + ref)
 
