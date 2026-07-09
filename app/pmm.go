@@ -147,8 +147,9 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 	secJSON, _ := json.Marshal(sec)
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 
+	ctx, endScope := a.deployScope(st.ID)
 	go func() {
-		ctx := context.Background()
+		defer endScope()
 		prog := &provProgress{Percent: 0, Phase: "Starting", Log: []string{}}
 		save := func() { b, _ := json.Marshal(prog); a.store.SetDeploymentProgress(st.ID, n.ID, b) }
 		logln := func(s string) {
@@ -316,6 +317,11 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 func (a *App) runStep(ctx context.Context, id, script string, env []string, logln func(string)) error {
 	var lastErr string
 	for attempt := 1; attempt <= 10; attempt++ {
+		// The stack may have been destroyed mid-deploy: bail immediately instead
+		// of retrying against a container that no longer exists.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		res, err := a.docker.Exec(ctx, id, []string{"bash", "-c", script}, env)
 		if err == nil && res.Code == 0 {
 			return nil
@@ -326,7 +332,11 @@ func (a *App) runStep(ctx context.Context, id, script string, env []string, logl
 			lastErr = strings.TrimSpace(res.Stdout)
 		}
 		logln(fmt.Sprintf("attempt %d/10 failed: %s", attempt, lastLines(lastErr, 160)))
-		time.Sleep(2 * time.Second)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
 	}
 	return fmt.Errorf("%s", lastLines(lastErr, 160))
 }
@@ -364,6 +374,9 @@ func (a *App) waitIntranet(ctx context.Context, stackID int64, doc designDoc, ti
 	netName := networkName(stackID)
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			return "", "", err // stack destroyed mid-deploy
+		}
 		dep, err := a.store.GetDeployment(stackID, intranetNode)
 		if err == nil {
 			if dep.State == DeployError {
@@ -375,7 +388,11 @@ func (a *App) waitIntranet(ctx context.Context, stackID int64, doc designDoc, ti
 				}
 			}
 		}
-		time.Sleep(3 * time.Second)
+		select {
+		case <-ctx.Done():
+			return "", "", ctx.Err()
+		case <-time.After(3 * time.Second):
+		}
 	}
 	return "", "", fmt.Errorf("Intranet did not become ready within %s", timeout)
 }

@@ -93,8 +93,9 @@ func (a *App) provisionHAProxy(st Stack, n designNode, doc designDoc) {
 	cfgJSON, _ := json.Marshal(cfg)
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON})
 
+	ctx, endScope := a.deployScope(st.ID)
 	go func() {
-		ctx := context.Background()
+		defer endScope()
 		prog := &provProgress{Phase: "Starting", Log: []string{}}
 		save := func() { b, _ := json.Marshal(prog); a.store.SetDeploymentProgress(st.ID, n.ID, b) }
 		logln := func(s string) {

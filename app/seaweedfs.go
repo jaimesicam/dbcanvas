@@ -137,8 +137,9 @@ func (a *App) provisionSeaweedFS(st Stack, n designNode, doc designDoc) {
 	secJSON, _ := json.Marshal(sec)
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 
+	ctx, endScope := a.deployScope(st.ID)
 	go func() {
-		ctx := context.Background()
+		defer endScope()
 		prog := &provProgress{Percent: 0, Phase: "Starting", Log: []string{}}
 		save := func() { b, _ := json.Marshal(prog); a.store.SetDeploymentProgress(st.ID, n.ID, b) }
 		logln := func(s string) {

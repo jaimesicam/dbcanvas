@@ -288,7 +288,10 @@ func (a *App) replLogln(stackID int64, nodeID, line string) {
 // containers, and prunes DBCanvas channels removed from the canvas. Runs in its own
 // goroutine; it never fails a node (the cluster itself is already running) — a
 // channel that won't come up is logged against the replica's deployment.
-func (a *App) reconcileReplication(st Stack, doc designDoc) {
+// reconcileReplication runs on the deploy's context (see deployrun.go) so a
+// destroy mid-deploy cancels it instead of leaving it waiting on clusters that
+// are being torn down.
+func (a *App) reconcileReplication(ctx context.Context, st Stack, doc designDoc) {
 	domain := envOr("DOMAIN", "example.net")
 	hosts := stackHostnames(doc)
 	links := replicationLinks(doc)
@@ -328,8 +331,6 @@ func (a *App) reconcileReplication(st Stack, doc designDoc) {
 			log.Printf("stack %d replication: node %s not running; its links may not configure", st.ID, label)
 		}
 	}
-
-	ctx := context.Background()
 
 	// Desired channels per replica node. GTID auto-position when both clusters use
 	// GTID; otherwise binlog file/position. The source's coordinates (gtid_executed

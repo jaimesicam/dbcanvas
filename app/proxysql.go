@@ -213,8 +213,9 @@ func (a *App) provisionProxySQLFrame(st Stack, frame designFrame, doc designDoc)
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 	}
 
+	ctx, endScope := a.deployScope(st.ID)
 	go func() {
-		ctx := context.Background()
+		defer endScope()
 		progs := map[string]*pxcProg{}
 		for _, n := range members {
 			pr := a.pxcNewProg(st.ID, n.ID)
@@ -502,8 +503,9 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 	secJSON, _ := json.Marshal(sec)
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: p.NodeID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 
+	ctx, endScope := a.deployScope(st.ID)
 	go func() {
-		ctx := context.Background()
+		defer endScope()
 		prog := &provProgress{Phase: "Starting", Log: []string{}}
 		save := func() { b, _ := json.Marshal(prog); a.store.SetDeploymentProgress(st.ID, p.NodeID, b) }
 		logln := func(s string) {

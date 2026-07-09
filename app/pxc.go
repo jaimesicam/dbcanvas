@@ -236,6 +236,14 @@ func (pr *pxcProg) logln(s string) {
 }
 func (pr *pxcProg) fail(format string, a ...any) error {
 	msg := fmt.Sprintf(format, a...)
+	// A destroy cancels the deploy out from under the provisioners. The errors
+	// that follow are caused by the teardown itself, so don't record them as node
+	// failures — the deployment rows are about to be deleted, and writing them
+	// here would resurrect the rows and wedge the next deploy in "error".
+	if pr.a.deployCancelled(pr.stackID) {
+		log.Printf("stack %d %s: aborted (stack destroyed): %s", pr.stackID, pr.nodeID, msg)
+		return fmt.Errorf("%s", msg)
+	}
 	log.Printf("stack %d pxc %s: %s", pr.stackID, pr.nodeID, msg)
 	pr.p.Phase = "failed"
 	pr.p.Message = msg
@@ -303,8 +311,9 @@ func (a *App) provisionPXCFrame(st Stack, frame designFrame, doc designDoc) {
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 	}
 
+	ctx, endScope := a.deployScope(st.ID)
 	go func() {
-		ctx := context.Background()
+		defer endScope()
 		baseProg := a.pxcNewProg(st.ID, members[0].ID)
 		// A PXC cluster reaches its reset baseline as it forms (bootstrap creates the
 		// credentials and clears GTID; joiners inherit that clean state via SST). This
