@@ -1272,6 +1272,18 @@ chown mongod:mongod /etc/mongo.keyFile 2>/dev/null || true`
 const mongoStartMongodScript = `set -e
 chown mongod:mongod /etc/mongo.keyFile 2>/dev/null || true
 install -d -o mongod -g mongod /var/lib/mongo /var/log/mongo /var/run/mongodb 2>/dev/null || true
+# Percona MongoDB 6.0/7.0 ship a Type=forking mongod unit; because we run mongod
+# with fork:false (foreground), the forking start job never sees the process
+# daemonize and systemctl start times out even though mongod is serving. Force
+# Type=simple (as PSMDB 8.0 already ships) so systemd tracks the foreground
+# process directly. Harmless where the unit is already Type=simple.
+mkdir -p /etc/systemd/system/mongod.service.d
+cat > /etc/systemd/system/mongod.service.d/10-dbcanvas-nofork.conf <<'DROPIN'
+[Service]
+Type=simple
+PIDFile=
+DROPIN
+systemctl daemon-reload 2>/dev/null || true
 systemctl reset-failed mongod 2>/dev/null || true
 systemctl enable --now mongod >/dev/null 2>&1 || systemctl restart mongod
 OK=0

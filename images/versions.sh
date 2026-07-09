@@ -186,6 +186,43 @@ pdps_discover() {
 # repository's tags and keep the full three-part PMM 3.x.y releases. Prints one
 # version per line (ascending); empty output means discovery failed/offline.
 PMM_REPO="percona/pmm-server"
+
+# ---- Spock (source-built PostgreSQL + Spock extension) availability ----
+# Unlike the package-installed engines, a Spock member compiles PostgreSQL from
+# source: the postgresql.org release tag for the chosen minor with the pinned
+# Spock patch set applied. So its availability is NOT the Percona package catalog
+# — it is (a) the PG majors the pinned Spock ref carries patches for, and (b) the
+# postgresql.org release tags (minors) that exist for each. This is OS-independent
+# and computed once; it is recorded only against Oracle Linux images because
+# `spockPrepareNode` compiles on the RHEL toolchain only. Prints TAB-separated
+# "major<TAB>minor,minor,…" lines, newest minor first. Keep SPOCK_REF in sync
+# with app/spock.go's spockRef() default. Empty output (offline) → empty section.
+SPOCK_REF="${SPOCK_REF:-v5.0.10}"
+PG_SRC_REPO="${PG_SRC_REPO:-https://github.com/postgres/postgres}"
+SPOCK_SRC_REPO="${SPOCK_SRC_REPO:-https://github.com/pgEdge/spock}"
+spock_discover() {
+  command -v git >/dev/null 2>&1 || { echo "WARN: git not found; skipping Spock discovery" >&2; return 0; }
+  local tmp majors m mins
+  tmp="$(mktemp -d)"
+  if ! git clone --quiet --depth 1 --branch "$SPOCK_REF" --filter=blob:none --sparse \
+        "$SPOCK_SRC_REPO" "$tmp/spock" >/dev/null 2>&1; then
+    echo "WARN: could not clone Spock ${SPOCK_REF}; skipping Spock discovery" >&2
+    rm -rf "$tmp"; return 0
+  fi
+  git -C "$tmp/spock" sparse-checkout set patches >/dev/null 2>&1
+  # Numeric patch dirs are PG majors (skip non-numeric like "attic").
+  majors="$(ls "$tmp/spock/patches" 2>/dev/null | grep -E '^[0-9]+$' | sort -n)"
+  rm -rf "$tmp"
+  for m in $majors; do
+    # postgresql.org release tags REL_<major>_<minor>; keep numeric minors only
+    # (drop BETA/RC), newest first, as "<major>.<minor>". A major with no stable
+    # release yet (e.g. an in-development series) yields nothing and is omitted.
+    mins="$(git ls-remote --tags --refs "$PG_SRC_REPO" "REL_${m}_*" 2>/dev/null \
+      | sed -E "s#.*/REL_${m}_##" | grep -E '^[0-9]+$' | sort -rn | sed "s/^/${m}./" | paste -sd, -)"
+    [ -n "$mins" ] && printf '%s\t%s\n' "$m" "$mins"
+  done
+}
+
 pmm_discover() {
   command -v curl >/dev/null 2>&1 || { echo "WARN: curl not found; skipping PMM discovery" >&2; return 0; }
   local url="https://hub.docker.com/v2/repositories/${PMM_REPO}/tags?page_size=100&ordering=last_updated"
@@ -222,6 +259,11 @@ trap 'rm -f "$TMP"' EXIT
   echo "image_prefix: ${IMAGE_PREFIX}"
   echo "images:"
 } >"$TMP"
+
+echo "==> discovering Spock (source-built PostgreSQL) majors/minors from ${SPOCK_REF}" >&2
+SPOCK_MAP="$(spock_discover)"
+spock_n=$(printf '%s' "$SPOCK_MAP" | grep -c . || true)
+echo "    spock: ${spock_n} PG major series (Oracle Linux only)" >&2
 
 count=0
 first_tag=""
@@ -297,6 +339,27 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
     done
   }
 
+  # emit_spock: the source-built Spock catalog (from SPOCK_MAP), recorded only on
+  # Oracle Linux images (Spock compiles on the RHEL toolchain only). Non-OEL images
+  # get an empty map so the picker offers Spock exclusively on Oracle Linux.
+  emit_spock() {
+    echo "    spock:"
+    case "$os" in
+      oraclelinux|rhel|centos|rocky|almalinux)
+        while IFS=$'\t' read -r maj mins; do
+          [ -n "$maj" ] || continue
+          if [ -n "$mins" ]; then
+            echo "      \"${maj}\":"
+            local IFS=','; local v
+            for v in $mins; do echo "        - ${v}"; done
+          else
+            echo "      \"${maj}\": []"
+          fi
+        done <<<"$SPOCK_MAP"
+        ;;
+    esac
+  }
+
   {
     echo "  - os: ${os}"
     echo "    version: \"${version}\""
@@ -310,6 +373,7 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
     emit_series proxysql               "2"   "$psql2" "3"   "$psql3"
     emit_series percona_server_mongodb "6.0" "$mdb60" "7.0" "$mdb70" "8.0" "$mdb80"
     emit_series percona_postgresql     "13" "$pg13" "14" "$pg14" "15" "$pg15" "16" "$pg16" "17" "$pg17"
+    emit_spock
   } >>"$TMP"
 done < <(parse_entries)
 

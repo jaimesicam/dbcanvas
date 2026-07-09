@@ -5519,3 +5519,136 @@ existing MongoDB **TLS** tab, using a new per-node `mongoNodeApi`.
 **Verified:** on a deployed Intranet + standalone PS MongoDB node, re-issue returned HTTP 200 in
 ~0.24s, overwrote server.pem with the new 30-day cert, and left mongod's PID unchanged (no restart).
 The TLS tab renders the control. `go build/vet/test` + `npm run build` clean; test stack removed.
+
+---
+
+## 114. MongoDB 6.0/7.0 fail to start on OEL9 (Type=forking unit) — `app/mongodb.go`
+
+**Symptom.** Deploying a PS MongoDB node (standalone `psm`, replica set, or sharded) pinned to a
+**6.0 or 7.0** version on Oracle Linux 9 hangs at "Starting mongod" (55%) and never reaches
+`running`. The deployment progress log shows `attempt N/10 failed: Job for mongod.service failed
+because a timeout was exceeded`, retrying until the step gives up. **8.0** deploys fine.
+
+**Cause.** We write `mongod.conf` with `processManagement.fork: false` (mongod stays in the
+foreground) for every version. But the systemd unit shipped by Percona differs by major series:
+
+- **6.0 / 7.0** ship `Type=forking` with `PIDFile=/var/run/mongod.pid` and
+  `ExecStart=... bash -c "${NUMACTL} /usr/bin/mongod ${OPTIONS} > ${STDOUT} 2> ${STDERR}"`. With
+  `fork: false` the process never daemonizes, so systemd's forking start job waits for a fork that
+  never comes and fails at `TimeoutStartSec` — even though mongod is actually up and serving on
+  27017. `mongoStartMongodScript`'s `systemctl enable --now mongod` therefore errors and the whole
+  start step retries fruitlessly.
+- **8.0** ships `Type=simple` (plus `MONGODB_CONFIG_OVERRIDE_NOFORK=1`, no `PIDFile`/redirect),
+  which is immediately active with a foreground mongod — hence 8.0 worked.
+
+**Fix.** `mongoStartMongodScript` now drops in
+`/etc/systemd/system/mongod.service.d/10-dbcanvas-nofork.conf` with `Type=simple` + empty `PIDFile=`
+and runs `systemctl daemon-reload` before starting mongod. This makes systemd track the foreground
+process directly on 6.0/7.0 (and is a harmless no-op on 8.0, which is already `Type=simple`). The
+drop-in sits at the single start choke point shared by the standalone, replica-set and sharded
+provisioners, so all three topologies are covered.
+
+**Verified.** Discovered while testing the full oldest+latest version matrix on OEL9 (see below).
+Live-patching the drop-in onto the four stuck 6.0/7.0 standalone containers flipped their units from
+`activating`→`active` and the in-flight deploys ran through to `running`. After rebuilding the app
+(`docker compose up --build`), a **fresh** stack (Intranet + psm 6.0.4-3 / 6.0.29-23 / 7.0.2-1 /
+7.0.37-20) deployed all four to `running` with no manual intervention, each reporting its pinned
+version. `go build ./...` clean.
+
+### Version compatibility sweep — MySQL / MongoDB / PostgreSQL oldest+latest on OEL9
+
+Deployed standalone nodes on `oraclelinux:9`/amd64 for the oldest and newest patch of every
+installable major.minor series and confirmed each reached `running` with the pinned version
+installed (`§110` version-pin regression coverage):
+
+- **Percona Server (MySQL)** — 6/6 pass: 5.7 (5.7.41-44.1 → 5.7.44-48.1), 8.0 (8.0.30-22.1 →
+  8.0.46-37.1), 8.4 (8.4.0-1.1 → 8.4.8-8.1).
+- **PS MongoDB** — 6/6 pass **after this fix**: 6.0 (6.0.4-3 → 6.0.29-23), 7.0 (7.0.2-1 →
+  7.0.37-20), 8.0 (8.0.4-1 → 8.0.26-11). 6.0/7.0 failed before the §114 fix.
+- **Percona PostgreSQL** — 12/12 pass: 13 (13.10-1 → 13.23-2), 14 (14.7-1 → 14.23-2), 15 (15.2-2 →
+  15.18-2), 16 (16.0-1 → 16.14-2), 17 (17.0-1 → 17.10-1), 18 (18.1-2 → 18.4-2).
+
+Reported `mysqld/mongod/postgres --version` matched the pin in every case. Test stacks removed
+afterward.
+
+---
+
+## 115. Spock cluster: honour the selected PG minor + build on OEL8 — `app/spock.go`
+
+Two defects found while testing Spock clusters across Oracle Linux versions on amd64.
+
+**115a — minor version pin ignored (source build).** Unlike the package-installed engines (§110),
+a Spock member **compiles PostgreSQL from source** (postgresql.org git → apply Spock patches →
+`make install`). The build cloned a hard-coded `PGREF=REL_<major>_STABLE` — the stable *branch tip*,
+i.e. always the newest minor — so selecting e.g. PG 18.1 still produced 18.4. The chosen
+`frame.PGVersion` was never consulted.
+
+Fix: new `spockPGRef(major, version)` maps the selected Percona minor (`"18.1-2"`) to the matching
+postgresql.org tag (`"REL_18_1"`); an empty version keeps the previous "latest" behaviour
+(`REL_<major>_STABLE`). `spockPrepareNode` passes `PGREF=spockPGRef(major, frame.PGVersion)` to the
+compile step, and the progress log now prints the exact ref built.
+
+**115b — build dependencies fail on Oracle Linux 8.** `spockBuildDepsRHEL` installed the package
+`perl-FindBin`, which only exists as a standalone RPM on EL9+. On OEL8 (where `FindBin.pm` ships
+inside `perl-interpreter`) the step failed with `Unable to find a match: perl-FindBin`, so every
+Spock member on OEL8 errored at 22%. Fix: install the capability `'perl(FindBin)'` instead of the
+package name — dnf resolves it to `perl-interpreter` on OEL8 and to `perl-FindBin` on OEL9/10.
+
+(Spock remains Oracle Linux only — `spockPrepareNode` still rejects Debian/Ubuntu, since PostgreSQL
+is compiled from source against the RHEL toolchain.)
+
+**Verified.** After rebuilding the app, deployed on each amd64 Oracle Linux platform (8, 9, 10) two
+2-member Spock clusters pinned to PG 18 oldest-minor (18.1-2) and latest-minor (18.4-2):
+
+| OS platform (amd64) | 18.1-2 cluster | 18.4-2 cluster |
+| --- | --- | --- |
+| oraclelinux 8  | ✅ built 18.1 | ✅ built 18.4 |
+| oraclelinux 9  | ✅ built 18.1 | ✅ built 18.4 |
+| oraclelinux 10 | ✅ built 18.1 | ✅ built 18.4 |
+
+All 12 members reached `running`; `postgres --version` matched the pin (git HEAD parked on the
+`REL_18_1` tag commit for the oldest-minor members) and Spock preloaded on each. Before 115a all
+"oldest" members built 18.4; before 115b OEL8 could not build at all. `go build ./...` clean; test
+stacks removed. (Note: the Spock frame's version picker is populated from the PPG *package* catalog,
+which is empty for OEL8 — so OEL8 is currently only reachable for Spock via the API, not the UI
+dropdown; deploying it exercises the source build directly. §116 fixes this.)
+
+---
+
+## 116. `make versions` drives Spock availability — `images/versions.sh`, `app/versions.go`, `main.go`, `StackDesigner.jsx`, `stackApi.js`, `versions.yaml`
+
+**Problem.** The Spock frame's OS / PG-major / PG-minor picker was fed by the **Percona PostgreSQL
+package catalog** (`/api/catalog/ppg`, section `percona_postgresql`). That is the wrong source of
+truth: a Spock member does not install PPG packages — it **compiles PostgreSQL from source** (the
+postgresql.org release tag for the chosen minor + the pinned Spock patch set, see §115a). So the
+picker (a) dropped **Oracle Linux 8**, which has no PPG packages but compiles Spock fine, and (b)
+offered Percona *package* minors (`18.4-2`) rather than the upstream tags Spock actually builds.
+
+**Fix — a dedicated Spock catalog produced by `make versions`.** `images/versions.sh` now discovers
+Spock availability independently of the package probes:
+
+- **Majors** = the numeric PG patch directories in the pinned Spock ref
+  (`git clone --filter=blob:none --sparse … pgEdge/spock`, `SPOCK_REF` kept in sync with
+  `spockRef()`), i.e. the majors Spock actually patches (currently 15–18; a series with no stable
+  release, e.g. 19, is omitted).
+- **Minors** = the `REL_<major>_<minor>` release tags from postgresql.org
+  (`git ls-remote --tags`), numeric only (BETA/RC dropped), newest first, as `<major>.<minor>`.
+- Written as a per-image `spock:` section (same shape as the other catalogs), **only on Oracle Linux
+  images** — `spockPrepareNode` compiles on the RHEL toolchain only, so non-OEL images get an empty
+  section and the picker naturally offers Spock exclusively on Oracle Linux (8/9/10, amd64+arm64).
+
+`app/versions.go` adds `loadSpockCatalog()` (generic `loadImageCatalog("spock")`) and
+`handleSpockCatalog`; `main.go` registers `GET /api/catalog/spock`. Frontend: `stackApi.spockCatalog`,
+a `useSpockCatalog` hook (thin wrapper over the parameterised `usePPGCatalog`), and `SpockFrameForm`
+switched from `usePPGCatalog` → `useSpockCatalog`. Because the minors are now bare upstream versions
+(`18.1`), they flow straight through `spockPGRef` (§115a, which already tolerates the missing
+`-<pkg>` suffix) to `REL_18_1`.
+
+`versions.yaml` regenerated with `spock:` sections (majors 15–18 on all six Oracle Linux images,
+empty on the four Ubuntu images). This is what a full `make versions` re-emits.
+
+**Verified.** `GET /api/catalog/spock` returns Spock on oraclelinux 8/9/10 (amd64+arm64) with majors
+15–18 and upstream minors (e.g. 18 → 18.4…18.0), and no Spock on the Ubuntu images — so the UI now
+offers OEL8 for Spock. End-to-end, a 2-member Spock cluster on **OEL8** deployed with the
+catalog-format bare version `18.1` built PostgreSQL **18.1** on each member and reached `running`.
+`go build ./...` and `bash -n images/versions.sh` clean; test stack removed.

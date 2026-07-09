@@ -54,6 +54,7 @@ export const stackApi = {
   psCatalog: () => request('GET', '/api/catalog/ps'),
   psmdbCatalog: () => request('GET', '/api/catalog/psmdb'),
   ppgCatalog: () => request('GET', '/api/catalog/ppg'),
+  spockCatalog: () => request('GET', '/api/catalog/spock'),
   imagesCatalog: () => request('GET', '/api/catalog/images'),
   pdpsCatalog: () => request('GET', '/api/catalog/pdps'),
 }

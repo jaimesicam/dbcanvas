@@ -4383,11 +4383,11 @@ function PSMRSMemberForm({ node: n, frame, patchNode, dep, deployed }) {
 
 // usePPGCatalog loads the Percona PostgreSQL catalog and cascade-normalizes a
 // frame's OS/version/arch + PG major/minor selects (same shape as useMongoCatalog).
-function usePPGCatalog(obj, deployed, patch) {
+function usePPGCatalog(obj, deployed, patch, fetchCat = stackApi.ppgCatalog) {
   const [cat, setCat] = useState(null)
   useEffect(() => {
     let alive = true
-    stackApi.ppgCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    fetchCat().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
     return () => { alive = false }
   }, [])
   const imgs = cat || []
@@ -4409,6 +4409,15 @@ function usePPGCatalog(obj, deployed, patch) {
     if (Object.keys(p).length) patch(obj.id, p)
   }, [imgs, obj.id, obj.os, obj.osVersion, obj.arch, obj.pgMajor, obj.pgVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
   return imgs
+}
+
+// useSpockCatalog is usePPGCatalog backed by the Spock (source-built) catalog
+// (/api/catalog/spock) instead of the Percona PostgreSQL *package* catalog. Spock
+// compiles PostgreSQL from source, so its available majors/minors and OS/platforms
+// differ from PPG packages (e.g. it is offered on Oracle Linux 8, which has no PPG
+// packages). Same cascade-normalization shape.
+function useSpockCatalog(obj, deployed, patch) {
+  return usePPGCatalog(obj, deployed, patch, stackApi.spockCatalog)
 }
 
 // PatroniFrameForm edits a Patroni PostgreSQL cluster frame: catalog OS/version/arch
@@ -4695,7 +4704,7 @@ function RepmgrMemberForm({ node: n, frame, patchNode, dep, deployed }) {
 // major/minor, PMM/proxy/cert. Every member is writable (full-mesh active-active). 2–7
 // members; no odd-count requirement (no quorum/failover). Spock is compiled from source.
 function SpockFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed }) {
-  const imgs = usePPGCatalog(f, deployed, patchFrame)
+  const imgs = useSpockCatalog(f, deployed, patchFrame)
   const lock = deployed ? 'opacity-70' : ''
   const pmmNodes = nodes.filter((n) => n.type === 'pmm')
   const members = frameNodes.length

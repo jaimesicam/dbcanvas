@@ -173,6 +173,13 @@ func loadPSCatalog() []PXCImage       { return loadImageCatalog("percona_server"
 func loadPSMDBCatalog() []PXCImage    { return loadImageCatalog("percona_server_mongodb") }
 func loadPPGCatalog() []PXCImage      { return loadImageCatalog("percona_postgresql") }
 
+// loadSpockCatalog returns the Spock (source-built PostgreSQL) availability:
+// which PG majors/minors and OS/platforms Spock can be deployed on. Unlike the
+// PPG catalog (Percona packages), this comes from the `spock:` section that
+// `make versions` derives from the Spock patch set + postgresql.org release tags,
+// and is populated only for Oracle Linux images (Spock compiles on RHEL only).
+func loadSpockCatalog() []PXCImage { return loadImageCatalog("spock") }
+
 // loadImagesCatalog returns every built image with its os/version/arch/platform
 // but without any version map — used by nodes that only need the OS matrix
 // (e.g. HAProxy), where the per-product catalogs would drop images that have an
@@ -319,6 +326,14 @@ func (a *App) handlePPGCatalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"images": loadPPGCatalog()})
+}
+
+func (a *App) handleSpockCatalog(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.currentUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"images": loadSpockCatalog()})
 }
 
 func (a *App) handleImagesCatalog(w http.ResponseWriter, r *http.Request) {
