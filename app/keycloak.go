@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strconv"
 	"time"
 )
 
@@ -24,8 +23,14 @@ import (
 // The container hostname/alias is the node's host (sanitized label, normally
 // "keycloak"), so in dev mode Keycloak issues tokens with that issuer host — which
 // is exactly what a MongoDB node points its oidcIdentityProviders.issuer at
-// (http://<host>:8080/realms/<realm>). The admin console is published to the host on
-// auto-assigned ports (8080 http / 8443 https).
+// (http://<host>:8080/realms/<realm>).
+//
+// No host ports are published. Because the issuer/hostname is the in-network FQDN,
+// a forwarded host port never produced a working console from the host machine.
+// The admin console is instead reached at http://<fqdn>:8080 (or https://<fqdn>:8443
+// with SSL) from the Ubuntu VNC desktop node, whose browser resolves the Intranet
+// DNS names and trusts the Intranet CA. validateStack therefore requires a VNC node
+// alongside a Keycloak node.
 
 const (
 	keycloakImage     = "quay.io/keycloak/keycloak:26.5.5"
@@ -41,8 +46,6 @@ type keycloakConfig struct {
 	Hostname  string `json:"hostname"`
 	FQDN      string `json:"fqdn"`
 	Alias     string `json:"alias"`
-	HTTPPort  int    `json:"httpPort"`  // published host port → container 8080 (0 if unpublished)
-	HTTPSPort int    `json:"httpsPort"` // published host port → container 8443 (0 if unpublished)
 	AdminUser string `json:"adminUser"`
 	SSL       bool   `json:"ssl"` // serves HTTPS with an Intranet-CA cert (required for MongoDB OIDC)
 }
@@ -163,9 +166,11 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 				"KC_BOOTSTRAP_ADMIN_USERNAME=" + cfg.AdminUser,
 				"KC_BOOTSTRAP_ADMIN_PASSWORD=" + adminPW,
 			},
+			// No PublishMap: the console is stack-network only, reached from the
+			// Ubuntu VNC desktop. A forwarded host port was never usable from the
+			// host machine (the issuer/hostname is the in-network FQDN).
 			Network: networkName(st.ID), Aliases: aliases,
-			PublishMap: []PortMap{{ContainerPort: keycloakHTTPPort}, {ContainerPort: keycloakHTTPSPort}},
-			DNS:        []string{intranetIP}, DNSSearch: []string{domain},
+			DNS:     []string{intranetIP}, DNSSearch: []string{domain},
 		})
 		if err != nil {
 			pr.fail("create container: %v", err)
@@ -187,26 +192,13 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 			return
 		}
 
-		// Record the auto-assigned host ports for the admin console.
-		if hp, e := a.docker.ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", keycloakHTTPPort)); e == nil {
-			if p, e2 := strconv.Atoi(hp); e2 == nil {
-				cfg.HTTPPort = p
-			}
-		}
-		if hp, e := a.docker.ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", keycloakHTTPSPort)); e == nil {
-			if p, e2 := strconv.Atoi(hp); e2 == nil {
-				cfg.HTTPSPort = p
-			}
-		}
-		cfgJSON, _ = json.Marshal(cfg)
-
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployRunning, Config: cfgJSON, Secrets: secJSON})
 		a.reconcileStackDNS(ctx, st.ID)
 		a.trustIntranetCA(ctx, st, id, n.OS, pr.logln)
 		pr.phase("Running", 100)
 		pr.p.Message = "provisioned"
 		pr.save()
-		log.Printf("stack %d keycloak %s: provisioned (console http port %d)", st.ID, n.Label, cfg.HTTPPort)
+		log.Printf("stack %d keycloak %s: provisioned (console %s, reachable from the Ubuntu VNC desktop)", st.ID, n.Label, keycloakIssuer(fqdn, n.GenerateCert))
 	}()
 }
 
