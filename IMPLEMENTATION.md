@@ -5821,3 +5821,50 @@ reached `running` with its stored `adminPassword` equal to `keycloak_password`, 
 container's `KC_BOOTSTRAP_ADMIN_PASSWORD` matched. New `TestVNCAuthPassword` covers the 8-byte cap
 (`vnc_password` → `vnc_pass`, exact-8 and shorter values unchanged). `go build/vet/test` clean; test
 stack removed.
+
+---
+
+## 121. Pulled images resolve to the host's platform (PMM fails on Apple Silicon) — `app/docker.go`, pmm.go, watchtower.go, keycloak.go, seaweedfs.go, valkey.go, docker-compose.yml
+
+**Symptom.** On macOS/Rosetta the PMM node tries to pull an **arm64** image even though
+`percona/pmm-server` publishes no arm64 build, and the node panel says `amd64`.
+
+**Cause.** Three separate things:
+
+1. `ImagePull` issued `POST /images/create?fromImage=…&tag=…` and `ContainerCreate` issued
+   `POST /containers/create?name=…` — **neither passed `platform`**. With it omitted the daemon
+   resolves the manifest list against the *host's* platform, i.e. `linux/arm64` on Apple Silicon.
+   Nothing in DBCanvas overrode that.
+2. `percona/pmm-server:3` (and `percona/watchtower`) publish **linux/amd64 only**. The index also
+   carries a buildkit `unknown/unknown` attestation manifest, so instead of failing cleanly the
+   resolution goes sideways and *looks* like an arm64 image is being pulled. (Keycloak, SeaweedFS and
+   Valkey are genuinely multi-arch, so they were unaffected.)
+3. `DOCKER_PLATFORM` never reached the app **process**: `docker-compose.yml` used it only for the app
+   service's own `platform:` key, never in the `environment:` block.
+
+The `amd64` in the node panel is cosmetic — `pmm.go` hardcodes `Arch: "amd64"` into the displayed
+config and never reads the node's `arch` field. PMM is not one of the arch-tagged
+`dbcanvas-systemd:<os>-<ver>-<arch>` images we build locally (those were always fine, since the arch
+is baked into the tag).
+
+**Fix.**
+
+- `ImagePull` takes a `platform` argument and sends `platform=` on `/images/create`;
+  `ContainerSpec` gains a `Platform` field sent as `platform=` on `/containers/create`. Empty keeps
+  the old behaviour (the image's own platform), which is what the locally-built systemd images want.
+- `platformAMD64` pins the two amd64-only images — **PMM** and **Watchtower**. Under Rosetta/qemu the
+  amd64 image runs; on bare arm64 it now fails with an honest "no amd64 match" instead of a confusing
+  mis-resolve.
+- `pullPlatform()` (= `DOCKER_PLATFORM`, default `linux/amd64`) drives the genuinely multi-arch pulls:
+  Keycloak, SeaweedFS, Valkey.
+- `DOCKER_PLATFORM` is now passed into the app's `environment:` so the code can actually read it.
+
+**Verified.** Against the daemon socket, using the exact call shape `ImagePull` now makes:
+`/images/create?fromImage=percona/pmm-server&tag=3&platform=linux/arm64` → **404**
+`no matching manifest for linux/arm64 in the manifest list entries` (the failure Apple Silicon hit
+implicitly), while `platform=linux/amd64` → **200**. `docker pull --platform linux/arm64` reproduces
+the same error for `percona/pmm-server:3` and `percona/watchtower:latest`; manifest inspection
+confirms those two are amd64-only while Keycloak/SeaweedFS/Valkey are multi-arch. End-to-end on this
+amd64 host, a deployed Intranet + PMM stack reached `running` with the PMM container's image resolving
+to `linux/amd64`, and `docker inspect dbcanvas-app-1` shows `DOCKER_PLATFORM=linux/amd64` in the app's
+environment. `go build/vet/test` clean; test stack removed.

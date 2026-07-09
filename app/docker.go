@@ -129,11 +129,32 @@ func (d *Docker) ImageExists(ctx context.Context, ref string) (bool, error) {
 	}
 }
 
+// platformAMD64 pins images that are published for linux/amd64 only (the PMM
+// server and Watchtower). Without it the daemon resolves the manifest list
+// against the *host* platform, so on Apple Silicon it looks for a linux/arm64
+// entry that does not exist and mis-resolves against the buildkit
+// "unknown/unknown" attestation manifest. Under Rosetta/qemu the amd64 image
+// runs fine; on bare arm64 this at least fails with an honest "no amd64 match".
+const platformAMD64 = "linux/amd64"
+
+// pullPlatform is the platform used for the multi-arch images DBCanvas pulls
+// (Keycloak, SeaweedFS, Valkey). It follows DOCKER_PLATFORM — the single
+// platform this installation targets — rather than whatever the host happens
+// to be. See images/platform.sh.
+func pullPlatform() string { return envOr("DOCKER_PLATFORM", platformAMD64) }
+
 // ImagePull pulls an image reference (repo:tag) from its registry, blocking
 // until the pull stream completes. The streamed JSON progress is drained and
 // discarded; a non-2xx response or a transport error is returned.
-func (d *Docker) ImagePull(ctx context.Context, repo, tag string) error {
+//
+// platform ("linux/amd64", "linux/arm64") selects the manifest-list entry. When
+// empty the daemon picks the host's platform, which is almost never what we want
+// for a single-platform image — always pass one.
+func (d *Docker) ImagePull(ctx context.Context, repo, tag, platform string) error {
 	q := url.Values{"fromImage": {repo}, "tag": {tag}}
+	if platform != "" {
+		q.Set("platform", platform)
+	}
 	resp, err := d.do(ctx, "POST", "/images/create?"+q.Encode(), nil)
 	if err != nil {
 		return err
@@ -290,6 +311,11 @@ type ContainerSpec struct {
 	DNSSearch    []string  // resolv.conf search domains
 	IPv4Address  string    // static IPv4 on Network (empty = auto-assign)
 	Binds        []string  // extra bind mounts ("src:dst[:mode]"), e.g. the docker socket
+	// Platform selects the manifest-list entry when the image is a multi-arch
+	// index ("linux/amd64"). Empty = let the daemon use the image's own platform,
+	// which is right for the arch-tagged dbcanvas-systemd:* images we build
+	// locally. Set it for pulled images. See platformAMD64 / pullPlatform.
+	Platform string
 }
 
 // PortMap publishes a container TCP port to a specific host port (HostPort 0
@@ -387,7 +413,11 @@ func (d *Docker) ContainerCreate(ctx context.Context, spec ContainerSpec) (strin
 	}
 	body["HostConfig"] = host
 
-	resp, err := d.do(ctx, "POST", "/containers/create?name="+url.QueryEscape(spec.Name), body)
+	q := url.Values{"name": {spec.Name}}
+	if spec.Platform != "" {
+		q.Set("platform", spec.Platform)
+	}
+	resp, err := d.do(ctx, "POST", "/containers/create?"+q.Encode(), body)
 	if err != nil {
 		return "", err
 	}

@@ -39,6 +39,11 @@ services:
       # Ubuntu VNC desktop: the desktop login and the VNC access code. VncAuth
       # uses only the first 8 characters.
       VNC_PASSWORD: ${VNC_PASSWORD:-vnc_password}
+      # The platform this installation targets. Also selects the manifest-list
+      # entry when the app pulls multi-arch images for stack nodes (Keycloak,
+      # SeaweedFS, Valkey). PMM and Watchtower are pinned to linux/amd64 in code
+      # because upstream publishes no arm64 image for them.
+      DOCKER_PLATFORM: ${DOCKER_PLATFORM:-linux/amd64}
       # Minutes a provisioner waits for a dependency (cluster/node/service) to
       # become ready before failing the deploy. Raise for large stacks.
       DEPLOYMENT_TIMEOUT: ${DEPLOYMENT_TIMEOUT:-60}
