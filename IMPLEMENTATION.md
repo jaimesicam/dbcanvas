@@ -5903,3 +5903,56 @@ container came up `running` with `HostConfig.PortBindings == {}` (`docker ps` sh
 From a container on the stack network using the Intranet as resolver,
 `http://keycloak.example.net:8080/` returns **HTTP 302** (Keycloak's redirect to `/admin`) — the URL
 the panel now advertises. `go build/vet/test` + the web build clean; test stacks removed.
+---
+
+## 123. Ubuntu VNC: Firefox never trusted the Intranet CA — `app/vnc.go`
+
+**Symptom.** In the VNC desktop, Firefox shows "Warning: Security Risk" /
+`SEC_ERROR_UNKNOWN_ISSUER` on `https://keycloak.example.net:8443`, even though the Intranet CA is
+installed on the node.
+
+**Cause.** The CA install is fine — `trustIntranetCA` writes
+`/usr/local/share/ca-certificates/dbcanvas-ca.crt` and `update-ca-certificates` publishes it, so
+`curl https://keycloak.example.net:8443/` returns 302 from inside the node. **Firefox does not read
+the OS trust store**; it keeps its own root store. We were relying on
+
+```json
+{ "policies": { "Certificates": { "ImportEnterpriseRoots": true } } }
+```
+
+and `ImportEnterpriseRoots` is implemented for **Windows and macOS only** — on Linux it is a no-op,
+so the CA never reached the browser.
+
+**Fix.** `vncFirefoxCAScript` now also sets `Certificates.Install`, the policy that *does* work on
+Linux: Firefox reads the PEM at startup and trusts it for websites.
+
+```json
+{ "policies": { "Certificates": { "ImportEnterpriseRoots": true,
+  "Install": ["/usr/local/share/ca-certificates/dbcanvas-ca.crt"] } } }
+```
+
+The path is the file `trustIntranetCA` stages, so the step runs after it.
+
+**Two dead ends worth recording** (both were tried and rejected with evidence):
+
+- *Point NSS's `libnssckbi.so` at p11-kit's trust module* — the usual "make Firefox use the system
+  store" trick that Fedora/Arch ship. It does nothing here: **current Firefox builds ship no
+  `libnssckbi.so` at all** (they bundle `libnss3.so`/`libsoftokn3.so` and embed their roots). The
+  file only appears if something pulls in the system `libnss3` package, which is what made an early
+  experiment look like it worked.
+- *Reading trust from `certutil -L`* — a policy-installed cert shows up in the profile's `cert9.db`
+  with **empty trust flags** (`,,`), and `tstclnt` against that db reports `SEC_ERROR_UNTRUSTED_ISSUER`.
+  That is misleading: Firefox tracks policy-installed roots separately from NSS trust flags and
+  trusts the site anyway. Only a real browser load settles it.
+
+**Verified** with a headless Firefox harness in the live VNC node (Xvfb + `xdotool getwindowname`,
+reading the actual page/window title for `https://keycloak.example.net:8443`):
+
+| policies.json | Firefox verdict |
+| --- | --- |
+| `ImportEnterpriseRoots` only (old) | `Warning: Security Risk — Mozilla Firefox` |
+| `+ Certificates.Install` (new) | `Sign in to Keycloak — Mozilla Firefox` |
+
+Run as A → B → A → B (reset to the old policy reproduces the error; running the new
+`vncFirefoxCAScript` verbatim from that broken state loads the page), so the policy is the cause and
+the shipped script is the fix. `go build/vet/test` clean; app image rebuilt.

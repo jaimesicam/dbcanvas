@@ -171,11 +171,13 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 		}
 		pr.logln("XFCE desktop + TigerVNC + noVNC + openssh-client installed")
 
-		// Trust the Intranet CA in the system store (CLI tools) + Firefox enterprise roots
-		// (the desktop browser) so the node trusts stack TLS endpoints (Keycloak/PMM HTTPS, ...).
+		// Trust the Intranet CA in the system store (CLI tools) + install it into Firefox
+		// via enterprise policy (the desktop browser has its own root store), so the node
+		// trusts stack TLS endpoints (Keycloak/PMM HTTPS, ...). The policy references the
+		// CA file trustIntranetCA stages, so it has to run after it.
 		a.trustIntranetCA(ctx, st, id, n.OS, pr.logln)
 		if err := a.runStep(ctx, id, vncFirefoxCAScript, nil, pr.logln); err != nil {
-			pr.logln("Firefox CA policy skipped: " + err.Error())
+			pr.logln("Firefox CA trust setup skipped: " + err.Error())
 		}
 
 		pr.phase("Installing Firefox", 50)
@@ -227,16 +229,31 @@ apt-get install -y -qq --no-install-recommends \
 # noVNC ships vnc.html under /usr/share/novnc; ensure an index points at it.
 [ -f /usr/share/novnc/index.html ] || ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html 2>/dev/null || true`
 
-// vncTrustCAScript adds the staged Intranet CA to the Ubuntu system trust store and
-// enables Firefox "enterprise roots" so the browser also trusts it (e.g. for a Keycloak
-// HTTPS issuer). The CA file is copied to /usr/local/share/ca-certificates beforehand.
-// vncFirefoxCAScript makes Firefox import the OS "enterprise roots" (the system trust store,
-// populated by trustIntranetCA) so the desktop browser trusts Intranet-CA endpoints.
+// vncFirefoxCAScript makes Firefox trust the Intranet CA (e.g. for a Keycloak HTTPS
+// issuer at https://keycloak.<domain>:8443).
+//
+// Firefox does NOT read the OS trust store, so `update-ca-certificates` (which
+// trustIntranetCA runs, and which curl honours) is not enough on its own. The
+// `ImportEnterpriseRoots` policy does not close the gap either: it is implemented
+// for Windows and macOS only, so on Linux it is a no-op.
+//
+// `Certificates.Install` is the policy that works on Linux — Firefox reads the PEM at
+// startup and trusts it for websites. (It is tracked separately from NSS trust flags,
+// so the cert shows up in the profile's cert9.db with empty flags even though the
+// browser trusts it; don't be fooled by `certutil -L`.) The path is the file
+// trustIntranetCA stages, so this must run after it.
+//
+// Note: replacing NSS's libnssckbi.so with p11-kit's trust module — the usual
+// "make Firefox use the system store" trick — does nothing here: current Firefox
+// builds ship no libnssckbi.so at all.
 const vncFirefoxCAScript = `set -e
+CA=/usr/local/share/ca-certificates/dbcanvas-ca.crt
 install -d /etc/firefox/policies
-cat > /etc/firefox/policies/policies.json <<'JSON'
-{ "policies": { "Certificates": { "ImportEnterpriseRoots": true } } }
-JSON`
+cat > /etc/firefox/policies/policies.json <<JSON
+{ "policies": { "Certificates": { "ImportEnterpriseRoots": true, "Install": ["${CA}"] } } }
+JSON
+[ -f "$CA" ] || echo "WARN: ${CA} missing; Firefox will not trust the Intranet CA" >&2
+echo "firefox policy installs Intranet CA from ${CA}"`
 
 // vncInstallFirefoxScript installs Firefox from Mozilla's APT repository. (Ubuntu's own
 // "firefox" package is a snap transitional that does not run in a container.) Best-effort.
