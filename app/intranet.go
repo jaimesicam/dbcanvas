@@ -80,7 +80,7 @@ type designNode struct {
 	// optionally backed up to SeaweedFS S3 via pgBackRest). Reuses OS/OSVersion/Arch,
 	// RootPassword (postgres superuser pw), PMMNodeID, UseProxy, GenerateCert/CertTTL,
 	// ExportEnabled/ExportHostPort above.
-	PGMajor         string `json:"pgMajor"`         // Percona PostgreSQL "13".."17"
+	PGMajor         string `json:"pgMajor"`         // Percona PostgreSQL "13".."18"
 	PGVersion       string `json:"pgVersion"`       // minor; "" → latest
 	UsePgBackRest   bool   `json:"usePgBackRest"`   // configure pgBackRest → SeaweedFS S3 backup
 	SeaweedFSNodeID string `json:"seaweedfsNodeId"` // SeaweedFS node id backing pgBackRest
@@ -164,7 +164,7 @@ type designFrame struct {
 	// Patroni PostgreSQL cluster frame config (Type=="patroni"; reuses OS/OSVersion/
 	// Arch, RootPassword (postgres superuser pw), PMMNodeID, UseProxy, GenerateCert/
 	// CertTTL above). Each member co-locates PostgreSQL + Patroni + an etcd member.
-	PGMajor         string `json:"pgMajor"`         // Percona PostgreSQL "13".."17"
+	PGMajor         string `json:"pgMajor"`         // Percona PostgreSQL "13".."18"
 	PGVersion       string `json:"pgVersion"`       // minor (e.g. 16.4); "" → latest
 	UsePgBackRest   bool   `json:"usePgBackRest"`   // configure pgBackRest → SeaweedFS S3 (clone + backup)
 	SeaweedFSNodeID string `json:"seaweedfsNodeId"` // SeaweedFS node id backing pgBackRest/Barman (when enabled)

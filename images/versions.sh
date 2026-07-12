@@ -111,7 +111,7 @@ echo '@@PSMDB70@@'; elsearch percona-server-mongodb | grep -E '^7\.0\.' | sort -
 percona-release setup psmdb-80 >/dev/null 2>&1
 echo '@@PSMDB80@@'; elsearch percona-server-mongodb | grep -E '^8\.0\.' | sort -rV -u
 # Percona Distribution for PostgreSQL: each ppg-NN repo carries one major series
-# (13..17); on EL the versioned meta package is percona-postgresqlNN (no hyphen;
+# (13..18); on EL the versioned meta package is percona-postgresqlNN (no hyphen;
 # the server is percona-postgresqlNN-server).
 # The PG packages carry an epoch (e.g. percona-postgresql16-1:16.14-2.el9), so
 # strip the leading "N:" that elsearch leaves in place before filtering on the
@@ -126,6 +126,8 @@ percona-release setup ppg-16 >/dev/null 2>&1
 echo '@@PPG16@@'; elsearch percona-postgresql16 | sed -E 's/^[0-9]+://' | grep -E '^16\.' | sort -rV -u
 percona-release setup ppg-17 >/dev/null 2>&1
 echo '@@PPG17@@'; elsearch percona-postgresql17 | sed -E 's/^[0-9]+://' | grep -E '^17\.' | sort -rV -u
+percona-release setup ppg-18 >/dev/null 2>&1
+echo '@@PPG18@@'; elsearch percona-postgresql18 | sed -E 's/^[0-9]+://' | grep -E '^18\.' | sort -rV -u
 echo '@@END@@'
 EOS
 }
@@ -173,6 +175,8 @@ percona-release setup ppg-16 >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@PPG16@@'; madison percona-postgresql-16 | grep -E '^16\.' | sort -rV -u
 percona-release setup ppg-17 >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@PPG17@@'; madison percona-postgresql-17 | grep -E '^17\.' | sort -rV -u
+percona-release setup ppg-18 >/dev/null 2>&1; apt-get update >/dev/null 2>&1
+echo '@@PPG18@@'; madison percona-postgresql-18 | grep -E '^18\.' | sort -rV -u
 echo '@@END@@'
 EOS
 }
@@ -299,7 +303,7 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
 
   ps80="" ; ps84="" ; ps57="" ; pxc80="" ; pxc84="" ; psql2="" ; psql3=""
   mdb60="" ; mdb70="" ; mdb80=""
-  pg13="" ; pg14="" ; pg15="" ; pg16="" ; pg17=""
+  pg13="" ; pg14="" ; pg15="" ; pg16="" ; pg17="" ; pg18=""
   if [ -n "$probe" ]; then
     if out="$(docker run --rm "$tag" bash -lc "$probe" 2>/dev/null)"; then
       ps80="$(printf '%s\n' "$out" | section PS80)"
@@ -317,6 +321,7 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
       pg15="$(printf '%s\n' "$out" | section PPG15)"
       pg16="$(printf '%s\n' "$out" | section PPG16)"
       pg17="$(printf '%s\n' "$out" | section PPG17)"
+      pg18="$(printf '%s\n' "$out" | section PPG18)"
     else
       echo "    FAIL  could not run ${tag} (recording empty version lists)" >&2
     fi
@@ -337,7 +342,8 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
   g15=$(printf '%s' "$pg15" | grep -c . || true)
   g16=$(printf '%s' "$pg16" | grep -c . || true)
   g17=$(printf '%s' "$pg17" | grep -c . || true)
-  echo "    ps: ${n80}+${n84}+${n57}  pxc: ${px0}+${px4}  proxysql: ${pq2}+${pq3}  psmdb: ${m6}+${m7}+${m8}  ppg: ${g13}+${g14}+${g15}+${g16}+${g17}" >&2
+  g18=$(printf '%s' "$pg18" | grep -c . || true)
+  echo "    ps: ${n80}+${n84}+${n57}  pxc: ${px0}+${px4}  proxysql: ${pq2}+${pq3}  psmdb: ${m6}+${m7}+${m8}  ppg: ${g13}+${g14}+${g15}+${g16}+${g17}+${g18}" >&2
 
   # emit_series <indent-key> <key1> <list1> [<key2> <list2> ...]: emit a major-series
   # map under `key:` with one or more series (e.g. "8.0"/"8.4", "2"/"3", or the three
@@ -389,7 +395,7 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
     emit_series percona_xtradb_cluster "8.0" "$pxc80" "8.4" "$pxc84"
     emit_series proxysql               "2"   "$psql2" "3"   "$psql3"
     emit_series percona_server_mongodb "6.0" "$mdb60" "7.0" "$mdb70" "8.0" "$mdb80"
-    emit_series percona_postgresql     "13" "$pg13" "14" "$pg14" "15" "$pg15" "16" "$pg16" "17" "$pg17"
+    emit_series percona_postgresql     "13" "$pg13" "14" "$pg14" "15" "$pg15" "16" "$pg16" "17" "$pg17" "18" "$pg18"
     emit_spock
   } >>"$TMP"
 done < <(parse_entries)
