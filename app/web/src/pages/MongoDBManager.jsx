@@ -152,7 +152,7 @@ export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDelete
               {cfg.oidcEnabled && (
                 <div className="mt-2 space-y-1 border-t border-border/60 pt-2">
                   <div className="text-[11px] text-muted">
-                    Keycloak OIDC — log in as a sample user (e.g. <span className="font-mono">dbauser01</span>).
+                    Keycloak OIDC — log in as a sample user (e.g. <span className="font-mono">alice</span>).
                     From another host (e.g. the Ubuntu VNC desktop) add <span className="font-mono">--oidcTrustedEndpoint</span>,
                     since mongosh otherwise only allows OIDC to localhost.
                   </div>
@@ -228,7 +228,7 @@ mongosh --tls --tlsCAFile ${dir}/ca.crt --tlsCertificateKeyFile client.pem \\
           {[
             { k: 'Admin user', v: sec.adminUser || 'admin' },
             { k: 'Admin password', v: sec.adminPassword },
-            ...(cfg.oidcEnabled && sec.oidcSamplePassword ? [{ k: 'Keycloak sample users password (dbauser01 / devuser01)', v: sec.oidcSamplePassword }] : []),
+            ...(cfg.oidcEnabled && sec.oidcSamplePassword ? [{ k: 'Keycloak sample users password (alice / bob)', v: sec.oidcSamplePassword }] : []),
           ].map((r) => (
             <div key={r.k}>
               <div className="text-xs text-muted">{r.k}</div>

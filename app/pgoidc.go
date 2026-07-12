@@ -107,10 +107,10 @@ func (a *App) applyPGOIDC(ctx context.Context, st Stack, n designNode, doc desig
 	realm := oidcRealmOr(n)
 	issuer := keycloakIssuer(host, ssl) + "/realms/" + realm
 	clientID := "postgres"
-	samplePW := genSecret("Oidc1!")
+	samplePW := keycloakUserPassword()
 	if _, err := a.ensureKeycloakClient(ctx, kcID, adminPW, kcClientSpec{
 		Realm: realm, ClientID: clientID, Public: true, DeviceFlow: true, Domain: domain, SamplePW: samplePW,
-		Users: []kcSampleUser{{"pgoidc01", "Dana", "Admin", ""}, {"pgoidc02", "Devin", "Lopez", ""}},
+		Users: []kcSampleUser{{"jane", "Jane", "Doe", ""}, {"john", "John", "Doe", ""}},
 	}); err != nil {
 		return fmt.Errorf("keycloak client: %w", err)
 	}

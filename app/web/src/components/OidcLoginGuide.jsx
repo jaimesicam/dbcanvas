@@ -44,8 +44,8 @@ export default function OidcLoginGuide({ engine, info }) {
           <Icon.External size={15} /> Open PMM sign-in
         </a>
         <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] text-muted">
-          Sample Keycloak users (password shown in the Keycloak node's console):
-          <span className="font-mono"> pmmadmin01</span> (Admin) · <span className="font-mono">pmmview01</span> (Viewer).
+          Sample Keycloak users (password: <span className="font-mono">KEYCLOAK_USER_PASSWORD</span> from <span className="font-mono">.env</span>):
+          <span className="font-mono"> alice</span> (Admin) · <span className="font-mono">bob</span> (Viewer).
           SSO works when reaching PMM at its stack FQDN (e.g. from a VNC desktop node); the built-in
           <span className="font-mono"> admin</span> account still logs in directly.
         </div>
@@ -54,7 +54,7 @@ export default function OidcLoginGuide({ engine, info }) {
   }
 
   // pg
-  const u = 'pgoidc01' // sample directory user
+  const u = 'jane' // sample directory user (password: KEYCLOAK_USER_PASSWORD in .env)
   const roleCmd = `sudo -u postgres psql -c 'CREATE ROLE ${u} LOGIN;'   # role name = Keycloak username`
   const clientPkg = `# one-time on the client running psql (Oracle Linux / RHEL):
 sudo percona-release setup ppg-18

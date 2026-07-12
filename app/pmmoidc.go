@@ -36,9 +36,9 @@ func (a *App) pmmConfigureOIDC(ctx context.Context, st Stack, n designNode, doc 
 	secret, err := a.ensureKeycloakClient(ctx, kcID, adminPW, kcClientSpec{
 		Realm: realm, ClientID: clientID, Public: false, StdFlow: true, Redirect: []string{redirect},
 		GroupsClaim: true, Groups: []string{"pmm-admins", "pmm-viewers"},
-		Users:    []kcSampleUser{{"pmmadmin01", "Piper", "Admin", "pmm-admins"}, {"pmmview01", "Vera", "View", "pmm-viewers"}},
+		Users:    []kcSampleUser{{"alice", "Alice", "Admin", "pmm-admins"}, {"bob", "Bob", "Viewer", "pmm-viewers"}},
 		Domain:   domain,
-		SamplePW: genSecret("Oidc1!"),
+		SamplePW: keycloakUserPassword(),
 	})
 	if err != nil {
 		return fmt.Errorf("keycloak client: %w", err)

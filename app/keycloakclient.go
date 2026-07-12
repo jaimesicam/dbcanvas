@@ -16,6 +16,14 @@ type kcSampleUser struct {
 	Username, First, Last, Group string
 }
 
+// keycloakUserPassword is the password set on every sample Keycloak user created by the
+// SSO integrations (PostgreSQL, MongoDB standalone, PMM). Read from .env on each deploy,
+// like the other node credentials — it used to be a random per-deploy secret that was
+// never surfaced, so nobody could actually sign in as those users.
+func keycloakUserPassword() string {
+	return envOr("KEYCLOAK_USER_PASSWORD", "keycloak_user_password")
+}
+
 type kcClientSpec struct {
 	Realm       string
 	ClientID    string
