@@ -48,7 +48,7 @@ type patroniConfig struct {
 	OS            string   `json:"os"` // os family (oraclelinux | ubuntu | …) — drives paths
 	Hostname      string   `json:"hostname"`
 	FQDN          string   `json:"fqdn"`
-	PGMajor       string   `json:"pgMajor"`   // "13".."17"
+	PGMajor       string   `json:"pgMajor"`   // "13".."18"
 	PGVersion     string   `json:"pgVersion"` // selected minor (display)
 	Role          string   `json:"role"`      // leader | replica (best-effort, filled post-bootstrap)
 	EtcdEndpoints []string `json:"etcdEndpoints"`

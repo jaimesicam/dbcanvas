@@ -6004,3 +6004,43 @@ air-gapped host that pre-seeded its images still deploys.
 `go build/vet/test` clean; app image rebuilt. Note the same Keycloak reproduction could not be forced
 on this amd64 host (its containerd store still held the amd64 manifest from earlier pulls), which is
 why the control was done with a pristine image.
+
+## 125. `make versions` never probed PostgreSQL 18 — `images/versions.sh`
+
+**Symptom.** `percona_postgresql` in `versions.yaml` stops at major series **17**, so the PG version
+picker offers 13–17 and PostgreSQL 18 cannot be selected for a Percona PostgreSQL / Patroni node —
+even though Percona ships a `ppg-18` repo (`app/pgoidc.go:133` already enables it).
+
+**Cause.** The PG majors are not discovered; they are an explicit list hard-coded five times over in
+the probe script, and 18 was simply never added when Percona published the repo:
+
+- `rhel_probe` / `debian_probe` — one `percona-release setup ppg-NN` + `@@PPGNN@@` stanza per major
+- the `pgNN=""` initialisers and the `section PPGNN` extraction in the per-image loop
+- the progress line's `ppg: …` counts
+- `emit_series percona_postgresql "13" … "17"`, which is what actually writes the YAML
+
+**Fix.** Added the `18` rung to all five, mirroring the existing 17 exactly. On EL the meta package is
+unhyphenated and epoch-prefixed (`percona-postgresql18`, stripped by the same `sed -E 's/^[0-9]+://'`);
+on Debian it is `percona-postgresql-18` via `madison`. A series with no packages for the OS still
+records as `[]`, so an image whose repo lacks 18 degrades to an empty list rather than failing.
+
+**No Go changes needed.** `loadPPGCatalog()` (`app/versions.go:174`) reads the `percona_postgresql`
+major map straight out of `versions.yaml` and does not carry its own list of majors, so 18 propagates
+to the API and the picker as soon as `make versions` is re-run.
+
+**Also.** The `pgMajor` doc comments in `app/patroni.go:51` and `app/intranet.go:83,167` still said
+`"13".."17"`; bumped to `"13".."18"`. Comment-only — nothing reads them, and no validator anywhere
+pins the major list (it comes from `versions.yaml`), so they were the last stale copy of the range.
+
+**Verified.** `make versions` re-run by the user; the resulting `versions.yaml` is committed here. The
+diff is **purely additive** — one new `"18"` key per image, nothing removed or reordered:
+
+| image | percona_postgresql "18" |
+| --- | --- |
+| oraclelinux 8 | `[]` — no ppg-18 for EL8 (all its other PG series are `[]` too) |
+| oraclelinux 9 | 18.4-2, 18.4-1, 18.3-1, 18.1-3, 18.1-2, 18.1-1 |
+| oraclelinux 10 | 18.4-2, 18.4-1, 18.3-2, 18.3-1, 18.1-3, 18.1-2, 18.1-1 |
+| ubuntu 22.04 / 24.04 | 18.4-2, 18.4-1, 18.3-1 |
+
+The EL8 empty list is the intended degradation path, not a probe failure. `bash -n` clean on the
+script; `go build`/`go vet` clean after the comment bump.
