@@ -6032,6 +6032,15 @@ to the API and the picker as soon as `make versions` is re-run.
 `"13".."17"`; bumped to `"13".."18"`. Comment-only — nothing reads them, and no validator anywhere
 pins the major list (it comes from `versions.yaml`), so they were the last stale copy of the range.
 
-**Status.** `bash -n` clean on the script; `go build`/`go vet` clean after the comment bump. The probe
-itself is **not run** — `make versions` needs the built images and is being executed by the user.
-Whether 18 lands as a populated list or `[]` per image is exactly what that run reports.
+**Verified.** `make versions` re-run by the user; the resulting `versions.yaml` is committed here. The
+diff is **purely additive** — one new `"18"` key per image, nothing removed or reordered:
+
+| image | percona_postgresql "18" |
+| --- | --- |
+| oraclelinux 8 | `[]` — no ppg-18 for EL8 (all its other PG series are `[]` too) |
+| oraclelinux 9 | 18.4-2, 18.4-1, 18.3-1, 18.1-3, 18.1-2, 18.1-1 |
+| oraclelinux 10 | 18.4-2, 18.4-1, 18.3-2, 18.3-1, 18.1-3, 18.1-2, 18.1-1 |
+| ubuntu 22.04 / 24.04 | 18.4-2, 18.4-1, 18.3-1 |
+
+The EL8 empty list is the intended degradation path, not a probe failure. `bash -n` clean on the
+script; `go build`/`go vet` clean after the comment bump.
