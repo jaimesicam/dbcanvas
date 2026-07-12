@@ -562,24 +562,22 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 		major = "8.0"
 	}
 
-	// The admin password comes from .env (re-read on every deploy); the internal PMM
-	// password + OIDC sample password are non-canvas secrets, reused across redeploys.
+	// The admin password and the Keycloak sample-user password come from .env (re-read on
+	// every deploy); the internal PMM password is a non-canvas secret reused across redeploys.
 	admin := envOr("MONGODB_ADMIN_PASSWORD", "admin_password")
 	pmmPass := ""
-	oidcSamplePW := ""
 	if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
 		var s mongoSecrets
 		if json.Unmarshal(dep.Secrets, &s) == nil {
 			if s.PMMPassword != "" {
 				pmmPass = s.PMMPassword
 			}
-			oidcSamplePW = s.OIDCSamplePassword
 		}
 	}
 	if pmmPass == "" {
 		pmmPass = envOr("PMM_PASSWORD", "pmm_password")
 	}
-	sec := mongoSecrets{AdminUser: "admin", AdminPassword: admin, PMMUser: "pmm", PMMPassword: pmmPass, OIDCSamplePassword: oidcSamplePW} // no keyFile → standalone
+	sec := mongoSecrets{AdminUser: "admin", AdminPassword: admin, PMMUser: "pmm", PMMPassword: pmmPass} // no keyFile → standalone
 
 	monitoredBy := ""
 	if n.PMMNodeID != "" {
@@ -607,10 +605,8 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 			}
 		}
 		oidcIssuer = keycloakIssuer(fqdnOf(kcHost, domain), kcSSL) + "/realms/" + realm
-		sampleUsers = "dbauser01 (dbadmins), devuser01 (developers)"
-		if sec.OIDCSamplePassword == "" {
-			sec.OIDCSamplePassword = genSecret("KcUser!")
-		}
+		sampleUsers = "alice (dbadmins), bob (developers)"
+		sec.OIDCSamplePassword = keycloakUserPassword()
 	}
 
 	cfg := mongoConfig{
@@ -1237,8 +1233,8 @@ try{a.createRole({role:"keycloak/dbadmins",privileges:[],roles:["root"]})}catch(
 func mongoOIDCExternalUsersJS(domain string) string {
 	return fmt.Sprintf(`var e=db.getSiblingDB("$external");
 function mk(u,r){try{e.createUser({user:u,roles:[{role:r,db:"admin"}]})}catch(x){if(!/already exists/i.test(x.message))throw x}}
-mk("keycloak/dbauser01@%s","keycloak/dbadmins");
-mk("keycloak/devuser01@%s","keycloak/developers");`, domain, domain)
+mk("keycloak/alice@%s","keycloak/dbadmins");
+mk("keycloak/bob@%s","keycloak/developers");`, domain, domain)
 }
 
 func mongosConfYAML(configDB string) string {
@@ -1377,9 +1373,9 @@ mkuser() {
     [ -n "$GID" ] && $KC update "users/$UID1/groups/$GID" -r "$REALM" -n >/dev/null 2>&1 || true
   fi
 }
-mkuser dbauser01 Dana Admin dbadmins
-mkuser devuser01 Devin Lopez developers
-echo "keycloak realm '$REALM' configured (client $CLIENT_ID, users dbauser01/devuser01)"`
+mkuser alice Alice Admin dbadmins
+mkuser bob Bob Developer developers
+echo "keycloak realm '$REALM' configured (client $CLIENT_ID, users alice/bob)"`
 
 // mongoStartMongosScript starts the mongos router and waits until it answers a ping.
 const mongoStartMongosScript = `set -e

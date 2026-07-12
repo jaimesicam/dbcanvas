@@ -6044,3 +6044,38 @@ diff is **purely additive** — one new `"18"` key per image, nothing removed or
 
 The EL8 empty list is the intended degradation path, not a probe failure. `bash -n` clean on the
 script; `go build`/`go vet` clean after the comment bump.
+
+## 126. `KEYCLOAK_USER_PASSWORD` + memorable sample users — `.env`, `.env.example`, `app/keycloakclient.go`, pgoidc.go, pmmoidc.go, mongodb.go, `OidcLoginGuide.jsx`, `MongoDBManager.jsx`
+
+**Symptom.** The sample Keycloak users created by the three SSO integrations could not be logged in
+as. Their password was a **random per-deploy secret** — `genSecret("Oidc1!")` in pgoidc.go/pmmoidc.go,
+`genSecret("KcUser!")` in mongodb.go — and only the MongoDB one was ever surfaced (in its manager).
+The PMM guide even told the user the password was "shown in the Keycloak node's console", where it is
+not. So PMM and PostgreSQL SSO shipped with accounts nobody could use.
+
+**Fix — one password, from `.env`.** New `KEYCLOAK_USER_PASSWORD` (default `keycloak_user_password`),
+read by `keycloakUserPassword()` in keycloakclient.go and used as `SamplePW` at all three call sites.
+Like the other node credentials it is **re-read on every deploy**; MongoDB previously persisted its
+random one in `mongoSecrets` and reused it across redeploys, so that carry-forward is dropped (the
+`OIDCSamplePassword` field stays — the manager still displays it).
+
+**Fix — memorable identities.** Per-integration invented names (`pgoidc01`/`Dana Admin`,
+`pmmadmin01`/`Piper Admin`, `dbauser01`/`Devin Lopez`, …) replaced with Alice/Bob/Jane/John:
+
+| integration | realm | users |
+| --- | --- | --- |
+| PMM | `dbcanvas` | `alice` (Alice Admin → pmm-admins) · `bob` (Bob Viewer → pmm-viewers) |
+| PostgreSQL | `dbcanvas` | `jane` (Jane Doe) · `john` (John Doe) — no groups, device flow |
+| MongoDB standalone | `mongodb` | `alice` (Alice Admin → dbadmins) · `bob` (Bob Developer → developers) |
+
+PMM and PostgreSQL **share the default `dbcanvas` realm**, so their usernames must not collide —
+hence Alice/Bob there and Jane/John for PG. MongoDB defaults to its own `mongodb` realm, so it reuses
+Alice/Bob with the same mnemonic (Alice = privileged, Bob = limited). The rename also propagates to
+the `$external` MongoDB users (`keycloak/alice@<domain>` → `keycloak/dbadmins`) and to both UI guides,
+which now name `KEYCLOAK_USER_PASSWORD` as the password source instead of the old dead-end text.
+
+**Convention.** Test/demo identities from here on use Alice, Bob, Jane Doe, John Doe rather than
+invented names — easier to remember when walking a stack.
+
+`go build`/`go vet` clean; not deployed (user tests). `app/web/dist` is untracked, so the JSX changes
+land on the next app image build.
