@@ -2673,19 +2673,22 @@ function MySQLMemberForm({ node: n, frame, nodes, patchNode, dep, deployed }) {
 // DirectoryAuthFields renders the "Directory authentication" design block shared by the
 // standalone Percona Server / PostgreSQL / PSMDB forms: an LDAP toggle, a directory picker
 // (Intranet OpenLDAP or Samba AD DC nodes in the stack), and — when kerberos is allowed and
-// a Samba directory is chosen — a Kerberos (GSSAPI) toggle.
-function DirectoryAuthFields({ node: n, nodes, patchNode, deployed, kerberos }) {
+// a Samba directory is chosen — a Kerberos (GSSAPI) toggle. `ldapBlocked` (a message) greys
+// out the LDAP toggle when another feature on the node rules LDAP out.
+function DirectoryAuthFields({ node: n, nodes, patchNode, deployed, kerberos, ldapBlocked }) {
   const dirs = nodes.filter((x) => x.type === 'intranet' || x.type === 'sambaad')
   const hasSamba = nodes.some((x) => x.type === 'sambaad')
+  const noLdap = deployed || dirs.length === 0 || !!ldapBlocked
   return (
     <div className="space-y-2 rounded-lg border border-dashed p-2">
       <div className="text-xs font-medium text-muted">Directory authentication</div>
       {/* LDAP — against a chosen Intranet or Samba directory */}
-      <label className={`flex items-center gap-2 text-sm ${deployed || dirs.length === 0 ? 'opacity-70' : ''}`}>
-        <input type="checkbox" checked={!!n.ldapAuth} disabled={deployed || dirs.length === 0}
+      <label className={`flex items-center gap-2 text-sm ${noLdap ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.ldapAuth} disabled={noLdap}
           onChange={(e) => patchNode(n.id, { ldapAuth: e.target.checked })} />
         <span>Integrate with LDAP</span>
       </label>
+      {ldapBlocked && <p className="text-xs text-muted">{ldapBlocked}</p>}
       {dirs.length === 0 && <p className="text-xs text-muted">Add an Intranet or Samba AD DC node to enable LDAP login.</p>}
       {n.ldapAuth && dirs.length > 0 && (
         <Field label="Directory">
@@ -2713,19 +2716,22 @@ function DirectoryAuthFields({ node: n, nodes, patchNode, deployed, kerberos }) 
 
 // KeycloakOidcFields renders the shared "Keycloak SSO" design block for the PMM and PostgreSQL
 // forms: an enable toggle + a Keycloak-node picker + realm. `pg18` locks the pg node to
-// PostgreSQL 18 (pg_oidc_validator requires it) when OIDC is enabled.
-function KeycloakOidcFields({ node: n, nodes, patchNode, deployed, label, pg18 }) {
+// PostgreSQL 18 (pg_oidc_validator requires it) when OIDC is enabled. `blocked` (a message)
+// greys out the toggle when another feature on the node rules OIDC out.
+function KeycloakOidcFields({ node: n, nodes, patchNode, deployed, label, pg18, blocked }) {
   const kcNodes = nodes.filter((x) => x.type === 'keycloak')
   const sel = kcNodes.find((k) => k.id === n.keycloakNodeId)
   const selSSL = sel ? sel.generateCert !== false : true
+  const noOidc = deployed || kcNodes.length === 0 || !!blocked
   return (
     <div className="space-y-2 rounded-lg border border-dashed p-2">
       <div className="text-xs font-medium text-muted">Keycloak SSO</div>
-      <label className={`flex items-center gap-2 text-sm ${deployed || kcNodes.length === 0 ? 'opacity-70' : ''}`}>
-        <input type="checkbox" checked={!!n.enableOIDC} disabled={deployed || kcNodes.length === 0}
+      <label className={`flex items-center gap-2 text-sm ${noOidc ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.enableOIDC} disabled={noOidc}
           onChange={(e) => patchNode(n.id, { enableOIDC: e.target.checked, ...(pg18 && e.target.checked ? { pgMajor: '18', pgVersion: '' } : {}) })} />
         <span>{label}</span>
       </label>
+      {blocked && <p className="text-xs text-muted">{blocked}</p>}
       {kcNodes.length === 0 && <p className="text-xs text-muted">Add a Keycloak node (with Intranet CA SSL) to enable SSO.</p>}
       {n.enableOIDC && kcNodes.length > 0 && (
         <>
@@ -2988,9 +2994,13 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
         </Field>
       )}
 
-      <DirectoryAuthFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} kerberos={true} />
+      {/* LDAP and OIDC are mutually exclusive on PostgreSQL: both need the same pg_hba
+          `host all all` catch-all, so only one can ever be live. Kerberos coexists with either. */}
+      <DirectoryAuthFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} kerberos={true}
+        ldapBlocked={n.enableOIDC ? 'PostgreSQL cannot do LDAP and Keycloak OIDC at once — turn off Keycloak SSO below to use LDAP.' : ''} />
 
-      <KeycloakOidcFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} label="OAuth login with Keycloak (pg_oidc_validator)" pg18 />
+      <KeycloakOidcFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} label="OAuth login with Keycloak (pg_oidc_validator)" pg18
+        blocked={n.ldapAuth ? 'PostgreSQL cannot do LDAP and Keycloak OIDC at once — turn off LDAP above to use Keycloak SSO.' : ''} />
 
       {!deployed && <p className="text-xs text-muted">A single read/write PostgreSQL instance (no replication). Access links and credentials appear here after deploy.</p>}
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>

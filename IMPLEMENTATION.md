@@ -6079,3 +6079,28 @@ invented names — easier to remember when walking a stack.
 
 `go build`/`go vet` clean; not deployed (user tests). `app/web/dist` is untracked, so the JSX changes
 land on the next app image build.
+
+## 127. PostgreSQL: LDAP and Keycloak OIDC are mutually exclusive — `app/pgoidc.go`, `StackDesigner.jsx`
+
+**Problem.** The PostgreSQL node exposed "Integrate with LDAP" (§103, dbauth.go) and "OAuth login
+with Keycloak" (§104, pgoidc.go) as independent toggles, and `pg.go` happily ran both provisioners.
+They cannot both work: each one inserts its own catch-all `host all all 0.0.0.0/0 …` line into
+pg_hba (`ldap` search+bind vs `oauth`), and pg_hba is **first-match-wins**. Because
+`applyDirectoryAuth` runs before `applyPGOIDC`, the `ldap` line always shadows the `oauth` line —
+the OIDC setup completes, reports success, and is silently dead. Kerberos is *not* affected: it
+matches on a separate `hostgssenc … gss` line (a Kerberos client connects with
+`gssencmode=require`), so it still coexists with either one.
+
+**Fix.** Make the pair exclusive rather than let one silently win.
+
+- `oidcIssues` (pgoidc.go) now emits a validation **error** when a `pg` node has `EnableOIDC` and
+  `LdapAuth` both set. `handleDeployStack` refuses to deploy on any error issue, so an
+  imported/older design with both flags is caught before provisioning instead of mis-deploying.
+- The designer greys out whichever toggle the other one excludes: `DirectoryAuthFields` takes an
+  `ldapBlocked` message, `KeycloakOidcFields` takes `blocked`, and the PostgreSQL form passes each
+  from the other's flag. Both blocks stay visible with a one-line reason, so the constraint is
+  discoverable instead of the checkbox just disappearing. Only the pg form passes these — PMM
+  (Grafana OAuth + ldap.toml) and PSMDB (`security.ldap` + OIDC IdP) are genuinely independent
+  there and keep both.
+
+`go build`/`go vet` + `npm run build` clean; not deployed (user tests).

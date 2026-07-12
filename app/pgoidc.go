@@ -30,7 +30,10 @@ type oidcInfo struct {
 }
 
 // oidcIssues validates a pmm/pg node's Keycloak-SSO selection: a linked SSL-enabled Keycloak
-// (HTTPS issuer), and PostgreSQL 18 for the pg node (pg_oidc_validator needs it).
+// (HTTPS issuer), PostgreSQL 18 for the pg node (pg_oidc_validator needs it), and — for pg —
+// no LDAP alongside OIDC: both claim the same `host all all` pg_hba catch-all and the first
+// matching line wins, so the two can never both be live. (Kerberos is fine: it matches on a
+// separate `hostgssenc` line.)
 func oidcIssues(n designNode, keycloakIDs, keycloakSSL map[string]bool) []issue {
 	if !n.EnableOIDC {
 		return nil
@@ -45,8 +48,13 @@ func oidcIssues(n designNode, keycloakIDs, keycloakSSL map[string]bool) []issue 
 	if !keycloakSSL[n.KeycloakNodeID] {
 		return []issue{{"error", label + " node " + n.Label + " uses Keycloak OIDC, which requires an HTTPS issuer — enable \"Use Intranet CA SSL\" on the Keycloak node"}}
 	}
-	if n.Type == "pg" && ppgMajorOf(n.PGMajor) != "18" {
-		return []issue{{"error", "PostgreSQL node " + n.Label + " uses Keycloak OIDC (pg_oidc_validator), which requires PostgreSQL 18 — set the version to 18"}}
+	if n.Type == "pg" {
+		if ppgMajorOf(n.PGMajor) != "18" {
+			return []issue{{"error", "PostgreSQL node " + n.Label + " uses Keycloak OIDC (pg_oidc_validator), which requires PostgreSQL 18 — set the version to 18"}}
+		}
+		if n.LdapAuth {
+			return []issue{{"error", "PostgreSQL node " + n.Label + " has both LDAP and Keycloak OIDC enabled — PostgreSQL cannot use both (they compete for the same pg_hba line); turn one off"}}
+		}
 	}
 	return nil
 }
