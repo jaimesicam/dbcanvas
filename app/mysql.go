@@ -359,6 +359,16 @@ func (a *App) provisionPerconaServer(st Stack, n designNode, doc designDoc) {
 				pr.logln("directory authentication skipped: " + err.Error())
 			}
 		}
+		// Data-at-rest encryption: point the keyring at the linked OpenBao node (the component
+		// on 8.4, the plugin on 5.7/8.0). Done last — it restarts mysqld.
+		if n.EnableVault {
+			info, err := a.applyMySQLVault(ctx, st, n, doc, a.containerOf(st.ID, n.ID), host, pr)
+			if err != nil {
+				pr.fail("configure keyring_vault: %v", err)
+				return
+			}
+			a.persistConfigKey(st, n.ID, "vault", info)
+		}
 		pr.phase("Running", 100)
 		pr.p.Message = "provisioned"
 		pr.save()

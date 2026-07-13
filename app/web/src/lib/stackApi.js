@@ -68,6 +68,16 @@ export function pmmApi(id, nid) {
   }
 }
 
+// OpenBao node management. OpenBao seals itself on every restart, so the manager polls the live
+// seal state and can replay the stored unseal keys (the keys themselves never leave the server).
+export function openbaoApi(id, nid) {
+  const base = `/api/stacks/${id}/nodes/${nid}/openbao`
+  return {
+    status: () => request('GET', `${base}/status`),
+    unseal: () => request('POST', `${base}/unseal`),
+  }
+}
+
 // PXC node management.
 export function pxcApi(id, nid) {
   const base = `/api/stacks/${id}/nodes/${nid}`

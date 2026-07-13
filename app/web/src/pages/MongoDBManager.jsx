@@ -4,6 +4,7 @@ import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE, mongoApi } from '../lib/stackApi.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import DbLoginGuide from '../components/DbLoginGuide.jsx'
+import VaultGuide from '../components/VaultGuide.jsx'
 import MongoCertReissue from '../components/MongoCertReissue.jsx'
 
 const TABS = [
@@ -13,6 +14,7 @@ const TABS = [
   { id: 'creds', label: 'Credentials' },
   { id: 'dirlogin', label: 'Directory Login' },
   { id: 'sso', label: 'Keycloak SSO' },
+  { id: 'encryption', label: 'Encryption' },
   { id: 'backup', label: 'Backup' },
 ]
 
@@ -97,7 +99,7 @@ export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDelete
       </div>
 
       <div className="flex flex-wrap gap-1 rounded-lg bg-surface2 p-1">
-        {TABS.filter((t) => (t.id !== 'backup' || hasBackup) && (t.id !== 'tls' || cfg.generateCert) && (t.id !== 'dirlogin' || cfg.dirAuth?.enabled) && (t.id !== 'sso' || cfg.oidcEnabled)).map((t) => (
+        {TABS.filter((t) => (t.id !== 'backup' || hasBackup) && (t.id !== 'tls' || cfg.generateCert) && (t.id !== 'dirlogin' || cfg.dirAuth?.enabled) && (t.id !== 'sso' || cfg.oidcEnabled) && (t.id !== 'encryption' || cfg.vault?.enabled)).map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${tab === t.id ? 'bg-surface text-fg shadow' : 'text-muted'}`}>
             {t.label}
@@ -116,6 +118,7 @@ export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDelete
           <KV k="TLS" v={cfg.generateCert ? 'cert issued (see TLS tab)' : 'none'} />
           <KV k="Backups (PBM)" v={cfg.enablePBM ? (cfg.backupRepo || 'enabled') : 'disabled'} />
           {cfg.oidcEnabled && <KV k="Keycloak SSO" v="enabled (see Keycloak SSO tab)" />}
+          {cfg.vault?.enabled && <KV k="Encryption at rest" v={`OpenBao · ${cfg.vault.mount}`} />}
           <KV k="Monitored by" v={cfg.monitoredBy} mono />
           <KV k="Image" v={cfg.image} mono />
           <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
@@ -230,6 +233,7 @@ mongosh --tls --tlsCAFile ${dir}/ca.crt --tlsCertificateKeyFile client.pem \\
 
       {tab === 'dirlogin' && <DbLoginGuide engine="psm" info={cfg.dirAuth} />}
       {tab === 'sso' && cfg.oidcEnabled && <KeycloakSSOTab cfg={cfg} sec={sec} />}
+      {tab === 'encryption' && <VaultGuide engine="psm" info={cfg.vault} />}
       {tab === 'backup' && hasBackup && <BackupTab stackId={stackId} frameId={frameId} cfg={cfg} sec={sec} />}
     </div>
   )

@@ -92,6 +92,11 @@ type designNode struct {
 	LdapAuth      bool   `json:"ldapAuth"`
 	LdapDirNodeID string `json:"ldapDirNodeId"`
 	KerberosAuth  bool   `json:"kerberosAuth"`
+	// Data-at-rest encryption keyed by an OpenBao node (Type=="ps"|"psm"; see dbvault.go).
+	// The engine's keyring is wired to OpenBaoNodeID at deploy: the keyring_vault component
+	// (PS 8.4), the keyring_vault plugin (PS 5.7/8.0) or mongod's security.vault (PSMDB).
+	EnableVault   bool   `json:"enableVault"`
+	OpenBaoNodeID string `json:"openbaoNodeId"`
 }
 
 // designEdge is a connection drawn on the canvas. The endpoints' Node field holds
@@ -432,6 +437,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	intranet := 0
 	watchtower := 0
 	keycloak := 0
+	openbao := 0
 	vnc := 0
 	samba := 0
 	others := 0
@@ -442,6 +448,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	keycloakIDs := map[string]bool{}
 	keycloakSSL := map[string]bool{}
 	dirNodes := map[string]string{} // node id → "intranet" | "sambaad" (directory nodes)
+	openbaoIDs := map[string]bool{} // OpenBao nodes a ps/psm node can key its encryption to
 	pmmCat := loadPMMCatalog()
 	for _, n := range doc.Nodes {
 		if n.Type == "watchtower" {
@@ -453,6 +460,9 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		}
 		if n.Type == "intranet" || n.Type == "sambaad" {
 			dirNodes[n.ID] = n.Type
+		}
+		if n.Type == "openbao" {
+			openbaoIDs[n.ID] = true
 		}
 	}
 	for _, n := range doc.Nodes {
@@ -483,6 +493,22 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		case "keycloak":
 			keycloak++
 			others++
+		case "openbao":
+			openbao++
+			others++
+			// OpenBao installs from EPEL, which DBCanvas only wires up for Oracle Linux 9;
+			// the node is offered on OEL9 (amd64/arm64) alone.
+			if n.OS != "oraclelinux" || !strings.HasPrefix(strings.TrimSpace(n.OSVersion), "9") {
+				out = append(out, issue{"error", "OpenBao node " + n.Label + " is only available on Oracle Linux 9"})
+				break
+			}
+			img := pxcImage(n.OS, n.OSVersion, n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+				}
+			}
 		case "sambaad":
 			samba++
 			others++
@@ -542,6 +568,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 				out = append(out, mongoOIDCIssues(n, keycloakIDs, keycloakSSL)...)
 			}
 			out = append(out, dirAuthIssues(n, dirNodes)...)
+			out = append(out, vaultIssues(n, openbaoIDs)...)
 		case "pg":
 			others++
 			img := pxcImage(n.OS, n.OSVersion, n.Arch)
@@ -595,6 +622,9 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	}
 	if keycloak > 1 {
 		out = append(out, issue{"error", "Only one Keycloak node is allowed per stack"})
+	}
+	if openbao > 1 {
+		out = append(out, issue{"error", "Only one OpenBao node is allowed per stack"})
 	}
 	if vnc > 1 {
 		out = append(out, issue{"error", "Only one Ubuntu VNC node is allowed per stack"})
@@ -1183,6 +1213,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionWatchtower(st, n, doc)
 		case "keycloak":
 			a.provisionKeycloak(st, n, doc)
+		case "openbao":
+			a.provisionOpenBao(st, n, doc)
 		case "vnc":
 			a.provisionVNC(st, n, doc)
 		case "valkey":

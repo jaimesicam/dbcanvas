@@ -59,6 +59,14 @@ export const Icon = {
       <circle cx="15" cy="16" r="2.4" fill="var(--surface)" />
     </Svg>
   ),
+  // Vault: a safe door — dial + handle spokes (OpenBao secrets manager).
+  Vault: (p) => (
+    <Svg {...p}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <circle cx="12" cy="12" r="3.6" />
+      <path d="M12 6.6v1.8M12 15.6v1.8M6.6 12h1.8M15.6 12h1.8" />
+    </Svg>
+  ),
   // Settings: an eight-toothed gear around a hub.
   Settings: (p) => (
     <Svg {...p}>

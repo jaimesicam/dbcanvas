@@ -12,6 +12,7 @@ import MySQLManager from './MySQLManager.jsx'
 import InnoDBManager from './InnoDBManager.jsx'
 import MongoDBManager from './MongoDBManager.jsx'
 import SeaweedFSManager from './SeaweedFSManager.jsx'
+import OpenBaoManager from './OpenBaoManager.jsx'
 import PatroniManager from './PatroniManager.jsx'
 import HAProxyManager from './HAProxyManager.jsx'
 import PGManager from './PGManager.jsx'
@@ -148,6 +149,7 @@ const NODE_TYPES = {
       exportEnabled: false, exportHostPort: 0,
       enableOIDC: false, keycloakNodeId: '', oidcRealm: 'mongodb',
       oidcClientId: 'mongodb-client', oidcAuthClaim: 'MyClaim', oidcUseAuthClaim: true,
+      enableVault: false, openbaoNodeId: '',
     },
   },
   // Standalone single Percona Server instance (no replication).
@@ -165,6 +167,7 @@ const NODE_TYPES = {
       rootPassword: '', gtid: true, pmmNodeId: '', useProxy: false,
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
       exportEnabled: false, exportHostPort: 0,
+      enableVault: false, openbaoNodeId: '',
     },
   },
   // Standalone single PostgreSQL instance (no Patroni/etcd/replication).
@@ -258,6 +261,24 @@ const NODE_TYPES = {
     ports: false,
     osOptions: [{ id: 'keycloak', label: 'quay.io/keycloak/keycloak' }],
     defaults: { generateCert: true, certTtlValue: 365, certTtlUnit: 'days' },
+  },
+  // OpenBao — a Vault-compatible secrets manager, used as the KMS for Percona data-at-rest
+  // encryption (PS MySQL keyring_vault, PSMDB security.vault). Installed from EPEL on the
+  // systemd Oracle Linux 9 image, so — unlike the pulled-image nodes — it is OEL9-only.
+  // TLS from the Intranet CA is the default: the Percona engines verify it with that CA.
+  openbao: {
+    label: 'OpenBao',
+    slug: 'openbao',
+    sub: 'Secrets manager (Vault-compatible KMS)',
+    color: '#eab308',
+    icon: 'Vault',
+    singleton: true,
+    ports: false,
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux 9' }],
+    defaults: {
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64', useProxy: false,
+      generateCert: true, certTtlValue: 365, certTtlUnit: 'days',
+    },
   },
   // Ubuntu VNC — a desktop "jump box" (XFCE over web VNC) with the Percona client
   // tools preinstalled, for ad-hoc troubleshooting. Runs ubuntu:24.04 (pulled at deploy).
@@ -1653,6 +1674,7 @@ function StackEditor({ stackId, onBack }) {
     ] },
     { title: 'Storage & Tools', items: [
       { label: 'SeaweedFS', type: 'seaweedfs', onClick: () => addNode('seaweedfs') },
+      { label: 'OpenBao', type: 'openbao', onClick: () => addNode('openbao'), off: has('openbao') },
       { label: 'Ubuntu VNC', type: 'vnc', onClick: () => addNode('vnc'), off: has('vnc') },
     ] },
   ]
@@ -2729,6 +2751,54 @@ function DirectoryAuthFields({ node: n, nodes, patchNode, deployed, kerberos, ld
   )
 }
 
+// VaultFields renders the "Data-at-rest encryption" block shared by the standalone Percona
+// Server and PSMDB forms: a toggle + an OpenBao-node picker. How the engine is wired depends on
+// its version, which is worth saying out loud here — the keyring_vault *component* only exists
+// from Percona Server 8.4; 5.7 and 8.0 use the keyring_vault *plugin*.
+// OpenBao is a per-stack singleton, so there is nothing to pick: the toggle links the node to
+// the one OpenBao on the canvas (and clears the link when turned off).
+function VaultFields({ node: n, nodes, patchNode, deployed }) {
+  const bao = nodes.find((x) => x.type === 'openbao')
+  const none = deployed || !bao
+  const maj = n.psMajor || '8.0'
+  const method = n.type === 'psm'
+    ? 'mongod security.vault (KV v2)'
+    : maj === '8.4'
+      ? 'component_keyring_vault (KV v2)'
+      : maj === '5.7'
+        ? 'keyring_vault plugin (KV v1 — 5.7 predates the v2 API)'
+        : 'keyring_vault plugin (KV v2)'
+  return (
+    <div className="space-y-2 rounded-lg border border-dashed p-2">
+      <div className="text-xs font-medium text-muted">Data-at-rest encryption</div>
+      <label className={`flex items-center gap-2 text-sm ${none ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.enableVault} disabled={none}
+          onChange={(e) => patchNode(n.id, {
+            enableVault: e.target.checked,
+            openbaoNodeId: e.target.checked ? (bao?.id ?? '') : '',
+          })} />
+        <span>Encrypt with OpenBao</span>
+      </label>
+      {!bao && <p className="text-xs text-muted">Add the OpenBao node to key encryption to it.</p>}
+      {n.enableVault && bao && (
+        <>
+          <p className="text-xs text-muted">
+            Keyed to <span className="font-mono">{bao.label}</span> (one OpenBao per stack), wired at deploy with
+            <span className="font-mono"> {method}</span>. The node gets its own KV mount and a token scoped to it,
+            and verifies OpenBao with the Intranet CA it already trusts.
+          </p>
+          {n.type === 'psm' && (
+            <p className="text-xs text-muted">
+              MongoDB writes its master key at first start, so encryption is established as the node is deployed —
+              it cannot be turned on later without re-creating the data.
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 // KeycloakOidcFields renders the shared "Keycloak SSO" design block for the PMM and PostgreSQL
 // forms: an enable toggle + a Keycloak-node picker + realm. `pg18` locks the pg node to
 // PostgreSQL 18 (pg_oidc_validator requires it) when OIDC is enabled. `blocked` (a message)
@@ -2891,6 +2961,8 @@ function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
       )}
 
       <DirectoryAuthFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} kerberos={false} />
+
+      <VaultFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} />
 
       {!deployed && <p className="text-xs text-muted">Access links and credentials appear here after deploy.</p>}
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
@@ -3169,6 +3241,83 @@ function WatchtowerManager({ stackId, nodeId, dep, onDeleteNode }) {
 // KeycloakForm edits a (not-yet-running) Keycloak node. Per-stack singleton, no
 // tunables — it runs the keycloak image in dev mode; a PSMDB node references it to
 // enable MONGODB-OIDC. The realm/client/users are set up in the console after deploy.
+// OpenBaoForm edits an OpenBao node before deploy. OpenBao installs from EPEL on the systemd
+// Oracle Linux 9 image, so the only image choice is the architecture. SSL (an Intranet-CA cert
+// staged into /etc/openbao.d/tls) is the default — the Percona engines verify the listener with
+// that same CA, and PSMDB refuses a plain-HTTP Vault outside of testing mode.
+function OpenBaoForm({ node: n, patchNode, deleteNode, dep, deployed }) {
+  const lock = deployed ? 'opacity-70' : ''
+  const ssl = n.generateCert !== false
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">OpenBao</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <p className="text-xs text-muted">
+        Vault-compatible secrets manager (<span className="font-mono">dnf install openbao</span> from EPEL),
+        used as the KMS for Percona data-at-rest encryption: Percona Server for MySQL via
+        <span className="font-mono"> component_keyring_vault</span> (8.4) or the
+        <span className="font-mono"> keyring_vault</span> plugin (5.7/8.0), PSMDB via
+        <span className="font-mono"> security.vault</span>. Oracle Linux 9 only; one OpenBao per stack.
+      </p>
+
+      <Field label="Label" hint="Becomes the node hostname and VAULT_ADDR; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+
+      <Field label="Platform / arch">
+        <select className={`${inputCls} ${lock}`} value={n.arch || 'amd64'} disabled={deployed}
+          onChange={(e) => patchNode(n.id, { arch: e.target.value })}>
+          {ARCH_OPTIONS.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+        </select>
+      </Field>
+
+      <label className={`flex items-center gap-2 text-sm ${lock}`}>
+        <input type="checkbox" checked={ssl} disabled={deployed}
+          onChange={(e) => patchNode(n.id, { generateCert: e.target.checked })} />
+        <span>Use Intranet CA SSL (default)</span>
+      </label>
+      <p className="text-xs text-muted">
+        {ssl
+          ? 'Serves HTTPS on 8200. The server cert, key and the CA cert go in /etc/openbao.d/tls and are named in /etc/openbao.d/openbao.hcl; VAULT_CACERT points at the CA.'
+          : 'HTTP only — PSMDB then needs security.vault.disableTLSForTesting, and MySQL a plain-http vault_url. Enable SSL unless you are testing.'}
+      </p>
+      {ssl && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted">Cert TTL</span>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={n.certTtlValue || 365} disabled={deployed}
+            onChange={(e) => patchNode(n.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={`${inputCls} ${lock}`} value={n.certTtlUnit || 'days'} disabled={deployed}
+            onChange={(e) => patchNode(n.id, { certTtlUnit: e.target.value })}>
+            <option value="minutes">minutes</option>
+            <option value="hours">hours</option>
+            <option value="days">days</option>
+          </select>
+        </div>
+      )}
+
+      <label className={`flex items-center gap-2 text-sm ${lock}`}>
+        <input type="checkbox" checked={!!n.useProxy} disabled={deployed}
+          onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for downloads</span>
+      </label>
+
+      <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+        At deploy the node is initialized (<span className="font-mono">bao operator init</span>, 5 unseal keys,
+        3 to unseal) and unsealed. The keys + root token appear here afterwards — they are shown once by
+        OpenBao and nowhere else. KV mounts + policies are created too: <span className="font-mono">mysql-v1</span>,
+        <span className="font-mono"> mysql-v2</span> and <span className="font-mono">mongodb-v2</span> (PSMDB
+        supports KV v2 only).
+      </div>
+
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
 function KeycloakForm({ node: n, patchNode, deleteNode, dep, deployed }) {
   return (
     <div className="space-y-3">
@@ -5080,6 +5229,8 @@ function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
       <DirectoryAuthFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} kerberos={true}
         ldapBlocked={oidcBlocks} kerberosBlocked={oidcBlocks} />
 
+      <VaultFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} />
+
       {!deployed && <p className="text-xs text-muted">Access links and credentials appear here after deploy.</p>}
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
         <Icon.Trash size={16} /> Delete node
@@ -5500,6 +5651,13 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <WatchtowerManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <WatchtowerForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+    // OpenBao secrets-manager node (Vault-compatible KMS for Percona encryption).
+    if (n.type === 'openbao') {
+      if (dep && dep.state === 'running') {
+        return <OpenBaoManager dep={dep} stackId={stackId} nodeId={n.id} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <OpenBaoForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
     // Keycloak singleton node (OIDC identity provider).
     if (n.type === 'keycloak') {

@@ -62,6 +62,8 @@ type mongoConfig struct {
 	OIDCAuthClaim    string `json:"oidcAuthClaim"` // group claim (when useAuthorizationClaim)
 	OIDCUseAuthClaim bool   `json:"oidcUseAuthClaim"`
 	OIDCSampleUsers  string `json:"oidcSampleUsers"` // sample Keycloak users created (for the manager)
+	// Data-at-rest encryption keyed by an OpenBao node (psm standalone only; see dbvault.go).
+	Vault vaultInfo `json:"vault"`
 }
 
 // mongoSecrets holds the cluster admin credentials and the shared internal-auth
@@ -260,7 +262,7 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 			wg.Add(1)
 			go func(n designNode) {
 				defer wg.Done()
-				if err := a.mongoPrepareNode(ctx, st, frame, n, hosts[n.ID], image, major, replSetOf(n), configDB, intranetID, intranetIP, domain, "", sec, progs[n.ID]); err != nil {
+				if err := a.mongoPrepareNode(ctx, st, frame, n, hosts[n.ID], image, major, replSetOf(n), configDB, intranetID, intranetIP, domain, "", sec, nil, progs[n.ID]); err != nil {
 					mu.Lock()
 					failed = true
 					mu.Unlock()
@@ -478,7 +480,7 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 			wg.Add(1)
 			go func(n designNode) {
 				defer wg.Done()
-				if err := a.mongoPrepareNode(ctx, st, frame, n, hosts[n.ID], image, major, rs, "", intranetID, intranetIP, domain, "", sec, progs[n.ID]); err != nil {
+				if err := a.mongoPrepareNode(ctx, st, frame, n, hosts[n.ID], image, major, rs, "", intranetID, intranetIP, domain, "", sec, nil, progs[n.ID]); err != nil {
 					mu.Lock()
 					failed = true
 					mu.Unlock()
@@ -658,9 +660,26 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 			a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployProvisioning, Config: cfgJSON, Secrets: secJSON})
 		}
 
+		// Data-at-rest encryption: mint this node's own mount + token on the linked OpenBao
+		// node now — mongod writes its master key at the first start, so the token file and
+		// the security.vault block have to be in place before mongoPrepareNode starts it.
+		var mv *mongoVault
+		if n.EnableVault {
+			pr.phase("Preparing encryption keyring (OpenBao)", 10)
+			v, info, err := a.prepareMongoVault(ctx, st, n, host, pr)
+			if err != nil {
+				pr.fail("configure encryption at rest: %v", err)
+				return
+			}
+			mv = v
+			cfg.Vault = info
+			cfgJSON, _ = json.Marshal(cfg)
+			a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployProvisioning, Config: cfgJSON, Secrets: secJSON})
+		}
+
 		nn := n
 		nn.Role = "standalone"
-		if err := a.mongoPrepareNode(ctx, st, frame, nn, host, image, major, "", "", intranetID, intranetIP, domain, setParams, sec, pr); err != nil {
+		if err := a.mongoPrepareNode(ctx, st, frame, nn, host, image, major, "", "", intranetID, intranetIP, domain, setParams, sec, mv, pr); err != nil {
 			return
 		}
 		a.reconcileStackDNS(ctx, st.ID)
@@ -755,7 +774,10 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 // mongoPrepareNode creates the container, installs Percona Server for MongoDB, writes
 // the shared keyFile and the mongod/mongos config, and starts mongod (config/shard
 // members; the mongos node is started later in Phase 3).
-func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame, n designNode, host, image, major, replSet, configDB, intranetID, intranetIP, domain, setParams string, sec mongoSecrets, pr *pxcProg) error {
+// vault (nil for none) wires data-at-rest encryption: its token file is staged and its
+// security.vault block goes into mongod.conf *before* the first start — mongod establishes
+// encryption only on an empty dbPath, so it cannot be turned on afterwards.
+func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame, n designNode, host, image, major, replSet, configDB, intranetID, intranetIP, domain, setParams string, sec mongoSecrets, vault *mongoVault, pr *pxcProg) error {
 	if host == "" {
 		host = sanitizeName(n.Label)
 	}
@@ -895,7 +917,16 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	case "shard":
 		clusterRole = "shardsvr"
 	}
-	conf := mongodConfYAML(replSet, clusterRole, sec.KeyFile != "", setParams)
+	// Encryption at rest: the token file must exist before mongod's first start, and mongod
+	// refuses to read a token file anyone else can (0600, mongod-owned).
+	vaultBlock := ""
+	if vault != nil {
+		if err := a.runStep(ctx, id, mongoVaultTokenScript, []string{"TOKEN=" + vault.Token}, pr.logln); err != nil {
+			return pr.fail("stage vault token: %v", err)
+		}
+		vaultBlock = vault.Block
+	}
+	conf := mongodConfYAML(replSet, clusterRole, sec.KeyFile != "", setParams, vaultBlock)
 	if err := a.docker.CopyFile(ctx, id, "/etc", "mongod.conf", 0o644, []byte(conf)); err != nil {
 		return pr.fail("write mongod.conf: %v", err)
 	}
@@ -1151,8 +1182,10 @@ func (a *App) mongoAddShards(ctx context.Context, st Stack, mongos designNode, s
 // mongodConfYAML renders mongod.conf. replSet=="" → standalone (no replication
 // block); clusterRole=="" → no sharding block; useKeyFile=false → authorization
 // only (no keyFile, for a standalone with no internal cluster auth). setParams, when
-// non-empty, is an already-rendered "setParameter:" block (e.g. MONGODB-OIDC).
-func mongodConfYAML(replSet, clusterRole string, useKeyFile bool, setParams string) string {
+// non-empty, is an already-rendered "setParameter:" block (e.g. MONGODB-OIDC). vault,
+// when non-empty, is the rendered security.vault sub-block (dbvault.go) and must go
+// *inside* the security block — mongod reads encryption settings only at first start.
+func mongodConfYAML(replSet, clusterRole string, useKeyFile bool, setParams, vault string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "storage:\n  dbPath: %s\n", mongoDataDir)
 	fmt.Fprintf(&b, "systemLog:\n  destination: file\n  path: %s/mongod.log\n  logAppend: true\n", mongoLogDir)
@@ -1162,6 +1195,9 @@ func mongodConfYAML(replSet, clusterRole string, useKeyFile bool, setParams stri
 		fmt.Fprintf(&b, "security:\n  keyFile: %s\n  authorization: enabled\n", mongoKeyFile)
 	} else {
 		fmt.Fprintf(&b, "security:\n  authorization: enabled\n")
+	}
+	if vault != "" {
+		b.WriteString(vault)
 	}
 	if replSet != "" {
 		fmt.Fprintf(&b, "replication:\n  replSetName: %s\n", replSet)

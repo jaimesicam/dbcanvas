@@ -6161,3 +6161,125 @@ and in a real browser (Playwright): the Settings page, and the PSMDB designer ga
 three toggles free; OIDC on ⇒ LDAP + Kerberos greyed; LDAP on ⇒ OIDC greyed; LDAP + Kerberos together
 allowed. The PMM/PSMDB manager tabs (items 2–3) render only on deployed nodes and were not exercised
 live (user tests).
+
+## 129. OpenBao node (singleton) — Vault-compatible KMS for Percona encryption — `app/openbao.go`, `OpenBaoManager.jsx`, `StackDesigner.jsx`, `main.go`, `intranet.go`
+
+A new node type (`openbao`, a per-stack singleton like Keycloak/Watchtower — one KMS per stack)
+that gives a stack a secrets manager the Percona engines can use as the keyring for data-at-rest
+encryption: Percona Server for MySQL via `component_keyring_vault`,
+Percona Server for MongoDB via `security.vault`. OpenBao speaks the Vault API, so both engines
+talk to it with their stock Vault settings and the node exports the familiar `VAULT_ADDR` /
+`VAULT_CACERT`.
+
+**Image + install.** Unlike the pulled-image nodes (Keycloak, SeaweedFS, PMM), OpenBao is
+packaged in EPEL, so it runs on the systemd Oracle Linux 9 image from `make images`:
+`dnf install oracle-epel-release-el9` (the existing `epelPackage` helper — the generic
+`epel-release` name is only on RHEL/CentOS, so both are tried) then `dnf install openbao`, which
+brings the `bao` binary plus the `openbao.service` unit that reads `/etc/openbao.d/openbao.hcl`.
+The node is therefore offered on **OEL9 (amd64/arm64) only**, enforced both in the designer (the
+form's only image choice is the arch) and in `validateDesign` as a backstop.
+
+**TLS (the default).** `signTLSCert` mints a server certificate for the node's FQDN from the
+Intranet CA; the cert, its key and the CA cert are staged into `/etc/openbao.d/tls` and named in
+`openbao.hcl` (`tls_cert_file` / `tls_key_file` / `tls_client_ca_file`). Every other node already
+trusts the Intranet CA (catrust.go), so the database nodes verify the listener with no extra
+material. `/etc/profile.d/openbao.sh` exports `VAULT_ADDR=https://<fqdn>:8200` and
+`VAULT_CACERT=/etc/openbao.d/tls/ca.crt` (plus the `BAO_*` aliases the native CLI prefers), so
+`bao status` works on the node with no flags. Turning SSL off yields `tls_disable = 1` and an
+http addr — PSMDB then needs `disableTLSForTesting`, which the UI says.
+
+**Initialized and unsealed at deploy.** `bao operator init -key-shares=5 -key-threshold=3
+-format=json` runs at the end of provisioning; the five unseal keys + root token are parsed out
+of the JSON and stored as the node's secrets (this is the only copy — OpenBao prints them once),
+then three keys are replayed to unseal. A redeploy over surviving data detects
+`already_initialized` and unseals with the stored keys instead of failing.
+
+**Percona policies.** Three KV mounts, each with a policy file kept next to the server config in
+`/etc/openbao.d/` and loaded with `bao policy write`: `mysql-v1`, `mysql-v2` and `mongodb-v2`.
+KV v1 is a flat tree (one rule over `<mount>/*`); the v2 policies split data/metadata, and the
+MongoDB one follows Percona's documented policy exactly — read on `<mount>/metadata/*` and
+`<mount>/config`, because PSMDB checks the version count before rotating a master key. MySQL's
+keyring component writes keys, so it gets write capabilities on both trees. There is deliberately
+**no `mongodb-v1`**: PSMDB supports KV v2 only, so a v1 MongoDB mount would be a trap rather than
+an option (it was in the first cut of this node and was removed).
+
+**Unseal button.** OpenBao seals itself on *every* restart, which would otherwise leave the
+operator pasting keys back in by hand after a node restart. `GET /openbao/status` reports the live
+seal state and `POST /openbao/unseal` replays the stored keys (the keys never leave the server —
+only the resulting state comes back). The manager polls the status and, when sealed, shows the
+banner + one-click unseal above the tabs.
+
+**Node properties** (`OpenBaoManager.jsx`): Overview (addr/CA/seal state/console), Unseal & Token
+(the 5 keys + root token, masked until revealed), Policies (the mounts + how to mint a
+policy-scoped token), and Clients — copy-paste setup for `component_keyring_vault` (manifest and
+config next to the mysqld binary, token file, `vault_ca`), for PSMDB's `security.vault` (token
+file with mongod-only permissions, `serverCAFile`, `<mount>/data/<name>` secret path, and the
+caveat that encryption only takes on an empty dbPath), and for the `bao` CLI itself.
+
+`go build`/`go vet`/`go test` + `npm run build` clean. **Verified against a real Oracle Linux 9
+container** (dbcanvas-systemd:oraclelinux-9-amd64, the provisioner's own scripts executed
+verbatim): `dnf install openbao` from EPEL installs OpenBao 2.5.5; the service starts and serves
+TLS on 8200 with a CA-signed cert; `operator init` returns 5 keys + a root token and the JSON
+parses; 3 keys unseal it; all four mounts + policies load. End to end, a `mongodb-v2` token
+writes and reads a master key at `mongodb-v2/data/<node>` and is **denied** on the MySQL mount
+(policy isolation), a `mysql-v2` token writes its own key, and after a service restart the node
+comes back sealed, the stored keys unseal it, and the master key is still there. The designer node
++ form were checked in a browser; a full in-app deploy is the user's test.
+
+## 130. Data-at-rest encryption: PS + PSMDB → OpenBao — `app/dbvault.go`, `mysql.go`, `mongodb.go`, `StackDesigner.jsx`, `VaultGuide.jsx`
+
+The standalone Percona Server (`ps`) and PSMDB (`psm`) nodes gained an "Encrypt with OpenBao"
+toggle: pick an OpenBao node (§129) and DBCanvas wires the engine's keyring to it at deploy. New
+designNode fields `EnableVault` + `OpenBaoNodeID`; `vaultIssues` errors when encryption is on
+without a linked OpenBao node.
+
+**Three client integrations, because the engines differ.**
+
+- **Percona Server 8.4** → the keyring **component**. The global manifest (`mysqld.my`) goes
+  beside the mysqld binary, but `component_keyring_vault.cnf` goes in **plugin_dir** — that is
+  where the server resolves `file://component_keyring_vault`. This is not interchangeable: with
+  the config beside mysqld the component loads with `Component_status = Disabled` and the first
+  `ENCRYPTION='Y'` table *kills the server* (assertion failure in the keyring backend). The
+  script therefore reads `@@plugin_dir` and verifies `Component_status` is exactly `Active`.
+- **Percona Server 5.7 / 8.0** → the keyring **plugin** (`component_keyring_vault` does not exist
+  before 8.4): `early-plugin-load=keyring_vault.so` + `keyring_vault_config=…`. The options are
+  appended to **/etc/my.cnf**, not a my.cnf.d drop-in — Percona Server's packaged my.cnf has no
+  `!includedir`, so a drop-in is silently never read (the trap `mysqlDirAuthScript` already
+  documents). `secret_mount_point_version` exists only from 8.0; 5.7 speaks KV v1 only, so that
+  node gets a **KV v1** mount and the option is omitted. Everything else gets KV v2.
+- **PSMDB** → mongod.conf `security.vault`. mongod establishes encryption at its *first* start on
+  an empty dbPath, so the token file and the vault block are staged before mongod ever runs:
+  `mongoPrepareNode` grew a `*mongoVault` parameter and `mongodConfYAML` a `vault` block that
+  lands inside `security:`. The token file is 0600/mongod-owned (mongod refuses lax permissions).
+
+**One mount per database.** OpenBao is a singleton, so the ps/psm form has no node picker — the
+toggle links to the one OpenBao on the canvas. Each node still gets its own KV mount
+(`mysql-<host>` / `mongodb-<host>`)
+with a policy of the same name and a token bound to it — Percona is explicit that a
+`secret_mount_point` must be used by a single server, and it also keeps one node's master key
+unreadable to another. The generic `mysql-v1`/`mysql-v2`/`mongodb-v2` mounts stay as examples.
+
+**One CA, existing paths.** Nothing copies certificates. A stack has exactly one CA (the Intranet
+CA) and every node already carries it in its trust store (catrust.go), so `vault_ca` /
+`serverCAFile` just point at `/etc/pki/ca-trust/source/anchors/dbcanvas-ca.crt`. The OpenBao
+node's Clients tab was rewritten to use the same paths the provisioner does (and to say that the
+manual steps are unnecessary when the toggle is used).
+
+A deployed node shows an **Encryption** tab (`VaultGuide.jsx`): what was configured (method,
+mount, secret path, CA) plus how to verify, encrypt a table and rotate the master key.
+
+`go build`/`go vet`/`go test` + `npm run build` clean. **Verified against real servers** (OEL9
+containers on one network, all trusting the one CA; OpenBao 2.5.5 with TLS):
+
+- **PSMDB 8.0.26** — mongod started with `security.vault`, logged "Master encryption key has been
+  created on the key management facility (Vault server)" at `mongodb-psm01/data/psm01`,
+  initialized the KeyDB with AES256-CBC, and restarted fine reading the key back. With OpenBao
+  stopped, mongod refuses to start ("Data-at-Rest Encryption Error") — the dependency the UI warns about.
+- **Percona Server 8.0.46** — `keyring_vault` plugin ACTIVE, `ENCRYPTION='Y'` table created, key
+  written to `mysql-ps80`, `ALTER INSTANCE ROTATE INNODB MASTER KEY` works.
+- **Percona Server 8.4.10** — `component_keyring_vault` Active, encrypted table created, key in
+  `mysql-ps84`, rotation works, server healthy.
+- Cross-node isolation holds: the ps84 token is denied on ps80's mount.
+
+Both live-caught bugs (my.cnf.d being ignored; the component config path + the too-loose Active
+check) are pinned by `TestMySQLKeyringScriptsUseTheRightFiles`.

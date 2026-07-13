@@ -176,6 +176,9 @@ func main() {
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/dbcerts/delete", app.handleDBCertDelete)
 
 	// PMM node management.
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/openbao/status", app.handleOpenBaoStatus)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/openbao/unseal", app.handleOpenBaoUnseal)
+
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/pmm/cert", app.handlePMMCertInfo)
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/pmm/cert", app.handlePMMCertGenerate)
 
