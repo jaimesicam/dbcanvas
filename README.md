@@ -52,11 +52,34 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
   (PBM backups; optional Keycloak OIDC auth).
 - **Valkey** — standalone and cluster (LDAP integration, PMM monitoring).
 - **Infrastructure** — an **Intranet** node (OpenLDAP, bind DNS, an internal CA, a Squid
-  proxy, and Roundcube/Dovecot webmail), **PMM** monitoring, **ProxySQL**, **HAProxy**,
-  **SeaweedFS** (S3 for backups), **Keycloak** (OIDC), an **Ubuntu VNC** desktop, and
+  proxy, and Roundcube/Dovecot webmail), a **Samba AD DC** (Active Directory, LDAP,
+  Kerberos), **PMM** monitoring, **ProxySQL**, **HAProxy**, **SeaweedFS** (S3 for backups),
+  **Keycloak** (OIDC), **OpenBao** (secrets manager), an **Ubuntu VNC** desktop, and
   **Watchtower**.
 - **Operations** — cross-cluster replication links, per-node web terminals, certificate
   management, on-demand backups, and TTL-based auto-teardown.
+
+**Authentication.** Point a database at a directory and it is wired at deploy: **LDAP** against
+the Intranet OpenLDAP or the Samba AD DC (Percona Server, PostgreSQL, PSMDB), **Kerberos/GSSAPI**
+single sign-on against the Samba AD DC (PostgreSQL, PSMDB), and **Keycloak OIDC** (PMM, PostgreSQL
+18 via `pg_oidc_validator`, PSMDB via `MONGODB-OIDC`). The designer greys out combinations an
+engine cannot actually run — PostgreSQL cannot do LDAP and OIDC at once (they compete for the same
+`pg_hba` line), and MongoDB cannot combine OIDC with LDAP/Kerberos (each needs its own `mongod.conf`
+`setParameter` block) — and validation blocks the deploy rather than letting one silently win.
+
+**Data-at-rest encryption (OpenBao).** Add an **OpenBao** node (a Vault-compatible secrets
+manager, one per stack) and tick *Encrypt with OpenBao* on a Percona Server or PSMDB node. At
+deploy the node is initialized and unsealed for you — its **5 unseal keys and root token** appear
+in the node's properties, since OpenBao prints them exactly once — and the database is wired to it
+as its keyring: `component_keyring_vault` on Percona Server 8.4, the `keyring_vault` **plugin** on
+5.7/8.0 (the component does not exist before 8.4), and `security.vault` on PSMDB. Each database
+gets its own KV mount and a token scoped to it, and verifies OpenBao with the Intranet CA every
+node already trusts. OpenBao seals itself on every restart, so its panel shows the live seal state
+and can replay the stored keys with one click.
+
+**Deployed versions.** Once a node is running, its card shows the version it *actually* deployed
+with — `PS 8.4.10-10`, `PSMDB 8.0.26-11`, `PMM 3.3.1` — not just the series that was requested
+(`8.0`, or "latest"). The same value appears in the node's properties.
 
 Every deployed node gets a **management panel** — runtime profile, endpoints, credentials,
 certificates, backups, and one-click consoles:
@@ -64,7 +87,7 @@ certificates, backups, and one-click consoles:
 ![PMM node management panel](docs/screenshots/pmm-node.png)
 
 **Web terminals.** Drop into a root (or service) shell on any node, right in the browser —
-sessions survive navigation and can be docked or floated:
+sessions survive navigation and can be docked or floated (**Settings** picks which they open as):
 
 ![A live per-node web terminal querying a table](docs/screenshots/terminal.png)
 
@@ -142,6 +165,11 @@ deployment failures, data-generation completed/failed, stacks destroyed or **exp
 (TTL), backups completed, high resource usage, and (for admins) new accounts awaiting
 approval.
 
+### Settings
+Per-user preferences, stored on the **account** rather than the browser, so they follow you to
+another machine: whether a node console opens **docked** (a tab in the bottom terminal dock, the
+default) or **undocked** (its own floating window), and your **theme**.
+
 ### Manage Users (admin)
 Registration is approval-gated: admins approve, reject, disable, re-approve, and delete
 accounts.
@@ -216,6 +244,8 @@ apply to that engine only; the rest are shared where relevant.
 | `PMM_PASSWORD` | `pmm_password` | The least-privilege `pmm` monitoring user, created only on nodes associated with a PMM server. |
 | `PMM_ADMIN_PASSWORD` | `admin_password` | The PMM server's Grafana `admin` user (the PMM web UI login). A per-node password set on the canvas overrides it. |
 | `KEYCLOAK_PASSWORD` | `keycloak_password` | The Keycloak node's `admin` console user. |
+| `KEYCLOAK_USER_PASSWORD` | `keycloak_user_password` | The sample Keycloak users (`alice`, `bob`) created when a node enables Keycloak SSO. Demo identities — don't reuse this password for anything real. |
+| `SAMBA_PASSWORD` | `SambaPassword2026` | The Samba AD DC administrator, used to provision the domain and to bind for LDAP/Kerberos management. Must satisfy Active Directory complexity (at least three of: uppercase, lowercase, digit, symbol) or provisioning rejects it. |
 | `VNC_PASSWORD` | `vnc_password` | The Ubuntu VNC desktop login and VNC access code. VncAuth uses only the first 8 characters, so this authenticates as `vnc_pass`. A per-node password set on the canvas overrides it. |
 
 The container always listens on all interfaces internally; host-side exposure is controlled
