@@ -56,6 +56,8 @@ func main() {
 	mux.HandleFunc("POST /api/auth/login", app.handleLogin)
 	mux.HandleFunc("POST /api/auth/logout", app.handleLogout)
 	mux.HandleFunc("GET /api/me", app.handleMe)
+	mux.HandleFunc("GET /api/me/settings", app.handleGetSettings)
+	mux.HandleFunc("PUT /api/me/settings", app.handleUpdateSettings)
 
 	mux.HandleFunc("GET /api/users", app.requireAdmin(app.handleListUsers))
 	mux.HandleFunc("POST /api/users/{id}/approve", app.requireAdmin(app.handleUserStatus(StatusApproved)))

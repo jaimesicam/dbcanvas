@@ -118,6 +118,7 @@ CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, id D
 	// Best-effort migrations for columns added after initial release (ignore the
 	// "duplicate column name" error when they already exist).
 	db.Exec("ALTER TABLE deployments ADD COLUMN progress_json TEXT")
+	db.Exec("ALTER TABLE users ADD COLUMN settings_json TEXT")
 
 	return &Store{db: db}, nil
 }
@@ -240,6 +241,21 @@ func (s *Store) SetStatus(id int64, status string) (User, error) {
 // DeleteUser removes a user (cascading to their sessions).
 func (s *Store) DeleteUser(id int64) error {
 	_, err := s.db.Exec("DELETE FROM users WHERE id = ?", id)
+	return err
+}
+
+// UserSettings returns a user's raw settings JSON ("" when they have never saved any).
+func (s *Store) UserSettings(id int64) (string, error) {
+	var js sql.NullString
+	if err := s.db.QueryRow("SELECT settings_json FROM users WHERE id = ?", id).Scan(&js); err != nil {
+		return "", err
+	}
+	return js.String, nil
+}
+
+// SetUserSettings replaces a user's settings JSON.
+func (s *Store) SetUserSettings(id int64, js string) error {
+	_, err := s.db.Exec("UPDATE users SET settings_json = ? WHERE id = ?", js, id)
 	return err
 }
 

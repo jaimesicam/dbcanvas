@@ -29,6 +29,9 @@ function Code({ label, text }) {
 export default function OidcLoginGuide({ engine, info }) {
   if (!info || !info.enabled) return null
 
+  // No sign-in link here: the OAuth round-trip only completes in a browser that can resolve
+  // both PMM's and Keycloak's stack FQDNs — i.e. one running inside the stack network, not the
+  // host browser showing this page. Point the operator at the VNC desktop node instead.
   if (engine === 'pmm') {
     return (
       <div className="space-y-3">
@@ -39,15 +42,18 @@ export default function OidcLoginGuide({ engine, info }) {
           <span className="font-mono"> pmm-admins</span> group get the Grafana <b>Admin</b> role; everyone
           else is <b>Viewer</b>. Manage users/groups on the Keycloak node.
         </div>
-        <a href={info.loginUrl} target="_blank" rel="noreferrer"
-          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">
-          <Icon.External size={15} /> Open PMM sign-in
-        </a>
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-snug text-muted">
+          <span className="font-medium text-fg">Keycloak sign-in needs a browser inside the stack.</span> The
+          OAuth redirect goes to Keycloak's stack FQDN, which only the stack's Intranet DNS resolves —
+          your host browser cannot complete it. Add an <span className="font-medium">Ubuntu VNC</span> node
+          to the stack, open its desktop, and browse to <span className="font-mono">{info.loginUrl}</span> from
+          there. (Reaching PMM on its published host port shows the login page, but the Keycloak
+          round-trip still fails.)
+        </div>
         <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] text-muted">
           Sample Keycloak users (password: <span className="font-mono">KEYCLOAK_USER_PASSWORD</span> from <span className="font-mono">.env</span>):
           <span className="font-mono"> alice</span> (Admin) · <span className="font-mono">bob</span> (Viewer).
-          SSO works when reaching PMM at its stack FQDN (e.g. from a VNC desktop node); the built-in
-          <span className="font-mono"> admin</span> account still logs in directly.
+          The built-in <span className="font-mono">admin</span> account still logs in directly.
         </div>
       </div>
     )

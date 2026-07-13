@@ -538,12 +538,8 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			if n.ExportEnabled && n.ExportHostPort > 0 {
 				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
 			}
-			if n.Type == "psm" && n.EnableOIDC {
-				if !keycloakIDs[n.KeycloakNodeID] {
-					out = append(out, issue{"error", "PSMDB node " + n.Label + " has Keycloak OIDC enabled but is not linked to a Keycloak node — add a Keycloak node and select it"})
-				} else if !keycloakSSL[n.KeycloakNodeID] {
-					out = append(out, issue{"error", "PSMDB node " + n.Label + " uses Keycloak OIDC, which requires an HTTPS issuer — enable \"Use Intranet CA SSL\" on the Keycloak node"})
-				}
+			if n.Type == "psm" {
+				out = append(out, mongoOIDCIssues(n, keycloakIDs, keycloakSSL)...)
 			}
 			out = append(out, dirAuthIssues(n, dirNodes)...)
 		case "pg":

@@ -13,7 +13,10 @@ const TABS = [
   { id: 'cert', label: 'Certificate' },
 ]
 
-// PmmLdapTab explains how to sign in to PMM with a directory (LDAP) account.
+// PmmLdapTab explains how to sign in to PMM with a directory (LDAP) account. It shows the
+// login URL but does not link it: that URL is PMM's stack FQDN, which only resolves inside
+// the stack network (the Intranet DNS), so the link is dead from the host browser. Reach it
+// from the Access tab (host port) or from a VNC desktop node.
 function PmmLdapTab({ info }) {
   if (!info || !info.enabled) return null
   const dir = info.dirType === 'sambaad' ? 'Samba AD DC' : 'Intranet OpenLDAP'
@@ -26,10 +29,10 @@ function PmmLdapTab({ info }) {
         on first login with the Editor role. The built-in <span className="font-mono">admin</span> account
         still works. Manage users/groups on the directory node's LDAP tab.
       </div>
-      <a href={info.loginUrl} target="_blank" rel="noreferrer"
-        className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">
-        <Icon.External size={15} /> Open PMM sign-in
-      </a>
+      <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+        Open PMM from the <span className="font-medium">Access</span> tab (published host port), or at
+        <span className="font-mono"> {info.loginUrl}</span> from inside the stack network.
+      </div>
     </div>
   )
 }

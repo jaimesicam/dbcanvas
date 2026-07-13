@@ -1202,11 +1202,24 @@ function StackEditor({ stackId, onBack }) {
   //   standard → 3-node config RS + 3 shards × 3-node RS (13 nodes)
   //   minimum  → 1 config server + 3 single-node shard RS    (5 nodes)
   // Member labels: mongos (role mongos), cfgNN (role config), sNrM (role shard).
-  function psmdbMembers(fid, setup) {
+  // Labels become DNS hostnames and must be unique stack-wide, so a second sharded frame
+  // takes a "-2" suffix (mongos-2, cfg1-2, s0r1-2, …) — the lowest suffix that clears every
+  // label already used by psmdb members outside this frame. `others` = the nodes the new
+  // members will join (excludes the frame's own members when rebuilding).
+  function psmdbMembers(fid, setup, others) {
     const rs = setup === 'minimum' ? 1 : 3
     const cfgN = setup === 'minimum' ? 1 : 3
+    const base = ['mongos']
+    for (let i = 0; i < cfgN; i++) base.push(`cfg${i + 1}`)
+    for (let s = 0; s < 3; s++) {
+      for (let r = 0; r < rs; r++) base.push(`s${s}r${r + 1}`)
+    }
+    const used = new Set(others.filter((x) => x.type === 'psmdb' && x.frameId !== fid).map((x) => x.label))
+    let suffix = ''
+    for (let i = 2; base.some((b) => used.has(`${b}${suffix}`)); i++) suffix = `-${i}`
+
     const mk = (label, role, shard, slot) => {
-      const nd = { id: uid('psmdb'), type: 'psmdb', label, frameId: fid, role, _slot: slot, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
+      const nd = { id: uid('psmdb'), type: 'psmdb', label: `${label}${suffix}`, frameId: fid, role, _slot: slot, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
       if (shard !== undefined) nd.shard = shard
       return nd
     }
@@ -1234,7 +1247,7 @@ function StackEditor({ stackId, onBack }) {
       enablePBM: false, seaweedfsNodeId: '',
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
     }
-    const r = relayout(fid, [...frames, frame], [...nodes, ...psmdbMembers(fid, setup)])
+    const r = relayout(fid, [...frames, frame], [...nodes, ...psmdbMembers(fid, setup, nodes)])
     setFrames(r.frames)
     setNodes(r.nodes)
     setSelected({ kind: 'frame', id: fid })
@@ -1246,7 +1259,7 @@ function StackEditor({ stackId, onBack }) {
     const frame = frames.find((f) => f.id === frameId)
     if (!frame || frame.type !== 'psmdb') return
     const others = nodes.filter((n) => n.frameId !== frameId)
-    const r = relayout(frameId, frames.map((f) => (f.id === frameId ? { ...f, psmdbSetup: setup } : f)), [...others, ...psmdbMembers(frameId, setup)])
+    const r = relayout(frameId, frames.map((f) => (f.id === frameId ? { ...f, psmdbSetup: setup } : f)), [...others, ...psmdbMembers(frameId, setup, others)])
     setFrames(r.frames)
     setNodes(r.nodes)
   }
@@ -1626,7 +1639,7 @@ function StackEditor({ stackId, onBack }) {
     { title: 'MongoDB', items: [
       { label: 'PSMDB Sharded', type: 'psmdb', onClick: () => addMongoDBCluster() },
       { label: 'PSMDB Replica Set', type: 'psmrs', onClick: addMongoRSCluster },
-      { label: 'PSMDB Standalone', type: 'psm', onClick: () => addNode('psm') },
+      { label: 'PSMDB', type: 'psm', onClick: () => addNode('psm') },
     ] },
     { title: 'PostgreSQL', items: [
       { label: 'PostgreSQL', type: 'pg', onClick: () => addNode('pg') },
@@ -2673,12 +2686,13 @@ function MySQLMemberForm({ node: n, frame, nodes, patchNode, dep, deployed }) {
 // DirectoryAuthFields renders the "Directory authentication" design block shared by the
 // standalone Percona Server / PostgreSQL / PSMDB forms: an LDAP toggle, a directory picker
 // (Intranet OpenLDAP or Samba AD DC nodes in the stack), and — when kerberos is allowed and
-// a Samba directory is chosen — a Kerberos (GSSAPI) toggle. `ldapBlocked` (a message) greys
-// out the LDAP toggle when another feature on the node rules LDAP out.
-function DirectoryAuthFields({ node: n, nodes, patchNode, deployed, kerberos, ldapBlocked }) {
+// a Samba directory is chosen — a Kerberos (GSSAPI) toggle. `ldapBlocked` / `kerberosBlocked`
+// (messages) grey out the matching toggle when another feature on the node rules it out.
+function DirectoryAuthFields({ node: n, nodes, patchNode, deployed, kerberos, ldapBlocked, kerberosBlocked }) {
   const dirs = nodes.filter((x) => x.type === 'intranet' || x.type === 'sambaad')
   const hasSamba = nodes.some((x) => x.type === 'sambaad')
   const noLdap = deployed || dirs.length === 0 || !!ldapBlocked
+  const noKerberos = deployed || !hasSamba || !!kerberosBlocked
   return (
     <div className="space-y-2 rounded-lg border border-dashed p-2">
       <div className="text-xs font-medium text-muted">Directory authentication</div>
@@ -2702,11 +2716,12 @@ function DirectoryAuthFields({ node: n, nodes, patchNode, deployed, kerberos, ld
       {/* Kerberos — independent of LDAP; requires a Samba AD DC node in the stack */}
       {kerberos && (
         <>
-          <label className={`flex items-center gap-2 text-sm ${deployed || !hasSamba ? 'opacity-70' : ''}`}>
-            <input type="checkbox" checked={!!n.kerberosAuth} disabled={deployed || !hasSamba}
+          <label className={`flex items-center gap-2 text-sm ${noKerberos ? 'opacity-70' : ''}`}>
+            <input type="checkbox" checked={!!n.kerberosAuth} disabled={noKerberos}
               onChange={(e) => patchNode(n.id, { kerberosAuth: e.target.checked })} />
             <span>Kerberos (GSSAPI) single sign-on</span>
           </label>
+          {kerberosBlocked && <p className="text-xs text-muted">{kerberosBlocked}</p>}
           {!hasSamba && <p className="text-xs text-muted">Add a Samba AD DC node to enable Kerberos SSO.</p>}
         </>
       )}
@@ -4970,6 +4985,9 @@ function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
   const lock = deployed ? 'opacity-70' : ''
   const pmmNodes = nodes.filter((x) => x.type === 'pmm')
   const keycloakNodes = nodes.filter((x) => x.type === 'keycloak')
+  const dirAuthOn = !!n.ldapAuth || !!n.kerberosAuth
+  const dirAuthLabel = n.ldapAuth && n.kerberosAuth ? 'LDAP and Kerberos' : n.ldapAuth ? 'LDAP' : 'Kerberos'
+  const oidcBlocks = n.enableOIDC ? 'MongoDB cannot do directory authentication and Keycloak OIDC at once — turn off Keycloak SSO above to use LDAP or Kerberos.' : ''
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -5021,11 +5039,15 @@ function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
         </Field>
       )}
 
+      {/* Keycloak OIDC excludes LDAP/Kerberos on MongoDB: OIDC and directory auth each render
+          their own mongod.conf setParameter block, and mongod.conf can only carry one. LDAP and
+          Kerberos share a block, so those two coexist. */}
       <div className="rounded-md border border-border/60 p-2 space-y-2">
-        <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
-          <input type="checkbox" checked={!!n.enableOIDC} disabled={deployed} onChange={(e) => patchNode(n.id, { enableOIDC: e.target.checked })} />
+        <label className={`flex items-center gap-2 text-sm ${deployed || dirAuthOn ? 'opacity-70' : ''}`}>
+          <input type="checkbox" checked={!!n.enableOIDC} disabled={deployed || dirAuthOn} onChange={(e) => patchNode(n.id, { enableOIDC: e.target.checked })} />
           <span>Keycloak OIDC authentication (MONGODB-OIDC)</span>
         </label>
+        {dirAuthOn && <p className="text-xs text-muted">MongoDB cannot do directory authentication and Keycloak OIDC at once — turn off {dirAuthLabel} below to use Keycloak SSO.</p>}
         {n.enableOIDC && (
           <div className="space-y-2 pl-1">
             <Field label="Keycloak node" hint={keycloakNodes.length ? 'OIDC identity provider for this MongoDB.' : 'Add a Keycloak node first.'}>
@@ -5055,7 +5077,8 @@ function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
         )}
       </div>
 
-      <DirectoryAuthFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} kerberos={true} />
+      <DirectoryAuthFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} kerberos={true}
+        ldapBlocked={oidcBlocks} kerberosBlocked={oidcBlocks} />
 
       {!deployed && <p className="text-xs text-muted">Access links and credentials appear here after deploy.</p>}
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>

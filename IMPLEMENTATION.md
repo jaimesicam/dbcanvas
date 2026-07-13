@@ -6104,3 +6104,60 @@ matches on a separate `hostgssenc … gss` line (a Kerberos client connects with
   there and keep both.
 
 `go build`/`go vet` + `npm run build` clean; not deployed (user tests).
+
+## 128. MongoDB auth exclusivity, PMM/PSMDB SSO tabs, unique sharded labels, user settings — `app/mongodb.go`, `app/settings.go`, `app/store.go`, `StackDesigner.jsx`, `PMMManager.jsx`, `MongoDBManager.jsx`, `OidcLoginGuide.jsx`, `TerminalProvider.jsx`, `Settings.jsx`
+
+Six user-reported items, in one pass.
+
+**1. PSMDB: Keycloak OIDC excludes LDAP *and* Kerberos (LDAP + Kerberos still coexist).** §127 claimed
+PSMDB kept both options because they were "genuinely independent" there — that was wrong. LDAP and
+Kerberos share the single `# dbcanvas-dirauth` block that `mongoDirAuthScript` (dbauth.go) appends to
+mongod.conf (`authenticationMechanisms: …,PLAIN[,GSSAPI]`), so those two *are* fine together. But OIDC
+renders a `setParameter:` block of its own (`mongoOIDCSetParameter`), and mongod.conf cannot carry two
+`setParameter:` keys — enabling OIDC alongside either directory mechanism yields a config mongod won't
+load. New `mongoOIDCIssues` (mongodb.go) replaces the inline psm OIDC checks in `validateDesign` and
+errors on OIDC+LDAP, OIDC+Kerberos, and all three; `DirectoryAuthFields` grew a `kerberosBlocked` prop
+so the PSMDB form can grey out both directory toggles (and, in reverse, the OIDC toggle) with a reason.
+Covered by `TestMongoOIDCIssues` (mongodb_test.go), including the LDAP+Kerberos-is-legal cases.
+
+**2. PMM: no "Open PMM sign-in" button.** Both the LDAP tab (`PMMManager.jsx`) and the Keycloak guide
+(`OidcLoginGuide.jsx`) linked `info.loginUrl` — PMM's *stack* FQDN, resolvable only by the stack's
+Intranet DNS, so the link was dead from the host browser. The LDAP tab now points at the Access tab
+(published host port) and shows the FQDN as text. The Keycloak SSO tab additionally warns that the
+OAuth redirect targets Keycloak's stack FQDN, so sign-in only completes in a browser *inside* the
+stack — i.e. the Ubuntu VNC desktop node (§123).
+
+**3. PSMDB: Keycloak details moved to their own "Keycloak SSO" tab.** They were scattered across
+Overview (issuer/client/sample-user KVs), Access (the three mongosh OIDC invocations) and Credentials
+(the sample password), which read as part of "Directory Login". New `KeycloakSSOTab`
+(`MongoDBManager.jsx`) collects all of it; the tab shows only when `cfg.oidcEnabled`, mirroring how
+Directory Login shows only when `cfg.dirAuth.enabled`. The two mechanisms are now mutually exclusive
+(item 1), so the tabs never both appear.
+
+**4. Palette: "PSMDB Standalone" → "PSMDB".** The node metadata already said `PSMDB`; only the
+Infrastructure Library button disagreed.
+
+**5. Sharded PSMDB: member labels are unique per frame.** `psmdbMembers` hardcoded `mongos`, `cfgN`,
+`sNrM`, so a *second* sharded frame produced the same 13 labels as the first. Labels become DNS
+hostnames, so `validateDesign`'s duplicate-label check blocked the deploy. It now takes the nodes the
+members are joining and picks the lowest free suffix: the first frame keeps the bare names (existing
+designs unchanged), the second gets `mongos-2 / cfg1-2 / s0r1-2 …`, the third `-3`. `rebuildMongoCluster`
+passes the frame's *other* nodes, so a standard↔minimum switch keeps the frame's own suffix.
+
+**6. Per-user settings — terminal placement + theme.** New `settings.go`: `UserSettings`
+{`terminalMode` docked|undocked, `theme`} served at `GET`/`PUT /api/me/settings`, persisted in a
+`settings_json` column on `users` (best-effort `ALTER`, same pattern as `progress_json`). Unknown
+values normalize to the defaults (docked, dark), so a hand-edited row cannot wedge the UI. Stored per
+*account*, not per browser: a fresh login on another machine gets the same settings. Frontend:
+`SettingsProvider` loads them after auth and applies the theme (ThemeProvider's localStorage copy
+stays as the pre-fetch fallback that paints the login screen); the topbar `ThemePicker` now also saves
+its pick, so it and the Settings page can't disagree; `TerminalProvider.openTerminal` consults
+`terminalMode` and opens the session floating (cascaded via the extracted `floatRect`) when undocked.
+New `Settings` page in the left nav (`Icon.Settings` gear added).
+
+`go build`/`go vet`/`go test` + `npm run build` clean. Verified live against a scratch DB: settings
+API (401 unauth → defaults → persist → junk normalized → survives restart → fresh login sees them),
+and in a real browser (Playwright): the Settings page, and the PSMDB designer gating — baseline all
+three toggles free; OIDC on ⇒ LDAP + Kerberos greyed; LDAP on ⇒ OIDC greyed; LDAP + Kerberos together
+allowed. The PMM/PSMDB manager tabs (items 2–3) render only on deployed nodes and were not exercised
+live (user tests).

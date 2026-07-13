@@ -1192,6 +1192,34 @@ func mongoOIDCDefaults(n designNode) (realm, clientID, authClaim string) {
 	return
 }
 
+// mongoOIDCIssues validates a PSMDB node's Keycloak-SSO selection: a linked SSL-enabled
+// Keycloak (MONGODB-OIDC requires an HTTPS issuer), and no directory authentication
+// alongside it. LDAP and Kerberos share one `# dbcanvas-dirauth` setParameter block
+// (authenticationMechanisms PLAIN and/or GSSAPI) and so can be enabled together, but OIDC
+// renders a setParameter block of its own (mongoOIDCSetParameter) — mongod.conf cannot carry
+// two, so OIDC excludes both.
+func mongoOIDCIssues(n designNode, keycloakIDs, keycloakSSL map[string]bool) []issue {
+	if !n.EnableOIDC {
+		return nil
+	}
+	if !keycloakIDs[n.KeycloakNodeID] {
+		return []issue{{"error", "PSMDB node " + n.Label + " has Keycloak OIDC enabled but is not linked to a Keycloak node — add a Keycloak node and select it"}}
+	}
+	if !keycloakSSL[n.KeycloakNodeID] {
+		return []issue{{"error", "PSMDB node " + n.Label + " uses Keycloak OIDC, which requires an HTTPS issuer — enable \"Use Intranet CA SSL\" on the Keycloak node"}}
+	}
+	if n.LdapAuth && n.KerberosAuth {
+		return []issue{{"error", "PSMDB node " + n.Label + " has LDAP, Kerberos and Keycloak OIDC enabled — MongoDB cannot combine Keycloak OIDC with directory authentication (each needs its own mongod.conf setParameter block); turn off Keycloak SSO, or turn off both LDAP and Kerberos"}}
+	}
+	if n.LdapAuth {
+		return []issue{{"error", "PSMDB node " + n.Label + " has both LDAP and Keycloak OIDC enabled — MongoDB cannot use both (each needs its own mongod.conf setParameter block); turn one off"}}
+	}
+	if n.KerberosAuth {
+		return []issue{{"error", "PSMDB node " + n.Label + " has both Kerberos and Keycloak OIDC enabled — MongoDB cannot use both (each needs its own mongod.conf setParameter block); turn one off"}}
+	}
+	return nil
+}
+
 // mongoOIDCSetParameter renders the mongod.conf setParameter block enabling
 // MONGODB-OIDC against the given Keycloak identity provider. The audience equals the
 // clientId (per the Keycloak→PSMDB mapping); authNamePrefix is fixed to "keycloak"

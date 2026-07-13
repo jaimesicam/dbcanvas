@@ -12,6 +12,7 @@ const TABS = [
   { id: 'tls', label: 'TLS' },
   { id: 'creds', label: 'Credentials' },
   { id: 'dirlogin', label: 'Directory Login' },
+  { id: 'sso', label: 'Keycloak SSO' },
   { id: 'backup', label: 'Backup' },
 ]
 
@@ -96,7 +97,7 @@ export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDelete
       </div>
 
       <div className="flex flex-wrap gap-1 rounded-lg bg-surface2 p-1">
-        {TABS.filter((t) => (t.id !== 'backup' || hasBackup) && (t.id !== 'tls' || cfg.generateCert) && (t.id !== 'dirlogin' || cfg.dirAuth?.enabled)).map((t) => (
+        {TABS.filter((t) => (t.id !== 'backup' || hasBackup) && (t.id !== 'tls' || cfg.generateCert) && (t.id !== 'dirlogin' || cfg.dirAuth?.enabled) && (t.id !== 'sso' || cfg.oidcEnabled)).map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${tab === t.id ? 'bg-surface text-fg shadow' : 'text-muted'}`}>
             {t.label}
@@ -114,9 +115,7 @@ export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDelete
           {!isInternal && <KV k="Exported port" v={exportPort || 'not published'} />}
           <KV k="TLS" v={cfg.generateCert ? 'cert issued (see TLS tab)' : 'none'} />
           <KV k="Backups (PBM)" v={cfg.enablePBM ? (cfg.backupRepo || 'enabled') : 'disabled'} />
-          {cfg.oidcEnabled && <KV k="OIDC (Keycloak)" v={cfg.oidcIssuer} mono />}
-          {cfg.oidcEnabled && <KV k="OIDC client" v={`${cfg.oidcClientId || ''}${cfg.oidcUseAuthClaim ? ` · groups via ${cfg.oidcAuthClaim}` : ' · by username'}`} />}
-          {cfg.oidcEnabled && cfg.oidcSampleUsers && <KV k="Sample users" v={cfg.oidcSampleUsers} />}
+          {cfg.oidcEnabled && <KV k="Keycloak SSO" v="enabled (see Keycloak SSO tab)" />}
           <KV k="Monitored by" v={cfg.monitoredBy} mono />
           <KV k="Image" v={cfg.image} mono />
           <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
@@ -149,18 +148,7 @@ export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDelete
                 <div className="text-xs text-muted">Port not published to the host (enable export on this node to expose 27017).</div>
               )}
               <CopyRow label="In-cluster (from another container)" value={inClusterConn} />
-              {cfg.oidcEnabled && (
-                <div className="mt-2 space-y-1 border-t border-border/60 pt-2">
-                  <div className="text-[11px] text-muted">
-                    Keycloak OIDC — log in as a sample user (e.g. <span className="font-mono">alice</span>).
-                    From another host (e.g. the Ubuntu VNC desktop) add <span className="font-mono">--oidcTrustedEndpoint</span>,
-                    since mongosh otherwise only allows OIDC to localhost.
-                  </div>
-                  <CopyRow label="From the VNC desktop (auth-code, opens a browser)" value={`mongosh --host ${cfg.fqdn} --authenticationMechanism MONGODB-OIDC --oidcFlows auth-code --oidcTrustedEndpoint`} />
-                  <CopyRow label="Headless (device-auth, enter a code in a browser)" value={`mongosh --host ${cfg.fqdn} --authenticationMechanism MONGODB-OIDC --oidcFlows device-auth --oidcTrustedEndpoint`} />
-                  <CopyRow label="On the server itself (localhost, no flag needed)" value="mongosh --authenticationMechanism MONGODB-OIDC --oidcFlows device-auth" />
-                </div>
-              )}
+              {cfg.oidcEnabled && <div className="pt-1 text-[11px] text-muted">Signing in as a Keycloak user? See the <span className="font-medium">Keycloak SSO</span> tab.</div>}
             </>
           )}
         </div>
@@ -228,7 +216,6 @@ mongosh --tls --tlsCAFile ${dir}/ca.crt --tlsCertificateKeyFile client.pem \\
           {[
             { k: 'Admin user', v: sec.adminUser || 'admin' },
             { k: 'Admin password', v: sec.adminPassword },
-            ...(cfg.oidcEnabled && sec.oidcSamplePassword ? [{ k: 'Keycloak sample users password (alice / bob)', v: sec.oidcSamplePassword }] : []),
           ].map((r) => (
             <div key={r.k}>
               <div className="text-xs text-muted">{r.k}</div>
@@ -242,7 +229,61 @@ mongosh --tls --tlsCAFile ${dir}/ca.crt --tlsCertificateKeyFile client.pem \\
       )}
 
       {tab === 'dirlogin' && <DbLoginGuide engine="psm" info={cfg.dirAuth} />}
+      {tab === 'sso' && cfg.oidcEnabled && <KeycloakSSOTab cfg={cfg} sec={sec} />}
       {tab === 'backup' && hasBackup && <BackupTab stackId={stackId} frameId={frameId} cfg={cfg} sec={sec} />}
+    </div>
+  )
+}
+
+// KeycloakSSOTab — everything about MONGODB-OIDC logins on this node: the identity provider it
+// trusts, how users are authorized, the sample Keycloak accounts, and the mongosh invocations.
+// Kept apart from "Directory Login" (LDAP/Kerberos), which is a different mechanism and cannot
+// be enabled at the same time.
+function KeycloakSSOTab({ cfg, sec }) {
+  const mongosh = `mongosh --host ${cfg.fqdn} --authenticationMechanism MONGODB-OIDC`
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+        This node accepts Keycloak logins over <span className="font-mono">MONGODB-OIDC</span>. Every flow
+        opens a browser to Keycloak, so run mongosh where a browser is reachable — the
+        <span className="font-medium"> Ubuntu VNC</span> desktop node is the usual place. Manage users and
+        groups on the Keycloak node.
+      </div>
+
+      <div className="space-y-2 text-sm">
+        <KV k="Issuer" v={cfg.oidcIssuer} mono />
+        <KV k="Client ID" v={cfg.oidcClientId} mono />
+        <KV k="Authorization" v={cfg.oidcUseAuthClaim ? `by group claim (${cfg.oidcAuthClaim})` : 'by username ($external users)'} />
+        {cfg.oidcSampleUsers && <KV k="Sample users" v={cfg.oidcSampleUsers} />}
+      </div>
+
+      {sec.oidcSamplePassword && (
+        <div>
+          <div className="text-xs text-muted">Sample users password</div>
+          <div className="flex items-center gap-1 rounded-lg border bg-bg px-2 py-1.5">
+            <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{sec.oidcSamplePassword}</span>
+            <CopyButton text={sec.oidcSamplePassword} />
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-1">
+        <div className="text-[11px] text-muted">
+          Log in as a Keycloak user (e.g. <span className="font-mono">alice</span>). From any host other than
+          the server itself, mongosh needs <span className="font-mono">--oidcTrustedEndpoint</span> — it
+          otherwise only permits OIDC to localhost.
+        </div>
+        <CopyRow label="From the VNC desktop (auth-code, opens a browser)" value={`${mongosh} --oidcFlows auth-code --oidcTrustedEndpoint`} />
+        <CopyRow label="Headless (device-auth, enter a code in a browser)" value={`${mongosh} --oidcFlows device-auth --oidcTrustedEndpoint`} />
+        <CopyRow label="On the server itself (localhost, no flag needed)" value="mongosh --authenticationMechanism MONGODB-OIDC --oidcFlows device-auth" />
+      </div>
+
+      {!cfg.oidcUseAuthClaim && (
+        <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+          Authorization is by username: create each Keycloak user in the
+          <span className="font-mono"> $external</span> database before they can log in.
+        </div>
+      )}
     </div>
   )
 }

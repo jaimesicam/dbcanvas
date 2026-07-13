@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { Icon } from '../components/Icons.jsx'
+import { useSettings } from '../settings/SettingsProvider.jsx'
 
 // A top-level terminal manager. Because the provider (and its dock) live above
 // the page switch, xterm instances + their WebSockets stay mounted across
@@ -22,6 +23,11 @@ const loadLayout = () => {
   catch { return { height: 300 } }
 }
 
+// floatRect places a new floating window, cascading each one clear of the last.
+const floatRect = (floatingCount) => ({
+  x: 120 + (floatingCount % 6) * 28, y: 96 + (floatingCount % 6) * 28, w: 580, h: 320,
+})
+
 const XTERM_THEME = {
   background: '#0e1117', foreground: '#e6eaf2', cursor: '#6366f1',
   selectionBackground: '#33415580',
@@ -33,6 +39,8 @@ export function TerminalProvider({ children }) {
   const [open, setOpen] = useState(false)
   const termsRef = useRef(new Map()) // id -> {term, fit, ws, host, opened}
   const counter = useRef(0)
+  const { settings } = useSettings() // terminalMode: where a new session opens
+  const undocked = settings.terminalMode === 'undocked'
 
   const setStatus = useCallback((id, status) => {
     setSessions((ss) => ss.map((s) => (s.id === id ? { ...s, status } : s)))
@@ -72,10 +80,17 @@ export function TerminalProvider({ children }) {
     host.style.cssText = 'position:absolute;inset:0;padding:4px'
 
     termsRef.current.set(id, { term, fit, ws, host, opened: false })
-    setSessions((ss) => [...ss, { id, title: tabTitle, status: 'connecting', floating: false }])
-    setActiveId(id)
-    setOpen(true)
-  }, [setStatus])
+    // The user's terminalMode setting decides where the session lands: a dock tab (default) or
+    // its own floating window, cascaded like a detached one.
+    setSessions((ss) => [...ss, {
+      id, title: tabTitle, status: 'connecting', floating: undocked,
+      ...(undocked ? { float: floatRect(ss.filter((s) => s.floating).length) } : {}),
+    }])
+    if (!undocked) {
+      setActiveId(id)
+      setOpen(true)
+    }
+  }, [setStatus, undocked])
 
   const closeTerminal = useCallback((id) => {
     const t = termsRef.current.get(id)
@@ -98,7 +113,7 @@ export function TerminalProvider({ children }) {
     setSessions((ss) => {
       const floatingCount = ss.filter((s) => s.floating).length
       return ss.map((s) => (s.id === id
-        ? { ...s, floating: true, float: s.float || { x: 120 + (floatingCount % 6) * 28, y: 96 + (floatingCount % 6) * 28, w: 580, h: 320 } }
+        ? { ...s, floating: true, float: s.float || floatRect(floatingCount) }
         : s))
     })
   }, [])

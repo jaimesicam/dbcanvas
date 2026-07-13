@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAuth } from './auth/AuthProvider.jsx'
 import { useTheme, THEMES } from './theme/ThemeProvider.jsx'
+import { SettingsProvider, useSettings } from './settings/SettingsProvider.jsx'
 import { Icon } from './components/Icons.jsx'
 import { Badge, Button } from './components/ui.jsx'
 import { TerminalProvider } from './terminal/TerminalProvider.jsx'
@@ -13,6 +14,7 @@ import QueryRunner from './pages/QueryRunner.jsx'
 import Benchmark from './pages/Benchmark.jsx'
 import VisualSummary from './pages/VisualSummary.jsx'
 import ManageUsers from './pages/ManageUsers.jsx'
+import Settings from './pages/Settings.jsx'
 
 const NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: 'Dashboard', page: Dashboard, hint: 'Widgets & live charts' },
@@ -21,6 +23,7 @@ const NAV = [
   { id: 'queryrun', label: 'Query Runner', icon: 'Database', page: QueryRunner, hint: 'Run parallel queries with processlist gating' },
   { id: 'benchmark', label: 'Benchmark', icon: 'Monitor', page: Benchmark, hint: 'OLTP/OLAP/RW/RO throughput + latency' },
   { id: 'visual-summary', label: 'Visual Summary', icon: 'Monitor', page: VisualSummary, hint: 'Charts from a pt-stalk archive' },
+  { id: 'settings', label: 'Settings', icon: 'Settings', page: Settings, hint: 'Terminal & theme preferences' },
 ]
 const ADMIN_NAV = { id: 'users', label: 'Manage Users', icon: 'Users', page: ManageUsers, hint: 'Approve & manage accounts' }
 
@@ -64,6 +67,7 @@ export default function App() {
   const PageComponent = current.page
 
   return (
+    <SettingsProvider>
     <TerminalProvider>
     <div className="flex h-full bg-bg text-fg">
       <aside className={`flex flex-col border-r bg-surface transition-all ${collapsed ? 'w-[68px]' : 'w-60'}`}>
@@ -137,6 +141,7 @@ export default function App() {
       )}
     </div>
     </TerminalProvider>
+    </SettingsProvider>
   )
 }
 
@@ -177,8 +182,12 @@ function useOutsideClose(open, setOpen) {
   return ref
 }
 
+// ThemePicker switches the theme and saves it as the account's theme (Settings → Theme), so the
+// quick switch here and the Settings page can't disagree. A failed save is not worth interrupting
+// the user for: the theme still applies locally, and the Settings page reports save errors.
 function ThemePicker() {
   const { theme, setTheme } = useTheme()
+  const { save } = useSettings()
   const [open, setOpen] = useState(false)
   const ref = useOutsideClose(open, setOpen)
   return (
@@ -193,6 +202,7 @@ function ThemePicker() {
               key={t.id}
               onClick={() => {
                 setTheme(t.id)
+                save({ theme: t.id }).catch(() => { /* applied locally; Settings surfaces failures */ })
                 setOpen(false)
               }}
               className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm hover:bg-surface2"
