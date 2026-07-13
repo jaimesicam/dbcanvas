@@ -72,6 +72,7 @@ export default function MySQLManager({ stackId, nodeId, dep, onDeleteNode }) {
           <KV k="TLS" v={cfg.generateCert ? 'Intranet CA' : 'none'} />
           {cfg.vault?.enabled && <KV k="Encryption" v={`OpenBao · ${cfg.vault.method}`} />}
           <KV k="Monitored by" v={cfg.monitoredBy} mono />
+          {cfg.serverVersion && <KV k="Version" v={cfg.serverVersion} mono />}
           <KV k="Image" v={cfg.image} mono />
           {cfg.exportPort ? (
             <div>

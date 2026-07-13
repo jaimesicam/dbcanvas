@@ -84,6 +84,7 @@ function Overview({ cfg, dep, arbiter, onDeleteNode, onOpenTerminal }) {
       <KV k="Role" v={arbiter ? 'arbitrator (garbd)' : 'regular (data)'} />
       <KV k="FQDN" v={cfg.fqdn} mono />
       <KV k="server-id" v={cfg.serverId} />
+      {cfg.serverVersion && <KV k="Version" v={cfg.serverVersion} mono />}
       <KV k="Image" v={cfg.image} mono />
       <KV k="GTID" v={cfg.gtid ? 'on' : 'off'} />
       <KV k="TLS" v={cfg.generateCert ? 'Intranet CA' : 'none'} />

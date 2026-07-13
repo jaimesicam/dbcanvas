@@ -425,11 +425,55 @@ const addBtnStyle = (t) => {
 }
 const frameColor = (f) => FRAME_COLORS[f?.type] || '#a855f7'
 
-const osLabel = (type, os) => (NODE_TYPES[type]?.osOptions.find((o) => o.id === os)?.label) || os
+// osLabel is the OS line on a node's canvas card. It compacts "Oracle Linux 9" to "OL9" — the
+// cards are small, and this is the same shortening pxcOSLabel does for the nodes that carry their
+// own os/osVersion. The node's *form* still shows the full name (it renders osOptions directly).
+const osLabel = (type, os) => {
+  const label = (NODE_TYPES[type]?.osOptions.find((o) => o.id === os)?.label) || os || ''
+  return label.replace(/^Oracle Linux\s*/, 'OL')
+}
 
-// pxcOSLabel formats a PXC frame's OS family + version (e.g. "Oracle Linux 9").
-const PXC_OS_NAMES = { oraclelinux: 'Oracle Linux', ubuntu: 'Ubuntu', debian: 'Debian' }
-const pxcOSLabel = (f) => [PXC_OS_NAMES[f?.os] || f?.os, f?.osVersion].filter(Boolean).join(' ')
+// pxcOSLabel formats a node/frame's OS compactly for the canvas — "OL9", "Ubuntu 24.04". The
+// cards are small and the OS is the least interesting thing on them; the full name still appears
+// in the node's form.
+const PXC_OS_NAMES = { oraclelinux: 'OL', ubuntu: 'Ubuntu', debian: 'Debian' }
+const pxcOSLabel = (f) => {
+  const os = PXC_OS_NAMES[f?.os] || f?.os || ''
+  const ver = f?.osVersion || ''
+  // "OL" + "9" reads as one token (OL9); the others keep the space (Ubuntu 24.04).
+  return os === 'OL' ? `${os}${ver}` : [os, ver].filter(Boolean).join(' ')
+}
+
+// ENGINE_SHORT is what a deployed node calls its engine on the canvas, in front of the version it
+// actually deployed with: "PS 8.4.10-10", "PMM 3.3.1". Long marketing names ("Percona Monitoring &
+// Management") do not fit and say less than the version does.
+const ENGINE_SHORT = {
+  pxc: 'PXC', ps: 'PS', mysql: 'PS', innodb: 'PS',
+  psm: 'PSMDB', psmdb: 'PSMDB', psmrs: 'PSMDB',
+  pg: 'PG', patroni: 'PG', repmgr: 'PG', spock: 'PG',
+  proxysql: 'ProxySQL', haproxy: 'HAProxy',
+  valkey: 'Valkey', valkeycluster: 'Valkey',
+  pmm: 'PMM', openbao: 'OpenBao', keycloak: 'Keycloak',
+  seaweedfs: 'SeaweedFS', sambaad: 'Samba', vnc: 'Ubuntu', watchtower: 'Watchtower',
+}
+
+// frameDeployedLabel is the same for a cluster frame: the version its members actually deployed
+// with (they share one engine, so the first member that has been probed speaks for the frame).
+const frameDeployedLabel = (f, members, depByNode) => {
+  for (const m of members) {
+    const l = deployedLabel(m.type, depByNode[m.id])
+    if (l) return l
+  }
+  return ''
+}
+
+// deployedLabel is "<engine> <version>" once a node is running and its version has been probed
+// (dep.config.serverVersion, see app/nodeversion.go), else "" — callers fall back to the
+// design-time description.
+const deployedLabel = (type, dep) => {
+  const v = dep?.config?.serverVersion
+  return v ? `${ENGINE_SHORT[type] || ''} ${v}`.trim() : ''
+}
 
 // pxcVersionLabel formats a PXC frame's version for display (minor if pinned,
 // else the major series, e.g. "Percona XtraDB Cluster 8.0").
@@ -1859,7 +1903,7 @@ function StackEditor({ stackId, onBack }) {
                     <span style={{ color: col }}>{(Icon[fdef.icon] || Icon.Database)({ size: 15 })}</span>
                     <div className="min-w-0 flex-1 leading-tight">
                       <div className="truncate text-xs font-semibold text-fg">{f.label}</div>
-                      <div className="truncate text-[10px] text-muted">{frameVersionLabel(f)} · {kids.length} node{kids.length === 1 ? '' : 's'}</div>
+                      <div className="truncate text-[10px] text-muted">{frameDeployedLabel(f, kids, depByNode) || frameVersionLabel(f)} · {kids.length} node{kids.length === 1 ? '' : 's'}</div>
                     </div>
                     {/* PS MongoDB has a fixed topology — no add/remove controls. */}
                     {f.type !== 'psmdb' && (
@@ -1912,7 +1956,9 @@ function StackEditor({ stackId, onBack }) {
                               ) : null}
                             </div>
                             <div className="mt-0.5 truncate text-[10px] text-muted">{sub}</div>
-                            <div className="truncate text-[9px] font-medium text-fg/80">{f.type === 'valkeycluster' ? 'valkey/valkey-bundle' : `${pxcOSLabel(f)} · ${f.arch || 'amd64'}`}</div>
+                            <div className="truncate text-[9px] font-medium text-fg/80">
+                              {deployedLabel(n.type, dep) || (f.type === 'valkeycluster' ? 'valkey/valkey-bundle' : `${pxcOSLabel(f)} · ${f.arch || 'amd64'}`)}
+                            </div>
                             {n.exportEnabled && <div className="text-[9px] font-medium text-primary">⇅ export</div>}
                           </div>
                         </div>
@@ -1958,7 +2004,11 @@ function StackEditor({ stackId, onBack }) {
                             ) : null}
                           </span>
                         </div>
-                        <div className="mt-0.5 text-[11px] leading-snug text-muted">{def.sub}</div>
+                        {/* Once deployed, the engine + the version it actually installed with
+                            replaces the design-time blurb — that is what an operator looks for. */}
+                        <div className="mt-0.5 text-[11px] leading-snug text-muted">
+                          {deployedLabel(n.type, depByNode[n.id]) || def.sub}
+                        </div>
                         <div className="mt-1 text-[11px] font-medium text-fg/80">{nodeOSLabel(n)} · {n.arch || 'amd64'}</div>
                       </div>
                     </div>

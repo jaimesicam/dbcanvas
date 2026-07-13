@@ -81,6 +81,7 @@ function Overview({ cfg, dep, onDeleteNode }) {
   return (
     <div className="space-y-2 text-sm">
       <KV k="FQDN" v={cfg.fqdn} mono />
+      {cfg.serverVersion && <KV k="Version" v={cfg.serverVersion} mono />}
       <KV k="Image" v={cfg.image} mono />
       <KV k="Network alias" v={cfg.alias} mono />
       <KV k="Bucket" v={cfg.bucket} mono />

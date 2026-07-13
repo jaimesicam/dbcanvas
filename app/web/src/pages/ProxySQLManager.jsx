@@ -76,6 +76,7 @@ export default function ProxySQLManager({ stackId, nodeId, dep, onDeleteNode }) 
             ? (cfg.mode === 'primary' ? 'primary only' : 'read/write split')
             : (cfg.mode === 'loadbal' ? 'load balancer' : 'single writer')} />
           <KV k="FQDN" v={cfg.fqdn} mono />
+          {cfg.serverVersion && <KV k="Version" v={cfg.serverVersion} mono />}
           <KV k="Image" v={cfg.image} mono />
           <KV k="ProxySQL" v={`proxysql${cfg.major}${cfg.proxysqlVersion ? ` · ${cfg.proxysqlVersion}` : ''}`} />
           <KV k="Monitored by" v={cfg.monitoredBy} mono />

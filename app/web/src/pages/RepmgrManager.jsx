@@ -95,6 +95,7 @@ function Overview({ cfg, dep, onDeleteNode }) {
       <KV k="repmgr node_id" v={cfg.nodeId ? String(cfg.nodeId) : '—'} mono />
       <KV k="FQDN" v={cfg.fqdn} mono />
       <KV k="PostgreSQL" v={cfg.pgVersion || cfg.pgMajor} mono />
+      {cfg.serverVersion && <KV k="Version" v={cfg.serverVersion} mono />}
       <KV k="Image" v={cfg.image} mono />
       <KV k="Barman backups" v={cfg.useBarman ? (cfg.backupRepo || 'enabled') : 'disabled'} />
       <KV k="TLS" v={cfg.generateCert ? 'Intranet-CA cert' : 'off'} />

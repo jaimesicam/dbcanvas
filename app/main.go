@@ -28,6 +28,9 @@ type App struct {
 	// captures holds the state of in-flight/completed on-node diagnostic captures
 	// (pg_gather / pt-stalk), keyed by stack/node/kind. See diag.go.
 	captures sync.Map
+	// versionProbes holds the in-flight "what version actually got deployed" probes
+	// (nodeID -> true), so a polling UI cannot pile them up. See nodeversion.go.
+	versionProbes sync.Map
 	// deploys holds the in-flight provisioning run per stack
 	// (stackID -> *deployRun), so destroy can cancel it and wait for the
 	// provisioners to exit before removing containers. See deployrun.go.

@@ -116,7 +116,9 @@ function Overview({ cfg, dep, onDeleteNode, onRootConsole, onPmmConsole }) {
     <div className="space-y-2 text-sm">
       <KV k="FQDN" v={cfg.fqdn} mono />
       <KV k="Image" v={cfg.image} mono />
-      <KV k="Version" v={cfg.version} />
+      {/* The version PMM actually deployed with (probed on the node), falling back to the tag
+          that was requested — "latest" only resolves to something concrete once it is running. */}
+      <KV k="Version" v={cfg.serverVersion || cfg.version} mono />
       <KV k="Arch" v={cfg.arch} />
       <KV k="Network alias" v={cfg.alias} mono />
       <KV k="Grafana SMTP" v={cfg.smtpHost} mono />

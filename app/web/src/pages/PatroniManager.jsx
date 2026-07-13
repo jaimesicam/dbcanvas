@@ -93,6 +93,7 @@ function Overview({ cfg, dep, onDeleteNode }) {
       <KV k="Role" v={cfg.role === 'leader' ? 'Leader (primary)' : 'Replica'} />
       <KV k="FQDN" v={cfg.fqdn} mono />
       <KV k="PostgreSQL" v={cfg.pgVersion || cfg.pgMajor} mono />
+      {cfg.serverVersion && <KV k="Version" v={cfg.serverVersion} mono />}
       <KV k="Image" v={cfg.image} mono />
       <KV k="etcd endpoints" v={(cfg.etcdEndpoints || []).length ? `${(cfg.etcdEndpoints || []).length} member(s)` : '—'} />
       <KV k="pgBackRest" v={cfg.usePgBackRest ? (cfg.backupRepo || 'enabled') : 'disabled'} />

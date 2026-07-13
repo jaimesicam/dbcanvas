@@ -120,6 +120,7 @@ export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDelete
           {cfg.oidcEnabled && <KV k="Keycloak SSO" v="enabled (see Keycloak SSO tab)" />}
           {cfg.vault?.enabled && <KV k="Encryption at rest" v={`OpenBao · ${cfg.vault.mount}`} />}
           <KV k="Monitored by" v={cfg.monitoredBy} mono />
+          {cfg.serverVersion && <KV k="Version" v={cfg.serverVersion} mono />}
           <KV k="Image" v={cfg.image} mono />
           <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
           <Button variant="outline" size="sm" className="mt-2 w-full" onClick={() => openTerminal({ stackId, nodeId, title: `${cfg.hostname} · root` })}>

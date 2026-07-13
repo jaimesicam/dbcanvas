@@ -79,6 +79,7 @@ export default function InnoDBManager({ stackId, nodeId, dep, onDeleteNode }) {
           <KV k="MySQL Router" v={cfg.router ? 'on each node' : 'off'} />
           <KV k="TLS" v={cfg.generateCert ? 'Intranet CA' : 'none'} />
           <KV k="Monitored by" v={cfg.monitoredBy} mono />
+          {cfg.serverVersion && <KV k="Version" v={cfg.serverVersion} mono />}
           <KV k="Image" v={cfg.image} mono />
           <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
           <Button variant="outline" size="sm" className="mt-2 w-full" onClick={() => openTerminal({ stackId, nodeId, title: `${cfg.hostname} · root` })}>

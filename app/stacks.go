@@ -136,6 +136,9 @@ func (a *App) handleGetStack(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to read deployments")
 		return
 	}
+	// Fill in the version each running node actually deployed with (once per node, in the
+	// background — it shows up on the next poll). See nodeversion.go.
+	a.ensureNodeVersions(st, deps)
 	writeJSON(w, http.StatusOK, stackDetail{Stack: st, Deployments: deps})
 }
 

@@ -140,6 +140,7 @@ export default function OpenBaoManager({ dep, stackId, nodeId, onDeleteNode }) {
           <KV k="Seal state" v={seal
             ? `${seal.initialized ? 'initialized' : 'not initialized'} · ${seal.sealed ? 'sealed' : 'unsealed'}`
             : (cfg.initted ? 'initialized' : 'not initialized')} />
+          {cfg.serverVersion && <KV k="Version" v={cfg.serverVersion} mono />}
           <KV k="Image" v={cfg.image} mono />
           <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
           <p className="pt-1 text-[11px] text-muted">

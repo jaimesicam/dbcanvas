@@ -6283,3 +6283,38 @@ containers on one network, all trusting the one CA; OpenBao 2.5.5 with TLS):
 
 Both live-caught bugs (my.cnf.d being ignored; the component config path + the too-loose Active
 check) are pinned by `TestMySQLKeyringScriptsUseTheRightFiles`.
+
+## 131. Nodes show the version they actually deployed with — `app/nodeversion.go`, `StackDesigner.jsx`, managers
+
+A node's design only records what was *asked* for ("8.0", or "" for latest). On a running node the
+operator wants what actually got installed, so each running node is now probed once for its
+engine's version banner and the answer is persisted into the deployment config as `serverVersion`.
+
+**Lazy, central probe.** `ensureNodeVersions` runs off `handleGetStack` (which the designer already
+polls) in the background: for each running node with no recorded version it execs the engine's
+version command (`mysqld --version`, `mongod --version`, `psql --version`, `bao version`,
+`pmm-admin --version`, …) and parses the first version-shaped token out of the banner. One
+integration point instead of a step in all fifteen provisioners — and it also backfills stacks that
+were deployed before this existed. Pulled-image nodes with no useful CLI (Keycloak, Watchtower)
+fall back to their image tag, but only when the tag *is* a version ("latest" says nothing). A
+fruitless probe (an engine still starting) is retried no more than once per `versionProbeCooldown`,
+so a polling UI cannot turn it into an exec per second.
+
+**Display.** On the canvas a deployed node's description line becomes `<engine> <version>` —
+"PS 8.4.10-10", "PMM 3.3.1", "PSMDB 8.0.26-11" — replacing the design-time blurb ("Percona Server
+(standalone)", "Percona Monitoring & Management"), which says less than the version does. Cluster
+frames show the version their members deployed with, and each member card carries it too. OS labels
+are compacted for the cards ("OL9" instead of "Oracle Linux 9"); the full name still appears in the
+node's form. The **Intranet node is deliberately left alone** — it runs a dozen services and its
+service list is the useful thing to show. Undeployed nodes keep their descriptive blurb, since
+there is no version yet.
+
+Every manager's Overview grew a **Version** row (the probed version); PMM's existing Version row now
+prefers the probed value over the requested tag.
+
+`go build`/`go vet`/`go test` + `npm run build` clean. `TestParseVersionBanner` pins the parser
+against banners captured from the real engines (PS 8.4.10-10 / 8.0.46-37, PSMDB 8.0.26-11, OpenBao
+2.5.5-1.el9, PostgreSQL 16.10, ProxySQL, HAProxy, Valkey, Samba, PMM). Verified in a browser against
+seeded running deployments: the canvas shows "PS 8.4.10-10", "PMM 3.3.1" and "PXC 8.0.43-34.1" (frame
+header + member), OS reads "OL9", the node's properties show the deployed Version, and the Intranet
+node is unchanged.

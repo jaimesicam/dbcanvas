@@ -100,6 +100,7 @@ function Overview({ cfg, dep, onDeleteNode }) {
     <div className="space-y-2 text-sm">
       <KV k="FQDN" v={cfg.fqdn} mono />
       <KV k="PostgreSQL" v={cfg.pgVersion || cfg.pgMajor} mono />
+      {cfg.serverVersion && <KV k="Version" v={cfg.serverVersion} mono />}
       <KV k="Image" v={cfg.image} mono />
       <KV k="Role" v="standalone (read/write)" />
       <KV k="pgBackRest" v={cfg.usePgBackRest ? (cfg.backupRepo || 'enabled') : 'disabled'} />
