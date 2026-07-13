@@ -6318,3 +6318,35 @@ against banners captured from the real engines (PS 8.4.10-10 / 8.0.46-37, PSMDB 
 seeded running deployments: the canvas shows "PS 8.4.10-10", "PMM 3.3.1" and "PXC 8.0.43-34.1" (frame
 header + member), OS reads "OL9", the node's properties show the deployed Version, and the Intranet
 node is unchanged.
+
+## 132. Credentials are masked everywhere, not just on OpenBao — `components/Secret.jsx` + every manager
+
+The OpenBao node masked its unseal keys and root token behind a reveal toggle; every other node
+printed its passwords in clear text, so opening a Credentials tab in a screen-share or a demo
+leaked them. The OpenBao component is now shared and used by all of them.
+
+`components/Secret.jsx` exports `SecretValue` (the boxed masked value — the same box the plain
+rows use, so masked and clear rows line up), `SecretInline` (for the compact "label … value" rows
+the Keycloak/VNC/Valkey panels use) and `SecretRow`. **Copy works while the value is still
+masked** — that is the common case (paste it into a client), so revealing is only ever needed to
+*read* a secret, never to use one. Reveal is per-value: unmasking one row leaves the others masked.
+
+Applied to every node that shows a credential: PXC / Percona Server / MySQL replication / InnoDB
+(root, app, repl, monitor, cluster passwords), PostgreSQL / Patroni / repmgr / Spock (superuser +
+replication passwords, **and the psql URIs that embed them**), PSMDB (admin password, Keycloak
+sample-user password), ProxySQL, PMM, Intranet (LDAP + mail admin passwords), Samba AD DC (admin +
+bind passwords), SeaweedFS (S3 secret key), Keycloak, Ubuntu VNC and Valkey (whose connect commands
+now mask the password in place while still copying whole). SeaweedFS's backup snippets embed the S3
+secret key, so `Snippet` blanks the key out of the *displayed* config while the copy still carries
+it — the same copy-without-revealing contract.
+
+The Icons set gained `Eye`/`EyeOff`; OpenBao's local `Secret` (which had borrowed the magnifier
+icon) was deleted in favour of the shared one.
+
+Not masked, deliberately: the `ldapsearch` commands on the Intranet/Samba panels are built only as
+clipboard text and never rendered on screen.
+
+`npm run build` + `go test` clean. Verified in a browser against seeded credentials: passwords are
+dots by default, the copy button yields the real secret **while masked**, reveal shows one value
+without unmasking its neighbours, hide re-masks, and OpenBao's keys/token plus SeaweedFS's snippets
+behave the same.

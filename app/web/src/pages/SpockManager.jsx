@@ -4,6 +4,7 @@ import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE } from '../lib/stackApi.js'
 import { PGGatherCard } from '../components/Diagnostics.jsx'
 import PGCertTab from '../components/PGCertTab.jsx'
+import { SecretValue } from '../components/Secret.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -33,15 +34,19 @@ function KV({ k, v, mono }) {
   )
 }
 
-function Row({ k, v }) {
+// `secret` masks the value behind a reveal toggle — passwords, and the connection URIs that
+// embed them.
+function Row({ k, v, secret }) {
   if (!v) return null
   return (
     <div>
       <div className="text-xs text-muted">{k}</div>
-      <div className="flex items-center gap-1 rounded-lg border bg-bg px-2 py-1.5">
-        <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{v}</span>
-        <CopyButton text={v} />
-      </div>
+      {secret ? <SecretValue value={v} /> : (
+        <div className="flex items-center gap-1 rounded-lg border bg-bg px-2 py-1.5">
+          <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{v}</span>
+          <CopyButton text={v} />
+        </div>
+      )}
     </div>
   )
 }
@@ -122,12 +127,12 @@ function Creds({ cfg, sec }) {
       <div className="space-y-2">
         <div className="text-xs font-medium text-muted">Superuser</div>
         <Row k="Username" v={sec.superUser || 'postgres'} />
-        <Row k="Password" v={sec.superPassword} />
+        <Row k="Password" v={sec.superPassword} secret />
       </div>
       {conn && (
         <div className="space-y-2">
           <div className="text-xs font-medium text-muted">Connection (published host port)</div>
-          <Row k="psql URI" v={conn} />
+          <Row k="psql URI" v={conn} secret />
         </div>
       )}
       <div className="space-y-2">

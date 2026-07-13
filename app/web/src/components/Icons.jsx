@@ -59,6 +59,21 @@ export const Icon = {
       <circle cx="15" cy="16" r="2.4" fill="var(--surface)" />
     </Svg>
   ),
+  // Eye / EyeOff: reveal or hide a masked secret.
+  Eye: (p) => (
+    <Svg {...p}>
+      <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6Z" />
+      <circle cx="12" cy="12" r="2.8" />
+    </Svg>
+  ),
+  EyeOff: (p) => (
+    <Svg {...p}>
+      <path d="M4 4l16 16" />
+      <path d="M9.6 5.4A10.5 10.5 0 0 1 12 6c6.4 0 10 6 10 6a17.6 17.6 0 0 1-3.4 3.9" />
+      <path d="M6.4 7.6A17.4 17.4 0 0 0 2 12s3.6 6 10 6a10.9 10.9 0 0 0 3.2-.5" />
+      <path d="M9.9 9.9a2.8 2.8 0 0 0 3.9 3.9" />
+    </Svg>
+  ),
   // Vault: a safe door — dial + handle spokes (OpenBao secrets manager).
   Vault: (p) => (
     <Svg {...p}>

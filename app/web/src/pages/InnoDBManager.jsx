@@ -4,6 +4,7 @@ import { Icon } from '../components/Icons.jsx'
 import { PTStalkCard } from '../components/Diagnostics.jsx'
 import { DEPLOY_TONE } from '../lib/stackApi.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
+import { SecretValue } from '../components/Secret.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -110,20 +111,24 @@ export default function InnoDBManager({ stackId, nodeId, dep, onDeleteNode }) {
           <div className="text-[11px] text-muted">App/monitor/cluster passwords come from the host .env.</div>
           {[
             { k: 'Root user', v: sec.rootUser || 'root' },
-            { k: 'Root password', v: sec.rootPassword },
+            { k: 'Root password', v: sec.rootPassword, secret: true },
             { k: 'App user', v: sec.appUser || 'app' },
-            { k: 'App password', v: sec.appPassword },
+            { k: 'App password', v: sec.appPassword, secret: true },
             { k: 'Monitor user', v: sec.monitorUser || 'monitor' },
-            { k: 'Monitor password', v: sec.monitorPassword },
+            { k: 'Monitor password', v: sec.monitorPassword, secret: true },
             { k: 'Cluster user', v: sec.clusterUser || 'cluster' },
-            { k: 'Cluster password', v: sec.clusterPassword },
+            { k: 'Cluster password', v: sec.clusterPassword, secret: true },
           ].map((r) => (
             <div key={r.k}>
               <div className="text-xs text-muted">{r.k}</div>
-              <div className="flex items-center gap-1 rounded-lg border bg-bg px-2 py-1.5">
-                <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{r.v || '—'}</span>
-                {r.v && <CopyButton text={r.v} />}
-              </div>
+              {r.secret
+                ? <SecretValue value={r.v} />
+                : (
+                  <div className="flex items-center gap-1 rounded-lg border bg-bg px-2 py-1.5">
+                    <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{r.v || '—'}</span>
+                    {r.v && <CopyButton text={r.v} />}
+                  </div>
+                )}
             </div>
           ))}
         </div>

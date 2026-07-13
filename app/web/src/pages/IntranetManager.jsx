@@ -4,6 +4,7 @@ import { Icon } from '../components/Icons.jsx'
 import DbLdapAuthGuide from '../components/DbLdapAuthGuide.jsx'
 import { intranetApi, DEPLOY_TONE } from '../lib/stackApi.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
+import { SecretValue } from '../components/Secret.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -548,19 +549,23 @@ function DBCertTab({ api, domain }) {
 function CredsTab({ sec }) {
   const rows = [
     { k: 'LDAP admin DN', v: sec.ldapAdminDN },
-    { k: 'LDAP admin password', v: sec.ldapAdminPassword },
+    { k: 'LDAP admin password', v: sec.ldapAdminPassword, secret: true },
     { k: 'Mail admin user', v: sec.mailAdminUser },
-    { k: 'Mail admin password', v: sec.mailAdminPassword },
+    { k: 'Mail admin password', v: sec.mailAdminPassword, secret: true },
   ]
   return (
     <div className="space-y-2">
       {rows.map((r) => (
         <div key={r.k}>
           <div className="text-xs text-muted">{r.k}</div>
-          <div className="flex items-center gap-1 rounded-lg border bg-bg px-2 py-1.5">
-            <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{r.v || '—'}</span>
-            {r.v && <CopyButton text={r.v} />}
-          </div>
+          {r.secret
+            ? <SecretValue value={r.v} />
+            : (
+              <div className="flex items-center gap-1 rounded-lg border bg-bg px-2 py-1.5">
+                <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{r.v || '—'}</span>
+                {r.v && <CopyButton text={r.v} />}
+              </div>
+            )}
         </div>
       ))}
     </div>

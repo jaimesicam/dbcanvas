@@ -6,6 +6,7 @@ import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import DbLoginGuide from '../components/DbLoginGuide.jsx'
 import VaultGuide from '../components/VaultGuide.jsx'
 import MongoCertReissue from '../components/MongoCertReissue.jsx'
+import { SecretValue } from '../components/Secret.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -219,14 +220,18 @@ mongosh --tls --tlsCAFile ${dir}/ca.crt --tlsCertificateKeyFile client.pem \\
           <div className="text-[11px] text-muted">Cluster admin (root) credentials. The internal-auth keyFile is not surfaced.</div>
           {[
             { k: 'Admin user', v: sec.adminUser || 'admin' },
-            { k: 'Admin password', v: sec.adminPassword },
+            { k: 'Admin password', v: sec.adminPassword, secret: true },
           ].map((r) => (
             <div key={r.k}>
               <div className="text-xs text-muted">{r.k}</div>
-              <div className="flex items-center gap-1 rounded-lg border bg-bg px-2 py-1.5">
-                <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{r.v || '—'}</span>
-                {r.v && <CopyButton text={r.v} />}
-              </div>
+              {r.secret
+                ? <SecretValue value={r.v} />
+                : (
+                  <div className="flex items-center gap-1 rounded-lg border bg-bg px-2 py-1.5">
+                    <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{r.v || '—'}</span>
+                    {r.v && <CopyButton text={r.v} />}
+                  </div>
+                )}
             </div>
           ))}
         </div>
@@ -265,10 +270,7 @@ function KeycloakSSOTab({ cfg, sec }) {
       {sec.oidcSamplePassword && (
         <div>
           <div className="text-xs text-muted">Sample users password</div>
-          <div className="flex items-center gap-1 rounded-lg border bg-bg px-2 py-1.5">
-            <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{sec.oidcSamplePassword}</span>
-            <CopyButton text={sec.oidcSamplePassword} />
-          </div>
+          <SecretValue value={sec.oidcSamplePassword} />
         </div>
       )}
 

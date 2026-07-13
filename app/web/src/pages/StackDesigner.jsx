@@ -19,6 +19,7 @@ import PGManager from './PGManager.jsx'
 import RepmgrManager from './RepmgrManager.jsx'
 import SpockManager from './SpockManager.jsx'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
+import { SecretInline, CopyButton as CopyBtn } from '../components/Secret.jsx'
 import {
   PORTS, dist, portPoint, edgePath, screenToWorld, zoomAt,
 } from '../lib/canvas.js'
@@ -3507,7 +3508,7 @@ function KeycloakManager({ dep, onDeleteNode }) {
         <div className="flex justify-between gap-3"><span className="text-muted">TLS</span><span className="font-mono text-xs">{cfg.ssl ? 'Intranet CA' : 'none (HTTP)'}</span></div>
         <div className="flex justify-between gap-3"><span className="text-muted">Admin user</span><span className="font-mono text-xs">{cfg.adminUser || 'admin'}</span></div>
         {sec.adminPassword && (
-          <div className="flex justify-between gap-3"><span className="text-muted">Admin password</span><span className="break-all font-mono text-xs">{sec.adminPassword}</span></div>
+          <div className="flex justify-between gap-3"><span className="text-muted">Admin password</span><SecretInline value={sec.adminPassword} /></div>
         )}
       </div>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
@@ -3598,7 +3599,7 @@ function VNCManager({ dep, onDeleteNode }) {
         {cfg.webPort ? <div className="flex justify-between gap-3"><span className="text-muted">Web desktop</span><span className="font-mono text-xs">{host}:{cfg.webPort}/vnc.html</span></div> : null}
         <div className="flex justify-between gap-3"><span className="text-muted">Desktop user</span><span className="font-mono text-xs">{cfg.vncUser || 'dbadmin'} (sudo)</span></div>
         {sec.vncPassword && (
-          <div className="flex justify-between gap-3"><span className="text-muted">VNC password</span><span className="break-all font-mono text-xs">{sec.vncPassword}</span></div>
+          <div className="flex justify-between gap-3"><span className="text-muted">VNC password</span><SecretInline value={sec.vncPassword} /></div>
         )}
       </div>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
@@ -3679,12 +3680,24 @@ function ValkeyManager({ dep, onDeleteNode }) {
         <div className="flex justify-between gap-3"><span className="text-muted">LDAP</span><span className="font-mono text-xs">{cfg.useLdap ? (cfg.ldapServers || 'enabled') : 'disabled'}</span></div>
         {cfg.exportPort ? <div className="flex justify-between gap-3"><span className="text-muted">Exported port</span><span className="font-mono text-xs">{host}:{cfg.exportPort}</span></div> : null}
         <div className="flex justify-between gap-3"><span className="text-muted">Monitored by</span><span className="font-mono text-xs">{cfg.monitoredBy || '—'}</span></div>
-        {sec.password && <div className="flex justify-between gap-3"><span className="text-muted">Default password</span><span className="break-all font-mono text-xs">{sec.password}</span></div>}
+        {sec.password && <div className="flex justify-between gap-3"><span className="text-muted">Default password</span><SecretInline value={sec.password} /></div>}
       </div>
       <div className="rounded-lg bg-surface2 px-3 py-2 text-xs space-y-1">
         <div className="text-muted">Connect as the default user ({clusterFlag ? 'cluster mode' : 'direct'}):</div>
-        {cfg.exportPort ? <div className="break-all font-mono">valkey-cli {clusterFlag}-h {host} -p {cfg.exportPort} -a '{sec.password || ''}'</div> : null}
-        <div className="break-all font-mono">valkey-cli {clusterFlag}-h {cfg.fqdn} -p 6379 -a '{sec.password || ''}'  <span className="text-muted">(in-cluster)</span></div>
+        {/* The password is masked in place — the whole command still copies with it. */}
+        {cfg.exportPort ? (
+          <div className="flex flex-wrap items-center gap-1 font-mono">
+            <span>valkey-cli {clusterFlag}-h {host} -p {cfg.exportPort} -a '</span>
+            <SecretInline value={sec.password} /><span>'</span>
+            <CopyBtn text={`valkey-cli ${clusterFlag}-h ${host} -p ${cfg.exportPort} -a '${sec.password || ''}'`} />
+          </div>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-1 font-mono">
+          <span>valkey-cli {clusterFlag}-h {cfg.fqdn} -p 6379 -a '</span>
+          <SecretInline value={sec.password} /><span>'</span>
+          <CopyBtn text={`valkey-cli ${clusterFlag}-h ${cfg.fqdn} -p 6379 -a '${sec.password || ''}'`} />
+          <span className="text-muted">(in-cluster)</span>
+        </div>
       </div>
       {cfg.useLdap && (
         <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs space-y-1">

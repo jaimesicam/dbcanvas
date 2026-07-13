@@ -3,6 +3,7 @@ import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE } from '../lib/stackApi.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
+import { SecretValue } from '../components/Secret.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -32,14 +33,16 @@ function KV({ k, v, mono }) {
   )
 }
 
-function CopyRow({ label, value }) {
+function CopyRow({ label, value, secret }) {
   return (
     <div>
       <div className="text-xs text-muted">{label}</div>
-      <div className="flex items-center gap-1 rounded-lg border bg-bg px-2 py-1.5">
-        <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{value || '—'}</span>
-        {value && <CopyButton text={value} />}
-      </div>
+      {secret ? <SecretValue value={value} /> : (
+        <div className="flex items-center gap-1 rounded-lg border bg-bg px-2 py-1.5">
+          <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{value || '—'}</span>
+          {value && <CopyButton text={value} />}
+        </div>
+      )}
     </div>
   )
 }
@@ -109,13 +112,13 @@ export default function ProxySQLManager({ stackId, nodeId, dep, onDeleteNode }) 
         <div className="space-y-2">
           <div className="text-[11px] text-muted">App/monitor/cluster credentials come from the linked PXC cluster (passwords from .env).</div>
           <CopyRow label="Admin user (6032)" value={sec.adminUser || 'admin'} />
-          <CopyRow label="Admin password" value={sec.adminPassword} />
+          <CopyRow label="Admin password" value={sec.adminPassword} secret />
           <CopyRow label="App user (6033)" value={sec.appUser || 'app'} />
-          <CopyRow label="App password" value={sec.appPassword} />
+          <CopyRow label="App password" value={sec.appPassword} secret />
           <CopyRow label="Monitor user" value={sec.monitorUser || 'monitor'} />
-          <CopyRow label="Monitor password" value={sec.monitorPassword} />
+          <CopyRow label="Monitor password" value={sec.monitorPassword} secret />
           <CopyRow label="Cluster user (CLUSTER_USERNAME)" value={sec.clusterUser || 'cluster'} />
-          <CopyRow label="Cluster password" value={sec.clusterPassword} />
+          <CopyRow label="Cluster password" value={sec.clusterPassword} secret />
         </div>
       )}
     </div>

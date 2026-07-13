@@ -3,6 +3,7 @@ import { Button, Badge, Field, ConfirmButton, inputCls } from '../components/ui.
 import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE, sambaApi } from '../lib/stackApi.js'
 import DbLdapAuthGuide from '../components/DbLdapAuthGuide.jsx'
+import { SecretValue } from '../components/Secret.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -21,9 +22,17 @@ function KV({ k, v, mono }) {
     </div>
   )
 }
-function Row({ k, v }) {
+function Row({ k, v, secret }) {
   const [done, setDone] = useState(false)
   if (!v) return null
+  if (secret) {
+    return (
+      <div>
+        <div className="text-xs text-muted">{k}</div>
+        <SecretValue value={v} />
+      </div>
+    )
+  }
   return (
     <div>
       <div className="text-xs text-muted">{k}</div>
@@ -288,13 +297,13 @@ function Creds({ cfg, sec }) {
       <div className="space-y-2">
         <div className="text-xs font-medium text-muted">Domain administrator</div>
         <Row k="Username" v={cfg.adminUser || 'Administrator'} />
-        <Row k="Password" v={sec.adminPassword} />
+        <Row k="Password" v={sec.adminPassword} secret />
         <p className="text-[11px] text-muted">From <span className="font-mono">SAMBA_PASSWORD</span>. Bind DN for admin: <span className="font-mono">{cfg.adminUser}@{cfg.domain}</span></p>
       </div>
       <div className="space-y-2">
         <div className="text-xs font-medium text-muted">LDAP bind account (for DB auth)</div>
         <Row k="Bind DN" v={cfg.bindDN} />
-        <Row k="Bind password" v={sec.bindPassword} />
+        <Row k="Bind password" v={sec.bindPassword} secret />
       </div>
     </div>
   )

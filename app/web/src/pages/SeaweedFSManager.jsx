@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE } from '../lib/stackApi.js'
+import { SecretValue } from '../components/Secret.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -103,8 +104,16 @@ function Overview({ cfg, dep, onDeleteNode }) {
 
 // ----------------------------------------------------------------- access tab
 
-function Row({ k, v, link }) {
+function Row({ k, v, link, secret }) {
   if (!v) return null
+  if (secret) {
+    return (
+      <div>
+        <div className="text-xs text-muted">{k}</div>
+        <SecretValue value={v} />
+      </div>
+    )
+  }
   return (
     <div>
       <div className="text-xs text-muted">{k}</div>
@@ -130,7 +139,7 @@ function AccessTab({ cfg, sec }) {
       <div className="space-y-2">
         <div className="text-xs font-medium text-muted">S3 credentials</div>
         <Row k="AWS_ACCESS_KEY_ID" v={cfg.accessKey || sec.accessKey} />
-        <Row k="AWS_SECRET_ACCESS_KEY" v={sec.secretKey} />
+        <Row k="AWS_SECRET_ACCESS_KEY" v={sec.secretKey} secret />
         <Row k="AWS_DEFAULT_REGION" v={cfg.region || 'us-east-1'} />
         <Row k="Bucket" v={cfg.bucket} />
       </div>
@@ -147,15 +156,28 @@ function AccessTab({ cfg, sec }) {
 
 // ---------------------------------------------------------------- backups tab
 
-function Snippet({ title, note, code }) {
+// Snippet shows a copy-paste config. These embed the S3 secret key, so `secret` (the key) is
+// blanked out in what is *displayed* — the snippet still copies with the real key in it, and the
+// eye reveals it. Same contract as the Credentials rows: copy without revealing.
+function Snippet({ title, note, code, secret }) {
+  const [show, setShow] = useState(false)
+  const shown = secret && !show ? code.split(secret).join('•'.repeat(Math.min(24, secret.length))) : code
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
         <div className="text-xs font-medium text-fg/80">{title}</div>
-        <CopyButton text={code} />
+        <div className="flex items-center gap-1">
+          {secret && (
+            <button title={show ? 'Hide the secret key' : 'Reveal the secret key'} onClick={() => setShow((s) => !s)}
+              className="rounded p-1 text-muted hover:bg-surface2 hover:text-fg">
+              {show ? <Icon.EyeOff size={14} /> : <Icon.Eye size={14} />}
+            </button>
+          )}
+          <CopyButton text={code} />
+        </div>
       </div>
       {note && <div className="text-[11px] text-muted">{note}</div>}
-      <pre className="overflow-x-auto whitespace-pre rounded-lg border bg-bg p-2 text-[11px] leading-relaxed text-fg">{code}</pre>
+      <pre className="overflow-x-auto whitespace-pre rounded-lg border bg-bg p-2 text-[11px] leading-relaxed text-fg">{shown}</pre>
     </div>
   )
 }
@@ -294,10 +316,10 @@ restore_command = 'barman-cloud-wal-restore --cloud-provider aws-s3 --endpoint-u
         These use the in-stack endpoint <span className="font-mono">{endpoint}</span>, so run them from
         the database nodes. Replace <span className="font-mono">backup-&lt;date&gt;</span> with your backup name.
       </div>
-      <Snippet title="xtrabackup → xbcloud put (backup)" code={xbcloudPut} />
-      <Snippet title="my.cnf [xbcloud] section" note="Lets you drop the repeated --s3-* flags." code={myCnf} />
-      <Snippet title="xbcloud get (restore)" code={xbcloudGet} />
-      <Snippet title="Percona Backup for MongoDB (pbm)" code={pbm} />
+      <Snippet title="xtrabackup → xbcloud put (backup)" code={xbcloudPut} secret={sec.secretKey} />
+      <Snippet title="my.cnf [xbcloud] section" note="Lets you drop the repeated --s3-* flags." code={myCnf} secret={sec.secretKey} />
+      <Snippet title="xbcloud get (restore)" code={xbcloudGet} secret={sec.secretKey} />
+      <Snippet title="Percona Backup for MongoDB (pbm)" code={pbm} secret={sec.secretKey} />
 
       <div className="space-y-2 rounded-lg border border-border bg-surface2/40 p-2">
         <div className="text-xs font-semibold text-fg">pgBackRest → SeaweedFS S3</div>
@@ -311,9 +333,9 @@ restore_command = 'barman-cloud-wal-restore --cloud-provider aws-s3 --endpoint-u
           when their <span className="font-mono">Use pgBackRest</span> option points at this node —
           these snippets are for a manual or external client.
         </div>
-        <Snippet title="1 · pgbackrest.conf (repository + stanza)" code={pgbackrestConf} />
-        <Snippet title="2 · postgresql.conf (WAL archiving)" code={pgbackrestArchive} />
-        <Snippet title="3 · stanza-create + backup + restore" code={pgbackrestRun} />
+        <Snippet title="1 · pgbackrest.conf (repository + stanza)" code={pgbackrestConf} secret={sec.secretKey} />
+        <Snippet title="2 · postgresql.conf (WAL archiving)" code={pgbackrestArchive} secret={sec.secretKey} />
+        <Snippet title="3 · stanza-create + backup + restore" code={pgbackrestRun} secret={sec.secretKey} />
       </div>
 
       <div className="space-y-2 rounded-lg border border-border bg-surface2/40 p-2">
@@ -328,9 +350,9 @@ restore_command = 'barman-cloud-wal-restore --cloud-provider aws-s3 --endpoint-u
           of this automatically when their <span className="font-mono">Use Barman</span> option points at this node —
           these snippets are for a manual or external client.
         </div>
-        <Snippet title="1 · ~postgres/.aws credentials + config" code={barmanCreds} />
-        <Snippet title="2 · postgresql.conf (WAL archiving)" code={barmanArchive} />
-        <Snippet title="3 · backup / list / restore" code={barmanRun} />
+        <Snippet title="1 · ~postgres/.aws credentials + config" code={barmanCreds} secret={sec.secretKey} />
+        <Snippet title="2 · postgresql.conf (WAL archiving)" code={barmanArchive} secret={sec.secretKey} />
+        <Snippet title="3 · backup / list / restore" code={barmanRun} secret={sec.secretKey} />
       </div>
     </div>
   )

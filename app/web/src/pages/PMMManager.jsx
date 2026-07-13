@@ -4,6 +4,7 @@ import { Icon } from '../components/Icons.jsx'
 import { pmmApi, DEPLOY_TONE } from '../lib/stackApi.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import OidcLoginGuide from '../components/OidcLoginGuide.jsx'
+import { SecretValue } from '../components/Secret.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -153,7 +154,7 @@ function AccessTab({ cfg, sec }) {
   const httpsUrl = cfg.httpsPort ? `https://${host}:${cfg.httpsPort}/` : null
   const rows = [
     { k: 'Admin user', v: cfg.adminUser || sec.adminUser || 'admin' },
-    { k: 'Admin password', v: sec.adminPassword },
+    { k: 'Admin password', v: sec.adminPassword, secret: true },
   ]
   return (
     <div className="space-y-3">
@@ -173,10 +174,12 @@ function AccessTab({ cfg, sec }) {
         {rows.map((r) => (
           <div key={r.k}>
             <div className="text-xs text-muted">{r.k}</div>
-            <div className="flex items-center gap-1 rounded-lg border bg-bg px-2 py-1.5">
-              <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{r.v || '—'}</span>
-              {r.v && <CopyButton text={r.v} />}
-            </div>
+            {r.secret ? <SecretValue value={r.v} /> : (
+              <div className="flex items-center gap-1 rounded-lg border bg-bg px-2 py-1.5">
+                <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{r.v || '—'}</span>
+                {r.v && <CopyButton text={r.v} />}
+              </div>
+            )}
           </div>
         ))}
       </div>
