@@ -57,14 +57,16 @@ export default function K3DManager({ stackId, nodeId, dep, onDeleteNode }) {
   const cr = cfg.crName || 'cluster1'
   const isMongo = cfg.operator === 'psmdb'
   const isPG = cfg.operator === 'pg'
-  // The three operators name the same ideas differently: PXC puts a proxy in front of the database,
-  // PSMDB has routers (and only when sharded), PostgreSQL has a pgBouncer pool.
-  const kind = isMongo ? 'psmdb' : isPG ? 'pg' : 'pxc'
+  const isPS = cfg.operator === 'ps'
+  // The four operators name the same ideas differently: PXC and PS put a proxy in front of the
+  // database, PSMDB has routers (and only when sharded), PostgreSQL has a pgBouncer pool.
+  const kind = isMongo ? 'psmdb' : isPG ? 'pg' : isPS ? 'ps' : 'pxc'
   const frontEnd = isMongo
     ? (cfg.sharding ? 'mongos routers' : 'none (replica set)')
     : isPG ? 'pgBouncer'
-      : (cfg.proxy === 'proxysql' ? 'ProxySQL' : 'HAProxy')
-  const exposeDb = (isMongo ? cfg.exposeReplset : isPG ? cfg.exposePg : cfg.exposePxc) || cfg.expose
+      : isPS ? (cfg.proxy === 'router' ? 'MySQL Router' : 'HAProxy')
+        : (cfg.proxy === 'proxysql' ? 'ProxySQL' : 'HAProxy')
+  const exposeDb = (isMongo ? cfg.exposeReplset : isPG ? cfg.exposePg : isPS ? cfg.exposeMysql : cfg.exposePxc) || cfg.expose
   const exposeFront = (isMongo ? cfg.exposeMongos : isPG ? cfg.exposePgbouncer : cfg.exposeProxy) || cfg.expose
 
   return (
@@ -101,6 +103,7 @@ export default function K3DManager({ stackId, nodeId, dep, onDeleteNode }) {
           <KV k="Operator" v={cfg.operator ? `${cfg.operator.toUpperCase()} ${cfg.operatorVer}` : 'none'} />
           {cfg.operator && <KV k="Namespace" v={ns} mono />}
           {cfg.operator && <KV k="Database cluster" v={cr} mono />}
+          {cfg.operator && isPS && <KV k="Replication" v={cfg.clusterType === 'async' ? 'Async (Orchestrator)' : 'Group Replication'} />}
           {cfg.operator && <KV k={isMongo ? 'Topology' : 'Front end'} v={isMongo ? (cfg.sharding ? 'Sharded (rs0 + config servers + mongos)' : 'Replica set (rs0)') : frontEnd} />}
           {cfg.operator && <KV k={isMongo ? 'Expose · replica set' : 'Expose · database'} v={exposeDb} />}
           {cfg.operator && (!isMongo || cfg.sharding) && (
@@ -197,7 +200,7 @@ kubectl -n ${ns} patch secret ${isPG ? `${cr}-pmm-secret` : `${cr}-secrets`} --t
   -p='{"stringData": {"${isPG || isMongo ? 'PMM_SERVER_TOKEN' : 'pmmservertoken'}": "<new-token>"}}'
 kubectl -n ${ns} rollout restart statefulset -l ${isPG
     ? `postgres-operator.crunchydata.com/cluster=${cr}`
-    : isMongo ? `app.kubernetes.io/instance=${cr}` : `app.kubernetes.io/instance=${cr}`}`} />
+    : `app.kubernetes.io/instance=${cr}`}`} />
           )}
           <Code label="The source, as applied" text={`ls ${cfg.operatorSrc}/deploy
 # secrets.yaml was applied BEFORE cr.yaml (the operator reads the users while creating

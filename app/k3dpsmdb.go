@@ -49,7 +49,7 @@ func psmdbTransform(src string, o psmdbOptions) string {
 		ind, commented, body := crLine(ln)
 		pvc.update(ind, commented, body)
 
-		if commentTo >= 0 && body != "" && ind <= commentTo {
+		if commentTo >= 0 && !commented && body != "" && ind <= commentTo {
 			commentTo = -1
 		}
 		if commentTo >= 0 {

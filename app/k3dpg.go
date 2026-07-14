@@ -57,10 +57,10 @@ func pgTransform(src string, o pgOptions) string {
 		ind, commented, body := crLine(ln)
 		pvc.update(ind, commented, body)
 
-		if commentTo >= 0 && body != "" && ind <= commentTo {
+		if commentTo >= 0 && !commented && body != "" && ind <= commentTo {
 			commentTo = -1
 		}
-		if dropTo >= 0 && body != "" && ind <= dropTo {
+		if dropTo >= 0 && !commented && body != "" && ind <= dropTo {
 			dropTo = -1
 		}
 		if dropTo >= 0 {

@@ -267,10 +267,11 @@ pmm_discover() { hub_tags "$PMM_REPO" '^3\.[0-9]+\.[0-9]+$'; }
 # therefore image tags, independent of OS and arch — recorded as a top-level section,
 # like pmm. The repositories also carry auxiliary tags (…-backup, …-logcollector,
 # …-haproxy); the three-part anchor keeps only the operator releases themselves.
-OPERATOR_PRODUCTS="pxc psmdb pg"
+OPERATOR_PRODUCTS="pxc ps psmdb pg"
 operator_repo() {
   case "$1" in
     pxc)   echo "percona/percona-xtradb-cluster-operator" ;;
+    ps)    echo "percona/percona-server-mysql-operator" ;;
     psmdb) echo "percona/percona-server-mongodb-operator" ;;
     pg)    echo "percona/percona-postgresql-operator" ;;
   esac

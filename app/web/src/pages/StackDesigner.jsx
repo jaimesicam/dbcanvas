@@ -427,7 +427,7 @@ const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', in
 
 // The Percona operators a K3D frame can install (PostgreSQL is discovered by `make versions` but
 // not deployable yet).
-const K3D_OPERATOR_LABEL = { pxc: 'PXC operator', psmdb: 'MongoDB operator', pg: 'PostgreSQL operator' }
+const K3D_OPERATOR_LABEL = { pxc: 'PXC operator', ps: 'MySQL (PS) operator', psmdb: 'MongoDB operator', pg: 'PostgreSQL operator' }
 
 // typeColor maps a node/frame type to its canvas color so a toolbar "add" button can
 // be tinted to match the node/frame it creates. addBtnStyle turns that into inline
@@ -1295,6 +1295,7 @@ function StackEditor({ stackId, onBack }) {
       k3dProxy: 'haproxy', k3dExposePxc: 'clusterip', k3dExposeHaproxy: 'loadbalancer', k3dExposeProxysql: 'loadbalancer',
       k3dSharding: false, k3dExposeReplset: 'clusterip', k3dExposeMongos: 'loadbalancer',
       k3dExposePg: 'clusterip', k3dExposePgbouncer: 'loadbalancer',
+      k3dClusterType: 'group-replication', k3dExposeMysql: 'clusterip', k3dExposeRouter: 'loadbalancer',
       k3dPmmTokenTtlValue: 365, k3dPmmTokenTtlUnit: 'days',
       pmmNodeId: '', seaweedfsNodeId: '',
     }
@@ -3793,8 +3794,12 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
   const op = f.k3dOperator || ''
   const versions = ops?.[op]?.versions || []
   const latest = ops?.[op]?.latest || ''
-  // A sharded MongoDB cluster is 9 pods (replica set + config servers + mongos), not 3.
-  const shardedTooSmall = op === 'psmdb' && f.k3dSharding && (cpus < 8 || memGb < 12)
+  // A sharded MongoDB cluster is 9 pods (replica set + config servers + mongos), not 3 — and so is an
+  // async Percona Server cluster (MySQL + Orchestrator + HAProxy).
+  const psAsync = op === 'ps' && f.k3dClusterType === 'async'
+  // MySQL Router only speaks group replication, so an async cluster is HAProxy either way.
+  const psFrontEnd = psAsync ? 'haproxy' : (f.k3dProxy === 'router' ? 'router' : 'haproxy')
+  const shardedTooSmall = ((op === 'psmdb' && f.k3dSharding) || psAsync) && (cpus < 8 || memGb < 12)
 
   return (
     <div className="space-y-3">
@@ -3831,8 +3836,9 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
       )}
       {shardedTooSmall && (
         <p className="text-xs text-amber-500">
-          A sharded MongoDB cluster is 9 pods (replica set + config servers + mongos). Below 8 CPU / 12 GiB, deploy it
-          as a replica set instead.
+          {psAsync
+            ? 'An async cluster is 9 pods (3 MySQL + 3 Orchestrator + 3 HAProxy). Below 8 CPU / 12 GiB, use group replication instead.'
+            : 'A sharded MongoDB cluster is 9 pods (replica set + config servers + mongos). Below 8 CPU / 12 GiB, deploy it as a replica set instead.'}
         </p>
       )}
 
@@ -3846,6 +3852,7 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
             })}>
             <option value="">none (plain Kubernetes)</option>
             <option value="pxc">Percona Operator for MySQL (PXC)</option>
+            <option value="ps">Percona Operator for MySQL (Percona Server)</option>
             <option value="psmdb">Percona Operator for MongoDB (PSMDB)</option>
             <option value="pg">Percona Operator for PostgreSQL (PGO)</option>
           </select>
@@ -3893,6 +3900,45 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
               <Field label="Expose · ProxySQL" hint="The cluster's front door.">
                 <select className={`${inputCls} ${lock}`} value={f.k3dExposeProxysql || 'loadbalancer'} disabled={deployed}
                   onChange={(e) => patchFrame(f.id, { k3dExposeProxysql: e.target.value })}>
+                  {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+                </select>
+              </Field>
+            )}
+          </>
+        )}
+        {op === 'ps' && (
+          <>
+            <Field label="Replication" hint="Async replication is managed by Orchestrator, which adds 3 more pods.">
+              <select className={`${inputCls} ${lock}`} value={f.k3dClusterType || 'group-replication'} disabled={deployed}
+                onChange={(e) => patchFrame(f.id, { k3dClusterType: e.target.value })}>
+                <option value="group-replication">Group Replication — 3 MySQL pods (default)</option>
+                <option value="async">Async (Orchestrator) — 3 MySQL + 3 Orchestrator pods</option>
+              </select>
+            </Field>
+            <Field label="Proxy" hint="MySQL Router speaks group replication only; HAProxy serves both.">
+              <select className={`${inputCls} ${lock}`} value={psFrontEnd} disabled={deployed || psAsync}
+                onChange={(e) => patchFrame(f.id, { k3dProxy: e.target.value })}>
+                <option value="haproxy">HAProxy (default)</option>
+                <option value="router">MySQL Router</option>
+              </select>
+            </Field>
+            <Field label="Expose · database (mysql)" hint="The primary's Service.">
+              <select className={`${inputCls} ${lock}`} value={f.k3dExposeMysql || 'clusterip'} disabled={deployed}
+                onChange={(e) => patchFrame(f.id, { k3dExposeMysql: e.target.value })}>
+                {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </Field>
+            {psFrontEnd === 'router' ? (
+              <Field label="Expose · MySQL Router" hint="The cluster's front door.">
+                <select className={`${inputCls} ${lock}`} value={f.k3dExposeRouter || 'loadbalancer'} disabled={deployed}
+                  onChange={(e) => patchFrame(f.id, { k3dExposeRouter: e.target.value })}>
+                  {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+                </select>
+              </Field>
+            ) : (
+              <Field label="Expose · HAProxy" hint="The cluster's front door.">
+                <select className={`${inputCls} ${lock}`} value={f.k3dExposeHaproxy || 'loadbalancer'} disabled={deployed}
+                  onChange={(e) => patchFrame(f.id, { k3dExposeHaproxy: e.target.value })}>
                   {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
                 </select>
               </Field>

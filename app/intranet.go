@@ -194,12 +194,16 @@ type designFrame struct {
 	K3DNodes       int    `json:"k3dNodes"`       // 1..3 (1 server + N-1 agents)
 	K3DCPUs        int    `json:"k3dCpus"`        // total CPUs for the cluster
 	K3DMemoryGB    int    `json:"k3dMemoryGb"`    // total memory (GiB) for the cluster
-	K3DOperator    string `json:"k3dOperator"`    // "" | "pxc" | "psmdb" | "pg"
+	K3DOperator    string `json:"k3dOperator"`    // "" | "pxc" | "ps" | "psmdb" | "pg"
 	K3DOperatorVer string `json:"k3dOperatorVer"` // "" = the catalog's latest
 	K3DNamespace   string `json:"k3dNamespace"`   // namespace the operator + CR are installed into
-	// PXC: the proxy in front of the database. cr.yaml ships HAProxy enabled and ProxySQL disabled;
-	// they are mutually exclusive, so choosing one disables the other.
-	K3DProxy string `json:"k3dProxy"` // "haproxy" (default) | "proxysql"
+	// The proxy in front of the database. cr.yaml ships HAProxy enabled and the alternative disabled;
+	// they are mutually exclusive, so choosing one disables the other. PXC: haproxy | proxysql.
+	// PS: haproxy | router (MySQL Router understands group replication only).
+	K3DProxy string `json:"k3dProxy"` // "haproxy" (default) | "proxysql" | "router"
+	// PS: group replication (the operator's default), or async replication under Orchestrator —
+	// which adds 3 Orchestrator pods, and which the operator will not run without.
+	K3DClusterType string `json:"k3dClusterType"` // "" | "group-replication" | "async"
 	// PSMDB: sharding adds 3 config servers + 3 mongos routers on top of the replica set (9 pods
 	// against a k3d budget), so it is off by default — a plain replica set is 3.
 	K3DSharding bool `json:"k3dSharding"`
@@ -210,6 +214,8 @@ type designFrame struct {
 	K3DExposePXC       string `json:"k3dExposePxc"`       // clusterip | nodeport | loadbalancer
 	K3DExposeHAProxy   string `json:"k3dExposeHaproxy"`   //
 	K3DExposeProxySQL  string `json:"k3dExposeProxysql"`  //
+	K3DExposeMySQL     string `json:"k3dExposeMysql"`     // PS: the primary MySQL Service
+	K3DExposeRouter    string `json:"k3dExposeRouter"`    // PS: MySQL Router
 	K3DExposeReplset   string `json:"k3dExposeReplset"`   // PSMDB: the replica set's pods
 	K3DExposeMongos    string `json:"k3dExposeMongos"`    // PSMDB: the mongos routers (sharded only)
 	K3DExposePG        string `json:"k3dExposePg"`        // PG: the primary Postgres Service

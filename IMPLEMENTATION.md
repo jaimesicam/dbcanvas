@@ -6606,3 +6606,47 @@ cluster, 8 CPU / 12 GiB, operator 3.0.0):
 - **Backups**: a `PerconaPGBackup` reached **Succeeded**, and the objects are in SeaweedFS under
   `/buckets/backups/pgbackrest/pg/repo1/backup/db/…`.
 - Teardown leaves no container or volume behind.
+
+## 136. Percona Operator for MySQL (Percona Server) on the K3D frame — `app/k3dps.go`, `k3d.go`, `images/versions.sh`, `StackDesigner.jsx`, `K3DManager.jsx`
+
+The fourth operator (`percona-server-mysql-operator`, the Percona Server based one, next to PXC).
+It is the closest of the four to PXC — the same `secrets.yaml` users, the same `pmmservertoken`, an S3
+storage of the same shape — but its cr.yaml is a level deeper (`proxy.haproxy`, `proxy.router`, so the
+rules key on **paths**, not PXC's section+indent) and it carries a choice PXC does not have:
+
+- **clusterType**: `group-replication` (the shipped default) or **`async`**, which is classic
+  replication managed by **Orchestrator** — and the operator will not run it without Orchestrator
+  enabled, so the transform turns that on with it (and warns: async is 9 pods, not 6).
+- the front end is **HAProxy** (both cluster types) or **MySQL Router**, which speaks the group
+  replication protocol only — so an async cluster falls back to HAProxy no matter what the frame says.
+- its S3 schema has **no `forcePathStyle` at all**, not even in 1.2.0. Emitting it would be a
+  strict-decoding error and the API server would reject the whole CR; xbcloud addresses path-style
+  against a custom endpoint anyway (the same situation as PXC before 1.20.0).
+
+**k3s had to be bumped, and that is the interesting part.** The ps-operator's bundle carries a CRD
+(`perconaservermysqlclustersets`) whose CEL validation rule uses the `format` library. k3d 5.8.3's
+default k3s is **v1.31.5**, whose API server does not have it: the CRD is rejected outright
+(*"undeclared reference to 'format'"*), and since `kubectl apply` of the bundle then fails, the
+operator never installs at all. So every K3D cluster now runs a **pinned `rancher/k3s:v1.33.13-k3s1`**
+instead of whatever k3d defaults to — which also stops a k3d upgrade from silently moving the
+Kubernetes version under the operators. PXC was re-verified on 1.33 (ready, `wsrep_cluster_size = 3`
+through its HAProxy) to make sure the bump did not regress the ones that came before.
+
+**One shared-transform bug this shook out.** The comment/drop ranges in all four transforms closed on
+the first line that dedented — *including a comment line*. PXC's cr.yaml never tripped it (its
+comments are indented deeper), but the ps-operator's storages block has ~100 commented lines between
+`storages:` and its first entry, so the drop range closed early and the shipped placeholder storage
+survived into the CR. The ranges now close only on a real (uncommented) key.
+
+**Verified live** (DBCanvas in a container; Intranet + PMM + SeaweedFS + a 1-node k3d cluster,
+8 CPU / 12 GiB, operator 1.2.0):
+- `ready` with 3 MySQL + 3 HAProxy pods; `replication_group_members` shows one **PRIMARY and two
+  SECONDARY, all ONLINE** — queried through the HAProxy LoadBalancer from a plain container on the
+  stack network, with the **root password from .env**.
+- **PMM**: `mysql_up = 1` for `ps-ps-mysql-{0,1,2}` under cluster `ps`.
+- **Backups**: a `PerconaServerMySQLBackup` reached **Succeeded**, and `ps-2026-07-14-…-full` is in
+  SeaweedFS.
+- Teardown leaves nothing behind.
+
+`make versions` now discovers this operator too (`OPERATOR_PRODUCTS="pxc ps psmdb pg"`), so all four
+Percona operators are in `versions.yaml` — and all four are deployable.

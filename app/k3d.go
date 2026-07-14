@@ -48,18 +48,25 @@ const (
 	metalLBManifest = "https://raw.githubusercontent.com/metallb/metallb/" + metalLBVersion + "/config/manifests/metallb-native.yaml"
 	// The operator source tarball (the git tag carries deploy/bundle.yaml + deploy/cr.yaml).
 	operatorTarballFmt = "https://github.com/percona/%s/archive/refs/tags/v%s.tar.gz"
+	// The k3s image every cluster runs. Pinned, and deliberately newer than k3d 5.8.3's own default
+	// (v1.31.5-k3s1): the ps-operator's bundle carries a CRD whose CEL rule uses the `format`
+	// library, which a 1.31 API server does not have — it rejects the CRD outright ("undeclared
+	// reference to 'format'"), and the operator never installs. The Percona operators all support
+	// 1.33.
+	k3sImage = "rancher/k3s:v1.33.13-k3s1"
 )
 
 // k3dOperatorRepos maps a product to its GitHub repository — the tag's source tarball is where
 // bundle.yaml, secrets.yaml and cr.yaml come from.
 var k3dOperatorRepos = map[string]string{
 	"pxc":   "percona-xtradb-cluster-operator",
+	"ps":    "percona-server-mysql-operator",
 	"psmdb": "percona-server-mongodb-operator",
 	"pg":    "percona-postgresql-operator",
 }
 
-// k3dDeployableOperator is the subset DBCanvas can actually install — all three, now.
-var k3dDeployableOperator = map[string]bool{"pxc": true, "psmdb": true, "pg": true}
+// k3dDeployableOperator is the subset DBCanvas can actually install — all four, now.
+var k3dDeployableOperator = map[string]bool{"pxc": true, "ps": true, "psmdb": true, "pg": true}
 
 // k3dExposeTypes are the Kubernetes Service types a cr.yaml `expose` section accepts.
 var k3dExposeTypes = map[string]string{
@@ -79,16 +86,20 @@ type k3dConfig struct {
 	CPUs         int    `json:"cpus"`         // total CPUs for the cluster
 	MemoryGB     int    `json:"memoryGb"`     // total memory for the cluster
 	MetalLBRange string `json:"metallbRange"` // the LoadBalancer address pool
-	Operator     string `json:"operator"`     // "" | "pxc" | "psmdb" | "pg"
+	Operator     string `json:"operator"`     // "" | "pxc" | "ps" | "psmdb" | "pg"
 	OperatorVer  string `json:"operatorVer"`  //
 	OperatorSrc  string `json:"operatorSrc"`  // /root/<repo>-<ver> on the first node
 	Namespace    string `json:"namespace"`    //
 	ClusterName  string `json:"crName"`       // the database cluster's name inside cr.yaml
-	// PXC: the front end (they are mutually exclusive) and the Service type of each tier.
-	Proxy       string `json:"proxy"`       // haproxy | proxysql
+	// PXC / PS: the front end (they are mutually exclusive) and the Service type of each tier.
+	// PXC's proxy is haproxy|proxysql; PS's is haproxy|router.
+	Proxy       string `json:"proxy"`       //
 	Expose      string `json:"expose"`      // the database Service type — kept for the card
 	ExposePXC   string `json:"exposePxc"`   // ClusterIP | NodePort | LoadBalancer
 	ExposeProxy string `json:"exposeProxy"` // the chosen proxy's Service type
+	// PS: group replication, or async replication under Orchestrator.
+	ClusterType string `json:"clusterType"`
+	ExposeMySQL string `json:"exposeMysql"`
 	// PSMDB: a plain replica set, or sharded (config servers + mongos routers).
 	Sharding      bool   `json:"sharding"`
 	ExposeReplset string `json:"exposeReplset"`
@@ -196,6 +207,10 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 	cpus, memGB := k3dCPUs(f), k3dMemoryGB(f)
 	if cpus < 4 || memGB < 6 {
 		out = append(out, issue{"warning", fmt.Sprintf("K3D cluster %s is allotted %d CPU / %d GiB — a database cluster (3 pods plus a proxy or router) is unlikely to schedule below 4 CPU / 6 GiB", name, cpus, memGB)})
+	}
+	// An async PS cluster adds 3 Orchestrator pods on top of the database and the proxy.
+	if f.K3DOperator == "ps" && psClusterType(f.K3DClusterType) == "async" && (cpus < 8 || memGB < 12) {
+		out = append(out, issue{"warning", fmt.Sprintf("K3D cluster %s runs async replication — 9 pods (3 MySQL + 3 Orchestrator + 3 HAProxy) against %d CPU / %d GiB; below 8 CPU / 12 GiB, use group replication instead", name, cpus, memGB)})
 	}
 	// A sharded MongoDB cluster is 3 replica-set + 3 config-server + 3 mongos pods.
 	if f.K3DOperator == "psmdb" && f.K3DSharding && (cpus < 8 || memGB < 12) {
@@ -336,6 +351,15 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 			base.ExposeMongos = k3dExposeOf(frame.K3DExposeMongos, frame.K3DExpose)
 		}
 	}
+	if operator == "ps" {
+		base.ClusterType = psClusterType(frame.K3DClusterType)
+		base.Proxy = psProxy(frame.K3DProxy, base.ClusterType)
+		base.ExposeMySQL = k3dExposeOf(frame.K3DExposeMySQL, frame.K3DExpose)
+		base.Expose = base.ExposeMySQL
+		if base.Proxy == "router" {
+			base.ExposeProxy = k3dExposeOf(frame.K3DExposeRouter, frame.K3DExpose)
+		}
+	}
 	if operator == "pg" {
 		base.ExposePG = k3dExposeOf(frame.K3DExposePG, frame.K3DExpose)
 		base.ExposePGBouncer = k3dExposeOf(frame.K3DExposePGBouncer, frame.K3DExpose)
@@ -389,6 +413,7 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		// the host or in Docker.
 		args := []string{
 			"cluster", "create", cluster,
+			"--image", k3sImage,
 			"--network", networkName(st.ID),
 			"--servers", "1",
 			"--agents", strconv.Itoa(nodes - 1),
@@ -479,6 +504,11 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		case "psmdb":
 			if err := a.installPSMDBOperator(ctx, st, frame, doc, serverID, &base, pr); err != nil {
 				failAll("install the MongoDB operator: %v", err)
+				return
+			}
+		case "ps":
+			if err := a.installPSOperator(ctx, st, frame, doc, serverID, &base, pr); err != nil {
+				failAll("install the MySQL (Percona Server) operator: %v", err)
 				return
 			}
 		case "pg":
