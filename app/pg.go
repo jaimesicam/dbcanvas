@@ -136,7 +136,7 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 		var swSec seaweedSecrets
 		if n.UsePgBackRest {
 			pr.phase("Waiting for SeaweedFS (pgBackRest store)", 8)
-			c, s, e := a.waitSeaweedRunning(ctx, st.ID, n.SeaweedFSNodeID, deployTimeout())
+			c, s, e := a.waitSeaweedBucket(ctx, st.ID, n.SeaweedFSNodeID, n.SeaweedFSBucket, deployTimeout())
 			if e != nil {
 				pr.fail("%v", e)
 				return

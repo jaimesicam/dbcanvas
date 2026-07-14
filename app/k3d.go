@@ -340,7 +340,7 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 	}
 	backupRepo := ""
 	if frame.SeaweedFSNodeID != "" {
-		backupRepo = "SeaweedFS S3"
+		backupRepo = "SeaweedFS S3" // refined to name the bucket once the node is up (k3dBackupSecret)
 	}
 
 	// One Deployment row per member, up front: without these the canvas shows no cards.
@@ -854,7 +854,7 @@ func (a *App) k3dBackupSecret(ctx context.Context, st Stack, frame designFrame, 
 	if frame.SeaweedFSNodeID == "" {
 		return nil
 	}
-	sw, sec, err := a.waitSeaweedRunning(ctx, st.ID, frame.SeaweedFSNodeID, deployTimeout())
+	sw, sec, err := a.waitSeaweedBucket(ctx, st.ID, frame.SeaweedFSNodeID, frame.SeaweedFSBucket, deployTimeout())
 	if err != nil {
 		pr.logln("backups skipped: " + err.Error())
 		return nil
@@ -868,6 +868,7 @@ func (a *App) k3dBackupSecret(ctx context.Context, st Stack, frame designFrame, 
 		return nil
 	}
 	pr.logln("backups → " + sw.InternalEndpoint + " (bucket " + sw.Bucket + ")")
+	cfg.BackupRepo = "SeaweedFS S3 (" + sw.Bucket + ")"
 	return &crS3{
 		Bucket:      sw.Bucket,
 		Region:      sw.Region,

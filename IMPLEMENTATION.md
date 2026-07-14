@@ -6676,3 +6676,38 @@ never run — stays on v1.33.13-k3s1, which every Percona operator installs on.
   `ready`.
 - **unknown tag**: `v1.31.5-k3s1` (not in the catalog) is refused by validation with "pick one from the
   list, or run `make versions`", before anything is created.
+
+## 138. SeaweedFS: up to ten buckets, and every consumer picks one — `app/seaweedfs.go`, `intranet.go`, `patroni.go`, `StackDesigner.jsx`, `SeaweedFSManager.jsx`
+
+A SeaweedFS node created exactly one bucket, so every database in a stack that wanted S3 backups
+shared it (PBM at least prefixed its path; xbcloud and the operators did not). A node now creates
+**1–10 buckets**, and every consumer of that node — standalone PostgreSQL, Patroni, repmgr, the PSMDB
+frames, and all four K3D operators — picks **which one it backs up to**.
+
+**The shape.** `designNode.Buckets []string` alongside the older `Bucket` (kept as the fallback *and*
+as the node's default — a design saved before this still deploys, and its bucket is still bucket #1).
+`seaweedBuckets(n)` is the deduplicated list, capped at ten; the provisioner creates each one (the
+first is the slow one — bucket creation doubles as the readiness gate, since `weed shell` only
+succeeds once the master and filer are up).
+
+**How a consumer chooses.** One field, `SeaweedFSBucket`, on the node/frame that already carries
+`SeaweedFSNodeID`; "" means the node's default. The plumbing is one function: `waitSeaweedBucket`
+wraps `waitSeaweedRunning` and returns the config with `Bucket` already resolved
+(`pickSeaweedBucket`), so pgbackrest.conf, the PBM store, xbcloud and the four operators' `cr.yaml`
+builders all keep reading `cfg.Bucket` and none of them had to learn that a node has ten.
+
+**Validation matters more than it looks.** A bucket name that is merely *valid* is not enough: a
+backup configured against a bucket the node never creates fails at the first upload, long after the
+deploy said everything was fine. `seaweedBucketIssues` therefore checks the chosen bucket against
+that node's actual list, for every consumer.
+
+**Verified live** — one SeaweedFS node with `mysql-backups`, `mongo-backups`, `pg-backups`; a K3D/PXC
+cluster pointed at the first and a PSMDB replica set at the second:
+- all three buckets exist after the deploy (`s3.bucket.list`);
+- the PSMDB node's `/etc/pbm-storage.yaml` names **mongo-backups**, and the K3D card reads
+  "SeaweedFS S3 (mysql-backups)";
+- an on-demand PBM backup and a `PerconaXtraDBClusterBackup` both **Succeeded**, and the objects
+  landed in **different buckets** — `mysql-…-full` in mysql-backups, `pbm/` in mongo-backups, with
+  pg-backups still empty;
+- a frame pointed at a bucket the node does not create is blocked by validation ("bucket typo-backups
+  is not one of the buckets on SeaweedFS node seaweedfs-01").

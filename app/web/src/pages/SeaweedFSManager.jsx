@@ -85,7 +85,7 @@ function Overview({ cfg, dep, onDeleteNode }) {
       {cfg.serverVersion && <KV k="Version" v={cfg.serverVersion} mono />}
       <KV k="Image" v={cfg.image} mono />
       <KV k="Network alias" v={cfg.alias} mono />
-      <KV k="Bucket" v={cfg.bucket} mono />
+      <KV k={`Bucket${(cfg.buckets || []).length > 1 ? 's' : ''}`} v={(cfg.buckets || [cfg.bucket]).filter(Boolean).join(', ')} mono />
       <KV k="Region" v={cfg.region || 'us-east-1'} mono />
       <KV k="S3 TLS" v={cfg.tls ? (cfg.generateCert ? 'HTTPS · Intranet-CA cert' : 'HTTPS · self-signed') : 'disabled (HTTP)'} />
       <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
@@ -141,7 +141,7 @@ function AccessTab({ cfg, sec }) {
         <Row k="AWS_ACCESS_KEY_ID" v={cfg.accessKey || sec.accessKey} />
         <Row k="AWS_SECRET_ACCESS_KEY" v={sec.secretKey} secret />
         <Row k="AWS_DEFAULT_REGION" v={cfg.region || 'us-east-1'} />
-        <Row k="Bucket" v={cfg.bucket} />
+        <Row k={`Bucket${(cfg.buckets || []).length > 1 ? 's' : ''}`} v={(cfg.buckets || [cfg.bucket]).filter(Boolean).join(', ')} />
       </div>
       <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] text-muted">
         The S3 API stays on <span className="font-mono">:8333</span> (reached in-network by the database

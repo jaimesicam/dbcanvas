@@ -232,7 +232,7 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 			for _, n := range members {
 				a.pxcNewProg(st.ID, n.ID).phase("Waiting for SeaweedFS (pgBackRest store)", 8)
 			}
-			c, s, werr := a.waitSeaweedRunning(ctx, st.ID, frame.SeaweedFSNodeID, deployTimeout())
+			c, s, werr := a.waitSeaweedBucket(ctx, st.ID, frame.SeaweedFSNodeID, frame.SeaweedFSBucket, deployTimeout())
 			if werr != nil {
 				for _, n := range members {
 					a.pxcNewProg(st.ID, n.ID).fail("%v", werr)
@@ -660,6 +660,19 @@ func (a *App) waitSeaweedRunning(ctx context.Context, stackID int64, nodeID stri
 		time.Sleep(3 * time.Second)
 	}
 	return seaweedConfig{}, seaweedSecrets{}, fmt.Errorf("the pgBackRest SeaweedFS node did not become ready within %s", timeout)
+}
+
+// waitSeaweedBucket is waitSeaweedRunning, with the consumer's chosen bucket applied: the returned
+// config's Bucket is the one this consumer asked for (or the node's default when it asked for
+// nothing). Every backup target goes through here, so a caller downstream can keep reading
+// cfg.Bucket without knowing the node has ten of them.
+func (a *App) waitSeaweedBucket(ctx context.Context, stackID int64, nodeID, bucket string, timeout time.Duration) (seaweedConfig, seaweedSecrets, error) {
+	cfg, sec, err := a.waitSeaweedRunning(ctx, stackID, nodeID, timeout)
+	if err != nil {
+		return cfg, sec, err
+	}
+	cfg.Bucket = pickSeaweedBucket(cfg, bucket)
+	return cfg, sec, nil
 }
 
 // patroniRegisterPMM registers a node's PostgreSQL with the PMM server

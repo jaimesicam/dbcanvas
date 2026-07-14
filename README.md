@@ -57,7 +57,7 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
   or the **Percona Operator for PostgreSQL** into a namespace of your choosing.
 - **Infrastructure** — an **Intranet** node (OpenLDAP, bind DNS, an internal CA, a Squid
   proxy, and Roundcube/Dovecot webmail), a **Samba AD DC** (Active Directory, LDAP,
-  Kerberos), **PMM** monitoring, **ProxySQL**, **HAProxy**, **SeaweedFS** (S3 for backups),
+  Kerberos), **PMM** monitoring, **ProxySQL**, **HAProxy**, **SeaweedFS** (S3 for backups, up to 10 buckets),
   **Keycloak** (OIDC), **OpenBao** (secrets manager), an **Ubuntu VNC** desktop, and
   **Watchtower**.
 - **Operations** — cross-cluster replication links, per-node web terminals, certificate

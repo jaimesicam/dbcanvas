@@ -328,7 +328,7 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 		if frame.EnablePBM {
 			pr := progs[config[0].ID]
 			pr.phase("Configuring Percona Backup for MongoDB", 96)
-			if swCfg, swSec, err := a.waitSeaweedRunning(ctx, st.ID, frame.SeaweedFSNodeID, deployTimeout()); err != nil {
+			if swCfg, swSec, err := a.waitSeaweedBucket(ctx, st.ID, frame.SeaweedFSNodeID, frame.SeaweedFSBucket, deployTimeout()); err != nil {
 				pr.logln("PBM setup skipped: " + err.Error())
 			} else {
 				a.mongoEnsurePBMUser(ctx, st, config[0], sec, progs[config[0].ID])
@@ -515,7 +515,7 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 		if frame.EnablePBM {
 			pr := progs[members[0].ID]
 			pr.phase("Configuring Percona Backup for MongoDB", 96)
-			if swCfg, swSec, err := a.waitSeaweedRunning(ctx, st.ID, frame.SeaweedFSNodeID, deployTimeout()); err != nil {
+			if swCfg, swSec, err := a.waitSeaweedBucket(ctx, st.ID, frame.SeaweedFSNodeID, frame.SeaweedFSBucket, deployTimeout()); err != nil {
 				pr.logln("PBM setup skipped: " + err.Error())
 			} else {
 				a.mongoEnsurePBMUser(ctx, st, members[0], sec, progs[members[0].ID])

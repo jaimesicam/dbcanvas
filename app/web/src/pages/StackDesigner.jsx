@@ -425,6 +425,23 @@ function nextMemberName(usedSet, prefix) {
 // Per-frame-type presentation: accent color and the description line.
 const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', psmdb: '#10b981', psmrs: '#059669', patroni: '#336791', repmgr: '#0e7490', spock: '#dc2626', valkeycluster: '#7c3aed', k3d: '#326ce5' }
 
+// A SeaweedFS node creates up to ten buckets, so several databases can share one object store
+// without sharing a bucket. Every consumer picks which one it uses; "" means the node's first.
+export const MAX_SEAWEED_BUCKETS = 10
+
+// seaweedBucketsOf is a SeaweedFS node's bucket list. `bucket` is the older single-bucket field,
+// kept as the fallback (and as the default bucket) for designs saved before the list existed.
+// forEdit keeps blanks, so a freshly added row stays editable.
+export function seaweedBucketsOf(n, forEdit) {
+  const list = (n?.buckets && n.buckets.length ? n.buckets : [n?.bucket || '']).map((b) => b ?? '')
+  return forEdit ? list : list.map((b) => b.trim()).filter(Boolean)
+}
+
+function validBucketName(b) {
+  const s = (b || '').trim()
+  return /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(s) && !/(\.\.|\.-|-\.)/.test(s)
+}
+
 // The Percona operators a K3D frame can install (PostgreSQL is discovered by `make versions` but
 // not deployable yet).
 const K3D_OPERATOR_LABEL = { pxc: 'PXC operator', ps: 'MySQL (PS) operator', psmdb: 'MongoDB operator', pg: 'PostgreSQL operator' }
@@ -3143,6 +3160,10 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
           </select>
         </Field>
       )}
+      {n.usePgBackRest && (
+        <SeaweedBucketField nodes={nodes} nodeId={n.seaweedfsNodeId} value={n.seaweedfsBucket} deployed={deployed}
+          onChange={(v) => patchNode(n.id, { seaweedfsBucket: v })} />
+      )}
 
       <Field label="Monitored by (PMM)" hint="Optional — registers this server with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={n.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchNode(n.id, { pmmNodeId: e.target.value })}>
@@ -3198,13 +3219,37 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
   )
 }
 
+// SeaweedBucketField lets a backup consumer pick which of a SeaweedFS node's buckets it uses. It
+// only appears when there is a choice to make: a node with a single bucket has nothing to pick.
+function SeaweedBucketField({ nodes, nodeId, value, onChange, deployed }) {
+  const sw = nodes.find((x) => x.id === nodeId && x.type === 'seaweedfs')
+  const buckets = sw ? seaweedBucketsOf(sw, false) : []
+  if (buckets.length < 2) return null
+  return (
+    <Field label="Bucket" hint="Which of that node's buckets this cluster backs up to.">
+      <select className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={value || ''} disabled={deployed}
+        onChange={(e) => onChange(e.target.value)}>
+        <option value="">{buckets[0]} (default)</option>
+        {buckets.slice(1).map((b) => <option key={b} value={b}>{b}</option>)}
+      </select>
+    </Field>
+  )
+}
+
 // SeaweedFSForm edits a (not-yet-running) SeaweedFS node: the S3 access key
 // (AWS_ACCESS_KEY_ID, defaults to "seaweedfs"), the secret key (left empty to
 // auto-generate), and the bucket to create. The region is fixed at us-east-1.
 function SeaweedFSForm({ node: n, patchNode, deleteNode, dep, deployed }) {
   const lock = deployed ? 'opacity-70' : ''
-  const bucketOk = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test((n.bucket || '').trim()) &&
-    !/(\.\.|\.-|-\.)/.test((n.bucket || '').trim())
+  const buckets = seaweedBucketsOf(n, true)
+  const badBuckets = buckets.filter((b) => b.trim() && !validBucketName(b))
+  const dupBuckets = buckets.filter((b, i) => b.trim() && buckets.findIndex((x) => x.trim() === b.trim()) !== i)
+  // The design keeps `bucket` (the first, and what an older design carried) alongside `buckets`, so
+  // a stack saved before multi-bucket still deploys and still names its default.
+  const writeBuckets = (list) => patchNode(n.id, { buckets: list, bucket: (list[0] || '').trim() })
+  const setBucket = (i, v) => writeBuckets(buckets.map((b, j) => (j === i ? v : b)))
+  const addBucket = () => writeBuckets([...buckets, ''])
+  const removeBucket = (i) => writeBuckets(buckets.filter((_, j) => j !== i))
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -3230,12 +3275,35 @@ function SeaweedFSForm({ node: n, patchNode, deleteNode, dep, deployed }) {
           onChange={(e) => patchNode(n.id, { secretKey: e.target.value })} />
       </Field>
 
-      <Field label="Bucket name" hint="Required. 3–63 chars: lowercase letters, digits, dots and hyphens.">
-        <input className={`${inputCls} ${lock}`} value={n.bucket || ''} disabled={deployed} placeholder="db-backups"
-          onChange={(e) => patchNode(n.id, { bucket: e.target.value })} />
+      <Field label="Buckets" hint={`Created at deploy — up to ${MAX_SEAWEED_BUCKETS}. The first one is the default for any node that does not pick.`}>
+        <div className="space-y-1">
+          {buckets.map((b, i) => (
+            <div key={i} className="flex items-center gap-1">
+              <input className={`${inputCls} ${lock}`} value={b} disabled={deployed} placeholder="db-backups"
+                onChange={(e) => setBucket(i, e.target.value)} />
+              {!deployed && buckets.length > 1 && (
+                <button title="Remove" onClick={() => removeBucket(i)}
+                  className="rounded p-1.5 text-muted hover:bg-surface2 hover:text-danger">
+                  <Icon.Trash size={14} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
       </Field>
-      {!deployed && (n.bucket || '').trim() && !bucketOk && (
-        <p className="text-xs text-danger">Invalid bucket name — must be 3–63 chars and start/end with a letter or digit.</p>
+      {!deployed && buckets.length < MAX_SEAWEED_BUCKETS && (
+        <Button variant="outline" size="sm" className="w-full" onClick={addBucket}>
+          <Icon.Plus size={14} /> Add bucket
+        </Button>
+      )}
+      {!deployed && badBuckets.length > 0 && (
+        <p className="text-xs text-danger">
+          Invalid bucket name{badBuckets.length > 1 ? 's' : ''}: {badBuckets.join(', ')} — 3–63 chars, lowercase letters,
+          digits, dots and hyphens, starting and ending with a letter or digit.
+        </p>
+      )}
+      {!deployed && dupBuckets.length > 0 && (
+        <p className="text-xs text-danger">Duplicate bucket{dupBuckets.length > 1 ? 's' : ''}: {dupBuckets.join(', ')}.</p>
       )}
 
       <div className="rounded-lg bg-surface2 px-3 py-2 text-xs text-muted">
@@ -4017,6 +4085,8 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
           {swNodes.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
         </select>
       </Field>
+      <SeaweedBucketField nodes={nodes} nodeId={f.seaweedfsNodeId} value={f.seaweedfsBucket} deployed={deployed}
+        onChange={(v) => patchFrame(f.id, { seaweedfsBucket: v })} />
       <Field label="Monitored by (PMM)" hint="Optional — sets spec.pmm.serverHost and wires a service token.">
         <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed}
           onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
@@ -4647,6 +4717,10 @@ function PBMOptions({ f, nodes, patchFrame, deployed }) {
           </select>
         </Field>
       )}
+      {!!f.seaweedfsNodeId && (
+        <SeaweedBucketField nodes={nodes} nodeId={f.seaweedfsNodeId} value={f.seaweedfsBucket} deployed={deployed}
+          onChange={(v) => patchFrame(f.id, { seaweedfsBucket: v })} />
+      )}
     </>
   )
 }
@@ -5094,6 +5168,10 @@ function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame
           </select>
         </Field>
       )}
+      {!!f.seaweedfsNodeId && (
+        <SeaweedBucketField nodes={nodes} nodeId={f.seaweedfsNodeId} value={f.seaweedfsBucket} deployed={deployed}
+          onChange={(v) => patchFrame(f.id, { seaweedfsBucket: v })} />
+      )}
 
       <Field label="Monitored by (PMM)" hint="Optional — registers each member's PostgreSQL with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
@@ -5233,6 +5311,10 @@ function RepmgrFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame,
             {seaweedNodes.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
           </select>
         </Field>
+      )}
+      {!!f.seaweedfsNodeId && (
+        <SeaweedBucketField nodes={nodes} nodeId={f.seaweedfsNodeId} value={f.seaweedfsBucket} deployed={deployed}
+          onChange={(v) => patchFrame(f.id, { seaweedfsBucket: v })} />
       )}
 
       <Field label="Monitored by (PMM)" hint="Optional — registers each member's PostgreSQL with a PMM node.">

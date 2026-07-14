@@ -263,7 +263,7 @@ func (a *App) installPGOperator(ctx context.Context, st Stack, frame designFrame
 	// node with TLS off cannot be a repo: the cluster keeps the operator's PVC repo instead of
 	// failing every backup.
 	if frame.SeaweedFSNodeID != "" {
-		sw, sec, serr := a.waitSeaweedRunning(ctx, st.ID, frame.SeaweedFSNodeID, deployTimeout())
+		sw, sec, serr := a.waitSeaweedBucket(ctx, st.ID, frame.SeaweedFSNodeID, frame.SeaweedFSBucket, deployTimeout())
 		switch {
 		case serr != nil:
 			pr.logln("backups skipped: " + serr.Error())
@@ -280,6 +280,7 @@ func (a *App) installPGOperator(ctx context.Context, st Stack, frame designFrame
 				return fmt.Errorf("create the pgBackRest secret: %w", err)
 			}
 			opts.S3 = &crS3{Bucket: sw.Bucket, Region: sw.Region, EndpointURL: sw.InternalEndpoint, Secret: secret}
+			cfg.BackupRepo = "SeaweedFS S3 (" + sw.Bucket + ")"
 			pr.logln("backups → " + sw.InternalEndpoint + " (bucket " + sw.Bucket + ", pgBackRest repo1)")
 		}
 	}

@@ -42,23 +42,61 @@ const (
 
 // seaweedConfig is the non-secret profile shown for a deployed SeaweedFS node.
 type seaweedConfig struct {
-	Image            string `json:"image"`
-	Hostname         string `json:"hostname"` // unique DNS hostname on the stack
-	FQDN             string `json:"fqdn"`     // hostname.<domain>
-	Alias            string `json:"alias"`    // network alias (== hostname)
-	AccessKey        string `json:"accessKey"`
-	Bucket           string `json:"bucket"`
-	Region           string `json:"region"`
-	WebPort          int    `json:"webPort"`          // host port mapped to container 8080 (web UI)
-	InternalEndpoint string `json:"internalEndpoint"` // http(s)://<fqdn>:8333 — S3 endpoint for in-stack DB nodes
-	TLS              bool   `json:"tls"`              // S3 endpoint served over HTTPS
-	GenerateCert     bool   `json:"generateCert"`     // TLS cert signed by the Intranet CA (else self-signed)
+	Image            string   `json:"image"`
+	Hostname         string   `json:"hostname"` // unique DNS hostname on the stack
+	FQDN             string   `json:"fqdn"`     // hostname.<domain>
+	Alias            string   `json:"alias"`    // network alias (== hostname)
+	AccessKey        string   `json:"accessKey"`
+	Bucket           string   `json:"bucket"`  // the default bucket (the first one)
+	Buckets          []string `json:"buckets"` // every bucket created on this node (1–10)
+	Region           string   `json:"region"`
+	WebPort          int      `json:"webPort"`          // host port mapped to container 8080 (web UI)
+	InternalEndpoint string   `json:"internalEndpoint"` // http(s)://<fqdn>:8333 — S3 endpoint for in-stack DB nodes
+	TLS              bool     `json:"tls"`              // S3 endpoint served over HTTPS
+	GenerateCert     bool     `json:"generateCert"`     // TLS cert signed by the Intranet CA (else self-signed)
 }
 
 // seaweedSecrets holds the S3 secret key (generated or user-supplied).
 type seaweedSecrets struct {
 	AccessKey string `json:"accessKey"`
 	SecretKey string `json:"secretKey"`
+}
+
+// maxSeaweedBuckets is how many buckets one node will create. A lab S3 store is a shared backup
+// target — several databases, each with its own bucket — and ten is plenty for a stack that size.
+const maxSeaweedBuckets = 10
+
+// seaweedBuckets is the bucket list of a SeaweedFS node, in design order and deduplicated. It falls
+// back to the older single Bucket field (designs saved before the list existed), and is capped at
+// maxSeaweedBuckets — validation reports anything beyond that rather than silently dropping it.
+func seaweedBuckets(n designNode) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, b := range append(append([]string{}, n.Buckets...), n.Bucket) {
+		b = strings.TrimSpace(b)
+		if b == "" || seen[b] {
+			continue
+		}
+		seen[b] = true
+		out = append(out, b)
+		if len(out) == maxSeaweedBuckets {
+			break
+		}
+	}
+	return out
+}
+
+// pickSeaweedBucket resolves which of a node's buckets a consumer uses: the one it asked for when
+// that bucket exists, else the node's default (its first). A consumer that names a bucket the node
+// does not have is caught by validation, so this only has to be sane, not clever.
+func pickSeaweedBucket(cfg seaweedConfig, want string) string {
+	want = strings.TrimSpace(want)
+	for _, b := range cfg.Buckets {
+		if b == want {
+			return b
+		}
+	}
+	return cfg.Bucket
 }
 
 // validBucketName enforces the common S3 bucket-name rules (a strict subset that
@@ -127,9 +165,13 @@ func (a *App) provisionSeaweedFS(st Stack, n designNode, doc designDoc) {
 	if n.TLS {
 		scheme = "https"
 	}
+	buckets := seaweedBuckets(n)
+	if len(buckets) == 0 {
+		buckets = []string{"backups"} // validation refuses this design; never index into nothing
+	}
 	cfg := seaweedConfig{
 		Image: ref, Hostname: host, FQDN: fqdn, Alias: host,
-		AccessKey: ak, Bucket: strings.TrimSpace(n.Bucket), Region: seaweedRegion,
+		AccessKey: ak, Bucket: buckets[0], Buckets: buckets, Region: seaweedRegion,
 		InternalEndpoint: fmt.Sprintf("%s://%s:%d", scheme, fqdn, seaweedS3Port),
 		TLS:              n.TLS, GenerateCert: n.TLS && n.GenerateCert,
 	}
@@ -267,14 +309,16 @@ func (a *App) provisionSeaweedFS(st Stack, n designNode, doc designDoc) {
 		logln(fmt.Sprintf("container started (web UI host port %d)", cfg.WebPort))
 		a.trustIntranetCA(ctx, st, id, n.OS, logln)
 
-		// Create the bucket. The step retries, which also serves as the readiness
-		// gate (weed shell only succeeds once the master + filer are up).
-		setPhase("Creating bucket", 60)
-		if err := a.runShStep(ctx, id, seaweedBucketScript, []string{"BUCKET=" + cfg.Bucket}, logln); err != nil {
-			failNode("create bucket %s: %v", cfg.Bucket, err)
-			return
+		// Create the buckets. The step retries, which also serves as the readiness gate (weed shell
+		// only succeeds once the master + filer are up), so the first bucket is the slow one.
+		setPhase("Creating buckets", 60)
+		for _, b := range cfg.Buckets {
+			if err := a.runShStep(ctx, id, seaweedBucketScript, []string{"BUCKET=" + b}, logln); err != nil {
+				failNode("create bucket %s: %v", b, err)
+				return
+			}
 		}
-		logln("bucket ready: " + cfg.Bucket)
+		logln("buckets ready: " + strings.Join(cfg.Buckets, ", "))
 
 		// Publish this node (and refresh all others) in the Intranet DNS zones.
 		a.reconcileStackDNS(ctx, st.ID)
@@ -283,7 +327,7 @@ func (a *App) provisionSeaweedFS(st Stack, n designNode, doc designDoc) {
 		prog.Message = "provisioned"
 		save()
 		a.store.SetDeploymentState(st.ID, n.ID, DeployRunning)
-		log.Printf("stack %d seaweedfs %s: provisioned (bucket %s)", st.ID, n.ID, cfg.Bucket)
+		log.Printf("stack %d seaweedfs %s: provisioned (buckets %s)", st.ID, n.ID, strings.Join(cfg.Buckets, ","))
 	}()
 }
 
@@ -385,3 +429,25 @@ func seaweedTar(name string, content []byte) []byte {
 const seaweedBucketScript = `
 printf 's3.bucket.create -name %s\n' "$BUCKET" | weed shell >/dev/null 2>&1 || true
 printf 's3.bucket.list\n' | weed shell 2>/dev/null | grep -qw "$BUCKET"`
+
+// seaweedBucketIssues checks that a consumer's chosen bucket is one the SeaweedFS node actually
+// creates. A name that is merely *valid* is not enough: a backup configured against a bucket that
+// does not exist fails at the first upload, long after the deploy said it was fine.
+func seaweedBucketIssues(who, seaweedNodeID, bucket string, doc designDoc) []issue {
+	bucket = strings.TrimSpace(bucket)
+	if seaweedNodeID == "" || bucket == "" { // no node, or "use the default bucket"
+		return nil
+	}
+	for _, n := range doc.Nodes {
+		if n.ID != seaweedNodeID || n.Type != "seaweedfs" {
+			continue
+		}
+		for _, b := range seaweedBuckets(n) {
+			if b == bucket {
+				return nil
+			}
+		}
+		return []issue{{"error", who + ": bucket " + bucket + " is not one of the buckets on SeaweedFS node " + n.Label}}
+	}
+	return nil // a missing node is already reported by the caller's own check
+}

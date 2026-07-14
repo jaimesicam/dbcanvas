@@ -71,7 +71,11 @@ type designNode struct {
 	// image), so it ignores os/arch like PMM.
 	AccessKey string `json:"accessKey"` // S3 AWS_ACCESS_KEY_ID ("" → "seaweedfs")
 	SecretKey string `json:"secretKey"` // S3 AWS_SECRET_ACCESS_KEY ("" → generated)
-	Bucket    string `json:"bucket"`    // S3 bucket to create (required)
+	// Buckets are created at deploy: 1–10 of them, so several databases can back up to one
+	// SeaweedFS node without sharing a bucket. Bucket is the older single-bucket field, kept as the
+	// fallback for designs saved before the list existed (and it is always the first bucket).
+	Bucket  string   `json:"bucket"`
+	Buckets []string `json:"buckets"`
 	// TLS serves the S3 endpoint over HTTPS. When GenerateCert is also set the
 	// certificate is signed by the Intranet CA (else it is self-signed). Reuses
 	// GenerateCert + CertTTLValue/CertTTLUnit above.
@@ -84,6 +88,8 @@ type designNode struct {
 	PGVersion       string `json:"pgVersion"`       // minor; "" → latest
 	UsePgBackRest   bool   `json:"usePgBackRest"`   // configure pgBackRest → SeaweedFS S3 backup
 	SeaweedFSNodeID string `json:"seaweedfsNodeId"` // SeaweedFS node id backing pgBackRest
+	// Which of that node's buckets to use ("" → its first, i.e. the default bucket).
+	SeaweedFSBucket string `json:"seaweedfsBucket"`
 	// Directory authentication (Type=="ps"|"pg"|"psm"). When LdapAuth is set the engine
 	// is configured at deploy to authenticate against the chosen directory node
 	// (LdapDirNodeID → an "intranet" OpenLDAP or "sambaad" AD node). KerberosAuth
@@ -173,6 +179,8 @@ type designFrame struct {
 	PGVersion       string `json:"pgVersion"`       // minor (e.g. 16.4); "" → latest
 	UsePgBackRest   bool   `json:"usePgBackRest"`   // configure pgBackRest → SeaweedFS S3 (clone + backup)
 	SeaweedFSNodeID string `json:"seaweedfsNodeId"` // SeaweedFS node id backing pgBackRest/Barman (when enabled)
+	// Which of that node's buckets to use ("" → its first, i.e. the default bucket).
+	SeaweedFSBucket string `json:"seaweedfsBucket"`
 	// repmgr PostgreSQL cluster frame config (Type=="repmgr"; reuses OS/OSVersion/Arch,
 	// RootPassword (postgres superuser pw), PMMNodeID, UseProxy, GenerateCert/CertTTL,
 	// PGMajor/PGVersion above). Each member runs PostgreSQL + repmgr (streaming
@@ -626,13 +634,23 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			}
 			if n.UsePgBackRest {
 				out = append(out, pgBackRestSeaweedIssues("PostgreSQL node "+n.Label, n.SeaweedFSNodeID, doc)...)
+				out = append(out, seaweedBucketIssues("PostgreSQL node "+n.Label, n.SeaweedFSNodeID, n.SeaweedFSBucket, doc)...)
 			}
 			out = append(out, dirAuthIssues(n, dirNodes)...)
 			out = append(out, oidcIssues(n, keycloakIDs, keycloakSSL)...)
 		case "seaweedfs":
 			others++
-			if !validBucketName(n.Bucket) {
-				out = append(out, issue{"error", "SeaweedFS node " + n.Label + " needs a valid bucket name (3–63 chars: lowercase letters, digits, dots and hyphens; start/end alphanumeric)"})
+			buckets := seaweedBuckets(n)
+			if len(buckets) == 0 {
+				out = append(out, issue{"error", "SeaweedFS node " + n.Label + " needs at least one bucket"})
+			}
+			if len(n.Buckets) > maxSeaweedBuckets {
+				out = append(out, issue{"error", fmt.Sprintf("SeaweedFS node %s has %d buckets — at most %d", n.Label, len(n.Buckets), maxSeaweedBuckets)})
+			}
+			for _, b := range buckets {
+				if !validBucketName(b) {
+					out = append(out, issue{"error", "SeaweedFS node " + n.Label + ": " + b + " is not a valid bucket name (3–63 chars: lowercase letters, digits, dots and hyphens; start/end alphanumeric)"})
+				}
 			}
 		case "haproxy":
 			others++
@@ -892,6 +910,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			}
 		}
 		out = append(out, a.k3dFrameIssues(ctx, f, members, opCat)...)
+		out = append(out, seaweedBucketIssues("K3D cluster "+f.Label, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
 	}
 	for name, c := range k3dNames {
 		if c > 1 && name != "" {
@@ -947,6 +966,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			}
 		}
 		out = append(out, pbmFrameIssues(f, doc)...)
+		out = append(out, seaweedBucketIssues("PS MongoDB cluster "+f.Label, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {
 			seenImg[img] = true
@@ -986,6 +1006,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			out = append(out, issue{"warning", "PS MongoDB replica set " + f.Label + ": an odd number of members keeps election quorum on a split network"})
 		}
 		out = append(out, pbmFrameIssues(f, doc)...)
+		out = append(out, seaweedBucketIssues("PS MongoDB cluster "+f.Label, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {
 			seenImg[img] = true
@@ -1029,6 +1050,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		}
 		if f.UsePgBackRest {
 			out = append(out, pgBackRestSeaweedIssues("Patroni cluster "+f.Label, f.SeaweedFSNodeID, doc)...)
+			out = append(out, seaweedBucketIssues("Patroni cluster "+f.Label, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
 		}
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {
@@ -1072,6 +1094,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		}
 		if f.UseBarman {
 			out = append(out, barmanSeaweedIssues("repmgr cluster "+f.Label, f.SeaweedFSNodeID, doc)...)
+			out = append(out, seaweedBucketIssues("repmgr cluster "+f.Label, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
 		}
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {

@@ -205,7 +205,7 @@ func (a *App) provisionRepmgrFrame(st Stack, frame designFrame, doc designDoc) {
 			for _, n := range members {
 				a.pxcNewProg(st.ID, n.ID).phase("Waiting for SeaweedFS (Barman store)", 8)
 			}
-			c, s, werr := a.waitSeaweedRunning(ctx, st.ID, frame.SeaweedFSNodeID, deployTimeout())
+			c, s, werr := a.waitSeaweedBucket(ctx, st.ID, frame.SeaweedFSNodeID, frame.SeaweedFSBucket, deployTimeout())
 			if werr != nil {
 				for _, n := range members {
 					a.pxcNewProg(st.ID, n.ID).fail("%v", werr)
@@ -622,7 +622,7 @@ func (a *App) handleRepmgrBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The SeaweedFS config (bucket/endpoint) is needed to build the backup command.
-	swCfg, _, err := a.waitSeaweedRunning(ctx, st.ID, frame.SeaweedFSNodeID, 30*time.Second)
+	swCfg, _, err := a.waitSeaweedBucket(ctx, st.ID, frame.SeaweedFSNodeID, frame.SeaweedFSBucket, 30*time.Second)
 	if err != nil {
 		writeErr(w, http.StatusConflict, "SeaweedFS backup node is not available")
 		return
