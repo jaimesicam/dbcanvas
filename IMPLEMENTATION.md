@@ -6499,3 +6499,65 @@ rewritten; and the k3d memory flags broke in container mode (above) — found on
 the way `make compose` does, which is now part of the verification: **the whole flow was re-run with
 DBCanvas itself inside a container** (socket-mounted, k3d from the image), reaching a `ready` PXC
 cluster with the 8 CPU / 12 GiB budget applied as real cgroup limits.
+
+## 134. Percona Operator for MongoDB on the K3D frame — `app/k3dpsmdb.go`, `k3d.go`, `k3dcr.go`, `StackDesigner.jsx`, `K3DManager.jsx`
+
+The second operator, on the same rails as PXC: fetch the tag's source into `/root` on the first node,
+apply `deploy/bundle.yaml`, then `secrets.yaml` (renamed, `.env` passwords), then a rewritten
+`cr.yaml`. The three shared steps became `k3dFetchOperator` / `k3dApplyBundle` / `k3dPMMToken`, so
+each operator's installer is now only what is actually different about it.
+
+**What is different about PSMDB.** Its cr.yaml is *nested* where PXC's is flat: `replsets` is a list,
+and its members (arbiter, hidden, nonvoting) and the `sharding` block (config servers, mongos) each
+carry their own affinity, resources and expose. A rule keyed on "section + indent" (which is all
+PXC's file needs) cannot tell `spec.replsets.expose.type` from `spec.sharding.mongos.expose.type`, so
+the PSMDB transform keys rules on the **path** of a line (`yPath`, with list items transparent).
+
+Two rules moved into shared code because both engines need them: anti-affinity → `none`, and
+commenting out every CPU/memory `resources:`. The second one gained a **PVC exception** (`crPVC`):
+indentation alone no longer distinguishes them (a replset's resources sit at 4 spaces, its
+arbiter's/mongos's at 6, and a PersistentVolumeClaim's at 8 *and* 12), and commenting out a PVC's
+`resources` — the volume's size, which is required — makes the operator reject the CR.
+
+**Topology, not a proxy.** MongoDB's front end is the mongos router, and only for a sharded cluster:
+sharding turns 3 pods into 9 (replica set + 3 config servers + 3 mongos). So the frame defaults to a
+plain replica set and offers sharding as a choice, warning below 8 CPU / 12 GiB. Expose is per tier,
+like PXC's: the mongod pods and the routers are set independently.
+
+**Backups** are *inserted*, not substituted: PSMDB ships every storage commented out (so nothing
+references one by name — none of PXC's `storageName` repointing is needed). The storage is `s3` with
+`insecureSkipTLSVerify: true` (same reasoning as PXC's `verifyTLS: false`) and **`forcePathStyle:
+true`**, which SeaweedFS actually needs — PBM, unlike xbcloud, does not assume path-style addressing
+for a custom endpoint. The field is emitted only when the selected version's own `crd.yaml` knows it,
+because a strict-decoding CRD rejects the entire custom resource over an unknown field.
+
+**PMM 3 needs `PMM_SERVER_TOKEN` — and the PMM 2 key gone.** The token goes into the *users* secret
+(not a separate one, as in PXC), and its presence is also what makes the operator pick the PMM 3
+sidecar. The shipped `secrets.yaml` carries `PMM_SERVER_API_KEY: apikey`, and the operator falls back
+to the **PMM 2** container whenever that key is present and a token is not — so the transform drops
+it. `serverHost` carries `:8443` for the same reason as PXC (the value is handed to the sidecars
+verbatim as `PMM_AGENT_SERVER_ADDRESS`, which defaults to `:443`).
+
+**A container-mode bug the PXC work had only got away with by luck.** k3d publishes the API server on
+a host port it picks by probing for a free one — *in its own network namespace*. Inside the app
+container that is not the host's: a port free in there can be taken out here (another cluster's
+serverlb), and the create dies with `Bind for 127.0.0.1:38765 failed: port is already allocated`. It
+now passes `--api-port 0.0.0.0:0`, which defers the choice to the daemon — the only party that knows
+what is free on the host. Nothing uses the port anyway: kubectl runs *inside* the server node.
+
+**Verified live** (DBCanvas in a container, socket-mounted, k3d from the image; Intranet + PMM +
+SeaweedFS + a 1-node k3d cluster, 8 CPU / 12 GiB, operator 1.22.0):
+- **Replica set**: `ready` with 3 mongod pods at 5/5, each on its own MetalLB LoadBalancer address;
+  `rs.status()` shows one PRIMARY and two SECONDARY, and `clusterAdmin` authenticates with the
+  password from **.env** — from inside a pod and from a plain container on the stack network.
+- **PMM**: the service token is patched into `mongo-secrets` as `PMM_SERVER_TOKEN` before cr.yaml, all
+  three pmm-client sidecars register, and `mongodb_up = 1` for `psmdb-mongo-rs0-{0,1,2}` under cluster
+  `mongo`. (The exporter logs SCRAM failures for the first couple of minutes — that is the window
+  before the operator has created the users, and it clears itself.)
+- **Backups**: an on-demand `PerconaServerMongoDBBackup` reached `ready` at
+  `s3://backups/2026-07-14T01:19:00Z`, and the objects are really in SeaweedFS (`.pbm.init`, the
+  backup, its `.pbm.json`).
+- **Sharded**: 9 pods + the operator, all Running; the mongod pods stayed ClusterIP while
+  `mongo-mongos` took the LoadBalancer address, and `listShards` through the router (from the stack
+  network) returns `rs0`.
+- **Teardown**: no `mongo-s1` container or volume survives.

@@ -50,13 +50,17 @@ const (
 	operatorTarballFmt = "https://github.com/percona/%s/archive/refs/tags/v%s.tar.gz"
 )
 
-// k3dOperatorRepos maps a product to its GitHub repository. Only "pxc" is deployable today; the
-// other two are discovered by `make versions` and offered as "coming soon" in the designer.
+// k3dOperatorRepos maps a product to its GitHub repository — the tag's source tarball is where
+// bundle.yaml, secrets.yaml and cr.yaml come from.
 var k3dOperatorRepos = map[string]string{
 	"pxc":   "percona-xtradb-cluster-operator",
 	"psmdb": "percona-server-mongodb-operator",
 	"pg":    "percona-postgresql-operator",
 }
+
+// k3dDeployableOperator is the subset DBCanvas can actually install. PostgreSQL's versions are
+// discovered by `make versions` and shown as "coming soon" in the designer.
+var k3dDeployableOperator = map[string]bool{"pxc": true, "psmdb": true}
 
 // k3dExposeTypes are the Kubernetes Service types a cr.yaml `expose` section accepts.
 var k3dExposeTypes = map[string]string{
@@ -76,19 +80,24 @@ type k3dConfig struct {
 	CPUs         int    `json:"cpus"`         // total CPUs for the cluster
 	MemoryGB     int    `json:"memoryGb"`     // total memory for the cluster
 	MetalLBRange string `json:"metallbRange"` // the LoadBalancer address pool
-	Operator     string `json:"operator"`     // "" | "pxc"
+	Operator     string `json:"operator"`     // "" | "pxc" | "psmdb"
 	OperatorVer  string `json:"operatorVer"`  //
 	OperatorSrc  string `json:"operatorSrc"`  // /root/<repo>-<ver> on the first node
 	Namespace    string `json:"namespace"`    //
-	Proxy        string `json:"proxy"`        // haproxy | proxysql — the enabled front end
-	Expose       string `json:"expose"`       // the database (pxc) Service type — kept for the card
-	ExposePXC    string `json:"exposePxc"`    // ClusterIP | NodePort | LoadBalancer
-	ExposeProxy  string `json:"exposeProxy"`  // the chosen proxy's Service type
-	ClusterName  string `json:"crName"`       // the PXC cluster name inside cr.yaml
-	MonitoredBy  string `json:"monitoredBy"`  // PMM FQDN ("" = none)
-	PMMToken     string `json:"pmmToken"`     // "" | "expires <when>" — the service token's lifetime
-	BackupRepo   string `json:"backupRepo"`   // SeaweedFS S3 target ("" = none)
-	Image        string `json:"image"`        // the k3s image k3d used
+	ClusterName  string `json:"crName"`       // the database cluster's name inside cr.yaml
+	// PXC: the front end (they are mutually exclusive) and the Service type of each tier.
+	Proxy       string `json:"proxy"`       // haproxy | proxysql
+	Expose      string `json:"expose"`      // the database Service type — kept for the card
+	ExposePXC   string `json:"exposePxc"`   // ClusterIP | NodePort | LoadBalancer
+	ExposeProxy string `json:"exposeProxy"` // the chosen proxy's Service type
+	// PSMDB: a plain replica set, or sharded (config servers + mongos routers).
+	Sharding      bool   `json:"sharding"`
+	ExposeReplset string `json:"exposeReplset"`
+	ExposeMongos  string `json:"exposeMongos"` // sharded clusters only
+	MonitoredBy   string `json:"monitoredBy"`  // PMM FQDN ("" = none)
+	PMMToken      string `json:"pmmToken"`     // "" | "expires <when>" — the service token's lifetime
+	BackupRepo    string `json:"backupRepo"`   // SeaweedFS S3 target ("" = none)
+	Image         string `json:"image"`        // the k3s image k3d used
 }
 
 // ---------------------------------------------------------------- the k3d binary
@@ -174,8 +183,8 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 		out = append(out, issue{"error", "K3D cluster " + name + " has an invalid namespace " + ns + " — use lowercase letters, digits and '-' (a DNS-1123 label)"})
 	}
 	if op := strings.TrimSpace(f.K3DOperator); op != "" {
-		if op != "pxc" {
-			out = append(out, issue{"error", "K3D cluster " + name + ": only the PXC operator can be deployed today"})
+		if !k3dDeployableOperator[op] {
+			out = append(out, issue{"error", "K3D cluster " + name + ": only the PXC and MongoDB operators can be deployed today"})
 		} else if _, ok := opCat.resolveOperatorVersion(op, f.K3DOperatorVer); !ok {
 			out = append(out, issue{"error", "K3D cluster " + name + " requests an unknown " + op + " operator version — pick one from the list, or run `make versions`"})
 		}
@@ -184,7 +193,11 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 	// The CPU/memory budget is for the whole cluster, split across its nodes.
 	cpus, memGB := k3dCPUs(f), k3dMemoryGB(f)
 	if cpus < 4 || memGB < 6 {
-		out = append(out, issue{"warning", fmt.Sprintf("K3D cluster %s is allotted %d CPU / %d GiB — a PXC cluster (3 database pods + HAProxy) is unlikely to schedule below 4 CPU / 6 GiB", name, cpus, memGB)})
+		out = append(out, issue{"warning", fmt.Sprintf("K3D cluster %s is allotted %d CPU / %d GiB — a database cluster (3 pods plus a proxy or router) is unlikely to schedule below 4 CPU / 6 GiB", name, cpus, memGB)})
+	}
+	// A sharded MongoDB cluster is 3 replica-set + 3 config-server + 3 mongos pods.
+	if f.K3DOperator == "psmdb" && f.K3DSharding && (cpus < 8 || memGB < 12) {
+		out = append(out, issue{"warning", fmt.Sprintf("K3D cluster %s is sharded — 9 MongoDB pods (replica set + config servers + mongos) against %d CPU / %d GiB; below 8 CPU / 12 GiB, deploy it as a replica set instead", name, cpus, memGB)})
 	}
 	if ncpu, memBytes := a.docker.HostResources(ctx); ncpu > 0 && memBytes > 0 {
 		hostGB := int(memBytes / (1 << 30))
@@ -311,10 +324,18 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		Cluster: cluster, Nodes: nodes, CPUs: cpus, MemoryGB: memGB,
 		Operator: operator, OperatorVer: operatorVer, Namespace: ns,
 		Proxy: proxy, Expose: exposePXC, ExposePXC: exposePXC, ExposeProxy: exposeProxy,
-		MonitoredBy: monitoredBy, BackupRepo: backupRepo, ClusterName: pxcCRName(frame),
+		Sharding:    frame.K3DSharding,
+		MonitoredBy: monitoredBy, BackupRepo: backupRepo, ClusterName: k3dCRName(frame),
 	}
-	if operator == "pxc" {
-		base.OperatorSrc = fmt.Sprintf("%s/%s-%s", k3dOperatorDir, k3dOperatorRepos["pxc"], operatorVer)
+	if operator == "psmdb" {
+		base.ExposeReplset = k3dExposeOf(frame.K3DExposeReplset, frame.K3DExpose)
+		base.Expose = base.ExposeReplset // the card shows the database tier
+		if frame.K3DSharding {
+			base.ExposeMongos = k3dExposeOf(frame.K3DExposeMongos, frame.K3DExpose)
+		}
+	}
+	if repo, ok := k3dOperatorRepos[operator]; ok && operator != "" {
+		base.OperatorSrc = fmt.Sprintf("%s/%s-%s", k3dOperatorDir, repo, operatorVer)
 	}
 	for i, n := range members {
 		cfg := base
@@ -368,6 +389,13 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 			// MetalLB is the one we want. Traefik is not needed and just eats resources.
 			"--k3s-arg", "--disable=servicelb@server:*",
 			"--k3s-arg", "--disable=traefik@server:*",
+			// Let the *daemon* pick the host port the API server is published on. Left to itself k3d
+			// probes for a free port in its own network namespace — which, when DBCanvas runs in a
+			// container, is not the host's: the port can be free in here and taken out there (another
+			// cluster's serverlb, say), and the create then dies with "Bind for 127.0.0.1:xxxxx
+			// failed: port is already allocated". Port 0 defers the choice to Docker, which knows.
+			// Nothing uses this port anyway — kubectl runs inside the server node.
+			"--api-port", "0.0.0.0:0",
 			"--wait", "--timeout", "10m",
 		}
 		// A previous run (or a failed one) may have left the cluster behind, and k3d refuses to
@@ -435,9 +463,15 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		}
 
 		// ---- the operator ----
-		if operator == "pxc" {
+		switch operator {
+		case "pxc":
 			if err := a.installPXCOperator(ctx, st, frame, doc, serverID, &base, pr); err != nil {
 				failAll("install the PXC operator: %v", err)
+				return
+			}
+		case "psmdb":
+			if err := a.installPSMDBOperator(ctx, st, frame, doc, serverID, &base, pr); err != nil {
+				failAll("install the MongoDB operator: %v", err)
 				return
 			}
 		}
@@ -661,14 +695,12 @@ func httpGetBytes(ctx context.Context, url string) ([]byte, error) {
 
 // ---------------------------------------------------------------- the PXC operator
 
-// pxcCRName is the PXC cluster name inside cr.yaml. Kept short and derived from the k3d cluster so
-// two frames in one stack never collide.
-// pxcCRName is the PXC cluster's name inside Kubernetes — and the stem of every resource the
-// operator derives from it (<name>-pxc, <name>-secrets, …). It is the frame's label, NOT the k3d
+// k3dCRName is the database cluster's name inside Kubernetes — and the stem of every resource the
+// operator derives from it (<name>-pxc / <name>-rs0, <name>-secrets, …). It is the frame's label, NOT the k3d
 // cluster name: that one is suffixed with the stack id because k3d names are global to the Docker
 // daemon, but a custom resource lives inside its own Kubernetes cluster and never collides, so the
 // suffix would only show up in every resource name for no reason.
-func pxcCRName(frame designFrame) string {
+func k3dCRName(frame designFrame) string {
 	name := "cluster1"
 	if l := sanitizeName(frame.Label); l != "" {
 		name = l
@@ -679,30 +711,35 @@ func pxcCRName(frame designFrame) string {
 	return strings.Trim(name, "-")
 }
 
-// installPXCOperator unpacks the operator source into /root on the first node, applies the bundle
-// into the chosen namespace, rewrites cr.yaml (§ crTransform) and applies it.
-func (a *App) installPXCOperator(ctx context.Context, st Stack, frame designFrame, doc designDoc, serverID string, cfg *k3dConfig, pr *pxcProg) error {
-	repo := k3dOperatorRepos["pxc"]
-
+// k3dFetchOperator downloads an operator's source tarball for the selected version and unpacks it
+// into /root on the first node — the k3s image has neither git nor curl, so the app does the
+// fetching. Returns the tarball, which is also where cr.yaml and secrets.yaml are read from
+// (readContainerFile needs bash; k3s is busybox).
+func (a *App) k3dFetchOperator(ctx context.Context, serverID, repo string, cfg *k3dConfig, pr *pxcProg) ([]byte, error) {
 	pr.phase("Fetching the operator source", 65)
 	url := fmt.Sprintf(operatorTarballFmt, repo, cfg.OperatorVer)
 	tgz, err := httpGetBytes(ctx, url)
 	if err != nil {
-		return fmt.Errorf("download %s: %w", url, err)
+		return nil, fmt.Errorf("download %s: %w", url, err)
 	}
 	tarball, err := gunzip(tgz)
 	if err != nil {
-		return fmt.Errorf("unpack the operator source: %w", err)
+		return nil, fmt.Errorf("unpack the operator source: %w", err)
 	}
-	// The k3s image has no git and no curl, so the source is placed by the Docker API.
 	if _, err := a.docker.Exec(ctx, serverID, []string{"mkdir", "-p", k3dOperatorDir}, nil); err != nil {
-		return err
+		return nil, err
 	}
 	if err := a.docker.PutArchive(ctx, serverID, k3dOperatorDir, tarball); err != nil {
-		return fmt.Errorf("copy the operator source to %s: %w", k3dOperatorDir, err)
+		return nil, fmt.Errorf("copy the operator source to %s: %w", k3dOperatorDir, err)
 	}
 	pr.logln("operator source in " + cfg.OperatorSrc + " (on the first node)")
+	return tarball, nil
+}
 
+// k3dApplyBundle creates the namespace and applies deploy/bundle.yaml (CRDs, RBAC and the operator
+// itself), then waits for the operator Deployment. Nothing may be applied before it: the custom
+// resource's CRD arrives with the bundle.
+func (a *App) k3dApplyBundle(ctx context.Context, serverID, deployment string, cfg *k3dConfig, pr *pxcProg) error {
 	pr.phase("Installing the operator", 75)
 	ns := cfg.Namespace
 	if _, err := a.kubectl(ctx, serverID, "create", "namespace", ns); err != nil && !strings.Contains(err.Error(), "already exists") {
@@ -712,9 +749,92 @@ func (a *App) installPXCOperator(ctx context.Context, st Stack, frame designFram
 		return err
 	}
 	if _, err := a.kubectl(ctx, serverID, "-n", ns, "wait", "--for=condition=Available",
-		"deployment/percona-xtradb-cluster-operator", "--timeout=300s"); err != nil {
+		"deployment/"+deployment, "--timeout=300s"); err != nil {
 		return fmt.Errorf("the operator did not become ready: %w", err)
 	}
+	return nil
+}
+
+// k3dPMMToken mints a PMM service token and patches it into the cluster's secret under tokenKey
+// (PXC: `pmmservertoken`; PSMDB: `PMM_SERVER_TOKEN`). It returns the value for the CR's
+// `pmm.serverHost` — "" when PMM is not usable, which leaves PMM disabled in the CR rather than
+// starting sidecars that can only fail.
+//
+// This must run BEFORE cr.yaml: the operator reads the secret while creating the pods.
+//
+// The returned host carries the **port**. Both operators hand serverHost to the sidecars verbatim as
+// PMM_AGENT_SERVER_ADDRESS, whose default port is 443 — but a DBCanvas PMM node serves HTTPS on
+// 8443, so a bare hostname leaves every pmm-client retrying "connection refused".
+func (a *App) k3dPMMToken(ctx context.Context, st Stack, frame designFrame, doc designDoc, serverID, tokenKey string, cfg *k3dConfig, pr *pxcProg) string {
+	if cfg.MonitoredBy == "" {
+		return ""
+	}
+	_, pmmUser, pmmPass, ok := a.pmmServerFor(st, doc, frame.PMMNodeID)
+	pmmID := a.containerOf(st.ID, frame.PMMNodeID)
+	if !ok || pmmID == "" {
+		pr.logln("PMM monitoring skipped: the PMM node is not running")
+		return ""
+	}
+	ttl := certTTL(frame.K3DPMMTokenTTLValue, frame.K3DPMMTokenTTLUnit)
+	token, err := a.pmmServiceToken(ctx, pmmID, pmmUser, pmmPass, "dbcanvas-"+cfg.ClusterName, ttl)
+	if err != nil {
+		pr.logln("PMM monitoring skipped: could not create a service token: " + err.Error())
+		return ""
+	}
+	secret := cfg.ClusterName + "-secrets"
+	patch := fmt.Sprintf(`{"stringData":{%q:%q}}`, tokenKey, token)
+	if _, err := a.kubectl(ctx, serverID, "-n", cfg.Namespace, "patch", "secret", secret, "--type=merge", "-p", patch); err != nil {
+		pr.logln("PMM monitoring skipped: could not patch the service token into " + secret + ": " + err.Error())
+		return ""
+	}
+	cfg.PMMToken = "expires " + time.Now().Add(ttl).UTC().Format(time.RFC3339)
+	host := cfg.MonitoredBy + ":8443"
+	pr.logln("PMM serverHost " + host + "; service token patched into " + secret + " as " + tokenKey +
+		" (" + cfg.PMMToken + ")")
+	return host
+}
+
+// k3dBackupSecret creates the S3 credentials secret the operators expect for a backup storage
+// (both read AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY out of it), pointed at the stack's SeaweedFS
+// node. Returns nil when there is no SeaweedFS node, or it is not usable — backups are then simply
+// left as cr.yaml ships them.
+func (a *App) k3dBackupSecret(ctx context.Context, st Stack, frame designFrame, serverID string, cfg *k3dConfig, pr *pxcProg) *crS3 {
+	if frame.SeaweedFSNodeID == "" {
+		return nil
+	}
+	sw, sec, err := a.waitSeaweedRunning(ctx, st.ID, frame.SeaweedFSNodeID, deployTimeout())
+	if err != nil {
+		pr.logln("backups skipped: " + err.Error())
+		return nil
+	}
+	name := cfg.ClusterName + "-backup-s3"
+	if _, err := a.kubectl(ctx, serverID, "-n", cfg.Namespace, "create", "secret", "generic", name,
+		"--from-literal=AWS_ACCESS_KEY_ID="+seaweedAccessKeyOf(sw, sec),
+		"--from-literal=AWS_SECRET_ACCESS_KEY="+sec.SecretKey); err != nil &&
+		!strings.Contains(err.Error(), "already exists") {
+		pr.logln("backup secret skipped: " + err.Error())
+		return nil
+	}
+	pr.logln("backups → " + sw.InternalEndpoint + " (bucket " + sw.Bucket + ")")
+	return &crS3{
+		Bucket:      sw.Bucket,
+		Region:      sw.Region,
+		EndpointURL: sw.InternalEndpoint,
+		Secret:      name,
+	}
+}
+
+// installPXCOperator unpacks the operator source into /root on the first node, applies the bundle
+// into the chosen namespace, rewrites cr.yaml (§ crTransform) and applies it.
+func (a *App) installPXCOperator(ctx context.Context, st Stack, frame designFrame, doc designDoc, serverID string, cfg *k3dConfig, pr *pxcProg) error {
+	tarball, err := a.k3dFetchOperator(ctx, serverID, k3dOperatorRepos["pxc"], cfg, pr)
+	if err != nil {
+		return err
+	}
+	if err := a.k3dApplyBundle(ctx, serverID, "percona-xtradb-cluster-operator", cfg, pr); err != nil {
+		return err
+	}
+	ns := cfg.Namespace
 
 	// ---- secrets.yaml, BEFORE cr.yaml ----
 	// The cluster's users (root, monitor, replication, …) come from this secret. The operator reads
@@ -756,73 +876,19 @@ func (a *App) installPXCOperator(ctx context.Context, st Stack, frame designFram
 	}
 
 	// Backups → the SeaweedFS node's S3 endpoint, with its credentials in a secret.
-	if frame.SeaweedFSNodeID != "" {
-		sw, sec, serr := a.waitSeaweedRunning(ctx, st.ID, frame.SeaweedFSNodeID, deployTimeout())
-		if serr != nil {
-			pr.logln("backups skipped: " + serr.Error())
-		} else {
-			secretName := cfg.ClusterName + "-backup-s3"
-			if _, err := a.kubectl(ctx, serverID, "-n", ns, "create", "secret", "generic", secretName,
-				"--from-literal=AWS_ACCESS_KEY_ID="+seaweedAccessKeyOf(sw, sec),
-				"--from-literal=AWS_SECRET_ACCESS_KEY="+sec.SecretKey); err != nil &&
-				!strings.Contains(err.Error(), "already exists") {
-				pr.logln("backup secret skipped: " + err.Error())
-			} else {
-				// `forcePathStyle` (SeaweedFS does not do virtual-host bucket addressing) only
-				// exists in the operator's S3 schema from 1.20.0 — an older CRD rejects the WHOLE
-				// custom resource over the unknown field, so the cluster is never created. The
-				// selected version's own cr.yaml is the authority on what its schema accepts.
-				// Backups still work without it: xbcloud already addresses path-style when it is
-				// given a custom endpoint (verified against 1.19.1).
-				forcePath := strings.Contains(string(raw), "forcePathStyle")
-				opts.S3 = &crS3{
-					Bucket:         sw.Bucket,
-					Region:         sw.Region,
-					EndpointURL:    sw.InternalEndpoint,
-					Secret:         secretName,
-					ForcePathStyle: forcePath,
-				}
-				pr.logln("backups → " + sw.InternalEndpoint + " (bucket " + sw.Bucket + ")")
-				if !forcePath {
-					pr.logln("operator " + cfg.OperatorVer + " has no forcePathStyle option (added in 1.20.0) — omitted; xbcloud addresses path-style against a custom endpoint anyway")
-				}
-			}
+	if opts.S3 = a.k3dBackupSecret(ctx, st, frame, serverID, cfg, pr); opts.S3 != nil {
+		// `forcePathStyle` (SeaweedFS does not do virtual-host bucket addressing) only exists in the
+		// PXC operator's S3 schema from 1.20.0 — an older CRD rejects the WHOLE custom resource over
+		// the unknown field, so the cluster is never created. The selected version's own cr.yaml is
+		// the authority on what its schema accepts. Backups still work without it: xbcloud already
+		// addresses path-style when it is given a custom endpoint (verified against 1.19.1).
+		opts.S3.ForcePathStyle = strings.Contains(string(raw), "forcePathStyle")
+		if !opts.S3.ForcePathStyle {
+			pr.logln("operator " + cfg.OperatorVer + " has no forcePathStyle option (added in 1.20.0) — omitted; xbcloud addresses path-style against a custom endpoint anyway")
 		}
 	}
-	// PMM 3: the pmm-client sidecars authenticate with a *service token*, not a password. Mint one
-	// on the PMM server and patch it into the cluster secret — this must happen before cr.yaml is
-	// applied, because the operator reads the secret while creating the pods. serverHost alone
-	// would start the sidecars and leave them failing to authenticate.
-	if cfg.MonitoredBy != "" {
-		// serverHost carries the port: the operator hands it to the sidecars verbatim as
-		// PMM_AGENT_SERVER_ADDRESS, whose default port is 443 — but a DBCanvas PMM node serves HTTPS
-		// on 8443, so a bare hostname leaves every pmm-client retrying "connection refused".
-		opts.PMMHost = cfg.MonitoredBy + ":8443"
-		_, pmmUser, pmmPass, ok := a.pmmServerFor(st, doc, frame.PMMNodeID)
-		pmmID := a.containerOf(st.ID, frame.PMMNodeID)
-		if !ok || pmmID == "" {
-			pr.logln("PMM monitoring skipped: the PMM node is not running")
-			opts.PMMHost = ""
-		} else {
-			ttl := certTTL(frame.K3DPMMTokenTTLValue, frame.K3DPMMTokenTTLUnit)
-			token, terr := a.pmmServiceToken(ctx, pmmID, pmmUser, pmmPass, "dbcanvas-"+cfg.ClusterName, ttl)
-			if terr != nil {
-				pr.logln("PMM monitoring skipped: could not create a service token: " + terr.Error())
-				opts.PMMHost = ""
-			} else {
-				patch := fmt.Sprintf(`{"stringData":{"pmmservertoken":%q}}`, token)
-				if _, err := a.kubectl(ctx, serverID, "-n", ns, "patch", "secret", cfg.ClusterName+"-secrets",
-					"--type=merge", "-p", patch); err != nil {
-					pr.logln("PMM monitoring skipped: could not patch the service token into " + cfg.ClusterName + "-secrets: " + err.Error())
-					opts.PMMHost = ""
-				} else {
-					cfg.PMMToken = "expires " + time.Now().Add(ttl).UTC().Format(time.RFC3339)
-					pr.logln("PMM serverHost " + opts.PMMHost + "; service token patched into " +
-						cfg.ClusterName + "-secrets (" + cfg.PMMToken + ")")
-				}
-			}
-		}
-	}
+	// PMM 3's pmm-client sidecars authenticate with a service token, not a password.
+	opts.PMMHost = a.k3dPMMToken(ctx, st, frame, doc, serverID, "pmmservertoken", cfg, pr)
 
 	newCR := crTransform(string(raw), opts)
 	// Keep /root in sync with what was actually applied — the source is there to be read.

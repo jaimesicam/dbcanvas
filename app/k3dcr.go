@@ -19,9 +19,11 @@ import (
 //   3. `expose` gets the frame's Service type (ClusterIP / NodePort / LoadBalancer), in every
 //      section that has one — cr.yaml ships them all commented out.
 //
-// Rule 2 keys off indentation: a section's own resources sit at 4 spaces (`spec.pxc.resources`),
-// while the *PersistentVolumeClaim's* resources — the storage size, which is required — are nested
-// deeper under volumeSpec. Only the 4-space ones are commented, so the PVC keeps its size.
+// Rule 2 has one exception, and it matters: a `resources:` inside a **persistentVolumeClaim** is the
+// storage size, which is *required* — comment it out and the operator rejects the CR. So the
+// transform tracks PVC blocks and leaves their resources alone (crPVC). Indentation alone is not
+// enough to tell the two apart: a PXC section's resources sit at 4 spaces, a PSMDB replset's at 4
+// but its arbiter/mongos/config-server's at 6, while PVC resources turn up at 8 and 12.
 //
 // The transform is line-based on purpose: DBCanvas has no YAML dependency (even versions.yaml is
 // hand-parsed), and a round-trip through a YAML library would reflow the file and throw away the
@@ -116,9 +118,11 @@ func crTransform(src string, o crOptions) string {
 	commentTo := -1     // >=0: commenting out a block until a line dedents to this indent
 	dropTo := -1        // >=0: dropping lines (the shipped backup storages) until this indent
 	inStorages := false
+	pvc := newCRPVC()
 
 	for _, ln := range lines {
 		ind, commented, body := crLine(ln)
+		pvc.update(ind, commented, body)
 
 		// Close an open comment/drop range once the block dedents.
 		if commentTo >= 0 && body != "" && ind <= commentTo {
@@ -183,8 +187,8 @@ func crTransform(src string, o crOptions) string {
 				out = append(out, strings.Repeat(" ", ind)+`antiAffinityTopologyKey: "none"`)
 				continue
 
-			// 2. A section's own resources — never the PVC's (which is nested deeper).
-			case ind == 4 && body == "resources:":
+			// 2. A section's own resources — never the PVC's (its storage size is required).
+			case body == "resources:" && !pvc.inside():
 				commentTo = ind
 				out = append(out, "#"+ln)
 				continue
@@ -238,6 +242,28 @@ func crSeaweedStorage(s *crS3) string {
 	}
 	return block
 }
+
+// crPVC tracks whether the current line is inside a `persistentVolumeClaim:` block — the one place a
+// `resources:` must survive the rewrite, because it carries the volume's size and the operator
+// requires it. Every other resources block is a CPU/memory request that will not fit a k3d budget.
+type crPVC struct{ indent int }
+
+func newCRPVC() *crPVC { return &crPVC{indent: -1} }
+
+// update must be called for every line, in order, before the resources rule is applied to it.
+func (p *crPVC) update(ind int, commented bool, body string) {
+	if commented || body == "" {
+		return
+	}
+	if p.indent >= 0 && ind <= p.indent {
+		p.indent = -1 // the block dedented: we are out of it
+	}
+	if body == "persistentVolumeClaim:" {
+		p.indent = ind
+	}
+}
+
+func (p *crPVC) inside() bool { return p.indent >= 0 }
 
 // crLine splits a cr.yaml line into its logical indent, whether it is commented, and its body.
 // Comments in cr.yaml start at column 0 ("#      limits:"), so a commented line's logical indent is

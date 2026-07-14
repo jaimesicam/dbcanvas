@@ -425,6 +425,10 @@ function nextMemberName(usedSet, prefix) {
 // Per-frame-type presentation: accent color and the description line.
 const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', psmdb: '#10b981', psmrs: '#059669', patroni: '#336791', repmgr: '#0e7490', spock: '#dc2626', valkeycluster: '#7c3aed', k3d: '#326ce5' }
 
+// The Percona operators a K3D frame can install (PostgreSQL is discovered by `make versions` but
+// not deployable yet).
+const K3D_OPERATOR_LABEL = { pxc: 'PXC operator', psmdb: 'MongoDB operator' }
+
 // typeColor maps a node/frame type to its canvas color so a toolbar "add" button can
 // be tinted to match the node/frame it creates. addBtnStyle turns that into inline
 // styles (disabled buttons keep the tint but the shared disabled:opacity-50 fades it).
@@ -500,7 +504,7 @@ const frameVersionLabel = (f) => {
   if (f?.type === 'repmgr') return `PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · repmgr (PGDG)`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'spock') return `PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · Spock multi-master`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'valkeycluster') return 'Valkey Cluster · valkey/valkey-bundle'
-  if (f?.type === 'k3d') return `Kubernetes (k3s via k3d)${f?.k3dOperator === 'pxc' ? ' · PXC operator' : ''}`
+  if (f?.type === 'k3d') return `Kubernetes (k3s via k3d)${K3D_OPERATOR_LABEL[f?.k3dOperator] ? ` · ${K3D_OPERATOR_LABEL[f.k3dOperator]}` : ''}`
   return pxcVersionLabel(f)
 }
 
@@ -1287,8 +1291,9 @@ function StackEditor({ stackId, onBack }) {
     const frame = {
       id: fid, type: 'k3d', label: nextNamedCluster(frames, 'k3d'), x: fx, y: fy, w: 0, h: 0,
       k3dNodes: 1, k3dCpus: 4, k3dMemoryGb: 8,
-      k3dOperator: '', k3dOperatorVer: '', k3dNamespace: 'pxc',
+      k3dOperator: '', k3dOperatorVer: '', k3dNamespace: 'default',
       k3dProxy: 'haproxy', k3dExposePxc: 'clusterip', k3dExposeHaproxy: 'loadbalancer', k3dExposeProxysql: 'loadbalancer',
+      k3dSharding: false, k3dExposeReplset: 'clusterip', k3dExposeMongos: 'loadbalancer',
       k3dPmmTokenTtlValue: 365, k3dPmmTokenTtlUnit: 'days',
       pmmNodeId: '', seaweedfsNodeId: '',
     }
@@ -3784,8 +3789,11 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
     stackApi.operatorsCatalog().then((c) => { if (alive) setOps(c || {}) }).catch(() => { /* keep the defaults */ })
     return () => { alive = false }
   }, [])
-  const pxcVersions = ops?.pxc?.versions || []
-  const pxcLatest = ops?.pxc?.latest || ''
+  const op = f.k3dOperator || ''
+  const versions = ops?.[op]?.versions || []
+  const latest = ops?.[op]?.latest || ''
+  // A sharded MongoDB cluster is 9 pods (replica set + config servers + mongos), not 3.
+  const shardedTooSmall = op === 'psmdb' && f.k3dSharding && (cpus < 8 || memGb < 12)
 
   return (
     <div className="space-y-3">
@@ -3816,35 +3824,50 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
       <p className="text-xs text-muted">Split evenly across the {count} node{count === 1 ? '' : 's'} ({Math.max(1, Math.floor(memGb / count))} GiB each).</p>
       {tooSmall && (
         <p className="text-xs text-amber-500">
-          Below 4 CPU / 6 GiB a PXC cluster (3 database pods + HAProxy) is unlikely to schedule. Validation warns,
-          it does not block.
+          Below 4 CPU / 6 GiB a database cluster (3 pods plus a proxy or router) is unlikely to schedule. Validation
+          warns, it does not block.
+        </p>
+      )}
+      {shardedTooSmall && (
+        <p className="text-xs text-amber-500">
+          A sharded MongoDB cluster is 9 pods (replica set + config servers + mongos). Below 8 CPU / 12 GiB, deploy it
+          as a replica set instead.
         </p>
       )}
 
       <div className="space-y-2 rounded-lg border border-dashed p-2">
         <div className="text-xs font-medium text-muted">Percona operator</div>
         <Field label="Operator">
-          <select className={`${inputCls} ${lock}`} value={f.k3dOperator || ''} disabled={deployed}
-            onChange={(e) => patchFrame(f.id, { k3dOperator: e.target.value, k3dOperatorVer: '' })}>
+          <select className={`${inputCls} ${lock}`} value={op} disabled={deployed}
+            onChange={(e) => patchFrame(f.id, {
+              k3dOperator: e.target.value, k3dOperatorVer: '',
+              k3dNamespace: e.target.value || 'default',
+            })}>
             <option value="">none (plain Kubernetes)</option>
             <option value="pxc">Percona Operator for MySQL (PXC)</option>
-            <option value="psmdb" disabled>Percona Operator for MongoDB — coming soon</option>
+            <option value="psmdb">Percona Operator for MongoDB (PSMDB)</option>
             <option value="pg" disabled>Percona Operator for PostgreSQL — coming soon</option>
           </select>
         </Field>
-        {f.k3dOperator === 'pxc' && (
+        {op && (
           <>
             <Field label="Operator version" hint="From `make versions`. The source is unpacked into /root on the first node.">
               <select className={`${inputCls} ${lock}`} value={f.k3dOperatorVer || ''} disabled={deployed}
                 onChange={(e) => patchFrame(f.id, { k3dOperatorVer: e.target.value })}>
-                <option value="">latest{pxcLatest ? ` (${pxcLatest})` : ''}</option>
-                {pxcVersions.map((v) => <option key={v} value={v}>{v}</option>)}
+                <option value="">latest{latest ? ` (${latest})` : ''}</option>
+                {versions.map((v) => <option key={v} value={v}>{v}</option>)}
               </select>
             </Field>
             <Field label="Namespace" hint="The operator and its cr.yaml are installed here.">
-              <input className={`${inputCls} ${lock}`} value={f.k3dNamespace ?? 'pxc'} disabled={deployed}
+              <input className={`${inputCls} ${lock}`} value={f.k3dNamespace ?? op} disabled={deployed}
                 onChange={(e) => patchFrame(f.id, { k3dNamespace: e.target.value })} />
             </Field>
+          </>
+        )}
+        {/* Expose is per cr.yaml section: the database tier and its front end are independent, so the
+            pods can stay in-cluster while the proxy/router takes a LoadBalancer address. */}
+        {op === 'pxc' && (
+          <>
             <Field label="Proxy" hint="cr.yaml runs one front end — they are mutually exclusive.">
               <select className={`${inputCls} ${lock}`} value={f.k3dProxy || 'haproxy'} disabled={deployed}
                 onChange={(e) => patchFrame(f.id, { k3dProxy: e.target.value })}>
@@ -3852,8 +3875,6 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
                 <option value="proxysql">ProxySQL</option>
               </select>
             </Field>
-            {/* Expose is per cr.yaml section: the database and the proxy are independent, so the
-                pods can stay in-cluster while the proxy takes a LoadBalancer address. */}
             <Field label="Expose · database (pxc)" hint="Per-pod Services for the database itself.">
               <select className={`${inputCls} ${lock}`} value={f.k3dExposePxc || 'clusterip'} disabled={deployed}
                 onChange={(e) => patchFrame(f.id, { k3dExposePxc: e.target.value })}>
@@ -3875,12 +3896,39 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
                 </select>
               </Field>
             )}
-            <p className="text-xs text-muted">
-              Before <span className="font-mono">cr.yaml</span> is applied, anti-affinity is set to
-              <span className="font-mono"> none</span> and every section's CPU/memory requests are commented out —
-              otherwise the pods never schedule on a cluster this size.
-            </p>
           </>
+        )}
+        {op === 'psmdb' && (
+          <>
+            <Field label="Topology" hint="Sharding adds 3 config servers + 3 mongos routers on top of the replica set.">
+              <select className={`${inputCls} ${lock}`} value={f.k3dSharding ? 'sharded' : 'replicaset'} disabled={deployed}
+                onChange={(e) => patchFrame(f.id, { k3dSharding: e.target.value === 'sharded' })}>
+                <option value="replicaset">Replica set — rs0, 3 pods (default)</option>
+                <option value="sharded">Sharded — rs0 + config servers + mongos, 9 pods</option>
+              </select>
+            </Field>
+            <Field label="Expose · replica set" hint="Per-pod Services for the mongod pods.">
+              <select className={`${inputCls} ${lock}`} value={f.k3dExposeReplset || 'clusterip'} disabled={deployed}
+                onChange={(e) => patchFrame(f.id, { k3dExposeReplset: e.target.value })}>
+                {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </Field>
+            {f.k3dSharding && (
+              <Field label="Expose · mongos" hint="The routers — a sharded cluster's front door.">
+                <select className={`${inputCls} ${lock}`} value={f.k3dExposeMongos || 'loadbalancer'} disabled={deployed}
+                  onChange={(e) => patchFrame(f.id, { k3dExposeMongos: e.target.value })}>
+                  {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+                </select>
+              </Field>
+            )}
+          </>
+        )}
+        {op && (
+          <p className="text-xs text-muted">
+            Before <span className="font-mono">cr.yaml</span> is applied, anti-affinity is set to
+            <span className="font-mono"> none</span> and every section's CPU/memory requests are commented out —
+            otherwise the pods never schedule on a cluster this size.
+          </p>
         )}
       </div>
 

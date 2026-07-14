@@ -194,12 +194,15 @@ type designFrame struct {
 	K3DNodes       int    `json:"k3dNodes"`       // 1..3 (1 server + N-1 agents)
 	K3DCPUs        int    `json:"k3dCpus"`        // total CPUs for the cluster
 	K3DMemoryGB    int    `json:"k3dMemoryGb"`    // total memory (GiB) for the cluster
-	K3DOperator    string `json:"k3dOperator"`    // "" | "pxc" (psmdb/pg: versions only, for now)
+	K3DOperator    string `json:"k3dOperator"`    // "" | "pxc" | "psmdb" (pg: versions only, for now)
 	K3DOperatorVer string `json:"k3dOperatorVer"` // "" = the catalog's latest
 	K3DNamespace   string `json:"k3dNamespace"`   // namespace the operator + CR are installed into
-	// The proxy in front of the database. cr.yaml ships HAProxy enabled and ProxySQL disabled;
+	// PXC: the proxy in front of the database. cr.yaml ships HAProxy enabled and ProxySQL disabled;
 	// they are mutually exclusive, so choosing one disables the other.
 	K3DProxy string `json:"k3dProxy"` // "haproxy" (default) | "proxysql"
+	// PSMDB: sharding adds 3 config servers + 3 mongos routers on top of the replica set (9 pods
+	// against a k3d budget), so it is off by default — a plain replica set is 3.
+	K3DSharding bool `json:"k3dSharding"`
 	// Service type per cr.yaml `expose` section — they are independent (e.g. keep the database
 	// pods in-cluster while the proxy gets a LoadBalancer address). K3DExpose is the older
 	// single-value field, kept as the fallback for designs saved before this split.
@@ -207,6 +210,8 @@ type designFrame struct {
 	K3DExposePXC      string `json:"k3dExposePxc"`      // clusterip | nodeport | loadbalancer
 	K3DExposeHAProxy  string `json:"k3dExposeHaproxy"`  //
 	K3DExposeProxySQL string `json:"k3dExposeProxysql"` //
+	K3DExposeReplset  string `json:"k3dExposeReplset"`  // PSMDB: the replica set's pods
+	K3DExposeMongos   string `json:"k3dExposeMongos"`   // PSMDB: the mongos routers (sharded only)
 	// PMM 3 authenticates the pmm-client sidecars with a *service token*, not a password: it is
 	// minted on the PMM server at deploy and patched into the cluster's secret. The token carries
 	// its own expiry (default 365 days) — after that the pods stop reporting.

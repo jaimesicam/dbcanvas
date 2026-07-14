@@ -53,7 +53,7 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
 - **Valkey** — standalone and cluster (LDAP integration, PMM monitoring).
 - **Kubernetes** — a **K3D cluster** frame (1–3 k3s nodes, created by k3d on the stack network,
   with MetalLB for LoadBalancer services) that can install the **Percona Operator for MySQL (PXC)**
-  into a namespace of your choosing.
+  or the **Percona Operator for MongoDB (PSMDB)** into a namespace of your choosing.
 - **Infrastructure** — an **Intranet** node (OpenLDAP, bind DNS, an internal CA, a Squid
   proxy, and Roundcube/Dovecot webmail), a **Samba AD DC** (Active Directory, LDAP,
   Kerberos), **PMM** monitoring, **ProxySQL**, **HAProxy**, **SeaweedFS** (S3 for backups),
@@ -81,14 +81,15 @@ node already trusts. OpenBao seals itself on every restart, so its panel shows t
 and can replay the stored keys with one click.
 
 **Kubernetes with the Percona operators.** Add a **K3D Cluster** frame and pick a Percona operator
-(PXC today; MongoDB and PostgreSQL are discovered by `make versions` and land next). DBCanvas runs
+(PXC and MongoDB today; PostgreSQL is discovered by `make versions` and lands next). DBCanvas runs
 k3d against the same Docker daemon it already uses, creating the k3s nodes **on the stack network**
 — so pods resolve the Intranet DNS, reach PMM and SeaweedFS by name, and **MetalLB** hands out
 LoadBalancer addresses from the stack subnet that every other container can reach. You choose the
 cluster size, its CPU/memory budget (a total, split across the nodes — DBCanvas warns if it is too
-small to schedule a PXC cluster, or too large for your host), the namespace, the front end (HAProxy
-or ProxySQL), and how each section is exposed (ClusterIP / NodePort / LoadBalancer — the database can
-stay in-cluster while the proxy takes a LoadBalancer address). The operator's source is unpacked into
+small to schedule the cluster, or too large for your host), the namespace, the shape of the cluster
+(MySQL: **HAProxy or ProxySQL** in front; MongoDB: a **replica set or a sharded cluster** with mongos
+routers), and how each tier is exposed (ClusterIP / NodePort / LoadBalancer — the database can stay
+in-cluster while the proxy or router takes a LoadBalancer address). The operator's source is unpacked into
 `/root` on the first node, and its `cr.yaml` is rewritten before it is applied — anti-affinity set to
 `none` and every section's CPU/memory requests commented out, because the shipped file assumes a real
 multi-node cluster and would otherwise never schedule.

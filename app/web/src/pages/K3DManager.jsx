@@ -55,6 +55,13 @@ export default function K3DManager({ stackId, nodeId, dep, onDeleteNode }) {
   const isServer = cfg.role === 'server'
   const ns = cfg.namespace || 'default'
   const cr = cfg.crName || 'cluster1'
+  const isMongo = cfg.operator === 'psmdb'
+  // The two operators name the same ideas differently: PXC has a proxy in front of the database,
+  // PSMDB has routers (and only when the cluster is sharded).
+  const kind = isMongo ? 'psmdb' : 'pxc'
+  const frontEnd = isMongo
+    ? (cfg.sharding ? 'mongos routers' : 'none (replica set)')
+    : (cfg.proxy === 'proxysql' ? 'ProxySQL' : 'HAProxy')
 
   return (
     <div className="space-y-3">
@@ -89,9 +96,12 @@ export default function K3DManager({ stackId, nodeId, dep, onDeleteNode }) {
           <KV k="LoadBalancer pool" v={cfg.metallbRange || 'MetalLB not installed'} mono />
           <KV k="Operator" v={cfg.operator ? `${cfg.operator.toUpperCase()} ${cfg.operatorVer}` : 'none'} />
           {cfg.operator && <KV k="Namespace" v={ns} mono />}
-          {cfg.operator && <KV k="Proxy" v={cfg.proxy === 'proxysql' ? 'ProxySQL' : 'HAProxy'} />}
-          {cfg.operator && <KV k="Expose · database" v={cfg.exposePxc || cfg.expose} />}
-          {cfg.operator && <KV k="Expose · proxy" v={cfg.exposeProxy || cfg.expose} />}
+          {cfg.operator && <KV k="Database cluster" v={cr} mono />}
+          {cfg.operator && <KV k={isMongo ? 'Topology' : 'Proxy'} v={isMongo ? (cfg.sharding ? 'Sharded (rs0 + config servers + mongos)' : 'Replica set (rs0)') : frontEnd} />}
+          {cfg.operator && <KV k={isMongo ? 'Expose · replica set' : 'Expose · database'} v={(isMongo ? cfg.exposeReplset : cfg.exposePxc) || cfg.expose} />}
+          {cfg.operator && (!isMongo || cfg.sharding) && (
+            <KV k={isMongo ? 'Expose · mongos' : 'Expose · proxy'} v={(isMongo ? cfg.exposeMongos : cfg.exposeProxy) || cfg.expose} />
+          )}
           <KV k="Backups" v={cfg.backupRepo || 'none'} />
           <KV k="Monitored by" v={cfg.monitoredBy} mono />
           {cfg.monitoredBy && <KV k="PMM service token" v={cfg.pmmToken || 'not created'} />}
@@ -135,22 +145,39 @@ kubectl get svc -n ${ns}`} />
             <span className="font-medium text-fg">cr.yaml was rewritten before it was applied:</span> anti-affinity set
             to <span className="font-mono">none</span> (a 1–3 node cluster cannot place one database pod per node) and
             every section's CPU/memory requests commented out (the shipped requests do not fit this budget).
-            The front end is <span className="font-mono">{cfg.proxy === 'proxysql' ? 'ProxySQL' : 'HAProxy'}</span> (the
-            other is disabled — the operator runs one). Services are exposed per section: the database as
-            <span className="font-mono"> {cfg.exposePxc || cfg.expose}</span>, the proxy as
-            <span className="font-mono"> {cfg.exposeProxy || cfg.expose}</span>.
+            {isMongo ? (
+              <> The cluster is a <span className="font-mono">{cfg.sharding ? 'sharded cluster' : 'replica set'}</span>,
+                and its mongod pods are exposed as <span className="font-mono">{cfg.exposeReplset || cfg.expose}</span>
+                {cfg.sharding && <> and the mongos routers as <span className="font-mono">{cfg.exposeMongos || cfg.expose}</span></>}.
+              </>
+            ) : (
+              <> The front end is <span className="font-mono">{frontEnd}</span> (the other is disabled — the operator
+                runs one). Services are exposed per section: the database as
+                <span className="font-mono"> {cfg.exposePxc || cfg.expose}</span>, the proxy as
+                <span className="font-mono"> {cfg.exposeProxy || cfg.expose}</span>.
+              </>
+            )}
           </div>
-          <Code label="The cluster the operator built" text={`kubectl get pxc -n ${ns}
+          <Code label="The cluster the operator built" text={`kubectl get ${kind} -n ${ns}
 kubectl get pods -n ${ns}
 kubectl get svc -n ${ns}          # EXTERNAL-IP comes from the MetalLB pool`} />
-          <Code label="Connect to it (root password)" text={`kubectl -n ${ns} get secret ${cr}-secrets -o jsonpath='{.data.root}' | base64 -d; echo
+          {isMongo ? (
+            <Code label="Connect to it (the userAdmin password)" text={`kubectl -n ${ns} get secret ${cr}-secrets \\
+  -o jsonpath='{.data.MONGODB_USER_ADMIN_PASSWORD}' | base64 -d; echo
+# from any node on the stack network (a LoadBalancer address, or from inside the cluster):
+mongosh "mongodb://userAdmin:<password>@<EXTERNAL-IP>:27017/admin"
+# ...or straight from a pod, which needs no exposed Service at all:
+kubectl -n ${ns} exec -it ${cr}-rs0-0 -c mongod -- mongosh -u userAdmin -p <password>`} />
+          ) : (
+            <Code label="Connect to it (root password)" text={`kubectl -n ${ns} get secret ${cr}-secrets -o jsonpath='{.data.root}' | base64 -d; echo
 # then, from any node on the stack network:
 mysql -h <EXTERNAL-IP> -u root -p`} />
+          )}
           {cfg.monitoredBy && (
             <Code label="Rotate the PMM service token (it expires)" text={`# create a new token on the PMM server (Admin role), then:
 kubectl -n ${ns} patch secret ${cr}-secrets --type='merge' \\
-  -p='{"stringData": {"pmmservertoken": "<new-token>"}}'
-kubectl -n ${ns} rollout restart statefulset ${cr}-pxc`} />
+  -p='{"stringData": {"${isMongo ? 'PMM_SERVER_TOKEN' : 'pmmservertoken'}": "<new-token>"}}'
+kubectl -n ${ns} rollout restart statefulset ${isMongo ? `${cr}-rs0` : `${cr}-pxc`}`} />
           )}
           <Code label="The source, as applied" text={`ls ${cfg.operatorSrc}/deploy
 # secrets.yaml was applied BEFORE cr.yaml (the operator reads the users while creating
