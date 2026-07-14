@@ -363,3 +363,37 @@ func TestResolveK3SVersion(t *testing.T) {
 		t.Error("the fallback must still resolve a version")
 	}
 }
+
+// A PostgreSQL-operator cluster pointed at a plain-HTTP SeaweedFS node cannot back up to it —
+// pgBackRest has no plaintext S3 — and today the only trace is a line in the node's deploy log. The
+// designer has to say so, or the bucket just stays empty and nobody knows why.
+func TestK3DBackupIssuesWarnsWhenPGCannotReachS3(t *testing.T) {
+	doc := func(tls bool) designDoc {
+		return designDoc{Nodes: []designNode{
+			{ID: "s1", Type: "seaweedfs", Label: "seaweedfs-01", Buckets: []string{"pg"}, TLS: tls},
+		}}
+	}
+	pg := designFrame{Label: "k3d-00", K3DOperator: "pg", SeaweedFSNodeID: "s1"}
+
+	iss := k3dBackupIssues(pg, doc(false))
+	if len(iss) != 1 || iss[0].Level != "warning" {
+		t.Fatalf("a PG cluster on a plaintext SeaweedFS node must warn, got %v", iss)
+	}
+	if !strings.Contains(iss[0].Message, "seaweedfs-01") {
+		t.Errorf("the warning must name the node: %q", iss[0].Message)
+	}
+	// It is a warning, not an error: the cluster still deploys, and still backs up — to the
+	// operator's PVC repo.
+	if len(k3dBackupIssues(pg, doc(true))) != 0 {
+		t.Error("S3 TLS on: nothing to warn about")
+	}
+	// The other operators do plaintext S3 quite happily (xbcloud, PBM).
+	pxc := designFrame{Label: "k3d-01", K3DOperator: "pxc", SeaweedFSNodeID: "s1"}
+	if len(k3dBackupIssues(pxc, doc(false))) != 0 {
+		t.Error("PXC backs up over plain HTTP; it must not warn")
+	}
+	// No SeaweedFS node selected at all: backups are simply off, which is not a problem.
+	if len(k3dBackupIssues(designFrame{Label: "k3d-02", K3DOperator: "pg"}, doc(false))) != 0 {
+		t.Error("no backup target selected must not warn")
+	}
+}

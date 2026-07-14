@@ -6749,3 +6749,23 @@ backing up to the first. After an on-demand PBM backup the tab shows `pbm/` → 
 `.pbm.init` (6 B), the timestamped backup folder, and `…​.pbm.json` (2034 B) with their times;
 `mysql-backups` reads "this bucket is empty"; the breadcrumb walks back out; a bucket the node does
 not have falls back to its default; and all three error paths above were exercised.
+
+## 140. Warn when a PostgreSQL-operator K3D cluster cannot reach its SeaweedFS bucket — `app/k3d.go`, `intranet.go`
+
+pgBackRest speaks S3 only over HTTPS, and everywhere else in DBCanvas that is a hard stop:
+`pgBackRestSeaweedIssues` (`pg.go:28`) blocks the deploy of a standalone PostgreSQL node or a Patroni
+frame whose SeaweedFS node has TLS off. The **K3D frame running the PostgreSQL operator** had no such
+check: `installPGOperator` quietly keeps the operator's own PVC repo and writes one line into the
+node's deploy log. Which is the right behaviour — a repo that fails every backup is worse — but the
+only visible symptom is a bucket that stays empty forever, and that is exactly how it showed up: a
+real stack with two PG-operator clusters pointed at a plain-HTTP SeaweedFS node, both buckets empty,
+the reason buried in a log nobody had a reason to open.
+
+`k3dBackupIssues(f, doc)` now says so in the designer, as a **warning**, not an error — the cluster
+does deploy, and it does back up, just to a volume inside the k3s cluster rather than to S3. It fires
+only for the PG operator: xbcloud (PXC, PS) and PBM (PSMDB) both do plaintext S3, and their storages
+already skip TLS verification. It lives beside `k3dFrameIssues` rather than inside it because it needs
+the design to find the SeaweedFS node, which that function does not take.
+
+Verified: a design with the PG operator and a TLS-off SeaweedFS node warns and names the node; the
+same design with S3 TLS on passes clean; a PXC frame pointed at the same plain-HTTP node stays quiet.

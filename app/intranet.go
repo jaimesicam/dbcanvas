@@ -911,6 +911,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		}
 		out = append(out, a.k3dFrameIssues(ctx, f, members, opCat)...)
 		out = append(out, seaweedBucketIssues("K3D cluster "+f.Label, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
+		out = append(out, k3dBackupIssues(f, doc)...)
 	}
 	for name, c := range k3dNames {
 		if c > 1 && name != "" {

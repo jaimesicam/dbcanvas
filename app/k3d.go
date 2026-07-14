@@ -223,6 +223,38 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 	return out
 }
 
+// k3dBackupIssues warns when a frame's backup target cannot actually be used by the operator it
+// runs. Today that is one case, and it is a quiet one: **pgBackRest speaks S3 only over TLS**, so the
+// PostgreSQL operator cannot back up to a SeaweedFS node with plain HTTP. installPGOperator does the
+// right thing — it keeps the operator's own PVC repo rather than configuring a repo that would fail
+// every backup — but it says so only in the node's deploy log, which is not where anyone looks. The
+// symptom is a bucket that stays empty forever.
+//
+// It is a warning, not an error: the cluster deploys, and it does back up — just to a volume inside
+// the k3s cluster instead of to S3.
+//
+// The other three operators are fine on plain HTTP: xbcloud and PBM both do plaintext S3, and their
+// storages already skip TLS verification.
+//
+// This lives outside k3dFrameIssues because it needs the design (to find the SeaweedFS node), which
+// that function does not take.
+func k3dBackupIssues(f designFrame, doc designDoc) []issue {
+	if f.K3DOperator != "pg" || f.SeaweedFSNodeID == "" {
+		return nil
+	}
+	for _, n := range doc.Nodes {
+		if n.ID != f.SeaweedFSNodeID || n.Type != "seaweedfs" {
+			continue
+		}
+		if !n.TLS {
+			return []issue{{"warning", "K3D cluster " + f.Label + " cannot back up to SeaweedFS node " + n.Label +
+				": pgBackRest speaks S3 only over TLS, so the cluster will use the operator's own PVC repo instead and the bucket will stay empty — turn on S3 TLS for " + n.Label + " to back up to it"}}
+		}
+		return nil
+	}
+	return nil // a SeaweedFS node that is not in the design is already reported elsewhere
+}
+
 // validNamespace enforces a DNS-1123 label (what Kubernetes accepts as a namespace).
 func validNamespace(s string) bool {
 	if len(s) == 0 || len(s) > 63 {
