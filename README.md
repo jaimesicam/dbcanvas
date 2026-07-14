@@ -86,8 +86,10 @@ all four are supported: **PXC**, **MySQL (Percona Server)**, **MongoDB** and **P
 k3d against the same Docker daemon it already uses, creating the k3s nodes **on the stack network**
 — so pods resolve the Intranet DNS, reach PMM and SeaweedFS by name, and **MetalLB** hands out
 LoadBalancer addresses from the stack subnet that every other container can reach. You choose the
-cluster size, its CPU/memory budget (a total, split across the nodes — DBCanvas warns if it is too
-small to schedule the cluster, or too large for your host), the namespace, the shape of the cluster
+cluster size, its **Kubernetes version** (any k3s release `make versions` discovered; the newest by
+default — k3d's own default trails the releases far enough to break some operators' CRDs), its
+CPU/memory budget (a total, split across the nodes — DBCanvas warns if it is too small to schedule the
+cluster, or too large for your host), the namespace, the shape of the cluster
 (PXC: **HAProxy or ProxySQL** in front; Percona Server: **group replication or async** replication
 under Orchestrator, behind HAProxy or **MySQL Router**; MongoDB: a **replica set or a sharded
 cluster** with mongos routers; PostgreSQL: a Patroni HA cluster behind **pgBouncer**), and how each tier is exposed

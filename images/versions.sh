@@ -278,6 +278,15 @@ operator_repo() {
 }
 operator_discover() { hub_tags "$(operator_repo "$1")" '^[0-9]+\.[0-9]+\.[0-9]+$'; }
 
+# ---- k3s (the Kubernetes a K3D cluster runs) ----
+# k3d creates k3s containers from rancher/k3s:<tag>. The tag is what fixes the cluster's
+# Kubernetes version, so the K3D frame lets you pick it — and pinning matters: k3d's own
+# default trails the releases, and an API server too old for an operator's CRDs makes the
+# operator uninstallable (the ps-operator's clusterset CRD needs a 1.32+ CEL library).
+# Only stable release tags (vX.Y.Z-k3sN); rc/beta and the -rc suffixes are dropped.
+K3S_REPO="rancher/k3s"
+k3s_discover() { hub_tags "$K3S_REPO" '^v[0-9]+\.[0-9]+\.[0-9]+-k3s[0-9]+$'; }
+
 # ---- write the YAML, enriching each entry with its Percona Server versions ----
 TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
@@ -506,12 +515,32 @@ for op in $OPERATOR_PRODUCTS; do
   } >>"$TMP"
 done
 
+# ---- k3s versions (the Kubernetes a K3D cluster runs) ----
+echo "==> discovering k3s versions from Docker Hub" >&2
+k3s_versions="$(k3s_discover)"
+k3s_n=$(printf '%s' "$k3s_versions" | grep -c . || true)
+k3s_latest="$(printf '%s\n' "$k3s_versions" | head -1)"
+echo "    k3s: ${k3s_n} version(s)${k3s_latest:+, latest ${k3s_latest}}" >&2
+{
+  echo "# k3s image tags — the Kubernetes version a K3D cluster frame runs. The frame's"
+  echo "# picker offers these; \"latest\" means the first entry. Re-run: make versions"
+  echo "k3s:"
+  echo "  repository: ${K3S_REPO}"
+  echo "  latest: \"${k3s_latest}\""
+  if [ -n "$k3s_versions" ]; then
+    echo "  versions:"
+    while IFS= read -r v; do [ -n "$v" ] && echo "    - \"${v}\""; done <<<"$k3s_versions"
+  else
+    echo "  versions: []"
+  fi
+} >>"$TMP"
+
 mv "$TMP" "$OUT"
 trap - EXIT
 
 echo "" >&2
 echo "==================================================================" >&2
-echo "Probed ${count} ${PLATFORM} image(s) + ${pmm_n} PMM3 version(s) + ${op_total} operator version(s) → ${OUT}" >&2
+echo "Probed ${count} ${PLATFORM} image(s) + ${pmm_n} PMM3 version(s) + ${op_total} operator version(s) + ${k3s_n} k3s version(s) → ${OUT}" >&2
 if [ "$skipped" -gt 0 ]; then
   echo "Skipped ${skipped} image(s) not on ${PLATFORM}" >&2
 fi

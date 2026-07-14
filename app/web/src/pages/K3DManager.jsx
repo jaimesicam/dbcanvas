@@ -98,6 +98,7 @@ export default function K3DManager({ stackId, nodeId, dep, onDeleteNode }) {
           <KV k="Role" v={cfg.role === 'server' ? 'server (control plane)' : 'agent (worker)'} />
           <KV k="FQDN" v={cfg.fqdn} mono />
           <KV k="Nodes" v={cfg.nodes} />
+          <KV k="Kubernetes" v={cfg.k3sVersion || cfg.serverVersion} mono />
           <KV k="Budget" v={`${cfg.cpus} CPU · ${cfg.memoryGb} GiB (whole cluster)`} />
           <KV k="LoadBalancer pool" v={cfg.metallbRange || 'MetalLB not installed'} mono />
           <KV k="Operator" v={cfg.operator ? `${cfg.operator.toUpperCase()} ${cfg.operatorVer}` : 'none'} />

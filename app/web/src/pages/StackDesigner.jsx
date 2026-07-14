@@ -1290,7 +1290,7 @@ function StackEditor({ stackId, onBack }) {
     const fy = (-view.y + 200) / view.z
     const frame = {
       id: fid, type: 'k3d', label: nextNamedCluster(frames, 'k3d'), x: fx, y: fy, w: 0, h: 0,
-      k3dNodes: 1, k3dCpus: 4, k3dMemoryGb: 8,
+      k3dNodes: 1, k3dCpus: 4, k3dMemoryGb: 8, k3dK3sVersion: '',
       k3dOperator: '', k3dOperatorVer: '', k3dNamespace: 'default',
       k3dProxy: 'haproxy', k3dExposePxc: 'clusterip', k3dExposeHaproxy: 'loadbalancer', k3dExposeProxysql: 'loadbalancer',
       k3dSharding: false, k3dExposeReplset: 'clusterip', k3dExposeMongos: 'loadbalancer',
@@ -3786,9 +3786,11 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
   const tooSmall = cpus < 4 || memGb < 6
 
   const [ops, setOps] = useState(null)
+  const [k3s, setK3s] = useState(null)
   useEffect(() => {
     let alive = true
     stackApi.operatorsCatalog().then((c) => { if (alive) setOps(c || {}) }).catch(() => { /* keep the defaults */ })
+    stackApi.k3sCatalog().then((c) => { if (alive) setK3s(c || null) }).catch(() => { /* keep the defaults */ })
     return () => { alive = false }
   }, [])
   const op = f.k3dOperator || ''
@@ -3815,6 +3817,14 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
 
       <Field label="Cluster name" hint="Frame label; becomes the k3d cluster name.">
         <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+      </Field>
+
+      <Field label="Kubernetes (k3s)" hint="The k3s image the nodes run. From `make versions`.">
+        <select className={`${inputCls} ${lock}`} value={f.k3dK3sVersion || ''} disabled={deployed}
+          onChange={(e) => patchFrame(f.id, { k3dK3sVersion: e.target.value })}>
+          <option value="">latest{k3s?.latest ? ` (${k3s.latest})` : ''}</option>
+          {(k3s?.versions || []).map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
       </Field>
 
       <div className="grid grid-cols-2 gap-2">

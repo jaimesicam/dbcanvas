@@ -48,12 +48,6 @@ const (
 	metalLBManifest = "https://raw.githubusercontent.com/metallb/metallb/" + metalLBVersion + "/config/manifests/metallb-native.yaml"
 	// The operator source tarball (the git tag carries deploy/bundle.yaml + deploy/cr.yaml).
 	operatorTarballFmt = "https://github.com/percona/%s/archive/refs/tags/v%s.tar.gz"
-	// The k3s image every cluster runs. Pinned, and deliberately newer than k3d 5.8.3's own default
-	// (v1.31.5-k3s1): the ps-operator's bundle carries a CRD whose CEL rule uses the `format`
-	// library, which a 1.31 API server does not have — it rejects the CRD outright ("undeclared
-	// reference to 'format'"), and the operator never installs. The Percona operators all support
-	// 1.33.
-	k3sImage = "rancher/k3s:v1.33.13-k3s1"
 )
 
 // k3dOperatorRepos maps a product to its GitHub repository — the tag's source tarball is where
@@ -83,6 +77,7 @@ type k3dConfig struct {
 	Hostname     string `json:"hostname"`     // DBCanvas hostname (also the DNS name)
 	FQDN         string `json:"fqdn"`         //
 	Nodes        int    `json:"nodes"`        // 1..3
+	K3SVersion   string `json:"k3sVersion"`   // the rancher/k3s tag the cluster runs
 	CPUs         int    `json:"cpus"`         // total CPUs for the cluster
 	MemoryGB     int    `json:"memoryGb"`     // total memory for the cluster
 	MetalLBRange string `json:"metallbRange"` // the LoadBalancer address pool
@@ -191,6 +186,9 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 	}
 	if !k3dInstalled() {
 		out = append(out, issue{"error", "K3D cluster " + name + " needs the k3d binary — install k3d on the host (it talks to the same Docker daemon), or rebuild the app image"})
+	}
+	if _, ok := loadK3SCatalog().resolveK3SVersion(f.K3DK3SVersion); !ok {
+		out = append(out, issue{"error", "K3D cluster " + name + " requests an unknown Kubernetes version " + f.K3DK3SVersion + " — pick one from the list, or run `make versions`"})
 	}
 	if ns := strings.TrimSpace(f.K3DNamespace); ns != "" && !validNamespace(ns) {
 		out = append(out, issue{"error", "K3D cluster " + name + " has an invalid namespace " + ns + " — use lowercase letters, digits and '-' (a DNS-1123 label)"})
@@ -312,6 +310,15 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		exposeProxy = k3dExposeOf(frame.K3DExposeProxySQL, frame.K3DExpose)
 	}
 
+	// The Kubernetes the cluster runs. An unknown tag was already flagged by validation; fall back
+	// to the catalog's latest rather than letting k3d pick its own (stale) default.
+	k3sCat := loadK3SCatalog()
+	k3sTag, ok := k3sCat.resolveK3SVersion(frame.K3DK3SVersion)
+	if !ok {
+		k3sTag = k3sCat.Latest
+	}
+	k3sImage := k3sCat.k3sImageRef(k3sTag)
+
 	opCat := loadOperatorCatalog()
 	operator := strings.TrimSpace(frame.K3DOperator)
 	operatorVer := ""
@@ -338,7 +345,7 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 
 	// One Deployment row per member, up front: without these the canvas shows no cards.
 	base := k3dConfig{
-		Cluster: cluster, Nodes: nodes, CPUs: cpus, MemoryGB: memGB,
+		Cluster: cluster, Nodes: nodes, CPUs: cpus, MemoryGB: memGB, K3SVersion: k3sTag,
 		Operator: operator, OperatorVer: operatorVer, Namespace: ns,
 		Proxy: proxy, Expose: exposePXC, ExposePXC: exposePXC, ExposeProxy: exposeProxy,
 		Sharding:    frame.K3DSharding,
@@ -413,6 +420,10 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		// the host or in Docker.
 		args := []string{
 			"cluster", "create", cluster,
+			// The Kubernetes version is always ours, never k3d's default — that one trails the
+			// releases (5.8.3 still ships v1.31.5), and an API server too old for an operator's CRDs
+			// makes the operator uninstallable: the ps-operator's clusterset CRD has a CEL rule that
+			// needs the `format` library, and a 1.31 API server rejects the CRD outright.
 			"--image", k3sImage,
 			"--network", networkName(st.ID),
 			"--servers", "1",

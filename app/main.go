@@ -78,6 +78,7 @@ func main() {
 	mux.HandleFunc("GET /api/catalog/images", app.handleImagesCatalog)
 	mux.HandleFunc("GET /api/catalog/pdps", app.handlePDPSCatalog)
 	mux.HandleFunc("GET /api/catalog/operators", app.handleOperatorsCatalog)
+	mux.HandleFunc("GET /api/catalog/k3s", app.handleK3SCatalog)
 
 	mux.HandleFunc("GET /api/stacks", app.handleListStacks)
 	mux.HandleFunc("POST /api/stacks", app.handleCreateStack)

@@ -330,3 +330,36 @@ func TestK3DNodeContainer(t *testing.T) {
 		t.Errorf("third member should be agent-1, got %q", got)
 	}
 }
+
+// The K3D frame chooses its own Kubernetes version: k3d's default trails the releases, and an API
+// server too old for an operator's CRDs makes that operator uninstallable.
+func TestResolveK3SVersion(t *testing.T) {
+	cat := PMMCatalog{
+		Repository: "rancher/k3s",
+		Latest:     "v1.36.2-k3s1",
+		Versions:   []string{"v1.36.2-k3s1", "v1.33.13-k3s1"},
+	}
+	for _, tc := range []struct {
+		want string
+		tag  string
+		ok   bool
+	}{
+		{"", "v1.36.2-k3s1", true},       // the default: latest
+		{"latest", "v1.36.2-k3s1", true}, //
+		{"v1.33.13-k3s1", "v1.33.13-k3s1", true},
+		{"v1.31.5-k3s1", "", false}, // not in the catalog: refused, not silently pulled
+		{"garbage", "", false},
+	} {
+		got, ok := cat.resolveK3SVersion(tc.want)
+		if got != tc.tag || ok != tc.ok {
+			t.Errorf("resolveK3SVersion(%q) = (%q, %v), want (%q, %v)", tc.want, got, ok, tc.tag, tc.ok)
+		}
+	}
+	if img := cat.k3sImageRef("v1.36.2-k3s1"); img != "rancher/k3s:v1.36.2-k3s1" {
+		t.Errorf("k3sImageRef = %q", img)
+	}
+	// With no versions.yaml at all, the fallback still names a k3s every operator installs on.
+	if _, ok := (PMMCatalog{Latest: k3sCatalogFallback.Latest}).resolveK3SVersion(""); !ok {
+		t.Error("the fallback must still resolve a version")
+	}
+}

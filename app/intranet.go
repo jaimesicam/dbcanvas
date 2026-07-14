@@ -191,7 +191,11 @@ type designFrame struct {
 	// (the first is the server). Reuses PMMNodeID (monitoring) and SeaweedFSNodeID
 	// (backups). CPU/memory are a budget for the whole cluster, split across its nodes.
 	// See k3d.go.
-	K3DNodes       int    `json:"k3dNodes"`       // 1..3 (1 server + N-1 agents)
+	K3DNodes int `json:"k3dNodes"` // 1..3 (1 server + N-1 agents)
+	// The Kubernetes the cluster runs: a rancher/k3s tag from the catalog ("" / "latest" = the
+	// catalog's newest). k3d's own default trails the releases, and an API server too old for an
+	// operator's CRDs makes that operator uninstallable — so the version is ours to choose.
+	K3DK3SVersion  string `json:"k3dK3sVersion"`
 	K3DCPUs        int    `json:"k3dCpus"`        // total CPUs for the cluster
 	K3DMemoryGB    int    `json:"k3dMemoryGb"`    // total memory (GiB) for the cluster
 	K3DOperator    string `json:"k3dOperator"`    // "" | "pxc" | "ps" | "psmdb" | "pg"

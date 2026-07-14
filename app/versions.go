@@ -28,6 +28,14 @@ var pmmCatalogFallback = PMMCatalog{
 	DefaultTag: "3",
 }
 
+// k3sCatalogFallback is used when versions.yaml has no k3s section (`make versions` was never run).
+// The pinned tag is one every Percona operator installs on: k3d's own default (v1.31.x) is too old
+// for the ps-operator's CRDs, whose CEL rules need the API server's `format` library.
+var k3sCatalogFallback = PMMCatalog{
+	Repository: "rancher/k3s",
+	Latest:     "v1.33.13-k3s1",
+}
+
 // versionsFilePath returns the first existing candidate path for versions.yaml.
 // VERSIONS_FILE overrides; otherwise the in-container mount path is tried first,
 // then repo-relative locations for local `go run` development.
@@ -51,14 +59,23 @@ func versionsFilePath() string {
 
 // loadPMMCatalog reads and parses the `pmm:` section of versions.yaml. It never
 // errors: on any problem it returns the fallback so a PMM node can still deploy.
-func loadPMMCatalog() PMMCatalog {
+func loadPMMCatalog() PMMCatalog { return loadTagCatalog("pmm:", pmmCatalogFallback) }
+
+// loadK3SCatalog reads the `k3s:` section — the Kubernetes versions a K3D cluster frame can run.
+// k3d creates its nodes from rancher/k3s:<tag>, so the tag *is* the Kubernetes version.
+func loadK3SCatalog() PMMCatalog { return loadTagCatalog("k3s:", k3sCatalogFallback) }
+
+// loadTagCatalog parses one of versions.yaml's two-level tag sections (`pmm:`, `k3s:`): a
+// repository, a latest, and a list of versions. It never fails — a missing or unreadable file
+// yields the fallback, so a node can still deploy on a sane default.
+func loadTagCatalog(section string, fallback PMMCatalog) PMMCatalog {
 	path := versionsFilePath()
 	if path == "" {
-		return pmmCatalogFallback
+		return fallback
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return pmmCatalogFallback
+		return fallback
 	}
 	defer f.Close()
 
@@ -73,9 +90,9 @@ func loadPMMCatalog() PMMCatalog {
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		// A top-level key (no indentation) ends the pmm block.
+		// A top-level key (no indentation) ends the section.
 		if !strings.HasPrefix(line, " ") {
-			inPMM = trimmed == "pmm:"
+			inPMM = trimmed == section
 			inVersions = false
 			continue
 		}
@@ -107,12 +124,40 @@ func loadPMMCatalog() PMMCatalog {
 		}
 	}
 	if cat.Repository == "" {
-		cat.Repository = pmmCatalogFallback.Repository
+		cat.Repository = fallback.Repository
 	}
 	if cat.DefaultTag == "" {
-		cat.DefaultTag = pmmCatalogFallback.DefaultTag
+		cat.DefaultTag = fallback.DefaultTag
+	}
+	if cat.Latest == "" {
+		cat.Latest = fallback.Latest
 	}
 	return cat
+}
+
+// resolveK3SVersion returns the k3s image tag a K3D frame should run: the requested one when the
+// catalog knows it, or the catalog's latest when the frame asked for "latest" (the default).
+// ok=false means an unknown tag, which would otherwise reach an image pull that cannot succeed.
+func (c PMMCatalog) resolveK3SVersion(want string) (string, bool) {
+	want = strings.TrimSpace(want)
+	if want == "" || want == "latest" {
+		return c.Latest, c.Latest != ""
+	}
+	for _, v := range c.Versions {
+		if v == want {
+			return v, true
+		}
+	}
+	return "", false
+}
+
+// k3sImageRef is the image k3d creates a cluster's nodes from.
+func (c PMMCatalog) k3sImageRef(tag string) string {
+	repo := c.Repository
+	if repo == "" {
+		repo = k3sCatalogFallback.Repository
+	}
+	return repo + ":" + tag
 }
 
 // splitYAMLKV splits "key: value" and unquotes the value.
@@ -267,6 +312,14 @@ func (a *App) handleOperatorsCatalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, loadOperatorCatalog())
+}
+
+func (a *App) handleK3SCatalog(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.currentUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	writeJSON(w, http.StatusOK, loadK3SCatalog())
 }
 
 // PXCImage is one built image's installable Percona XtraDB Cluster versions,

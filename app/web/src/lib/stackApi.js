@@ -58,6 +58,7 @@ export const stackApi = {
   imagesCatalog: () => request('GET', '/api/catalog/images'),
   pdpsCatalog: () => request('GET', '/api/catalog/pdps'),
   operatorsCatalog: () => request('GET', '/api/catalog/operators'),
+  k3sCatalog: () => request('GET', '/api/catalog/k3s'),
 }
 
 // PMM node management. `nid` is the design node id.

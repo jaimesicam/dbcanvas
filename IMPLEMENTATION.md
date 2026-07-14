@@ -6650,3 +6650,29 @@ survived into the CR. The ranges now close only on a real (uncommented) key.
 
 `make versions` now discovers this operator too (`OPERATOR_PRODUCTS="pxc ps psmdb pg"`), so all four
 Percona operators are in `versions.yaml` — and all four are deployable.
+
+## 137. The K3D frame picks its Kubernetes version — `images/versions.sh`, `app/versions.go`, `k3d.go`, `StackDesigner.jsx`
+
+§136 pinned k3s to a constant because k3d's default (v1.31.5) was too old for the ps-operator's CRDs.
+A constant is the wrong shape for that problem: the version now comes from the catalog, like every
+other version in DBCanvas.
+
+`make versions` discovers `rancher/k3s` stable tags (`vX.Y.Z-k3sN`; rc/beta dropped) into a top-level
+`k3s:` block — 33 of them today, newest first. `loadPMMCatalog` was generalized into
+`loadTagCatalog(section, fallback)` (the `pmm:` and `k3s:` blocks have the same two-level shape), and
+`GET /api/catalog/k3s` feeds a picker on the frame: **latest by default**, or any tag from the list.
+`resolveK3SVersion` refuses a tag the catalog does not know — validation blocks the deploy rather than
+letting `k3d cluster create --image` chase an image tag that cannot pull.
+
+The important part is what the default now *is*: the newest k3s, not whatever k3d ships with. k3d 5.8.3
+is still on v1.31.5, and that version cannot even install the ps-operator (its clusterset CRD carries a
+CEL rule needing the API server's `format` library). The fallback — used only when `make versions` has
+never run — stays on v1.33.13-k3s1, which every Percona operator installs on.
+
+**Verified live** (DBCanvas in a container, ps-operator 1.2.0):
+- **default (latest)**: the cluster came up on `v1.36.2+k3s1` — three releases newer than the old pin —
+  and the operator reached `ready` with 3 MySQL + 3 HAProxy pods.
+- **pinned older**: `v1.32.13-k3s1` selected on the frame → the node runs `v1.32.13+k3s1`, cluster
+  `ready`.
+- **unknown tag**: `v1.31.5-k3s1` (not in the catalog) is refused by validation with "pick one from the
+  list, or run `make versions`", before anything is created.
