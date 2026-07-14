@@ -181,6 +181,9 @@ func main() {
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/dbcerts/delete", app.handleDBCertDelete)
 
 	// PMM node management.
+	// SeaweedFS node management — browse the buckets' contents (read-only).
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/seaweed/objects", app.handleSeaweedObjects)
+
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/openbao/status", app.handleOpenBaoStatus)
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/openbao/unseal", app.handleOpenBaoUnseal)
 

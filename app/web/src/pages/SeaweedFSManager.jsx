@@ -1,12 +1,13 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
-import { DEPLOY_TONE } from '../lib/stackApi.js'
+import { DEPLOY_TONE, seaweedApi } from '../lib/stackApi.js'
 import { SecretValue } from '../components/Secret.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'access', label: 'Access' },
+  { id: 'buckets', label: 'Buckets' },
   { id: 'backups', label: 'Backups' },
 ]
 
@@ -62,9 +63,156 @@ export default function SeaweedFSManager({ stackId, nodeId, dep, onDeleteNode })
 
       {tab === 'overview' && <Overview cfg={cfg} dep={dep} onDeleteNode={onDeleteNode} />}
       {tab === 'access' && <AccessTab cfg={cfg} sec={sec} />}
+      {tab === 'buckets' && <BucketsTab cfg={cfg} stackId={stackId} nodeId={nodeId} />}
       {tab === 'backups' && <BackupsTab cfg={cfg} sec={sec} />}
     </div>
   )
+}
+
+// BucketsTab browses what actually landed in the node's buckets. It is read-only: the backups here
+// are the ones a database wrote, and the panel is for looking at them, not for editing them.
+//
+// The listing is a folder walk rather than a flat object list, because that is the shape backups
+// have — pbm/<cluster>/…, pgbackrest/<cluster>/repo1/backup/db/…, <cluster>-<date>-full/.
+function BucketsTab({ cfg, stackId, nodeId }) {
+  const buckets = (cfg.buckets && cfg.buckets.length ? cfg.buckets : [cfg.bucket]).filter(Boolean)
+  const [bucket, setBucket] = useState(buckets[0] || '')
+  const [path, setPath] = useState('')
+  const [objects, setObjects] = useState([])
+  const [more, setMore] = useState(false)
+  const [after, setAfter] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  const api = seaweedApi(stackId, nodeId)
+  // Load the first page of the current bucket/folder. Appending pages is a separate action, so this
+  // always replaces what is on screen.
+  const load = useCallback(async () => {
+    if (!bucket) return
+    setBusy(true)
+    setErr('')
+    try {
+      const r = await api.objects(bucket, path)
+      setObjects(r.objects || [])
+      setMore(!!r.more)
+      setAfter(r.after || '')
+    } catch (e) {
+      setErr(e.message)
+      setObjects([])
+      setMore(false)
+    } finally {
+      setBusy(false)
+    }
+  }, [bucket, path]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load() }, [load])
+
+  const loadMore = async () => {
+    setBusy(true)
+    try {
+      const r = await api.objects(bucket, path, after)
+      setObjects((prev) => [...prev, ...(r.objects || [])])
+      setMore(!!r.more)
+      setAfter(r.after || '')
+    } catch (e) {
+      setErr(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const segments = path ? path.split('/') : []
+  const go = (p) => { setPath(p); setAfter('') }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <select
+          className="w-full rounded-lg border bg-bg px-2.5 py-1.5 text-sm"
+          value={bucket}
+          onChange={(e) => { setBucket(e.target.value); go('') }}
+        >
+          {buckets.map((b) => <option key={b} value={b}>{b}</option>)}
+        </select>
+        <Button variant="outline" size="sm" onClick={load} disabled={busy}>
+          {busy ? 'Loading…' : 'Refresh'}
+        </Button>
+      </div>
+
+      {/* Where we are, and the way back out. */}
+      <div className="flex flex-wrap items-center gap-1 text-xs">
+        <button onClick={() => go('')} className={`font-mono ${segments.length ? 'text-primary hover:opacity-80' : 'text-muted'}`}>
+          {bucket || '—'}
+        </button>
+        {segments.map((seg, i) => (
+          <span key={i} className="flex items-center gap-1">
+            <span className="text-muted">/</span>
+            <button
+              onClick={() => go(segments.slice(0, i + 1).join('/'))}
+              className={`font-mono ${i < segments.length - 1 ? 'text-primary hover:opacity-80' : 'text-fg'}`}
+            >
+              {seg}
+            </button>
+          </span>
+        ))}
+      </div>
+
+      {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">{err}</div>}
+
+      <div className="max-h-72 overflow-auto rounded-lg border">
+        {!busy && objects.length === 0 && !err && (
+          <div className="px-3 py-3 text-center text-xs text-muted">
+            {path ? 'this folder is empty' : 'this bucket is empty'}
+          </div>
+        )}
+        {objects.map((o) => (
+          <div key={o.path} className="flex items-center justify-between gap-3 border-b px-3 py-1.5 text-sm last:border-0">
+            {o.dir ? (
+              <button onClick={() => go(o.path)} className="flex min-w-0 items-center gap-1.5 text-primary hover:opacity-80">
+                <Icon.Arrow size={14} />
+                <span className="truncate font-mono text-xs">{o.name}/</span>
+              </button>
+            ) : (
+              <span className="min-w-0 truncate pl-[22px] font-mono text-xs text-fg">{o.name}</span>
+            )}
+            <span className="shrink-0 text-right text-[11px] text-muted">
+              {!o.dir && <span className="font-mono">{formatBytes(o.size)}</span>}
+              {o.modified && <span className="ml-2">{formatWhen(o.modified)}</span>}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {more && (
+        <Button variant="outline" size="sm" className="w-full" onClick={loadMore} disabled={busy}>
+          Load more
+        </Button>
+      )}
+
+      <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+        Read-only. What you see here is what the databases wrote — PBM under
+        <span className="font-mono"> pbm/&lt;cluster&gt;</span>, pgBackRest under
+        <span className="font-mono"> pgbackrest/&lt;cluster&gt;</span>, xtrabackup and the Percona operators at
+        the top level.
+      </div>
+    </div>
+  )
+}
+
+// formatBytes renders a size the way a human reads it (the filer reports plain bytes).
+function formatBytes(n) {
+  if (!n) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let i = 0
+  let v = n
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i += 1 }
+  return `${v >= 10 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`
+}
+
+// formatWhen keeps the timestamp short: a backup's date is what matters, not its nanoseconds.
+function formatWhen(iso) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 // hostEndpoint is the S3 URL reachable from your machine (published host port);

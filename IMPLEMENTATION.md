@@ -6711,3 +6711,41 @@ cluster pointed at the first and a PSMDB replica set at the second:
   pg-backups still empty;
 - a frame pointed at a bucket the node does not create is blocked by validation ("bucket typo-backups
   is not one of the buckets on SeaweedFS node seaweedfs-01").
+
+## 139. Browse a SeaweedFS node's buckets from its panel — `app/seaweedfs_browse.go`, `main.go`, `SeaweedFSManager.jsx`
+
+A SeaweedFS node is the backup target for most of a stack, and since §138 it can hold ten buckets —
+but nothing showed what actually *landed* in them. Checking that a backup existed meant exec'ing into
+the container and running `curl` or `weed shell` by hand, which is exactly what I had to do to verify
+the last few features. The node panel now has a **Buckets** tab: pick a bucket, list its contents,
+walk into the folders, page through a big one. Read-only by decision — no download, no delete.
+
+**Where the listing comes from.** `weed server -s3` runs a **filer** on `:8888` whose directory
+listing is already JSON, with buckets as directories under `/buckets`. That beats parsing `weed
+shell`'s `fs.ls -l` text: sizes, mtimes, a directory bit (`Mode & 1<<31` — Go's `os.ModeDir`) and real
+pagination (`lastFileName` + `ShouldDisplayLoadMore`) come for free. The S3 API on `:8333` answers the
+same question but only for a SigV4-signed request — a lot of ceremony for something the filer gives
+away. Field names were confirmed against a live 4.39 node before the parser was written, and a
+fixture of that exact response is the unit test.
+
+**Folder navigation is the point.** Backups nest — `pbm/<cluster>/<timestamp>/`,
+`pgbackrest/<cluster>/repo1/backup/db/`, `<cluster>-<date>-full/` — so a flat object list would have
+been useless. The tab is a folder walk with a clickable breadcrumb.
+
+**The exec.** `sh -c`, not bash (the chrislusf/seaweedfs image is Alpine; it has `curl` but no bash,
+so `execScript` cannot be used and `runShStep` is a deploy-time retry loop, not a request path). The
+bucket and path never reach the script as text: they go through the exec **environment** and are read
+as `"$BUCKET"` / `"$SUBPATH"`, and Go percent-encodes them for the URL — so an object called
+`odd name #1` lists correctly, and a path of `$(touch /tmp/pwned); ls` creates nothing and comes back
+as an ordinary "no such folder".
+
+Failure modes are answered in the panel's own terms rather than Docker's: a node someone stopped by
+hand still reads `running` in the store, so the exec's 409 becomes "the SeaweedFS node is not
+running"; the filer's empty-bodied 404 becomes "no such folder in <bucket>"; and the ~20s after a
+restart before the filer listens becomes "not answering yet — the node may still be starting".
+
+**Verified live**: a stack with SeaweedFS (`mongo-backups`, `mysql-backups`) + a PSMDB replica set
+backing up to the first. After an on-demand PBM backup the tab shows `pbm/` → `pbm/mongo/` →
+`.pbm.init` (6 B), the timestamped backup folder, and `…​.pbm.json` (2034 B) with their times;
+`mysql-backups` reads "this bucket is empty"; the breadcrumb walks back out; a bucket the node does
+not have falls back to its default; and all three error paths above were exercised.

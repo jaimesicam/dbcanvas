@@ -80,6 +80,17 @@ export function openbaoApi(id, nid) {
   }
 }
 
+// SeaweedFS node management — read-only browsing of the node's buckets. `path` is a folder inside
+// the bucket, `after` the previous page's last entry (the filer pages by name, not by offset).
+export function seaweedApi(id, nid) {
+  const base = `/api/stacks/${id}/nodes/${nid}/seaweed`
+  return {
+    objects: (bucket, path = '', after = '') =>
+      request('GET', `${base}/objects?bucket=${encodeURIComponent(bucket)}` +
+        `&path=${encodeURIComponent(path)}&after=${encodeURIComponent(after)}`),
+  }
+}
+
 // PXC node management.
 export function pxcApi(id, nid) {
   const base = `/api/stacks/${id}/nodes/${nid}`
