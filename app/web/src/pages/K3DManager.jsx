@@ -56,12 +56,16 @@ export default function K3DManager({ stackId, nodeId, dep, onDeleteNode }) {
   const ns = cfg.namespace || 'default'
   const cr = cfg.crName || 'cluster1'
   const isMongo = cfg.operator === 'psmdb'
-  // The two operators name the same ideas differently: PXC has a proxy in front of the database,
-  // PSMDB has routers (and only when the cluster is sharded).
-  const kind = isMongo ? 'psmdb' : 'pxc'
+  const isPG = cfg.operator === 'pg'
+  // The three operators name the same ideas differently: PXC puts a proxy in front of the database,
+  // PSMDB has routers (and only when sharded), PostgreSQL has a pgBouncer pool.
+  const kind = isMongo ? 'psmdb' : isPG ? 'pg' : 'pxc'
   const frontEnd = isMongo
     ? (cfg.sharding ? 'mongos routers' : 'none (replica set)')
-    : (cfg.proxy === 'proxysql' ? 'ProxySQL' : 'HAProxy')
+    : isPG ? 'pgBouncer'
+      : (cfg.proxy === 'proxysql' ? 'ProxySQL' : 'HAProxy')
+  const exposeDb = (isMongo ? cfg.exposeReplset : isPG ? cfg.exposePg : cfg.exposePxc) || cfg.expose
+  const exposeFront = (isMongo ? cfg.exposeMongos : isPG ? cfg.exposePgbouncer : cfg.exposeProxy) || cfg.expose
 
   return (
     <div className="space-y-3">
@@ -97,10 +101,10 @@ export default function K3DManager({ stackId, nodeId, dep, onDeleteNode }) {
           <KV k="Operator" v={cfg.operator ? `${cfg.operator.toUpperCase()} ${cfg.operatorVer}` : 'none'} />
           {cfg.operator && <KV k="Namespace" v={ns} mono />}
           {cfg.operator && <KV k="Database cluster" v={cr} mono />}
-          {cfg.operator && <KV k={isMongo ? 'Topology' : 'Proxy'} v={isMongo ? (cfg.sharding ? 'Sharded (rs0 + config servers + mongos)' : 'Replica set (rs0)') : frontEnd} />}
-          {cfg.operator && <KV k={isMongo ? 'Expose · replica set' : 'Expose · database'} v={(isMongo ? cfg.exposeReplset : cfg.exposePxc) || cfg.expose} />}
+          {cfg.operator && <KV k={isMongo ? 'Topology' : 'Front end'} v={isMongo ? (cfg.sharding ? 'Sharded (rs0 + config servers + mongos)' : 'Replica set (rs0)') : frontEnd} />}
+          {cfg.operator && <KV k={isMongo ? 'Expose · replica set' : 'Expose · database'} v={exposeDb} />}
           {cfg.operator && (!isMongo || cfg.sharding) && (
-            <KV k={isMongo ? 'Expose · mongos' : 'Expose · proxy'} v={(isMongo ? cfg.exposeMongos : cfg.exposeProxy) || cfg.expose} />
+            <KV k={isMongo ? 'Expose · mongos' : isPG ? 'Expose · pgBouncer' : 'Expose · proxy'} v={exposeFront} />
           )}
           <KV k="Backups" v={cfg.backupRepo || 'none'} />
           <KV k="Monitored by" v={cfg.monitoredBy} mono />
@@ -142,13 +146,20 @@ kubectl get svc -n ${ns}`} />
           </div>
           <KV k="Source" v={cfg.operatorSrc} mono />
           <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-snug text-muted">
-            <span className="font-medium text-fg">cr.yaml was rewritten before it was applied:</span> anti-affinity set
-            to <span className="font-mono">none</span> (a 1–3 node cluster cannot place one database pod per node) and
-            every section's CPU/memory requests commented out (the shipped requests do not fit this budget).
+            <span className="font-medium text-fg">cr.yaml was rewritten before it was applied:</span> every section's
+            CPU/memory requests are commented out (the shipped requests do not fit this budget)
+            {!isPG && <>, and anti-affinity is set to <span className="font-mono">none</span> — a 1–3 node cluster
+              cannot place one database pod per node</>}.
             {isMongo ? (
               <> The cluster is a <span className="font-mono">{cfg.sharding ? 'sharded cluster' : 'replica set'}</span>,
-                and its mongod pods are exposed as <span className="font-mono">{cfg.exposeReplset || cfg.expose}</span>
-                {cfg.sharding && <> and the mongos routers as <span className="font-mono">{cfg.exposeMongos || cfg.expose}</span></>}.
+                and its mongod pods are exposed as <span className="font-mono">{exposeDb}</span>
+                {cfg.sharding && <> and the mongos routers as <span className="font-mono">{exposeFront}</span></>}.
+              </>
+            ) : isPG ? (
+              <> PostgreSQL's own anti-affinity is already soft, so only the requests were touched. The primary is
+                exposed as <span className="font-mono">{exposeDb}</span> and the pgBouncer pool as
+                <span className="font-mono"> {exposeFront}</span>. Backups go to pgBackRest's
+                <span className="font-mono"> repo1</span>.
               </>
             ) : (
               <> The front end is <span className="font-mono">{frontEnd}</span> (the other is disabled — the operator
@@ -161,7 +172,14 @@ kubectl get svc -n ${ns}`} />
           <Code label="The cluster the operator built" text={`kubectl get ${kind} -n ${ns}
 kubectl get pods -n ${ns}
 kubectl get svc -n ${ns}          # EXTERNAL-IP comes from the MetalLB pool`} />
-          {isMongo ? (
+          {isPG ? (
+            <Code label="Connect to it (the postgres password)" text={`kubectl -n ${ns} get secret ${cr}-pguser-postgres \\
+  -o jsonpath='{.data.password}' | base64 -d; echo
+# through the pgBouncer pool, from any node on the stack network:
+psql "postgres://postgres:<password>@<EXTERNAL-IP>:5432/postgres"
+# ...or straight from the primary pod:
+kubectl -n ${ns} exec -it ${cr}-instance1-0 -c database -- psql -U postgres`} />
+          ) : isMongo ? (
             <Code label="Connect to it (the userAdmin password)" text={`kubectl -n ${ns} get secret ${cr}-secrets \\
   -o jsonpath='{.data.MONGODB_USER_ADMIN_PASSWORD}' | base64 -d; echo
 # from any node on the stack network (a LoadBalancer address, or from inside the cluster):
@@ -175,9 +193,11 @@ mysql -h <EXTERNAL-IP> -u root -p`} />
           )}
           {cfg.monitoredBy && (
             <Code label="Rotate the PMM service token (it expires)" text={`# create a new token on the PMM server (Admin role), then:
-kubectl -n ${ns} patch secret ${cr}-secrets --type='merge' \\
-  -p='{"stringData": {"${isMongo ? 'PMM_SERVER_TOKEN' : 'pmmservertoken'}": "<new-token>"}}'
-kubectl -n ${ns} rollout restart statefulset ${isMongo ? `${cr}-rs0` : `${cr}-pxc`}`} />
+kubectl -n ${ns} patch secret ${isPG ? `${cr}-pmm-secret` : `${cr}-secrets`} --type='merge' \\
+  -p='{"stringData": {"${isPG || isMongo ? 'PMM_SERVER_TOKEN' : 'pmmservertoken'}": "<new-token>"}}'
+kubectl -n ${ns} rollout restart statefulset -l ${isPG
+    ? `postgres-operator.crunchydata.com/cluster=${cr}`
+    : isMongo ? `app.kubernetes.io/instance=${cr}` : `app.kubernetes.io/instance=${cr}`}`} />
           )}
           <Code label="The source, as applied" text={`ls ${cfg.operatorSrc}/deploy
 # secrets.yaml was applied BEFORE cr.yaml (the operator reads the users while creating

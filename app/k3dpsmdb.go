@@ -305,7 +305,7 @@ func (a *App) installPSMDBOperator(ctx context.Context, st Stack, frame designFr
 	}
 	// PMM 3's pmm-client sidecars authenticate with a service token, which PSMDB reads from the
 	// users secret under PMM_SERVER_TOKEN (that key is also what selects the PMM 3 sidecar).
-	opts.PMMHost = a.k3dPMMToken(ctx, st, frame, doc, serverID, "PMM_SERVER_TOKEN", cfg, pr)
+	opts.PMMHost = a.k3dPMMToken(ctx, st, frame, doc, serverID, cfg.ClusterName+"-secrets", "PMM_SERVER_TOKEN", cfg, pr)
 
 	newCR := psmdbTransform(string(raw), opts)
 	if err := a.docker.CopyFile(ctx, serverID, cfg.OperatorSrc+"/deploy", "cr.yaml", 0o644, []byte(newCR)); err != nil {

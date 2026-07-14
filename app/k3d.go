@@ -58,9 +58,8 @@ var k3dOperatorRepos = map[string]string{
 	"pg":    "percona-postgresql-operator",
 }
 
-// k3dDeployableOperator is the subset DBCanvas can actually install. PostgreSQL's versions are
-// discovered by `make versions` and shown as "coming soon" in the designer.
-var k3dDeployableOperator = map[string]bool{"pxc": true, "psmdb": true}
+// k3dDeployableOperator is the subset DBCanvas can actually install — all three, now.
+var k3dDeployableOperator = map[string]bool{"pxc": true, "psmdb": true, "pg": true}
 
 // k3dExposeTypes are the Kubernetes Service types a cr.yaml `expose` section accepts.
 var k3dExposeTypes = map[string]string{
@@ -80,7 +79,7 @@ type k3dConfig struct {
 	CPUs         int    `json:"cpus"`         // total CPUs for the cluster
 	MemoryGB     int    `json:"memoryGb"`     // total memory for the cluster
 	MetalLBRange string `json:"metallbRange"` // the LoadBalancer address pool
-	Operator     string `json:"operator"`     // "" | "pxc" | "psmdb"
+	Operator     string `json:"operator"`     // "" | "pxc" | "psmdb" | "pg"
 	OperatorVer  string `json:"operatorVer"`  //
 	OperatorSrc  string `json:"operatorSrc"`  // /root/<repo>-<ver> on the first node
 	Namespace    string `json:"namespace"`    //
@@ -94,10 +93,13 @@ type k3dConfig struct {
 	Sharding      bool   `json:"sharding"`
 	ExposeReplset string `json:"exposeReplset"`
 	ExposeMongos  string `json:"exposeMongos"` // sharded clusters only
-	MonitoredBy   string `json:"monitoredBy"`  // PMM FQDN ("" = none)
-	PMMToken      string `json:"pmmToken"`     // "" | "expires <when>" — the service token's lifetime
-	BackupRepo    string `json:"backupRepo"`   // SeaweedFS S3 target ("" = none)
-	Image         string `json:"image"`        // the k3s image k3d used
+	// PG: the primary Postgres Service and the pgBouncer pool in front of it.
+	ExposePG        string `json:"exposePg"`
+	ExposePGBouncer string `json:"exposePgbouncer"`
+	MonitoredBy     string `json:"monitoredBy"` // PMM FQDN ("" = none)
+	PMMToken        string `json:"pmmToken"`    // "" | "expires <when>" — the service token's lifetime
+	BackupRepo      string `json:"backupRepo"`  // SeaweedFS S3 target ("" = none)
+	Image           string `json:"image"`       // the k3s image k3d used
 }
 
 // ---------------------------------------------------------------- the k3d binary
@@ -184,7 +186,7 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 	}
 	if op := strings.TrimSpace(f.K3DOperator); op != "" {
 		if !k3dDeployableOperator[op] {
-			out = append(out, issue{"error", "K3D cluster " + name + ": only the PXC and MongoDB operators can be deployed today"})
+			out = append(out, issue{"error", "K3D cluster " + name + ": unknown operator " + op})
 		} else if _, ok := opCat.resolveOperatorVersion(op, f.K3DOperatorVer); !ok {
 			out = append(out, issue{"error", "K3D cluster " + name + " requests an unknown " + op + " operator version — pick one from the list, or run `make versions`"})
 		}
@@ -334,6 +336,11 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 			base.ExposeMongos = k3dExposeOf(frame.K3DExposeMongos, frame.K3DExpose)
 		}
 	}
+	if operator == "pg" {
+		base.ExposePG = k3dExposeOf(frame.K3DExposePG, frame.K3DExpose)
+		base.ExposePGBouncer = k3dExposeOf(frame.K3DExposePGBouncer, frame.K3DExpose)
+		base.Expose = base.ExposePG
+	}
 	if repo, ok := k3dOperatorRepos[operator]; ok && operator != "" {
 		base.OperatorSrc = fmt.Sprintf("%s/%s-%s", k3dOperatorDir, repo, operatorVer)
 	}
@@ -472,6 +479,11 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		case "psmdb":
 			if err := a.installPSMDBOperator(ctx, st, frame, doc, serverID, &base, pr); err != nil {
 				failAll("install the MongoDB operator: %v", err)
+				return
+			}
+		case "pg":
+			if err := a.installPGOperator(ctx, st, frame, doc, serverID, &base, pr); err != nil {
+				failAll("install the PostgreSQL operator: %v", err)
 				return
 			}
 		}
@@ -765,7 +777,7 @@ func (a *App) k3dApplyBundle(ctx context.Context, serverID, deployment string, c
 // The returned host carries the **port**. Both operators hand serverHost to the sidecars verbatim as
 // PMM_AGENT_SERVER_ADDRESS, whose default port is 443 — but a DBCanvas PMM node serves HTTPS on
 // 8443, so a bare hostname leaves every pmm-client retrying "connection refused".
-func (a *App) k3dPMMToken(ctx context.Context, st Stack, frame designFrame, doc designDoc, serverID, tokenKey string, cfg *k3dConfig, pr *pxcProg) string {
+func (a *App) k3dPMMToken(ctx context.Context, st Stack, frame designFrame, doc designDoc, serverID, secret, tokenKey string, cfg *k3dConfig, pr *pxcProg) string {
 	if cfg.MonitoredBy == "" {
 		return ""
 	}
@@ -781,7 +793,6 @@ func (a *App) k3dPMMToken(ctx context.Context, st Stack, frame designFrame, doc 
 		pr.logln("PMM monitoring skipped: could not create a service token: " + err.Error())
 		return ""
 	}
-	secret := cfg.ClusterName + "-secrets"
 	patch := fmt.Sprintf(`{"stringData":{%q:%q}}`, tokenKey, token)
 	if _, err := a.kubectl(ctx, serverID, "-n", cfg.Namespace, "patch", "secret", secret, "--type=merge", "-p", patch); err != nil {
 		pr.logln("PMM monitoring skipped: could not patch the service token into " + secret + ": " + err.Error())
@@ -888,7 +899,7 @@ func (a *App) installPXCOperator(ctx context.Context, st Stack, frame designFram
 		}
 	}
 	// PMM 3's pmm-client sidecars authenticate with a service token, not a password.
-	opts.PMMHost = a.k3dPMMToken(ctx, st, frame, doc, serverID, "pmmservertoken", cfg, pr)
+	opts.PMMHost = a.k3dPMMToken(ctx, st, frame, doc, serverID, cfg.ClusterName+"-secrets", "pmmservertoken", cfg, pr)
 
 	newCR := crTransform(string(raw), opts)
 	// Keep /root in sync with what was actually applied — the source is there to be read.

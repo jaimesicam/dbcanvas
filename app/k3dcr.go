@@ -243,9 +243,17 @@ func crSeaweedStorage(s *crS3) string {
 	return block
 }
 
-// crPVC tracks whether the current line is inside a `persistentVolumeClaim:` block — the one place a
-// `resources:` must survive the rewrite, because it carries the volume's size and the operator
-// requires it. Every other resources block is a CPU/memory request that will not fit a k3d budget.
+// crPVCKeys are the keys that open a volume-claim block — the one place a `resources:` must survive
+// the rewrite, because there it carries the volume's *size*, which the operator requires. Every
+// other resources block is a CPU/memory request that will not fit a k3d budget. The three operators
+// spell the same idea three ways.
+var crPVCKeys = map[string]bool{
+	"persistentVolumeClaim": true, // PXC, PSMDB
+	"dataVolumeClaimSpec":   true, // PG: the Postgres instances
+	"volumeClaimSpec":       true, // PG: a pgBackRest PVC repo
+}
+
+// crPVC tracks whether the current line is inside one of those blocks.
 type crPVC struct{ indent int }
 
 func newCRPVC() *crPVC { return &crPVC{indent: -1} }
@@ -258,7 +266,7 @@ func (p *crPVC) update(ind int, commented bool, body string) {
 	if p.indent >= 0 && ind <= p.indent {
 		p.indent = -1 // the block dedented: we are out of it
 	}
-	if body == "persistentVolumeClaim:" {
+	if crPVCKeys[strings.TrimSuffix(body, ":")] {
 		p.indent = ind
 	}
 }

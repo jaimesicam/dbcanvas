@@ -427,7 +427,7 @@ const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', in
 
 // The Percona operators a K3D frame can install (PostgreSQL is discovered by `make versions` but
 // not deployable yet).
-const K3D_OPERATOR_LABEL = { pxc: 'PXC operator', psmdb: 'MongoDB operator' }
+const K3D_OPERATOR_LABEL = { pxc: 'PXC operator', psmdb: 'MongoDB operator', pg: 'PostgreSQL operator' }
 
 // typeColor maps a node/frame type to its canvas color so a toolbar "add" button can
 // be tinted to match the node/frame it creates. addBtnStyle turns that into inline
@@ -1294,6 +1294,7 @@ function StackEditor({ stackId, onBack }) {
       k3dOperator: '', k3dOperatorVer: '', k3dNamespace: 'default',
       k3dProxy: 'haproxy', k3dExposePxc: 'clusterip', k3dExposeHaproxy: 'loadbalancer', k3dExposeProxysql: 'loadbalancer',
       k3dSharding: false, k3dExposeReplset: 'clusterip', k3dExposeMongos: 'loadbalancer',
+      k3dExposePg: 'clusterip', k3dExposePgbouncer: 'loadbalancer',
       k3dPmmTokenTtlValue: 365, k3dPmmTokenTtlUnit: 'days',
       pmmNodeId: '', seaweedfsNodeId: '',
     }
@@ -3846,7 +3847,7 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
             <option value="">none (plain Kubernetes)</option>
             <option value="pxc">Percona Operator for MySQL (PXC)</option>
             <option value="psmdb">Percona Operator for MongoDB (PSMDB)</option>
-            <option value="pg" disabled>Percona Operator for PostgreSQL — coming soon</option>
+            <option value="pg">Percona Operator for PostgreSQL (PGO)</option>
           </select>
         </Field>
         {op && (
@@ -3923,11 +3924,32 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
             )}
           </>
         )}
+        {op === 'pg' && (
+          <>
+            <Field label="Expose · PostgreSQL" hint="The primary's Service (the read/write endpoint).">
+              <select className={`${inputCls} ${lock}`} value={f.k3dExposePg || 'clusterip'} disabled={deployed}
+                onChange={(e) => patchFrame(f.id, { k3dExposePg: e.target.value })}>
+                {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Expose · pgBouncer" hint="The connection pooler — a PGO cluster's front door.">
+              <select className={`${inputCls} ${lock}`} value={f.k3dExposePgbouncer || 'loadbalancer'} disabled={deployed}
+                onChange={(e) => patchFrame(f.id, { k3dExposePgbouncer: e.target.value })}>
+                {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </Field>
+            <p className="text-xs text-muted">
+              pgBackRest speaks S3 only over TLS, so backups need a SeaweedFS node with <span className="font-medium">TLS
+              on</span>. Without one the cluster keeps the operator's own PVC backup repo.
+            </p>
+          </>
+        )}
         {op && (
           <p className="text-xs text-muted">
-            Before <span className="font-mono">cr.yaml</span> is applied, anti-affinity is set to
-            <span className="font-mono"> none</span> and every section's CPU/memory requests are commented out —
-            otherwise the pods never schedule on a cluster this size.
+            Before <span className="font-mono">cr.yaml</span> is applied, every section's CPU/memory requests are
+            commented out{op === 'pg'
+              ? ' — the shipped requests do not fit a cluster this size (PostgreSQL\u2019s anti-affinity is already soft, so it needs no change).'
+              : ' and anti-affinity is set to none — otherwise the pods never schedule on a cluster this size.'}
           </p>
         )}
       </div>

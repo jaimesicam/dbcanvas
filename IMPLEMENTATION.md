@@ -6561,3 +6561,48 @@ SeaweedFS + a 1-node k3d cluster, 8 CPU / 12 GiB, operator 1.22.0):
   `mongo-mongos` took the LoadBalancer address, and `listShards` through the router (from the stack
   network) returns `rs0`.
 - **Teardown**: no `mongo-s1` container or volume survives.
+
+## 135. Percona Operator for PostgreSQL (PGO) on the K3D frame — `app/k3dpg.go`, `k3dcr.go`, `k3d.go`, `StackDesigner.jsx`, `K3DManager.jsx`
+
+The third operator, and the odd one of the three. Same rails (source into `/root`, `bundle.yaml`,
+secrets, a rewritten `cr.yaml`), but almost every specific differs:
+
+**It ships no users secret.** PXC and PSMDB hand you a `deploy/secrets.yaml` to rewrite; PGO
+*generates* a secret per user (`<cluster>-pguser-<name>`). The way in is that it **reuses the password
+of a secret that already exists** and derives the SCRAM verifier from it
+(`internal/controller/postgrescluster/postgres.go`: "Use the existing password and verifier"). So
+DBCanvas creates those secrets itself, before the CR, and adds a `users:` block naming the superuser
+and an application user — which is how a PGO cluster ends up with the `POSTGRES_PASSWORD` from .env
+like every other PostgreSQL DBCanvas deploys.
+
+**Its anti-affinity is already soft** — a `preferred` podAntiAffinity, not PXC/PSMDB's hard topology
+key — so a 1-node cluster schedules as shipped and there is nothing to neutralise. Only the CPU/memory
+requests are commented out.
+
+**pgBackRest speaks S3 over TLS only.** There is no plaintext S3 in pgBackRest, so a SeaweedFS node
+with TLS *off* cannot be a backup repo at all — the cluster then keeps the operator's own PVC repo and
+the deploy log says why (rather than accepting a repo that would fail every backup). With TLS on, the
+credentials go in a **config file, not the CR** (`configuration: - secret:`), and the two options that
+have no CR field go in pgBackRest's `global:` — `repo1-s3-uri-style: path` (SeaweedFS has no
+virtual-host addressing) and `repo1-storage-verify-tls: "n"` (the pods do not trust the Intranet CA
+that signed SeaweedFS's certificate).
+
+**The front end is pgBouncer**, exposed separately from the primary's Service. Note that the pooler
+does not serve the superuser (`exposeSuperusers: false`): you reach a PGO cluster through pgBouncer as
+the *application* user, and `postgres` from inside a pod.
+
+The shared `resources:` rule grew a third spelling of "this is a volume, not a request": PostgreSQL
+writes `dataVolumeClaimSpec` and `volumeClaimSpec` where the others write `persistentVolumeClaim`
+(`crPVCKeys`). Comment one of those out and the operator rejects the CR.
+
+**Verified live** (DBCanvas in a container; Intranet + PMM + SeaweedFS **with TLS** + a 1-node k3d
+cluster, 8 CPU / 12 GiB, operator 3.0.0):
+- `ready`: 3 Postgres instances (5/5), 3 pgBouncer, a pgBackRest repo host — one **primary streaming
+  to two replicas** (`pg_stat_replication`), Percona Server for PostgreSQL 18.3.1.
+- The operator **kept the password we pre-created**: `pg-pguser-postgres` holds POSTGRES_PASSWORD, and
+  the application user connects through the pgBouncer LoadBalancer from a plain container on the stack
+  network.
+- **PMM**: all three instances registered (plus their Patroni external exporters), `pg_up = 1`.
+- **Backups**: a `PerconaPGBackup` reached **Succeeded**, and the objects are in SeaweedFS under
+  `/buckets/backups/pgbackrest/pg/repo1/backup/db/…`.
+- Teardown leaves no container or volume behind.

@@ -53,7 +53,8 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
 - **Valkey** — standalone and cluster (LDAP integration, PMM monitoring).
 - **Kubernetes** — a **K3D cluster** frame (1–3 k3s nodes, created by k3d on the stack network,
   with MetalLB for LoadBalancer services) that can install the **Percona Operator for MySQL (PXC)**
-  or the **Percona Operator for MongoDB (PSMDB)** into a namespace of your choosing.
+  the **Percona Operator for MongoDB (PSMDB)**, or the **Percona Operator for PostgreSQL** into a
+  namespace of your choosing.
 - **Infrastructure** — an **Intranet** node (OpenLDAP, bind DNS, an internal CA, a Squid
   proxy, and Roundcube/Dovecot webmail), a **Samba AD DC** (Active Directory, LDAP,
   Kerberos), **PMM** monitoring, **ProxySQL**, **HAProxy**, **SeaweedFS** (S3 for backups),
@@ -80,16 +81,17 @@ gets its own KV mount and a token scoped to it, and verifies OpenBao with the In
 node already trusts. OpenBao seals itself on every restart, so its panel shows the live seal state
 and can replay the stored keys with one click.
 
-**Kubernetes with the Percona operators.** Add a **K3D Cluster** frame and pick a Percona operator
-(PXC and MongoDB today; PostgreSQL is discovered by `make versions` and lands next). DBCanvas runs
+**Kubernetes with the Percona operators.** Add a **K3D Cluster** frame and pick a Percona operator —
+**PXC**, **MongoDB** or **PostgreSQL**. DBCanvas runs
 k3d against the same Docker daemon it already uses, creating the k3s nodes **on the stack network**
 — so pods resolve the Intranet DNS, reach PMM and SeaweedFS by name, and **MetalLB** hands out
 LoadBalancer addresses from the stack subnet that every other container can reach. You choose the
 cluster size, its CPU/memory budget (a total, split across the nodes — DBCanvas warns if it is too
 small to schedule the cluster, or too large for your host), the namespace, the shape of the cluster
 (MySQL: **HAProxy or ProxySQL** in front; MongoDB: a **replica set or a sharded cluster** with mongos
-routers), and how each tier is exposed (ClusterIP / NodePort / LoadBalancer — the database can stay
-in-cluster while the proxy or router takes a LoadBalancer address). The operator's source is unpacked into
+routers; PostgreSQL: a Patroni HA cluster behind **pgBouncer**), and how each tier is exposed
+(ClusterIP / NodePort / LoadBalancer — the database can stay in-cluster while the proxy, router or
+pooler takes a LoadBalancer address). The operator's source is unpacked into
 `/root` on the first node, and its `cr.yaml` is rewritten before it is applied — anti-affinity set to
 `none` and every section's CPU/memory requests commented out, because the shipped file assumes a real
 multi-node cluster and would otherwise never schedule.
@@ -98,7 +100,9 @@ Link a **SeaweedFS** node and the cluster backs up to it over S3; link a **PMM**
 mints a **service token** on the PMM server (you choose how long it lives — 365 days by default) and
 patches it into the cluster's secret, so the pmm-client sidecars register themselves and the whole
 cluster shows up in PMM. The cluster's users come from your `.env`, like every other database
-DBCanvas deploys, so the root password is the one you already know.
+DBCanvas deploys, so the root password is the one you already know. (PostgreSQL is the one exception
+worth knowing: pgBackRest speaks S3 only over TLS, so its backups need a SeaweedFS node with **TLS
+on** — without one the cluster keeps the operator's own PVC backup repo.)
 
 **Deployed versions.** Once a node is running, its card shows the version it *actually* deployed
 with — `PS 8.4.10-10`, `PSMDB 8.0.26-11`, `PMM 3.3.1` — not just the series that was requested
