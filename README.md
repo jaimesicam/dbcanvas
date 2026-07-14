@@ -52,14 +52,14 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
   (PBM backups; optional Keycloak OIDC auth).
 - **Valkey** — standalone and cluster (LDAP integration, PMM monitoring).
 - **Kubernetes** — a **K3D cluster** frame (1–3 k3s nodes, created by k3d on the stack network,
-  with MetalLB for LoadBalancer services) that can install the **Percona Operator for MySQL (PXC)**
-  the **Percona Operator for MySQL (Percona Server)**, the **Percona Operator for MongoDB (PSMDB)**,
-  or the **Percona Operator for PostgreSQL** into a namespace of your choosing.
+  with MetalLB for LoadBalancer services) that can install any of the four Percona operators —
+  **MySQL (PXC)**, **MySQL (Percona Server)**, **MongoDB (PSMDB)** or **PostgreSQL** — into a
+  namespace of your choosing.
 - **Infrastructure** — an **Intranet** node (OpenLDAP, bind DNS, an internal CA, a Squid
   proxy, and Roundcube/Dovecot webmail), a **Samba AD DC** (Active Directory, LDAP,
-  Kerberos), **PMM** monitoring, **ProxySQL**, **HAProxy**, **SeaweedFS** (S3 for backups, up to 10 buckets),
-  **Keycloak** (OIDC), **OpenBao** (secrets manager), an **Ubuntu VNC** desktop, and
-  **Watchtower**.
+  Kerberos), **PMM** monitoring, **ProxySQL**, **HAProxy**, **SeaweedFS** (S3 for backups, up to 10
+  buckets, browsable from its panel), **Keycloak** (OIDC), **OpenBao** (secrets manager), an
+  **Ubuntu VNC** desktop, and **Watchtower**.
 - **Operations** — cross-cluster replication links, per-node web terminals, certificate
   management, on-demand backups, and TTL-based auto-teardown.
 
@@ -105,7 +105,26 @@ patches it into the cluster's secret, so the pmm-client sidecars register themse
 cluster shows up in PMM. The cluster's users come from your `.env`, like every other database
 DBCanvas deploys, so the root password is the one you already know. (PostgreSQL is the one exception
 worth knowing: pgBackRest speaks S3 only over TLS, so its backups need a SeaweedFS node with **TLS
-on** — without one the cluster keeps the operator's own PVC backup repo.)
+on** — the designer warns you when it isn't, because without it the cluster silently keeps the
+operator's own PVC backup repo and the bucket stays empty.)
+
+![A K3D cluster node's panel — the PXC operator on k3s, with its MetalLB pool, exposure and backup bucket](docs/screenshots/k3d-cluster.png)
+
+> *A one-node K3D cluster running the **PXC operator 1.20.0** on k3s v1.36.2: the database is exposed
+> as ClusterIP while HAProxy takes a **MetalLB** address from the stack subnet, backups go to the
+> `pxc-backups` bucket on SeaweedFS, and PMM watches it through a service token DBCanvas minted.*
+
+**S3 backups (SeaweedFS).** One SeaweedFS node can create **up to 10 buckets**, and every database
+that backs up to it — standalone PostgreSQL, Patroni, repmgr, the MongoDB clusters, and all four K3D
+operators — **picks which bucket it uses**, so a stack's backups don't have to share one. Once the
+node is running, its panel **browses the buckets**: pick one, list what actually landed in it, and
+click into the folders backups nest under (`pbm/<cluster>/…`, `pgbackrest/<cluster>/repo1/…`). It is
+read-only — a way to confirm a backup exists without exec-ing into anything.
+
+![The SeaweedFS node's Buckets tab, inside a PXC operator backup](docs/screenshots/seaweedfs-buckets.png)
+
+> *Browsing `pxc-backups` inside the backup the PXC operator just wrote — the xtrabackup files with
+> their sizes and times. The breadcrumb walks back out; the selector switches buckets.*
 
 **Deployed versions.** Once a node is running, its card shows the version it *actually* deployed
 with — `PS 8.4.10-10`, `PSMDB 8.0.26-11`, `PMM 3.3.1` — not just the series that was requested
