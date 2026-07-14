@@ -110,6 +110,54 @@ func (d *Docker) HostArch(ctx context.Context) string {
 	return info.Architecture
 }
 
+// HostResources returns the Docker host's CPU count and total memory from /info. Used to sanity
+// -check a K3D cluster's requested CPU/memory budget against the machine it will actually run on
+// (k3d.go). Zeroes mean "unknown" — the caller then skips the check rather than guessing.
+func (d *Docker) HostResources(ctx context.Context) (ncpu int, memBytes int64) {
+	resp, err := d.do(ctx, "GET", "/info", nil)
+	if err != nil {
+		return 0, 0
+	}
+	defer drain(resp)
+	if resp.StatusCode != 200 {
+		return 0, 0
+	}
+	var info struct {
+		NCPU     int   `json:"NCPU"`
+		MemTotal int64 `json:"MemTotal"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&info) != nil {
+		return 0, 0
+	}
+	return info.NCPU, info.MemTotal
+}
+
+// ContainerUpdate applies CPU/memory limits to an existing container. k3d has no CPU flag (only
+// --servers-memory/--agents-memory), so a K3D cluster's CPU budget is imposed here, after k3d has
+// created the k3s node containers. Zero values leave that limit untouched.
+func (d *Docker) ContainerUpdate(ctx context.Context, id string, nanoCPUs, memBytes int64) error {
+	body := map[string]any{}
+	if nanoCPUs > 0 {
+		body["NanoCpus"] = nanoCPUs
+	}
+	if memBytes > 0 {
+		body["Memory"] = memBytes
+		body["MemorySwap"] = memBytes // no swap headroom: the limit means what it says
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	resp, err := d.do(ctx, "POST", "/containers/"+id+"/update", body)
+	if err != nil {
+		return err
+	}
+	defer drain(resp)
+	if resp.StatusCode != 200 {
+		return errBody("update container", resp)
+	}
+	return nil
+}
+
 // ImageExists reports whether an image reference is present locally. The ref
 // (repo:tag) is used verbatim — Docker matches the literal name, and escaping
 // the ':' would break the lookup.

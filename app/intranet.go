@@ -186,6 +186,32 @@ type designFrame struct {
 	// Valkey cluster frame config (Type=="valkeycluster"; members run valkey/valkey-bundle).
 	// Reuses RootPassword (default-user password), PMMNodeID. 3–7 all-master shards.
 	UseLDAP bool `json:"useLdap"` // wire valkey-ldap to the Intranet OpenLDAP
+	// K3D cluster frame config (Type=="k3d"): a k3s cluster created by k3d on the stack
+	// network, for running the Percona Kubernetes operators. Members are the k3s nodes
+	// (the first is the server). Reuses PMMNodeID (monitoring) and SeaweedFSNodeID
+	// (backups). CPU/memory are a budget for the whole cluster, split across its nodes.
+	// See k3d.go.
+	K3DNodes       int    `json:"k3dNodes"`       // 1..3 (1 server + N-1 agents)
+	K3DCPUs        int    `json:"k3dCpus"`        // total CPUs for the cluster
+	K3DMemoryGB    int    `json:"k3dMemoryGb"`    // total memory (GiB) for the cluster
+	K3DOperator    string `json:"k3dOperator"`    // "" | "pxc" (psmdb/pg: versions only, for now)
+	K3DOperatorVer string `json:"k3dOperatorVer"` // "" = the catalog's latest
+	K3DNamespace   string `json:"k3dNamespace"`   // namespace the operator + CR are installed into
+	// The proxy in front of the database. cr.yaml ships HAProxy enabled and ProxySQL disabled;
+	// they are mutually exclusive, so choosing one disables the other.
+	K3DProxy string `json:"k3dProxy"` // "haproxy" (default) | "proxysql"
+	// Service type per cr.yaml `expose` section — they are independent (e.g. keep the database
+	// pods in-cluster while the proxy gets a LoadBalancer address). K3DExpose is the older
+	// single-value field, kept as the fallback for designs saved before this split.
+	K3DExpose         string `json:"k3dExpose"`         // legacy: applied where a section has no value
+	K3DExposePXC      string `json:"k3dExposePxc"`      // clusterip | nodeport | loadbalancer
+	K3DExposeHAProxy  string `json:"k3dExposeHaproxy"`  //
+	K3DExposeProxySQL string `json:"k3dExposeProxysql"` //
+	// PMM 3 authenticates the pmm-client sidecars with a *service token*, not a password: it is
+	// minted on the PMM server at deploy and patched into the cluster's secret. The token carries
+	// its own expiry (default 365 days) — after that the pods stop reporting.
+	K3DPMMTokenTTLValue int    `json:"k3dPmmTokenTtlValue"` // 0 → 365
+	K3DPMMTokenTTLUnit  string `json:"k3dPmmTokenTtlUnit"`  // minutes | hours | days ("" → days)
 }
 
 type designDoc struct {
@@ -834,6 +860,28 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		}
 	}
 
+	// --- K3D cluster frames (1-3 k3s nodes; see k3d.go) ---
+	k3dNames := map[string]int{}
+	opCat := loadOperatorCatalog()
+	for _, f := range doc.Frames {
+		if f.Type != "k3d" {
+			continue
+		}
+		k3dNames[strings.TrimSpace(f.Label)]++
+		members := 0
+		for _, n := range doc.Nodes {
+			if n.FrameID == f.ID && n.Type == "k3d" {
+				members++
+			}
+		}
+		out = append(out, a.k3dFrameIssues(ctx, f, members, opCat)...)
+	}
+	for name, c := range k3dNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{"error", "Duplicate K3D cluster name: " + name})
+		}
+	}
+
 	// --- PS MongoDB sharded-cluster frames ---
 	// The topology is fixed by the designer (1 mongos + 3-node config RS + 3 shards
 	// × 3-node RS); validate the member set is intact and the image exists.
@@ -1276,6 +1324,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			memberType = "spock"
 		case "valkeycluster":
 			memberType = "valkeycluster"
+		case "k3d":
+			memberType = "k3d"
 		default:
 			continue
 		}
@@ -1313,6 +1363,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionSpockFrame(st, f, doc)
 		case "valkeycluster":
 			a.provisionValkeyClusterFrame(st, f, doc)
+		case "k3d":
+			a.provisionK3DFrame(st, f, doc)
 		}
 	}
 
@@ -1997,6 +2049,9 @@ func (a *App) teardownStack(stackID int64) {
 			st.Name+" and its containers were removed.", "")
 	}
 	ctx := context.Background()
+	// k3d's containers are named k3d-<cluster>-*, not dbcanvas-<id>-*, so the sweep below would
+	// leave a whole k3s cluster (and its volumes) running. Let k3d remove its own cluster first.
+	a.destroyK3DClusters(ctx, stackID)
 	deps, _ := a.store.ListDeployments(stackID)
 	for _, d := range deps {
 		a.removeNodeResources(ctx, stackID, d)

@@ -154,6 +154,121 @@ func (a *App) handlePMMCatalog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, loadPMMCatalog())
 }
 
+// OperatorVersions is one Percona Kubernetes operator's available releases. A K3D node
+// installs an operator from its matching git tag (deploy/bundle.yaml + deploy/cr.yaml), so a
+// version here is both an image tag and a source tag.
+type OperatorVersions struct {
+	Repository string   `json:"repository"`
+	Latest     string   `json:"latest"`
+	Versions   []string `json:"versions"`
+}
+
+// OperatorCatalog maps a product ("pxc" | "psmdb" | "pg") to its releases.
+type OperatorCatalog map[string]OperatorVersions
+
+// loadOperatorCatalog reads the `operators:` section of versions.yaml. Like the pmm parser it
+// never errors — an empty catalog just means the K3D frame offers no operator versions (run
+// `make versions`), which validation reports rather than failing at deploy.
+func loadOperatorCatalog() OperatorCatalog {
+	cat := OperatorCatalog{}
+	path := versionsFilePath()
+	if path == "" {
+		return cat
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return cat
+	}
+	defer f.Close()
+
+	inOperators := false // inside the top-level `operators:` block
+	product := ""        // the 2-space key currently being filled (pxc | psmdb | pg)
+	inVersions := false  // inside that product's `versions:` list
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		line := sc.Text()
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		// A top-level key ends the operators block.
+		if !strings.HasPrefix(line, " ") {
+			inOperators = trimmed == "operators:"
+			product, inVersions = "", false
+			continue
+		}
+		if !inOperators {
+			continue
+		}
+		// Two-space key: a product ("pxc:").
+		if strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "    ") {
+			product = strings.TrimSuffix(trimmed, ":")
+			inVersions = false
+			if product != "" {
+				cat[product] = OperatorVersions{}
+			}
+			continue
+		}
+		if product == "" {
+			continue
+		}
+		// Four-space keys: the product's fields.
+		if strings.HasPrefix(line, "    ") && !strings.HasPrefix(line, "      ") {
+			inVersions = false
+			key, val := splitYAMLKV(trimmed)
+			ov := cat[product]
+			switch key {
+			case "repository":
+				ov.Repository = val
+			case "latest":
+				ov.Latest = val
+			case "versions":
+				inVersions = true
+			}
+			cat[product] = ov
+			continue
+		}
+		// Six-space list items under `versions:`.
+		if inVersions && strings.HasPrefix(trimmed, "- ") {
+			if v := unquoteYAML(strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))); v != "" {
+				ov := cat[product]
+				ov.Versions = append(ov.Versions, v)
+				cat[product] = ov
+			}
+		}
+	}
+	return cat
+}
+
+// resolveOperatorVersion returns the version to install for a product: the requested one when the
+// catalog knows it, or the catalog's latest when none was requested. ok=false means the request
+// cannot be honoured — an unknown tag (which would otherwise reach a git/image fetch), or an empty
+// catalog with no latest to fall back on.
+func (c OperatorCatalog) resolveOperatorVersion(product, want string) (string, bool) {
+	ov, known := c[product]
+	if !known {
+		return "", false
+	}
+	if want == "" {
+		return ov.Latest, ov.Latest != ""
+	}
+	for _, v := range ov.Versions {
+		if v == want {
+			return v, true
+		}
+	}
+	return "", false
+}
+
+func (a *App) handleOperatorsCatalog(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.currentUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	writeJSON(w, http.StatusOK, loadOperatorCatalog())
+}
+
 // PXCImage is one built image's installable Percona XtraDB Cluster versions,
 // keyed by major series — drives the PXC frame's OS/version pickers.
 type PXCImage struct {

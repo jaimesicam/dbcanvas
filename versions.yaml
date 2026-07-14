@@ -5,7 +5,7 @@
 # image versions selectable for a PMM node.
 # Re-run image discovery: make images   Re-run version discovery: make versions
 generated_at: 2026-07-12T03:40:42Z
-versions_generated_at: 2026-07-12T03:53:44Z
+versions_generated_at: 2026-07-13T17:04:16Z
 image_prefix: dbcanvas-systemd
 images:
   - os: oraclelinux
@@ -1079,3 +1079,79 @@ pdps:
   - "pdps8xinnovation"
   - "pdps9.7.1"
   - "pdps97lts"
+# Percona Kubernetes operator versions, discovered from the operator image
+# registries. A K3D cluster node installs an operator from its matching git tag
+# (deploy/bundle.yaml + deploy/cr.yaml), so these tags are what the K3D frame's
+# operator picker offers. OS/arch independent. Re-run: make versions
+operators:
+  pxc:
+    repository: percona/percona-xtradb-cluster-operator
+    latest: "1.20.0"
+    versions:
+      - "1.20.0"
+      - "1.19.1"
+      - "1.19.0"
+      - "1.18.0"
+      - "1.17.0"
+      - "1.16.1"
+      - "1.16.0"
+      - "1.15.1"
+      - "1.15.0"
+      - "1.14.1"
+      - "1.14.0"
+      - "1.13.0"
+      - "1.12.0"
+      - "1.11.0"
+      - "1.10.0"
+      - "1.9.0"
+      - "1.8.0"
+      - "1.7.0"
+  psmdb:
+    repository: percona/percona-server-mongodb-operator
+    latest: "1.22.0"
+    versions:
+      - "1.22.0"
+      - "1.21.2"
+      - "1.21.1"
+      - "1.21.0"
+      - "1.20.1"
+      - "1.20.0"
+      - "1.19.1"
+      - "1.19.0"
+      - "1.18.0"
+      - "1.17.0"
+      - "1.16.2"
+      - "1.16.1"
+      - "1.16.0"
+      - "1.15.0"
+      - "1.14.0"
+      - "1.13.0"
+      - "1.12.0"
+      - "1.11.0"
+      - "1.10.0"
+      - "1.9.0"
+      - "1.8.0"
+      - "1.7.0"
+      - "1.6.0"
+      - "1.5.0"
+      - "1.4.0"
+      - "1.3.0"
+      - "1.2.0"
+      - "1.1.0"
+      - "1.0.0"
+      - "0.3.0"
+      - "0.2.1"
+      - "0.2.0"
+      - "0.1.0"
+      - "0.0.1"
+  pg:
+    repository: percona/percona-postgresql-operator
+    latest: "3.0.0"
+    versions:
+      - "3.0.0"
+      - "2.9.0"
+      - "2.8.2"
+      - "2.8.1"
+      - "2.8.0"
+      - "2.7.0"
+      - "2.6.0"

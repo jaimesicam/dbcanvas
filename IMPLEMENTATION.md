@@ -6350,3 +6350,152 @@ clipboard text and never rendered on screen.
 dots by default, the copy button yields the real secret **while masked**, reveal shows one value
 without unmasking its neighbours, hide re-masks, and OpenBao's keys/token plus SeaweedFS's snippets
 behave the same.
+
+## 133. K3D cluster frame + Percona operators — `app/k3d.go`, `app/k3dcr.go`, `images/versions.sh`, `StackDesigner.jsx`, `K3DManager.jsx`
+
+A new **K3D cluster frame**: a throwaway k3s cluster (1–3 nodes) created by k3d, on which the
+Percona Kubernetes operators run the way they are actually run in production. First operator: PXC.
+
+**Where k3d runs.** k3d is a Docker API *client* — it asks the daemon to create the k3s containers.
+DBCanvas already holds the daemon socket, so it runs the k3d binary itself (baked into the app
+image; the host's binary in local dev, where k3d sits next to Docker). No side-car container, and
+teardown can simply `k3d cluster delete`. `validateStack` errors with "k3d is not installed" for
+designs that use the frame — and only for those.
+
+**On the stack network.** `k3d cluster create --network dbcanvas-stack-<id>` is the one flag that
+makes everything else work: the k3s nodes get Intranet DNS names like any other node, CoreDNS is
+pointed at the Intranet (a `coredns-custom` ConfigMap, so the shipped Corefile is untouched) so pods
+resolve `pmm-01.example.net`, and **MetalLB** hands out LoadBalancer IPs from the top of the stack
+subnet (`NetworkSubnet` → the last 50 addresses; Docker's IPAM allocates from the bottom). k3s's own
+servicelb is disabled at creation — it and MetalLB fight over external IPs.
+
+**Resources.** CPU/memory are a budget for the *whole cluster*, split across its nodes, and both are
+imposed with a new `Docker.ContainerUpdate` (NanoCpus + Memory) after k3d creates the containers.
+
+k3d's own `--servers-memory/--agents-memory` are **deliberately not used**: they work by writing a
+fake `/proc/meminfo` under `$HOME` and bind-mounting that *host* path into the k3s container. That is
+fine when k3d runs on the host, and breaks the moment it runs inside the app container (`make
+compose`) — the file exists in the app container, the daemon looks for it on the host, does not find
+it, creates a directory, and the mount dies with *"not a directory: Are you trying to mount a
+directory onto a file"*. A cgroup limit via the Docker API has no host-path dependency and behaves
+identically either way. (The trade-off: kubelet advertises the *host's* memory as node capacity. It
+does not matter here — cr.yaml's resource requests are commented out, so scheduling is not
+request-driven, and the container is still hard-capped by its cgroup.)
+
+Validation *warns* (never blocks) below 4 CPU / 6 GiB — a PXC cluster will not schedule — and above
+80% of the host's `/info` NCPU/MemTotal.
+
+**The operator.** The k3s image is busybox: no git, no curl, no bash. So DBCanvas fetches the
+operator's source tarball for the chosen version and `PutArchive`s it into **/root on the first
+node** (which is where the user wanted it), then applies `deploy/bundle.yaml` into the chosen
+namespace, waits for the operator Deployment, and only then applies cr.yaml. cr.yaml is read out of
+the tarball, not off the node (no bash for `readContainerFile`), and the rewritten file is copied
+back into /root so what you read is what ran.
+
+**secrets.yaml goes first.** `deploy/secrets.yaml` carries the cluster's users (root, monitor,
+replication, …) and is applied **before** cr.yaml: the operator reads it while creating the cluster,
+so a secret that arrives afterwards changes nothing and the operator will already have generated its
+own random passwords. It is renamed to `<cluster>-secrets` — cr.yaml's `secretsName` defaults to
+exactly that, and a mismatched name is ignored silently — and the passwords come from **.env**, like
+every other database DBCanvas deploys (`mysqlFamilySecrets`), so the cluster's root password is the
+`MYSQL_ROOT_PASSWORD` you already know. `xtrabackup` has no .env counterpart and keeps the shipped
+value.
+
+**Proxy + expose are per section.** cr.yaml ships HAProxy enabled and ProxySQL disabled; they are
+mutually exclusive front ends, so the frame picks one and the transform flips **both** `enabled:`
+flags. Expose is likewise per section rather than one blanket value — the database can stay
+in-cluster (ClusterIP) while the proxy takes a LoadBalancer address, which is the common shape.
+
+**The cr.yaml rewrite** (`k3dcr.go`, line-based — the repo has no YAML dependency, and a library
+round-trip would strip the comments that make cr.yaml worth reading):
+- `antiAffinityTopologyKey: "none"` — shipped as `kubernetes.io/hostname`, which leaves 2 of the 3
+  database pods Pending forever on a 1-node cluster.
+- every section's own `resources:` block commented out — the shipped requests do not fit a small
+  budget, and an unadmitted pod never starts. Keyed off indentation (4 spaces), so the
+  PersistentVolumeClaim's `resources` (the storage size, which is *required*) survives.
+- the frame's Service type on every `expose` section (pxc, haproxy primary/replicas, proxysql).
+- `metadata.name` ← the frame's name; PMM `serverHost`; and a SeaweedFS S3 backup storage replacing
+  the shipped placeholders (with its credentials in a k8s secret), with **`verifyTLS: false`** —
+  the backup pods trust only their image's CA bundle, and nothing hands them the Intranet CA, so
+  verifying SeaweedFS's certificate would fail the backup (the traffic never leaves the stack
+  network). Replacing the storages means the
+  shipped `schedules:` (and pitr) — which name a storage **by name**, `fs-pvc` — must be repointed at
+  it, or the operator rejects the entire CR (*"storage fs-pvc doesn't exist"*) and never creates the
+  cluster. `TestCRTransform` now asserts no `storageName` can dangle.
+
+**Version-dependent CR fields.** `forcePathStyle` (SeaweedFS does not do virtual-host bucket
+addressing) only exists in the operator's S3 schema **from 1.20.0**. Emitted against an older CRD it
+is not ignored — the API server rejects the *entire* custom resource with a strict-decoding error
+(*"unknown field spec.backup.storages.seaweedfs.s3.forcePathStyle"*) and the cluster is never
+created. So it is emitted only when the selected version's own `cr.yaml` knows the field, which the
+provisioner reads from the source it already downloaded. Backups work either way — xbcloud already
+addresses path-style against a custom endpoint (verified: an on-demand backup **Succeeded** on
+1.19.1, with no forcePathStyle).
+
+**PMM 3 wants a service token, and a port.** PMM 3's pmm-client sidecars authenticate with a
+*service token*, not a password, so setting `pmm.serverHost` alone starts three sidecars that can
+only fail to authenticate. The provisioner mints one on the PMM server itself (the Grafana
+service-accounts API — `POST /graph/api/serviceaccounts` then `/tokens`, falling back to the legacy
+`/graph/api/auth/keys`; both honour `secondsToLive`) and patches it into the cluster secret before
+cr.yaml is applied, exactly as the operator's own docs do it:
+
+```
+kubectl -n <ns> patch secret <cluster>-secrets --type='merge' \
+  -p='{"stringData": {"pmmservertoken": "…"}}'
+```
+
+The token's lifetime is a frame setting — a value plus minutes/hours/days, default 365 days, reusing
+`certTTL()` from the Intranet CA — and the node panel shows when it expires and the one-liner that
+rotates it.
+
+`serverHost` carries the **port**: the operator hands the value to the sidecars verbatim as
+`PMM_AGENT_SERVER_ADDRESS` (and `PMM_SERVER`), pmm-agent defaults it to `:443`, and a DBCanvas PMM
+node serves HTTPS on **8443** — so a bare hostname leaves every sidecar looping on
+`dial tcp …:443: connect: connection refused`. `pmm-01.example.net:8443` registers.
+
+**Cluster naming.** k3d cluster names are global to the Docker daemon, and every stack's first K3D
+frame is labelled `k3d-00` by default — so the *k3d* name is scoped by stack (`k3d-00-s7`). Without
+that, a second stack's deploy dies with *"a cluster with that name already exists"*. A pre-existing
+cluster of the same name is deleted before creation, which also makes a redeploy (or a retry after a
+failed run) idempotent. The **PXC cluster** in the CR keeps the frame's plain label (`cool`, not
+`cool-s1`) — it names the user's database, not a Docker object, and it is what every secret and
+Service is named after.
+
+**`make versions`** learned to discover operator versions: `pmm_discover` was generalized into
+`hub_tags <repo> <regex>`, and a top-level `operators:` block now records PXC, PSMDB and PG (59
+versions). `loadOperatorCatalog` parses it, `resolveOperatorVersion` refuses an unknown tag (it
+would otherwise reach a git fetch), and `GET /api/catalog/operators` feeds the designer. MongoDB and
+PostgreSQL are discovered but not yet deployable — their pickers say so.
+
+**Verified live**, which is the only way this could have been trusted:
+- 1-node cluster, 8 CPU / 12 GiB, PXC operator 1.20.0, namespace `pxc`, LoadBalancer: the operator
+  reached `ready` with **3 PXC pods + 3 HAProxy on a single node**, HAProxy on `172.28.255.207`
+  (from the MetalLB pool). From a plain container on the stack network,
+  `mysql -h 172.28.255.207` served `wsrep_cluster_size = 3` on PXC 8.4.8.
+- 3-node cluster: all three Ready, the 6 CPU / 9 GiB budget split exactly (2 CPU / 3 GiB each).
+- **ProxySQL front end, per-section expose, .env passwords**: `haproxy.enabled=false` /
+  `proxysql.enabled=true`, the pxc Services stayed **ClusterIP** while ProxySQL got a **LoadBalancer**
+  address, `verifyTLS=false` on the storage, and the secret's root password was the one from .env —
+  connecting through the ProxySQL LoadBalancer with it returned `wsrep_cluster_size = 3`.
+- **Operator 1.19.1 + SeaweedFS** (the combination that exposed the two CR bugs above): no
+  strict-decoding rejections, cluster `ready`, and an on-demand backup **Succeeded**.
+- **With SeaweedFS backups** (latest operator): the CR applies with no reconcile errors, `spec.backup.schedule` and
+  `pitr` both name the `seaweedfs` storage, and an on-demand
+  `PerconaXtraDBClusterBackup` reached **Succeeded** at `s3://backups/<cluster>-…-full` — the
+  operator → xtrabackup → the stack's S3 node, end to end.
+- **With PMM**: the service token is created and patched into `cool-secrets` before cr.yaml, the
+  cluster reaches `ready` with the pmm-client sidecar **Ready** in every pod, and PMM's inventory
+  lists `pxc-cool-pxc-{0,1,2}` and `pxc-cool-haproxy-{0,1,2}` under cluster `cool`, with QAN
+  streaming query buckets. (Before the port fix, every sidecar sat in
+  `dial tcp …:443: connect: connection refused`.)
+- Destroy: `k3d cluster delete` runs first, so no `k3d-*` container, volume or network survives.
+- Validation: too-low and too-high budgets warn; bad namespace and unknown operator version block
+  the deploy; a stack with no k3d frame still validates on a host without k3d.
+
+Bugs the live runs caught (the transform ones are pinned by tests): cr.yaml was read with a
+bash-only helper (k3s is busybox); `kubectl apply` had no `-n`, so the CR landed in `default` where
+no operator watches it and the cluster was silently never created; `metadata.name` was never
+rewritten; and the k3d memory flags broke in container mode (above) — found only by running the app
+the way `make compose` does, which is now part of the verification: **the whole flow was re-run with
+DBCanvas itself inside a container** (socket-mounted, k3d from the image), reaching a `ready` PXC
+cluster with the 8 CPU / 12 GiB budget applied as real cgroup limits.

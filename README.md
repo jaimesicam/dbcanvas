@@ -51,6 +51,9 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
 - **MongoDB** — Percona Server for MongoDB: standalone, replica set, and sharded
   (PBM backups; optional Keycloak OIDC auth).
 - **Valkey** — standalone and cluster (LDAP integration, PMM monitoring).
+- **Kubernetes** — a **K3D cluster** frame (1–3 k3s nodes, created by k3d on the stack network,
+  with MetalLB for LoadBalancer services) that can install the **Percona Operator for MySQL (PXC)**
+  into a namespace of your choosing.
 - **Infrastructure** — an **Intranet** node (OpenLDAP, bind DNS, an internal CA, a Squid
   proxy, and Roundcube/Dovecot webmail), a **Samba AD DC** (Active Directory, LDAP,
   Kerberos), **PMM** monitoring, **ProxySQL**, **HAProxy**, **SeaweedFS** (S3 for backups),
@@ -76,6 +79,25 @@ as its keyring: `component_keyring_vault` on Percona Server 8.4, the `keyring_va
 gets its own KV mount and a token scoped to it, and verifies OpenBao with the Intranet CA every
 node already trusts. OpenBao seals itself on every restart, so its panel shows the live seal state
 and can replay the stored keys with one click.
+
+**Kubernetes with the Percona operators.** Add a **K3D Cluster** frame and pick a Percona operator
+(PXC today; MongoDB and PostgreSQL are discovered by `make versions` and land next). DBCanvas runs
+k3d against the same Docker daemon it already uses, creating the k3s nodes **on the stack network**
+— so pods resolve the Intranet DNS, reach PMM and SeaweedFS by name, and **MetalLB** hands out
+LoadBalancer addresses from the stack subnet that every other container can reach. You choose the
+cluster size, its CPU/memory budget (a total, split across the nodes — DBCanvas warns if it is too
+small to schedule a PXC cluster, or too large for your host), the namespace, the front end (HAProxy
+or ProxySQL), and how each section is exposed (ClusterIP / NodePort / LoadBalancer — the database can
+stay in-cluster while the proxy takes a LoadBalancer address). The operator's source is unpacked into
+`/root` on the first node, and its `cr.yaml` is rewritten before it is applied — anti-affinity set to
+`none` and every section's CPU/memory requests commented out, because the shipped file assumes a real
+multi-node cluster and would otherwise never schedule.
+
+Link a **SeaweedFS** node and the cluster backs up to it over S3; link a **PMM** node and DBCanvas
+mints a **service token** on the PMM server (you choose how long it lives — 365 days by default) and
+patches it into the cluster's secret, so the pmm-client sidecars register themselves and the whole
+cluster shows up in PMM. The cluster's users come from your `.env`, like every other database
+DBCanvas deploys, so the root password is the one you already know.
 
 **Deployed versions.** Once a node is running, its card shows the version it *actually* deployed
 with — `PS 8.4.10-10`, `PSMDB 8.0.26-11`, `PMM 3.3.1` — not just the series that was requested
@@ -191,7 +213,7 @@ account. Design a stack in **Database Stacks**, deploy it, and watch the bell + 
 | Command | What it does |
 | --- | --- |
 | `make images` | Build the systemd base images the DB nodes run on |
-| `make versions` | Probe the images for installable versions → `versions.yaml` |
+| `make versions` | Probe the images for installable versions, and the registries for PMM + Percona operator versions → `versions.yaml` |
 | `make compose` | Create `.env` if needed, build the app image, and start the stack |
 | `make build` | Build the app image only |
 | `make up` / `make down` | Start / stop the app container (no rebuild on `up`) |
@@ -204,6 +226,9 @@ account. Design a stack in **Database Stacks**, deploy it, and watch the bell + 
 - **Docker** with access to the daemon socket (`/var/run/docker.sock` is mounted into the
   app so it can create/manage stack containers). This is a privileged capability — run
   DBCanvas somewhere you trust.
+- **k3d** — only if you use the K3D cluster frame. The app image ships it; for local development
+  install it on the host, next to Docker (it talks to the same daemon). A stack that uses the frame
+  refuses to deploy without it; every other stack is unaffected.
 - Enough resources for the stacks you deploy (a full HA cluster is several containers).
 - Linux host recommended; also runs on macOS/Windows Docker (incl. Apple-Silicon/Rosetta).
 

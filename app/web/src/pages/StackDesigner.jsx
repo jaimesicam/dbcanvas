@@ -13,6 +13,7 @@ import InnoDBManager from './InnoDBManager.jsx'
 import MongoDBManager from './MongoDBManager.jsx'
 import SeaweedFSManager from './SeaweedFSManager.jsx'
 import OpenBaoManager from './OpenBaoManager.jsx'
+import K3DManager from './K3DManager.jsx'
 import PatroniManager from './PatroniManager.jsx'
 import HAProxyManager from './HAProxyManager.jsx'
 import PGManager from './PGManager.jsx'
@@ -132,6 +133,14 @@ const NODE_TYPES = {
     sub: 'PostgreSQL + Spock (multi-master)',
     color: '#dc2626',
     icon: 'Database',
+  },
+  // k3s nodes inside a K3D cluster frame (the first is the server, the rest agents).
+  k3d: {
+    label: 'k3s node',
+    slug: 'k3s',
+    sub: 'Kubernetes node (k3s)',
+    color: '#326ce5',
+    icon: 'Grid',
   },
   // Standalone single Percona Server for MongoDB instance (no replication).
   psm: {
@@ -414,7 +423,7 @@ function nextMemberName(usedSet, prefix) {
 }
 
 // Per-frame-type presentation: accent color and the description line.
-const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', psmdb: '#10b981', psmrs: '#059669', patroni: '#336791', repmgr: '#0e7490', spock: '#dc2626', valkeycluster: '#7c3aed' }
+const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', psmdb: '#10b981', psmrs: '#059669', patroni: '#336791', repmgr: '#0e7490', spock: '#dc2626', valkeycluster: '#7c3aed', k3d: '#326ce5' }
 
 // typeColor maps a node/frame type to its canvas color so a toolbar "add" button can
 // be tinted to match the node/frame it creates. addBtnStyle turns that into inline
@@ -455,7 +464,7 @@ const ENGINE_SHORT = {
   proxysql: 'ProxySQL', haproxy: 'HAProxy',
   valkey: 'Valkey', valkeycluster: 'Valkey',
   pmm: 'PMM', openbao: 'OpenBao', keycloak: 'Keycloak',
-  seaweedfs: 'SeaweedFS', sambaad: 'Samba', vnc: 'Ubuntu', watchtower: 'Watchtower',
+  seaweedfs: 'SeaweedFS', sambaad: 'Samba', vnc: 'Ubuntu', watchtower: 'Watchtower', k3d: 'k3s',
 }
 
 // frameDeployedLabel is the same for a cluster frame: the version its members actually deployed
@@ -491,6 +500,7 @@ const frameVersionLabel = (f) => {
   if (f?.type === 'repmgr') return `PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · repmgr (PGDG)`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'spock') return `PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · Spock multi-master`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'valkeycluster') return 'Valkey Cluster · valkey/valkey-bundle'
+  if (f?.type === 'k3d') return `Kubernetes (k3s via k3d)${f?.k3dOperator === 'pxc' ? ' · PXC operator' : ''}`
   return pxcVersionLabel(f)
 }
 
@@ -1263,6 +1273,30 @@ function StackEditor({ stackId, onBack }) {
     setNodes(r.nodes)
     setSelected({ kind: 'frame', id: fid })
   }
+  // A K3D cluster's members are the k3s nodes k3d creates: the first is the server, the rest
+  // agents. Default 1 node (a k3s cluster is perfectly happy single-node), resizable to 3.
+  function newK3DMember(frameId) {
+    const used = new Set(nodes.filter((n) => n.type === 'k3d').map((n) => n.label))
+    return { id: uid('k3s'), type: 'k3d', label: nextMemberName(used, 'k3s'), frameId, x: 0, y: 0 }
+  }
+  function addK3DCluster() {
+    if (!nodes.some((n) => n.type === 'intranet')) return
+    const fid = uid('frame')
+    const fx = (-view.x + 200) / view.z
+    const fy = (-view.y + 200) / view.z
+    const frame = {
+      id: fid, type: 'k3d', label: nextNamedCluster(frames, 'k3d'), x: fx, y: fy, w: 0, h: 0,
+      k3dNodes: 1, k3dCpus: 4, k3dMemoryGb: 8,
+      k3dOperator: '', k3dOperatorVer: '', k3dNamespace: 'pxc',
+      k3dProxy: 'haproxy', k3dExposePxc: 'clusterip', k3dExposeHaproxy: 'loadbalancer', k3dExposeProxysql: 'loadbalancer',
+      k3dPmmTokenTtlValue: 365, k3dPmmTokenTtlUnit: 'days',
+      pmmNodeId: '', seaweedfsNodeId: '',
+    }
+    const r = relayout(fid, [...frames, frame], [...nodes, newK3DMember(fid)])
+    setFrames(r.frames)
+    setNodes(r.nodes)
+    setSelected({ kind: 'frame', id: fid })
+  }
   // psmdbMembers builds the member nodes for a PS MongoDB sharded cluster of the
   // given setup, always 1 mongos + 3 shards + a config-server RS:
   //   standard → 3-node config RS + 3 shards × 3-node RS (13 nodes)
@@ -1513,6 +1547,11 @@ function StackEditor({ stackId, onBack }) {
       const r = relayout(frame.id, frames, [...nodes, newSpockMember(frame.id)])
       setFrames(r.frames)
       setNodes(r.nodes)
+    } else if (frame.type === 'k3d') {
+      if (nodes.filter((n) => n.frameId === frame.id).length >= 3) return // max 3 k3s nodes
+      const r = relayout(frame.id, frames, [...nodes, newK3DMember(frame.id)])
+      setFrames(r.frames)
+      setNodes(r.nodes)
     } else if (frame.type === 'valkeycluster') {
       if (nodes.filter((n) => n.frameId === frame.id).length >= 7) return // max 7
       const r = relayout(frame.id, frames, [...nodes, newValkeyMember(frame.id)])
@@ -1716,6 +1755,9 @@ function StackEditor({ stackId, onBack }) {
     { title: 'Valkey', items: [
       { label: 'Valkey Cluster', type: 'valkeycluster', onClick: addValkeyCluster },
       { label: 'Valkey', type: 'valkey', onClick: () => addNode('valkey') },
+    ] },
+    { title: 'Kubernetes', items: [
+      { label: 'K3D Cluster', type: 'k3d', onClick: addK3DCluster },
     ] },
     { title: 'Storage & Tools', items: [
       { label: 'SeaweedFS', type: 'seaweedfs', onClick: () => addNode('seaweedfs') },
@@ -1931,6 +1973,7 @@ function StackEditor({ stackId, onBack }) {
                     else if (f.type === 'repmgr') sub = 'PostgreSQL + repmgr'
                     else if (f.type === 'spock') sub = 'PostgreSQL + Spock'
                     else if (f.type === 'valkeycluster') sub = 'Valkey shard'
+                    else if (f.type === 'k3d') sub = kids.indexOf(n) === 0 ? 'k3s server' : 'k3s agent'
                     else if (arb) sub = 'Arbitrator · garbd'
                     const barCol = (f.type === 'pxc' && arb) || (f.type === 'mysql' && !isPrimary) ? '#64748b' : col
                     // PXC and Percona Server replication members expose ports for
@@ -1958,7 +2001,7 @@ function StackEditor({ stackId, onBack }) {
                             </div>
                             <div className="mt-0.5 truncate text-[10px] text-muted">{sub}</div>
                             <div className="truncate text-[9px] font-medium text-fg/80">
-                              {deployedLabel(n.type, dep) || (f.type === 'valkeycluster' ? 'valkey/valkey-bundle' : `${pxcOSLabel(f)} · ${f.arch || 'amd64'}`)}
+                              {deployedLabel(n.type, dep) || (f.type === 'valkeycluster' ? 'valkey/valkey-bundle' : f.type === 'k3d' ? 'rancher/k3s' : `${pxcOSLabel(f)} · ${f.arch || 'amd64'}`)}
                             </div>
                             {n.exportEnabled && <div className="text-[9px] font-medium text-primary">⇅ export</div>}
                           </div>
@@ -1970,7 +2013,7 @@ function StackEditor({ stackId, onBack }) {
                     )
                   })}
                   {/* Association endpoints — InnoDB/GR, repmgr + Valkey cluster have none. */}
-                  {f.type !== 'innodb' && f.type !== 'repmgr' && f.type !== 'valkeycluster' && (
+                  {f.type !== 'innodb' && f.type !== 'repmgr' && f.type !== 'valkeycluster' && f.type !== 'k3d' && (
                     <PortHandles ownerId={f.id} connecting={!!connect} snapPort={connect?.targetId === f.id ? connect.targetPort : null} onStart={startConnect} />
                   )}
                 </div>
@@ -3712,6 +3755,197 @@ function ValkeyManager({ dep, onDeleteNode }) {
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
       </Button>
+    </div>
+  )
+}
+
+// The Kubernetes Service types a cr.yaml `expose` section accepts.
+const K3D_EXPOSE_OPTIONS = [
+  { id: 'clusterip', label: 'ClusterIP (in-cluster only)' },
+  { id: 'nodeport', label: 'NodePort' },
+  { id: 'loadbalancer', label: 'LoadBalancer (MetalLB)' },
+]
+
+// K3DFrameForm edits a K3D cluster frame: size, the CPU/memory budget for the whole cluster, and
+// what to install on it. CPU/memory are a *total*, split across the nodes — which is why the hints
+// warn in terms of the cluster, not the node.
+function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed }) {
+  const lock = deployed ? 'opacity-70' : ''
+  const count = frameNodes.length
+  const pmmNodes = nodes.filter((x) => x.type === 'pmm')
+  const swNodes = nodes.filter((x) => x.type === 'seaweedfs')
+  const cpus = f.k3dCpus || 4
+  const memGb = f.k3dMemoryGb || 8
+  const tooSmall = cpus < 4 || memGb < 6
+
+  const [ops, setOps] = useState(null)
+  useEffect(() => {
+    let alive = true
+    stackApi.operatorsCatalog().then((c) => { if (alive) setOps(c || {}) }).catch(() => { /* keep the defaults */ })
+    return () => { alive = false }
+  }, [])
+  const pxcVersions = ops?.pxc?.versions || []
+  const pxcLatest = ops?.pxc?.latest || ''
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">K3D Cluster</span>
+        <Badge tone="muted">{count} node{count === 1 ? '' : 's'}</Badge>
+      </div>
+      <p className="text-xs text-muted">
+        A k3s cluster created by <span className="font-mono">k3d</span> on the stack network — so pods reach the
+        Intranet DNS, PMM and SeaweedFS like any other node. MetalLB provides LoadBalancer addresses from the
+        stack subnet. Use the frame +/- to resize (1–3 nodes; the first is the server).
+      </p>
+
+      <Field label="Cluster name" hint="Frame label; becomes the k3d cluster name.">
+        <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+      </Field>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="CPUs (whole cluster)">
+          <input type="number" min="1" max="64" className={`${inputCls} ${lock}`} value={cpus} disabled={deployed}
+            onChange={(e) => patchFrame(f.id, { k3dCpus: Number(e.target.value) })} />
+        </Field>
+        <Field label="Memory GiB (whole cluster)">
+          <input type="number" min="1" max="256" className={`${inputCls} ${lock}`} value={memGb} disabled={deployed}
+            onChange={(e) => patchFrame(f.id, { k3dMemoryGb: Number(e.target.value) })} />
+        </Field>
+      </div>
+      <p className="text-xs text-muted">Split evenly across the {count} node{count === 1 ? '' : 's'} ({Math.max(1, Math.floor(memGb / count))} GiB each).</p>
+      {tooSmall && (
+        <p className="text-xs text-amber-500">
+          Below 4 CPU / 6 GiB a PXC cluster (3 database pods + HAProxy) is unlikely to schedule. Validation warns,
+          it does not block.
+        </p>
+      )}
+
+      <div className="space-y-2 rounded-lg border border-dashed p-2">
+        <div className="text-xs font-medium text-muted">Percona operator</div>
+        <Field label="Operator">
+          <select className={`${inputCls} ${lock}`} value={f.k3dOperator || ''} disabled={deployed}
+            onChange={(e) => patchFrame(f.id, { k3dOperator: e.target.value, k3dOperatorVer: '' })}>
+            <option value="">none (plain Kubernetes)</option>
+            <option value="pxc">Percona Operator for MySQL (PXC)</option>
+            <option value="psmdb" disabled>Percona Operator for MongoDB — coming soon</option>
+            <option value="pg" disabled>Percona Operator for PostgreSQL — coming soon</option>
+          </select>
+        </Field>
+        {f.k3dOperator === 'pxc' && (
+          <>
+            <Field label="Operator version" hint="From `make versions`. The source is unpacked into /root on the first node.">
+              <select className={`${inputCls} ${lock}`} value={f.k3dOperatorVer || ''} disabled={deployed}
+                onChange={(e) => patchFrame(f.id, { k3dOperatorVer: e.target.value })}>
+                <option value="">latest{pxcLatest ? ` (${pxcLatest})` : ''}</option>
+                {pxcVersions.map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
+            </Field>
+            <Field label="Namespace" hint="The operator and its cr.yaml are installed here.">
+              <input className={`${inputCls} ${lock}`} value={f.k3dNamespace ?? 'pxc'} disabled={deployed}
+                onChange={(e) => patchFrame(f.id, { k3dNamespace: e.target.value })} />
+            </Field>
+            <Field label="Proxy" hint="cr.yaml runs one front end — they are mutually exclusive.">
+              <select className={`${inputCls} ${lock}`} value={f.k3dProxy || 'haproxy'} disabled={deployed}
+                onChange={(e) => patchFrame(f.id, { k3dProxy: e.target.value })}>
+                <option value="haproxy">HAProxy (default)</option>
+                <option value="proxysql">ProxySQL</option>
+              </select>
+            </Field>
+            {/* Expose is per cr.yaml section: the database and the proxy are independent, so the
+                pods can stay in-cluster while the proxy takes a LoadBalancer address. */}
+            <Field label="Expose · database (pxc)" hint="Per-pod Services for the database itself.">
+              <select className={`${inputCls} ${lock}`} value={f.k3dExposePxc || 'clusterip'} disabled={deployed}
+                onChange={(e) => patchFrame(f.id, { k3dExposePxc: e.target.value })}>
+                {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </Field>
+            {(f.k3dProxy || 'haproxy') === 'haproxy' ? (
+              <Field label="Expose · HAProxy" hint="The cluster's front door (primary + replicas).">
+                <select className={`${inputCls} ${lock}`} value={f.k3dExposeHaproxy || 'loadbalancer'} disabled={deployed}
+                  onChange={(e) => patchFrame(f.id, { k3dExposeHaproxy: e.target.value })}>
+                  {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+                </select>
+              </Field>
+            ) : (
+              <Field label="Expose · ProxySQL" hint="The cluster's front door.">
+                <select className={`${inputCls} ${lock}`} value={f.k3dExposeProxysql || 'loadbalancer'} disabled={deployed}
+                  onChange={(e) => patchFrame(f.id, { k3dExposeProxysql: e.target.value })}>
+                  {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+                </select>
+              </Field>
+            )}
+            <p className="text-xs text-muted">
+              Before <span className="font-mono">cr.yaml</span> is applied, anti-affinity is set to
+              <span className="font-mono"> none</span> and every section's CPU/memory requests are commented out —
+              otherwise the pods never schedule on a cluster this size.
+            </p>
+          </>
+        )}
+      </div>
+
+      <Field label="Backups (SeaweedFS)" hint="Optional — sets the operator's S3 backup storage.">
+        <select className={`${inputCls} ${lock}`} value={f.seaweedfsNodeId || ''} disabled={deployed}
+          onChange={(e) => patchFrame(f.id, { seaweedfsNodeId: e.target.value })}>
+          <option value="">none</option>
+          {swNodes.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+        </select>
+      </Field>
+      <Field label="Monitored by (PMM)" hint="Optional — sets spec.pmm.serverHost and wires a service token.">
+        <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed}
+          onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
+          <option value="">none</option>
+          {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </Field>
+      {f.pmmNodeId && (
+        <>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted">Service token expires in</span>
+            <input type="number" min="1" className={`${inputCls} w-20`} value={f.k3dPmmTokenTtlValue || 365} disabled={deployed}
+              onChange={(e) => patchFrame(f.id, { k3dPmmTokenTtlValue: Number(e.target.value) })} />
+            <select className={`${inputCls} ${lock}`} value={f.k3dPmmTokenTtlUnit || 'days'} disabled={deployed}
+              onChange={(e) => patchFrame(f.id, { k3dPmmTokenTtlUnit: e.target.value })}>
+              <option value="minutes">minutes</option>
+              <option value="hours">hours</option>
+              <option value="days">days</option>
+            </select>
+          </div>
+          <p className="text-xs text-muted">
+            PMM 3 authenticates the pmm-client sidecars with a <span className="font-medium">service token</span>, not a
+            password. One is minted on the PMM server at deploy and patched into the cluster's secret; when it expires
+            the pods stop reporting until a new one is patched in.
+          </p>
+        </>
+      )}
+
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteFrame(f.id)}>
+        <Icon.Trash size={16} /> Delete cluster
+      </Button>
+    </div>
+  )
+}
+
+// K3DMemberForm — a k3s node. Nothing here is per-node: k3d creates the containers, and the
+// cluster's settings live on the frame.
+function K3DMemberForm({ node: n, frame, frameNodes, patchNode, dep, deployed }) {
+  const isServer = frameNodes.length > 0 && frameNodes[0].id === n.id
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">k3s {isServer ? 'server' : 'agent'}</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+      <p className="text-xs text-muted">
+        {isServer
+          ? 'The cluster’s server node. kubectl runs here, and the operator source is unpacked into /root.'
+          : 'A worker node. It joins the server automatically.'}
+        {' '}Cluster-wide settings (size, CPU/memory, operator) live on the frame.
+      </p>
+      {!deployed && <p className="text-xs text-muted">Created by k3d at deploy.</p>}
     </div>
   )
 }
@@ -5563,6 +5797,9 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     if (f.type === 'valkeycluster') {
       return <ValkeyClusterFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
     }
+    if (f.type === 'k3d') {
+      return <K3DFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+    }
     return <PXCFrameForm frame={f} stackId={stackId} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} running={running} />
   }
 
@@ -5641,6 +5878,13 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <SpockManager stackId={stackId} nodeId={n.id} frame={frames.find((fr) => fr.id === n.frameId)} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <SpockMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} patchNode={patchNode} dep={dep} deployed={deployed} />
+    }
+    // k3s node inside a K3D cluster frame.
+    if (n.type === 'k3d') {
+      if (dep && dep.state === 'running') {
+        return <K3DManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <K3DMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} frameNodes={nodes.filter((x) => x.frameId === n.frameId)} patchNode={patchNode} dep={dep} deployed={deployed} />
     }
     // Valkey cluster member node.
     if (n.type === 'valkeycluster') {

@@ -236,25 +236,46 @@ spock_discover() {
   done
 }
 
-pmm_discover() {
-  command -v curl >/dev/null 2>&1 || { echo "WARN: curl not found; skipping PMM discovery" >&2; return 0; }
-  local url="https://hub.docker.com/v2/repositories/${PMM_REPO}/tags?page_size=100&ordering=last_updated"
-  local page=1
-  : >/tmp/pmm_tags.$$
+# hub_tags <repo> <tag-regex> — list a Docker Hub repository's tags matching the
+# regex, newest version first. Anonymous API, no JSON parser: tag names appear as
+# "name":"<tag>" and the next page as "next":"<url>". Empty output means discovery
+# failed (offline) — every caller treats that as "record nothing", never an error.
+hub_tags() {
+  local repo="$1" want="$2"
+  command -v curl >/dev/null 2>&1 || { echo "WARN: curl not found; skipping ${repo} discovery" >&2; return 0; }
+  local url="https://hub.docker.com/v2/repositories/${repo}/tags?page_size=100&ordering=last_updated"
+  local page=1 tmp
+  tmp="$(mktemp)"
   while [ -n "$url" ] && [ "$page" -le 10 ]; do
     local body
     body="$(curl -fsSL "$url" 2>/dev/null)" || break
-    # Pull tag names and the URL of the next page out of the JSON without a JSON
-    # parser: names appear as "name":"<tag>", the next page as "next":"<url>".
-    printf '%s' "$body" | grep -oE '"name": *"[^"]+"' | sed -E 's/.*: *"([^"]+)"/\1/' >>/tmp/pmm_tags.$$
+    printf '%s' "$body" | grep -oE '"name": *"[^"]+"' | sed -E 's/.*: *"([^"]+)"/\1/' >>"$tmp"
     url="$(printf '%s' "$body" | grep -oE '"next": *"[^"]+"' | head -1 | sed -E 's/.*: *"([^"]+)"/\1/')"
     [ "$url" = "null" ] && url=""
     page=$((page + 1))
   done
-  # Newest first (recent → oldest) so the version picker lists latest at the top.
-  grep -E '^3\.[0-9]+\.[0-9]+$' /tmp/pmm_tags.$$ 2>/dev/null | sort -rV -u
-  rm -f /tmp/pmm_tags.$$
+  # Newest first so a version picker lists the latest at the top.
+  grep -E "$want" "$tmp" 2>/dev/null | sort -rV -u
+  rm -f "$tmp"
 }
+
+pmm_discover() { hub_tags "$PMM_REPO" '^3\.[0-9]+\.[0-9]+$'; }
+
+# ---- Percona Kubernetes operators ----
+# The operators ship as Docker images (and as a git tag carrying deploy/bundle.yaml +
+# deploy/cr.yaml, which is what a K3D node actually installs). Their versions are
+# therefore image tags, independent of OS and arch — recorded as a top-level section,
+# like pmm. The repositories also carry auxiliary tags (…-backup, …-logcollector,
+# …-haproxy); the three-part anchor keeps only the operator releases themselves.
+OPERATOR_PRODUCTS="pxc psmdb pg"
+operator_repo() {
+  case "$1" in
+    pxc)   echo "percona/percona-xtradb-cluster-operator" ;;
+    psmdb) echo "percona/percona-server-mongodb-operator" ;;
+    pg)    echo "percona/percona-postgresql-operator" ;;
+  esac
+}
+operator_discover() { hub_tags "$(operator_repo "$1")" '^[0-9]+\.[0-9]+\.[0-9]+$'; }
 
 # ---- write the YAML, enriching each entry with its Percona Server versions ----
 TMP="$(mktemp)"
@@ -454,12 +475,42 @@ echo "    pdps: ${pdps_n} repo(s)" >&2
   fi
 } >>"$TMP"
 
+# ---- Percona Kubernetes operator versions (from the operator image registries) ----
+echo "==> discovering Percona operator versions from Docker Hub" >&2
+{
+  echo "# Percona Kubernetes operator versions, discovered from the operator image"
+  echo "# registries. A K3D cluster node installs an operator from its matching git tag"
+  echo "# (deploy/bundle.yaml + deploy/cr.yaml), so these tags are what the K3D frame's"
+  echo "# operator picker offers. OS/arch independent. Re-run: make versions"
+  echo "operators:"
+} >>"$TMP"
+op_total=0
+for op in $OPERATOR_PRODUCTS; do
+  op_repo="$(operator_repo "$op")"
+  op_versions="$(operator_discover "$op")"
+  op_n=$(printf '%s' "$op_versions" | grep -c . || true)
+  op_latest="$(printf '%s\n' "$op_versions" | head -1)"
+  op_total=$((op_total + op_n))
+  echo "    ${op}: ${op_n} version(s)${op_latest:+, latest ${op_latest}}" >&2
+  {
+    echo "  ${op}:"
+    echo "    repository: ${op_repo}"
+    echo "    latest: \"${op_latest}\""
+    if [ -n "$op_versions" ]; then
+      echo "    versions:"
+      while IFS= read -r v; do [ -n "$v" ] && echo "      - \"${v}\""; done <<<"$op_versions"
+    else
+      echo "    versions: []"
+    fi
+  } >>"$TMP"
+done
+
 mv "$TMP" "$OUT"
 trap - EXIT
 
 echo "" >&2
 echo "==================================================================" >&2
-echo "Probed ${count} ${PLATFORM} image(s) + ${pmm_n} PMM3 version(s) → ${OUT}" >&2
+echo "Probed ${count} ${PLATFORM} image(s) + ${pmm_n} PMM3 version(s) + ${op_total} operator version(s) → ${OUT}" >&2
 if [ "$skipped" -gt 0 ]; then
   echo "Skipped ${skipped} image(s) not on ${PLATFORM}" >&2
 fi

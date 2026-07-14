@@ -49,6 +49,8 @@ var nodeVersionScripts = map[string]string{
 	"sambaad":       "samba --version 2>/dev/null | head -1",
 	"pmm":           "pmm-admin --version 2>/dev/null | head -1",
 	"seaweedfs":     "weed version 2>/dev/null | head -1",
+	// A k3s node: "k3s version v1.31.5+k3s1 (…)".
+	"k3d": "k3s --version 2>/dev/null | head -1",
 }
 
 // versionProbeCooldown is how long a fruitless probe waits before it is retried (an engine that
@@ -133,10 +135,17 @@ func (a *App) ensureNodeVersions(st Stack, deps []Deployment) {
 
 // probeVersion asks a node's engine for its version, falling back to the image tag for the
 // pulled-image nodes that have no useful CLI (Keycloak, Watchtower).
+//
+// The probe is tried with bash and then with sh: a k3s node (the K3D frame) is busybox — it has no
+// bash at all, so a bash-only probe silently returns nothing for it.
 func (a *App) probeVersion(ctx context.Context, containerID, nodeType, image string) string {
 	if script, ok := nodeVersionScripts[nodeType]; ok {
-		if out, err := a.execScript(ctx, containerID, script, nil); err == nil {
-			if v := parseVersionBanner(out); v != "" {
+		for _, shell := range []string{"bash", "sh"} {
+			res, err := a.docker.Exec(ctx, containerID, []string{shell, "-c", script}, nil)
+			if err != nil || res.Code != 0 {
+				continue
+			}
+			if v := parseVersionBanner(res.Stdout); v != "" {
 				return v
 			}
 		}

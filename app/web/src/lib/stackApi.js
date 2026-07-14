@@ -57,6 +57,7 @@ export const stackApi = {
   spockCatalog: () => request('GET', '/api/catalog/spock'),
   imagesCatalog: () => request('GET', '/api/catalog/images'),
   pdpsCatalog: () => request('GET', '/api/catalog/pdps'),
+  operatorsCatalog: () => request('GET', '/api/catalog/operators'),
 }
 
 // PMM node management. `nid` is the design node id.
