@@ -6769,3 +6769,51 @@ the design to find the SeaweedFS node, which that function does not take.
 
 Verified: a design with the PG operator and a TLS-off SeaweedFS node warns and names the node; the
 same design with S3 TLS on passes clean; a PXC frame pointed at the same plain-HTTP node stays quiet.
+
+## 141. Data Generator for MongoDB — all BSON types — `app/datagen_mongo.go`, `datagen.go`, `datagen_job.go`, `DataGenerator.jsx`, `datagenApi.js`
+
+The Data Generator was built for SQL: it introspects a table's *columns* from the catalog, infers a
+per-column generator, and emits `INSERT … VALUES ('lit', 123)` over `docker exec psql`/`mysql`.
+MongoDB breaks every one of those assumptions — schema-less collections, documents not rows, BSON
+types not SQL types, no FK constraints — so "support all data types" here means **every BSON type,
+including embedded documents and arrays**. This is the MongoDB backend for it.
+
+**The transport is the driver, not the shell.** Every other engine runs a client inside the container
+via `docker exec`, chosen originally because a DB port may not be published to the host. MongoDB
+instead uses the official Go driver over the *stack network* — the same trick query-run and benchmark
+already use (`dialNodeDSN`, `queryrun_run.go`): join the dbcanvas container to the stack's Docker
+network, resolve the node's container IP, dial it directly. The payoff is that BSON becomes native:
+the driver's `primitive.*` types *are* every BSON type as first-class Go values, so a generated
+document is just a `bson.D` handed to `InsertMany` — there is no Extended-JSON text to quote and no
+shell to escape. EJSON appears in exactly one place, the preview, where `MarshalExtJSON` renders the
+same documents the way mongosh would show them (`$oid`, `$date`, `$numberDecimal`, `$binary`).
+
+**`directConnection=true`, and why that is a real constraint.** We can only reach the one node the
+user picked: Docker's embedded DNS does not resolve the Intranet's `*.<domain>` member hostnames, so
+if the driver tried to auto-discover the rest of a replica set it would fail to reach the other
+members. So writes require the picked node to be a **PRIMARY or a mongos** — a secondary is reported
+as such rather than hanging (a 15s handshake bound makes it fail fast). The connection picker helps:
+a sharded cluster (`psmdb`) only offers its mongos router, since a config/shard member would just
+answer "not master"; a replica set (`psmrs`) or standalone is offered directly.
+
+**Schema comes from a sample, but the client is authoritative.** Introspection runs `$sample` over the
+collection and infers each field's BSON type, recursing into embedded documents and array elements —
+but an empty collection has nothing to sample, and the whole point of MongoDB is that you may want to
+add fields that no existing document has. So the field template in the UI is fully editable
+(add/rename/retype/remove), and on generate the client sends an authoritative schema
+(`dgColConfig.UDT` + nested `Fields`/`Elem`); the server builds generators from *that*, not from a
+fresh sample. The SQL path is untouched — the two share the job runner's worker/seed/progress/cancel
+scaffolding and diverge only at metadata and value emission.
+
+**Two things the first cut got wrong, found immediately.** A **standalone** Percona Server for MongoDB
+node is design type `psm`, not the replica-set `psmrs` or sharded `psmdb` — `engineForType` only knew
+the latter two, so standalones never appeared in the picker. And `_id` defaulted to *generate*, which
+is wrong twice over: it collides on the duplicate key the second time you run, and letting the server
+assign it is what you almost always want. `_id` now ticks **skip** by default (untick to mint client-
+side ObjectIds).
+
+**Verified**: unit tests cover schema inference (types, nesting, nullability), generator selection per
+BSON type, native-value emission for every type, skip-vs-null semantics, and a full document that
+round-trips through Extended JSON. **Not yet run against a live node** — the connect / `$sample` /
+`InsertMany` path is exercised structurally and by the driver's own types, but an end-to-end run
+against a deployed `psm`/`psmrs` stack is still owed.

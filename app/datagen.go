@@ -23,9 +23,10 @@ import (
 // dbConn resolves a running DB node to its container, engine, and admin creds.
 type dbConn struct {
 	ContainerID string
-	Engine      string // "postgres" | "mysql"
-	Super       string // admin user (postgres / root)
+	Engine      string // "postgres" | "mysql" | "mongodb"
+	Super       string // admin user (postgres / root / admin)
 	Password    string
+	StackID     int64 // for joining the stack network (MongoDB driver dials the container IP)
 }
 
 // engineForType maps a design node type to a Data Generator engine ("" = unsupported).
@@ -35,6 +36,8 @@ func engineForType(t string) string {
 		return "postgres"
 	case "pxc", "ps", "mysql", "innodb":
 		return "mysql"
+	case "psm", "psmdb", "psmrs":
+		return "mongodb"
 	}
 	return ""
 }
@@ -49,8 +52,16 @@ func (a *App) dbConnFor(st Stack, nid string) (dbConn, bool) {
 		return dbConn{}, false
 	}
 	dep = a.reconcileContainerID(context.Background(), st.ID, nid, dep)
-	c := dbConn{ContainerID: dep.ContainerID, Engine: engine}
-	if engine == "postgres" {
+	c := dbConn{ContainerID: dep.ContainerID, Engine: engine, StackID: st.ID}
+	if engine == "mongodb" {
+		var s mongoSecrets
+		json.Unmarshal(dep.Secrets, &s)
+		c.Super = s.AdminUser
+		if c.Super == "" {
+			c.Super = "admin"
+		}
+		c.Password = s.AdminPassword
+	} else if engine == "postgres" {
 		var s pgSecrets
 		json.Unmarshal(dep.Secrets, &s)
 		c.Super, c.Password = s.Super(), s.SuperPassword
@@ -165,6 +176,12 @@ func (a *App) handleDataGenConnections(w http.ResponseWriter, r *http.Request) {
 			if engine == "" {
 				continue
 			}
+			// A sharded cluster (psmdb) only accepts writes through its mongos router; offering a
+			// config/shard member would just fail with "not master". A plain replica set (psmrs)
+			// or standalone is a valid target as-is (the picked node must be the primary).
+			if n.Type == "psmdb" && n.Role != "mongos" {
+				continue
+			}
 			if dep, err := a.store.GetDeployment(st.ID, n.ID); err != nil || dep.State != DeployRunning {
 				continue
 			}
@@ -199,6 +216,15 @@ func (a *App) handleDataGenDatabases(w http.ResponseWriter, r *http.Request) {
 	}
 	var dbs []string
 	var err error
+	if c.Engine == "mongodb" {
+		dbs, err = a.mongoDatabases(r.Context(), c)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, dbs)
+		return
+	}
 	if c.Engine == "mysql" {
 		err = a.queryJSON(r.Context(), c, "",
 			`SELECT COALESCE(JSON_ARRAYAGG(schema_name),JSON_ARRAY()) FROM information_schema.schemata WHERE schema_name NOT IN ('mysql','information_schema','performance_schema','sys')`, &dbs)
@@ -228,6 +254,15 @@ func (a *App) handleDataGenTables(w http.ResponseWriter, r *http.Request) {
 	db := dbParam(r)
 	var tables []dgTable
 	var q string
+	if c.Engine == "mongodb" {
+		tables, err := a.mongoCollections(r.Context(), c, db)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, tables)
+		return
+	}
 	if c.Engine == "mysql" {
 		q = fmt.Sprintf(`SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT('schema',table_schema,'table',table_name,'estRows',IFNULL(table_rows,0))),JSON_ARRAY())
 		  FROM information_schema.tables WHERE table_type='BASE TABLE' AND table_schema=%s ORDER BY table_name`, sqlLit(db))
@@ -271,6 +306,11 @@ type dgColumn struct {
 	Enum         []string `json:"enum"` // enum labels when the type is an enum
 	Generator    string   `json:"generator"`
 	Generators   []string `json:"generators"` // choices offered in the combobox
+	// MongoDB only. UDT carries the BSON type ("objectId","string","double","int","long",
+	// "decimal","bool","date","timestamp","binData","regex","null","object","array",
+	// "minKey","maxKey"). Nested shapes recurse through these:
+	Fields []dgColumn `json:"fields,omitempty"` // sub-fields when UDT=="object" (embedded document)
+	Elem   *dgColumn  `json:"elem,omitempty"`   // element schema when UDT=="array"
 }
 
 type dgTableMeta struct {
@@ -299,6 +339,9 @@ func (a *App) handleDataGenColumns(w http.ResponseWriter, r *http.Request) {
 // tableMeta introspects a table and fills each column's inferred generator + choices,
 // dispatching to the engine-specific implementation.
 func (a *App) tableMeta(ctx context.Context, c dbConn, db, schema, table string) (dgTableMeta, error) {
+	if c.Engine == "mongodb" {
+		return a.mongoCollectionMeta(ctx, c, db, table)
+	}
 	if c.Engine == "mysql" {
 		return a.myTableMeta(ctx, c, db, schema, table)
 	}

@@ -20,6 +20,11 @@ type dgColConfig struct {
 	Generator string         `json:"generator"`
 	Skip      bool           `json:"skip"`
 	Options   map[string]any `json:"options"`
+	// MongoDB only: the client sends an authoritative field schema (so it can add fields or
+	// build one on an empty collection). UDT is the BSON type; nested shapes recurse.
+	UDT    string        `json:"udt,omitempty"`
+	Fields []dgColConfig `json:"fields,omitempty"`
+	Elem   *dgColConfig  `json:"elem,omitempty"`
 }
 
 type dgGenConfig struct {
@@ -153,6 +158,13 @@ func (a *App) handleDataGenPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	gens := resolveColGens(meta, cfg)
+	if c.Engine == "mongodb" {
+		if len(cfg.Columns) > 0 {
+			gens = resolveMongoGens(cfg) // client schema is authoritative
+		}
+		a.mongoPreview(w, gens, cfg.Seed)
+		return
+	}
 	seed := cfg.Seed
 	if seed == 0 {
 		seed = time.Now().UnixNano()
@@ -222,12 +234,19 @@ func (a *App) handleDataGenGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	gens := resolveColGens(meta, cfg)
+	if c.Engine == "mongodb" && len(cfg.Columns) > 0 {
+		gens = resolveMongoGens(cfg) // client schema is authoritative
+	}
 	if len(gens) == 0 {
 		writeErr(w, http.StatusBadRequest, "no insertable columns selected")
 		return
 	}
 
-	job := &dgJob{ID: newJobID(), StackID: st.ID, Table: cfg.Schema + "." + cfg.Table,
+	label := cfg.Table
+	if c.Engine != "mongodb" {
+		label = cfg.Schema + "." + cfg.Table
+	}
+	job := &dgJob{ID: newJobID(), StackID: st.ID, Table: label,
 		Total: cfg.Rows, Status: "running", Start: time.Now()}
 	ctx, cancel := context.WithCancel(context.Background())
 	job.cancel = cancel
@@ -235,7 +254,11 @@ func (a *App) handleDataGenGenerate(w http.ResponseWriter, r *http.Request) {
 	dgJobs.m[job.ID] = job
 	dgJobs.Unlock()
 
-	go a.runGenJob(ctx, c, cfg, meta, gens, job)
+	if c.Engine == "mongodb" {
+		go a.runGenMongoJob(ctx, c, cfg, meta, gens, job)
+	} else {
+		go a.runGenJob(ctx, c, cfg, meta, gens, job)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"jobId": job.ID})
 }
 
