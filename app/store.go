@@ -119,6 +119,7 @@ CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, id D
 	// "duplicate column name" error when they already exist).
 	db.Exec("ALTER TABLE deployments ADD COLUMN progress_json TEXT")
 	db.Exec("ALTER TABLE users ADD COLUMN settings_json TEXT")
+	db.Exec("ALTER TABLE stacks ADD COLUMN backend TEXT")
 
 	return &Store{db: db}, nil
 }
@@ -332,6 +333,10 @@ type Stack struct {
 	CreatedAt string          `json:"createdAt"`
 	ExpiresAt *string         `json:"expiresAt,omitempty"`
 	Design    json.RawMessage `json:"design,omitempty"`
+	// Backend is the provisioning engine the stack was first deployed with
+	// ("docker" | "vagrant"). Empty until the first deploy stamps it; callers
+	// treat empty as "docker" (see App.eng). Only populated by GetStack.
+	Backend string `json:"backend,omitempty"`
 }
 
 // Deployment is the runtime record for one node in a stack.
@@ -395,18 +400,28 @@ func (s *Store) ListStacks(ownerID int64, isAdmin bool) ([]Stack, error) {
 func (s *Store) GetStack(id int64) (Stack, error) {
 	var st Stack
 	var exp sql.NullString
+	var backend sql.NullString
 	var design string
 	err := s.db.QueryRow(
-		"SELECT id, name, owner_id, ttl, status, created_at, expires_at, design_json FROM stacks WHERE id = ?", id,
-	).Scan(&st.ID, &st.Name, &st.OwnerID, &st.TTL, &st.Status, &st.CreatedAt, &exp, &design)
+		"SELECT id, name, owner_id, ttl, status, created_at, expires_at, design_json, backend FROM stacks WHERE id = ?", id,
+	).Scan(&st.ID, &st.Name, &st.OwnerID, &st.TTL, &st.Status, &st.CreatedAt, &exp, &design, &backend)
 	if err != nil {
 		return Stack{}, err
 	}
 	if exp.Valid {
 		st.ExpiresAt = &exp.String
 	}
+	st.Backend = backend.String
 	st.Design = json.RawMessage(design)
 	return st, nil
+}
+
+// SetStackBackend records the provisioning engine a stack was deployed with.
+// Called once, on the first deploy, so redeploy/manage/teardown stay on the same
+// engine for the stack's life.
+func (s *Store) SetStackBackend(id int64, backend string) error {
+	_, err := s.db.Exec("UPDATE stacks SET backend = ? WHERE id = ?", backend, id)
+	return err
 }
 
 // UpdateStack updates a stack's name and design.

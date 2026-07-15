@@ -260,7 +260,7 @@ func (a *App) intranetEndpoint(ctx context.Context, stackID int64) (id, ip strin
 		}
 		dep, e := a.store.GetDeployment(stackID, n.ID)
 		if e == nil && dep.ContainerID != "" {
-			if cip, _ := a.docker.ContainerIP(ctx, dep.ContainerID, networkName(stackID)); cip != "" {
+			if cip, _ := a.engCtx(ctx).ContainerIP(ctx, dep.ContainerID, networkName(stackID)); cip != "" {
 				return dep.ContainerID, cip, true
 			}
 		}
@@ -276,7 +276,7 @@ func (a *App) intranetEndpoint(ctx context.Context, stackID int64) (id, ip strin
 // start/restart.
 func (a *App) pointResolverAtIntranet(ctx context.Context, containerID, nsIP, domain string) {
 	conf := fmt.Sprintf("search %s\nnameserver %s\noptions ndots:1\n", domain, nsIP)
-	a.docker.ExecAs(ctx, containerID, "0",
+	a.engCtx(ctx).ExecAs(ctx, containerID, "0",
 		[]string{"bash", "-c", `printf '%s' "$CONF" > /etc/resolv.conf`}, []string{"CONF=" + conf})
 }
 
@@ -324,7 +324,7 @@ func (a *App) reconcileStackDNS(ctx context.Context, stackID int64) {
 		return // no DNS authority yet
 	}
 	netName := networkName(stackID)
-	intranetIP, _ := a.docker.ContainerIP(ctx, intranetID, netName)
+	intranetIP, _ := a.engCtx(ctx).ContainerIP(ctx, intranetID, netName)
 	if intranetIP == "" {
 		return
 	}
@@ -335,7 +335,7 @@ func (a *App) reconcileStackDNS(ctx context.Context, stackID int64) {
 		if h == "" || d.ContainerID == "" {
 			continue
 		}
-		ip, _ := a.docker.ContainerIP(ctx, d.ContainerID, netName)
+		ip, _ := a.engCtx(ctx).ContainerIP(ctx, d.ContainerID, netName)
 		if ip == "" {
 			continue
 		}
@@ -345,16 +345,16 @@ func (a *App) reconcileStackDNS(ctx context.Context, stackID int64) {
 
 	domain := envOr("DOMAIN", "example.net")
 	serial := dnsSerial()
-	subnet, _ := a.docker.NetworkSubnet(ctx, netName)
+	subnet, _ := a.engCtx(ctx).NetworkSubnet(ctx, netName)
 	revZone, owner, hasRev := reverseZoneInfo(subnet)
 
-	a.docker.CopyFile(ctx, intranetID, "/var/named", "dbcanvas.forward", 0o644, []byte(forwardZone(domain, serial, recs)))
+	a.engCtx(ctx).CopyFile(ctx, intranetID, "/var/named", "dbcanvas.forward", 0o644, []byte(forwardZone(domain, serial, recs)))
 	revName := ""
 	if hasRev {
 		revName = revZone
-		a.docker.CopyFile(ctx, intranetID, "/var/named", "dbcanvas.reverse", 0o644, []byte(reverseZone(domain, serial, recs, owner)))
+		a.engCtx(ctx).CopyFile(ctx, intranetID, "/var/named", "dbcanvas.reverse", 0o644, []byte(reverseZone(domain, serial, recs, owner)))
 	}
-	a.docker.CopyFile(ctx, intranetID, "/etc", "named.conf", 0o644, []byte(namedConf(domain, revName, intranetIP)))
+	a.engCtx(ctx).CopyFile(ctx, intranetID, "/etc", "named.conf", 0o644, []byte(namedConf(domain, revName, intranetIP)))
 
 	// Fix ownership and (re)load named. `rndc reconfig` loads any newly-declared
 	// zones from the rewritten named.conf; then each existing zone is reloaded by
@@ -374,5 +374,5 @@ if command -v rndc >/dev/null 2>&1; then
 else
   systemctl reload named >/dev/null 2>&1 || systemctl restart named >/dev/null 2>&1 || true
 fi`
-	a.docker.Exec(ctx, intranetID, []string{"bash", "-c", reload}, env)
+	a.engCtx(ctx).Exec(ctx, intranetID, []string{"bash", "-c", reload}, env)
 }

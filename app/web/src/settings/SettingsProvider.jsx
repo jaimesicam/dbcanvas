@@ -10,7 +10,7 @@ import { useTheme } from '../theme/ThemeProvider.jsx'
 // browser. ThemeProvider's localStorage copy stays as the pre-load/offline fallback, which is
 // what paints the login screen and avoids a flash before this fetch lands.
 
-const DEFAULTS = { terminalMode: 'docked', theme: 'dark' }
+const DEFAULTS = { terminalMode: 'docked', theme: 'dark', deploymentBackend: 'docker' }
 const SettingsCtx = createContext(null)
 
 export function SettingsProvider({ children }) {

@@ -128,7 +128,7 @@ func (a *App) listSeaweedObjects(ctx context.Context, containerID, bucket, path,
 		fmt.Sprintf("LIMIT=%d", seaweedListLimit),
 		fmt.Sprintf("PORT=%d", seaweedFilerPort),
 	}
-	res, err := a.docker.Exec(ctx, containerID, []string{"sh", "-c", seaweedListScript}, env)
+	res, err := a.engCtx(ctx).Exec(ctx, containerID, []string{"sh", "-c", seaweedListScript}, env)
 	if err != nil {
 		return nil, false, "", err
 	}

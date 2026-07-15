@@ -32,11 +32,11 @@ func (a *App) trustIntranetCA(ctx context.Context, st Stack, containerID, nodeOS
 	if isDebianOS(nodeOS) {
 		dir, refresh = "/usr/local/share/ca-certificates", "update-ca-certificates"
 	}
-	if err := a.docker.CopyFile(ctx, containerID, dir, "dbcanvas-ca.crt", 0o644, ca); err != nil {
+	if err := a.engCtx(ctx).CopyFile(ctx, containerID, dir, "dbcanvas-ca.crt", 0o644, ca); err != nil {
 		logln("trust Intranet CA skipped: " + err.Error())
 		return
 	}
-	if _, err := a.docker.ExecAs(ctx, containerID, "root", []string{"bash", "-lc", refresh + " >/dev/null 2>&1 || true"}, nil); err != nil {
+	if _, err := a.engCtx(ctx).ExecAs(ctx, containerID, "root", []string{"bash", "-lc", refresh + " >/dev/null 2>&1 || true"}, nil); err != nil {
 		logln("trust Intranet CA: refresh failed: " + err.Error())
 		return
 	}

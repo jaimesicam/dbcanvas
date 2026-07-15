@@ -252,7 +252,7 @@ func (a *App) provisionMySQLFrame(st Stack, frame designFrame, doc designDoc) {
 			pr := progs[n.ID]
 			dep, _ := a.store.GetDeployment(st.ID, n.ID)
 			// Let the unix root user run mysql without typing the password.
-			a.docker.CopyFile(ctx, dep.ContainerID, "/root", ".my.cnf", 0o600, pxcRootMyCnf(sec))
+			a.engCtx(ctx).CopyFile(ctx, dep.ContainerID, "/root", ".my.cnf", 0o600, pxcRootMyCnf(sec))
 			if frame.GenerateCert {
 				pr.phase("Issuing certificate", 90)
 				host := hosts[n.ID]
@@ -338,7 +338,7 @@ func (a *App) provisionPerconaServer(st Stack, n designNode, doc designDoc) {
 			return
 		}
 		// Let the unix root user run mysql without typing the password.
-		a.docker.CopyFile(ctx, a.containerOf(st.ID, n.ID), "/root", ".my.cnf", 0o600, pxcRootMyCnf(sec))
+		a.engCtx(ctx).CopyFile(ctx, a.containerOf(st.ID, n.ID), "/root", ".my.cnf", 0o600, pxcRootMyCnf(sec))
 		if n.GenerateCert {
 			pr.phase("Issuing certificate", 90)
 			if err := a.pxcApplyCert(ctx, a.containerOf(st.ID, n.ID), intranetID, fqdnOf(host, domain), mysqlUnit(n.OS), n.OS, n.CertTTLValue, n.CertTTLUnit, pr.logln, false); err != nil {
@@ -518,8 +518,8 @@ func (a *App) mysqlPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	}
 	pr.phase("Creating container", 15)
 	name := containerName(st.ID, n.ID)
-	if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
-		a.docker.ContainerRemove(ctx, cid)
+	if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
+		a.engCtx(ctx).ContainerRemove(ctx, cid)
 	}
 	spec := ContainerSpec{
 		Name: name, Image: image, Hostname: host, Privileged: true,
@@ -529,11 +529,11 @@ func (a *App) mysqlPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	if n.ExportEnabled {
 		spec.PublishMap = []PortMap{{ContainerPort: 3306, HostPort: n.ExportHostPort}}
 	}
-	id, err := a.docker.ContainerCreate(ctx, spec)
+	id, err := a.engCtx(ctx).ContainerCreate(ctx, spec)
 	if err != nil {
 		return pr.fail("create container: %v", err)
 	}
-	if err := a.docker.ContainerStart(ctx, id); err != nil {
+	if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 		return pr.fail("start container: %v", err)
 	}
 	a.pointResolverAtIntranet(ctx, id, intranetIP, domain)
@@ -543,7 +543,7 @@ func (a *App) mysqlPrepareNode(ctx context.Context, st Stack, frame designFrame,
 		json.Unmarshal(dep.Config, &cfg)
 	}
 	if n.ExportEnabled {
-		if hp, e := a.docker.ContainerPort(ctx, id, "3306/tcp"); e == nil {
+		if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, "3306/tcp"); e == nil {
 			if p, e2 := strconv.Atoi(hp); e2 == nil {
 				cfg.ExportPort = p
 			}
@@ -557,7 +557,7 @@ func (a *App) mysqlPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON, Secrets: secJSON})
 
 	pr.phase("Waiting for systemd", 25)
-	if err := a.docker.WaitSystemd(ctx, id, 90*time.Second); err != nil {
+	if err := a.engCtx(ctx).WaitSystemd(ctx, id, 90*time.Second); err != nil {
 		return pr.fail("systemd did not start: %v", err)
 	}
 	a.trustIntranetCA(ctx, st, id, frame.OS, pr.logln)
@@ -611,7 +611,7 @@ func (a *App) mysqlPrepareNode(ctx context.Context, st Stack, frame designFrame,
 
 	cnf := mysqlMyCnf(frame, host)
 	dir, base := pxcCnfDir(frame.OS)
-	if err := a.docker.CopyFile(ctx, id, dir, base, 0o644, []byte(cnf)); err != nil {
+	if err := a.engCtx(ctx).CopyFile(ctx, id, dir, base, 0o644, []byte(cnf)); err != nil {
 		return pr.fail("write %s: %v", pxcCnfPath(frame.OS), err)
 	}
 	if debian {

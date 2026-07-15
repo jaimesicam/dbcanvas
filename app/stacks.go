@@ -242,7 +242,7 @@ func (a *App) cleanupRemovedNodes(stackID int64, design json.RawMessage) {
 		return
 	}
 	go func() {
-		ctx := context.Background()
+		ctx := withEngine(context.Background(), a.engByStackID(stackID))
 		for _, d := range removed {
 			a.removeNodeResources(ctx, stackID, d)
 		}

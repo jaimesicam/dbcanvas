@@ -49,7 +49,7 @@ func (a *App) loadRunningNode(w http.ResponseWriter, r *http.Request) (Deploymen
 // (which Watchtower preserves) repairs it transparently.
 func (a *App) reconcileContainerID(ctx context.Context, stackID int64, nid string, dep Deployment) Deployment {
 	name := containerName(stackID, nid)
-	if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok && cid != "" && cid != dep.ContainerID {
+	if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok && cid != "" && cid != dep.ContainerID {
 		dep.ContainerID = cid
 		a.store.UpsertDeployment(Deployment{StackID: stackID, NodeID: nid, ContainerID: cid, State: dep.State, Config: dep.Config, Secrets: dep.Secrets})
 	}
@@ -59,7 +59,7 @@ func (a *App) reconcileContainerID(ctx context.Context, stackID int64, nid strin
 // execScript runs a bash script in the container and returns stdout, mapping a
 // non-zero exit to an error with the captured output.
 func (a *App) execScript(ctx context.Context, containerID, script string, env []string) (string, error) {
-	res, err := a.docker.Exec(ctx, containerID, []string{"bash", "-c", script}, env)
+	res, err := a.engCtx(ctx).Exec(ctx, containerID, []string{"bash", "-c", script}, env)
 	if err != nil {
 		return "", err
 	}

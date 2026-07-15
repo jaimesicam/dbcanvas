@@ -22,6 +22,9 @@ var embeddedFS embed.FS
 type App struct {
 	store  *Store
 	docker *Docker
+	// vagrant provisions nodes as VirtualBox VMs (the "vagrant" backend). nil
+	// when the host has no vagrant/VirtualBox; App.eng then falls back to docker.
+	vagrant *Vagrant
 	// barriers holds the per-stack replication barrier for an in-flight deploy
 	// (stackID -> *deployBarrier). See replication.go.
 	barriers sync.Map
@@ -51,6 +54,11 @@ func main() {
 	defer store.Close()
 
 	app := &App{store: store, docker: NewDocker(envOr("DOCKER_SOCK", "/var/run/docker.sock"))}
+	// The vagrant backend is optional: only usable when the host has vagrant +
+	// VirtualBox and DBCanvas runs on that host (not in the distroless container).
+	if v := NewVagrant(); v != nil {
+		app.vagrant = v
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/setup/status", app.handleStatus)

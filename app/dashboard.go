@@ -196,7 +196,7 @@ func (a *App) sampleStats(ctx context.Context) []containerStatRow {
 	if a.docker == nil {
 		return nil
 	}
-	containers, err := a.docker.ListManaged(ctx)
+	containers, err := a.engCtx(ctx).ListManaged(ctx)
 	if err != nil {
 		return dashStats.items
 	}
@@ -213,7 +213,7 @@ func (a *App) sampleStats(ctx context.Context) []containerStatRow {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			if st, err := a.docker.ContainerStats(ctx, id); err == nil {
+			if st, err := a.engCtx(ctx).ContainerStats(ctx, id); err == nil {
 				rows[i].ContainerStat = st
 			}
 		}(i, c.ID)

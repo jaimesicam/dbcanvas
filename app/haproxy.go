@@ -165,8 +165,8 @@ func (a *App) provisionHAProxy(st Stack, n designNode, doc designDoc) {
 
 		setPhase("Creating container", 25)
 		name := containerName(st.ID, n.ID)
-		if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
-			a.docker.ContainerRemove(ctx, cid)
+		if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
+			a.engCtx(ctx).ContainerRemove(ctx, cid)
 		}
 		spec := ContainerSpec{
 			Name: name, Image: image, Hostname: host, Privileged: true,
@@ -180,12 +180,12 @@ func (a *App) provisionHAProxy(st Stack, n designNode, doc designDoc) {
 				{ContainerPort: haproxyStatsPort, HostPort: 0},
 			}
 		}
-		id, err := a.docker.ContainerCreate(ctx, spec)
+		id, err := a.engCtx(ctx).ContainerCreate(ctx, spec)
 		if err != nil {
 			failNode("create container: %v", err)
 			return
 		}
-		if err := a.docker.ContainerStart(ctx, id); err != nil {
+		if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 			failNode("start container: %v", err)
 			return
 		}
@@ -195,7 +195,7 @@ func (a *App) provisionHAProxy(st Stack, n designNode, doc designDoc) {
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON})
 
 		setPhase("Waiting for systemd", 35)
-		if err := a.docker.WaitSystemd(ctx, id, 90*time.Second); err != nil {
+		if err := a.engCtx(ctx).WaitSystemd(ctx, id, 90*time.Second); err != nil {
 			failNode("systemd did not start: %v", err)
 			return
 		}
@@ -257,7 +257,7 @@ func (a *App) provisionHAProxy(st Stack, n designNode, doc designDoc) {
 		}
 
 		setPhase("Configuring HAProxy", 78)
-		if err := a.docker.CopyFile(ctx, id, "/etc/haproxy", "haproxy.cfg", 0o644, []byte(cfgFile)); err != nil {
+		if err := a.engCtx(ctx).CopyFile(ctx, id, "/etc/haproxy", "haproxy.cfg", 0o644, []byte(cfgFile)); err != nil {
 			failNode("write haproxy.cfg: %v", err)
 			return
 		}
@@ -292,7 +292,7 @@ func (a *App) readHAProxyPorts(ctx context.Context, id string, exported bool) (i
 		return 0, 0, 0
 	}
 	read := func(p int) int {
-		if hp, e := a.docker.ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", p)); e == nil {
+		if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", p)); e == nil {
 			if v, e2 := strconv.Atoi(hp); e2 == nil {
 				return v
 			}
@@ -319,7 +319,7 @@ func (a *App) haproxyRegisterPMM(ctx context.Context, st Stack, n designNode, do
 		"PMM_FQDN=" + pmmFQDN, "PMM_USER=" + pmmUser, "PMM_PASS=" + pmmPass, "PMM_URL=" + pmmServerURL(pmmFQDN, pmmUser, pmmPass),
 		"NODE=" + n.Label,
 	}
-	if _, err := a.docker.Exec(ctx, dep.ContainerID, []string{"bash", "-c", script}, env); err != nil {
+	if _, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", script}, env); err != nil {
 		logln("PMM registration skipped: " + err.Error())
 	} else {
 		logln("registered with PMM at " + pmmFQDN)

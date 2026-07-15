@@ -242,12 +242,12 @@ func (a *App) readInnoDBRouterPorts(ctx context.Context, id string, exported boo
 	if !exported {
 		return 0, 0
 	}
-	if hp, e := a.docker.ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", routerRWPort)); e == nil {
+	if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", routerRWPort)); e == nil {
 		if p, e2 := strconv.Atoi(hp); e2 == nil {
 			rw = p
 		}
 	}
-	if hp, e := a.docker.ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", routerROPort)); e == nil {
+	if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", routerROPort)); e == nil {
 		if p, e2 := strconv.Atoi(hp); e2 == nil {
 			ro = p
 		}
@@ -267,8 +267,8 @@ func (a *App) innodbPrepareNode(ctx context.Context, st Stack, frame designFrame
 	mode := innodbReplMode(frame.ReplMode)
 	pr.phase("Creating container", 12)
 	name := containerName(st.ID, n.ID)
-	if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
-		a.docker.ContainerRemove(ctx, cid)
+	if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
+		a.engCtx(ctx).ContainerRemove(ctx, cid)
 	}
 	spec := ContainerSpec{
 		Name: name, Image: image, Hostname: host, Privileged: true,
@@ -281,18 +281,18 @@ func (a *App) innodbPrepareNode(ctx context.Context, st Stack, frame designFrame
 			{ContainerPort: routerROPort, HostPort: 0},
 		}
 	}
-	id, err := a.docker.ContainerCreate(ctx, spec)
+	id, err := a.engCtx(ctx).ContainerCreate(ctx, spec)
 	if err != nil {
 		return pr.fail("create container: %v", err)
 	}
-	if err := a.docker.ContainerStart(ctx, id); err != nil {
+	if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 		return pr.fail("start container: %v", err)
 	}
 	a.pointResolverAtIntranet(ctx, id, intranetIP, domain)
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: a.depConfig(st.ID, n.ID), Secrets: a.depSecrets(st.ID, n.ID)})
 
 	pr.phase("Waiting for systemd", 22)
-	if err := a.docker.WaitSystemd(ctx, id, 90*time.Second); err != nil {
+	if err := a.engCtx(ctx).WaitSystemd(ctx, id, 90*time.Second); err != nil {
 		return pr.fail("systemd did not start: %v", err)
 	}
 	a.trustIntranetCA(ctx, st, id, frame.OS, pr.logln)
@@ -339,7 +339,7 @@ func (a *App) innodbPrepareNode(ctx context.Context, st Stack, frame designFrame
 	// (MySQL Shell configures GR itself).
 	cnf := innodbMyCnf(frame, host, domain, groupName, seedList, mode)
 	dir, base := pxcCnfDir(frame.OS)
-	if err := a.docker.CopyFile(ctx, id, dir, base, 0o644, []byte(cnf)); err != nil {
+	if err := a.engCtx(ctx).CopyFile(ctx, id, dir, base, 0o644, []byte(cnf)); err != nil {
 		return pr.fail("write %s: %v", pxcCnfPath(frame.OS), err)
 	}
 	if debian {
@@ -359,7 +359,7 @@ func (a *App) innodbPrepareNode(ctx context.Context, st Stack, frame designFrame
 	if err := a.runStep(ctx, id, innodbBaseScript, env, pr.logln); err != nil {
 		return pr.fail("base setup: %v", err)
 	}
-	a.docker.CopyFile(ctx, id, "/root", ".my.cnf", 0o600, pxcRootMyCnf(sec))
+	a.engCtx(ctx).CopyFile(ctx, id, "/root", ".my.cnf", 0o600, pxcRootMyCnf(sec))
 	return nil
 }
 

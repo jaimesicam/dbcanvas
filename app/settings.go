@@ -15,6 +15,12 @@ const (
 	TerminalUndocked = "undocked" // its own floating window
 )
 
+// deploymentBackend values: how a stack's nodes are provisioned when the user deploys.
+const (
+	BackendDocker  = "docker"  // Docker containers on the local daemon (default)
+	BackendVagrant = "vagrant" // VirtualBox VMs driven by Vagrant (see vagrant.go)
+)
+
 // themes recognised by the web UI (theme/ThemeProvider.jsx — keep in sync).
 var validThemes = map[string]bool{
 	"light": true, "dark": true, "midnight": true,
@@ -24,12 +30,13 @@ var validThemes = map[string]bool{
 // UserSettings is a user's UI preferences. Defaults apply to every field that is missing or
 // invalid, so the zero value is never served.
 type UserSettings struct {
-	TerminalMode string `json:"terminalMode"` // docked | undocked
-	Theme        string `json:"theme"`        // one of validThemes
+	TerminalMode      string `json:"terminalMode"`      // docked | undocked
+	Theme             string `json:"theme"`             // one of validThemes
+	DeploymentBackend string `json:"deploymentBackend"` // docker | vagrant
 }
 
 func defaultSettings() UserSettings {
-	return UserSettings{TerminalMode: TerminalDocked, Theme: "dark"}
+	return UserSettings{TerminalMode: TerminalDocked, Theme: "dark", DeploymentBackend: BackendDocker}
 }
 
 // normalize replaces unrecognised values with the defaults.
@@ -40,6 +47,9 @@ func (s UserSettings) normalize() UserSettings {
 	}
 	if !validThemes[s.Theme] {
 		s.Theme = def.Theme
+	}
+	if s.DeploymentBackend != BackendDocker && s.DeploymentBackend != BackendVagrant {
+		s.DeploymentBackend = def.DeploymentBackend
 	}
 	return s
 }

@@ -216,7 +216,7 @@ func (a *App) sourceBinlogPos(ctx context.Context, containerID, rootPW, major st
 	if major == "8.4" {
 		stmt = "SHOW BINARY LOG STATUS"
 	}
-	res, err := a.docker.Exec(ctx, containerID, []string{"bash", "-c", `mysql -uroot -p"$ROOT_PW" -N -e "$STMT"`}, []string{"ROOT_PW=" + rootPW, "STMT=" + stmt})
+	res, err := a.engCtx(ctx).Exec(ctx, containerID, []string{"bash", "-c", `mysql -uroot -p"$ROOT_PW" -N -e "$STMT"`}, []string{"ROOT_PW=" + rootPW, "STMT=" + stmt})
 	if err != nil {
 		return "", "", err
 	}
@@ -234,7 +234,7 @@ func (a *App) sourceBinlogPos(ctx context.Context, containerID, rootPW, major st
 // disables MySQL's batch-mode escaping (a multi-UUID set is otherwise printed with a
 // literal "\n" between UUIDs), then all whitespace is stripped to rejoin the UUIDs.
 func (a *App) sourceGTIDExecuted(ctx context.Context, containerID, rootPW string) (string, error) {
-	res, err := a.docker.Exec(ctx, containerID, []string{"bash", "-c", `mysql -uroot -p"$ROOT_PW" -N --raw -e "SELECT @@global.gtid_executed"`}, []string{"ROOT_PW=" + rootPW})
+	res, err := a.engCtx(ctx).Exec(ctx, containerID, []string{"bash", "-c", `mysql -uroot -p"$ROOT_PW" -N --raw -e "SELECT @@global.gtid_executed"`}, []string{"ROOT_PW=" + rootPW})
 	if err != nil {
 		return "", err
 	}

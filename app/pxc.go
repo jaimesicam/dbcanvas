@@ -429,8 +429,8 @@ func (a *App) pxcPrepareNode(ctx context.Context, st Stack, frame designFrame, n
 
 	pr.phase("Creating container", 15)
 	name := containerName(st.ID, n.ID)
-	if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
-		a.docker.ContainerRemove(ctx, cid)
+	if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
+		a.engCtx(ctx).ContainerRemove(ctx, cid)
 	}
 	spec := ContainerSpec{
 		Name: name, Image: image, Hostname: host, Privileged: true,
@@ -441,11 +441,11 @@ func (a *App) pxcPrepareNode(ctx context.Context, st Stack, frame designFrame, n
 	if !arbiter && n.ExportEnabled {
 		spec.PublishMap = []PortMap{{ContainerPort: 3306, HostPort: n.ExportHostPort}}
 	}
-	id, err := a.docker.ContainerCreate(ctx, spec)
+	id, err := a.engCtx(ctx).ContainerCreate(ctx, spec)
 	if err != nil {
 		return pr.fail("create container: %v", err)
 	}
-	if err := a.docker.ContainerStart(ctx, id); err != nil {
+	if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 		return pr.fail("start container: %v", err)
 	}
 	a.pointResolverAtIntranet(ctx, id, intranetIP, domain)
@@ -456,7 +456,7 @@ func (a *App) pxcPrepareNode(ctx context.Context, st Stack, frame designFrame, n
 		json.Unmarshal(dep.Config, &cfg)
 	}
 	if !arbiter && n.ExportEnabled {
-		if hp, e := a.docker.ContainerPort(ctx, id, "3306/tcp"); e == nil {
+		if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, "3306/tcp"); e == nil {
 			if p, e2 := strconv.Atoi(hp); e2 == nil {
 				cfg.ExportPort = p
 			}
@@ -467,7 +467,7 @@ func (a *App) pxcPrepareNode(ctx context.Context, st Stack, frame designFrame, n
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON, Secrets: secJSON})
 
 	pr.phase("Waiting for systemd", 25)
-	if err := a.docker.WaitSystemd(ctx, id, 90*time.Second); err != nil {
+	if err := a.engCtx(ctx).WaitSystemd(ctx, id, 90*time.Second); err != nil {
 		return pr.fail("systemd did not start: %v", err)
 	}
 	a.trustIntranetCA(ctx, st, id, frame.OS, pr.logln)
@@ -528,7 +528,7 @@ func (a *App) pxcPrepareNode(ctx context.Context, st Stack, frame designFrame, n
 	if !arbiter {
 		cnf := pxcMyCnf(frame, n, host, domain, clusterAddr)
 		dir, base := pxcCnfDir(frame.OS)
-		if err := a.docker.CopyFile(ctx, id, dir, base, 0o644, []byte(cnf)); err != nil {
+		if err := a.engCtx(ctx).CopyFile(ctx, id, dir, base, 0o644, []byte(cnf)); err != nil {
 			return pr.fail("write %s: %v", pxcCnfPath(frame.OS), err)
 		}
 		// On Debian, ensure our file is included last so it wins over the package
@@ -612,7 +612,7 @@ func (a *App) pxcBootstrap(ctx context.Context, st Stack, frame designFrame, n d
 	}
 	pr.logln("cluster bootstrapped; root/admin passwords set; app/repl/monitor/cluster users created; GTID reset")
 	// Let the unix root user run mysql without typing the password.
-	if err := a.docker.CopyFile(ctx, id, "/root", ".my.cnf", 0o600, pxcRootMyCnf(sec)); err != nil {
+	if err := a.engCtx(ctx).CopyFile(ctx, id, "/root", ".my.cnf", 0o600, pxcRootMyCnf(sec)); err != nil {
 		return pr.fail("write /root/.my.cnf: %v", err)
 	}
 	if frame.GenerateCert {
@@ -637,7 +637,7 @@ func (a *App) pxcJoin(ctx context.Context, st Stack, frame designFrame, n design
 	}
 	pr.logln("joined cluster (synced)")
 	// Root password is replicated from the donor via SST; drop the same /root/.my.cnf.
-	if err := a.docker.CopyFile(ctx, id, "/root", ".my.cnf", 0o600, pxcRootMyCnf(sec)); err != nil {
+	if err := a.engCtx(ctx).CopyFile(ctx, id, "/root", ".my.cnf", 0o600, pxcRootMyCnf(sec)); err != nil {
 		return pr.fail("write /root/.my.cnf: %v", err)
 	}
 	if frame.GenerateCert {
@@ -685,7 +685,7 @@ func (a *App) pxcApplyCert(ctx context.Context, containerID, intranetID, fqdn, u
 		return fmt.Errorf("read CA key: %w", err)
 	}
 	// In the systemd PXC images exec runs as root, so 0644 staging is fine.
-	if err := a.docker.PutArchive(ctx, containerID, "/tmp", tarFiles(map[string]fileEntry{
+	if err := a.engCtx(ctx).PutArchive(ctx, containerID, "/tmp", tarFiles(map[string]fileEntry{
 		"dbca-ca.crt": {0o644, 0, caCrt},
 		"dbca-ca.key": {0o644, 0, caKey},
 	})); err != nil {
@@ -760,7 +760,7 @@ func (a *App) pxcPMMExec(ctx context.Context, containerID, os string, env []stri
 	if isDebianOS(os) {
 		script = pxcPMMDebian
 	}
-	_, err := a.docker.Exec(ctx, containerID, []string{"bash", "-c", script}, env)
+	_, err := a.engCtx(ctx).Exec(ctx, containerID, []string{"bash", "-c", script}, env)
 	return err
 }
 

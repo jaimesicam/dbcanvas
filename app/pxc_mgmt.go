@@ -142,7 +142,7 @@ func (a *App) handlePXCFrameMonitor(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			// Best-effort deregister; ignore errors so an unreachable agent doesn't block.
-			a.docker.Exec(ctx, dep.ContainerID, []string{"bash", "-c", pxcPMMRemoveScript}, []string{"NODE=" + n.Label})
+			a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", pxcPMMRemoveScript}, []string{"NODE=" + n.Label})
 		}
 		var cfg pxcConfig
 		json.Unmarshal(dep.Config, &cfg)

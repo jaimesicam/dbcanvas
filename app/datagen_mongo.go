@@ -67,10 +67,10 @@ const mongoConnectTimeout = 15 * time.Second
 // The returned closer disconnects the client; callers must always invoke it.
 func (a *App) mongoClientFor(ctx context.Context, c dbConn) (*mongo.Client, func(), error) {
 	netName := networkName(c.StackID)
-	if err := a.docker.NetworkConnect(ctx, netName, qrAppContainerID()); err != nil {
+	if err := a.engCtx(ctx).NetworkConnect(ctx, netName, qrAppContainerID()); err != nil {
 		return nil, nil, fmt.Errorf("join stack network: %v", err)
 	}
-	ip, err := a.docker.ContainerIP(ctx, c.ContainerID, netName)
+	ip, err := a.engCtx(ctx).ContainerIP(ctx, c.ContainerID, netName)
 	if err != nil || ip == "" {
 		return nil, nil, fmt.Errorf("could not resolve node address on the stack network")
 	}

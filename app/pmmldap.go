@@ -56,7 +56,7 @@ group_dn = "*"
 org_role = "Editor"
 `, dir.FQDN, dir.BindDN, dir.BindPW, dir.UserAttr, dir.BaseDN, dir.UserAttr)
 
-	if err := a.docker.CopyFile(ctx, containerID, "/etc/grafana", "ldap.toml", 0o644, []byte(toml)); err != nil {
+	if err := a.engCtx(ctx).CopyFile(ctx, containerID, "/etc/grafana", "ldap.toml", 0o644, []byte(toml)); err != nil {
 		return fmt.Errorf("write ldap.toml: %w", err)
 	}
 	if err := a.runStep(ctx, containerID, pmmLDAPScript, nil, logln); err != nil {

@@ -173,7 +173,7 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 
 		setPhase("Pulling image", 5)
 		logln("ensuring " + ref + " for " + platformAMD64 + " (this can take a while)")
-		if err := a.docker.EnsureImage(ctx, repo, tag, platformAMD64); err != nil {
+		if err := a.engCtx(ctx).EnsureImage(ctx, repo, tag, platformAMD64); err != nil {
 			failNode("pull image %s: %v", ref, err)
 			return
 		}
@@ -205,18 +205,18 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 
 		setPhase("Creating container", 20)
 		name := containerName(st.ID, n.ID)
-		if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
-			a.docker.ContainerRemove(ctx, cid)
+		if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
+			a.engCtx(ctx).ContainerRemove(ctx, cid)
 		}
 		// Persist /srv (Grafana DB, VictoriaMetrics, ClickHouse, etc.) in a stable named
 		// volume so a PMM server upgrade (in-GUI/Watchtower recreate) keeps all data —
 		// otherwise the recreated container starts empty and you get "session closed" on
 		// login (the Grafana DB / signing key are gone).
 		srvVol := pmmDataVolume(st.ID, n.ID)
-		if err := a.docker.VolumeCreate(ctx, srvVol); err != nil {
+		if err := a.engCtx(ctx).VolumeCreate(ctx, srvVol); err != nil {
 			logln("warning: could not create PMM data volume: " + err.Error())
 		}
-		id, err := a.docker.ContainerCreate(ctx, ContainerSpec{
+		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
 			Name: name, Image: ref, Hostname: host, Platform: platformAMD64,
 			Env:     wtEnv,
 			Network: networkName(st.ID), Aliases: []string{host},
@@ -228,7 +228,7 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 			failNode("create container: %v", err)
 			return
 		}
-		if err := a.docker.ContainerStart(ctx, id); err != nil {
+		if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 			failNode("start container: %v", err)
 			return
 		}
@@ -237,12 +237,12 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 		a.pointResolverAtIntranet(ctx, id, intranetIP, domain)
 
 		// Record the published host ports for the access URLs.
-		if hp, e := a.docker.ContainerPort(ctx, id, "8080/tcp"); e == nil {
+		if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, "8080/tcp"); e == nil {
 			if p, e2 := strconv.Atoi(hp); e2 == nil {
 				cfg.HTTPPort = p
 			}
 		}
-		if hp, e := a.docker.ContainerPort(ctx, id, "8443/tcp"); e == nil {
+		if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, "8443/tcp"); e == nil {
 			if p, e2 := strconv.Atoi(hp); e2 == nil {
 				cfg.HTTPSPort = p
 			}
@@ -320,7 +320,7 @@ func (a *App) runStep(ctx context.Context, id, script string, env []string, logl
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		res, err := a.docker.Exec(ctx, id, []string{"bash", "-c", script}, env)
+		res, err := a.engCtx(ctx).Exec(ctx, id, []string{"bash", "-c", script}, env)
 		if err == nil && res.Code == 0 {
 			return nil
 		}
@@ -344,7 +344,7 @@ func (a *App) waitPMMReady(ctx context.Context, id string, timeout time.Duration
 	deadline := time.Now().Add(timeout)
 	script := `curl -fsS -o /dev/null -w '%{http_code}' http://localhost:8080/v1/server/readyz 2>/dev/null`
 	for time.Now().Before(deadline) {
-		res, err := a.docker.Exec(ctx, id, []string{"bash", "-c", script}, nil)
+		res, err := a.engCtx(ctx).Exec(ctx, id, []string{"bash", "-c", script}, nil)
 		if err == nil && strings.TrimSpace(res.Stdout) == "200" {
 			return nil
 		}
@@ -381,7 +381,7 @@ func (a *App) waitIntranet(ctx context.Context, stackID int64, doc designDoc, ti
 				return "", "", fmt.Errorf("Intranet failed to provision — cannot start dependent nodes")
 			}
 			if dep.State == DeployRunning && dep.ContainerID != "" {
-				if ip, e := a.docker.ContainerIP(ctx, dep.ContainerID, netName); e == nil && ip != "" {
+				if ip, e := a.engCtx(ctx).ContainerIP(ctx, dep.ContainerID, netName); e == nil && ip != "" {
 					return dep.ContainerID, ip, nil
 				}
 			}
@@ -400,7 +400,7 @@ func (a *App) waitIntranet(ctx context.Context, stackID int64, doc designDoc, ti
 func (a *App) waitIntranetCAReady(ctx context.Context, intranetID string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		res, e := a.docker.Exec(ctx, intranetID, []string{"bash", "-c", `test -f /etc/pki/dbcanvas/ca.crt && test -f /etc/pki/dbcanvas/ca.key && echo ok`}, nil)
+		res, e := a.engCtx(ctx).Exec(ctx, intranetID, []string{"bash", "-c", `test -f /etc/pki/dbcanvas/ca.crt && test -f /etc/pki/dbcanvas/ca.key && echo ok`}, nil)
 		if e == nil && strings.TrimSpace(res.Stdout) == "ok" {
 			return nil
 		}
@@ -427,7 +427,7 @@ func (a *App) pmmGenerateCert(ctx context.Context, pmmID, intranetID, domain, al
 	// (UID 1000) that the in-container openssl runs as — so it can read the CA
 	// key and later delete the files from sticky /tmp. (Docker's archive extract
 	// honours the tar uid/gid even though the daemon itself is root.)
-	if err := a.docker.PutArchive(ctx, pmmID, "/tmp", tarFiles(map[string]fileEntry{
+	if err := a.engCtx(ctx).PutArchive(ctx, pmmID, "/tmp", tarFiles(map[string]fileEntry{
 		"dbca-ca.crt": {0600, pmmUID, caCrt},
 		"dbca-ca.key": {0600, pmmUID, caKey},
 	})); err != nil {
@@ -439,7 +439,7 @@ func (a *App) pmmGenerateCert(ctx context.Context, pmmID, intranetID, domain, al
 		"DOMAIN=" + domain,
 		"ALIAS=" + alias,
 	}
-	res, err := a.docker.Exec(ctx, pmmID, []string{"bash", "-c", pmmCertScript}, env)
+	res, err := a.engCtx(ctx).Exec(ctx, pmmID, []string{"bash", "-c", pmmCertScript}, env)
 	if err != nil {
 		return "", err
 	}
@@ -456,7 +456,7 @@ func (a *App) pmmGenerateCert(ctx context.Context, pmmID, intranetID, domain, al
 // readContainerFile returns the bytes of a file inside a container (base64 over
 // the exec channel, so binary-safe).
 func (a *App) readContainerFile(ctx context.Context, id, path string) ([]byte, error) {
-	res, err := a.docker.Exec(ctx, id, []string{"bash", "-c", "base64 -w0 " + path}, nil)
+	res, err := a.engCtx(ctx).Exec(ctx, id, []string{"bash", "-c", "base64 -w0 " + path}, nil)
 	if err != nil {
 		return nil, err
 	}

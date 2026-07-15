@@ -90,7 +90,7 @@ func (a *App) provisionWatchtower(st Stack, n designNode, doc designDoc) {
 
 		pr.phase("Pulling image", 10)
 		pr.logln("ensuring " + watchtowerImage + " for " + platformAMD64)
-		if err := a.docker.EnsureImage(ctx, "percona/watchtower", "latest", platformAMD64); err != nil {
+		if err := a.engCtx(ctx).EnsureImage(ctx, "percona/watchtower", "latest", platformAMD64); err != nil {
 			pr.fail("pull image: %v", err)
 			return
 		}
@@ -104,14 +104,14 @@ func (a *App) provisionWatchtower(st Stack, n designNode, doc designDoc) {
 
 		pr.phase("Creating container", 55)
 		name := containerName(st.ID, n.ID)
-		if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
-			a.docker.ContainerRemove(ctx, cid)
+		if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
+			a.engCtx(ctx).ContainerRemove(ctx, cid)
 		}
 		aliases := []string{host}
 		if host != "watchtower" {
 			aliases = append(aliases, "watchtower")
 		}
-		id, err := a.docker.ContainerCreate(ctx, ContainerSpec{
+		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
 			Name: name, Image: watchtowerImage, Hostname: host, Platform: platformAMD64,
 			Env: []string{
 				"WATCHTOWER_HTTP_API_TOKEN=" + token,
@@ -125,7 +125,7 @@ func (a *App) provisionWatchtower(st Stack, n designNode, doc designDoc) {
 			pr.fail("create container: %v", err)
 			return
 		}
-		if err := a.docker.ContainerStart(ctx, id); err != nil {
+		if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 			pr.fail("start container: %v", err)
 			return
 		}

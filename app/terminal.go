@@ -29,7 +29,7 @@ func (a *App) handleNodeTerminal(w http.ResponseWriter, r *http.Request) {
 	defer c.CloseNow()
 	c.SetReadLimit(1 << 20)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(withEngine(context.Background(), a.engByStackID(dep.StackID)))
 	defer cancel()
 
 	// Prefer bash, but fall back to sh for minimal images (e.g. the alpine-based
@@ -40,7 +40,7 @@ func (a *App) handleNodeTerminal(w http.ResponseWriter, r *http.Request) {
 	// Optional ?user=<uid|name> override (e.g. user=0 for a root console on images
 	// whose default exec user is unprivileged, like the PMM server which runs as pmm).
 	user := r.URL.Query().Get("user")
-	stream, err := a.docker.HijackExec(ctx, dep.ContainerID,
+	stream, err := a.engCtx(ctx).HijackExec(ctx, dep.ContainerID,
 		[]string{"/bin/sh", "-c", "if command -v bash >/dev/null 2>&1; then exec bash -i; else exec /bin/sh -i; fi"},
 		[]string{"TERM=xterm-256color"}, user)
 	if err != nil {
@@ -78,7 +78,7 @@ func (a *App) handleNodeTerminal(w http.ResponseWriter, r *http.Request) {
 				Cols, Rows int
 			}
 			if json.Unmarshal(data, &msg) == nil && msg.Type == "resize" {
-				a.docker.ResizeExec(ctx, stream.ExecID, msg.Cols, msg.Rows)
+				a.engCtx(ctx).ResizeExec(ctx, stream.ExecID, msg.Cols, msg.Rows)
 				continue
 			}
 		}

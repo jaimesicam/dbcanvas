@@ -102,11 +102,11 @@ func (a *App) queryJSON(ctx context.Context, c dbConn, db, sql string, out any) 
 	var res ExecResult
 	var err error
 	if c.Engine == "mysql" {
-		res, err = a.docker.ExecInput(ctx, c.ContainerID, "",
+		res, err = a.engCtx(ctx).ExecInput(ctx, c.ContainerID, "",
 			[]string{"mysql", "-u", c.Super, "-N", "--raw", "-B"},
 			[]string{"MYSQL_PWD=" + c.Password}, []byte(sql))
 	} else {
-		res, err = a.docker.ExecAs(ctx, c.ContainerID, "postgres",
+		res, err = a.engCtx(ctx).ExecAs(ctx, c.ContainerID, "postgres",
 			[]string{"psql", "-U", c.Super, "-d", db, "-tAqc", sql}, nil)
 	}
 	if err != nil {
@@ -128,11 +128,11 @@ func (a *App) execSQL(ctx context.Context, c dbConn, db, sql string) error {
 	var res ExecResult
 	var err error
 	if c.Engine == "mysql" {
-		res, err = a.docker.ExecInput(ctx, c.ContainerID, "",
+		res, err = a.engCtx(ctx).ExecInput(ctx, c.ContainerID, "",
 			[]string{"mysql", "-u", c.Super, "-D", db},
 			[]string{"MYSQL_PWD=" + c.Password}, []byte(sql))
 	} else {
-		res, err = a.docker.ExecInput(ctx, c.ContainerID, "postgres",
+		res, err = a.engCtx(ctx).ExecInput(ctx, c.ContainerID, "postgres",
 			[]string{"psql", "-v", "ON_ERROR_STOP=1", "-U", c.Super, "-d", db, "-q", "-f", "-"}, nil, []byte(sql))
 	}
 	if err != nil {

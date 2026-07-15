@@ -102,7 +102,7 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 
 		pr.phase("Pulling image", 10)
 		pr.logln("ensuring " + keycloakImage + " for " + pullPlatform())
-		if err := a.docker.EnsureImage(ctx, keycloakImageRepo, keycloakImageTag, pullPlatform()); err != nil {
+		if err := a.engCtx(ctx).EnsureImage(ctx, keycloakImageRepo, keycloakImageTag, pullPlatform()); err != nil {
 			pr.fail("pull image: %v", err)
 			return
 		}
@@ -139,8 +139,8 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 
 		pr.phase("Creating container", 55)
 		name := containerName(st.ID, n.ID)
-		if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
-			a.docker.ContainerRemove(ctx, cid)
+		if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
+			a.engCtx(ctx).ContainerRemove(ctx, cid)
 		}
 		aliases := []string{host}
 		if host != "keycloak" {
@@ -157,7 +157,7 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 				fmt.Sprintf("--hostname=https://%s:%d", fqdn, keycloakHTTPSPort),
 			}
 		}
-		id, err := a.docker.ContainerCreate(ctx, ContainerSpec{
+		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
 			Name: name, Image: keycloakImage, Hostname: host, Platform: pullPlatform(),
 			Cmd: cmd,
 			Env: []string{
@@ -176,16 +176,16 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 		}
 		// Stage the cert into the created (not-yet-started) container before launch.
 		if n.GenerateCert {
-			if err := a.docker.CopyFile(ctx, id, "/opt/keycloak/conf", "tls.crt", 0o644, tlsCert); err != nil {
+			if err := a.engCtx(ctx).CopyFile(ctx, id, "/opt/keycloak/conf", "tls.crt", 0o644, tlsCert); err != nil {
 				pr.fail("copy tls cert: %v", err)
 				return
 			}
-			if err := a.docker.CopyFile(ctx, id, "/opt/keycloak/conf", "tls.key", 0o644, tlsKey); err != nil {
+			if err := a.engCtx(ctx).CopyFile(ctx, id, "/opt/keycloak/conf", "tls.key", 0o644, tlsKey); err != nil {
 				pr.fail("copy tls key: %v", err)
 				return
 			}
 		}
-		if err := a.docker.ContainerStart(ctx, id); err != nil {
+		if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 			pr.fail("start container: %v", err)
 			return
 		}

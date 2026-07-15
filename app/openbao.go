@@ -416,10 +416,10 @@ func (a *App) provisionOpenBao(st Stack, n designNode, doc designDoc) {
 
 		pr.phase("Creating container", 18)
 		name := containerName(st.ID, n.ID)
-		if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
-			a.docker.ContainerRemove(ctx, cid)
+		if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
+			a.engCtx(ctx).ContainerRemove(ctx, cid)
 		}
-		id, err := a.docker.ContainerCreate(ctx, ContainerSpec{
+		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
 			Name: name, Image: image, Hostname: host, Privileged: true,
 			Network: networkName(st.ID), Aliases: []string{host},
 			DNS: []string{intranetIP}, DNSSearch: []string{domain},
@@ -428,7 +428,7 @@ func (a *App) provisionOpenBao(st Stack, n designNode, doc designDoc) {
 			pr.fail("create container: %v", err)
 			return
 		}
-		if err := a.docker.ContainerStart(ctx, id); err != nil {
+		if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 			pr.fail("start container: %v", err)
 			return
 		}
@@ -436,7 +436,7 @@ func (a *App) provisionOpenBao(st Stack, n designNode, doc designDoc) {
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON, Secrets: secJSON})
 
 		pr.phase("Waiting for systemd", 25)
-		if err := a.docker.WaitSystemd(ctx, id, 90*time.Second); err != nil {
+		if err := a.engCtx(ctx).WaitSystemd(ctx, id, 90*time.Second); err != nil {
 			pr.fail("systemd did not start: %v", err)
 			return
 		}
@@ -473,18 +473,18 @@ func (a *App) provisionOpenBao(st Stack, n designNode, doc designDoc) {
 				{"server.key", 0o640, tlsKey},
 				{"ca.crt", 0o644, caCrt},
 			} {
-				if err := a.docker.CopyFile(ctx, id, openbaoTLSDir, f.name, f.mode, f.data); err != nil {
+				if err := a.engCtx(ctx).CopyFile(ctx, id, openbaoTLSDir, f.name, f.mode, f.data); err != nil {
 					pr.fail("write %s: %v", f.name, err)
 					return
 				}
 			}
 			pr.logln("TLS material in " + openbaoTLSDir + " (Intranet CA)")
 		}
-		if err := a.docker.CopyFile(ctx, id, openbaoConfDir, "openbao.hcl", 0o640, []byte(openbaoHCL(fqdn, tls))); err != nil {
+		if err := a.engCtx(ctx).CopyFile(ctx, id, openbaoConfDir, "openbao.hcl", 0o640, []byte(openbaoHCL(fqdn, tls))); err != nil {
 			pr.fail("write openbao.hcl: %v", err)
 			return
 		}
-		if err := a.docker.CopyFile(ctx, id, "/etc/profile.d", "openbao.sh", 0o644, []byte(openbaoProfile(addr, tls))); err != nil {
+		if err := a.engCtx(ctx).CopyFile(ctx, id, "/etc/profile.d", "openbao.sh", 0o644, []byte(openbaoProfile(addr, tls))); err != nil {
 			pr.fail("write openbao.sh: %v", err)
 			return
 		}
@@ -496,7 +496,7 @@ func (a *App) provisionOpenBao(st Stack, n designNode, doc designDoc) {
 		// The Percona policies, one file per KV mount, kept next to the server config.
 		for _, m := range openbaoMounts {
 			f := fmt.Sprintf("policy-%s.hcl", m.Path)
-			if err := a.docker.CopyFile(ctx, id, openbaoConfDir, f, 0o644, []byte(openbaoPolicy(m.Path, m.KV, m.Engine))); err != nil {
+			if err := a.engCtx(ctx).CopyFile(ctx, id, openbaoConfDir, f, 0o644, []byte(openbaoPolicy(m.Path, m.KV, m.Engine))); err != nil {
 				pr.fail("write %s: %v", f, err)
 				return
 			}

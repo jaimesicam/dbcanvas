@@ -205,7 +205,7 @@ func (a *App) provisionSeaweedFS(st Stack, n designNode, doc designDoc) {
 
 		setPhase("Pulling image", 5)
 		logln("ensuring " + ref + " for " + pullPlatform() + " (this can take a while)")
-		if err := a.docker.EnsureImage(ctx, seaweedRepo, seaweedDefaultTag, pullPlatform()); err != nil {
+		if err := a.engCtx(ctx).EnsureImage(ctx, seaweedRepo, seaweedDefaultTag, pullPlatform()); err != nil {
 			failNode("pull image %s: %v", ref, err)
 			return
 		}
@@ -259,14 +259,14 @@ func (a *App) provisionSeaweedFS(st Stack, n designNode, doc designDoc) {
 
 		setPhase("Creating container", 25)
 		name := containerName(st.ID, n.ID)
-		if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
-			a.docker.ContainerRemove(ctx, cid)
+		if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
+			a.engCtx(ctx).ContainerRemove(ctx, cid)
 		}
 		cmd := []string{"server", "-dir=/data", "-s3", "-s3.config=/etc/seaweedfs/s3.json"}
 		if n.TLS {
 			cmd = append(cmd, "-s3.cert.file="+seaweedTLSCert, "-s3.key.file="+seaweedTLSKey)
 		}
-		id, err := a.docker.ContainerCreate(ctx, ContainerSpec{
+		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
 			Name: name, Image: ref, Hostname: host, Platform: pullPlatform(),
 			Cmd:     cmd,
 			Network: networkName(st.ID), Aliases: []string{host},
@@ -281,25 +281,25 @@ func (a *App) provisionSeaweedFS(st Stack, n designNode, doc designDoc) {
 		// Stage the S3 identity config into the (not-yet-started) container so
 		// `weed server -s3.config=…` reads it on startup.
 		s3cfg := seaweedS3ConfigJSON(ak, sec.SecretKey)
-		if err := a.docker.PutArchive(ctx, id, "/etc", seaweedTar("seaweedfs/s3.json", s3cfg)); err != nil {
+		if err := a.engCtx(ctx).PutArchive(ctx, id, "/etc", seaweedTar("seaweedfs/s3.json", s3cfg)); err != nil {
 			failNode("stage s3 config: %v", err)
 			return
 		}
 		// Stage the TLS cert+key (world-readable: weed runs as a non-root user).
 		if n.TLS {
-			if err := a.docker.PutArchive(ctx, id, "/etc", seaweedTLSTar(tlsCert, tlsKey)); err != nil {
+			if err := a.engCtx(ctx).PutArchive(ctx, id, "/etc", seaweedTLSTar(tlsCert, tlsKey)); err != nil {
 				failNode("stage TLS certificate: %v", err)
 				return
 			}
 		}
 
-		if err := a.docker.ContainerStart(ctx, id); err != nil {
+		if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 			failNode("start container: %v", err)
 			return
 		}
 
 		// Record the published host port for the web-interface URL.
-		if hp, e := a.docker.ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", seaweedWebPort)); e == nil {
+		if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", seaweedWebPort)); e == nil {
 			if p, e2 := strconv.Atoi(hp); e2 == nil {
 				cfg.WebPort = p
 			}
@@ -336,7 +336,7 @@ func (a *App) provisionSeaweedFS(st Stack, n designNode, doc designDoc) {
 func (a *App) runShStep(ctx context.Context, id, script string, env []string, logln func(string)) error {
 	var lastErr string
 	for attempt := 1; attempt <= 10; attempt++ {
-		res, err := a.docker.Exec(ctx, id, []string{"sh", "-c", script}, env)
+		res, err := a.engCtx(ctx).Exec(ctx, id, []string{"sh", "-c", script}, env)
 		if err == nil && res.Code == 0 {
 			return nil
 		}

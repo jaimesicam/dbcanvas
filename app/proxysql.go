@@ -374,8 +374,8 @@ func (a *App) proxysqlPrepareMember(ctx context.Context, st Stack, frame designF
 	}
 	pr.phase("Creating container", 30)
 	name := containerName(st.ID, n.ID)
-	if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
-		a.docker.ContainerRemove(ctx, cid)
+	if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
+		a.engCtx(ctx).ContainerRemove(ctx, cid)
 	}
 	spec := ContainerSpec{
 		Name: name, Image: image, Hostname: host, Privileged: true,
@@ -388,11 +388,11 @@ func (a *App) proxysqlPrepareMember(ctx context.Context, st Stack, frame designF
 			{ContainerPort: proxysqlAdminPort, HostPort: 0},
 		}
 	}
-	id, err := a.docker.ContainerCreate(ctx, spec)
+	id, err := a.engCtx(ctx).ContainerCreate(ctx, spec)
 	if err != nil {
 		return pr.fail("create container: %v", err)
 	}
-	if err := a.docker.ContainerStart(ctx, id); err != nil {
+	if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 		return pr.fail("start container: %v", err)
 	}
 	a.pointResolverAtIntranet(ctx, id, intranetIP, domain)
@@ -420,7 +420,7 @@ func (a *App) proxysqlPrepareMember(ctx context.Context, st Stack, frame designF
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON, Secrets: secJSON})
 
 	pr.phase("Waiting for systemd", 40)
-	if err := a.docker.WaitSystemd(ctx, id, 90*time.Second); err != nil {
+	if err := a.engCtx(ctx).WaitSystemd(ctx, id, 90*time.Second); err != nil {
 		return pr.fail("systemd did not start: %v", err)
 	}
 	a.trustIntranetCA(ctx, st, id, frame.OS, pr.logln)
@@ -571,8 +571,8 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 
 		setPhase("Creating container", 25)
 		name := containerName(st.ID, p.NodeID)
-		if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
-			a.docker.ContainerRemove(ctx, cid)
+		if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
+			a.engCtx(ctx).ContainerRemove(ctx, cid)
 		}
 		spec := ContainerSpec{
 			Name: name, Image: image, Hostname: host, Privileged: true,
@@ -585,12 +585,12 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 				{ContainerPort: proxysqlAdminPort, HostPort: 0},
 			}
 		}
-		id, err := a.docker.ContainerCreate(ctx, spec)
+		id, err := a.engCtx(ctx).ContainerCreate(ctx, spec)
 		if err != nil {
 			failNode("create container: %v", err)
 			return
 		}
-		if err := a.docker.ContainerStart(ctx, id); err != nil {
+		if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 			failNode("start container: %v", err)
 			return
 		}
@@ -600,7 +600,7 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: p.NodeID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON, Secrets: secJSON})
 
 		setPhase("Waiting for systemd", 35)
-		if err := a.docker.WaitSystemd(ctx, id, 90*time.Second); err != nil {
+		if err := a.engCtx(ctx).WaitSystemd(ctx, id, 90*time.Second); err != nil {
 			failNode("systemd did not start: %v", err)
 			return
 		}
@@ -742,12 +742,12 @@ func (a *App) readProxySQLPorts(ctx context.Context, id string, exported bool) (
 	if !exported {
 		return 0, 0
 	}
-	if hp, e := a.docker.ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", proxysqlAdminPort)); e == nil {
+	if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", proxysqlAdminPort)); e == nil {
 		if p, e2 := strconv.Atoi(hp); e2 == nil {
 			adminPort = p
 		}
 	}
-	if hp, e := a.docker.ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", proxysqlMySQLPort)); e == nil {
+	if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", proxysqlMySQLPort)); e == nil {
 		if p, e2 := strconv.Atoi(hp); e2 == nil {
 			mysqlPort = p
 		}
@@ -820,7 +820,7 @@ func (a *App) proxysqlRegisterPMM(ctx context.Context, st Stack, nodeID, os stri
 	if isDebianOS(os) {
 		script = proxysqlPMMDebian
 	}
-	if _, err := a.docker.Exec(ctx, dep.ContainerID, []string{"bash", "-c", script}, env); err != nil {
+	if _, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", script}, env); err != nil {
 		logln("PMM registration skipped: " + err.Error())
 	} else {
 		logln("registered with PMM at " + pmmFQDN)

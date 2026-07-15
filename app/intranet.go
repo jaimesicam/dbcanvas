@@ -419,7 +419,7 @@ func (a *App) ensureRsyslog(ctx context.Context, id, os string, logln func(strin
 	if isDebianOS(os) {
 		s = rsyslogScriptDebian
 	}
-	if _, err := a.docker.Exec(ctx, id, []string{"bash", "-c", s}, nil); err != nil {
+	if _, err := a.engCtx(ctx).Exec(ctx, id, []string{"bash", "-c", s}, nil); err != nil {
 		logln("rsyslog setup skipped: " + err.Error())
 	} else {
 		logln("rsyslog installed + enabled")
@@ -437,7 +437,7 @@ func (a *App) ensureDNFIPv4(ctx context.Context, id, os string, logln func(strin
 	if isDebianOS(os) {
 		return
 	}
-	if _, err := a.docker.Exec(ctx, id, []string{"bash", "-c", dnfIPv4Script}, nil); err != nil {
+	if _, err := a.engCtx(ctx).Exec(ctx, id, []string{"bash", "-c", dnfIPv4Script}, nil); err != nil {
 		logln("ip_resolve=4 setup skipped: " + err.Error())
 	} else {
 		logln("dnf ip_resolve=4 set")
@@ -472,7 +472,7 @@ func intranetImage(arch string) string {
 
 func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	var out []issue
-	if err := a.docker.Ping(ctx); err != nil {
+	if err := a.engCtx(ctx).Ping(ctx); err != nil {
 		return append(out, issue{"error", "Docker is not reachable: " + err.Error()})
 	}
 	if osEnv := envOr("DOMAIN", ""); osEnv == "" {
@@ -524,7 +524,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			img := intranetImage(n.Arch)
 			if !seenImg[img] {
 				seenImg[img] = true
-				if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
 					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
 				}
 			}
@@ -556,7 +556,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			img := pxcImage(n.OS, n.OSVersion, n.Arch)
 			if !seenImg[img] {
 				seenImg[img] = true
-				if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
 					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
 				}
 			}
@@ -566,7 +566,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			img := pxcImage("ubuntu", "24.04", n.Arch)
 			if !seenImg[img] {
 				seenImg[img] = true
-				if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
 					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
 				}
 			}
@@ -576,7 +576,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			img := pxcImage(n.OS, n.OSVersion, n.Arch)
 			if !seenImg[img] {
 				seenImg[img] = true
-				if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
 					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
 				}
 			}
@@ -593,7 +593,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			img := pxcImage(n.OS, n.OSVersion, n.Arch)
 			if !seenImg[img] {
 				seenImg[img] = true
-				if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
 					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
 				}
 			}
@@ -608,7 +608,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			img := pxcImage(n.OS, n.OSVersion, n.Arch)
 			if !seenImg[img] {
 				seenImg[img] = true
-				if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
 					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
 				}
 			}
@@ -625,7 +625,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			img := pxcImage(n.OS, n.OSVersion, n.Arch)
 			if !seenImg[img] {
 				seenImg[img] = true
-				if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
 					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
 				}
 			}
@@ -657,7 +657,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			img := pxcImage(n.OS, n.OSVersion, n.Arch)
 			if !seenImg[img] {
 				seenImg[img] = true
-				if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
 					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
 				}
 			}
@@ -773,7 +773,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {
 			seenImg[img] = true
-			if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
 				out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
 			}
 		}
@@ -817,7 +817,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {
 			seenImg[img] = true
-			if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
 				out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
 			}
 		}
@@ -855,7 +855,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {
 			seenImg[img] = true
-			if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
 				out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
 			}
 		}
@@ -971,7 +971,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {
 			seenImg[img] = true
-			if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
 				out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
 			}
 		}
@@ -1011,7 +1011,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {
 			seenImg[img] = true
-			if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
 				out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
 			}
 		}
@@ -1056,7 +1056,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {
 			seenImg[img] = true
-			if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
 				out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
 			}
 		}
@@ -1100,7 +1100,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {
 			seenImg[img] = true
-			if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
 				out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
 			}
 		}
@@ -1138,7 +1138,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {
 			seenImg[img] = true
-			if ok, _ := a.docker.ImageExists(ctx, img); !ok {
+			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
 				out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
 			}
 		}
@@ -1189,7 +1189,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	// published by other containers (the stack's own containers are excluded so a
 	// redeploy doesn't flag itself).
 	if len(exportReq) > 0 {
-		usedPorts, _ = a.docker.ListPublishedPorts(ctx)
+		usedPorts, _ = a.engCtx(ctx).ListPublishedPorts(ctx)
 		selfPrefix := fmt.Sprintf("dbcanvas-%d-", st.ID)
 		for port, who := range exportReq {
 			if len(who) > 1 {
@@ -1219,7 +1219,7 @@ func (a *App) handleValidateStack(w http.ResponseWriter, r *http.Request) {
 // --- deploy ---
 
 func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
-	st, _, ok := a.loadOwnedStack(w, r)
+	st, u, ok := a.loadOwnedStack(w, r)
 	if !ok {
 		return
 	}
@@ -1233,6 +1233,36 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 	var doc designDoc
 	json.Unmarshal(st.Design, &doc)
 
+	// Pick the provisioning backend on the first deploy — from the deploying user's
+	// setting — and pin it to the stack for its whole life, so redeploys, management
+	// and teardown never switch engines under it. A vagrant request on a host with no
+	// vagrant/VirtualBox falls back to docker.
+	if st.Backend == "" {
+		backend := a.userBackend(u)
+		if backend == BackendVagrant && a.vagrant == nil {
+			backend = BackendDocker
+		}
+		if err := a.store.SetStackBackend(st.ID, backend); err != nil {
+			writeErr(w, http.StatusInternalServerError, "failed to record backend: "+err.Error())
+			return
+		}
+		st.Backend = backend
+	}
+	// Every stack-scoped background op below (network, node teardown, DNS reconcile)
+	// must run on the stack's engine, so carry it on bg.
+	bg = withEngine(bg, a.eng(st))
+
+	// The vagrant backend provisions only OS/DB nodes (and the Intranet) as VMs;
+	// Docker-image infra nodes and K3D have no box equivalent. Reject a stack that
+	// includes them rather than silently skipping.
+	if st.Backend == BackendVagrant {
+		if bad := vagrantUnsupportedTypes(doc); len(bad) > 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false,
+				"error": "the Vagrant backend cannot provision these node types: " + strings.Join(bad, ", ")})
+			return
+		}
+	}
+
 	// One deploy at a time per stack: a second one would race a duplicate set of
 	// provisioners onto the same nodes. Provisioners run on this run's context so
 	// a destroy can cancel them.
@@ -1242,7 +1272,7 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.docker.NetworkEnsure(bg, networkName(st.ID)); err != nil {
+	if err := a.eng(st).NetworkEnsure(bg, networkName(st.ID)); err != nil {
 		a.abortDeploy(st.ID, run)
 		writeErr(w, http.StatusInternalServerError, "failed to create network: "+err.Error())
 		return
@@ -1488,14 +1518,14 @@ func (a *App) provisionIntranet(st Stack, n designNode) {
 		setPhase("Creating container", 3)
 
 		name := containerName(st.ID, n.ID)
-		if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
-			a.docker.ContainerRemove(ctx, cid)
+		if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
+			a.engCtx(ctx).ContainerRemove(ctx, cid)
 		}
 		// Pin the Intranet to a stable address (host .2 of the stack subnet) so it
 		// stays a reliable DNS resolver / SMTP relay for the other nodes across
 		// restarts. The FQDN alias also lets peers reach it as intranet.<domain>.
-		subnet, _ := a.docker.NetworkSubnet(ctx, networkName(st.ID))
-		id, err := a.docker.ContainerCreate(ctx, ContainerSpec{
+		subnet, _ := a.engCtx(ctx).NetworkSubnet(ctx, networkName(st.ID))
+		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
 			Name: name, Image: intranetImage(n.Arch), Hostname: "intranet",
 			Network: networkName(st.ID), Aliases: []string{"intranet", "intranet." + domain},
 			Privileged: true, PublishPort: 8080, IPv4Address: staticIntranetIP(subnet),
@@ -1504,13 +1534,13 @@ func (a *App) provisionIntranet(st Stack, n designNode) {
 			failNode("create container: %v", err)
 			return
 		}
-		if err := a.docker.ContainerStart(ctx, id); err != nil {
+		if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 			failNode("start container: %v", err)
 			return
 		}
 
 		// record the auto-assigned (unused) host port for RoundCube
-		if hp, e := a.docker.ContainerPort(ctx, id, "8080/tcp"); e == nil && hp != "" {
+		if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, "8080/tcp"); e == nil && hp != "" {
 			if p, e2 := strconv.Atoi(hp); e2 == nil {
 				cfg.WebmailPort = p
 			}
@@ -1520,7 +1550,7 @@ func (a *App) provisionIntranet(st Stack, n designNode) {
 		logln(fmt.Sprintf("container started (webmail host port %d)", cfg.WebmailPort))
 
 		setPhase("Waiting for systemd", 8)
-		if err := a.docker.WaitSystemd(ctx, id, 90*time.Second); err != nil {
+		if err := a.engCtx(ctx).WaitSystemd(ctx, id, 90*time.Second); err != nil {
 			failNode("systemd did not start: %v", err)
 			return
 		}
@@ -1533,7 +1563,7 @@ func (a *App) provisionIntranet(st Stack, n designNode) {
 		// sandboxing for emulation" step keys off EMULATED to disarm the systemd
 		// hardening that breaks the translator's RW→RX code-cache mappings.
 		emulated := ""
-		if ha := a.docker.HostArch(ctx); ha != "" {
+		if ha := a.engCtx(ctx).HostArch(ctx); ha != "" {
 			hostArm := strings.Contains(ha, "arm") || strings.Contains(ha, "aarch64")
 			if hostArm && archOr(n.Arch) == "amd64" {
 				emulated = "1"
@@ -1556,7 +1586,7 @@ func (a *App) provisionIntranet(st Stack, n designNode) {
 			lastErr := ""
 			ok := false
 			for attempt := 1; attempt <= 10; attempt++ {
-				res, err := a.docker.Exec(ctx, id, []string{"bash", "-c", step.Script}, env)
+				res, err := a.engCtx(ctx).Exec(ctx, id, []string{"bash", "-c", step.Script}, env)
 				if err == nil && res.Code == 0 {
 					ok = true
 					break
@@ -1867,7 +1897,7 @@ func (a *App) handleNodeAction(action string) http.HandlerFunc {
 		ctx := r.Context()
 		switch action {
 		case "start":
-			err = a.docker.ContainerStart(ctx, dep.ContainerID)
+			err = a.engCtx(ctx).ContainerStart(ctx, dep.ContainerID)
 			if err == nil {
 				a.store.SetDeploymentState(st.ID, nid, DeployRunning)
 				a.refreshPublishedPorts(ctx, st, nid, dep)
@@ -1875,12 +1905,12 @@ func (a *App) handleNodeAction(action string) http.HandlerFunc {
 				a.reconcileStackDNS(ctx, st.ID)
 			}
 		case "stop":
-			err = a.docker.ContainerStop(ctx, dep.ContainerID)
+			err = a.engCtx(ctx).ContainerStop(ctx, dep.ContainerID)
 			if err == nil {
 				a.store.SetDeploymentState(st.ID, nid, DeployStopped)
 			}
 		case "restart":
-			err = a.docker.ContainerRestart(ctx, dep.ContainerID)
+			err = a.engCtx(ctx).ContainerRestart(ctx, dep.ContainerID)
 			if err == nil {
 				a.store.SetDeploymentState(st.ID, nid, DeployRunning)
 				a.refreshPublishedPorts(ctx, st, nid, dep)
@@ -1918,7 +1948,7 @@ func (a *App) refreshPublishedPorts(ctx context.Context, st Stack, nid string, d
 		}
 	}
 	readPort := func(portProto string) (int, bool) {
-		hp, err := a.docker.ContainerPort(ctx, dep.ContainerID, portProto)
+		hp, err := a.engCtx(ctx).ContainerPort(ctx, dep.ContainerID, portProto)
 		if err != nil || hp == "" {
 			return 0, false
 		}
@@ -2069,9 +2099,9 @@ func (a *App) handleDestroyStack(w http.ResponseWriter, r *http.Request) {
 // deleted from the canvas, and the real-time per-node cleanup.
 func (a *App) removeNodeResources(ctx context.Context, stackID int64, d Deployment) {
 	if d.ContainerID != "" {
-		a.docker.ContainerRemove(ctx, d.ContainerID)
+		a.engCtx(ctx).ContainerRemove(ctx, d.ContainerID)
 	}
-	a.docker.VolumeRemove(ctx, pmmDataVolume(stackID, d.NodeID))
+	a.engCtx(ctx).VolumeRemove(ctx, pmmDataVolume(stackID, d.NodeID))
 	a.store.DeleteDeployment(stackID, d.NodeID)
 }
 
@@ -2089,7 +2119,8 @@ func (a *App) teardownStack(stackID int64) {
 		a.notifyStack(stackID, "stack.destroyed", "info", "Stack destroyed",
 			st.Name+" and its containers were removed.", "")
 	}
-	ctx := context.Background()
+	// Tear down on the same engine the stack deployed with (VMs for a vagrant stack).
+	ctx := withEngine(context.Background(), a.engByStackID(stackID))
 	// k3d's containers are named k3d-<cluster>-*, not dbcanvas-<id>-*, so the sweep below would
 	// leave a whole k3s cluster (and its volumes) running. Let k3d remove its own cluster first.
 	a.destroyK3DClusters(ctx, stackID)
@@ -2101,13 +2132,13 @@ func (a *App) teardownStack(stackID int64) {
 	// id on its deployment row leaves an untracked container behind (and its name
 	// would then collide on the next deploy). Sweep anything still named for this
 	// stack. Safe now that cancelDeploy has waited: nothing can create more.
-	if ids, err := a.docker.ContainersByNamePrefix(ctx, fmt.Sprintf("dbcanvas-%d-", stackID)); err == nil {
+	if ids, err := a.engCtx(ctx).ContainersByNamePrefix(ctx, fmt.Sprintf("dbcanvas-%d-", stackID)); err == nil {
 		for _, id := range ids {
-			a.docker.ContainerRemove(ctx, id)
+			a.engCtx(ctx).ContainerRemove(ctx, id)
 		}
 	}
 	// The Query Runner may have joined this network to reach the stack's DB nodes;
 	// detach the app first so the network can be removed.
-	a.docker.NetworkDisconnect(ctx, networkName(stackID), qrAppContainerID())
-	a.docker.NetworkRemove(ctx, networkName(stackID))
+	a.engCtx(ctx).NetworkDisconnect(ctx, networkName(stackID), qrAppContainerID())
+	a.engCtx(ctx).NetworkRemove(ctx, networkName(stackID))
 }

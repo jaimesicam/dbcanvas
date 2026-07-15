@@ -147,8 +147,8 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 		// ---- create + start the container ----
 		pr.phase("Creating container", 15)
 		name := containerName(st.ID, n.ID)
-		if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
-			a.docker.ContainerRemove(ctx, cid)
+		if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
+			a.engCtx(ctx).ContainerRemove(ctx, cid)
 		}
 		spec := ContainerSpec{
 			Name: name, Image: image, Hostname: host, Privileged: true,
@@ -158,18 +158,18 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 		if n.ExportEnabled {
 			spec.PublishMap = []PortMap{{ContainerPort: patroniPGPort, HostPort: n.ExportHostPort}}
 		}
-		id, err := a.docker.ContainerCreate(ctx, spec)
+		id, err := a.engCtx(ctx).ContainerCreate(ctx, spec)
 		if err != nil {
 			pr.fail("create container: %v", err)
 			return
 		}
-		if err := a.docker.ContainerStart(ctx, id); err != nil {
+		if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 			pr.fail("start container: %v", err)
 			return
 		}
 		a.pointResolverAtIntranet(ctx, id, intranetIP, domain)
 		if n.ExportEnabled {
-			if hp, e := a.docker.ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", patroniPGPort)); e == nil {
+			if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", patroniPGPort)); e == nil {
 				if p, e2 := strconv.Atoi(hp); e2 == nil {
 					cfg.ExportPort = p
 				}
@@ -179,7 +179,7 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON, Secrets: secJSON})
 
 		pr.phase("Waiting for systemd", 25)
-		if err := a.docker.WaitSystemd(ctx, id, 90*time.Second); err != nil {
+		if err := a.engCtx(ctx).WaitSystemd(ctx, id, 90*time.Second); err != nil {
 			pr.fail("systemd did not start: %v", err)
 			return
 		}
@@ -259,7 +259,7 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 				return
 			}
 			conf := patroniPgBackRestConf(n.Label, n.OS, major, swCfg, swSec)
-			if err := a.docker.CopyFile(ctx, id, "/etc/pgbackrest", "pgbackrest.conf", 0o644, []byte(conf)); err != nil {
+			if err := a.engCtx(ctx).CopyFile(ctx, id, "/etc/pgbackrest", "pgbackrest.conf", 0o644, []byte(conf)); err != nil {
 				pr.fail("write pgbackrest.conf: %v", err)
 				return
 			}
@@ -356,7 +356,7 @@ func (a *App) pgApplyCert(ctx context.Context, containerID, intranetID, fqdn, da
 	if err != nil {
 		return fmt.Errorf("read CA key: %w", err)
 	}
-	if err := a.docker.PutArchive(ctx, containerID, "/tmp", tarFiles(map[string]fileEntry{
+	if err := a.engCtx(ctx).PutArchive(ctx, containerID, "/tmp", tarFiles(map[string]fileEntry{
 		"dbca-ca.crt": {0o644, 0, caCrt},
 		"dbca-ca.key": {0o644, 0, caKey},
 	})); err != nil {
@@ -399,7 +399,7 @@ func (a *App) pgRegisterPMM(ctx context.Context, st Stack, n designNode, doc des
 		"PMM_PW=" + envOr("PMM_PASSWORD", "pmm_password"),
 		"NODE=" + n.Label,
 	}
-	if _, err := a.docker.Exec(ctx, dep.ContainerID, []string{"bash", "-c", script}, env); err != nil {
+	if _, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", script}, env); err != nil {
 		pr.logln("PMM registration skipped: " + err.Error())
 	} else {
 		pr.logln("registered with PMM at " + pmmFQDN)
@@ -442,7 +442,7 @@ func (a *App) handlePGBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	env := []string{"STANZA=" + patroniStanza(node.Label)}
-	if res, err := a.docker.Exec(ctx, dep.ContainerID, []string{"bash", "-c", patroniBackupNowScript}, env); err != nil {
+	if res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", patroniBackupNowScript}, env); err != nil {
 		writeErr(w, http.StatusInternalServerError, "pgBackRest backup failed: "+err.Error())
 		return
 	} else if res.Code != 0 {

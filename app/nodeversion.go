@@ -141,7 +141,7 @@ func (a *App) ensureNodeVersions(st Stack, deps []Deployment) {
 func (a *App) probeVersion(ctx context.Context, containerID, nodeType, image string) string {
 	if script, ok := nodeVersionScripts[nodeType]; ok {
 		for _, shell := range []string{"bash", "sh"} {
-			res, err := a.docker.Exec(ctx, containerID, []string{shell, "-c", script}, nil)
+			res, err := a.engCtx(ctx).Exec(ctx, containerID, []string{shell, "-c", script}, nil)
 			if err != nil || res.Code != 0 {
 				continue
 			}

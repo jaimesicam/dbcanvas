@@ -309,8 +309,8 @@ func (a *App) repmgrPrepareNode(ctx context.Context, st Stack, frame designFrame
 
 	pr.phase("Creating container", 15)
 	name := containerName(st.ID, n.ID)
-	if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
-		a.docker.ContainerRemove(ctx, cid)
+	if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
+		a.engCtx(ctx).ContainerRemove(ctx, cid)
 	}
 	spec := ContainerSpec{
 		Name: name, Image: image, Hostname: host, Privileged: true,
@@ -320,11 +320,11 @@ func (a *App) repmgrPrepareNode(ctx context.Context, st Stack, frame designFrame
 	if n.ExportEnabled {
 		spec.PublishMap = []PortMap{{ContainerPort: patroniPGPort, HostPort: n.ExportHostPort}}
 	}
-	id, err := a.docker.ContainerCreate(ctx, spec)
+	id, err := a.engCtx(ctx).ContainerCreate(ctx, spec)
 	if err != nil {
 		return pr.fail("create container: %v", err)
 	}
-	if err := a.docker.ContainerStart(ctx, id); err != nil {
+	if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 		return pr.fail("start container: %v", err)
 	}
 	a.pointResolverAtIntranet(ctx, id, intranetIP, domain)
@@ -334,7 +334,7 @@ func (a *App) repmgrPrepareNode(ctx context.Context, st Stack, frame designFrame
 		json.Unmarshal(dep.Config, &cfg)
 	}
 	if n.ExportEnabled {
-		if hp, e := a.docker.ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", patroniPGPort)); e == nil {
+		if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", patroniPGPort)); e == nil {
 			if p, e2 := strconv.Atoi(hp); e2 == nil {
 				cfg.ExportPort = p
 			}
@@ -345,7 +345,7 @@ func (a *App) repmgrPrepareNode(ctx context.Context, st Stack, frame designFrame
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON, Secrets: secJSON})
 
 	pr.phase("Waiting for systemd", 25)
-	if err := a.docker.WaitSystemd(ctx, id, 90*time.Second); err != nil {
+	if err := a.engCtx(ctx).WaitSystemd(ctx, id, 90*time.Second); err != nil {
 		return pr.fail("systemd did not start: %v", err)
 	}
 	a.trustIntranetCA(ctx, st, id, frame.OS, pr.logln)
@@ -418,10 +418,10 @@ func (a *App) repmgrPrepareNode(ctx context.Context, st Stack, frame designFrame
 		if err := a.runStep(ctx, id, `install -d -m 700 "$HOME/.aws"`, []string{"HOME=" + home}, pr.logln); err != nil {
 			return pr.fail("create ~/.aws: %v", err)
 		}
-		if err := a.docker.CopyFile(ctx, id, home+"/.aws", "credentials", 0o600, []byte(barmanAWSCredentials(ak, swSec.SecretKey))); err != nil {
+		if err := a.engCtx(ctx).CopyFile(ctx, id, home+"/.aws", "credentials", 0o600, []byte(barmanAWSCredentials(ak, swSec.SecretKey))); err != nil {
 			return pr.fail("write AWS credentials: %v", err)
 		}
-		if err := a.docker.CopyFile(ctx, id, home+"/.aws", "config", 0o600, []byte(barmanAWSConfig(region))); err != nil {
+		if err := a.engCtx(ctx).CopyFile(ctx, id, home+"/.aws", "config", 0o600, []byte(barmanAWSConfig(region))); err != nil {
 			return pr.fail("write AWS config: %v", err)
 		}
 		if err := a.runStep(ctx, id, barmanChownScript, []string{"HOME=" + home}, pr.logln); err != nil {
@@ -437,12 +437,12 @@ func (a *App) repmgrPrepareNode(ctx context.Context, st Stack, frame designFrame
 	if err := a.runStep(ctx, id, `install -d -m 755 -o postgres -g postgres "$DIR"`, []string{"DIR=" + confDir}, pr.logln); err != nil {
 		return pr.fail("create repmgr conf dir: %v", err)
 	}
-	if err := a.docker.CopyFile(ctx, id, confDir, "repmgr.conf", 0o644, []byte(repmgrConf(nodeID, host, fqdn, frame, sec))); err != nil {
+	if err := a.engCtx(ctx).CopyFile(ctx, id, confDir, "repmgr.conf", 0o644, []byte(repmgrConf(nodeID, host, fqdn, frame, sec))); err != nil {
 		return pr.fail("write repmgr.conf: %v", err)
 	}
 	// .pgpass so repmgr can authenticate to peers without prompting.
 	home := pgHome(frame.OS)
-	if err := a.docker.CopyFile(ctx, id, home, ".pgpass", 0o600, []byte(fmt.Sprintf("*:*:*:%s:%s\n", sec.ReplUser, sec.ReplPassword))); err != nil {
+	if err := a.engCtx(ctx).CopyFile(ctx, id, home, ".pgpass", 0o600, []byte(fmt.Sprintf("*:*:*:%s:%s\n", sec.ReplUser, sec.ReplPassword))); err != nil {
 		return pr.fail("write .pgpass: %v", err)
 	}
 	if err := a.runStep(ctx, id, repmgrConfChownScript, []string{"HOME=" + home, "CONF=" + pgRepmgrConfPath(major)}, pr.logln); err != nil {
@@ -577,7 +577,7 @@ func (a *App) repmgrPrimaryContainer(ctx context.Context, st Stack, frame design
 		if err != nil || dep.ContainerID == "" || dep.State != DeployRunning {
 			continue
 		}
-		if res, err := a.docker.Exec(ctx, dep.ContainerID, []string{"bash", "-c", repmgrIsPrimaryScript}, nil); err == nil {
+		if res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", repmgrIsPrimaryScript}, nil); err == nil {
 			if strings.TrimSpace(res.Stdout) == "primary" {
 				return dep.ContainerID
 			}
@@ -627,7 +627,7 @@ func (a *App) handleRepmgrBackup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "SeaweedFS backup node is not available")
 		return
 	}
-	if res, err := a.docker.Exec(ctx, cid, []string{"bash", "-c", barmanBackupScript}, barmanBackupEnv(frame.Label, swCfg)); err != nil {
+	if res, err := a.engCtx(ctx).Exec(ctx, cid, []string{"bash", "-c", barmanBackupScript}, barmanBackupEnv(frame.Label, swCfg)); err != nil {
 		writeErr(w, http.StatusInternalServerError, "Barman backup failed: "+err.Error())
 		return
 	} else if res.Code != 0 {

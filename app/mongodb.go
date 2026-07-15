@@ -690,7 +690,7 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 			pr.phase("Trusting Intranet CA", 60)
 			id := a.containerOf(st.ID, n.ID)
 			if caCrt, e := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt"); e == nil && len(caCrt) > 0 {
-				if err := a.docker.CopyFile(ctx, id, "/etc/pki/ca-trust/source/anchors", "dbcanvas-ca.crt", 0o644, caCrt); err == nil {
+				if err := a.engCtx(ctx).CopyFile(ctx, id, "/etc/pki/ca-trust/source/anchors", "dbcanvas-ca.crt", 0o644, caCrt); err == nil {
 					if err := a.runStep(ctx, id, mongoCATrustScript, nil, pr.logln); err != nil {
 						pr.fail("trust Intranet CA: %v", err)
 						return
@@ -783,8 +783,8 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	}
 	pr.phase("Creating container", 12)
 	name := containerName(st.ID, n.ID)
-	if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
-		a.docker.ContainerRemove(ctx, cid)
+	if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
+		a.engCtx(ctx).ContainerRemove(ctx, cid)
 	}
 	spec := ContainerSpec{
 		Name: name, Image: image, Hostname: host, Privileged: true,
@@ -794,11 +794,11 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	if n.ExportEnabled {
 		spec.PublishMap = []PortMap{{ContainerPort: mongoPort, HostPort: n.ExportHostPort}}
 	}
-	id, err := a.docker.ContainerCreate(ctx, spec)
+	id, err := a.engCtx(ctx).ContainerCreate(ctx, spec)
 	if err != nil {
 		return pr.fail("create container: %v", err)
 	}
-	if err := a.docker.ContainerStart(ctx, id); err != nil {
+	if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 		return pr.fail("start container: %v", err)
 	}
 	a.pointResolverAtIntranet(ctx, id, intranetIP, domain)
@@ -807,7 +807,7 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	// Record the auto-assigned host port for an exported node so the manager can
 	// show the connect string (mongos also keeps it under MongosPort).
 	if n.ExportEnabled {
-		if hp, e := a.docker.ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", mongoPort)); e == nil {
+		if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", mongoPort)); e == nil {
 			if p, e2 := strconv.Atoi(hp); e2 == nil {
 				if dep, e3 := a.store.GetDeployment(st.ID, n.ID); e3 == nil {
 					var cfg mongoConfig
@@ -824,7 +824,7 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	}
 
 	pr.phase("Waiting for systemd", 22)
-	if err := a.docker.WaitSystemd(ctx, id, 90*time.Second); err != nil {
+	if err := a.engCtx(ctx).WaitSystemd(ctx, id, 90*time.Second); err != nil {
 		return pr.fail("systemd did not start: %v", err)
 	}
 	a.trustIntranetCA(ctx, st, id, frame.OS, pr.logln)
@@ -886,7 +886,7 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	// Shared keyFile (same bytes everywhere) for internal cluster auth. Standalone
 	// nodes have no keyFile (sec.KeyFile == "").
 	if sec.KeyFile != "" {
-		if err := a.docker.CopyFile(ctx, id, "/etc", "mongo.keyFile", 0o400, []byte(sec.KeyFile)); err != nil {
+		if err := a.engCtx(ctx).CopyFile(ctx, id, "/etc", "mongo.keyFile", 0o400, []byte(sec.KeyFile)); err != nil {
 			return pr.fail("write keyFile: %v", err)
 		}
 	}
@@ -927,7 +927,7 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 		vaultBlock = vault.Block
 	}
 	conf := mongodConfYAML(replSet, clusterRole, sec.KeyFile != "", setParams, vaultBlock)
-	if err := a.docker.CopyFile(ctx, id, "/etc", "mongod.conf", 0o644, []byte(conf)); err != nil {
+	if err := a.engCtx(ctx).CopyFile(ctx, id, "/etc", "mongod.conf", 0o644, []byte(conf)); err != nil {
 		return pr.fail("write mongod.conf: %v", err)
 	}
 	pr.phase("Starting mongod", 55)
@@ -965,7 +965,7 @@ func (a *App) mongoApplyCert(ctx context.Context, containerID, intranetID, fqdn,
 		logln("per-node certificate skipped: read CA key: " + err.Error())
 		return err
 	}
-	if err := a.docker.PutArchive(ctx, containerID, "/tmp", tarFiles(map[string]fileEntry{
+	if err := a.engCtx(ctx).PutArchive(ctx, containerID, "/tmp", tarFiles(map[string]fileEntry{
 		"dbca-ca.crt": {0o644, 0, caCrt},
 		"dbca-ca.key": {0o644, 0, caKey},
 	})); err != nil {
@@ -1142,7 +1142,7 @@ func (a *App) mongoRegisterPMM(ctx context.Context, st Stack, node designNode, o
 		"PMM_DB_USER=" + sec.PMMUser, "PMM_DB_PW=" + sec.PMMPassword,
 		"NODE=" + node.Label, "CLUSTER=" + cluster,
 	}
-	if _, err := a.docker.Exec(ctx, dep.ContainerID, []string{"bash", "-c", script}, env); err != nil {
+	if _, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", script}, env); err != nil {
 		pr.logln("PMM registration skipped: " + err.Error())
 	} else {
 		pr.logln("registered with PMM at " + pmmFQDN)
@@ -1152,10 +1152,10 @@ func (a *App) mongoRegisterPMM(ctx context.Context, st Stack, node designNode, o
 // mongoStartMongos writes mongos.conf + the mongos systemd unit and starts it.
 func (a *App) mongoStartMongos(ctx context.Context, st Stack, mongos designNode, configDB string, pr *pxcProg) error {
 	dep, _ := a.store.GetDeployment(st.ID, mongos.ID)
-	if err := a.docker.CopyFile(ctx, dep.ContainerID, "/etc", "mongos.conf", 0o644, []byte(mongosConfYAML(configDB))); err != nil {
+	if err := a.engCtx(ctx).CopyFile(ctx, dep.ContainerID, "/etc", "mongos.conf", 0o644, []byte(mongosConfYAML(configDB))); err != nil {
 		return pr.fail("write mongos.conf: %v", err)
 	}
-	if err := a.docker.CopyFile(ctx, dep.ContainerID, "/etc/systemd/system", "mongos.service", 0o644, []byte(mongosUnit)); err != nil {
+	if err := a.engCtx(ctx).CopyFile(ctx, dep.ContainerID, "/etc/systemd/system", "mongos.service", 0o644, []byte(mongosUnit)); err != nil {
 		return pr.fail("write mongos unit: %v", err)
 	}
 	if err := a.runStep(ctx, dep.ContainerID, mongoStartMongosScript, nil, pr.logln); err != nil {

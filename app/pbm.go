@@ -118,7 +118,7 @@ func (a *App) mongoSetupPBMAgent(ctx context.Context, st Stack, node designNode,
 	envPath := pbmAgentEnvPath(os)
 	dir, base := splitPath(envPath)
 	content := fmt.Sprintf("PBM_MONGODB_URI=%s\n", pbmMongoURI(sec.PBMUser, sec.PBMPassword))
-	if err := a.docker.CopyFile(ctx, dep.ContainerID, dir, base, 0o600, []byte(content)); err != nil {
+	if err := a.engCtx(ctx).CopyFile(ctx, dep.ContainerID, dir, base, 0o600, []byte(content)); err != nil {
 		pr.logln("write pbm-agent env failed: " + err.Error())
 		return err
 	}
@@ -139,7 +139,7 @@ func (a *App) mongoConfigurePBMStorage(ctx context.Context, st Stack, node desig
 		return nil
 	}
 	yaml := pbmStorageYAML(frame.Label, sw, swSec)
-	if err := a.docker.CopyFile(ctx, dep.ContainerID, "/etc", "pbm-storage.yaml", 0o600, []byte(yaml)); err != nil {
+	if err := a.engCtx(ctx).CopyFile(ctx, dep.ContainerID, "/etc", "pbm-storage.yaml", 0o600, []byte(yaml)); err != nil {
 		pr.logln("write pbm-storage.yaml failed: " + err.Error())
 		return err
 	}
@@ -250,7 +250,7 @@ func (a *App) handleMongoPBMBackup(w http.ResponseWriter, r *http.Request) {
 	json.Unmarshal(dep.Secrets, &sec)
 	ctx := r.Context()
 	env := []string{"PBM_URI=" + pbmMongoURI(sec.PBMUser, sec.PBMPassword)}
-	if res, err := a.docker.Exec(ctx, dep.ContainerID, []string{"bash", "-c", pbmBackupScript}, env); err != nil {
+	if res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", pbmBackupScript}, env); err != nil {
 		writeErr(w, http.StatusInternalServerError, "PBM backup failed: "+err.Error())
 		return
 	} else if res.Code != 0 {

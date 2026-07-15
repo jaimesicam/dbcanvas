@@ -98,7 +98,7 @@ func (a *App) stageIntranetCA(ctx context.Context, st Stack, containerID string)
 	if err != nil {
 		return err
 	}
-	return a.docker.PutArchive(ctx, containerID, "/tmp", tarFiles(map[string]fileEntry{"dbca-ca.crt": {0o644, 0, ca}}))
+	return a.engCtx(ctx).PutArchive(ctx, containerID, "/tmp", tarFiles(map[string]fileEntry{"dbca-ca.crt": {0o644, 0, ca}}))
 }
 
 // applyPGOIDC configures PostgreSQL 18 on containerID to accept Keycloak OAuth logins.

@@ -124,7 +124,7 @@ func (a *App) provisionValkeyStandalone(st Stack, n designNode, doc designDoc) {
 
 		pr.phase("Pulling image", 8)
 		pr.logln("ensuring " + valkeyImage + " for " + pullPlatform())
-		if err := a.docker.EnsureImage(ctx, valkeyImageRepo, valkeyImageTag, pullPlatform()); err != nil {
+		if err := a.engCtx(ctx).EnsureImage(ctx, valkeyImageRepo, valkeyImageTag, pullPlatform()); err != nil {
 			pr.fail("pull image: %v", err)
 			return
 		}
@@ -138,8 +138,8 @@ func (a *App) provisionValkeyStandalone(st Stack, n designNode, doc designDoc) {
 
 		pr.phase("Creating container", 22)
 		name := containerName(st.ID, n.ID)
-		if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
-			a.docker.ContainerRemove(ctx, cid)
+		if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
+			a.engCtx(ctx).ContainerRemove(ctx, cid)
 		}
 		spec := ContainerSpec{
 			Name: name, Image: valkeyImage, Hostname: host, Platform: pullPlatform(),
@@ -150,24 +150,24 @@ func (a *App) provisionValkeyStandalone(st Stack, n designNode, doc designDoc) {
 		if n.ExportEnabled {
 			spec.PublishMap = []PortMap{{ContainerPort: valkeyPort, HostPort: n.ExportHostPort}}
 		}
-		id, err := a.docker.ContainerCreate(ctx, spec)
+		id, err := a.engCtx(ctx).ContainerCreate(ctx, spec)
 		if err != nil {
 			pr.fail("create container: %v", err)
 			return
 		}
 		// Stage the config into the created (not-yet-started) container before launch.
 		conf := valkeyConfFile(pw, domain, baseDN, n.UseLDAP, false)
-		if err := a.docker.CopyFile(ctx, id, "/etc", "dbcanvas-valkey.conf", 0o644, []byte(conf)); err != nil {
+		if err := a.engCtx(ctx).CopyFile(ctx, id, "/etc", "dbcanvas-valkey.conf", 0o644, []byte(conf)); err != nil {
 			pr.fail("write valkey.conf: %v", err)
 			return
 		}
-		if err := a.docker.ContainerStart(ctx, id); err != nil {
+		if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 			pr.fail("start container: %v", err)
 			return
 		}
 
 		if n.ExportEnabled {
-			if hp, e := a.docker.ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", valkeyPort)); e == nil {
+			if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", valkeyPort)); e == nil {
 				if p, e2 := strconv.Atoi(hp); e2 == nil {
 					cfg.ExportPort = p
 				}
@@ -346,7 +346,7 @@ func (a *App) provisionValkeyClusterFrame(st Stack, frame designFrame, doc desig
 			}
 			return
 		}
-		if err := a.docker.EnsureImage(ctx, valkeyImageRepo, valkeyImageTag, pullPlatform()); err != nil {
+		if err := a.engCtx(ctx).EnsureImage(ctx, valkeyImageRepo, valkeyImageTag, pullPlatform()); err != nil {
 			for _, n := range members {
 				progs[n.ID].fail("pull image: %v", err)
 			}
@@ -407,8 +407,8 @@ func (a *App) provisionValkeyClusterFrame(st Stack, frame designFrame, doc desig
 func (a *App) valkeyStartMember(ctx context.Context, st Stack, n designNode, host, intranetIP, domain, conf, pw string, pr *pxcProg) error {
 	pr.phase("Creating container", 25)
 	name := containerName(st.ID, n.ID)
-	if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
-		a.docker.ContainerRemove(ctx, cid)
+	if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
+		a.engCtx(ctx).ContainerRemove(ctx, cid)
 	}
 	spec := ContainerSpec{
 		Name: name, Image: valkeyImage, Hostname: host, Platform: pullPlatform(),
@@ -419,18 +419,18 @@ func (a *App) valkeyStartMember(ctx context.Context, st Stack, n designNode, hos
 	if n.ExportEnabled {
 		spec.PublishMap = []PortMap{{ContainerPort: valkeyPort, HostPort: n.ExportHostPort}}
 	}
-	id, err := a.docker.ContainerCreate(ctx, spec)
+	id, err := a.engCtx(ctx).ContainerCreate(ctx, spec)
 	if err != nil {
 		return pr.fail("create container: %v", err)
 	}
-	if err := a.docker.CopyFile(ctx, id, "/etc", "dbcanvas-valkey.conf", 0o644, []byte(conf)); err != nil {
+	if err := a.engCtx(ctx).CopyFile(ctx, id, "/etc", "dbcanvas-valkey.conf", 0o644, []byte(conf)); err != nil {
 		return pr.fail("write valkey.conf: %v", err)
 	}
-	if err := a.docker.ContainerStart(ctx, id); err != nil {
+	if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 		return pr.fail("start container: %v", err)
 	}
 	if n.ExportEnabled {
-		if hp, e := a.docker.ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", valkeyPort)); e == nil {
+		if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", valkeyPort)); e == nil {
 			if p, e2 := strconv.Atoi(hp); e2 == nil {
 				if dep, e3 := a.store.GetDeployment(st.ID, n.ID); e3 == nil {
 					var cfg valkeyConfig

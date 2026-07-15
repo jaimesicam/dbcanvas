@@ -205,10 +205,10 @@ func (a *App) applyDirectoryAuth(ctx context.Context, st Stack, n designNode, do
 		if err != nil {
 			return fmt.Errorf("kerberos keytab: %w", err)
 		}
-		if err := a.docker.PutArchive(ctx, containerID, "/etc", tarFiles(map[string]fileEntry{"dbcanvas.krb5.conf": {0o644, 0, krb5}})); err != nil {
+		if err := a.engCtx(ctx).PutArchive(ctx, containerID, "/etc", tarFiles(map[string]fileEntry{"dbcanvas.krb5.conf": {0o644, 0, krb5}})); err != nil {
 			return fmt.Errorf("stage krb5.conf: %w", err)
 		}
-		if err := a.docker.PutArchive(ctx, containerID, "/tmp", tarFiles(map[string]fileEntry{"dbcanvas.keytab": {0o600, 0, keytab}})); err != nil {
+		if err := a.engCtx(ctx).PutArchive(ctx, containerID, "/tmp", tarFiles(map[string]fileEntry{"dbcanvas.keytab": {0o600, 0, keytab}})); err != nil {
 			return fmt.Errorf("stage keytab: %w", err)
 		}
 		pr.logln("minted " + svc + "/" + nodeFQDN + " keytab on the Samba DC")

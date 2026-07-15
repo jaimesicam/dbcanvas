@@ -352,8 +352,8 @@ func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFram
 
 	pr.phase("Creating container", 15)
 	name := containerName(st.ID, n.ID)
-	if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
-		a.docker.ContainerRemove(ctx, cid)
+	if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
+		a.engCtx(ctx).ContainerRemove(ctx, cid)
 	}
 	spec := ContainerSpec{
 		Name: name, Image: image, Hostname: host, Privileged: true,
@@ -363,11 +363,11 @@ func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFram
 	if n.ExportEnabled {
 		spec.PublishMap = []PortMap{{ContainerPort: patroniPGPort, HostPort: n.ExportHostPort}}
 	}
-	id, err := a.docker.ContainerCreate(ctx, spec)
+	id, err := a.engCtx(ctx).ContainerCreate(ctx, spec)
 	if err != nil {
 		return pr.fail("create container: %v", err)
 	}
-	if err := a.docker.ContainerStart(ctx, id); err != nil {
+	if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 		return pr.fail("start container: %v", err)
 	}
 	a.pointResolverAtIntranet(ctx, id, intranetIP, domain)
@@ -378,7 +378,7 @@ func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFram
 		json.Unmarshal(dep.Config, &cfg)
 	}
 	if n.ExportEnabled {
-		if hp, e := a.docker.ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", patroniPGPort)); e == nil {
+		if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", patroniPGPort)); e == nil {
 			if p, e2 := strconv.Atoi(hp); e2 == nil {
 				cfg.ExportPort = p
 			}
@@ -389,7 +389,7 @@ func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFram
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON, Secrets: secJSON})
 
 	pr.phase("Waiting for systemd", 25)
-	if err := a.docker.WaitSystemd(ctx, id, 90*time.Second); err != nil {
+	if err := a.engCtx(ctx).WaitSystemd(ctx, id, 90*time.Second); err != nil {
 		return pr.fail("systemd did not start: %v", err)
 	}
 	a.trustIntranetCA(ctx, st, id, frame.OS, pr.logln)
@@ -465,7 +465,7 @@ func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFram
 	}
 	etcdConf := patroniEtcdConf(host, fqdn, frame.Label, strings.Join(initialCluster, ","))
 	ecDir, ecBase := splitPath(etcdConfPath(frame.OS))
-	if err := a.docker.CopyFile(ctx, id, ecDir, ecBase, 0o644, []byte(etcdConf)); err != nil {
+	if err := a.engCtx(ctx).CopyFile(ctx, id, ecDir, ecBase, 0o644, []byte(etcdConf)); err != nil {
 		return pr.fail("write etcd config: %v", err)
 	}
 
@@ -478,7 +478,7 @@ func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFram
 			return pr.fail("prepare pgbackrest dirs: %v", err)
 		}
 		conf := patroniPgBackRestConf(frame.Label, frame.OS, major, swCfg, swSec)
-		if err := a.docker.CopyFile(ctx, id, "/etc/pgbackrest", "pgbackrest.conf", 0o644, []byte(conf)); err != nil {
+		if err := a.engCtx(ctx).CopyFile(ctx, id, "/etc/pgbackrest", "pgbackrest.conf", 0o644, []byte(conf)); err != nil {
 			return pr.fail("write pgbackrest.conf: %v", err)
 		}
 	}
@@ -487,7 +487,7 @@ func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFram
 	// (PATRONI_CONFIG_LOCATION=/etc/patroni/postgresql.yml; ExecStart=patroni $that).
 	pr.phase("Writing Patroni config", 58)
 	yml := patroniYAML(frame, host, fqdn, etcdEndpoints, sec)
-	if err := a.docker.CopyFile(ctx, id, "/etc/patroni", "postgresql.yml", 0o644, []byte(yml)); err != nil {
+	if err := a.engCtx(ctx).CopyFile(ctx, id, "/etc/patroni", "postgresql.yml", 0o644, []byte(yml)); err != nil {
 		return pr.fail("write patroni config: %v", err)
 	}
 	if err := a.runStep(ctx, id, patroniPrepDirsScript, []string{"DATADIR=" + pgDataDir(frame.OS, major)}, pr.logln); err != nil {
@@ -513,7 +513,7 @@ func (a *App) patroniApplyCert(ctx context.Context, containerID, intranetID, fqd
 	if err != nil {
 		return fmt.Errorf("read CA key: %w", err)
 	}
-	if err := a.docker.PutArchive(ctx, containerID, "/tmp", tarFiles(map[string]fileEntry{
+	if err := a.engCtx(ctx).PutArchive(ctx, containerID, "/tmp", tarFiles(map[string]fileEntry{
 		"dbca-ca.crt": {0o644, 0, caCrt},
 		"dbca-ca.key": {0o644, 0, caKey},
 	})); err != nil {
@@ -547,7 +547,7 @@ func (a *App) patroniWaitEtcd(ctx context.Context, st Stack, members []designNod
 				allHealthy = false
 				break
 			}
-			res, err := a.docker.Exec(ctx, dep.ContainerID, []string{"bash", "-c", patroniEtcdHealthScript}, nil)
+			res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", patroniEtcdHealthScript}, nil)
 			if err != nil || res.Code != 0 {
 				allHealthy = false
 				break
@@ -575,7 +575,7 @@ func (a *App) patroniWaitCluster(ctx context.Context, st Stack, frame designFram
 			}
 			// /leader returns 200 only on the current leader/primary; /health returns
 			// 200 when the node's PostgreSQL is up (leader or streaming replica).
-			if res, err := a.docker.Exec(ctx, dep.ContainerID, []string{"bash", "-c", patroniRoleScript}, nil); err == nil {
+			if res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", patroniRoleScript}, nil); err == nil {
 				switch strings.TrimSpace(res.Stdout) {
 				case "leader":
 					leaderID = n.ID
@@ -695,7 +695,7 @@ func (a *App) patroniRegisterPMM(ctx context.Context, st Stack, n designNode, fr
 		"PMM_PW=" + envOr("PMM_PASSWORD", "pmm_password"),
 		"NODE=" + n.Label,
 	}
-	if _, err := a.docker.Exec(ctx, dep.ContainerID, []string{"bash", "-c", script}, env); err != nil {
+	if _, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", script}, env); err != nil {
 		pr.logln("PMM registration skipped: " + err.Error())
 	} else {
 		pr.logln("registered with PMM at " + pmmFQDN)
@@ -713,7 +713,7 @@ func (a *App) patroniLeaderContainer(ctx context.Context, st Stack, frame design
 		if err != nil || dep.ContainerID == "" || dep.State != DeployRunning {
 			continue
 		}
-		if res, err := a.docker.Exec(ctx, dep.ContainerID, []string{"bash", "-c", patroniRoleScript}, nil); err == nil {
+		if res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", patroniRoleScript}, nil); err == nil {
 			if strings.TrimSpace(res.Stdout) == "leader" {
 				return dep.ContainerID
 			}
@@ -758,7 +758,7 @@ func (a *App) handlePatroniBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	env := []string{"STANZA=" + patroniStanza(frame.Label)}
-	if res, err := a.docker.Exec(ctx, leaderID, []string{"bash", "-c", patroniBackupNowScript}, env); err != nil {
+	if res, err := a.engCtx(ctx).Exec(ctx, leaderID, []string{"bash", "-c", patroniBackupNowScript}, env); err != nil {
 		writeErr(w, http.StatusInternalServerError, "pgBackRest backup failed: "+err.Error())
 		return
 	} else if res.Code != 0 {

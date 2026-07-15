@@ -101,7 +101,7 @@ func (a *App) provisionSambaNode(st Stack, n designNode, doc designDoc) {
 		pr := a.pxcNewProg(st.ID, n.ID)
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 
-		if ok, _ := a.docker.ImageExists(ctx, image); !ok {
+		if ok, _ := a.engCtx(ctx).ImageExists(ctx, image); !ok {
 			pr.fail("image %s not found — run `make images` first", image)
 			return
 		}
@@ -114,10 +114,10 @@ func (a *App) provisionSambaNode(st Stack, n designNode, doc designDoc) {
 
 		pr.phase("Creating container", 12)
 		name := containerName(st.ID, n.ID)
-		if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
-			a.docker.ContainerRemove(ctx, cid)
+		if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
+			a.engCtx(ctx).ContainerRemove(ctx, cid)
 		}
-		id, err := a.docker.ContainerCreate(ctx, ContainerSpec{
+		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
 			Name: name, Image: image, Hostname: host, Privileged: true,
 			Network: networkName(st.ID), Aliases: []string{host, fqdn},
 			DNS: []string{intranetIP}, DNSSearch: []string{domain},
@@ -126,7 +126,7 @@ func (a *App) provisionSambaNode(st Stack, n designNode, doc designDoc) {
 			pr.fail("create container: %v", err)
 			return
 		}
-		if err := a.docker.ContainerStart(ctx, id); err != nil {
+		if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 			pr.fail("start container: %v", err)
 			return
 		}
@@ -134,7 +134,7 @@ func (a *App) provisionSambaNode(st Stack, n designNode, doc designDoc) {
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON, Secrets: secJSON})
 
 		pr.phase("Waiting for systemd", 16)
-		if err := a.docker.WaitSystemd(ctx, id, 90*time.Second); err != nil {
+		if err := a.engCtx(ctx).WaitSystemd(ctx, id, 90*time.Second); err != nil {
 			pr.fail("systemd did not start: %v", err)
 			return
 		}
@@ -204,7 +204,7 @@ func (a *App) sambaApplyCert(ctx context.Context, containerID, intranetID, fqdn 
 	if err != nil {
 		return fmt.Errorf("read CA key: %w", err)
 	}
-	if err := a.docker.PutArchive(ctx, containerID, "/tmp", tarFiles(map[string]fileEntry{
+	if err := a.engCtx(ctx).PutArchive(ctx, containerID, "/tmp", tarFiles(map[string]fileEntry{
 		"dbca-ca.crt": {0o644, 0, caCrt},
 		"dbca-ca.key": {0o644, 0, caKey},
 	})); err != nil {

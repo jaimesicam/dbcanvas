@@ -231,7 +231,7 @@ func (a *App) installPGOperator(ctx context.Context, st Stack, frame designFrame
 		return fmt.Errorf("read secrets.yaml from the operator source: %w", err)
 	}
 	newSecrets := pgSecretsTransform(string(rawSecrets), cfg.ClusterName)
-	if err := a.docker.CopyFile(ctx, serverID, cfg.OperatorSrc+"/deploy", "secrets.yaml", 0o600, []byte(newSecrets)); err != nil {
+	if err := a.engCtx(ctx).CopyFile(ctx, serverID, cfg.OperatorSrc+"/deploy", "secrets.yaml", 0o600, []byte(newSecrets)); err != nil {
 		pr.logln("could not write secrets.yaml back to the source tree: " + err.Error())
 	}
 	if err := a.kubectlApply(ctx, serverID, ns, []byte(newSecrets)); err != nil {
@@ -288,7 +288,7 @@ func (a *App) installPGOperator(ctx context.Context, st Stack, frame designFrame
 	opts.PMMHost = a.k3dPMMToken(ctx, st, frame, doc, serverID, cfg.ClusterName+"-pmm-secret", "PMM_SERVER_TOKEN", cfg, pr)
 
 	newCR := pgTransform(string(raw), opts)
-	if err := a.docker.CopyFile(ctx, serverID, cfg.OperatorSrc+"/deploy", "cr.yaml", 0o644, []byte(newCR)); err != nil {
+	if err := a.engCtx(ctx).CopyFile(ctx, serverID, cfg.OperatorSrc+"/deploy", "cr.yaml", 0o644, []byte(newCR)); err != nil {
 		pr.logln("could not write the rewritten cr.yaml back to the source tree: " + err.Error())
 	}
 	if err := a.kubectlApply(ctx, serverID, ns, []byte(newCR)); err != nil {

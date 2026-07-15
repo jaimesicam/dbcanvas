@@ -12,6 +12,11 @@ const TERMINAL_MODES = [
   { id: 'undocked', label: 'Undocked', hint: 'Opens in its own floating, movable window.' },
 ]
 
+const DEPLOY_BACKENDS = [
+  { id: 'docker', label: 'Docker', hint: 'Provisions each node as a Docker container on the local daemon.' },
+  { id: 'vagrant', label: 'Vagrant', hint: 'Provisions nodes as VirtualBox VMs via Vagrant (requires vagrant + VirtualBox on the host).' },
+]
+
 function Row({ title, hint, children }) {
   return (
     <div className="space-y-2 rounded-xl border bg-surface p-4">
@@ -52,6 +57,30 @@ export default function Settings() {
                   <span className="flex items-center gap-1.5 text-sm font-medium">
                     {m.label}
                     {m.id === 'docked' && <span className="text-[10px] font-normal text-muted">(default)</span>}
+                    {on && <Icon.Check size={14} />}
+                  </span>
+                  <span className="block text-xs text-muted">{m.hint}</span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </Row>
+
+      <Row title="Deployment" hint="How a stack's nodes are provisioned when you deploy. Applies to the next deploy of each stack.">
+        <div className="grid gap-2 sm:grid-cols-2">
+          {DEPLOY_BACKENDS.map((m) => {
+            const on = settings.deploymentBackend === m.id
+            return (
+              <button key={m.id} onClick={() => set({ deploymentBackend: m.id })}
+                className={`flex items-start gap-2.5 rounded-lg border p-3 text-left transition ${on ? 'border-primary bg-primary/10' : 'hover:bg-surface2'}`}>
+                <span className={`mt-0.5 ${on ? 'text-primary' : 'text-muted'}`}>
+                  <Icon.Server size={16} />
+                </span>
+                <span className="min-w-0">
+                  <span className="flex items-center gap-1.5 text-sm font-medium">
+                    {m.label}
+                    {m.id === 'docker' && <span className="text-[10px] font-normal text-muted">(default)</span>}
                     {on && <Icon.Check size={14} />}
                   </span>
                   <span className="block text-xs text-muted">{m.hint}</span>

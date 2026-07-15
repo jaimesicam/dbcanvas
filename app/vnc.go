@@ -109,7 +109,7 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 		pr := a.pxcNewProg(st.ID, n.ID)
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 
-		if ok, _ := a.docker.ImageExists(ctx, image); !ok {
+		if ok, _ := a.engCtx(ctx).ImageExists(ctx, image); !ok {
 			pr.fail("image %s not found — run `make images` first", image)
 			return
 		}
@@ -123,10 +123,10 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 
 		pr.phase("Creating container", 14)
 		name := containerName(st.ID, n.ID)
-		if cid, ok, _ := a.docker.ContainerByName(ctx, name); ok {
-			a.docker.ContainerRemove(ctx, cid)
+		if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
+			a.engCtx(ctx).ContainerRemove(ctx, cid)
 		}
-		id, err := a.docker.ContainerCreate(ctx, ContainerSpec{
+		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
 			Name: name, Image: image, Hostname: host, Privileged: true,
 			Network: networkName(st.ID), Aliases: []string{host},
 			PublishMap: []PortMap{{ContainerPort: vncWebPort}},
@@ -136,7 +136,7 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 			pr.fail("create container: %v", err)
 			return
 		}
-		if err := a.docker.ContainerStart(ctx, id); err != nil {
+		if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 			pr.fail("start container: %v", err)
 			return
 		}
@@ -144,7 +144,7 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 
 		// Record the published host port now so the manager link works even if a later
 		// step fails.
-		if hp, e := a.docker.ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", vncWebPort)); e == nil {
+		if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", vncWebPort)); e == nil {
 			if p, e2 := strconv.Atoi(hp); e2 == nil {
 				cfg.WebPort = p
 			}
@@ -153,7 +153,7 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON, Secrets: secJSON})
 
 		pr.phase("Waiting for systemd", 18)
-		if err := a.docker.WaitSystemd(ctx, id, 90*time.Second); err != nil {
+		if err := a.engCtx(ctx).WaitSystemd(ctx, id, 90*time.Second); err != nil {
 			pr.fail("systemd did not start: %v", err)
 			return
 		}

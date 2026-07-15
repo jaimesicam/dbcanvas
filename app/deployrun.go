@@ -63,19 +63,22 @@ func (a *App) finishDeploy(stackID int64, r *deployRun) {
 // Falls back to a background context when no run is registered (a provisioner
 // invoked outside a deploy, e.g. a management action).
 func (a *App) deployScope(stackID int64) (context.Context, func()) {
+	// The stack's engine (Docker or Vagrant) rides on every provisioning context,
+	// so helpers reach it via App.engCtx without threading it through signatures.
+	eng := a.engByStackID(stackID)
 	v, ok := a.deploys.Load(stackID)
 	if !ok {
-		return context.Background(), func() {}
+		return withEngine(context.Background(), eng), func() {}
 	}
 	r := v.(*deployRun)
 	// Already cancelled (a destroy landed while the handler was still spawning
 	// provisioners): hand back the cancelled context without joining the
 	// WaitGroup, so we never Add to a group that cancelDeploy is Waiting on.
 	if r.ctx.Err() != nil {
-		return r.ctx, func() {}
+		return withEngine(r.ctx, eng), func() {}
 	}
 	r.wg.Add(1)
-	return r.ctx, r.wg.Done
+	return withEngine(r.ctx, eng), r.wg.Done
 }
 
 // deployCancelled reports whether the stack's in-flight deploy was cancelled

@@ -214,7 +214,7 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 	if f.K3DOperator == "psmdb" && f.K3DSharding && (cpus < 8 || memGB < 12) {
 		out = append(out, issue{"warning", fmt.Sprintf("K3D cluster %s is sharded — 9 MongoDB pods (replica set + config servers + mongos) against %d CPU / %d GiB; below 8 CPU / 12 GiB, deploy it as a replica set instead", name, cpus, memGB)})
 	}
-	if ncpu, memBytes := a.docker.HostResources(ctx); ncpu > 0 && memBytes > 0 {
+	if ncpu, memBytes := a.engCtx(ctx).HostResources(ctx); ncpu > 0 && memBytes > 0 {
 		hostGB := int(memBytes / (1 << 30))
 		if cpus*5 > ncpu*4 || memGB*5 > hostGB*4 { // > 80% of the host
 			out = append(out, issue{"warning", fmt.Sprintf("K3D cluster %s is allotted %d CPU / %d GiB of this host's %d CPU / %d GiB — leaving under 20%% for the host and the rest of the stack", name, cpus, memGB, ncpu, hostGB)})
@@ -490,7 +490,7 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		serverID := ""
 		for i, n := range members {
 			cname := k3dNodeContainer(cluster, i)
-			cid, ok, _ := a.docker.ContainerByName(ctx, cname)
+			cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, cname)
 			if !ok {
 				failAll("k3d did not create the expected container %s", cname)
 				return
@@ -499,7 +499,7 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 				serverID = cid
 			}
 			// Impose this node's share of the cluster's CPU/memory budget as a cgroup limit.
-			if err := a.docker.ContainerUpdate(ctx, cid, nanoCPUs, memPerNode); err != nil {
+			if err := a.engCtx(ctx).ContainerUpdate(ctx, cid, nanoCPUs, memPerNode); err != nil {
 				progs[n.ID].logln("could not apply the CPU/memory limit: " + err.Error())
 			}
 			cfg := base
@@ -613,7 +613,7 @@ func k3dNodeImage(ctx context.Context, a *App, containerID string) string {
 	if containerID == "" {
 		return ""
 	}
-	out, err := a.docker.Exec(ctx, containerID, []string{"sh", "-c", "echo $K3S_IMAGE"}, nil)
+	out, err := a.engCtx(ctx).Exec(ctx, containerID, []string{"sh", "-c", "echo $K3S_IMAGE"}, nil)
 	if err == nil && strings.TrimSpace(out.Stdout) != "" {
 		return strings.TrimSpace(out.Stdout)
 	}
@@ -625,7 +625,7 @@ func k3dNodeImage(ctx context.Context, a *App, containerID string) string {
 // kubectl runs kubectl inside a k3s node (the k3s image ships it) against the cluster's own admin
 // kubeconfig. Nothing outside the cluster needs a Kubernetes client.
 func (a *App) kubectl(ctx context.Context, serverID string, args ...string) (string, error) {
-	res, err := a.docker.Exec(ctx, serverID, append([]string{"kubectl"}, args...), []string{"KUBECONFIG=" + k3dKubeconfig})
+	res, err := a.engCtx(ctx).Exec(ctx, serverID, append([]string{"kubectl"}, args...), []string{"KUBECONFIG=" + k3dKubeconfig})
 	if err != nil {
 		return "", err
 	}
@@ -644,7 +644,7 @@ func (a *App) kubectlApply(ctx context.Context, serverID, ns string, manifest []
 	if ns != "" {
 		args = append(args, "-n", ns)
 	}
-	res, err := a.docker.ExecInput(ctx, serverID, "", args,
+	res, err := a.engCtx(ctx).ExecInput(ctx, serverID, "", args,
 		[]string{"KUBECONFIG=" + k3dKubeconfig}, manifest)
 	if err != nil {
 		return err
@@ -679,7 +679,7 @@ data:
 // hands out addresses from the bottom, so the pool is taken from the very top — the last usable
 // addresses below the broadcast.
 func (a *App) metalLBPool(ctx context.Context, stackID int64) (string, error) {
-	cidr, err := a.docker.NetworkSubnet(ctx, networkName(stackID))
+	cidr, err := a.engCtx(ctx).NetworkSubnet(ctx, networkName(stackID))
 	if err != nil || cidr == "" {
 		return "", fmt.Errorf("could not read the stack subnet: %v", err)
 	}
@@ -811,10 +811,10 @@ func (a *App) k3dFetchOperator(ctx context.Context, serverID, repo string, cfg *
 	if err != nil {
 		return nil, fmt.Errorf("unpack the operator source: %w", err)
 	}
-	if _, err := a.docker.Exec(ctx, serverID, []string{"mkdir", "-p", k3dOperatorDir}, nil); err != nil {
+	if _, err := a.engCtx(ctx).Exec(ctx, serverID, []string{"mkdir", "-p", k3dOperatorDir}, nil); err != nil {
 		return nil, err
 	}
-	if err := a.docker.PutArchive(ctx, serverID, k3dOperatorDir, tarball); err != nil {
+	if err := a.engCtx(ctx).PutArchive(ctx, serverID, k3dOperatorDir, tarball); err != nil {
 		return nil, fmt.Errorf("copy the operator source to %s: %w", k3dOperatorDir, err)
 	}
 	pr.logln("operator source in " + cfg.OperatorSrc + " (on the first node)")
@@ -931,7 +931,7 @@ func (a *App) installPXCOperator(ctx context.Context, st Stack, frame designFram
 		return fmt.Errorf("read secrets.yaml from the operator source: %w", err)
 	}
 	newSecrets := secretsTransform(string(rawSecrets), cfg.ClusterName, k3dSecretsPasswords())
-	if err := a.docker.CopyFile(ctx, serverID, cfg.OperatorSrc+"/deploy", "secrets.yaml", 0o600, []byte(newSecrets)); err != nil {
+	if err := a.engCtx(ctx).CopyFile(ctx, serverID, cfg.OperatorSrc+"/deploy", "secrets.yaml", 0o600, []byte(newSecrets)); err != nil {
 		pr.logln("could not write secrets.yaml back to the source tree: " + err.Error())
 	}
 	if err := a.kubectlApply(ctx, serverID, ns, []byte(newSecrets)); err != nil {
@@ -977,7 +977,7 @@ func (a *App) installPXCOperator(ctx context.Context, st Stack, frame designFram
 
 	newCR := crTransform(string(raw), opts)
 	// Keep /root in sync with what was actually applied — the source is there to be read.
-	if err := a.docker.CopyFile(ctx, serverID, cfg.OperatorSrc+"/deploy", "cr.yaml", 0o644, []byte(newCR)); err != nil {
+	if err := a.engCtx(ctx).CopyFile(ctx, serverID, cfg.OperatorSrc+"/deploy", "cr.yaml", 0o644, []byte(newCR)); err != nil {
 		pr.logln("could not write the rewritten cr.yaml back to the source tree: " + err.Error())
 	}
 	if err := a.kubectlApply(ctx, serverID, ns, []byte(newCR)); err != nil {

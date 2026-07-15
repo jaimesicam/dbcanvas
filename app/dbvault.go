@@ -137,7 +137,7 @@ bao token create -policy="$POLICY" -period=768h -field=token`
 // a token scoped to it. Runs on the OpenBao container (that is where bao and the CA live).
 func (a *App) provisionVaultMount(ctx context.Context, baoCID string, cfg openbaoConfig, rootToken, mount, kv, engine string, logln func(string)) (string, error) {
 	policy := openbaoPolicy(mount, kv, engine)
-	if err := a.docker.CopyFile(ctx, baoCID, openbaoConfDir, "policy-"+mount+".hcl", 0o644, []byte(policy)); err != nil {
+	if err := a.engCtx(ctx).CopyFile(ctx, baoCID, openbaoConfDir, "policy-"+mount+".hcl", 0o644, []byte(policy)); err != nil {
 		return "", fmt.Errorf("write policy: %w", err)
 	}
 	env := append(baoClientEnv(cfg),
