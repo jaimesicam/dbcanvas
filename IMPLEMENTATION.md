@@ -6817,3 +6817,47 @@ BSON type, native-value emission for every type, skip-vs-null semantics, and a f
 round-trips through Extended JSON. **Not yet run against a live node** — the connect / `$sample` /
 `InsertMany` path is exercised structurally and by the driver's own types, but an end-to-end run
 against a deployed `psm`/`psmrs` stack is still owed.
+
+## 142. Benchmark MongoDB — an embedded-document workload, not SQL in a wig — `app/benchmark_mongo.go`, `benchmark.go`, `benchmark_run.go`, `queryrun.go`, `Benchmark.jsx`
+
+The benchmark was sysbench-shaped: a normalized `bench_*` star schema driven over `database/sql`
+with OLTP/OLAP/RW/RO/CRUD profiles full of JOINs and GROUP BY. MongoDB gets the same five profiles
+and the same harness, but the workload underneath is modelled the way you would actually model it in
+MongoDB — because reproducing the star schema with `$lookup` would benchmark the wrong thing and
+report numbers nobody should trust.
+
+**What's reused vs. what's new.** The harness is engine-agnostic and stays: `benchRun` lifecycle,
+the `latAcc` latency buckets (`recStmt`), thread fan-out, the warmup/measure windows, snapshot/DTO,
+history, stop/status, and the whole results UI. `execute()` gains one branch at the top —
+`engine=="mongodb"` → `executeMongo` — and everything below it (create-database, `dialNodeDSN`,
+`sql.Open`, the SQL `unit*`) is never reached. The new file is the client (the data generator's
+`mongoClientFor` over the stack network), an embedded-document loader, the workload ops, and a CRUD
+plan. No `database/sql`: there is no such MongoDB driver, and the native driver is what gives us
+documents and aggregation pipelines in the first place.
+
+**The dataset earns its shape.** An order **embeds** its line items, and the three fields an analytic
+query needs from elsewhere — a product's `category`, a customer's `country`/`segment` — are
+**denormalized onto the order**. That is the deliberate part: every OLAP query is then a
+single-collection `$unwind`/`$group` (revenue by category; monthly revenue; top customers; AOV by
+country+segment; top products in a window), which is how this is modelled in production, instead of a
+`$lookup` join that would measure something no one runs. OLTP/RW/RO are single-document bursts —
+find-by-`_id`, range-find, insert, `$set` update, delete — not `BEGIN…COMMIT`, because single-doc
+ops are the honest MongoDB unit of work.
+
+**CRUD composes with the data generator.** The CRUD profile reuses the generator's collection
+introspection (`mongoCollectionMeta`) and value emitters (`mongoValue`) to insert synthetic
+documents, and a background `$sample` sampler keeps a pool of real filter-key tuples so
+find/update/delete hit live documents. Generate a collection, then benchmark operations on it — one
+story, two tools.
+
+**A regression this surfaced and fixed.** Making `psm`/`psmrs`/`psmdb` a `mongodb` engine (for the
+generator, §141) meant `listSQLTargets` — *shared with the Query Runner* — began offering MongoDB
+nodes the Query Runner cannot drive. `listSQLTargets` is SQL-only again; the benchmark got its own
+`listBenchTargets` (SQL + Mongo, mongos-only for a sharded cluster), and `resolveNodeCreds` learned
+`mongoSecrets`. The report's statement buckets gained `point_find`/`range_find`/`agg_q1..q5`
+alongside the shared insert/update/delete, so a Mongo run's latency table reads in its own terms.
+
+**Verified**: unit tests cover op-bucket registration, order-document shaping (embedded items,
+denormalized fields, totals, BSON round-trip), CRUD filter subsetting, and weight honouring. **Not
+yet run against a live node** — the workloads are structurally verified and unit-tested, but the
+connect / load / drive path against a deployed `psm`/`psmrs` stack has not been exercised end-to-end.

@@ -76,6 +76,8 @@ export default function Benchmark() {
     ...c, filterColumns: c.filterColumns.includes(name) ? c.filterColumns.filter((x) => x !== name) : [...c.filterColumns, name],
   }))
   const isCrud = cfg.workload === 'crud'
+  const selEngine = (targets || []).find((t) => benchTargetKey(t) === cfg.target)?.engine
+  const isMongo = selEngine === 'mongodb'
 
   async function doRun() {
     setErr(''); setBusy(true)
@@ -115,7 +117,7 @@ export default function Benchmark() {
         </div>
       )}
 
-      <Card title="New benchmark" subtitle="Loads a bench_* star schema into the chosen database, then drives it with the selected workload.">
+      <Card title="New benchmark" subtitle={isMongo ? 'Loads a bench_* embedded-document dataset into the chosen database, then drives it with the selected workload.' : 'Loads a bench_* star schema into the chosen database, then drives it with the selected workload.'}>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Server">
             <select value={cfg.target} onChange={(e) => set({ target: e.target.value })} className={inputCls}>
@@ -153,10 +155,10 @@ export default function Benchmark() {
         {isCrud && (
           <div className="mt-3 space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label="Table" hint="CRUD runs against this existing table — it will add & remove rows">
+              <Field label={isMongo ? 'Collection' : 'Table'} hint={`CRUD runs against this existing ${isMongo ? 'collection' : 'table'} — it will add & remove ${isMongo ? 'documents' : 'rows'}`}>
                 <select value={cfg.table} className={inputCls}
                   onChange={(e) => { const t = tables.find((x) => x.table === e.target.value); set({ table: e.target.value, schema: t?.schema || '', filterColumns: [] }) }}>
-                  <option value="">Select a table…</option>
+                  <option value="">Select a {isMongo ? 'collection' : 'table'}…</option>
                   {tables.map((t) => (
                     <option key={`${t.schema}.${t.table}`} value={t.table}>{t.schema ? `${t.schema}.` : ''}{t.table}{t.estRows ? ` (~${t.estRows} rows)` : ''}</option>
                   ))}
@@ -176,7 +178,7 @@ export default function Benchmark() {
             </div>
             {colMeta && (
               <div>
-                <div className="mb-1 text-xs font-medium text-muted">Filter columns <span className="font-normal text-muted/70">— update/delete/select match rows on a random subset of these (default: primary key)</span></div>
+                <div className="mb-1 text-xs font-medium text-muted">Filter {isMongo ? 'fields' : 'columns'} <span className="font-normal text-muted/70">— update/delete/select match {isMongo ? 'documents' : 'rows'} on a random subset of these (default: {isMongo ? '_id' : 'primary key'})</span></div>
                 <div className="flex flex-wrap gap-2">
                   {(colMeta.columns || []).map((c) => (
                     <label key={c.name} className={`flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs ${cfg.filterColumns.includes(c.name) ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-surface2'}`}>
@@ -209,7 +211,7 @@ export default function Benchmark() {
           ) : (
             <Button variant="primary" onClick={doRun} disabled={busy || !targets?.length}>Run benchmark</Button>
           )}
-          {!targets?.length && targets !== null && <span className="text-xs text-muted">No running MySQL/PXC or PostgreSQL nodes — deploy one first.</span>}
+          {!targets?.length && targets !== null && <span className="text-xs text-muted">No running MySQL/PXC, PostgreSQL or MongoDB nodes — deploy one first.</span>}
         </div>
       </Card>
 

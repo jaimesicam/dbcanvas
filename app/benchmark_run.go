@@ -98,6 +98,8 @@ func newBenchRun(a *App, ownerID int64, cfg benchConfig, engine, containerID, la
 	driver := "pgx"
 	if engine == "mysql" {
 		driver = "mysql"
+	} else if engine == "mongodb" {
+		driver = "mongo" // informational; the Mongo path uses the driver directly, not database/sql
 	}
 	run := &benchRun{
 		id: qrNewID(), ownerID: ownerID, app: a, cfg: cfg,
@@ -194,6 +196,11 @@ func (run *benchRun) execute(ctx context.Context) {
 
 	if run.cfg.Workload != "crud" {
 		run.setRanges()
+	}
+
+	if run.engine == "mongodb" {
+		run.executeMongo(ctx)
+		return
 	}
 
 	if run.cfg.CreateDB {

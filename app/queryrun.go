@@ -57,8 +57,8 @@ func (a *App) listSQLTargets(u User) []qrTarget {
 		doc := buildDoc(st)
 		for _, n := range doc.Nodes {
 			engine := engineForType(n.Type)
-			if engine == "" {
-				continue
+			if engine == "" || engine == "mongodb" {
+				continue // the Query Runner is SQL-only; MongoDB has its own target list (benchmark)
 			}
 			if dep, err := a.store.GetDeployment(st.ID, n.ID); err != nil || dep.State != DeployRunning {
 				continue
@@ -108,7 +108,14 @@ func (a *App) resolveNodeCreds(u User, stackID int64, nodeID string) (engine, co
 		return "", "", "", "", "", fmt.Errorf("node is not running")
 	}
 	label, containerID = node.Label, dep.ContainerID
-	if engine == "mysql" {
+	if engine == "mongodb" {
+		var s mongoSecrets
+		json.Unmarshal(dep.Secrets, &s)
+		user, pass = s.AdminUser, s.AdminPassword
+		if user == "" {
+			user = "admin"
+		}
+	} else if engine == "mysql" {
 		var s pxcSecrets
 		json.Unmarshal(dep.Secrets, &s)
 		user, pass = s.AdminUser, s.AdminPassword

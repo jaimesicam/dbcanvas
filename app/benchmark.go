@@ -40,6 +40,9 @@ var benchIdentRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,62}$`)
 var benchStmtTypes = []string{
 	"point_select", "range_select", "update", "insert", "delete",
 	"olap_q1", "olap_q2", "olap_q3", "olap_q4", "olap_q5",
+	// MongoDB op buckets (insert/update/delete are shared with the SQL set above).
+	"point_find", "range_find",
+	"agg_q1", "agg_q2", "agg_q3", "agg_q4", "agg_q5",
 }
 
 // benchWeights are the relative CRUD operation weights.
@@ -78,7 +81,39 @@ func (a *App) handleBenchTargets(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	writeJSON(w, http.StatusOK, a.listSQLTargets(u))
+	writeJSON(w, http.StatusOK, a.listBenchTargets(u))
+}
+
+// listBenchTargets is the Query Runner's SQL target list plus running MongoDB nodes (the
+// benchmark can drive Mongo; the Query Runner cannot). A sharded cluster only exposes its mongos
+// router — a config/shard member would reject writes with "not master".
+func (a *App) listBenchTargets(u User) []qrTarget {
+	out := a.listSQLTargets(u)
+	stacks, _ := a.store.ListStacks(u.ID, u.Role == RoleAdmin)
+	for _, s := range stacks {
+		st, err := a.store.GetStack(s.ID)
+		if err != nil {
+			continue
+		}
+		doc := buildDoc(st)
+		for _, n := range doc.Nodes {
+			if engineForType(n.Type) != "mongodb" {
+				continue
+			}
+			if n.Type == "psmdb" && n.Role != "mongos" {
+				continue
+			}
+			if dep, err := a.store.GetDeployment(st.ID, n.ID); err != nil || dep.State != DeployRunning {
+				continue
+			}
+			out = append(out, qrTarget{
+				StackID: st.ID, StackName: st.Name, NodeID: n.ID, Label: n.Label,
+				Engine: "mongodb", Type: n.Type, Port: 27017,
+				Host: fqdnOf(stackHostnames(doc)[n.ID], envOr("DOMAIN", "example.net")),
+			})
+		}
+	}
+	return out
 }
 
 func (a *App) handleBenchStart(w http.ResponseWriter, r *http.Request) {
