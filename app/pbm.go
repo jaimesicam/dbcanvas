@@ -248,6 +248,7 @@ func (a *App) handleMongoPBMBackup(w http.ResponseWriter, r *http.Request) {
 	var sec mongoSecrets
 	dep, _ := a.store.GetDeployment(st.ID, node.ID)
 	json.Unmarshal(dep.Secrets, &sec)
+	a.stampEngine(r, st, node.ID)
 	ctx := r.Context()
 	env := []string{"PBM_URI=" + pbmMongoURI(sec.PBMUser, sec.PBMPassword)}
 	if res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", pbmBackupScript}, env); err != nil {

@@ -17,8 +17,11 @@ else
   echo "exists: no"
 fi`
 
-// loadRunningPMM resolves the stack + a running PMM node deployment, returning
-// the stack (needed to find the sibling Intranet node) and the deployment.
+// loadRunningPMM is the generic running-deployment loader (despite the name): it
+// resolves the stack + a running node deployment and stamps the node's engine on the
+// request context (see stampEngine), so cert/user/backup handlers for PostgreSQL,
+// MySQL/PXC and MongoDB — which can run as VM nodes — exec on the right engine. Also
+// returns the stack (callers need it to find the sibling Intranet node).
 func (a *App) loadRunningPMM(w http.ResponseWriter, r *http.Request) (Stack, Deployment, bool) {
 	st, _, ok := a.loadOwnedStack(w, r)
 	if !ok {
@@ -33,6 +36,7 @@ func (a *App) loadRunningPMM(w http.ResponseWriter, r *http.Request) (Stack, Dep
 		writeErr(w, http.StatusConflict, "node is not running")
 		return Stack{}, Deployment{}, false
 	}
+	a.stampEngine(r, st, r.PathValue("nid"))
 	dep = a.reconcileContainerID(r.Context(), st.ID, r.PathValue("nid"), dep)
 	return st, dep, true
 }

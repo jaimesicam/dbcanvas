@@ -1890,6 +1890,9 @@ func (a *App) handleNodeAction(action string) http.HandlerFunc {
 			writeErr(w, http.StatusNotFound, "node is not deployed")
 			return
 		}
+		// start/stop/restart must hit the node's own engine — a VM node's lifecycle is
+		// driven by Vagrant, not Docker.
+		a.stampEngine(r, st, nid)
 		ctx := r.Context()
 		switch action {
 		case "start":

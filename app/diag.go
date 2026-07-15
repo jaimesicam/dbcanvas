@@ -67,38 +67,42 @@ func (a *App) loadRunningDBNode(w http.ResponseWriter, r *http.Request, wantEngi
 		return Deployment{}, "", false
 	}
 	dep.StackID = st.ID
+	a.stampEngine(r, st, nid)
 	dep = a.reconcileContainerID(r.Context(), st.ID, nid, dep)
 	return dep, typ, true
 }
 
-// fileExists reports whether a non-empty file exists in the container.
-func (a *App) fileExists(containerID, path string) bool {
-	res, err := a.docker.Exec(context.Background(), containerID, []string{"bash", "-c", "test -s " + path}, nil)
+// fileExists reports whether a non-empty file exists in the container, on the engine
+// carried by ctx (a VM for a hybrid stack's DB node, else Docker).
+func (a *App) fileExists(ctx context.Context, containerID, path string) bool {
+	res, err := a.engCtx(ctx).Exec(ctx, containerID, []string{"bash", "-c", "test -s " + path}, nil)
 	return err == nil && res.Code == 0
 }
 
 // captureStatusFor returns the in-memory capture state, or — if none — a "done"/"idle"
 // state derived from whether the result file is present on the node (so a prior capture
 // survives an app restart).
-func (a *App) captureStatusFor(stackID int64, nodeID, kind, containerID, file, name string) captureState {
+func (a *App) captureStatusFor(ctx context.Context, stackID int64, nodeID, kind, containerID, file, name string) captureState {
 	if v, ok := a.captures.Load(captureKey(stackID, nodeID, kind)); ok {
 		return *(v.(*captureState))
 	}
-	if a.fileExists(containerID, file) {
+	if a.fileExists(ctx, containerID, file) {
 		return captureState{Status: captureDone, Name: name}
 	}
 	return captureState{Status: captureIdle}
 }
 
 // startCapture launches a capture in the background, tracking its status in a.captures.
-func (a *App) startCapture(stackID int64, nodeID, kind, containerID, script string, env []string, database, name string) {
+// eng is the node's engine (from the request context) — the goroutine outlives the
+// request, so it carries the engine explicitly onto a background context.
+func (a *App) startCapture(eng Engine, stackID int64, nodeID, kind, containerID, script string, env []string, database, name string) {
 	key := captureKey(stackID, nodeID, kind)
 	if v, ok := a.captures.Load(key); ok && v.(*captureState).Status == captureRunning {
 		return // already running
 	}
 	a.captures.Store(key, &captureState{Status: captureRunning, Database: database, Name: name, Started: time.Now().UTC().Format(time.RFC3339)})
 	go func() {
-		out, err := a.execScript(context.Background(), containerID, script, env)
+		out, err := a.execScript(withEngine(context.Background(), eng), containerID, script, env)
 		st := &captureState{Database: database, Name: name, Finished: time.Now().UTC().Format(time.RFC3339)}
 		if v, ok := a.captures.Load(key); ok {
 			st.Started = v.(*captureState).Started
@@ -114,13 +118,14 @@ func (a *App) startCapture(stackID int64, nodeID, kind, containerID, script stri
 	}()
 }
 
-// serveContainerFile reads a file out of a container and serves it as a download.
-func (a *App) serveContainerFile(w http.ResponseWriter, containerID, path, name, contentType string) {
-	if !a.fileExists(containerID, path) {
+// serveContainerFile reads a file out of a container and serves it as a download, on
+// the engine carried by ctx.
+func (a *App) serveContainerFile(ctx context.Context, w http.ResponseWriter, containerID, path, name, contentType string) {
+	if !a.fileExists(ctx, containerID, path) {
 		writeErr(w, http.StatusNotFound, "no capture available — run it first")
 		return
 	}
-	data, err := a.readContainerFile(context.Background(), containerID, path)
+	data, err := a.readContainerFile(ctx, containerID, path)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "read capture: "+err.Error())
 		return
@@ -150,7 +155,7 @@ func (a *App) handlePGGatherStatus(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, a.captureStatusFor(dep.StackID, r.PathValue("nid"), "pggather", dep.ContainerID, pgGatherFile, "GatherReport.html"))
+	writeJSON(w, http.StatusOK, a.captureStatusFor(r.Context(), dep.StackID, r.PathValue("nid"), "pggather", dep.ContainerID, pgGatherFile, "GatherReport.html"))
 }
 
 func (a *App) handlePGGatherStart(w http.ResponseWriter, r *http.Request) {
@@ -170,7 +175,7 @@ func (a *App) handlePGGatherStart(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "select a database to gather from")
 		return
 	}
-	a.startCapture(dep.StackID, r.PathValue("nid"), "pggather", dep.ContainerID, pgGatherScript, []string{"DB=" + b.Database}, b.Database, "GatherReport.html")
+	a.startCapture(a.engCtx(r.Context()), dep.StackID, r.PathValue("nid"), "pggather", dep.ContainerID, pgGatherScript, []string{"DB=" + b.Database}, b.Database, "GatherReport.html")
 	writeJSON(w, http.StatusAccepted, map[string]any{"status": captureRunning, "database": b.Database})
 }
 
@@ -179,7 +184,7 @@ func (a *App) handlePGGatherDownload(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	a.serveContainerFile(w, dep.ContainerID, pgGatherFile, "GatherReport.html", "text/html; charset=utf-8")
+	a.serveContainerFile(r.Context(), w, dep.ContainerID, pgGatherFile, "GatherReport.html", "text/html; charset=utf-8")
 }
 
 // ------------------------------------------------------------------ pt-stalk
@@ -189,7 +194,7 @@ func (a *App) handlePTStalkStatus(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, a.captureStatusFor(dep.StackID, r.PathValue("nid"), "ptstalk", dep.ContainerID, ptStalkFile, ptStalkName(dep)))
+	writeJSON(w, http.StatusOK, a.captureStatusFor(r.Context(), dep.StackID, r.PathValue("nid"), "ptstalk", dep.ContainerID, ptStalkFile, ptStalkName(dep)))
 }
 
 func (a *App) handlePTStalkStart(w http.ResponseWriter, r *http.Request) {
@@ -197,7 +202,7 @@ func (a *App) handlePTStalkStart(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	a.startCapture(dep.StackID, r.PathValue("nid"), "ptstalk", dep.ContainerID, ptStalkScript, nil, "", ptStalkName(dep))
+	a.startCapture(a.engCtx(r.Context()), dep.StackID, r.PathValue("nid"), "ptstalk", dep.ContainerID, ptStalkScript, nil, "", ptStalkName(dep))
 	writeJSON(w, http.StatusAccepted, map[string]any{"status": captureRunning})
 }
 
@@ -206,7 +211,7 @@ func (a *App) handlePTStalkDownload(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	a.serveContainerFile(w, dep.ContainerID, ptStalkFile, ptStalkName(dep), "application/gzip")
+	a.serveContainerFile(r.Context(), w, dep.ContainerID, ptStalkFile, ptStalkName(dep), "application/gzip")
 }
 
 func ptStalkName(dep Deployment) string { return "ptstalk-" + hostnameOf(dep) + ".tar.gz" }

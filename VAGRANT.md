@@ -116,11 +116,35 @@ at teardown by turning the `-S` output's `-A` lines into `-D`, and run via `sudo
 - Follow-up worth noting: DNS-name resolution across engines (not just IP ping/TCP) is covered by the
   existing reconcile but was not separately asserted in the spike; the mgmt-panel work (Part 3) exercises it.
 
-### 3. Management panels
-Deploy/terminal/teardown already route per engine. Post-deploy panels (certs/users/backups, `*_mgmt.go`,
-`diag.go` `fileExists`) still resolve to Docker via `r.Context()`. Thread the node's engine into those
-handlers (inject in the common `loadRunningNode`/`loadRunningDBNode` loaders) so management works on VM
-nodes too.
+### 3. Management panels ✅ DONE (exec-based); network-dial paths deferred
+Post-deploy panels resolved to Docker via an unstamped `r.Context()`. Fixed by stamping the node's engine
+onto the request context in place — `App.stampEngine(r, st, nid)` does `*r = *r.WithContext(withEngine(...,
+depEngine))` — so the many handlers that pass `r.Context()` straight through need **no** change.
+- Stamped in **all three** loaders: `loadRunningNode` (dbcerts, intranet, openbao, seaweedfs, samba,
+  terminal), `loadRunningDBNode` (diag captures), and the mis-named generic `loadRunningPMM` (pg/mongo/pxc
+  cert + user + monitor handlers). The name is historical — it's the generic running-node loader.
+- Handlers that bypass the loaders (resolve a deployment directly) were stamped individually:
+  `handleNodeAction` (start/stop/restart — a VM's lifecycle is Vagrant, not Docker), `handlePGBackup`,
+  `handleMongoPBMBackup`, `handlePXCFrameMonitor`.
+- Helpers that hard-coded Docker/`context.Background()` were threaded with `ctx`: `diag.go` `fileExists`,
+  `captureStatusFor`, `serveContainerFile`, and `startCapture` (its goroutine outlives the request, so it
+  takes the engine explicitly and carries it on a background context).
+- **Data Generator** (exec-based, postgres/mysql): the engine now travels on `dbConn.eng` (set by
+  `dbConnFor` via `nodeEngine`), and `queryJSON`/`execSQL` exec through `c.engine()` — robust for the
+  background generation job whose ctx isn't request-scoped.
+- The CA-read vs node-write split from Part 1 (`readIntranetFile`/`intranetEngine` force Docker for the
+  Intranet, `engCtx(ctx)` uses the node engine) means the `*ApplyCert` handlers Just Work once the ctx
+  carries the VM engine: cert bytes are read from the Docker Intranet, applied on the VM.
+- Verified: `TestStampEngineOnRequest`; a repo-wide detector (handler does `GetDeployment` + exec without
+  resolving an engine) reports zero hits. `go build/vet/test` green.
+
+**Deferred — network-dial paths (Query Runner, Benchmark, Data Generator over the MongoDB driver).** These
+don't exec into the node; they dial its IP over TCP from the DBCanvas *app container* (`dialNodeDSN` /
+`datagen_mongo.go`: `NetworkConnect(qrAppContainerID())` + `ContainerIP`). That model assumes the app is a
+Docker container joined to the stack bridge — but the hybrid runtime requirement runs the app **on the
+host**, which already sits on both networks and would dial the node directly (Docker container IP or VM
+host-only IP) with no `NetworkConnect`. Making these hybrid-aware is a self-contained host-mode-networking
+change, tracked separately from the management-panel work.
 
 ## Files
 - Change: `app/engine.go` (`nodeEngine`, drop reject), `app/deployrun.go` (per-node engine injection),

@@ -250,7 +250,7 @@ func (a *App) handleSambaKrb5(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	a.serveContainerFile(w, dep.ContainerID, "/etc/krb5.conf", "krb5.conf", "text/plain; charset=utf-8")
+	a.serveContainerFile(r.Context(), w, dep.ContainerID, "/etc/krb5.conf", "krb5.conf", "text/plain; charset=utf-8")
 }
 
 // handleSambaTargets returns the stack's PostgreSQL + MongoDB node FQDNs to pick a
@@ -334,7 +334,7 @@ func (a *App) handleSambaKeytab(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.ReplaceAll(principal, "/", "_") + ".keytab"
-	a.serveContainerFile(w, dep.ContainerID, "/tmp/svc.keytab", name, "application/octet-stream")
+	a.serveContainerFile(r.Context(), w, dep.ContainerID, "/tmp/svc.keytab", name, "application/octet-stream")
 }
 
 // ------------------------------------------------------------------ TLS cert

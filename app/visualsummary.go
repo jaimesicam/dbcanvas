@@ -1352,7 +1352,7 @@ func (a *App) handleVisualNode(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !a.fileExists(dep.ContainerID, ptStalkFile) {
+	if !a.fileExists(r.Context(), dep.ContainerID, ptStalkFile) {
 		writeErr(w, http.StatusNotFound, "no pt-stalk capture on this node — run one first")
 		return
 	}

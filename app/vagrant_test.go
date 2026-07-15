@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -150,6 +151,34 @@ func TestNodeEngineRouting(t *testing.T) {
 	aNoVagrant := &App{docker: &Docker{}}
 	if aNoVagrant.nodeEngine(Stack{Backend: BackendVagrant}, "pg") != Engine(aNoVagrant.docker) {
 		t.Errorf("no vagrant backend -> must fall back to docker")
+	}
+}
+
+// stampEngine must put the node's engine on the request context so management
+// handlers (which read it via engCtx) exec on the right engine: the VM for a hybrid
+// stack's DB node, Docker for infra and for docker stacks.
+func TestStampEngineOnRequest(t *testing.T) {
+	a := &App{docker: &Docker{}, vagrant: &Vagrant{root: t.TempDir()}}
+	st := Stack{ID: 1, Backend: BackendVagrant,
+		Design: []byte(`{"nodes":[{"id":"db","type":"pg"},{"id":"mon","type":"pmm"}]}`)}
+
+	req := httptest.NewRequest("POST", "/x", nil)
+	a.stampEngine(req, st, "db") // pg -> VM
+	if got := a.engCtx(req.Context()); got != Engine(a.vagrant) {
+		t.Errorf("pg node should stamp the vagrant engine")
+	}
+
+	req = httptest.NewRequest("POST", "/x", nil)
+	a.stampEngine(req, st, "mon") // pmm stays Docker
+	if got := a.engCtx(req.Context()); got != Engine(a.docker) {
+		t.Errorf("pmm node should stamp the docker engine")
+	}
+
+	// A docker stack always stamps Docker, even for a DB node.
+	req = httptest.NewRequest("POST", "/x", nil)
+	a.stampEngine(req, Stack{ID: 2, Backend: BackendDocker, Design: st.Design}, "db")
+	if got := a.engCtx(req.Context()); got != Engine(a.docker) {
+		t.Errorf("docker stack should stamp the docker engine")
 	}
 }
 

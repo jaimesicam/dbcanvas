@@ -440,6 +440,7 @@ func (a *App) handlePGBackup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "node is not running")
 		return
 	}
+	a.stampEngine(r, st, nid)
 	ctx := r.Context()
 	env := []string{"STANZA=" + patroniStanza(node.Label)}
 	if res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", patroniBackupNowScript}, env); err != nil {

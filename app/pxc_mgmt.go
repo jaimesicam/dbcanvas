@@ -123,7 +123,8 @@ func (a *App) handlePXCFrameMonitor(w http.ResponseWriter, r *http.Request) {
 		monitoredBy, pmmUser, pmmPass = fqdn, user, pass
 	}
 
-	ctx := r.Context()
+	// Every member of a pxc frame runs on the same engine (a VM in a hybrid stack).
+	ctx := withEngine(r.Context(), a.nodeEngine(st, frame.Type))
 	updated := 0
 	for _, n := range doc.Nodes {
 		if n.FrameID != fid || n.Type != "pxc" || n.Role == "arbitrator" {

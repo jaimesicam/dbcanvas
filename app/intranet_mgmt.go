@@ -21,7 +21,17 @@ func validPassword(s string) bool {
 	return len(s) >= 1 && len(s) <= 128 && !strings.ContainsAny(s, ":\n\r")
 }
 
-// loadRunningNode resolves the stack + a running node deployment + its secrets.
+// stampEngine records the node's provisioning engine on the request context in
+// place, so every downstream r.Context() call in a management handler (exec, cert,
+// backup, file check, terminal) runs on the engine the node actually lives on — the
+// Vagrant VM for a hybrid stack's DB node, Docker otherwise. Mutating *r means the
+// many handlers that pass r.Context() straight through need no changes.
+func (a *App) stampEngine(r *http.Request, st Stack, nodeID string) {
+	*r = *r.WithContext(withEngine(r.Context(), a.depEngine(st, nodeID)))
+}
+
+// loadRunningNode resolves the stack + a running node deployment + its secrets, and
+// stamps the node's engine on the request context (see stampEngine).
 func (a *App) loadRunningNode(w http.ResponseWriter, r *http.Request) (Deployment, nodeSecrets, bool) {
 	st, _, ok := a.loadOwnedStack(w, r)
 	if !ok {
@@ -36,6 +46,7 @@ func (a *App) loadRunningNode(w http.ResponseWriter, r *http.Request) (Deploymen
 		writeErr(w, http.StatusConflict, "node is not running")
 		return Deployment{}, nodeSecrets{}, false
 	}
+	a.stampEngine(r, st, r.PathValue("nid"))
 	dep = a.reconcileContainerID(r.Context(), st.ID, r.PathValue("nid"), dep)
 	var sec nodeSecrets
 	json.Unmarshal(dep.Secrets, &sec)

@@ -26,8 +26,14 @@ type dbConn struct {
 	Engine      string // "postgres" | "mysql" | "mongodb"
 	Super       string // admin user (postgres / root / admin)
 	Password    string
-	StackID     int64 // for joining the stack network (MongoDB driver dials the container IP)
+	StackID     int64  // for joining the stack network (MongoDB driver dials the container IP)
+	eng         Engine // the node's provisioning engine (Vagrant VM in a hybrid stack, else Docker)
 }
+
+// engine returns the connection's provisioning engine. Set by dbConnFor for the
+// exec-based (postgres/mysql) paths; the mongodb path dials over the network instead
+// and never calls this.
+func (c dbConn) engine() Engine { return c.eng }
 
 // engineForType maps a design node type to a Data Generator engine ("" = unsupported).
 func engineForType(t string) string {
@@ -47,12 +53,14 @@ func (a *App) dbConnFor(st Stack, nid string) (dbConn, bool) {
 	if err != nil || dep.ContainerID == "" || dep.State != DeployRunning {
 		return dbConn{}, false
 	}
-	engine := engineForType(nodeTypeIn(st, nid))
+	typ := nodeTypeIn(st, nid)
+	engine := engineForType(typ)
 	if engine == "" {
 		return dbConn{}, false
 	}
-	dep = a.reconcileContainerID(context.Background(), st.ID, nid, dep)
-	c := dbConn{ContainerID: dep.ContainerID, Engine: engine, StackID: st.ID}
+	eng := a.nodeEngine(st, typ)
+	dep = a.reconcileContainerID(withEngine(context.Background(), eng), st.ID, nid, dep)
+	c := dbConn{ContainerID: dep.ContainerID, Engine: engine, StackID: st.ID, eng: eng}
 	if engine == "mongodb" {
 		var s mongoSecrets
 		json.Unmarshal(dep.Secrets, &s)
@@ -102,11 +110,11 @@ func (a *App) queryJSON(ctx context.Context, c dbConn, db, sql string, out any) 
 	var res ExecResult
 	var err error
 	if c.Engine == "mysql" {
-		res, err = a.engCtx(ctx).ExecInput(ctx, c.ContainerID, "",
+		res, err = c.engine().ExecInput(ctx, c.ContainerID, "",
 			[]string{"mysql", "-u", c.Super, "-N", "--raw", "-B"},
 			[]string{"MYSQL_PWD=" + c.Password}, []byte(sql))
 	} else {
-		res, err = a.engCtx(ctx).ExecAs(ctx, c.ContainerID, "postgres",
+		res, err = c.engine().ExecAs(ctx, c.ContainerID, "postgres",
 			[]string{"psql", "-U", c.Super, "-d", db, "-tAqc", sql}, nil)
 	}
 	if err != nil {
@@ -128,11 +136,11 @@ func (a *App) execSQL(ctx context.Context, c dbConn, db, sql string) error {
 	var res ExecResult
 	var err error
 	if c.Engine == "mysql" {
-		res, err = a.engCtx(ctx).ExecInput(ctx, c.ContainerID, "",
+		res, err = c.engine().ExecInput(ctx, c.ContainerID, "",
 			[]string{"mysql", "-u", c.Super, "-D", db},
 			[]string{"MYSQL_PWD=" + c.Password}, []byte(sql))
 	} else {
-		res, err = a.engCtx(ctx).ExecInput(ctx, c.ContainerID, "postgres",
+		res, err = c.engine().ExecInput(ctx, c.ContainerID, "postgres",
 			[]string{"psql", "-v", "ON_ERROR_STOP=1", "-U", c.Super, "-d", db, "-q", "-f", "-"}, nil, []byte(sql))
 	}
 	if err != nil {
