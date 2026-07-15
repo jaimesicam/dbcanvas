@@ -145,7 +145,7 @@ func (a *App) provisionMySQLFrame(st Stack, frame designFrame, doc designDoc) {
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 	}
 
-	ctx, endScope := a.deployScope(st.ID)
+	ctx, endScope := a.deployScope(st.ID, a.nodeEngine(st, frame.Type))
 	go func() {
 		defer endScope()
 		progs := map[string]*pxcProg{}
@@ -318,7 +318,7 @@ func (a *App) provisionPerconaServer(st Stack, n designNode, doc designDoc) {
 	secJSON, _ := json.Marshal(sec)
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 
-	ctx, endScope := a.deployScope(st.ID)
+	ctx, endScope := a.deployScope(st.ID, a.nodeEngine(st, n.Type))
 	go func() {
 		defer endScope()
 		pr := a.pxcNewProg(st.ID, n.ID)

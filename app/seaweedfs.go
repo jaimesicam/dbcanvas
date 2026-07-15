@@ -179,7 +179,7 @@ func (a *App) provisionSeaweedFS(st Stack, n designNode, doc designDoc) {
 	secJSON, _ := json.Marshal(sec)
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 
-	ctx, endScope := a.deployScope(st.ID)
+	ctx, endScope := a.deployScope(st.ID, a.nodeEngine(st, n.Type))
 	go func() {
 		defer endScope()
 		prog := &provProgress{Percent: 0, Phase: "Starting", Log: []string{}}
@@ -232,12 +232,12 @@ func (a *App) provisionSeaweedFS(st Stack, n designNode, doc designDoc) {
 					failNode("%v", err)
 					return
 				}
-				crt, cerr := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
+				crt, cerr := a.readIntranetFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
 				if cerr != nil || len(crt) == 0 {
 					failNode("read Intranet CA cert: %v", cerr)
 					return
 				}
-				key, kerr := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.key")
+				key, kerr := a.readIntranetFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.key")
 				if kerr != nil || len(key) == 0 {
 					failNode("read Intranet CA key: %v", kerr)
 					return

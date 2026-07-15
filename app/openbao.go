@@ -377,7 +377,7 @@ func (a *App) provisionOpenBao(st Stack, n designNode, doc designDoc) {
 	secJSON, _ := json.Marshal(sec)
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 
-	ctx, endScope := a.deployScope(st.ID)
+	ctx, endScope := a.deployScope(st.ID, a.nodeEngine(st, n.Type))
 	go func() {
 		defer endScope()
 		pr := a.pxcNewProg(st.ID, n.ID)
@@ -399,8 +399,8 @@ func (a *App) provisionOpenBao(st Stack, n designNode, doc designDoc) {
 				pr.fail("%v", err)
 				return
 			}
-			crt, cerr := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
-			key, kerr := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.key")
+			crt, cerr := a.readIntranetFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
+			key, kerr := a.readIntranetFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.key")
 			if cerr != nil || kerr != nil || len(crt) == 0 || len(key) == 0 {
 				pr.fail("read Intranet CA: %v %v", cerr, kerr)
 				return

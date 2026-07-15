@@ -234,7 +234,7 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 	}
 
-	ctx, endScope := a.deployScope(st.ID)
+	ctx, endScope := a.deployScope(st.ID, a.nodeEngine(st, frame.Type))
 	go func() {
 		defer endScope()
 		progs := map[string]*pxcProg{}
@@ -452,7 +452,7 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 	}
 
-	ctx, endScope := a.deployScope(st.ID)
+	ctx, endScope := a.deployScope(st.ID, a.nodeEngine(st, frame.Type))
 	go func() {
 		defer endScope()
 		progs := map[string]*pxcProg{}
@@ -628,7 +628,7 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 	secJSON, _ := json.Marshal(sec)
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 
-	ctx, endScope := a.deployScope(st.ID)
+	ctx, endScope := a.deployScope(st.ID, a.nodeEngine(st, n.Type))
 	go func() {
 		defer endScope()
 		pr := a.pxcNewProg(st.ID, n.ID)
@@ -689,7 +689,7 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 		if n.EnableOIDC {
 			pr.phase("Trusting Intranet CA", 60)
 			id := a.containerOf(st.ID, n.ID)
-			if caCrt, e := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt"); e == nil && len(caCrt) > 0 {
+			if caCrt, e := a.readIntranetFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt"); e == nil && len(caCrt) > 0 {
 				if err := a.engCtx(ctx).CopyFile(ctx, id, "/etc/pki/ca-trust/source/anchors", "dbcanvas-ca.crt", 0o644, caCrt); err == nil {
 					if err := a.runStep(ctx, id, mongoCATrustScript, nil, pr.logln); err != nil {
 						pr.fail("trust Intranet CA: %v", err)
@@ -955,12 +955,12 @@ func (a *App) mongoApplyCert(ctx context.Context, containerID, intranetID, fqdn,
 		logln("per-node certificate skipped: " + err.Error())
 		return err
 	}
-	caCrt, err := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
+	caCrt, err := a.readIntranetFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
 	if err != nil {
 		logln("per-node certificate skipped: read CA cert: " + err.Error())
 		return err
 	}
-	caKey, err := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.key")
+	caKey, err := a.readIntranetFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.key")
 	if err != nil {
 		logln("per-node certificate skipped: read CA key: " + err.Error())
 		return err

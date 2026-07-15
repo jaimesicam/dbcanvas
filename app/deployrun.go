@@ -62,10 +62,11 @@ func (a *App) finishDeploy(stackID int64, r *deployRun) {
 //
 // Falls back to a background context when no run is registered (a provisioner
 // invoked outside a deploy, e.g. a management action).
-func (a *App) deployScope(stackID int64) (context.Context, func()) {
-	// The stack's engine (Docker or Vagrant) rides on every provisioning context,
-	// so helpers reach it via App.engCtx without threading it through signatures.
-	eng := a.engByStackID(stackID)
+//
+// eng is the engine this node provisions on (Docker or Vagrant) — it rides on the
+// returned context so helpers reach it via App.engCtx without threading it through
+// every signature. In a hybrid stack different nodes pass different engines.
+func (a *App) deployScope(stackID int64, eng Engine) (context.Context, func()) {
 	v, ok := a.deploys.Load(stackID)
 	if !ok {
 		return withEngine(context.Background(), eng), func() {}

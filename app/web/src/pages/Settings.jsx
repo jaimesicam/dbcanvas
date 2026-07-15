@@ -13,8 +13,8 @@ const TERMINAL_MODES = [
 ]
 
 const DEPLOY_BACKENDS = [
-  { id: 'docker', label: 'Docker', hint: 'Provisions each node as a Docker container on the local daemon.' },
-  { id: 'vagrant', label: 'Vagrant', hint: 'Provisions nodes as VirtualBox VMs via Vagrant (requires vagrant + VirtualBox on the host).' },
+  { id: 'docker', label: 'Docker', hint: 'Provisions every node as a Docker container on the local daemon.' },
+  { id: 'vagrant', label: 'Vagrant (hybrid)', hint: 'Runs OS/DB nodes (PostgreSQL, MySQL/PXC, MongoDB, Valkey, ProxySQL, HAProxy) as VirtualBox VMs; the Intranet and image-only infra (PMM, Keycloak, etc.) stay on Docker in the same stack. Requires vagrant + VirtualBox on the host.' },
 ]
 
 function Row({ title, hint, children }) {

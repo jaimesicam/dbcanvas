@@ -242,11 +242,12 @@ func (a *App) cleanupRemovedNodes(stackID int64, design json.RawMessage) {
 		return
 	}
 	go func() {
-		ctx := withEngine(context.Background(), a.engByStackID(stackID))
+		st, _ := a.store.GetStack(stackID)
+		bg := context.Background()
 		for _, d := range removed {
-			a.removeNodeResources(ctx, stackID, d)
+			a.removeNodeResources(bg, st, d)
 		}
-		a.reconcileStackDNS(ctx, stackID)
+		a.reconcileStackDNS(bg, stackID)
 		a.notifyStack(stackID, "node.removed", "info", "Node(s) removed",
 			fmt.Sprintf("%d deployed node(s) removed from the canvas — their containers and volumes were deleted.", len(removed)), "")
 	}()

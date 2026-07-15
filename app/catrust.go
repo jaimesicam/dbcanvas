@@ -19,11 +19,14 @@ func (a *App) trustIntranetCA(ctx context.Context, st Stack, containerID, nodeOS
 	if intranetID == "" {
 		return // no Intranet → no CA to trust
 	}
+	// Reading from the Intranet always uses the Intranet's engine (Docker); installing
+	// the CA runs on the node's engine (ctx). In a hybrid stack these differ — a VM
+	// node reads the CA from the Docker Intranet.
 	if err := a.waitIntranetCAReady(ctx, intranetID, 120*time.Second); err != nil {
 		logln("trust Intranet CA skipped: " + err.Error())
 		return
 	}
-	ca, err := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
+	ca, err := a.readIntranetFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
 	if err != nil || len(ca) == 0 {
 		logln("trust Intranet CA skipped: CA not readable")
 		return

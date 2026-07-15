@@ -147,7 +147,7 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 	secJSON, _ := json.Marshal(sec)
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 
-	ctx, endScope := a.deployScope(st.ID)
+	ctx, endScope := a.deployScope(st.ID, a.nodeEngine(st, n.Type))
 	go func() {
 		defer endScope()
 		prog := &provProgress{Percent: 0, Phase: "Starting", Log: []string{}}
@@ -370,6 +370,10 @@ func (a *App) waitIntranet(ctx context.Context, stackID int64, doc designDoc, ti
 		return "", "", fmt.Errorf("an Intranet node is required in the stack")
 	}
 	netName := networkName(stackID)
+	// The Intranet's address must be read on the Intranet's own engine, not the
+	// calling node's — in a hybrid stack a VM node depends on the Docker Intranet
+	// (and reaches its DNS/CA over VirtualBox NAT).
+	ie := a.intranetEngine()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if err := ctx.Err(); err != nil {
@@ -381,7 +385,7 @@ func (a *App) waitIntranet(ctx context.Context, stackID int64, doc designDoc, ti
 				return "", "", fmt.Errorf("Intranet failed to provision — cannot start dependent nodes")
 			}
 			if dep.State == DeployRunning && dep.ContainerID != "" {
-				if ip, e := a.engCtx(ctx).ContainerIP(ctx, dep.ContainerID, netName); e == nil && ip != "" {
+				if ip, e := ie.ContainerIP(ctx, dep.ContainerID, netName); e == nil && ip != "" {
 					return dep.ContainerID, ip, nil
 				}
 			}
@@ -400,7 +404,7 @@ func (a *App) waitIntranet(ctx context.Context, stackID int64, doc designDoc, ti
 func (a *App) waitIntranetCAReady(ctx context.Context, intranetID string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		res, e := a.engCtx(ctx).Exec(ctx, intranetID, []string{"bash", "-c", `test -f /etc/pki/dbcanvas/ca.crt && test -f /etc/pki/dbcanvas/ca.key && echo ok`}, nil)
+		res, e := a.intranetEngine().Exec(ctx, intranetID, []string{"bash", "-c", `test -f /etc/pki/dbcanvas/ca.crt && test -f /etc/pki/dbcanvas/ca.key && echo ok`}, nil)
 		if e == nil && strings.TrimSpace(res.Stdout) == "ok" {
 			return nil
 		}
@@ -415,11 +419,11 @@ func (a *App) waitIntranetCAReady(ctx context.Context, intranetID string, timeou
 // the existing /srv/nginx certs before writing the new ones. Returns the new
 // certificate's notAfter line.
 func (a *App) pmmGenerateCert(ctx context.Context, pmmID, intranetID, domain, alias string, value int, unit string) (string, error) {
-	caCrt, err := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
+	caCrt, err := a.readIntranetFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
 	if err != nil {
 		return "", fmt.Errorf("read Intranet CA cert: %w", err)
 	}
-	caKey, err := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.key")
+	caKey, err := a.readIntranetFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.key")
 	if err != nil {
 		return "", fmt.Errorf("read Intranet CA key: %w", err)
 	}

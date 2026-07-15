@@ -116,7 +116,7 @@ func (a *App) provisionValkeyStandalone(st Stack, n designNode, doc designDoc) {
 	cfgJSON, _ := json.Marshal(cfg)
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 
-	ctx, endScope := a.deployScope(st.ID)
+	ctx, endScope := a.deployScope(st.ID, a.nodeEngine(st, n.Type))
 	go func() {
 		defer endScope()
 		pr := a.pxcNewProg(st.ID, n.ID)
@@ -330,7 +330,7 @@ func (a *App) provisionValkeyClusterFrame(st Stack, frame designFrame, doc desig
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 	}
 
-	ctx, endScope := a.deployScope(st.ID)
+	ctx, endScope := a.deployScope(st.ID, a.nodeEngine(st, frame.Type))
 	go func() {
 		defer endScope()
 		progs := map[string]*pxcProg{}

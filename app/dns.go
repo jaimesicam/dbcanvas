@@ -260,7 +260,9 @@ func (a *App) intranetEndpoint(ctx context.Context, stackID int64) (id, ip strin
 		}
 		dep, e := a.store.GetDeployment(stackID, n.ID)
 		if e == nil && dep.ContainerID != "" {
-			if cip, _ := a.engCtx(ctx).ContainerIP(ctx, dep.ContainerID, networkName(stackID)); cip != "" {
+			// The Intranet runs on Docker; read its IP on the Intranet's engine so a
+			// VM node's restart path resolves it correctly too.
+			if cip, _ := a.intranetEngine().ContainerIP(ctx, dep.ContainerID, networkName(stackID)); cip != "" {
 				return dep.ContainerID, cip, true
 			}
 		}
@@ -313,6 +315,10 @@ func (a *App) reconcileStackDNS(ctx context.Context, stackID int64) {
 	}
 
 	deps, _ := a.store.ListDeployments(stackID)
+	// Cross-engine routing reconciles on the same triggers as DNS (a hybrid stack
+	// needs the host FORWARD path + VM routes open before names resolved here are
+	// reachable). No-op for docker-only stacks; independent of the Intranet below.
+	a.reconcileStackRouting(ctx, st, deps)
 	intranetID := ""
 	for _, d := range deps {
 		if typeByID[d.NodeID] == "intranet" && d.ContainerID != "" {
@@ -324,7 +330,7 @@ func (a *App) reconcileStackDNS(ctx context.Context, stackID int64) {
 		return // no DNS authority yet
 	}
 	netName := networkName(stackID)
-	intranetIP, _ := a.engCtx(ctx).ContainerIP(ctx, intranetID, netName)
+	intranetIP, _ := a.intranetEngine().ContainerIP(ctx, intranetID, netName)
 	if intranetIP == "" {
 		return
 	}
@@ -335,7 +341,9 @@ func (a *App) reconcileStackDNS(ctx context.Context, stackID int64) {
 		if h == "" || d.ContainerID == "" {
 			continue
 		}
-		ip, _ := a.engCtx(ctx).ContainerIP(ctx, d.ContainerID, netName)
+		// Each node's IP must be read on that node's engine — a VM node's address is
+		// its host-only IP (from Vagrant), not something the Docker Intranet knows.
+		ip, _ := a.nodeEngine(st, typeByID[d.NodeID]).ContainerIP(ctx, d.ContainerID, netName)
 		if ip == "" {
 			continue
 		}
@@ -345,16 +353,16 @@ func (a *App) reconcileStackDNS(ctx context.Context, stackID int64) {
 
 	domain := envOr("DOMAIN", "example.net")
 	serial := dnsSerial()
-	subnet, _ := a.engCtx(ctx).NetworkSubnet(ctx, netName)
+	subnet, _ := a.intranetEngine().NetworkSubnet(ctx, netName)
 	revZone, owner, hasRev := reverseZoneInfo(subnet)
 
-	a.engCtx(ctx).CopyFile(ctx, intranetID, "/var/named", "dbcanvas.forward", 0o644, []byte(forwardZone(domain, serial, recs)))
+	a.intranetEngine().CopyFile(ctx, intranetID, "/var/named", "dbcanvas.forward", 0o644, []byte(forwardZone(domain, serial, recs)))
 	revName := ""
 	if hasRev {
 		revName = revZone
-		a.engCtx(ctx).CopyFile(ctx, intranetID, "/var/named", "dbcanvas.reverse", 0o644, []byte(reverseZone(domain, serial, recs, owner)))
+		a.intranetEngine().CopyFile(ctx, intranetID, "/var/named", "dbcanvas.reverse", 0o644, []byte(reverseZone(domain, serial, recs, owner)))
 	}
-	a.engCtx(ctx).CopyFile(ctx, intranetID, "/etc", "named.conf", 0o644, []byte(namedConf(domain, revName, intranetIP)))
+	a.intranetEngine().CopyFile(ctx, intranetID, "/etc", "named.conf", 0o644, []byte(namedConf(domain, revName, intranetIP)))
 
 	// Fix ownership and (re)load named. `rndc reconfig` loads any newly-declared
 	// zones from the rewritten named.conf; then each existing zone is reloaded by
@@ -374,5 +382,5 @@ if command -v rndc >/dev/null 2>&1; then
 else
   systemctl reload named >/dev/null 2>&1 || systemctl restart named >/dev/null 2>&1 || true
 fi`
-	a.engCtx(ctx).Exec(ctx, intranetID, []string{"bash", "-c", reload}, env)
+	a.intranetEngine().Exec(ctx, intranetID, []string{"bash", "-c", reload}, env)
 }

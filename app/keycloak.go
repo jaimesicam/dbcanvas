@@ -94,7 +94,7 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 	cfgJSON, _ := json.Marshal(cfg)
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 
-	ctx, endScope := a.deployScope(st.ID)
+	ctx, endScope := a.deployScope(st.ID, a.nodeEngine(st, n.Type))
 	go func() {
 		defer endScope()
 		pr := a.pxcNewProg(st.ID, n.ID)
@@ -123,8 +123,8 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 				pr.fail("%v", err)
 				return
 			}
-			caCrt, cerr := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
-			caKey, kerr := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.key")
+			caCrt, cerr := a.readIntranetFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
+			caKey, kerr := a.readIntranetFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.key")
 			if cerr != nil || kerr != nil || len(caCrt) == 0 || len(caKey) == 0 {
 				pr.fail("read Intranet CA: %v %v", cerr, kerr)
 				return

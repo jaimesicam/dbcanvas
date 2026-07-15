@@ -136,7 +136,7 @@ func (a *App) provisionInnoDBFrame(st Stack, frame designFrame, doc designDoc) {
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 	}
 
-	ctx, endScope := a.deployScope(st.ID)
+	ctx, endScope := a.deployScope(st.ID, a.nodeEngine(st, frame.Type))
 	go func() {
 		defer endScope()
 		progs := map[string]*pxcProg{}

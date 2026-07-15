@@ -1248,20 +1248,6 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 		}
 		st.Backend = backend
 	}
-	// Every stack-scoped background op below (network, node teardown, DNS reconcile)
-	// must run on the stack's engine, so carry it on bg.
-	bg = withEngine(bg, a.eng(st))
-
-	// The vagrant backend provisions only OS/DB nodes (and the Intranet) as VMs;
-	// Docker-image infra nodes and K3D have no box equivalent. Reject a stack that
-	// includes them rather than silently skipping.
-	if st.Backend == BackendVagrant {
-		if bad := vagrantUnsupportedTypes(doc); len(bad) > 0 {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false,
-				"error": "the Vagrant backend cannot provision these node types: " + strings.Join(bad, ", ")})
-			return
-		}
-	}
 
 	// One deploy at a time per stack: a second one would race a duplicate set of
 	// provisioners onto the same nodes. Provisioners run on this run's context so
@@ -1272,11 +1258,20 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.eng(st).NetworkEnsure(bg, networkName(st.ID)); err != nil {
-		a.abortDeploy(st.ID, run)
-		writeErr(w, http.StatusInternalServerError, "failed to create network: "+err.Error())
-		return
+	// A hybrid stack has nodes on both engines, so ensure the stack network on each
+	// engine it will use: always Docker; also Vagrant (a host-only /24) for a vagrant
+	// stack. ContainerCreate then attaches each node to its own engine's network.
+	for _, e := range a.stackEngines(st) {
+		if err := e.NetworkEnsure(bg, networkName(st.ID)); err != nil {
+			a.abortDeploy(st.ID, run)
+			writeErr(w, http.StatusInternalServerError, "failed to create network: "+err.Error())
+			return
+		}
 	}
+	// Open the host FORWARD path between the two subnets now, so Docker→VM traffic
+	// works as soon as nodes come up; VM→Docker routes are added per node once each
+	// VM is running (reconcileStackRouting, via reconcileStackDNS). No-op if not hybrid.
+	a.linkStackNetworks(bg, st)
 
 	deps, _ := a.store.ListDeployments(st.ID)
 	existing := map[string]Deployment{}
@@ -1292,11 +1287,12 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 	removed := false
 	for _, d := range deps {
 		if !inDesign[d.NodeID] {
-			a.removeNodeResources(bg, st.ID, d)
+			a.removeNodeResources(bg, st, d)
 			removed = true
 		}
 	}
-	// Drop removed hosts from the Intranet DNS zones.
+	// Drop removed hosts from the Intranet DNS zones (reconcile resolves each node's
+	// engine internally).
 	if removed {
 		a.reconcileStackDNS(bg, st.ID)
 	}
@@ -1442,7 +1438,7 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 	// Final phase: configure cross-cluster replication links (async / bidirectional)
 	// drawn between cluster members. It waits for the clusters to come up, then
 	// reconciles channels (creating new ones, pruning removed ones) on each redeploy.
-	replCtx, endRepl := a.deployScope(st.ID)
+	replCtx, endRepl := a.deployScope(st.ID, a.eng(st))
 	go func() {
 		defer endRepl()
 		a.reconcileReplication(replCtx, st, doc)
@@ -1492,7 +1488,7 @@ func (a *App) provisionIntranet(st Stack, n designNode) {
 
 	// Each node provisions in its own goroutine, so one failing never blocks the
 	// others. Steps are retried up to 10×; progress is published for the console.
-	ctx, endScope := a.deployScope(st.ID)
+	ctx, endScope := a.deployScope(st.ID, a.nodeEngine(st, n.Type))
 	go func() {
 		defer endScope()
 		prog := &provProgress{Percent: 0, Phase: "Starting", Log: []string{}}
@@ -2097,12 +2093,18 @@ func (a *App) handleDestroyStack(w http.ResponseWriter, r *http.Request) {
 // name is namespaced so this is a no-op for other node types), and its deployment
 // record. Best-effort. Shared by stack teardown, the deploy-time reconcile of nodes
 // deleted from the canvas, and the real-time per-node cleanup.
-func (a *App) removeNodeResources(ctx context.Context, stackID int64, d Deployment) {
-	if d.ContainerID != "" {
-		a.engCtx(ctx).ContainerRemove(ctx, d.ContainerID)
+// It removes on every engine the stack could have used: a node deleted from the
+// canvas no longer has a type in the design, so its engine can't be looked up — and
+// removing a resource that lives on the other engine is a harmless no-op (a wrong-id
+// ContainerRemove just 404s / hits a missing VM dir).
+func (a *App) removeNodeResources(ctx context.Context, st Stack, d Deployment) {
+	for _, e := range a.stackEngines(st) {
+		if d.ContainerID != "" {
+			e.ContainerRemove(ctx, d.ContainerID)
+		}
+		e.VolumeRemove(ctx, pmmDataVolume(st.ID, d.NodeID))
 	}
-	a.engCtx(ctx).VolumeRemove(ctx, pmmDataVolume(stackID, d.NodeID))
-	a.store.DeleteDeployment(stackID, d.NodeID)
+	a.store.DeleteDeployment(st.ID, d.NodeID)
 }
 
 // teardownStack stops and removes every container deployed for a stack and
@@ -2115,30 +2117,40 @@ func (a *App) teardownStack(stackID int64) {
 	// before removing containers. Otherwise they keep running against resources
 	// we are deleting, and their late writes land on the next deploy's rows.
 	a.cancelDeploy(stackID)
-	if st, err := a.store.GetStack(stackID); err == nil {
+	st, _ := a.store.GetStack(stackID)
+	if st.ID != 0 {
 		a.notifyStack(stackID, "stack.destroyed", "info", "Stack destroyed",
 			st.Name+" and its containers were removed.", "")
 	}
-	// Tear down on the same engine the stack deployed with (VMs for a vagrant stack).
-	ctx := withEngine(context.Background(), a.engByStackID(stackID))
+	bg := context.Background()
 	// k3d's containers are named k3d-<cluster>-*, not dbcanvas-<id>-*, so the sweep below would
 	// leave a whole k3s cluster (and its volumes) running. Let k3d remove its own cluster first.
-	a.destroyK3DClusters(ctx, stackID)
+	// k3d is Docker-only, so it always runs on the Docker engine.
+	a.destroyK3DClusters(withEngine(bg, a.docker), stackID)
+	// Remove each node on the engine it was provisioned with (a hybrid stack mixes them).
 	deps, _ := a.store.ListDeployments(stackID)
 	for _, d := range deps {
-		a.removeNodeResources(ctx, stackID, d)
+		a.removeNodeResources(bg, st, d)
 	}
-	// A provisioner cancelled between ContainerCreate and recording the container
-	// id on its deployment row leaves an untracked container behind (and its name
-	// would then collide on the next deploy). Sweep anything still named for this
-	// stack. Safe now that cancelDeploy has waited: nothing can create more.
-	if ids, err := a.engCtx(ctx).ContainersByNamePrefix(ctx, fmt.Sprintf("dbcanvas-%d-", stackID)); err == nil {
-		for _, id := range ids {
-			a.engCtx(ctx).ContainerRemove(ctx, id)
+	// Remove the host FORWARD rules that bridged this stack's Docker and host-only
+	// subnets (best-effort; no-op for a docker-only stack). Done before NetworkRemove
+	// drops the subnet allocations, though unlink reads the live chain either way.
+	a.unlinkStackNetworks(bg, stackID)
+	// A provisioner cancelled between ContainerCreate and recording the container id on
+	// its deployment row leaves an untracked container/VM behind (whose name would then
+	// collide on the next deploy). Sweep anything still named for this stack, and drop
+	// the stack network, on every engine the stack could have used. Safe now that
+	// cancelDeploy has waited: nothing can create more.
+	for _, e := range a.stackEngines(st) {
+		ctx := withEngine(bg, e)
+		if ids, err := e.ContainersByNamePrefix(ctx, fmt.Sprintf("dbcanvas-%d-", stackID)); err == nil {
+			for _, id := range ids {
+				e.ContainerRemove(ctx, id)
+			}
 		}
+		// The Query Runner may have joined this network to reach the stack's DB nodes;
+		// detach the app first so the network can be removed.
+		e.NetworkDisconnect(ctx, networkName(stackID), qrAppContainerID())
+		e.NetworkRemove(ctx, networkName(stackID))
 	}
-	// The Query Runner may have joined this network to reach the stack's DB nodes;
-	// detach the app first so the network can be removed.
-	a.engCtx(ctx).NetworkDisconnect(ctx, networkName(stackID), qrAppContainerID())
-	a.engCtx(ctx).NetworkRemove(ctx, networkName(stackID))
 }

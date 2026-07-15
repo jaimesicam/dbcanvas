@@ -85,14 +85,18 @@ func (a *App) eng(st Stack) Engine {
 	return a.docker
 }
 
-// engByStackID resolves the engine from a stack id, for code paths that only hold
-// the id. Falls back to Docker if the stack can't be loaded.
-func (a *App) engByStackID(stackID int64) Engine {
-	st, err := a.store.GetStack(stackID)
-	if err != nil {
-		return a.docker
-	}
-	return a.eng(st)
+// intranetEngine is the engine the Intranet always runs on. The Intranet stays on
+// Docker even in a vagrant stack (its bind config forwards to Docker's embedded
+// resolver, 127.0.0.11, which only exists in a container), so every operation on the
+// Intranet container uses Docker regardless of the calling node's engine. VM nodes
+// reach the Docker Intranet's DNS/CA over VirtualBox NAT.
+func (a *App) intranetEngine() Engine { return a.docker }
+
+// readIntranetFile reads a file (e.g. the CA cert/key used to sign a node's TLS
+// certificate) from the Intranet container on the Intranet's engine, so a VM node
+// provisioning on Vagrant still reads it from the Docker Intranet.
+func (a *App) readIntranetFile(ctx context.Context, intranetID, path string) ([]byte, error) {
+	return a.readContainerFile(withEngine(ctx, a.intranetEngine()), intranetID, path)
 }
 
 // engineKey types the context value that carries the engine for an operation.
@@ -116,39 +120,54 @@ func (a *App) userBackend(u User) string {
 	return s.normalize().DeploymentBackend
 }
 
-// vagrantUnsupportedNode / vagrantUnsupportedFrame are the node/frame types the
-// vagrant backend cannot provision: Docker-image infra nodes with no OS-box
-// equivalent, and K3D (which is k3s-inside-Docker). Everything else — the Intranet
-// plus the OS/DB nodes and their cluster frames — runs as a VirtualBox VM.
-var vagrantUnsupportedNode = map[string]bool{
-	"pmm": true, "keycloak": true, "openbao": true,
-	"seaweedfs": true, "vnc": true, "watchtower": true, "sambaad": true,
+// vagrantVMNode / vagrantVMFrame are the node/frame types that run as VirtualBox
+// VMs in hybrid mode: the OS/DB nodes and their cluster frames. Everything not
+// listed stays on Docker even in a vagrant stack, so those well-tested paths are
+// unchanged — image-only infra (PMM, Keycloak, OpenBao, SeaweedFS, VNC, Watchtower,
+// Samba AD), K3D (k3s-in-Docker), and crucially the **Intranet**: its bind config
+// forwards to Docker's embedded resolver (127.0.0.11), which only exists in a
+// container. VM nodes reach the Docker Intranet's DNS/CA over VirtualBox NAT.
+var vagrantVMNode = map[string]bool{
+	"ps": true, "pg": true, "psm": true,
+	"valkey": true, "proxysql": true, "haproxy": true,
 }
-var vagrantUnsupportedFrame = map[string]bool{"k3d": true}
+var vagrantVMFrame = map[string]bool{
+	"pxc": true, "mysql": true, "innodb": true, "psmdb": true, "psmrs": true,
+	"patroni": true, "repmgr": true, "spock": true, "valkeycluster": true, "proxysql": true,
+}
 
-// vagrantUnsupportedTypes returns the distinct unsupported node/frame types present
-// in a design, so a vagrant deploy can be rejected with a clear message instead of
-// silently skipping nodes.
-func vagrantUnsupportedTypes(doc designDoc) []string {
-	seen := map[string]bool{}
-	var out []string
-	mark := func(t string) {
-		if !seen[t] {
-			seen[t] = true
-			out = append(out, t)
+// nodeEngine picks the engine for a node/frame of the given type. In a vagrant
+// (hybrid) stack, VM-capable types run on Vagrant and everything else on Docker; a
+// docker stack (or a host with no vagrant) always uses Docker.
+func (a *App) nodeEngine(st Stack, typ string) Engine {
+	if st.Backend == BackendVagrant && a.vagrant != nil && (vagrantVMNode[typ] || vagrantVMFrame[typ]) {
+		return a.vagrant
+	}
+	return a.docker
+}
+
+// depEngine resolves the engine a deployed node runs on, from the stack backend and
+// the node's type in the design. Used by teardown / management / the web terminal,
+// which hold a node id but not its type.
+func (a *App) depEngine(st Stack, nodeID string) Engine {
+	var doc designDoc
+	if json.Unmarshal(st.Design, &doc) == nil {
+		for _, n := range doc.Nodes {
+			if n.ID == nodeID {
+				return a.nodeEngine(st, n.Type)
+			}
 		}
 	}
-	for _, n := range doc.Nodes {
-		if vagrantUnsupportedNode[n.Type] {
-			mark(n.Type)
-		}
+	return a.docker
+}
+
+// stackEngines returns the distinct engines a stack may have provisioned nodes on:
+// always Docker, plus Vagrant for a vagrant/hybrid stack. Teardown sweeps both.
+func (a *App) stackEngines(st Stack) []Engine {
+	if st.Backend == BackendVagrant && a.vagrant != nil {
+		return []Engine{a.docker, a.vagrant}
 	}
-	for _, f := range doc.Frames {
-		if vagrantUnsupportedFrame[f.Type] {
-			mark(f.Type)
-		}
-	}
-	return out
+	return []Engine{a.docker}
 }
 
 // engCtx returns the engine carried by ctx, or the Docker engine when none is set

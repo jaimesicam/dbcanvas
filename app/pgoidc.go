@@ -94,7 +94,7 @@ func (a *App) stageIntranetCA(ctx context.Context, st Stack, containerID string)
 	if err := a.waitIntranetCAReady(ctx, intranetID, 120e9); err != nil {
 		return err
 	}
-	ca, err := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
+	ca, err := a.readIntranetFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
 	if err != nil {
 		return err
 	}

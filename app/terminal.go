@@ -29,7 +29,8 @@ func (a *App) handleNodeTerminal(w http.ResponseWriter, r *http.Request) {
 	defer c.CloseNow()
 	c.SetReadLimit(1 << 20)
 
-	ctx, cancel := context.WithCancel(withEngine(context.Background(), a.engByStackID(dep.StackID)))
+	st, _ := a.store.GetStack(dep.StackID)
+	ctx, cancel := context.WithCancel(withEngine(context.Background(), a.depEngine(st, dep.NodeID)))
 	defer cancel()
 
 	// Prefer bash, but fall back to sh for minimal images (e.g. the alpine-based

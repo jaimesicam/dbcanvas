@@ -118,7 +118,7 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 	secJSON, _ := json.Marshal(sec)
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 
-	ctx, endScope := a.deployScope(st.ID)
+	ctx, endScope := a.deployScope(st.ID, a.nodeEngine(st, n.Type))
 	go func() {
 		defer endScope()
 		pr := a.pxcNewProg(st.ID, n.ID)
@@ -348,11 +348,11 @@ func (a *App) pgApplyCert(ctx context.Context, containerID, intranetID, fqdn, da
 	if err := a.waitIntranetCAReady(ctx, intranetID, 120*time.Second); err != nil {
 		return fmt.Errorf("certificate: %w", err)
 	}
-	caCrt, err := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
+	caCrt, err := a.readIntranetFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
 	if err != nil {
 		return fmt.Errorf("read CA cert: %w", err)
 	}
-	caKey, err := a.readContainerFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.key")
+	caKey, err := a.readIntranetFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.key")
 	if err != nil {
 		return fmt.Errorf("read CA key: %w", err)
 	}

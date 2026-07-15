@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -110,19 +111,112 @@ func TestVagrantNetworkAndPortState(t *testing.T) {
 	}
 }
 
-func TestVagrantUnsupportedTypes(t *testing.T) {
-	doc := designDoc{
-		Nodes:  []designNode{{ID: "a", Type: "pg"}, {ID: "b", Type: "pmm"}, {ID: "c", Type: "intranet"}},
-		Frames: []designFrame{{ID: "f", Type: "k3d"}, {ID: "g", Type: "pxc"}},
+func TestNodeEngineRouting(t *testing.T) {
+	a := &App{docker: &Docker{}, vagrant: &Vagrant{root: t.TempDir()}}
+	vagrant := Engine(a.vagrant)
+	docker := Engine(a.docker)
+
+	cases := []struct {
+		backend, typ string
+		want         Engine
+	}{
+		{BackendVagrant, "pg", vagrant},       // DB node -> VM
+		{BackendVagrant, "pxc", vagrant},      // DB cluster frame -> VM
+		{BackendVagrant, "intranet", docker},  // DNS/CA hub stays Docker (bind forwards to 127.0.0.11)
+		{BackendVagrant, "pmm", docker},       // image-only infra stays Docker in hybrid
+		{BackendVagrant, "k3d", docker},       // k3s-in-Docker stays Docker
+		{BackendVagrant, "seaweedfs", docker}, //
+		{BackendDocker, "pg", docker},         // docker stack -> everything Docker
+		{"", "pg", docker},                    // unstamped stack -> Docker
 	}
-	bad := vagrantUnsupportedTypes(doc)
-	want := map[string]bool{"pmm": true, "k3d": true}
-	if len(bad) != len(want) {
-		t.Fatalf("unsupported = %v, want keys %v", bad, want)
-	}
-	for _, b := range bad {
-		if !want[b] {
-			t.Errorf("unexpected unsupported type %q", b)
+	for _, c := range cases {
+		if got := a.nodeEngine(Stack{Backend: c.backend}, c.typ); got != c.want {
+			t.Errorf("nodeEngine(%q, %q) routed wrong", c.backend, c.typ)
 		}
 	}
+
+	// depEngine resolves a node's engine from its type in the design.
+	st := Stack{Backend: BackendVagrant, Design: []byte(`{"nodes":[{"id":"n1","type":"pg"},{"id":"n2","type":"pmm"}]}`)}
+	if a.depEngine(st, "n1") != vagrant {
+		t.Errorf("depEngine n1(pg) should be vagrant")
+	}
+	if a.depEngine(st, "n2") != docker {
+		t.Errorf("depEngine n2(pmm) should be docker")
+	}
+	if a.depEngine(st, "gone") != docker {
+		t.Errorf("depEngine of a removed/unknown node should default to docker")
+	}
+	// With no vagrant backend on the host, a vagrant stack still routes to Docker.
+	aNoVagrant := &App{docker: &Docker{}}
+	if aNoVagrant.nodeEngine(Stack{Backend: BackendVagrant}, "pg") != Engine(aNoVagrant.docker) {
+		t.Errorf("no vagrant backend -> must fall back to docker")
+	}
+}
+
+func TestStackRules(t *testing.T) {
+	rules := stackRules("172.20.0.0/16", "192.168.56.0/24", 7)
+	if len(rules) != 6 {
+		t.Fatalf("want 6 rules, got %d", len(rules))
+	}
+	joined := func(r iptRule) string { return r.table + " " + strings.Join(r.args, " ") }
+	// (1) raw/PREROUTING ACCEPTs bypass Docker 29's direct-routing DROP; (2) filter/
+	// DOCKER-USER opens FORWARD both ways; (3) nat/POSTROUTING RETURNs exempt cross-
+	// engine traffic from MASQUERADE. All tagged with the stack comment.
+	want := []string{
+		"raw PREROUTING -s 192.168.56.0/24 -d 172.20.0.0/16 -j ACCEPT",
+		"raw PREROUTING -s 172.20.0.0/16 -d 192.168.56.0/24 -j ACCEPT",
+		"filter DOCKER-USER -s 192.168.56.0/24 -d 172.20.0.0/16 -j ACCEPT",
+		"filter DOCKER-USER -s 172.20.0.0/16 -d 192.168.56.0/24 -j ACCEPT",
+		"nat POSTROUTING -s 172.20.0.0/16 -d 192.168.56.0/24 -j RETURN",
+		"nat POSTROUTING -s 192.168.56.0/24 -d 172.20.0.0/16 -j RETURN",
+	}
+	for i, w := range want {
+		if !strings.HasPrefix(joined(rules[i]), w) {
+			t.Errorf("rule %d = %q, want prefix %q", i, joined(rules[i]), w)
+		}
+		if !strings.Contains(joined(rules[i]), "--comment dbcanvas-stack-7") {
+			t.Errorf("rule %d missing stack comment: %v", i, rules[i])
+		}
+	}
+}
+
+func TestHostOnlyGateway(t *testing.T) {
+	cases := []struct{ cidr, want string }{
+		{"192.168.56.0/24", "192.168.56.1"},
+		{"192.168.60.0/24", "192.168.60.1"},
+		{"172.20.0.0/16", "172.20.0.1"},
+		{"not-a-cidr", ""},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := hostOnlyGateway(c.cidr); got != c.want {
+			t.Errorf("hostOnlyGateway(%q) = %q, want %q", c.cidr, got, c.want)
+		}
+	}
+}
+
+func TestValidCIDR(t *testing.T) {
+	for _, ok := range []string{"172.20.0.0/16", "192.168.56.0/24"} {
+		if !validCIDR(ok) {
+			t.Errorf("validCIDR(%q) should be true", ok)
+		}
+	}
+	for _, bad := range []string{"", "172.20.0.0", "garbage", "192.168.56.0/33"} {
+		if validCIDR(bad) {
+			t.Errorf("validCIDR(%q) should be false", bad)
+		}
+	}
+}
+
+// reconcileStackRouting / linkStackNetworks must be inert for a docker-only stack or
+// a host with no vagrant backend — they must not shell out to iptables at all.
+func TestRoutingNoopWithoutHybrid(t *testing.T) {
+	a := &App{docker: &Docker{}} // no vagrant backend
+	a.reconcileStackRouting(context.Background(), Stack{ID: 1, Backend: BackendVagrant}, nil)
+	a.linkStackNetworks(context.Background(), Stack{ID: 1, Backend: BackendVagrant})
+	a.unlinkStackNetworks(context.Background(), 1)
+
+	av := &App{docker: &Docker{}, vagrant: &Vagrant{root: t.TempDir()}}
+	av.reconcileStackRouting(context.Background(), Stack{ID: 2, Backend: BackendDocker}, nil)
+	av.linkStackNetworks(context.Background(), Stack{ID: 2, Backend: BackendDocker})
 }
