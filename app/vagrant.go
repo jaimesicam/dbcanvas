@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // vagrant.go — the Vagrant + VirtualBox provisioning backend.
@@ -43,6 +44,7 @@ type Vagrant struct {
 	ssh    string // path to `ssh`
 
 	mu    sync.Mutex // guards the on-disk state files (networks, ports)
+	boxMu sync.Mutex // serializes `vagrant box add` so parallel nodes sharing a box don't collide on Vagrant's download lock
 	terms sync.Map   // execID -> *vagrantTerm, for ResizeExec of live consoles
 }
 
@@ -102,6 +104,37 @@ func vagrantBox(os_, version string) (vagrantBoxSpec, bool) {
 	}
 	b, ok := vagrantBoxes[key]
 	return b, ok
+}
+
+// vmBaselineRHEL / vmBaselineDebian mirror the tooling images/rhel.Dockerfile and
+// images/debian.Dockerfile bake into the dbcanvas-systemd node images, minus the
+// systemd-PID-1 setup a real VM doesn't need. provisionBaseline runs the matching one
+// on a freshly-booted box. Kept in lockstep with the Dockerfiles.
+const vmBaselineRHEL = `set -e
+grep -q '^ip_resolve=' /etc/dnf/dnf.conf 2>/dev/null || echo 'ip_resolve=4' >> /etc/dnf/dnf.conf
+yum -y install net-tools openldap-clients sysstat git
+yum -y install https://repo.percona.com/yum/percona-release-latest.noarch.rpm
+percona-release setup pt
+yum -y install percona-toolkit
+yum clean all`
+
+const vmBaselineDebian = `set -e
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --no-install-recommends net-tools ldap-utils sysstat git wget gnupg2 lsb-release ca-certificates
+wget -qO /tmp/percona-release.deb "https://repo.percona.com/apt/percona-release_latest.$(lsb_release -sc)_all.deb"
+apt-get install -y /tmp/percona-release.deb
+percona-release setup pt
+apt-get update
+apt-get install -y --no-install-recommends percona-toolkit
+rm -f /tmp/percona-release.deb`
+
+// vmBaselineScript selects the baseline provisioning script for an OS family.
+func vmBaselineScript(os_ string) string {
+	if isDebianOS(os_) {
+		return vmBaselineDebian
+	}
+	return vmBaselineRHEL
 }
 
 // osFromImage recovers (os, version) from a dbcanvas-systemd image tag
@@ -176,6 +209,12 @@ func (v *Vagrant) EnsureImage(ctx context.Context, repo, tag, platform string) e
 // URL (its metadata JSON declares the name); a plain box is added by name off the
 // registry.
 func (v *Vagrant) ensureBox(ctx context.Context, box vagrantBoxSpec) error {
+	// Serialize adds: nodes sharing a box provision in parallel, and two concurrent
+	// `vagrant box add`s collide on Vagrant's global download lock ("Download to
+	// global Vagrant location already in progress"). The first caller downloads; the
+	// rest then see it in `box list` and return immediately.
+	v.boxMu.Lock()
+	defer v.boxMu.Unlock()
 	out, _, err := v.run(ctx, v.root, v.vagant, "box", "list")
 	if err == nil {
 		for _, line := range strings.Split(out, "\n") {
@@ -441,7 +480,44 @@ func (v *Vagrant) ContainerCreate(ctx context.Context, spec ContainerSpec) (stri
 	if _, errb, err := v.vagrantCmd(ctx, spec.Name, "up", "--provider", "virtualbox"); err != nil {
 		return "", fmt.Errorf("vagrant up %s: %v: %s", spec.Name, err, tail(errb, 800))
 	}
+	if err := v.provisionBaseline(ctx, spec.Name, os_); err != nil {
+		return "", err
+	}
 	return spec.Name, nil
+}
+
+// provisionBaseline brings a freshly-booted VM up to the same tooling baseline the
+// dbcanvas-systemd Docker images bake in at build time (see images/*.Dockerfile):
+// ip_resolve=4 plus the net/LDAP/sysstat/git client tools and — critically —
+// percona-release, the Percona repo manager every DB provisioner assumes is already
+// present (a stock distro box ships none of it, so the node scripts otherwise fail
+// silently at `percona-release enable`). systemd-as-PID-1 and the container
+// unit-trimming from the Dockerfiles are intentionally skipped: a real VM boots
+// systemd natively. Idempotent (yum/apt no-op when already satisfied), so a redeploy
+// re-runs it harmlessly.
+func (v *Vagrant) provisionBaseline(ctx context.Context, name, os_ string) error {
+	script := vmBaselineScript(os_)
+	var last error
+	for attempt := 1; attempt <= 3; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		res, err := v.Exec(ctx, name, []string{"bash", "-c", script}, nil)
+		if err == nil && res.Code == 0 {
+			return nil
+		}
+		if err != nil {
+			last = err
+		} else {
+			last = fmt.Errorf("exit %d: %s", res.Code, tail(strings.TrimSpace(res.Stderr+"\n"+res.Stdout), 400))
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(3 * time.Second):
+		}
+	}
+	return fmt.Errorf("provision VM baseline on %s: %v", name, last)
 }
 
 // renderVagrantfile builds a minimal single-machine Vagrantfile. DNS/resolv.conf is

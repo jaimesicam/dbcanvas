@@ -8,6 +8,21 @@ import (
 	"testing"
 )
 
+func TestVMBaselineScript(t *testing.T) {
+	// Every baseline must install percona-release — the DB provisioners assume it.
+	for _, os_ := range []string{"oraclelinux", "ubuntu", "debian"} {
+		if !strings.Contains(vmBaselineScript(os_), "percona-release") {
+			t.Errorf("%s baseline missing percona-release", os_)
+		}
+	}
+	if vmBaselineScript("oraclelinux") != vmBaselineRHEL {
+		t.Error("oraclelinux should use the RHEL baseline")
+	}
+	if vmBaselineScript("ubuntu") != vmBaselineDebian {
+		t.Error("ubuntu should use the Debian baseline")
+	}
+}
+
 func TestOSFromImage(t *testing.T) {
 	cases := []struct {
 		image, os, ver string
