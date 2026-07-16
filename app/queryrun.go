@@ -47,17 +47,41 @@ func appIsContainerized() bool {
 	return false
 }
 
+// dialEngine resolves the provisioning engine of the node whose deployment carries
+// containerID in the given stack. The network-dial tools (Query Runner, Benchmark,
+// Mongo Data Generator) run their work on background contexts that aren't
+// engine-stamped, so they must resolve the engine explicitly rather than via
+// engCtx(ctx) — otherwise a VM (Vagrant) node is looked up on the Docker engine,
+// whose ContainerIP can't see it ("could not resolve node address"). Falls back to
+// Docker when the stack or deployment can't be resolved.
+func (a *App) dialEngine(stackID int64, containerID string) Engine {
+	st, err := a.store.GetStack(stackID)
+	if err != nil {
+		return a.docker
+	}
+	deps, err := a.store.ListDeployments(stackID)
+	if err != nil {
+		return a.docker
+	}
+	for _, dep := range deps {
+		if dep.ContainerID == containerID {
+			return a.depEngine(st, dep.NodeID)
+		}
+	}
+	return a.docker
+}
+
 // joinStackForDial attaches the app's own container to the stack network so it can
 // dial a Docker node's bridge IP directly (Docker's embedded DNS doesn't resolve the
 // Intranet's *.<domain> names). It is idempotent on the Docker engine and a no-op on
 // the Vagrant engine (VM IPs are host-only-routable). On the host it does nothing:
 // there is no self-container, and the host reaches both networks unaided. Shared by
 // the Query Runner, Benchmark (dialNodeDSN) and the Mongo Data Generator.
-func (a *App) joinStackForDial(ctx context.Context, netName string) error {
+func (a *App) joinStackForDial(ctx context.Context, eng Engine, netName string) error {
 	if !appIsContainerized() {
 		return nil
 	}
-	return a.engCtx(ctx).NetworkConnect(ctx, netName, qrAppContainerID())
+	return eng.NetworkConnect(ctx, netName, qrAppContainerID())
 }
 
 // qrTarget is a running MySQL/PXC or PostgreSQL node the runner may point at.

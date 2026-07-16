@@ -161,10 +161,11 @@ func (run *qrRun) launch(ctx context.Context) {
 // An empty database means the engine default (MySQL: none; Postgres: "postgres").
 func (a *App) dialNodeDSN(ctx context.Context, stackID int64, containerID, engine, user, pass, database string) (string, string, error) {
 	netName := networkName(stackID)
-	if err := a.joinStackForDial(ctx, netName); err != nil {
+	eng := a.dialEngine(stackID, containerID)
+	if err := a.joinStackForDial(ctx, eng, netName); err != nil {
 		return "", "", fmt.Errorf("join stack network: %v", err)
 	}
-	ip, err := a.engCtx(ctx).ContainerIP(ctx, containerID, netName)
+	ip, err := eng.ContainerIP(ctx, containerID, netName)
 	if err != nil || ip == "" {
 		return "", "", fmt.Errorf("could not resolve node address on the stack network")
 	}

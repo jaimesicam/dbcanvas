@@ -69,10 +69,11 @@ const mongoConnectTimeout = 15 * time.Second
 // callers must always invoke it.
 func (a *App) mongoClientFor(ctx context.Context, c dbConn) (*mongo.Client, func(), error) {
 	netName := networkName(c.StackID)
-	if err := a.joinStackForDial(ctx, netName); err != nil {
+	eng := c.engine() // set by dbConnFor; the background gen job's ctx isn't engine-stamped
+	if err := a.joinStackForDial(ctx, eng, netName); err != nil {
 		return nil, nil, fmt.Errorf("join stack network: %v", err)
 	}
-	ip, err := a.engCtx(ctx).ContainerIP(ctx, c.ContainerID, netName)
+	ip, err := eng.ContainerIP(ctx, c.ContainerID, netName)
 	if err != nil || ip == "" {
 		return nil, nil, fmt.Errorf("could not resolve node address on the stack network")
 	}
