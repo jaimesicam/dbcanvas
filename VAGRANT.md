@@ -138,13 +138,19 @@ depEngine))` — so the many handlers that pass `r.Context()` straight through n
 - Verified: `TestStampEngineOnRequest`; a repo-wide detector (handler does `GetDeployment` + exec without
   resolving an engine) reports zero hits. `go build/vet/test` green.
 
-**Deferred — network-dial paths (Query Runner, Benchmark, Data Generator over the MongoDB driver).** These
-don't exec into the node; they dial its IP over TCP from the DBCanvas *app container* (`dialNodeDSN` /
-`datagen_mongo.go`: `NetworkConnect(qrAppContainerID())` + `ContainerIP`). That model assumes the app is a
-Docker container joined to the stack bridge — but the hybrid runtime requirement runs the app **on the
-host**, which already sits on both networks and would dial the node directly (Docker container IP or VM
-host-only IP) with no `NetworkConnect`. Making these hybrid-aware is a self-contained host-mode-networking
-change, tracked separately from the management-panel work.
+### 4. Network-dial paths — host-mode aware ✅ DONE (`app/queryrun.go`)
+Query Runner, Benchmark, and the Mongo Data Generator don't exec into the node; they dial its IP over TCP
+(`dialNodeDSN` / `datagen_mongo.go` `mongoClientFor`). Both formerly did `NetworkConnect(qrAppContainerID())`
++ `ContainerIP` unconditionally — the app self-joining the stack bridge, valid only when it runs **as a
+Docker container**. The hybrid runtime runs the app **on the host**, which already routes to both networks
+(vagrant_net.go) and has no self-container to join.
+- New `appIsContainerized()` (queryrun.go) probes `/.dockerenv` + `/run/.containerenv`; `DBCANVAS_HOST_MODE=1`
+  forces the host answer for e2e on a host with a stray `/.dockerenv`.
+- New `a.joinStackForDial(ctx, netName)` self-joins **only** when containerized, no-op on the host; both dial
+  sites route through it. `ContainerIP` was already engine-agnostic (Docker bridge IP for a Docker node, VM
+  host-only IP for a VM node — Vagrant's `NetworkConnect` is already a no-op), so dialing works unchanged once
+  the spurious self-join is skipped.
+- Tests: `TestAppIsContainerizedHostModeOverride` (queryrun_test.go). `go build/vet/test` green.
 
 ## Files
 - Change: `app/engine.go` (`nodeEngine`, drop reject), `app/deployrun.go` (per-node engine injection),
