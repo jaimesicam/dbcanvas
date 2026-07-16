@@ -26,6 +26,40 @@ func qrAppContainerID() string {
 	return h
 }
 
+// appIsContainerized reports whether DBCanvas itself runs inside a container (the
+// pure-Docker deployment) versus on the host (required for hybrid Vagrant stacks —
+// see VAGRANT.md). It gates the self-join in joinStackForDial: only a containerized
+// app can — and must — attach itself to the stack bridge to reach a Docker node's
+// IP. On the host there is no self-container to join, and none is needed: the host
+// already routes to both the Docker bridge and the VM host-only net (vagrant_net.go).
+// DBCANVAS_HOST_MODE=1 forces the host answer (for e2e runs on a host that still has
+// a /.dockerenv lying around).
+func appIsContainerized() bool {
+	switch os.Getenv("DBCANVAS_HOST_MODE") {
+	case "1", "true":
+		return false
+	}
+	for _, p := range []string{"/.dockerenv", "/run/.containerenv"} {
+		if _, err := os.Stat(p); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// joinStackForDial attaches the app's own container to the stack network so it can
+// dial a Docker node's bridge IP directly (Docker's embedded DNS doesn't resolve the
+// Intranet's *.<domain> names). It is idempotent on the Docker engine and a no-op on
+// the Vagrant engine (VM IPs are host-only-routable). On the host it does nothing:
+// there is no self-container, and the host reaches both networks unaided. Shared by
+// the Query Runner, Benchmark (dialNodeDSN) and the Mongo Data Generator.
+func (a *App) joinStackForDial(ctx context.Context, netName string) error {
+	if !appIsContainerized() {
+		return nil
+	}
+	return a.engCtx(ctx).NetworkConnect(ctx, netName, qrAppContainerID())
+}
+
 // qrTarget is a running MySQL/PXC or PostgreSQL node the runner may point at.
 type qrTarget struct {
 	StackID   int64  `json:"stackId"`

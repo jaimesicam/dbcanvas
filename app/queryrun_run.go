@@ -153,13 +153,15 @@ func (run *qrRun) launch(ctx context.Context) {
 	}()
 }
 
-// dialNodeDSN joins the node's stack Docker network (idempotent) and builds a native
-// driver DSN dialing the node's container IP directly — Docker's embedded DNS doesn't
-// know the Intranet's *.<domain> names. Shared by the Query Runner and Benchmark.
+// dialNodeDSN resolves the node's address on its own engine and builds a native driver
+// DSN dialing it directly — Docker's embedded DNS doesn't know the Intranet's *.<domain>
+// names. A containerized app self-joins the stack bridge first (joinStackForDial); on the
+// host (hybrid mode) it dials a Docker node's bridge IP or a VM node's host-only IP
+// unaided. Shared by the Query Runner and Benchmark.
 // An empty database means the engine default (MySQL: none; Postgres: "postgres").
 func (a *App) dialNodeDSN(ctx context.Context, stackID int64, containerID, engine, user, pass, database string) (string, string, error) {
 	netName := networkName(stackID)
-	if err := a.engCtx(ctx).NetworkConnect(ctx, netName, qrAppContainerID()); err != nil {
+	if err := a.joinStackForDial(ctx, netName); err != nil {
 		return "", "", fmt.Errorf("join stack network: %v", err)
 	}
 	ip, err := a.engCtx(ctx).ContainerIP(ctx, containerID, netName)

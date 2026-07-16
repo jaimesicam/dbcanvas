@@ -47,10 +47,11 @@ const mongoSampleSize = 200
 var reUUID = mustRe(`(?i)(^|_)(uuid|guid|uid)($|_)`)
 
 // Data Generator — MongoDB backend. Unlike the SQL engines (which run psql/mysql via `docker
-// exec`), MongoDB is driven with the official Go driver over the *stack network*: we join the
-// dbcanvas container to the stack's Docker network and dial the node's container IP directly —
-// the same mechanism the query-run and benchmark tools use for Postgres/MySQL (dialNodeDSN,
-// queryrun_run.go). This gives us native BSON: the driver's primitive.* types are every BSON
+// exec`), MongoDB is driven with the official Go driver over the *stack network*: we dial the
+// node's IP directly — the same mechanism the query-run and benchmark tools use for
+// Postgres/MySQL (dialNodeDSN, queryrun_run.go). A containerized app self-joins the stack
+// bridge first (joinStackForDial); on the host (hybrid Vagrant mode) it reaches a Docker node's
+// bridge IP or a VM node's host-only IP unaided. This gives us native BSON: the driver's primitive.*
 // type as first-class Go values, so a generated document is just a bson.D — no Extended JSON
 // text to quote or a shell to escape.
 //
@@ -63,11 +64,12 @@ var reUUID = mustRe(`(?i)(^|_)(uuid|guid|uid)($|_)`)
 // fail fast, not stall the request.
 const mongoConnectTimeout = 15 * time.Second
 
-// mongoClientFor opens a *mongo.Client to the node behind c, joining the stack network first.
-// The returned closer disconnects the client; callers must always invoke it.
+// mongoClientFor opens a *mongo.Client to the node behind c, self-joining the stack network
+// first when containerized (joinStackForDial). The returned closer disconnects the client;
+// callers must always invoke it.
 func (a *App) mongoClientFor(ctx context.Context, c dbConn) (*mongo.Client, func(), error) {
 	netName := networkName(c.StackID)
-	if err := a.engCtx(ctx).NetworkConnect(ctx, netName, qrAppContainerID()); err != nil {
+	if err := a.joinStackForDial(ctx, netName); err != nil {
 		return nil, nil, fmt.Errorf("join stack network: %v", err)
 	}
 	ip, err := a.engCtx(ctx).ContainerIP(ctx, c.ContainerID, netName)
