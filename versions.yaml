@@ -4,8 +4,8 @@
 # major series, newest first; the trailing 'pmm' section lists the PMM3 server
 # image versions selectable for a PMM node.
 # Re-run image discovery: make images   Re-run version discovery: make versions
-generated_at: 2026-07-12T03:40:42Z
-versions_generated_at: 2026-07-13T17:04:16Z
+generated_at: 2026-07-15T03:41:40Z
+versions_generated_at: 2026-07-15T03:45:35Z
 image_prefix: dbcanvas-systemd
 images:
   - os: oraclelinux
@@ -14,7 +14,7 @@ images:
     arch: amd64
     tag: dbcanvas-systemd:oraclelinux-8-amd64
     base: oraclelinux:8
-    built_at: 2026-07-12T03:40:42Z
+    built_at: 2026-07-15T03:33:46Z
     percona_server:
       "8.0":
         - 8.0.46-37.1
@@ -274,7 +274,7 @@ images:
     arch: amd64
     tag: dbcanvas-systemd:oraclelinux-9-amd64
     base: oraclelinux:9
-    built_at: 2026-07-12T03:40:42Z
+    built_at: 2026-07-15T03:35:42Z
     percona_server:
       "8.0":
         - 8.0.46-37.1
@@ -560,7 +560,7 @@ images:
     arch: amd64
     tag: dbcanvas-systemd:oraclelinux-10-amd64
     base: oraclelinux:10
-    built_at: 2026-07-12T03:40:42Z
+    built_at: 2026-07-15T03:36:58Z
     percona_server:
       "8.0":
         - 8.0.45-36.1
@@ -694,7 +694,7 @@ images:
     arch: amd64
     tag: dbcanvas-systemd:ubuntu-22.04-amd64
     base: ubuntu:22.04
-    built_at: 2026-07-12T03:40:42Z
+    built_at: 2026-07-15T03:38:31Z
     percona_server:
       "8.0":
         - 8.0.46-37-1
@@ -863,7 +863,7 @@ images:
     arch: amd64
     tag: dbcanvas-systemd:ubuntu-24.04-amd64
     base: ubuntu:24.04
-    built_at: 2026-07-12T03:40:42Z
+    built_at: 2026-07-15T03:41:39Z
     percona_server:
       "8.0":
         - 8.0.46-37-1
