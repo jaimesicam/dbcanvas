@@ -27,24 +27,24 @@ func TestOSFromImage(t *testing.T) {
 }
 
 func TestVagrantBox(t *testing.T) {
-	if b, ok := vagrantBox("oraclelinux", "9"); !ok || b != "oraclelinux/9" {
-		t.Errorf("oraclelinux/9 -> (%q,%v)", b, ok)
+	if b, ok := vagrantBox("oraclelinux", "9"); !ok || b.Name != "oraclelinux/9" || b.URL == "" {
+		t.Errorf("oraclelinux/9 -> (%+v,%v)", b, ok)
 	}
-	if b, ok := vagrantBox("oraclelinux", "10"); !ok || b != "oraclelinux/10" {
-		t.Errorf("oraclelinux/10 -> (%q,%v)", b, ok)
+	if b, ok := vagrantBox("oraclelinux", "10"); !ok || b.Name != "oraclelinux/10" || b.URL == "" {
+		t.Errorf("oraclelinux/10 -> (%+v,%v)", b, ok)
 	}
 	if _, ok := vagrantBox("oraclelinux", "7"); ok {
 		t.Errorf("oraclelinux/7 is not in the DBCanvas OS matrix and must not resolve")
 	}
-	if b, ok := vagrantBox("ubuntu", "24.04"); !ok || b != "bento/ubuntu-24.04" {
-		t.Errorf("ubuntu/24.04 -> (%q,%v)", b, ok)
+	if b, ok := vagrantBox("ubuntu", "24.04"); !ok || b.Name != "cloud-image/ubuntu-24.04" {
+		t.Errorf("ubuntu/24.04 -> (%+v,%v)", b, ok)
 	}
 	if _, ok := vagrantBox("plan9", "1"); ok {
 		t.Errorf("unknown os should not resolve")
 	}
 	t.Setenv("DBCANVAS_BOX_UBUNTU_24_04", "myorg/noble")
-	if b, _ := vagrantBox("ubuntu", "24.04"); b != "myorg/noble" {
-		t.Errorf("env override not honored: %q", b)
+	if b, _ := vagrantBox("ubuntu", "24.04"); b.Name != "myorg/noble" {
+		t.Errorf("env override not honored: %+v", b)
 	}
 }
 

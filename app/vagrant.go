@@ -69,27 +69,36 @@ func NewVagrant() *Vagrant {
 
 // --- box catalog -----------------------------------------------------------
 
-// vagrantBoxes maps "os/version" to the Vagrant box that backs it, over the same OS
-// matrix DBCanvas builds Docker images for (Oracle Linux 8/9/10, Ubuntu 22.04/24.04).
-// Official boxes are used where they exist (Oracle publishes oraclelinux/8|9|10;
-// Canonical ships ubuntu/jammy64 for 22.04 but stopped publishing Vagrant boxes at
-// 24.04, so the community bento box backs Noble). Override any entry with
-// DBCANVAS_BOX_<OS>_<VER> (dots/dashes in the version become underscores), e.g.
-// DBCANVAS_BOX_UBUNTU_24_04.
-var vagrantBoxes = map[string]string{
-	"oraclelinux/8":  "oraclelinux/8",
-	"oraclelinux/9":  "oraclelinux/9",
-	"oraclelinux/10": "oraclelinux/10",
-	"ubuntu/22.04":   "ubuntu/jammy64",
-	"ubuntu/24.04":   "bento/ubuntu-24.04",
+// vagrantBoxSpec is the box backing an OS/version: a Vagrant box Name plus an optional
+// box_url metadata JSON. Oracle publishes its boxes via a box_url (there is no
+// `oraclelinux` registry namespace — `vagrant box add oraclelinux/9` 404s), so those
+// carry a URL; the HashiCorp-registry `cloud-image/*` boxes resolve by Name alone.
+type vagrantBoxSpec struct {
+	Name string
+	URL  string // box_url metadata JSON; empty ⇒ resolve Name from the registry
 }
 
-// vagrantBox resolves the box for an OS + version, honoring env overrides.
-func vagrantBox(os_, version string) (string, bool) {
+// vagrantBoxes maps "os/version" to the Vagrant box that backs it, over the same OS
+// matrix DBCanvas builds Docker images for (Oracle Linux 8/9/10, Ubuntu 22.04/24.04).
+// Oracle Linux uses Oracle's official boxes off oracle.github.io (box_url JSON pointing
+// at yum.oracle.com); Ubuntu uses the HashiCorp `cloud-image/ubuntu-*` boxes. Override
+// any entry's name with DBCANVAS_BOX_<OS>_<VER> (dots/dashes in the version become
+// underscores), e.g. DBCANVAS_BOX_UBUNTU_24_04.
+var vagrantBoxes = map[string]vagrantBoxSpec{
+	"oraclelinux/8":  {"oraclelinux/8", "https://oracle.github.io/vagrant-projects/boxes/oraclelinux/8.json"},
+	"oraclelinux/9":  {"oraclelinux/9", "https://oracle.github.io/vagrant-projects/boxes/oraclelinux/9.json"},
+	"oraclelinux/10": {"oraclelinux/10", "https://oracle.github.io/vagrant-projects/boxes/oraclelinux/10.json"},
+	"ubuntu/22.04":   {"cloud-image/ubuntu-22.04", ""},
+	"ubuntu/24.04":   {"cloud-image/ubuntu-24.04", ""},
+}
+
+// vagrantBox resolves the box for an OS + version, honoring env overrides. An env
+// override sets the box name only (URL cleared — it names a plain registry box).
+func vagrantBox(os_, version string) (vagrantBoxSpec, bool) {
 	key := os_ + "/" + version
 	envKey := "DBCANVAS_BOX_" + strings.ToUpper(strings.NewReplacer(".", "_", "-", "_").Replace(os_+"_"+version))
 	if v := os.Getenv(envKey); v != "" {
-		return v, true
+		return vagrantBoxSpec{Name: v}, true
 	}
 	b, ok := vagrantBoxes[key]
 	return b, ok
@@ -163,18 +172,24 @@ func (v *Vagrant) ImageExists(ctx context.Context, ref string) (bool, error) { r
 // node's OS, not the Docker image ref the generic caller passes.
 func (v *Vagrant) EnsureImage(ctx context.Context, repo, tag, platform string) error { return nil }
 
-// ensureBox adds the box locally if it isn't already present.
-func (v *Vagrant) ensureBox(ctx context.Context, box string) error {
+// ensureBox adds the box locally if it isn't already present. A box_url is added by
+// URL (its metadata JSON declares the name); a plain box is added by name off the
+// registry.
+func (v *Vagrant) ensureBox(ctx context.Context, box vagrantBoxSpec) error {
 	out, _, err := v.run(ctx, v.root, v.vagant, "box", "list")
 	if err == nil {
 		for _, line := range strings.Split(out, "\n") {
-			if strings.HasPrefix(line, box+" ") {
+			if strings.HasPrefix(line, box.Name+" ") {
 				return nil
 			}
 		}
 	}
-	if _, errb, err := v.run(ctx, v.root, v.vagant, "box", "add", "--provider", "virtualbox", box); err != nil {
-		return fmt.Errorf("vagrant box add %s: %v: %s", box, err, errb)
+	ref := box.Name
+	if box.URL != "" {
+		ref = box.URL
+	}
+	if _, errb, err := v.run(ctx, v.root, v.vagant, "box", "add", "--provider", "virtualbox", ref); err != nil {
+		return fmt.Errorf("vagrant box add %s: %v: %s", box.Name, err, errb)
 	}
 	return nil
 }
@@ -432,7 +447,7 @@ func (v *Vagrant) ContainerCreate(ctx context.Context, spec ContainerSpec) (stri
 // renderVagrantfile builds a minimal single-machine Vagrantfile. DNS/resolv.conf is
 // intentionally left to the generic provisioners (they point it at the Intranet once
 // it is up), so bring-up keeps the box's own working resolver.
-func renderVagrantfile(spec ContainerSpec, box, ip string, fwds []vmForward) string {
+func renderVagrantfile(spec ContainerSpec, box vagrantBoxSpec, ip string, fwds []vmForward) string {
 	host := spec.Hostname
 	if host == "" {
 		host = spec.Name
@@ -443,7 +458,10 @@ func renderVagrantfile(spec ContainerSpec, box, ip string, fwds []vmForward) str
 	var b strings.Builder
 	fmt.Fprintf(&b, "Vagrant.configure(\"2\") do |config|\n")
 	fmt.Fprintf(&b, "  config.vm.define %q do |m|\n", spec.Name)
-	fmt.Fprintf(&b, "    m.vm.box = %q\n", box)
+	fmt.Fprintf(&b, "    m.vm.box = %q\n", box.Name)
+	if box.URL != "" {
+		fmt.Fprintf(&b, "    m.vm.box_url = %q\n", box.URL)
+	}
 	fmt.Fprintf(&b, "    m.vm.hostname = %q\n", host)
 	if ip != "" {
 		fmt.Fprintf(&b, "    m.vm.network \"private_network\", ip: %q, netmask: \"255.255.255.0\"\n", ip)
