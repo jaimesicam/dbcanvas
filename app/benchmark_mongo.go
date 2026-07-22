@@ -49,7 +49,8 @@ type mongoCtx struct {
 
 func (run *benchRun) executeMongo(ctx context.Context) {
 	conn := dbConn{ContainerID: run.nodeContainerID, Engine: "mongodb",
-		Super: run.dbUser, Password: run.dbPass, StackID: run.cfg.StackID}
+		Super: run.dbUser, Password: run.dbPass, StackID: run.cfg.StackID,
+		eng: run.app.dialEngine(run.cfg.StackID, run.nodeContainerID)}
 	client, closer, err := run.app.mongoClientFor(ctx, conn)
 	if err != nil {
 		run.fail(err.Error())
