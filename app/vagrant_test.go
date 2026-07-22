@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -263,4 +266,39 @@ func TestRoutingNoopWithoutHybrid(t *testing.T) {
 	av := &App{docker: &Docker{}, vagrant: &Vagrant{root: t.TempDir()}}
 	av.reconcileStackRouting(context.Background(), Stack{ID: 2, Backend: BackendDocker}, nil)
 	av.linkStackNetworks(context.Background(), Stack{ID: 2, Backend: BackendDocker})
+}
+
+// A VM killed mid-`vagrant up` exists only in VirtualBox's registry: no vms/<name>
+// dir, and `vagrant destroy` calls it "not created". The teardown sweep must still
+// find it, or it is orphaned forever.
+func TestContainersByNamePrefixIncludesVBoxOnlyVMs(t *testing.T) {
+	root := t.TempDir()
+	// Fake VBoxManage: prints a `list vms` listing in VirtualBox's real format.
+	fake := filepath.Join(root, "vboxfake")
+	script := "#!/bin/sh\nif [ \"$1\" = list ] && [ \"$2\" = vms ]; then\n" +
+		"echo '\"dbcanvas-3-ps-orphan-1\" {1ca33632-26be-4ca3-b688-c2f84524053b}'\n" +
+		"echo '\"other-vm\" {0394e46a-0a0b-412c-95ca-24f018aee5fa}'\nfi\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	v := &Vagrant{root: root, vbox: fake}
+	// One VM with a dir on disk, one that only VirtualBox knows about.
+	if err := os.MkdirAll(filepath.Join(root, "vms", "dbcanvas-3-ps-ondisk-2"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := v.ContainersByNamePrefix(context.Background(), "dbcanvas-3-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"dbcanvas-3-ps-ondisk-2", "dbcanvas-3-ps-orphan-1"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ContainersByNamePrefix = %v, want %v", got, want)
+	}
+	if !v.vboxExists(context.Background(), "dbcanvas-3-ps-orphan-1") {
+		t.Error("vboxExists should see a registered VM")
+	}
+	if v.vboxExists(context.Background(), "dbcanvas-3-ps-ondisk-2") {
+		t.Error("vboxExists should not invent VMs VirtualBox does not list")
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -424,6 +425,70 @@ func (v *Vagrant) forgetPorts(vmName string) {
 	v.savePorts(ps)
 }
 
+// --- VirtualBox-level fallbacks --------------------------------------------
+//
+// Vagrant only knows about a VM once `vagrant up` has recorded it in
+// .vagrant/machines/<name>/virtualbox/id. A `vagrant up` killed part-way (a destroy
+// landing mid-deploy cancels the context, and exec.CommandContext SIGKILLs it) can
+// leave VirtualBox holding a fully registered — often running — VM that Vagrant then
+// reports as "not created". `vagrant destroy` is a no-op on those, so teardown has to
+// be able to fall back to VBoxManage, which is the actual source of truth.
+
+// vboxVMNames returns the names of every VM registered with VirtualBox. Output lines
+// look like: "dbcanvas-3-ps-x-1" {uuid}
+func (v *Vagrant) vboxVMNames(ctx context.Context) []string {
+	out, _, err := v.run(ctx, v.root, v.vbox, "list", "vms")
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, `"`) {
+			continue
+		}
+		if end := strings.LastIndex(line, `"`); end > 0 {
+			names = append(names, line[1:end])
+		}
+	}
+	return names
+}
+
+// vboxExists reports whether VirtualBox still has a VM by this name registered.
+func (v *Vagrant) vboxExists(ctx context.Context, name string) bool {
+	for _, n := range v.vboxVMNames(ctx) {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
+// vboxDestroy force-removes a VM directly through VBoxManage, deleting its disks.
+// Used as the fallback when `vagrant destroy` leaves the VM behind. A running VM must
+// be powered off first, and VirtualBox holds the session lock for a moment after that
+// returns, so unregister is retried briefly.
+func (v *Vagrant) vboxDestroy(ctx context.Context, name string) error {
+	v.run(ctx, v.root, v.vbox, "controlvm", name, "poweroff")
+	var last string
+	for attempt := 1; attempt <= 5; attempt++ {
+		_, errb, err := v.run(ctx, v.root, v.vbox, "unregistervm", name, "--delete")
+		if err == nil {
+			return nil
+		}
+		last = tail(errb, 300)
+		if !v.vboxExists(ctx, name) {
+			return nil // gone anyway (raced with another remover)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
+	return fmt.Errorf("VBoxManage unregistervm %s: %s", name, last)
+}
+
 // --- Engine: container/VM lifecycle ----------------------------------------
 
 // vmForward is one guest→host TCP forward for the Vagrantfile.
@@ -478,9 +543,14 @@ func (v *Vagrant) ContainerCreate(ctx context.Context, spec ContainerSpec) (stri
 	}
 
 	if _, errb, err := v.vagrantCmd(ctx, spec.Name, "up", "--provider", "virtualbox"); err != nil {
+		// A partial `up` — in particular one SIGKILLed because a destroy cancelled the
+		// deploy — can leave a registered, even running, VM behind. Nothing records the
+		// id when we return an error, so clean up here or it is orphaned in VirtualBox.
+		v.ContainerRemove(ctx, spec.Name)
 		return "", fmt.Errorf("vagrant up %s: %v: %s", spec.Name, err, tail(errb, 800))
 	}
 	if err := v.provisionBaseline(ctx, spec.Name, os_); err != nil {
+		v.ContainerRemove(ctx, spec.Name)
 		return "", err
 	}
 	return spec.Name, nil
@@ -600,8 +670,30 @@ func (v *Vagrant) ContainerRestart(ctx context.Context, id string) error {
 }
 
 // ContainerRemove destroys the VM and drops its directory and port reservations.
+//
+// `vagrant destroy` is tried first (it unwinds the box/provider state cleanly), but it
+// is never trusted: it exits 0 on a machine it considers "not created", which is
+// exactly the state a killed `vagrant up` leaves behind while VirtualBox still holds a
+// live VM. So the VM dir is only dropped once VirtualBox confirms the VM is gone,
+// falling back to VBoxManage when it isn't. Best-effort, but loud on failure —
+// silently erasing the dir is what orphaned VMs in the first place.
 func (v *Vagrant) ContainerRemove(ctx context.Context, id string) {
-	v.vagrantCmd(ctx, id, "destroy", "-f")
+	// Detach from the caller's context: teardown often runs right after cancelling a
+	// deploy, and a cancelled ctx would kill these commands too.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Minute)
+	defer cancel()
+
+	if _, err := os.Stat(filepath.Join(v.vmDir(id), "Vagrantfile")); err == nil {
+		v.vagrantCmd(ctx, id, "destroy", "-f")
+	}
+	if v.vboxExists(ctx, id) {
+		if err := v.vboxDestroy(ctx, id); err != nil {
+			// Leave the dir in place: it is the only handle left for a retry.
+			log.Printf("vagrant: %s survived destroy, still registered in VirtualBox: %v", id, err)
+			return
+		}
+		log.Printf("vagrant: %s removed via VBoxManage (vagrant destroy left it behind)", id)
+	}
 	v.forgetPorts(id)
 	v.dropSSH(id)
 	os.RemoveAll(v.vmDir(id))
@@ -639,13 +731,26 @@ func (v *Vagrant) ContainerByName(ctx context.Context, name string) (string, boo
 	return name, true, nil
 }
 
+// ContainersByNamePrefix unions the VM dirs with the VMs VirtualBox has registered.
+// The stack teardown sweep relies on this to find orphans: a VM whose dir never got
+// written (or was already removed) only exists in VirtualBox's registry, and would
+// otherwise be invisible to every caller.
 func (v *Vagrant) ContainersByNamePrefix(ctx context.Context, prefix string) ([]string, error) {
+	seen := map[string]bool{}
 	entries, _ := os.ReadDir(filepath.Join(v.root, "vms"))
-	var out []string
 	for _, e := range entries {
 		if e.IsDir() && strings.HasPrefix(e.Name(), prefix) {
-			out = append(out, e.Name())
+			seen[e.Name()] = true
 		}
+	}
+	for _, n := range v.vboxVMNames(ctx) {
+		if strings.HasPrefix(n, prefix) {
+			seen[n] = true
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for n := range seen {
+		out = append(out, n)
 	}
 	sort.Strings(out)
 	return out, nil
