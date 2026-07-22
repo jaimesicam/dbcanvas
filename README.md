@@ -3,16 +3,18 @@
 DBCanvas is a self-hosted lab for **designing, deploying, operating, and stress-testing
 multi-node database stacks** on your own machine. You lay out a topology on a canvas —
 PostgreSQL, MySQL/PXC, MongoDB, Valkey, plus supporting infrastructure — click **Deploy**,
-and DBCanvas provisions real, running Docker containers wired together (DNS, TLS, LDAP,
-replication, monitoring, backups). It then gives you tools to *use* and *understand* those
-databases: a **Data Generator** for realistic test data, a **Query Runner** and **Benchmark**
-for workloads, a **Visual Summary** that turns pt-stalk captures into charts, a live
-**Dashboard**, and a **notification** center for what's happening across your stacks.
+and DBCanvas provisions real, running nodes wired together (DNS, TLS, LDAP, replication,
+monitoring, backups). Nodes are **Docker containers** by default, or — in
+[**hybrid** mode](#deployment-backends--docker-or-vagrant-hybrid) — real **VirtualBox VMs**
+driven by Vagrant for the OS/database nodes. It then gives you tools to *use* and *understand*
+those databases: a **Data Generator** for realistic test data, a **Query Runner** and
+**Benchmark** for workloads, a **Visual Summary** that turns pt-stalk captures into charts, a
+live **Dashboard**, and a **notification** center for what's happening across your stacks.
 
 It's built for testing, demos, training, troubleshooting, benchmarking, and application
 development — spin up a production-shaped cluster in minutes, exercise it, and tear it down.
 
-![The Database Stacks canvas with a deployed 17-node stack](docs/screenshots/stacks-canvas.png)
+![The Database Stacks canvas with a deployed 18-node stack](docs/screenshots/stacks-canvas.png)
 
 > *Above: part of a deployed **Stack** — an Intranet (DNS/LDAP/CA), a PMM monitor, an Ubuntu
 > VNC desktop, and two bidirectionally-replicated Percona XtraDB Clusters (a Patroni cluster,
@@ -24,22 +26,40 @@ The control-plane is a single small (~22 MB) Go binary that serves the embedded 
 daemon to provision the stack containers alongside itself.
 
 ```
-                         ┌────────────────────────────── your Docker host ──┐
-browser ──HTTP──> DBCanvas (Go binary, :APP_PORT)                           │
-                  ├─ serves embedded React SPA (//go:embed)                  │
-                  ├─ /api/*  ──> SQLite (/data, Docker volume)               │
-                  └─ Docker Engine API (/var/run/docker.sock)               │
-                         │  creates / execs / monitors                       │
-                         ▼                                                    │
-                  stack containers: pg · patroni · pxc · psmdb · valkey ·    │
-                  intranet · pmm · proxysql · haproxy · seaweedfs · …        │
-                         └────────────────────────────────────────────────────┘
+                    ┌───────────────────────── your Docker host ──┐
+browser ──HTTP──>  DBCanvas (Go binary, :APP_PORT)                │
+                   ├─ serves embedded React SPA (//go:embed)      │
+                   ├─ /api/*  ──> SQLite (/data, Docker volume)   │
+                   └─ Docker Engine API (/var/run/docker.sock)    │
+                          │  creates / execs / monitors           │
+                          ▼                                       │
+                   stack containers: pg · patroni · pxc · psmdb ·  │
+                   valkey · intranet · pmm · proxysql · haproxy ·  │
+                   seaweedfs · …                                   │
+                   └──────────────────────────────────────────────┘
+```
+
+In **hybrid** mode the same binary runs *on the host* and drives two engines at once — Docker
+for the infrastructure nodes, Vagrant/VirtualBox for the OS and database nodes — bridging the
+two networks so every node still resolves and reaches every other:
+
+```
+                    ┌───────────────────────── your host ─────────┐
+browser ──HTTP──>  DBCanvas (Go binary on the host, :APP_PORT)    │
+                   ├─ Docker Engine API ──> intranet · pmm ·      │
+                   │                        keycloak · k3d · …    │
+                   │                        (bridge 172.x)        │
+                   └─ vagrant / VBoxManage / ssh ──> pg · pxc ·   │
+                                            psmdb · valkey · …    │
+                                            (host-only 192.168.5x)│
+                          host iptables + routes join the two ────┘
 ```
 
 ## What's inside
 
 ### Database Stacks
-A canvas designer that turns a topology into real running containers. Draw nodes and
+A canvas designer that turns a topology into real running nodes — containers, or VMs in
+hybrid mode. Draw nodes and
 cluster **frames**, connect them, set a **TTL**, and deploy. Each node type has a management
 panel (web terminal, certificates, users, on-demand backups). Supported nodes:
 
@@ -62,6 +82,17 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
   **Ubuntu VNC** desktop, and **Watchtower**.
 - **Operations** — cross-cluster replication links, per-node web terminals, certificate
   management, on-demand backups, and TTL-based auto-teardown.
+
+**Finding nodes.** The **Infrastructure Library** is searchable and collapsible: type to filter
+across every category (aliases included — `redis` finds Valkey, `k8s` finds K3D, `mongo` finds
+the PSMDB entries), fold away the categories a stack doesn't use, and reach for the entries you
+add most from **Recently used**. Collapsed categories and recents are remembered per browser.
+
+<img src="docs/screenshots/infrastructure-library.png" alt="The Infrastructure Library — search box, Recently used, and collapsible categories" width="260">
+
+> *The palette after adding an Intranet, a PXC cluster and a ProxySQL: the three land in
+> **Recently used**, unused categories are folded away with their item counts, and the search
+> box filters the whole library.*
 
 **Authentication.** Point a database at a directory and it is wired at deploy: **LDAP** against
 the Intranet OpenLDAP or the Samba AD DC (Percona Server, PostgreSQL, PSMDB), **Kerberos/GSSAPI**
@@ -217,25 +248,52 @@ approval.
 ### Settings
 Per-user preferences, stored on the **account** rather than the browser, so they follow you to
 another machine: whether a node console opens **docked** (a tab in the bottom terminal dock, the
-default) or **undocked** (its own floating window), and your **theme**.
+default) or **undocked** (its own floating window), your **deployment backend**
+([Docker or Vagrant hybrid](#deployment-backends--docker-or-vagrant-hybrid)), and your **theme**
+(light, dark, midnight, solarized, synthwave, forest).
 
 ### Manage Users (admin)
 Registration is approval-gated: admins approve, reject, disable, re-approve, and delete
 accounts.
 
-## Quick start (Docker)
+## Deployment backends — Docker or Vagrant (hybrid)
 
-DBCanvas provisions sibling containers, so it needs access to the Docker daemon and to
-prebuilt **systemd base images** for the database nodes.
+Each user picks a **Deployment** backend in **Settings**; it applies to the *next* deploy of
+each stack:
 
-```sh
-make images     # build the dbcanvas-systemd:* base images used by DB nodes (first time)
-make versions   # probe those images to populate versions.yaml (Percona versions catalog)
-make compose    # create .env if needed, build the app image, and start the container
-```
+| Backend | What it provisions |
+| --- | --- |
+| **Docker** (default) | Every node is a Docker container on the local daemon. |
+| **Vagrant (hybrid)** | OS/database nodes become real **VirtualBox VMs**; everything else stays a Docker container **in the same stack**. |
 
-Then open **http://localhost:8080**. The first visit asks you to create an administrator
-account. Design a stack in **Database Stacks**, deploy it, and watch the bell + dashboard.
+**Vagrant is hybrid-only by design — there is no all-VM mode.** Only the node types that are
+really *a machine running a database* are worth the cost of a VM; the rest are upstream images
+or depend on Docker itself:
+
+| Runs as a **VirtualBox VM** | Stays a **Docker container** |
+| --- | --- |
+| Percona Server · PostgreSQL · PSMDB (standalone) | **Intranet** — its bind config forwards to Docker's embedded resolver (`127.0.0.11`), which only exists inside a container |
+| PXC · MySQL replication · InnoDB/GR · PSMDB replica set & sharded · Patroni · repmgr · Spock · Valkey cluster · ProxySQL cluster | **K3D** — k3s-in-Docker by definition |
+| Valkey · ProxySQL · HAProxy | Image-only infra: PMM, Keycloak, OpenBao, SeaweedFS, Samba AD, Ubuntu VNC, Watchtower |
+
+Nothing is rejected: the deploy routes each node to the engine that supports it, and DBCanvas
+joins the two networks on the host (iptables + routes) so a VM database still resolves the
+Intranet's DNS, trusts its CA, gets scraped by PMM, and reaches SeaweedFS by name. In hybrid
+mode each VM-capable node also gains **vCPUs** and **Memory (GiB)** fields in its properties.
+
+Two things to know before you switch:
+
+- **The backend is pinned per stack on its first deploy** and never changes for that stack's
+  life — redeploys, management and teardown all stay on the engine the stack was built with.
+  To try the other backend, create a **new stack**.
+- **The app must run on the host for hybrid** (next section). If you select *Vagrant (hybrid)*
+  while DBCanvas is running in its container — or on a host without `vagrant`/`VBoxManage` —
+  the deploy silently falls back to Docker.
+
+## Quick start
+
+DBCanvas provisions sibling nodes, so it needs access to the Docker daemon and to prebuilt
+**systemd base images** for the database nodes.
 
 | Command | What it does |
 | --- | --- |
@@ -248,6 +306,55 @@ account. Design a stack in **Database Stacks**, deploy it, and watch the bell + 
 | `make logs` | Follow application logs |
 | `make clean` | Stop the app and remove the built image |
 
+### Docker (default)
+
+```sh
+make images     # build the dbcanvas-systemd:* base images used by DB nodes (first time)
+make versions   # probe those images to populate versions.yaml (Percona versions catalog)
+make compose    # create .env if needed, build the app image, and start the container
+```
+
+Then open **http://localhost:8080**. The first visit asks you to create an administrator
+account. Design a stack in **Database Stacks**, deploy it, and watch the bell + dashboard.
+
+### Hybrid (Vagrant + VirtualBox)
+
+Hybrid needs DBCanvas to reach **both** Docker and VirtualBox, and the distroless app image
+has neither `vagrant` nor `VBoxManage` in it. So for hybrid you run the binary **on the host**
+instead of `make compose` — everything else (images, versions, `.env`) is identical.
+
+```sh
+# 0. host prerequisites, once: Docker, Vagrant and VirtualBox on PATH
+vagrant --version && VBoxManage --version && docker version
+
+# 1. base images + version catalog, exactly as for Docker mode
+make images
+make versions
+
+# 2. build the SPA, then the binary that embeds it
+cd app/web && npm ci && npm run build && cd ..
+go build -o dbcanvas .
+
+# 3. run it on the host with your .env loaded
+set -a; . ../.env; set +a          # passwords, DOMAIN, CONTAINER_BIND_IP, …
+APP_PORT=8080 DB_PATH=./dbcanvas.db VERSIONS_FILE=../versions.yaml ./dbcanvas
+```
+
+Then open **http://localhost:8080**, go to **Settings → Deployment**, choose
+**Vagrant (hybrid)**, and deploy a stack. The first deploy of each OS downloads a Vagrant box
+(Oracle Linux 8/9/10 from Oracle's own boxes, Ubuntu 22.04/24.04 from the HashiCorp
+`cloud-image/*` boxes), so give it a few minutes.
+
+Note that `make compose` and a host-run binary are two separate installs: each has its own
+SQLite database (the container's lives in the `app-data` volume), so accounts and stacks do
+**not** carry over. Stop the container (`make down`) before running on the host, or they will
+fight over `APP_PORT`.
+
+Cross-engine networking needs `CAP_NET_ADMIN` to install its iptables rules: DBCanvas shells
+out to `sudo -n` unless it is already root. Configure passwordless sudo for `iptables`/`ip`/
+`sysctl`, run it as root, or set `DBCANVAS_NO_SUDO=1` if your host grants the capability
+directly. Without it, VM nodes and container nodes deploy fine but cannot talk to each other.
+
 ## Requirements
 
 - **Docker** with access to the daemon socket (`/var/run/docker.sock` is mounted into the
@@ -256,8 +363,14 @@ account. Design a stack in **Database Stacks**, deploy it, and watch the bell + 
 - **k3d** — only if you use the K3D cluster frame. The app image ships it; for local development
   install it on the host, next to Docker (it talks to the same daemon). A stack that uses the frame
   refuses to deploy without it; every other stack is unaffected.
-- Enough resources for the stacks you deploy (a full HA cluster is several containers).
+- **Vagrant + VirtualBox** — only for the hybrid backend (developed against **Vagrant 2.4.9** and
+  **VirtualBox 7.2.6**). Both must be on the `PATH` of the DBCanvas *process*, along with `ssh`,
+  which means running the binary on the host rather than in its container. Without them the
+  hybrid option is simply never used.
+- Enough resources for the stacks you deploy (a full HA cluster is several containers — and in
+  hybrid mode each database node is a VM with its own kernel and RAM, so budget accordingly).
 - Linux host recommended; also runs on macOS/Windows Docker (incl. Apple-Silicon/Rosetta).
+  Hybrid is Linux-only in practice: the cross-engine routing installs **iptables** rules.
 
 ## Configuration (`.env`)
 
@@ -309,6 +422,19 @@ by the compose publish binding, not by `APP_HOST` inside the container.
 `versions.yaml` catalog), and `SPOCK_REF` (the pgEdge/spock git ref built for Spock clusters,
 default `v5.0.10`).
 
+**Hybrid (Vagrant) tuning** — environment variables read only when the vagrant backend is
+active. All optional; the defaults work out of the box.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `DBCANVAS_VAGRANT_ROOT` | `~/.dbcanvas/vagrant` | Working root — one subdirectory per VM (holding its `Vagrantfile`), plus the network and host-port allocation state. |
+| `DBCANVAS_VM_CPUS` | `2` | vCPUs for a VM whose node doesn't set its own. Per-node **vCPUs** in the designer wins. |
+| `DBCANVAS_VM_MEMORY` | `2048` | Memory (MB) for a VM whose node doesn't set its own. Per-node **Memory (GiB)** wins. |
+| `DBCANVAS_VM_SUBNET_BASE` | `192.168` | First two octets of the host-only range stacks draw their `/24`s from. VirtualBox only permits `192.168.56.0/21` unless you widen it in `/etc/vbox/networks.conf` — change both together. |
+| `DBCANVAS_BOX_<OS>_<VER>` | — | Override the Vagrant box for one OS (dots/dashes → underscores), e.g. `DBCANVAS_BOX_UBUNTU_24_04=my/box`. |
+| `DBCANVAS_NO_SUDO` | unset | Run `iptables`/`ip`/`sysctl` directly instead of via `sudo -n`, for hosts that already grant `CAP_NET_ADMIN`. |
+| `DBCANVAS_HOST_MODE` | auto | Force "the app runs on the host" detection (normally inferred from `/.dockerenv`). Only needed for odd environments. |
+
 ## Local development (no Docker for the app)
 
 Two terminals (Docker still required for provisioning stacks):
@@ -322,7 +448,77 @@ cd app/web && npm install && npm run dev
 ```
 
 The Go server binds `APP_HOST` (default `127.0.0.1`), so a bare `go run` stays private to
-your machine. Prefix `APP_HOST=0.0.0.0` to expose it on your network.
+your machine. Prefix `APP_HOST=0.0.0.0` to expose it on your network. Load `.env` first
+(`set -a; . ../.env; set +a`) if you want the same passwords and `DOMAIN` compose would pass.
+
+This is also the shape hybrid runs in — a host process with `vagrant`/`VBoxManage` on `PATH`
+— except that hybrid serves the SPA from the binary (`npm run build`, then `go build`) rather
+than from the Vite dev server.
+
+## Troubleshooting
+
+### A minor version is missing from a node's version list
+
+The version pickers don't guess — they read [`versions.yaml`](versions.yaml), a catalog built
+in two passes:
+
+- **`make images`** builds the `dbcanvas-systemd:*` base images (Oracle Linux 8/9/10, Ubuntu
+  22.04/24.04) and records the image matrix.
+- **`make versions`** starts a throwaway container per image and asks that OS's own package
+  manager what it can actually install (`dnf search --showduplicates` / `apt-cache madison`),
+  writing the result back per image, keyed by major series. It also refreshes the PMM, Percona
+  operator and k3s tag lists from the registries.
+
+So a point release published *after* your last run simply isn't in the file yet:
+
+```sh
+make versions          # re-probe the repos and rewrite versions.yaml
+```
+
+Then **reload the browser tab**. The app re-reads `versions.yaml` on every catalog request and
+compose mounts it read-only from the repo, so no rebuild or restart is needed — the pickers
+pick it up on the next page load.
+
+If a whole **OS or series** is missing rather than one point release:
+
+```sh
+make images            # the image must exist before it can be probed
+make versions
+```
+
+Still empty? Check these, in order:
+
+- **`DOCKER_PLATFORM`** (in `.env`) selects the *one* platform both targets build and probe —
+  `linux/amd64` by default. An `arm64` host that never changed it has no arm64 images to probe,
+  and the catalog for that arch stays empty.
+- **The series really has no packages for that OS.** `make versions` records an empty list
+  rather than inventing one — Percona Server 5.7 on Oracle Linux 10 and PXC 8.0 on Oracle
+  Linux 10 are genuinely empty, not a probe that failed.
+- **`versions.yaml` got mounted as a directory.** If the file was missing when the container was
+  first created, Docker helpfully created an empty *directory* at that path and the catalog will
+  stay empty forever. Confirm with `ls -ld versions.yaml`, then `make down && make compose` to
+  recreate the container against the real file.
+- **Running on the host** (hybrid or dev), make sure `VERSIONS_FILE` points at the repo's
+  `versions.yaml`. If no catalog file is found at all, the database pickers come up **empty**
+  (only PMM and k3s have built-in fallbacks).
+
+A node that was *already deployed* keeps the version it deployed with; the new list applies to
+the next node you add or redeploy.
+
+### A hybrid stack deployed everything as containers
+
+The backend is decided on a stack's **first deploy** and pinned for life, and a vagrant request
+falls back to Docker when the engine isn't available. Check, in order: the stack is new (an
+existing stack keeps the backend it was first deployed with — make a new one); DBCanvas is
+running **on the host**, not via `make compose`; and `vagrant`, `VBoxManage` and `ssh` are all
+on the `PATH` of the process that runs it.
+
+### VM nodes and container nodes can't reach each other
+
+Cross-engine routing needs to install iptables rules on the host — see the
+[hybrid quick start](#hybrid-vagrant--virtualbox). Without `sudo -n` (or root, or
+`DBCANVAS_NO_SUDO=1` with `CAP_NET_ADMIN`), both halves of the stack come up healthy but stay
+isolated: DNS lookups against the Intranet time out and PMM shows the VM nodes as down.
 
 ## Tech stack
 
@@ -331,8 +527,12 @@ your machine. Prefix `APP_HOST=0.0.0.0` to expose it on your network.
 - **Backend:** Go standard-library `net/http`, a hand-rolled Docker Engine API client (over
   the Unix socket, incl. streamed exec), `modernc.org/sqlite` (pure-Go, no CGO),
   `golang.org/x/crypto/bcrypt`. The SPA is embedded with `//go:embed`.
+- **Provisioning:** one `Engine` interface with two implementations — Docker (the Engine API
+  client) and Vagrant (driving the `vagrant`, `VBoxManage` and `ssh` CLIs, one Vagrantfile per
+  VM). The engine rides on the deploy context, so a hybrid stack routes per node.
 - **Stack runtime:** systemd-enabled base images per OS/version/arch; nodes are provisioned
-  and managed by exec-ing into their containers over the Docker API.
+  and managed by exec-ing into their containers over the Docker API — or, for VM nodes, over
+  ssh into a booted VirtualBox guest brought to the same tooling baseline.
 - **App runtime:** a single static binary on `gcr.io/distroless/static-debian12`.
 
 ## Security model
@@ -345,3 +545,7 @@ your machine. Prefix `APP_HOST=0.0.0.0` to expose it on your network.
   all). Data generation runs against the stack's stored superuser credentials.
 - **The app has Docker-daemon access**, which is effectively host-level privilege — deploy
   DBCanvas only on trusted machines/networks.
+- **Hybrid mode raises this further**: the app runs directly on the host (not sandboxed in a
+  container) and edits host firewall rules and routes via `sudo`. Use it only on a machine you
+  own. The rules it adds are subnet-scoped, tagged `dbcanvas-stack-<id>`, and removed on
+  teardown.

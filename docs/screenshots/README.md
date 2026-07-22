@@ -5,6 +5,7 @@ Images embedded in the top-level [`README.md`](../../README.md).
 | File | Shows |
 | --- | --- |
 | `stacks-canvas.png` | The Database Stacks canvas with a deployed multi-cluster stack |
+| `infrastructure-library.png` | The node palette — search, Recently used, collapsible categories |
 | `k3d-cluster.png` | A K3D cluster node's panel — a Percona operator running on k3s |
 | `seaweedfs-buckets.png` | The SeaweedFS node's Buckets tab, browsing a backup |
 | `pmm-node.png` | A deployed node's management panel |
