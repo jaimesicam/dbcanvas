@@ -741,6 +741,33 @@ function NewStackModal({ onClose, onCreated }) {
 
 // -------------------------------------------------------------- editor view
 
+// The Infrastructure Library holds ~25 entries across 8 categories — far more than
+// fits a 200px column, so everything below the fold used to be a scroll-hunt. The
+// palette persists which categories you collapsed and the handful of entries you
+// actually reach for, per browser.
+const PALETTE_KEY = 'dbcanvas-palette'
+const RECENT_MAX = 5
+// Extra search terms per node type — the words people actually type that appear in no
+// label or category ("redis" for Valkey, "k8s" for K3D, "mongo" for the PSMDB entries).
+const PALETTE_ALIASES = {
+  valkey: 'redis cache kv', valkeycluster: 'redis cache kv',
+  k3d: 'k8s kubernetes k3s cluster',
+  psmdb: 'mongo mongodb shard', psmrs: 'mongo mongodb replica', psm: 'mongo mongodb',
+  pxc: 'galera mysql cluster', ps: 'mysql percona', mysql: 'replication source replica',
+  innodb: 'mysql group replication gr',
+  pg: 'postgres postgresql', patroni: 'postgres postgresql ha', repmgr: 'postgres postgresql ha',
+  spock: 'postgres postgresql logical replication',
+  proxysql: 'mysql lb load balancer', haproxy: 'lb load balancer',
+  pmm: 'monitoring metrics grafana', openbao: 'vault secrets',
+  sambaad: 'ldap active directory domain', keycloak: 'sso oidc identity',
+  seaweedfs: 's3 object storage', vnc: 'desktop gui ubuntu',
+  watchtower: 'updates upgrade', intranet: 'dns gateway core',
+}
+function loadPalettePrefs() {
+  try { return { collapsed: [], recent: [], ...JSON.parse(localStorage.getItem(PALETTE_KEY) || '{}') } }
+  catch { return { collapsed: [], recent: [] } }
+}
+
 function StackEditor({ stackId, onBack }) {
   const [stack, setStack] = useState(null)
   const [error, setError] = useState('')
@@ -752,6 +779,9 @@ function StackEditor({ stackId, onBack }) {
   // resizable panel (drag by its header, resize via the corner handle) and re-docked.
   const [paletteDocked, setPaletteDocked] = useState(true)
   const [palettePos, setPalettePos] = useState({ x: 24, y: 24 })
+  const [paletteQuery, setPaletteQuery] = useState('')
+  const [collapsed, setCollapsed] = useState(() => loadPalettePrefs().collapsed)
+  const [recent, setRecent] = useState(() => loadPalettePrefs().recent)
   const [selected, setSelected] = useState(null)
   const [menu, setMenu] = useState(null)
   const [connect, setConnect] = useState(null)
@@ -770,6 +800,10 @@ function StackEditor({ stackId, onBack }) {
   const dragRef = useRef(null)
   const counter = useRef(0)
   const uid = (p) => `${p}-${Date.now().toString(36)}-${++counter.current}`
+
+  useEffect(() => {
+    try { localStorage.setItem(PALETTE_KEY, JSON.stringify({ collapsed, recent })) } catch { /* */ }
+  }, [collapsed, recent])
 
   const refs = useRef({})
   refs.current = { nodes, edges, frames, view }
@@ -1790,31 +1824,107 @@ function StackEditor({ stackId, onBack }) {
       { label: 'Ubuntu VNC', type: 'vnc', onClick: () => addNode('vnc'), off: has('vnc') },
     ] },
   ]
+
+  // Flat index for the search box and the recents lookup. Labels are unique across
+  // groups, so a label doubles as an entry's stable id in the persisted recents.
+  const paletteItems = paletteGroups.flatMap((g) => g.items.map((it) => ({ ...it, group: g.title })))
+  // Search matches label + category + node type, so "mongo" finds every PSMDB entry via
+  // its category. Aliases cover the names people type that appear nowhere in the UI.
+  const q = paletteQuery.trim().toLowerCase()
+  const matches = (it, group) =>
+    !q || `${it.label} ${group} ${it.type} ${PALETTE_ALIASES[it.type] || ''}`.toLowerCase().includes(q)
+
+  const remember = (label) => setRecent((r) => [label, ...r.filter((l) => l !== label)].slice(0, RECENT_MAX))
+  const toggleGroup = (title) =>
+    setCollapsed((c) => (c.includes(title) ? c.filter((t) => t !== title) : [...c, title]))
+
+  const paletteButton = (it, key) => {
+    const disabled = it.off || (it.type !== 'intranet' && !hasIntranet) || deploying
+    const reason = deploying
+      ? 'Locked while deploying'
+      : it.off ? `${it.label} is already on the canvas`
+      : !hasIntranet && it.type !== 'intranet' ? 'Add an Intranet node first' : it.label
+    return (
+      <button key={key} disabled={disabled} title={reason}
+        onClick={() => { remember(it.label); it.onClick() }}
+        style={addBtnStyle(it.type)}
+        className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium shadow-sm disabled:opacity-40">
+        <Icon.Plus size={13} /> <span className="truncate">{it.label}</span>
+      </button>
+    )
+  }
+
+  // Searching flattens the tree: every match is shown regardless of its category's
+  // collapsed state, since a hidden match reads as "no result".
+  const recentItems = q ? [] : recent.map((l) => paletteItems.find((it) => it.label === l)).filter(Boolean)
+  const hits = q ? paletteItems.filter((it) => matches(it, it.group)) : []
+
   const paletteBody = (
-    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 py-2">
-      {deploying && (
-        <div className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-[11px] leading-snug text-warning">
-          Deployment in progress — adding and removing nodes is locked until it finishes.
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="shrink-0 px-2 pt-2">
+        <div className="relative">
+          <Icon.Search size={12} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted" />
+          <input
+            value={paletteQuery}
+            onChange={(e) => setPaletteQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape') setPaletteQuery('') }}
+            placeholder="Search…"
+            aria-label="Search the Infrastructure Library"
+            className={`${inputCls} py-1 pl-6 pr-6 text-xs`} />
+          {q && (
+            <button onClick={() => setPaletteQuery('')} title="Clear search"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 px-1 text-[10px] text-muted hover:text-fg">✕</button>
+          )}
         </div>
-      )}
-      {paletteGroups.map((g) => (
-        <div key={g.title}>
-          <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">{g.title}</div>
-          <div className="space-y-1">
-            {g.items.map((it) => {
-              const disabled = it.off || (it.type !== 'intranet' && !hasIntranet) || deploying
-              return (
-                <button key={it.label} disabled={disabled} onClick={it.onClick}
-                  style={addBtnStyle(it.type)}
-                  title={deploying ? 'Locked while deploying' : (!hasIntranet && it.type !== 'intranet' ? 'Add an Intranet node first' : '')}
-                  className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium shadow-sm disabled:opacity-40">
-                  <Icon.Plus size={13} /> <span className="truncate">{it.label}</span>
-                </button>
-              )
-            })}
+      </div>
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 py-2">
+        {deploying && (
+          <div className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-[11px] leading-snug text-warning">
+            Deployment in progress — adding and removing nodes is locked until it finishes.
           </div>
-        </div>
-      ))}
+        )}
+
+        {q && (
+          hits.length === 0
+            ? <div className="px-1 py-3 text-center text-[11px] text-muted">No match for “{paletteQuery.trim()}”</div>
+            : paletteGroups.map((g) => {
+              const found = g.items.filter((it) => matches(it, g.title))
+              if (found.length === 0) return null
+              return (
+                <div key={g.title}>
+                  <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">{g.title}</div>
+                  <div className="space-y-1">{found.map((it) => paletteButton(it, it.label))}</div>
+                </div>
+              )
+            })
+        )}
+
+        {recentItems.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between px-1 pb-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Recently used</span>
+              <button onClick={() => setRecent([])} title="Clear recently used"
+                className="text-[10px] text-muted hover:text-fg">clear</button>
+            </div>
+            <div className="space-y-1">{recentItems.map((it) => paletteButton(it, `recent-${it.label}`))}</div>
+          </div>
+        )}
+
+        {!q && paletteGroups.map((g) => {
+          const shut = collapsed.includes(g.title)
+          return (
+            <div key={g.title}>
+              <button onClick={() => toggleGroup(g.title)} aria-expanded={!shut}
+                className="flex w-full items-center gap-1 px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted hover:text-fg">
+                <Icon.Chevron size={12} className={`shrink-0 transition-transform ${shut ? '-rotate-90' : ''}`} />
+                <span className="truncate">{g.title}</span>
+                {shut && <span className="ml-auto tabular-nums opacity-70">{g.items.length}</span>}
+              </button>
+              {!shut && <div className="space-y-1">{g.items.map((it) => paletteButton(it, it.label))}</div>}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
   const paletteHeader = (onToggle, dockLabel, dockIcon, onDrag) => (
