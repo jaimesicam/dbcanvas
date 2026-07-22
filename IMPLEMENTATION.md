@@ -6866,7 +6866,7 @@ connect / load / drive path against a deployed `psm`/`psmrs` stack has not been 
 
 ## 143. Per-node CPU & memory for Vagrant VMs — `app/vagrant.go`, `docker.go`, `intranet.go`, `proxysql.go`, the VM-capable provisioners, `StackDesigner.jsx`
 
-On the Vagrant backend (see `VAGRANT.md`) every VM was hard-sized by two process-wide env
+On the Vagrant backend (§§144–148) every VM was hard-sized by two process-wide env
 vars — `DBCANVAS_VM_CPUS` (2) and `DBCANVAS_VM_MEMORY` (2048 MB), read in `renderVagrantfile`.
 There was no way to size one node without restarting the whole app, so a heavy Patroni primary
 and a tiny PXC arbitrator got identical VMs. Now each **VM-capable node** carries its own
@@ -6900,3 +6900,152 @@ VMs are untouched by a server restart). Drove the real chain design JSON → `bu
 `cpus`/`memoryGb`, and the served bundle carries the gated fields. A VM was **not** booted with
 a custom size (that would redeploy a node in the live stack); the generated Vagrantfile — the
 exact artifact `vagrant up` consumes — was verified instead.
+
+---
+
+## 144. Deployment backend: Docker (default) or Vagrant (hybrid) — foundation — `app/settings.go`, `engine.go`, `vagrant.go`, `vagrant_ssh.go`, `Settings.jsx`, `SettingsProvider.jsx`
+
+DBCanvas provisioned every stack node as a Docker container (`dbcanvas-systemd:*` images) through a
+single `*Docker` client — ~275 call sites over a ~33-method surface (`ContainerCreate`, `Exec`/`ExecAs`,
+`CopyFile`, networks, DNS, port publishing, `HijackExec`, …). This adds a per-user **Deployment** setting —
+`docker` (default) or **`vagrant` (hybrid)** — where one stack mixes engines **per node**: OS/DB node types
+run as real **VirtualBox VMs** via Vagrant, every other node stays a Docker container in the same stack.
+Nothing is rejected; the deploy routes each node to the engine that supports it. (Host: Vagrant 2.4.9 +
+VirtualBox 7.2.6.)
+
+**Setting.** `deploymentBackend` = `docker | vagrant`, per-user, default docker (`settings.go`, `Settings.jsx`,
+`SettingsProvider.jsx`).
+
+**Engine seam** (`engine.go`). An `Engine` interface both `*Docker` and the new `*Vagrant` satisfy. Every
+`a.docker.X(ctx,…)` became `a.engCtx(ctx).X(ctx,…)` across ~273 sites — the engine rides on the deploy
+context (injected by `deployScope`), so Docker behaviour is byte-identical when no vagrant engine is present.
+
+**Vagrant provider** (`vagrant.go`, `vagrant_ssh.go`). Drives `vagrant`/`VBoxManage`/`ssh`: one Vagrantfile per
+VM; an OS→box map (Oracle Linux 8/9/10 via Oracle's `box_url` JSON boxes off oracle.github.io, Ubuntu
+22.04/24.04 via the HashiCorp `cloud-image/ubuntu-*` boxes), env-overridable per entry with `DBCANVAS_BOX_*`;
+static host-only IPs in VirtualBox's default-allowed `192.168.56.0/21` (widen with
+`DBCANVAS_VM_SUBNET_BASE`); forwarded ports; sudo-wrapped exec/copy; ssh PTY console. A freshly-booted box is
+brought to the same tooling baseline the systemd images bake in (`provisionBaseline`: net-tools / LDAP /
+sysstat / git + `percona-release`, which the DB provisioners assume is present), and `vagrant box add` is
+serialized (`boxMu`) so parallel nodes sharing a box don't collide on Vagrant's global download lock.
+
+**Runtime requirement.** Hybrid needs the DBCanvas process to reach *both* Docker and VirtualBox, so it runs
+**on the host** with `vagrant`/`VBoxManage`/`ssh` on PATH **and** Docker-daemon access — not inside the
+distroless container. Pure-Docker mode is unchanged and still runs in-container. Per-stack backend stamping +
+teardown/terminal routing are included.
+
+**Verified.** Real single-VM e2e (`DBCANVAS_VAGRANT_E2E=1`): box add → up → static IP → systemd → root/user
+exec → copy → port → destroy.
+
+---
+
+## 145. Hybrid part 1 — per-node engine selection — `app/engine.go`, `deployrun.go`, `intranet.go`, `dns.go`
+
+The foundation (§144) pinned the backend **per stack** and **rejected** any stack containing an unsupported
+node type (`vagrantUnsupportedTypes`). Hybrid replaces both with per-node routing.
+
+- `a.nodeEngine(st, typ)` returns the Vagrant engine when `st.Backend == vagrant` **and** the type is
+  VM-capable, else Docker; plus `a.depEngine(st, nodeID)` (resolves a deployed node's engine from its type)
+  and `a.stackEngines(st)` (the engines teardown must sweep). The deploy-time reject is gone; the old
+  unsupported maps became the VM-capable set `vagrantVMNode` / `vagrantVMFrame`.
+- `deployScope(stackID, eng)` now takes the node's engine, and every provisioner passes
+  `a.nodeEngine(st, n.Type/frame.Type)` at entry — a localized change, not another 273-site sweep. Frame
+  provisioners pass their member type, so a Docker node and a VM node in the same stack each get the right
+  network primitive.
+- **Intranet stays Docker** even in a hybrid stack: its bind config forwards to Docker's embedded resolver
+  (`127.0.0.11`), which only exists inside a container. Intranet DNS/CA ops route through `a.intranetEngine()`
+  (Docker) while reading each peer's IP on its own engine (`dns.go`); `pointResolverAtIntranet` writes each
+  VM's resolv.conf at the Docker Intranet's `172.x` IP. The UI option was relabeled "Vagrant (hybrid)".
+
+**Verified.** Routing unit tests (`TestNodeEngineRouting`): supported→Vagrant, infra→Docker. `go
+build/vet/test` green.
+
+---
+
+## 146. Hybrid part 2 — cross-engine host networking — `app/vagrant_net.go`
+
+Docker nodes (bridge `172.x`) and VM nodes (host-only `192.168.56.x`) must interconnect at runtime: the
+Intranet serves DNS/LDAP/CA to both, PMM (Docker) monitors DB VMs, DB VMs reach SeaweedFS/OpenBao (Docker).
+Provisioning-time CA/secret distribution is host-mediated (the host reads the Docker Intranet via the API and
+`CopyFile`s bytes into the VM over ssh), so only **runtime** routing was missing — host-applied iptables/routes
+in `vagrant_net.go` (`stackRules()` + `reconcileStackRouting()`, called from `reconcileStackDNS` so it fires on
+the same triggers).
+
+All rules are subnet-scoped, tagged `dbcanvas-stack-<id>`, idempotent (`-C` before `-I`), removed at teardown
+(turn the `-S` output's `-A` lines into `-D`), and run via `sudo -n` unless already root (`DBCANVAS_NO_SUDO=1`
+to skip); `net.ipv4.ip_forward` is ensured `=1`. The e2e spike surfaced **three** host-level blockers:
+
+1. **`raw`/`PREROUTING` ACCEPT (the subtle one — Docker 29+).** Docker installs
+   `-d <containerIP>/32 ! -i <bridge> -j DROP` at **raw** priority — *before* conntrack and the FORWARD chain —
+   so a packet from the VM's host-only NIC to a container IP is dropped before it ever reaches `DOCKER-USER`.
+   A subnet-scoped ACCEPT prepended ahead of that DROP short-circuits the raw table. **Without this the other
+   two rule sets never see the packet** — the whole reason the first e2e failed with `DOCKER-USER` at 0.
+2. **`filter`/`DOCKER-USER` ACCEPT** both ways — FORWARD's default policy is DROP and `DOCKER-USER` is
+   consulted first, so an ACCEPT here wins.
+3. **`nat`/`POSTROUTING` RETURN** both ways — exempts cross-engine traffic from Docker's
+   `-s <dockerCIDR> ! -o br… MASQUERADE`, which would otherwise SNAT a reply to the host's host-only address
+   (peers would see the host IP, not each other's — breaking DNS ACLs, replication auth, PMM scraping).
+
+**VM route:** for each running VM, `ip route replace <dockerCIDR> via <host-only gateway (.1)>`; Docker→VM needs
+no per-container route (it flows via the bridge gateway + forwarding). No-op for docker-only stacks. DNS itself
+is unchanged from Part 1 — the routing just opens the path.
+
+**Verified.** Unit `TestStackRules` / `TestHostOnlyGateway` / `TestValidCIDR` / `TestRoutingNoopWithoutHybrid`;
+real e2e `TestHybridConnectivityE2E` (one alpine Docker node + one Ubuntu VM node on one stack net, gated by
+`DBCANVAS_VAGRANT_E2E=1`, ~48s, `DBCANVAS_E2E_KEEP=1` to leave the topology up): bidirectional ping/TCP both
+ways pass and teardown removes every rule.
+
+---
+
+## 147. Hybrid part 3 — management panels route per-engine — the `*_mgmt.go` loaders, `diag.go`, `datagen.go`
+
+Post-deploy panels resolved to Docker via an unstamped `r.Context()`. Fixed by stamping the node's engine onto
+the request in place — `App.stampEngine(r, st, nid)` does `*r = *r.WithContext(withEngine(…, depEngine))` — so
+the many handlers that pass `r.Context()` straight through need **no** change.
+
+- Stamped in all three loaders: `loadRunningNode` (dbcerts, intranet, openbao, seaweedfs, samba, terminal),
+  `loadRunningDBNode` (diag captures), and the generic `loadRunningPMM` (pg/mongo/pxc cert + user + monitor
+  handlers; the name is historical — it's the generic running-node loader).
+- Handlers that bypass the loaders (resolve a deployment directly) were stamped individually: `handleNodeAction`
+  (start/stop/restart — a VM's lifecycle is Vagrant, not Docker), `handlePGBackup`, `handleMongoPBMBackup`,
+  `handlePXCFrameMonitor`.
+- Docker-hardcoded helpers were threaded with `ctx`: `diag.go` `fileExists` / `captureStatusFor` /
+  `serveContainerFile`, and `startCapture` (its goroutine outlives the request, so it takes the engine
+  explicitly and carries it on a background context).
+- **Data Generator** (exec-based pg/mysql): the engine travels on `dbConn.eng` (set by `dbConnFor` via
+  `nodeEngine`); `queryJSON`/`execSQL` exec through `c.engine()` — robust for the background generation job
+  whose ctx isn't request-scoped. The Part-1 CA-read/node-write split (`readIntranetFile`/`intranetEngine`
+  force Docker for the Intranet, `engCtx(ctx)` uses the node engine) means the `*ApplyCert` handlers Just Work
+  once the ctx carries the VM engine: cert bytes are read from the Docker Intranet, applied on the VM.
+
+**Verified.** `TestStampEngineOnRequest`; a repo-wide detector (handler does `GetDeployment` + exec without
+resolving an engine) reports zero hits. `go build/vet/test` green.
+
+---
+
+## 148. Hybrid part 4 — network-dial paths, host-mode aware — `app/queryrun.go`, `queryrun_run.go`, `datagen_mongo.go`, `benchmark_mongo.go`
+
+Query Runner, Benchmark, and the Mongo Data Generator don't exec into the node — they dial its IP over TCP
+(`dialNodeDSN`, `mongoClientFor`). Both formerly did `NetworkConnect(qrAppContainerID())` + `ContainerIP`
+unconditionally — the app self-joining the stack bridge, valid only when it runs **as a Docker container**. The
+hybrid runtime runs the app **on the host**, which already routes to both networks (§146) and has no
+self-container to join.
+
+- `appIsContainerized()` probes `/.dockerenv` + `/run/.containerenv`; `DBCANVAS_HOST_MODE=1` forces the host
+  answer for e2e on a host with a stray `/.dockerenv`.
+- `a.joinStackForDial(ctx, eng, netName)` self-joins **only** when containerized, no-op on the host; both dial
+  sites route through it. `ContainerIP` is already engine-agnostic (Docker bridge IP for a Docker node, VM
+  host-only IP for a VM node — Vagrant's `NetworkConnect` is itself a no-op), so dialing works unchanged once
+  the spurious self-join is skipped.
+- **Engine resolved explicitly** for these background contexts (they aren't engine-stamped, so `engCtx` would
+  fall back to Docker and a VM node looked up on Docker has no `ContainerIP` — "could not resolve node
+  address"): `mongoClientFor` uses `c.engine()`, `dialNodeDSN` uses a new `a.dialEngine(stackID, containerID)`
+  (match the deployment by container id → `depEngine`), and `joinStackForDial` takes the engine as a param.
+  The Benchmark MongoDB path (`benchmark_mongo.go` `executeMongo`) builds its `dbConn` by hand and now sets
+  `eng` via `dialEngine` too — otherwise `c.engine()` was nil and `ContainerIP` nil-panicked on any Mongo
+  benchmark run.
+
+**Verified.** Unit `TestAppIsContainerizedHostModeOverride`. Live: the Mongo Data Generator databases endpoint
+against a PSMDB replica-set VM returns the database list (not the resolve error); a MongoDB OLTP + OLAP
+benchmark runs to completion against deployed `psm` VM nodes over the host-routed path. `go build/vet/test`
+green.

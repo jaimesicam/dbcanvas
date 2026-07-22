@@ -28,7 +28,7 @@ func qrAppContainerID() string {
 
 // appIsContainerized reports whether DBCanvas itself runs inside a container (the
 // pure-Docker deployment) versus on the host (required for hybrid Vagrant stacks —
-// see VAGRANT.md). It gates the self-join in joinStackForDial: only a containerized
+// see IMPLEMENTATION.md §§144–148). It gates the self-join in joinStackForDial: only a containerized
 // app can — and must — attach itself to the stack bridge to reach a Docker node's
 // IP. On the host there is no self-container to join, and none is needed: the host
 // already routes to both the Docker bridge and the VM host-only net (vagrant_net.go).
