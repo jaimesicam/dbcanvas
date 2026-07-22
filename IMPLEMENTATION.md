@@ -6861,3 +6861,42 @@ alongside the shared insert/update/delete, so a Mongo run's latency table reads 
 denormalized fields, totals, BSON round-trip), CRUD filter subsetting, and weight honouring. **Not
 yet run against a live node** — the workloads are structurally verified and unit-tested, but the
 connect / load / drive path against a deployed `psm`/`psmrs` stack has not been exercised end-to-end.
+
+---
+
+## 143. Per-node CPU & memory for Vagrant VMs — `app/vagrant.go`, `docker.go`, `intranet.go`, `proxysql.go`, the VM-capable provisioners, `StackDesigner.jsx`
+
+On the Vagrant backend (see `VAGRANT.md`) every VM was hard-sized by two process-wide env
+vars — `DBCANVAS_VM_CPUS` (2) and `DBCANVAS_VM_MEMORY` (2048 MB), read in `renderVagrantfile`.
+There was no way to size one node without restarting the whole app, so a heavy Patroni primary
+and a tiny PXC arbitrator got identical VMs. Now each **VM-capable node** carries its own
+**vCPUs** and **Memory (GiB)**, chosen at design time, and Vagrant provisions the VM with them.
+
+**Per-node, not per-frame.** The sizing lives on `designNode` (`cpus`, `memoryGb`), so every
+member of a cluster frame is sized individually — a frame's members need not be uniform. The
+VM-capable set is exactly `vagrantVMNode` ∪ `vagrantVMFrame` (`engine.go`): standalone `ps`/`pg`/
+`psm`/`valkey`/`proxysql`/`haproxy` and the `pxc`/`mysql`/`innodb`/`psmdb`/`psmrs`/`patroni`/
+`repmgr`/`spock`/`valkeycluster`/`proxysql`(frame) members. Everything else (Intranet, PMM,
+Keycloak, OpenBao, SeaweedFS, VNC, Watchtower, Samba, K3D) stays on Docker even in a hybrid
+stack and never shows the fields.
+
+**The thread.** `ContainerSpec` gained `CPUs`/`MemoryMB` (vagrant-only; Docker's
+`ContainerCreate` ignores them). Each VM-capable provisioner calls the new
+`applyVMSize(&spec, cpus, memGB)` right after building its spec — it clamps (1–64 CPUs,
+1–256 GiB), converts GiB→MB, and leaves zero values unset so `renderVagrantfile` falls back to
+the env defaults (unchanged behaviour for legacy/blank nodes). Standalone ProxySQL routes its
+sizing through `proxysqlPlan` since that path builds the spec from a plan, not a `designNode`.
+
+**Frontend.** One shared `VMSizeFields` component (vCPUs + Memory-GiB inputs, defaults 2/2,
+locked once deployed) self-gates on the deploying user's `deploymentBackend` — it renders
+nothing on Docker — and is dropped into all 16 VM-capable node forms in `StackDesigner.jsx`.
+Because it reads the setting itself, no `vagrant` prop threading was needed.
+
+**Verified**: rebuilt backend + web bundle and restarted the control-plane server (the running
+VMs are untouched by a server restart). Drove the real chain design JSON → `buildDoc` →
+`designNode` → `applyVMSize` → `renderVagrantfile`: a node with `cpus:4, memoryGb:6` emits
+`vb.cpus = 4` / `vb.memory = 6144`, and an unsized sibling falls back to `vb.cpus = 2` /
+`vb.memory = 2048`. The `PUT /api/stacks/{id}` save-design round-trip persists and returns
+`cpus`/`memoryGb`, and the served bundle carries the gated fields. A VM was **not** booted with
+a custom size (that would redeploy a node in the live stack); the generated Vagrantfile — the
+exact artifact `vagrant up` consumes — was verified instead.

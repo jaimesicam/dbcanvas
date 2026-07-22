@@ -21,6 +21,10 @@ type designNode struct {
 	OS        string `json:"os"`
 	OSVersion string `json:"osVersion"` // OS release (e.g. "9", "24.04") — used by ProxySQL
 	Arch      string `json:"arch"`
+	// Vagrant VM sizing (VM-capable node types only; ignored on Docker). 0 → the
+	// engine default (DBCANVAS_VM_CPUS / DBCANVAS_VM_MEMORY). See applyVMSize.
+	CPUs     int `json:"cpus"`     // VirtualBox VM vCPUs
+	MemoryGB int `json:"memoryGb"` // VirtualBox VM memory in GiB
 	// PMM node fields (ignored by other node types).
 	Version          string `json:"version"`          // PMM minor version tag ("" → catalog default)
 	AdminPassword    string `json:"adminPassword"`    // PMM admin password ("" → PMM_ADMIN_PASSWORD)

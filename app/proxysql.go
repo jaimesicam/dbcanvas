@@ -147,6 +147,7 @@ type proxysqlPlan struct {
 	ExportEnabled   bool
 	ExportHostPort  int
 	ProxySQLCluster string // ProxySQL cluster frame label (members only; "" standalone)
+	CPUs, MemoryGB  int    // Vagrant VM sizing (0 → engine default)
 }
 
 // provisionProxySQL records + provisions a standalone ProxySQL node.
@@ -157,6 +158,7 @@ func (a *App) provisionProxySQL(st Stack, n designNode, doc designDoc) {
 		Major: proxysqlMajorOf(n.ProxySQLMajor), Version: n.ProxySQLVersion,
 		Mode: n.Mode, UseProxy: n.UseProxy, PMMNodeID: n.PMMNodeID,
 		ExportEnabled: n.ExportEnabled, ExportHostPort: n.ExportHostPort,
+		CPUs: n.CPUs, MemoryGB: n.MemoryGB,
 	})
 }
 
@@ -382,6 +384,7 @@ func (a *App) proxysqlPrepareMember(ctx context.Context, st Stack, frame designF
 		Network: networkName(st.ID), Aliases: []string{host},
 		DNS: []string{intranetIP}, DNSSearch: []string{domain},
 	}
+	applyVMSize(&spec, n.CPUs, n.MemoryGB)
 	if n.ExportEnabled {
 		spec.PublishMap = []PortMap{
 			{ContainerPort: proxysqlMySQLPort, HostPort: n.ExportHostPort},
@@ -579,6 +582,7 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 			Network: networkName(st.ID), Aliases: []string{host},
 			DNS: []string{intranetIP}, DNSSearch: []string{domain},
 		}
+		applyVMSize(&spec, p.CPUs, p.MemoryGB)
 		if p.ExportEnabled {
 			spec.PublishMap = []PortMap{
 				{ContainerPort: proxysqlMySQLPort, HostPort: p.ExportHostPort},

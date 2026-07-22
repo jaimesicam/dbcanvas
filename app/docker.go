@@ -386,6 +386,10 @@ type ContainerSpec struct {
 	// which is right for the arch-tagged dbcanvas-systemd:* images we build
 	// locally. Set it for pulled images. See platformAMD64 / pullPlatform.
 	Platform string
+	// CPUs / MemoryMB size a Vagrant VM (the vagrant backend only; Docker ignores
+	// them). 0 → the engine's default. Set from the design node via applyVMSize.
+	CPUs     int
+	MemoryMB int
 }
 
 // PortMap publishes a container TCP port to a specific host port (HostPort 0

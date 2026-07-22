@@ -528,8 +528,15 @@ func renderVagrantfile(spec ContainerSpec, box vagrantBoxSpec, ip string, fwds [
 	if host == "" {
 		host = spec.Name
 	}
-	mem := envIntOr("DBCANVAS_VM_MEMORY", 2048)
-	cpus := envIntOr("DBCANVAS_VM_CPUS", 2)
+	// Per-node sizing (applyVMSize) wins; fall back to the process-wide env defaults.
+	mem := spec.MemoryMB
+	if mem <= 0 {
+		mem = envIntOr("DBCANVAS_VM_MEMORY", 2048)
+	}
+	cpus := spec.CPUs
+	if cpus <= 0 {
+		cpus = envIntOr("DBCANVAS_VM_CPUS", 2)
+	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "Vagrant.configure(\"2\") do |config|\n")
@@ -553,6 +560,19 @@ func renderVagrantfile(spec ContainerSpec, box vagrantBoxSpec, ip string, fwds [
 	fmt.Fprintf(&b, "  end\n")
 	fmt.Fprintf(&b, "end\n")
 	return b.String()
+}
+
+// applyVMSize copies a node's per-node VM sizing (vCPUs + memory in GiB, from the design)
+// onto the spec, clamped to sane bounds. Zero values are left unset so renderVagrantfile
+// falls back to the engine default; Docker ignores CPUs/MemoryMB entirely, so this is a
+// safe no-op on that backend.
+func applyVMSize(spec *ContainerSpec, cpus, memGB int) {
+	if cpus > 0 {
+		spec.CPUs = clampInt(cpus, 1, 64)
+	}
+	if memGB > 0 {
+		spec.MemoryMB = clampInt(memGB, 1, 256) * 1024
+	}
 }
 
 func (v *Vagrant) ContainerStart(ctx context.Context, id string) error {

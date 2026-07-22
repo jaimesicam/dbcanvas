@@ -24,6 +24,7 @@ import { SecretInline, CopyButton as CopyBtn } from '../components/Secret.jsx'
 import {
   PORTS, dist, portPoint, edgePath, screenToWorld, zoomAt,
 } from '../lib/canvas.js'
+import { useSettings } from '../settings/SettingsProvider.jsx'
 
 const NODE_W = 212
 const NODE_H = 104
@@ -2627,6 +2628,7 @@ function PXCNodeForm({ node: n, frame, nodes, patchNode, dep, deployed }) {
         <input className={`${inputCls} opacity-70`} value={n.label} readOnly />
       </Field>
       <Field label="Cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
       <Field label="Role" hint={deployed ? 'Locked — the node is deployed.' : 'Arbitrator (garbd) votes for quorum but stores no data.'}>
         <select className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.role || 'regular'} disabled={deployed} onChange={(e) => patchNode(n.id, { role: e.target.value })}>
           <option value="regular">regular (data node)</option>
@@ -2803,6 +2805,7 @@ function MySQLMemberForm({ node: n, frame, nodes, patchNode, dep, deployed }) {
       )}
       <Field label="Node name" hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
       <Field label="Cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
       <Field label="Role" hint={deployed ? 'Locked — the node is deployed.' : 'There is always exactly one primary; the rest are read-only secondaries.'}>
         <select className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.role || 'secondary'} disabled={deployed} onChange={(e) => setRole(e.target.value)}>
           <option value="primary">primary (read/write)</option>
@@ -2956,6 +2959,29 @@ function KeycloakOidcFields({ node: n, nodes, patchNode, deployed, label, pg18, 
   )
 }
 
+// VMSizeFields edits a node's per-VM sizing (vCPUs + memory in GiB) for the Vagrant backend.
+// It self-gates on the deploying user's backend: on Docker (where the values have no effect) it
+// renders nothing, so callers can drop it into any VM-capable node form unconditionally.
+// Defaults (2/2) mirror the DBCANVAS_VM_CPUS/MEMORY engine defaults. Locked once the node is
+// deployed, matching the OS/version fields.
+function VMSizeFields({ node: n, patchNode, deployed }) {
+  const { settings } = useSettings()
+  if (settings.deploymentBackend !== 'vagrant') return null
+  const lock = deployed ? 'opacity-70' : ''
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <Field label="vCPUs" hint="VirtualBox VM CPUs.">
+        <input type="number" min="1" max="64" className={`${inputCls} ${lock}`} disabled={deployed}
+          value={n.cpus || 2} onChange={(e) => patchNode(n.id, { cpus: Number(e.target.value) })} />
+      </Field>
+      <Field label="Memory (GiB)" hint="VirtualBox VM memory.">
+        <input type="number" min="1" max="256" className={`${inputCls} ${lock}`} disabled={deployed}
+          value={n.memoryGb || 2} onChange={(e) => patchNode(n.id, { memoryGb: Number(e.target.value) })} />
+      </Field>
+    </div>
+  )
+}
+
 // PerconaServerForm edits a standalone Percona Server node: catalog-driven OS/version
 // + Percona Server major/minor, root password, PMM/proxy/GTID/cert and host export.
 // (Same options as the replication frame, minus the replication mode and role.)
@@ -3005,6 +3031,7 @@ function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
       <Field label="Label" hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
+      <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
 
       <div className="grid grid-cols-2 gap-2">
         <Field label="OS" hint={deployed ? 'Locked.' : ''}>
@@ -3117,6 +3144,7 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
       <Field label="Label" hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
+      <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
 
       <div className="grid grid-cols-2 gap-2">
         <Field label="OS" hint={deployed ? 'Locked.' : ''}>
@@ -3746,6 +3774,7 @@ function ValkeyForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }) {
       <Field label="Label" hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
+      <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.useLdap} disabled={deployed} onChange={(e) => patchNode(n.id, { useLdap: e.target.checked })} />
@@ -4198,6 +4227,7 @@ function ValkeyClusterMemberForm({ node: n, frame: f, patchNode, dep, deployed }
         {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
       </div>
       <p className="text-xs text-muted">Member of <span className="font-mono">{f?.label || 'valkey cluster'}</span>. Auth/LDAP/PMM are set on the cluster frame.</p>
+      <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
 
       <Field label="Label" hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
@@ -4293,6 +4323,7 @@ function ProxySQLForm({ node: n, nodes, frames, edges, patchNode, deleteNode, de
       <Field label="Label" hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
+      <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
 
       {linkedFrame ? (
         <div className="rounded-lg border border-success/30 bg-success/10 px-2.5 py-1.5 text-xs text-success">
@@ -4529,6 +4560,7 @@ function ProxySQLFrameMemberForm({ node: n, frame, patchNode, dep, deployed }) {
         <input className={`${inputCls} opacity-70`} value={n.label} readOnly />
       </Field>
       <Field label="ProxySQL cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
         <span>Expose ProxySQL ports to the host (6033 MySQL, 6032 admin)</span>
@@ -4682,6 +4714,7 @@ function InnoDBMemberForm({ node: n, frame, patchNode, dep, deployed }) {
       <Field label="Node name" hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
       <Field label="Cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
       <p className="text-xs text-muted">Group Replication auto-elects the primary; secondaries are read-only.</p>
+      <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
         <span>Export MySQL Router ports to the host (6446 RW / 6447 RO)</span>
@@ -4874,6 +4907,7 @@ function MongoDBMemberForm({ node: n, frame, patchNode, dep, deployed }) {
       <Field label="Node name" hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
       <Field label="Cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
       <Field label="Role"><input className={`${inputCls} opacity-70`} value={roleText} readOnly /></Field>
+      <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
       {n.role === 'mongos' ? (
         <>
           <p className="text-xs text-muted">The mongos router is the cluster entry point; export 27017 so apps connect from the host.</p>
@@ -5045,6 +5079,7 @@ function PSMRSMemberForm({ node: n, frame, patchNode, dep, deployed }) {
       )}
       <Field label="Node name" hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
       <Field label="Replica set"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
       <p className="text-xs text-muted">The replica set auto-elects the primary; secondaries serve reads.</p>
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
@@ -5229,6 +5264,7 @@ function PatroniMemberForm({ node: n, frame, patchNode, dep, deployed }) {
       <Field label="Node name" hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
       <Field label="Cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
       <p className="text-xs text-muted">Runs PostgreSQL + Patroni + an etcd member. Patroni auto-elects the leader; replicas stream from it.</p>
+      <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
         <span>Export PostgreSQL port to the host (5432)</span>
@@ -5373,6 +5409,7 @@ function RepmgrMemberForm({ node: n, frame, patchNode, dep, deployed }) {
       <Field label="Node name" hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
       <Field label="Cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
       <p className="text-xs text-muted">Runs PostgreSQL + repmgr. The cluster's first node bootstraps as primary; this node streams from it (repmgr can fail over to it).</p>
+      <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
         <span>Export PostgreSQL port to the host (5432)</span>
@@ -5500,6 +5537,7 @@ function SpockMemberForm({ node: n, frame, patchNode, dep, deployed }) {
       <Field label="Node name" hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
       <Field label="Cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
       <p className="text-xs text-muted">PostgreSQL + Spock — a writable member of the active-active mesh. Writes here replicate to every peer, and it receives their writes too.</p>
+      <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
         <span>Export PostgreSQL port to the host (5432)</span>
@@ -5568,6 +5606,7 @@ function HAProxyForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep
         {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
       </div>
 
+      <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
       {linkedFrames.length > 1 ? (
         <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
           Linked to multiple clusters — HAProxy fronts exactly one (Patroni and PXC are mutually exclusive). Remove the extra association line.
@@ -5649,6 +5688,7 @@ function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
         {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
       </div>
 
+      <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
       <Field label="Label" hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
