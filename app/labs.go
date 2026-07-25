@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -94,6 +95,144 @@ Applications shouldn't need to know which of the 3 nodes is the Leader today. HA
 					"Then run `patronictl -c /etc/patroni/postgresql.yml switchover` and follow the prompts to promote a " +
 					"different node. Confirm with `list` that a new node is Leader, then click Check Work.",
 				Hint: "Non-interactive form: patronictl -c /etc/patroni/postgresql.yml switchover --leader <current-leader-hostname> --candidate <new-leader-hostname> --force",
+			},
+		},
+	},
+	{
+		ID:          "patroni-failover",
+		Title:       "Patroni Failover",
+		Description: "Simulate an unplanned crash on the current Leader and watch Patroni elect a new one automatically — no switchover command involved.",
+		Difficulty:  "Beginner",
+		TimeLimit:   "2h",
+		LectureNotes: `Planned vs. unplanned: switchover vs. failover
+
+The "Patroni Switchover" lab covered the planned handover: you ask for it, the Leader checkpoints cleanly and demotes itself, and a Replica is promoted with no data loss. This lab is the other half — an unplanned failover, where the Leader simply disappears (a crash, a kernel panic, a network partition) and the remaining nodes have to notice and react on their own.
+
+Why stopping "patroni" takes PostgreSQL down too
+
+Patroni doesn't sit next to PostgreSQL as an independent systemd-managed service — it starts PostgreSQL itself as a supervised child process and owns its entire lifecycle. So "systemctl stop patroni" isn't just "the HA agent went away while the database kept running" — PostgreSQL goes down with it, with no checkpoint. That's what makes this a faithful crash simulation rather than a cosmetic one.
+
+What the survivors do about it
+
+Every Patroni node watches the Leader lock in etcd. Once the crashed Leader stops renewing it and the lock's TTL (30s in this lab) expires, the remaining nodes race to acquire it — same election mechanics as a fresh cluster. Whichever Replica has replayed the most WAL (write-ahead log) usually wins, so the promoted node is normally the one that was "most caught up," not an arbitrary pick.
+
+The real cost of an unplanned failover
+
+Unlike a switchover, there's no guarantee every transaction the old Leader had committed had already streamed to every Replica — Patroni's default replication here is asynchronous. A failover can lose the last few transactions that were acknowledged to the client but hadn't replicated yet. That gap is exactly why you reach for a switchover instead whenever you have the choice (planned maintenance, a graceful drain) and only rely on failover for the failures you can't schedule.`,
+		DesignTemplate: labPatroniSwitchoverDesign,
+		Steps: []LabStep{
+			{
+				ID:    "failover",
+				Title: "Simulate an unplanned crash",
+				Instructions: "Open a terminal on the current Leader (check with `patronictl -c /etc/patroni/postgresql.yml list`). " +
+					"Run `systemctl stop patroni` on that node — Patroni manages PostgreSQL as its own child process, so this takes " +
+					"PostgreSQL down too, with no clean checkpoint. Wait about 15–30 seconds, then run " +
+					"`patronictl -c /etc/patroni/postgresql.yml list` on one of the other two nodes and confirm a new Leader was elected " +
+					"automatically. When you're done, run `systemctl start patroni` on the node you stopped so it rejoins as a Replica, " +
+					"then click Check Work.",
+				Hint: "If nothing's changed after 30s, double-check you stopped patroni on the actual Leader, not a Replica — patronictl list marks the Leader in the Role column.",
+			},
+		},
+	},
+	{
+		ID:          "patroni-pause-resume",
+		Title:       "Pause & Resume Autofailover",
+		Description: "Put the cluster into maintenance mode so Patroni stops reacting to failures automatically, then bring it back.",
+		Difficulty:  "Beginner",
+		TimeLimit:   "2h",
+		LectureNotes: `A mode, not an event
+
+The Switchover and Failover labs both exercise one-time events: something happens (you ask for it, or a node crashes) and the cluster reacts once. "patronictl pause" is different — it's a persistent mode. It writes "pause: true" into the cluster's shared configuration in etcd (the same object "patronictl edit-config" edits), so it applies to every member immediately and survives until you explicitly "resume" it — even across a Patroni restart.
+
+Why you'd want that
+
+Imagine patching the OS on all three nodes in turn. Each restart briefly looks like a crash to the other members. Without pausing, that could trigger a real failover (and, on the node coming back up, a rejoin as a Replica) purely because of your own planned maintenance — not because you needed one. Pausing tells Patroni "keep monitoring and reporting status, but don't act on what you see" for the duration of the work.
+
+What pause does NOT do
+
+It doesn't stop PostgreSQL, and it doesn't stop replication — Replicas keep streaming from the Leader the whole time. It only disables Patroni's automatic reactions (promotions, demotions, restarts triggered by health checks). A manual "patronictl switchover" or "patronictl restart" still works while paused — you've only turned off the automatic part.`,
+		DesignTemplate: labPatroniSwitchoverDesign,
+		Steps: []LabStep{
+			{
+				ID:    "pause",
+				Title: "Pause autofailover",
+				Instructions: "Open a terminal on any Patroni node and run `patronictl -c /etc/patroni/postgresql.yml pause`. Run " +
+					"`patronictl -c /etc/patroni/postgresql.yml list` again — the footer notes the cluster is in maintenance mode. " +
+					"Then click Check Work.",
+				Hint: "pause is cluster-wide (stored in etcd) — it doesn't matter which of the three nodes you run it from.",
+			},
+			{
+				ID:    "resume",
+				Title: "Resume autofailover",
+				Instructions: "Run `patronictl -c /etc/patroni/postgresql.yml resume` on any node, confirm the maintenance-mode footer " +
+					"is gone from `list`, then click Check Work.",
+				Hint: "If Check Work still reports paused, give the change a few seconds to reach every member and try again.",
+			},
+		},
+	},
+	{
+		ID:          "patroni-config-change",
+		Title:       "Cluster-wide Configuration Change",
+		Description: "Change a PostgreSQL setting on the whole cluster at once with patronictl edit-config, instead of editing config files node by node.",
+		Difficulty:  "Intermediate",
+		TimeLimit:   "2h",
+		LectureNotes: `Who owns postgresql.conf?
+
+On a Patroni cluster, you don't hand-edit postgresql.conf on each node — Patroni does, generating it from configuration it keeps in the DCS (the same etcd-backed config "pause" toggles and "edit-config" writes to). Edit a file locally and Patroni will happily overwrite your change on the next config refresh, because as far as it knows the DCS is still the source of truth.
+
+Why edit-config instead
+
+"patronictl edit-config" writes the change to that shared config once, and every member picks it up independently — no risk of three nodes drifting out of sync because you fat-fingered one file, and no risk of a Replica coming back after maintenance with stale settings from before the change.
+
+Dynamic vs. static parameters
+
+PostgreSQL settings split into two camps: dynamic (reloadable) parameters like "work_mem" take effect on the next config reload (SIGHUP) — no restart, no interruption. Static parameters (things like "max_connections" or "shared_buffers") need a full PostgreSQL restart to take effect, which on the Leader means a brief interruption (or you'd switchover first). This lab uses "work_mem" specifically because it's dynamic — you'll see it apply without anything restarting.`,
+		DesignTemplate: labPatroniSwitchoverDesign,
+		Steps: []LabStep{
+			{
+				ID:    "config-change",
+				Title: "Change work_mem cluster-wide",
+				Instructions: "Open a terminal on any Patroni node. Run " +
+					"`patronictl -c /etc/patroni/postgresql.yml edit-config lab-patroni -p work_mem=32MB --force`. This is a dynamic " +
+					"(reloadable) setting, so Patroni applies it without restarting PostgreSQL. Confirm on a couple of nodes with " +
+					"`psql -U postgres -c \"show work_mem;\"`, then click Check Work.",
+				Hint: "Pick any value other than the 4MB default — Check Work just confirms every member agrees and it's no longer the default.",
+			},
+		},
+	},
+	{
+		ID:          "patroni-etcd-quorum",
+		Title:       "etcd Quorum Loss",
+		Description: "Stop etcd on two of the three nodes and watch Patroni refuse to keep a Leader without quorum — then bring it back.",
+		Difficulty:  "Advanced",
+		TimeLimit:   "2h",
+		LectureNotes: `Quorum, revisited — this time by breaking it on purpose
+
+The Switchover lab explained that this cluster runs 3 etcd members (one per node) so it can lose one and still keep a majority. This lab breaks that on purpose: stop etcd on 2 of the 3 nodes and the single survivor can't reach a majority either — etcd itself becomes unable to confirm or change anything, including who holds the Leader lock.
+
+What Patroni does when it can't confirm it's still the Leader
+
+This cluster's Patroni config uses "ttl: 30" and "loop_wait: 10" (visible via "patronictl show-config"). Once the Leader can no longer renew its lock — because etcd itself has no quorum to renew anything against — it can't prove to itself it's still safely the Leader. Rather than risk a second node getting promoted later and colliding with it (split brain), Patroni errs toward unavailability: expect no member to report as Leader once the TTL passes, until quorum returns. This is the same split-brain-avoidance trade-off the Switchover lab's lecture notes mentioned, just triggered from the DCS side instead of a node crash.
+
+A real-world nuance this lab simplifies
+
+Here, etcd is colocated 1:1 with each database node purely to keep the lab's footprint small — lose a database node and you also lose an etcd vote. Most production Patroni deployments run etcd as its own independently-sized cluster (often 3 or 5 dedicated members) precisely so that database node failures and DCS availability are decoupled — losing a database node doesn't put etcd's quorum at any more risk than usual.`,
+		DesignTemplate: labPatroniSwitchoverDesign,
+		Steps: []LabStep{
+			{
+				ID:    "break-quorum",
+				Title: "Break etcd quorum",
+				Instructions: "Open a terminal on two of the three Patroni nodes (any two) and run `systemctl stop patroni etcd` on each " +
+					"— stopping only one of the three etcd members still leaves a majority (2 of 3), so both are needed. Wait about a " +
+					"minute (this lab's leader lock has a 30s TTL). Click Check Work — it passes once no node can confirm being Leader.",
+				Hint: "patronictl commands may hang or time out once etcd has no quorum — that's expected; use Check Work rather than list to see the result.",
+			},
+			{
+				ID:    "restore-quorum",
+				Title: "Restore quorum",
+				Instructions: "Run `systemctl start etcd patroni` again on the two nodes you stopped. Wait about 30 seconds for etcd to " +
+					"reform a quorum and Patroni to elect a Leader again, then click Check Work.",
+				Hint: "If it's still failing after a minute, double-check both etcd and patroni are started on both nodes: `systemctl status etcd patroni`.",
 			},
 		},
 	},
@@ -264,10 +403,21 @@ func (a *App) handleCheckLabStep(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx := r.Context()
 	var result LabStepResult
 	switch lab.ID + ":" + step.ID {
-	case "patroni-switchover:switchover":
-		result = a.checkPatroniSwitchover(r.Context(), run, st)
+	case "patroni-switchover:switchover", "patroni-failover:failover":
+		result = a.checkLeaderChanged(ctx, run, st)
+	case "patroni-pause-resume:pause":
+		result = a.checkPatroniPauseState(ctx, st, true)
+	case "patroni-pause-resume:resume":
+		result = a.checkPatroniPauseState(ctx, st, false)
+	case "patroni-config-change:config-change":
+		result = a.checkPatroniConfigChange(ctx, st)
+	case "patroni-etcd-quorum:break-quorum":
+		result = a.checkNoPatroniLeader(ctx, st)
+	case "patroni-etcd-quorum:restore-quorum":
+		result = a.checkPatroniLeaderPresent(ctx, st)
 	default:
 		writeErr(w, http.StatusNotImplemented, "no check available for this step")
 		return
@@ -279,18 +429,17 @@ func (a *App) handleCheckLabStep(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// checkPatroniSwitchover passes once the cluster's current leader (queried live
-// via each member's Patroni REST API, same helper the app uses for backups) is
-// a different node than the one recorded as leader when the cluster came up.
-func (a *App) checkPatroniSwitchover(ctx context.Context, run LabRun, st Stack) LabStepResult {
+// checkLeaderChanged passes once the cluster's current leader (queried live via
+// each member's Patroni REST API, same helper the app uses for backups) is a
+// different node than the one recorded as leader when the cluster came up.
+// Shared by the Switchover lab (a planned handover) and the Failover lab (an
+// unplanned crash) — both are verified by the same real-world fact: did
+// leadership actually move.
+func (a *App) checkLeaderChanged(ctx context.Context, run LabRun, st Stack) LabStepResult {
 	if run.InitialLeaderNode == "" {
 		return LabStepResult{Passed: false, Message: "The cluster is still starting up — wait for all three Patroni nodes to finish deploying, then try again."}
 	}
-	var doc designDoc
-	if json.Unmarshal(st.Design, &doc) != nil {
-		return LabStepResult{Passed: false, Message: "Could not read the lab stack's design."}
-	}
-	frame, ok := patroniFrameOf(doc)
+	doc, frame, ok := patroniFrameFromStack(st)
 	if !ok {
 		return LabStepResult{Passed: false, Message: "No Patroni cluster found in this lab's stack."}
 	}
@@ -304,10 +453,153 @@ func (a *App) checkPatroniSwitchover(ctx context.Context, run LabRun, st Stack) 
 	}
 	currentNodeID := nodeIDForContainer(deps, containerID)
 	if currentNodeID == run.InitialLeaderNode {
-		return LabStepResult{Passed: false, Message: nodeLabel(doc, currentNodeID) + " is still the leader — run `patronictl switchover` to promote a different node."}
+		return LabStepResult{Passed: false, Message: nodeLabel(doc, currentNodeID) + " is still the leader — promote a different node first."}
 	}
 	oldLabel, newLabel := nodeLabel(doc, run.InitialLeaderNode), nodeLabel(doc, currentNodeID)
-	return LabStepResult{Passed: true, Message: "Switchover confirmed: leadership moved from " + oldLabel + " to " + newLabel + "."}
+	return LabStepResult{Passed: true, Message: "Leadership moved from " + oldLabel + " to " + newLabel + "."}
+}
+
+// patroniFrameFromStack parses a lab stack's design and returns its (single)
+// Patroni cluster frame — every check in labs.go needs this first.
+func patroniFrameFromStack(st Stack) (designDoc, designFrame, bool) {
+	var doc designDoc
+	if json.Unmarshal(st.Design, &doc) != nil {
+		return doc, designFrame{}, false
+	}
+	frame, ok := patroniFrameOf(doc)
+	return doc, frame, ok
+}
+
+// checkPatroniPauseState passes once every running member's dynamic
+// configuration ("patronictl show-config" — the same object "pause"/"resume"/
+// "edit-config" all write to) agrees the cluster is in the wanted pause state.
+func (a *App) checkPatroniPauseState(ctx context.Context, st Stack, wantPaused bool) LabStepResult {
+	doc, _, ok := patroniFrameFromStack(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Patroni cluster found in this lab's stack."}
+	}
+	deps, err := a.store.ListDeployments(st.ID)
+	if err != nil {
+		return LabStepResult{Passed: false, Message: "Failed to read the lab stack's deployments."}
+	}
+	var running []Deployment
+	byNode := map[string]Deployment{}
+	for _, d := range deps {
+		byNode[d.NodeID] = d
+	}
+	for _, n := range doc.Nodes {
+		if n.Type != "patroni" {
+			continue
+		}
+		if d, ok := byNode[n.ID]; ok && d.State == DeployRunning && d.ContainerID != "" {
+			running = append(running, d)
+		}
+	}
+	if len(running) == 0 {
+		return LabStepResult{Passed: false, Message: "No Patroni node is running yet — wait for the cluster to finish deploying."}
+	}
+	verb := "pausing"
+	if !wantPaused {
+		verb = "resuming"
+	}
+	for _, d := range running {
+		res, err := a.engCtx(ctx).Exec(ctx, d.ContainerID,
+			[]string{"patronictl", "-c", "/etc/patroni/postgresql.yml", "show-config"}, nil)
+		if err != nil || res.Code != 0 {
+			return LabStepResult{Passed: false, Message: "Could not read the cluster config from " + nodeLabel(doc, d.NodeID) + " — is it still starting up?"}
+		}
+		paused := strings.Contains(strings.ToLower(res.Stdout), "pause: true")
+		if paused != wantPaused {
+			return LabStepResult{Passed: false, Message: nodeLabel(doc, d.NodeID) + " hasn't picked up the change yet — you may still be " + verb + ". Wait a few seconds and check again."}
+		}
+	}
+	if wantPaused {
+		return LabStepResult{Passed: true, Message: "Confirmed: the cluster is paused (autofailover disabled) on every running member."}
+	}
+	return LabStepResult{Passed: true, Message: "Confirmed: the cluster is resumed (autofailover enabled) on every running member."}
+}
+
+// checkPatroniConfigChange passes once every running member reports the same
+// non-default work_mem — proof the edit-config change actually applied
+// cluster-wide, not just that it was written to the DCS.
+func (a *App) checkPatroniConfigChange(ctx context.Context, st Stack) LabStepResult {
+	doc, _, ok := patroniFrameFromStack(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Patroni cluster found in this lab's stack."}
+	}
+	deps, err := a.store.ListDeployments(st.ID)
+	if err != nil {
+		return LabStepResult{Passed: false, Message: "Failed to read the lab stack's deployments."}
+	}
+	byNode := map[string]Deployment{}
+	for _, d := range deps {
+		byNode[d.NodeID] = d
+	}
+	var values []string
+	var labels []string
+	for _, n := range doc.Nodes {
+		if n.Type != "patroni" {
+			continue
+		}
+		d, ok := byNode[n.ID]
+		if !ok || d.State != DeployRunning || d.ContainerID == "" {
+			return LabStepResult{Passed: false, Message: n.Label + " is not running yet — wait for the cluster to be ready."}
+		}
+		res, err := a.engCtx(ctx).ExecAs(ctx, d.ContainerID, "postgres",
+			[]string{"psql", "-U", "postgres", "-d", "postgres", "-tAqc", "show work_mem;"}, nil)
+		if err != nil || res.Code != 0 {
+			return LabStepResult{Passed: false, Message: "Could not query " + n.Label + " — is PostgreSQL up?"}
+		}
+		values = append(values, strings.TrimSpace(res.Stdout))
+		labels = append(labels, n.Label)
+	}
+	if len(values) == 0 {
+		return LabStepResult{Passed: false, Message: "No Patroni members found."}
+	}
+	for i, v := range values {
+		if v == "" || v == "4MB" {
+			return LabStepResult{Passed: false, Message: labels[i] + " is still the default work_mem (4MB) — run patronictl edit-config to change it cluster-wide."}
+		}
+	}
+	for i, v := range values[1:] {
+		if v != values[0] {
+			return LabStepResult{Passed: false, Message: labels[0] + " reports " + values[0] + " but " + labels[i+1] + " reports " + v + " — wait for Patroni to finish reloading the config on every member."}
+		}
+	}
+	return LabStepResult{Passed: true, Message: "work_mem = " + values[0] + " confirmed on all " + labels[0] + ", " + strings.Join(labels[1:], ", ") + "."}
+}
+
+// checkNoPatroniLeader passes once no member can confirm being Leader — the
+// expected state once etcd has lost quorum and the old Leader's lock has
+// expired without anyone able to renew or contest it.
+func (a *App) checkNoPatroniLeader(ctx context.Context, st Stack) LabStepResult {
+	doc, frame, ok := patroniFrameFromStack(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Patroni cluster found in this lab's stack."}
+	}
+	if containerID := a.patroniLeaderContainer(ctx, st, frame, doc); containerID != "" {
+		return LabStepResult{Passed: false, Message: "A leader is still reachable — either quorum hasn't broken yet (stop etcd on two nodes, not one) or the lock hasn't expired. Wait a bit and check again."}
+	}
+	return LabStepResult{Passed: true, Message: "Confirmed: no member can currently confirm being Leader — etcd has no quorum to grant or renew the lock."}
+}
+
+// checkPatroniLeaderPresent passes once a member can confirm being Leader
+// again — the expected state once quorum has returned and Patroni has held a
+// fresh election.
+func (a *App) checkPatroniLeaderPresent(ctx context.Context, st Stack) LabStepResult {
+	doc, frame, ok := patroniFrameFromStack(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Patroni cluster found in this lab's stack."}
+	}
+	containerID := a.patroniLeaderContainer(ctx, st, frame, doc)
+	if containerID == "" {
+		return LabStepResult{Passed: false, Message: "Still no leader — give etcd and Patroni a bit longer to reform quorum and elect one, then check again."}
+	}
+	deps, err := a.store.ListDeployments(st.ID)
+	if err != nil {
+		return LabStepResult{Passed: false, Message: "Failed to read the lab stack's deployments."}
+	}
+	return LabStepResult{Passed: true, Message: "Confirmed: " + nodeLabel(doc, nodeIDForContainer(deps, containerID)) + " is Leader — quorum is back."}
 }
 
 // handleFinishLab ends the learner's active attempt (the frontend also calls

@@ -7142,3 +7142,42 @@ time limit implies — leaving the lab page and coming back.
   buttons are replaced with a "Session expired" notice instead of showing a misleadingly-empty node grid.
 
 **Verified.** `go build/vet/test` and `npm run build` green.
+
+---
+
+## 152. Four more Patroni labs — `app/labs.go`
+
+The user asked for the rest of the Patroni curriculum, choosing all four proposed scenarios. All four reuse
+`labPatroniSwitchoverDesign` as-is (same 3-node Patroni + HAProxy + Intranet topology) — no new provisioning
+code, matching how Switchover was built. `Labs.jsx` needed **zero** frontend changes: it already renders any
+lab's steps/instructions/hints/terminal buttons generically.
+
+- **Patroni Failover** (`patroni-failover`) — the unplanned counterpart to Switchover. The learner
+  `systemctl stop patroni`s the current Leader (which takes PostgreSQL down with it, since Patroni runs it as a
+  supervised child process, not a separate systemd unit) and confirms an automatic election. Its check is the
+  literal same fact as Switchover's — leadership moved from the recorded baseline — so
+  `checkPatroniSwitchover` was renamed `checkLeaderChanged` and generalized (dropped the switchover-specific
+  wording) rather than duplicated; both labs' `handleCheckLabStep` cases call it.
+- **Pause & Resume Autofailover** (`patroni-pause-resume`, 2 steps) — exercises `patronictl pause`/`resume`.
+  Checked via `checkPatroniPauseState`, which runs `patronictl show-config` on **every** currently-running
+  member (not just one) and requires all of them agree on the `pause: true`/absent state — deliberately not
+  read from a REST endpoint's JSON shape, since `show-config` is the documented, unambiguous way to see exactly
+  what `pause`/`resume`/`edit-config` all write to the same DCS object.
+- **Cluster-wide Configuration Change** (`patroni-config-change`) — `patronictl edit-config -p
+  work_mem=32MB --force`, verified by `checkPatroniConfigChange`, which runs `psql -U postgres -tAqc "show
+  work_mem;"` on every member (same `ExecAs(ctx, id, "postgres", ...)` pattern `datagen.go`'s `queryJSON`
+  already uses) and requires they all agree AND differ from PostgreSQL's 4MB default — proving the change
+  actually *applied* cluster-wide, not just that it was written to the DCS.
+- **etcd Quorum Loss** (`patroni-etcd-quorum`, 2 steps, Advanced) — stop `patroni`+`etcd` on 2 of 3 nodes
+  (breaking the majority) and confirm via `checkNoPatroniLeader` (reusing `patroniLeaderContainer`, expects it
+  to return "" once the Leader's 30s lock TTL expires and can't be renewed without quorum) that no member can
+  confirm being Leader; `restore-quorum` + `checkPatroniLeaderPresent` verify recovery. Lecture notes call out
+  that colocating etcd 1:1 with each database node (this lab's simplification) ties DCS availability to
+  database node availability — real deployments usually run etcd as its own independently-sized cluster.
+- **Shared helper added:** `patroniFrameFromStack(st Stack) (designDoc, designFrame, bool)` — every new check
+  needs "parse the design, find the one Patroni frame," previously inlined per function.
+
+**Verified.** `go build/vet/test` green. Not live-tested (same reasoning as §149 — avoiding rebuilding/
+restarting the running `dbcanvas-app-1` container without being asked); the riskiest assumption is the exact
+timing of Patroni's self-demotion once etcd loses quorum in the etcd-quorum-loss lab, which the lecture notes
+and step instructions hedge with "about a minute" / "wait a bit longer" rather than a hard number.
