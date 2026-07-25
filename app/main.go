@@ -96,6 +96,12 @@ func main() {
 	mux.HandleFunc("POST /api/stacks/{id}/validate", app.handleValidateStack)
 	mux.HandleFunc("POST /api/stacks/{id}/deploy", app.handleDeployStack)
 	mux.HandleFunc("POST /api/stacks/{id}/destroy", app.handleDestroyStack)
+	mux.HandleFunc("GET /api/labs", app.handleListLabs)
+	mux.HandleFunc("GET /api/labs/runs", app.handleListMyLabRuns)
+	mux.HandleFunc("POST /api/labs/{id}/start", app.handleStartLab)
+	mux.HandleFunc("POST /api/labs/{id}/finish", app.handleFinishLab)
+	mux.HandleFunc("POST /api/labs/{id}/steps/{stepId}/check", app.handleCheckLabStep)
+
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}", app.handleGetNode)
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/start", app.handleNodeAction("start"))
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/stop", app.handleNodeAction("stop"))

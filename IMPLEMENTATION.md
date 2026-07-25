@@ -7049,3 +7049,96 @@ self-container to join.
 against a PSMDB replica-set VM returns the database list (not the resolve error); a MongoDB OLTP + OLAP
 benchmark runs to completion against deployed `psm` VM nodes over the host-routed path. `go build/vet/test`
 green.
+
+---
+
+## 149. Labs (experimental) — a real, checkable hands-on scenario — `app/labs.go`, `store.go`, `main.go`, `web/src/pages/Labs.jsx`
+
+New top-level "Labs (experimental)" nav entry: unlike patroni-command-academy (a separate, dependency-free
+browser game whose "check work" is pure client-side string/number comparison against a baked-in answer — it
+never runs a real command or inspects real state), a dbcanvas Lab is real: starting one provisions a genuine
+disposable stack and "Check Work" inspects that stack's actual live state.
+
+- **Provisioning reuses the existing pipeline wholesale, no new orchestration code.** A `Lab`'s
+  `DesignTemplate` is a hardcoded `design_json` blob in exactly the shape Stack Designer produces (the same
+  `designNode`/`designFrame`/`designEdge` structs `intranet.go` already parses). `handleStartLab` just calls
+  `a.store.CreateStack(...)` with it; the frontend then calls the existing `POST /api/stacks/{id}/deploy`
+  (`handleDeployStack`, unchanged) exactly like Stack Designer does. One lab shipped: "Patroni Switchover" — an
+  Intranet + 3-node Patroni frame (etcd quorum minimum) + HAProxy, wired with a `directional` edge so
+  `haproxyBackend` resolves it.
+- **Check Work is the one genuinely new piece of logic.** `checkPatroniSwitchover` compares the cluster's
+  current leader (via `patroniLeaderContainer`, the same REST-`/leader`-probing helper `handlePatroniBackup`
+  already uses) against a baseline captured once when the cluster first comes up. That baseline is captured by
+  a detached goroutine (`captureLabInitialLeader`, started from `handleStartLab`, 15 min timeout / 5s poll)
+  because the cluster is still deploying when Start returns — there's no leader to snapshot yet.
+- **Progress persists per-user in SQLite**, alongside the existing `stacks`/`deployments` tables: new
+  `lab_runs` (one active attempt per learner per lab; `stack_id` is a plain column, not a cascading FK, so
+  destroying the stack doesn't erase the attempt's history) and `lab_step_results`. `GET /api/labs/runs` backs
+  a "recent attempts" list on the catalog page.
+- **Frontend** (`Labs.jsx`) is a new page like any other (`App.jsx` `NAV`): a catalog of cards, and a lab-run
+  view that polls `GET /api/stacks/{id}` for deploy progress, opens a real terminal per Patroni node via the
+  existing `useTerminals()`/`TerminalProvider` (no xterm/websocket code added), and a per-step "Check Work"
+  button hitting the new `POST /api/labs/{id}/steps/{stepId}/check`. Added an `Icon.Flask` glyph
+  (`components/Icons.jsx`) — no existing icon fit "Labs".
+- **Explicitly out of scope for this pass:** porting patroni-command-academy's client-side quiz lessons,
+  multiple labs / a generic content-authoring format (the one lab's check is a hardcoded Go function, not a
+  generic command+assertion spec — not worth abstracting for n=1), and Vagrant/hybrid support (labs default to
+  Docker, like most non-VM-pinned node types).
+
+**Verified.** `go build/vet/test` green; `npm run build` (vite) green. Not live-tested end-to-end (deploying a
+real 3-node Patroni cluster + HAProxy against the running `dbcanvas-app-1` container was deferred at the user's
+request, to avoid rebuilding/restarting their live instance) — the design template's node/frame/edge shape and
+`validateStack` rules were cross-checked by hand against `intranet.go`/`patroni.go`/`haproxy.go` (image tag
+`dbcanvas-systemd:oraclelinux-9-amd64`, which is already built on this host, per `docker images`).
+
+**Update:** the user later rebuilt/restarted and confirmed the whole flow live — Patroni Switchover deploys, the
+per-node terminal opens against the real container, and Check Work correctly reports the leader change after a
+real `patronictl switchover`.
+
+---
+
+## 150. Labs — per-lab lecture notes — `app/labs.go`, `web/src/pages/Labs.jsx`
+
+Follow-up requested after confirming §149 works live: each lab should link to background reading on the
+technology it exercises, so a learner can get oriented before (or mid-) lab.
+
+- Added `Lab.LectureNotes` (`app/labs.go`) — bundled plain text, not an external URL, so it can never 404 and
+  doesn't depend on patroni-command-academy's curriculum being deployed anywhere reachable. Written for
+  Patroni Switchover: what Patroni/etcd/quorum are, leader election vs. switchover vs. failover, and where
+  HAProxy's `:8008/leader` poll fits — the same signal `patroniLeaderContainer` (and this lab's Check Work)
+  reads.
+- `Labs.jsx`: a `LectureNotesToggle` link expands an inline scrollable panel, reused on both the catalog card
+  and the lab-run header — no new dependency (no markdown renderer in the project, so notes render as
+  `whitespace-pre-wrap` plain text, paragraph-separated, matching how step instructions already render).
+
+**Verified.** `go build/vet/test` and `npm run build` green.
+
+---
+
+## 151. Labs — per-lab time limit + "Resume Lab" — `app/labs.go`, `store.go`, `stacks.go`, `web/src/pages/Labs.jsx`
+
+Two follow-ups: make the lab's time limit explicit/configurable (it was already a hardcoded "2h" TTL passed to
+`CreateStack`, since a lab's disposable stack is a stack like any other) and fix the UX for the very scenario a
+time limit implies — leaving the lab page and coming back.
+
+- **`Lab.TimeLimit`** (`app/labs.go`) replaces the hardcoded `"2h"` literal in `handleStartLab` — same
+  `validTTL` token space (`stacks.go`), defaulted to `"2h"` on Patroni Switchover. `GET /api/labs` exposes it as
+  `timeLimit`; the frontend maps it to a label via the existing `TTL_OPTIONS` (`lib/stackApi.js`) rather than
+  duplicating that table.
+- **Bug found while wiring this up:** `handleStartLab`'s resume branch (added in §149) would happily hand back
+  an already-*expired* stack — `reapExpiredStacks` (`stacks.go`) tears down its containers and flips
+  `status` to `"expired"` but never touched the `lab_runs` row, so `GetActiveLabRun` kept pointing at it
+  forever. Fixed two ways: `handleStartLab` now checks `st.Status != StackExpired` before resuming (finishes
+  the stale run and provisions a fresh stack otherwise), and `reapExpiredStacks` calls the new
+  `Store.FinishLabRunsForStack` so `lab_runs.finished_at` reflects reality within the next 60s reaper tick —
+  which is also what makes the frontend's "Resume Lab" detection self-correct without any expiry-specific
+  frontend logic.
+- **Frontend** (`Labs.jsx`): the catalog's Start button reads `myRuns` (already fetched for "Recent attempts")
+  for an unfinished run matching that lab and swaps its label to "Resume Lab" / "Resuming…" — this covers the
+  reported case (navigate away mid-lab, come back) since `handleStartLab` already resumes into the existing
+  stack; the button just wasn't saying so. The lab-run header shows a live "Xh Ym remaining" badge (turns
+  `warning` under 15 min) computed from `stack.expiresAt`, refreshed on the existing 3s deploy-status poll —
+  no separate ticking timer added. When `stack.status === "expired"`, the Cluster card and all Check Work
+  buttons are replaced with a "Session expired" notice instead of showing a misleadingly-empty node grid.
+
+**Verified.** `go build/vet/test` and `npm run build` green.

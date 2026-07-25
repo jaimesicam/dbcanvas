@@ -15,6 +15,7 @@ import Benchmark from './pages/Benchmark.jsx'
 import VisualSummary from './pages/VisualSummary.jsx'
 import ManageUsers from './pages/ManageUsers.jsx'
 import Settings from './pages/Settings.jsx'
+import Labs from './pages/Labs.jsx'
 
 const NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: 'Dashboard', page: Dashboard, hint: 'Widgets & live charts' },
@@ -23,6 +24,7 @@ const NAV = [
   { id: 'queryrun', label: 'Query Runner', icon: 'Database', page: QueryRunner, hint: 'Run parallel queries with processlist gating' },
   { id: 'benchmark', label: 'Benchmark', icon: 'Monitor', page: Benchmark, hint: 'OLTP/OLAP/RW/RO throughput + latency' },
   { id: 'visual-summary', label: 'Visual Summary', icon: 'Monitor', page: VisualSummary, hint: 'Charts from a pt-stalk archive' },
+  { id: 'labs', label: 'Labs (experimental)', icon: 'Flask', page: Labs, hint: 'Hands-on scenarios with real check-work verification' },
   { id: 'settings', label: 'Settings', icon: 'Settings', page: Settings, hint: 'Terminal & theme preferences' },
 ]
 const ADMIN_NAV = { id: 'users', label: 'Manage Users', icon: 'Users', page: ManageUsers, hint: 'Approve & manage accounts' }

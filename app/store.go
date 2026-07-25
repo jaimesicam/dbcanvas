@@ -109,7 +109,25 @@ CREATE TABLE IF NOT EXISTS notifications (
   read_at    TEXT,
   created_at TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, id DESC);`
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, id DESC);
+CREATE TABLE IF NOT EXISTS lab_runs (
+  id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+  lab_id                 TEXT NOT NULL,
+  user_id                INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  stack_id               INTEGER NOT NULL,
+  initial_leader_node_id TEXT,
+  started_at             TEXT NOT NULL,
+  finished_at            TEXT
+);
+CREATE TABLE IF NOT EXISTS lab_step_results (
+  lab_run_id INTEGER NOT NULL REFERENCES lab_runs(id) ON DELETE CASCADE,
+  step_id    TEXT NOT NULL,
+  passed     INTEGER NOT NULL,
+  message    TEXT,
+  checked_at TEXT NOT NULL,
+  PRIMARY KEY (lab_run_id, step_id)
+);
+CREATE INDEX IF NOT EXISTS idx_lab_runs_user ON lab_runs(user_id, id DESC);`
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, err
@@ -582,6 +600,163 @@ func (s *Store) GetDeployment(stackID int64, nodeID string) (Deployment, error) 
 func (s *Store) DeleteDeployment(stackID int64, nodeID string) error {
 	_, err := s.db.Exec("DELETE FROM deployments WHERE stack_id = ? AND node_id = ?", stackID, nodeID)
 	return err
+}
+
+// --- labs ---
+
+// LabRun is one learner's attempt at a Lab: the disposable stack it provisioned,
+// the leadership snapshot taken once the cluster comes up (so Check Work has a
+// baseline to compare against), and per-step pass/fail history.
+type LabRun struct {
+	ID                int64   `json:"id"`
+	LabID             string  `json:"labId"`
+	UserID            int64   `json:"userId"`
+	StackID           int64   `json:"stackId"`
+	InitialLeaderNode string  `json:"initialLeaderNodeId,omitempty"`
+	StartedAt         string  `json:"startedAt"`
+	FinishedAt        *string `json:"finishedAt,omitempty"`
+}
+
+// LabStepResult is the outcome of the most recent Check Work call for one step.
+type LabStepResult struct {
+	LabRunID  int64  `json:"labRunId"`
+	StepID    string `json:"stepId"`
+	Passed    bool   `json:"passed"`
+	Message   string `json:"message"`
+	CheckedAt string `json:"checkedAt"`
+}
+
+// CreateLabRun records a new lab attempt, tying it to the disposable stack that
+// was just created for it.
+func (s *Store) CreateLabRun(labID string, userID, stackID int64) (LabRun, error) {
+	started := nowRFC3339()
+	res, err := s.db.Exec(
+		"INSERT INTO lab_runs (lab_id, user_id, stack_id, started_at) VALUES (?,?,?,?)",
+		labID, userID, stackID, started,
+	)
+	if err != nil {
+		return LabRun{}, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return LabRun{}, err
+	}
+	return LabRun{ID: id, LabID: labID, UserID: userID, StackID: stackID, StartedAt: started}, nil
+}
+
+// GetActiveLabRun returns the learner's most recent not-yet-finished run of a lab.
+func (s *Store) GetActiveLabRun(labID string, userID int64) (LabRun, error) {
+	row := s.db.QueryRow(
+		`SELECT id, lab_id, user_id, stack_id, initial_leader_node_id, started_at, finished_at
+		 FROM lab_runs WHERE lab_id = ? AND user_id = ? AND finished_at IS NULL
+		 ORDER BY id DESC LIMIT 1`,
+		labID, userID,
+	)
+	return scanLabRun(row)
+}
+
+// GetLabRun returns a single lab run by id (ownership is checked by the caller).
+func (s *Store) GetLabRun(id int64) (LabRun, error) {
+	row := s.db.QueryRow(
+		`SELECT id, lab_id, user_id, stack_id, initial_leader_node_id, started_at, finished_at
+		 FROM lab_runs WHERE id = ?`, id,
+	)
+	return scanLabRun(row)
+}
+
+func scanLabRun(row *sql.Row) (LabRun, error) {
+	var r LabRun
+	var leader, finished sql.NullString
+	if err := row.Scan(&r.ID, &r.LabID, &r.UserID, &r.StackID, &leader, &r.StartedAt, &finished); err != nil {
+		return LabRun{}, err
+	}
+	r.InitialLeaderNode = leader.String
+	if finished.Valid {
+		r.FinishedAt = &finished.String
+	}
+	return r, nil
+}
+
+// SetLabRunLeader records the node that was leader when the lab's cluster first
+// came up — the baseline Check Work compares the current leader against.
+func (s *Store) SetLabRunLeader(id int64, nodeID string) error {
+	_, err := s.db.Exec("UPDATE lab_runs SET initial_leader_node_id = ? WHERE id = ?", nodeID, id)
+	return err
+}
+
+// FinishLabRun marks a lab attempt as ended (the learner clicked "End Lab").
+func (s *Store) FinishLabRun(id int64) error {
+	_, err := s.db.Exec("UPDATE lab_runs SET finished_at = ? WHERE id = ?", nowRFC3339(), id)
+	return err
+}
+
+// FinishLabRunsForStack closes out any still-active lab run whose disposable
+// stack was just reaped (TTL expiry, not an explicit "End Lab") — otherwise
+// GetActiveLabRun keeps pointing at a destroyed stack.
+func (s *Store) FinishLabRunsForStack(stackID int64) error {
+	_, err := s.db.Exec("UPDATE lab_runs SET finished_at = ? WHERE stack_id = ? AND finished_at IS NULL", nowRFC3339(), stackID)
+	return err
+}
+
+// ListLabRuns returns a user's lab attempts, newest first (their progress history).
+func (s *Store) ListLabRuns(userID int64) ([]LabRun, error) {
+	rows, err := s.db.Query(
+		`SELECT id, lab_id, user_id, stack_id, initial_leader_node_id, started_at, finished_at
+		 FROM lab_runs WHERE user_id = ? ORDER BY id DESC`, userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []LabRun{}
+	for rows.Next() {
+		var r LabRun
+		var leader, finished sql.NullString
+		if err := rows.Scan(&r.ID, &r.LabID, &r.UserID, &r.StackID, &leader, &r.StartedAt, &finished); err != nil {
+			return nil, err
+		}
+		r.InitialLeaderNode = leader.String
+		if finished.Valid {
+			r.FinishedAt = &finished.String
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// RecordLabStepResult upserts the outcome of the latest Check Work call for a step.
+func (s *Store) RecordLabStepResult(res LabStepResult) error {
+	_, err := s.db.Exec(
+		`INSERT INTO lab_step_results (lab_run_id, step_id, passed, message, checked_at)
+		 VALUES (?,?,?,?,?)
+		 ON CONFLICT(lab_run_id, step_id) DO UPDATE SET
+		   passed=excluded.passed, message=excluded.message, checked_at=excluded.checked_at`,
+		res.LabRunID, res.StepID, res.Passed, res.Message, res.CheckedAt,
+	)
+	return err
+}
+
+// ListLabStepResults returns every step's latest result for one lab run.
+func (s *Store) ListLabStepResults(labRunID int64) ([]LabStepResult, error) {
+	rows, err := s.db.Query(
+		"SELECT lab_run_id, step_id, passed, message, checked_at FROM lab_step_results WHERE lab_run_id = ?",
+		labRunID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []LabStepResult{}
+	for rows.Next() {
+		var r LabStepResult
+		var msg sql.NullString
+		if err := rows.Scan(&r.LabRunID, &r.StepID, &r.Passed, &msg, &r.CheckedAt); err != nil {
+			return nil, err
+		}
+		r.Message = msg.String
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 func nullStr(p *string) any {

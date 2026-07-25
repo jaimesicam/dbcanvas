@@ -51,6 +51,14 @@ export const Icon = {
       <line x1="12" y1="18" x2="12" y2="21" />
     </Svg>
   ),
+  // Labs: a lab flask, for the experimental hands-on scenarios feature.
+  Flask: (p) => (
+    <Svg {...p}>
+      <path d="M9 3h6" />
+      <path d="M10 3v6.5L4.5 19a2 2 0 0 0 1.7 3h11.6a2 2 0 0 0 1.7-3L14 9.5V3" />
+      <path d="M7.5 15h9" />
+    </Svg>
+  ),
   Sliders: (p) => (
     <Svg {...p}>
       <line x1="4" y1="8" x2="20" y2="8" />
