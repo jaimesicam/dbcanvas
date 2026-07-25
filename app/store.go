@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS lab_runs (
   user_id                INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   stack_id               INTEGER NOT NULL,
   initial_leader_node_id TEXT,
+  initial_backup_count   INTEGER NOT NULL DEFAULT 0,
   started_at             TEXT NOT NULL,
   finished_at            TEXT
 );
@@ -138,6 +139,7 @@ CREATE INDEX IF NOT EXISTS idx_lab_runs_user ON lab_runs(user_id, id DESC);`
 	db.Exec("ALTER TABLE deployments ADD COLUMN progress_json TEXT")
 	db.Exec("ALTER TABLE users ADD COLUMN settings_json TEXT")
 	db.Exec("ALTER TABLE stacks ADD COLUMN backend TEXT")
+	db.Exec("ALTER TABLE lab_runs ADD COLUMN initial_backup_count INTEGER NOT NULL DEFAULT 0")
 
 	return &Store{db: db}, nil
 }
@@ -608,13 +610,18 @@ func (s *Store) DeleteDeployment(stackID int64, nodeID string) error {
 // the leadership snapshot taken once the cluster comes up (so Check Work has a
 // baseline to compare against), and per-step pass/fail history.
 type LabRun struct {
-	ID                int64   `json:"id"`
-	LabID             string  `json:"labId"`
-	UserID            int64   `json:"userId"`
-	StackID           int64   `json:"stackId"`
-	InitialLeaderNode string  `json:"initialLeaderNodeId,omitempty"`
-	StartedAt         string  `json:"startedAt"`
-	FinishedAt        *string `json:"finishedAt,omitempty"`
+	ID                int64  `json:"id"`
+	LabID             string `json:"labId"`
+	UserID            int64  `json:"userId"`
+	StackID           int64  `json:"stackId"`
+	InitialLeaderNode string `json:"initialLeaderNodeId,omitempty"`
+	// InitialBackupCount is the pgBackRest backup count seen once the cluster
+	// first comes up (the automatic initial backup taken at deploy time) — 0
+	// means "not captured yet" (or not a pgBackRest-enabled lab). The Backup &
+	// Restore lab's Check Work compares the live count against this baseline.
+	InitialBackupCount int     `json:"initialBackupCount,omitempty"`
+	StartedAt          string  `json:"startedAt"`
+	FinishedAt         *string `json:"finishedAt,omitempty"`
 }
 
 // LabStepResult is the outcome of the most recent Check Work call for one step.
@@ -647,7 +654,7 @@ func (s *Store) CreateLabRun(labID string, userID, stackID int64) (LabRun, error
 // GetActiveLabRun returns the learner's most recent not-yet-finished run of a lab.
 func (s *Store) GetActiveLabRun(labID string, userID int64) (LabRun, error) {
 	row := s.db.QueryRow(
-		`SELECT id, lab_id, user_id, stack_id, initial_leader_node_id, started_at, finished_at
+		`SELECT id, lab_id, user_id, stack_id, initial_leader_node_id, initial_backup_count, started_at, finished_at
 		 FROM lab_runs WHERE lab_id = ? AND user_id = ? AND finished_at IS NULL
 		 ORDER BY id DESC LIMIT 1`,
 		labID, userID,
@@ -658,7 +665,7 @@ func (s *Store) GetActiveLabRun(labID string, userID int64) (LabRun, error) {
 // GetLabRun returns a single lab run by id (ownership is checked by the caller).
 func (s *Store) GetLabRun(id int64) (LabRun, error) {
 	row := s.db.QueryRow(
-		`SELECT id, lab_id, user_id, stack_id, initial_leader_node_id, started_at, finished_at
+		`SELECT id, lab_id, user_id, stack_id, initial_leader_node_id, initial_backup_count, started_at, finished_at
 		 FROM lab_runs WHERE id = ?`, id,
 	)
 	return scanLabRun(row)
@@ -667,7 +674,7 @@ func (s *Store) GetLabRun(id int64) (LabRun, error) {
 func scanLabRun(row *sql.Row) (LabRun, error) {
 	var r LabRun
 	var leader, finished sql.NullString
-	if err := row.Scan(&r.ID, &r.LabID, &r.UserID, &r.StackID, &leader, &r.StartedAt, &finished); err != nil {
+	if err := row.Scan(&r.ID, &r.LabID, &r.UserID, &r.StackID, &leader, &r.InitialBackupCount, &r.StartedAt, &finished); err != nil {
 		return LabRun{}, err
 	}
 	r.InitialLeaderNode = leader.String
@@ -681,6 +688,14 @@ func scanLabRun(row *sql.Row) (LabRun, error) {
 // came up — the baseline Check Work compares the current leader against.
 func (s *Store) SetLabRunLeader(id int64, nodeID string) error {
 	_, err := s.db.Exec("UPDATE lab_runs SET initial_leader_node_id = ? WHERE id = ?", nodeID, id)
+	return err
+}
+
+// SetLabRunBackupCount records the pgBackRest backup count seen once the
+// lab's cluster first comes up — the baseline the Backup & Restore lab's
+// Check Work compares the live count against.
+func (s *Store) SetLabRunBackupCount(id int64, count int) error {
+	_, err := s.db.Exec("UPDATE lab_runs SET initial_backup_count = ? WHERE id = ?", count, id)
 	return err
 }
 
@@ -701,7 +716,7 @@ func (s *Store) FinishLabRunsForStack(stackID int64) error {
 // ListLabRuns returns a user's lab attempts, newest first (their progress history).
 func (s *Store) ListLabRuns(userID int64) ([]LabRun, error) {
 	rows, err := s.db.Query(
-		`SELECT id, lab_id, user_id, stack_id, initial_leader_node_id, started_at, finished_at
+		`SELECT id, lab_id, user_id, stack_id, initial_leader_node_id, initial_backup_count, started_at, finished_at
 		 FROM lab_runs WHERE user_id = ? ORDER BY id DESC`, userID,
 	)
 	if err != nil {
@@ -712,7 +727,7 @@ func (s *Store) ListLabRuns(userID int64) ([]LabRun, error) {
 	for rows.Next() {
 		var r LabRun
 		var leader, finished sql.NullString
-		if err := rows.Scan(&r.ID, &r.LabID, &r.UserID, &r.StackID, &leader, &r.StartedAt, &finished); err != nil {
+		if err := rows.Scan(&r.ID, &r.LabID, &r.UserID, &r.StackID, &leader, &r.InitialBackupCount, &r.StartedAt, &finished); err != nil {
 			return nil, err
 		}
 		r.InitialLeaderNode = leader.String

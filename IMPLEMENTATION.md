@@ -7221,3 +7221,44 @@ confidence assumptions, flagged for whoever runs this live first: the exact `pat
 names (`-p`/`--pg-param` vs. `-s`/`--set`) and `failsafe_mode`'s exact peer-reachability semantics — both are
 well-documented Patroni behavior from general knowledge, not verified against a running cluster in this
 session.
+
+---
+
+## 154. Backup & Restore with pgBackRest — `app/labs.go`, `store.go`
+
+The one lab flagged as a heavier lift when the user asked for recommendations — it needs a bigger design
+template (a SeaweedFS node + `UsePgBackRest` on the Patroni frame) rather than reusing
+`labPatroniSwitchoverDesign` as-is, and needed real research into how pgBackRest is actually wired in this
+codebase before writing anything (see `patroni.go`'s `provisionPatroniFrame`/`patroniPgBackRestConf`,
+`intranet.go`'s `pgBackRestSeaweedIssues`/`seaweedBucketIssues`).
+
+- **`labPatroniBackupDesign`** (new template): adds one `seaweedfs` node with `"tls":true` (pgBackRest's S3
+  client requires HTTPS — `repo1-s3-verify-tls=n` in the generated config means it doesn't need to trust the
+  self-signed cert, just see TLS at all) and `"bucket":"lab-backups"` (a SeaweedFS node gets no default bucket
+  — `validateStack` errors without at least one named explicitly). The frame adds `usePgBackRest: true` +
+  `seaweedfsNodeId` pointing at it; no edge needed (unlike HAProxy↔Patroni, this association is a plain ID
+  reference, resolved by `pgBackRestSeaweedIssues`).
+- **Needed a real baseline, not just a leader snapshot:** `provisionPatroniFrame` already takes an automatic
+  initial pgBackRest backup right after stanza creation — so a naive "does a backup exist" check would pass
+  before the learner did anything. Added `lab_runs.initial_backup_count` (new column, same pattern as
+  `initial_leader_node_id`: `Store.SetLabRunBackupCount`, captured by a new detached
+  `captureLabInitialBackupCount` goroutine launched alongside the existing leader-capture one on every lab
+  start — it exits immediately for the other 9 labs, whose stacks have `UsePgBackRest: false`). Both goroutines
+  now run unconditionally per lab start rather than special-casing which labs need which baseline.
+- **`checkPgBackRestFreshBackup`** re-runs `pgbackrest info --output=json` (via the new
+  `pgBackRestBackupCount` helper, parsed with a minimal local struct — just enough to count the `backup`
+  array) and requires the live count to exceed the captured baseline.
+- **`checkPatroniClusterHealthy`** (for the `patronictl reinit` step) needed a check that actually reflects
+  Patroni-level recovery, not container lifecycle: a `reinit`-ing member's Docker container never stops, so
+  `Deployment.State` stays `"running"` throughout and would make a container-based check trivially pass
+  immediately. Instead it re-runs `patroniRoleScript` (the same per-member REST probe
+  `patroniLeaderContainer` already uses, generalized here into a new `allPatroniMembersHealthy` helper that
+  checks every member instead of stopping at the first Leader) against every member and requires all of them
+  to answer.
+
+**Verified.** `go build/vet/test` green. Not live-tested — this is also the least-confidence lab in the
+catalog so far: the `pgbackrest info --output=json` schema (a top-level array with a `backup` array per
+stanza) and `patronictl reinit`'s exact behavior/flags are from general Percona/Patroni knowledge, not
+confirmed against a running cluster. Point-in-time recovery of a whole cluster (as opposed to recloning one
+member) was explicitly scoped out rather than guessed at — flagged as a further, unimplemented topic in the
+lab's own lecture notes.

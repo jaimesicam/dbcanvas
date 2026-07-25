@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -54,6 +55,29 @@ var labPatroniSwitchoverDesign = json.RawMessage(`{
   ],
   "frames": [
     {"id":"lab-patroni-cluster","type":"patroni","label":"lab-patroni","os":"oraclelinux","osVersion":"9","arch":"amd64","pgMajor":"16"}
+  ],
+  "edges": [
+    {"id":"lab-edge-haproxy","from":{"node":"lab-haproxy","port":""},"to":{"node":"lab-patroni-cluster","port":""},"type":"directional"}
+  ],
+  "view": {"x":0,"y":0,"z":1}
+}`)
+
+// labPatroniBackupDesign extends labPatroniSwitchoverDesign's topology with a
+// SeaweedFS node backing pgBackRest — TLS must be on (S3 TLS is required for
+// pgBackRest's S3 client; see pgBackRestSeaweedIssues in intranet.go) and it
+// needs at least one bucket named up front (SeaweedFS nodes don't get a
+// default bucket).
+var labPatroniBackupDesign = json.RawMessage(`{
+  "nodes": [
+    {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64"},
+    {"id":"lab-pg-1","type":"patroni","label":"pg-node-1","frameId":"lab-patroni-cluster"},
+    {"id":"lab-pg-2","type":"patroni","label":"pg-node-2","frameId":"lab-patroni-cluster"},
+    {"id":"lab-pg-3","type":"patroni","label":"pg-node-3","frameId":"lab-patroni-cluster"},
+    {"id":"lab-haproxy","type":"haproxy","label":"haproxy","os":"oraclelinux","osVersion":"9","arch":"amd64"},
+    {"id":"lab-seaweed","type":"seaweedfs","label":"seaweed","arch":"amd64","bucket":"lab-backups","tls":true}
+  ],
+  "frames": [
+    {"id":"lab-patroni-cluster","type":"patroni","label":"lab-patroni","os":"oraclelinux","osVersion":"9","arch":"amd64","pgMajor":"16","usePgBackRest":true,"seaweedfsNodeId":"lab-seaweed"}
   ],
   "edges": [
     {"id":"lab-edge-haproxy","from":{"node":"lab-haproxy","port":""},"to":{"node":"lab-patroni-cluster","port":""},"type":"directional"}
@@ -381,6 +405,50 @@ Why it's opt-in, not the default
 			},
 		},
 	},
+	{
+		ID:          "patroni-backup-restore",
+		Title:       "Backup & Restore with pgBackRest",
+		Description: "This cluster backs up to S3-compatible storage (SeaweedFS). Take a backup yourself, then use it to reclone a Replica instead of streaming a fresh copy from the Leader.",
+		Difficulty:  "Advanced",
+		TimeLimit:   "2h",
+		LectureNotes: `Why an HA cluster still needs backups
+
+Replication protects against a node dying — there are still two other copies. It does nothing to protect you against a bad "DELETE" or "DROP TABLE": that mistake replicates to every Replica in milliseconds, just as faithfully as a good write. Backups are the only thing in this stack that gives you a version of the data from before a mistake happened. This lab covers restoring a single member from backup, the routine operational case (a corrupted disk, a member you want to reclone) — recovering a whole cluster to a moment before a specific mistake (point-in-time recovery) is a related, more advanced operation this lab doesn't attempt.
+
+Physical backups, not pg_dump
+
+pgBackRest takes physical, block-level backups — a copy of the actual data directory plus continuously archived WAL — not the logical SQL-statement dumps "pg_dump" produces. That's what makes it fast enough to restore a multi-gigabyte cluster member in minutes instead of hours, and it's what lets Patroni treat "restore from backup" as just another way to create a replica.
+
+Patroni already knows how to use your backups
+
+Look at "patronictl list" after this lab's cluster first comes up: a full backup already happened automatically, right after the stanza was created. That's because this Patroni cluster's "create_replica_methods" includes pgbackrest — so whenever Patroni needs to (re)create a member from scratch, it restores from the S3 repo instead of streaming a fresh "pg_basebackup" copy from the Leader. That's faster, and it doesn't load extra I/O and network bandwidth onto the Leader while it's serving live traffic — a real reason to configure backups even on a cluster that "already has replicas."
+
+Why the S3 store needs TLS
+
+pgBackRest's S3 client refuses plain HTTP; this lab's SeaweedFS node runs with a self-signed TLS certificate (pgbackrest.conf sets "repo1-s3-verify-tls=n" so it doesn't need to trust the CA — only that the endpoint speaks HTTPS at all).`,
+		DesignTemplate: labPatroniBackupDesign,
+		Steps: []LabStep{
+			{
+				ID:    "take-backup",
+				Title: "Take a full backup",
+				Instructions: "This cluster already took one pgBackRest backup automatically when it was created — see for yourself with " +
+					"`pgbackrest --stanza=lab-patroni info` on any node. Now take a fresh one yourself: run " +
+					"`pgbackrest --stanza=lab-patroni --type=full backup` (this works from any node — it just needs to reach the same S3 " +
+					"repo, not necessarily the Leader). Wait for it to finish without errors, then click Check Work.",
+				Hint: "Check Work is looking for more backups than existed when the cluster first came up — the automatic initial one alone won't pass it.",
+			},
+			{
+				ID:    "restore-replica",
+				Title: "Reclone a Replica from backup",
+				Instructions: "Find a Replica with `patronictl -c /etc/patroni/postgresql.yml list` (anyone that isn't the Leader), then run " +
+					"`patronictl -c /etc/patroni/postgresql.yml reinit lab-patroni <replica-hostname> --force` on any node. This wipes that " +
+					"member's data directory and reclones it — and because pgBackRest is configured, Patroni restores from your S3 backup " +
+					"rather than streaming a fresh copy from the Leader. Wait about a minute, confirm with `list` that it's back to Role: " +
+					"Replica / State: streaming, then click Check Work.",
+				Hint: "reinit only touches the one member you name — the Leader and the other Replica are never affected, so this is safe to try.",
+			},
+		},
+	},
 }
 
 func findLab(id string) (Lab, bool) {
@@ -445,6 +513,7 @@ func (a *App) handleStartLab(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	go a.captureLabInitialLeader(run.ID, st.ID)
+	go a.captureLabInitialBackupCount(run.ID, st.ID)
 	writeJSON(w, http.StatusCreated, map[string]any{"labRun": run, "stack": st})
 }
 
@@ -489,6 +558,67 @@ func (a *App) captureLabInitialLeader(runID, stackID int64) {
 		a.store.SetLabRunLeader(runID, nodeID)
 		return
 	}
+}
+
+// captureLabInitialBackupCount polls until pgBackRest reports its automatic
+// initial backup (taken right after the cluster's stanza is created), then
+// records the count as the baseline the Backup & Restore lab's first Check
+// Work compares against — otherwise checking immediately after deploy would
+// trivially "pass" on that automatic backup alone. A no-op (returns quickly)
+// for every other lab, whose stacks have pgBackRest disabled.
+func (a *App) captureLabInitialBackupCount(runID, stackID int64) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		st, err := a.store.GetStack(stackID)
+		if err != nil {
+			return
+		}
+		doc, frame, ok := patroniFrameFromStack(st)
+		if !ok || !frame.UsePgBackRest {
+			return
+		}
+		running, err := a.runningPatroniMembers(st, doc)
+		if err != nil || len(running) == 0 {
+			continue
+		}
+		count, ok := a.pgBackRestBackupCount(ctx, patroniStanza(frame.Label), running[0].ContainerID)
+		if !ok {
+			continue
+		}
+		a.store.SetLabRunBackupCount(runID, count)
+		return
+	}
+}
+
+// pgBackRestInfo is the minimal shape of `pgbackrest info --output=json`
+// (one entry per stanza) this app reads — just enough to count backups.
+type pgBackRestInfo struct {
+	Backup []struct{} `json:"backup"`
+}
+
+// pgBackRestBackupCount runs `pgbackrest info` on the given container and
+// returns how many backups exist for the stanza. ok is false if the command
+// failed or returned something unparseable (e.g. pgBackRest isn't installed
+// on this lab's image, or the stanza isn't ready yet).
+func (a *App) pgBackRestBackupCount(ctx context.Context, stanza, containerID string) (int, bool) {
+	res, err := a.engCtx(ctx).Exec(ctx, containerID,
+		[]string{"pgbackrest", "--stanza=" + stanza, "info", "--output=json"}, nil)
+	if err != nil || res.Code != 0 {
+		return 0, false
+	}
+	var info []pgBackRestInfo
+	if json.Unmarshal([]byte(res.Stdout), &info) != nil || len(info) == 0 {
+		return 0, false
+	}
+	return len(info[0].Backup), true
 }
 
 func patroniFrameOf(doc designDoc) (designFrame, bool) {
@@ -577,6 +707,10 @@ func (a *App) handleCheckLabStep(w http.ResponseWriter, r *http.Request) {
 		result = a.checkFailsafeLeaderHeld(ctx, run, st)
 	case "patroni-failsafe-mode:restore-etcd":
 		result = a.checkPatroniLeaderPresent(ctx, st)
+	case "patroni-backup-restore:take-backup":
+		result = a.checkPgBackRestFreshBackup(ctx, run, st)
+	case "patroni-backup-restore:restore-replica":
+		result = a.checkPatroniClusterHealthy(ctx, st)
 	default:
 		writeErr(w, http.StatusNotImplemented, "no check available for this step")
 		return
@@ -896,6 +1030,81 @@ func (a *App) checkFailsafeLeaderHeld(ctx context.Context, run LabRun, st Stack)
 		return LabStepResult{Passed: false, Message: nodeLabel(doc, currentNodeID) + " is Leader now, not the original " + nodeLabel(doc, run.InitialLeaderNode) + " — leadership moved instead of holding, which shouldn't happen with failsafe_mode on. Make sure you enabled it before stopping etcd."}
 	}
 	return LabStepResult{Passed: true, Message: "Confirmed: " + nodeLabel(doc, currentNodeID) + " is still Leader even though etcd has no quorum — failsafe_mode kept it available."}
+}
+
+// checkPgBackRestFreshBackup passes once the live pgBackRest backup count is
+// higher than the baseline captured when the cluster first came up — proof
+// the learner took a backup themselves, not just relying on the automatic
+// initial one taken at stanza creation.
+func (a *App) checkPgBackRestFreshBackup(ctx context.Context, run LabRun, st Stack) LabStepResult {
+	doc, frame, ok := patroniFrameFromStack(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Patroni cluster found in this lab's stack."}
+	}
+	if !frame.UsePgBackRest {
+		return LabStepResult{Passed: false, Message: "pgBackRest isn't enabled on this lab's cluster."}
+	}
+	if run.InitialBackupCount == 0 {
+		return LabStepResult{Passed: false, Message: "Still waiting to see the cluster's automatic initial backup — wait for the cluster to finish deploying, then try again."}
+	}
+	running, err := a.runningPatroniMembers(st, doc)
+	if err != nil || len(running) == 0 {
+		return LabStepResult{Passed: false, Message: "No Patroni node is running yet — wait for the cluster to finish deploying."}
+	}
+	stanza := patroniStanza(frame.Label)
+	count, ok := a.pgBackRestBackupCount(ctx, stanza, running[0].ContainerID)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "Could not read pgBackRest's backup list — run `pgbackrest --stanza=" + stanza + " info` yourself to check for errors."}
+	}
+	if count <= run.InitialBackupCount {
+		return LabStepResult{Passed: false, Message: "Only the cluster's automatic initial backup is visible — run `pgbackrest --stanza=" + stanza + " --type=full backup` yourself, then check again."}
+	}
+	return LabStepResult{Passed: true, Message: "Confirmed: " + strconv.Itoa(count) + " backups now exist (started with " + strconv.Itoa(run.InitialBackupCount) + ") — your backup was taken."}
+}
+
+// allPatroniMembersHealthy reports whether every Patroni member's own REST
+// API confirms it's up (as Leader or a healthy running Replica) — the same
+// per-node probe patroniLeaderContainer already uses, just checked on every
+// member instead of stopping at the first Leader found.
+func (a *App) allPatroniMembersHealthy(ctx context.Context, doc designDoc, deps []Deployment) (bool, string) {
+	byNode := map[string]Deployment{}
+	for _, d := range deps {
+		byNode[d.NodeID] = d
+	}
+	for _, n := range doc.Nodes {
+		if n.Type != "patroni" {
+			continue
+		}
+		d, ok := byNode[n.ID]
+		if !ok || d.State != DeployRunning || d.ContainerID == "" {
+			return false, n.Label
+		}
+		res, err := a.engCtx(ctx).Exec(ctx, d.ContainerID, []string{"bash", "-c", patroniRoleScript}, nil)
+		if err != nil || strings.TrimSpace(res.Stdout) == "" {
+			return false, n.Label
+		}
+	}
+	return true, ""
+}
+
+// checkPatroniClusterHealthy passes once every Patroni member is confirmed up
+// — used after a `patronictl reinit` to verify the reclone finished, rather
+// than just checking the container is still running (which stays true the
+// whole time reinit is in progress, since only Postgres/Patroni state changes).
+func (a *App) checkPatroniClusterHealthy(ctx context.Context, st Stack) LabStepResult {
+	doc, _, ok := patroniFrameFromStack(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Patroni cluster found in this lab's stack."}
+	}
+	deps, err := a.store.ListDeployments(st.ID)
+	if err != nil {
+		return LabStepResult{Passed: false, Message: "Failed to read the lab stack's deployments."}
+	}
+	healthy, badLabel := a.allPatroniMembersHealthy(ctx, doc, deps)
+	if !healthy {
+		return LabStepResult{Passed: false, Message: badLabel + " isn't back to a healthy running state yet — give the reclone more time and check again."}
+	}
+	return LabStepResult{Passed: true, Message: "Confirmed: every Patroni member is healthy and running again."}
 }
 
 // handleFinishLab ends the learner's active attempt (the frontend also calls
