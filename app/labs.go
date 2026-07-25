@@ -236,6 +236,151 @@ Here, etcd is colocated 1:1 with each database node purely to keep the lab's foo
 			},
 		},
 	},
+	{
+		ID:          "patroni-rolling-restart",
+		Title:       "Rolling Restart & Static Config",
+		Description: "Change a PostgreSQL setting that needs a restart to take effect, and roll it out cluster-wide without write downtime.",
+		Difficulty:  "Intermediate",
+		TimeLimit:   "2h",
+		LectureNotes: `Reload vs. restart
+
+Not every PostgreSQL setting can be changed with a config reload (SIGHUP). Dynamic parameters like "work_mem" (from the Cluster-wide Configuration Change lab) take effect immediately on reload. Static parameters — things that affect shared memory layout or other fixed-size structures decided at startup, like "max_connections" — can only change by restarting the postmaster. "patronictl edit-config" writes to the same shared config either way; the difference shows up in "patronictl list", which flags every member "Pending restart" once you change a static parameter, because Patroni already knows a reload alone won't apply it.
+
+Why order matters
+
+Restarting a Replica is nearly free — it drops and immediately re-establishes its streaming connection, with no client-visible impact. Restarting the Leader briefly interrupts every write in flight. So the standard pattern is: restart every Replica first (in any order), and restart the Leader last — or, better still, switch over away from it first and then restart it as a plain Replica, avoiding even that brief interruption. This lab has you restart the Leader directly so you can see the trade-off; combine it with the Switchover lab's technique whenever that interruption isn't acceptable.
+
+patronictl restart vs. a manual systemctl restart
+
+You could just "systemctl restart patroni" on each node yourself — but "patronictl restart" goes through Patroni's own DCS-coordinated handshake first, so it correctly refuses if, say, that member is mid-election or another restart is already in flight. It's the same safety net that makes switchover/failover preferable to killing processes by hand.`,
+		DesignTemplate: labPatroniSwitchoverDesign,
+		Steps: []LabStep{
+			{
+				ID:    "rolling-restart",
+				Title: "Change max_connections and roll out the restart",
+				Instructions: "Open a terminal on any Patroni node. Run " +
+					"`patronictl -c /etc/patroni/postgresql.yml edit-config lab-patroni -p max_connections=300 --force`, then " +
+					"`patronictl -c /etc/patroni/postgresql.yml list` — every member now shows \"Pending restart\". Restart the two " +
+					"Replicas first, one at a time: `patronictl -c /etc/patroni/postgresql.yml restart lab-patroni <replica-hostname> --force`. " +
+					"Restart the Leader last, the same way. Confirm on a couple of nodes with `psql -U postgres -c \"show max_connections;\"`, " +
+					"then click Check Work.",
+				Hint: "patronictl restart takes the cluster name and a specific member hostname — there's no \"restart all\" shortcut, so repeat it three times.",
+			},
+		},
+	},
+	{
+		ID:          "patroni-manual-failover",
+		Title:       "Manual Failover with a Candidate",
+		Description: "The cluster is paused and its Leader has crashed — no automatic election will happen. Use patronictl failover (not switchover) to manually promote a candidate, then resume monitoring.",
+		Difficulty:  "Intermediate",
+		TimeLimit:   "2h",
+		LectureNotes: `failover vs. switchover, precisely
+
+Both promote a Replica to Leader, but they start from different premises. "switchover" assumes a healthy, reachable current Leader — it asks that Leader to checkpoint cleanly and step down, then promotes your chosen candidate. "failover" makes no such assumption: it's what you reach for when there's no Leader to ask — it crashed, or, as in this lab, the cluster is paused so nothing auto-promoted on its own. failover just tells Patroni "elect this node now," full stop.
+
+Manual commands still work while paused
+
+"pause" only switches off Patroni's automatic reactions to what it observes — it doesn't lock out the operator. switchover, failover and restart all still work normally while the cluster is paused; that's exactly why this lab pairs them: pause first so a crash doesn't trigger an unwanted auto-election, deal with the crash by hand, then resume.
+
+The gotcha this lab is designed to catch
+
+It's easy to pause a cluster for maintenance, finish the maintenance, and walk away — forgetting to resume. A paused cluster looks completely normal day to day (still serving reads and writes) right up until the moment a node actually fails and nothing reacts to it. Always resume once you're done — this lab's second Check Work doesn't pass until you do.`,
+		DesignTemplate: labPatroniSwitchoverDesign,
+		Steps: []LabStep{
+			{
+				ID:    "pause-and-crash",
+				Title: "Pause the cluster, then simulate a crash",
+				Instructions: "Run `patronictl -c /etc/patroni/postgresql.yml pause` on any node. Then find the current Leader with " +
+					"`patronictl -c /etc/patroni/postgresql.yml list` and run `systemctl stop patroni` on it. Because the cluster is paused, " +
+					"the other two nodes won't auto-elect a replacement — confirm with `list` that there's no Leader, then click Check Work.",
+				Hint: "If Check Work says a leader is still reachable, double-check you stopped patroni on the actual Leader, not a Replica.",
+			},
+			{
+				ID:    "failover-and-resume",
+				Title: "Fail over manually, then resume",
+				Instructions: "Run `patronictl -c /etc/patroni/postgresql.yml failover lab-patroni --candidate <hostname> --force` naming one " +
+					"of the two remaining nodes — no `--leader` flag is needed, since there isn't one to demote. Confirm a new Leader appears " +
+					"in `list`, then run `patronictl -c /etc/patroni/postgresql.yml resume` so autofailover protects you again. Click Check Work.",
+				Hint: "Check Work checks both halves — a Leader must exist AND the cluster must no longer be paused.",
+			},
+		},
+	},
+	{
+		ID:          "patroni-synchronous-replication",
+		Title:       "Synchronous Replication",
+		Description: "Enable synchronous replication so a commit isn't acknowledged until a Replica has confirmed it — closing the data-loss window an unplanned failover can open.",
+		Difficulty:  "Advanced",
+		TimeLimit:   "2h",
+		LectureNotes: `Closing the gap the Failover lab opened
+
+That lab's lecture notes flagged a real risk: with the default asynchronous replication, a Leader can acknowledge a commit to the client before any Replica has received it — an unplanned failover can then lose those last few transactions. Synchronous replication closes that gap: once enabled, the Leader won't acknowledge a commit until at least one synchronous Replica confirms it has received (not necessarily applied — just received) the WAL.
+
+Patroni picks the synchronous replica for you
+
+You don't hand-name which Replica is synchronous. Once "synchronous_mode" is on, Patroni continuously chooses among the healthy Replicas and rewrites the Leader's "synchronous_standby_names" to match — including automatically promoting a different Replica to synchronous status if the current one falls behind or disappears. That's the same DCS-coordinated pattern behind everything else in this curriculum: Patroni keeps every member's configuration consistent with one shared decision, rather than you configuring each node by hand.
+
+The trade-off: durability costs availability
+
+This closes the data-loss gap, but it isn't free. If the synchronous Replica becomes unreachable, the Leader can't get a commit confirmation from anyone — by default, writes simply stall until a synchronous Replica is available again. Enabling "synchronous_mode" is a deliberate choice to favor durability over write availability during a Replica outage.`,
+		DesignTemplate: labPatroniSwitchoverDesign,
+		Steps: []LabStep{
+			{
+				ID:    "enable-sync",
+				Title: "Enable synchronous replication",
+				Instructions: "Open a terminal on any Patroni node. Run " +
+					"`patronictl -c /etc/patroni/postgresql.yml edit-config lab-patroni --set synchronous_mode=true --force`. Patroni will " +
+					"automatically pick one Replica as the synchronous standby and update the Leader's synchronous_standby_names for you — " +
+					"no need to name it yourself. Confirm on the Leader with `psql -U postgres -c \"select application_name, sync_state from " +
+					"pg_stat_replication;\"` (one row should show sync_state = sync), then click Check Work.",
+				Hint: "If every row still shows async after a few seconds, double-check you used --set (not --pg-param) — synchronous_mode is a Patroni-level setting, not a postgresql.conf parameter.",
+			},
+		},
+	},
+	{
+		ID:          "patroni-failsafe-mode",
+		Title:       "DCS Failsafe Mode",
+		Description: "Enable failsafe_mode, then break etcd (leaving Patroni itself running everywhere) and watch the Leader stay up instead of demoting.",
+		Difficulty:  "Advanced",
+		TimeLimit:   "2h",
+		LectureNotes: `The etcd Quorum Loss lab's other ending
+
+That lab stopped both etcd and Patroni on two nodes, and showed the Leader correctly step down rather than risk split-brain once it couldn't renew its lock. This lab breaks etcd the same way but leaves Patroni running everywhere — deliberately, so you can see the alternative Patroni offers for exactly that situation: failsafe_mode.
+
+How it stays safe without the DCS
+
+With "failsafe_mode" on, a Leader that suddenly can't reach etcd doesn't immediately demote. Instead, it asks every other member directly over their Patroni REST APIs — bypassing etcd entirely — whether any of them thinks it's the Leader. If it can reach all of them and none disagree, it keeps operating, DCS or no DCS. That's why this lab needs Patroni itself left running on the other nodes: the Leader's failsafe check depends on being able to ask them directly.
+
+Why it's opt-in, not the default
+
+"failsafe_mode" trades a small amount of split-brain risk (it relies on direct network reachability instead of a DCS-arbitrated lock) for meaningfully better availability during a DCS-only outage — a real and not uncommon failure mode, since etcd/Consul/ZooKeeper clusters have their own failure modes independent of your database nodes. Whether that trade-off is right for you depends on how much you trust your network versus how much unavailability you're willing to tolerate during a DCS blip.`,
+		DesignTemplate: labPatroniSwitchoverDesign,
+		Steps: []LabStep{
+			{
+				ID:    "enable-failsafe",
+				Title: "Enable failsafe mode",
+				Instructions: "Run `patronictl -c /etc/patroni/postgresql.yml edit-config lab-patroni --set failsafe_mode=true --force` on " +
+					"any node. Confirm with `patronictl -c /etc/patroni/postgresql.yml show-config` that `failsafe_mode: true` appears, then " +
+					"click Check Work.",
+				Hint: "This must be enabled BEFORE you break etcd in the next step — it can't help a Leader that's already lost contact.",
+			},
+			{
+				ID:    "break-etcd-only",
+				Title: "Break etcd only — leave Patroni running",
+				Instructions: "Note the current Leader with `patronictl -c /etc/patroni/postgresql.yml list`. Open a terminal on the other " +
+					"two nodes and run `systemctl stop etcd` on each — this time, do NOT stop patroni; it needs to keep running so the Leader " +
+					"can still reach it directly. Wait about 30–60 seconds, then click Check Work — it passes once the same node is still Leader " +
+					"despite etcd having no quorum.",
+				Hint: "If Check Work says the leader changed, double check failsafe_mode was actually enabled before you stopped etcd.",
+			},
+			{
+				ID:    "restore-etcd",
+				Title: "Restore etcd",
+				Instructions: "Run `systemctl start etcd` on the two nodes you stopped it on. Wait about 30 seconds for etcd to reform a " +
+					"quorum, then click Check Work.",
+				Hint: "The Leader should already have been up the whole time — this step just confirms normal DCS-backed operation resumed.",
+			},
+		},
+	},
 }
 
 func findLab(id string) (Lab, bool) {
@@ -418,6 +563,20 @@ func (a *App) handleCheckLabStep(w http.ResponseWriter, r *http.Request) {
 		result = a.checkNoPatroniLeader(ctx, st)
 	case "patroni-etcd-quorum:restore-quorum":
 		result = a.checkPatroniLeaderPresent(ctx, st)
+	case "patroni-rolling-restart:rolling-restart":
+		result = a.checkPatroniRollingRestart(ctx, st)
+	case "patroni-manual-failover:pause-and-crash":
+		result = a.checkPausedNoLeader(ctx, st)
+	case "patroni-manual-failover:failover-and-resume":
+		result = a.checkLeaderPresentAndResumed(ctx, st)
+	case "patroni-synchronous-replication:enable-sync":
+		result = a.checkSynchronousReplication(ctx, st)
+	case "patroni-failsafe-mode:enable-failsafe":
+		result = a.checkFailsafeModeEnabled(ctx, st)
+	case "patroni-failsafe-mode:break-etcd-only":
+		result = a.checkFailsafeLeaderHeld(ctx, run, st)
+	case "patroni-failsafe-mode:restore-etcd":
+		result = a.checkPatroniLeaderPresent(ctx, st)
 	default:
 		writeErr(w, http.StatusNotImplemented, "no check available for this step")
 		return
@@ -470,23 +629,18 @@ func patroniFrameFromStack(st Stack) (designDoc, designFrame, bool) {
 	return doc, frame, ok
 }
 
-// checkPatroniPauseState passes once every running member's dynamic
-// configuration ("patronictl show-config" — the same object "pause"/"resume"/
-// "edit-config" all write to) agrees the cluster is in the wanted pause state.
-func (a *App) checkPatroniPauseState(ctx context.Context, st Stack, wantPaused bool) LabStepResult {
-	doc, _, ok := patroniFrameFromStack(st)
-	if !ok {
-		return LabStepResult{Passed: false, Message: "No Patroni cluster found in this lab's stack."}
-	}
+// runningPatroniMembers returns the running Patroni deployments for a lab
+// stack — every check below starts by narrowing to these.
+func (a *App) runningPatroniMembers(st Stack, doc designDoc) ([]Deployment, error) {
 	deps, err := a.store.ListDeployments(st.ID)
 	if err != nil {
-		return LabStepResult{Passed: false, Message: "Failed to read the lab stack's deployments."}
+		return nil, err
 	}
-	var running []Deployment
 	byNode := map[string]Deployment{}
 	for _, d := range deps {
 		byNode[d.NodeID] = d
 	}
+	var running []Deployment
 	for _, n := range doc.Nodes {
 		if n.Type != "patroni" {
 			continue
@@ -495,23 +649,46 @@ func (a *App) checkPatroniPauseState(ctx context.Context, st Stack, wantPaused b
 			running = append(running, d)
 		}
 	}
-	if len(running) == 0 {
-		return LabStepResult{Passed: false, Message: "No Patroni node is running yet — wait for the cluster to finish deploying."}
+	return running, nil
+}
+
+// showConfigFlagOnAllMembers reports whether every running Patroni member's
+// dynamic configuration ("patronictl show-config" — the same object "pause"/
+// "resume"/"edit-config" all write to) agrees a boolean flag (e.g. "pause",
+// "failsafe_mode") is in the wanted state. ok is false (with a human message)
+// if any member hasn't converged yet or none are running.
+func (a *App) showConfigFlagOnAllMembers(ctx context.Context, st Stack, flag string, want bool) (bool, string) {
+	doc, _, ok := patroniFrameFromStack(st)
+	if !ok {
+		return false, "No Patroni cluster found in this lab's stack."
 	}
-	verb := "pausing"
-	if !wantPaused {
-		verb = "resuming"
+	running, err := a.runningPatroniMembers(st, doc)
+	if err != nil {
+		return false, "Failed to read the lab stack's deployments."
+	}
+	if len(running) == 0 {
+		return false, "No Patroni node is running yet — wait for the cluster to finish deploying."
 	}
 	for _, d := range running {
 		res, err := a.engCtx(ctx).Exec(ctx, d.ContainerID,
 			[]string{"patronictl", "-c", "/etc/patroni/postgresql.yml", "show-config"}, nil)
 		if err != nil || res.Code != 0 {
-			return LabStepResult{Passed: false, Message: "Could not read the cluster config from " + nodeLabel(doc, d.NodeID) + " — is it still starting up?"}
+			return false, "Could not read the cluster config from " + nodeLabel(doc, d.NodeID) + " — is it still starting up?"
 		}
-		paused := strings.Contains(strings.ToLower(res.Stdout), "pause: true")
-		if paused != wantPaused {
-			return LabStepResult{Passed: false, Message: nodeLabel(doc, d.NodeID) + " hasn't picked up the change yet — you may still be " + verb + ". Wait a few seconds and check again."}
+		got := strings.Contains(strings.ToLower(res.Stdout), flag+": true")
+		if got != want {
+			return false, nodeLabel(doc, d.NodeID) + " hasn't picked up the change yet — wait a few seconds and check again."
 		}
+	}
+	return true, ""
+}
+
+// checkPatroniPauseState passes once every running member agrees the cluster
+// is in the wanted pause state.
+func (a *App) checkPatroniPauseState(ctx context.Context, st Stack, wantPaused bool) LabStepResult {
+	ok, msg := a.showConfigFlagOnAllMembers(ctx, st, "pause", wantPaused)
+	if !ok {
+		return LabStepResult{Passed: false, Message: msg}
 	}
 	if wantPaused {
 		return LabStepResult{Passed: true, Message: "Confirmed: the cluster is paused (autofailover disabled) on every running member."}
@@ -519,10 +696,21 @@ func (a *App) checkPatroniPauseState(ctx context.Context, st Stack, wantPaused b
 	return LabStepResult{Passed: true, Message: "Confirmed: the cluster is resumed (autofailover enabled) on every running member."}
 }
 
-// checkPatroniConfigChange passes once every running member reports the same
-// non-default work_mem — proof the edit-config change actually applied
-// cluster-wide, not just that it was written to the DCS.
-func (a *App) checkPatroniConfigChange(ctx context.Context, st Stack) LabStepResult {
+// checkFailsafeModeEnabled passes once every running member agrees
+// failsafe_mode is on.
+func (a *App) checkFailsafeModeEnabled(ctx context.Context, st Stack) LabStepResult {
+	ok, msg := a.showConfigFlagOnAllMembers(ctx, st, "failsafe_mode", true)
+	if !ok {
+		return LabStepResult{Passed: false, Message: msg}
+	}
+	return LabStepResult{Passed: true, Message: "Confirmed: failsafe_mode is enabled on every running member."}
+}
+
+// checkGUCConsistentAcrossMembers passes once every running Patroni member
+// reports the same value for a PostgreSQL setting, and that value isn't the
+// stock default — proof a patronictl edit-config change actually applied
+// everywhere, not just that it was written to the DCS.
+func (a *App) checkGUCConsistentAcrossMembers(ctx context.Context, st Stack, guc, defaultVal string) LabStepResult {
 	doc, _, ok := patroniFrameFromStack(st)
 	if !ok {
 		return LabStepResult{Passed: false, Message: "No Patroni cluster found in this lab's stack."}
@@ -546,7 +734,7 @@ func (a *App) checkPatroniConfigChange(ctx context.Context, st Stack) LabStepRes
 			return LabStepResult{Passed: false, Message: n.Label + " is not running yet — wait for the cluster to be ready."}
 		}
 		res, err := a.engCtx(ctx).ExecAs(ctx, d.ContainerID, "postgres",
-			[]string{"psql", "-U", "postgres", "-d", "postgres", "-tAqc", "show work_mem;"}, nil)
+			[]string{"psql", "-U", "postgres", "-d", "postgres", "-tAqc", "show " + guc + ";"}, nil)
 		if err != nil || res.Code != 0 {
 			return LabStepResult{Passed: false, Message: "Could not query " + n.Label + " — is PostgreSQL up?"}
 		}
@@ -557,16 +745,29 @@ func (a *App) checkPatroniConfigChange(ctx context.Context, st Stack) LabStepRes
 		return LabStepResult{Passed: false, Message: "No Patroni members found."}
 	}
 	for i, v := range values {
-		if v == "" || v == "4MB" {
-			return LabStepResult{Passed: false, Message: labels[i] + " is still the default work_mem (4MB) — run patronictl edit-config to change it cluster-wide."}
+		if v == "" || v == defaultVal {
+			return LabStepResult{Passed: false, Message: labels[i] + " is still the default " + guc + " (" + defaultVal + ") — change it with patronictl edit-config, and for a static parameter, restart every member."}
 		}
 	}
 	for i, v := range values[1:] {
 		if v != values[0] {
-			return LabStepResult{Passed: false, Message: labels[0] + " reports " + values[0] + " but " + labels[i+1] + " reports " + v + " — wait for Patroni to finish reloading the config on every member."}
+			return LabStepResult{Passed: false, Message: labels[0] + " reports " + values[0] + " but " + labels[i+1] + " reports " + v + " — wait for every member to pick up the change."}
 		}
 	}
-	return LabStepResult{Passed: true, Message: "work_mem = " + values[0] + " confirmed on all " + labels[0] + ", " + strings.Join(labels[1:], ", ") + "."}
+	return LabStepResult{Passed: true, Message: guc + " = " + values[0] + " confirmed on all " + labels[0] + ", " + strings.Join(labels[1:], ", ") + "."}
+}
+
+// checkPatroniConfigChange verifies the dynamic (reloadable) work_mem lab.
+func (a *App) checkPatroniConfigChange(ctx context.Context, st Stack) LabStepResult {
+	return a.checkGUCConsistentAcrossMembers(ctx, st, "work_mem", "4MB")
+}
+
+// checkPatroniRollingRestart verifies the static (restart-required)
+// max_connections lab — same underlying check, since the real-world fact
+// being tested (does every member agree, and is it non-default) is identical;
+// only the parameter and the operational steps to get there differ.
+func (a *App) checkPatroniRollingRestart(ctx context.Context, st Stack) LabStepResult {
+	return a.checkGUCConsistentAcrossMembers(ctx, st, "max_connections", "100")
 }
 
 // checkNoPatroniLeader passes once no member can confirm being Leader — the
@@ -600,6 +801,101 @@ func (a *App) checkPatroniLeaderPresent(ctx context.Context, st Stack) LabStepRe
 		return LabStepResult{Passed: false, Message: "Failed to read the lab stack's deployments."}
 	}
 	return LabStepResult{Passed: true, Message: "Confirmed: " + nodeLabel(doc, nodeIDForContainer(deps, containerID)) + " is Leader — quorum is back."}
+}
+
+// checkPausedNoLeader passes once the cluster is confirmed paused AND no
+// member can confirm being Leader — the setup for the Manual Failover lab's
+// second step (pause first, so a crashed Leader isn't auto-replaced).
+func (a *App) checkPausedNoLeader(ctx context.Context, st Stack) LabStepResult {
+	ok, msg := a.showConfigFlagOnAllMembers(ctx, st, "pause", true)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "Pause the cluster and stop patroni on the Leader — " + msg}
+	}
+	doc, frame, fok := patroniFrameFromStack(st)
+	if !fok {
+		return LabStepResult{Passed: false, Message: "No Patroni cluster found in this lab's stack."}
+	}
+	if containerID := a.patroniLeaderContainer(ctx, st, frame, doc); containerID != "" {
+		return LabStepResult{Passed: false, Message: "A leader is still reachable — stop patroni on the current Leader (check `patronictl list` for who that is)."}
+	}
+	return LabStepResult{Passed: true, Message: "Confirmed: the cluster is paused and no member can currently confirm being Leader."}
+}
+
+// checkLeaderPresentAndResumed passes once a Leader exists again (promoted
+// manually via patronictl failover) AND the cluster has been resumed — the
+// Manual Failover lab's operational point is that it's easy to forget the
+// second half.
+func (a *App) checkLeaderPresentAndResumed(ctx context.Context, st Stack) LabStepResult {
+	doc, frame, ok := patroniFrameFromStack(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Patroni cluster found in this lab's stack."}
+	}
+	containerID := a.patroniLeaderContainer(ctx, st, frame, doc)
+	if containerID == "" {
+		return LabStepResult{Passed: false, Message: "No leader yet — run patronictl failover with a --candidate to promote one."}
+	}
+	okFlag, msg := a.showConfigFlagOnAllMembers(ctx, st, "pause", false)
+	if !okFlag {
+		return LabStepResult{Passed: false, Message: "A leader exists, but the cluster still looks paused — run patronictl resume. (" + msg + ")"}
+	}
+	deps, err := a.store.ListDeployments(st.ID)
+	if err != nil {
+		return LabStepResult{Passed: false, Message: "Failed to read the lab stack's deployments."}
+	}
+	return LabStepResult{Passed: true, Message: "Confirmed: " + nodeLabel(doc, nodeIDForContainer(deps, containerID)) + " is Leader and autofailover is resumed."}
+}
+
+// checkSynchronousReplication passes once the Leader reports at least one
+// synchronous standby in pg_stat_replication — proof synchronous_mode isn't
+// just configured, but has actually taken effect.
+func (a *App) checkSynchronousReplication(ctx context.Context, st Stack) LabStepResult {
+	doc, frame, ok := patroniFrameFromStack(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Patroni cluster found in this lab's stack."}
+	}
+	containerID := a.patroniLeaderContainer(ctx, st, frame, doc)
+	if containerID == "" {
+		return LabStepResult{Passed: false, Message: "No leader is currently reachable — wait for the cluster to settle and check again."}
+	}
+	res, err := a.engCtx(ctx).ExecAs(ctx, containerID, "postgres",
+		[]string{"psql", "-U", "postgres", "-d", "postgres", "-tAqc",
+			"select count(*) from pg_stat_replication where sync_state = 'sync';"}, nil)
+	if err != nil || res.Code != 0 {
+		return LabStepResult{Passed: false, Message: "Could not query the Leader — is PostgreSQL up?"}
+	}
+	n := strings.TrimSpace(res.Stdout)
+	if n == "" || n == "0" {
+		return LabStepResult{Passed: false, Message: "No synchronous replica yet — run patronictl edit-config with --set synchronous_mode=true and give Patroni a few seconds to pick one."}
+	}
+	return LabStepResult{Passed: true, Message: "Confirmed: the Leader has a synchronous replica — commits now wait for it to confirm before returning."}
+}
+
+// checkFailsafeLeaderHeld passes once the cluster's Leader is still the same
+// node recorded as leader when it came up, even though etcd has no quorum —
+// proof failsafe_mode kept it available instead of demoting (contrast with
+// the etcd Quorum Loss lab, where Patroni itself was also stopped on the
+// other nodes and demotion was the correct, expected outcome).
+func (a *App) checkFailsafeLeaderHeld(ctx context.Context, run LabRun, st Stack) LabStepResult {
+	if run.InitialLeaderNode == "" {
+		return LabStepResult{Passed: false, Message: "The cluster is still starting up — wait for all three Patroni nodes to finish deploying, then try again."}
+	}
+	doc, frame, ok := patroniFrameFromStack(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Patroni cluster found in this lab's stack."}
+	}
+	containerID := a.patroniLeaderContainer(ctx, st, frame, doc)
+	if containerID == "" {
+		return LabStepResult{Passed: false, Message: "No leader is currently reachable — failsafe_mode may not be enabled yet, or Patroni (not just etcd) was stopped on the other nodes. Wait a bit and check again."}
+	}
+	deps, err := a.store.ListDeployments(st.ID)
+	if err != nil {
+		return LabStepResult{Passed: false, Message: "Failed to read the lab stack's deployments."}
+	}
+	currentNodeID := nodeIDForContainer(deps, containerID)
+	if currentNodeID != run.InitialLeaderNode {
+		return LabStepResult{Passed: false, Message: nodeLabel(doc, currentNodeID) + " is Leader now, not the original " + nodeLabel(doc, run.InitialLeaderNode) + " — leadership moved instead of holding, which shouldn't happen with failsafe_mode on. Make sure you enabled it before stopping etcd."}
+	}
+	return LabStepResult{Passed: true, Message: "Confirmed: " + nodeLabel(doc, currentNodeID) + " is still Leader even though etcd has no quorum — failsafe_mode kept it available."}
 }
 
 // handleFinishLab ends the learner's active attempt (the frontend also calls

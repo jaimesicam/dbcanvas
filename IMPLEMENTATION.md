@@ -7181,3 +7181,43 @@ lab's steps/instructions/hints/terminal buttons generically.
 restarting the running `dbcanvas-app-1` container without being asked); the riskiest assumption is the exact
 timing of Patroni's self-demotion once etcd loses quorum in the etcd-quorum-loss lab, which the lecture notes
 and step instructions hedge with "about a minute" / "wait a bit longer" rather than a hard number.
+
+---
+
+## 153. Four more Patroni labs (round 2) — `app/labs.go`
+
+User asked for lab recommendations to round out Patroni mastery; picked all four proposed. Same pattern as
+§152 — all reuse `labPatroniSwitchoverDesign` unchanged, zero frontend changes.
+
+- **Rolling Restart & Static Config** (`patroni-rolling-restart`) — `max_connections` (a static, restart-
+  required parameter, unlike §152's dynamic `work_mem`) via `edit-config -p`, then `patronictl restart` on
+  each member (Replicas first, Leader last). Refactored `checkPatroniConfigChange` into a generic
+  `checkGUCConsistentAcrossMembers(ctx, st, guc, defaultVal)` — both the work_mem and max_connections labs now
+  call it with different parameters/defaults, since the real-state assertion (every running member agrees,
+  and it isn't the stock default) is identical.
+- **Manual Failover with a Candidate** (`patroni-manual-failover`, 2 steps) — pause the cluster, crash the
+  Leader (no auto-election since paused), then `patronictl failover --candidate` (not switchover — there's no
+  Leader to gracefully demote) and `resume`. `checkPausedNoLeader` / `checkLeaderPresentAndResumed` compose
+  the pause-flag check with the existing leader-presence check; the second step deliberately requires *both*
+  a Leader existing and pause being off, to catch the real operational mistake of forgetting to resume.
+- **Synchronous Replication** (`patroni-synchronous-replication`) — `edit-config --set synchronous_mode=true`
+  (note: `--set` for top-level Patroni config, vs. `-p`/`--pg-param` for `postgresql.parameters` entries used
+  by the config-change labs), verified by `checkSynchronousReplication` querying
+  `pg_stat_replication.sync_state = 'sync'` on the Leader. Lecture notes tie directly back to the Failover
+  lab's async-replication data-loss point.
+- **DCS Failsafe Mode** (`patroni-failsafe-mode`, 3 steps, Advanced) — deliberately mirrors the etcd Quorum
+  Loss lab's setup (stop etcd on 2 of 3 nodes) but leaves Patroni itself running everywhere, so
+  `failsafe_mode`'s direct-REST-API peer check can succeed; `checkFailsafeLeaderHeld` asserts the *opposite*
+  of `checkLeaderChanged` — the recorded baseline leader must still be Leader, proving failsafe_mode held it
+  up instead of demoting.
+- **Shared helpers extracted:** `runningPatroniMembers` (deployments filtered to running Patroni members) and
+  `showConfigFlagOnAllMembers(ctx, st, flag, want)` (greps `patronictl show-config` on every running member for
+  a boolean flag) — `checkPatroniPauseState` was refactored onto the latter, and the new `failsafe_mode` check
+  and the manual-failover lab's pause check both reuse it directly.
+
+**Verified.** `go build/vet/test` green; cross-checked every `labCatalog` step ID against the
+`handleCheckLabStep` switch cases by extraction (all 14 present, no silent 501s). Not live-tested. Lowest-
+confidence assumptions, flagged for whoever runs this live first: the exact `patronictl edit-config` flag
+names (`-p`/`--pg-param` vs. `-s`/`--set`) and `failsafe_mode`'s exact peer-reachability semantics — both are
+well-documented Patroni behavior from general knowledge, not verified against a running cluster in this
+session.
