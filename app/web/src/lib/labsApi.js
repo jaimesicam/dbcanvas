@@ -23,4 +23,10 @@ export const labsApi = {
   start: (labId) => request('POST', `/api/labs/${labId}/start`),
   finish: (labId) => request('POST', `/api/labs/${labId}/finish`),
   checkStep: (labId, stepId) => request('POST', `/api/labs/${labId}/steps/${stepId}/check`),
+  traffic: (labId) => request('GET', `/api/labs/${labId}/traffic`),
+  pauseTraffic: (labId) => request('POST', `/api/labs/${labId}/traffic/pause`),
+  resumeTraffic: (labId) => request('POST', `/api/labs/${labId}/traffic/resume`),
+  setTrafficRate: (labId, rate) => request('POST', `/api/labs/${labId}/traffic/rate`, { rate }),
+  setTrafficThreads: (labId, threads) => request('POST', `/api/labs/${labId}/traffic/threads`, { threads }),
+  setTrafficTables: (labId, tables) => request('POST', `/api/labs/${labId}/traffic/tables`, { tables }),
 }

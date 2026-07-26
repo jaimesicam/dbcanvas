@@ -7262,3 +7262,280 @@ stanza) and `patronictl reinit`'s exact behavior/flags are from general Percona/
 confirmed against a running cluster. Point-in-time recovery of a whole cluster (as opposed to recloning one
 member) was explicitly scoped out rather than guessed at — flagged as a further, unimplemented topic in the
 lab's own lecture notes.
+
+---
+
+## 155. Labs — background CRUD traffic through HAProxy — `app/labs_traffic.go`, `labs.go`, `intranet.go`, `main.go`, `web/src/pages/Labs.jsx`, `lib/labsApi.js`
+
+User's observation: every Patroni lab already fronts its cluster with HAProxy, but nothing ever actually
+sends traffic through it — a switchover/failover/sync-replication/failsafe lab was otherwise exercised
+against a completely idle cluster, with no live replication or write/read routing to observe. Asked for a
+steady, real (not simulated) CRUD workload through HAProxy for the lab's duration, with live stats and
+pause/resume, surfaced from the HAProxy side.
+
+- **New `app/labs_traffic.go`.** `startLabTraffic(labRunID, stackID)` is launched (detached, alongside the
+  existing `captureLabInitialLeader`/`captureLabInitialBackupCount` goroutines) from `handleStartLab`. It
+  polls (same 5s/15min pattern as those two) until the lab's `haproxy`-type node and its Patroni cluster are
+  both running, resolves HAProxy's own container IP on the stack's Docker network (`dialEngine` +
+  `joinStackForDial` + `ContainerIP` — the same plumbing `dialNodeDSN` uses for the Query Runner/Benchmark,
+  just pointed at HAProxy's container instead of a database node's), and opens two small `database/sql` pools
+  dialed straight at HAProxy's own front-end ports: `:5000` (write, routed to the Leader) and `:5001` (read,
+  round-robined across Replicas) — exactly the ports a real application would use, never a direct connection
+  to a database node.
+- **The workload itself:** a 1-tick-per-second loop (`labTrafficInterval`) against a scratch `lab_traffic`
+  table it creates in the `postgres` database: every tick INSERTs a row via the write pool; every 3rd tick
+  UPDATEs a random existing row; every 5th tick DELETEs down to `labTrafficMaxRows` (500) so a multi-hour
+  session doesn't grow unbounded; every tick also SELECTs `count(*)` via the *read* pool, so HAProxy's
+  read-port round-robin is doing real work too. Deliberately low-throughput by design — the point is keeping
+  replication and HAProxy's routing checks live, not load-testing.
+- **Errors are signal, not noise:** during the etcd-quorum-loss and failsafe-mode labs, the write pool will
+  genuinely fail for a stretch while no Leader is reachable — `runCycle` counts that into an `errors` counter
+  and surfaces the last error string, so a learner watching the panel during those specific labs sees direct
+  confirmation that HAProxy lost its backend, rather than the app silently swallowing it.
+  `atomic.Int64`/`atomic.Bool`/`atomic.Value` counters on a `labTrafficRun` (registered in a package-level
+  `map[stackID]*labTrafficRun`) let the HTTP handlers read live stats without touching the loop goroutine.
+- **Pause/resume** (`POST /api/labs/{id}/traffic/{pause,resume}`) just flips an `atomic.Bool` the loop checks
+  each tick — the pooled connections and counters stay alive, so resuming doesn't re-pay the HAProxy-dial
+  wait.
+- **Lifecycle:** `stopLabTraffic(stackID)` is called from `teardownStack` — the single choke point already
+  shared by explicit "End Lab" destroy and the TTL reaper's expiry path — so the generator never outlives the
+  cluster it's dialing into, without needing a separate hook per teardown path.
+- **Frontend:** `Labs.jsx`'s `LabRun` view polls `GET /api/labs/{id}/traffic` every 2s (mirroring the existing
+  3s stack-status poll) and renders a "CRUD Traffic" card — named after the lab's HAProxy node, with live
+  insert/update/delete/select counts, ops/sec, and a Pause/Resume Traffic button — placed right after the
+  Cluster card, before the lab's step cards.
+
+**Verified.** `go build/vet/test` and `npm run build` both green. Not live-tested — same standing caveat as
+every lab in this catalog. Lowest-confidence assumption: HAProxy's TCP passthrough on :5000/:5001 speaks
+plain PostgreSQL wire protocol transparently (per `haproxyCfg`'s `mode tcp` backend), so dialing it with the
+same `pgx` driver/DSN shape `dialNodeDSN` uses for a direct node connection should work unmodified — not
+confirmed against a running cluster in this session.
+
+---
+
+## 156. Two more Patroni labs — manual node rebuild with pg_basebackup and manual pgBackRest restore — `app/labs.go`
+
+User wanted labs where a node genuinely has to be rebuilt from a backup — not `patronictl reinit` doing it
+automatically (the existing Backup & Restore lab), but the learner running the actual recovery tool by hand:
+one lab without pgBackRest at all (pg_basebackup, Patroni's own fallback replica-creation method), one with
+it (a manual pgBackRest restore that bypasses patronictl entirely).
+
+- **`patroni-basebackup-rebuild`** (Intermediate, reuses `labPatroniSwitchoverDesign` — no pgBackRest/
+  SeaweedFS needed). Step 1 stops patroni on a Replica and wipes `/var/lib/pgsql/16/data` — a real disk-loss
+  simulation, not just a stopped service. Step 2 has the learner run `pg_basebackup -h <leader> -U replicator
+  -D ... -Fp -Xs -P` themselves, as the `postgres` OS user (`runuser -u postgres --`, matching
+  `patroniBackupScript`'s existing convention — file ownership has to be right for PostgreSQL to start, and
+  whoever runs the copy owns the result), then `systemctl start patroni` and let Patroni reconcile it as a
+  Replica against the DCS. Lecture notes explain this is literally what Patroni's own `basebackup`
+  `create_replica_method` does when no backup repository is configured — same tool, just run directly instead
+  of through `patronictl reinit`.
+- **`patroni-pgbackrest-manual-restore`** (Advanced, reuses `labPatroniBackupDesign`). Same wipe-a-Replica
+  first step. Step 2: `runuser -u postgres -- pgbackrest --stanza=lab-patroni --delta restore` — the exact
+  command the Backup & Restore lab's `patronictl reinit` already runs under the hood (visible in
+  `patroniYAML`'s `pgbackrest.command`), just invoked directly. Lecture notes tie this to the etcd Quorum Loss
+  lab: pgBackRest doesn't depend on etcd or a running Patroni to work, unlike `patronictl`, which is exactly
+  why it's the fallback when the orchestration layer itself is what's broken.
+- **New shared check, `checkReplicaDataWiped`** (both labs' first step): passes only once exactly one Patroni
+  member is down *and* its data directory's `PG_VERSION` marker is actually gone (verified live via `test -f`
+  over exec) — catches "I only stopped the service" without deleting anything — while the other two members
+  stay healthy as the rebuild's source. Both labs' second step reuses the existing `checkPatroniClusterHealthy`
+  unchanged (added in §154) — it only asserts every member is healthy again, which is agnostic to which tool
+  actually rebuilt the node.
+- No frontend changes needed — `Labs.jsx` already renders the catalog generically.
+
+**Verified.** `go build/vet/test` and `npm run build` all green. Not live-tested. Lowest-confidence
+assumptions, flagged for whoever runs these live first: that this image's Patroni-managed PostgreSQL is
+actually started as the `postgres` OS user (so a `pg_basebackup`/`pgbackrest restore` run via `runuser -u
+postgres` produces correctly-owned files) — inferred from the Percona `patroni` package's conventional
+systemd unit, not confirmed by reading this repo's installed unit file; and that `pg_basebackup` run without
+`-R` still leaves Patroni free to write its own standby configuration on startup, which matches Patroni's
+documented reconciliation behavior but wasn't observed against a running cluster.
+
+---
+
+## 157. Lab CRUD traffic — adjustable rate slider (1-1000 tps) — `app/labs_traffic.go`, `main.go`, `web/src/pages/Labs.jsx`, `lib/labsApi.js`
+
+§155's CRUD generator was fixed at one operation cycle/sec. User asked for a slider to push it up to 1000.
+
+- **Dispatch model changed from a 1/s ticker to a paced, concurrent dispatcher.** A single 1-second ticker
+  firing sequential cycles tops out far below 1000/s once network + DB round-trips are counted. Replaced with
+  a `labTrafficDispatchInterval` (100ms) ticker: each tick computes its share of the current rate
+  (`rate * 0.1`), accumulates the fractional remainder in `carry` so low rates (e.g. 1/s = 0.1 ops/tick) still
+  average out correctly instead of bursting once every 10 ticks, and fires that many `runCycle` calls as
+  short-lived goroutines bounded by a `labTrafficMaxConcurrent` (64) semaphore. A saturated semaphore drops
+  the tick's excess cycles rather than queuing — real backpressure when the cluster can't keep up (e.g.
+  mid-failover, no reachable Leader), instead of an ever-growing goroutine backlog.
+- **`rate atomic.Int64`** added to `labTrafficRun` (default 1, clamped 1-1000 via `clampLabTrafficRate`),
+  read once per dispatch tick so a rate change takes effect within 100ms without restarting the generator or
+  its connections.
+- **Connection pools widened** from `SetMaxOpenConns(2)` to `labTrafficMaxConcurrent` (64) on both the write
+  and read `sql.DB` pools — otherwise 64 concurrent cycles would just queue behind 2 connections and the rate
+  slider would silently cap out far below 1000.
+- **New `POST /api/labs/{id}/traffic/rate {rate}`** (`handleLabTrafficRate`) clamps and stores the requested
+  rate, returning the same snapshot shape (`rate` field added) the status/pause/resume endpoints already
+  return.
+- **Frontend:** the CRUD Traffic card gets a `<input type="range" min=1 max=1000>` showing "N tps" live while
+  dragging (local `rateInput` state, decoupled from the 2s status poll via a `draggingRate` ref so a poll
+  landing mid-drag doesn't yank the handle back) and committed to the backend on release
+  (`onMouseUp`/`onTouchEnd`/`onKeyUp`), not on every drag tick — avoids spamming the endpoint during a drag.
+
+**Verified.** `go build/vet/test`, `gofmt`, and `npm run build` all green. Not live-tested — same standing
+caveat as the rest of this feature (§155) and the labs catalog generally. Lowest-confidence assumption: a
+lab's 3-node Patroni cluster (`max_connections: 200` by default, per `patroniYAML`) comfortably absorbs up to
+~128 concurrent connections (64 write-pool + 64 read-pool) on top of whatever else is running — not measured
+against a live cluster under load in this session.
+
+---
+
+## 158. Two more Patroni labs — diverged-timeline pg_rewind and total DCS loss — `app/labs.go`
+
+User asked for lab recommendations covering "a node is inconsistent" and "the cluster has no quorum at all."
+Proposed a pg_rewind lab (confident) and a total-DCS-loss/rebuild-etcd-from-scratch lab (flagged as the
+riskiest one to build without live-testing); user said build both.
+
+- **`patroni-pg-rewind`** (Advanced, reuses `labPatroniSwitchoverDesign`). Step 1 hard-kills the Leader —
+  `systemctl kill -s KILL patroni` (SIGKILL, no clean shutdown), deliberately rougher than every earlier
+  crash lab's `systemctl stop patroni` — so whatever it had committed locally but not yet streamed (guaranteed
+  by the always-on CRUD Traffic generator from §155/157) leaves its timeline ahead of the newly-elected
+  Leader's. Reuses the existing `checkLeaderChanged` unchanged for step 1 (same real-world fact as the
+  Switchover/Failover labs: did leadership move). Step 2 has the learner `systemctl start patroni` and let
+  `use_pg_rewind: true` (already set in `patroniYAML` for every Patroni lab, previously unexercised by any
+  lab) reattach it via rewind instead of a full reclone.
+- **New `checkPgRewindRecovered`**: requires every member healthy again (reuses `allPatroniMembersHealthy`),
+  then *opportunistically* greps the crashed node's `journalctl -u patroni` for "rewind" and mentions it in
+  the passing message when found — but doesn't gate Pass/Fail on that log text matching, since exact Patroni
+  log wording was judged the least certain part of this check; live cluster health is the real gate.
+- **`patroni-dcs-loss`** (Advanced, reuses `labPatroniSwitchoverDesign`). Three steps: (1) `systemctl stop
+  patroni etcd` + `rm -rf /var/lib/etcd/*` on all three nodes — real total DCS loss, PostgreSQL data
+  untouched; (2) restart etcd on all three (their config already has `initial-cluster-state: new` and the
+  correct static peer list per `patroniEtcdConf`, so an empty `/var/lib/etcd` bootstraps a legitimately fresh
+  cluster the same way first deploy did), then start Patroni on *only* the node that was Leader before the
+  outage (`run.InitialLeaderNode`) — with an empty DCS, whichever node's Patroni registers first adopts its
+  own existing data as the new cluster; starting more than one at once races that choice, which the lecture
+  notes call out as the actual operational hazard being taught; (3) start Patroni on the remaining two, which
+  reclone against the new Leader since the fresh DCS has no record of their prior membership.
+- **Two new checks:** `checkAllPatroniAndEtcdWiped` (step 1) mirrors §156's `checkReplicaDataWiped` pattern —
+  verifies real state (`/var/lib/etcd` actually empty via `ls -A`) on every node, not just three stopped
+  services. `checkOriginalLeaderReborn` (step 2) requires the reborn Leader specifically match
+  `run.InitialLeaderNode`, reusing the same baseline-comparison pattern as `checkLeaderChanged`/
+  `checkFailsafeLeaderHeld`. Step 3 reuses `checkPatroniClusterHealthy` unchanged.
+- No new design template, no frontend changes — both labs reuse `labPatroniSwitchoverDesign` and the catalog
+  renders generically.
+
+**Verified.** `go build/vet/test` and `gofmt` all green. Not live-tested — and this session's two labs carry
+the catalog's highest-risk unverified assumptions so far. For `patroni-dcs-loss` specifically: that Patroni,
+finding a non-empty valid data directory against a completely empty DCS, adopts that data directory as the
+new cluster rather than refusing to start or reinitializing over it — this is the general documented Patroni
+recovery pattern for lost-DCS-intact-data, but the exact mechanics (and whether anything beyond restarting
+etcd + patroni in the right order is needed) were not confirmed against a running cluster. Flagged to the user
+
+## 159. Lab categories restructured to Database → Technology → Category, three Valkey Cluster labs, HAProxy read-routing fallback, Labs UX fixes — `app/labs.go`, `labs_valkey.go`, `haproxy.go`, `web/src/pages/Labs.jsx`
+
+User asked for the lab catalog's classification to become a three-level hierarchy (e.g. PostgreSQL →
+Patroni → Replication) *before* adding a second database's worth of labs, then asked for the first three
+Valkey Cluster labs.
+
+- **`Lab` struct gains `Database`, `Technology`, `Category` fields** (`app/labs.go`); all 27 existing Patroni
+  labs backfilled (`Database: "PostgreSQL"`, `Technology: "Patroni"`, existing category strings kept). The
+  Labs UI groups/searches by this hierarchy instead of a flat category list.
+- **Three new Valkey Cluster labs** in a new `app/labs_valkey.go` (`Database: "Valkey"`,
+  `Technology: "Valkey Cluster"`), against a real 3-node all-master cluster (the same
+  `valkey-cli --cluster create --cluster-replicas 0` pipeline Stack Designer's own frame provisioning uses):
+  `valkey-hash-slots` (CLUSTER KEYSLOT / MOVED redirects), `valkey-resharding` (live slot migration between
+  masters), `valkey-manual-failover` (reshard a master empty → automatic slave conversion → `CLUSTER FAILOVER`
+  promotes it back). Crash-simulating a node for an automatic-failover lab was tried and abandoned: `DEBUG
+  SLEEP` is disabled by default, `kill -STOP 1` on PID 1 is a no-op in this container-init namespace, and
+  `SHUTDOWN NOSAVE` + Docker's `unless-stopped` restart policy brings the process back in ~2s — faster than
+  Valkey Cluster's own 5s `cluster-node-timeout` gossip detection — so the third lab uses the manual
+  `CLUSTER FAILOVER` path instead, which is fully reliable.
+- **HAProxy read-routing fallback** (`app/haproxy.go`): `haproxyCfg()` restructured from one `listen` block
+  into `frontend <cluster>_read` + `backend <cluster>_read_replicas` + `backend <cluster>_read_leader`, with
+  `acl replicas_up nbsrv(<cluster>_read_replicas) gt 0` choosing the replica backend when any replica is up
+  and falling back to the Leader otherwise — previously, with zero replicas running, reads had nowhere to
+  route at all.
+- **Labs UI fixes**: the node terminal button was gated to `n.type === 'patroni'`, so no Valkey Cluster node
+  had one — generalized to any running deployment regardless of type. Added a confirmation modal (mirrors
+  `DeleteConfirmModal`) before "End Lab" so it can't be ended by an accidental click.
+
+**Verified live** against a real deployed 3-node cluster for all three labs (both steps each), plus the two
+Labs UI fixes confirmed via a real browser session (terminal opens for every node type; End Lab shows/
+dismisses/confirms correctly) and the HAProxy fallback confirmed by killing both replicas and watching reads
+correctly fail over to the Leader, then recover once a replica came back.
+
+## 160. Ten more Valkey / Valkey Cluster labs — `app/labs.go`, `labs_valkey.go`
+
+User wants a Valkey/Valkey Cluster learner to reach intermediate/expert DBA level; proposed 10 more labs
+(8 standalone-focused, 2 cluster-specific), user approved all 10.
+
+- **New design templates** in `labs_valkey.go`: `labValkeyStandaloneDesign` (one standalone `"valkey"` node,
+  for the single-node labs), `labValkeyReplicationDesign` (two standalone nodes, `valkey-a`/`valkey-b`, no
+  replication wired at deploy time — the learner runs `REPLICAOF` themselves), `labValkeyCluster4Design` (a
+  4-node cluster, one more than the 3-node minimum, so the resize lab has a real fourth shard to remove and
+  re-add).
+- **Ten labs**: `valkey-persistence` (RDB+AOF, `appendfsync always` and its measurable fsync-per-write cost
+  via `LATENCY HISTORY aof-fsync-always`), `valkey-memory-eviction` (`maxmemory`+`allkeys-lru`, real eviction
+  under pressure), `valkey-acl` (`ACL SETUSER` scoped to a key pattern + command class, enforcement proven by
+  a denied write), `valkey-transactions` (MULTI/EXEC vs. an atomic Lua `EVAL` enforcing a check-then-act
+  limit), `valkey-slowlog` (catching a `KEYS *` scan in both the slowlog and latency monitoring),
+  `valkey-backup-restore` (BGSAVE + `valkey-check-rdb` integrity verification), `valkey-cluster-resize`
+  (`del-node` a shard down to zero slots then back, `add-node` it again), `valkey-cross-slot` (a real
+  CROSSSLOT error, then a hash-tag fix), `valkey-replication` (standalone `REPLICAOF`, read-only enforcement),
+  `valkey-sentinel` (Sentinel-driven automatic failover).
+- **New standalone-node helpers**: `valkeyStandaloneRunningMembers`/`singleValkeyNode` (mirrors
+  `valkeyRunningMembers` but for plain `"valkey"` nodes, not cluster frames), `valkeyNodeDeployment` (find a
+  specific node by design ID, for the two-node replication/Sentinel labs), `valkeyConfigGet`, `valkeyInfoInt`.
+
+**Three real bugs caught by live verification against deployed containers** (this app's `valkey-cli` execs
+non-interactively, which changes its own output format from the familiar REPL formatting):
+1. `valkey-cli` exits **0** even on an error reply (NOPERM, READONLY) — the ACL-enforcement and
+   replica-read-only checks originally gated on a nonzero exit code, which never happens; fixed to inspect the
+   reply text itself (`"OK"` vs. containing `"NOPERM"`/`"READONLY"`).
+2. `SLOWLOG GET`'s non-interactive output has no quotes around command names (`KEYS`, not `"KEYS"`) — the
+   slowlog-catch check's substring match never matched; fixed to match a bare `KEYS` line.
+3. A `KEYS *` scan over a few thousand keys finishes in well under 1ms in this environment, never crossing a
+   1ms `latency-monitor-threshold` — the lab's own instructions were rewritten to populate 50,000 keys via one
+   Lua `EVAL` loop (fast, avoids 50,000 separate `valkey-cli` exec round-trips) instead of a 3,000-key shell
+   loop, which reliably pushes the scan to ~2.5ms.
+- **Two design assumptions corrected after live testing**: Sentinel's real failover takes ~30-40s, not ~1-2s
+  as assumed — killing the primary trips Sentinel's own TILT-mode safety brake (a ~30s pause on failover
+  decisions after a suspicious timing gap), documented in the lecture notes and instructions. The
+  cluster-resize lab's "wait ~60s before re-adding a removed node" instruction turned out unnecessary — the
+  del-node gossip ban only delays *other* members' own view of the rejoining node, not whether add-node or a
+  follow-up reshard actually works (both succeed immediately, verified live).
+
+**Verified.** Every one of the 20 new steps was checked live against real deployed containers, both the
+failing-before and passing-after state, via the actual `/api/labs/{id}/steps/{stepId}/check` endpoint —
+including the 4-node cluster-resize lab and the two-node Sentinel lab's full crash-and-promote cycle.
+`go build/vet` and `gofmt` clean; all Go design-template JSON validated.
+
+## 161. New "Linux Client" node type — `app/linuxclient.go`, `intranet.go`, `engine.go`, `web/src/pages/StackDesigner.jsx`
+
+User asked for a Linux Client node in Database Stacks: any OS image dbcanvas supports, no PMM monitoring,
+hostnamed `linuxclient1`, `linuxclient2`, … (found while working through Labs UX feedback about there being
+no terminal on Valkey nodes).
+
+- **`app/linuxclient.go`**: `provisionLinuxClient` boots a bare `dbcanvas-systemd:*` image (the same catalog
+  every other systemd node type uses, via `pxcImage(os, osVersion, arch)`) — creates the container privileged,
+  waits for systemd, trusts the Intranet CA, applies the RHEL `ip_resolve=4` fix, optionally points the
+  package manager at the Intranet Squid proxy. No product gets installed and — deliberately, per the ask —
+  no PMM client/registration step exists at all. Registered in the deploy dispatch switch (`intranet.go`) and
+  in `vagrantVMNode` (`engine.go`), so it runs as a VirtualBox VM in hybrid stacks like every other OS/DB node.
+- **Frontend**: `NODE_TYPES.linuxclient` (Storage & Tools palette group), `LinuxClientForm` (catalog-driven
+  OS/version/arch cascading selects — copied from `HAProxyForm`'s pattern — plus the package-proxy checkbox;
+  no PMM field, no port export, since there's no service to monitor or expose) and `LinuxClientManager` for
+  the running state. `nodeOSLabel` extended to treat `linuxclient` like `haproxy`/`vnc` (reads `os`/`osVersion`
+  directly rather than a fixed single-entry `osOptions` lookup, since the catalog is dynamic).
+- **Hostname naming**: every other node type's default label is `<slug>-NN` (zero-padded, dashed —
+  `valkey-01`, `valkey-02`). The user specifically asked for `linuxclient1`, `linuxclient2` (no dash, no
+  padding), so `nextLabel()` gained a `plainSequentialLabel` opt-in flag, set only on this node type; the
+  existing `hostLabel()`/`stackHostnames()` sanitizer already passes a label like `linuxclient1` through
+  unchanged (no separator to collapse), so no other naming-pipeline change was needed.
+
+**Verified live**: deployed a real Intranet + Linux Client stack via the API, confirmed inside the container —
+`systemctl is-system-running` → `running`, `/etc/hostname` → `linuxclient1`, Intranet CA present in the trust
+store, `dnf.conf` has `ip_resolve=4`, no `pmm-agent` binary present, DNS resolves `intranet` via the stack's
+own resolver. Also verified in a real browser session: the palette entry, adding a second node auto-labels it
+`linuxclient2`, the catalog-driven OS select correctly re-populates OS version options when switching from
+Oracle Linux to Ubuntu, and the running node's Properties panel renders the expected image/host summary.
+`go build/vet` and `gofmt`, and a `vite build`, all clean.
+as the lab to live-test first before trusting it in front of learners.

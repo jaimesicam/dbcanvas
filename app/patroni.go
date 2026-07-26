@@ -484,6 +484,16 @@ func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFram
 		}
 	}
 
+	// Stage the on_role_change callback script before patroni.yml references
+	// its path — Patroni execs it directly, so it must exist and be
+	// executable before Patroni's first start.
+	if frame.EnableRoleChangeCallback {
+		pr.phase("Writing role-change callback", 57)
+		if err := a.engCtx(ctx).CopyFile(ctx, id, "/etc/patroni/callbacks", "on_role_change.sh", 0o755, []byte(patroniRoleChangeCallbackScript)); err != nil {
+			return pr.fail("write on_role_change callback: %v", err)
+		}
+	}
+
 	// Write the Patroni config to the path the packaged unit reads by default
 	// (PATRONI_CONFIG_LOCATION=/etc/patroni/postgresql.yml; ExecStart=patroni $that).
 	pr.phase("Writing Patroni config", 58)
@@ -837,7 +847,7 @@ func patroniYAML(frame designFrame, host, fqdn string, etcdEndpoints []string, s
 	fmt.Fprintf(&b, "    retry_timeout: 10\n")
 	fmt.Fprintf(&b, "    maximum_lag_on_failover: 1048576\n")
 	fmt.Fprintf(&b, "    postgresql:\n")
-	fmt.Fprintf(&b, "      use_pg_rewind: true\n")
+	fmt.Fprintf(&b, "      use_pg_rewind: %t\n", !frame.DisablePgRewind)
 	fmt.Fprintf(&b, "      use_slots: true\n")
 	fmt.Fprintf(&b, "      parameters:\n")
 	fmt.Fprintf(&b, "        max_connections: 200\n")
@@ -884,6 +894,10 @@ func patroniYAML(frame designFrame, host, fqdn string, etcdEndpoints []string, s
 		fmt.Fprintf(&b, "    command: pgbackrest --stanza=%s --delta restore\n", stanza)
 		fmt.Fprintf(&b, "    keep_data: true\n")
 		fmt.Fprintf(&b, "    no_params: true\n")
+	}
+	if frame.EnableRoleChangeCallback {
+		fmt.Fprintf(&b, "  callbacks:\n")
+		fmt.Fprintf(&b, "    on_role_change: /etc/patroni/callbacks/on_role_change.sh\n")
 	}
 	b.WriteString("\n")
 
@@ -962,7 +976,17 @@ pin_install $PKGS`
 // patroniConfigDirsScript ensures the etcd + Patroni config directories exist
 // before their files are copied in (Docker's copy API 404s on a missing dir).
 const patroniConfigDirsScript = `set -e
-mkdir -p /etc/etcd /etc/patroni`
+mkdir -p /etc/etcd /etc/patroni /etc/patroni/callbacks`
+
+// patroniRoleChangeCallbackScript is staged at /etc/patroni/callbacks/on_role_change.sh
+// (EnableRoleChangeCallback frames only) and wired into patroni.yml as
+// postgresql.callbacks.on_role_change. Patroni execs it as
+// "<script> <action> <role> <cluster_name>" on every on_start/on_stop/
+// on_restart/on_role_change event; it just appends one line per call so the
+// "Patroni Callbacks" lab's Check Work can confirm a role change actually
+// fired one, rather than inferring it from cluster state alone.
+const patroniRoleChangeCallbackScript = `#!/bin/bash
+echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) action=$1 role=$2 cluster=$3" >> /tmp/patroni-callback.log`
 
 // patroniPrepDirsScript ensures the PostgreSQL data dir parent exists and is owned
 // by postgres (Patroni initdb writes into DATADIR; the parent must be writable).

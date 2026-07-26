@@ -168,7 +168,7 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 			// Ubuntu VNC desktop. A forwarded host port was never usable from the
 			// host machine (the issuer/hostname is the in-network FQDN).
 			Network: networkName(st.ID), Aliases: aliases,
-			DNS:     []string{intranetIP}, DNSSearch: []string{domain},
+			DNS: []string{intranetIP}, DNSSearch: []string{domain},
 		})
 		if err != nil {
 			pr.fail("create container: %v", err)

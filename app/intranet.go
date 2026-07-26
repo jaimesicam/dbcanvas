@@ -185,6 +185,17 @@ type designFrame struct {
 	SeaweedFSNodeID string `json:"seaweedfsNodeId"` // SeaweedFS node id backing pgBackRest/Barman (when enabled)
 	// Which of that node's buckets to use ("" → its first, i.e. the default bucket).
 	SeaweedFSBucket string `json:"seaweedfsBucket"`
+	// DisablePgRewind turns off Patroni's use_pg_rewind (on by default for
+	// every Patroni cluster). Not exposed in Stack Designer's UI — it exists
+	// so the "manual pg_rewind" lab's cluster can require the learner to run
+	// pg_rewind themselves instead of Patroni doing it automatically on startup.
+	DisablePgRewind bool `json:"disablePgRewind"`
+	// EnableRoleChangeCallback stages an on_role_change script and wires it
+	// into patroni.yml (postgresql.callbacks.on_role_change). Not exposed in
+	// Stack Designer's UI — it exists for the "Patroni Callbacks" lab, whose
+	// Check Work reads the script's own append-only log to confirm a
+	// role-change callback actually fired.
+	EnableRoleChangeCallback bool `json:"enableRoleChangeCallback"`
 	// repmgr PostgreSQL cluster frame config (Type=="repmgr"; reuses OS/OSVersion/Arch,
 	// RootPassword (postgres superuser pw), PMMNodeID, UseProxy, GenerateCert/CertTTL,
 	// PGMajor/PGVersion above). Each member runs PostgreSQL + repmgr (streaming
@@ -1340,6 +1351,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionValkeyStandalone(st, n, doc)
 		case "haproxy":
 			a.provisionHAProxy(st, n, doc)
+		case "linuxclient":
+			a.provisionLinuxClient(st, n, doc)
 		}
 	}
 
@@ -2117,6 +2130,7 @@ func (a *App) removeNodeResources(ctx context.Context, st Stack, d Deployment) {
 // teardownStack stops and removes every container deployed for a stack and
 // removes its network. Best-effort.
 func (a *App) teardownStack(stackID int64) {
+	stopLabTraffic(stackID)
 	if a.docker == nil {
 		return
 	}

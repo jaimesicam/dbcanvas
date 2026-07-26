@@ -448,10 +448,31 @@ func haproxyCfg(cluster string, members []string) string {
 	}
 	b.WriteString("\n")
 
-	fmt.Fprintf(&b, "listen %s_read\n", sanitizeName(cluster))
+	// The read port is a frontend, not a plain listen — reads normally balance
+	// across replicas only, but with zero replicas healthy (e.g. down to a
+	// lone Leader) that would leave reads with nowhere to go at all. nbsrv()
+	// on the replicas backend routes to the Leader-checked backend instead
+	// whenever no replica is currently up, so reads degrade to hitting the
+	// Leader rather than failing outright.
+	clusterName := sanitizeName(cluster)
+	fmt.Fprintf(&b, "frontend %s_read\n", clusterName)
 	fmt.Fprintf(&b, "    bind *:%d\n", haproxyReadPort)
+	fmt.Fprintf(&b, "    acl replicas_up nbsrv(%s_read_replicas) gt 0\n", clusterName)
+	fmt.Fprintf(&b, "    use_backend %s_read_replicas if replicas_up\n", clusterName)
+	fmt.Fprintf(&b, "    default_backend %s_read_leader\n\n", clusterName)
+
+	fmt.Fprintf(&b, "backend %s_read_replicas\n", clusterName)
 	fmt.Fprintf(&b, "    balance roundrobin\n")
 	fmt.Fprintf(&b, "    option httpchk GET /replica\n")
+	fmt.Fprintf(&b, "    http-check expect status 200\n")
+	fmt.Fprintf(&b, "    default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions init-addr last,libc,none\n")
+	for _, m := range members {
+		fmt.Fprintf(&b, "    server %s %s:%d maxconn 1000 check port %d\n", shortHost(m), m, patroniPGPort, patroniRESTPort)
+	}
+	b.WriteString("\n")
+
+	fmt.Fprintf(&b, "backend %s_read_leader\n", clusterName)
+	fmt.Fprintf(&b, "    option httpchk GET /primary\n")
 	fmt.Fprintf(&b, "    http-check expect status 200\n")
 	fmt.Fprintf(&b, "    default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions init-addr last,libc,none\n")
 	for _, m := range members {

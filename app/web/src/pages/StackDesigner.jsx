@@ -323,6 +323,22 @@ const NODE_TYPES = {
       exportEnabled: false, exportHostPort: 0,
     },
   },
+  // Linux Client — a bare systemd host on any OS image dbcanvas supports, with no
+  // product installed and no PMM monitoring. A jump box / test client for reaching
+  // the stack's other nodes. Hosts are named linuxclient1, linuxclient2, … (no
+  // zero-padded dash, unlike every other type) via plainSequentialLabel below.
+  linuxclient: {
+    label: 'Linux Client',
+    slug: 'linuxclient',
+    sub: 'Bare OS host — no product, no monitoring',
+    color: '#64748b',
+    icon: 'Server',
+    singleton: false,
+    ports: false,
+    plainSequentialLabel: true,
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
+    defaults: { os: 'oraclelinux', osVersion: '9', arch: 'amd64', useProxy: false },
+  },
 }
 
 // ---------------------------------------------------------- PXC cluster frames
@@ -537,7 +553,7 @@ const proxyModeOpts = (backendType) => PROXY_MODE_OPTS[backendType === 'mysql' ?
 
 // nodeOSLabel renders a free node's OS line; ProxySQL carries its own os/version
 // (like a PXC frame), other nodes map via their osOptions.
-const nodeOSLabel = (n) => (n.type === 'proxysql' || n.type === 'ps' || n.type === 'pg' || n.type === 'psm' || n.type === 'haproxy' || n.type === 'vnc' ? pxcOSLabel(n) : osLabel(n.type, n.os))
+const nodeOSLabel = (n) => (n.type === 'proxysql' || n.type === 'ps' || n.type === 'pg' || n.type === 'psm' || n.type === 'haproxy' || n.type === 'vnc' || n.type === 'linuxclient' ? pxcOSLabel(n) : osLabel(n.type, n.os))
 
 // Auto-numbered per-type labels: a non-singleton node is named "<slug>-NN" with
 // NN zero-padded from 01 and increasing per node type (pmm-01, pmm-02, …, and in
@@ -547,6 +563,17 @@ function nextLabel(type, nodes) {
   const def = NODE_TYPES[type]
   if (def.singleton) return def.label
   const base = def.slug || type
+  // linuxclient1, linuxclient2, … — no dash, no zero-padding (unlike every other type).
+  if (def.plainSequentialLabel) {
+    const re = new RegExp(`^${base}(\\d+)$`)
+    let max = 0
+    for (const n of nodes) {
+      if (n.type !== type) continue
+      const m = (n.label || '').match(re)
+      if (m) max = Math.max(max, parseInt(m[1], 10))
+    }
+    return `${base}${max + 1}`
+  }
   const re = new RegExp(`^${base}-(\\d+)$`)
   let max = 0
   for (const n of nodes) {
@@ -762,6 +789,7 @@ const PALETTE_ALIASES = {
   sambaad: 'ldap active directory domain', keycloak: 'sso oidc identity',
   seaweedfs: 's3 object storage', vnc: 'desktop gui ubuntu',
   watchtower: 'updates upgrade', intranet: 'dns gateway core',
+  linuxclient: 'client host bare vm jump box test',
 }
 function loadPalettePrefs() {
   try { return { collapsed: [], recent: [], ...JSON.parse(localStorage.getItem(PALETTE_KEY) || '{}') } }
@@ -1822,6 +1850,7 @@ function StackEditor({ stackId, onBack }) {
       { label: 'SeaweedFS', type: 'seaweedfs', onClick: () => addNode('seaweedfs') },
       { label: 'OpenBao', type: 'openbao', onClick: () => addNode('openbao'), off: has('openbao') },
       { label: 'Ubuntu VNC', type: 'vnc', onClick: () => addNode('vnc'), off: has('vnc') },
+      { label: 'Linux Client', type: 'linuxclient', onClick: () => addNode('linuxclient') },
     ] },
   ]
 
@@ -3857,6 +3886,106 @@ function VNCManager({ dep, onDeleteNode }) {
         {sec.vncPassword && (
           <div className="flex justify-between gap-3"><span className="text-muted">VNC password</span><SecretInline value={sec.vncPassword} /></div>
         )}
+      </div>
+      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// LinuxClientForm edits a (not-yet-running) Linux Client node: any OS/version/arch from
+// the generic images catalog (the same dbcanvas-systemd:* base images every other
+// systemd node type uses), an optional package-manager proxy — and nothing else. No
+// product gets installed and there's no PMM monitoring; it's a bare jump box for
+// reaching the stack's other nodes from its terminal.
+function LinuxClientForm({ node: n, patchNode, deleteNode, dep, deployed }) {
+  const [cat, setCat] = useState(null)
+  useEffect(() => {
+    let alive = true
+    stackApi.imagesCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    return () => { alive = false }
+  }, [])
+  const imgs = cat || []
+  const lock = deployed ? 'opacity-70' : ''
+
+  const osFamilies = [...new Set(imgs.map((i) => i.os))]
+  const osVersions = [...new Set(imgs.filter((i) => i.os === n.os).map((i) => i.osVersion))]
+  const archs = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === n.osVersion).map((i) => i.arch))]
+
+  // Snap invalid dependent selects once the catalog loads.
+  useEffect(() => {
+    if (deployed || !imgs.length) return
+    const patch = {}
+    const osVer = osVersions.includes(n.osVersion) ? n.osVersion : (osVersions[0] ?? n.osVersion)
+    if (osVer !== n.osVersion) patch.osVersion = osVer
+    const archList = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === osVer).map((i) => i.arch))]
+    const arch = archList.includes(n.arch) ? n.arch : (archList[0] ?? n.arch)
+    if (arch !== n.arch) patch.arch = arch
+    if (Object.keys(patch).length) patchNode(n.id, patch)
+  }, [imgs, n.id, n.os, n.osVersion, n.arch, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Linux Client</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <p className="text-xs text-muted">
+        A bare systemd host with nothing installed — any OS image dbcanvas supports, joined to the
+        Intranet DNS/CA. Not monitored by PMM. Install and run whatever clients you need from its terminal.
+      </p>
+
+      <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
+
+      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+          <select className={`${inputCls} ${lock}`} value={n.os} disabled={deployed} onChange={(e) => patchNode(n.id, { os: e.target.value })}>
+            {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="OS version">
+          <select className={`${inputCls} ${lock}`} value={n.osVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { osVersion: e.target.value })}>
+            {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+      </div>
+      <Field label="Platform / arch">
+        <select className={`${inputCls} ${lock}`} value={n.arch} disabled={deployed} onChange={(e) => patchNode(n.id, { arch: e.target.value })}>
+          {archs.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+      </Field>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for downloads</span>
+      </label>
+
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// LinuxClientManager shows a deployed Linux Client node's basic connection info — there's
+// no service running on it to manage, just the host it joined the stack as.
+function LinuxClientManager({ dep, onDeleteNode }) {
+  const cfg = dep?.config || {}
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Linux Client</span>
+        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+      </div>
+      <p className="text-xs text-muted">No product installed. Open this node's terminal to install and run clients against the stack.</p>
+      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
+        <div className="flex justify-between gap-3"><span className="text-muted">Image</span><span className="font-mono text-xs">{cfg.image || ''}</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Host</span><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></div>
       </div>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
@@ -6344,6 +6473,13 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <ValkeyManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <ValkeyForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+    // Linux Client node — a bare OS host with no product installed.
+    if (n.type === 'linuxclient') {
+      if (dep && dep.state === 'running') {
+        return <LinuxClientManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <LinuxClientForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
     return (
       <div className="space-y-3">
