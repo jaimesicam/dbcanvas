@@ -1,0 +1,80 @@
+:root {
+  --bg: #0b0f17;
+  --panel: #131a26;
+  --panel2: #1a2333;
+  --border: #263047;
+  --fg: #e6ecf5;
+  --muted: #8b9bb4;
+  --free: #2ecc71;
+  --moderate: #f1c40f;
+  --heavy: #e67e22;
+  --severe: #e74c3c;
+  --blocked: #7f1d1d;
+  --nodata: #4b5563;
+  --accent: #6366f1;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+  background: var(--bg); color: var(--fg);
+}
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--border);
+  flex-wrap: wrap; gap: 8px;
+}
+header h1 { font-size: 16px; margin: 0; }
+.controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.controls .sep { width: 1px; height: 20px; background: var(--border); }
+button {
+  background: var(--panel2); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 13px;
+}
+button:hover { border-color: var(--accent); }
+button.danger:hover { border-color: var(--severe); }
+select {
+  background: var(--panel2); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 8px; font-size: 13px;
+}
+.conn { color: var(--severe); margin-left: 6px; }
+.conn.up { color: var(--free); }
+
+main { display: flex; gap: 12px; padding: 12px; align-items: flex-start; }
+.map-panel { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
+canvas { display: block; background: #0e1420; border-radius: 6px; }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--muted); }
+.legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.dot.free { background: var(--free); } .dot.moderate { background: var(--moderate); }
+.dot.heavy { background: var(--heavy); } .dot.severe { background: var(--severe); }
+.dot.blocked { background: var(--blocked); } .dot.nodata { background: var(--nodata); }
+
+.road-detail {
+  position: absolute; top: 20px; right: 20px; width: 240px;
+  background: var(--panel2); border: 1px solid var(--accent); border-radius: 8px;
+  padding: 10px 12px; font-size: 13px;
+}
+.road-detail.hidden { display: none; }
+.road-detail h3 { margin: 0 0 6px; font-size: 14px; }
+.road-detail .row { display: flex; justify-content: space-between; padding: 2px 0; color: var(--muted); }
+.road-detail .row b { color: var(--fg); font-weight: 500; }
+.road-detail .close { position: absolute; top: 6px; right: 8px; cursor: pointer; color: var(--muted); }
+
+.sidebar { display: flex; flex-direction: column; gap: 12px; width: 320px; flex-shrink: 0; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.card h2 { font-size: 13px; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.small { font-size: 12px; color: var(--muted); line-height: 1.5; margin: 0; }
+
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.stat-grid .stat { background: var(--panel2); border-radius: 6px; padding: 8px; }
+.stat-grid .stat .v { font-size: 18px; font-weight: 600; }
+.stat-grid .stat .l { font-size: 11px; color: var(--muted); }
+
+.ranking-list, .agent-list, .event-list { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow-y: auto; }
+.ranking-list li, .agent-list li { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12.5px; border-bottom: 1px solid var(--border); }
+.ranking-list li:last-child, .agent-list li:last-child { border-bottom: none; }
+.ranking-list .score { color: var(--muted); }
+.events-card .event-list { max-height: 260px; }
+.event-list li { font-size: 12px; padding: 3px 0; color: var(--muted); border-bottom: 1px dashed var(--border); }
+.event-list li b { color: var(--fg); }
+.agent-list .status.ok { color: var(--free); }
+.agent-list .status.stale { color: var(--severe); }

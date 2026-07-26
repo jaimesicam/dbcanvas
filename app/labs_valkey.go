@@ -22,12 +22,16 @@ var labValkeyClusterDesign = json.RawMessage(`{
     {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
     {"id":"lab-vk-1","type":"valkeycluster","label":"valkey-1","frameId":"lab-valkey-cluster","x":574,"y":66},
     {"id":"lab-vk-2","type":"valkeycluster","label":"valkey-2","frameId":"lab-valkey-cluster","x":702,"y":66},
-    {"id":"lab-vk-3","type":"valkeycluster","label":"valkey-3","frameId":"lab-valkey-cluster","x":830,"y":66}
+    {"id":"lab-vk-3","type":"valkeycluster","label":"valkey-3","frameId":"lab-valkey-cluster","x":830,"y":66},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-trafficsim","type":"trafficsim","label":"trafficsim-01","x":300,"y":220}
   ],
   "frames": [
     {"id":"lab-valkey-cluster","type":"valkeycluster","label":"lab-valkey","x":560,"y":20,"w":400,"h":138}
   ],
-  "edges": [],
+  "edges": [
+    {"id":"lab-ts-edge","from":{"node":"lab-valkey-cluster","port":"bottom"},"to":{"node":"lab-trafficsim","port":"top"},"type":"directional"}
+  ],
   "view": {"x":0,"y":0,"z":1}
 }`)
 
@@ -41,12 +45,16 @@ var labValkeyCluster4Design = json.RawMessage(`{
     {"id":"lab-vk-1","type":"valkeycluster","label":"valkey-1","frameId":"lab-valkey-cluster","x":574,"y":66},
     {"id":"lab-vk-2","type":"valkeycluster","label":"valkey-2","frameId":"lab-valkey-cluster","x":702,"y":66},
     {"id":"lab-vk-3","type":"valkeycluster","label":"valkey-3","frameId":"lab-valkey-cluster","x":830,"y":66},
-    {"id":"lab-vk-4","type":"valkeycluster","label":"valkey-4","frameId":"lab-valkey-cluster","x":958,"y":66}
+    {"id":"lab-vk-4","type":"valkeycluster","label":"valkey-4","frameId":"lab-valkey-cluster","x":958,"y":66},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-trafficsim","type":"trafficsim","label":"trafficsim-01","x":300,"y":220}
   ],
   "frames": [
     {"id":"lab-valkey-cluster","type":"valkeycluster","label":"lab-valkey","x":560,"y":20,"w":528,"h":138}
   ],
-  "edges": [],
+  "edges": [
+    {"id":"lab-ts-edge","from":{"node":"lab-valkey-cluster","port":"bottom"},"to":{"node":"lab-trafficsim","port":"top"},"type":"directional"}
+  ],
   "view": {"x":0,"y":0,"z":1}
 }`)
 
@@ -57,10 +65,14 @@ var labValkeyCluster4Design = json.RawMessage(`{
 var labValkeyStandaloneDesign = json.RawMessage(`{
   "nodes": [
     {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
-    {"id":"lab-valkey","type":"valkey","label":"valkey-1","x":300,"y":40}
+    {"id":"lab-valkey","type":"valkey","label":"valkey-1","x":300,"y":40},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-trafficsim","type":"trafficsim","label":"trafficsim-01","x":300,"y":220}
   ],
   "frames": [],
-  "edges": [],
+  "edges": [
+    {"id":"lab-ts-edge","from":{"node":"lab-valkey","port":"bottom"},"to":{"node":"lab-trafficsim","port":"top"},"type":"directional"}
+  ],
   "view": {"x":0,"y":0,"z":1}
 }`)
 
@@ -74,10 +86,14 @@ var labValkeyReplicationDesign = json.RawMessage(`{
   "nodes": [
     {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
     {"id":"lab-valkey-a","type":"valkey","label":"valkey-a","x":300,"y":40},
-    {"id":"lab-valkey-b","type":"valkey","label":"valkey-b","x":460,"y":40}
+    {"id":"lab-valkey-b","type":"valkey","label":"valkey-b","x":460,"y":40},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-trafficsim","type":"trafficsim","label":"trafficsim-01","x":300,"y":220}
   ],
   "frames": [],
-  "edges": [],
+  "edges": [
+    {"id":"lab-ts-edge","from":{"node":"lab-valkey-a","port":"bottom"},"to":{"node":"lab-trafficsim","port":"top"},"type":"directional"}
+  ],
   "view": {"x":0,"y":0,"z":1}
 }`)
 

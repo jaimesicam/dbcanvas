@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Valkey Traffic Lab</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>🚦 Valkey Traffic Lab</h1>
+    <div class="controls">
+      <button id="btn-start">Start</button>
+      <button id="btn-pause">Pause</button>
+      <button id="btn-resume">Resume</button>
+      <button id="btn-reset" class="danger">Reset</button>
+      <span class="sep"></span>
+      <label>Traffic:
+        <select id="traffic-level">
+          <option value="off">Off</option>
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+        </select>
+      </label>
+      <span class="sep"></span>
+      <button id="btn-incident">Create Incident</button>
+      <span class="conn" id="conn-status">●</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="map-panel">
+      <canvas id="map" width="900" height="760"></canvas>
+      <div class="legend">
+        <span><i class="dot free"></i> F Free-flowing</span>
+        <span><i class="dot moderate"></i> M Moderate</span>
+        <span><i class="dot heavy"></i> H Heavy</span>
+        <span><i class="dot severe"></i> S Severe</span>
+        <span><i class="dot blocked"></i> B Blocked</span>
+        <span><i class="dot nodata"></i> N No data</span>
+      </div>
+      <div id="road-detail" class="road-detail hidden"></div>
+    </section>
+
+    <aside class="sidebar">
+      <div class="card" id="summary">
+        <h2>Summary</h2>
+        <div class="stat-grid" id="stat-grid"></div>
+      </div>
+
+      <div class="card">
+        <h2>Congestion Ranking</h2>
+        <ol id="ranking-list" class="ranking-list"></ol>
+      </div>
+
+      <div class="card">
+        <h2>Agent Status</h2>
+        <ul id="agent-list" class="agent-list"></ul>
+      </div>
+
+      <div class="card events-card">
+        <h2>Recent Events</h2>
+        <ul id="event-list" class="event-list"></ul>
+      </div>
+
+      <div class="card">
+        <h2>What's this demonstrating?</h2>
+        <p class="small">
+          Every road/vehicle/signal/incident is a Valkey Hash (current state).
+          Every event flows through a Valkey Stream with a consumer group
+          (durable, resumable processing). Rankings are Sorted Sets. Vehicle
+          and incident positions use Valkey's geospatial commands. Vehicles
+          expire automatically (TTL) if their agent stops updating them.
+          Live updates reach this page over Pub/Sub — but a full page
+          refresh always recovers the same state straight from Valkey.
+        </p>
+      </div>
+    </aside>
+  </main>
+
+<script src="app.js"></script>
+</body>
+</html>

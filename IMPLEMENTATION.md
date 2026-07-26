@@ -7538,4 +7538,74 @@ own resolver. Also verified in a real browser session: the palette entry, adding
 `linuxclient2`, the catalog-driven OS select correctly re-populates OS version options when switching from
 Oracle Linux to Ubuntu, and the running node's Properties panel renders the expected image/host summary.
 `go build/vet` and `gofmt`, and a `vite build`, all clean.
+
+## 162. "Valkey Traffic Lab" — a live traffic-simulation demo app in every Valkey lab — `trafficsim/` (new module), `app/trafficsim.go`, `intranet.go`, `engine.go`, `labs_valkey.go`, `Makefile`, `web/src/pages/StackDesigner.jsx`
+
+User supplied a full spec for a live-traffic-simulation demo app (background agents simulating a fictional
+city's vehicles/sensors/signals/incidents, continuously reading/writing Valkey, with a live web map) and
+asked for it in every Valkey lab, reachable only from inside the lab's Ubuntu VNC desktop's browser, with an
+in-app Off/Low/Medium/High traffic-rate control. Planned first (`EnterPlanMode`) given the size — targeted the
+spec's own §20 Minimum Demonstrable Version + §21 Acceptance Criteria as v1, explicitly deferring §13 (extra
+simulation modes), §17 (educational overlay), §18 (full observability panel) and §22 (future extensions).
+
+- **New `trafficsim/` Go module** (its own `go.mod`, separate from `app/` — needs `go-redis/v9` + `coder/
+  websocket`, which the main server doesn't): a 3×3 fictional city grid (`internal/sim/citymap.go`, real
+  lon/lat-shaped coordinates so Valkey's GEO commands work on genuine data, not just decoration), five agent
+  goroutines (`internal/sim/agents.go` — vehicle mover, sensor sampler, signal cycler, incident generator,
+  and a state-calculator that's also the Streams *consumer*), a Valkey key scheme entirely under a `ts:`
+  prefix (Hashes for current state, a Stream + consumer group for event history, Sorted Sets for rankings,
+  GEOADD for vehicle/incident locations, TTLs for staleness) so the sim's own continuous traffic can never
+  collide with a lab's exact-key-name Check Work, and an embedded (`go:embed`) plain-JS/Canvas frontend (no
+  bundler needed) polling `GET /api/state` for the map/rankings/stats and a WebSocket purely for the live
+  event feed — losing the socket never loses the map. `trafficsim/Dockerfile` builds one static binary into a
+  `distroless/static-debian12` runtime; `make trafficsim-image` builds it, `validateStack` gets a matching
+  pre-deploy image-existence + "must be linked" check (mirrors the existing `pxcImage` checks).
+- **Two real concurrency bugs caught by live testing** (this session's established discipline: nothing is
+  trusted until proven against a real deployed container) before this ever touched dbcanvas: (1) the vehicle
+  mover held `e.mu.Lock()` for its whole tick and then called a helper that itself tried `e.mu.RLock()` —
+  `sync.RWMutex` isn't reentrant, so this was a guaranteed self-deadlock, just a delayed one (it only actually
+  froze once an incident existed on the road being processed) — fixed by adding a lock-free
+  `...Locked` variant for call sites that already hold the mutex. (2) `Reset()` re-derived the engine's
+  long-lived context from whatever `context.Context` the caller passed in — and the HTTP control handler
+  passed `r.Context()`, which net/http cancels the instant that response is written, silently killing every
+  freshly-restarted agent goroutine a moment after Reset returned "ok". Fixed by having the engine remember
+  its own process-lifetime `baseCtx` on first `Start()` and always re-derive from that, never from a caller.
+  Both were only found by actually calling the running binary's endpoints and reading a SIGQUIT goroutine
+  dump — neither surfaced from `go build`/`vet` or code review.
+- **New node type `trafficsim`** (`app/trafficsim.go`, following the `linuxclient`/`valkey` pattern): waits
+  for its linked Valkey target, then runs the image unprivileged with no host port published (reached only at
+  `trafficsim.<domain>:8088` inside the stack network — Firefox in a VNC desktop is the intended client, per
+  the ask). Distroless has no shell, so — unlike every `Exec`-based readiness check elsewhere in this
+  codebase (e.g. `waitPMMReady`'s `bash -c curl ...`) — there's no shell to run a curl script in; `trafficsim`
+  gained a `-healthcheck` CLI flag (dials its own `/healthz`, exits 0/1) so the *existing* `Exec`-based
+  pattern still works unmodified, just execing the binary itself instead of a shell command.
+- **New edge-resolution kind — the first that links to a plain node, not just a frame.** Confirmed live this
+  session that every existing edge resolver (`haproxyClusterFrames`, `backendFrameForProxySQL`,
+  `replicationLinks`) only ever resolves to frames; `endpointKind` didn't even list standalone `valkey` as
+  connectable. Added `trafficSimTarget` (`intranet.go`, mirrors `haproxyClusterFrames`'s undirected-edge walk
+  but checks both `doc.Nodes` for a `valkey` node and `doc.Frames` for a `valkeycluster` frame), and on the
+  frontend added `'valkey'`/`'valkeycluster'` to `endpointKind` + a `tryConnect` pairing rule (mirrors Patroni
+  frame → HAProxy) plus a matching `TrafficSimForm`/`TrafficSimManager` pair and a `NODE_TYPES.trafficsim`
+  palette entry (Valkey group). This also makes the node usable outside labs, by hand.
+- **Retrofit into the 4 shared Valkey lab design templates** (`labs_valkey.go`: `labValkeyStandaloneDesign`,
+  `labValkeyReplicationDesign`, `labValkeyClusterDesign`, `labValkeyCluster4Design` — covering all 13 existing
+  Valkey labs) — each gained one `vnc` node, one `trafficsim` node, and one edge linking it to that template's
+  Valkey target (the replication/Sentinel labs link to `valkey-a`, the documented initial primary — when
+  Sentinel promotes `valkey-b`, the sim's client reconnects and keeps going, which is itself a bonus
+  demonstration of §16's resilience requirement during the very lab that teaches failover). No lab's
+  `LabStep`/Check Work code changed. Flagged directly (not silently absorbed): every Valkey lab is now
+  noticeably heavier to deploy — VNC's own desktop install is already the slowest step in this codebase's
+  deploy pipeline, and trafficsim adds one more wait-for-target container on top.
+
+**Verified live** end to end at every layer: the sim standalone against a throwaway Valkey container (state
+snapshot, traffic-level control, incident create/clear, pause/resume/reset, live WebSocket push, and a
+force-killed-container crash-recovery check — Streams consumer group resumed with zero pending messages);
+integrated into real dbcanvas stacks against both a standalone Valkey node and a live Valkey Cluster frame
+(confirmed the sim's own keys land on all 3 cluster masters, following `MOVED` via go-redis's `ClusterClient`
+exactly like a real application would); a real browser session driving the actual Ubuntu VNC desktop via
+Playwright, launching Firefox inside it and confirming the live map genuinely renders and updates from inside
+the VNC session (not just the raw API); and finally one real lab redeployed per template shape (standalone,
+replication, 3-node cluster, 4-node cluster), confirming every pre-existing Check Work step still passes
+unaffected and the sim's `ts:*` keys never collide with a lab's own keys. `go build/vet`/`gofmt` clean in both
+modules, `vite build` clean.
 as the lab to live-test first before trusting it in front of learners.

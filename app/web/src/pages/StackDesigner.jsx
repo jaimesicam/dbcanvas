@@ -316,7 +316,7 @@ const NODE_TYPES = {
     color: '#7c3aed',
     icon: 'Database',
     singleton: false,
-    ports: false,
+    ports: true, // connectable — a Traffic Sim node links to it
     osOptions: [{ id: 'valkey', label: 'valkey/valkey-bundle' }],
     defaults: {
       rootPassword: '', useLdap: false, pmmNodeId: '',
@@ -338,6 +338,22 @@ const NODE_TYPES = {
     plainSequentialLabel: true,
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: { os: 'oraclelinux', osVersion: '9', arch: 'amd64', useProxy: false },
+  },
+  // Traffic Sim — the "Valkey Traffic Lab" live demo app (background agents +
+  // a web map). Runs dbcanvas's own first-party image, not an OS/DB image, so it
+  // carries no os/osVersion/arch fields at all. Links to a standalone Valkey node
+  // or a Valkey Cluster frame via a drawn association line (see endpointKind/
+  // tryConnect) — never published to the host; reached from inside a VNC desktop.
+  trafficsim: {
+    label: 'Traffic Sim',
+    slug: 'trafficsim',
+    sub: 'Valkey Traffic Lab — live demo app',
+    color: '#f97316',
+    icon: 'Flask',
+    singleton: false,
+    ports: true,
+    osOptions: [{ id: 'trafficsim', label: 'dbcanvas-trafficsim' }],
+    defaults: {},
   },
 }
 
@@ -790,6 +806,7 @@ const PALETTE_ALIASES = {
   seaweedfs: 's3 object storage', vnc: 'desktop gui ubuntu',
   watchtower: 'updates upgrade', intranet: 'dns gateway core',
   linuxclient: 'client host bare vm jump box test',
+  trafficsim: 'demo simulation city map live traffic',
 }
 function loadPalettePrefs() {
   try { return { collapsed: [], recent: [], ...JSON.parse(localStorage.getItem(PALETTE_KEY) || '{}') } }
@@ -947,7 +964,7 @@ function StackEditor({ stackId, onBack }) {
       consider(n.id, { x: n.x, y: n.y, w: NODE_W, h: NODE_H })
     }
     for (const f of refs.current.frames) {
-      if (f.type === 'pxc' || f.type === 'proxysql' || f.type === 'mysql' || f.type === 'patroni' || f.type === 'repmgr' || f.type === 'spock') consider(f.id, { x: f.x, y: f.y, w: f.w, h: f.h })
+      if (f.type === 'pxc' || f.type === 'proxysql' || f.type === 'mysql' || f.type === 'patroni' || f.type === 'repmgr' || f.type === 'spock' || f.type === 'valkeycluster') consider(f.id, { x: f.x, y: f.y, w: f.w, h: f.h })
     }
     return best
   }
@@ -1096,6 +1113,8 @@ function StackEditor({ stackId, onBack }) {
       if (n.type === 'proxysql' && !n.frameId) return 'proxysql'
       if (n.type === 'haproxy' && !n.frameId) return 'haproxy'
       if ((n.type === 'pxc' || n.type === 'mysql') && n.frameId) return 'replmember'
+      if (n.type === 'valkey') return 'valkey'
+      if (n.type === 'trafficsim') return 'trafficsim'
       return null
     }
     const f = refs.current.frames.find((x) => x.id === id)
@@ -1103,6 +1122,7 @@ function StackEditor({ stackId, onBack }) {
       if (f.type === 'pxc' || f.type === 'mysql') return 'backend'
       if (f.type === 'proxysql') return 'proxysql-frame'
       if (f.type === 'patroni') return 'patroni'
+      if (f.type === 'valkeycluster') return 'valkeycluster'
       return null
     }
     return null
@@ -1141,6 +1161,13 @@ function StackEditor({ stackId, onBack }) {
     const isPXCFrame = (id) => refs.current.frames.find((x) => x.id === id)?.type === 'pxc'
     if (k1 === 'backend' && k2 === 'haproxy' && isPXCFrame(e1.node)) return createFlow(e1, e2, { singleOutgoing: true })
     if (k2 === 'backend' && k1 === 'haproxy' && isPXCFrame(e2.node)) return createFlow(e2, e1, { singleOutgoing: true })
+    // Standalone Valkey node OR Valkey Cluster frame → Traffic Sim node (the data
+    // source flows to its consumer, same shape as Patroni cluster frame → HAProxy
+    // above; a Traffic Sim node links to exactly one target, single incoming).
+    if (k1 === 'valkey' && k2 === 'trafficsim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'valkey' && k1 === 'trafficsim') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'valkeycluster' && k2 === 'trafficsim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'valkeycluster' && k1 === 'trafficsim') return createFlow(e2, e1, { singleOutgoing: true })
     // ProxySQL node ↔ ProxySQL node: ask which way the data flows.
     if (k1 === 'proxysql' && k2 === 'proxysql') { setLinkPrompt({ e1, e2 }); return }
     // Cluster member ↔ cluster member (PXC/Percona Server, different frames): a
@@ -1842,6 +1869,7 @@ function StackEditor({ stackId, onBack }) {
     { title: 'Valkey', items: [
       { label: 'Valkey Cluster', type: 'valkeycluster', onClick: addValkeyCluster },
       { label: 'Valkey', type: 'valkey', onClick: () => addNode('valkey') },
+      { label: 'Traffic Sim', type: 'trafficsim', onClick: () => addNode('trafficsim') },
     ] },
     { title: 'Kubernetes', items: [
       { label: 'K3D Cluster', type: 'k3d', onClick: addK3DCluster },
@@ -3986,6 +4014,79 @@ function LinuxClientManager({ dep, onDeleteNode }) {
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
         <div className="flex justify-between gap-3"><span className="text-muted">Image</span><span className="font-mono text-xs">{cfg.image || ''}</span></div>
         <div className="flex justify-between gap-3"><span className="text-muted">Host</span><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></div>
+      </div>
+      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// TrafficSimForm edits a (not-yet-running) Traffic Sim node. No OS/version/arch (a
+// fixed first-party image) and no config fields — the only thing that matters is
+// which Valkey node or Valkey Cluster frame it's linked to, resolved from the
+// drawn edge exactly the way the backend's trafficSimTarget does.
+function TrafficSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep, deployed }) {
+  const linkedTarget = (() => {
+    for (const e of edges) {
+      const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
+      if (!other) continue
+      const vnode = nodes.find((x) => x.id === other && x.type === 'valkey')
+      if (vnode) return { kind: 'valkey', label: vnode.label }
+      const vframe = frames.find((x) => x.id === other && x.type === 'valkeycluster')
+      if (vframe) return { kind: 'valkeycluster', label: vframe.label }
+    }
+    return null
+  })()
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Traffic Sim</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <p className="text-xs text-muted">
+        Background agents simulate a small fictional city's traffic — vehicles, sensors, signals,
+        incidents — continuously reading and writing the linked Valkey. A live map is served from
+        this node; open it from a browser inside the stack (e.g. a VNC desktop's Firefox) — it's
+        never published to the host. No product besides the sim itself; not monitored by PMM.
+      </p>
+
+      {linkedTarget ? (
+        <div className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
+          Linked to {linkedTarget.kind === 'valkeycluster' ? 'Valkey Cluster' : 'Valkey'} <span className="font-mono font-medium">{linkedTarget.label}</span>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+          Not linked. Draw an association line from a Valkey or Valkey Cluster node to this node.
+        </div>
+      )}
+
+      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// TrafficSimManager shows a deployed Traffic Sim node's URL (never published to the
+// host — open it from inside the stack) and what it's linked to.
+function TrafficSimManager({ dep, onDeleteNode }) {
+  const cfg = dep?.config || {}
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Traffic Sim</span>
+        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+      </div>
+      <p className="text-xs text-muted">Open this URL from a browser inside the stack — it isn't published to the host.</p>
+      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
+        <div className="flex justify-between gap-3"><span className="text-muted">URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8088</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Linked to</span><span className="font-mono text-xs">{cfg.targetName} ({cfg.targetKind})</span></div>
       </div>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
@@ -6480,6 +6581,13 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <LinuxClientManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <LinuxClientForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+    // Traffic Sim node — the Valkey Traffic Lab live demo app.
+    if (n.type === 'trafficsim') {
+      if (dep && dep.state === 'running') {
+        return <TrafficSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <TrafficSimForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
     return (
       <div className="space-y-3">

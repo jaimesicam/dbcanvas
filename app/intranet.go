@@ -686,6 +686,17 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			if n.ExportEnabled && n.ExportHostPort > 0 {
 				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
 			}
+		case "trafficsim":
+			others++
+			if !seenImg[trafficSimImage] {
+				seenImg[trafficSimImage] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, trafficSimImage); !ok {
+					out = append(out, issue{"error", "Missing image " + trafficSimImage + " — run `make trafficsim-image` first"})
+				}
+			}
+			if _, _, _, ok := trafficSimTarget(doc, n.ID); !ok {
+				out = append(out, issue{"error", "Traffic Sim node " + n.Label + " must be linked to a Valkey or Valkey Cluster node — draw an association line from one to it"})
+			}
 		default:
 			others++
 		}
@@ -1353,6 +1364,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionHAProxy(st, n, doc)
 		case "linuxclient":
 			a.provisionLinuxClient(st, n, doc)
+		case "trafficsim":
+			a.provisionTrafficSim(st, n, doc)
 		}
 	}
 
