@@ -7609,3 +7609,116 @@ replication, 3-node cluster, 4-node cluster), confirming every pre-existing Chec
 unaffected and the sim's `ts:*` keys never collide with a lab's own keys. `go build/vet`/`gofmt` clean in both
 modules, `vite build` clean.
 as the lab to live-test first before trusting it in front of learners.
+
+## 163. pmm-client only installed when Valkey monitoring is enabled; 10 more Valkey/Valkey Cluster labs (expert-level) — `app/valkey.go`, `pxc.go`, `labs.go`, `labs_valkey.go`
+
+User asked to fix Valkey's pmm-client install to be gated on monitoring being enabled — every other node type
+already worked this way, but Valkey's `valkeySetupPMM` ran the install script unconditionally, before ever
+checking whether a PMM node was even selected — and separately asked for 10 more Valkey/Valkey Cluster labs to
+take the curriculum from intermediate to expert.
+
+- **Fix**: `valkeySetupPMM` now checks `pmmNodeID != ""` (and that server via `pmmServerFor`) *before* running
+  the install script, matching the `if n.PMMNodeID != ""` gate every other product's provisioner already used.
+  Corrected a stale comment on `pxcInstallPMMClientRHEL/Debian` that claimed pmm-client installs "independent
+  of whether monitoring is enabled" — untrue, and the actual gate is at each call site.
+- **Ten new labs**: Streams & Consumer Groups for Event Processing, Pub/Sub & Sharded Pub/Sub in Cluster Mode,
+  Keyspace Notifications, Client-Side Caching with RESP3 Tracking, Migrating Lua Scripts to Valkey Functions,
+  Manual Slot Migration (the raw MIGRATE/ASKING protocol, one level below `--cluster reshard`), Split-Brain
+  Resilience & Quorum (`cluster-require-full-coverage`), Replication Internals (partial vs. full resync),
+  Securing Valkey with TLS & Mutual Authentication, Client & Resource Management (`CLIENT LIST`/`KILL`/
+  `PAUSE`). All reuse the existing `labValkeyStandaloneDesign`/`labValkeyClusterDesign`/
+  `labValkeyReplicationDesign` templates — no new design JSON needed.
+- **Three real bugs caught by live-testing every check against real deployed containers** (this project's
+  established discipline — nothing is trusted until proven against a real deployed stack):
+  1. The split-brain lab's crash step never actually produced an observable `CLUSTERDOWN` window: Docker's
+     `unless-stopped` restart policy brings the container back in ~1s with `nodes.conf` intact, faster than
+     `cluster-node-timeout` can ever detect the failure. Fixed by having survivors run `CLUSTER FORGET`
+     instead — a genuine operator action (declaring a node gone for good), not a timing hack, and immediate/
+     deterministic rather than racing a gossip window.
+  2. The replication-internals lab's two-step check used absolute `sync_full`/`sync_partial_ok` thresholds
+     that broke permanently if a learner acted slightly early (killing the replica link before it was
+     actually up, forcing an extra full resync). Fixed with a LabRun-scoped baseline: store the observed
+     `sync_full` after step 1 passes, require a genuine increase in step 2 — reusing `LabRun.
+     InitialLeaderNode` as a free string slot the same way the manual-failover and cluster-resize labs
+     already do for unrelated state.
+  3. The client-side-caching lab's background RESP3 tracking session was missing `setsid` — every other
+     backgrounded-command lab in the file used it (Sentinel, Pub/Sub, keyspace notifications, the
+     client-management BLPOP hold); without it, the session died the instant the spawning exec call
+     returned, and `CLIENT LIST` never showed it.
+
+**Verified live**: every one of the 20 new steps was checked against the real `/api/labs/{id}/steps/{stepId}/
+check` endpoint on freshly deployed stacks, both the failing-before and passing-after state — including
+re-verifying the split-brain and replication-internals fixes after correction. `go build/vet` clean.
+
+## 164. "Open VNC" link on Lab VNC nodes — `web/src/pages/Labs.jsx`
+
+User: the Ubuntu VNC node in a lab's node list should link directly to the VNC desktop, not just offer the
+generic Terminal button that was all the Labs page showed (Stack Designer's `VNCManager` already exposed a
+proper "Open web desktop" link outside of Labs; Labs never read `dep.config.webPort` at all for any node).
+
+- Added an `n.type === 'vnc' && dep?.state === 'running' && dep?.config?.webPort` branch to the lab node-row
+  renderer, building the same `http://<host>:<webPort>/vnc.html` URL Stack Designer's `VNCManager` already
+  constructs, rendered as an "Open VNC" link (`Icon.External`) alongside the existing Terminal button.
+
+**Verified live**: deployed a lab with a VNC node, confirmed `dep.config.webPort` populates during
+provisioning and that the resulting URL serves the real noVNC page (HTTP 200) once the node reaches
+`running`. `vite build` clean.
+
+## 165. Valkey/Valkey Cluster install via percona-release instead of a pulled Docker image — `app/valkey.go`, `intranet.go`, `versions.go`, `main.go`, `pxc.go`, `labs_valkey.go`, `images/versions.sh`, `versions.yaml`, `web/src/pages/StackDesigner.jsx`, `web/src/lib/stackApi.js`
+
+User: convert Valkey/Valkey Cluster off the `valkey/valkey-bundle` Docker image onto `percona-release enable
+valkey-91` + `yum install percona-valkey-bundle` (the same install model every other Percona product in this
+app already uses), and update `make versions` to probe and record installable Valkey versions.
+
+- **`app/valkey.go` rewritten in full**: standalone Valkey and every Valkey Cluster member now provision on
+  the standard `dbcanvas-systemd:<os>-<osVersion>-<arch>` base images (the same ones PXC/Patroni/Percona
+  Server already use — no new Dockerfile needed) instead of pulling `valkey/valkey-bundle:latest`. Install is
+  `percona-release enable valkey-91` (falling back to `setup -y valkey-91`) + `pin_install` (the existing
+  `install_pin.go` helper every other product's install script already uses, so a specific minor version can
+  still be pinned) over an OS-specific package list. Started as a real systemd service — `valkey@dbcanvas` on
+  RHEL (the package's templated `valkey@.service` unit), `valkey-server` on Debian (a single fixed unit, no
+  instance concept) — replacing the old bundle-image hack of backgrounding `pmm-agent` by hand with `setsid`
+  (there was no systemd to supervise it). PMM install/registration now goes through the same
+  `pxcInstallPMMClientRHEL/Debian` + `systemctl enable --now pmm-agent` path every other systemd-based product
+  uses, instead of a bespoke wget-a-.deb-and-background-the-agent script.
+- **Data directory unified to `/var/lib/valkey/data`** (created + chowned to the `valkey` user at deploy,
+  same path on both OS families) instead of the old bundle image's `/data` — Debian's package unit runs under
+  `ProtectSystem=strict` with `ReadWritePaths=-/var/lib/valkey` only, so an arbitrary path is silently
+  blocked. The pre-existing Backup & Restore lab's hardcoded `/data/dump.rdb`/`/data/backup-dump.rdb`
+  references were updated to match.
+- **New `designNode`/`designFrame` fields** `ValkeyMajor`/`ValkeyVersion` (mirrors `PSMajor`/`PSVersion` etc.);
+  `OS`/`OSVersion`/`Arch` (already shared fields) are now actually populated for Valkey. A `valkeyNodeOS`
+  helper defaults empty OS/version/arch to Oracle Linux 9 amd64, so every pre-existing lab design template
+  (written before these fields existed) keeps working without touching their JSON. Frame/node validation
+  gained the same "missing image → run `make images`" check every other systemd-based type already has.
+- **`images/versions.sh`** probes `percona-valkey-bundle` on every image (RHEL via `elsearch`, Debian via
+  `madison`, mirroring the ProxySQL probe), writing a new `percona_valkey:` section into `versions.yaml`;
+  `app/versions.go` gained `loadValkeyCatalog()` + `GET /api/catalog/valkey`, wired into
+  `stackApi.valkeyCatalog()` and a new `useValkeyCatalog` cascade-normalization hook (usePPGCatalog's shape,
+  keyed on `valkeyMajor`/`valkeyVersion`) driving real OS/version/arch selects in `ValkeyForm` and
+  `ValkeyClusterFrameForm` — previously fixed dropdowns with one hardcoded "valkey/valkey-bundle" option.
+- **Two real packaging bugs caught by live-testing the install on both OS families** (not discoverable from
+  docs — verified via actual `dnf`/`apt` runs against the real base images):
+  1. `percona-valkey-tools` doesn't exist as a package on RHEL at all (`percona-valkey` already bundles
+     `valkey-cli`/`-server`/`-sentinel`) — listing it aborted the whole `dnf install` transaction. Debian is
+     the opposite: its `percona-valkey-server` package does *not* include the CLI tools, so
+     `percona-valkey-tools` is required there. `valkeyPackages(os)` now returns the correct list per family.
+  2. `percona-valkey-ldap` is published only for Debian release codenames (bookworm/bullseye/trixie), not
+     Ubuntu (noble/jammy) — confirmed by browsing the actual apt pool. Since every Debian-family systemd
+     image here is Ubuntu, LDAP auth is Oracle-Linux-only for now; the UI checkbox is disabled with an
+     explanatory hint on Ubuntu, and the backend silently skips loading the module there instead of failing.
+- Also required (found only by starting the real systemd unit, not by reading the package): RHEL's `Type=
+  notify` unit needs the explicit `supervised systemd` directive in `valkey.conf` or `systemctl is-active`
+  reports "activating" forever even though the server is fully up — Debian's unit avoids this by hardcoding
+  `--supervised systemd` in its own `ExecStart=`.
+
+**Verified live**: ran the real `make versions` (not a dry run) and confirmed `percona_valkey: "9.1": ["9.1.0-
+1"]` recorded for all 5 systemd images; deployed a standalone node with LDAP on Oracle Linux through the real
+API (systemd active, PING, `ldap` module loaded per `journalctl`); deployed a 3-node Valkey Cluster on Ubuntu
+(`cluster_state:ok`, all 16384 slots assigned across the 3 masters); deployed a PMM node and redeployed the
+cluster against it, confirming via `pmm-admin status` a connected agent with a running `valkey_exporter`
+against the registered service; re-ran the Backup & Restore lab's both steps against the new `/var/lib/valkey/
+data` path through the real Check Work endpoint; re-ran one of the new Streams lab's steps to confirm
+generic valkey-cli-based checks are unaffected by the install mechanism change. `go build/vet` and a `vite
+build` clean throughout; both packaging bugs above were caught and fixed by this process before being
+folded into the final result.
