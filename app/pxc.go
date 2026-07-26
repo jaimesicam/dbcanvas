@@ -1010,9 +1010,8 @@ systemctl restart "$UNITSVC"
 systemctl is-active --quiet "$UNITSVC" || { echo "mysql failed to restart with TLS"; tail -8 "$LOGERR" 2>/dev/null; exit 1; }`
 
 // pxcInstallPMMClient{RHEL,Debian} install the PMM client (percona-release setup
-// pmm3-client → dnf/apt install pmm-client). Run on every data node at deploy,
-// independent of whether monitoring is enabled, so it can be turned on later
-// without an install. Fails loudly so a broken install surfaces.
+// pmm3-client → dnf/apt install pmm-client). Only run when the cluster/node has
+// monitoring enabled (a PMM node selected). Fails loudly so a broken install surfaces.
 const pxcInstallPMMClientRHEL = `set -e
 percona-release setup -y pmm3-client >/dev/null 2>&1
 dnf -y -q install pmm-client >/dev/null`

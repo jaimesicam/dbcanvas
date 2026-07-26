@@ -68,8 +68,12 @@ type designNode struct {
 	VNCUser     string `json:"vncUser"`     // sudo login + VNC user ("" → "dbadmin")
 	VNCPassword string `json:"vncPassword"` // desktop/VNC password ("" → VNC_PASSWORD; capped at 8 chars)
 	// Valkey node fields (Type=="valkey" standalone / "valkeycluster" members). Reuses
-	// RootPassword (default-user password), PMMNodeID, UseProxy, ExportEnabled/HostPort.
-	UseLDAP bool `json:"useLdap"` // wire the valkey-ldap module to the Intranet OpenLDAP
+	// OS/OSVersion/Arch, RootPassword (default-user password), PMMNodeID, UseProxy,
+	// ExportEnabled/HostPort above. Installed via percona-release (valkey-91 repo),
+	// not a pulled image.
+	ValkeyMajor   string `json:"valkeyMajor"`   // Valkey "9.1"
+	ValkeyVersion string `json:"valkeyVersion"` // minor; "" → latest
+	UseLDAP       bool   `json:"useLdap"`       // wire the valkey-ldap module to the Intranet OpenLDAP (Oracle Linux only for now)
 	// SeaweedFS node fields (Type=="seaweedfs"; an S3-compatible object store used
 	// as a backup target). Runs the chrislusf/seaweedfs image (pulled, not a systemd
 	// image), so it ignores os/arch like PMM.
@@ -206,9 +210,12 @@ type designFrame struct {
 	// is a PGDG PostgreSQL with the pgEdge Spock extension compiled from source, wired
 	// into a full-mesh active-active (multi-master) logical-replication topology. No
 	// extra fields — the demo database + git ref are fixed/env-driven (see spock.go).
-	// Valkey cluster frame config (Type=="valkeycluster"; members run valkey/valkey-bundle).
-	// Reuses RootPassword (default-user password), PMMNodeID. 3–7 all-master shards.
-	UseLDAP bool `json:"useLdap"` // wire valkey-ldap to the Intranet OpenLDAP
+	// Valkey cluster frame config (Type=="valkeycluster"; reuses OS/OSVersion/Arch,
+	// RootPassword (default-user password), PMMNodeID, UseProxy above). Installed via
+	// percona-release (valkey-91 repo), not a pulled image. 3–7 all-master shards.
+	ValkeyMajor   string `json:"valkeyMajor"`   // Valkey "9.1"
+	ValkeyVersion string `json:"valkeyVersion"` // minor; "" → latest
+	UseLDAP       bool   `json:"useLdap"`       // wire valkey-ldap to the Intranet OpenLDAP (Oracle Linux only for now)
 	// K3D cluster frame config (Type=="k3d"): a k3s cluster created by k3d on the stack
 	// network, for running the Percona Kubernetes operators. Members are the k3s nodes
 	// (the first is the server). Reuses PMMNodeID (monitoring) and SeaweedFSNodeID
@@ -597,6 +604,14 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			}
 		case "valkey":
 			others++
+			vos, vosVer, varch := valkeyNodeOS(n.OS, n.OSVersion, n.Arch)
+			img := pxcImage(vos, vosVer, varch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+				}
+			}
 			if n.ExportEnabled && n.ExportHostPort > 0 {
 				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
 			}
@@ -913,6 +928,14 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			out = append(out, issue{"error", "Valkey cluster " + f.Label + " needs at least 3 nodes"})
 		} else if members > 7 {
 			out = append(out, issue{"error", "Valkey cluster " + f.Label + " allows at most 7 nodes"})
+		}
+		vos, vosVer, varch := valkeyNodeOS(f.OS, f.OSVersion, f.Arch)
+		img := pxcImage(vos, vosVer, varch)
+		if !seenImg[img] {
+			seenImg[img] = true
+			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+				out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+			}
 		}
 	}
 	for name, c := range valkeyNames {

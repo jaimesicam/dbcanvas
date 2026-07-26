@@ -79,6 +79,7 @@ func main() {
 	mux.HandleFunc("GET /api/catalog/pmm", app.handlePMMCatalog)
 	mux.HandleFunc("GET /api/catalog/pxc", app.handlePXCCatalog)
 	mux.HandleFunc("GET /api/catalog/proxysql", app.handleProxySQLCatalog)
+	mux.HandleFunc("GET /api/catalog/valkey", app.handleValkeyCatalog)
 	mux.HandleFunc("GET /api/catalog/ps", app.handlePSCatalog)
 	mux.HandleFunc("GET /api/catalog/psmdb", app.handlePSMDBCatalog)
 	mux.HandleFunc("GET /api/catalog/ppg", app.handlePPGCatalog)

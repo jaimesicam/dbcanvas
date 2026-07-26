@@ -1713,6 +1713,46 @@ func (a *App) handleCheckLabStep(w http.ResponseWriter, r *http.Request) {
 		result = a.checkValkeySentinelWatching(ctx, st)
 	case "valkey-sentinel:crash-and-failover":
 		result = a.checkValkeySentinelFailedOver(ctx, st)
+	case "valkey-streams:process-with-group":
+		result = a.checkValkeyStreamGroupProcessed(ctx, st)
+	case "valkey-streams:reclaim-stalled-entry":
+		result = a.checkValkeyStreamReclaimed(ctx, st)
+	case "valkey-pubsub:cluster-wide-publish":
+		result = a.checkValkeyPubSubBroadcast(ctx, st)
+	case "valkey-pubsub:sharded-publish":
+		result = a.checkValkeySPubSubDelivered(ctx, st)
+	case "valkey-keyspace-notifications:watch-expired-events":
+		result = a.checkValkeyExpiredEventCaught(ctx, st)
+	case "valkey-keyspace-notifications:watch-generic-keyspace-events":
+		result = a.checkValkeyKeyspaceEventCaught(ctx, st)
+	case "valkey-client-side-caching:enable-tracking":
+		result = a.checkValkeyTrackingEnabled(ctx, st)
+	case "valkey-client-side-caching:observe-invalidation":
+		result = a.checkValkeyTrackingInvalidated(ctx, st)
+	case "valkey-functions:load-and-call":
+		result = a.checkValkeyFunctionLoaded(ctx, st)
+	case "valkey-functions:enforce-readonly-with-fcall_ro":
+		result = a.checkValkeyFunctionReadonlyEnforced(ctx, st)
+	case "valkey-manual-migration:start-migration":
+		result = a.checkValkeyMigrationStarted(ctx, st)
+	case "valkey-manual-migration:migrate-and-finalize":
+		result = a.checkValkeyMigrationFinalized(ctx, st)
+	case "valkey-split-brain:crash-and-observe-clusterdown":
+		result = a.checkValkeyClusterDownOnCoverageLoss(ctx, st)
+	case "valkey-split-brain:disable-full-coverage-requirement":
+		result = a.checkValkeyPartialCoverageRestored(ctx, st)
+	case "valkey-replication-internals:trigger-partial-resync":
+		result = a.checkValkeyPartialResyncOccurred(ctx, run, st)
+	case "valkey-replication-internals:trigger-full-resync-after-outage":
+		result = a.checkValkeyFullResyncAfterOutage(ctx, run, st)
+	case "valkey-tls:enable-tls":
+		result = a.checkValkeyTLSEnabled(ctx, st)
+	case "valkey-tls:verify-mutual-tls-enforced":
+		result = a.checkValkeyMutualTLSEnforced(ctx, st)
+	case "valkey-client-management:find-and-kill-a-client":
+		result = a.checkValkeyClientKilled(ctx, st)
+	case "valkey-client-management:pause-writes-briefly":
+		result = a.checkValkeyClientPauseHeld(ctx, st)
 	default:
 		writeErr(w, http.StatusNotImplemented, "no check available for this step")
 		return

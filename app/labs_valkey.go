@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Valkey Cluster labs — hands-on scenarios on a real, disposable 3-node
@@ -461,14 +462,14 @@ BGSAVE returning "Background saving started" only means the save was scheduled �
 				Title: "Take a consistent backup",
 				Instructions: "Write some data worth backing up: `valkey-cli -a valkey_password --no-auth-warning SET backup:marker " +
 					"hello`. Trigger a snapshot: `valkey-cli -a valkey_password --no-auth-warning BGSAVE`. Wait a couple seconds, then copy " +
-					"it to a separate backup location (simulating off-node storage): `cp /data/dump.rdb /data/backup-dump.rdb`. Click Check " +
-					"Work.",
+					"it to a separate backup location (simulating off-node storage): `cp /var/lib/valkey/data/dump.rdb " +
+					"/var/lib/valkey/data/backup-dump.rdb`. Click Check Work.",
 				Hint: "Check Work confirms LASTSAVE advanced (proof BGSAVE actually completed, not just that you ran the command) and that the copy exists.",
 			},
 			{
 				ID:    "verify-backup",
 				Title: "Verify the backup file is actually restorable",
-				Instructions: "Run `valkey-check-rdb /data/backup-dump.rdb`. It should report \"RDB looks OK!\" and how many keys it found. " +
+				Instructions: "Run `valkey-check-rdb /var/lib/valkey/data/backup-dump.rdb`. It should report \"RDB looks OK!\" and how many keys it found. " +
 					"Click Check Work.",
 				Hint: "If it reports a checksum or structural error, the copy didn't finish cleanly — re-run the cp from the previous step and try again.",
 			},
@@ -664,10 +665,506 @@ Because the primary's identity can change after any failover, real client code d
 					"— the `ip` field should now show valkey-b's own address, not valkey-a's, meaning Sentinel already promoted it. Confirm " +
 					"directly: `valkey-cli -a valkey_password --no-auth-warning INFO replication` on valkey-b should now show `role:master`. " +
 					"Click Check Work.",
-				Hint: "This container restarts automatically within a few seconds of SHUTDOWN — an abrupt enough event that Sentinel " +
-					"itself detects a suspicious time jump and enters TILT mode, deliberately pausing all failover decisions for about 30 " +
-					"seconds as a safety measure against acting on bad information. That's why this step takes noticeably longer than " +
+				Hint: "systemd restarts the Valkey service automatically within a second or two of SHUTDOWN — an abrupt enough event that " +
+					"Sentinel itself detects a suspicious time jump and enters TILT mode, deliberately pausing all failover decisions for " +
+					"about 30 seconds as a safety measure against acting on bad information. That's why this step takes noticeably longer than " +
 					"down-after-milliseconds (500ms) alone implies — the delay is Sentinel being cautious, not failing.",
+			},
+		},
+	},
+	{
+		ID:          "valkey-streams",
+		Title:       "Streams & Consumer Groups for Event Processing",
+		Description: "A stream is an append-only log, and a consumer group turns it into a work queue — each message goes to exactly one member of the group, with an acknowledgment protocol for recovering work when a consumer dies mid-processing.",
+		Difficulty:  "Advanced",
+		Database:    "Valkey",
+		Technology:  "Valkey",
+		Category:    "Messaging & Streams",
+		TimeLimit:   "2h",
+		LectureNotes: `A stream is a log, not a queue
+
+"XADD" appends an entry with an auto-generated ID (a millisecond timestamp plus a sequence number, guaranteeing strictly increasing order) and the entry stays in the stream after it's been read — nothing is removed just because someone consumed it. Any number of independent readers can replay the whole history from the beginning with "XRANGE", exactly like reading a log file. That persistence is what separates a Stream from Pub/Sub: a Pub/Sub message that arrives with no subscriber connected is gone forever, but a Stream entry is durable data sitting in the keyspace until you explicitly trim or delete it.
+
+Consumer groups: each entry delivered once per group, not once per reader
+
+Plain "XREAD" lets multiple clients all read the same entries independently — fine for fan-out, useless for splitting work across a pool of workers. "XGROUP CREATE" adds a named cursor that a group of consumers shares: "XREADGROUP GROUP <group> <consumer> ... STREAMS key >" hands out only entries the group hasn't already delivered to *someone*, and every entry goes to exactly one consumer in the group. This is the actual work-queue behavior — the same shape as a message broker's consumer group, built on a data structure you can also just read like a log.
+
+The pending entries list: what "delivered" doesn't mean "done"
+
+The instant "XREADGROUP" hands an entry to a consumer, that entry goes on the group's pending entries list (PEL) — delivered but not yet confirmed processed. "XACK" is the confirmation; only after it does the entry leave the PEL. Until then, "XPENDING" shows exactly which consumer is holding which entry and for how long — the mechanism that makes "did a worker actually finish this" answerable instead of assumed.
+
+XCLAIM: recovering work from a consumer that vanished
+
+If a consumer reads an entry and then crashes before acking, that entry just sits on the PEL forever under its name — nothing automatically reassigns it. "XCLAIM key group new-consumer min-idle-time id" is how another consumer takes over: it transfers ownership of that specific pending entry, but only if it's been idle at least "min-idle-time" milliseconds (a guard against claiming work a consumer is still actively — just slowly — processing). This is the real mechanism a production system uses to recover from a worker dying mid-job, not a special "crash recovery mode" — it's the same XCLAIM you'd use for any kind of rebalancing.`,
+		DesignTemplate: labValkeyStandaloneDesign,
+		Steps: []LabStep{
+			{
+				ID:    "process-with-group",
+				Title: "Create a stream, consume it as a group, and acknowledge",
+				Instructions: "Add an entry: `valkey-cli -a valkey_password --no-auth-warning XADD lab:orders '*' order_id 1001 total 42`. Create a " +
+					"consumer group starting from the beginning: `valkey-cli -a valkey_password --no-auth-warning XGROUP CREATE lab:orders " +
+					"lab:processors 0`. Read it as a group member: `valkey-cli -a valkey_password --no-auth-warning XREADGROUP GROUP " +
+					"lab:processors consumer-1 COUNT 1 STREAMS lab:orders '>'` — note the entry ID it prints. Confirm it's pending: " +
+					"`valkey-cli -a valkey_password --no-auth-warning XPENDING lab:orders lab:processors` should show 1. Acknowledge it: " +
+					"`valkey-cli -a valkey_password --no-auth-warning XACK lab:orders lab:processors <that-id>`. Confirm XPENDING now shows 0. " +
+					"Click Check Work.",
+				Hint: "`'>'` (with quotes, to stop your shell from treating it as a redirect) means \"entries never delivered to this group before\" — it's what makes XREADGROUP a work queue instead of a replay.",
+			},
+			{
+				ID:    "reclaim-stalled-entry",
+				Title: "Simulate a crashed consumer and reclaim its work",
+				Instructions: "Add a second entry: `valkey-cli -a valkey_password --no-auth-warning XADD lab:orders '*' order_id 1002 total 7`. " +
+					"Read it as consumer-1 but don't acknowledge it — simulating a crash right after pickup: `valkey-cli -a valkey_password " +
+					"--no-auth-warning XREADGROUP GROUP lab:processors consumer-1 COUNT 1 STREAMS lab:orders '>'`. Wait about 2 seconds so " +
+					"it's genuinely idle, then find it: `valkey-cli -a valkey_password --no-auth-warning XPENDING lab:orders lab:processors - " +
+					"+ 10` (note the entry ID and idle time). Reclaim it as a different consumer: `valkey-cli -a valkey_password " +
+					"--no-auth-warning XCLAIM lab:orders lab:processors consumer-2 1000 <that-id>`. Run XPENDING again and confirm the entry " +
+					"is now listed under consumer-2, not consumer-1. Click Check Work.",
+				Hint: "The `1000` in XCLAIM is min-idle-time in milliseconds — if you claim it before the entry has actually been idle that long, Valkey just returns an empty reply and ownership doesn't change.",
+			},
+		},
+	},
+	{
+		ID:          "valkey-pubsub",
+		Title:       "Pub/Sub & Sharded Pub/Sub in Cluster Mode",
+		Description: "Regular PUBLISH in a cluster reaches every subscriber no matter which node they're connected to — at the cost of broadcasting to every node for every message. Sharded Pub/Sub trades that convenience for scoping delivery to just one shard.",
+		Difficulty:  "Intermediate",
+		Database:    "Valkey",
+		Technology:  "Valkey Cluster",
+		Category:    "Messaging & Streams",
+		TimeLimit:   "2h",
+		LectureNotes: `Regular PUBLISH doesn't care about slots
+
+Unlike every key-based command in this curriculum, "PUBLISH" and "SUBSCRIBE" have nothing to do with hash slots — a channel name is never hashed to decide ownership. In cluster mode, when any node receives a PUBLISH, it forwards the message to every other node over the cluster bus, and each node delivers it to whichever of its own clients are subscribed. The practical effect: subscribe on any node, publish from any (possibly different) node, and the message still arrives — cluster mode makes Pub/Sub *feel* like a single shared bus even though the keyspace underneath it is sharded.
+
+The cost of that convenience: an O(N) broadcast per message
+
+That forwarding-to-every-node behavior is exactly why it's expensive at scale — a single PUBLISH costs the cluster N-1 extra hops (one to every other master), regardless of whether anyone on those nodes is even subscribed. In a small 3-node cluster that's noise; in a cluster with dozens of shards handling a high message rate, it becomes real, wasted bandwidth and CPU on nodes with zero interested subscribers.
+
+Sharded Pub/Sub: scoping delivery to one shard
+
+"SSUBSCRIBE" and "SPUBLISH" are the shard-scoped equivalents — a shard channel name *is* hashed to a slot exactly like a key, and delivery only happens within that slot's shard (the owning master and its replicas), never broadcast cluster-wide. This is a genuine trade-off, not a strict upgrade: a shard-channel subscriber only sees messages published to nodes in its own shard, so if you need every subscriber cluster-wide to see a message regardless of shard, sharded Pub/Sub is the wrong tool — that's still what regular PUBLISH is for.
+
+Where you connect actually matters now
+
+Because shard channels route by slot, a client has to connect to (or be redirected to) a node that actually owns the channel's slot before SSUBSCRIBE works — try it on the wrong node and you get a MOVED error, the same as any other slot-routed command. Regular SUBSCRIBE has no such restriction; it works identically no matter which node you happen to be connected to.`,
+		DesignTemplate: labValkeyClusterDesign,
+		Steps: []LabStep{
+			{
+				ID:    "cluster-wide-publish",
+				Title: "Publish from one node, receive on another",
+				Instructions: "On valkey-2, start a subscriber in the background: `setsid valkey-cli -a valkey_password --no-auth-warning " +
+					"SUBSCRIBE lab:announcements > /tmp/pubsub.log 2>&1 < /dev/null &`. On valkey-1 — a completely different node — publish: " +
+					"`valkey-cli -a valkey_password --no-auth-warning PUBLISH lab:announcements hello-cluster`. Back on valkey-2, run `cat " +
+					"/tmp/pubsub.log` and confirm `hello-cluster` shows up, even though it was never published from valkey-2 itself. Click " +
+					"Check Work.",
+				Hint: "If the log is empty, give it a second — the message has to travel over the cluster bus between nodes, which takes a moment longer than a local Pub/Sub delivery.",
+			},
+			{
+				ID:    "sharded-publish",
+				Title: "Confine delivery to one shard with SSUBSCRIBE/SPUBLISH",
+				Instructions: "Find which node owns the shard channel: `valkey-cli -a valkey_password --no-auth-warning CLUSTER KEYSLOT " +
+					"lab:shardnews` gives a slot number; check `CLUSTER NODES` to see which master's range covers it. On that node, start a " +
+					"sharded subscriber: `setsid valkey-cli -a valkey_password --no-auth-warning SSUBSCRIBE lab:shardnews > " +
+					"/tmp/shardpubsub.log 2>&1 < /dev/null &`. From the SAME node, publish: `valkey-cli -a valkey_password --no-auth-warning " +
+					"SPUBLISH lab:shardnews hello-shard`. Confirm `cat /tmp/shardpubsub.log` shows `hello-shard`. Click Check Work.",
+				Hint: "If you SSUBSCRIBE on the wrong node you'll get a MOVED error immediately instead of subscribing — that's expected, it's the same slot-ownership check every other command gets.",
+			},
+		},
+	},
+	{
+		ID:          "valkey-keyspace-notifications",
+		Title:       "Keyspace Notifications: Building Reactive Applications",
+		Description: "Valkey can publish a Pub/Sub event for every write it processes — including the one write your own client never issues directly: a key expiring. This is the mechanism behind cache invalidation and reactive application patterns that don't poll.",
+		Difficulty:  "Intermediate",
+		Database:    "Valkey",
+		Technology:  "Valkey",
+		Category:    "Messaging & Streams",
+		TimeLimit:   "2h",
+		LectureNotes: `Off by default, opt in with a flag string
+
+Keyspace notifications cost a little CPU on every write (Valkey has to check whether anyone might care and publish an event if so), so they're disabled out of the box. "CONFIG SET notify-keyspace-events <flags>" turns specific classes on — "K" for keyspace-prefixed events, "E" for keyevent-prefixed events, and letters like "g" (generic commands), "x" (expired), "$" (string commands) selecting which kinds of operations get published at all. "KEA" turns on everything, which this lab uses for its second step; a real deployment would enable only the specific classes it actually consumes.
+
+Two classes of events, two ways to ask the same question
+
+With "K" enabled, every write to key "foo" publishes to channel "__keyspace@0__:foo" with the event name (e.g. "set") as the message — subscribe to that if you care about *one specific key*. With "E" enabled, every "set" anywhere publishes to channel "__keyevent@0__:set" with the key name as the message — subscribe to that if you care about *one specific kind of event*, regardless of which key it happened to. They're two different ways of slicing the same underlying stream of writes, and you can enable either or both.
+
+The case polling can't cover: expiry
+
+A key expiring isn't a command your client ever issued — it's Valkey's own background process (or a lazy check on next access) removing it. There's no write for your application to observe by normal means, which is exactly why "expired" is its own event class ("x" or "g" depending on exact Valkey version) rather than something layered on top of SET/DEL notifications. Subscribing to "__keyevent@0__:expired" is how a cache invalidation listener finds out a TTL actually elapsed without polling TTL on every key it might care about.
+
+The trade-off: at-most-once delivery, no history
+
+Keyspace notifications are plain Pub/Sub underneath — if no one is subscribed when the event fires, it's gone, and a subscriber that disconnects for a few seconds misses whatever happened in that window. For anything that needs guaranteed, replayable delivery instead of best-effort, that's what Streams (the previous lab in this curriculum) are for — the two features solve adjacent but different problems.`,
+		DesignTemplate: labValkeyStandaloneDesign,
+		Steps: []LabStep{
+			{
+				ID:    "watch-expired-events",
+				Title: "React to a key expiring, without polling",
+				Instructions: "Turn on expired-key keyevent notifications: `valkey-cli -a valkey_password --no-auth-warning CONFIG SET " +
+					"notify-keyspace-events Ex`. Start a subscriber in the background: `setsid valkey-cli -a valkey_password " +
+					"--no-auth-warning PSUBSCRIBE '__keyevent@0__:expired' > /tmp/notif.log 2>&1 < /dev/null &`. Set a key with a short TTL: " +
+					"`valkey-cli -a valkey_password --no-auth-warning SET lab:expiring hello PX 500`. Wait about 2 seconds, then `cat " +
+					"/tmp/notif.log` and confirm `lab:expiring` shows up as the delivered message. Click Check Work.",
+				Hint: "The `x` flag specifically means expired-key events — plain `E` alone (without `x` or `g`) won't publish anything when a TTL elapses.",
+			},
+			{
+				ID:    "watch-generic-keyspace-events",
+				Title: "React to a specific key, by name, no matter the command",
+				Instructions: "Turn on everything: `valkey-cli -a valkey_password --no-auth-warning CONFIG SET notify-keyspace-events KEA`. " +
+					"Start a subscriber scoped to one specific key: `setsid valkey-cli -a valkey_password --no-auth-warning PSUBSCRIBE " +
+					"'__keyspace@0__:lab:tracked' > /tmp/notif2.log 2>&1 < /dev/null &`. Write that key: `valkey-cli -a valkey_password " +
+					"--no-auth-warning SET lab:tracked hi`. Confirm `cat /tmp/notif2.log` shows `set` as the delivered message (the event " +
+					"name, not the value). Click Check Work.",
+				Hint: "The keyspace-prefixed channel's message payload is the *event name* (`set`, `del`, `expire`...) — if you want the *key name* instead you'd subscribe to the keyevent-prefixed channel like the previous step did.",
+			},
+		},
+	},
+	{
+		ID:          "valkey-client-side-caching",
+		Title:       "Client-Side Caching with RESP3 Tracking",
+		Description: "A cache that never goes stale because the server tells you exactly when to throw an entry away — no TTL guesswork, no polling. This is what CLIENT TRACKING and RESP3's push messages are for.",
+		Difficulty:  "Advanced",
+		Database:    "Valkey",
+		Technology:  "Valkey",
+		Category:    "Memory & Performance",
+		TimeLimit:   "2h",
+		LectureNotes: `The problem: a local cache with no way to know when it's wrong
+
+Caching a GET result in your application's own memory is the single cheapest latency win available — no network round trip at all for a hit. The catch has always been invalidation: without some signal from the server, your local copy can silently go stale the moment another client changes the value, and you either accept staleness or add a TTL short enough to bound the damage (which caps how much benefit the cache can ever provide).
+
+RESP3: a connection that isn't strictly request/response anymore
+
+RESP2 (the protocol every earlier lab in this curriculum has used implicitly) is strictly one reply per request. RESP3 adds a genuinely new frame type — the "push" message — that the server can send unprompted, outside the normal request/reply sequence, over a connection that opted in. "valkey-cli -3" connects using RESP3 instead of RESP2; this is the prerequisite everything else here depends on.
+
+CLIENT TRACKING: opting a connection in to invalidation
+
+"CLIENT TRACKING on" tells Valkey to remember which keys *this specific connection* has read since. Every key you GET afterward gets added to that connection's tracking table (visible cluster-wide via "INFO stats"' "tracking_total_keys"). The moment any client — including a completely different connection — modifies one of those keys, Valkey pushes an invalidation message down the tracking connection and removes the key from its tracking table. Your application-side cache, wired to listen for that push, evicts its local copy at exactly the right moment: not before, not (meaningfully) after.
+
+Default mode vs broadcasting mode
+
+What this lab uses is "default" tracking mode: precise, per-key, but Valkey has to remember exactly which keys each tracking connection has actually read, which costs server-side memory proportional to (connections × keys read). "CLIENT TRACKING on BCAST" trades that precision for a fixed, prefix-based cost — the server doesn't track individual keys per client at all, just invalidates any tracking client subscribed to a prefix whenever any key under it changes, whether that specific client ever read it or not. Same underlying push mechanism, different cost/precision trade-off.`,
+		DesignTemplate: labValkeyStandaloneDesign,
+		Steps: []LabStep{
+			{
+				ID:    "enable-tracking",
+				Title: "Cache a key over a RESP3 connection with tracking on",
+				Instructions: "Set a baseline value: `valkey-cli -a valkey_password --no-auth-warning SET lab:cached original`. Start a " +
+					"RESP3 connection with tracking on, kept alive in the background: `setsid sh -c \"(printf 'CLIENT TRACKING " +
+					"on\\r\\nGET lab:cached\\r\\n'; sleep 30) | valkey-cli -3 -a valkey_password --no-auth-warning\" > /tmp/track.log 2>&1 < " +
+					"/dev/null &`. Confirm it registered: `valkey-cli -a valkey_password --no-auth-warning CLIENT LIST` should show a client " +
+					"with `flags=t` and `resp=3`. Click Check Work.",
+				Hint: "The `-3` flag is what requests RESP3 — without it, `CLIENT TRACKING on` still succeeds but has nowhere to deliver an invalidation push, since RESP2 has no out-of-band frame type for the server to use.",
+			},
+			{
+				ID:    "observe-invalidation",
+				Title: "Modify the key from elsewhere and watch it get invalidated",
+				Instructions: "From a separate connection, change the tracked key: `valkey-cli -a valkey_password --no-auth-warning SET " +
+					"lab:cached updated`. Check `valkey-cli -a valkey_password --no-auth-warning INFO stats | grep tracking_total_keys` — it " +
+					"should drop back to 0, meaning the server just invalidated the entry it was tracking on the other connection's behalf. " +
+					"Click Check Work.",
+				Hint: "tracking_total_keys dropping to 0 is the server-side proof of invalidation — the tracking connection's own terminal would show the actual RESP3 push frame too, but only when read interactively rather than through a piped background session like this lab's.",
+			},
+		},
+	},
+	{
+		ID:          "valkey-functions",
+		Title:       "Migrating Lua Scripts to Valkey Functions",
+		Description: "EVAL scripts live in an ephemeral cache with no name and no metadata. Functions are the same Lua underneath, but loaded as a persisted, named library — with declarative safety flags EVAL never had.",
+		Difficulty:  "Advanced",
+		Database:    "Valkey",
+		Technology:  "Valkey",
+		Category:    "Transactions & Scripting",
+		TimeLimit:   "2h",
+		LectureNotes: `EVAL's problem: the script cache isn't really state
+
+The earlier Transactions & Scripting lab in this curriculum ran a Lua script with "EVAL", identified purely by its SHA1 hash. That script lives in an internal cache with no name, no way to list "what scripts are loaded right now" in any meaningful form, and — critically — that cache can be silently cleared ("SCRIPT FLUSH", certain replication/failover situations), after which every "EVALSHA" call for it starts failing until re-submitted. Production code has to be defensive about this exact failure mode; it's a well-known EVAL gotcha, not a hypothetical.
+
+FUNCTION LOAD: scripts as a persisted, named library
+
+"FUNCTION LOAD" takes a Lua source string with a "#!lua name=<library>" shebang header and one or more "redis.register_function(...)" calls, and installs it as a durable library with an actual name — visible in "FUNCTION LIST", persisted across restarts, unaffected by SCRIPT FLUSH (a different subsystem entirely). You call a registered function by name with "FCALL <name> <numkeys> [keys...] [args...]" — no hash to manage, no cache-miss fallback logic needed in your client.
+
+Declarative safety: the no-writes flag
+
+"redis.register_function{function_name=..., callback=..., flags={'no-writes'}}" lets a function declare, up front, that it never writes — and Valkey actually enforces that declaration rather than trusting it. "FCALL_RO" is the counterpart: it will only execute a function flagged "no-writes", and rejects anything else outright. EVAL has no equivalent — there's no way to mark a script read-only and have the server refuse to run it if it turns out to write anyway. This is the practical reason to prefer Functions for anything you want a read replica (or a careful reviewer) to trust is actually safe to run.
+
+Hot-reloading: FUNCTION LOAD REPLACE
+
+"FUNCTION LOAD REPLACE" swaps a library's implementation in place — the next FCALL uses the new code immediately, with no restart, no flush of unrelated functions, and existing connections unaffected. That's a genuine operational advantage over hand-rolled EVAL versioning schemes, where "which version of this script is currently live" is a question your application has to answer for itself.`,
+		DesignTemplate: labValkeyStandaloneDesign,
+		Steps: []LabStep{
+			{
+				ID:    "load-and-call",
+				Title: "Load a function library and call it",
+				Instructions: "Write the library: `cat > /tmp/lib.lua <<'EOF'\n#!lua name=lablib\nredis.register_function{\n  " +
+					"function_name='safe_get',\n  callback=function(keys, args) return redis.call('GET', keys[1]) end,\n  " +
+					"flags={'no-writes'}\n}\nredis.register_function{\n  function_name='unsafe_set',\n  callback=function(keys, args) return " +
+					"redis.call('SET', keys[1], args[1]) end\n}\nEOF`. Load it: `valkey-cli -a valkey_password --no-auth-warning FUNCTION " +
+					"LOAD \"$(cat /tmp/lib.lua)\"`. Call the writer: `valkey-cli -a valkey_password --no-auth-warning FCALL unsafe_set 1 " +
+					"fn:demo hello`. Call the reader: `valkey-cli -a valkey_password --no-auth-warning FCALL safe_get 1 fn:demo` should " +
+					"return `hello`. Confirm `FUNCTION LIST` shows the `lablib` library with both functions. Click Check Work.",
+				Hint: "FUNCTION LOAD takes the whole library source as one argument — wrap the `$(cat ...)` in double quotes or your shell will split it on whitespace and Valkey will see a mangled script.",
+			},
+			{
+				ID:    "enforce-readonly-with-fcall_ro",
+				Title: "Prove the no-writes flag is actually enforced",
+				Instructions: "Try the flagged read-only function through the read-only call path: `valkey-cli -a valkey_password " +
+					"--no-auth-warning FCALL_RO safe_get 1 fn:demo` — should succeed and return the current value. Now try the unflagged " +
+					"writer the same way: `valkey-cli -a valkey_password --no-auth-warning FCALL_RO unsafe_set 1 fn:demo nope` — this should " +
+					"be rejected with an error about the write flag, not silently execute. Click Check Work.",
+				Hint: "FCALL (without _RO) would run unsafe_set just fine — the enforcement is specifically that FCALL_RO refuses anything not explicitly flagged 'no-writes', regardless of what the function actually does.",
+			},
+		},
+	},
+	{
+		ID:          "valkey-manual-migration",
+		Title:       "Manual Slot Migration: MIGRATE, ASKING & the Raw Cluster Protocol",
+		Description: "The Live Resharding lab used --cluster reshard to move slots with one command. This lab does the exact same thing by hand — the sequence of primitives that tool is automating underneath.",
+		Difficulty:  "Advanced",
+		Database:    "Valkey",
+		Technology:  "Valkey Cluster",
+		Category:    "Sharding & Routing",
+		TimeLimit:   "2h",
+		LectureNotes: `What --cluster reshard does on your behalf
+
+The earlier resharding lab in this curriculum ran one command and it just worked. Underneath, that command is running the exact sequence this lab has you type by hand: marking both sides of the move, transferring each key individually, and only then updating global slot ownership. Seeing the raw steps is what makes the automated version make sense, and it's also genuinely useful knowledge — the manual sequence is a real emergency-runbook procedure for moving one specific slot without waiting on the full reshard tool.
+
+IMPORTANT and MIGRATING: two-sided consent before any data moves
+
+Before a single key transfers, the destination master marks the slot "CLUSTER SETSLOT <slot> IMPORTING <source-id>" and the source marks it "CLUSTER SETSLOT <slot> MIGRATING <dest-id>". Neither side's global ownership has changed yet — this is purely local bookkeeping on the two nodes involved, visible in each one's own "CLUSTER NODES" line as a bracketed annotation next to their slot ranges (e.g. "[100->-<dest-id>]" on the source, "[100-<-<source-id>]" on the destination).
+
+MIGRATE: the actual data transfer, key by key
+
+"MIGRATE <dest-host> <dest-port> <key> <dest-db> <timeout> AUTH <password>" atomically copies one key to the destination and removes it from the source — a real, synchronous operation per key (which is why a full reshard of thousands of keys takes visibly longer than the instant slot-ownership flip at the end). Only after every key in the slot has actually migrated does "CLUSTER SETSLOT <slot> NODE <dest-id>", run on every node in the cluster, finalize ownership — turning the temporary MIGRATING/IMPORTING bookkeeping into the real, permanent thing.
+
+ASK vs MOVED: a redirect that only lasts one command
+
+Mid-migration, a client asking the SOURCE for a key that's already moved gets "ASK <slot> <dest>" — not "MOVED". The difference matters: "MOVED" means "the slot lives elsewhere now, permanently, update your routing table" — but ownership hasn't actually changed yet mid-migration, so that would be wrong. "ASK" instead means "just this once, go ask the destination" — and the destination will only serve that one key if the client sends "ASKING" as the immediately preceding command on that same connection. Skip ASKING, or send some other command in between, and the destination redirects right back to the source with a plain MOVED — ASKING's effect applies to exactly the next command and nothing else.`,
+		DesignTemplate: labValkeyClusterDesign,
+		Steps: []LabStep{
+			{
+				ID:    "start-migration",
+				Title: "Mark both sides of the move before any data transfers",
+				Instructions: "Write a key and follow the redirect: `valkey-cli -c -a valkey_password --no-auth-warning SET " +
+					"'{migrate}demo' before`. Find its slot and current owner: `valkey-cli -a valkey_password --no-auth-warning CLUSTER " +
+					"KEYSLOT '{migrate}demo'`, then `CLUSTER NODES` to see which master's range covers that slot (the source) and note the " +
+					"node IDs of the source and any other master (your destination). On the destination: `valkey-cli -a valkey_password " +
+					"--no-auth-warning CLUSTER SETSLOT <slot> IMPORTING <source-id>`. On the source: `valkey-cli -a valkey_password " +
+					"--no-auth-warning CLUSTER SETSLOT <slot> MIGRATING <dest-id>`. Confirm with `CLUSTER NODES` on each — the source's own " +
+					"line should show `[<slot>->-<dest-id>]` and the destination's should show `[<slot>-<-<source-id>]`. Click Check Work.",
+				Hint: "Nothing about global slot ownership has changed yet at this point — both annotations are purely local bookkeeping between these two nodes, which is why a third node's view of the cluster is still unaffected.",
+			},
+			{
+				ID:    "migrate-and-finalize",
+				Title: "Transfer the key and finalize ownership everywhere",
+				Instructions: "Transfer the key itself: `valkey-cli -a valkey_password --no-auth-warning MIGRATE <dest-hostname> 6379 " +
+					"'{migrate}demo' 0 5000 AUTH valkey_password` (run this on the source). Finalize ownership on every node in the cluster " +
+					"(source, destination, and the third master): `valkey-cli -a valkey_password --no-auth-warning CLUSTER SETSLOT <slot> " +
+					"NODE <dest-id>`. Confirm the destination now owns the slot outright — `CLUSTER NODES` shows it in the destination's plain " +
+					"range with no bracketed annotation — and `valkey-cli -a valkey_password --no-auth-warning GET '{migrate}demo'` run " +
+					"directly on the destination returns `before` with no MOVED redirect. Click Check Work.",
+				Hint: "If you forget to run CLUSTER SETSLOT NODE on the *third* master (the one not involved in the migration), that node will keep routing clients to the old source for this slot even though the data has already moved — every node's view has to agree.",
+			},
+		},
+	},
+	{
+		ID:          "valkey-split-brain",
+		Title:       "Split-Brain Resilience: cluster-require-full-coverage & Quorum",
+		Description: "By default, one unreachable master takes the entire cluster down for writes — even keys with nothing to do with the missing shard. This lab makes that trade-off concrete, then flips it, and asks what you actually bought by flipping it.",
+		Difficulty:  "Advanced",
+		Database:    "Valkey",
+		Technology:  "Valkey Cluster",
+		Category:    "Cluster Administration",
+		TimeLimit:   "2h",
+		LectureNotes: `Availability vs consistency, made concrete
+
+Every earlier lab in this curriculum treated "the cluster is up" as the normal state. This one deliberately breaks that, because the default behavior when a master genuinely disappears is stricter than most people expect: it's not just that keys in the missing shard become unavailable — by default, the *entire cluster* refuses writes, including shards that are perfectly healthy.
+
+cluster-require-full-coverage: all-or-nothing by default
+
+With this setting at its default of "yes", Valkey Cluster considers itself down ("cluster_state:fail" in "CLUSTER INFO") the instant any of the 16384 slots isn't owned by a reachable master — whether that's from a genuine node failure or mid-operation bookkeeping. Once that happens, every node refuses commands with "CLUSTERDOWN", not just ones touching the affected slot range. This is a deliberate, conservative choice: an application that can only see part of its keyspace might be making decisions on an incomplete view of its data, and the default assumes that's worse than an outage.
+
+Turning it off: a real trade-off, not a bugfix
+
+"CONFIG SET cluster-require-full-coverage no" changes the calculus: the cluster now serves whatever slots ARE covered and only fails commands that map to the actually-missing range. This buys back partial availability during a real outage — genuinely valuable if your application can tolerate some keys being temporarily unreachable while others keep working. But it's not free: your application now has to handle "some of my data is available, some isn't" as a normal operating condition, which is strictly harder to reason about than "everything works or nothing does."
+
+Detecting failure: gossip, not a central authority
+
+In a real deployment, there's no coordinator deciding a node is down — every master independently marks another as PFAIL (possibly failed) once it can't be reached within "cluster-node-timeout", then FAIL once enough other masters agree via gossip (the same quorum-by-agreement idea Sentinel uses, but built into Cluster itself rather than a separate process). In this lab's environment, systemd restarts a crashed node's Valkey service automatically within about a second — faster than that detection window, and with its cluster membership file (nodes.conf) intact, so the node simply rejoins before anyone else's gossip-based failure detection would even fire. To still produce a genuine, observable coverage gap, this lab has the surviving nodes explicitly disown the missing one with "CLUSTER FORGET" — the same command an operator runs in real life once they've independently confirmed a node is truly gone for good (a hardware failure, a decommission), rather than waiting on gossip to catch up.
+
+CLUSTER FORGET: an explicit, immediate declaration
+
+"CLUSTER FORGET <node-id>" removes a node from the caller's own view of the cluster right away — no waiting on gossip rounds — and that node's previously-owned slots become instantly unaccounted for from the caller's perspective. It also blacklists that node ID for about a minute, ignoring any gossip messages it sends trying to reintroduce itself, which is exactly why this lab's approach stays stable even though the "crashed" node's container comes back and starts talking to the cluster again almost immediately.`,
+		DesignTemplate: labValkeyClusterDesign,
+		Steps: []LabStep{
+			{
+				ID:    "crash-and-observe-clusterdown",
+				Title: "Disown a master and watch the whole cluster refuse writes",
+				Instructions: "Pick a master and note its node ID from `valkey-cli -a valkey_password --no-auth-warning CLUSTER NODES`. " +
+					"Crash it: on that node, run `valkey-cli -a valkey_password --no-auth-warning SHUTDOWN NOSAVE` (systemd will restart the " +
+					"Valkey service and it'll rejoin on its own within a second or two — that's fine, the next step doesn't depend on it staying down). On EACH of " +
+					"the other two nodes, declare it gone: `valkey-cli -a valkey_password --no-auth-warning CLUSTER FORGET <that-node-id>`. On " +
+					"one of those two nodes, run `CLUSTER INFO` — `cluster_state` should now read `fail`. Try any write there, even one that " +
+					"has nothing to do with the missing shard: `valkey-cli -a valkey_password --no-auth-warning SET some:key val` — it should " +
+					"be refused with `CLUSTERDOWN`. Click Check Work.",
+				Hint: "CLUSTER FORGET has to be run on each surviving node individually — it changes only that node's own view, so a node you skip will still see the \"forgotten\" node as a normal, healthy member.",
+			},
+			{
+				ID:    "disable-full-coverage-requirement",
+				Title: "Trade strict consistency for partial availability",
+				Instructions: "On the SAME two nodes you ran CLUSTER FORGET on, run `valkey-cli -a valkey_password --no-auth-warning CONFIG " +
+					"SET cluster-require-full-coverage no`. Check `CLUSTER INFO` again on either of them — `cluster_state` should now read `ok` " +
+					"despite still not knowing about the third master. Confirm writes to healthy slots now work: `valkey-cli -a valkey_password " +
+					"--no-auth-warning SET some:key val` should succeed. Click Check Work.",
+				Hint: "You have to set this on both of the forgetting nodes individually — CONFIG SET isn't a cluster-wide operation, so a node you skip will still enforce full coverage on its own. The third node (the one you originally crashed) doesn't matter for this check — it rejoined on its own and was never told to forget anyone.",
+			},
+		},
+	},
+	{
+		ID:          "valkey-replication-internals",
+		Title:       "Replication Internals: Partial Resync vs Full Resync",
+		Description: "Every replica reconnect is either cheap (resume from where it left off) or expensive (re-transfer the entire dataset) — and which one happens depends on whether the master still remembers what the replica missed. This lab produces both, on purpose, and shows the counters that tell them apart.",
+		Difficulty:  "Advanced",
+		Database:    "Valkey",
+		Technology:  "Valkey",
+		Category:    "Replication & Failover",
+		TimeLimit:   "2h",
+		LectureNotes: `Every replication link has a replication ID and an offset
+
+Once a replica has fully synced, both sides agree on a replication ID (identifying this specific lineage of the dataset) and a numeric offset (how many bytes of the write stream have been applied). "INFO replication" on the master shows "master_replid" and "master_repl_offset"; the replica caches both when connected. That cached state is the entire basis for what happens on the *next* reconnect.
+
+The replication backlog: a bounded buffer of recent writes
+
+The master keeps a circular buffer — "repl-backlog-size", 1MB by default — of the most recent bytes of the write stream, independent of whether any replica is currently attached. On reconnect, a replica presents its cached replication ID and offset via PSYNC; if the master's backlog still contains everything from that offset forward AND the replication ID matches, it can just replay the missing slice from the buffer. That's a partial resync — "PSYNC CONTINUE" in the protocol, "sync_partial_ok" in "INFO stats" — cheap regardless of how large the full dataset is, because only the *missed writes* get retransmitted.
+
+Why a brief network blip is cheap
+
+A short disconnect — the master losing the TCP connection to a replica that's still configured to follow it and immediately reconnects — is exactly the case a partial resync is built for: the replica still has its cached replication ID and offset from before the blip, and the backlog almost certainly still covers however little was missed. This is the common case in real operation, and it's why replication links surviving routine network hiccups doesn't come with a full-resync performance cliff attached.
+
+Why a real outage doesn't get the shortcut
+
+A replica that's genuinely restarted from scratch — not just reconnected, but lost its own process state entirely — has no cached replication ID or offset to present at all. There's nothing to resume from, so PSYNC falls back to a full resync ("sync_full" incrementing): a complete RDB transfer, then replay of everything since. This is strictly more expensive, and it's the reason "how long was this replica actually down" matters operationally — a network blip and a genuine crash produce the same *end state* (a caught-up replica) through very different amounts of work to get there.`,
+		DesignTemplate: labValkeyReplicationDesign,
+		Steps: []LabStep{
+			{
+				ID:    "trigger-partial-resync",
+				Title: "Simulate a network blip and confirm a partial resync",
+				Instructions: "On valkey-b, connect it: `valkey-cli -a valkey_password --no-auth-warning REPLICAOF valkey-a 6379`. Wait for " +
+					"`INFO replication` on valkey-b to show `master_link_status:up`. On valkey-a, simulate the blip from the master's side " +
+					"— this drops the TCP connection without touching valkey-b's own REPLICAOF configuration, so it reconnects on its own: " +
+					"`valkey-cli -a valkey_password --no-auth-warning CLIENT KILL TYPE replica`. Wait a couple seconds, then check `valkey-cli " +
+					"-a valkey_password --no-auth-warning INFO stats` on valkey-a: `sync_partial_ok` should now be at least 1, while " +
+					"`sync_full` should still read 1 (only the very first connection). Click Check Work.",
+				Hint: "Don't use `REPLICAOF NO ONE` to simulate the disconnect — that command explicitly discards valkey-b's cached master state, which guarantees a full resync on reconnect instead of the partial one this step is demonstrating.",
+			},
+			{
+				ID:    "trigger-full-resync-after-outage",
+				Title: "Crash the replica for real and confirm it costs a full resync",
+				Instructions: "On valkey-b, crash it for real: `valkey-cli -a valkey_password --no-auth-warning SHUTDOWN NOSAVE`. Wait a few " +
+					"seconds for systemd to restart the Valkey service automatically (it comes back with no replication configured at all — " +
+					"REPLICAOF was never written to its config file). Reconnect it: " +
+					"`valkey-cli -a valkey_password --no-auth-warning REPLICAOF valkey-a 6379`. Wait for the link to come back up, then check " +
+					"`INFO stats` on valkey-a again: `sync_full` should now be higher than before — a second full resync, not a partial one. Click " +
+					"Check Work.",
+				Hint: "A real restart runs a brand-new valkey-server process that only ever reads its static config file — REPLICAOF was set at runtime, never persisted there, so the restarted instance has no cached replication ID or offset to present at all. There's nothing to resume from, so PSYNC has no choice but to fall back to a full transfer.",
+			},
+		},
+	},
+	{
+		ID:          "valkey-tls",
+		Title:       "Securing Valkey with TLS & Mutual Authentication",
+		Description: "Every earlier lab in this curriculum authenticated with a plaintext password over an unencrypted connection. This one turns on TLS at runtime — no restart — and confirms it actually enforces client certificates, not just server identity.",
+		Difficulty:  "Advanced",
+		Database:    "Valkey",
+		Technology:  "Valkey",
+		Category:    "Security & Access Control",
+		TimeLimit:   "2h",
+		LectureNotes: `TLS support is compiled in, but off by default
+
+This lab's image ships with TLS support already built in — "CONFIG GET tls-port" returns a real (if currently 0) value, proof the capability exists — but no TLS listener is active until it's explicitly configured. That's a deliberate default: TLS needs a certificate and key to mean anything, and there's no sensible one to generate automatically at first boot.
+
+Hot-reloading certificates: no restart required
+
+Unlike most services where enabling TLS means editing a config file and restarting, Valkey's TLS-related settings ("tls-cert-file", "tls-key-file", "tls-ca-cert-file", "tls-port", and others) are all modifiable at runtime with plain "CONFIG SET" — the plaintext port keeps serving existing connections throughout, and the TLS listener comes up the moment the configuration is valid. This matters operationally: rotating a certificate before it expires doesn't require a maintenance window.
+
+tls-auth-clients: TLS with a password vs genuine mutual TLS
+
+By default, "tls-auth-clients" is "yes" — the server requires every connecting client to present a valid certificate signed by the configured CA, verified during the TLS handshake itself, before the connection is even established. This is mutual TLS: both sides prove their identity via certificates, not just the server. A client that connects over TLS but skips presenting its own certificate gets rejected outright — encryption alone doesn't satisfy this requirement, only a trusted client certificate does. (Setting it to "no" would fall back to TLS purely for encryption-in-transit, still layered on top of the regular AUTH password — a weaker but sometimes sufficient posture.)
+
+Why permissions matter here in a way they haven't elsewhere
+
+The private key file has to actually be readable by the user Valkey runs as, or the CONFIG SET simply fails with a permission error and silently leaves TLS disabled — a real, easy-to-hit gotcha the moment you generate a key with restrictive default permissions ("openssl req" defaults to mode 600, owner-only) inside a container where the server process isn't necessarily the same user that ran openssl.`,
+		DesignTemplate: labValkeyStandaloneDesign,
+		Steps: []LabStep{
+			{
+				ID:    "enable-tls",
+				Title: "Generate a certificate and turn on TLS at runtime",
+				Instructions: "Install openssl: `apt-get update -qq && apt-get install -y -qq openssl`. Generate a self-signed cert: `mkdir " +
+					"-p /tmp/tls && cd /tmp/tls && openssl req -x509 -newkey rsa:2048 -days 1 -nodes -keyout key.pem -out cert.pem -subj " +
+					"'/CN=valkey-lab'`. Make the key readable: `chmod 644 /tmp/tls/key.pem`. Turn TLS on: `valkey-cli -a valkey_password " +
+					"--no-auth-warning CONFIG SET tls-cert-file /tmp/tls/cert.pem tls-key-file /tmp/tls/key.pem tls-ca-cert-file " +
+					"/tmp/tls/cert.pem tls-port 6380`. Confirm it's listening: `valkey-cli --tls --cert /tmp/tls/cert.pem --key " +
+					"/tmp/tls/key.pem --cacert /tmp/tls/cert.pem -p 6380 -a valkey_password --no-auth-warning PING` should return `PONG`. " +
+					"Click Check Work.",
+				Hint: "If CONFIG SET fails with a permission error mentioning the key file, that's the `chmod 644` step — `openssl req` writes the key world-unreadable by default, and CONFIG SET fails closed rather than partially applying a broken TLS config.",
+			},
+			{
+				ID:    "verify-mutual-tls-enforced",
+				Title: "Confirm the server actually requires a client certificate",
+				Instructions: "Try connecting over TLS without presenting a client certificate: `valkey-cli --tls --cacert " +
+					"/tmp/tls/cert.pem -p 6380 -a valkey_password --no-auth-warning PING` — this should fail (an I/O or connection error, " +
+					"not a normal Valkey error reply), because `tls-auth-clients` defaults to `yes`. Confirm the same connection succeeds " +
+					"when you DO present the certificate: `valkey-cli --tls --cert /tmp/tls/cert.pem --key /tmp/tls/key.pem --cacert " +
+					"/tmp/tls/cert.pem -p 6380 -a valkey_password --no-auth-warning PING` should return `PONG`. Click Check Work.",
+				Hint: "The no-cert failure happens during the TLS handshake itself, before Valkey's own command processing even runs — that's why it shows up as a connection-level I/O error rather than an AUTH or permission error from the server.",
+			},
+		},
+	},
+	{
+		ID:          "valkey-client-management",
+		Title:       "Client & Resource Management: CLIENT LIST, CLIENT KILL & CLIENT PAUSE",
+		Description: "Every connection Valkey has is inspectable and individually terminable, and writes cluster-wide can be held at a synchronization point on command — the operational tools for containing a misbehaving client in production, without restarting anything.",
+		Difficulty:  "Advanced",
+		Database:    "Valkey",
+		Technology:  "Valkey",
+		Category:    "Client & Resource Management",
+		TimeLimit:   "2h",
+		LectureNotes: `CLIENT LIST: every connection's live state, at a glance
+
+"CLIENT LIST" prints one line per connected client — address, connection age, idle time, the command it's currently running, memory it's using, and more — everything you'd need to answer "what is this server actually doing right now" without guessing from aggregate stats. "CLIENT LIST TYPE replica" (or "normal", "pubsub", "master") filters to one connection class, useful the moment a server has more than a handful of clients.
+
+CLIENT KILL: surgical, not a restart
+
+"CLIENT KILL ID <id>" (or by address, or by matching other filters) terminates one specific connection immediately, without touching any other client and without restarting the server. This is the real tool for a stuck or misbehaving connection in production — a client holding a long-running blocking command, an old connection that never got cleaned up client-side, a script gone rogue — where the alternative of restarting Valkey to clear it would be enormously more disruptive than it needs to be.
+
+CLIENT PAUSE: buying yourself a synchronization point
+
+"CLIENT PAUSE <ms> WRITE" makes every client's write commands block for up to that many milliseconds (reads keep working with plain "WRITE"; "ALL" pauses everything). This is exactly the kind of primitive administrative tooling needs underneath it — briefly guaranteeing "nothing is writing right now" gives you a clean point to, for example, take a consistent snapshot or coordinate a handoff, without actually stopping the server or refusing connections.
+
+Resource limits exist too, just not covered hands-on here
+
+"maxclients" caps total concurrent connections, and "client-output-buffer-limit" caps how much unsent output a client (particularly a slow Pub/Sub subscriber or replica) can have queued before Valkey disconnects it rather than let memory grow unbounded. Both are worth knowing exist — they're the guardrails that turn "one slow client" into a bounded problem instead of an OOM risk — even though this lab's checks focus on the two commands above.`,
+		DesignTemplate: labValkeyStandaloneDesign,
+		Steps: []LabStep{
+			{
+				ID:    "find-and-kill-a-client",
+				Title: "Find a specific client by its command, then kill it",
+				Instructions: "Open a long-lived blocking connection in the background: `setsid valkey-cli -a valkey_password " +
+					"--no-auth-warning BLPOP lab:nokey 30 > /tmp/blpop.log 2>&1 < /dev/null &`. Find it: `valkey-cli -a valkey_password " +
+					"--no-auth-warning CLIENT LIST` — look for the line with `cmd=blpop` and note its `id=`. Kill it: `valkey-cli -a " +
+					"valkey_password --no-auth-warning CLIENT KILL ID <that-id>`. Confirm `cat /tmp/blpop.log` shows a connection-closed " +
+					"error (not a normal BLPOP timeout reply), and that `CLIENT LIST` no longer shows any `cmd=blpop` client. Click Check " +
+					"Work.",
+				Hint: "If you wait the full 30 seconds instead of killing it, BLPOP just times out normally and the log won't show the connection-closed error this check looks for — kill it well before then.",
+			},
+			{
+				ID:    "pause-writes-briefly",
+				Title: "Confirm CLIENT PAUSE actually blocks a write for its duration",
+				Instructions: "Pause writes for 2 seconds: `valkey-cli -a valkey_password --no-auth-warning CLIENT PAUSE 2000 WRITE`. " +
+					"Immediately time a write against it: `time valkey-cli -a valkey_password --no-auth-warning SET lab:paused val` — the " +
+					"real time reported should be close to 2 seconds, not near-instant, proving the write genuinely waited rather than the " +
+					"pause being a no-op. Click Check Work.",
+				Hint: "Run the timed SET immediately after CLIENT PAUSE, not a few seconds later — if the 2-second window has already elapsed by the time your write arrives, it'll return instantly and look like the pause did nothing.",
 			},
 		},
 	},
@@ -1299,11 +1796,11 @@ func (a *App) checkValkeyBackupTaken(ctx context.Context, st Stack) LabStepResul
 		return LabStepResult{Passed: false, Message: "No successful save recorded yet — run BGSAVE, wait a couple seconds, then check again."}
 	}
 	res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID,
-		[]string{"sh", "-c", "test -f /data/backup-dump.rdb && echo yes || echo no"}, nil)
+		[]string{"sh", "-c", "test -f /var/lib/valkey/data/backup-dump.rdb && echo yes || echo no"}, nil)
 	if err != nil || strings.TrimSpace(res.Stdout) != "yes" {
-		return LabStepResult{Passed: false, Message: "backup-dump.rdb doesn't exist yet — copy /data/dump.rdb to /data/backup-dump.rdb, then check again."}
+		return LabStepResult{Passed: false, Message: "backup-dump.rdb doesn't exist yet — copy /var/lib/valkey/data/dump.rdb to /var/lib/valkey/data/backup-dump.rdb, then check again."}
 	}
-	return LabStepResult{Passed: true, Message: "Confirmed: BGSAVE completed and the backup file was copied to /data/backup-dump.rdb."}
+	return LabStepResult{Passed: true, Message: "Confirmed: BGSAVE completed and the backup file was copied to /var/lib/valkey/data/backup-dump.rdb."}
 }
 
 // checkValkeyBackupVerified passes once valkey-check-rdb confirms the backup
@@ -1314,12 +1811,12 @@ func (a *App) checkValkeyBackupVerified(ctx context.Context, st Stack) LabStepRe
 	if !ok {
 		return LabStepResult{Passed: false, Message: "No Valkey node is running yet — wait for it to finish deploying."}
 	}
-	res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"valkey-check-rdb", "/data/backup-dump.rdb"}, nil)
+	res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"valkey-check-rdb", "/var/lib/valkey/data/backup-dump.rdb"}, nil)
 	if err != nil {
-		return LabStepResult{Passed: false, Message: "Could not run valkey-check-rdb — make sure /data/backup-dump.rdb exists first."}
+		return LabStepResult{Passed: false, Message: "Could not run valkey-check-rdb — make sure /var/lib/valkey/data/backup-dump.rdb exists first."}
 	}
 	if res.Code != 0 || !strings.Contains(res.Stdout, "RDB looks OK") {
-		return LabStepResult{Passed: false, Message: "valkey-check-rdb didn't report a clean file — re-copy /data/dump.rdb to /data/backup-dump.rdb and try again."}
+		return LabStepResult{Passed: false, Message: "valkey-check-rdb didn't report a clean file — re-copy /var/lib/valkey/data/dump.rdb to /var/lib/valkey/data/backup-dump.rdb and try again."}
 	}
 	return LabStepResult{Passed: true, Message: "Confirmed: valkey-check-rdb verified the backup file is structurally sound."}
 }
@@ -1553,4 +2050,593 @@ func (a *App) checkValkeySentinelFailedOver(ctx context.Context, st Stack) LabSt
 		return LabStepResult{Passed: false, Message: "valkey-b is still a replica — shut down valkey-a (SHUTDOWN NOSAVE) and give Sentinel a few seconds to promote valkey-b, then check again."}
 	}
 	return LabStepResult{Passed: true, Message: "Confirmed: valkey-b is now master — Sentinel detected valkey-a's failure and promoted it automatically."}
+}
+
+// valkeyCatLog execs `cat` on a fixed log-file path a lab's instructions had
+// the learner redirect a background command's output into — used by every
+// check that verifies a Pub/Sub or keyspace-notification delivery the
+// learner already triggered from their own terminal, rather than the check
+// re-running it. Missing file is not an error (`2>/dev/null` + `|| true`)
+// since the learner may not have reached that step yet.
+func (a *App) valkeyCatLog(ctx context.Context, containerID, path string) string {
+	res, err := a.engCtx(ctx).Exec(ctx, containerID, []string{"sh", "-c", "cat " + path + " 2>/dev/null || true"}, nil)
+	if err != nil {
+		return ""
+	}
+	return res.Stdout
+}
+
+// checkValkeyStreamGroupProcessed passes once lab:processors has zero
+// pending entries while the stream itself has at least one — proof the
+// learner's XREADGROUP + XACK sequence actually delivered and acknowledged
+// a real entry, not just that the group exists.
+func (a *App) checkValkeyStreamGroupProcessed(ctx context.Context, st Stack) LabStepResult {
+	dep, ok := a.singleValkeyNode(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Valkey node is running yet — wait for it to finish deploying."}
+	}
+	pw := valkeyPasswordFor(dep)
+	lenRes, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"valkey-cli", "-a", pw, "--no-auth-warning", "XLEN", "lab:orders"}, nil)
+	if err != nil || lenRes.Code != 0 || strings.TrimSpace(lenRes.Stdout) == "0" {
+		return LabStepResult{Passed: false, Message: "lab:orders doesn't have any entries yet — run XADD, then check again."}
+	}
+	pendRes, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID,
+		[]string{"valkey-cli", "-a", pw, "--no-auth-warning", "XPENDING", "lab:orders", "lab:processors"}, nil)
+	if err != nil || pendRes.Code != 0 {
+		return LabStepResult{Passed: false, Message: "lab:processors doesn't exist yet — create it with XGROUP CREATE, then check again."}
+	}
+	lines := strings.Split(strings.TrimSpace(pendRes.Stdout), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "0" {
+		return LabStepResult{Passed: false, Message: "lab:processors still has a pending, unacknowledged entry — run XACK with the entry ID XREADGROUP printed, then check again."}
+	}
+	return LabStepResult{Passed: true, Message: "Confirmed: lab:orders has entries and lab:processors has none pending — the entry was delivered and acknowledged."}
+}
+
+// checkValkeyStreamReclaimed passes once XPENDING's extended form shows
+// consumer-2 (not consumer-1) owning a pending entry — proof XCLAIM actually
+// transferred ownership rather than the learner just believing it worked.
+func (a *App) checkValkeyStreamReclaimed(ctx context.Context, st Stack) LabStepResult {
+	dep, ok := a.singleValkeyNode(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Valkey node is running yet — wait for it to finish deploying."}
+	}
+	pw := valkeyPasswordFor(dep)
+	res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID,
+		[]string{"valkey-cli", "-a", pw, "--no-auth-warning", "XPENDING", "lab:orders", "lab:processors", "-", "+", "10"}, nil)
+	if err != nil || res.Code != 0 {
+		return LabStepResult{Passed: false, Message: "Could not read lab:processors' pending list — is lab:orders' second entry added and read yet?"}
+	}
+	for _, line := range strings.Split(res.Stdout, "\n") {
+		if strings.TrimSpace(line) == "consumer-2" {
+			return LabStepResult{Passed: true, Message: "Confirmed: consumer-2 now owns a previously-pending entry — XCLAIM reassigned it."}
+		}
+	}
+	return LabStepResult{Passed: false, Message: "No entry is owned by consumer-2 yet — read the second entry as consumer-1 without acking it, wait a couple seconds, then XCLAIM it as consumer-2."}
+}
+
+// checkValkeyPubSubBroadcast passes once any cluster member's /tmp/pubsub.log
+// contains the message published from a different node — proof regular
+// PUBLISH really did broadcast across the cluster bus.
+func (a *App) checkValkeyPubSubBroadcast(ctx context.Context, st Stack) LabStepResult {
+	doc, _, ok := valkeyFrameFromStack(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Valkey Cluster found in this lab's stack."}
+	}
+	running, err := a.valkeyRunningMembers(st, doc)
+	if err != nil || len(running) == 0 {
+		return LabStepResult{Passed: false, Message: "No Valkey node is running yet — wait for the cluster to finish deploying."}
+	}
+	for _, d := range running {
+		if strings.Contains(a.valkeyCatLog(ctx, d.ContainerID, "/tmp/pubsub.log"), "hello-cluster") {
+			return LabStepResult{Passed: true, Message: "Confirmed: hello-cluster was delivered to a subscriber, even though it was published from a different node."}
+		}
+	}
+	return LabStepResult{Passed: false, Message: "hello-cluster hasn't shown up in /tmp/pubsub.log yet — start the background SUBSCRIBE on one node, then PUBLISH from a different one, then check again."}
+}
+
+// checkValkeySPubSubDelivered passes once any cluster member's
+// /tmp/shardpubsub.log contains the sharded message — proof SSUBSCRIBE and
+// SPUBLISH on the slot-owning node actually delivered.
+func (a *App) checkValkeySPubSubDelivered(ctx context.Context, st Stack) LabStepResult {
+	doc, _, ok := valkeyFrameFromStack(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Valkey Cluster found in this lab's stack."}
+	}
+	running, err := a.valkeyRunningMembers(st, doc)
+	if err != nil || len(running) == 0 {
+		return LabStepResult{Passed: false, Message: "No Valkey node is running yet — wait for the cluster to finish deploying."}
+	}
+	for _, d := range running {
+		if strings.Contains(a.valkeyCatLog(ctx, d.ContainerID, "/tmp/shardpubsub.log"), "hello-shard") {
+			return LabStepResult{Passed: true, Message: "Confirmed: hello-shard was delivered over the sharded Pub/Sub channel."}
+		}
+	}
+	return LabStepResult{Passed: false, Message: "hello-shard hasn't shown up in /tmp/shardpubsub.log yet — make sure you SSUBSCRIBE and SPUBLISH on the node that actually owns lab:shardnews' slot, then check again."}
+}
+
+// checkValkeyExpiredEventCaught passes once /tmp/notif.log shows the expired
+// key's name — proof the keyevent notification for expiry actually fired
+// and was received.
+func (a *App) checkValkeyExpiredEventCaught(ctx context.Context, st Stack) LabStepResult {
+	dep, ok := a.singleValkeyNode(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Valkey node is running yet — wait for it to finish deploying."}
+	}
+	if strings.Contains(a.valkeyCatLog(ctx, dep.ContainerID, "/tmp/notif.log"), "lab:expiring") {
+		return LabStepResult{Passed: true, Message: "Confirmed: an expired-key event for lab:expiring was received."}
+	}
+	return LabStepResult{Passed: false, Message: "lab:expiring hasn't shown up in /tmp/notif.log yet — enable notify-keyspace-events Ex, start the PSUBSCRIBE in the background, then SET the key with a short PX, then check again."}
+}
+
+// checkValkeyKeyspaceEventCaught passes once /tmp/notif2.log shows the "set"
+// event name — proof the keyspace-prefixed (per-key) notification class
+// delivered, distinct from the keyevent class the previous step used.
+func (a *App) checkValkeyKeyspaceEventCaught(ctx context.Context, st Stack) LabStepResult {
+	dep, ok := a.singleValkeyNode(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Valkey node is running yet — wait for it to finish deploying."}
+	}
+	for _, line := range strings.Split(a.valkeyCatLog(ctx, dep.ContainerID, "/tmp/notif2.log"), "\n") {
+		if strings.TrimSpace(line) == "set" {
+			return LabStepResult{Passed: true, Message: "Confirmed: a set event for lab:tracked was received on the keyspace-prefixed channel."}
+		}
+	}
+	return LabStepResult{Passed: false, Message: "No set event found in /tmp/notif2.log yet — enable notify-keyspace-events KEA, PSUBSCRIBE to __keyspace@0__:lab:tracked in the background, then SET that key, then check again."}
+}
+
+// valkeyClientListField extracts one field's value (e.g. "flags", "resp")
+// from a single CLIENT LIST line's space-separated key=value tokens.
+func valkeyClientListField(line, field string) string {
+	prefix := field + "="
+	for _, tok := range strings.Fields(line) {
+		if strings.HasPrefix(tok, prefix) {
+			return strings.TrimPrefix(tok, prefix)
+		}
+	}
+	return ""
+}
+
+// checkValkeyTrackingEnabled passes once CLIENT LIST shows a RESP3 client
+// with tracking on (flags contains "t", resp=3) and INFO stats confirms it's
+// actually tracking at least one key — proof CLIENT TRACKING on plus the GET
+// really registered, not just that the connection is open.
+func (a *App) checkValkeyTrackingEnabled(ctx context.Context, st Stack) LabStepResult {
+	dep, ok := a.singleValkeyNode(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Valkey node is running yet — wait for it to finish deploying."}
+	}
+	pw := valkeyPasswordFor(dep)
+	res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"valkey-cli", "-a", pw, "--no-auth-warning", "CLIENT", "LIST"}, nil)
+	if err != nil || res.Code != 0 {
+		return LabStepResult{Passed: false, Message: "Could not read CLIENT LIST — is the node still starting up?"}
+	}
+	found := false
+	for _, line := range strings.Split(res.Stdout, "\n") {
+		if strings.Contains(valkeyClientListField(line, "flags"), "t") && valkeyClientListField(line, "resp") == "3" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return LabStepResult{Passed: false, Message: "No RESP3 client with tracking on found yet — start the background `valkey-cli -3 ... CLIENT TRACKING on` session from the lab instructions, then check again."}
+	}
+	statsRes, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"valkey-cli", "-a", pw, "--no-auth-warning", "INFO", "stats"}, nil)
+	if err != nil || statsRes.Code != 0 || valkeyInfoInt(statsRes.Stdout, "tracking_total_keys") < 1 {
+		return LabStepResult{Passed: false, Message: "A tracking client is connected, but it isn't tracking any keys yet — make sure the GET lab:cached actually ran on that same connection."}
+	}
+	return LabStepResult{Passed: true, Message: "Confirmed: a RESP3 client has tracking on and is tracking lab:cached."}
+}
+
+// checkValkeyTrackingInvalidated passes once tracking_total_keys has dropped
+// back to 0 (the server invalidated the tracked key) while the tracking
+// client is still connected and the key holds its new value — proof
+// invalidation actually happened, not that the tracking client disconnected.
+func (a *App) checkValkeyTrackingInvalidated(ctx context.Context, st Stack) LabStepResult {
+	dep, ok := a.singleValkeyNode(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Valkey node is running yet — wait for it to finish deploying."}
+	}
+	pw := valkeyPasswordFor(dep)
+	listRes, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"valkey-cli", "-a", pw, "--no-auth-warning", "CLIENT", "LIST"}, nil)
+	if err != nil || listRes.Code != 0 {
+		return LabStepResult{Passed: false, Message: "Could not read CLIENT LIST — is the node still starting up?"}
+	}
+	stillTracking := false
+	for _, line := range strings.Split(listRes.Stdout, "\n") {
+		if strings.Contains(valkeyClientListField(line, "flags"), "t") {
+			stillTracking = true
+			break
+		}
+	}
+	if !stillTracking {
+		return LabStepResult{Passed: false, Message: "The tracking client from the previous step isn't connected anymore — redo that step's background session, then this one, without a long gap between them."}
+	}
+	getRes, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"valkey-cli", "-a", pw, "--no-auth-warning", "GET", "lab:cached"}, nil)
+	if err != nil || getRes.Code != 0 || strings.TrimSpace(getRes.Stdout) != "updated" {
+		return LabStepResult{Passed: false, Message: "lab:cached isn't set to \"updated\" yet — SET it from a separate connection, then check again."}
+	}
+	statsRes, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"valkey-cli", "-a", pw, "--no-auth-warning", "INFO", "stats"}, nil)
+	if err != nil || statsRes.Code != 0 || valkeyInfoInt(statsRes.Stdout, "tracking_total_keys") != 0 {
+		return LabStepResult{Passed: false, Message: "lab:cached was updated, but the tracking table hasn't cleared it yet — wait a moment and check again."}
+	}
+	return LabStepResult{Passed: true, Message: "Confirmed: lab:cached was updated and the server invalidated it from the tracking table."}
+}
+
+// checkValkeyFunctionLoaded passes once FUNCTION LIST shows both registered
+// functions and fn:demo reflects a real FCALL having run.
+func (a *App) checkValkeyFunctionLoaded(ctx context.Context, st Stack) LabStepResult {
+	dep, ok := a.singleValkeyNode(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Valkey node is running yet — wait for it to finish deploying."}
+	}
+	pw := valkeyPasswordFor(dep)
+	listRes, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"valkey-cli", "-a", pw, "--no-auth-warning", "FUNCTION", "LIST"}, nil)
+	if err != nil || listRes.Code != 0 || !strings.Contains(listRes.Stdout, "safe_get") || !strings.Contains(listRes.Stdout, "unsafe_set") {
+		return LabStepResult{Passed: false, Message: "The lablib library isn't loaded with both functions yet — run FUNCTION LOAD with the library from the lab instructions, then check again."}
+	}
+	getRes, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"valkey-cli", "-a", pw, "--no-auth-warning", "GET", "fn:demo"}, nil)
+	if err != nil || getRes.Code != 0 || strings.TrimSpace(getRes.Stdout) != "hello" {
+		return LabStepResult{Passed: false, Message: "fn:demo isn't set to \"hello\" yet — call FCALL unsafe_set 1 fn:demo hello, then check again."}
+	}
+	return LabStepResult{Passed: true, Message: "Confirmed: lablib is loaded with both functions, and fn:demo reflects a real FCALL."}
+}
+
+// checkValkeyFunctionReadonlyEnforced passes once FCALL_RO succeeds on the
+// no-writes-flagged function and is actually rejected on the unflagged one —
+// checking the reply text, not just exit codes, per the same valkey-cli
+// quirk every ACL/READONLY check in this file already accounts for.
+func (a *App) checkValkeyFunctionReadonlyEnforced(ctx context.Context, st Stack) LabStepResult {
+	dep, ok := a.singleValkeyNode(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Valkey node is running yet — wait for it to finish deploying."}
+	}
+	pw := valkeyPasswordFor(dep)
+	safeRes, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"valkey-cli", "-a", pw, "--no-auth-warning", "FCALL_RO", "safe_get", "1", "fn:demo"}, nil)
+	if err != nil || safeRes.Code != 0 || strings.HasPrefix(strings.TrimSpace(safeRes.Stdout), "ERR") {
+		return LabStepResult{Passed: false, Message: "FCALL_RO safe_get failed — confirm lablib is loaded (previous step) before retrying this one."}
+	}
+	unsafeRes, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"valkey-cli", "-a", pw, "--no-auth-warning", "FCALL_RO", "unsafe_set", "1", "fn:demo", "nope"}, nil)
+	if err != nil {
+		return LabStepResult{Passed: false, Message: "Could not test FCALL_RO against unsafe_set."}
+	}
+	if !strings.Contains(strings.ToUpper(unsafeRes.Stdout), "WRITE") {
+		return LabStepResult{Passed: false, Message: "FCALL_RO unsafe_set didn't get rejected for its write flag — confirm unsafe_set was registered WITHOUT the no-writes flag, then check again."}
+	}
+	return LabStepResult{Passed: true, Message: "Confirmed: FCALL_RO runs the no-writes-flagged function but rejects the one that can write."}
+}
+
+// valkeyRawClusterNodes execs CLUSTER NODES and returns its unparsed text —
+// the manual-migration checks need the bracketed [<slot>-<-<id>] /
+// [<slot>->-<id>] migration annotations that parseValkeyClusterNodes
+// deliberately discards.
+func (a *App) valkeyRawClusterNodes(ctx context.Context, containerID, password string) (string, bool) {
+	res, err := a.engCtx(ctx).Exec(ctx, containerID, []string{"valkey-cli", "-a", password, "--no-auth-warning", "CLUSTER", "NODES"}, nil)
+	if err != nil || res.Code != 0 {
+		return "", false
+	}
+	return res.Stdout, true
+}
+
+// checkValkeyMigrationStarted passes once one running member's own line
+// shows the MIGRATING annotation for {migrate}demo's slot and another shows
+// the matching IMPORTING annotation — proof both sides of the two-sided
+// consent were actually set, not just attempted.
+func (a *App) checkValkeyMigrationStarted(ctx context.Context, st Stack) LabStepResult {
+	doc, _, ok := valkeyFrameFromStack(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Valkey Cluster found in this lab's stack."}
+	}
+	running, err := a.valkeyRunningMembers(st, doc)
+	if err != nil || len(running) == 0 {
+		return LabStepResult{Passed: false, Message: "No Valkey node is running yet — wait for the cluster to finish deploying."}
+	}
+	pw := valkeyPasswordFor(running[0])
+	slotRes, err := a.engCtx(ctx).Exec(ctx, running[0].ContainerID, []string{"valkey-cli", "-a", pw, "--no-auth-warning", "CLUSTER", "KEYSLOT", "{migrate}demo"}, nil)
+	if err != nil || slotRes.Code != 0 {
+		return LabStepResult{Passed: false, Message: "Could not compute {migrate}demo's slot — is the cluster still forming?"}
+	}
+	slot := strings.TrimSpace(slotRes.Stdout)
+	migrating, importing := false, false
+	for _, d := range running {
+		text, ok := a.valkeyRawClusterNodes(ctx, d.ContainerID, valkeyPasswordFor(d))
+		if !ok {
+			continue
+		}
+		for _, line := range strings.Split(text, "\n") {
+			if !strings.Contains(line, "myself") {
+				continue
+			}
+			if strings.Contains(line, "["+slot+"->-") {
+				migrating = true
+			}
+			if strings.Contains(line, "["+slot+"-<-") {
+				importing = true
+			}
+		}
+	}
+	if !migrating || !importing {
+		return LabStepResult{Passed: false, Message: "Slot " + slot + " isn't marked MIGRATING on the source and IMPORTING on the destination yet — run both CLUSTER SETSLOT commands from the lab instructions, then check again."}
+	}
+	return LabStepResult{Passed: true, Message: "Confirmed: slot " + slot + " is marked MIGRATING on the source and IMPORTING on the destination."}
+}
+
+// checkValkeyMigrationFinalized passes once some member now owns
+// {migrate}demo's slot outright (in its plain ranges, no annotation needed
+// since parseValkeyClusterNodes already ignores them) and serves the key
+// directly with no MOVED redirect.
+func (a *App) checkValkeyMigrationFinalized(ctx context.Context, st Stack) LabStepResult {
+	doc, _, ok := valkeyFrameFromStack(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Valkey Cluster found in this lab's stack."}
+	}
+	running, err := a.valkeyRunningMembers(st, doc)
+	if err != nil || len(running) == 0 {
+		return LabStepResult{Passed: false, Message: "No Valkey node is running yet — wait for the cluster to finish deploying."}
+	}
+	pw := valkeyPasswordFor(running[0])
+	slotRes, err := a.engCtx(ctx).Exec(ctx, running[0].ContainerID, []string{"valkey-cli", "-a", pw, "--no-auth-warning", "CLUSTER", "KEYSLOT", "{migrate}demo"}, nil)
+	if err != nil || slotRes.Code != 0 {
+		return LabStepResult{Passed: false, Message: "Could not compute {migrate}demo's slot — is the cluster still forming?"}
+	}
+	slotNum, convErr := strconv.Atoi(strings.TrimSpace(slotRes.Stdout))
+	if convErr != nil {
+		return LabStepResult{Passed: false, Message: "Could not parse CLUSTER KEYSLOT output."}
+	}
+	for _, d := range running {
+		nodes, ok := a.fetchValkeyClusterNodes(ctx, d.ContainerID, valkeyPasswordFor(d))
+		if !ok {
+			continue
+		}
+		for _, n := range nodes {
+			if !n.hasFlag("myself") || !n.rangesContain(slotNum) {
+				continue
+			}
+			getRes, err := a.engCtx(ctx).Exec(ctx, d.ContainerID, []string{"valkey-cli", "-a", valkeyPasswordFor(d), "--no-auth-warning", "GET", "{migrate}demo"}, nil)
+			if err != nil || getRes.Code != 0 {
+				return LabStepResult{Passed: false, Message: "Could not query the node that now owns slot " + strconv.Itoa(slotNum) + "."}
+			}
+			out := strings.TrimSpace(getRes.Stdout)
+			if out != "before" {
+				return LabStepResult{Passed: false, Message: nodeLabel(doc, d.NodeID) + " owns slot " + strconv.Itoa(slotNum) + " now, but doesn't have the key yet — run MIGRATE, then finalize with CLUSTER SETSLOT NODE on every node."}
+			}
+			return LabStepResult{Passed: true, Message: "Confirmed: " + nodeLabel(doc, d.NodeID) + " owns slot " + strconv.Itoa(slotNum) + " outright and serves {migrate}demo directly."}
+		}
+	}
+	return LabStepResult{Passed: false, Message: "No node owns slot " + strconv.Itoa(slotNum) + " outright yet — finalize with CLUSTER SETSLOT <slot> NODE <dest-id> on every node in the cluster, then check again."}
+}
+
+// checkValkeyClusterDownOnCoverageLoss passes once some reachable member
+// reports cluster_state:fail and actually refuses a write with CLUSTERDOWN
+// — proof a real coverage gap took the whole cluster down for writes, not
+// just the missing shard.
+func (a *App) checkValkeyClusterDownOnCoverageLoss(ctx context.Context, st Stack) LabStepResult {
+	doc, _, ok := valkeyFrameFromStack(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Valkey Cluster found in this lab's stack."}
+	}
+	running, err := a.valkeyRunningMembers(st, doc)
+	if err != nil || len(running) == 0 {
+		return LabStepResult{Passed: false, Message: "No Valkey node is running yet — wait for the cluster to finish deploying."}
+	}
+	for _, d := range running {
+		pw := valkeyPasswordFor(d)
+		infoRes, err := a.engCtx(ctx).Exec(ctx, d.ContainerID, []string{"valkey-cli", "-a", pw, "--no-auth-warning", "CLUSTER", "INFO"}, nil)
+		if err != nil || infoRes.Code != 0 {
+			continue // likely the node we just crashed
+		}
+		if !strings.Contains(infoRes.Stdout, "cluster_state:fail") {
+			continue
+		}
+		setRes, err := a.engCtx(ctx).Exec(ctx, d.ContainerID, []string{"valkey-cli", "-a", pw, "--no-auth-warning", "SET", "some:key", "val"}, nil)
+		if err != nil || !strings.Contains(setRes.Stdout, "CLUSTERDOWN") {
+			return LabStepResult{Passed: false, Message: "The cluster reports cluster_state:fail, but a write wasn't refused with CLUSTERDOWN — wait a moment and check again."}
+		}
+		return LabStepResult{Passed: true, Message: "Confirmed: cluster_state is fail and writes are refused with CLUSTERDOWN, cluster-wide, from the single missing master."}
+	}
+	return LabStepResult{Passed: false, Message: "No surviving node reports cluster_state:fail yet — crash one master with SHUTDOWN NOSAVE and wait about 10 seconds for the others to detect it, then check again."}
+}
+
+// checkValkeyPartialCoverageRestored passes once at least two members (the
+// two the learner ran CLUSTER FORGET on) have cluster-require-full-coverage
+// set to no with cluster_state reading ok, and a write to a healthy slot
+// actually succeeds. It deliberately doesn't require this of every running
+// member — the originally-crashed node rejoins on its own within a second or
+// two (systemd restarts its Valkey service and its cluster membership file
+// is intact), and was never told to forget anyone, so it's expected to still read yes
+// and isn't part of what this step is checking.
+func (a *App) checkValkeyPartialCoverageRestored(ctx context.Context, st Stack) LabStepResult {
+	doc, _, ok := valkeyFrameFromStack(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Valkey Cluster found in this lab's stack."}
+	}
+	running, err := a.valkeyRunningMembers(st, doc)
+	if err != nil || len(running) == 0 {
+		return LabStepResult{Passed: false, Message: "No Valkey node is running yet — wait for the cluster to finish deploying."}
+	}
+	transitioned := 0
+	var writeConfirmed bool
+	for _, d := range running {
+		pw := valkeyPasswordFor(d)
+		v, ok := a.valkeyConfigGet(ctx, d.ContainerID, pw, "cluster-require-full-coverage")
+		if !ok || v != "no" {
+			continue // unreachable, or the untouched third node — not part of this check
+		}
+		infoRes, err := a.engCtx(ctx).Exec(ctx, d.ContainerID, []string{"valkey-cli", "-a", pw, "--no-auth-warning", "CLUSTER", "INFO"}, nil)
+		if err != nil || infoRes.Code != 0 || !strings.Contains(infoRes.Stdout, "cluster_state:ok") {
+			continue
+		}
+		transitioned++
+		if !writeConfirmed {
+			setRes, err := a.engCtx(ctx).Exec(ctx, d.ContainerID, []string{"valkey-cli", "-a", pw, "--no-auth-warning", "SET", "some:key", "val"}, nil)
+			if err == nil && strings.TrimSpace(setRes.Stdout) == "OK" {
+				writeConfirmed = true
+			}
+		}
+	}
+	if transitioned < 2 {
+		return LabStepResult{Passed: false, Message: "Fewer than two nodes have cluster-require-full-coverage off with cluster_state:ok yet — run CONFIG SET cluster-require-full-coverage no on both nodes you ran CLUSTER FORGET on, then check again."}
+	}
+	if !writeConfirmed {
+		return LabStepResult{Passed: false, Message: "cluster_state is ok, but a write to a healthy slot hasn't succeeded yet — try SET some:key val, then check again."}
+	}
+	return LabStepResult{Passed: true, Message: "Confirmed: both nodes that forgot the missing master have cluster-require-full-coverage off, report cluster_state:ok, and accept writes to healthy slots."}
+}
+
+// checkValkeyPartialResyncOccurred passes once valkey-a's INFO stats shows
+// at least one partial resync — proof the CLIENT KILL-simulated blip resumed
+// from the backlog at least once. Doesn't require sync_full to still be
+// exactly 1: a learner who kills the connection before the initial link is
+// actually up will trigger an extra full resync first, which is a mistake
+// worth letting them recover from by just trying the blip again once the
+// link is up, not a dead end requiring the whole stack to be redeployed.
+// Records the current sync_full as this run's baseline (reusing
+// LabRun.InitialLeaderNode as a free string slot, the same pattern the
+// manual-failover and cluster-resize labs use) so the next step can require
+// a genuine further increase regardless of what happened here.
+func (a *App) checkValkeyPartialResyncOccurred(ctx context.Context, run LabRun, st Stack) LabStepResult {
+	aDep, ok := a.valkeyNodeDeployment(st, "lab-valkey-a")
+	if !ok {
+		return LabStepResult{Passed: false, Message: "valkey-a isn't running yet — wait for it to finish deploying."}
+	}
+	pw := valkeyPasswordFor(aDep)
+	res, err := a.engCtx(ctx).Exec(ctx, aDep.ContainerID, []string{"valkey-cli", "-a", pw, "--no-auth-warning", "INFO", "stats"}, nil)
+	if err != nil || res.Code != 0 {
+		return LabStepResult{Passed: false, Message: "Could not read valkey-a's INFO stats — is it still starting up?"}
+	}
+	syncFull := valkeyInfoInt(res.Stdout, "sync_full")
+	syncPartial := valkeyInfoInt(res.Stdout, "sync_partial_ok")
+	if syncFull < 1 {
+		return LabStepResult{Passed: false, Message: "valkey-b hasn't connected as a replica yet — run REPLICAOF valkey-a 6379 on valkey-b first, then check again."}
+	}
+	if syncPartial < 1 {
+		return LabStepResult{Passed: false, Message: "No partial resync recorded yet — make sure valkey-b's INFO replication shows master_link_status:up first, THEN run CLIENT KILL TYPE replica on valkey-a to simulate the blip, then check again."}
+	}
+	a.store.SetLabRunLeader(run.ID, strconv.Itoa(syncFull))
+	return LabStepResult{Passed: true, Message: "Confirmed: sync_partial_ok is " + strconv.Itoa(syncPartial) + " — the blip resumed from the backlog instead of a full resync."}
+}
+
+// checkValkeyFullResyncAfterOutage passes once sync_full has advanced past
+// the baseline the previous step recorded — proof the real crash-and-restart
+// genuinely cost an additional full resync, contrasting with the previous
+// step's partial one, regardless of the exact numbers either step landed on.
+func (a *App) checkValkeyFullResyncAfterOutage(ctx context.Context, run LabRun, st Stack) LabStepResult {
+	if run.InitialLeaderNode == "" {
+		return LabStepResult{Passed: false, Message: "Complete the previous step first — no partial-resync baseline recorded yet."}
+	}
+	baseline, convErr := strconv.Atoi(run.InitialLeaderNode)
+	if convErr != nil {
+		return LabStepResult{Passed: false, Message: "Could not read this run's baseline — complete the previous step again."}
+	}
+	aDep, ok := a.valkeyNodeDeployment(st, "lab-valkey-a")
+	if !ok {
+		return LabStepResult{Passed: false, Message: "valkey-a isn't running yet — wait for it to finish deploying."}
+	}
+	pw := valkeyPasswordFor(aDep)
+	res, err := a.engCtx(ctx).Exec(ctx, aDep.ContainerID, []string{"valkey-cli", "-a", pw, "--no-auth-warning", "INFO", "stats"}, nil)
+	if err != nil || res.Code != 0 {
+		return LabStepResult{Passed: false, Message: "Could not read valkey-a's INFO stats — is it still starting up?"}
+	}
+	syncFull := valkeyInfoInt(res.Stdout, "sync_full")
+	if syncFull <= baseline {
+		return LabStepResult{Passed: false, Message: "sync_full is still at its post-blip baseline (" + strconv.Itoa(baseline) + ") — on valkey-b run SHUTDOWN NOSAVE, wait for it to restart, and reconnect with REPLICAOF valkey-a 6379."}
+	}
+	return LabStepResult{Passed: true, Message: "Confirmed: sync_full advanced from " + strconv.Itoa(baseline) + " to " + strconv.Itoa(syncFull) + " — the real outage cost a full resync, unlike the earlier blip."}
+}
+
+// checkValkeyTLSEnabled passes once a direct TLS+mTLS PING against the
+// certs the learner generated actually returns PONG — proof the runtime
+// CONFIG SET genuinely brought the TLS listener up, checked independently
+// rather than trusting the learner's own terminal output.
+func (a *App) checkValkeyTLSEnabled(ctx context.Context, st Stack) LabStepResult {
+	dep, ok := a.singleValkeyNode(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Valkey node is running yet — wait for it to finish deploying."}
+	}
+	pw := valkeyPasswordFor(dep)
+	res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{
+		"valkey-cli", "--tls", "--cert", "/tmp/tls/cert.pem", "--key", "/tmp/tls/key.pem", "--cacert", "/tmp/tls/cert.pem",
+		"-p", "6380", "-a", pw, "--no-auth-warning", "PING",
+	}, nil)
+	if err != nil || res.Code != 0 || strings.TrimSpace(res.Stdout) != "PONG" {
+		return LabStepResult{Passed: false, Message: "A TLS connection on port 6380 with the generated certificate isn't answering PING yet — generate the cert, chmod the key readable, then CONFIG SET the tls-* settings from the lab instructions."}
+	}
+	return LabStepResult{Passed: true, Message: "Confirmed: Valkey answers PING over a TLS connection on port 6380."}
+}
+
+// checkValkeyMutualTLSEnforced passes once a TLS connection presenting no
+// client certificate is actually rejected (tls-auth-clients still yes) while
+// one presenting a valid certificate succeeds — checked by making both
+// connection attempts directly, the same pattern the ACL/READONLY checks use
+// to verify enforcement rather than configuration.
+func (a *App) checkValkeyMutualTLSEnforced(ctx context.Context, st Stack) LabStepResult {
+	dep, ok := a.singleValkeyNode(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Valkey node is running yet — wait for it to finish deploying."}
+	}
+	pw := valkeyPasswordFor(dep)
+	noCertRes, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{
+		"valkey-cli", "--tls", "--cacert", "/tmp/tls/cert.pem", "-p", "6380", "-a", pw, "--no-auth-warning", "PING",
+	}, nil)
+	rejected := err != nil || noCertRes.Code != 0 || strings.TrimSpace(noCertRes.Stdout) != "PONG"
+	if !rejected {
+		return LabStepResult{Passed: false, Message: "A TLS connection with no client certificate succeeded — confirm tls-auth-clients is still set to yes (the default; don't disable it for this lab)."}
+	}
+	withCertRes, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{
+		"valkey-cli", "--tls", "--cert", "/tmp/tls/cert.pem", "--key", "/tmp/tls/key.pem", "--cacert", "/tmp/tls/cert.pem",
+		"-p", "6380", "-a", pw, "--no-auth-warning", "PING",
+	}, nil)
+	if err != nil || withCertRes.Code != 0 || strings.TrimSpace(withCertRes.Stdout) != "PONG" {
+		return LabStepResult{Passed: false, Message: "The no-certificate connection was correctly rejected, but the with-certificate connection isn't succeeding — confirm TLS is enabled from the previous step."}
+	}
+	return LabStepResult{Passed: true, Message: "Confirmed: a TLS connection without a client certificate is rejected, and one with a valid certificate succeeds — mutual TLS is enforced."}
+}
+
+// checkValkeyClientKilled passes once /tmp/blpop.log shows the
+// connection-closed error CLIENT KILL produces (not a normal BLPOP timeout
+// reply) and no client with cmd=blpop remains connected.
+func (a *App) checkValkeyClientKilled(ctx context.Context, st Stack) LabStepResult {
+	dep, ok := a.singleValkeyNode(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Valkey node is running yet — wait for it to finish deploying."}
+	}
+	log := a.valkeyCatLog(ctx, dep.ContainerID, "/tmp/blpop.log")
+	if !strings.Contains(strings.ToLower(log), "closed") {
+		return LabStepResult{Passed: false, Message: "/tmp/blpop.log doesn't show a connection-closed error yet — start the background BLPOP, find its id in CLIENT LIST, then CLIENT KILL ID it well before its 30-second timeout elapses."}
+	}
+	pw := valkeyPasswordFor(dep)
+	listRes, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"valkey-cli", "-a", pw, "--no-auth-warning", "CLIENT", "LIST"}, nil)
+	if err != nil || listRes.Code != 0 {
+		return LabStepResult{Passed: false, Message: "Could not read CLIENT LIST — is the node still starting up?"}
+	}
+	if strings.Contains(listRes.Stdout, "cmd=blpop") {
+		return LabStepResult{Passed: false, Message: "A client with cmd=blpop is still connected — confirm you killed the right ID."}
+	}
+	return LabStepResult{Passed: true, Message: "Confirmed: the BLPOP client's connection was closed by CLIENT KILL, and it's no longer listed."}
+}
+
+// checkValkeyClientPauseHeld passes once a write timed immediately after
+// issuing CLIENT PAUSE ... WRITE actually took close to the full pause
+// duration — the check performs the timed test itself (server-side state
+// from CLIENT PAUSE doesn't persist for a later click to observe) rather
+// than trusting the learner's own `time` output.
+func (a *App) checkValkeyClientPauseHeld(ctx context.Context, st Stack) LabStepResult {
+	dep, ok := a.singleValkeyNode(st)
+	if !ok {
+		return LabStepResult{Passed: false, Message: "No Valkey node is running yet — wait for it to finish deploying."}
+	}
+	pw := valkeyPasswordFor(dep)
+	pauseRes, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"valkey-cli", "-a", pw, "--no-auth-warning", "CLIENT", "PAUSE", "2000", "WRITE"}, nil)
+	if err != nil || strings.TrimSpace(pauseRes.Stdout) != "OK" {
+		return LabStepResult{Passed: false, Message: "CLIENT PAUSE didn't succeed — is the node still starting up?"}
+	}
+	start := time.Now()
+	setRes, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"valkey-cli", "-a", pw, "--no-auth-warning", "SET", "lab:paused", "val"}, nil)
+	elapsed := time.Since(start)
+	if err != nil || setRes.Code != 0 {
+		return LabStepResult{Passed: false, Message: "Could not test the paused write."}
+	}
+	if elapsed < 1500*time.Millisecond {
+		return LabStepResult{Passed: false, Message: "The write returned after only " + elapsed.Round(time.Millisecond).String() + " — CLIENT PAUSE doesn't seem to have actually held it. Check again right after issuing CLIENT PAUSE 2000 WRITE."}
+	}
+	return LabStepResult{Passed: true, Message: "Confirmed: the write was held for " + elapsed.Round(time.Millisecond).String() + " — CLIENT PAUSE genuinely blocked it."}
 }

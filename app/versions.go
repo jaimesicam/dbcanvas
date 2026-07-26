@@ -340,6 +340,7 @@ func loadProxySQLCatalog() []PXCImage { return loadImageCatalog("proxysql") }
 func loadPSCatalog() []PXCImage       { return loadImageCatalog("percona_server") }
 func loadPSMDBCatalog() []PXCImage    { return loadImageCatalog("percona_server_mongodb") }
 func loadPPGCatalog() []PXCImage      { return loadImageCatalog("percona_postgresql") }
+func loadValkeyCatalog() []PXCImage   { return loadImageCatalog("percona_valkey") }
 
 // loadSpockCatalog returns the Spock (source-built PostgreSQL) availability:
 // which PG majors/minors and OS/platforms Spock can be deployed on. Unlike the
@@ -470,6 +471,14 @@ func (a *App) handleProxySQLCatalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"images": loadProxySQLCatalog()})
+}
+
+func (a *App) handleValkeyCatalog(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.currentUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"images": loadValkeyCatalog()})
 }
 
 func (a *App) handlePSCatalog(w http.ResponseWriter, r *http.Request) {

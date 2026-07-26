@@ -69,10 +69,11 @@ parse_entries() {
 
 # ---- in-container probe scripts, one per OS family ----
 # Each prints version lines (newest first) fenced by @@PS80@@ / @@PS84@@ /
-# @@PS57@@ / @@PXC80@@ / @@PXC84@@ / @@PROXYSQL2@@ / @@PROXYSQL3@@ / @@END@@
-# markers — Percona Server (8.0, 8.4 and the legacy 5.7 series) and Percona
-# XtraDB Cluster (8.0 and 8.4) plus ProxySQL (major series 2 and 3, from the
-# proxysql2 / proxysql3 packages).
+# @@PS57@@ / @@PXC80@@ / @@PXC84@@ / @@PROXYSQL2@@ / @@PROXYSQL3@@ /
+# @@VALKEY91@@ / @@END@@ markers — Percona Server (8.0, 8.4 and the legacy 5.7
+# series), Percona XtraDB Cluster (8.0 and 8.4), ProxySQL (major series 2 and
+# 3, from the proxysql2 / proxysql3 packages), and Valkey (9.1, from the
+# percona-valkey-bundle meta-package).
 
 rhel_probe() {
   cat <<'EOS'
@@ -128,6 +129,10 @@ percona-release setup ppg-17 >/dev/null 2>&1
 echo '@@PPG17@@'; elsearch percona-postgresql17 | sed -E 's/^[0-9]+://' | grep -E '^17\.' | sort -rV -u
 percona-release setup ppg-18 >/dev/null 2>&1
 echo '@@PPG18@@'; elsearch percona-postgresql18 | sed -E 's/^[0-9]+://' | grep -E '^18\.' | sort -rV -u
+# Valkey: percona-valkey-bundle is the meta-package (pulls in the real server
+# plus the bloom/json/ldap/search modules); its own version tracks the set.
+percona-release enable valkey-91 >/dev/null 2>&1 || percona-release setup -y valkey-91 >/dev/null 2>&1
+echo '@@VALKEY91@@'; elsearch percona-valkey-bundle | grep -E '^9\.1\.' | sort -rV -u
 echo '@@END@@'
 EOS
 }
@@ -177,6 +182,8 @@ percona-release setup ppg-17 >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@PPG17@@'; madison percona-postgresql-17 | grep -E '^17\.' | sort -rV -u
 percona-release setup ppg-18 >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@PPG18@@'; madison percona-postgresql-18 | grep -E '^18\.' | sort -rV -u
+percona-release enable valkey-91 >/dev/null 2>&1 || percona-release setup -y valkey-91 >/dev/null 2>&1; apt-get update >/dev/null 2>&1
+echo '@@VALKEY91@@'; madison percona-valkey-bundle | grep -E '^9\.1\.' | sort -rV -u
 echo '@@END@@'
 EOS
 }
@@ -335,6 +342,7 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
   ps80="" ; ps84="" ; ps57="" ; pxc80="" ; pxc84="" ; psql2="" ; psql3=""
   mdb60="" ; mdb70="" ; mdb80=""
   pg13="" ; pg14="" ; pg15="" ; pg16="" ; pg17="" ; pg18=""
+  vk91=""
   if [ -n "$probe" ]; then
     if out="$(docker run --rm "$tag" bash -lc "$probe" 2>/dev/null)"; then
       ps80="$(printf '%s\n' "$out" | section PS80)"
@@ -353,6 +361,7 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
       pg16="$(printf '%s\n' "$out" | section PPG16)"
       pg17="$(printf '%s\n' "$out" | section PPG17)"
       pg18="$(printf '%s\n' "$out" | section PPG18)"
+      vk91="$(printf '%s\n' "$out" | section VALKEY91)"
     else
       echo "    FAIL  could not run ${tag} (recording empty version lists)" >&2
     fi
@@ -374,7 +383,8 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
   g16=$(printf '%s' "$pg16" | grep -c . || true)
   g17=$(printf '%s' "$pg17" | grep -c . || true)
   g18=$(printf '%s' "$pg18" | grep -c . || true)
-  echo "    ps: ${n80}+${n84}+${n57}  pxc: ${px0}+${px4}  proxysql: ${pq2}+${pq3}  psmdb: ${m6}+${m7}+${m8}  ppg: ${g13}+${g14}+${g15}+${g16}+${g17}+${g18}" >&2
+  vk9=$(printf '%s' "$vk91" | grep -c . || true)
+  echo "    ps: ${n80}+${n84}+${n57}  pxc: ${px0}+${px4}  proxysql: ${pq2}+${pq3}  psmdb: ${m6}+${m7}+${m8}  ppg: ${g13}+${g14}+${g15}+${g16}+${g17}+${g18}  valkey: ${vk9}" >&2
 
   # emit_series <indent-key> <key1> <list1> [<key2> <list2> ...]: emit a major-series
   # map under `key:` with one or more series (e.g. "8.0"/"8.4", "2"/"3", or the three
@@ -427,6 +437,7 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
     emit_series proxysql               "2"   "$psql2" "3"   "$psql3"
     emit_series percona_server_mongodb "6.0" "$mdb60" "7.0" "$mdb70" "8.0" "$mdb80"
     emit_series percona_postgresql     "13" "$pg13" "14" "$pg14" "15" "$pg15" "16" "$pg16" "17" "$pg17" "18" "$pg18"
+    emit_series percona_valkey         "9.1" "$vk91"
     emit_spock
   } >>"$TMP"
 done < <(parse_entries)

@@ -51,6 +51,7 @@ export const stackApi = {
   pmmCatalog: () => request('GET', '/api/catalog/pmm'),
   pxcCatalog: () => request('GET', '/api/catalog/pxc'),
   proxysqlCatalog: () => request('GET', '/api/catalog/proxysql'),
+  valkeyCatalog: () => request('GET', '/api/catalog/valkey'),
   psCatalog: () => request('GET', '/api/catalog/ps'),
   psmdbCatalog: () => request('GET', '/api/catalog/psmdb'),
   ppgCatalog: () => request('GET', '/api/catalog/ppg'),

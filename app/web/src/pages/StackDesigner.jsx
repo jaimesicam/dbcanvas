@@ -307,8 +307,9 @@ const NODE_TYPES = {
       vncUser: 'dbadmin', vncPassword: '', useProxy: false,
     },
   },
-  // Standalone Valkey (valkey/valkey-bundle image, pulled at deploy). Analogue of the
-  // standalone Percona Server node: a password (requirepass) + optional LDAP auth.
+  // Standalone Valkey — installed via percona-release (the "valkey-91" repo) on a
+  // systemd base image, like every other Percona product. Analogue of the standalone
+  // Percona Server node: a password (requirepass) + optional LDAP auth.
   valkey: {
     label: 'Valkey',
     slug: 'valkey',
@@ -317,9 +318,10 @@ const NODE_TYPES = {
     icon: 'Database',
     singleton: false,
     ports: true, // connectable — a Traffic Sim node links to it
-    osOptions: [{ id: 'valkey', label: 'valkey/valkey-bundle' }],
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: {
-      rootPassword: '', useLdap: false, pmmNodeId: '',
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64', valkeyMajor: '9.1', valkeyVersion: '',
+      rootPassword: '', useLdap: false, pmmNodeId: '', useProxy: false,
       exportEnabled: false, exportHostPort: 0,
     },
   },
@@ -553,7 +555,7 @@ const frameVersionLabel = (f) => {
   if (f?.type === 'patroni') return `Percona PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · Patroni`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'repmgr') return `PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · repmgr (PGDG)`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'spock') return `PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · Spock multi-master`.replace(/\s+/g, ' ').trim()
-  if (f?.type === 'valkeycluster') return 'Valkey Cluster · valkey/valkey-bundle'
+  if (f?.type === 'valkeycluster') return `Valkey Cluster ${f?.valkeyVersion || f?.valkeyMajor || ''}`.trim()
   if (f?.type === 'k3d') return `Kubernetes (k3s via k3d)${K3D_OPERATOR_LABEL[f?.k3dOperator] ? ` · ${K3D_OPERATOR_LABEL[f.k3dOperator]}` : ''}`
   return pxcVersionLabel(f)
 }
@@ -569,7 +571,7 @@ const proxyModeOpts = (backendType) => PROXY_MODE_OPTS[backendType === 'mysql' ?
 
 // nodeOSLabel renders a free node's OS line; ProxySQL carries its own os/version
 // (like a PXC frame), other nodes map via their osOptions.
-const nodeOSLabel = (n) => (n.type === 'proxysql' || n.type === 'ps' || n.type === 'pg' || n.type === 'psm' || n.type === 'haproxy' || n.type === 'vnc' || n.type === 'linuxclient' ? pxcOSLabel(n) : osLabel(n.type, n.os))
+const nodeOSLabel = (n) => (n.type === 'proxysql' || n.type === 'ps' || n.type === 'pg' || n.type === 'psm' || n.type === 'haproxy' || n.type === 'vnc' || n.type === 'linuxclient' || n.type === 'valkey' ? pxcOSLabel(n) : osLabel(n.type, n.os))
 
 // Auto-numbered per-type labels: a non-singleton node is named "<slug>-NN" with
 // NN zero-padded from 01 and increasing per node type (pmm-01, pmm-02, …, and in
@@ -1611,7 +1613,8 @@ function StackEditor({ stackId, onBack }) {
     const fy = (-view.y + 200) / view.z
     const frame = {
       id: fid, type: 'valkeycluster', label: nextNamedCluster(frames, 'valkey-cluster'), x: fx, y: fy, w: 0, h: 0,
-      rootPassword: '', pmmNodeId: '', useLdap: false,
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64', valkeyMajor: '9.1', valkeyVersion: '',
+      rootPassword: '', pmmNodeId: '', useProxy: false, useLdap: false,
     }
     const used = new Set(nodes.filter((n) => n.type === 'valkeycluster').map((n) => n.label))
     const newNodes = []
@@ -2193,7 +2196,7 @@ function StackEditor({ stackId, onBack }) {
                             </div>
                             <div className="mt-0.5 truncate text-[10px] text-muted">{sub}</div>
                             <div className="truncate text-[9px] font-medium text-fg/80">
-                              {deployedLabel(n.type, dep) || (f.type === 'valkeycluster' ? 'valkey/valkey-bundle' : f.type === 'k3d' ? 'rancher/k3s' : `${pxcOSLabel(f)} · ${f.arch || 'amd64'}`)}
+                              {deployedLabel(n.type, dep) || (f.type === 'k3d' ? 'rancher/k3s' : `${pxcOSLabel(f)} · ${f.arch || 'amd64'}`)}
                             </div>
                             {n.exportEnabled && <div className="text-[9px] font-medium text-primary">⇅ export</div>}
                           </div>
@@ -4098,8 +4101,18 @@ function TrafficSimManager({ dep, onDeleteNode }) {
 // ValkeyForm edits a (not-yet-running) standalone Valkey node: password (requirepass),
 // optional LDAP auth against the Intranet OpenLDAP, PMM monitoring and host-port export.
 function ValkeyForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }) {
+  const imgs = useValkeyCatalog(n, deployed, patchNode)
   const lock = deployed ? 'opacity-70' : ''
   const pmmNodes = nodes.filter((x) => x.type === 'pmm')
+
+  const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
+  const osVersions = [...new Set(imgs.filter((i) => i.os === n.os).map((i) => i.osVersion))]
+  const archs = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === n.osVersion).map((i) => i.arch))]
+  const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion && i.arch === n.arch)
+  const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
+  const minors = (entry?.versions?.[n.valkeyMajor]) || []
+  const debian = n.os === 'ubuntu' || n.os === 'debian'
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -4107,8 +4120,8 @@ function ValkeyForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }) {
         {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
       </div>
       <p className="text-xs text-muted">
-        Runs <span className="font-mono">valkey/valkey-bundle</span> (pulled at deploy). pmm-client is installed
-        via percona-release.
+        Installed via percona-release (the <span className="font-mono">valkey-91</span> repo) on a systemd base
+        image, like every other Percona product here. pmm-client is installed via percona-release too.
       </p>
 
       <Field label="Label" hint="Becomes the node hostname; must be unique.">
@@ -4116,11 +4129,47 @@ function ValkeyForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }) {
       </Field>
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
 
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+          <select className={`${inputCls} ${lock}`} value={n.os} disabled={deployed} onChange={(e) => patchNode(n.id, { os: e.target.value })}>
+            {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="OS version">
+          <select className={`${inputCls} ${lock}`} value={n.osVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { osVersion: e.target.value })}>
+            {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Platform / arch">
+          <select className={`${inputCls} ${lock}`} value={n.arch} disabled={deployed} onChange={(e) => patchNode(n.id, { arch: e.target.value })}>
+            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Valkey major">
+          <select className={`${inputCls} ${lock}`} value={n.valkeyMajor} disabled={deployed} onChange={(e) => patchNode(n.id, { valkeyMajor: e.target.value, valkeyVersion: '' })}>
+            {majors.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+      </div>
+
+      <Field label="Valkey minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+        <select className={`${inputCls} ${lock}`} value={n.valkeyVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { valkeyVersion: e.target.value })}>
+          <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
+          {minors.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </Field>
+
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
-        <input type="checkbox" checked={!!n.useLdap} disabled={deployed} onChange={(e) => patchNode(n.id, { useLdap: e.target.checked })} />
+        <input type="checkbox" checked={!!n.useLdap} disabled={deployed || debian} onChange={(e) => patchNode(n.id, { useLdap: e.target.checked })} />
         <span>Enable LDAP auth (Intranet OpenLDAP)</span>
       </label>
-      {n.useLdap && <p className="text-xs text-muted">Wires the valkey-ldap module to <span className="font-mono">ldap://intranet:389</span> (users under <span className="font-mono">ou=People</span>).</p>}
+      {n.useLdap && !debian && <p className="text-xs text-muted">Wires the valkey-ldap module to <span className="font-mono">ldap://intranet:389</span> (users under <span className="font-mono">ou=People</span>).</p>}
+      {debian && <p className="text-xs text-muted">percona-valkey-ldap isn't published for Ubuntu yet — pick Oracle Linux for LDAP auth.</p>}
+
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for downloads</span>
+      </label>
 
       <Field label="Monitored by (PMM)" hint="Optional — installs/registers pmm-client.">
         <select className={`${inputCls} ${lock}`} value={n.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchNode(n.id, { pmmNodeId: e.target.value })}>
@@ -4162,7 +4211,7 @@ function ValkeyManager({ dep, onDeleteNode }) {
         <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
       </div>
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <div className="flex justify-between gap-3"><span className="text-muted">Image</span><span className="font-mono text-xs">{cfg.image || 'valkey/valkey-bundle'}</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Base image</span><span className="font-mono text-xs">{cfg.image || 'dbcanvas-systemd'}</span></div>
         <div className="flex justify-between gap-3"><span className="text-muted">Host</span><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></div>
         <div className="flex justify-between gap-3"><span className="text-muted">LDAP</span><span className="font-mono text-xs">{cfg.useLdap ? (cfg.ldapServers || 'enabled') : 'disabled'}</span></div>
         {cfg.exportPort ? <div className="flex justify-between gap-3"><span className="text-muted">Exported port</span><span className="font-mono text-xs">{host}:{cfg.exportPort}</span></div> : null}
@@ -4515,12 +4564,23 @@ function K3DMemberForm({ node: n, frame, frameNodes, patchNode, dep, deployed })
   )
 }
 
-// ValkeyClusterFrameForm edits a Valkey Cluster frame: shared default-user password,
-// optional LDAP, PMM monitor. 3–7 all-master shards (resize with the frame +/-).
+// ValkeyClusterFrameForm edits a Valkey Cluster frame: catalog OS/version/arch +
+// Valkey major/minor, shared default-user password, optional LDAP, PMM monitor.
+// 3–7 all-master shards (resize with the frame +/-).
 function ValkeyClusterFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed }) {
+  const imgs = useValkeyCatalog(f, deployed, patchFrame)
   const lock = deployed ? 'opacity-70' : ''
   const pmmNodes = nodes.filter((x) => x.type === 'pmm')
   const count = frameNodes.length
+
+  const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
+  const osVersions = [...new Set(imgs.filter((i) => i.os === f.os).map((i) => i.osVersion))]
+  const archs = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === f.osVersion).map((i) => i.arch))]
+  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion && i.arch === f.arch)
+  const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
+  const minors = (entry?.versions?.[f.valkeyMajor]) || []
+  const debian = f.os === 'ubuntu' || f.os === 'debian'
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -4528,17 +4588,53 @@ function ValkeyClusterFrameForm({ frame: f, nodes, frameNodes, patchFrame, delet
         <Badge tone="muted">{count} node{count === 1 ? '' : 's'}</Badge>
       </div>
       <p className="text-xs text-muted">
-        {count} all-master shard{count === 1 ? '' : 's'} of <span className="font-mono">valkey/valkey-bundle</span>,
-        formed with <span className="font-mono">valkey-cli --cluster create</span>. Use the frame +/- to resize (3–7).
+        {count} all-master shard{count === 1 ? '' : 's'}, Valkey installed via percona-release, formed with
+        <span className="font-mono"> valkey-cli --cluster create</span>. Use the frame +/- to resize (3–7).
       </p>
 
       <Field label="Cluster name" hint="Frame label; must be unique.">
         <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+          <select className={`${inputCls} ${lock}`} value={f.os} disabled={deployed} onChange={(e) => patchFrame(f.id, { os: e.target.value })}>
+            {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="OS version">
+          <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
+            {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Platform / arch">
+          <select className={`${inputCls} ${lock}`} value={f.arch} disabled={deployed} onChange={(e) => patchFrame(f.id, { arch: e.target.value })}>
+            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Valkey major">
+          <select className={`${inputCls} ${lock}`} value={f.valkeyMajor} disabled={deployed} onChange={(e) => patchFrame(f.id, { valkeyMajor: e.target.value, valkeyVersion: '' })}>
+            {majors.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+      </div>
+
+      <Field label="Valkey minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+        <select className={`${inputCls} ${lock}`} value={f.valkeyVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { valkeyVersion: e.target.value })}>
+          <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
+          {minors.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </Field>
+
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
-        <input type="checkbox" checked={!!f.useLdap} disabled={deployed} onChange={(e) => patchFrame(f.id, { useLdap: e.target.checked })} />
+        <input type="checkbox" checked={!!f.useLdap} disabled={deployed || debian} onChange={(e) => patchFrame(f.id, { useLdap: e.target.checked })} />
         <span>Enable LDAP auth (Intranet OpenLDAP)</span>
+      </label>
+      {debian && <p className="text-xs text-muted">percona-valkey-ldap isn't published for Ubuntu yet — pick Oracle Linux for LDAP auth.</p>}
+
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for downloads</span>
       </label>
 
       <Field label="Monitored by (PMM)" hint="Optional — installs/registers pmm-client on each member.">
@@ -5462,6 +5558,38 @@ function usePPGCatalog(obj, deployed, patch, fetchCat = stackApi.ppgCatalog) {
     if (obj.pgVersion && !minorList.includes(obj.pgVersion)) p.pgVersion = ''
     if (Object.keys(p).length) patch(obj.id, p)
   }, [imgs, obj.id, obj.os, obj.osVersion, obj.arch, obj.pgMajor, obj.pgVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+  return imgs
+}
+
+// useValkeyCatalog is usePPGCatalog's cascade-normalization shape, but keyed on
+// valkeyMajor/valkeyVersion (Valkey's own field names) instead of pgMajor/pgVersion,
+// backed by the Valkey package catalog (/api/catalog/valkey). Shared by ValkeyForm
+// (a node) and ValkeyClusterFrameForm (a frame).
+function useValkeyCatalog(obj, deployed, patch) {
+  const [cat, setCat] = useState(null)
+  useEffect(() => {
+    let alive = true
+    stackApi.valkeyCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    return () => { alive = false }
+  }, [])
+  const imgs = cat || []
+  const osVersions = [...new Set(imgs.filter((i) => i.os === obj.os).map((i) => i.osVersion))]
+  useEffect(() => {
+    if (deployed || !imgs.length) return
+    const p = {}
+    const osVer = osVersions.includes(obj.osVersion) ? obj.osVersion : (osVersions[0] ?? obj.osVersion)
+    if (osVer !== obj.osVersion) p.osVersion = osVer
+    const archList = [...new Set(imgs.filter((i) => i.os === obj.os && i.osVersion === osVer).map((i) => i.arch))]
+    const arch = archList.includes(obj.arch) ? obj.arch : (archList[0] ?? obj.arch)
+    if (arch !== obj.arch) p.arch = arch
+    const e2 = imgs.find((i) => i.os === obj.os && i.osVersion === osVer && i.arch === arch)
+    const majorList = e2 ? Object.keys(e2.versions || {}).filter((m) => (e2.versions[m] || []).length) : []
+    const major = majorList.includes(obj.valkeyMajor) ? obj.valkeyMajor : (majorList[0] ?? obj.valkeyMajor)
+    if (major !== obj.valkeyMajor) p.valkeyMajor = major
+    const minorList = (e2?.versions?.[major]) || []
+    if (obj.valkeyVersion && !minorList.includes(obj.valkeyVersion)) p.valkeyVersion = ''
+    if (Object.keys(p).length) patch(obj.id, p)
+  }, [imgs, obj.id, obj.os, obj.osVersion, obj.arch, obj.valkeyMajor, obj.valkeyVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
   return imgs
 }
 

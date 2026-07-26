@@ -455,6 +455,16 @@ function LabRun({ active, setActive, onEnd }) {
                 <div key={n.id} className="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm">
                   <span className="text-fg">{n.label}</span>
                   <Badge tone={DEPLOY_TONE[dep?.state] || 'muted'}>{dep?.state || 'pending'}</Badge>
+                  {n.type === 'vnc' && dep?.state === 'running' && dep?.config?.webPort && (
+                    <a
+                      href={`http://${location.hostname}:${dep.config.webPort}/vnc.html`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-1 text-primary hover:underline"
+                    >
+                      <Icon.External size={13} /> Open VNC
+                    </a>
+                  )}
                   {dep?.state === 'running' && (
                     <button
                       className="text-primary hover:underline"
