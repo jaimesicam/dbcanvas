@@ -151,7 +151,7 @@ const NODE_TYPES = {
     color: '#059669',
     icon: 'Database',
     singleton: false,
-    ports: false,
+    ports: true, // connectable — a Hotel Sim node links to it
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: {
       os: 'oraclelinux', osVersion: '9', arch: 'amd64', psmdbMajor: '8.0', psmdbVersion: '',
@@ -355,6 +355,23 @@ const NODE_TYPES = {
     singleton: false,
     ports: true,
     osOptions: [{ id: 'trafficsim', label: 'dbcanvas-trafficsim' }],
+    defaults: {},
+  },
+  // Hotel Sim — the "MongoDB Hotel Reservation Lab" live demo app (ten background
+  // agents + a web dashboard). Runs dbcanvas's own first-party image, not an OS/DB
+  // image, so it carries no os/osVersion/arch fields at all. Links to a standalone
+  // PS MongoDB node, a PS MongoDB replica-set frame, or a PS MongoDB sharded-cluster
+  // frame via a drawn association line (see endpointKind/tryConnect) — never
+  // published to the host; reached from inside a VNC desktop.
+  hotelsim: {
+    label: 'Hotel Sim',
+    slug: 'hotelsim',
+    sub: 'MongoDB Hotel Reservation Lab — live demo app',
+    color: '#f97316',
+    icon: 'Flask',
+    singleton: false,
+    ports: true,
+    osOptions: [{ id: 'hotelsim', label: 'dbcanvas-hotelsim' }],
     defaults: {},
   },
 }
@@ -809,6 +826,7 @@ const PALETTE_ALIASES = {
   watchtower: 'updates upgrade', intranet: 'dns gateway core',
   linuxclient: 'client host bare vm jump box test',
   trafficsim: 'demo simulation city map live traffic',
+  hotelsim: 'demo simulation hotel reservation booking mongo mongodb',
 }
 function loadPalettePrefs() {
   try { return { collapsed: [], recent: [], ...JSON.parse(localStorage.getItem(PALETTE_KEY) || '{}') } }
@@ -966,7 +984,7 @@ function StackEditor({ stackId, onBack }) {
       consider(n.id, { x: n.x, y: n.y, w: NODE_W, h: NODE_H })
     }
     for (const f of refs.current.frames) {
-      if (f.type === 'pxc' || f.type === 'proxysql' || f.type === 'mysql' || f.type === 'patroni' || f.type === 'repmgr' || f.type === 'spock' || f.type === 'valkeycluster') consider(f.id, { x: f.x, y: f.y, w: f.w, h: f.h })
+      if (f.type === 'pxc' || f.type === 'proxysql' || f.type === 'mysql' || f.type === 'patroni' || f.type === 'repmgr' || f.type === 'spock' || f.type === 'valkeycluster' || f.type === 'psmrs' || f.type === 'psmdb') consider(f.id, { x: f.x, y: f.y, w: f.w, h: f.h })
     }
     return best
   }
@@ -1117,6 +1135,8 @@ function StackEditor({ stackId, onBack }) {
       if ((n.type === 'pxc' || n.type === 'mysql') && n.frameId) return 'replmember'
       if (n.type === 'valkey') return 'valkey'
       if (n.type === 'trafficsim') return 'trafficsim'
+      if (n.type === 'psm') return 'psm'
+      if (n.type === 'hotelsim') return 'hotelsim'
       return null
     }
     const f = refs.current.frames.find((x) => x.id === id)
@@ -1125,6 +1145,8 @@ function StackEditor({ stackId, onBack }) {
       if (f.type === 'proxysql') return 'proxysql-frame'
       if (f.type === 'patroni') return 'patroni'
       if (f.type === 'valkeycluster') return 'valkeycluster'
+      if (f.type === 'psmrs') return 'psmrs'
+      if (f.type === 'psmdb') return 'psmdb'
       return null
     }
     return null
@@ -1170,6 +1192,15 @@ function StackEditor({ stackId, onBack }) {
     if (k2 === 'valkey' && k1 === 'trafficsim') return createFlow(e2, e1, { singleOutgoing: true })
     if (k1 === 'valkeycluster' && k2 === 'trafficsim') return createFlow(e1, e2, { singleOutgoing: true })
     if (k2 === 'valkeycluster' && k1 === 'trafficsim') return createFlow(e2, e1, { singleOutgoing: true })
+    // Standalone PS MongoDB node OR a PSMDB replica-set/sharded-cluster frame →
+    // Hotel Sim node (same shape as the Valkey → Traffic Sim rules above; a Hotel
+    // Sim node links to exactly one target, single incoming).
+    if (k1 === 'psm' && k2 === 'hotelsim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'psm' && k1 === 'hotelsim') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'psmrs' && k2 === 'hotelsim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'psmrs' && k1 === 'hotelsim') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'psmdb' && k2 === 'hotelsim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'psmdb' && k1 === 'hotelsim') return createFlow(e2, e1, { singleOutgoing: true })
     // ProxySQL node ↔ ProxySQL node: ask which way the data flows.
     if (k1 === 'proxysql' && k2 === 'proxysql') { setLinkPrompt({ e1, e2 }); return }
     // Cluster member ↔ cluster member (PXC/Percona Server, different frames): a
@@ -1872,7 +1903,6 @@ function StackEditor({ stackId, onBack }) {
     { title: 'Valkey', items: [
       { label: 'Valkey Cluster', type: 'valkeycluster', onClick: addValkeyCluster },
       { label: 'Valkey', type: 'valkey', onClick: () => addNode('valkey') },
-      { label: 'Traffic Sim', type: 'trafficsim', onClick: () => addNode('trafficsim') },
     ] },
     { title: 'Kubernetes', items: [
       { label: 'K3D Cluster', type: 'k3d', onClick: addK3DCluster },
@@ -1882,6 +1912,10 @@ function StackEditor({ stackId, onBack }) {
       { label: 'OpenBao', type: 'openbao', onClick: () => addNode('openbao'), off: has('openbao') },
       { label: 'Ubuntu VNC', type: 'vnc', onClick: () => addNode('vnc'), off: has('vnc') },
       { label: 'Linux Client', type: 'linuxclient', onClick: () => addNode('linuxclient') },
+    ] },
+    { title: 'App Simulators', items: [
+      { label: 'Traffic Sim', type: 'trafficsim', onClick: () => addNode('trafficsim') },
+      { label: 'Hotel Sim', type: 'hotelsim', onClick: () => addNode('hotelsim') },
     ] },
   ]
 
@@ -4090,6 +4124,82 @@ function TrafficSimManager({ dep, onDeleteNode }) {
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
         <div className="flex justify-between gap-3"><span className="text-muted">URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8088</span></div>
         <div className="flex justify-between gap-3"><span className="text-muted">Linked to</span><span className="font-mono text-xs">{cfg.targetName} ({cfg.targetKind})</span></div>
+      </div>
+      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// HotelSimForm edits a (not-yet-running) Hotel Sim node. No OS/version/arch (a
+// fixed first-party image) and no config fields — the only thing that matters is
+// which PS MongoDB node/frame it's linked to, resolved from the drawn edge exactly
+// the way the backend's hotelSimTarget does.
+function HotelSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep, deployed }) {
+  const linkedTarget = (() => {
+    for (const e of edges) {
+      const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
+      if (!other) continue
+      const pnode = nodes.find((x) => x.id === other && x.type === 'psm')
+      if (pnode) return { kind: 'psm', label: pnode.label }
+      const pframe = frames.find((x) => x.id === other && (x.type === 'psmrs' || x.type === 'psmdb'))
+      if (pframe) return { kind: pframe.type, label: pframe.label }
+    }
+    return null
+  })()
+  const KIND_LABEL = { psm: 'PSMDB', psmrs: 'PSMDB Replica Set', psmdb: 'PSMDB Sharded' }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Hotel Sim</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <p className="text-xs text-muted">
+        Background agents run a 100-hotel reservation chain — guest search, booking, modification,
+        cancellation, check-in/out — continuously reading and writing the linked MongoDB. A live
+        dashboard is served from this node; open it from a browser inside the stack (e.g. a VNC
+        desktop's Firefox) — it's never published to the host. No product besides the sim itself;
+        not monitored by PMM.
+      </p>
+
+      {linkedTarget ? (
+        <div className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
+          Linked to {KIND_LABEL[linkedTarget.kind]} <span className="font-mono font-medium">{linkedTarget.label}</span>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+          Not linked. Draw an association line from a PSMDB, PSMDB Replica Set, or PSMDB Sharded node to this node.
+        </div>
+      )}
+
+      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// HotelSimManager shows a deployed Hotel Sim node's URL (never published to the
+// host — open it from inside the stack) and what it's linked to.
+function HotelSimManager({ dep, onDeleteNode }) {
+  const cfg = dep?.config || {}
+  const KIND_LABEL = { psm: 'PSMDB', psmrs: 'PSMDB Replica Set', psmdb: 'PSMDB Sharded' }
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Hotel Sim</span>
+        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+      </div>
+      <p className="text-xs text-muted">Open this URL from a browser inside the stack — it isn't published to the host.</p>
+      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
+        <div className="flex justify-between gap-3"><span className="text-muted">URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8089</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Linked to</span><span className="font-mono text-xs">{cfg.targetName} ({KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></div>
       </div>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
@@ -6716,6 +6826,13 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <TrafficSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <TrafficSimForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+    // Hotel Sim node — the MongoDB Hotel Reservation Lab live demo app.
+    if (n.type === 'hotelsim') {
+      if (dep && dep.state === 'running') {
+        return <HotelSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <HotelSimForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
     return (
       <div className="space-y-3">

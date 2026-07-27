@@ -1753,6 +1753,118 @@ func (a *App) handleCheckLabStep(w http.ResponseWriter, r *http.Request) {
 		result = a.checkValkeyClientKilled(ctx, st)
 	case "valkey-client-management:pause-writes-briefly":
 		result = a.checkValkeyClientPauseHeld(ctx, st)
+	case "psmdb-crud-query-planner:create-index":
+		result = a.checkMongoStandaloneIndexUsed(ctx, st)
+	case "psmdb-crud-query-planner:covered-query":
+		result = a.checkMongoStandaloneCoveredQuery(ctx, st)
+	case "psmdb-ttl-capped:ttl-index":
+		result = a.checkMongoTTLIndex(ctx, st)
+	case "psmdb-ttl-capped:capped-collection":
+		result = a.checkMongoCappedCollection(ctx, st)
+	case "psmdb-auth-rbac:create-scoped-user":
+		result = a.checkMongoScopedUserCreated(ctx, st)
+	case "psmdb-auth-rbac:verify-restriction":
+		result = a.checkMongoRestrictionEnforced(ctx, st)
+	case "psmdb-backup-restore:take-backup":
+		result = a.checkMongoBackupTaken(ctx, st)
+	case "psmdb-backup-restore:restore-after-loss":
+		result = a.checkMongoRestoreRecovered(ctx, st)
+	case "psmdb-rs-fundamentals:observe-election":
+		result = a.checkMongoRSObserveElection(ctx, run, st)
+	case "psmdb-rs-fundamentals:force-election":
+		result = a.checkMongoRSForceElection(ctx, run, st)
+	case "psmdb-read-preference:baseline":
+		result = a.checkMongoReadPrefBaseline(ctx, run, st)
+	case "psmdb-read-preference:confirm-secondary-served-reads":
+		result = a.checkMongoReadPrefConfirmed(ctx, run, st)
+	case "psmdb-write-concern:majority-write":
+		result = a.checkMongoMajorityWriteReplicated(ctx, st)
+	case "psmdb-sharding-fundamentals:shard-a-collection":
+		result = a.checkMongoShardCollectionCreated(ctx, st)
+	case "psmdb-sharding-fundamentals:watch-chunks-form":
+		result = a.checkMongoChunksFormed(ctx, st)
+	case "psmdb-targeted-vs-scatter:targeted-query":
+		result = a.checkMongoTargetedQuery(ctx, st)
+	case "psmdb-targeted-vs-scatter:scatter-gather-query":
+		result = a.checkMongoScatterGatherQuery(ctx, st)
+	case "psmdb-hashed-vs-ranged:create-both":
+		result = a.checkMongoHashedRangedCreated(ctx, st)
+	case "psmdb-hashed-vs-ranged:compare-distribution":
+		result = a.checkMongoDistributionCompared(ctx, st)
+	case "psmdb-indexing-strategies:multikey-index":
+		result = a.checkMongoMultikeyIndex(ctx, st)
+	case "psmdb-indexing-strategies:partial-index":
+		result = a.checkMongoPartialIndex(ctx, st)
+	case "psmdb-schema-validation:create-validator":
+		result = a.checkMongoValidatorCreated(ctx, st)
+	case "psmdb-schema-validation:enforce-validation":
+		result = a.checkMongoValidationEnforced(ctx, st)
+	case "psmdb-tls:enable-tls":
+		result = a.checkMongoTLSEnabled(ctx, st)
+	case "psmdb-tls:require-tls":
+		result = a.checkMongoTLSRequired(ctx, st)
+	case "psmdb-profiler-currentop-killop:catch-with-profiler":
+		result = a.checkMongoProfilerCaught(ctx, st)
+	case "psmdb-profiler-currentop-killop:find-and-kill-hung-op":
+		result = a.checkMongoHungOpKilled(ctx, st)
+	case "psmdb-aggregation-pipeline:build-pipeline":
+		result = a.checkMongoAggregationPipeline(ctx, st)
+	case "psmdb-aggregation-pipeline:merge-into-collection":
+		result = a.checkMongoMergeIntoCollection(ctx, st)
+	case "psmdb-gridfs:upload-file":
+		result = a.checkMongoGridFSUploaded(ctx, st)
+	case "psmdb-gridfs:download-file":
+		result = a.checkMongoGridFSDownloaded(ctx, st)
+	case "psmdb-election-priorities:set-priorities":
+		result = a.checkMongoPrioritiesSet(ctx, run, st)
+	case "psmdb-election-priorities:verify-priority-wins":
+		result = a.checkMongoPriorityWins(ctx, run, st)
+	case "psmdb-change-streams:watch-and-record":
+		result = a.checkMongoChangeStreamCaptured(ctx, st)
+	case "psmdb-transactions:run-transaction":
+		result = a.checkMongoTransactionCommitted(ctx, st)
+	case "psmdb-transactions:abort-and-verify-atomicity":
+		result = a.checkMongoTransactionAborted(ctx, st)
+	case "psmdb-arbiter-quorum:add-arbiter":
+		result = a.checkMongoArbiterAdded(ctx, st)
+	case "psmdb-arbiter-quorum:survive-secondary-loss":
+		result = a.checkMongoQuorumSurvivedLoss(ctx, st)
+	case "psmdb-hidden-delayed:make-hidden-delayed":
+		result = a.checkMongoHiddenDelayedConfigured(ctx, st)
+	case "psmdb-hidden-delayed:verify-delay-and-invisibility":
+		result = a.checkMongoHiddenDelayedVerified(ctx, st)
+	case "psmdb-pbm-full-pitr:full-backup":
+		result = a.checkMongoPBMFullBackup(ctx, st)
+	case "psmdb-pbm-full-pitr:enable-pitr":
+		result = a.checkMongoPBMPitrEnabled(ctx, st)
+	case "psmdb-rollback:cause-divergence":
+		result = a.checkMongoRollbackDivergence(ctx, st)
+	case "psmdb-rollback:rejoin-and-rollback":
+		result = a.checkMongoRollbackCompleted(ctx, st)
+	case "psmdb-balancer:confirm-balancer-on":
+		result = a.checkMongoBalancerOn(ctx, st)
+	case "psmdb-balancer:force-a-migration":
+		result = a.checkMongoMigrationOccurred(ctx, st)
+	case "psmdb-config-server-rs:observe-config-rs":
+		result = a.checkMongoConfigRSObserved(ctx, st)
+	case "psmdb-config-server-rs:config-rs-survives-primary-loss":
+		result = a.checkMongoConfigRSSurvived(ctx, st)
+	case "psmdb-zone-sharding:tag-zones":
+		result = a.checkMongoZonesTagged(ctx, st)
+	case "psmdb-zone-sharding:verify-region-pinned":
+		result = a.checkMongoZonePinned(ctx, st)
+	case "psmdb-add-remove-shard:add-shard":
+		result = a.checkMongoShardAdded(ctx, st)
+	case "psmdb-add-remove-shard:remove-shard":
+		result = a.checkMongoShardRemoved(ctx, st)
+	case "psmdb-jumbo-chunk:produce-a-jumbo-chunk":
+		result = a.checkMongoJumboChunkFormed(ctx, st)
+	case "psmdb-jumbo-chunk:refine-the-shard-key":
+		result = a.checkMongoShardKeyRefined(ctx, st)
+	case "psmdb-resharding:reshard-to-a-new-key":
+		result = a.checkMongoReshardedToNewKey(ctx, st)
+	case "psmdb-pbm-sharded:cluster-wide-backup":
+		result = a.checkMongoPBMShardedBackup(ctx, st)
 	default:
 		writeErr(w, http.StatusNotImplemented, "no check available for this step")
 		return

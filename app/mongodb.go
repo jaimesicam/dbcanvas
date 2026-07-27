@@ -1346,6 +1346,8 @@ cat > /etc/systemd/system/mongod.service.d/10-dbcanvas-nofork.conf <<'DROPIN'
 [Service]
 Type=simple
 PIDFile=
+RuntimeDirectory=mongodb
+RuntimeDirectoryMode=0755
 DROPIN
 systemctl daemon-reload 2>/dev/null || true
 systemctl reset-failed mongod 2>/dev/null || true
@@ -1507,6 +1509,8 @@ User=mongod
 Group=mongod
 ExecStart=/usr/bin/mongos --config /etc/mongos.conf
 PIDFile=/var/run/mongodb/mongos.pid
+RuntimeDirectory=mongodb
+RuntimeDirectoryMode=0755
 LimitNOFILE=64000
 TimeoutStartSec=90
 Restart=on-failure

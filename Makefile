@@ -3,7 +3,7 @@ SHELL := /bin/bash
 # Load APP_PORT for echoing the URL (falls back to 8080).
 APP_PORT ?= $(shell test -f .env && grep -E '^APP_PORT=' .env | cut -d= -f2 || echo 8080)
 
-.PHONY: compose env build up down logs restart clean images versions trafficsim-image
+.PHONY: compose env build up down logs restart clean images versions trafficsim-image hotelsim-image
 
 ## compose: create .env if needed, then build and start the stack
 compose: env
@@ -52,3 +52,9 @@ versions:
 ## binary + embedded static frontend, no systemd) — a Traffic Sim node needs this.
 trafficsim-image:
 	docker build -t dbcanvas-trafficsim:latest trafficsim/
+
+## hotelsim-image: build the MongoDB Hotel Reservation Lab demo app image
+## (first-party Go binary + embedded static frontend, no systemd) — a Hotel Sim
+## node needs this.
+hotelsim-image:
+	docker build -t dbcanvas-hotelsim:latest hotelsim/

@@ -712,6 +712,17 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			if _, _, _, ok := trafficSimTarget(doc, n.ID); !ok {
 				out = append(out, issue{"error", "Traffic Sim node " + n.Label + " must be linked to a Valkey or Valkey Cluster node — draw an association line from one to it"})
 			}
+		case "hotelsim":
+			others++
+			if !seenImg[hotelSimImage] {
+				seenImg[hotelSimImage] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, hotelSimImage); !ok {
+					out = append(out, issue{"error", "Missing image " + hotelSimImage + " — run `make hotelsim-image` first"})
+				}
+			}
+			if _, _, _, ok := hotelSimTarget(doc, n.ID); !ok {
+				out = append(out, issue{"error", "Hotel Sim node " + n.Label + " must be linked to a PS MongoDB (standalone, replica set, or sharded cluster) node — draw an association line from one to it"})
+			}
 		default:
 			others++
 		}
@@ -1389,6 +1400,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionLinuxClient(st, n, doc)
 		case "trafficsim":
 			a.provisionTrafficSim(st, n, doc)
+		case "hotelsim":
+			a.provisionHotelSim(st, n, doc)
 		}
 	}
 

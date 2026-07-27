@@ -7722,3 +7722,232 @@ data` path through the real Check Work endpoint; re-ran one of the new Streams l
 generic valkey-cli-based checks are unaffected by the install mechanism change. `go build/vet` and a `vite
 build` clean throughout; both packaging bugs above were caught and fixed by this process before being
 folded into the final result.
+
+## 166. "Hotel Sim" — a MongoDB Hotel Reservation Lab live demo app — `hotelsim/` (new module), `app/hotelsim.go`, `intranet.go`, `mongodb.go`, `Makefile`, `web/src/pages/StackDesigner.jsx`
+
+User asked for a MongoDB analogue of the Valkey Traffic Lab: a 100-hotel reservation-chain simulation that
+connects to exactly one of PSMDB standalone, PSMDB Replica Set, or PSMDB Sharded, written in Go, surfacing a
+connectivity problem on the web interface if MongoDB becomes unreachable. Scoped to the spec's own §32 MVP +
+§33 acceptance criteria in full, deferring §34 Future Extensions — the same scoping discipline used for
+Traffic Sim.
+
+- **New `hotelsim/` module**, mirroring `trafficsim/`'s shape: `internal/store` (Mongo connect/ping, `hello`-
+  based topology detection, schema/shard-key/index setup, event log); `internal/sim` (deterministic 100-hotel
+  world with Zipf-by-rank popularity, per-topology `Profile` gating transactions/change-streams/scatter-ratio,
+  an accelerated `SimClock` at 720x with restart-safe re-anchoring, ten background agents — guest search,
+  reservation, modification, cancellation, check-in, check-out, rate/promotion, hotel-operations, analytics,
+  monitoring — plus a change-stream/poll event feed); `internal/api` (REST + WebSocket); `web/static` (plain
+  JS dashboard, no build step). Booking uses `session.WithTransaction` (replica set/sharded) or a compensating
+  guarded-`findOneAndUpdate` path (standalone, no multi-doc transactions); idempotency is a `requestId`-keyed
+  unsharded `reservationRequests` collection (a unique index on `reservations.requestId` is impossible on a
+  sharded collection). Shard key is `{hotelId, <date>}` compound-ranged on the three high-volume collections,
+  pre-split at startup into 3 ranges so the shard-distribution panel is meaningful immediately.
+- **`app/hotelsim.go`**: `hotelSimImage`/`hotelSimPort` (8089), `hotelSimTarget` (a 3-way version of
+  `trafficSimTarget` resolving a drawn edge to a `psm` node, `psmrs` frame, or `psmdb` frame),
+  `provisionHotelSim` (mirrors `provisionTrafficSim`), `waitHotelSimTarget` (builds the right `mongodb://` URI
+  per topology — `directConnection=true` for standalone, multi-host `?replicaSet=` once a majority of a
+  psmrs frame's members are running, the single running `mongos` router for psmdb — credentials read from a
+  target member's own `mongoSecrets`), `waitHotelSimHealthy` (same distroless-exec pattern as
+  `waitTrafficSimHealthy`).
+- **`app/intranet.go`**: a `case "hotelsim":` in both `validateStack` (image-exists + must-be-linked-to-a-
+  PSMDB-target) and the deploy dispatch loop.
+- **`Makefile`**: `hotelsim-image` target, standalone like `trafficsim-image`.
+- **`web/src/pages/StackDesigner.jsx`**: `NODE_TYPES.hotelsim` entry; flipped `NODE_TYPES.psm.ports` to `true`
+  (a standalone psm node can now be an edge endpoint, same reason `valkey` already was); `endpointKind`/
+  `tryConnect` rules for psm/psmrs/psmdb → hotelsim; `psmrs`/`psmdb` added to the frame port-hit-test list
+  (previously only pxc/proxysql/mysql/patroni/repmgr/spock/valkeycluster were connectable frames);
+  `HotelSimForm`/`HotelSimManager` components; MongoDB palette group entry; `PALETTE_ALIASES.hotelsim`.
+- **Two real bugs in the new `hotelsim/` code, caught by live-testing against real deployed stacks (this
+  project's established discipline)**:
+  1. The query-education panel's `FilterSummary` always read `"region=%s roomType=%s"` even for *targeted*
+     samples, whose actual filter was `hotelId $in candidates` — a learner reading the panel to learn "which
+     filter shape is targeted vs scatter-gather" would see identical-looking summaries for both. Fixed to
+     report the real filter shape per branch.
+  2. `preSplitBestEffort` and the monitoring agent's `summarizeSharding` both queried `admin.shards` to
+     discover the cluster's shards — the actual registry lives in `config.shards`; `admin` only hosts the
+     sharding *commands* (`enableSharding`/`shardCollection`/`split`/`moveChunk`). The wrong namespace is
+     always empty, so pre-splitting silently no-op'd every time (`0 shard(s) found, skipping`) and the
+     topology panel's per-shard document counts were never populated. Fixed both call sites to read
+     `config.shards`; re-verified live afterward — `dailyInventory` now shows a near-even 3-way split
+     (~3000 docs/shard) from first snapshot.
+- **One real bug in pre-existing PSMDB code, found while testing hotelsim's connectivity-failure story**:
+  killing and restarting a `psm`/`psmrs`/`psmdb` container left `mongod`/`mongos` permanently failed
+  (`Cannot write pid file ... No such file or directory`) — `/var/run/mongodb` is on the container's tmpfs
+  `/run`, wiped on every container restart, and nothing but a one-time provisioning-script `install -d`
+  recreated it. Fixed by adding `RuntimeDirectory=mongodb` to both the `mongod.service` drop-in and the
+  `mongos.service` unit in `app/mongodb.go`, so systemd recreates it on every unit start, not just at deploy
+  time.
+
+**Verified live**: deployed all three topologies (standalone `psm`, 3-node `psmrs`, 5-node minimum `psmdb`
+sharded) through the real API with a linked Hotel Sim node on each — confirmed correct topology auto-detection
+(`standalone`/`replicaset`/`sharded`), correct booking path per topology (`guarded` vs `transaction`), all ten
+agents active with `ok` status, idempotency rejecting duplicate `requestId`s, the sharded cluster's data
+genuinely spread across all 3 shards from the first snapshot, the query-education panel correctly labeling
+both targeted and scatter-gather samples, and — on all three topologies — the web interface's `mongoError`
+correctly appearing when the linked MongoDB target was killed and clearing once it recovered. `go build/vet`
+clean on both modules, `vite build` clean.
+
+## 167. 30-lab PS MongoDB curriculum plan; first 10 labs implemented (standalone/replica-set/sharded) — `app/labs_mongodb.go`, `labs.go`
+
+User asked for a 30-lab curriculum spanning PSMDB (standalone), PSMDB Replica Set, and PSMDB Sharded — deep
+enough to take a learner from beginner to expert, mirroring the existing Valkey/Valkey Cluster curriculum both
+in spirit and in mechanics — then to implement 10 of the 30 now. Full 30-topic curriculum (categories,
+difficulty, design-template grouping) is recorded in the approved plan; this entry covers the 10 implemented:
+4 standalone (CRUD/query planner, TTL/capped collections, auth/RBAC, backup/restore with hotelsim's
+deterministic 100-hotel dataset as the restore invariant), 3 replica-set (RS fundamentals + forced election,
+read-preference routing, majority write concern), 3 sharded (sharding fundamentals, targeted-vs-scatter-gather
+queries, hashed-vs-ranged shard keys) — chosen as a "balanced spread" skewed toward Beginner/Intermediate per
+the user's own selection among planning options.
+
+- **New `app/labs_mongodb.go`**: 3 shared design templates (`labPSMDesign`/`labPSMRSDesign`/
+  `labPSMDBShardedDesign`), each embedding a `lab-hotelsim` node (edge-linked to the Mongo target) + a
+  `lab-vnc` node, exactly like every Valkey lab embeds `lab-trafficsim` + `lab-vnc`. Discovered mid-build that
+  the main `app/` module already depends on `go.mongodb.org/mongo-driver` and already has the exact
+  "self-join the stack's Docker network, dial a container directly by IP, `directConnection=true`" mechanism
+  built for the Data Generator (`datagen.go`'s `dbConnFor`, `datagen_mongo.go`'s `mongoClientFor`) — reused
+  both verbatim instead of building a parallel `mongosh --eval`-and-parse-text path, which is significantly
+  more robust (native BSON, no shell-escaping) than this session's original plan called for.
+  `mongoLabFrameFromStack`/`mongoLabFrameMembers` (mirroring `valkeyFrameFromStack`/`valkeyRunningMembers`)
+  round out the new helpers actually needed.
+- **`app/labs.go`**: ~20 new `case "psmdb-*:*":` lines added to the existing check-dispatch switch in
+  `handleCheckLabStep`, alongside the Patroni and Valkey cases.
+- **Five real bugs caught by live-testing every step against real deployed stacks (this project's established
+  discipline)** — all five only surfaced by actually deploying and driving the checks, not by code review:
+  1. `collStats` on a namespace that doesn't exist yet still returns `ok:1` with a stats doc that simply lacks
+     a `capped` field (unlike `listIndexes`, which correctly errors) — the capped-collection check
+     misreported "exists but isn't capped" for a collection that was never created. Fixed by switching to
+     `ListCollectionSpecifications`, whose `Options` document is the actual source of truth.
+  2. The Read Preference lab's "did a secondary serve your reads" check compared
+     `serverStatus().opcounters.query` before/after — but the linked Hotel Sim demo app's own analytics agent
+     already issues a continuous stream of `secondaryPreferred` reads as part of its normal simulated
+     workload, so the check trivially passed regardless of anything the learner did. Fixed by switching to the
+     database profiler scoped to `labdb` (a database only this lab's own traffic ever touches) — profiling is
+     a genuinely per-node, non-replicated setting, so a profiled read of `labdb.items` on a specific secondary
+     is direct proof that node executed it.
+  3. `TimeLimit: "3h"` (used for the three sharded labs) isn't one of the five valid TTL tokens
+     (`2h`/`4h`/`8h`/`24h`/`2w`, `stacks.go`'s `ttlDurations`) — `CreateStack` doesn't validate a lab's own
+     `TimeLimit` the way the direct stack-creation API does, so `expiryFor` silently computed `now + 0`,
+     expiring the lab stack the instant it was created. Fixed by using the valid `"4h"` token.
+  4. The Sharding Fundamentals lab's "watch chunks split" step, and the reused collection in the Targeted vs
+     Scatter-Gather lab, never actually split under a realistic lab-sized dataset — MongoDB 6.0+'s default
+     chunk size is 128MB, far above what a lab can reasonably insert in a few seconds. Fixed by adding
+     `db.adminCommand({configureCollectionBalancing: ns, chunkSize: 1})` to the lab's own instructions, so a
+     ~4MB dataset actually produces multiple chunks spread across shards.
+  5. The Hashed vs Ranged lab's distribution-comparison check computed a shard document-count ratio from
+     `$shardedDataDistribution`'s `shards` array — but that array only lists shards that actually own at
+     least one document for the namespace, not one entry per shard with zeros for the rest. A collection
+     sitting 100% on a single shard came back as a single-element array, collapsing max/min to a ratio of
+     exactly 1.0 — reporting the *most* skewed possible case as "perfectly even." Fixed by cross-referencing
+     `config.shards` for the true shard count and treating any shard missing from the result as an explicit 0.
+
+**Verified live**: registered/approved a scratch admin user, then for each of the 3 shared design templates,
+created+validated+deployed a real stack and drove every one of the 20 new steps against the live
+`/api/labs/{id}/steps/{stepId}/check` endpoint — confirmed each fails in the "before" state and passes once
+the corresponding real MongoDB action was taken (index creation, TTL expiry after the real ~60s sweep, RBAC
+enforcement via an actual second connection as the scoped user, mongodump/mongorestore against Hotel Sim's own
+data, a real `rs.stepDown()` election, profiler-verified secondary reads, a real majority-acknowledged write
+confirmed present on both secondaries, real chunk splitting/routing, and real hashed-vs-ranged distribution
+skew) — all 5 bugs above were caught and fixed by this process before being folded into the final result.
+`go build/vet` clean.
+
+## 168. Second batch of 20 PS MongoDB labs (standalone/replica-set/sharded) — `app/labs_mongodb2.go`, `labs_mongodb3.go` (both new), `labs.go`
+
+User asked to add the next 20 of the planned 30-lab PS MongoDB curriculum. Split as originally planned: 6
+standalone (indexing strategies, `$jsonSchema` validation, TLS, profiler/currentOp/killOp, aggregation
+pipeline, GridFS), 7 replica-set (election priorities, change streams, transactions, arbiter & quorum, hidden
+& delayed members, PBM full/PITR backup, rollback), 7 sharded (balancer, config server replica set, zone
+sharding, add/remove a shard live, jumbo chunk, resharding, PBM on a sharded cluster).
+
+- **New files `app/labs_mongodb2.go`** (5 new design templates + all 20 `Lab` definitions) **and
+  `app/labs_mongodb3.go`** (check functions) — kept separate from the first batch's `labs_mongodb.go` given
+  the combined size. New design templates: `labPSMTLSDesign` (standalone with `generateCert:true` baked in),
+  `labPSMRSSpareDesign` (3-member RS + an unattached spare `psm` node for the arbiter lab),
+  `labPSMRSPBMDesign`/`labPSMDBPBMDesign` (SeaweedFS + `enablePBM` wired to a `psmrs`/`psmdb` frame, mirroring
+  Patroni's pgBackRest lab design shape), `labPSMDBStandardShardedDesign` (the 13-node "standard" sharded
+  setup — 3×3 shards + 3-member config RS + mongos — needed only by the config-server-RS lab; every other new
+  sharded lab reuses the lighter 5-node "minimum" template from the first batch), `labPSMDBSpareShardDesign`
+  (minimum sharded cluster + a spare, fully independent `psmrs` frame for the add/remove-shard lab). New
+  shared helpers in `labs_mongodb3.go`: `mongoLabHostToNode` (maps a replica-set config `host` string back to
+  a design node ID), `mongoLabReplConfig` (`replSetGetConfig`), `mongoLabPrimary`, `mongoLabExec` (the one
+  exec-based fallback, for TLS/GridFS/PBM checks that don't fit the driver-based model), `mongoLabConfigFrame`
+  (finds a `psmdb` frame regardless of setup).
+- **Ten real bugs caught live-testing every one of the 39 new steps against real deployed stacks** — every
+  one only surfaced by actually running the exact command sequence, several multiple times as each fix
+  revealed the next issue:
+  1. The schema-validation lab's "prove it rejects a bad document" check inserted its own probe document
+     without first confirming a validator existed — against a not-yet-created collection, that insert
+     silently *created* it unvalidated, permanently blocking the "create validator" step (`createCollection`
+     fails against an existing collection). Fixed by checking for the validator first.
+  2. The profiler/killOp lab's deliberately-hung `$function` aggregation only ever runs its body against a
+     document that exists — with `labdb.hang` still empty, the whole pipeline returned instantly instead of
+     hanging. Fixed instructions to seed one document first.
+  3. `mongofiles get <name> -o <path>` doesn't exist in this version's CLI (`-o` isn't a real flag, and the
+     original instructions used a filename embedding the full source path); redesigned around a clean
+     relative filename (`upload-me.txt`) so `put`/`get` just work in their default one-argument form.
+  4. The TLS lab needed four separate real fixes discovered in sequence: (a) `net.tls` must nest *inside* the
+     existing `net:` block, not duplicate it; (b) MongoDB requires a client certificate by default once TLS
+     is on — `allowConnectionsWithoutCertificates: true` is needed or every connection (including Check
+     Work's own) gets "no SSL certificate provided by peer, connection rejected"; (c) the cert's SANs are
+     DNS-only, so connecting to the default `127.0.0.1` fails hostname verification — `--host psm-1` is
+     required even for a local connection; (d) `setParameter tlsMode` refuses to jump straight from `allowTLS`
+     to `requireTLS` ("illegal state transition") — must pass through `preferTLS` first.
+  5. Election-priorities: `rs.stepDown(60)` freezes *that* member from winning re-election for 60 seconds,
+     directly defeating the "the favored member wins" demonstration for a full minute. Fixed to `stepDown(15)`
+     with a note explaining why (and that MongoDB's priority-takeover re-election itself can take up to ~30s
+     more on top of that).
+  6. Arbiter lab: `rs.addArb()` on a healthy 3-member set is rejected outright — growing to 4 voting members
+     changes the implicit default write concern, and MongoDB refuses the reconfig until
+     `setDefaultRWConcern` is called explicitly first.
+  7. Both PBM labs' instructions used `source /etc/sysconfig/pbm-agent && pbm backup` — but that env file has
+     no `export` keyword of its own, so a plain `source` never makes `PBM_MONGODB_URI` visible to the `pbm`
+     subprocess at all ("no MongoDB connection URI supplied"). Fixed to `export $(cat ...)` everywhere
+     (instructions and the two exec-based check functions).
+  8. The rollback lab needed real failpoints (`configureFailPoint`) that don't exist on this
+     Percona build (`enableTestCommands:false`, a startup-only parameter) — redesigned around genuine
+     `systemctl stop`/`start` timing instead (raise `electionTimeoutMillis` first for headroom). The first
+     live attempt still didn't roll back the marker document, because `systemctl stop mongod` returns before
+     the process has actually finished exiting — a write issued immediately after can still slip through a
+     few-hundred-millisecond overlap window. Fixed by having the instructions require `systemctl is-active
+     mongod` read `inactive` on *both* secondaries before writing, closing the race; re-verified live that the
+     marker document is then reliably rolled back.
+  9. Zone sharding: the "region pinned to one shard" check based on `queryPlanner.winningPlan.shards.length`
+     failed even once the balancer had correctly placed all the data — mongos's routing plan can legitimately
+     list a neighboring shard whose chunk range formally overlaps the query (an empty boundary chunk sitting
+     exactly at the zone edge) while that shard returns zero actual documents. Fixed by switching to
+     `explain("executionStats")` and checking each shard's own `nReturned`, which is what actually proves
+     where the data lives.
+  10. Add/remove-shard needed three real prerequisites, discovered one at a time, before a freshly-provisioned
+      `psmrs` frame could be added as a shard at all: (a) shards must share one cluster-wide internal
+      auth key — the spare frame's independently-generated keyFile has to be copied onto all three members and
+      mongod restarted; (b) each member's `mongod.conf` needs `sharding.clusterRole: shardsvr` appended (a
+      plain replica set frame is never started with it); (c) `sh.addShard`'s seed list must use the members'
+      full FQDNs, not the short hostnames the replica set was initiated with — a bare-hostname seed list is
+      rejected as not matching what the replica set itself reports. Also found the sharded PBM lab's
+      instructions pointed at mongos, which never gets a real `PBM_MONGODB_URI` (mongos holds no local data,
+      so its `/etc/sysconfig/pbm-agent` is an unfilled template) — fixed to run from a shard member instead,
+      and the check function to find one via the existing `mongoLabFrameMembers(..., "shard")` helper.
+  Two additional non-bug findings folded into the instructions: `reshardCollection`'s default
+  `numInitialChunks` heuristic demands far more chunks than a small lab dataset has cardinality for ("does
+  not have enough cardinality to make the required number of chunks of 90") — fixed by passing
+  `numInitialChunks:1` explicitly; and running 7 sharded stacks' worth of concurrent provisioning (47 nodes)
+  is genuinely resource-heavy on a single host — worth remembering when live-testing future sharded batches,
+  along with the fact that restarting the dbcanvas app mid-provisioning orphans any in-flight deploy
+  goroutines (nodes stay stuck in `provisioning` until `/deploy` is called again on that stack).
+
+**Verified live**: deployed all 3 shared standalone/replica-set design templates plus 4 sharded design
+variants (minimum, standard 13-node, spare-shard, PBM) through the real running instance, and drove every one
+of the 39 new steps against the live Check Work endpoint — each confirmed failing before the real action and
+passing after, including a genuine forced rollback, a genuine cross-shard resharding operation, and a
+from-scratch replica-set-to-shard conversion. All 10 bugs above were caught and fixed by this process before
+being folded into the final result. `go build/vet` clean.
+
+## 169. New "App Simulators" palette category for Traffic Sim / Hotel Sim — `web/src/pages/StackDesigner.jsx`
+
+User asked to move Traffic Sim (previously grouped under Valkey) and Hotel Sim (previously grouped under
+MongoDB) into their own palette category, "App Simulators", placed below "Storage & Tools".
+
+- Removed both entries from their old `paletteGroups` groups and added a new `{ title: 'App Simulators', items: [...] }`
+  group after `Storage & Tools` containing both. Collapse/recent-entry persistence, search, and aliases are
+  all keyed generically off `item.type`/`group.title`, so no other state needed updating.
+
+**Verified**: `vite build` clean, `make restart` rebuilt and redeployed the running instance.
