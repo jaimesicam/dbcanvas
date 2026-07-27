@@ -6708,7 +6708,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     // k3s node inside a K3D cluster frame.
     if (n.type === 'k3d') {
       if (dep && dep.state === 'running') {
-        return <K3DManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+        return <K3DManager stackId={stackId} nodeId={n.id} frame={frames.find((fr) => fr.id === n.frameId)} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <K3DMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} frameNodes={nodes.filter((x) => x.frameId === n.frameId)} patchNode={patchNode} dep={dep} deployed={deployed} />
     }

@@ -238,6 +238,13 @@ func main() {
 	// repmgr cluster (frame) — run an on-demand Barman cloud backup on the primary.
 	mux.HandleFunc("POST /api/stacks/{id}/frames/{fid}/barman/backup", app.handleRepmgrBackup)
 
+	// K3D cluster (frame) — a copyable admin kubeconfig, and Kubernetes RBAC users for testing.
+	mux.HandleFunc("GET /api/stacks/{id}/frames/{fid}/k3d/kubeconfig", app.handleK3DKubeconfig)
+	mux.HandleFunc("GET /api/stacks/{id}/frames/{fid}/k3d/users", app.handleK3DUsers)
+	mux.HandleFunc("POST /api/stacks/{id}/frames/{fid}/k3d/users", app.handleK3DUserCreate)
+	mux.HandleFunc("POST /api/stacks/{id}/frames/{fid}/k3d/users/delete", app.handleK3DUserDelete)
+	mux.HandleFunc("GET /api/stacks/{id}/frames/{fid}/k3d/users/{username}/kubeconfig", app.handleK3DUserKubeconfig)
+
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/term", app.handleNodeTerminal)
 
 	app.startReaper()

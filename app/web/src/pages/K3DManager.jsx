@@ -1,7 +1,7 @@
-import { useState } from 'react'
-import { Button, Badge } from '../components/ui.jsx'
+import { useEffect, useState } from 'react'
+import { Button, Badge, Field, ConfirmButton, inputCls } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
-import { DEPLOY_TONE } from '../lib/stackApi.js'
+import { DEPLOY_TONE, k3dApi } from '../lib/stackApi.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 
 // K3DManager — a running k3s node of a K3D cluster frame.
@@ -45,14 +45,123 @@ function Code({ label, text }) {
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'kubectl', label: 'kubectl' },
+  { id: 'kubeconfig', label: 'Kubeconfig' },
+  { id: 'users', label: 'Users' },
   { id: 'operator', label: 'Operator' },
 ]
 
-export default function K3DManager({ stackId, nodeId, dep, onDeleteNode }) {
+const ROLE_HELP = {
+  view: 'read-only, this namespace',
+  edit: 'read/write, this namespace (no RBAC/quota changes)',
+  admin: 'full control, this namespace (including RBAC)',
+  'cluster-admin': 'full control, every namespace',
+}
+
+function UsersTab({ stackId, frame, isServer }) {
+  const api = frame ? k3dApi(stackId, frame.id) : null
+  const [users, setUsers] = useState(null)
+  const [err, setErr] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [form, setForm] = useState({ username: '', namespace: 'default', role: 'view' })
+
+  const load = () => { if (api) api.users().then((r) => setUsers(r.users || [])).catch((e) => setErr(e.message)) }
+  useEffect(load, [frame?.id])
+
+  const run = async (fn) => {
+    setErr(null); setBusy(true)
+    try { await fn(); load() } catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+
+  const copyKubeconfig = async (username) => {
+    try {
+      const r = await api.userKubeconfig(username)
+      await navigator.clipboard.writeText(r.kubeconfig)
+    } catch (e) { setErr(e.message) }
+  }
+
+  if (!isServer) {
+    return (
+      <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+        RBAC users are cluster-wide — open the <span className="font-medium text-fg">server</span> node to manage them.
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+        Each user is a real Kubernetes <span className="font-mono">User</span> (an X.509 client certificate), bound to a
+        built-in ClusterRole. Copy a user's kubeconfig, use it from another node on this stack (e.g. the Linux Client
+        node's terminal) with <span className="font-mono">--kubeconfig</span>, and confirm what it can and can't do.
+      </div>
+      {err && <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{err}</div>}
+
+      <div className="space-y-2 rounded-lg border p-2">
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Username">
+            <input className={inputCls} value={form.username}
+              onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} placeholder="alice" />
+          </Field>
+          <Field label="Role">
+            <select className={inputCls} value={form.role}
+              onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}>
+              {Object.keys(ROLE_HELP).map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </Field>
+        </div>
+        {form.role !== 'cluster-admin' && (
+          <Field label="Namespace">
+            <input className={inputCls} value={form.namespace}
+              onChange={(e) => setForm((f) => ({ ...f, namespace: e.target.value }))} placeholder="default" />
+          </Field>
+        )}
+        <div className="text-xs text-muted">{ROLE_HELP[form.role]}</div>
+        <Button size="sm" disabled={busy || !form.username.trim()}
+          onClick={() => run(() => api.userCreate(form))}>
+          <Icon.Plus size={14} /> Create user
+        </Button>
+      </div>
+
+      <div className="space-y-1.5">
+        {users === null && <div className="text-xs text-muted">Loading…</div>}
+        {users !== null && users.length === 0 && <div className="text-xs text-muted">No users yet.</div>}
+        {(users || []).map((u) => (
+          <div key={u.username} className="flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-xs">
+            <div className="min-w-0">
+              <div className="truncate font-mono font-medium text-fg">{u.username}</div>
+              <div className="truncate text-muted">
+                {u.role}{u.role !== 'cluster-admin' && u.namespace ? ` · ${u.namespace}` : ''}
+              </div>
+            </div>
+            <div className="flex shrink-0 gap-1">
+              <Button variant="outline" size="sm" onClick={() => copyKubeconfig(u.username)}>
+                <Icon.Copy size={14} /> Kubeconfig
+              </Button>
+              <ConfirmButton variant="outline" size="sm" disabled={busy}
+                onConfirm={() => run(() => api.userDelete(u.username))}>
+                <Icon.Trash size={14} />
+              </ConfirmButton>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }) {
   const [tab, setTab] = useState('overview')
   const { openTerminal } = useTerminals()
   const cfg = dep.config || {}
   const isServer = cfg.role === 'server'
+  const [kubeconfig, setKubeconfig] = useState(null)
+  const [kubeconfigErr, setKubeconfigErr] = useState(null)
+  useEffect(() => {
+    if (tab !== 'kubeconfig' || !isServer || !frame || kubeconfig) return
+    k3dApi(stackId, frame.id).kubeconfig()
+      .then((r) => setKubeconfig(r.kubeconfig))
+      .catch((e) => setKubeconfigErr(e.message))
+  }, [tab, isServer, frame, stackId, kubeconfig])
   const ns = cfg.namespace || 'default'
   const cr = cfg.crName || 'cluster1'
   const isMongo = cfg.operator === 'psmdb'
@@ -139,6 +248,28 @@ kubectl -n metallb-system get ipaddresspool dbcanvas -o yaml`} />
 kubectl get svc -n ${ns}`} />
         </div>
       )}
+
+      {tab === 'kubeconfig' && (
+        isServer ? (
+          <div className="space-y-3">
+            <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+              This is the cluster's admin kubeconfig, pointed at k3d's own load balancer
+              (<span className="font-mono">k3d-{cfg.cluster}-serverlb</span>) so it works from any other node
+              on this stack — e.g. paste it into the <span className="font-medium text-fg">Linux Client</span> node's
+              terminal after installing <span className="font-mono">kubectl</span> there. It is not reachable from
+              your own machine unless you're on the stack's Docker network.
+            </div>
+            {kubeconfigErr && <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{kubeconfigErr}</div>}
+            {kubeconfig ? <Code label="kubeconfig (admin)" text={kubeconfig} /> : !kubeconfigErr && <div className="text-xs text-muted">Loading…</div>}
+          </div>
+        ) : (
+          <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+            The kubeconfig comes from the cluster's <span className="font-medium text-fg">server</span> node — open that one.
+          </div>
+        )
+      )}
+
+      {tab === 'users' && <UsersTab stackId={stackId} frame={frame} isServer={isServer} />}
 
       {tab === 'operator' && cfg.operator && (
         <div className="space-y-3">

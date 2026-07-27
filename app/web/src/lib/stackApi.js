@@ -132,6 +132,19 @@ export function mongoApi(id, fid) {
   }
 }
 
+// K3D cluster (frame) management. `fid` is the design frame id. A copyable admin kubeconfig, plus
+// Kubernetes RBAC users (a client-cert `User` bound to a built-in ClusterRole) for RBAC testing.
+export function k3dApi(id, fid) {
+  const base = `/api/stacks/${id}/frames/${fid}/k3d`
+  return {
+    kubeconfig: () => request('GET', `${base}/kubeconfig`),
+    users: () => request('GET', `${base}/users`),
+    userCreate: (body) => request('POST', `${base}/users`, body),
+    userDelete: (username) => request('POST', `${base}/users/delete`, { username }),
+    userKubeconfig: (username) => request('GET', `${base}/users/${encodeURIComponent(username)}/kubeconfig`),
+  }
+}
+
 // Per-node MongoDB management (`nid` is the design node id). Re-issue the node's
 // Intranet-CA cert (overwrites /etc/mongo/certs in place, no mongod restart).
 export function mongoNodeApi(id, nid) {

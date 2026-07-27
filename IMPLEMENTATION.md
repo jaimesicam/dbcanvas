@@ -7951,3 +7951,44 @@ MongoDB) into their own palette category, "App Simulators", placed below "Storag
   all keyed generically off `item.type`/`group.title`, so no other state needed updating.
 
 **Verified**: `vite build` clean, `make restart` rebuilt and redeployed the running instance.
+
+## 170. K3D node: copyable kubeconfig + Kubernetes RBAC users — `app/k3d_rbac.go`, `app/main.go`, `web/src/lib/stackApi.js`, `web/src/pages/K3DManager.jsx`
+
+User asked for a way, in a K3D node's Properties panel after deploy, to copy a kubeconfig and add
+Kubernetes users — explicitly for RBAC testing. User chose (via plan-mode question) genuine X.509
+client-certificate `User`s over ServiceAccount+token, and a simple built-in-ClusterRole picker
+(`view`/`edit`/`admin` namespaced, `cluster-admin` cluster-scoped) over free-form custom roles.
+
+- New `app/k3d_rbac.go`: `k3dFrameAndServer` locates a frame's running server member (the only node
+  with `kubectl` — the k3s image is busybox); `k3dFetchKubeconfig` reads the admin kubeconfig via
+  `kubectl config view --raw` and rewrites `server:` to `https://k3d-<cluster>-serverlb:6443` (k3d's
+  own load balancer container — the untracked `--api-port 0.0.0.0:0` host port is not reliable, but
+  the serverlb is on the same stack Docker network as every other node and resolvable by container
+  name); `buildCSR` generates an RSA key + CSR with Go's own `crypto/x509` (no openssl needed in the
+  shell-less k3s image); `k3dCreateUser` submits the CSR as a `CertificateSigningRequest`, approves it
+  itself immediately (dbcanvas already holds cluster-admin), and stores the signed cert + key +
+  role/namespace as a `Secret` in a new `dbcanvas-system` namespace (no dbcanvas-side DB table — the
+  cluster is the source of truth, same as every other K3D feature) alongside a RoleBinding or
+  ClusterRoleBinding binding the username directly to a built-in ClusterRole; `k3dListUsers`/
+  `k3dDeleteUser`/`k3dUserKubeconfig` read/delete/rebuild from that Secret.
+- 5 new frame-scoped routes in `app/main.go` (`GET/POST .../frames/{fid}/k3d/kubeconfig`,
+  `/users`, `/users/delete`, `/users/{username}/kubeconfig`), mirroring the existing PBM/PMM
+  frame-route handler shape (`handleMongoPBMBackup`).
+- New `k3dApi(id, fid)` in `stackApi.js`; new **Kubeconfig** and **Users** tabs in `K3DManager.jsx`
+  (server-node-only, like the existing `kubectl`/`operator` tabs), with a create-user form (username/
+  role/namespace), a list with per-user "copy kubeconfig" + delete, reusing the file's existing
+  `Code`/`CopyButton` and `components/ui.jsx`'s `Field`/`ConfirmButton`. `K3DManager` gained a `frame`
+  prop (mirroring `RepmgrManager`/`SpockManager`'s call sites) since kubeconfig/users are frame-, not
+  node-, scoped.
+
+**Verified live**: deployed a real stack (K3D server-only cluster + Linux Client node, no operator).
+Confirmed via the actual HTTP API + `kubectl` from inside the Linux Client node (after installing
+`kubectl` there) that: the admin kubeconfig works against `k3d-<cluster>-serverlb:6443`; a `view`
+user can read `default` but gets genuine `Forbidden` on writes, on `kube-system`, and on
+cluster-scoped resources; a `cluster-admin` user can do everything; deleting a user leaves their
+still-cryptographically-valid client cert unable to do anything (`Forbidden` on every action — the
+practical revocation Kubernetes actually offers, since there's no live cert revocation). Also
+drove the real browser UI (Playwright against the running instance, authenticated via the session
+cookie): both new tabs render correctly, the create-user form works end-to-end against the live
+API, the copy-kubeconfig button puts the real per-user kubeconfig on the clipboard, and the
+two-click delete-confirm removes the user from the list. `go build/vet` and `vite build` both clean.
