@@ -16,4 +16,5 @@ Images embedded in the top-level [`README.md`](../../README.md).
 | `query-runner.png` | The Query Runner (parallel SQL with processlist gating) |
 | `benchmark.png` | The Benchmark tool (OLTP/OLAP/RW/RO workloads) |
 | `visual-summary.png` | Visual Summary — timeline charts from a pt-stalk archive |
+| `labs.png` | The Labs (experimental) catalog, grouped by database/technology/category |
 | `dashboard.png` | The live Dashboard |

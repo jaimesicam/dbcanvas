@@ -8,8 +8,10 @@ monitoring, backups). Nodes are **Docker containers** by default, or — in
 [**hybrid** mode](#deployment-backends--docker-or-vagrant-hybrid) — real **VirtualBox VMs**
 driven by Vagrant for the OS/database nodes. It then gives you tools to *use* and *understand*
 those databases: a **Data Generator** for realistic test data, a **Query Runner** and
-**Benchmark** for workloads, a **Visual Summary** that turns pt-stalk captures into charts, a
-live **Dashboard**, and a **notification** center for what's happening across your stacks.
+**Benchmark** for workloads, a **Visual Summary** that turns pt-stalk captures into charts, an
+**experimental Labs** catalog of 80 AI-generated hands-on scenarios (see
+[below](#labs-experimental) — verify before relying on them), a live **Dashboard**, and a
+**notification** center for what's happening across your stacks.
 
 It's built for testing, demos, training, troubleshooting, benchmarking, and application
 development — spin up a production-shaped cluster in minutes, exercise it, and tear it down.
@@ -79,7 +81,14 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
   proxy, and Roundcube/Dovecot webmail), a **Samba AD DC** (Active Directory, LDAP,
   Kerberos), **PMM** monitoring, **ProxySQL**, **HAProxy**, **SeaweedFS** (S3 for backups, up to 10
   buckets, browsable from its panel), **Keycloak** (OIDC), **OpenBao** (secrets manager), an
-  **Ubuntu VNC** desktop, and **Watchtower**.
+  **Ubuntu VNC** desktop, a **Linux Client** jump box (a bare OS host with nothing installed —
+  join the stack's DNS/CA trust, then use its terminal to install and exercise whatever client
+  tools a task needs), and **Watchtower**.
+- **App Simulators** — link **Traffic Sim** to a Valkey node/cluster or **Hotel Sim** to a PS
+  MongoDB standalone/replica-set/sharded node and it drives real, continuous background traffic
+  against it (reads/writes for Traffic Sim; a 100-hotel reservation workload exercising CRUD,
+  transactions and change streams for Hotel Sim), with a live dashboard reachable from the
+  stack's Ubuntu VNC desktop.
 - **Operations** — cross-cluster replication links, per-node web terminals, certificate
   management, on-demand backups, and TTL-based auto-teardown.
 
@@ -144,6 +153,14 @@ operator's own PVC backup repo and the bucket stays empty.)
 > *A one-node K3D cluster running the **PXC operator 1.20.0** on k3s v1.36.2: the database is exposed
 > as ClusterIP while HAProxy takes a **MetalLB** address from the stack subnet, backups go to the
 > `pxc-backups` bucket on SeaweedFS, and PMM watches it through a service token DBCanvas minted.*
+
+**Kubeconfig and RBAC users, for testing access control.** The K3D server node's panel has a
+**Kubeconfig** tab (a copyable admin kubeconfig, pointed at k3d's own load balancer so it works
+from any other node in the stack — e.g. paste it into the **Linux Client** node's terminal) and a
+**Users** tab: create a genuine Kubernetes `User` — a real X.509 client certificate, signed by the
+cluster's own CA — bound to a built-in ClusterRole (`view`/`edit`/`admin` scoped to one namespace,
+or `cluster-admin` cluster-wide), then copy that user's own kubeconfig and confirm exactly what it
+can and can't do.
 
 **S3 backups (SeaweedFS).** One SeaweedFS node can create **up to 10 buckets**, and every database
 that backs up to it — standalone PostgreSQL, Patroni, repmgr, the MongoDB clusters, and all four K3D
@@ -229,6 +246,29 @@ age, replication lag, deadlocks, rows-scanned-without-index, and more). It's ~90
 and stays resilient when files are missing from the archive.
 
 ![Visual Summary — timeline charts from a pt-stalk archive](docs/screenshots/visual-summary.png)
+
+### Labs (experimental)
+A catalog of **80 hands-on scenarios** — 27 for **Patroni** (PostgreSQL HA), 30 for **PS MongoDB**
+(10 each for standalone, replica set, and sharded), and 23 for **Valkey** (15 standalone, 8
+cluster) — grouped by category (Failover & Elections, Sharding & Routing, Security & Access
+Control, Backup & Recovery, …) and difficulty. Starting a lab provisions a real, disposable stack
+through the same design-JSON + deploy pipeline **Database Stacks** uses; each step's **Check
+Work** button inspects that stack's actual live state — real `rs.status()`, `config.chunks`,
+`patronictl`/`kubectl` output, replication lag, and so on — it never grades what you typed.
+
+> **This content is AI-generated and experimental — that's why it's labeled "(experimental)" in
+> the app itself.** The lecture notes, step instructions, hints, and every Check Work function were
+> written by an LLM and spot-checked against real deployed stacks during development, not reviewed
+> line by line by a subject-matter expert. Treat it as a fast-drafted starting point, not a vetted
+> curriculum: technical claims, command syntax, and pass/fail conditions can be wrong. **Verify
+> anything before teaching from it, using it for certification prep, or relying on it
+> operationally.**
+
+![The Labs (experimental) catalog, grouped by database, technology and category](docs/screenshots/labs.png)
+
+> *Patroni's "Leadership & Failover" category: each card names its scenario, difficulty and time
+> limit, with lecture notes and a **Start Lab** button that deploys a real 3-node cluster behind
+> HAProxy — Check Work grades the cluster's actual state, not anything typed into a form.*
 
 ### Dashboard
 Scope-aware overview: an **admin** sees everything, a regular user sees only their own
