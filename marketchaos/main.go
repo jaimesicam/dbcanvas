@@ -75,8 +75,9 @@ func main() {
 	}
 
 	members := openMembers(envOr("MYSQL_DSN_MEMBERS", ""))
+	haproxyStatsURL := envOr("HAPROXY_STATS_URL", "")
 
-	engine := sim.NewEngine(st, kind, targetLabel, dataset, members)
+	engine := sim.NewEngine(st, kind, targetLabel, dataset, members, haproxyStatsURL)
 	engine.Start(ctx)
 
 	h := api.New(engine, st, webFS)

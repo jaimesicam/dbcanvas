@@ -44,12 +44,10 @@
         <div class="stat-tile"><div id="stat-uptime" class="v">—</div><div class="l">Uptime (s)</div></div>
       </div>
       <p class="muted">
-        This is the stage-S2 scaffold: connection wiring, the full domain schema, dataset
-        seeding, and all 10 workload agents (traffic level x mix) are live. The challenge
-        catalog and full dashboard (market overview, live trading, portfolio, database
-        performance, PXC, and slow-query leaderboard panels) land in later implementation
-        stages — for now the Agents panel below is the only live view into what the agents
-        are doing.
+        This is the stage-S3 scaffold: connection wiring, the full domain schema, dataset
+        seeding, all 10 workload agents, and the database-performance/PXC/HAProxy diagnostic
+        panels below are live. The challenge catalog, grading engine, and the market/trading/
+        portfolio panels land in later implementation stages.
       </p>
     </section>
     <section id="seed-panel" class="panel hidden">
@@ -65,6 +63,60 @@
     <section class="panel">
       <h2>Agents</h2>
       <div id="agents-list" class="muted">No agents running yet.</div>
+    </section>
+    <section class="panel">
+      <h2>Database performance</h2>
+      <div class="stat-grid">
+        <div class="stat-tile"><div id="dbp-qps" class="v">—</div><div class="l">Queries/sec</div></div>
+        <div class="stat-tile"><div id="dbp-tps" class="v">—</div><div class="l">Writes/sec</div></div>
+        <div class="stat-tile"><div id="dbp-rw" class="v">—</div><div class="l">Read:write ratio</div></div>
+        <div class="stat-tile"><div id="dbp-lockwait" class="v">—</div><div class="l">Lock waits/sec</div></div>
+        <div class="stat-tile"><div id="dbp-deadlocks" class="v">—</div><div class="l">Deadlocks (lifetime)</div></div>
+        <div class="stat-tile"><div id="dbp-tmpdisk" class="v">—</div><div class="l">Disk temp tables/sec</div></div>
+        <div class="stat-tile"><div id="dbp-hitrate" class="v">—</div><div class="l">Buffer pool hit rate</div></div>
+        <div class="stat-tile"><div id="dbp-threads" class="v">—</div><div class="l">Server threads connected</div></div>
+      </div>
+      <p class="muted" style="margin-top:10px">
+        Workers configured vs. connections actually used — the same traffic can look very
+        different depending on how the pool is sized.
+      </p>
+      <div class="stat-grid">
+        <div class="stat-tile"><div id="dbp-pool-cfg" class="v">—</div><div class="l">App pool configured (max open)</div></div>
+        <div class="stat-tile"><div id="dbp-pool-inuse" class="v">—</div><div class="l">App pool in use</div></div>
+        <div class="stat-tile"><div id="dbp-max-used" class="v">—</div><div class="l">Server max used connections</div></div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Slow-query leaderboard <span class="muted" style="font-weight:normal">(last 5s window)</span></h2>
+      <table class="data-table">
+        <thead><tr><th>Shape</th><th>Agent</th><th>Calls</th><th>Avg ms</th><th>Max ms</th><th>Rows examined</th><th>No index</th><th>Tmp disk tables</th></tr></thead>
+        <tbody id="leaderboard-body"><tr><td colspan="8" class="muted">No activity yet.</td></tr></tbody>
+      </table>
+    </section>
+    <section id="pxc-panel" class="panel hidden">
+      <h2>PXC cluster</h2>
+      <div class="stat-grid">
+        <div class="stat-tile"><div id="pxc-state" class="v">—</div><div class="l">Local state</div></div>
+        <div class="stat-tile"><div id="pxc-size" class="v">—</div><div class="l">Cluster size</div></div>
+        <div class="stat-tile"><div id="pxc-certfail" class="v">—</div><div class="l">Cert failures (lifetime)</div></div>
+        <div class="stat-tile"><div id="pxc-bfaborts" class="v">—</div><div class="l">BF aborts (lifetime)</div></div>
+        <div class="stat-tile"><div id="pxc-fc-paused" class="v">—</div><div class="l">Flow control paused (fraction)</div></div>
+        <div class="stat-tile"><div id="pxc-recv-q" class="v">—</div><div class="l">Receive queue</div></div>
+        <div class="stat-tile"><div id="pxc-send-q" class="v">—</div><div class="l">Send queue</div></div>
+        <div class="stat-tile"><div id="pxc-latency" class="v">—</div><div class="l">Repl. latency avg (ms)</div></div>
+      </div>
+      <p class="muted" style="margin-top:10px">
+        This is this node's own primary connection's view of the cluster (usually the first
+        member) — cert failures/BF aborts climb when concurrent writers on different nodes
+        conflict, exactly what the institutional-trader agent's PXC member pinning is for.
+      </p>
+    </section>
+    <section id="haproxy-panel" class="panel hidden">
+      <h2>HAProxy backends</h2>
+      <table class="data-table">
+        <thead><tr><th>Backend</th><th>Server</th><th>Status</th><th>Weight</th><th>Current sessions</th><th>Total sessions</th></tr></thead>
+        <tbody id="haproxy-body"><tr><td colspan="6" class="muted">No data yet.</td></tr></tbody>
+      </table>
     </section>
   </main>
   <script src="app.js"></script>

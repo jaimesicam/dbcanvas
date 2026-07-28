@@ -66,6 +66,91 @@ function render(snap) {
   } else {
     agentsList.textContent = 'No agents running yet.'
   }
+
+  const kind = (snap.control && snap.control.kind) || ''
+  const isPXC = kind === 'pxcnode' || kind === 'pxc' || kind === 'haproxy-pxc'
+  const isHAProxy = kind.startsWith('haproxy-')
+  document.getElementById('pxc-panel').classList.toggle('hidden', !isPXC)
+  document.getElementById('haproxy-panel').classList.toggle('hidden', !isHAProxy)
+}
+
+async function fetchDiagnostics() {
+  try {
+    const [stats, board] = await Promise.all([
+      fetch('/api/diag/serverstats').then((r) => r.json()),
+      fetch('/api/diag/leaderboard').then((r) => r.json()),
+    ])
+    renderServerStats(stats)
+    renderLeaderboard(board)
+  } catch (e) {
+    // best-effort — the next poll recovers; the main error banner already
+    // covers "can't reach MarketChaos at all"
+  }
+  if (!document.getElementById('pxc-panel').classList.contains('hidden')) {
+    fetch('/api/diag/wsrep').then((r) => r.json()).then(renderWsrep).catch(() => {})
+  }
+  if (!document.getElementById('haproxy-panel').classList.contains('hidden')) {
+    fetch('/api/diag/haproxy').then((r) => r.json()).then(renderHAProxy).catch(() => {})
+  }
+}
+
+function pct(v) { return v == null ? '—' : (v * 100).toFixed(1) + '%' }
+function num(v, digits) { return v == null ? '—' : Number(v).toFixed(digits != null ? digits : 1) }
+
+function renderServerStats(s) {
+  document.getElementById('dbp-qps').textContent = num(s.qps, 0)
+  document.getElementById('dbp-tps').textContent = num(s.tps, 1)
+  document.getElementById('dbp-rw').textContent = num(s.readWriteRatio, 2)
+  document.getElementById('dbp-lockwait').textContent = num(s.lockWaitsPerSec, 2)
+  document.getElementById('dbp-deadlocks').textContent = s.deadlocks != null ? s.deadlocks : '—'
+  document.getElementById('dbp-tmpdisk').textContent = num(s.tmpDiskTablesPerSec, 2)
+  document.getElementById('dbp-hitrate').textContent = pct(s.bufferPoolHitRate)
+  document.getElementById('dbp-threads').textContent = s.threadsConnected != null ? s.threadsConnected : '—'
+  document.getElementById('dbp-pool-cfg').textContent = s.poolConfigured != null ? s.poolConfigured : '—'
+  document.getElementById('dbp-pool-inuse').textContent = s.poolInUse != null ? s.poolInUse : '—'
+  document.getElementById('dbp-max-used').textContent = s.maxUsedConnections != null ? s.maxUsedConnections : '—'
+}
+
+function renderLeaderboard(rows) {
+  const body = document.getElementById('leaderboard-body')
+  if (!Array.isArray(rows) || rows.length === 0) {
+    body.innerHTML = '<tr><td colspan="8" class="muted">No activity yet.</td></tr>'
+    return
+  }
+  body.innerHTML = ''
+  for (const r of rows.slice(0, 15)) {
+    const tr = document.createElement('tr')
+    tr.innerHTML = `<td>${r.label}</td><td>${r.agent}</td>` +
+      `<td class="num">${r.calls}</td><td class="num">${r.avgMs.toFixed(2)}</td><td class="num">${r.maxMs.toFixed(2)}</td>` +
+      `<td class="num">${r.rowsExamined}</td><td class="num">${r.noIndexUsed}</td><td class="num">${r.tmpDiskTables}</td>`
+    body.appendChild(tr)
+  }
+}
+
+function renderWsrep(w) {
+  document.getElementById('pxc-state').textContent = w.LocalStateComment || '—'
+  document.getElementById('pxc-size').textContent = w.ClusterSize != null ? w.ClusterSize : '—'
+  document.getElementById('pxc-certfail').textContent = w.LocalCertFailures != null ? w.LocalCertFailures : '—'
+  document.getElementById('pxc-bfaborts').textContent = w.LocalBFAborts != null ? w.LocalBFAborts : '—'
+  document.getElementById('pxc-fc-paused').textContent = w.FlowControlPaused != null ? w.FlowControlPaused.toFixed(4) : '—'
+  document.getElementById('pxc-recv-q').textContent = w.ReceiveQueueLen != null ? w.ReceiveQueueLen : '—'
+  document.getElementById('pxc-send-q').textContent = w.SendQueueLen != null ? w.SendQueueLen : '—'
+  document.getElementById('pxc-latency').textContent = w.ReplLatencyAvgMs != null ? w.ReplLatencyAvgMs.toFixed(2) : '—'
+}
+
+function renderHAProxy(rows) {
+  const body = document.getElementById('haproxy-body')
+  if (!Array.isArray(rows) || rows.length === 0) {
+    body.innerHTML = '<tr><td colspan="6" class="muted">No data yet.</td></tr>'
+    return
+  }
+  body.innerHTML = ''
+  for (const r of rows) {
+    const tr = document.createElement('tr')
+    tr.innerHTML = `<td>${r.Backend}</td><td>${r.Server}</td><td>${r.Status}</td>` +
+      `<td class="num">${r.Weight}</td><td class="num">${r.CurSess}</td><td class="num">${r.TotSess}</td>`
+    body.appendChild(tr)
+  }
 }
 
 document.querySelectorAll('.controls button[data-level]').forEach((btn) => {
@@ -134,5 +219,7 @@ function connectWS() {
 }
 
 fetchState()
+fetchDiagnostics()
 setInterval(fetchState, 2000)
+setInterval(fetchDiagnostics, 2000)
 connectWS()

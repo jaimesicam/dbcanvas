@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -182,6 +183,13 @@ func (a *App) provisionMarketChaos(st Stack, n designNode, doc designDoc) {
 				memberDSNs[i] = fmt.Sprintf("%s:%s@tcp(%s:%d)/marketchaos", sec.AppUser, sec.AppPassword, m, targetPort)
 			}
 			env = append(env, "MYSQL_DSN_MEMBERS="+string(mustJSON(memberDSNs)))
+		}
+		// HAPROXY_STATS_URL: only set when fronted by HAProxy — targetHost is
+		// already the HAProxy node's own FQDN in that case (see
+		// waitMarketChaosTarget's "haproxy" branch), stats always served on
+		// :7000 regardless of which backend it fronts (see app/haproxy.go).
+		if strings.HasPrefix(cfg.TargetKind, "haproxy-") {
+			env = append(env, fmt.Sprintf("HAPROXY_STATS_URL=http://%s:%d/", targetHost, haproxyStatsPort))
 		}
 		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
 			Name: name, Image: marketChaosImage, Hostname: host,

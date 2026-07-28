@@ -41,6 +41,10 @@ type Engine struct {
 	// — nil for every target shape except a direct "pxc" cluster-frame link
 	// (see pxc.go). Only the Institutional Trader agent uses it.
 	Members *MemberPool
+	// HAProxyStatsURL is "" unless linked through HAProxy (TARGET_KIND
+	// haproxy-pxc/haproxy-mysql) — see app/marketchaos.go's
+	// HAPROXY_STATS_URL env var and diagnostics.go's HAProxyStats.
+	HAProxyStatsURL string
 
 	// Securities/popCum are the fixed, deterministic 200-security universe
 	// (see world.go's LoadWorld) — loaded once at construction, shared
@@ -60,6 +64,15 @@ type Engine struct {
 	seedProgress SeedProgress
 	lastPersist  time.Time
 
+	// statsMu guards ServerStatsView's rolling baseline (see diagnostics.go)
+	// — the previous point-in-time GLOBAL STATUS read, so a rate can be
+	// derived without a dedicated background sampler.
+	statsMu           sync.Mutex
+	lastServerStats   store.ServerStats
+	lastServerStatsAt time.Time
+
+	leaderboard *leaderboard
+
 	// baseCtx is the process's long-lived context — StartAgents/Reset always
 	// derive from this, never from a caller's request-scoped context (a
 	// Reset triggered from an HTTP handler whose r.Context() is canceled the
@@ -78,11 +91,12 @@ type Engine struct {
 	pools map[string]*workerPool
 }
 
-func NewEngine(st *store.Store, kind TargetKind, targetLabel string, dataset DatasetCounts, members *MemberPool) *Engine {
+func NewEngine(st *store.Store, kind TargetKind, targetLabel string, dataset DatasetCounts, members *MemberPool, haproxyStatsURL string) *Engine {
 	securities, popCum := LoadWorld()
 	e := &Engine{
 		Store: st, Kind: kind, TargetLabel: targetLabel, Dataset: dataset, Bus: NewEventBus(),
-		Members: members, Securities: securities, popCum: popCum,
+		Members: members, Securities: securities, popCum: popCum, HAProxyStatsURL: haproxyStatsURL,
+		leaderboard: newLeaderboard(),
 	}
 	e.level.Store(LevelStop)
 	e.mix.Store(MixBalanced)
@@ -132,6 +146,7 @@ func (e *Engine) StartAgents(ctx context.Context) {
 		e.runComplianceAgent,
 		e.runCleanupAgent,
 		e.runDashboardPollAgent,
+		e.runLeaderboardSampler,
 	}
 	for _, fn := range rateAgents {
 		e.wg.Add(1)

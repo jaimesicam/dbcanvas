@@ -58,3 +58,11 @@ main { padding: 16px 20px 40px; max-width: 1400px; margin: 0 auto; }
   height: 10px; overflow: hidden; margin: 8px 0 12px;
 }
 .progress-fill { background: var(--accent); height: 100%; transition: width .4s ease; }
+.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.data-table th {
+  text-align: left; color: var(--muted); text-transform: uppercase; font-size: 11px;
+  padding: 6px 8px; border-bottom: 1px solid var(--border);
+}
+.data-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.data-table tr:last-child td { border-bottom: none; }
+.data-table td.num { text-align: right; font-variant-numeric: tabular-nums; }

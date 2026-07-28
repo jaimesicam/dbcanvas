@@ -32,6 +32,14 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /api/control/pause", h.controlAction(func() { h.Engine.Pause() }))
 	mux.HandleFunc("POST /api/control/resume", h.controlAction(func() { h.Engine.Resume() }))
 	mux.HandleFunc("POST /api/control/reset", h.controlActionCtx(func(r *http.Request) error { return h.Engine.Reset(r.Context()) }))
+	mux.HandleFunc("GET /api/diag/leaderboard", h.handleLeaderboard)
+	mux.HandleFunc("GET /api/diag/serverstats", h.handleServerStats)
+	mux.HandleFunc("GET /api/diag/wsrep", h.handleWsrep)
+	mux.HandleFunc("GET /api/diag/haproxy", h.handleHAProxy)
+	mux.HandleFunc("GET /api/diag/processlist", h.handleProcesslist)
+	mux.HandleFunc("GET /api/diag/locks", h.handleLockWaits)
+	mux.HandleFunc("GET /api/diag/tablesizes", h.handleTableSizes)
+	mux.HandleFunc("POST /api/diag/explain", h.handleExplain)
 	mux.Handle("GET /", http.FileServerFS(h.Web))
 	return mux
 }
