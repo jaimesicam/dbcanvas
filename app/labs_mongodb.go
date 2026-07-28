@@ -181,14 +181,18 @@ A normal IXSCAN still has to fetch the full document from disk to return whateve
 			{
 				ID:    "create-index",
 				Title: "Turn a COLLSCAN into an IXSCAN",
-				Instructions: "Open a terminal on the psm node. Connect with `mongosh -u admin -p admin_password --authenticationDatabase admin`. In `labdb`, insert a few documents into `items` with a `category` field, e.g. `db.items.insertMany([{category:\"a\",name:\"one\"},{category:\"b\",name:\"two\"},{category:\"a\",name:\"three\"}])`. Run `db.items.find({category:\"a\"}).explain()` and note the `COLLSCAN` stage. Create an index with `db.items.createIndex({category:1})`, then re-run the same explain — it should now show `IXSCAN`. Click Check Work.",
-				Hint:  "The stage name lives at `.queryPlanner.winningPlan.stage` (or `.inputStage.stage` if there's a wrapping stage above it).",
+				Instructions: "Open a terminal on the psm node. Connect with `mongosh -u admin -p admin_password --authenticationDatabase admin`.\n\n" +
+					"In `labdb`, insert a few documents into `items` with a `category` field: `db.items.insertMany([{category:\"a\",name:\"one\"},{category:\"b\",name:\"two\"},{category:\"a\",name:\"three\"}])`.\n\n" +
+					"Run `db.items.find({category:\"a\"}).explain()` and note the `COLLSCAN` stage.\n\n" +
+					"Create an index with `db.items.createIndex({category:1})`, then re-run the same explain — it should now show `IXSCAN`. Click Check Work.",
+				Hint: "The stage name lives at `.queryPlanner.winningPlan.stage` (or `.inputStage.stage` if there's a wrapping stage above it).",
 			},
 			{
 				ID:    "covered-query",
 				Title: "Make the query fully covered",
-				Instructions: "Create a compound index that includes every field the query needs: `db.items.createIndex({category:1,name:1})`. Run `db.items.find({category:\"a\"},{name:1,_id:0}).explain(\"executionStats\")` — with `_id` excluded and both remaining fields in the index, MongoDB never has to fetch the document. Click Check Work.",
-				Hint:  "`executionStats.totalDocsExamined` should read exactly 0, while `nReturned` is greater than 0 — that gap is the whole point.",
+				Instructions: "Create a compound index that includes every field the query needs: `db.items.createIndex({category:1,name:1})`.\n\n" +
+					"Run `db.items.find({category:\"a\"},{name:1,_id:0}).explain(\"executionStats\")` — with `_id` excluded and both remaining fields in the index, MongoDB never has to fetch the document. Click Check Work.",
+				Hint: "`executionStats.totalDocsExamined` should read exactly 0, while `nReturned` is greater than 0 — that gap is the whole point.",
 			},
 		},
 	},
@@ -213,14 +217,17 @@ A capped collection is created with a maximum byte size up front. Once it's full
 			{
 				ID:    "ttl-index",
 				Title: "Expire a document with a TTL index",
-				Instructions: "On the psm node's mongosh: `db.sessions.createIndex({expiresAt:1},{expireAfterSeconds:0})`. Insert a document that's already \"expired\": `db.sessions.insertOne({_id:\"s1\",expiresAt:new Date(Date.now()-60000)})`. Wait about a minute for the TTL monitor to sweep, then click Check Work (click again if it hasn't run yet — the sweep isn't instant).",
-				Hint:  "If Check Work says the index is missing, confirm `expireAfterSeconds` is really part of the index options, not a plain field.",
+				Instructions: "On the psm node's mongosh: `db.sessions.createIndex({expiresAt:1},{expireAfterSeconds:0})`.\n\n" +
+					"Insert a document that's already \"expired\": `db.sessions.insertOne({_id:\"s1\",expiresAt:new Date(Date.now()-60000)})`.\n\n" +
+					"Wait about a minute for the TTL monitor to sweep, then click Check Work (click again if it hasn't run yet — the sweep isn't instant).",
+				Hint: "If Check Work says the index is missing, confirm `expireAfterSeconds` is really part of the index options, not a plain field.",
 			},
 			{
 				ID:    "capped-collection",
 				Title: "Overfill a capped collection",
-				Instructions: "Create a small capped collection: `db.createCollection(\"logs\",{capped:true,size:4096})`. Insert 500 small documents: `for (let i=0;i<500;i++) db.logs.insertOne({i:i,msg:\"x\".repeat(50)})`. Click Check Work.",
-				Hint:  "`db.logs.stats().capped` should be `true`, and `db.logs.countDocuments({})` should be far fewer than 500 — the oldest ones were evicted to keep the collection under 4096 bytes.",
+				Instructions: "Create a small capped collection: `db.createCollection(\"logs\",{capped:true,size:4096})`.\n\n" +
+					"Insert 500 small documents: `for (let i=0;i<500;i++) db.logs.insertOne({i:i,msg:\"x\".repeat(50)})`. Click Check Work.",
+				Hint: "`db.logs.stats().capped` should be `true`, and `db.logs.countDocuments({})` should be far fewer than 500 — the oldest ones were evicted to keep the collection under 4096 bytes.",
 			},
 		},
 	},
@@ -245,14 +252,15 @@ Reading back usersInfo/rolesInfo after creating a scoped user only proves the ro
 			{
 				ID:    "create-scoped-user",
 				Title: "Create a role scoped to one collection",
-				Instructions: "As admin: `db.getSiblingDB(\"admin\").createRole({role:\"labItemsReader\",privileges:[{resource:{db:\"labdb\",collection:\"items\"},actions:[\"find\"]}],roles:[]})`. Then `db.getSiblingDB(\"admin\").createUser({user:\"labreader\",pwd:\"labreader_pw\",roles:[{role:\"labItemsReader\",db:\"admin\"}]})`. Click Check Work.",
-				Hint:  "Both commands run against the `admin` database, authenticated as the cluster admin.",
+				Instructions: "As admin: `db.getSiblingDB(\"admin\").createRole({role:\"labItemsReader\",privileges:[{resource:{db:\"labdb\",collection:\"items\"},actions:[\"find\"]}],roles:[]})`.\n\n" +
+					"Then: `db.getSiblingDB(\"admin\").createUser({user:\"labreader\",pwd:\"labreader_pw\",roles:[{role:\"labItemsReader\",db:\"admin\"}]})`. Click Check Work.",
+				Hint: "Both commands run against the `admin` database, authenticated as the cluster admin.",
 			},
 			{
-				ID:    "verify-restriction",
-				Title: "Prove the restriction actually holds",
+				ID:           "verify-restriction",
+				Title:        "Prove the restriction actually holds",
 				Instructions: "Nothing to run here — Check Work itself connects as `labreader` and confirms a read on `labdb.items` succeeds while a write to it fails with Unauthorized. If it doesn't pass yet, double check the role's `actions` list only includes `find`, and that the user has no other roles.",
-				Hint:  "An `Unauthorized` error (code 13) is the specific proof required — any other kind of failure doesn't count.",
+				Hint:         "An `Unauthorized` error (code 13) is the specific proof required — any other kind of failure doesn't count.",
 			},
 		},
 	},
@@ -267,7 +275,7 @@ Reading back usersInfo/rolesInfo after creating a scoped user only proves the ro
 		TimeLimit:   "2h",
 		LectureNotes: `mongodump/mongorestore: the logical backup baseline
 
-mongodump reads every document in a database or collection and writes it out as BSON files (plus metadata describing indexes); mongorestore reads those files back and re-inserts everything, recreating indexes too. It's slower and heavier than a filesystem/volume snapshot for a large deployment, but it's portable across MongoDB versions and doesn't require stopping anything — the standard first tool to reach for before layering on something like Percona Backup for MongoDB (covered in a later replica-set lab).
+mongodump reads every document in a database or collection and writes it out as BSON files (plus metadata describing indexes); mongorestore reads those files back and re-inserts everything, recreating indexes too. It's slower and heavier than a filesystem/volume snapshot for a large deployment, but it's portable across MongoDB versions and doesn't require stopping anything — the standard first tool to reach for before layering on something more specialized like Percona Backup for MongoDB.
 
 Why this lab targets Hotel Sim's data specifically
 
@@ -277,14 +285,17 @@ The Hotel Sim demo app seeds exactly 100 hotel documents into hotelsim.hotels at
 			{
 				ID:    "take-backup",
 				Title: "Take a backup of hotelsim.hotels",
-				Instructions: "On the psm node's terminal: `mongodump --username=admin --password=admin_password --authenticationDatabase=admin --db=hotelsim --collection=hotels -o /tmp/backup`. Click Check Work.",
-				Hint:  "Check Work looks for `/tmp/backup/hotelsim/hotels.bson` on disk and confirms it isn't empty.",
+				Instructions: "On the psm node's terminal:\n\n" +
+					"`mongodump --username=admin --password=admin_password --authenticationDatabase=admin --db=hotelsim --collection=hotels -o /tmp/backup`\n\n" +
+					"Click Check Work.",
+				Hint: "Check Work looks for `/tmp/backup/hotelsim/hotels.bson` on disk and confirms it isn't empty.",
 			},
 			{
 				ID:    "restore-after-loss",
 				Title: "Destroy it, then restore it",
-				Instructions: "In mongosh: `db.getSiblingDB(\"hotelsim\").hotels.drop()`. Confirm it's gone, then restore: `mongorestore --username=admin --password=admin_password --authenticationDatabase=admin /tmp/backup`. Click Check Work.",
-				Hint:  "Hotel Sim itself doesn't refill this collection — only your restore does. Expect exactly 100 documents back.",
+				Instructions: "In mongosh: `db.getSiblingDB(\"hotelsim\").hotels.drop()`. Confirm it's gone.\n\n" +
+					"Restore it: `mongorestore --username=admin --password=admin_password --authenticationDatabase=admin /tmp/backup`. Click Check Work.",
+				Hint: "Hotel Sim itself doesn't refill this collection — only your restore does. Expect exactly 100 documents back.",
 			},
 		},
 	},
@@ -304,20 +315,23 @@ A MongoDB replica set is a group of mongod processes holding the same data, with
 
 Step-down vs. crash: two very different ways to lose a primary
 
-rs.stepDown() asks the current primary to voluntarily give up its role and triggers a clean election among the remaining members — no data loss, no unavailability window beyond the brief election itself. This is what a planned maintenance operation looks like in practice. A hard crash forces the same election but without the courtesy of a clean handoff — the remaining members simply notice the primary is unreachable and elect a new one once a majority agrees. Both this lab and later ones exercise the clean path first before advanced labs get into what happens when things go wrong mid-flight.`,
+rs.stepDown() asks the current primary to voluntarily give up its role and triggers a clean election among the remaining members — no data loss, no unavailability window beyond the brief election itself. This is what a planned maintenance operation looks like in practice. A hard crash forces the same election but without the courtesy of a clean handoff — the remaining members simply notice the primary is unreachable and elect a new one once a majority agrees. This lab exercises the clean, voluntary path.`,
 		DesignTemplate: labPSMRSDesign,
 		Steps: []LabStep{
 			{
 				ID:    "observe-election",
 				Title: "Find the current PRIMARY",
-				Instructions: "Open a terminal on any of the three replica set members and run `mongosh -u admin -p admin_password --authenticationDatabase admin --eval 'rs.status().members.map(m=>[m.name,m.stateStr])'`. Identify which member is PRIMARY. Click Check Work.",
-				Hint:  "All three members should report healthy — one PRIMARY, two SECONDARY. If a member is still in STARTUP2, give it a little longer.",
+				Instructions: "Open a terminal on any of the three replica set members and run:\n\n" +
+					"`mongosh -u admin -p admin_password --authenticationDatabase admin --eval 'rs.status().members.map(m=>[m.name,m.stateStr])'`\n\n" +
+					"Identify which member is PRIMARY. Click Check Work.",
+				Hint: "All three members should report healthy — one PRIMARY, two SECONDARY. If a member is still in STARTUP2, give it a little longer.",
 			},
 			{
 				ID:    "force-election",
 				Title: "Step down and confirm a new PRIMARY",
-				Instructions: "On the current PRIMARY (the one from the previous step), run `rs.stepDown()` from mongosh. Wait a few seconds for the election, then click Check Work.",
-				Hint:  "Check Work compares against the PRIMARY it saw in the previous step — a *different* member must hold the role now.",
+				Instructions: "On the current PRIMARY (the one from the previous step), run `rs.stepDown()` from mongosh.\n\n" +
+					"Wait a few seconds for the election, then click Check Work.",
+				Hint: "Check Work compares against the PRIMARY it saw in the previous step — a *different* member must hold the role now.",
 			},
 		},
 	},
@@ -344,16 +358,18 @@ A read against a secondary succeeding doesn't by itself prove the secondary serv
 		DesignTemplate: labPSMRSDesign,
 		Steps: []LabStep{
 			{
-				ID:    "baseline",
-				Title: "Enable profiling on the secondaries",
+				ID:           "baseline",
+				Title:        "Enable profiling on the secondaries",
 				Instructions: "Click Check Work now, before running anything — this turns on the database profiler for `labdb` on each secondary, so the next step can prove exactly which member actually served your reads.",
-				Hint:  "If this fails, give the replica set a little longer to finish electing a PRIMARY.",
+				Hint:         "If this fails, give the replica set a little longer to finish electing a PRIMARY.",
 			},
 			{
 				ID:    "confirm-secondary-served-reads",
 				Title: "Read from a secondary and confirm it served you",
-				Instructions: "Connect with `mongosh \"mongodb://rs-1,rs-2,rs-3/?replicaSet=lab-psmrs&readPreference=secondary\" -u admin -p admin_password --authenticationDatabase admin` and run a handful of finds, e.g. `for (let i=0;i<20;i++) db.getSiblingDB(\"labdb\").items.find().toArray()`. Click Check Work.",
-				Hint:  "Check Work looks in labdb's profiler log (system.profile) on each secondary for a recorded read against labdb.items — that's only there if that secondary actually executed it.",
+				Instructions: "Connect with:\n\n" +
+					"`mongosh \"mongodb://rs-1,rs-2,rs-3/?replicaSet=lab-psmrs&readPreference=secondary\" -u admin -p admin_password --authenticationDatabase admin`\n\n" +
+					"Run a handful of finds: `for (let i=0;i<20;i++) db.getSiblingDB(\"labdb\").items.find().toArray()`. Click Check Work.",
+				Hint: "Check Work looks in labdb's profiler log (system.profile) on each secondary for a recorded read against labdb.items — that's only there if that secondary actually executed it.",
 			},
 		},
 	},
@@ -378,8 +394,10 @@ The only way to trust that a majority write really replicated — as opposed to 
 			{
 				ID:    "majority-write",
 				Title: "Insert with majority write concern",
-				Instructions: "On the primary's mongosh: `db.getSiblingDB(\"labdb\").wc.insertOne({_id:\"labMarker\",note:\"majority write\"},{writeConcern:{w:\"majority\",wtimeout:5000}})`. Click Check Work.",
-				Hint:  "Check Work connects directly to each secondary and looks for `_id:\"labMarker\"` in `labdb.wc` — it doesn't just trust that the insert call returned success.",
+				Instructions: "On the primary's mongosh:\n\n" +
+					"`db.getSiblingDB(\"labdb\").wc.insertOne({_id:\"labMarker\",note:\"majority write\"},{writeConcern:{w:\"majority\",wtimeout:5000}})`\n\n" +
+					"Click Check Work.",
+				Hint: "Check Work connects directly to each secondary and looks for `_id:\"labMarker\"` in `labdb.wc` — it doesn't just trust that the insert call returned success.",
 			},
 		},
 	},
@@ -405,14 +423,19 @@ Once a collection is sharded on a key, its documents are grouped into chunks —
 			{
 				ID:    "shard-a-collection",
 				Title: "Enable sharding and shard a collection",
-				Instructions: "On the mongos node's terminal: `mongosh -u admin -p admin_password --authenticationDatabase admin --eval 'sh.enableSharding(\"labdb\"); sh.shardCollection(\"labdb.items\",{itemId:1})'`. This lab's dataset is small, so also shrink this one collection's chunk size well below the 128MB default — otherwise nothing you insert next will ever be large enough to trigger a split: `db.adminCommand({configureCollectionBalancing:\"labdb.items\",chunkSize:1})`. Click Check Work.",
-				Hint:  "Check Work reads `config.collections` for `labdb.items` and confirms its shard key matches `{itemId:1}`.",
+				Instructions: "On the mongos node's terminal: `mongosh -u admin -p admin_password --authenticationDatabase admin --eval 'sh.enableSharding(\"labdb\"); sh.shardCollection(\"labdb.items\",{itemId:1})'`.\n\n" +
+					"This lab's dataset is small, so also shrink this one collection's chunk size well below the 128MB default — otherwise nothing you insert next will ever be large enough to trigger a split:\n\n" +
+					"`db.adminCommand({configureCollectionBalancing:\"labdb.items\",chunkSize:1})`\n\n" +
+					"Click Check Work.",
+				Hint: "Check Work reads `config.collections` for `labdb.items` and confirms its shard key matches `{itemId:1}`.",
 			},
 			{
 				ID:    "watch-chunks-form",
 				Title: "Insert enough data to split into multiple chunks",
-				Instructions: "From mongosh on mongos: `for (let i=0;i<20000;i++) db.getSiblingDB(\"labdb\").items.insertOne({itemId:i,payload:\"x\".repeat(200)})`. This takes a little while — once it finishes, click Check Work (and again after a short wait if it hasn't split yet).",
-				Hint:  "Check Work counts rows in `config.chunks` for `labdb.items` — it needs to be more than 1.",
+				Instructions: "From mongosh on mongos:\n\n" +
+					"`for (let i=0;i<20000;i++) db.getSiblingDB(\"labdb\").items.insertOne({itemId:i,payload:\"x\".repeat(200)})`\n\n" +
+					"This takes a little while — once it finishes, click Check Work (and again after a short wait if it hasn't split yet).",
+				Hint: "Check Work counts rows in `config.chunks` for `labdb.items` — it needs to be more than 1.",
 			},
 		},
 	},
@@ -437,14 +460,16 @@ A scatter-gather query isn't wrong, but it costs roughly N times the work of a t
 			{
 				ID:    "targeted-query",
 				Title: "Run a targeted query",
-				Instructions: "This step reuses the `labdb.items` collection from the Sharding Fundamentals lab (if you haven't done that lab yet, shard it first the same way). From mongos: `db.getSiblingDB(\"labdb\").items.find({itemId:5}).explain()`. Click Check Work.",
-				Hint:  "Check Work independently re-runs the same explain and checks `queryPlanner.winningPlan.shards.length` — for an equality match on the shard key, it should be 1.",
+				Instructions: "On the mongos node's terminal, connect with `mongosh -u admin -p admin_password --authenticationDatabase admin`.\n\n" +
+					"Shard `labdb.items` on `itemId` and populate it: `sh.enableSharding(\"labdb\"); sh.shardCollection(\"labdb.items\",{itemId:1}); for (let i=0;i<2000;i++) db.getSiblingDB(\"labdb\").items.insertOne({itemId:i,payload:\"y\".repeat(50)})`.\n\n" +
+					"Run a targeted query: `db.getSiblingDB(\"labdb\").items.find({itemId:5}).explain()`. Click Check Work.",
+				Hint: "Check Work independently re-runs the same explain and checks `queryPlanner.winningPlan.shards.length` — for an equality match on the shard key, it should be 1.",
 			},
 			{
-				ID:    "scatter-gather-query",
-				Title: "Run a scatter-gather query",
+				ID:           "scatter-gather-query",
+				Title:        "Run a scatter-gather query",
 				Instructions: "From mongos: `db.getSiblingDB(\"labdb\").items.find({payload:/^xxx/}).explain()` — a filter that says nothing about `itemId`. Click Check Work.",
-				Hint:  "This time `shards.length` should equal the shard count (3) — mongos can't rule any of them out.",
+				Hint:         "This time `shards.length` should equal the shard count (3) — mongos can't rule any of them out.",
 			},
 		},
 	},
@@ -469,14 +494,17 @@ If application data arrives with an ever-increasing key — an auto-incrementing
 			{
 				ID:    "create-both",
 				Title: "Shard the same key two ways",
-				Instructions: "From mongos: `sh.shardCollection(\"labdb.itemsRanged\",{seq:1}); sh.shardCollection(\"labdb.itemsHashed\",{seq:\"hashed\"})`. Then insert the same monotonic sequence into both: `for (let i=0;i<20000;i++){db.getSiblingDB(\"labdb\").itemsRanged.insertOne({seq:i}); db.getSiblingDB(\"labdb\").itemsHashed.insertOne({seq:i});}`. Click Check Work.",
-				Hint:  "Check Work confirms both namespaces are sharded — one with a plain ascending key, one with a hashed key.",
+				Instructions: "From mongos: `sh.shardCollection(\"labdb.itemsRanged\",{seq:1}); sh.shardCollection(\"labdb.itemsHashed\",{seq:\"hashed\"})`.\n\n" +
+					"Then insert the same monotonic sequence into both:\n\n" +
+					"`for (let i=0;i<20000;i++){db.getSiblingDB(\"labdb\").itemsRanged.insertOne({seq:i}); db.getSiblingDB(\"labdb\").itemsHashed.insertOne({seq:i});}`\n\n" +
+					"Click Check Work.",
+				Hint: "Check Work confirms both namespaces are sharded — one with a plain ascending key, one with a hashed key.",
 			},
 			{
-				ID:    "compare-distribution",
-				Title: "Compare how evenly each one spread",
+				ID:           "compare-distribution",
+				Title:        "Compare how evenly each one spread",
 				Instructions: "No further action needed — Check Work compares each collection's per-shard document distribution.",
-				Hint:  "Expect `itemsRanged` heavily concentrated on one shard (the monotonic key always extends the current top chunk) and `itemsHashed` spread much more evenly across all three.",
+				Hint:         "Expect `itemsRanged` heavily concentrated on one shard (the monotonic key always extends the current top chunk) and `itemsHashed` spread much more evenly across all three.",
 			},
 		},
 	},

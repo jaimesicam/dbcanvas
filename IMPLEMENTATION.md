@@ -7992,3 +7992,355 @@ drove the real browser UI (Playwright against the running instance, authenticate
 cookie): both new tabs render correctly, the create-user form works end-to-end against the live
 API, the copy-kubeconfig button puts the real per-user kubeconfig on the clipboard, and the
 two-click delete-confirm removes the user from the list. `go build/vet` and `vite build` both clean.
+
+## 171. "Airline Sim" — a MySQL Airline Reservation Lab live demo app — `airlinesim/` (new module), `app/airlinesim.go`, `haproxy.go`, `intranet.go`, `Makefile`, `web/src/pages/StackDesigner.jsx`
+
+User asked for a MySQL-family analogue of Hotel Sim: a 200-route reservation workload against a
+2000-aircraft fleet, connecting to a standalone Percona Server node, a MySQL replication frame, a
+PXC cluster, or either of the latter two fronted by HAProxy or ProxySQL — seven resolvable link
+shapes, confirmed via plan-mode Q&A (the user explicitly wanted the full proxy matrix, not just
+direct links). HAProxy could only front Patroni/PXC before this — fronting a plain MySQL
+replication frame is a genuine platform extension, not sim-only code.
+
+- **Platform extension (`app/haproxy.go`, `app/intranet.go`)**: `haproxyClusterFrames` now also
+  matches `"mysql"` frames; new `waitMySQLReplMembers` (mirrors `waitPXCMembers`), new
+  `mysqlReplSetupHealthCheck` + `mysqlReplCheckServiceScript` (a mysqlchk responder parsing the
+  incoming `GET /primary` vs `GET /replica` request path itself — plain MySQL has no REST API like
+  Patroni's — and answering 200 only when `@@read_only` matches the requested role), new
+  `haproxyMySQLCfg` (structured identically to the existing Patroni `haproxyCfg`: every member
+  listed in every backend, HAProxy's own httpchk decides eligibility at runtime so a later
+  primary/replica failover needs no HAProxy reconfiguration). Reuses the existing
+  `clustercheck`@`localhost` user every MySQL-family baseline already creates — no new grant
+  needed. Also removed a frontend restriction in `StackDesigner.jsx`'s `tryConnect` that only let
+  PXC frames (not MySQL frames) connect to an HAProxy node.
+- **New `airlinesim/` module**, mirroring `hotelsim/`'s shape but relational: `internal/store`
+  (`database/sql` + `go-sql-driver/mysql`, schema via plain `CREATE TABLE IF NOT EXISTS`, no
+  sharding/topology-detection — dbcanvas resolves the target kind authoritatively and passes it in
+  as `TARGET_KIND`, so this app never self-detects); `internal/sim` (200 deterministic routes across
+  4 regions, a 2000-aircraft fleet pooled ~10-per-route with a maintenance/grounding state machine,
+  one `sqlBooker` for every target family — SQL gives real transactions everywhere, unlike MongoDB
+  standalone, so there's no txn/guarded split — with a retry loop on MySQL error 1213 that's
+  required for correctness on `pxc` (Galera certification conflicts don't auto-retry
+  multi-statement transactions) and harmless everywhere else; ten agents — route-search, booking,
+  modification, cancellation, check-in, flight-completion, fare-pricing, fleet-ops, analytics,
+  monitoring — plus an auto-increment-cursor event poller, since MySQL has no change-stream
+  equivalent at all, not even as a fallback); `internal/api` (REST + WebSocket, plus `/api/aircraft`
+  for the fleet panel); `web/static` (plain JS dashboard — a route grid at hotel-tile scale, and a
+  separate searchable/paginated Fleet table instead of 2000 individual tiles).
+- **`app/airlinesim.go`**: `airlineSimTarget` (edge-walk resolving 5 *coarse* shapes: `ps` node,
+  `backend` frame, `haproxy` node, or `proxysql` node/frame), `waitAirlineSimTarget` (resolves the
+  coarse shape down to a connectable host:port + app credentials, expanding `haproxy`/`proxysql`
+  into their `-pxc`/`-mysql` variant once the fronted backend's kind is known — 7 kinds total),
+  `waitPSNodeRunning`/`waitProxySQLRunning` (new), reusing `waitMySQLRunning`/`waitPXCRunning`/
+  `haproxyBackend`/`waitNodeRunning` as-is. `provisionAirlineSim` mirrors `provisionHotelSim`.
+- **`app/intranet.go`**: `case "airlinesim":` in `validateStack` and the deploy dispatch loop.
+- **`Makefile`**: `airlinesim-image` target, standalone like `hotelsim-image`.
+- **`web/src/pages/StackDesigner.jsx`**: `NODE_TYPES.airlinesim`; `endpointKind` gained a `'ps'` kind
+  (a standalone Percona Server node had no endpoint kind at all before this — a real pre-existing
+  gap, now closed) and an `'airlinesim'` kind; five new `tryConnect` rule-pairs (`ps`/`backend`/
+  `haproxy`/`proxysql`/`proxysql-frame` → `airlinesim`); `AirlineSimForm`/`AirlineSimManager`
+  components; App Simulators palette entry; `PALETTE_ALIASES.airlinesim`.
+- **One real bug caught by live-testing**: `store.Connect`'s DSN never set `parseTime=true` —
+  every `time.Time` column scan (`AllHeartbeats`, `EventsSince`, reservation/route detail) was
+  silently failing wherever the caller discarded the error, so `/api/state`'s `agents` field came
+  back `null` despite the `agents` table having real rows. Fixed in `internal/store/mysql.go`'s
+  `Connect`; re-verified live afterward. Also added an `agent` column to `reservation_events` (the
+  `Event.Agent` field was being built in memory and passed to `AppendEvent` but the original INSERT
+  never actually persisted it — every event showed a blank agent).
+
+**Verified live**: built `dbcanvas-airlinesim:latest` and ran it against a real Percona Server 8.0
+container end-to-end under two target kinds (`TARGET_KIND=ps` and `TARGET_KIND=pxc`, the latter to
+exercise the `pxc`-family Profile without needing a full Galera cluster) — confirmed correct seeding
+(200 routes, 2000 aircraft, ~3%/97 aircraft starting in maintenance), all ten agents reporting `ok`
+heartbeats, real bookings/cancellations/modifications flowing, the query-education panel correctly
+showing `targeted` samples (idx_fi_route_date, ~12 rows examined) vs. `pxc`-only `scatter` samples
+(idx_fi_region_date, ~200 rows examined) with real verified `EXPLAIN` output, the fleet-ops
+maintenance/return-to-service cycle, and the `diag` panel gracefully reporting empty wsrep/replica
+status against plain (non-Galera, non-replicated) MySQL rather than erroring. Separately built and
+live-tested the new `mysqlReplCheckServiceScript` against a real primary (`read_only=0`) + replica
+(`read_only=1`) MySQL pair: confirmed it answers 200 on `/primary` only for the primary and 200 on
+`/replica` only for the replica, 503 otherwise. Confirmed `docker compose build app` (the real
+dbcanvas binary + Vite frontend) builds cleanly with every change in this entry, and `make images`/
+`trafficsim-image`/`hotelsim-image` are unaffected. **Not verified**: a full deploy through the live
+dbcanvas web UI/API (all 7 link shapes, actual PXC Galera certification-conflict retries under
+concurrent load, HAProxy→MySQL end-to-end) — this session had no browser/authenticated-API access
+to the running dbcanvas instance; that pass is still owed before calling this feature done.
+
+## 172. 15 new Labs for MySQL Replication (6), PXC (6), and HAProxy+PXC (3), all built around Airline Sim — `app/labs_mysqlrepl.go`, `labs_pxc.go`, `labs_haproxy_pxc.go`, `labs_mysqlfamily.go` (all new), `labs.go`, `store.go`
+
+User asked for the first Labs curriculum for the MySQL-family engines — zero existed before this
+(every prior lab was Postgres/Patroni, MongoDB, or Valkey) — with Airline Sim woven into each lab
+specifically, not just present as decoration. Followed the existing per-family-file convention
+(`labs_valkey.go`, `labs_mongodb.go`) exactly: each new file owns its own design-template JSON +
+`[]Lab` slice + `init()` append; `web/src/pages/Labs.jsx` needed no changes at all, since it groups
+purely from each `Lab`'s own `Database`/`Technology`/`Category` fields.
+
+- **New `app/labs_mysqlfamily.go`**: shared primitives every new check builds on —
+  `mysqlLabExec` (execs `mysql -e "..."` inside a container via the passwordless root
+  `.my.cnf` every MySQL-family node already gets at provisioning time — no new credential
+  plumbing needed), `pxcFrameFromStack`/`mysqlReplFrameFromStack`/`haproxyNodeFromStack`
+  (copy-paste siblings of the existing `patroniFrameFromStack`), `runningPXCMembers`/
+  `runningMySQLReplMembers`/`mysqlReplMembers`, `haproxyActiveWriter` (parses HAProxy's
+  `;csv` stats export to find which PXC node is actually receiving write traffic right
+  now), `airlineSimMetric` (reads one field out of Airline Sim's own `metrics` table —
+  its data lives inside the very same MySQL/PXC database every check already reaches,
+  so there's no separate connection path to Airline Sim itself needed, and its own
+  container is distroless with no shell to `Exec` into anyway), and `pxcConflictProbe`
+  (see the bug below).
+- **`app/labs_mysqlrepl.go`** (6 labs, `labMySQLReplDesign` + a `labMySQLReplSemiSyncDesign`
+  variant): GTID auto-positioning, replication lag under load, semi-sync durability/fallback,
+  read-only enforcement, point-in-time recovery via binlog replay (file-marker technique —
+  `cat`-readable count checkpoints on the container's own filesystem — instead of a new DB
+  column, since the baseline only needs to survive within one lab run), and a delayed replica
+  as a safety window.
+- **`app/labs_pxc.go`** (6 labs, `labPXCDesign` + a `labPXC4Design` variant): Galera
+  certification conflicts on a hot row, losing a minority (quorum survives) vs. losing a
+  majority (split-brain prevention) — `pxcReachableMembers` probes each node directly since a
+  "killed" node might mean a stopped container OR just a stopped mysqld inside a still-running
+  one — graceful node removal + rejoin, flow control throttling, and SST vs. IST catch-up.
+- **`app/labs_haproxy_pxc.go`** (3 labs, `labHAProxyPXCDesign`): single-writer routing
+  avoiding the certification conflicts the direct-PXC lab produces, automatic failover on the
+  write port (reuses the Patroni curriculum's existing `initial_leader_node_id` column for the
+  "which node was active when the lab started" baseline — same semantic, no new column), and
+  load-balanced reads across the read port.
+- **`app/labs.go`**: 18 new step-check `case`s in `handleCheckLabStep`'s dispatch switch, plus
+  a new `captureLabInitialHAProxyWriter` baseline-capture goroutine fired from `handleStartLab`.
+
+**One real, consequential bug caught by live-testing, that reshaped two labs' Check Work**:
+the very first live check against a real replica (`mysql-repl-gtid`) failed with a wrong,
+misleading message despite `SHOW REPLICA STATUS` genuinely showing both threads running.
+Root cause: `mysqlLabExec` used `-N` (skip column names) unconditionally, and `-N` *also*
+strips `\G` (vertical format)'s own `Field_name: value` labels — `SHOW REPLICA STATUS\G` with
+`-N` came back as bare, unlabeled values with no way to tell which line was which field, so
+every `verticalField` lookup silently returned empty and failed its comparison. Fixed by
+omitting `-N` specifically when the query ends in `\G`. Confirmed live afterward.
+
+**A second, more consequential correction, also only found by actually running it**: the
+original design for `pxc-cert-conflicts` and `haproxy-pxc-single-writer` gated Check Work on
+Airline Sim's own `txnRetries` counter rising (or staying flat) — reasonable on paper, wrong in
+practice. Live-tested by running a real two-minute, 3-node concurrent hot-row storm: it produced
+27 genuine Galera certification conflicts (error 1213) between the storm's own writers, while
+Airline Sim's `txnRetries` stayed at 0 the *entire time*, because its own agents write to a much
+narrower composite key (one specific route+class+date at a time) than "a busy route" as a whole,
+and never happened to collide with the exact row being hammered inside the test window. Redesigned
+both checks around a new deterministic `pxcConflictProbe` (fires paired concurrent UPDATEs at the
+same row itself, counts real 1213s directly) instead of depending on incidental collision with
+Airline Sim's own traffic — removed the now-unneeded `initial_txn_retries` column/field/setter/
+capture-goroutine entirely rather than leave it as dead plumbing. Re-verified live: the corrected
+`pxc-cert-conflicts` check passed with "6 out of 15 concurrent write pairs" producing real 1213s,
+and the corrected `haproxy-pxc-single-writer` check passed with zero conflicts through the same
+row via HAProxy's write port — the intended contrast, now actually reliable rather than probabilistic.
+
+**Verified live**: stood up an isolated second dbcanvas instance (fresh container + volume, same
+`dbcanvas:latest` image, bootstrapped via `POST /api/setup` — never touched the real running
+instance or its data) and, through the real Labs HTTP API, deployed real disposable stacks for
+`mysql-repl-gtid`, `mysql-repl-lag`, `pxc-cert-conflicts`, and `haproxy-pxc-single-writer`, plus a
+fifth for `haproxy-pxc-failover` (deploy itself confirmed reachable but not finished before wrapping
+up, under heavy concurrent host load from running 5 stacks at once — load average 18+). Directly
+confirmed: MySQL async replication came up correctly end-to-end (GTID auto-position,
+`super_read_only` on both secondaries); `mysql-repl-gtid`'s check failed-then-passed correctly
+after the `-N`/`\G` fix; `mysql-repl-lag`'s two steps genuinely failed-then-passed as real lag
+appeared under Airline Sim's High level and drained back to 0 after Stop; the corrected
+`pxc-cert-conflicts` and `haproxy-pxc-single-writer` checks both passed with the intended contrast;
+`SHOW STATUS LIKE 'read_only'`/`super_read_only` write-rejection matching and cross-node row lookups
+both behaved as coded; HAProxy's `;csv` stats export's `bck`/`status` columns parse exactly as
+`haproxyActiveWriter` expects (verified column-by-column against a real 3-node cluster's write
+backend); and the read port's round-robin across all 3 PXC nodes was confirmed manually. **Not
+verified live**: `haproxy-pxc-failover`'s full kill-and-confirm-promotion flow, and the remaining 9
+labs (`mysql-repl-semisync`/`readonly`/`pitr`/`delayed`, `pxc-minority-loss`/`majority-loss`/
+`node-maintenance`/`flow-control`/`sst-vs-ist`, `haproxy-pxc-read-scaling`'s full lab flow) — each
+reuses the same now-verified shared helpers with lower-risk, lab-specific queries, but wasn't run
+end-to-end through a real deployed stack in this session. `go build/vet` clean, `gofmt` clean on
+every new/touched file, `vite build` clean; all test stacks/containers/networks/volumes and the
+second dbcanvas instance were torn down afterward, leaving the real running instance untouched.
+
+## 173. "Car Rental Sim" — a PostgreSQL Car Rental Lab live demo app; HAProxy now fronts repmgr and Spock too — `carsim/` (new module), `app/carsim.go`, `haproxy.go`, `intranet.go`, `airlinesim.go`, `Makefile`, `web/src/pages/StackDesigner.jsx`
+
+User asked for a PostgreSQL-family analogue of Airline Sim: a 180-location rental workload against
+a 2000-vehicle fleet, connecting to a standalone PostgreSQL node, a Patroni/repmgr/Spock cluster, or
+any of the latter three fronted by HAProxy — seven resolvable link shapes, confirmed via plan-mode
+Q&A (the user wanted every direct target and every proxy target). HAProxy could only front Patroni
+before this — fronting repmgr or Spock is a genuine platform extension, not sim-only code.
+
+- **Platform extension (`app/haproxy.go`, `app/intranet.go`)**: `haproxyClusterFrames` now also
+  matches `"repmgr"`/`"spock"` frames; new `waitRepmgrMembers` + `repmgrSetupHealthCheck` +
+  `repmgrCheckServiceScript` (a responder mirroring `mysqlReplCheckServiceScript`'s shape — parses
+  `GET /primary` vs `GET /replica` itself, since repmgr has no REST API like Patroni's — but needs
+  no credentials at all, reusing `repmgrIsPrimaryScript`'s passwordless local peer-auth query instead
+  of a network user); new `haproxyRepmgrCfg` (structured like the existing Patroni `haproxyCfg`:
+  every member listed in every backend, httpchk decides eligibility at runtime). Spock needed no new
+  script at all: every node is always a valid writer, so only liveness matters — new `haproxySpockCfg`
+  uses HAProxy's **native** `option pgsql-check` directly against port 5432, structured like the
+  existing PXC config (single active writer via `backup`-ordering, plain round-robin reads across
+  every member). Also added `'repmgr'`/`'spock'` endpoint kinds to `StackDesigner.jsx`'s
+  `tryConnect` (previously only `'patroni'` could front an HAProxy node) and fixed a latent bug in
+  `airlinesim.go`'s HAProxy-backend-kind guard that would have silently treated a repmgr/Spock-fronting
+  HAProxy node as MySQL-family once these kinds became resolvable.
+- **New `carsim/` module**, mirroring `airlinesim/`'s shape but PostgreSQL-native: `internal/store`
+  (`database/sql` + `github.com/jackc/pgx/v5/stdlib`, `$N`-numbered placeholders, `JSONB`/
+  `TIMESTAMPTZ`/`BIGSERIAL` DDL, `ON CONFLICT` upserts; `EnsureDatabase` creates its own `carsim`
+  database on `pg`/Patroni/repmgr targets but on a Spock target connects to the pre-existing
+  `spockdemo` database instead — Spock's logical replication is scoped per-database and per-
+  replication-set, so this app's own tables must land in the SAME database `spock.go` already wired
+  up, then explicitly re-run `spock.repset_add_all_tables('default', ARRAY['public'])` — see
+  `RegisterSpockReplication` — since tables created after initial cluster setup aren't automatically
+  replicated); `internal/sim` (180 deterministic locations across 4 regions, a 2000-vehicle fleet
+  pooled ~11-per-location with an available/rented/cleaning/maintenance state machine, one
+  `sqlBooker` with **no retry loop at all** — unlike Airline Sim's MySQL-1213 retry, no PostgreSQL
+  topology this app targets has a client-visible synchronous write conflict, not even Spock, whose
+  multi-master conflict resolution is asynchronous; a date-RANGE guarded multi-row `UPDATE` for
+  booking, checking `RowsAffected == nights` so one unavailable night anywhere in the range rolls
+  back the whole reservation atomically; `SELECT ... FOR UPDATE SKIP LOCKED` to claim a specific
+  vehicle only at check-out, mirroring a real rental counter — a genuinely PostgreSQL-idiomatic
+  technique with no clean MySQL equivalent; ten agents — location-search, booking, modification,
+  cancellation, check-out, check-in, pricing, fleet-ops, analytics, monitoring — plus a poll-by-id
+  event feed, since PostgreSQL's LISTEN/NOTIFY would add a second connection-lifecycle concern for no
+  benefit over the same technique Airline Sim/Hotel Sim already use); `internal/api` (REST +
+  WebSocket, plus `/api/vehicles` for the fleet panel); `web/static` (plain JS dashboard — a location
+  grid at Airline Sim's tile scale, and a separate searchable/paginated Fleet table for the 2000
+  vehicles).
+- **`app/carsim.go`**: `carSimTarget` (edge-walk resolving 5 *coarse* shapes: `pg` node, `patroni`/
+  `repmgr`/`spock` frame, or `haproxy` node), `waitCarSimTarget` (resolves the coarse shape down to a
+  connectable host:port + superuser credentials, expanding `haproxy` into its `-patroni`/`-repmgr`/
+  `-spock` variant once the fronted backend's kind is known — 7 kinds total; resolves the *current
+  leader/primary* specifically for `patroni`/`repmgr` via the existing `patroniLeaderContainer`/
+  `repmgrPrimaryContainer` + `nodeIDForContainer`, falling back to the first member on a momentary
+  detection gap), `waitPgNodeRunning`/`waitRepmgrRunning` (new), reusing `waitPatroniRunning`/
+  `waitSpockRunning`/`haproxyBackend`/`waitNodeRunning` as-is. `provisionCarSim` mirrors
+  `provisionAirlineSim`.
+- **`app/intranet.go`**: `case "carsim":` in `validateStack` and the deploy dispatch loop.
+- **`Makefile`**: `carsim-image` target, standalone like `airlinesim-image`.
+- **`web/src/pages/StackDesigner.jsx`**: `NODE_TYPES.carsim`; `endpointKind` gained a `'pg'` kind (a
+  standalone PostgreSQL node had no endpoint kind at all before this, same pre-existing gap Airline
+  Sim's session closed for `'ps'`) and a `'carsim'` kind; ten new `tryConnect` rule-pairs (`pg`/
+  `patroni`/`repmgr`/`spock`/`haproxy` → `carsim`); `CarSimForm`/`CarSimManager` components; App
+  Simulators palette entry; `PALETTE_ALIASES.carsim`.
+- **One real bug caught by live-testing**: `updateVehicleStatus`'s dynamic `IN(...)` placeholder
+  numbering started at `$2` while `$1`/`$2` were already claimed by `status`/`last_updated` in the
+  same statement — Postgres silently bound the shared `$2` to the timestamp for both purposes,
+  producing `column "last_updated" is of type timestamp with time zone but expression is of type
+  character varying`. Fixed by starting the VIN placeholders at `$3`; re-verified live afterward with
+  no further errors across a sustained High-load run.
+
+**Verified live**: the HAProxy platform extension was deployed through the real dbcanvas HTTP API
+against a second, disposable dbcanvas instance (its own container/volume/network, torn down
+afterward, real running instance never touched): a 3-node repmgr cluster + HAProxy, and a 2-node
+Spock cluster + HAProxy. Confirmed the rendered `haproxy.cfg` matches the design exactly for both;
+confirmed HAProxy's stats page shows the repmgr primary UP on the write/read-primary backends and
+DOWN on read-replicas (and vice versa for standbys) via the new responder script; confirmed Spock's
+native `pgsql-check` marks both nodes UP with no custom script; confirmed writes through HAProxy's
+write port land on the correct single node in both cases (repmgr's primary, Spock's non-backup
+member) and reads round-robin correctly; confirmed a row written through HAProxy's write port on one
+Spock node actually replicated to the other. Killed the repmgr primary live: `repmgrd` promoted a
+standby within ~1 minute and HAProxy's own health-check responder rerouted the write port to the new
+primary with **zero HAProxy reconfiguration**, matching the Airline Sim session's HAProxy+MySQL
+failover verification. Separately built `dbcanvas-carsim:latest` and ran it standalone against a
+throwaway PostgreSQL 16 container end-to-end (`TARGET_KIND=pg`) — confirmed correct seeding (180
+locations, 2000 vehicles), all ten agents progressing (bookings/cancellations/modifications/
+check-outs climbing, no-shows releasing their held date range back to inventory), the query-education
+panel showing real `EXPLAIN (FORMAT JSON)` output (`idx_ri_location_date` for targeted lookups), and
+directly proved the date-range guard's core atomicity claim via raw SQL: zeroing the middle night of
+a 5-night range and running the exact guarded `UPDATE` affected only 4 of 5 rows, confirming the whole
+reservation would roll back rather than partially book. `go build/vet` clean, `gofmt` clean on every
+new/touched file, `vite build` clean; confirmed `make images`/`trafficsim-image`/`hotelsim-image`/
+`airlinesim-image` are unaffected.
+
+**Verified live, end-to-end**: deployed a `carsim` node through the real dbcanvas HTTP API (second
+disposable instance, torn down afterward) against all 4 of the plan's minimum-verification shapes
+simultaneously: `pg` standalone, `patroni` direct, `haproxy-patroni`, and `haproxy-repmgr`. Every
+node's stored config resolved exactly the expected `targetKind`/`targetName` (`pg`/`patroni-cluster`,
+`patroni`/`patroni-cluster`, `haproxy-patroni`/`haproxy-patroni`, `haproxy-repmgr`/`haproxy-repmgr`).
+Set every one to High load: all four accumulated real reservations/searches/check-outs AND
+check-ins (i.e. `FOR UPDATE SKIP LOCKED` claim-at-checkout and the return-and-relocate step at
+check-in both fired under sustained concurrent load), zero `eventWriteErrors`, and the standalone
+`pg` target correctly used its smaller `LocationScope`/session profile vs. the three clustered
+targets. Killed the `haproxy-repmgr` stack's repmgr primary while carsim was mid-traffic:
+`reservationsTotal` climbed straight through the ~1-minute failover window with zero errors —
+HAProxy's health-check responder rerouted the write port to the newly-promoted primary with no
+carsim-side retry logic involved at all, confirming the "no retry loop anywhere" design claim holds
+under a real failover, not just under steady state. **Not verified**: `spock`/`haproxy-spock`
+targets specifically (the standalone HAProxy+Spock platform extension was verified with raw SQL
+earlier in this session, but not with carsim attached) and Spock's `repset_add_all_tables`
+re-registration against a real cluster — narrower gaps than the original "not verified" list, but
+still open.
+
+## 174. Patroni Labs now use Car Rental Sim as their traffic generator, replacing the bespoke CRUD-traffic subsystem — `app/labs.go`, `intranet.go`, `main.go`, `web/src/pages/Labs.jsx`, `web/src/lib/labsApi.js`; removed `app/labs_traffic.go`
+
+User asked to make all 27 PostgreSQL/Patroni labs use `carsim-image` to simulate traffic, "instead" of
+whatever they used before — pointing at the one Labs family that, unlike Valkey (Traffic Sim),
+PS MongoDB (Hotel Sim) and the MySQL family (Airline Sim), never got an App Simulator node at all.
+Investigating turned up why: Patroni labs already had their own bespoke, in-memory CRUD generator
+(`labs_traffic.go`, 816 lines) purpose-built for this one curriculum, predating every App Simulator —
+a "CRUD Traffic" card in the Labs UI with learner-adjustable rate/threads/tables sliders, firing raw
+INSERT/UPDATE/DELETE/SELECT through HAProxy's write/read ports and attributing each op back to
+whichever node's `inet_server_addr()` answered, for a per-node live graph. Several lecture-note/step
+strings even already referenced "the CRUD Traffic (above)" and "its Retrieve line in the CRUD Traffic
+graph" — this system was the one thing standing in for what Car Rental Sim now does for real.
+
+- **Design templates (`app/labs.go`)**: `labCatalog`'s 27 labs are built from only 5 shared
+  `json.RawMessage` templates (`labPatroniSwitchoverDesign` ×20, `labPatroniBackupDesign` ×2,
+  `labPatroniManualRewindDesign`, `labPatroniStandbyClusterDesign`, `labPatroniCallbacksDesign`), so
+  wiring carsim into all 27 labs meant editing only these 5. Added a `lab-vnc` node (for reaching
+  carsim's dashboard, matching every other sim-bearing lab template) and a `lab-carsim` node to each,
+  linked to the **HAProxy node** (not the Patroni frame directly) via `{"from":{"node":"lab-haproxy",
+  "port":"bottom"},"to":{"node":"lab-carsim","port":"top"}}` — mirroring the already-live-verified
+  `haproxy-patroni` shape from carsim's own session (171/173's IMPLEMENTATION entries). This matters
+  specifically for the switchover/failover labs: HAProxy's own health-check-driven routing is what
+  lets carsim keep writing through a Leader change without any reconnect logic of its own, exactly
+  the property the old CRUD generator's `waitLabHAProxyDial` was built to get right too. Verified all
+  5 edited templates are still valid JSON (`json.loads` round-trip) since they were hand-edited as raw
+  Go string literals.
+- **Removed `app/labs_traffic.go` entirely** (`labTrafficRun`, its worker/pacing goroutines, the
+  `lab_traffic_1..30` precreated tables, `waitLabHAProxyDial`, `buildLabNodeIPMap`, and the 5
+  `/api/labs/{id}/traffic*` HTTP handlers) — confirmed nothing else in the codebase referenced any of
+  its symbols (`labOpInsert` etc., `labTrafficSnapshot`) before deleting; `haproxyWritePort`/
+  `haproxyReadPort` (which it also used) are defined in `haproxy.go` and used by `airlinesim.go`/
+  `carsim.go`, so they were untouched. Removed the `go a.startLabTraffic(...)` calls from both
+  branches of `handleStartLab` (fresh start and resume) and the `stopLabTraffic(stackID)` call from
+  `teardownStack` in `intranet.go`, and the 6 route registrations in `main.go`.
+- **Frontend (`web/src/pages/Labs.jsx`, `web/src/lib/labsApi.js`)**: deleted the entire "CRUD Traffic"
+  `Card` — its rate/threads/tables sliders, pause/resume button, per-node `TimeChart` mini-graphs, and
+  the `nodeHistories` rate-diffing poll loop — along with the now-dead `LAB_TRAFFIC_HISTORY_MAX`/
+  `LAB_NODE_ACTIVE_WINDOW_MS`/`LAB_CRUD_LINES` constants and the `TimeChart` import (still used
+  elsewhere, in `VisualSummary.jsx`, so the component itself wasn't touched). `patroniNodes` survives
+  (still used for the "etcd/Patroni bootstrap" provisioning hint); `haproxyNode` was only ever read
+  by the removed panel, so it's gone. Removed `labsApi.js`'s 6 traffic-related methods. A Patroni lab
+  now surfaces its carsim node exactly like every other sim-bearing lab does: as an entry in the
+  "Cluster" node list with a Terminal button, no dedicated dashboard card — the learner reaches its
+  live dashboard through the lab's VNC desktop, same as Traffic Sim/Hotel Sim/Airline Sim.
+- **Lecture notes / step text**: reworded the 4 places that referenced the removed panel. The two
+  pg_rewind labs' "crash-leader" step ("This lab's CRUD Traffic (above) is already writing
+  continuously...") now says "This lab's Car Rental Sim is already writing continuously against the
+  cluster...". The noloadbalance-drain lab's description and its "drain-replica" step instructions
+  ("watch its Retrieve line in the CRUD Traffic graph go quiet" / "...flatten out...") no longer claim
+  a live graph exists — reworded to describe confirming the health-check state directly (the step's
+  Hint already gave the exact `curl .../replica` command for this, unchanged).
+- **Confirmed no Check Work function anywhere depends on the removed system**: grepped every
+  `case "patroni-*:*"` in `handleCheckLabStep`'s dispatch switch against the removed `labs_traffic.go`
+  symbols — every one inspects live Patroni/etcd/HAProxy state directly (`patronictl`-equivalent REST
+  calls, `pg_replication_slots`, HAProxy's own `/replica` health endpoint, etc.), never the traffic
+  generator's own tables or stats. The CRUD Traffic panel and its lecture-note references were purely
+  narrative/observational scaffolding, not load-bearing for any pass/fail condition.
+
+`go build`, `go vet`, and `gofmt -l` are clean on every changed/removed Go file (the only `gofmt -l`
+hits, `labs_mongodb.go`/`labs_mongodb2.go`, are pre-existing and untouched by this session). `vite
+build` is clean. **Not verified live**: this session had no browser/authenticated-API access to a
+running dbcanvas instance, so none of the 5 edited design templates were actually deployed — the
+carsim-via-HAProxy shape itself was verified live in session 173, but not specifically inside a
+Patroni lab's stack, and the standby-cluster lab in particular is a real open question: while that
+lab's cluster is demoted to follow the external primary, its Patroni frame has no true "Leader" (only
+a Standby Leader), so HAProxy's write-port health check should have zero eligible backends and
+carsim's writes should simply fail-and-recover around that window rather than land anywhere — plausible
+by design, but genuinely unverified. That full pass (deploy each of the 5 templates, confirm carsim
+survives a switchover/failover, confirm the standby-cluster demotion window behaves as expected) is
+still owed before calling this done.
+
+## 175. Labs curriculum-wide cleanup: commands moved into their own paragraphs, every cross-lab reference removed — `app/labs.go`, `labs_mongodb.go`, `labs_mongodb2.go`, `labs_valkey.go`, `labs_mysqlrepl.go`, `labs_pxc.go`, `labs_haproxy_pxc.go`
+
+User flagged two content-quality problems across the whole 95-lab catalog, not just the Patroni labs session 174 had just touched: (1) shell/SQL commands were routinely embedded mid-sentence in `Instructions` strings — "Run `X`. Then run `Y`, then confirm with `Z`." — making it hard to see what to actually type; (2) many labs' `LectureNotes`/`Description`/`Instructions`/`Hint` referenced *other* labs by name ("see the Failover lab", "the previous lab", "every lab in this curriculum") — assuming context a learner starting cold wouldn't have, since each lab provisions its own fresh, disposable stack and is meant to stand alone. Confirmed scope with the user (AskUserQuestion) before starting: all labs, every family, not just Patroni.
+
+- **Command formatting**: every `Instructions` field across all ~95 labs (~190 steps) was rewritten so each shell/SQL command that used to sit inline in a sentence is now on its own line, separated by blank lines (`\n\n` in the Go string, rendered by the frontend's existing `whitespace-pre-wrap`) — the same pattern the pre-existing manual-rewind/PITR steps already used for their `pg_rewind`/`mysqlbinlog` invocations, just applied consistently everywhere. Multi-command steps ("open a terminal, run X, then run Y, then click Check Work") became a short paragraph per action instead of one run-on sentence.
+- **Cross-lab references removed**: swept every file for patterns like "the X lab", "the previous/next/earlier lab", "this curriculum", "every other lab" (see IMPLEMENTATION.md's own `python3` scan pattern, kept out of the final diff) and reworded each into a self-contained explanation — either restating the referenced concept inline (e.g. "The Switchover lab explained that this cluster runs 3 etcd members" → "This cluster runs 3 etcd members precisely so it can lose one and still keep a majority") or dropping the pointer entirely where the surrounding sentence didn't need it. Comments (`//`) were left alone — those are for future developers reading the source, not learners reading the lab UI, and are outside what the user asked to fix.
+- **One real functional bug found and fixed along the way, not just a wording issue**: `psmdb-targeted-vs-scatter`'s "targeted-query" step instructed the learner to reuse `labdb.items` "from the Sharding Fundamentals lab (if you haven't done that lab yet, shard it first)" — but every lab provisions a brand-new disposable stack from its own `DesignTemplate`, so there was never any real cross-lab state to reuse in the first place; the instructions were describing a dependency that doesn't exist in this app's architecture. Rewrote the step to shard and populate `labdb.items` itself (matching what `checkMongoTargetedQuery` actually requires), and gave the inserted documents a `payload` field so the follow-up scatter-gather step's `payload:/^xxx/` filter still exercises the same structural query-routing behavior against a properly-shaped dataset.
+- **`labs_haproxy_pxc.go`** needed the most substantial rewrites — its entire pedagogical structure is "the same thing you just did directly on PXC nodes, but now through HAProxy," so nearly every paragraph in all 3 labs referenced "the direct-PXC lab" by name. Reworded every instance to describe both scenarios (direct node connections vs. through HAProxy) within the lab's own text, including one Check Work success message (`checkHAProxyNoCertConflicts`'s `LabStepResult.Message`, user-facing at pass time, not just static lab-definition text) that named "The direct-PXC lab's identical technique."
+- **Verification**: after each file, ran `go build`/`go vet`/`gofmt -w` before moving to the next (`labs_mongodb.go`/`labs_mongodb2.go` had pre-existing `Hint:` field misalignment from before this session — fixed as a side effect of `gofmt -w` since they were already being heavily edited). A final `python3` regex sweep across all 7 files for the same cross-lab patterns, extended to also scan `LabStepResult{...Message: "..."}` runtime strings (not just struct-literal lab definitions), found and fixed 2 stragglers (`labs_mysqlrepl.go`'s "the lag lab's version of it", the `checkHAProxyNoCertConflicts` message above) before coming up clean. `vite build` unaffected (no frontend files touched this session). **Not verified live** — this was a pure content/text edit across Go string literals with no behavioral changes to Check Work logic, DesignTemplates, or the check-dispatch switch, so the risk profile is low, but none of the reworded lab flows were re-run against a live deployed stack in this session.

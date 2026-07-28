@@ -202,14 +202,18 @@ A partial index only includes documents matching a filter expression (partialFil
 			{
 				ID:    "multikey-index",
 				Title: "Index an array field",
-				Instructions: "On the psm node: `mongosh -u admin -p admin_password --authenticationDatabase admin`. `db.getSiblingDB(\"labdb\").products.insertMany([{name:\"a\",tags:[\"x\",\"y\"]},{name:\"b\",tags:[\"y\",\"z\"]}])`. `db.getSiblingDB(\"labdb\").products.createIndex({tags:1})`. Run `db.getSiblingDB(\"labdb\").products.find({tags:\"y\"}).explain()` — the scan stage should report `isMultiKey: true`. Click Check Work.",
-				Hint:  "Check Work re-runs the same explain and looks for `isMultiKey:true` anywhere in the winning plan.",
+				Instructions: "On the psm node: `mongosh -u admin -p admin_password --authenticationDatabase admin`.\n\n" +
+					"`db.getSiblingDB(\"labdb\").products.insertMany([{name:\"a\",tags:[\"x\",\"y\"]},{name:\"b\",tags:[\"y\",\"z\"]}])`\n\n" +
+					"`db.getSiblingDB(\"labdb\").products.createIndex({tags:1})`\n\n" +
+					"Run `db.getSiblingDB(\"labdb\").products.find({tags:\"y\"}).explain()` — the scan stage should report `isMultiKey: true`. Click Check Work.",
+				Hint: "Check Work re-runs the same explain and looks for `isMultiKey:true` anywhere in the winning plan.",
 			},
 			{
 				ID:    "partial-index",
 				Title: "Build a partial index",
-				Instructions: "Insert a mix of documents, some with `inStock:true` and some without it at all: `db.getSiblingDB(\"labdb\").products.insertMany([{name:\"c\",inStock:true},{name:\"d\"}])`. Create a partial index: `db.getSiblingDB(\"labdb\").products.createIndex({name:1},{partialFilterExpression:{inStock:true}})`. Click Check Work.",
-				Hint:  "Check Work reads the index list and confirms a `partialFilterExpression` is present and matches `{inStock:true}`.",
+				Instructions: "Insert a mix of documents, some with `inStock:true` and some without it at all: `db.getSiblingDB(\"labdb\").products.insertMany([{name:\"c\",inStock:true},{name:\"d\"}])`.\n\n" +
+					"Create a partial index: `db.getSiblingDB(\"labdb\").products.createIndex({name:1},{partialFilterExpression:{inStock:true}})`. Click Check Work.",
+				Hint: "Check Work reads the index list and confirms a `partialFilterExpression` is present and matches `{inStock:true}`.",
 			},
 		},
 	},
@@ -234,14 +238,16 @@ Because the validator lives on the collection itself (not in application code), 
 			{
 				ID:    "create-validator",
 				Title: "Attach a $jsonSchema validator",
-				Instructions: "On the psm node: `db.getSiblingDB(\"labdb\").createCollection(\"orders\",{validator:{$jsonSchema:{bsonType:\"object\",required:[\"orderId\",\"amount\"],properties:{amount:{bsonType:\"number\",minimum:0}}}}})`. Click Check Work.",
-				Hint:  "Check Work reads the collection's own options and confirms a `$jsonSchema` validator is present.",
+				Instructions: "On the psm node:\n\n" +
+					"`db.getSiblingDB(\"labdb\").createCollection(\"orders\",{validator:{$jsonSchema:{bsonType:\"object\",required:[\"orderId\",\"amount\"],properties:{amount:{bsonType:\"number\",minimum:0}}}}})`\n\n" +
+					"Click Check Work.",
+				Hint: "Check Work reads the collection's own options and confirms a `$jsonSchema` validator is present.",
 			},
 			{
-				ID:    "enforce-validation",
-				Title: "Prove it rejects a bad document",
+				ID:           "enforce-validation",
+				Title:        "Prove it rejects a bad document",
 				Instructions: "Nothing to run here — Check Work itself attempts to insert a document missing `orderId` into `labdb.orders` and expects MongoDB to reject it.",
-				Hint:  "If this fails, double check `required` really lists `orderId` and that the collection wasn't recreated without the validator afterward.",
+				Hint:         "If this fails, double check `required` really lists `orderId` and that the collection wasn't recreated without the validator afterward.",
 			},
 		},
 	},
@@ -266,14 +272,23 @@ allowTLS accepts both TLS and plaintext connections at once — the correct star
 			{
 				ID:    "enable-tls",
 				Title: "Turn on TLS",
-				Instructions: "Open a terminal on the psm node as root. Edit `/etc/mongod.conf` and add a `tls:` block *nested inside the existing* `net:` block (alongside `port` and `bindIpAll`, not a second `net:` key):\n```\n  tls:\n    mode: allowTLS\n    certificateKeyFile: /etc/mongo/certs/server.pem\n    CAFile: /etc/mongo/certs/ca.crt\n    allowConnectionsWithoutCertificates: true\n```\n(the last line matters — without it mongod expects every client to present its own certificate too, not just verify the server's). Then `systemctl restart mongod`. Confirm it's listening with TLS — note `--host psm-1`: the certificate only covers this node's real hostname, not 127.0.0.1, so connecting without `--host` fails on hostname verification even though TLS itself is working: `mongosh --host psm-1 --tls --tlsCAFile=/etc/pki/ca-trust/source/anchors/dbcanvas-ca.crt -u admin -p admin_password --authenticationDatabase admin --eval 'db.adminCommand({ping:1})'`. Click Check Work.",
-				Hint:  "If mongod fails to restart, double-check the YAML indentation — `tls:` must line up under `net:`, one level deeper than `port:`.",
+				Instructions: "Open a terminal on the psm node as root.\n\n" +
+					"Edit `/etc/mongod.conf` and add a `tls:` block *nested inside the existing* `net:` block (alongside `port` and `bindIpAll`, not a second `net:` key):\n\n" +
+					"```\n  tls:\n    mode: allowTLS\n    certificateKeyFile: /etc/mongo/certs/server.pem\n    CAFile: /etc/mongo/certs/ca.crt\n    allowConnectionsWithoutCertificates: true\n```\n\n" +
+					"(the last line matters — without it mongod expects every client to present its own certificate too, not just verify the server's).\n\n" +
+					"Run `systemctl restart mongod`.\n\n" +
+					"Confirm it's listening with TLS — note `--host psm-1`: the certificate only covers this node's real hostname, not 127.0.0.1, so connecting without `--host` fails on hostname verification even though TLS itself is working:\n\n" +
+					"`mongosh --host psm-1 --tls --tlsCAFile=/etc/pki/ca-trust/source/anchors/dbcanvas-ca.crt -u admin -p admin_password --authenticationDatabase admin --eval 'db.adminCommand({ping:1})'`\n\n" +
+					"Click Check Work.",
+				Hint: "If mongod fails to restart, double-check the YAML indentation — `tls:` must line up under `net:`, one level deeper than `port:`.",
 			},
 			{
 				ID:    "require-tls",
 				Title: "Require TLS outright",
-				Instructions: "Escalate live, no restart needed — but one step at a time: MongoDB rejects jumping straight from allowTLS to requireTLS. First `mongosh --host psm-1 --tls --tlsCAFile=/etc/pki/ca-trust/source/anchors/dbcanvas-ca.crt -u admin -p admin_password --authenticationDatabase admin --eval 'db.adminCommand({setParameter:1,tlsMode:\"preferTLS\"})'`, then the same command with `tlsMode:\"requireTLS\"`. Click Check Work.",
-				Hint:  "Check Work confirms a non-TLS connection is now refused, and a TLS connection still works.",
+				Instructions: "Escalate live, no restart needed — but one step at a time: MongoDB rejects jumping straight from allowTLS to requireTLS.\n\n" +
+					"First: `mongosh --host psm-1 --tls --tlsCAFile=/etc/pki/ca-trust/source/anchors/dbcanvas-ca.crt -u admin -p admin_password --authenticationDatabase admin --eval 'db.adminCommand({setParameter:1,tlsMode:\"preferTLS\"})'`\n\n" +
+					"Then the same command with `tlsMode:\"requireTLS\"`. Click Check Work.",
+				Hint: "Check Work confirms a non-TLS connection is now refused, and a TLS connection still works.",
 			},
 		},
 	},
@@ -298,14 +313,19 @@ The profiler tells you what already happened. db.currentOp() shows what's runnin
 			{
 				ID:    "catch-with-profiler",
 				Title: "Catch a query with the profiler",
-				Instructions: "On the psm node: `db.getSiblingDB(\"labdb\").setProfilingLevel(1,{slowms:0})`. Run any query, e.g. `db.getSiblingDB(\"labdb\").products.find().toArray()`. Click Check Work.",
-				Hint:  "Check Work looks in `labdb.system.profile` for at least one recorded operation.",
+				Instructions: "On the psm node: `db.getSiblingDB(\"labdb\").setProfilingLevel(1,{slowms:0})`.\n\n" +
+					"Run any query: `db.getSiblingDB(\"labdb\").products.find().toArray()`. Click Check Work.",
+				Hint: "Check Work looks in `labdb.system.profile` for at least one recorded operation.",
 			},
 			{
 				ID:    "find-and-kill-hung-op",
 				Title: "Find and kill a runaway operation",
-				Instructions: "The $function below only ever runs once there's a document to evaluate it against, so seed one first: `mongosh -u admin -p admin_password --authenticationDatabase admin --eval 'db.getSiblingDB(\"labdb\").hang.insertOne({x:1})'`. Then start a deliberately infinite operation in the background: `setsid mongosh -u admin -p admin_password --authenticationDatabase admin --eval 'db.getSiblingDB(\"labdb\").hang.aggregate([{$match:{$expr:{$function:{body:\"function(){while(true){}}\",args:[],lang:\\\"js\\\"}}}}])' > /tmp/hang.log 2>&1 < /dev/null &`. Find it with `db.currentOp({\"command.aggregate\":\"hang\"})`, note its `opid`, then run `db.killOp(<opid>)`. Click Check Work.",
-				Hint:  "Check Work runs currentOp itself before and after — it expects to see the hung op, then confirms it's gone.",
+				Instructions: "The $function below only ever runs once there's a document to evaluate it against, so seed one first:\n\n" +
+					"`mongosh -u admin -p admin_password --authenticationDatabase admin --eval 'db.getSiblingDB(\"labdb\").hang.insertOne({x:1})'`\n\n" +
+					"Then start a deliberately infinite operation in the background:\n\n" +
+					"`setsid mongosh -u admin -p admin_password --authenticationDatabase admin --eval 'db.getSiblingDB(\"labdb\").hang.aggregate([{$match:{$expr:{$function:{body:\"function(){while(true){}}\",args:[],lang:\\\"js\\\"}}}}])' > /tmp/hang.log 2>&1 < /dev/null &`\n\n" +
+					"Find it with `db.currentOp({\"command.aggregate\":\"hang\"})`, note its `opid`, then run `db.killOp(<opid>)`. Click Check Work.",
+				Hint: "Check Work runs currentOp itself before and after — it expects to see the hung op, then confirms it's gone.",
 			},
 		},
 	},
@@ -330,14 +350,18 @@ Most pipelines just return a cursor of results. $merge as the final stage instea
 			{
 				ID:    "build-pipeline",
 				Title: "Group sales by category",
-				Instructions: "Seed a fixed dataset: `db.getSiblingDB(\"labdb\").sales.insertMany([{category:\"a\",amount:10},{category:\"a\",amount:15},{category:\"b\",amount:20},{category:\"b\",amount:5},{category:\"c\",amount:7}])`. Run `db.getSiblingDB(\"labdb\").sales.aggregate([{$group:{_id:\"$category\",total:{$sum:\"$amount\"}}}])` and confirm category \"a\" totals 25, \"b\" totals 25, \"c\" totals 7. Click Check Work.",
-				Hint:  "Check Work re-runs the exact same $group pipeline itself and compares the totals against this fixed dataset.",
+				Instructions: "Seed a fixed dataset:\n\n" +
+					"`db.getSiblingDB(\"labdb\").sales.insertMany([{category:\"a\",amount:10},{category:\"a\",amount:15},{category:\"b\",amount:20},{category:\"b\",amount:5},{category:\"c\",amount:7}])`\n\n" +
+					"Run `db.getSiblingDB(\"labdb\").sales.aggregate([{$group:{_id:\"$category\",total:{$sum:\"$amount\"}}}])` and confirm category \"a\" totals 25, \"b\" totals 25, \"c\" totals 7. Click Check Work.",
+				Hint: "Check Work re-runs the exact same $group pipeline itself and compares the totals against this fixed dataset.",
 			},
 			{
 				ID:    "merge-into-collection",
 				Title: "Persist the summary with $merge",
-				Instructions: "Add a $merge stage to write the grouped totals into a summary collection: `db.getSiblingDB(\"labdb\").sales.aggregate([{$group:{_id:\"$category\",total:{$sum:\"$amount\"}}},{$merge:{into:\"salesSummary\"}}])`. Click Check Work.",
-				Hint:  "Check Work reads `labdb.salesSummary` directly and confirms it holds the same three totals — no pipeline re-run needed this time, since $merge's whole point is that the result now just sits there.",
+				Instructions: "Add a $merge stage to write the grouped totals into a summary collection:\n\n" +
+					"`db.getSiblingDB(\"labdb\").sales.aggregate([{$group:{_id:\"$category\",total:{$sum:\"$amount\"}}},{$merge:{into:\"salesSummary\"}}])`\n\n" +
+					"Click Check Work.",
+				Hint: "Check Work reads `labdb.salesSummary` directly and confirms it holds the same three totals — no pipeline re-run needed this time, since $merge's whole point is that the result now just sits there.",
 			},
 		},
 	},
@@ -362,14 +386,17 @@ mongofiles (part of the same database-tools package as mongodump/mongorestore) i
 			{
 				ID:    "upload-file",
 				Title: "Upload a file into GridFS",
-				Instructions: "On the psm node's terminal: `echo \"gridfs-test-content\" > /tmp/upload-me.txt && cd /tmp && mongofiles --db=labdb -u admin -p admin_password --authenticationDatabase=admin put upload-me.txt`. Click Check Work.",
-				Hint:  "Check Work looks in `labdb.fs.files` for a document named `upload-me.txt`.",
+				Instructions: "On the psm node's terminal:\n\n" +
+					"`echo \"gridfs-test-content\" > /tmp/upload-me.txt && cd /tmp && mongofiles --db=labdb -u admin -p admin_password --authenticationDatabase=admin put upload-me.txt`\n\n" +
+					"Click Check Work.",
+				Hint: "Check Work looks in `labdb.fs.files` for a document named `upload-me.txt`.",
 			},
 			{
 				ID:    "download-file",
 				Title: "Download it back and confirm it matches",
-				Instructions: "`mkdir -p /tmp/download && cd /tmp/download && mongofiles --db=labdb -u admin -p admin_password --authenticationDatabase=admin get upload-me.txt`. Then `cmp /tmp/upload-me.txt /tmp/download/upload-me.txt`. Click Check Work.",
-				Hint:  "Check Work execs `cmp` between the original and the downloaded copy inside the container and expects them to be byte-identical.",
+				Instructions: "`mkdir -p /tmp/download && cd /tmp/download && mongofiles --db=labdb -u admin -p admin_password --authenticationDatabase=admin get upload-me.txt`\n\n" +
+					"Then: `cmp /tmp/upload-me.txt /tmp/download/upload-me.txt`. Click Check Work.",
+				Hint: "Check Work execs `cmp` between the original and the downloaded copy inside the container and expects them to be byte-identical.",
 			},
 		},
 	},
@@ -385,7 +412,7 @@ mongofiles (part of the same database-tools package as mongodump/mongorestore) i
 		TimeLimit:   "2h",
 		LectureNotes: `Priority: a thumb on the scale, not a guarantee
 
-Every replica set member has a priority (default 1) that biases elections — a higher-priority member that's eligible to vote and reasonably caught up will be preferred over lower-priority peers, and MongoDB will even trigger an election to hand leadership to it if it's not already primary. Priority 0 goes further: that member can never become primary at all, no matter how caught up it is (the mechanism behind hidden/delayed/reporting-only members elsewhere in this curriculum).
+Every replica set member has a priority (default 1) that biases elections — a higher-priority member that's eligible to vote and reasonably caught up will be preferred over lower-priority peers, and MongoDB will even trigger an election to hand leadership to it if it's not already primary. Priority 0 goes further: that member can never become primary at all, no matter how caught up it is (the same mechanism behind hidden/delayed/reporting-only members generally).
 
 Why this matters operationally
 
@@ -395,14 +422,18 @@ Priority is how you steer where the primary role lives — keeping it on the mem
 			{
 				ID:    "set-priorities",
 				Title: "Give one member a higher priority",
-				Instructions: "On any member: `cfg = rs.conf(); cfg.members.forEach(m => m.priority = 1); cfg.members[0].priority = 2; rs.reconfig(cfg)`. Click Check Work.",
-				Hint:  "Check Work reads the live replica set config and confirms exactly one member has a strictly higher priority than the rest.",
+				Instructions: "On any member:\n\n" +
+					"`cfg = rs.conf(); cfg.members.forEach(m => m.priority = 1); cfg.members[0].priority = 2; rs.reconfig(cfg)`\n\n" +
+					"Click Check Work.",
+				Hint: "Check Work reads the live replica set config and confirms exactly one member has a strictly higher priority than the rest.",
 			},
 			{
 				ID:    "verify-priority-wins",
 				Title: "Step down and confirm the favored member wins",
-				Instructions: "Find the current PRIMARY and run `rs.stepDown(15)` on it — 15, not 60: that number is how long *this* member refuses to seek re-election afterward, and a full 60-second freeze just makes you wait needlessly (if the current PRIMARY is already the favored member, step it down anyway; it should win the re-election right back). The immediate election may hand leadership to whichever member happens to be fastest, not the favored one — MongoDB's priority takeover then calls a second election within about 30 seconds to correct that. Wait roughly 30 seconds, then click Check Work.",
-				Hint:  "Check Work compares the new PRIMARY against the specific member you gave the higher priority to in the previous step — it must match exactly, not just be \"a different one.\" If it's still the wrong member, give it a little longer for the priority takeover to fire.",
+				Instructions: "Find the current PRIMARY and run `rs.stepDown(15)` on it — 15, not 60: that number is how long *this* member refuses to seek re-election afterward, and a full 60-second freeze just makes you wait needlessly (if the current PRIMARY is already the favored member, step it down anyway; it should win the re-election right back).\n\n" +
+					"The immediate election may hand leadership to whichever member happens to be fastest, not the favored one — MongoDB's priority takeover then calls a second election within about 30 seconds to correct that.\n\n" +
+					"Wait roughly 30 seconds, then click Check Work.",
+				Hint: "Check Work compares the new PRIMARY against the specific member you gave the higher priority to in the previous step — it must match exactly, not just be \"a different one.\" If it's still the wrong member, give it a little longer for the priority takeover to fire.",
 			},
 		},
 	},
@@ -427,8 +458,14 @@ Every change event carries a resume token; a client that disconnects can reopen 
 			{
 				ID:    "watch-and-record",
 				Title: "Watch labdb.events and log what you see",
-				Instructions: "Start a background watcher: `setsid mongosh -u admin -p admin_password --authenticationDatabase admin --eval 'const cur = db.getSiblingDB(\"labdb\").events.watch(); while (!cur.isClosed()) { if (cur.hasNext()) { const ch = cur.next(); db.getSiblingDB(\"labdb\").changeLog.insertOne({op: ch.operationType, at: new Date()}); } }' > /tmp/changestream.log 2>&1 < /dev/null &`. Then generate some activity: `db.getSiblingDB(\"labdb\").events.insertOne({_id:1,v:1})`, `db.getSiblingDB(\"labdb\").events.updateOne({_id:1},{$set:{v:2}})`, `db.getSiblingDB(\"labdb\").events.deleteOne({_id:1})`. Click Check Work.",
-				Hint:  "Check Work reads `labdb.changeLog` and looks for insert, update, and delete all represented — give the watcher a couple seconds to catch up if it's not there yet.",
+				Instructions: "Start a background watcher:\n\n" +
+					"`setsid mongosh -u admin -p admin_password --authenticationDatabase admin --eval 'const cur = db.getSiblingDB(\"labdb\").events.watch(); while (!cur.isClosed()) { if (cur.hasNext()) { const ch = cur.next(); db.getSiblingDB(\"labdb\").changeLog.insertOne({op: ch.operationType, at: new Date()}); } }' > /tmp/changestream.log 2>&1 < /dev/null &`\n\n" +
+					"Then generate some activity:\n\n" +
+					"`db.getSiblingDB(\"labdb\").events.insertOne({_id:1,v:1})`\n\n" +
+					"`db.getSiblingDB(\"labdb\").events.updateOne({_id:1},{$set:{v:2}})`\n\n" +
+					"`db.getSiblingDB(\"labdb\").events.deleteOne({_id:1})`\n\n" +
+					"Click Check Work.",
+				Hint: "Check Work reads `labdb.changeLog` and looks for insert, update, and delete all represented — give the watcher a couple seconds to catch up if it's not there yet.",
 			},
 		},
 	},
@@ -447,20 +484,21 @@ A single document's fields always update atomically in MongoDB — that's been t
 
 Requires a replica set (or sharded cluster) — never standalone
 
-Multi-document transactions need the oplog and the majority-commit machinery a replica set provides; a standalone mongod has neither, so transactions simply aren't available there. This is the single biggest behavioral difference standalone deployments have from everything else in this curriculum, and it's why any dbcanvas app that spans topologies (like Hotel Sim) has to fall back to a different, compensating-write strategy specifically for standalone.`,
+Multi-document transactions need the oplog and the majority-commit machinery a replica set provides; a standalone mongod has neither, so transactions simply aren't available there. This is the single biggest behavioral difference standalone deployments have from replica sets and sharded clusters, and it's why any dbcanvas app that spans topologies (like Hotel Sim) has to fall back to a different, compensating-write strategy specifically for standalone.`,
 		DesignTemplate: labPSMRSDesign,
 		Steps: []LabStep{
 			{
 				ID:    "run-transaction",
 				Title: "Transfer funds atomically",
-				Instructions: "Seed two accounts: `db.getSiblingDB(\"labdb\").accounts.insertMany([{_id:\"A\",balance:500},{_id:\"B\",balance:500}])`. Run a transaction moving 100 from A to B:\n```js\nconst s = db.getMongo().startSession();\ns.startTransaction();\nconst db2 = s.getDatabase(\"labdb\");\ndb2.accounts.updateOne({_id:\"A\"},{$inc:{balance:-100}});\ndb2.accounts.updateOne({_id:\"B\"},{$inc:{balance:100}});\ns.commitTransaction();\n```\nClick Check Work.",
-				Hint:  "Check Work confirms A is 400, B is 600, and the total is still exactly 1000.",
+				Instructions: "Seed two accounts:\n\n`db.getSiblingDB(\"labdb\").accounts.insertMany([{_id:\"A\",balance:500},{_id:\"B\",balance:500}])`\n\n" +
+					"Run a transaction moving 100 from A to B:\n```js\nconst s = db.getMongo().startSession();\ns.startTransaction();\nconst db2 = s.getDatabase(\"labdb\");\ndb2.accounts.updateOne({_id:\"A\"},{$inc:{balance:-100}});\ndb2.accounts.updateOne({_id:\"B\"},{$inc:{balance:100}});\ns.commitTransaction();\n```\nClick Check Work.",
+				Hint: "Check Work confirms A is 400, B is 600, and the total is still exactly 1000.",
 			},
 			{
-				ID:    "abort-and-verify-atomicity",
-				Title: "Abort a transaction and confirm nothing leaked through",
+				ID:           "abort-and-verify-atomicity",
+				Title:        "Abort a transaction and confirm nothing leaked through",
 				Instructions: "Run another transaction, but abort it instead of committing:\n```js\nconst s = db.getMongo().startSession();\ns.startTransaction();\nconst db2 = s.getDatabase(\"labdb\");\ndb2.accounts.updateOne({_id:\"A\"},{$inc:{balance:-100}});\ns.abortTransaction();\n```\nClick Check Work.",
-				Hint:  "Check Work confirms A and B are unchanged from the previous step (400/600) — a partial, uncommitted write must be completely invisible.",
+				Hint:         "Check Work confirms A and B are unchanged from the previous step (400/600) — a partial, uncommitted write must be completely invisible.",
 			},
 		},
 	},
@@ -485,14 +523,18 @@ With 3 voting members, losing 1 still leaves 2 of 3 — a majority, fine. But wi
 			{
 				ID:    "add-arbiter",
 				Title: "Add the spare node as an arbiter",
-				Instructions: "On the current PRIMARY: growing from 3 to 4 voting members changes what \"majority\" means by default, and MongoDB refuses the reconfig until you acknowledge that explicitly: `db.adminCommand({setDefaultRWConcern:1,defaultWriteConcern:{w:\"majority\"}})`. Then `rs.addArb(\"spare:27017\")`. Click Check Work.",
-				Hint:  "Check Work reads the live replica set config and looks for a 4th member with `arbiterOnly:true`. If rs.addArb itself fails, the error message names the setDefaultRWConcern command you need to run first.",
+				Instructions: "On the current PRIMARY: growing from 3 to 4 voting members changes what \"majority\" means by default, and MongoDB refuses the reconfig until you acknowledge that explicitly:\n\n" +
+					"`db.adminCommand({setDefaultRWConcern:1,defaultWriteConcern:{w:\"majority\"}})`\n\n" +
+					"Then: `rs.addArb(\"spare:27017\")`. Click Check Work.",
+				Hint: "Check Work reads the live replica set config and looks for a 4th member with `arbiterOnly:true`. If rs.addArb itself fails, the error message names the setDefaultRWConcern command you need to run first.",
 			},
 			{
 				ID:    "survive-secondary-loss",
 				Title: "Lose a secondary, keep the primary",
-				Instructions: "Pick one of the two data-bearing secondaries (not the arbiter) and stop mongod on it: `systemctl stop mongod`. Click Check Work. Afterward, `systemctl start mongod` to bring it back.",
-				Hint:  "Check Work confirms the PRIMARY is still PRIMARY (not stepped down) even with one data-bearing member gone — the arbiter's vote is what keeps 3 of 4 a majority.",
+				Instructions: "Pick one of the two data-bearing secondaries (not the arbiter) and stop mongod on it: `systemctl stop mongod`.\n\n" +
+					"Click Check Work.\n\n" +
+					"Afterward, `systemctl start mongod` to bring it back.",
+				Hint: "Check Work confirms the PRIMARY is still PRIMARY (not stepped down) even with one data-bearing member gone — the arbiter's vote is what keeps 3 of 4 a majority.",
 			},
 		},
 	},
@@ -517,14 +559,16 @@ secondaryDelaySecs holds a member's oplog application back by a fixed number of 
 			{
 				ID:    "make-hidden-delayed",
 				Title: "Reconfigure one member hidden and delayed",
-				Instructions: "On the PRIMARY: `cfg = rs.conf(); cfg.members[2].hidden = true; cfg.members[2].priority = 0; cfg.members[2].secondaryDelaySecs = 60; rs.reconfig(cfg)` (adjust the index if member 2 isn't rs-3). Click Check Work.",
-				Hint:  "hidden:true requires priority:0 in the same reconfig, or MongoDB rejects it outright — Check Work looks for all three fields together on one member.",
+				Instructions: "On the PRIMARY:\n\n" +
+					"`cfg = rs.conf(); cfg.members[2].hidden = true; cfg.members[2].priority = 0; cfg.members[2].secondaryDelaySecs = 60; rs.reconfig(cfg)`\n\n" +
+					"(adjust the index if member 2 isn't rs-3). Click Check Work.",
+				Hint: "hidden:true requires priority:0 in the same reconfig, or MongoDB rejects it outright — Check Work looks for all three fields together on one member.",
 			},
 			{
-				ID:    "verify-delay-and-invisibility",
-				Title: "Confirm it's both delayed and invisible",
+				ID:           "verify-delay-and-invisibility",
+				Title:        "Confirm it's both delayed and invisible",
 				Instructions: "Nothing to run — Check Work inserts its own marker document on the primary and immediately confirms it is (a) not yet present on the delayed member, and (b) that member's host doesn't appear in a `hello` topology check.",
-				Hint:  "If this fails, confirm `secondaryDelaySecs` really landed on the intended member — a typo'd array index reconfigures the wrong one.",
+				Hint:         "If this fails, confirm `secondaryDelaySecs` really landed on the intended member — a typo'd array index reconfigures the wrong one.",
 			},
 		},
 	},
@@ -549,14 +593,17 @@ Point-in-time recovery layers continuous oplog slice uploads on top of periodic 
 			{
 				ID:    "full-backup",
 				Title: "Take a full backup",
-				Instructions: "On any replica set member's terminal — note `export $(cat ...)`, not `source`, since the env file has no `export` keyword of its own and a plain `source` wouldn't be visible to the `pbm` subprocess: `export $(cat /etc/sysconfig/pbm-agent) && pbm backup`. Wait for it to finish, then `pbm list`. Click Check Work.",
-				Hint:  "Check Work runs `pbm list -o json` itself and looks for at least one backup with status `done`.",
+				Instructions: "On any replica set member's terminal — note `export $(cat ...)`, not `source`, since the env file has no `export` keyword of its own and a plain `source` wouldn't be visible to the `pbm` subprocess:\n\n" +
+					"`export $(cat /etc/sysconfig/pbm-agent) && pbm backup`\n\n" +
+					"Wait for it to finish, then run `pbm list`. Click Check Work.",
+				Hint: "Check Work runs `pbm list -o json` itself and looks for at least one backup with status `done`.",
 			},
 			{
 				ID:    "enable-pitr",
 				Title: "Enable point-in-time recovery",
-				Instructions: "`export $(cat /etc/sysconfig/pbm-agent) && pbm config --set pitr.enabled=true`. Wait about a minute for the first oplog slice to upload, then `pbm status`. Click Check Work.",
-				Hint:  "Check Work runs `pbm config` and confirms `pitr.enabled` is true.",
+				Instructions: "`export $(cat /etc/sysconfig/pbm-agent) && pbm config --set pitr.enabled=true`\n\n" +
+					"Wait about a minute for the first oplog slice to upload, then run `pbm status`. Click Check Work.",
+				Hint: "Check Work runs `pbm config` and confirms `pitr.enabled` is true.",
 			},
 		},
 	},
@@ -581,14 +628,23 @@ Real rollback windows are normally sub-second and invisible. This lab manufactur
 			{
 				ID:    "cause-divergence",
 				Title: "Stop the secondaries, write to the primary, then crash it",
-				Instructions: "This build doesn't have test-only failpoints enabled, so the window is created with timing instead: identify the current PRIMARY (call it P) and the two secondaries. First give yourself room to work by raising the election timeout on P: `mongosh -u admin -p admin_password --authenticationDatabase admin --eval 'cfg=rs.conf(); cfg.settings.electionTimeoutMillis=60000; rs.reconfig(cfg)'`. Then stop mongod on BOTH secondaries: `systemctl stop mongod` on each — and *confirm* each one is actually down before continuing (`systemctl is-active mongod` should print `inactive`; `systemctl stop` returns before the process has necessarily finished exiting, so don't skip this check). Only once both read inactive, on P: `db.getSiblingDB(\"labdb\").rollbacktest.insertOne({_id:\"willroll\",note:\"never replicated\"})` — with both secondaries confirmed down, this is acknowledged locally but has nowhere to replicate to. Then on P: `systemctl stop mongod`. Finally restart both former secondaries (`systemctl start mongod` on each) and wait — with P gone, they hold a real election between themselves (2 of 3 is still a majority). Click Check Work once one of them becomes PRIMARY.",
-				Hint:  "Check Work confirms a NEW primary has been elected among the two members that were secondaries — proof P is down and out of the picture. The election can take up to a minute. If the final rollback step doesn't take effect later, the most likely cause is writing to P before both secondaries had actually finished stopping.",
+				Instructions: "This build doesn't have test-only failpoints enabled, so the window is created with timing instead: identify the current PRIMARY (call it P) and the two secondaries.\n\n" +
+					"First give yourself room to work by raising the election timeout on P:\n\n" +
+					"`mongosh -u admin -p admin_password --authenticationDatabase admin --eval 'cfg=rs.conf(); cfg.settings.electionTimeoutMillis=60000; rs.reconfig(cfg)'`\n\n" +
+					"Then stop mongod on BOTH secondaries — `systemctl stop mongod` on each — and *confirm* each one is actually down before continuing (`systemctl is-active mongod` should print `inactive`; `systemctl stop` returns before the process has necessarily finished exiting, so don't skip this check).\n\n" +
+					"Only once both read inactive, on P:\n\n" +
+					"`db.getSiblingDB(\"labdb\").rollbacktest.insertOne({_id:\"willroll\",note:\"never replicated\"})`\n\n" +
+					"— with both secondaries confirmed down, this is acknowledged locally but has nowhere to replicate to.\n\n" +
+					"Then on P: `systemctl stop mongod`.\n\n" +
+					"Finally restart both former secondaries (`systemctl start mongod` on each) and wait — with P gone, they hold a real election between themselves (2 of 3 is still a majority). Click Check Work once one of them becomes PRIMARY.",
+				Hint: "Check Work confirms a NEW primary has been elected among the two members that were secondaries — proof P is down and out of the picture. The election can take up to a minute. If the final rollback step doesn't take effect later, the most likely cause is writing to P before both secondaries had actually finished stopping.",
 			},
 			{
 				ID:    "rejoin-and-rollback",
 				Title: "Restart the old primary and watch it roll back",
-				Instructions: "On P: `systemctl start mongod`. Give it a little time to rejoin as a secondary and detect the divergence. Click Check Work.",
-				Hint:  "Check Work confirms the `willroll` document is gone from `labdb.rollbacktest` on every member — it existed only on P, and P rolled it back on rejoining a replica set whose history had already moved on without it.",
+				Instructions: "On P: `systemctl start mongod`.\n\n" +
+					"Give it a little time to rejoin as a secondary and detect the divergence. Click Check Work.",
+				Hint: "Check Work confirms the `willroll` document is gone from `labdb.rollbacktest` on every member — it existed only on P, and P rolled it back on rejoining a replica set whose history had already moved on without it.",
 			},
 		},
 	},
@@ -614,14 +670,19 @@ Every meaningful cluster-metadata event — a chunk split, a migration starting 
 			{
 				ID:    "confirm-balancer-on",
 				Title: "Confirm the balancer is enabled",
-				Instructions: "From mongos: `mongosh -u admin -p admin_password --authenticationDatabase admin --eval 'db.adminCommand({balancerStatus:1})'`. Click Check Work.",
-				Hint:  "Check Work runs the same command itself and expects `mode` to not be `\"off\"`.",
+				Instructions: "From mongos:\n\n" +
+					"`mongosh -u admin -p admin_password --authenticationDatabase admin --eval 'db.adminCommand({balancerStatus:1})'`\n\n" +
+					"Click Check Work.",
+				Hint: "Check Work runs the same command itself and expects `mode` to not be `\"off\"`.",
 			},
 			{
 				ID:    "force-a-migration",
 				Title: "Force enough imbalance to trigger a migration",
-				Instructions: "From mongos: `sh.enableSharding(\"labdb\"); sh.shardCollection(\"labdb.balanced\",{k:1}); db.adminCommand({configureCollectionBalancing:\"labdb.balanced\",chunkSize:1})`. Then insert a spread of keys: a short `for` loop inserting a few thousand small documents with sequential `k` values (same shape as the Sharding Fundamentals lab). Give the balancer a minute, then click Check Work.",
-				Hint:  "Check Work reads `config.changelog` for `moveChunk` entries against `labdb.balanced` — that's the cluster's own record that a real migration happened, not just a guess from where the data landed.",
+				Instructions: "From mongos:\n\n" +
+					"`sh.enableSharding(\"labdb\"); sh.shardCollection(\"labdb.balanced\",{k:1}); db.adminCommand({configureCollectionBalancing:\"labdb.balanced\",chunkSize:1})`\n\n" +
+					"Then insert a spread of keys — a short `for` loop inserting a few thousand small documents with sequential `k` values.\n\n" +
+					"Give the balancer a minute, then click Check Work.",
+				Hint: "Check Work reads `config.changelog` for `moveChunk` entries against `labdb.balanced` — that's the cluster's own record that a real migration happened, not just a guess from where the data landed.",
 			},
 		},
 	},
@@ -636,24 +697,29 @@ Every meaningful cluster-metadata event — a chunk split, a migration starting 
 		TimeLimit:   "4h",
 		LectureNotes: `The metadata layer is a replica set, not a special construct
 
-Every shard key, chunk boundary, and shard membership fact a sharded cluster relies on lives in a handful of collections under the config database — and that database is hosted by an ordinary 3-member replica set, running the exact same election/replication machinery as any other replica set in this curriculum. mongos routers read this metadata (and cache it) constantly; every one of them is a client of this replica set, nothing more.
+Every shard key, chunk boundary, and shard membership fact a sharded cluster relies on lives in a handful of collections under the config database — and that database is hosted by an ordinary 3-member replica set, running the exact same election/replication machinery as any other replica set. mongos routers read this metadata (and cache it) constantly; every one of them is a client of this replica set, nothing more.
 
 Losing the config RS's primary doesn't stop the cluster
 
-Because it's a real replica set with real automatic failover, losing one config server member (even the primary) just triggers an ordinary election among the remaining two — sharded reads and writes through mongos continue uninterrupted, the same as any replica-set failover elsewhere in this curriculum. This is deliberately not a single point of failure, even though it's easy to assume "the metadata store" must be one.`,
+Because it's a real replica set with real automatic failover, losing one config server member (even the primary) just triggers an ordinary election among the remaining two — sharded reads and writes through mongos continue uninterrupted, the same as any ordinary replica-set failover. This is deliberately not a single point of failure, even though it's easy to assume "the metadata store" must be one.`,
 		DesignTemplate: labPSMDBStandardShardedDesign,
 		Steps: []LabStep{
 			{
 				ID:    "observe-config-rs",
 				Title: "Connect directly to a config server member",
-				Instructions: "Open a terminal on any `cfg` node (e.g. `lab-cfg1`) and run `mongosh -u admin -p admin_password --authenticationDatabase admin --eval 'rs.status().members.map(m=>[m.name,m.stateStr])'` — it looks like any other replica set. Click Check Work.",
-				Hint:  "Check Work connects to all three config members directly and expects exactly 1 PRIMARY and 2 SECONDARY among them.",
+				Instructions: "Open a terminal on any `cfg` node (e.g. `lab-cfg1`) and run:\n\n" +
+					"`mongosh -u admin -p admin_password --authenticationDatabase admin --eval 'rs.status().members.map(m=>[m.name,m.stateStr])'`\n\n" +
+					"It looks like any other replica set. Click Check Work.",
+				Hint: "Check Work connects to all three config members directly and expects exactly 1 PRIMARY and 2 SECONDARY among them.",
 			},
 			{
 				ID:    "config-rs-survives-primary-loss",
 				Title: "Take down the config RS primary",
-				Instructions: "Identify which `cfg` node is PRIMARY (from the previous step) and stop mongod on it: `systemctl stop mongod`. From mongos, confirm the cluster still works: `mongosh -u admin -p admin_password --authenticationDatabase admin --eval 'db.adminCommand({listDatabases:1})'`. Click Check Work.",
-				Hint:  "Check Work confirms a new PRIMARY was elected among the two remaining config members, and that mongos can still answer a basic admin command.",
+				Instructions: "Identify which `cfg` node is PRIMARY (from the previous step) and stop mongod on it: `systemctl stop mongod`.\n\n" +
+					"From mongos, confirm the cluster still works:\n\n" +
+					"`mongosh -u admin -p admin_password --authenticationDatabase admin --eval 'db.adminCommand({listDatabases:1})'`\n\n" +
+					"Click Check Work.",
+				Hint: "Check Work confirms a new PRIMARY was elected among the two remaining config members, and that mongos can still answer a basic admin command.",
 			},
 		},
 	},
@@ -678,14 +744,21 @@ Zone sharding is how a single sharded cluster keeps EU customer data on shards p
 			{
 				ID:    "tag-zones",
 				Title: "Tag each shard into its own zone",
-				Instructions: "From mongos: `sh.addShardToZone(\"rs0\",\"north\"); sh.addShardToZone(\"rs1\",\"central\"); sh.addShardToZone(\"rs2\",\"south\")`. Shard a collection on the zoning field: `sh.enableSharding(\"labdb\"); sh.shardCollection(\"labdb.zoned\",{region:1,seq:1})`. Assign each zone's key range: `sh.updateZoneKeyRange(\"labdb.zoned\",{region:\"north\",seq:MinKey},{region:\"north\",seq:MaxKey},\"north\"); sh.updateZoneKeyRange(\"labdb.zoned\",{region:\"central\",seq:MinKey},{region:\"central\",seq:MaxKey},\"central\"); sh.updateZoneKeyRange(\"labdb.zoned\",{region:\"south\",seq:MinKey},{region:\"south\",seq:MaxKey},\"south\")`. Click Check Work.",
-				Hint:  "Check Work reads `config.tags` and confirms all three zone/shard/range assignments exist.",
+				Instructions: "From mongos:\n\n" +
+					"`sh.addShardToZone(\"rs0\",\"north\"); sh.addShardToZone(\"rs1\",\"central\"); sh.addShardToZone(\"rs2\",\"south\")`\n\n" +
+					"Shard a collection on the zoning field:\n\n" +
+					"`sh.enableSharding(\"labdb\"); sh.shardCollection(\"labdb.zoned\",{region:1,seq:1})`\n\n" +
+					"Assign each zone's key range:\n\n" +
+					"`sh.updateZoneKeyRange(\"labdb.zoned\",{region:\"north\",seq:MinKey},{region:\"north\",seq:MaxKey},\"north\"); sh.updateZoneKeyRange(\"labdb.zoned\",{region:\"central\",seq:MinKey},{region:\"central\",seq:MaxKey},\"central\"); sh.updateZoneKeyRange(\"labdb.zoned\",{region:\"south\",seq:MinKey},{region:\"south\",seq:MaxKey},\"south\")`\n\n" +
+					"Click Check Work.",
+				Hint: "Check Work reads `config.tags` and confirms all three zone/shard/range assignments exist.",
 			},
 			{
 				ID:    "verify-region-pinned",
 				Title: "Confirm each region's data lives on its assigned shard",
-				Instructions: "Insert some data into each region: a short loop inserting a handful of `{region:\"north\",seq:i}`, `{region:\"central\",seq:i}`, `{region:\"south\",seq:i}` documents. Give the balancer a minute to move any misplaced chunks, then click Check Work.",
-				Hint:  "Check Work runs `explain(\"executionStats\")` on a query filtered to one region and confirms every document actually returned came from the shard that region is zoned to — mongos may still list a neighboring shard in the routing plan (an empty boundary chunk right at the zone edge), which is harmless as long as that shard returns zero documents.",
+				Instructions: "Insert some data into each region: a short loop inserting a handful of `{region:\"north\",seq:i}`, `{region:\"central\",seq:i}`, `{region:\"south\",seq:i}` documents.\n\n" +
+					"Give the balancer a minute to move any misplaced chunks, then click Check Work.",
+				Hint: "Check Work runs `explain(\"executionStats\")` on a query filtered to one region and confirms every document actually returned came from the shard that region is zoned to — mongos may still list a neighboring shard in the routing plan (an empty boundary chunk right at the zone edge), which is harmless as long as that shard returns zero documents.",
 			},
 		},
 	},
@@ -710,14 +783,24 @@ sh.removeShard() doesn't instantly delete a shard — it first switches the shar
 			{
 				ID:    "add-shard",
 				Title: "Add the spare replica set as a shard",
-				Instructions: "The spare replica set was provisioned as an ordinary standalone one, not a shard — three real prerequisites first. (1) Every shard in a cluster must share the same internal cluster-auth key; copy the main cluster's onto all three spare members and restart mongod on each: `docker cp <a-main-shard-container>:/etc/mongo.keyFile /tmp/shared.keyFile` then for each spare member `docker cp /tmp/shared.keyFile <container>:/etc/mongo.keyFile && docker exec -u root <container> chown mongod:mongod /etc/mongo.keyFile && systemctl restart mongod` (run from the dbcanvas host, not inside a node). (2) Each spare member's `/etc/mongod.conf` needs `sharding:\\n  clusterRole: shardsvr` appended, then `systemctl restart mongod` again. (3) From mongos, add it using the members' full FQDNs (short hostnames won't match what the replica set itself reports): `sh.addShard(\"lab-spare-rs/spare-1.example.net:27017,spare-2.example.net:27017,spare-3.example.net:27017\")`. Click Check Work.",
-				Hint:  "Check Work reads `config.shards` and confirms a 4th shard now exists. If addShard itself errors, the message tells you exactly which prerequisite is still missing.",
+				Instructions: "The spare replica set was provisioned as an ordinary standalone one, not a shard — three real prerequisites first.\n\n" +
+					"(1) Every shard in a cluster must share the same internal cluster-auth key; copy the main cluster's onto all three spare members and restart mongod on each (run from the dbcanvas host, not inside a node):\n\n" +
+					"`docker cp <a-main-shard-container>:/etc/mongo.keyFile /tmp/shared.keyFile`\n\n" +
+					"then for each spare member:\n\n" +
+					"`docker cp /tmp/shared.keyFile <container>:/etc/mongo.keyFile && docker exec -u root <container> chown mongod:mongod /etc/mongo.keyFile && systemctl restart mongod`\n\n" +
+					"(2) Each spare member's `/etc/mongod.conf` needs `sharding:\\n  clusterRole: shardsvr` appended, then `systemctl restart mongod` again.\n\n" +
+					"(3) From mongos, add it using the members' full FQDNs (short hostnames won't match what the replica set itself reports):\n\n" +
+					"`sh.addShard(\"lab-spare-rs/spare-1.example.net:27017,spare-2.example.net:27017,spare-3.example.net:27017\")`\n\n" +
+					"Click Check Work.",
+				Hint: "Check Work reads `config.shards` and confirms a 4th shard now exists. If addShard itself errors, the message tells you exactly which prerequisite is still missing.",
 			},
 			{
 				ID:    "remove-shard",
 				Title: "Drain and remove it",
-				Instructions: "From mongos: `db.adminCommand({removeShard:\"lab-spare-rs\"})`. Repeat the same command every so often — it reports draining progress — until `state` reads `\"completed\"`. Click Check Work.",
-				Hint:  "Check Work reads `config.shards` and confirms the 4th shard is gone again.",
+				Instructions: "From mongos:\n\n" +
+					"`db.adminCommand({removeShard:\"lab-spare-rs\"})`\n\n" +
+					"Repeat the same command every so often — it reports draining progress — until `state` reads `\"completed\"`. Click Check Work.",
+				Hint: "Check Work reads `config.shards` and confirms the 4th shard is gone again.",
 			},
 		},
 	},
@@ -742,14 +825,19 @@ You can't change a sharded collection's key outright, but refineCollectionShardK
 			{
 				ID:    "produce-a-jumbo-chunk",
 				Title: "Build a shard key too coarse to split",
-				Instructions: "From mongos: `sh.enableSharding(\"labdb\"); sh.shardCollection(\"labdb.jumbo\",{tenantId:1}); db.adminCommand({configureCollectionBalancing:\"labdb.jumbo\",chunkSize:1})`. Insert a lot of documents that all share the exact same tenantId: a loop inserting several thousand `{tenantId:\"bigtenant\",payload:\"x\".repeat(200)}` documents. Wait a couple minutes for the auto-splitter to try and fail, then click Check Work.",
-				Hint:  "Check Work reads `config.chunks` for `labdb.jumbo` and looks for a chunk flagged `jumbo:true`.",
+				Instructions: "From mongos:\n\n" +
+					"`sh.enableSharding(\"labdb\"); sh.shardCollection(\"labdb.jumbo\",{tenantId:1}); db.adminCommand({configureCollectionBalancing:\"labdb.jumbo\",chunkSize:1})`\n\n" +
+					"Insert a lot of documents that all share the exact same tenantId — a loop inserting several thousand `{tenantId:\"bigtenant\",payload:\"x\".repeat(200)}` documents.\n\n" +
+					"Wait a couple minutes for the auto-splitter to try and fail, then click Check Work.",
+				Hint: "Check Work reads `config.chunks` for `labdb.jumbo` and looks for a chunk flagged `jumbo:true`.",
 			},
 			{
 				ID:    "refine-the-shard-key",
 				Title: "Refine the shard key to add a differentiator",
-				Instructions: "Create a compatible compound index first: `db.getSiblingDB(\"labdb\").jumbo.createIndex({tenantId:1,_id:1})`. Then refine: `db.adminCommand({refineCollectionShardKey:\"labdb.jumbo\",key:{tenantId:1,_id:1}})`. Click Check Work.",
-				Hint:  "Check Work reads `config.collections` for `labdb.jumbo` and confirms the shard key now includes `_id` as well as `tenantId`.",
+				Instructions: "Create a compatible compound index first:\n\n" +
+					"`db.getSiblingDB(\"labdb\").jumbo.createIndex({tenantId:1,_id:1})`\n\n" +
+					"Then refine: `db.adminCommand({refineCollectionShardKey:\"labdb.jumbo\",key:{tenantId:1,_id:1}})`. Click Check Work.",
+				Hint: "Check Work reads `config.collections` for `labdb.jumbo` and confirms the shard key now includes `_id` as well as `tenantId`.",
 			},
 		},
 	},
@@ -764,7 +852,7 @@ You can't change a sharded collection's key outright, but refineCollectionShardK
 		TimeLimit:   "4h",
 		LectureNotes: `refineCollectionShardKey extends a key; reshardCollection replaces it
 
-The previous lab's refineCollectionShardKey can only ever add trailing fields to the existing key — it can't change the leading field, and it can't fix a key that's wrong for reasons other than low cardinality (wrong access pattern entirely, for instance). reshardCollection is the more powerful — and much heavier — tool: it copies the collection's data into a new, differently-keyed sharded collection behind the scenes, cuts traffic over once caught up, and only then drops the old copy.
+refineCollectionShardKey can only ever add trailing fields to the existing key — it can't change the leading field, and it can't fix a key that's wrong for reasons other than low cardinality (wrong access pattern entirely, for instance). reshardCollection is the more powerful — and much heavier — tool: it copies the collection's data into a new, differently-keyed sharded collection behind the scenes, cuts traffic over once caught up, and only then drops the old copy.
 
 Why it's disruptive by nature, not a bug
 
@@ -774,8 +862,12 @@ Because every document has to be re-examined and placed under the new key, resha
 			{
 				ID:    "reshard-to-a-new-key",
 				Title: "Reshard from oldKey to newKey",
-				Instructions: "From mongos: `sh.enableSharding(\"labdb\"); sh.shardCollection(\"labdb.reshardme\",{oldKey:1})`. Insert a small amount of data: `for (let i=0;i<200;i++) db.getSiblingDB(\"labdb\").reshardme.insertOne({oldKey:i,newKey:200-i})`. Then reshard: `db.adminCommand({reshardCollection:\"labdb.reshardme\",key:{newKey:1}})`. This can take a little while even for a small collection. Click Check Work.",
-				Hint:  "Check Work reads `config.collections` for `labdb.reshardme` and confirms the shard key is now `{newKey:1}`, not `{oldKey:1}`.",
+				Instructions: "From mongos:\n\n" +
+					"`sh.enableSharding(\"labdb\"); sh.shardCollection(\"labdb.reshardme\",{oldKey:1})`\n\n" +
+					"Insert a small amount of data:\n\n" +
+					"`for (let i=0;i<200;i++) db.getSiblingDB(\"labdb\").reshardme.insertOne({oldKey:i,newKey:200-i})`\n\n" +
+					"Then reshard: `db.adminCommand({reshardCollection:\"labdb.reshardme\",key:{newKey:1}})`. This can take a little while even for a small collection. Click Check Work.",
+				Hint: "Check Work reads `config.collections` for `labdb.reshardme` and confirms the shard key is now `{newKey:1}`, not `{oldKey:1}`.",
 			},
 		},
 	},
@@ -800,8 +892,10 @@ A PBM restore of a sharded cluster restores every shard and the config servers t
 			{
 				ID:    "cluster-wide-backup",
 				Title: "Take a cluster-wide backup",
-				Instructions: "pbm-agent only runs on data-bearing members (shards and config servers) — mongos holds no data of its own, so run this from one of the shard terminals (e.g. `s0r1`) instead: `export $(cat /etc/sysconfig/pbm-agent) && pbm backup`. Wait for it to finish, then `pbm list`. Click Check Work.",
-				Hint:  "Check Work runs `pbm list -o json` from a shard member itself and looks for at least one backup with status `done`.",
+				Instructions: "pbm-agent only runs on data-bearing members (shards and config servers) — mongos holds no data of its own, so run this from one of the shard terminals (e.g. `s0r1`) instead:\n\n" +
+					"`export $(cat /etc/sysconfig/pbm-agent) && pbm backup`\n\n" +
+					"Wait for it to finish, then run `pbm list`. Click Check Work.",
+				Hint: "Check Work runs `pbm list -o json` from a shard member itself and looks for at least one backup with status `done`.",
 			},
 		},
 	},

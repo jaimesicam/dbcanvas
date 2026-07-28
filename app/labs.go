@@ -55,20 +55,27 @@ type LabStep struct {
 
 // labPatroniSwitchoverDesign is a 3-node Patroni PostgreSQL cluster + HAProxy +
 // Intranet — the same node/frame/edge shape Stack Designer produces, sized to
-// the minimum Patroni needs for etcd quorum (3 members).
+// the minimum Patroni needs for etcd quorum (3 members). Car Rental Sim links
+// to the HAProxy node (not the frame directly) so it keeps writing through any
+// switchover/failover without needing to re-resolve the current Leader itself
+// — HAProxy's own health checks already do that. VNC gives a place to reach
+// its dashboard from.
 var labPatroniSwitchoverDesign = json.RawMessage(`{
   "nodes": [
     {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
     {"id":"lab-pg-1","type":"patroni","label":"pg-node-1","frameId":"lab-patroni-cluster","x":574,"y":66},
     {"id":"lab-pg-2","type":"patroni","label":"pg-node-2","frameId":"lab-patroni-cluster","x":702,"y":66},
     {"id":"lab-pg-3","type":"patroni","label":"pg-node-3","frameId":"lab-patroni-cluster","x":830,"y":66},
-    {"id":"lab-haproxy","type":"haproxy","label":"haproxy","os":"oraclelinux","osVersion":"9","arch":"amd64","x":300,"y":40}
+    {"id":"lab-haproxy","type":"haproxy","label":"haproxy","os":"oraclelinux","osVersion":"9","arch":"amd64","x":300,"y":40},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-carsim","type":"carsim","label":"carsim-01","x":40,"y":300}
   ],
   "frames": [
     {"id":"lab-patroni-cluster","type":"patroni","label":"lab-patroni","os":"oraclelinux","osVersion":"9","arch":"amd64","pgMajor":"16","x":560,"y":20,"w":400,"h":138}
   ],
   "edges": [
-    {"id":"lab-edge-haproxy","from":{"node":"lab-haproxy","port":"right"},"to":{"node":"lab-patroni-cluster","port":"left"},"type":"directional"}
+    {"id":"lab-edge-haproxy","from":{"node":"lab-haproxy","port":"right"},"to":{"node":"lab-patroni-cluster","port":"left"},"type":"directional"},
+    {"id":"lab-cs-edge","from":{"node":"lab-haproxy","port":"bottom"},"to":{"node":"lab-carsim","port":"top"},"type":"directional"}
   ],
   "view": {"x":0,"y":0,"z":1}
 }`)
@@ -85,13 +92,16 @@ var labPatroniBackupDesign = json.RawMessage(`{
     {"id":"lab-pg-2","type":"patroni","label":"pg-node-2","frameId":"lab-patroni-cluster","x":702,"y":66},
     {"id":"lab-pg-3","type":"patroni","label":"pg-node-3","frameId":"lab-patroni-cluster","x":830,"y":66},
     {"id":"lab-haproxy","type":"haproxy","label":"haproxy","os":"oraclelinux","osVersion":"9","arch":"amd64","x":300,"y":40},
-    {"id":"lab-seaweed","type":"seaweedfs","label":"seaweed","arch":"amd64","bucket":"lab-backups","tls":true,"x":560,"y":220}
+    {"id":"lab-seaweed","type":"seaweedfs","label":"seaweed","arch":"amd64","bucket":"lab-backups","tls":true,"x":560,"y":220},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-carsim","type":"carsim","label":"carsim-01","x":40,"y":300}
   ],
   "frames": [
     {"id":"lab-patroni-cluster","type":"patroni","label":"lab-patroni","os":"oraclelinux","osVersion":"9","arch":"amd64","pgMajor":"16","usePgBackRest":true,"seaweedfsNodeId":"lab-seaweed","x":560,"y":20,"w":400,"h":138}
   ],
   "edges": [
-    {"id":"lab-edge-haproxy","from":{"node":"lab-haproxy","port":"right"},"to":{"node":"lab-patroni-cluster","port":"left"},"type":"directional"}
+    {"id":"lab-edge-haproxy","from":{"node":"lab-haproxy","port":"right"},"to":{"node":"lab-patroni-cluster","port":"left"},"type":"directional"},
+    {"id":"lab-cs-edge","from":{"node":"lab-haproxy","port":"bottom"},"to":{"node":"lab-carsim","port":"top"},"type":"directional"}
   ],
   "view": {"x":0,"y":0,"z":1}
 }`)
@@ -108,13 +118,16 @@ var labPatroniManualRewindDesign = json.RawMessage(`{
     {"id":"lab-pg-1","type":"patroni","label":"pg-node-1","frameId":"lab-patroni-cluster","x":574,"y":66},
     {"id":"lab-pg-2","type":"patroni","label":"pg-node-2","frameId":"lab-patroni-cluster","x":702,"y":66},
     {"id":"lab-pg-3","type":"patroni","label":"pg-node-3","frameId":"lab-patroni-cluster","x":830,"y":66},
-    {"id":"lab-haproxy","type":"haproxy","label":"haproxy","os":"oraclelinux","osVersion":"9","arch":"amd64","x":300,"y":40}
+    {"id":"lab-haproxy","type":"haproxy","label":"haproxy","os":"oraclelinux","osVersion":"9","arch":"amd64","x":300,"y":40},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-carsim","type":"carsim","label":"carsim-01","x":40,"y":300}
   ],
   "frames": [
     {"id":"lab-patroni-cluster","type":"patroni","label":"lab-patroni","os":"oraclelinux","osVersion":"9","arch":"amd64","pgMajor":"16","disablePgRewind":true,"x":560,"y":20,"w":400,"h":138}
   ],
   "edges": [
-    {"id":"lab-edge-haproxy","from":{"node":"lab-haproxy","port":"right"},"to":{"node":"lab-patroni-cluster","port":"left"},"type":"directional"}
+    {"id":"lab-edge-haproxy","from":{"node":"lab-haproxy","port":"right"},"to":{"node":"lab-patroni-cluster","port":"left"},"type":"directional"},
+    {"id":"lab-cs-edge","from":{"node":"lab-haproxy","port":"bottom"},"to":{"node":"lab-carsim","port":"top"},"type":"directional"}
   ],
   "view": {"x":0,"y":0,"z":1}
 }`)
@@ -133,13 +146,16 @@ var labPatroniStandbyClusterDesign = json.RawMessage(`{
     {"id":"lab-pg-2","type":"patroni","label":"pg-node-2","frameId":"lab-patroni-cluster","x":702,"y":66},
     {"id":"lab-pg-3","type":"patroni","label":"pg-node-3","frameId":"lab-patroni-cluster","x":830,"y":66},
     {"id":"lab-haproxy","type":"haproxy","label":"haproxy","os":"oraclelinux","osVersion":"9","arch":"amd64","x":300,"y":40},
-    {"id":"lab-pg-external","type":"pg","label":"external-primary","os":"oraclelinux","osVersion":"9","arch":"amd64","pgMajor":"16","x":560,"y":200}
+    {"id":"lab-pg-external","type":"pg","label":"external-primary","os":"oraclelinux","osVersion":"9","arch":"amd64","pgMajor":"16","x":560,"y":200},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-carsim","type":"carsim","label":"carsim-01","x":40,"y":300}
   ],
   "frames": [
     {"id":"lab-patroni-cluster","type":"patroni","label":"lab-patroni","os":"oraclelinux","osVersion":"9","arch":"amd64","pgMajor":"16","x":560,"y":20,"w":400,"h":138}
   ],
   "edges": [
-    {"id":"lab-edge-haproxy","from":{"node":"lab-haproxy","port":"right"},"to":{"node":"lab-patroni-cluster","port":"left"},"type":"directional"}
+    {"id":"lab-edge-haproxy","from":{"node":"lab-haproxy","port":"right"},"to":{"node":"lab-patroni-cluster","port":"left"},"type":"directional"},
+    {"id":"lab-cs-edge","from":{"node":"lab-haproxy","port":"bottom"},"to":{"node":"lab-carsim","port":"top"},"type":"directional"}
   ],
   "view": {"x":0,"y":0,"z":1}
 }`)
@@ -155,13 +171,16 @@ var labPatroniCallbacksDesign = json.RawMessage(`{
     {"id":"lab-pg-1","type":"patroni","label":"pg-node-1","frameId":"lab-patroni-cluster","x":574,"y":66},
     {"id":"lab-pg-2","type":"patroni","label":"pg-node-2","frameId":"lab-patroni-cluster","x":702,"y":66},
     {"id":"lab-pg-3","type":"patroni","label":"pg-node-3","frameId":"lab-patroni-cluster","x":830,"y":66},
-    {"id":"lab-haproxy","type":"haproxy","label":"haproxy","os":"oraclelinux","osVersion":"9","arch":"amd64","x":300,"y":40}
+    {"id":"lab-haproxy","type":"haproxy","label":"haproxy","os":"oraclelinux","osVersion":"9","arch":"amd64","x":300,"y":40},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-carsim","type":"carsim","label":"carsim-01","x":40,"y":300}
   ],
   "frames": [
     {"id":"lab-patroni-cluster","type":"patroni","label":"lab-patroni","os":"oraclelinux","osVersion":"9","arch":"amd64","pgMajor":"16","enableRoleChangeCallback":true,"x":560,"y":20,"w":400,"h":138}
   ],
   "edges": [
-    {"id":"lab-edge-haproxy","from":{"node":"lab-haproxy","port":"right"},"to":{"node":"lab-patroni-cluster","port":"left"},"type":"directional"}
+    {"id":"lab-edge-haproxy","from":{"node":"lab-haproxy","port":"right"},"to":{"node":"lab-patroni-cluster","port":"left"},"type":"directional"},
+    {"id":"lab-cs-edge","from":{"node":"lab-haproxy","port":"bottom"},"to":{"node":"lab-carsim","port":"top"},"type":"directional"}
   ],
   "view": {"x":0,"y":0,"z":1}
 }`)
@@ -198,11 +217,11 @@ Applications shouldn't need to know which of the 3 nodes is the Leader today. HA
 			{
 				ID:    "switchover",
 				Title: "Perform a planned switchover",
-				Instructions: "Open a terminal on any of the three Patroni nodes. Run " +
-					"`patronictl -c /etc/patroni/postgresql.yml list` to see the cluster and find the current Leader. " +
-					"Then run `patronictl -c /etc/patroni/postgresql.yml switchover` and follow the prompts to promote a " +
-					"different node. Confirm with `list` that a new node is Leader, then click Check Work.",
-				Hint: "Non-interactive form: patronictl -c /etc/patroni/postgresql.yml switchover --leader <current-leader-hostname> --candidate <new-leader-hostname> --force",
+				Instructions: "Open a terminal on any of the three Patroni nodes.\n\n" +
+					"Run `patronictl -c /etc/patroni/postgresql.yml list` to see the cluster and find the current Leader.\n\n" +
+					"Then run `patronictl -c /etc/patroni/postgresql.yml switchover` and follow the prompts to promote a different node.\n\n" +
+					"Confirm with `patronictl -c /etc/patroni/postgresql.yml list` that a new node is Leader, then click Check Work.",
+				Hint: "Non-interactive form: `patronictl -c /etc/patroni/postgresql.yml switchover --leader <current-leader-hostname> --candidate <new-leader-hostname> --force`",
 			},
 		},
 	},
@@ -217,7 +236,7 @@ Applications shouldn't need to know which of the 3 nodes is the Leader today. HA
 		TimeLimit:   "2h",
 		LectureNotes: `Planned vs. unplanned: switchover vs. failover
 
-The "Patroni Switchover" lab covered the planned handover: you ask for it, the Leader checkpoints cleanly and demotes itself, and a Replica is promoted with no data loss. This lab is the other half — an unplanned failover, where the Leader simply disappears (a crash, a kernel panic, a network partition) and the remaining nodes have to notice and react on their own.
+A planned handover ("patronictl switchover") is voluntary: you ask for it, the Leader checkpoints cleanly and demotes itself, and a Replica is promoted with no data loss. This lab is about the other case — an unplanned failover, where the Leader simply disappears (a crash, a kernel panic, a network partition) and the remaining nodes have to notice and react on their own, with no chance for the old Leader to shut down cleanly first.
 
 Why stopping "patroni" takes PostgreSQL down too
 
@@ -235,12 +254,12 @@ Unlike a switchover, there's no guarantee every transaction the old Leader had c
 			{
 				ID:    "failover",
 				Title: "Simulate an unplanned crash",
-				Instructions: "Open a terminal on the current Leader (check with `patronictl -c /etc/patroni/postgresql.yml list`). " +
-					"Run `systemctl stop patroni` on that node — Patroni manages PostgreSQL as its own child process, so this takes " +
-					"PostgreSQL down too, with no clean checkpoint. Wait about 15–30 seconds, then run " +
-					"`patronictl -c /etc/patroni/postgresql.yml list` on one of the other two nodes and confirm a new Leader was elected " +
-					"automatically. When you're done, run `systemctl start patroni` on the node you stopped so it rejoins as a Replica, " +
-					"then click Check Work.",
+				Instructions: "Open a terminal on the current Leader — check with `patronictl -c /etc/patroni/postgresql.yml list`.\n\n" +
+					"Run `systemctl stop patroni` on that node. Patroni manages PostgreSQL as its own child process, so this takes " +
+					"PostgreSQL down too, with no clean checkpoint.\n\n" +
+					"Wait about 15–30 seconds, then run `patronictl -c /etc/patroni/postgresql.yml list` on one of the other two nodes " +
+					"and confirm a new Leader was elected automatically.\n\n" +
+					"When you're done, run `systemctl start patroni` on the node you stopped so it rejoins as a Replica, then click Check Work.",
 				Hint: "If nothing's changed after 30s, double-check you stopped patroni on the actual Leader, not a Replica — patronictl list marks the Leader in the Role column.",
 			},
 		},
@@ -256,7 +275,7 @@ Unlike a switchover, there's no guarantee every transaction the old Leader had c
 		TimeLimit:   "2h",
 		LectureNotes: `A mode, not an event
 
-The Switchover and Failover labs both exercise one-time events: something happens (you ask for it, or a node crashes) and the cluster reacts once. "patronictl pause" is different — it's a persistent mode. It writes "pause: true" into the cluster's shared configuration in etcd (the same object "patronictl edit-config" edits), so it applies to every member immediately and survives until you explicitly "resume" it — even across a Patroni restart.
+A switchover or a failover is a one-time event: something happens (you ask for it, or a node crashes) and the cluster reacts once. "patronictl pause" is different — it's a persistent mode. It writes "pause: true" into the cluster's shared configuration in etcd (the same object "patronictl edit-config" edits), so it applies to every member immediately and survives until you explicitly "resume" it — even across a Patroni restart.
 
 Why you'd want that
 
@@ -270,16 +289,17 @@ It doesn't stop PostgreSQL, and it doesn't stop replication — Replicas keep st
 			{
 				ID:    "pause",
 				Title: "Pause autofailover",
-				Instructions: "Open a terminal on any Patroni node and run `patronictl -c /etc/patroni/postgresql.yml pause`. Run " +
-					"`patronictl -c /etc/patroni/postgresql.yml list` again — the footer notes the cluster is in maintenance mode. " +
+				Instructions: "Open a terminal on any Patroni node.\n\n" +
+					"Run `patronictl -c /etc/patroni/postgresql.yml pause`.\n\n" +
+					"Run `patronictl -c /etc/patroni/postgresql.yml list` again — the footer notes the cluster is in maintenance mode. " +
 					"Then click Check Work.",
 				Hint: "pause is cluster-wide (stored in etcd) — it doesn't matter which of the three nodes you run it from.",
 			},
 			{
 				ID:    "resume",
 				Title: "Resume autofailover",
-				Instructions: "Run `patronictl -c /etc/patroni/postgresql.yml resume` on any node, confirm the maintenance-mode footer " +
-					"is gone from `list`, then click Check Work.",
+				Instructions: "Run `patronictl -c /etc/patroni/postgresql.yml resume` on any node.\n\n" +
+					"Confirm the maintenance-mode footer is gone from `patronictl -c /etc/patroni/postgresql.yml list`, then click Check Work.",
 				Hint: "If Check Work still reports paused, give the change a few seconds to reach every member and try again.",
 			},
 		},
@@ -309,10 +329,10 @@ PostgreSQL settings split into two camps: dynamic (reloadable) parameters like "
 			{
 				ID:    "config-change",
 				Title: "Change work_mem cluster-wide",
-				Instructions: "Open a terminal on any Patroni node. Run " +
-					"`patronictl -c /etc/patroni/postgresql.yml edit-config lab-patroni -p work_mem=32MB --force`. This is a dynamic " +
-					"(reloadable) setting, so Patroni applies it without restarting PostgreSQL. Confirm on a couple of nodes with " +
-					"`psql -U postgres -c \"show work_mem;\"`, then click Check Work.",
+				Instructions: "Open a terminal on any Patroni node.\n\n" +
+					"Run `patronictl -c /etc/patroni/postgresql.yml edit-config lab-patroni -p work_mem=32MB --force`. This is a dynamic " +
+					"(reloadable) setting, so Patroni applies it without restarting PostgreSQL.\n\n" +
+					"Confirm on a couple of nodes with `psql -U postgres -c \"show work_mem;\"`, then click Check Work.",
 				Hint: "Pick any value other than the 4MB default — Check Work just confirms every member agrees and it's no longer the default.",
 			},
 		},
@@ -328,11 +348,11 @@ PostgreSQL settings split into two camps: dynamic (reloadable) parameters like "
 		TimeLimit:   "2h",
 		LectureNotes: `Quorum, revisited — this time by breaking it on purpose
 
-The Switchover lab explained that this cluster runs 3 etcd members (one per node) so it can lose one and still keep a majority. This lab breaks that on purpose: stop etcd on 2 of the 3 nodes and the single survivor can't reach a majority either — etcd itself becomes unable to confirm or change anything, including who holds the Leader lock.
+This cluster runs 3 etcd members (one per node) precisely so it can lose one and still keep a majority. This lab breaks that on purpose: stop etcd on 2 of the 3 nodes and the single survivor can't reach a majority either — etcd itself becomes unable to confirm or change anything, including who holds the Leader lock.
 
 What Patroni does when it can't confirm it's still the Leader
 
-This cluster's Patroni config uses "ttl: 30" and "loop_wait: 10" (visible via "patronictl show-config"). Once the Leader can no longer renew its lock — because etcd itself has no quorum to renew anything against — it can't prove to itself it's still safely the Leader. Rather than risk a second node getting promoted later and colliding with it (split brain), Patroni errs toward unavailability: expect no member to report as Leader once the TTL passes, until quorum returns. This is the same split-brain-avoidance trade-off the Switchover lab's lecture notes mentioned, just triggered from the DCS side instead of a node crash.
+This cluster's Patroni config uses "ttl: 30" and "loop_wait: 10" (visible via "patronictl show-config"). Once the Leader can no longer renew its lock — because etcd itself has no quorum to renew anything against — it can't prove to itself it's still safely the Leader. Rather than risk a second node getting promoted later and colliding with it (split brain), Patroni errs toward unavailability: expect no member to report as Leader once the TTL passes, until quorum returns. Refusing to guess is the whole point — a wrong guess here means two Leaders writing at once.
 
 A real-world nuance this lab simplifies
 
@@ -342,16 +362,17 @@ Here, etcd is colocated 1:1 with each database node purely to keep the lab's foo
 			{
 				ID:    "break-quorum",
 				Title: "Break etcd quorum",
-				Instructions: "Open a terminal on two of the three Patroni nodes (any two) and run `systemctl stop patroni etcd` on each " +
-					"— stopping only one of the three etcd members still leaves a majority (2 of 3), so both are needed. Wait about a " +
-					"minute (this lab's leader lock has a 30s TTL). Click Check Work — it passes once no node can confirm being Leader.",
+				Instructions: "Open a terminal on two of the three Patroni nodes (any two) — stopping only one of the three etcd members " +
+					"still leaves a majority (2 of 3), so both are needed.\n\n" +
+					"Run `systemctl stop patroni etcd` on each of the two nodes.\n\n" +
+					"Wait about a minute (this lab's leader lock has a 30s TTL). Click Check Work — it passes once no node can confirm being Leader.",
 				Hint: "patronictl commands may hang or time out once etcd has no quorum — that's expected; use Check Work rather than list to see the result.",
 			},
 			{
 				ID:    "restore-quorum",
 				Title: "Restore quorum",
-				Instructions: "Run `systemctl start etcd patroni` again on the two nodes you stopped. Wait about 30 seconds for etcd to " +
-					"reform a quorum and Patroni to elect a Leader again, then click Check Work.",
+				Instructions: "Run `systemctl start etcd patroni` again on the two nodes you stopped.\n\n" +
+					"Wait about 30 seconds for etcd to reform a quorum and Patroni to elect a Leader again, then click Check Work.",
 				Hint: "If it's still failing after a minute, double-check both etcd and patroni are started on both nodes: `systemctl status etcd patroni`.",
 			},
 		},
@@ -367,11 +388,11 @@ Here, etcd is colocated 1:1 with each database node purely to keep the lab's foo
 		TimeLimit:   "2h",
 		LectureNotes: `Reload vs. restart
 
-Not every PostgreSQL setting can be changed with a config reload (SIGHUP). Dynamic parameters like "work_mem" (from the Cluster-wide Configuration Change lab) take effect immediately on reload. Static parameters — things that affect shared memory layout or other fixed-size structures decided at startup, like "max_connections" — can only change by restarting the postmaster. "patronictl edit-config" writes to the same shared config either way; the difference shows up in "patronictl list", which flags every member "Pending restart" once you change a static parameter, because Patroni already knows a reload alone won't apply it.
+Not every PostgreSQL setting can be changed with a config reload (SIGHUP). Dynamic parameters like "work_mem" take effect immediately on reload. Static parameters — things that affect shared memory layout or other fixed-size structures decided at startup, like "max_connections" — can only change by restarting the postmaster. "patronictl edit-config" writes to the same shared config either way; the difference shows up in "patronictl list", which flags every member "Pending restart" once you change a static parameter, because Patroni already knows a reload alone won't apply it.
 
 Why order matters
 
-Restarting a Replica is nearly free — it drops and immediately re-establishes its streaming connection, with no client-visible impact. Restarting the Leader briefly interrupts every write in flight. So the standard pattern is: restart every Replica first (in any order), and restart the Leader last — or, better still, switch over away from it first and then restart it as a plain Replica, avoiding even that brief interruption. This lab has you restart the Leader directly so you can see the trade-off; combine it with the Switchover lab's technique whenever that interruption isn't acceptable.
+Restarting a Replica is nearly free — it drops and immediately re-establishes its streaming connection, with no client-visible impact. Restarting the Leader briefly interrupts every write in flight. So the standard pattern is: restart every Replica first (in any order), and restart the Leader last — or, better still, switch over away from it first (with "patronictl switchover") and then restart it as a plain Replica, avoiding even that brief interruption. This lab has you restart the Leader directly so you can see the trade-off.
 
 patronictl restart vs. a manual systemctl restart
 
@@ -381,12 +402,12 @@ You could just "systemctl restart patroni" on each node yourself — but "patron
 			{
 				ID:    "rolling-restart",
 				Title: "Change max_connections and roll out the restart",
-				Instructions: "Open a terminal on any Patroni node. Run " +
-					"`patronictl -c /etc/patroni/postgresql.yml edit-config lab-patroni -p max_connections=300 --force`, then " +
-					"`patronictl -c /etc/patroni/postgresql.yml list` — every member now shows \"Pending restart\". Restart the two " +
-					"Replicas first, one at a time: `patronictl -c /etc/patroni/postgresql.yml restart lab-patroni <replica-hostname> --force`. " +
-					"Restart the Leader last, the same way. Confirm on a couple of nodes with `psql -U postgres -c \"show max_connections;\"`, " +
-					"then click Check Work.",
+				Instructions: "Open a terminal on any Patroni node.\n\n" +
+					"Run `patronictl -c /etc/patroni/postgresql.yml edit-config lab-patroni -p max_connections=300 --force`.\n\n" +
+					"Run `patronictl -c /etc/patroni/postgresql.yml list` — every member now shows \"Pending restart\".\n\n" +
+					"Restart the two Replicas first, one at a time: `patronictl -c /etc/patroni/postgresql.yml restart lab-patroni <replica-hostname> --force`.\n\n" +
+					"Restart the Leader last, the same way.\n\n" +
+					"Confirm on a couple of nodes with `psql -U postgres -c \"show max_connections;\"`, then click Check Work.",
 				Hint: "patronictl restart takes the cluster name and a specific member hostname — there's no \"restart all\" shortcut, so repeat it three times.",
 			},
 		},
@@ -416,17 +437,19 @@ It's easy to pause a cluster for maintenance, finish the maintenance, and walk a
 			{
 				ID:    "pause-and-crash",
 				Title: "Pause the cluster, then simulate a crash",
-				Instructions: "Run `patronictl -c /etc/patroni/postgresql.yml pause` on any node. Then find the current Leader with " +
-					"`patronictl -c /etc/patroni/postgresql.yml list` and run `systemctl stop patroni` on it. Because the cluster is paused, " +
-					"the other two nodes won't auto-elect a replacement — confirm with `list` that there's no Leader, then click Check Work.",
+				Instructions: "Run `patronictl -c /etc/patroni/postgresql.yml pause` on any node.\n\n" +
+					"Find the current Leader with `patronictl -c /etc/patroni/postgresql.yml list` and run `systemctl stop patroni` on it.\n\n" +
+					"Because the cluster is paused, the other two nodes won't auto-elect a replacement — confirm with " +
+					"`patronictl -c /etc/patroni/postgresql.yml list` that there's no Leader, then click Check Work.",
 				Hint: "If Check Work says a leader is still reachable, double-check you stopped patroni on the actual Leader, not a Replica.",
 			},
 			{
 				ID:    "failover-and-resume",
 				Title: "Fail over manually, then resume",
-				Instructions: "Run `patronictl -c /etc/patroni/postgresql.yml failover lab-patroni --candidate <hostname> --force` naming one " +
-					"of the two remaining nodes — no `--leader` flag is needed, since there isn't one to demote. Confirm a new Leader appears " +
-					"in `list`, then run `patronictl -c /etc/patroni/postgresql.yml resume` so autofailover protects you again. Click Check Work.",
+				Instructions: "Run `patronictl -c /etc/patroni/postgresql.yml failover lab-patroni --candidate <hostname> --force`, naming one " +
+					"of the two remaining nodes — no `--leader` flag is needed, since there isn't one to demote.\n\n" +
+					"Confirm a new Leader appears in `patronictl -c /etc/patroni/postgresql.yml list`.\n\n" +
+					"Run `patronictl -c /etc/patroni/postgresql.yml resume` so autofailover protects you again. Click Check Work.",
 				Hint: "Check Work checks both halves — a Leader must exist AND the cluster must no longer be paused.",
 			},
 		},
@@ -440,13 +463,13 @@ It's easy to pause a cluster for maintenance, finish the maintenance, and walk a
 		Technology:  "Patroni",
 		Category:    "Replication",
 		TimeLimit:   "2h",
-		LectureNotes: `Closing the gap the Failover lab opened
+		LectureNotes: `Closing a real data-loss window
 
-That lab's lecture notes flagged a real risk: with the default asynchronous replication, a Leader can acknowledge a commit to the client before any Replica has received it — an unplanned failover can then lose those last few transactions. Synchronous replication closes that gap: once enabled, the Leader won't acknowledge a commit until at least one synchronous Replica confirms it has received (not necessarily applied — just received) the WAL.
+With the default asynchronous replication, a Leader can acknowledge a commit to the client before any Replica has received it — an unplanned failover can then lose those last few transactions. Synchronous replication closes that gap: once enabled, the Leader won't acknowledge a commit until at least one synchronous Replica confirms it has received (not necessarily applied — just received) the WAL.
 
 Patroni picks the synchronous replica for you
 
-You don't hand-name which Replica is synchronous. Once "synchronous_mode" is on, Patroni continuously chooses among the healthy Replicas and rewrites the Leader's "synchronous_standby_names" to match — including automatically promoting a different Replica to synchronous status if the current one falls behind or disappears. That's the same DCS-coordinated pattern behind everything else in this curriculum: Patroni keeps every member's configuration consistent with one shared decision, rather than you configuring each node by hand.
+You don't hand-name which Replica is synchronous. Once "synchronous_mode" is on, Patroni continuously chooses among the healthy Replicas and rewrites the Leader's "synchronous_standby_names" to match — including automatically promoting a different Replica to synchronous status if the current one falls behind or disappears. Patroni keeps every member's configuration consistent with one shared decision, rather than you configuring each node by hand.
 
 The trade-off: durability costs availability
 
@@ -456,11 +479,12 @@ This closes the data-loss gap, but it isn't free. If the synchronous Replica bec
 			{
 				ID:    "enable-sync",
 				Title: "Enable synchronous replication",
-				Instructions: "Open a terminal on any Patroni node. Run " +
-					"`patronictl -c /etc/patroni/postgresql.yml edit-config lab-patroni --set synchronous_mode=true --force`. Patroni will " +
+				Instructions: "Open a terminal on any Patroni node.\n\n" +
+					"Run `patronictl -c /etc/patroni/postgresql.yml edit-config lab-patroni --set synchronous_mode=true --force`. Patroni will " +
 					"automatically pick one Replica as the synchronous standby and update the Leader's synchronous_standby_names for you — " +
-					"no need to name it yourself. Confirm on the Leader with `psql -U postgres -c \"select application_name, sync_state from " +
-					"pg_stat_replication;\"` (one row should show sync_state = sync), then click Check Work.",
+					"no need to name it yourself.\n\n" +
+					"Confirm on the Leader with `psql -U postgres -c \"select application_name, sync_state from pg_stat_replication;\"` " +
+					"(one row should show sync_state = sync), then click Check Work.",
 				Hint: "If every row still shows async after a few seconds, double-check you used --set (not --pg-param) — synchronous_mode is a Patroni-level setting, not a postgresql.conf parameter.",
 			},
 		},
@@ -474,9 +498,9 @@ This closes the data-loss gap, but it isn't free. If the synchronous Replica bec
 		Technology:  "Patroni",
 		Category:    "DCS & Quorum",
 		TimeLimit:   "2h",
-		LectureNotes: `The etcd Quorum Loss lab's other ending
+		LectureNotes: `An alternative to demoting when the DCS disappears
 
-That lab stopped both etcd and Patroni on two nodes, and showed the Leader correctly step down rather than risk split-brain once it couldn't renew its lock. This lab breaks etcd the same way but leaves Patroni running everywhere — deliberately, so you can see the alternative Patroni offers for exactly that situation: failsafe_mode.
+Stopping etcd on a majority of nodes normally leaves the Leader unable to renew its lock, so it correctly steps down rather than risk split-brain. This lab breaks etcd the same way but leaves Patroni running everywhere — deliberately, so you can see the alternative Patroni offers for exactly that situation: failsafe_mode.
 
 How it stays safe without the DCS
 
@@ -490,25 +514,24 @@ Why it's opt-in, not the default
 			{
 				ID:    "enable-failsafe",
 				Title: "Enable failsafe mode",
-				Instructions: "Run `patronictl -c /etc/patroni/postgresql.yml edit-config lab-patroni --set failsafe_mode=true --force` on " +
-					"any node. Confirm with `patronictl -c /etc/patroni/postgresql.yml show-config` that `failsafe_mode: true` appears, then " +
-					"click Check Work.",
+				Instructions: "Run `patronictl -c /etc/patroni/postgresql.yml edit-config lab-patroni --set failsafe_mode=true --force` on any node.\n\n" +
+					"Confirm with `patronictl -c /etc/patroni/postgresql.yml show-config` that `failsafe_mode: true` appears, then click Check Work.",
 				Hint: "This must be enabled BEFORE you break etcd in the next step — it can't help a Leader that's already lost contact.",
 			},
 			{
 				ID:    "break-etcd-only",
 				Title: "Break etcd only — leave Patroni running",
-				Instructions: "Note the current Leader with `patronictl -c /etc/patroni/postgresql.yml list`. Open a terminal on the other " +
-					"two nodes and run `systemctl stop etcd` on each — this time, do NOT stop patroni; it needs to keep running so the Leader " +
-					"can still reach it directly. Wait about 30–60 seconds, then click Check Work — it passes once the same node is still Leader " +
-					"despite etcd having no quorum.",
+				Instructions: "Note the current Leader with `patronictl -c /etc/patroni/postgresql.yml list`.\n\n" +
+					"Open a terminal on the other two nodes and run `systemctl stop etcd` on each — this time, do NOT stop patroni; it needs " +
+					"to keep running so the Leader can still reach it directly.\n\n" +
+					"Wait about 30–60 seconds, then click Check Work — it passes once the same node is still Leader despite etcd having no quorum.",
 				Hint: "If Check Work says the leader changed, double check failsafe_mode was actually enabled before you stopped etcd.",
 			},
 			{
 				ID:    "restore-etcd",
 				Title: "Restore etcd",
-				Instructions: "Run `systemctl start etcd` on the two nodes you stopped it on. Wait about 30 seconds for etcd to reform a " +
-					"quorum, then click Check Work.",
+				Instructions: "Run `systemctl start etcd` on the two nodes you stopped it on.\n\n" +
+					"Wait about 30 seconds for etcd to reform a quorum, then click Check Work.",
 				Hint: "The Leader should already have been up the whole time — this step just confirms normal DCS-backed operation resumed.",
 			},
 		},
@@ -543,19 +566,21 @@ pgBackRest's S3 client refuses plain HTTP; this lab's SeaweedFS node runs with a
 				ID:    "take-backup",
 				Title: "Take a full backup",
 				Instructions: "This cluster already took one pgBackRest backup automatically when it was created — see for yourself with " +
-					"`pgbackrest --stanza=lab-patroni info` on any node. Now take a fresh one yourself: run " +
-					"`pgbackrest --stanza=lab-patroni --type=full backup` (this works from any node — it just needs to reach the same S3 " +
-					"repo, not necessarily the Leader). Wait for it to finish without errors, then click Check Work.",
+					"`pgbackrest --stanza=lab-patroni info` on any node.\n\n" +
+					"Now take a fresh one yourself: run `pgbackrest --stanza=lab-patroni --type=full backup` (this works from any node — it " +
+					"just needs to reach the same S3 repo, not necessarily the Leader).\n\n" +
+					"Wait for it to finish without errors, then click Check Work.",
 				Hint: "Check Work is looking for more backups than existed when the cluster first came up — the automatic initial one alone won't pass it.",
 			},
 			{
 				ID:    "restore-replica",
 				Title: "Reclone a Replica from backup",
-				Instructions: "Find a Replica with `patronictl -c /etc/patroni/postgresql.yml list` (anyone that isn't the Leader), then run " +
-					"`patronictl -c /etc/patroni/postgresql.yml reinit lab-patroni <replica-hostname> --force` on any node. This wipes that " +
-					"member's data directory and reclones it — and because pgBackRest is configured, Patroni restores from your S3 backup " +
-					"rather than streaming a fresh copy from the Leader. Wait about a minute, confirm with `list` that it's back to Role: " +
-					"Replica / State: streaming, then click Check Work.",
+				Instructions: "Find a Replica with `patronictl -c /etc/patroni/postgresql.yml list` (anyone that isn't the Leader).\n\n" +
+					"Run `patronictl -c /etc/patroni/postgresql.yml reinit lab-patroni <replica-hostname> --force` on any node. This wipes " +
+					"that member's data directory and reclones it — and because pgBackRest is configured, Patroni restores from your S3 " +
+					"backup rather than streaming a fresh copy from the Leader.\n\n" +
+					"Wait about a minute, confirm with `patronictl -c /etc/patroni/postgresql.yml list` that it's back to Role: Replica / " +
+					"State: streaming, then click Check Work.",
 				Hint: "reinit only touches the one member you name — the Leader and the other Replica are never affected, so this is safe to try.",
 			},
 		},
@@ -569,13 +594,13 @@ pgBackRest's S3 client refuses plain HTTP; this lab's SeaweedFS node runs with a
 		Technology:  "Patroni",
 		Category:    "Backup & Recovery",
 		TimeLimit:   "2h",
-		LectureNotes: `What Patroni's reinit actually does when there's no backup repository
+		LectureNotes: `What Patroni's reinit does when there's no backup repository
 
-The Backup & Restore lab showed "patronictl reinit" recloning a member from a pgBackRest/S3 backup. Most Patroni clusters never have that configured — this cluster doesn't. With no backup tool listed in "create_replica_methods", Patroni's only way to build a new replica is its own "basebackup" method — a thin wrapper around PostgreSQL's own "pg_basebackup", which streams a byte-for-byte physical copy of the current Leader's data directory over the replication protocol. Anything "patronictl reinit" can do without a configured backup tool, "pg_basebackup" itself can do directly — this lab has you run that exact tool by hand, so you can use it without Patroni's help.
+"patronictl reinit" reclones a member — for a cluster with pgBackRest/S3 configured, from that backup; without one, from its own "basebackup" method, a thin wrapper around PostgreSQL's own "pg_basebackup", which streams a byte-for-byte physical copy of the current Leader's data directory over the replication protocol. Anything "patronictl reinit" can do without a configured backup tool, "pg_basebackup" itself can do directly — this lab has you run that exact tool by hand, so you can use it without Patroni's help.
 
 Why you'd ever do this by hand
 
-"patronictl reinit" needs a healthy DCS and a running Patroni on the target — most of the time that's fine. But if etcd has no quorum (see the etcd Quorum Loss lab) or Patroni itself won't start, patronictl can't reach it either. "pg_basebackup" has no such dependency: it only needs network access to a running PostgreSQL Leader and a replication-privileged login. That makes it the tool of last resort when the higher-level tooling that normally does this for you isn't available.
+"patronictl reinit" needs a healthy DCS and a running Patroni on the target — most of the time that's fine. But if etcd has no quorum, or Patroni itself won't start, patronictl can't reach it either. "pg_basebackup" has no such dependency: it only needs network access to a running PostgreSQL Leader and a replication-privileged login. That makes it the tool of last resort when the higher-level tooling that normally does this for you isn't available.
 
 What it actually copies, and what it doesn't
 
@@ -589,22 +614,22 @@ PostgreSQL refuses to start against a data directory it doesn't own. Whatever OS
 			{
 				ID:    "wipe-replica",
 				Title: "Simulate the loss of a Replica's disk",
-				Instructions: "Open a terminal on any Patroni node and run `patronictl -c /etc/patroni/postgresql.yml list` to find a " +
-					"Replica (not the Leader). Open a terminal on that Replica and run `systemctl stop patroni` — this stops both Patroni " +
-					"and the PostgreSQL it supervises. Then simulate the disk itself being gone: `rm -rf /var/lib/pgsql/16/data/*`. " +
+				Instructions: "Open a terminal on any Patroni node and run `patronictl -c /etc/patroni/postgresql.yml list` to find a Replica (not the Leader).\n\n" +
+					"Open a terminal on that Replica and run `systemctl stop patroni` — this stops both Patroni and the PostgreSQL it supervises.\n\n" +
+					"Simulate the disk itself being gone: `rm -rf /var/lib/pgsql/16/data/*`.\n\n" +
 					"Click Check Work.",
 				Hint: "Check Work looks for the actual PG_VERSION marker file being gone, not just the service being stopped — a real disk loss, not a paused one.",
 			},
 			{
 				ID:    "rebuild-basebackup",
 				Title: "Rebuild it with pg_basebackup",
-				Instructions: "On any healthy node, run `patronictl -c /etc/patroni/postgresql.yml list` to confirm the current Leader's " +
-					"hostname. Back on the node you wiped, run pg_basebackup as the postgres OS user, so the copy comes out with the right " +
-					"ownership:\n\n`runuser -u postgres -- bash -c \"PGPASSWORD=repl_password pg_basebackup -h <leader-hostname> -U " +
-					"replicator -D /var/lib/pgsql/16/data -Fp -Xs -P\"`\n\nWait for it to finish (it prints a progress percentage), then " +
-					"run `systemctl start patroni`. Patroni starts PostgreSQL against the freshly-copied directory and reconfigures it as " +
-					"a streaming Replica against the current Leader automatically. Confirm with `patronictl list` that it shows Role: " +
-					"Replica, State: streaming, then click Check Work.",
+				Instructions: "On any healthy node, run `patronictl -c /etc/patroni/postgresql.yml list` to confirm the current Leader's hostname.\n\n" +
+					"Back on the node you wiped, run pg_basebackup as the postgres OS user, so the copy comes out with the right ownership:\n\n" +
+					"`runuser -u postgres -- bash -c \"PGPASSWORD=repl_password pg_basebackup -h <leader-hostname> -U replicator -D /var/lib/pgsql/16/data -Fp -Xs -P\"`\n\n" +
+					"Wait for it to finish (it prints a progress percentage).\n\n" +
+					"Run `systemctl start patroni`. Patroni starts PostgreSQL against the freshly-copied directory and reconfigures it as " +
+					"a streaming Replica against the current Leader automatically.\n\n" +
+					"Confirm with `patronictl -c /etc/patroni/postgresql.yml list` that it shows Role: Replica, State: streaming, then click Check Work.",
 				Hint: "If pg_basebackup fails with an authentication error, double-check you used the `replicator` user, not `postgres` — only replicator is granted replication access in pg_hba.",
 			},
 		},
@@ -620,11 +645,11 @@ PostgreSQL refuses to start against a data directory it doesn't own. Whatever OS
 		TimeLimit:   "2h",
 		LectureNotes: `What patronictl reinit is actually a shortcut for
 
-The Backup & Restore lab used "patronictl reinit", which — for a pgBackRest-enabled cluster like this one — tells the target member's own Patroni to run exactly one command: "pgbackrest --stanza=<cluster> --delta restore" (visible in that member's patroni.yml, under "pgbackrest.command"). reinit is a convenience: it finds a healthy Patroni to ask, which then runs that restore locally and reports back through the DCS. This lab strips that convenience away.
+For a pgBackRest-enabled cluster like this one, "patronictl reinit" tells the target member's own Patroni to run exactly one command: "pgbackrest --stanza=<cluster> --delta restore" (visible in that member's patroni.yml, under "pgbackrest.command"). reinit is a convenience: it finds a healthy Patroni to ask, which then runs that restore locally and reports back through the DCS. This lab strips that convenience away.
 
 Why you might not have it
 
-patronictl is a client to Patroni's REST API, arbitrated through etcd. If etcd has lost quorum (the etcd Quorum Loss lab) or the target's own Patroni process won't come up at all, there may be nobody for patronictl to ask — but pgBackRest itself doesn't care about any of that. It's a standalone CLI that only needs its own config (/etc/pgbackrest/pgbackrest.conf) and network access to the S3 repository. That independence is exactly why it's the tool you fall back to when the orchestration layer on top of it is the thing that's broken.
+patronictl is a client to Patroni's REST API, arbitrated through etcd. If etcd has lost quorum, or the target's own Patroni process won't come up at all, there may be nobody for patronictl to ask — but pgBackRest itself doesn't care about any of that. It's a standalone CLI that only needs its own config (/etc/pgbackrest/pgbackrest.conf) and network access to the S3 repository. That independence is exactly why it's the tool you fall back to when the orchestration layer on top of it is the thing that's broken.
 
 --delta, not a plain restore
 
@@ -632,15 +657,15 @@ patronictl is a client to Patroni's REST API, arbitrated through etcd. If etcd h
 
 Patroni still finishes the job
 
-The restored data directory alone isn't enough — pgBackRest brings PostgreSQL back to a consistent point, but doesn't know this node should stream as a Replica instead of running standalone. That's still Patroni's job: the moment you "systemctl start patroni", it checks the DCS, sees this member isn't the Leader, and configures replication against whoever currently is — the same reconciliation the pg_basebackup lab relies on, regardless of which tool actually produced the on-disk copy.`,
+The restored data directory alone isn't enough — pgBackRest brings PostgreSQL back to a consistent point, but doesn't know this node should stream as a Replica instead of running standalone. That's still Patroni's job: the moment you "systemctl start patroni", it checks the DCS, sees this member isn't the Leader, and configures replication against whoever currently is — the same reconciliation Patroni performs after any physical copy, regardless of which tool actually produced the on-disk copy.`,
 		DesignTemplate: labPatroniBackupDesign,
 		Steps: []LabStep{
 			{
 				ID:    "wipe-replica",
 				Title: "Simulate the loss of a Replica's disk",
-				Instructions: "Open a terminal on any Patroni node and run `patronictl -c /etc/patroni/postgresql.yml list` to find a " +
-					"Replica (not the Leader). Open a terminal on that Replica and run `systemctl stop patroni` — this stops both Patroni " +
-					"and the PostgreSQL it supervises. Then simulate the disk itself being gone: `rm -rf /var/lib/pgsql/16/data/*`. " +
+				Instructions: "Open a terminal on any Patroni node and run `patronictl -c /etc/patroni/postgresql.yml list` to find a Replica (not the Leader).\n\n" +
+					"Open a terminal on that Replica and run `systemctl stop patroni` — this stops both Patroni and the PostgreSQL it supervises.\n\n" +
+					"Simulate the disk itself being gone: `rm -rf /var/lib/pgsql/16/data/*`.\n\n" +
 					"Click Check Work.",
 				Hint: "Check Work looks for the actual PG_VERSION marker file being gone, not just the service being stopped — a real disk loss, not a paused one.",
 			},
@@ -648,11 +673,12 @@ The restored data directory alone isn't enough — pgBackRest brings PostgreSQL 
 				ID:    "manual-restore",
 				Title: "Restore it by hand — no patronictl",
 				Instructions: "Back on the node you wiped, restore it directly with pgBackRest, bypassing patronictl entirely:\n\n" +
-					"`runuser -u postgres -- pgbackrest --stanza=lab-patroni --delta restore`\n\nWait for it to report success, then run " +
-					"`systemctl start patroni`. Patroni starts PostgreSQL against the restored directory and reconfigures it as a " +
-					"streaming Replica against the current Leader. Confirm with `patronictl -c /etc/patroni/postgresql.yml list` that it " +
-					"shows Role: Replica, State: streaming, then click Check Work.",
-				Hint: "If the restore fails claiming the repo is unreachable, check the SeaweedFS node is running — `pgbackrest --stanza=lab-patroni info` (from the Backup & Restore lab) confirms it can reach the S3 repo before you retry.",
+					"`runuser -u postgres -- pgbackrest --stanza=lab-patroni --delta restore`\n\n" +
+					"Wait for it to report success.\n\n" +
+					"Run `systemctl start patroni`. Patroni starts PostgreSQL against the restored directory and reconfigures it as a " +
+					"streaming Replica against the current Leader.\n\n" +
+					"Confirm with `patronictl -c /etc/patroni/postgresql.yml list` that it shows Role: Replica, State: streaming, then click Check Work.",
+				Hint: "If the restore fails claiming the repo is unreachable, check the SeaweedFS node is running — `pgbackrest --stanza=lab-patroni info` confirms it can reach the S3 repo before you retry.",
 			},
 		},
 	},
@@ -667,36 +693,35 @@ The restored data directory alone isn't enough — pgBackRest brings PostgreSQL 
 		TimeLimit:   "2h",
 		LectureNotes: `Why a crash can leave a node "ahead" of everyone else
 
-Every earlier lab that crashes or stops the Leader (the Failover lab, the Manual Failover lab) uses "systemctl stop patroni", which still asks PostgreSQL to shut down through Patroni's normal stop path before exiting. This lab does something rougher: "systemctl kill -s KILL patroni" sends SIGKILL straight to the whole service, PostgreSQL included, with no chance to finish anything. Whatever the Leader had already committed locally — durably, on its own disk — but hadn't yet streamed to a Replica when the signal landed is now only on that one node. When it comes back, its timeline has moved further than everyone else's.
+A graceful stop ("systemctl stop patroni") still asks PostgreSQL to shut down through Patroni's normal stop path before exiting. This lab does something rougher: "systemctl kill -s KILL patroni" sends SIGKILL straight to the whole service, PostgreSQL included, with no chance to finish anything. Whatever the Leader had already committed locally — durably, on its own disk — but hadn't yet streamed to a Replica when the signal landed is now only on that one node. When it comes back, its timeline has moved further than everyone else's.
 
 The two ways Patroni can reconcile that
 
-If the crashed node's extra data can be safely discarded and the divergence is recoverable, Patroni's "use_pg_rewind: true" (set in this cluster's patroni.yml) lets it run PostgreSQL's own "pg_rewind" tool: it identifies exactly where the two timelines forked, copies back only the pages that changed since, and re-attaches the node as a Replica of the current Leader — usually in seconds, not the minutes a full reclone (the pg_basebackup / pgBackRest rebuild labs) would take. If rewind isn't possible for some reason (too little WAL retained to find the fork point, checksums disabled, etc.), Patroni falls back to a full reclone automatically — it's a bonus fast path, not a requirement.
+If the crashed node's extra data can be safely discarded and the divergence is recoverable, Patroni's "use_pg_rewind: true" (set in this cluster's patroni.yml) lets it run PostgreSQL's own "pg_rewind" tool: it identifies exactly where the two timelines forked, copies back only the pages that changed since, and re-attaches the node as a Replica of the current Leader — usually in seconds, not the minutes a full reclone would take. If rewind isn't possible for some reason (too little WAL retained to find the fork point, checksums disabled, etc.), Patroni falls back to a full reclone automatically — it's a bonus fast path, not a requirement.
 
 Why this only works because streaming replication is asynchronous
 
-This is the same asynchronous-replication trade-off the Failover lab's notes and the Synchronous Replication lab exist to illustrate: a Leader can acknowledge a commit before a Replica has it. That's normally framed as a risk (lost transactions on failover). Here it's the mechanism's whole reason to exist: pg_rewind reconciles a node that has that "extra" locally-committed data safely, rather than treating it as unrecoverable corruption.`,
+With the default asynchronous replication, a Leader can acknowledge a commit before a Replica has it. That's normally framed as a risk (lost transactions on failover). Here it's the mechanism's whole reason to exist: pg_rewind reconciles a node that has that "extra" locally-committed data safely, rather than treating it as unrecoverable corruption.`,
 		DesignTemplate: labPatroniSwitchoverDesign,
 		Steps: []LabStep{
 			{
 				ID:    "crash-leader",
 				Title: "Crash the Leader hard",
-				Instructions: "This lab's CRUD Traffic (above) is already writing continuously, so the Leader always has some just-committed " +
-					"data the Replicas haven't caught up to yet — exactly the condition a real crash needs to actually diverge. Find the " +
-					"current Leader with `patronictl -c /etc/patroni/postgresql.yml list`, open a terminal on it, and run " +
+				Instructions: "This lab's Car Rental Sim is already writing continuously against the cluster, so the Leader always has some " +
+					"just-committed data the Replicas haven't caught up to yet — exactly the condition a real crash needs to actually diverge.\n\n" +
+					"Find the current Leader with `patronictl -c /etc/patroni/postgresql.yml list`, open a terminal on it, and run " +
 					"`systemctl kill -s KILL patroni` — a hard kill, not a graceful stop, so PostgreSQL gets no chance to finish streaming " +
-					"what it had already committed locally. Wait about 15–30 seconds, confirm from another node that a new Leader was " +
-					"elected, then click Check Work.",
-				Hint: "`systemctl stop patroni` (used in the Failover lab) still lets Patroni ask PostgreSQL to shut down cleanly first — `kill -s KILL` skips that entirely, which is what actually risks a diverged timeline.",
+					"what it had already committed locally.\n\n" +
+					"Wait about 15–30 seconds, confirm from another node that a new Leader was elected, then click Check Work.",
+				Hint: "`systemctl stop patroni` still lets Patroni ask PostgreSQL to shut down cleanly first — `kill -s KILL` skips that entirely, which is what actually risks a diverged timeline.",
 			},
 			{
 				ID:    "rejoin-rewind",
 				Title: "Bring it back and verify pg_rewind rescued it",
-				Instructions: "On the node you crashed, run `systemctl start patroni`. Patroni starts PostgreSQL, discovers this node's " +
-					"timeline has diverged from the new Leader's, and — because this cluster has use_pg_rewind enabled — rewinds it back " +
-					"onto the current timeline instead of requiring a full reclone. Confirm with " +
-					"`patronictl -c /etc/patroni/postgresql.yml list` that it's back to Role: Replica, State: streaming, then click " +
-					"Check Work.",
+				Instructions: "On the node you crashed, run `systemctl start patroni`.\n\n" +
+					"Patroni starts PostgreSQL, discovers this node's timeline has diverged from the new Leader's, and — because this " +
+					"cluster has use_pg_rewind enabled — rewinds it back onto the current timeline instead of requiring a full reclone.\n\n" +
+					"Confirm with `patronictl -c /etc/patroni/postgresql.yml list` that it's back to Role: Replica, State: streaming, then click Check Work.",
 				Hint: "If it's stuck, check `journalctl -u patroni -n 100` on that node — pg_rewind needs the Leader's connection info and a superuser login, both of which this cluster's patroni.yml already provides automatically.",
 			},
 		},
@@ -710,9 +735,9 @@ This is the same asynchronous-replication trade-off the Failover lab's notes and
 		Technology:  "Patroni",
 		Category:    "Replication",
 		TimeLimit:   "2h",
-		LectureNotes: `The same crash, a different safety net turned off
+		LectureNotes: `A hard crash with no automatic safety net
 
-The previous lab ("Diverged Timeline — Automatic pg_rewind Recovery") crashed the Leader hard and let Patroni's own "use_pg_rewind: true" quietly fix the diverged node the moment it restarted. This cluster's patroni.yml sets "use_pg_rewind: false" instead — the exact same kind of crash now leaves the node stuck, because Patroni has no automatic tool left to reconcile a diverged timeline with, and (with no pgBackRest configured here either) it won't silently fall back to a full reclone on its own on a plain restart. Bringing that node back is now entirely on you.
+With Patroni's "use_pg_rewind" set to true, crashing the Leader hard enough to diverge its timeline gets quietly fixed the moment it restarts — Patroni runs pg_rewind on its own. This cluster's patroni.yml sets "use_pg_rewind: false" instead — the exact same kind of crash now leaves the node stuck, because Patroni has no automatic tool left to reconcile a diverged timeline with, and (with no pgBackRest configured here either) it won't silently fall back to a full reclone on its own on a plain restart. Bringing that node back is now entirely on you.
 
 pg_rewind is just a CLI tool — Patroni never owned it
 
@@ -724,21 +749,22 @@ That flag tells pg_rewind to fetch WAL it can't find locally via the target's ow
 
 Why an operator reaches for it by hand
 
-Patroni's own automatic rewind is convenient, but real operations sometimes need to run pg_rewind directly instead: policy might require it disabled by default and only run under a human's supervision after reviewing what diverged; Patroni or the DCS itself might be unreachable (the same class of problem the pgBackRest manual-restore lab covers for backups); or you might simply be diagnosing a divergence before deciding whether rewinding it is even the right call, rather than trusting Patroni to decide that alone at startup.
+Patroni's own automatic rewind is convenient, but real operations sometimes need to run pg_rewind directly instead: policy might require it disabled by default and only run under a human's supervision after reviewing what diverged; Patroni or the DCS itself might be unreachable, the same way a broken DCS can leave you restoring a backup by hand; or you might simply be diagnosing a divergence before deciding whether rewinding it is even the right call, rather than trusting Patroni to decide that alone at startup.
 
 What actually makes this possible on a hard-killed node
 
-pg_rewind requires the target to reach a consistent state before it can compare timelines — historically that meant the target had to have been shut down cleanly first. Modern pg_rewind (PostgreSQL 11+) handles this itself: given a target that crashed, it runs a brief local crash-recovery pass to reach consistency before comparing timelines, so a "systemctl kill -s KILL patroni" crash — the same rough kill the automatic lab uses — is a perfectly valid starting point, not something you need to work around.`,
+pg_rewind requires the target to reach a consistent state before it can compare timelines — historically that meant the target had to have been shut down cleanly first. Modern pg_rewind (PostgreSQL 11+) handles this itself: given a target that crashed, it runs a brief local crash-recovery pass to reach consistency before comparing timelines, so a "systemctl kill -s KILL patroni" crash is a perfectly valid starting point, not something you need to work around.`,
 		DesignTemplate: labPatroniManualRewindDesign,
 		Steps: []LabStep{
 			{
 				ID:    "crash-leader",
 				Title: "Crash the Leader hard",
-				Instructions: "This lab's CRUD Traffic (above) is already writing continuously, so the Leader always has some just-committed " +
-					"data the Replicas haven't caught up to yet. Find the current Leader with " +
-					"`patronictl -c /etc/patroni/postgresql.yml list`, open a terminal on it, and run `systemctl kill -s KILL patroni` " +
-					"— a hard kill, not a graceful stop, so PostgreSQL gets no chance to finish streaming what it had already committed " +
-					"locally. Wait about 15–30 seconds, confirm from another node that a new Leader was elected, then click Check Work. " +
+				Instructions: "This lab's Car Rental Sim is already writing continuously against the cluster, so the Leader always has some " +
+					"just-committed data the Replicas haven't caught up to yet.\n\n" +
+					"Find the current Leader with `patronictl -c /etc/patroni/postgresql.yml list`, open a terminal on it, and run " +
+					"`systemctl kill -s KILL patroni` — a hard kill, not a graceful stop, so PostgreSQL gets no chance to finish streaming " +
+					"what it had already committed locally.\n\n" +
+					"Wait about 15–30 seconds, confirm from another node that a new Leader was elected, then click Check Work.\n\n" +
 					"Do NOT start patroni on the crashed node yet — that's the next step, and order matters this time.",
 				Hint: "`systemctl stop patroni` still lets Patroni ask PostgreSQL to shut down cleanly first — `kill -s KILL` skips that entirely, which is what actually risks a diverged timeline.",
 			},
@@ -746,12 +772,12 @@ pg_rewind requires the target to reach a consistent state before it can compare 
 				ID:    "manual-rewind",
 				Title: "Rewind it yourself, then start Patroni",
 				Instructions: "This cluster has use_pg_rewind disabled, so simply starting Patroni on the crashed node won't reattach it " +
-					"— run pg_rewind by hand first, pointing it at the new Leader (from `patronictl list` on another node):\n\n" +
-					"`runuser -u postgres -- pg_rewind --target-pgdata=/var/lib/pgsql/16/data --source-server=\"host=<leader-hostname> " +
-					"port=5432 user=postgres dbname=postgres password=postgres_password\"`\n\n" +
-					"Wait for it to report \"Done!\", then run `systemctl start patroni` on that same node. Patroni starts PostgreSQL " +
-					"against the now-rewound data directory and reconfigures it as a streaming Replica of the current Leader. Confirm with " +
-					"`patronictl -c /etc/patroni/postgresql.yml list` that it shows Role: Replica, State: streaming, then click Check Work.",
+					"— run pg_rewind by hand first, pointing it at the new Leader (from `patronictl -c /etc/patroni/postgresql.yml list` on another node):\n\n" +
+					"`runuser -u postgres -- pg_rewind --target-pgdata=/var/lib/pgsql/16/data --source-server=\"host=<leader-hostname> port=5432 user=postgres dbname=postgres password=postgres_password\"`\n\n" +
+					"Wait for it to report \"Done!\".\n\n" +
+					"Run `systemctl start patroni` on that same node. Patroni starts PostgreSQL against the now-rewound data directory " +
+					"and reconfigures it as a streaming Replica of the current Leader.\n\n" +
+					"Confirm with `patronictl -c /etc/patroni/postgresql.yml list` that it shows Role: Replica, State: streaming, then click Check Work.",
 				Hint: "If pg_rewind refuses with a \"target server needs to be shut down\" error, patroni is probably still trying to restart Postgres on that node — stop it again first, then re-run pg_rewind before starting patroni. Don't add --restore-target-wal: this cluster has no restore_command configured (no pgBackRest/archiving), so that flag just errors out — the WAL pg_rewind needs is still in the target's own pg_wal right after a crash.",
 			},
 		},
@@ -767,7 +793,7 @@ pg_rewind requires the target to reach a consistent state before it can compare 
 		TimeLimit:   "2h",
 		LectureNotes: `What actually lives in etcd, and what doesn't
 
-Every earlier disaster in this curriculum leaves PostgreSQL's data directories untouched — even the etcd Quorum Loss lab only ever stops etcd, never erases it. This lab asks a harder question: what if the DCS itself — the leader lock, the cluster's shared configuration, its record of who's even a member — is permanently gone, but every node's PostgreSQL data directory is completely fine? Patroni's own state (namespace "/dbcanvas/", scoped to this cluster's name) lives entirely in etcd; nothing about "who was Leader" or "what this cluster even is" survives on a database node's own disk.
+Stopping etcd, even losing its quorum, leaves PostgreSQL's data directories completely untouched. This lab asks a harder question: what if the DCS itself — the leader lock, the cluster's shared configuration, its record of who's even a member — is permanently gone, but every node's PostgreSQL data directory is completely fine? Patroni's own state (namespace "/dbcanvas/", scoped to this cluster's name) lives entirely in etcd; nothing about "who was Leader" or "what this cluster even is" survives on a database node's own disk.
 
 Why you bring back exactly one node first
 
@@ -775,15 +801,16 @@ With an empty DCS, Patroni has no record of this cluster ever existing — from 
 
 Why the other two don't just resume as Replicas
 
-Even though their own PostgreSQL data is intact and was a valid Replica of the old cluster a minute ago, the new DCS has no way to know that — as far as it's concerned, this is a different cluster instance that happens to share a name. Patroni treats them the same way it would treat a brand-new node: reclone from the current Leader, using whatever this cluster's create_replica_methods provides. The old data on disk is simply overwritten in the process — this is the one recovery in this curriculum where "the data was fine, but replicate anyway" is expected and correct, not a wasted opportunity to pg_rewind.`,
+Even though their own PostgreSQL data is intact and was a valid Replica of the old cluster a minute ago, the new DCS has no way to know that — as far as it's concerned, this is a different cluster instance that happens to share a name. Patroni treats them the same way it would treat a brand-new node: reclone from the current Leader, using whatever this cluster's create_replica_methods provides. The old data on disk is simply overwritten in the process — this is a recovery where "the data was fine, but replicate anyway" is expected and correct, not a wasted opportunity to pg_rewind.`,
 		DesignTemplate: labPatroniSwitchoverDesign,
 		Steps: []LabStep{
 			{
 				ID:    "wipe-dcs",
 				Title: "Simulate total, unrecoverable DCS loss",
-				Instructions: "On all three Patroni nodes, run `systemctl stop patroni etcd`. Then, on all three, wipe etcd's own storage " +
-					"— not PostgreSQL's — with `rm -rf /var/lib/etcd/*`. PostgreSQL's data directories are untouched; only the DCS's memory " +
-					"of the cluster is gone. Click Check Work.",
+				Instructions: "On all three Patroni nodes, run `systemctl stop patroni etcd`.\n\n" +
+					"On all three, wipe etcd's own storage — not PostgreSQL's — with `rm -rf /var/lib/etcd/*`. PostgreSQL's data " +
+					"directories are untouched; only the DCS's memory of the cluster is gone.\n\n" +
+					"Click Check Work.",
 				Hint: "Check Work confirms both halves on every node: Patroni unreachable and etcd's data directory actually empty — stopping the services alone isn't enough.",
 			},
 			{
@@ -791,21 +818,23 @@ Even though their own PostgreSQL data is intact and was a valid Replica of the o
 				Title: "Rebuild etcd, then bring back the right node first",
 				Instructions: "Restart etcd on all three nodes: `systemctl start etcd`. Because their data directories are empty and their " +
 					"config still lists all three peers, they'll bootstrap a brand-new, empty three-member etcd cluster — with no memory of " +
-					"anything that happened before. Now the critical part: start Patroni on only ONE node — the one that was Leader before " +
-					"this exercise — with `systemctl start patroni`. Do not start the other two yet. Since the DCS has no record of any " +
-					"cluster, this node will register itself as the new cluster's Leader using its own existing (undamaged) data — no " +
-					"reinitialization, no data loss. Confirm with `patronictl -c /etc/patroni/postgresql.yml list` that it shows up alone " +
-					"as Leader, then click Check Work.",
+					"anything that happened before.\n\n" +
+					"Now the critical part: start Patroni on only ONE node — the one that was Leader before this exercise — with " +
+					"`systemctl start patroni`. Do not start the other two yet. Since the DCS has no record of any cluster, this node " +
+					"will register itself as the new cluster's Leader using its own existing (undamaged) data — no reinitialization, no data loss.\n\n" +
+					"Confirm with `patronictl -c /etc/patroni/postgresql.yml list` that it shows up alone as Leader, then click Check Work.",
 				Hint: "If you start more than one node at once here, whichever one's Patroni reaches etcd first wins Leader — possibly not the one you meant. That race is exactly why production runbooks for this scenario always bring back one trusted node at a time.",
 			},
 			{
 				ID:    "rebuild-remaining",
 				Title: "Bring the other two back as fresh Replicas",
-				Instructions: "Run `systemctl start patroni` on the remaining two nodes. Each one asks the DCS who the Leader is, finds " +
-					"the node from the previous step, and — since its own data directory now belongs to a cluster identity the DCS has " +
-					"never heard of — reclones itself from the current Leader rather than trying to reuse its old data. Wait for it to " +
-					"finish (a minute or two), confirm with `list` that all three show up healthy, then click Check Work.",
-				Hint: "This reclone uses whatever this cluster's create_replica_methods provides — the same basebackup-vs-pgBackRest mechanics from the earlier rebuild labs, just triggered by rejoining a brand-new DCS instead of a manual reinit.",
+				Instructions: "Run `systemctl start patroni` on the remaining two nodes.\n\n" +
+					"Each one asks the DCS who the Leader is, finds the node from the previous step, and — since its own data directory " +
+					"now belongs to a cluster identity the DCS has never heard of — reclones itself from the current Leader rather than " +
+					"trying to reuse its old data.\n\n" +
+					"Wait for it to finish (a minute or two), confirm with `patronictl -c /etc/patroni/postgresql.yml list` that all three " +
+					"show up healthy, then click Check Work.",
+				Hint: "This reclone uses whatever this cluster's create_replica_methods provides — the same basebackup-vs-pgBackRest mechanics any full reclone uses, just triggered by rejoining a brand-new DCS instead of a manual reinit.",
 			},
 		},
 	},
@@ -820,7 +849,7 @@ Even though their own PostgreSQL data is intact and was a valid Replica of the o
 		TimeLimit:   "2h",
 		LectureNotes: `A switchover doesn't have to happen right now
 
-Every switchover so far in this curriculum has run immediately. "patronictl switchover --scheduled <timestamp>" instead tells Patroni to carry it out at a specific future moment — you keep working, and the DCS itself remembers to do it. This is the same tool behind "schedule the failover for the maintenance window at 2am" instead of someone needing to be at a keyboard exactly then.
+A plain "patronictl switchover" runs immediately. "patronictl switchover --scheduled <timestamp>" instead tells Patroni to carry it out at a specific future moment — you keep working, and the DCS itself remembers to do it. This is the same tool behind "schedule the failover for the maintenance window at 2am" instead of someone needing to be at a keyboard exactly then.
 
 Where the schedule actually lives
 
@@ -838,19 +867,20 @@ The obvious use is a real maintenance window. The less obvious one is testing ex
 			{
 				ID:    "schedule-and-flush",
 				Title: "Schedule a switchover, then cancel it",
-				Instructions: "Find the current Leader and a Replica candidate with `patronictl -c /etc/patroni/postgresql.yml list`. Compute a " +
-					"timestamp a few minutes out, e.g. `date -u -d '+5 minutes' '+%Y-%m-%dT%H:%M:%S+00:00'`, then schedule a switchover for it: " +
-					"`patronictl -c /etc/patroni/postgresql.yml switchover --leader <leader> --candidate <replica> --scheduled <timestamp> --force`. " +
-					"Confirm with `list` that the footer shows \"Switchover scheduled at: ...\". Now cancel it before it fires: " +
-					"`patronictl -c /etc/patroni/postgresql.yml flush lab-patroni switchover --force`. Confirm the footer is gone, then click Check Work.",
+				Instructions: "Find the current Leader and a Replica candidate with `patronictl -c /etc/patroni/postgresql.yml list`.\n\n" +
+					"Compute a timestamp a few minutes out, e.g. `date -u -d '+5 minutes' '+%Y-%m-%dT%H:%M:%S+00:00'`.\n\n" +
+					"Schedule a switchover for it: `patronictl -c /etc/patroni/postgresql.yml switchover --leader <leader> --candidate <replica> --scheduled <timestamp> --force`.\n\n" +
+					"Confirm with `patronictl -c /etc/patroni/postgresql.yml list` that the footer shows \"Switchover scheduled at: ...\".\n\n" +
+					"Now cancel it before it fires: `patronictl -c /etc/patroni/postgresql.yml flush lab-patroni switchover --force`. Confirm the footer is gone, then click Check Work.",
 				Hint: "Check Work fails if a switchover is still scheduled, or if leadership already moved — it's checking that the cancellation actually took effect, not just that you typed the flush command.",
 			},
 			{
 				ID:    "schedule-and-let-fire",
 				Title: "Schedule one and let it run",
-				Instructions: "Schedule another switchover, this time only about a minute out (same `switchover --scheduled` form as before, naming " +
-					"a different candidate if you like). This time do NOT flush it — wait for the scheduled time to pass, then confirm with `list` " +
-					"that leadership actually moved to the candidate on its own, with nobody running `switchover` at that exact moment. Click Check Work.",
+				Instructions: "Schedule another switchover, this time only about a minute out (same `switchover --scheduled` form as before, " +
+					"naming a different candidate if you like). This time do NOT flush it.\n\n" +
+					"Wait for the scheduled time to pass, then confirm with `patronictl -c /etc/patroni/postgresql.yml list` that leadership " +
+					"actually moved to the candidate on its own, with nobody running `switchover` at that exact moment. Click Check Work.",
 				Hint: "If Check Work still shows the original Leader, double-check the scheduled time has actually passed — Patroni won't act early.",
 			},
 		},
@@ -866,7 +896,7 @@ The obvious use is a real maintenance window. The less obvious one is testing ex
 		TimeLimit:   "2h",
 		LectureNotes: `Two different configs, two different commands
 
-Every earlier config-change lab in this curriculum ("Cluster-wide Configuration Change", "Rolling Restart") used "patronictl edit-config" — that writes to the cluster's shared, DCS-stored configuration, and every member picks up the same value. Per-member tags are the other half of Patroni's configuration: they live in each node's own local "postgresql.yml" (the same file "-c" points patronictl at), under a "tags:" block, and only that one node reads them. Changing them means editing that file directly on that node and telling Patroni to re-read it — "patronictl reload" — rather than editing anything in the DCS.
+"patronictl edit-config" writes to the cluster's shared, DCS-stored configuration, and every member picks up the same value. Per-member tags are the other half of Patroni's configuration: they live in each node's own local "postgresql.yml" (the same file "-c" points patronictl at), under a "tags:" block, and only that one node reads them. Changing them means editing that file directly on that node and telling Patroni to re-read it — "patronictl reload" — rather than editing anything in the DCS.
 
 What "nofailover" actually does
 
@@ -878,24 +908,24 @@ A common real case: a replica that's intentionally behind (used for point-in-tim
 
 Why reload, and not a restart
 
-"patronictl reload" only asks Patroni to re-read its local config file — it's a signal, not a process restart, so there's no interruption to PostgreSQL or replication. Static Postgres parameters (like the ones in the Rolling Restart lab) genuinely need a restart to take effect; per-member Patroni tags like this one take effect the moment Patroni re-reads its own file.`,
+"patronictl reload" only asks Patroni to re-read its local config file — it's a signal, not a process restart, so there's no interruption to PostgreSQL or replication. Static Postgres parameters (things that affect shared memory layout, decided at startup) genuinely need a restart to take effect; per-member Patroni tags like this one take effect the moment Patroni re-reads its own file.`,
 		DesignTemplate: labPatroniSwitchoverDesign,
 		Steps: []LabStep{
 			{
 				ID:    "tag-nofailover",
 				Title: "Tag a replica nofailover and reload it",
-				Instructions: "Pick a Replica (not the Leader) with `patronictl -c /etc/patroni/postgresql.yml list`. Open a terminal on that node " +
-					"and edit its local config: `sed -i 's/nofailover: false/nofailover: true/' /etc/patroni/postgresql.yml`. Apply it with " +
-					"`patronictl -c /etc/patroni/postgresql.yml reload lab-patroni <that-node> --force`. Confirm with `list` that its Tags column " +
-					"now shows \"nofailover: true\", then click Check Work.",
+				Instructions: "Pick a Replica (not the Leader) with `patronictl -c /etc/patroni/postgresql.yml list`.\n\n" +
+					"Open a terminal on that node and edit its local config: `sed -i 's/nofailover: false/nofailover: true/' /etc/patroni/postgresql.yml`.\n\n" +
+					"Apply it with `patronictl -c /etc/patroni/postgresql.yml reload lab-patroni <that-node> --force`.\n\n" +
+					"Confirm with `patronictl -c /etc/patroni/postgresql.yml list` that its Tags column now shows \"nofailover: true\", then click Check Work.",
 				Hint: "Reload can take a few seconds to apply — if the Tags column is still blank, wait and check `list` again before assuming it didn't work.",
 			},
 			{
 				ID:    "crash-and-confirm",
 				Title: "Crash the Leader and confirm it's skipped",
-				Instructions: "Find the current Leader with `list` and run `systemctl stop patroni` on it. Wait about 15-30 seconds for the " +
-					"remaining two nodes to elect a new Leader, then confirm with `list` that the tagged node is still a Replica, not the new " +
-					"Leader. Click Check Work.",
+				Instructions: "Find the current Leader with `patronictl -c /etc/patroni/postgresql.yml list` and run `systemctl stop patroni` on it.\n\n" +
+					"Wait about 15-30 seconds for the remaining two nodes to elect a new Leader, then confirm with " +
+					"`patronictl -c /etc/patroni/postgresql.yml list` that the tagged node is still a Replica, not the new Leader. Click Check Work.",
 				Hint: "If the tagged node somehow became Leader, double-check step one actually took — `list`'s Tags column is the source of truth, not just that you ran the sed command.",
 			},
 		},
@@ -919,19 +949,19 @@ To make a removal actually stick, every member's Patroni process has to be stopp
 
 Stopping Patroni here means the databases go down too
 
-The Failover lab's notes already covered this: in this cluster, Patroni doesn't sit next to PostgreSQL as an independent, separately-managed service — it starts PostgreSQL itself as a supervised child process. So "decommissioning" this cluster genuinely ends with every node fully offline, not "still quietly serving reads with no HA layer watching it." Some real-world Patroni deployments run PostgreSQL as its own separate systemd unit that Patroni merely adopts rather than spawns — in that shape, decommissioning Patroni really can leave the databases running unmanaged. This cluster isn't built that way, so don't expect that middle state here.
+In this cluster, Patroni doesn't sit next to PostgreSQL as an independent, separately-managed service — it starts PostgreSQL itself as a supervised child process. So "decommissioning" this cluster genuinely ends with every node fully offline, not "still quietly serving reads with no HA layer watching it." Some real-world Patroni deployments run PostgreSQL as its own separate systemd unit that Patroni merely adopts rather than spawns — in that shape, decommissioning Patroni really can leave the databases running unmanaged. This cluster isn't built that way, so don't expect that middle state here.
 
 The confirmation prompts are deliberately annoying
 
-"remove" has no non-interactive/"--force" form — it always asks you to retype the cluster's name, then type the literal phrase "Yes I am aware", and (if the DCS's last known state still looked healthy) name the current Leader too. That friction is intentional: unlike almost every other patronictl command in this curriculum, there's no scriptable way to remove a cluster by accident.`,
+"remove" has no non-interactive/"--force" form — it always asks you to retype the cluster's name, then type the literal phrase "Yes I am aware", and (if the DCS's last known state still looked healthy) name the current Leader too. That friction is intentional: unlike almost every other patronictl command, there's no scriptable way to remove a cluster by accident.`,
 		DesignTemplate: labPatroniSwitchoverDesign,
 		Steps: []LabStep{
 			{
 				ID:    "stop-everywhere",
 				Title: "Stop Patroni on every node",
 				Instructions: "Open a terminal on each of the three Patroni nodes and run `systemctl stop patroni` on all three (leave etcd " +
-					"running — you're not touching the DCS's own storage, just Patroni, and the PostgreSQL it supervises on each node). Wait " +
-					"about 30-40 seconds so the old leader lock naturally expires too, then click Check Work.",
+					"running — you're not touching the DCS's own storage, just Patroni, and the PostgreSQL it supervises on each node).\n\n" +
+					"Wait about 30-40 seconds so the old leader lock naturally expires too, then click Check Work.",
 				Hint: "Check Work confirms none of the three still answer as Leader or Replica over their own REST API — stopping the service is what actually matters, not just that a moment has passed.",
 			},
 			{
@@ -939,10 +969,11 @@ The confirmation prompts are deliberately annoying
 				Title: "Remove the cluster from the DCS",
 				Instructions: "On any node, run `patronictl -c /etc/patroni/postgresql.yml remove lab-patroni` and follow the prompts: type the " +
 					"cluster name (\"lab-patroni\") to confirm, then type the literal phrase `Yes I am aware` when asked. (Since the cluster no " +
-					"longer looks healthy once the leader lock has expired, it likely won't also ask you to name the current Leader — if it does, " +
-					"use whichever node `list` showed as Leader before you stopped Patroni.) Once it finishes, confirm the DCS itself has nothing " +
-					"left under this cluster's key prefix: `ETCDCTL_API=3 etcdctl --endpoints=http://127.0.0.1:2379 get /dbcanvas/lab-patroni " +
-					"--prefix --keys-only` should print nothing. Click Check Work.",
+					"longer looks healthy once the leader lock has expired, it likely won't also ask you to name the current Leader — if it " +
+					"does, use whichever node `list` showed as Leader before you stopped Patroni.)\n\n" +
+					"Once it finishes, confirm the DCS itself has nothing left under this cluster's key prefix:\n\n" +
+					"`ETCDCTL_API=3 etcdctl --endpoints=http://127.0.0.1:2379 get /dbcanvas/lab-patroni --prefix --keys-only`\n\n" +
+					"should print nothing. Click Check Work.",
 				Hint: "If `remove` refuses or times out, double-check etcd is still running on that node (`systemctl status etcd`) — only Patroni was supposed to be stopped, not the DCS itself.",
 			},
 		},
@@ -962,7 +993,7 @@ That's Patroni's default and it's fine for a small, single-site cluster like thi
 
 replicatefrom: streaming from a peer instead
 
-Setting the "replicatefrom" tag (a per-member local tag, the same kind of setting the nofailover lab covers — edited in "postgresql.yml", applied with "patronictl reload") on a replica tells Patroni to configure its "primary_conninfo" against another cluster member instead of the Leader. That member becomes a cascading upstream: it streams from the Leader as normal, and now also serves as the replication source for whichever peers name it. The primary's connection count and bandwidth only grow with the number of direct upstreams, not the total replica count.
+Setting the "replicatefrom" tag (a per-member local tag — edited in "postgresql.yml", applied with "patronictl reload") on a replica tells Patroni to configure its "primary_conninfo" against another cluster member instead of the Leader. That member becomes a cascading upstream: it streams from the Leader as normal, and now also serves as the replication source for whichever peers name it. The primary's connection count and bandwidth only grow with the number of direct upstreams, not the total replica count.
 
 Seeing it happen
 
@@ -977,12 +1008,12 @@ A cascading replica's data is now one hop further from the Leader — if its ups
 				ID:    "cascade-replica",
 				Title: "Cascade one replica behind another",
 				Instructions: "Run `patronictl -c /etc/patroni/postgresql.yml list` to see the current Leader and its two Replicas. Pick one " +
-					"Replica to become the cascading node, and the other to be its upstream. On the cascading node, edit its local config: " +
-					"`sed -i 's/clonefrom: false/clonefrom: false\\n  replicatefrom: <upstream-node-name>/' /etc/patroni/postgresql.yml` (replace " +
-					"`<upstream-node-name>` with the other Replica's name, e.g. `pg-node-2`). Apply it: " +
-					"`patronictl -c /etc/patroni/postgresql.yml reload lab-patroni <cascading-node> --force`. Wait about 15-20 seconds, then run " +
-					"`patronictl -c /etc/patroni/postgresql.yml topology` and confirm the cascading node is now indented under its upstream, not " +
-					"the Leader. Click Check Work.",
+					"Replica to become the cascading node, and the other to be its upstream.\n\n" +
+					"On the cascading node, edit its local config: `sed -i 's/clonefrom: false/clonefrom: false\\n  replicatefrom: <upstream-node-name>/' /etc/patroni/postgresql.yml` " +
+					"(replace `<upstream-node-name>` with the other Replica's name, e.g. `pg-node-2`).\n\n" +
+					"Apply it: `patronictl -c /etc/patroni/postgresql.yml reload lab-patroni <cascading-node> --force`.\n\n" +
+					"Wait about 15-20 seconds, then run `patronictl -c /etc/patroni/postgresql.yml topology` and confirm the cascading node " +
+					"is now indented under its upstream, not the Leader. Click Check Work.",
 				Hint: "Check Work confirms it via `pg_stat_replication`, not just the topology drawing — the upstream node should show the cascading node as a subscriber, and the Leader should not.",
 			},
 		},
@@ -998,7 +1029,7 @@ A cascading replica's data is now one hop further from the Leader — if its ups
 		TimeLimit:   "2h",
 		LectureNotes: `Live state only tells you where things stand now
 
-"patronictl list" answers "who is Leader right now" — it has no memory of how the cluster got there. Every earlier lab in this curriculum checks the live state (has leadership moved, is a leader reachable), which is exactly right for verifying an action's immediate effect, but it can't answer "how many leadership changes have happened, and in what order" once time has passed.
+"patronictl list" answers "who is Leader right now" — it has no memory of how the cluster got there. Checking live state (has leadership moved, is a leader reachable) is exactly right for verifying an action's immediate effect, but it can't answer "how many leadership changes have happened, and in what order" once time has passed.
 
 history is the DCS's own audit trail
 
@@ -1016,19 +1047,20 @@ The history log doesn't distinguish "a planned switchover you asked for" from "a
 			{
 				ID:    "cause-two-changes",
 				Title: "Cause an unplanned failover, then a planned switchover",
-				Instructions: "First, an unplanned change: find the current Leader with `patronictl -c /etc/patroni/postgresql.yml list` and run " +
-					"`systemctl stop patroni` on it. Wait 15-30 seconds for the remaining two nodes to elect a new Leader. Then, a planned " +
-					"change: run `patronictl -c /etc/patroni/postgresql.yml switchover --force` and follow the prompts to hand leadership to a " +
-					"different node. Confirm with `list` that a third node is now Leader (all three should have held it at some point across this " +
-					"lab), then click Check Work.",
+				Instructions: "First, an unplanned change: find the current Leader with `patronictl -c /etc/patroni/postgresql.yml list` and run `systemctl stop patroni` on it.\n\n" +
+					"Wait 15-30 seconds for the remaining two nodes to elect a new Leader.\n\n" +
+					"Then, a planned change: run `patronictl -c /etc/patroni/postgresql.yml switchover --force` and follow the prompts to " +
+					"hand leadership to a different node.\n\n" +
+					"Confirm with `patronictl -c /etc/patroni/postgresql.yml list` that a third node is now Leader (all three should have " +
+					"held it at some point across this lab), then click Check Work.",
 				Hint: "If Check Work says too few changes are recorded, confirm both the crash and the switchover actually completed — `list` should show a different Leader after each one.",
 			},
 			{
 				ID:    "read-history",
 				Title: "Reconstruct the sequence from history",
 				Instructions: "Run `patronictl -c /etc/patroni/postgresql.yml history` and read it top to bottom — each row is one leadership " +
-					"change, oldest first, with the timeline number, the reason, when it happened, and who became Leader. Confirm it shows at " +
-					"least two changes since the cluster started, ending with the node you just switched over to. Click Check Work.",
+					"change, oldest first, with the timeline number, the reason, when it happened, and who became Leader.\n\n" +
+					"Confirm it shows at least two changes since the cluster started, ending with the node you just switched over to. Click Check Work.",
 				Hint: "`history -f json` (any patronictl command accepts `-f json`) gives you the same records as a plain array if you want to look at the raw fields.",
 			},
 		},
@@ -1042,9 +1074,9 @@ The history log doesn't distinguish "a planned switchover you asked for" from "a
 		Technology:  "Patroni",
 		Category:    "Replication",
 		TimeLimit:   "2h",
-		LectureNotes: `Everything so far has been one self-contained cluster
+		LectureNotes: `A cluster that isn't the ultimate source of truth
 
-Every other lab in this curriculum treats "lab-patroni" as the whole picture: it elects its own Leader, and that Leader is the ultimate source of truth. A "standby cluster" is different — the whole 3-node Patroni cluster follows a PostgreSQL primary that lives outside Patroni's management entirely (this lab's "external-primary" node, a plain standalone PostgreSQL instance). One member becomes a "standby leader" that streams directly from the external primary; the other two stream from the standby leader exactly like normal replicas stream from an ordinary Leader.
+Normally "lab-patroni" is the whole picture: it elects its own Leader, and that Leader is the ultimate source of truth. A "standby cluster" is different — the whole 3-node Patroni cluster follows a PostgreSQL primary that lives outside Patroni's management entirely (this lab's "external-primary" node, a plain standalone PostgreSQL instance). One member becomes a "standby leader" that streams directly from the external primary; the other two stream from the standby leader exactly like normal replicas stream from an ordinary Leader.
 
 demote-cluster: pointing the whole cluster at someone else
 
@@ -1062,19 +1094,18 @@ promote-cluster: cutting the cord
 			{
 				ID:    "demote-to-standby",
 				Title: "Demote the cluster to follow the external primary",
-				Instructions: "This lab's `external-primary` node is a plain standalone PostgreSQL instance, already configured to accept a " +
-					"replication connection. From any Patroni node, run `patronictl -c /etc/patroni/postgresql.yml demote-cluster lab-patroni " +
-					"--host external-primary.example.net --port 5432 --force`. Wait about 20-30 seconds, then confirm with " +
-					"`patronictl -c /etc/patroni/postgresql.yml list` that one member now shows role \"Standby Leader\" (streaming directly from " +
-					"the external primary) with the other two as ordinary Replicas beneath it. Click Check Work.",
+				Instructions: "This lab's `external-primary` node is a plain standalone PostgreSQL instance, already configured to accept a replication connection.\n\n" +
+					"From any Patroni node, run `patronictl -c /etc/patroni/postgresql.yml demote-cluster lab-patroni --host external-primary.example.net --port 5432 --force`.\n\n" +
+					"Wait about 20-30 seconds, then confirm with `patronictl -c /etc/patroni/postgresql.yml list` that one member now shows " +
+					"role \"Standby Leader\" (streaming directly from the external primary) with the other two as ordinary Replicas beneath it. Click Check Work.",
 				Hint: "If it won't demote, confirm the external primary is actually reachable first: `psql -h external-primary.example.net -U postgres -c \"select 1;\"` from any Patroni node.",
 			},
 			{
 				ID:    "promote-independent",
 				Title: "Promote the cluster back to independent",
-				Instructions: "Run `patronictl -c /etc/patroni/postgresql.yml promote-cluster lab-patroni --force`. Wait about 15-20 seconds, " +
-					"then confirm with `list` that the former Standby Leader now shows as an ordinary Leader — no longer following the external " +
-					"primary — with its own timeline moving forward. Click Check Work.",
+				Instructions: "Run `patronictl -c /etc/patroni/postgresql.yml promote-cluster lab-patroni --force`.\n\n" +
+					"Wait about 15-20 seconds, then confirm with `patronictl -c /etc/patroni/postgresql.yml list` that the former Standby " +
+					"Leader now shows as an ordinary Leader — no longer following the external primary — with its own timeline moving forward. Click Check Work.",
 				Hint: "A higher timeline number than before the demotion (visible in `list`'s TL column) is expected — that's the promotion breaking a fresh timeline, the same way any promotion does.",
 			},
 		},
@@ -1082,7 +1113,7 @@ promote-cluster: cutting the cord
 	{
 		ID:          "patroni-noloadbalance-drain",
 		Title:       "Draining Reads with noloadbalance",
-		Description: "Tag a replica so HAProxy's read pool stops sending it traffic, without touching HAProxy itself — then watch its Retrieve line in the CRUD Traffic graph go quiet.",
+		Description: "Tag a replica so HAProxy's read pool stops sending it traffic, without touching HAProxy itself — then confirm its own health check starts failing.",
 		Difficulty:  "Intermediate",
 		Database:    "PostgreSQL",
 		Technology:  "Patroni",
@@ -1094,7 +1125,7 @@ This lab's HAProxy read front-end (:5001) health-checks every member with "GET /
 
 noloadbalance: the tag that flips the health check
 
-The "noloadbalance" per-member tag (edited locally, applied with "patronictl reload" — the same mechanism as the nofailover and replicatefrom labs) tells that member's own Patroni to answer /replica with a failing status even while it's a perfectly healthy, streaming replica. HAProxy's health check starts failing within a few check intervals, marks that backend server DOWN, and — with "on-marked-down shutdown-sessions" already in this lab's haproxy.cfg — even resets whatever read connections were already assigned to it.
+The "noloadbalance" per-member tag (edited locally in postgresql.yml, applied with "patronictl reload") tells that member's own Patroni to answer /replica with a failing status even while it's a perfectly healthy, streaming replica. HAProxy's health check starts failing within a few check intervals, marks that backend server DOWN, and — with "on-marked-down shutdown-sessions" already in this lab's haproxy.cfg — even resets whatever read connections were already assigned to it.
 
 Why you'd deliberately drain a healthy replica
 
@@ -1108,18 +1139,18 @@ noloadbalance doesn't touch nofailover — a drained replica can still be electe
 			{
 				ID:    "drain-replica",
 				Title: "Drain a replica from the read pool",
-				Instructions: "Pick a Replica (not the Leader) with `patronictl -c /etc/patroni/postgresql.yml list`. Open a terminal on it and edit " +
-					"its local config: `sed -i 's/noloadbalance: false/noloadbalance: true/' /etc/patroni/postgresql.yml`. Apply it with " +
-					"`patronictl -c /etc/patroni/postgresql.yml reload lab-patroni <that-node> --force`. Watch that node's Retrieve line in the " +
-					"CRUD Traffic graph above flatten out over the next few seconds as HAProxy's health check starts failing it. Click Check Work.",
+				Instructions: "Pick a Replica (not the Leader) with `patronictl -c /etc/patroni/postgresql.yml list`.\n\n" +
+					"Open a terminal on it and edit its local config: `sed -i 's/noloadbalance: false/noloadbalance: true/' /etc/patroni/postgresql.yml`.\n\n" +
+					"Apply it with `patronictl -c /etc/patroni/postgresql.yml reload lab-patroni <that-node> --force`.\n\n" +
+					"Give HAProxy's health check a few seconds to notice and mark it down, then click Check Work.",
 				Hint: "You can confirm it directly too: `curl -o /dev/null -w '%{http_code}\\n' http://127.0.0.1:8008/replica` on that node should now print something other than 200.",
 			},
 			{
 				ID:    "undrain-replica",
 				Title: "Put it back in rotation",
-				Instructions: "On the same node, run `sed -i 's/noloadbalance: true/noloadbalance: false/' /etc/patroni/postgresql.yml` then " +
-					"`patronictl -c /etc/patroni/postgresql.yml reload lab-patroni <that-node> --force` again. Give HAProxy's health check a few " +
-					"seconds to mark it back up, then click Check Work.",
+				Instructions: "On the same node, run `sed -i 's/noloadbalance: true/noloadbalance: false/' /etc/patroni/postgresql.yml`.\n\n" +
+					"Run `patronictl -c /etc/patroni/postgresql.yml reload lab-patroni <that-node> --force` again.\n\n" +
+					"Give HAProxy's health check a few seconds to mark it back up, then click Check Work.",
 				Hint: "If Check Work still fails after a bit, double-check the tag actually flipped back — `list`'s Tags column should show no noloadbalance entry (or `noloadbalance: false`) for that node.",
 			},
 		},
@@ -1135,7 +1166,7 @@ noloadbalance doesn't touch nofailover — a drained replica can still be electe
 		TimeLimit:   "2h",
 		LectureNotes: `The slots you've already seen aren't the kind this lab is about
 
-Every Patroni cluster in this curriculum runs with "use_slots: true" — that's what keeps each Replica's own slot ("pg_node_1", "pg_node_2", etc., visible in "pg_replication_slots") so the Leader retains exactly the WAL each Replica still needs. Those slots are entirely Patroni's own bookkeeping: created automatically per member, and gone the moment that member is gone. They're not meant for anything external to attach to.
+This cluster runs with "use_slots: true" — that's what keeps each Replica's own slot ("pg_node_1", "pg_node_2", etc., visible in "pg_replication_slots") so the Leader retains exactly the WAL each Replica still needs. Those slots are entirely Patroni's own bookkeeping: created automatically per member, and gone the moment that member is gone. They're not meant for anything external to attach to.
 
 A permanent slot is different: it's yours
 
@@ -1153,18 +1184,18 @@ Without a permanent slot, a failover during a CDC pipeline's downtime is catastr
 			{
 				ID:    "create-slot",
 				Title: "Create a permanent slot",
-				Instructions: "Open a terminal on any Patroni node. Run " +
-					"`patronictl -c /etc/patroni/postgresql.yml edit-config lab-patroni --set slots.lab_permanent_slot.type=physical --force`. " +
-					"Confirm it exists on the current Leader: `psql -U postgres -c \"select slot_name, slot_type, active from " +
-					"pg_replication_slots;\"` should list `lab_permanent_slot` alongside the automatic per-member ones. Click Check Work.",
+				Instructions: "Open a terminal on any Patroni node.\n\n" +
+					"Run `patronictl -c /etc/patroni/postgresql.yml edit-config lab-patroni --set slots.lab_permanent_slot.type=physical --force`.\n\n" +
+					"Confirm it exists on the current Leader: `psql -U postgres -c \"select slot_name, slot_type, active from pg_replication_slots;\"` " +
+					"should list `lab_permanent_slot` alongside the automatic per-member ones. Click Check Work.",
 				Hint: "The slot shows active = f — that's expected, nothing is consuming it yet. Patroni still keeps it retaining WAL either way.",
 			},
 			{
 				ID:    "slot-survives-failover",
 				Title: "Switch over and confirm the slot follows",
-				Instructions: "Run `patronictl -c /etc/patroni/postgresql.yml switchover --force` and follow the prompts to hand leadership to a " +
-					"different node. Once it settles, confirm on the new Leader: `psql -U postgres -c \"select slot_name from " +
-					"pg_replication_slots where slot_name = 'lab_permanent_slot';\"` should still return a row. Click Check Work.",
+				Instructions: "Run `patronictl -c /etc/patroni/postgresql.yml switchover --force` and follow the prompts to hand leadership to a different node.\n\n" +
+					"Once it settles, confirm on the new Leader: `psql -U postgres -c \"select slot_name from pg_replication_slots where " +
+					"slot_name = 'lab_permanent_slot';\"` should still return a row. Click Check Work.",
 				Hint: "If the slot is missing on the new Leader, give Patroni a few more seconds — it recreates permanent slots on its next HA loop iteration after a leadership change, not instantaneously.",
 			},
 		},
@@ -1172,7 +1203,7 @@ Without a permanent slot, a failover during a CDC pipeline's downtime is catastr
 	{
 		ID:          "patroni-rest-api",
 		Title:       "Driving Patroni via Its REST API",
-		Description: "patronictl is just a client — talk to Patroni's own REST API directly with curl instead, the same API HAProxy's health checks and every Check Work in this curriculum already depend on.",
+		Description: "patronictl is just a client — talk to Patroni's own REST API directly with curl instead, the same API HAProxy's health checks and this lab's Check Work already depend on.",
 		Difficulty:  "Beginner",
 		Database:    "PostgreSQL",
 		Technology:  "Patroni",
@@ -1180,7 +1211,7 @@ Without a permanent slot, a failover during a CDC pipeline's downtime is catastr
 		TimeLimit:   "2h",
 		LectureNotes: `You've been using this API the whole time without touching it directly
 
-Every "patronictl" command in this curriculum is a thin client around Patroni's REST API on port 8008. "patronictl list" calls "GET /cluster"; "patronictl switchover" calls "POST /switchover"; "patronictl edit-config" calls "PATCH /config". HAProxy's own health checks ("GET /primary", "GET /replica") are this same API too — it's not a separate monitoring integration, it's the exact same interface. This lab has you call it yourself instead of through patronictl.
+Every "patronictl" command is a thin client around Patroni's REST API on port 8008. "patronictl list" calls "GET /cluster"; "patronictl switchover" calls "POST /switchover"; "patronictl edit-config" calls "PATCH /config". HAProxy's own health checks ("GET /primary", "GET /replica") are this same API too — it's not a separate monitoring integration, it's the exact same interface. This lab has you call it yourself instead of through patronictl.
 
 No authentication, on purpose for this lab environment
 
@@ -1188,25 +1219,26 @@ This cluster's Patroni REST API takes no credentials — any request that reache
 
 Why you'd ever reach for the raw API instead of patronictl
 
-Any tool that needs to integrate with Patroni programmatically — a custom health dashboard, an internal automation script, a different orchestrator entirely — talks to this API directly rather than shelling out to patronictl. Understanding that "GET /replica" is the literal signal HAProxy's read pool depends on (the same one the noloadbalance lab's Check Work watches) makes every other lab's mechanics a little less like magic.`,
+Any tool that needs to integrate with Patroni programmatically — a custom health dashboard, an internal automation script, a different orchestrator entirely — talks to this API directly rather than shelling out to patronictl. Understanding that "GET /replica" is the literal signal HAProxy's read pool depends on makes Patroni's whole HA mechanism a little less like magic.`,
 		DesignTemplate: labPatroniSwitchoverDesign,
 		Steps: []LabStep{
 			{
 				ID:    "rest-switchover",
 				Title: "Switch over via a raw POST, not patronictl",
-				Instructions: "Find the current Leader by probing each node directly — `curl -o /dev/null -w '%{http_code}\\n' " +
-					"http://127.0.0.1:8008/primary` prints 200 only on the Leader, 503 everywhere else. On any node, POST a switchover " +
-					"directly: `curl -X POST http://127.0.0.1:8008/switchover -H \"Content-Type: application/json\" -d " +
-					"'{\"leader\": \"<current-leader-name>\", \"candidate\": \"<a-replica-name>\"}'`. Confirm with `patronictl -c " +
-					"/etc/patroni/postgresql.yml list` that leadership moved, then click Check Work.",
+				Instructions: "Find the current Leader by probing each node directly:\n\n" +
+					"`curl -o /dev/null -w '%{http_code}\\n' http://127.0.0.1:8008/primary`\n\n" +
+					"prints 200 only on the Leader, 503 everywhere else.\n\n" +
+					"On any node, POST a switchover directly:\n\n" +
+					"`curl -X POST http://127.0.0.1:8008/switchover -H \"Content-Type: application/json\" -d '{\"leader\": \"<current-leader-name>\", \"candidate\": \"<a-replica-name>\"}'`\n\n" +
+					"Confirm with `patronictl -c /etc/patroni/postgresql.yml list` that leadership moved, then click Check Work.",
 				Hint: "A 200 response body of `Successfully switched over to \"<name>\"` means it worked — anything else (e.g. a members mismatch) means the leader/candidate names you posted didn't match what the cluster actually reports.",
 			},
 			{
 				ID:    "rest-patch-config",
 				Title: "Change the shared config via a raw PATCH",
-				Instructions: "On any node, run `curl -X PATCH http://127.0.0.1:8008/config -d '{\"ttl\": 45}'`. Confirm it took effect by " +
-					"reading the config back — `curl http://127.0.0.1:8008/config` (from any node — it's a shared, DCS-backed object) should now " +
-					"show `\"ttl\": 45`. Click Check Work.",
+				Instructions: "On any node, run `curl -X PATCH http://127.0.0.1:8008/config -d '{\"ttl\": 45}'`.\n\n" +
+					"Confirm it took effect by reading the config back — `curl http://127.0.0.1:8008/config` (from any node — it's a shared, " +
+					"DCS-backed object) should now show `\"ttl\": 45`. Click Check Work.",
 				Hint: "This is exactly what `patronictl edit-config --set ttl=45` would have done under the hood — PATCH only needs to name the fields you're changing, not the whole config.",
 			},
 		},
@@ -1222,7 +1254,7 @@ Any tool that needs to integrate with Patroni programmatically — a custom heal
 		TimeLimit:   "2h",
 		LectureNotes: `Binary exclusion vs. a preference ranking
 
-The "Excluding a Replica from Failover" lab covered nofailover: a member either can or can't ever be elected, full stop. failover_priority is the finer-grained tool for the far more common case — you don't want to rule any replica out, you just want to steer which one wins when it's a close call. It's a per-member local tag, edited and applied exactly like nofailover and replicatefrom: the file, then "patronictl reload".
+The "nofailover" tag is binary exclusion: a member either can or can't ever be elected, full stop. failover_priority is the finer-grained tool for the far more common case — you don't want to rule any replica out, you just want to steer which one wins when it's a close call. It's a per-member local tag, edited and applied the same way: the file, then "patronictl reload".
 
 How Patroni actually uses it
 
@@ -1240,18 +1272,19 @@ failover_priority only matters when Patroni is actually choosing among multiple 
 			{
 				ID:    "tag-priority",
 				Title: "Give a replica a higher failover_priority",
-				Instructions: "Pick a Replica (not the Leader) with `patronictl -c /etc/patroni/postgresql.yml list`. Open a terminal on it and " +
-					"add the tag: `sed -i '/nosync: false/a\\  failover_priority: 5' /etc/patroni/postgresql.yml`. Apply it with " +
-					"`patronictl -c /etc/patroni/postgresql.yml reload lab-patroni <that-node> --force`. Confirm with `list` that its Tags " +
-					"column shows `failover_priority: 5`, then click Check Work.",
+				Instructions: "Pick a Replica (not the Leader) with `patronictl -c /etc/patroni/postgresql.yml list`.\n\n" +
+					"Open a terminal on it and add the tag: `sed -i '/nosync: false/a\\  failover_priority: 5' /etc/patroni/postgresql.yml`.\n\n" +
+					"Apply it with `patronictl -c /etc/patroni/postgresql.yml reload lab-patroni <that-node> --force`.\n\n" +
+					"Confirm with `patronictl -c /etc/patroni/postgresql.yml list` that its Tags column shows `failover_priority: 5`, then click Check Work.",
 				Hint: "Reload can take a few seconds to apply — if the Tags column is still blank, wait and check `list` again before assuming it didn't work.",
 			},
 			{
 				ID:    "crash-and-confirm",
 				Title: "Crash the Leader and confirm it wins",
-				Instructions: "Find the current Leader with `list` and run `systemctl stop patroni` on it (make sure it isn't the node you just " +
-					"tagged). Wait about 15-30 seconds for the remaining two nodes to elect a new Leader, then confirm with `list` that the " +
-					"tagged node — not the other untouched replica — became Leader. Click Check Work.",
+				Instructions: "Find the current Leader with `patronictl -c /etc/patroni/postgresql.yml list` and run `systemctl stop patroni` " +
+					"on it (make sure it isn't the node you just tagged).\n\n" +
+					"Wait about 15-30 seconds for the remaining two nodes to elect a new Leader, then confirm with " +
+					"`patronictl -c /etc/patroni/postgresql.yml list` that the tagged node — not the other untouched replica — became Leader. Click Check Work.",
 				Hint: "If the untagged replica won instead, double-check you crashed the actual Leader (not the tagged node itself) — `list`'s Role column is the source of truth.",
 			},
 		},
@@ -1267,7 +1300,7 @@ failover_priority only matters when Patroni is actually choosing among multiple 
 		TimeLimit:   "2h",
 		LectureNotes: `The same scheduling mechanism, a different action
 
-The Scheduled Switchover lab covered scheduling a leadership handover for a future time. "patronictl restart --scheduled <timestamp>" applies the identical idea to a plain restart — useful for exactly the case the Rolling Restart lab's static-parameter change (max_connections) leaves you with: every member flagged "Pending restart", and you'd rather that happen at 2am than the moment you finish the config change.
+Just as a switchover can be scheduled for a future time instead of run immediately, "patronictl restart --scheduled <timestamp>" applies the identical idea to a plain restart — useful for exactly the case a static-parameter change (like max_connections) leaves you with: every member flagged "Pending restart", and you'd rather that happen at 2am than the moment you finish the config change.
 
 Where a scheduled restart actually lives
 
@@ -1279,25 +1312,24 @@ Cancelling: flush, the same tool either way
 
 Why you'd schedule a restart specifically
 
-A static parameter change (the Rolling Restart lab's max_connections) needs a restart to take effect but doesn't need it *now* — scheduling it lets you make the config change the moment you decide on it, while the actual client-visible interruption happens later, during an actual announced maintenance window, on your terms.`,
+A static parameter change (like max_connections) needs a restart to take effect but doesn't need it *now* — scheduling it lets you make the config change the moment you decide on it, while the actual client-visible interruption happens later, during an actual announced maintenance window, on your terms.`,
 		DesignTemplate: labPatroniSwitchoverDesign,
 		Steps: []LabStep{
 			{
 				ID:    "schedule-and-flush",
 				Title: "Schedule a restart, then cancel it",
-				Instructions: "Pick any node and compute a timestamp a few minutes out: `date -u -d '+5 minutes' '+%Y-%m-%dT%H:%M:%S+00:00'`. " +
-					"Schedule a restart on it: `patronictl -c /etc/patroni/postgresql.yml restart lab-patroni <node-name> --scheduled " +
-					"<timestamp> --force`. Confirm with `list` that its \"Scheduled restart\" column is populated. Now cancel it: " +
-					"`patronictl -c /etc/patroni/postgresql.yml flush lab-patroni restart --force`. Confirm the column is empty again, then " +
-					"click Check Work.",
+				Instructions: "Pick any node and compute a timestamp a few minutes out: `date -u -d '+5 minutes' '+%Y-%m-%dT%H:%M:%S+00:00'`.\n\n" +
+					"Schedule a restart on it: `patronictl -c /etc/patroni/postgresql.yml restart lab-patroni <node-name> --scheduled <timestamp> --force`.\n\n" +
+					"Confirm with `patronictl -c /etc/patroni/postgresql.yml list` that its \"Scheduled restart\" column is populated.\n\n" +
+					"Now cancel it: `patronictl -c /etc/patroni/postgresql.yml flush lab-patroni restart --force`. Confirm the column is empty again, then click Check Work.",
 				Hint: "Check Work fails if any member still has a restart scheduled — it's checking the cancellation actually took effect.",
 			},
 			{
 				ID:    "schedule-and-let-fire",
 				Title: "Schedule one and let it run",
-				Instructions: "Schedule another restart, this time only about a minute out. Do NOT flush it — wait for the scheduled time to " +
-					"pass, then confirm with `curl http://127.0.0.1:8008/patroni` on that node that `postmaster_start_time` is now recent and " +
-					"`scheduled_restart` is gone. Click Check Work.",
+				Instructions: "Schedule another restart, this time only about a minute out. Do NOT flush it.\n\n" +
+					"Wait for the scheduled time to pass, then confirm with `curl http://127.0.0.1:8008/patroni` on that node that " +
+					"`postmaster_start_time` is now recent and `scheduled_restart` is gone. Click Check Work.",
 				Hint: "If it still looks unfired after a couple of minutes, double-check the scheduled time has actually passed — Patroni won't act early.",
 			},
 		},
@@ -1311,9 +1343,9 @@ A static parameter change (the Rolling Restart lab's max_connections) needs a re
 		Technology:  "Patroni",
 		Category:    "Cluster Operations",
 		TimeLimit:   "2h",
-		LectureNotes: `Every check in this curriculum has been Patroni's state — this lab is Patroni's actions
+		LectureNotes: `Verifying Patroni's actions, not just its state
 
-Every other lab verifies something by reading cluster state after the fact (who's Leader, what a tag says, what a slot looks like). Callbacks are different: they're code Patroni itself runs, synchronously, at the moment specific lifecycle events happen — "on_start", "on_stop", "on_restart", and the one this lab is about, "on_role_change" (fired whenever a member's role changes, most notably becoming Leader).
+Most checks on this cluster verify something by reading cluster state after the fact (who's Leader, what a tag says, what a slot looks like). Callbacks are different: they're code Patroni itself runs, synchronously, at the moment specific lifecycle events happen — "on_start", "on_stop", "on_restart", and the one this lab is about, "on_role_change" (fired whenever a member's role changes, most notably becoming Leader).
 
 What Patroni actually passes your script
 
@@ -1331,10 +1363,10 @@ on_role_change fires on a genuine role transition — it does not fire during a 
 			{
 				ID:    "cause-role-change",
 				Title: "Crash the Leader and check the new Leader's callback log",
-				Instructions: "Find the current Leader with `patronictl -c /etc/patroni/postgresql.yml list` and run `systemctl stop patroni` on " +
-					"it. Wait about 15-30 seconds for the remaining two nodes to elect a new Leader, then open a terminal on that new Leader and " +
-					"run `cat /tmp/patroni-callback.log` — it was empty before this (on_role_change never fired at bootstrap), and should now " +
-					"show one line with `action=on_role_change` from this promotion. Click Check Work.",
+				Instructions: "Find the current Leader with `patronictl -c /etc/patroni/postgresql.yml list` and run `systemctl stop patroni` on it.\n\n" +
+					"Wait about 15-30 seconds for the remaining two nodes to elect a new Leader.\n\n" +
+					"Open a terminal on that new Leader and run `cat /tmp/patroni-callback.log` — it was empty before this (on_role_change " +
+					"never fired at bootstrap), and should now show one line with `action=on_role_change` from this promotion. Click Check Work.",
 				Hint: "If the log has no on_role_change line yet, give it a few more seconds — the callback fires as part of the promotion sequence, which can take a moment after the election itself completes.",
 			},
 		},
@@ -1387,12 +1419,6 @@ func (a *App) handleStartLab(w http.ResponseWriter, r *http.Request) {
 	// and its containers are gone) — fall through and provision a fresh one.
 	if run, err := a.store.GetActiveLabRun(lab.ID, u.ID); err == nil {
 		if st, serr := a.store.GetStack(run.StackID); serr == nil && st.Status != StackExpired {
-			// startLabTraffic is idempotent (no-ops if already running for this
-			// stack) — needed here because the generator is purely in-memory: an
-			// app restart drops it silently, and without this a learner resuming
-			// an already-active run would see "Resume Lab" succeed but CRUD
-			// Traffic (and its per-node graph) just never come back.
-			go a.startLabTraffic(run.ID, st.ID)
 			writeJSON(w, http.StatusOK, map[string]any{"labRun": run, "stack": st})
 			return
 		}
@@ -1410,7 +1436,7 @@ func (a *App) handleStartLab(w http.ResponseWriter, r *http.Request) {
 	}
 	go a.captureLabInitialLeader(run.ID, st.ID)
 	go a.captureLabInitialBackupCount(run.ID, st.ID)
-	go a.startLabTraffic(run.ID, st.ID)
+	go a.captureLabInitialHAProxyWriter(run.ID, st.ID)
 	go a.prepareStandbyClusterUpstream(run.ID, st.ID)
 	writeJSON(w, http.StatusCreated, map[string]any{"labRun": run, "stack": st})
 }
@@ -1865,6 +1891,56 @@ func (a *App) handleCheckLabStep(w http.ResponseWriter, r *http.Request) {
 		result = a.checkMongoReshardedToNewKey(ctx, st)
 	case "psmdb-pbm-sharded:cluster-wide-backup":
 		result = a.checkMongoPBMShardedBackup(ctx, st)
+	case "mysql-repl-gtid:check-replica-status":
+		result = a.checkMySQLReplGTIDStatus(ctx, st)
+	case "mysql-repl-lag:cause-lag":
+		result = a.checkMySQLReplLagPresent(ctx, st, true)
+	case "mysql-repl-lag:drain-lag":
+		result = a.checkMySQLReplLagPresent(ctx, st, false)
+	case "mysql-repl-semisync:confirm-semisync-on":
+		result = a.checkMySQLSemiSyncStatus(ctx, st, "ON")
+	case "mysql-repl-semisync:confirm-fallback":
+		result = a.checkMySQLSemiSyncStatus(ctx, st, "OFF")
+	case "mysql-repl-readonly:confirm-write-rejected":
+		result = a.checkMySQLReplWriteRejected(ctx, st)
+	case "mysql-repl-readonly:confirm-row-replicated":
+		result = a.checkMySQLReplReadReplicated(ctx, st)
+	case "mysql-repl-pitr:take-backup":
+		result = a.checkMySQLPITRBackupTaken(ctx, st)
+	case "mysql-repl-pitr:simulate-accident":
+		result = a.checkMySQLPITRAccidentSimulated(ctx, st)
+	case "mysql-repl-pitr:recover":
+		result = a.checkMySQLPITRRecovered(ctx, st)
+	case "mysql-repl-delayed:configure-delay":
+		result = a.checkMySQLDelayConfigured(ctx, st)
+	case "mysql-repl-delayed:confirm-shielded":
+		result = a.checkMySQLDelayShield(ctx, st, true)
+	case "mysql-repl-delayed:confirm-elapsed":
+		result = a.checkMySQLDelayShield(ctx, st, false)
+	case "pxc-cert-conflicts:cause-conflicts":
+		result = a.checkPXCCertConflicts(ctx, st)
+	case "pxc-minority-loss:confirm-quorum-survives":
+		result = a.checkPXCMinorityQuorum(ctx, st)
+	case "pxc-majority-loss:confirm-quorum-lost":
+		result = a.checkPXCMajorityLoss(ctx, st)
+	case "pxc-node-maintenance:graceful-removal":
+		result = a.checkPXCNodeRemoved(ctx, st)
+	case "pxc-node-maintenance:rejoin":
+		result = a.checkPXCNodeRejoined(ctx, st)
+	case "pxc-flow-control:cause-flow-control":
+		result = a.checkPXCFlowControl(ctx, st, true)
+	case "pxc-flow-control:flow-control-clears":
+		result = a.checkPXCFlowControl(ctx, st, false)
+	case "pxc-sst-vs-ist:trigger-ist":
+		result = a.checkPXCCatchupMethod(ctx, st, "IST")
+	case "pxc-sst-vs-ist:trigger-sst":
+		result = a.checkPXCCatchupMethod(ctx, st, "SST")
+	case "haproxy-pxc-single-writer:no-conflicts-through-proxy":
+		result = a.checkHAProxyNoCertConflicts(ctx, st)
+	case "haproxy-pxc-failover:confirm-failover":
+		result = a.checkHAProxyFailover(ctx, run, st)
+	case "haproxy-pxc-read-scaling:confirm-round-robin":
+		result = a.checkHAProxyReadLoadBalancing(ctx, st)
 	default:
 		writeErr(w, http.StatusNotImplemented, "no check available for this step")
 		return

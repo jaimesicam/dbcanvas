@@ -374,6 +374,44 @@ const NODE_TYPES = {
     osOptions: [{ id: 'hotelsim', label: 'dbcanvas-hotelsim' }],
     defaults: {},
   },
+  // Airline Sim — the "MySQL Airline Reservation Lab" live demo app (ten background
+  // agents + a web dashboard) driving a 200-route reservation workload against a
+  // 2000-aircraft fleet. Runs dbcanvas's own first-party image, not an OS/DB image,
+  // so it carries no os/osVersion/arch fields at all. Links to a standalone Percona
+  // Server node, a MySQL replication frame, a PXC cluster frame, or a
+  // ProxySQL/HAProxy node or cluster fronting one of the latter two, via a drawn
+  // association line (see endpointKind/tryConnect) — never published to the host;
+  // reached from inside a VNC desktop.
+  airlinesim: {
+    label: 'Airline Sim',
+    slug: 'airlinesim',
+    sub: 'MySQL Airline Reservation Lab — live demo app',
+    color: '#f97316',
+    icon: 'Flask',
+    singleton: false,
+    ports: true,
+    osOptions: [{ id: 'airlinesim', label: 'dbcanvas-airlinesim' }],
+    defaults: {},
+  },
+  // Car Rental Sim — the "PostgreSQL Car Rental Lab" live demo app (ten background
+  // agents + a web dashboard) driving a 180-location rental workload against a
+  // 2000-vehicle fleet. Runs dbcanvas's own first-party image, not an OS/DB image,
+  // so it carries no os/osVersion/arch fields at all. Links to a standalone
+  // PostgreSQL node, a Patroni/repmgr/Spock cluster frame, or an HAProxy node
+  // fronting one of the latter three, via a drawn association line (see
+  // endpointKind/tryConnect) — never published to the host; reached from inside a
+  // VNC desktop.
+  carsim: {
+    label: 'Car Rental Sim',
+    slug: 'carsim',
+    sub: 'PostgreSQL Car Rental Lab — live demo app',
+    color: '#0ea5e9',
+    icon: 'Flask',
+    singleton: false,
+    ports: true,
+    osOptions: [{ id: 'carsim', label: 'dbcanvas-carsim' }],
+    defaults: {},
+  },
 }
 
 // ---------------------------------------------------------- PXC cluster frames
@@ -827,6 +865,8 @@ const PALETTE_ALIASES = {
   linuxclient: 'client host bare vm jump box test',
   trafficsim: 'demo simulation city map live traffic',
   hotelsim: 'demo simulation hotel reservation booking mongo mongodb',
+  airlinesim: 'demo simulation airline flight reservation booking mysql pxc',
+  carsim: 'demo simulation car rental booking postgres postgresql patroni repmgr spock',
 }
 function loadPalettePrefs() {
   try { return { collapsed: [], recent: [], ...JSON.parse(localStorage.getItem(PALETTE_KEY) || '{}') } }
@@ -1137,6 +1177,10 @@ function StackEditor({ stackId, onBack }) {
       if (n.type === 'trafficsim') return 'trafficsim'
       if (n.type === 'psm') return 'psm'
       if (n.type === 'hotelsim') return 'hotelsim'
+      if (n.type === 'ps' && !n.frameId) return 'ps'
+      if (n.type === 'pg' && !n.frameId) return 'pg'
+      if (n.type === 'airlinesim') return 'airlinesim'
+      if (n.type === 'carsim') return 'carsim'
       return null
     }
     const f = refs.current.frames.find((x) => x.id === id)
@@ -1144,6 +1188,8 @@ function StackEditor({ stackId, onBack }) {
       if (f.type === 'pxc' || f.type === 'mysql') return 'backend'
       if (f.type === 'proxysql') return 'proxysql-frame'
       if (f.type === 'patroni') return 'patroni'
+      if (f.type === 'repmgr') return 'repmgr'
+      if (f.type === 'spock') return 'spock'
       if (f.type === 'valkeycluster') return 'valkeycluster'
       if (f.type === 'psmrs') return 'psmrs'
       if (f.type === 'psmdb') return 'psmdb'
@@ -1175,16 +1221,20 @@ function StackEditor({ stackId, onBack }) {
     // source, max 1 outgoing).
     if (k1 === 'backend' && isProxyDest(k2)) return createFlow(e1, e2, { singleOutgoing: true })
     if (k2 === 'backend' && isProxyDest(k1)) return createFlow(e2, e1, { singleOutgoing: true })
-    // Patroni cluster frame → HAProxy node (frame is the source, max 1 outgoing;
-    // HAProxy takes a single incoming via the createFlow dest guard).
+    // Patroni, repmgr, or Spock cluster frame → HAProxy node (frame is the source,
+    // max 1 outgoing; HAProxy takes a single incoming via the createFlow dest
+    // guard, so a node can front at most one of these three PostgreSQL topologies).
     if (k1 === 'patroni' && k2 === 'haproxy') return createFlow(e1, e2, { singleOutgoing: true })
     if (k2 === 'patroni' && k1 === 'haproxy') return createFlow(e2, e1, { singleOutgoing: true })
-    // PXC cluster frame → HAProxy node. HAProxy fronts exactly one cluster (Patroni OR
-    // PXC) — its single incoming (createFlow dest guard) enforces the mutual exclusivity.
-    // Only PXC frames qualify here ('backend' also covers MySQL-replication frames).
-    const isPXCFrame = (id) => refs.current.frames.find((x) => x.id === id)?.type === 'pxc'
-    if (k1 === 'backend' && k2 === 'haproxy' && isPXCFrame(e1.node)) return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'backend' && k1 === 'haproxy' && isPXCFrame(e2.node)) return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'repmgr' && k2 === 'haproxy') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'repmgr' && k1 === 'haproxy') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'spock' && k2 === 'haproxy') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'spock' && k1 === 'haproxy') return createFlow(e2, e1, { singleOutgoing: true })
+    // PXC or MySQL-replication frame → HAProxy node. HAProxy fronts exactly one
+    // cluster (Patroni, PXC, or MySQL replication) — its single incoming (createFlow
+    // dest guard) enforces the mutual exclusivity.
+    if (k1 === 'backend' && k2 === 'haproxy') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'backend' && k1 === 'haproxy') return createFlow(e2, e1, { singleOutgoing: true })
     // Standalone Valkey node OR Valkey Cluster frame → Traffic Sim node (the data
     // source flows to its consumer, same shape as Patroni cluster frame → HAProxy
     // above; a Traffic Sim node links to exactly one target, single incoming).
@@ -1201,6 +1251,38 @@ function StackEditor({ stackId, onBack }) {
     if (k2 === 'psmrs' && k1 === 'hotelsim') return createFlow(e2, e1, { singleOutgoing: true })
     if (k1 === 'psmdb' && k2 === 'hotelsim') return createFlow(e1, e2, { singleOutgoing: true })
     if (k2 === 'psmdb' && k1 === 'hotelsim') return createFlow(e2, e1, { singleOutgoing: true })
+    // Standalone Percona Server node, a PXC/MySQL backend frame (direct), or a
+    // ProxySQL/HAProxy node or cluster fronting one of the latter two → Airline Sim
+    // node (same shape as the rules above; an Airline Sim node links to exactly one
+    // target, single incoming). A 'backend' frame's singleOutgoing already covers
+    // "connect Airline Sim directly OR front it with a proxy, not both" for free.
+    if (k1 === 'ps' && k2 === 'airlinesim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'ps' && k1 === 'airlinesim') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'backend' && k2 === 'airlinesim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'backend' && k1 === 'airlinesim') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'haproxy' && k2 === 'airlinesim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'haproxy' && k1 === 'airlinesim') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'proxysql' && k2 === 'airlinesim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'proxysql' && k1 === 'airlinesim') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'proxysql-frame' && k2 === 'airlinesim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'proxysql-frame' && k1 === 'airlinesim') return createFlow(e2, e1, { singleOutgoing: true })
+    // Standalone PostgreSQL node, a Patroni/repmgr/Spock cluster frame (direct), or
+    // an HAProxy node fronting one of the latter three → Car Rental Sim node (same
+    // shape as the Airline Sim rules above; a Car Rental Sim node links to exactly
+    // one target, single incoming). Each of 'pg'/'patroni'/'repmgr'/'spock'/
+    // 'haproxy' already carries its own singleOutgoing semantics, so "connect Car
+    // Rental Sim directly OR front it with HAProxy, not both" falls out for free —
+    // there is no ProxySQL rule here at all: ProxySQL is MySQL-family only.
+    if (k1 === 'pg' && k2 === 'carsim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'pg' && k1 === 'carsim') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'patroni' && k2 === 'carsim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'patroni' && k1 === 'carsim') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'repmgr' && k2 === 'carsim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'repmgr' && k1 === 'carsim') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'spock' && k2 === 'carsim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'spock' && k1 === 'carsim') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'haproxy' && k2 === 'carsim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'haproxy' && k1 === 'carsim') return createFlow(e2, e1, { singleOutgoing: true })
     // ProxySQL node ↔ ProxySQL node: ask which way the data flows.
     if (k1 === 'proxysql' && k2 === 'proxysql') { setLinkPrompt({ e1, e2 }); return }
     // Cluster member ↔ cluster member (PXC/Percona Server, different frames): a
@@ -1916,6 +1998,8 @@ function StackEditor({ stackId, onBack }) {
     { title: 'App Simulators', items: [
       { label: 'Traffic Sim', type: 'trafficsim', onClick: () => addNode('trafficsim') },
       { label: 'Hotel Sim', type: 'hotelsim', onClick: () => addNode('hotelsim') },
+      { label: 'Airline Sim', type: 'airlinesim', onClick: () => addNode('airlinesim') },
+      { label: 'Car Rental Sim', type: 'carsim', onClick: () => addNode('carsim') },
     ] },
   ]
 
@@ -4200,6 +4284,181 @@ function HotelSimManager({ dep, onDeleteNode }) {
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
         <div className="flex justify-between gap-3"><span className="text-muted">URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8089</span></div>
         <div className="flex justify-between gap-3"><span className="text-muted">Linked to</span><span className="font-mono text-xs">{cfg.targetName} ({KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></div>
+      </div>
+      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// AirlineSimForm edits a (not-yet-deployed) Airline Sim node. It resolves its own
+// linked target across all five source shapes: a standalone Percona Server node, a
+// PXC/MySQL backend frame (direct), an HAProxy node, or a ProxySQL node/cluster —
+// the last two only make sense once they're themselves fronting a PXC or MySQL
+// replication backend, but that's verified by dbcanvas at deploy time, not here.
+function AirlineSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep, deployed }) {
+  const AIRLINE_KIND_LABEL = { ps: 'Percona Server', pxc: 'PXC Cluster', mysql: 'MySQL Replication', haproxy: 'HAProxy', proxysql: 'ProxySQL', 'proxysql-frame': 'ProxySQL Cluster' }
+  const linkedTarget = (() => {
+    for (const e of edges) {
+      const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
+      if (!other) continue
+      const psNode = nodes.find((x) => x.id === other && x.type === 'ps' && !x.frameId)
+      if (psNode) return { kind: 'ps', label: psNode.label }
+      const backendFrame = frames.find((x) => x.id === other && (x.type === 'pxc' || x.type === 'mysql'))
+      if (backendFrame) return { kind: backendFrame.type, label: backendFrame.label }
+      const haproxyNode = nodes.find((x) => x.id === other && x.type === 'haproxy')
+      if (haproxyNode) return { kind: 'haproxy', label: haproxyNode.label }
+      const proxysqlNode = nodes.find((x) => x.id === other && x.type === 'proxysql' && !x.frameId)
+      if (proxysqlNode) return { kind: 'proxysql', label: proxysqlNode.label }
+      const proxysqlFrame = frames.find((x) => x.id === other && x.type === 'proxysql')
+      if (proxysqlFrame) return { kind: 'proxysql-frame', label: proxysqlFrame.label }
+    }
+    return null
+  })()
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Airline Sim</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <p className="text-xs text-muted">
+        Background agents run a 200-route reservation workload against a 2000-aircraft fleet — route
+        search, booking, modification, cancellation, check-in, flight completion — continuously reading
+        and writing the linked MySQL-family target. A live dashboard is served from this node; open it
+        from a browser inside the stack (e.g. a VNC desktop's Firefox) — it's never published to the
+        host. No product besides the sim itself; not monitored by PMM.
+      </p>
+
+      {linkedTarget ? (
+        <div className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
+          Linked to {AIRLINE_KIND_LABEL[linkedTarget.kind]} <span className="font-mono font-medium">{linkedTarget.label}</span>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+          Not linked. Draw an association line from a standalone Percona Server node, a MySQL
+          replication or PXC cluster frame, or a ProxySQL/HAProxy node or cluster fronting one, to this node.
+        </div>
+      )}
+
+      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// AirlineSimManager shows a deployed Airline Sim node's URL (never published to the
+// host — open it from inside the stack) and what it's linked to. cfg.targetKind here
+// is the fully-resolved 7-way kind dbcanvas settled on (e.g. "haproxy-pxc"), not the
+// coarser 5-way shape AirlineSimForm resolves on the canvas before deploy.
+function AirlineSimManager({ dep, onDeleteNode }) {
+  const cfg = dep?.config || {}
+  const TARGET_KIND_LABEL = {
+    ps: 'Percona Server', mysql: 'MySQL Replication', pxc: 'PXC Cluster',
+    'haproxy-pxc': 'HAProxy → PXC', 'haproxy-mysql': 'HAProxy → MySQL Replication',
+    'proxysql-pxc': 'ProxySQL → PXC', 'proxysql-mysql': 'ProxySQL → MySQL Replication',
+  }
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Airline Sim</span>
+        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+      </div>
+      <p className="text-xs text-muted">Open this URL from a browser inside the stack — it isn't published to the host.</p>
+      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
+        <div className="flex justify-between gap-3"><span className="text-muted">URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8090</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Linked to</span><span className="font-mono text-xs">{cfg.targetName} ({TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></div>
+      </div>
+      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// CarSimForm edits a (not-yet-deployed) Car Rental Sim node. It resolves its own
+// linked target across all five source shapes: a standalone PostgreSQL node, a
+// Patroni/repmgr/Spock cluster frame (direct), or an HAProxy node — the last one
+// only makes sense once it's itself fronting one of the three cluster kinds, but
+// that's verified by dbcanvas at deploy time, not here.
+function CarSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep, deployed }) {
+  const CARSIM_KIND_LABEL = { pg: 'PostgreSQL', patroni: 'Patroni Cluster', repmgr: 'repmgr Cluster', spock: 'Spock Cluster', haproxy: 'HAProxy' }
+  const linkedTarget = (() => {
+    for (const e of edges) {
+      const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
+      if (!other) continue
+      const pgNode = nodes.find((x) => x.id === other && x.type === 'pg' && !x.frameId)
+      if (pgNode) return { kind: 'pg', label: pgNode.label }
+      const backendFrame = frames.find((x) => x.id === other && (x.type === 'patroni' || x.type === 'repmgr' || x.type === 'spock'))
+      if (backendFrame) return { kind: backendFrame.type, label: backendFrame.label }
+      const haproxyNode = nodes.find((x) => x.id === other && x.type === 'haproxy')
+      if (haproxyNode) return { kind: 'haproxy', label: haproxyNode.label }
+    }
+    return null
+  })()
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Car Rental Sim</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <p className="text-xs text-muted">
+        Background agents run a 180-location rental workload against a 2000-vehicle fleet — location
+        search, booking, modification, cancellation, check-out, check-in — continuously reading and
+        writing the linked PostgreSQL-family target. A live dashboard is served from this node; open it
+        from a browser inside the stack (e.g. a VNC desktop's Firefox) — it's never published to the
+        host. No product besides the sim itself; not monitored by PMM.
+      </p>
+
+      {linkedTarget ? (
+        <div className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
+          Linked to {CARSIM_KIND_LABEL[linkedTarget.kind]} <span className="font-mono font-medium">{linkedTarget.label}</span>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+          Not linked. Draw an association line from a standalone PostgreSQL node, a Patroni/repmgr/Spock
+          cluster frame, or an HAProxy node fronting one, to this node.
+        </div>
+      )}
+
+      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// CarSimManager shows a deployed Car Rental Sim node's URL (never published to the
+// host — open it from inside the stack) and what it's linked to. cfg.targetKind here
+// is the fully-resolved 7-way kind dbcanvas settled on (e.g. "haproxy-spock"), not the
+// coarser 5-way shape CarSimForm resolves on the canvas before deploy.
+function CarSimManager({ dep, onDeleteNode }) {
+  const cfg = dep?.config || {}
+  const TARGET_KIND_LABEL = {
+    pg: 'PostgreSQL', patroni: 'Patroni Cluster', repmgr: 'repmgr Cluster', spock: 'Spock Cluster',
+    'haproxy-patroni': 'HAProxy → Patroni', 'haproxy-repmgr': 'HAProxy → repmgr', 'haproxy-spock': 'HAProxy → Spock',
+  }
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Car Rental Sim</span>
+        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+      </div>
+      <p className="text-xs text-muted">Open this URL from a browser inside the stack — it isn't published to the host.</p>
+      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
+        <div className="flex justify-between gap-3"><span className="text-muted">URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8091</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Linked to</span><span className="font-mono text-xs">{cfg.targetName} ({TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></div>
       </div>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
@@ -6833,6 +7092,20 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <HotelSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <HotelSimForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+    // Airline Sim node — the MySQL Airline Reservation Lab live demo app.
+    if (n.type === 'airlinesim') {
+      if (dep && dep.state === 'running') {
+        return <AirlineSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <AirlineSimForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+    // Car Rental Sim node — the PostgreSQL Car Rental Lab live demo app.
+    if (n.type === 'carsim') {
+      if (dep && dep.state === 'running') {
+        return <CarSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <CarSimForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
     return (
       <div className="space-y-3">

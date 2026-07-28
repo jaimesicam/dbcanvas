@@ -128,12 +128,13 @@ Multi-key operations only work if every key involved maps to the same slot. "{ta
 			{
 				ID:    "route-a-key",
 				Title: "Find a key's slot, then write it correctly",
-				Instructions: "Open a terminal on any Valkey node. Run `valkey-cli -a valkey_password --no-auth-warning CLUSTER KEYSLOT lab:hello` " +
-					"to see which slot the key `lab:hello` hashes to. Run `valkey-cli -a valkey_password --no-auth-warning CLUSTER NODES` and " +
-					"find which node owns that slot (the ranges after each master's line). If it isn't the node you're on, try writing it " +
-					"directly anyway: `valkey-cli -a valkey_password --no-auth-warning SET lab:hello world` — you should see a `MOVED` reply " +
-					"instead of `OK`. Now write it the way a real client would: `valkey-cli -c -a valkey_password --no-auth-warning SET " +
-					"lab:hello world` — cluster mode (`-c`) follows the redirect for you. Click Check Work.",
+				Instructions: "Open a terminal on any Valkey node.\n\n" +
+					"Run `valkey-cli -a valkey_password --no-auth-warning CLUSTER KEYSLOT lab:hello` to see which slot the key `lab:hello` hashes to.\n\n" +
+					"Run `valkey-cli -a valkey_password --no-auth-warning CLUSTER NODES` and find which node owns that slot (the ranges after each master's line).\n\n" +
+					"If it isn't the node you're on, try writing it directly anyway: `valkey-cli -a valkey_password --no-auth-warning SET lab:hello world` " +
+					"— you should see a `MOVED` reply instead of `OK`.\n\n" +
+					"Now write it the way a real client would: `valkey-cli -c -a valkey_password --no-auth-warning SET lab:hello world` — cluster mode " +
+					"(`-c`) follows the redirect for you. Click Check Work.",
 				Hint: "If your node happens to already own that slot, `SET` will just succeed with `OK` on the first try — that's fine, still run the `-c` version so the key definitely ends up set.",
 			},
 		},
@@ -168,10 +169,11 @@ The obvious case is rebalancing after adding a new master to a cluster that's be
 				ID:    "reshard-slots",
 				Title: "Move slots from one master to another",
 				Instructions: "Run `valkey-cli -a valkey_password --no-auth-warning CLUSTER NODES` to list the three masters and their node IDs " +
-					"(the long hex string at the start of each line) and current slot ranges. Pick a source and a destination master, then run " +
-					"`valkey-cli --cluster reshard 127.0.0.1:6379 -a valkey_password --no-auth-warning --cluster-from <source-id> --cluster-to " +
-					"<dest-id> --cluster-slots 1000 --cluster-yes` on the source node. Once it finishes, run `CLUSTER NODES` again and confirm " +
-					"the destination master's slot ranges grew and the source's shrank. Click Check Work.",
+					"(the long hex string at the start of each line) and current slot ranges.\n\n" +
+					"Pick a source and a destination master, then run:\n\n" +
+					"`valkey-cli --cluster reshard 127.0.0.1:6379 -a valkey_password --no-auth-warning --cluster-from <source-id> --cluster-to <dest-id> --cluster-slots 1000 --cluster-yes`\n\n" +
+					"on the source node.\n\n" +
+					"Once it finishes, run `CLUSTER NODES` again and confirm the destination master's slot ranges grew and the source's shrank. Click Check Work.",
 				Hint: "`--cluster-slots` takes a plain count, not a range — 1000 is enough to be obviously different from the ~1-slot imbalance a fresh 3-way split naturally has (16384 doesn't divide evenly by 3).",
 			},
 		},
@@ -195,7 +197,7 @@ You don't need to run any special "make this a replica" command by hand. Reshard
 
 CLUSTER FAILOVER: a planned handover, not a crash
 
-Once a replica exists, "CLUSTER FAILOVER" — run from the replica itself, not the master — requests a clean, coordinated promotion: the replica confirms it's caught up, the master stops accepting writes for a brief moment, and the replica takes over the master's slots and role. This is the Valkey Cluster equivalent of the Patroni curriculum's planned switchover — a voluntary handover between two healthy nodes, not a reaction to one disappearing.
+Once a replica exists, "CLUSTER FAILOVER" — run from the replica itself, not the master — requests a clean, coordinated promotion: the replica confirms it's caught up, the master stops accepting writes for a brief moment, and the replica takes over the master's slots and role. This is a planned switchover — a voluntary handover between two healthy nodes, not a reaction to one disappearing.
 
 Why this lab doesn't simulate a crash
 
@@ -205,21 +207,19 @@ Simulating an actual node failure convincingly needs the failure to last long en
 			{
 				ID:    "build-replica",
 				Title: "Empty a master to turn it into a replica",
-				Instructions: "Run `valkey-cli -a valkey_password --no-auth-warning CLUSTER NODES` and note the three masters' node IDs and slot " +
-					"counts. Pick one to empty out (the \"source\") and one to receive its slots (the \"destination\"). On the source node, run " +
-					"`valkey-cli --cluster reshard 127.0.0.1:6379 -a valkey_password --no-auth-warning --cluster-from <source-id> --cluster-to " +
-					"<dest-id> --cluster-slots <however many the source currently owns> --cluster-yes` — moving ALL of its slots, not just " +
-					"some. Once it owns zero slots, run `CLUSTER NODES` again: it should now show up with a `slave` flag instead of `master`, " +
-					"pointing at the destination — automatically, with nothing else for you to run. Click Check Work.",
+				Instructions: "Run `valkey-cli -a valkey_password --no-auth-warning CLUSTER NODES` and note the three masters' node IDs and slot counts.\n\n" +
+					"Pick one to empty out (the \"source\") and one to receive its slots (the \"destination\"). On the source node, run:\n\n" +
+					"`valkey-cli --cluster reshard 127.0.0.1:6379 -a valkey_password --no-auth-warning --cluster-from <source-id> --cluster-to <dest-id> --cluster-slots <however many the source currently owns> --cluster-yes`\n\n" +
+					"— moving ALL of its slots, not just some.\n\n" +
+					"Once it owns zero slots, run `CLUSTER NODES` again: it should now show up with a `slave` flag instead of `master`, pointing at the destination — automatically, with nothing else for you to run. Click Check Work.",
 				Hint: "If it still shows as `master` with 0 slots and hasn't converted, give it a few seconds — the automatic slave conversion happens on the next cluster cron cycle, not the instant the last slot moves.",
 			},
 			{
 				ID:    "manual-failover",
 				Title: "Promote the replica back with CLUSTER FAILOVER",
-				Instructions: "Open a terminal on the node that just became a replica (from the previous step) and run " +
-					"`valkey-cli -a valkey_password --no-auth-warning CLUSTER FAILOVER`. Wait a few seconds, then run `CLUSTER NODES` on any " +
-					"node and confirm that same node now shows a `master` flag and owns the slots its former master used to hold — and that " +
-					"former master now shows `slave` instead. Click Check Work.",
+				Instructions: "Open a terminal on the node that just became a replica (from the previous step) and run `valkey-cli -a valkey_password --no-auth-warning CLUSTER FAILOVER`.\n\n" +
+					"Wait a few seconds, then run `CLUSTER NODES` on any node and confirm that same node now shows a `master` flag and owns the " +
+					"slots its former master used to hold — and that former master now shows `slave` instead. Click Check Work.",
 				Hint: "Run CLUSTER FAILOVER from the replica itself, not the master — it's the replica that requests its own promotion.",
 			},
 		},
@@ -249,19 +249,18 @@ Fsyncing after every write means every write now waits on a disk round-trip befo
 			{
 				ID:    "tune-fsync",
 				Title: "Switch to maximum durability",
-				Instructions: "Open a terminal on the Valkey node. Confirm the default first: " +
-					"`valkey-cli -a valkey_password --no-auth-warning CONFIG GET appendfsync` (should show `everysec`). Now tighten it: " +
-					"`valkey-cli -a valkey_password --no-auth-warning CONFIG SET appendfsync always`. Confirm it took with `CONFIG GET " +
-					"appendfsync` again. Click Check Work.",
+				Instructions: "Open a terminal on the Valkey node.\n\n" +
+					"Confirm the default first: `valkey-cli -a valkey_password --no-auth-warning CONFIG GET appendfsync` (should show `everysec`).\n\n" +
+					"Now tighten it: `valkey-cli -a valkey_password --no-auth-warning CONFIG SET appendfsync always`.\n\n" +
+					"Confirm it took with `CONFIG GET appendfsync` again. Click Check Work.",
 				Hint: "CONFIG SET takes effect immediately and persists only in memory — a real deployment would also update the config file so it survives a restart, but that's outside what this lab checks.",
 			},
 			{
 				ID:    "observe-durability-cost",
 				Title: "Watch the fsync cost show up in latency monitoring",
-				Instructions: "Turn on Valkey's latency monitor: `valkey-cli -a valkey_password --no-auth-warning CONFIG SET " +
-					"latency-monitor-threshold 1` (track anything over 1ms). Generate some writes: `valkey-cli -a valkey_password " +
-					"--no-auth-warning SET durability:test hello`, then a few more with different key names. Run `valkey-cli -a " +
-					"valkey_password --no-auth-warning LATENCY HISTORY aof-fsync-always` — you should see recorded events. Click Check Work.",
+				Instructions: "Turn on Valkey's latency monitor: `valkey-cli -a valkey_password --no-auth-warning CONFIG SET latency-monitor-threshold 1` (track anything over 1ms).\n\n" +
+					"Generate some writes: `valkey-cli -a valkey_password --no-auth-warning SET durability:test hello`, then a few more with different key names.\n\n" +
+					"Run `valkey-cli -a valkey_password --no-auth-warning LATENCY HISTORY aof-fsync-always` — you should see recorded events. Click Check Work.",
 				Hint: "If LATENCY HISTORY comes back empty, make sure step one's CONFIG SET appendfsync always actually applied — writes under `everysec` don't fsync per-command, so they won't generate this specific event class.",
 			},
 		},
@@ -291,18 +290,17 @@ Valkey itself — its own process, connected-client buffers, replication backlog
 			{
 				ID:    "configure-eviction",
 				Title: "Set a memory ceiling and an LRU eviction policy",
-				Instructions: "Run `valkey-cli -a valkey_password --no-auth-warning CONFIG SET maxmemory 12mb` then `valkey-cli -a " +
-					"valkey_password --no-auth-warning CONFIG SET maxmemory-policy allkeys-lru`. Confirm both with `CONFIG GET maxmemory` " +
-					"and `CONFIG GET maxmemory-policy`. Click Check Work.",
+				Instructions: "Run `valkey-cli -a valkey_password --no-auth-warning CONFIG SET maxmemory 12mb`.\n\n" +
+					"Then: `valkey-cli -a valkey_password --no-auth-warning CONFIG SET maxmemory-policy allkeys-lru`.\n\n" +
+					"Confirm both with `CONFIG GET maxmemory` and `CONFIG GET maxmemory-policy`. Click Check Work.",
 				Hint: "12mb leaves real headroom above Valkey's own baseline memory usage (a few MB just for the process itself) — a smaller ceiling can reject every write outright instead of giving eviction anything to work with.",
 			},
 			{
 				ID:    "trigger-eviction",
 				Title: "Fill past the ceiling and watch real eviction happen",
-				Instructions: "Write enough data to exceed the ceiling — a shell loop is the fastest way: `for i in $(seq 1 2000); do " +
-					"valkey-cli -a valkey_password --no-auth-warning SET \"evict:test:$i\" \"$(head -c 5000 /dev/urandom | base64)\" " +
-					">/dev/null; done`. Once it finishes, run `valkey-cli -a valkey_password --no-auth-warning INFO stats | grep " +
-					"evicted_keys` — it should be well above 0. Click Check Work.",
+				Instructions: "Write enough data to exceed the ceiling — a shell loop is the fastest way:\n\n" +
+					"`for i in $(seq 1 2000); do valkey-cli -a valkey_password --no-auth-warning SET \"evict:test:$i\" \"$(head -c 5000 /dev/urandom | base64)\" >/dev/null; done`\n\n" +
+					"Once it finishes, run `valkey-cli -a valkey_password --no-auth-warning INFO stats | grep evicted_keys` — it should be well above 0. Click Check Work.",
 				Hint: "If evicted_keys is still 0, confirm maxmemory-policy is actually allkeys-lru (not the default noeviction) — with noeviction, writes past the ceiling just fail instead of evicting anything.",
 			},
 		},
@@ -310,7 +308,7 @@ Valkey itself — its own process, connected-client buffers, replication backlog
 	{
 		ID:          "valkey-acl",
 		Title:       "Fine-Grained Access Control with ACLs",
-		Description: "Every other lab in this curriculum uses one shared password with full access to everything. Create a user that can only read a specific key pattern, and prove the restriction actually holds.",
+		Description: "This cluster uses one shared password with full access to everything by default. Create a user that can only read a specific key pattern, and prove the restriction actually holds.",
 		Difficulty:  "Intermediate",
 		Database:    "Valkey",
 		Technology:  "Valkey",
@@ -318,7 +316,7 @@ Valkey itself — its own process, connected-client buffers, replication backlog
 		TimeLimit:   "2h",
 		LectureNotes: `Beyond a single shared password
 
-"requirepass" (what every other lab's "-a valkey_password" authenticates against) is an all-or-nothing gate: anyone with the password can run any command against any key. Valkey's ACL system is the real access-control layer underneath that — multiple named users, each with their own password and their own precisely scoped permissions, the same system this app's own PMM integration already uses under the hood to create a read-only monitoring user.
+"requirepass" (what "-a valkey_password" authenticates against everywhere else) is an all-or-nothing gate: anyone with the password can run any command against any key. Valkey's ACL system is the real access-control layer underneath that — multiple named users, each with their own password and their own precisely scoped permissions, the same system this app's own PMM integration already uses under the hood to create a read-only monitoring user.
 
 Three things an ACL rule restricts independently
 
@@ -332,19 +330,18 @@ A monitoring tool, a reporting job, or a third-party integration should never ho
 			{
 				ID:    "create-restricted-user",
 				Title: "Create a read-only user scoped to one key pattern",
-				Instructions: "First, put some data in the pattern this user will be allowed to read: `valkey-cli -a valkey_password " +
-					"--no-auth-warning SET app:config hello`. Now create the restricted user: `valkey-cli -a valkey_password " +
-					"--no-auth-warning ACL SETUSER app_readonly on >apppass \\~app:* +@read`. Confirm with `valkey-cli -a valkey_password " +
-					"--no-auth-warning ACL LIST` — you should see a line for app_readonly. Click Check Work.",
+				Instructions: "First, put some data in the pattern this user will be allowed to read: `valkey-cli -a valkey_password --no-auth-warning SET app:config hello`.\n\n" +
+					"Now create the restricted user: `valkey-cli -a valkey_password --no-auth-warning ACL SETUSER app_readonly on >apppass \\~app:* +@read`.\n\n" +
+					"Confirm with `valkey-cli -a valkey_password --no-auth-warning ACL LIST` — you should see a line for app_readonly. Click Check Work.",
 				Hint: "The `~` before the key pattern needs escaping (`\\~`) in most shells so it isn't interpreted specially — if ACL LIST doesn't show the pattern you expected, check for that.",
 			},
 			{
 				ID:    "verify-enforcement",
 				Title: "Prove the restriction actually holds",
-				Instructions: "As the new user, confirm reading inside the pattern works: `valkey-cli --user app_readonly -a apppass " +
-					"--no-auth-warning GET app:config` (should return `hello`, no error). Now confirm writing is denied even inside the " +
-					"pattern: `valkey-cli --user app_readonly -a apppass --no-auth-warning SET app:config bye` (should return a NOPERM " +
-					"error). Click Check Work.",
+				Instructions: "As the new user, confirm reading inside the pattern works:\n\n" +
+					"`valkey-cli --user app_readonly -a apppass --no-auth-warning GET app:config` (should return `hello`, no error).\n\n" +
+					"Now confirm writing is denied even inside the pattern:\n\n" +
+					"`valkey-cli --user app_readonly -a apppass --no-auth-warning SET app:config bye` (should return a NOPERM error). Click Check Work.",
 				Hint: "If SET succeeds instead of erroring, double-check the user was actually created with +@read (read-only), not +@all or +@write.",
 			},
 		},
@@ -374,19 +371,18 @@ Why this distinction matters for real application code
 			{
 				ID:    "run-transaction",
 				Title: "Batch multiple writes with MULTI/EXEC",
-				Instructions: "Open a terminal and run: `valkey-cli -a valkey_password --no-auth-warning` to get an interactive prompt (so " +
-					"MULTI/EXEC share one connection). Inside it, run: `MULTI`, then `SET tx:counter 10`, then `INCR tx:counter`, then " +
-					"`EXEC` — you should see both queued commands' results returned together. Exit with `exit`. Confirm from outside: " +
-					"`valkey-cli -a valkey_password --no-auth-warning GET tx:counter` should show `11`. Click Check Work.",
+				Instructions: "Open a terminal and run `valkey-cli -a valkey_password --no-auth-warning` to get an interactive prompt (so MULTI/EXEC share one connection).\n\n" +
+					"Inside it, run: `MULTI`, then `SET tx:counter 10`, then `INCR tx:counter`, then `EXEC` — you should see both queued commands' results returned together.\n\n" +
+					"Exit with `exit`.\n\n" +
+					"Confirm from outside: `valkey-cli -a valkey_password --no-auth-warning GET tx:counter` should show `11`. Click Check Work.",
 				Hint: "MULTI/EXEC only works within a single connection — running each command as a separate `valkey-cli ... COMMAND` invocation opens a new connection each time and won't queue anything.",
 			},
 			{
 				ID:    "atomic-lua",
 				Title: "Enforce a limit atomically with a Lua script",
-				Instructions: "Run this EVAL, which only increments a counter if it's still under 5, atomically: " +
-					"`valkey-cli -a valkey_password --no-auth-warning EVAL \"local v = tonumber(redis.call('GET', KEYS[1]) or '0'); if v < 5 " +
-					"then return redis.call('INCR', KEYS[1]) else return -1 end\" 1 tx:limited`. Run it six times in a row — the first " +
-					"five should return 1 through 5, and the sixth should return -1 (the limit held). Click Check Work.",
+				Instructions: "Run this EVAL, which only increments a counter if it's still under 5, atomically:\n\n" +
+					"`valkey-cli -a valkey_password --no-auth-warning EVAL \"local v = tonumber(redis.call('GET', KEYS[1]) or '0'); if v < 5 then return redis.call('INCR', KEYS[1]) else return -1 end\" 1 tx:limited`\n\n" +
+					"Run it six times in a row — the first five should return 1 through 5, and the sixth should return -1 (the limit held). Click Check Work.",
 				Hint: "Each EVAL call is one atomic step — run it as six separate invocations (six separate commands), not once; that's what proves the limit check and the increment never race against each other across calls.",
 			},
 		},
@@ -410,27 +406,26 @@ KEYS *: the classic anti-pattern slowlog exists to catch
 
 Latency monitoring: categorized, not just per-command
 
-"LATENCY HISTORY <event>" and "LATENCY LATEST" track latency by event class — "command" for slow individual commands (overlapping with slowlog, but from a different angle), "fork" for background-save fork time, "aof-fsync-always" for the durability cost the persistence lab covers, and others. Where slowlog tells you which specific command was slow, latency monitoring tells you which class of internal operation is contributing to overall latency — the two tools answer related but different diagnostic questions.`,
+"LATENCY HISTORY <event>" and "LATENCY LATEST" track latency by event class — "command" for slow individual commands (overlapping with slowlog, but from a different angle), "fork" for background-save fork time, "aof-fsync-always" for the durability cost of fsyncing on every write, and others. Where slowlog tells you which specific command was slow, latency monitoring tells you which class of internal operation is contributing to overall latency — the two tools answer related but different diagnostic questions.`,
 		DesignTemplate: labValkeyStandaloneDesign,
 		Steps: []LabStep{
 			{
 				ID:    "catch-slow-command",
 				Title: "Catch a KEYS * scan in the slowlog",
-				Instructions: "Log everything for this exercise: `valkey-cli -a valkey_password --no-auth-warning CONFIG SET " +
-					"slowlog-log-slower-than 0`. Populate enough keys that a full scan is actually slow (a Lua loop is far faster than " +
-					"one valkey-cli call per key): `valkey-cli -a valkey_password --no-auth-warning EVAL \"for i=1,50000 do " +
-					"redis.call('SET', 'bulk:'..i, 'v') end\" 0`. Now run the anti-pattern: `valkey-cli -a valkey_password " +
-					"--no-auth-warning KEYS '*' >/dev/null` (redirected, so it doesn't print 50000 lines). Confirm it's in the log: " +
-					"`valkey-cli -a valkey_password --no-auth-warning SLOWLOG GET 5`. Click Check Work.",
+				Instructions: "Log everything for this exercise: `valkey-cli -a valkey_password --no-auth-warning CONFIG SET slowlog-log-slower-than 0`.\n\n" +
+					"Populate enough keys that a full scan is actually slow (a Lua loop is far faster than one valkey-cli call per key):\n\n" +
+					"`valkey-cli -a valkey_password --no-auth-warning EVAL \"for i=1,50000 do redis.call('SET', 'bulk:'..i, 'v') end\" 0`\n\n" +
+					"Now run the anti-pattern: `valkey-cli -a valkey_password --no-auth-warning KEYS '*' >/dev/null` (redirected, so it doesn't print 50000 lines).\n\n" +
+					"Confirm it's in the log: `valkey-cli -a valkey_password --no-auth-warning SLOWLOG GET 5`. Click Check Work.",
 				Hint: "Look for an entry whose command is `KEYS` `*` — with only a few thousand keys the scan can finish in under a " +
 					"millisecond and never even reach the slowlog threshold, which is why this step uses 50000.",
 			},
 			{
 				ID:    "latency-diagnostics",
 				Title: "Confirm it shows up in latency monitoring too",
-				Instructions: "Turn on latency tracking: `valkey-cli -a valkey_password --no-auth-warning CONFIG SET " +
-					"latency-monitor-threshold 1`. Run the same `KEYS '*'` scan again. Check `valkey-cli -a valkey_password " +
-					"--no-auth-warning LATENCY HISTORY command` — it should show at least one recorded event. Click Check Work.",
+				Instructions: "Turn on latency tracking: `valkey-cli -a valkey_password --no-auth-warning CONFIG SET latency-monitor-threshold 1`.\n\n" +
+					"Run the same `KEYS '*'` scan again.\n\n" +
+					"Check `valkey-cli -a valkey_password --no-auth-warning LATENCY HISTORY command` — it should show at least one recorded event. Click Check Work.",
 				Hint: "latency-monitor-threshold has to be set before the slow command runs, not after — it only records events that happen while monitoring is active.",
 			},
 		},
@@ -460,17 +455,18 @@ BGSAVE returning "Background saving started" only means the save was scheduled �
 			{
 				ID:    "take-backup",
 				Title: "Take a consistent backup",
-				Instructions: "Write some data worth backing up: `valkey-cli -a valkey_password --no-auth-warning SET backup:marker " +
-					"hello`. Trigger a snapshot: `valkey-cli -a valkey_password --no-auth-warning BGSAVE`. Wait a couple seconds, then copy " +
-					"it to a separate backup location (simulating off-node storage): `cp /var/lib/valkey/data/dump.rdb " +
-					"/var/lib/valkey/data/backup-dump.rdb`. Click Check Work.",
+				Instructions: "Write some data worth backing up: `valkey-cli -a valkey_password --no-auth-warning SET backup:marker hello`.\n\n" +
+					"Trigger a snapshot: `valkey-cli -a valkey_password --no-auth-warning BGSAVE`.\n\n" +
+					"Wait a couple seconds, then copy it to a separate backup location (simulating off-node storage):\n\n" +
+					"`cp /var/lib/valkey/data/dump.rdb /var/lib/valkey/data/backup-dump.rdb`\n\n" +
+					"Click Check Work.",
 				Hint: "Check Work confirms LASTSAVE advanced (proof BGSAVE actually completed, not just that you ran the command) and that the copy exists.",
 			},
 			{
 				ID:    "verify-backup",
 				Title: "Verify the backup file is actually restorable",
-				Instructions: "Run `valkey-check-rdb /var/lib/valkey/data/backup-dump.rdb`. It should report \"RDB looks OK!\" and how many keys it found. " +
-					"Click Check Work.",
+				Instructions: "Run `valkey-check-rdb /var/lib/valkey/data/backup-dump.rdb`.\n\n" +
+					"It should report \"RDB looks OK!\" and how many keys it found. Click Check Work.",
 				Hint: "If it reports a checksum or structural error, the copy didn't finish cleanly — re-run the cp from the previous step and try again.",
 			},
 		},
@@ -486,7 +482,7 @@ BGSAVE returning "Background saving started" only means the save was scheduled �
 		TimeLimit:   "2h",
 		LectureNotes: `Resharding moves slots between existing members — this is different
 
-The earlier resharding lab moves slots between masters that are already part of the cluster. This lab changes cluster membership itself: removing a shard entirely, and later bringing a (or another) node in as a brand new member. A shard can only be removed once it owns zero slots — reshard everything off it first, exactly like the "Building Replica Topology" lab's first step.
+Resharding moves slots between masters that are already part of the cluster. This lab changes cluster membership itself: removing a shard entirely, and later bringing a (or another) node in as a brand new member. A shard can only be removed once it owns zero slots — reshard everything off it first, the same way retrofitting replication onto an all-master cluster starts by emptying a master out.
 
 del-node: a real departure, not just going quiet
 
@@ -504,23 +500,23 @@ add-node: CLUSTER MEET, then you decide what it does
 			{
 				ID:    "shrink-cluster",
 				Title: "Empty and remove the fourth shard",
-				Instructions: "Run `valkey-cli -a valkey_password --no-auth-warning CLUSTER NODES` and note all four node IDs and slot " +
-					"ranges. Pick one to remove. Reshard all of its slots onto another master: `valkey-cli --cluster reshard 127.0.0.1:6379 " +
-					"-a valkey_password --no-auth-warning --cluster-from <its-id> --cluster-to <another-id> --cluster-slots <however many it " +
-					"owns> --cluster-yes`. Once it owns zero slots, remove it entirely: `valkey-cli --cluster del-node 127.0.0.1:6379 " +
-					"<its-id> -a valkey_password --no-auth-warning`. Confirm with `CLUSTER NODES` that only three members remain and all " +
-					"16384 slots are still covered between them. Click Check Work.",
+				Instructions: "Run `valkey-cli -a valkey_password --no-auth-warning CLUSTER NODES` and note all four node IDs and slot ranges.\n\n" +
+					"Pick one to remove. Reshard all of its slots onto another master:\n\n" +
+					"`valkey-cli --cluster reshard 127.0.0.1:6379 -a valkey_password --no-auth-warning --cluster-from <its-id> --cluster-to <another-id> --cluster-slots <however many it owns> --cluster-yes`\n\n" +
+					"Once it owns zero slots, remove it entirely:\n\n" +
+					"`valkey-cli --cluster del-node 127.0.0.1:6379 <its-id> -a valkey_password --no-auth-warning`\n\n" +
+					"Confirm with `CLUSTER NODES` that only three members remain and all 16384 slots are still covered between them. Click Check Work.",
 				Hint: "del-node only accepts a target that currently owns zero slots — if it refuses, double-check the reshard actually moved everything (check its slot range is empty in CLUSTER NODES first).",
 			},
 			{
 				ID:    "grow-cluster",
 				Title: "Bring it back and give it work",
-				Instructions: "Re-add it right away: `valkey-cli --cluster add-node <removed-node-ip>:6379 <any-remaining-node-ip>:6379 " +
-					"-a valkey_password --no-auth-warning`. Confirm on the readded node itself (not one of the other three — see the hint) " +
-					"with `CLUSTER NODES` that it now sees all four members. It rejoined with zero slots — give it some: `valkey-cli " +
-					"--cluster reshard 127.0.0.1:6379 -a valkey_password --no-auth-warning --cluster-from <a-busy-node-id> --cluster-to " +
-					"<its-id> --cluster-slots 2000 --cluster-yes` (this works immediately, even before the rest of the cluster has fully " +
-					"caught up — see the hint). Click Check Work.",
+				Instructions: "Re-add it right away:\n\n" +
+					"`valkey-cli --cluster add-node <removed-node-ip>:6379 <any-remaining-node-ip>:6379 -a valkey_password --no-auth-warning`\n\n" +
+					"Confirm on the readded node itself (not one of the other three — see the hint) with `CLUSTER NODES` that it now sees all four members.\n\n" +
+					"It rejoined with zero slots — give it some (this works immediately, even before the rest of the cluster has fully caught up — see the hint):\n\n" +
+					"`valkey-cli --cluster reshard 127.0.0.1:6379 -a valkey_password --no-auth-warning --cluster-from <a-busy-node-id> --cluster-to <its-id> --cluster-slots 2000 --cluster-yes`\n\n" +
+					"Click Check Work.",
 				Hint: "The three nodes that were already in the cluster temporarily refuse to re-learn this exact node ID via gossip for " +
 					"about a minute after removing it (a safety measure), so CLUSTER NODES on THEM may not show it for a while — but the " +
 					"readded node itself already knows the full cluster from its own CLUSTER MEET handshake, and resharding onto it by ID " +
@@ -553,18 +549,18 @@ Wrapping part of a key name in braces — "user:{42}:profile" — tells Valkey t
 			{
 				ID:    "hit-crossslot-error",
 				Title: "Hit a real CROSSSLOT error",
-				Instructions: "Open a terminal on any Valkey node. Run `valkey-cli -c -a valkey_password --no-auth-warning MSET " +
-					"plain:a 1 plain:b 2` — with two ordinary, unrelated key names, these almost certainly hash to different slots, so you " +
-					"should see a `CROSSSLOT` error (even with `-c` — there's no single node to redirect to). Click Check Work.",
+				Instructions: "Open a terminal on any Valkey node.\n\n" +
+					"Run `valkey-cli -c -a valkey_password --no-auth-warning MSET plain:a 1 plain:b 2` — with two ordinary, unrelated key names, " +
+					"these almost certainly hash to different slots, so you should see a `CROSSSLOT` error (even with `-c` — there's no single node to redirect to). Click Check Work.",
 				Hint: "If it succeeds instead of erroring, you got unlucky and both keys landed on the same slot by chance — try a different pair of key names.",
 			},
 			{
 				ID:    "fix-with-hash-tags",
 				Title: "Fix it with a hash tag",
 				Instructions: "Run `valkey-cli -c -a valkey_password --no-auth-warning MSET \"tagged:{demo}:a\" 1 \"tagged:{demo}:b\" 2` " +
-					"— both keys share the same `{demo}` hash tag, so they hash to the same slot and the command succeeds. Confirm: " +
-					"`valkey-cli -a valkey_password --no-auth-warning CLUSTER KEYSLOT \"tagged:{demo}:a\"` and `CLUSTER KEYSLOT " +
-					"\"tagged:{demo}:b\"` should print the same slot number. Click Check Work.",
+					"— both keys share the same `{demo}` hash tag, so they hash to the same slot and the command succeeds.\n\n" +
+					"Confirm: `valkey-cli -a valkey_password --no-auth-warning CLUSTER KEYSLOT \"tagged:{demo}:a\"` and `CLUSTER KEYSLOT \"tagged:{demo}:b\"` " +
+					"should print the same slot number. Click Check Work.",
 				Hint: "The braces have to contain the exact same substring in both keys — `{demo}` and `{Demo}` (different case) would hash to different slots.",
 			},
 		},
@@ -580,7 +576,7 @@ Wrapping part of a key name in braces — "user:{42}:profile" — tells Valkey t
 		TimeLimit:   "2h",
 		LectureNotes: `Two independent nodes until you tell one to follow the other
 
-Unlike every clustered lab in this curriculum, this app never wires standalone Valkey nodes together automatically — the two nodes in this lab start out completely independent, each with its own empty dataset. "REPLICAOF <host> <port>" (run on the node that should become the replica) is the single command that establishes the relationship.
+Unlike a Valkey Cluster frame, standalone Valkey nodes are never wired together automatically — the two nodes in this lab start out completely independent, each with its own empty dataset. "REPLICAOF <host> <port>" (run on the node that should become the replica) is the single command that establishes the relationship.
 
 What actually happens on REPLICAOF
 
@@ -592,25 +588,24 @@ Once a node is a replica, direct writes to it fail with a READONLY error (unless
 
 The foundation, not the whole HA story
 
-Plain replication alone doesn't include any automatic failover — if the primary disappears, the replica just keeps being a read-only replica of a primary that's gone, forever, until something (a human, or Sentinel, covered in the next lab) tells it to stop following and become a primary itself.`,
+Plain replication alone doesn't include any automatic failover — if the primary disappears, the replica just keeps being a read-only replica of a primary that's gone, forever, until something (a human, or Sentinel) tells it to stop following and become a primary itself.`,
 		DesignTemplate: labValkeyReplicationDesign,
 		Steps: []LabStep{
 			{
 				ID:    "establish-replication",
 				Title: "Make valkey-b a replica of valkey-a",
-				Instructions: "On valkey-a, write some data: `valkey-cli -a valkey_password --no-auth-warning SET repl:marker hello`. On " +
-					"valkey-b, run `valkey-cli -a valkey_password --no-auth-warning REPLICAOF valkey-a 6379`. Wait a few seconds for the " +
-					"initial sync, then confirm with `valkey-cli -a valkey_password --no-auth-warning INFO replication` on valkey-b that " +
-					"`role:slave` and `master_link_status:up`. Confirm the data arrived: `valkey-cli -a valkey_password --no-auth-warning " +
-					"GET repl:marker` on valkey-b should return `hello`. Click Check Work.",
+				Instructions: "On valkey-a, write some data: `valkey-cli -a valkey_password --no-auth-warning SET repl:marker hello`.\n\n" +
+					"On valkey-b, run `valkey-cli -a valkey_password --no-auth-warning REPLICAOF valkey-a 6379`.\n\n" +
+					"Wait a few seconds for the initial sync, then confirm with `valkey-cli -a valkey_password --no-auth-warning INFO replication` " +
+					"on valkey-b that `role:slave` and `master_link_status:up`.\n\n" +
+					"Confirm the data arrived: `valkey-cli -a valkey_password --no-auth-warning GET repl:marker` on valkey-b should return `hello`. Click Check Work.",
 				Hint: "master_link_status can briefly show `down` right after REPLICAOF while the initial full sync is still in progress — give it a few more seconds and check again.",
 			},
 			{
 				ID:    "verify-read-only-replica",
 				Title: "Confirm the replica rejects direct writes",
-				Instructions: "On valkey-b, try to write directly: `valkey-cli -a valkey_password --no-auth-warning SET repl:direct " +
-					"nope`. You should get a `READONLY` error — the replica refuses writes that don't come from its primary's replication " +
-					"stream. Click Check Work.",
+				Instructions: "On valkey-b, try to write directly: `valkey-cli -a valkey_password --no-auth-warning SET repl:direct nope`.\n\n" +
+					"You should get a `READONLY` error — the replica refuses writes that don't come from its primary's replication stream. Click Check Work.",
 				Hint: "If the write succeeds instead of erroring, confirm valkey-b actually completed REPLICAOF (check INFO replication shows role:slave) — a plain standalone node accepts writes normally.",
 			},
 		},
@@ -634,7 +629,7 @@ Sentinel doesn't act the instant it can't reach the primary — "down-after-mill
 
 What actually happens during failover
 
-Once a primary is objectively down, Sentinel picks a replica (preferring the most caught-up one), sends it a command to stop following and become an independent primary, and reconfigures every other known replica to follow the newly promoted node instead. All of this happens automatically, without you running a single manual command — contrast this with the Valkey Cluster curriculum's manual CLUSTER FAILOVER, which only ever acts on your explicit request.
+Once a primary is objectively down, Sentinel picks a replica (preferring the most caught-up one), sends it a command to stop following and become an independent primary, and reconfigures every other known replica to follow the newly promoted node instead. All of this happens automatically, without you running a single manual command — contrast this with Valkey Cluster's manual CLUSTER FAILOVER, which only ever acts on your explicit request.
 
 TILT mode: Sentinel's own safety brake
 
@@ -648,23 +643,22 @@ Because the primary's identity can change after any failover, real client code d
 			{
 				ID:    "setup-replication-and-sentinel",
 				Title: "Wire up replication, then start Sentinel to watch it",
-				Instructions: "On valkey-b, run `valkey-cli -a valkey_password --no-auth-warning REPLICAOF valkey-a 6379` and wait a few " +
-					"seconds for it to sync. On valkey-b, write a Sentinel config: `cat > /tmp/sentinel.conf <<EOF\nport 26379\nsentinel " +
-					"resolve-hostnames yes\nsentinel monitor mymaster valkey-a 6379 1\nsentinel down-after-milliseconds mymaster 500\n" +
-					"sentinel failover-timeout mymaster 10000\nsentinel auth-pass mymaster valkey_password\nEOF`. Start it in the " +
-					"background: `setsid valkey-sentinel /tmp/sentinel.conf > /tmp/sentinel.log 2>&1 < /dev/null &`. Confirm it's watching: " +
-					"`valkey-cli -p 26379 SENTINEL MASTERS` should show `mymaster` with `flags` of `master` (healthy). Click Check Work.",
+				Instructions: "On valkey-b, run `valkey-cli -a valkey_password --no-auth-warning REPLICAOF valkey-a 6379` and wait a few seconds for it to sync.\n\n" +
+					"On valkey-b, write a Sentinel config:\n\n" +
+					"`cat > /tmp/sentinel.conf <<EOF\nport 26379\nsentinel resolve-hostnames yes\nsentinel monitor mymaster valkey-a 6379 1\nsentinel down-after-milliseconds mymaster 500\nsentinel failover-timeout mymaster 10000\nsentinel auth-pass mymaster valkey_password\nEOF`\n\n" +
+					"Start it in the background: `setsid valkey-sentinel /tmp/sentinel.conf > /tmp/sentinel.log 2>&1 < /dev/null &`\n\n" +
+					"Confirm it's watching: `valkey-cli -p 26379 SENTINEL MASTERS` should show `mymaster` with `flags` of `master` (healthy). Click Check Work.",
 				Hint: "If SENTINEL MASTERS refuses to connect, the sentinel process didn't start — check `cat /tmp/sentinel.log` for why (a common cause is a typo in the config heredoc).",
 			},
 			{
 				ID:    "crash-and-failover",
 				Title: "Crash the primary and watch Sentinel promote the replica",
-				Instructions: "On valkey-a, run `valkey-cli -a valkey_password --no-auth-warning SHUTDOWN NOSAVE`. This trips Sentinel's " +
-					"own safety brake (\"TILT\" mode — see the hint), so the full failover takes about 30-40 seconds, not the 500ms " +
-					"down-after-milliseconds alone would suggest. Wait, then on valkey-b run `valkey-cli -p 26379 SENTINEL MASTERS` again " +
-					"— the `ip` field should now show valkey-b's own address, not valkey-a's, meaning Sentinel already promoted it. Confirm " +
-					"directly: `valkey-cli -a valkey_password --no-auth-warning INFO replication` on valkey-b should now show `role:master`. " +
-					"Click Check Work.",
+				Instructions: "On valkey-a, run `valkey-cli -a valkey_password --no-auth-warning SHUTDOWN NOSAVE`.\n\n" +
+					"This trips Sentinel's own safety brake (\"TILT\" mode — see the hint), so the full failover takes about 30-40 seconds, " +
+					"not the 500ms down-after-milliseconds alone would suggest.\n\n" +
+					"Wait, then on valkey-b run `valkey-cli -p 26379 SENTINEL MASTERS` again — the `ip` field should now show valkey-b's own " +
+					"address, not valkey-a's, meaning Sentinel already promoted it.\n\n" +
+					"Confirm directly: `valkey-cli -a valkey_password --no-auth-warning INFO replication` on valkey-b should now show `role:master`. Click Check Work.",
 				Hint: "systemd restarts the Valkey service automatically within a second or two of SHUTDOWN — an abrupt enough event that " +
 					"Sentinel itself detects a suspicious time jump and enters TILT mode, deliberately pausing all failover decisions for " +
 					"about 30 seconds as a safety measure against acting on bad information. That's why this step takes noticeably longer than " +
@@ -701,25 +695,25 @@ If a consumer reads an entry and then crashes before acking, that entry just sit
 			{
 				ID:    "process-with-group",
 				Title: "Create a stream, consume it as a group, and acknowledge",
-				Instructions: "Add an entry: `valkey-cli -a valkey_password --no-auth-warning XADD lab:orders '*' order_id 1001 total 42`. Create a " +
-					"consumer group starting from the beginning: `valkey-cli -a valkey_password --no-auth-warning XGROUP CREATE lab:orders " +
-					"lab:processors 0`. Read it as a group member: `valkey-cli -a valkey_password --no-auth-warning XREADGROUP GROUP " +
-					"lab:processors consumer-1 COUNT 1 STREAMS lab:orders '>'` — note the entry ID it prints. Confirm it's pending: " +
-					"`valkey-cli -a valkey_password --no-auth-warning XPENDING lab:orders lab:processors` should show 1. Acknowledge it: " +
-					"`valkey-cli -a valkey_password --no-auth-warning XACK lab:orders lab:processors <that-id>`. Confirm XPENDING now shows 0. " +
-					"Click Check Work.",
+				Instructions: "Add an entry: `valkey-cli -a valkey_password --no-auth-warning XADD lab:orders '*' order_id 1001 total 42`.\n\n" +
+					"Create a consumer group starting from the beginning: `valkey-cli -a valkey_password --no-auth-warning XGROUP CREATE lab:orders lab:processors 0`.\n\n" +
+					"Read it as a group member: `valkey-cli -a valkey_password --no-auth-warning XREADGROUP GROUP lab:processors consumer-1 COUNT 1 STREAMS lab:orders '>'` " +
+					"— note the entry ID it prints.\n\n" +
+					"Confirm it's pending: `valkey-cli -a valkey_password --no-auth-warning XPENDING lab:orders lab:processors` should show 1.\n\n" +
+					"Acknowledge it: `valkey-cli -a valkey_password --no-auth-warning XACK lab:orders lab:processors <that-id>`.\n\n" +
+					"Confirm XPENDING now shows 0. Click Check Work.",
 				Hint: "`'>'` (with quotes, to stop your shell from treating it as a redirect) means \"entries never delivered to this group before\" — it's what makes XREADGROUP a work queue instead of a replay.",
 			},
 			{
 				ID:    "reclaim-stalled-entry",
 				Title: "Simulate a crashed consumer and reclaim its work",
-				Instructions: "Add a second entry: `valkey-cli -a valkey_password --no-auth-warning XADD lab:orders '*' order_id 1002 total 7`. " +
-					"Read it as consumer-1 but don't acknowledge it — simulating a crash right after pickup: `valkey-cli -a valkey_password " +
-					"--no-auth-warning XREADGROUP GROUP lab:processors consumer-1 COUNT 1 STREAMS lab:orders '>'`. Wait about 2 seconds so " +
-					"it's genuinely idle, then find it: `valkey-cli -a valkey_password --no-auth-warning XPENDING lab:orders lab:processors - " +
-					"+ 10` (note the entry ID and idle time). Reclaim it as a different consumer: `valkey-cli -a valkey_password " +
-					"--no-auth-warning XCLAIM lab:orders lab:processors consumer-2 1000 <that-id>`. Run XPENDING again and confirm the entry " +
-					"is now listed under consumer-2, not consumer-1. Click Check Work.",
+				Instructions: "Add a second entry: `valkey-cli -a valkey_password --no-auth-warning XADD lab:orders '*' order_id 1002 total 7`.\n\n" +
+					"Read it as consumer-1 but don't acknowledge it — simulating a crash right after pickup:\n\n" +
+					"`valkey-cli -a valkey_password --no-auth-warning XREADGROUP GROUP lab:processors consumer-1 COUNT 1 STREAMS lab:orders '>'`\n\n" +
+					"Wait about 2 seconds so it's genuinely idle, then find it: `valkey-cli -a valkey_password --no-auth-warning XPENDING lab:orders lab:processors - + 10` " +
+					"(note the entry ID and idle time).\n\n" +
+					"Reclaim it as a different consumer: `valkey-cli -a valkey_password --no-auth-warning XCLAIM lab:orders lab:processors consumer-2 1000 <that-id>`.\n\n" +
+					"Run XPENDING again and confirm the entry is now listed under consumer-2, not consumer-1. Click Check Work.",
 				Hint: "The `1000` in XCLAIM is min-idle-time in milliseconds — if you claim it before the entry has actually been idle that long, Valkey just returns an empty reply and ownership doesn't change.",
 			},
 		},
@@ -735,7 +729,7 @@ If a consumer reads an entry and then crashes before acking, that entry just sit
 		TimeLimit:   "2h",
 		LectureNotes: `Regular PUBLISH doesn't care about slots
 
-Unlike every key-based command in this curriculum, "PUBLISH" and "SUBSCRIBE" have nothing to do with hash slots — a channel name is never hashed to decide ownership. In cluster mode, when any node receives a PUBLISH, it forwards the message to every other node over the cluster bus, and each node delivers it to whichever of its own clients are subscribed. The practical effect: subscribe on any node, publish from any (possibly different) node, and the message still arrives — cluster mode makes Pub/Sub *feel* like a single shared bus even though the keyspace underneath it is sharded.
+Unlike every key-based command, "PUBLISH" and "SUBSCRIBE" have nothing to do with hash slots — a channel name is never hashed to decide ownership. In cluster mode, when any node receives a PUBLISH, it forwards the message to every other node over the cluster bus, and each node delivers it to whichever of its own clients are subscribed. The practical effect: subscribe on any node, publish from any (possibly different) node, and the message still arrives — cluster mode makes Pub/Sub *feel* like a single shared bus even though the keyspace underneath it is sharded.
 
 The cost of that convenience: an O(N) broadcast per message
 
@@ -753,21 +747,21 @@ Because shard channels route by slot, a client has to connect to (or be redirect
 			{
 				ID:    "cluster-wide-publish",
 				Title: "Publish from one node, receive on another",
-				Instructions: "On valkey-2, start a subscriber in the background: `setsid valkey-cli -a valkey_password --no-auth-warning " +
-					"SUBSCRIBE lab:announcements > /tmp/pubsub.log 2>&1 < /dev/null &`. On valkey-1 — a completely different node — publish: " +
-					"`valkey-cli -a valkey_password --no-auth-warning PUBLISH lab:announcements hello-cluster`. Back on valkey-2, run `cat " +
-					"/tmp/pubsub.log` and confirm `hello-cluster` shows up, even though it was never published from valkey-2 itself. Click " +
-					"Check Work.",
+				Instructions: "On valkey-2, start a subscriber in the background:\n\n" +
+					"`setsid valkey-cli -a valkey_password --no-auth-warning SUBSCRIBE lab:announcements > /tmp/pubsub.log 2>&1 < /dev/null &`\n\n" +
+					"On valkey-1 — a completely different node — publish: `valkey-cli -a valkey_password --no-auth-warning PUBLISH lab:announcements hello-cluster`.\n\n" +
+					"Back on valkey-2, run `cat /tmp/pubsub.log` and confirm `hello-cluster` shows up, even though it was never published from valkey-2 itself. Click Check Work.",
 				Hint: "If the log is empty, give it a second — the message has to travel over the cluster bus between nodes, which takes a moment longer than a local Pub/Sub delivery.",
 			},
 			{
 				ID:    "sharded-publish",
 				Title: "Confine delivery to one shard with SSUBSCRIBE/SPUBLISH",
-				Instructions: "Find which node owns the shard channel: `valkey-cli -a valkey_password --no-auth-warning CLUSTER KEYSLOT " +
-					"lab:shardnews` gives a slot number; check `CLUSTER NODES` to see which master's range covers it. On that node, start a " +
-					"sharded subscriber: `setsid valkey-cli -a valkey_password --no-auth-warning SSUBSCRIBE lab:shardnews > " +
-					"/tmp/shardpubsub.log 2>&1 < /dev/null &`. From the SAME node, publish: `valkey-cli -a valkey_password --no-auth-warning " +
-					"SPUBLISH lab:shardnews hello-shard`. Confirm `cat /tmp/shardpubsub.log` shows `hello-shard`. Click Check Work.",
+				Instructions: "Find which node owns the shard channel: `valkey-cli -a valkey_password --no-auth-warning CLUSTER KEYSLOT lab:shardnews` " +
+					"gives a slot number; check `CLUSTER NODES` to see which master's range covers it.\n\n" +
+					"On that node, start a sharded subscriber:\n\n" +
+					"`setsid valkey-cli -a valkey_password --no-auth-warning SSUBSCRIBE lab:shardnews > /tmp/shardpubsub.log 2>&1 < /dev/null &`\n\n" +
+					"From the SAME node, publish: `valkey-cli -a valkey_password --no-auth-warning SPUBLISH lab:shardnews hello-shard`.\n\n" +
+					"Confirm `cat /tmp/shardpubsub.log` shows `hello-shard`. Click Check Work.",
 				Hint: "If you SSUBSCRIBE on the wrong node you'll get a MOVED error immediately instead of subscribing — that's expected, it's the same slot-ownership check every other command gets.",
 			},
 		},
@@ -795,27 +789,27 @@ A key expiring isn't a command your client ever issued — it's Valkey's own bac
 
 The trade-off: at-most-once delivery, no history
 
-Keyspace notifications are plain Pub/Sub underneath — if no one is subscribed when the event fires, it's gone, and a subscriber that disconnects for a few seconds misses whatever happened in that window. For anything that needs guaranteed, replayable delivery instead of best-effort, that's what Streams (the previous lab in this curriculum) are for — the two features solve adjacent but different problems.`,
+Keyspace notifications are plain Pub/Sub underneath — if no one is subscribed when the event fires, it's gone, and a subscriber that disconnects for a few seconds misses whatever happened in that window. For anything that needs guaranteed, replayable delivery instead of best-effort, that's what Streams are for — the two features solve adjacent but different problems.`,
 		DesignTemplate: labValkeyStandaloneDesign,
 		Steps: []LabStep{
 			{
 				ID:    "watch-expired-events",
 				Title: "React to a key expiring, without polling",
-				Instructions: "Turn on expired-key keyevent notifications: `valkey-cli -a valkey_password --no-auth-warning CONFIG SET " +
-					"notify-keyspace-events Ex`. Start a subscriber in the background: `setsid valkey-cli -a valkey_password " +
-					"--no-auth-warning PSUBSCRIBE '__keyevent@0__:expired' > /tmp/notif.log 2>&1 < /dev/null &`. Set a key with a short TTL: " +
-					"`valkey-cli -a valkey_password --no-auth-warning SET lab:expiring hello PX 500`. Wait about 2 seconds, then `cat " +
-					"/tmp/notif.log` and confirm `lab:expiring` shows up as the delivered message. Click Check Work.",
+				Instructions: "Turn on expired-key keyevent notifications: `valkey-cli -a valkey_password --no-auth-warning CONFIG SET notify-keyspace-events Ex`.\n\n" +
+					"Start a subscriber in the background:\n\n" +
+					"`setsid valkey-cli -a valkey_password --no-auth-warning PSUBSCRIBE '__keyevent@0__:expired' > /tmp/notif.log 2>&1 < /dev/null &`\n\n" +
+					"Set a key with a short TTL: `valkey-cli -a valkey_password --no-auth-warning SET lab:expiring hello PX 500`.\n\n" +
+					"Wait about 2 seconds, then `cat /tmp/notif.log` and confirm `lab:expiring` shows up as the delivered message. Click Check Work.",
 				Hint: "The `x` flag specifically means expired-key events — plain `E` alone (without `x` or `g`) won't publish anything when a TTL elapses.",
 			},
 			{
 				ID:    "watch-generic-keyspace-events",
 				Title: "React to a specific key, by name, no matter the command",
-				Instructions: "Turn on everything: `valkey-cli -a valkey_password --no-auth-warning CONFIG SET notify-keyspace-events KEA`. " +
-					"Start a subscriber scoped to one specific key: `setsid valkey-cli -a valkey_password --no-auth-warning PSUBSCRIBE " +
-					"'__keyspace@0__:lab:tracked' > /tmp/notif2.log 2>&1 < /dev/null &`. Write that key: `valkey-cli -a valkey_password " +
-					"--no-auth-warning SET lab:tracked hi`. Confirm `cat /tmp/notif2.log` shows `set` as the delivered message (the event " +
-					"name, not the value). Click Check Work.",
+				Instructions: "Turn on everything: `valkey-cli -a valkey_password --no-auth-warning CONFIG SET notify-keyspace-events KEA`.\n\n" +
+					"Start a subscriber scoped to one specific key:\n\n" +
+					"`setsid valkey-cli -a valkey_password --no-auth-warning PSUBSCRIBE '__keyspace@0__:lab:tracked' > /tmp/notif2.log 2>&1 < /dev/null &`\n\n" +
+					"Write that key: `valkey-cli -a valkey_password --no-auth-warning SET lab:tracked hi`.\n\n" +
+					"Confirm `cat /tmp/notif2.log` shows `set` as the delivered message (the event name, not the value). Click Check Work.",
 				Hint: "The keyspace-prefixed channel's message payload is the *event name* (`set`, `del`, `expire`...) — if you want the *key name* instead you'd subscribe to the keyevent-prefixed channel like the previous step did.",
 			},
 		},
@@ -835,7 +829,7 @@ Caching a GET result in your application's own memory is the single cheapest lat
 
 RESP3: a connection that isn't strictly request/response anymore
 
-RESP2 (the protocol every earlier lab in this curriculum has used implicitly) is strictly one reply per request. RESP3 adds a genuinely new frame type — the "push" message — that the server can send unprompted, outside the normal request/reply sequence, over a connection that opted in. "valkey-cli -3" connects using RESP3 instead of RESP2; this is the prerequisite everything else here depends on.
+RESP2 (the protocol every plain valkey-cli connection uses implicitly) is strictly one reply per request. RESP3 adds a genuinely new frame type — the "push" message — that the server can send unprompted, outside the normal request/reply sequence, over a connection that opted in. "valkey-cli -3" connects using RESP3 instead of RESP2; this is the prerequisite everything else here depends on.
 
 CLIENT TRACKING: opting a connection in to invalidation
 
@@ -849,20 +843,18 @@ What this lab uses is "default" tracking mode: precise, per-key, but Valkey has 
 			{
 				ID:    "enable-tracking",
 				Title: "Cache a key over a RESP3 connection with tracking on",
-				Instructions: "Set a baseline value: `valkey-cli -a valkey_password --no-auth-warning SET lab:cached original`. Start a " +
-					"RESP3 connection with tracking on, kept alive in the background: `setsid sh -c \"(printf 'CLIENT TRACKING " +
-					"on\\r\\nGET lab:cached\\r\\n'; sleep 30) | valkey-cli -3 -a valkey_password --no-auth-warning\" > /tmp/track.log 2>&1 < " +
-					"/dev/null &`. Confirm it registered: `valkey-cli -a valkey_password --no-auth-warning CLIENT LIST` should show a client " +
-					"with `flags=t` and `resp=3`. Click Check Work.",
+				Instructions: "Set a baseline value: `valkey-cli -a valkey_password --no-auth-warning SET lab:cached original`.\n\n" +
+					"Start a RESP3 connection with tracking on, kept alive in the background:\n\n" +
+					"`setsid sh -c \"(printf 'CLIENT TRACKING on\\r\\nGET lab:cached\\r\\n'; sleep 30) | valkey-cli -3 -a valkey_password --no-auth-warning\" > /tmp/track.log 2>&1 < /dev/null &`\n\n" +
+					"Confirm it registered: `valkey-cli -a valkey_password --no-auth-warning CLIENT LIST` should show a client with `flags=t` and `resp=3`. Click Check Work.",
 				Hint: "The `-3` flag is what requests RESP3 — without it, `CLIENT TRACKING on` still succeeds but has nowhere to deliver an invalidation push, since RESP2 has no out-of-band frame type for the server to use.",
 			},
 			{
 				ID:    "observe-invalidation",
 				Title: "Modify the key from elsewhere and watch it get invalidated",
-				Instructions: "From a separate connection, change the tracked key: `valkey-cli -a valkey_password --no-auth-warning SET " +
-					"lab:cached updated`. Check `valkey-cli -a valkey_password --no-auth-warning INFO stats | grep tracking_total_keys` — it " +
-					"should drop back to 0, meaning the server just invalidated the entry it was tracking on the other connection's behalf. " +
-					"Click Check Work.",
+				Instructions: "From a separate connection, change the tracked key: `valkey-cli -a valkey_password --no-auth-warning SET lab:cached updated`.\n\n" +
+					"Check `valkey-cli -a valkey_password --no-auth-warning INFO stats | grep tracking_total_keys` — it should drop back to 0, " +
+					"meaning the server just invalidated the entry it was tracking on the other connection's behalf. Click Check Work.",
 				Hint: "tracking_total_keys dropping to 0 is the server-side proof of invalidation — the tracking connection's own terminal would show the actual RESP3 push frame too, but only when read interactively rather than through a piped background session like this lab's.",
 			},
 		},
@@ -878,7 +870,7 @@ What this lab uses is "default" tracking mode: precise, per-key, but Valkey has 
 		TimeLimit:   "2h",
 		LectureNotes: `EVAL's problem: the script cache isn't really state
 
-The earlier Transactions & Scripting lab in this curriculum ran a Lua script with "EVAL", identified purely by its SHA1 hash. That script lives in an internal cache with no name, no way to list "what scripts are loaded right now" in any meaningful form, and — critically — that cache can be silently cleared ("SCRIPT FLUSH", certain replication/failover situations), after which every "EVALSHA" call for it starts failing until re-submitted. Production code has to be defensive about this exact failure mode; it's a well-known EVAL gotcha, not a hypothetical.
+A Lua script run with "EVAL" is identified purely by its SHA1 hash. That script lives in an internal cache with no name, no way to list "what scripts are loaded right now" in any meaningful form, and — critically — that cache can be silently cleared ("SCRIPT FLUSH", certain replication/failover situations), after which every "EVALSHA" call for it starts failing until re-submitted. Production code has to be defensive about this exact failure mode; it's a well-known EVAL gotcha, not a hypothetical.
 
 FUNCTION LOAD: scripts as a persisted, named library
 
@@ -896,22 +888,21 @@ Hot-reloading: FUNCTION LOAD REPLACE
 			{
 				ID:    "load-and-call",
 				Title: "Load a function library and call it",
-				Instructions: "Write the library: `cat > /tmp/lib.lua <<'EOF'\n#!lua name=lablib\nredis.register_function{\n  " +
-					"function_name='safe_get',\n  callback=function(keys, args) return redis.call('GET', keys[1]) end,\n  " +
-					"flags={'no-writes'}\n}\nredis.register_function{\n  function_name='unsafe_set',\n  callback=function(keys, args) return " +
-					"redis.call('SET', keys[1], args[1]) end\n}\nEOF`. Load it: `valkey-cli -a valkey_password --no-auth-warning FUNCTION " +
-					"LOAD \"$(cat /tmp/lib.lua)\"`. Call the writer: `valkey-cli -a valkey_password --no-auth-warning FCALL unsafe_set 1 " +
-					"fn:demo hello`. Call the reader: `valkey-cli -a valkey_password --no-auth-warning FCALL safe_get 1 fn:demo` should " +
-					"return `hello`. Confirm `FUNCTION LIST` shows the `lablib` library with both functions. Click Check Work.",
+				Instructions: "Write the library:\n\n" +
+					"`cat > /tmp/lib.lua <<'EOF'\n#!lua name=lablib\nredis.register_function{\n  function_name='safe_get',\n  callback=function(keys, args) return redis.call('GET', keys[1]) end,\n  flags={'no-writes'}\n}\nredis.register_function{\n  function_name='unsafe_set',\n  callback=function(keys, args) return redis.call('SET', keys[1], args[1]) end\n}\nEOF`\n\n" +
+					"Load it: `valkey-cli -a valkey_password --no-auth-warning FUNCTION LOAD \"$(cat /tmp/lib.lua)\"`.\n\n" +
+					"Call the writer: `valkey-cli -a valkey_password --no-auth-warning FCALL unsafe_set 1 fn:demo hello`.\n\n" +
+					"Call the reader: `valkey-cli -a valkey_password --no-auth-warning FCALL safe_get 1 fn:demo` should return `hello`.\n\n" +
+					"Confirm `FUNCTION LIST` shows the `lablib` library with both functions. Click Check Work.",
 				Hint: "FUNCTION LOAD takes the whole library source as one argument — wrap the `$(cat ...)` in double quotes or your shell will split it on whitespace and Valkey will see a mangled script.",
 			},
 			{
 				ID:    "enforce-readonly-with-fcall_ro",
 				Title: "Prove the no-writes flag is actually enforced",
-				Instructions: "Try the flagged read-only function through the read-only call path: `valkey-cli -a valkey_password " +
-					"--no-auth-warning FCALL_RO safe_get 1 fn:demo` — should succeed and return the current value. Now try the unflagged " +
-					"writer the same way: `valkey-cli -a valkey_password --no-auth-warning FCALL_RO unsafe_set 1 fn:demo nope` — this should " +
-					"be rejected with an error about the write flag, not silently execute. Click Check Work.",
+				Instructions: "Try the flagged read-only function through the read-only call path: `valkey-cli -a valkey_password --no-auth-warning FCALL_RO safe_get 1 fn:demo` " +
+					"— should succeed and return the current value.\n\n" +
+					"Now try the unflagged writer the same way: `valkey-cli -a valkey_password --no-auth-warning FCALL_RO unsafe_set 1 fn:demo nope` " +
+					"— this should be rejected with an error about the write flag, not silently execute. Click Check Work.",
 				Hint: "FCALL (without _RO) would run unsafe_set just fine — the enforcement is specifically that FCALL_RO refuses anything not explicitly flagged 'no-writes', regardless of what the function actually does.",
 			},
 		},
@@ -919,7 +910,7 @@ Hot-reloading: FUNCTION LOAD REPLACE
 	{
 		ID:          "valkey-manual-migration",
 		Title:       "Manual Slot Migration: MIGRATE, ASKING & the Raw Cluster Protocol",
-		Description: "The Live Resharding lab used --cluster reshard to move slots with one command. This lab does the exact same thing by hand — the sequence of primitives that tool is automating underneath.",
+		Description: "--cluster reshard moves slots with one command. This lab does the exact same thing by hand — the sequence of primitives that tool is automating underneath.",
 		Difficulty:  "Advanced",
 		Database:    "Valkey",
 		Technology:  "Valkey Cluster",
@@ -927,7 +918,7 @@ Hot-reloading: FUNCTION LOAD REPLACE
 		TimeLimit:   "2h",
 		LectureNotes: `What --cluster reshard does on your behalf
 
-The earlier resharding lab in this curriculum ran one command and it just worked. Underneath, that command is running the exact sequence this lab has you type by hand: marking both sides of the move, transferring each key individually, and only then updating global slot ownership. Seeing the raw steps is what makes the automated version make sense, and it's also genuinely useful knowledge — the manual sequence is a real emergency-runbook procedure for moving one specific slot without waiting on the full reshard tool.
+Running --cluster reshard as one command just works. Underneath, that command is running the exact sequence this lab has you type by hand: marking both sides of the move, transferring each key individually, and only then updating global slot ownership. Seeing the raw steps is what makes the automated version make sense, and it's also genuinely useful knowledge — the manual sequence is a real emergency-runbook procedure for moving one specific slot without waiting on the full reshard tool.
 
 IMPORTANT and MIGRATING: two-sided consent before any data moves
 
@@ -945,24 +936,25 @@ Mid-migration, a client asking the SOURCE for a key that's already moved gets "A
 			{
 				ID:    "start-migration",
 				Title: "Mark both sides of the move before any data transfers",
-				Instructions: "Write a key and follow the redirect: `valkey-cli -c -a valkey_password --no-auth-warning SET " +
-					"'{migrate}demo' before`. Find its slot and current owner: `valkey-cli -a valkey_password --no-auth-warning CLUSTER " +
-					"KEYSLOT '{migrate}demo'`, then `CLUSTER NODES` to see which master's range covers that slot (the source) and note the " +
-					"node IDs of the source and any other master (your destination). On the destination: `valkey-cli -a valkey_password " +
-					"--no-auth-warning CLUSTER SETSLOT <slot> IMPORTING <source-id>`. On the source: `valkey-cli -a valkey_password " +
-					"--no-auth-warning CLUSTER SETSLOT <slot> MIGRATING <dest-id>`. Confirm with `CLUSTER NODES` on each — the source's own " +
-					"line should show `[<slot>->-<dest-id>]` and the destination's should show `[<slot>-<-<source-id>]`. Click Check Work.",
+				Instructions: "Write a key and follow the redirect: `valkey-cli -c -a valkey_password --no-auth-warning SET '{migrate}demo' before`.\n\n" +
+					"Find its slot and current owner: `valkey-cli -a valkey_password --no-auth-warning CLUSTER KEYSLOT '{migrate}demo'`, then " +
+					"`CLUSTER NODES` to see which master's range covers that slot (the source) and note the node IDs of the source and any other master (your destination).\n\n" +
+					"On the destination: `valkey-cli -a valkey_password --no-auth-warning CLUSTER SETSLOT <slot> IMPORTING <source-id>`.\n\n" +
+					"On the source: `valkey-cli -a valkey_password --no-auth-warning CLUSTER SETSLOT <slot> MIGRATING <dest-id>`.\n\n" +
+					"Confirm with `CLUSTER NODES` on each — the source's own line should show `[<slot>->-<dest-id>]` and the destination's " +
+					"should show `[<slot>-<-<source-id>]`. Click Check Work.",
 				Hint: "Nothing about global slot ownership has changed yet at this point — both annotations are purely local bookkeeping between these two nodes, which is why a third node's view of the cluster is still unaffected.",
 			},
 			{
 				ID:    "migrate-and-finalize",
 				Title: "Transfer the key and finalize ownership everywhere",
-				Instructions: "Transfer the key itself: `valkey-cli -a valkey_password --no-auth-warning MIGRATE <dest-hostname> 6379 " +
-					"'{migrate}demo' 0 5000 AUTH valkey_password` (run this on the source). Finalize ownership on every node in the cluster " +
-					"(source, destination, and the third master): `valkey-cli -a valkey_password --no-auth-warning CLUSTER SETSLOT <slot> " +
-					"NODE <dest-id>`. Confirm the destination now owns the slot outright — `CLUSTER NODES` shows it in the destination's plain " +
-					"range with no bracketed annotation — and `valkey-cli -a valkey_password --no-auth-warning GET '{migrate}demo'` run " +
-					"directly on the destination returns `before` with no MOVED redirect. Click Check Work.",
+				Instructions: "Transfer the key itself (run this on the source):\n\n" +
+					"`valkey-cli -a valkey_password --no-auth-warning MIGRATE <dest-hostname> 6379 '{migrate}demo' 0 5000 AUTH valkey_password`\n\n" +
+					"Finalize ownership on every node in the cluster (source, destination, and the third master):\n\n" +
+					"`valkey-cli -a valkey_password --no-auth-warning CLUSTER SETSLOT <slot> NODE <dest-id>`\n\n" +
+					"Confirm the destination now owns the slot outright — `CLUSTER NODES` shows it in the destination's plain range with no " +
+					"bracketed annotation — and `valkey-cli -a valkey_password --no-auth-warning GET '{migrate}demo'` run directly on the " +
+					"destination returns `before` with no MOVED redirect. Click Check Work.",
 				Hint: "If you forget to run CLUSTER SETSLOT NODE on the *third* master (the one not involved in the migration), that node will keep routing clients to the old source for this slot even though the data has already moved — every node's view has to agree.",
 			},
 		},
@@ -978,7 +970,7 @@ Mid-migration, a client asking the SOURCE for a key that's already moved gets "A
 		TimeLimit:   "2h",
 		LectureNotes: `Availability vs consistency, made concrete
 
-Every earlier lab in this curriculum treated "the cluster is up" as the normal state. This one deliberately breaks that, because the default behavior when a master genuinely disappears is stricter than most people expect: it's not just that keys in the missing shard become unavailable — by default, the *entire cluster* refuses writes, including shards that are perfectly healthy.
+"The cluster is up" is the normal state. This lab deliberately breaks that, because the default behavior when a master genuinely disappears is stricter than most people expect: it's not just that keys in the missing shard become unavailable — by default, the *entire cluster* refuses writes, including shards that are perfectly healthy.
 
 cluster-require-full-coverage: all-or-nothing by default
 
@@ -1000,22 +992,21 @@ CLUSTER FORGET: an explicit, immediate declaration
 			{
 				ID:    "crash-and-observe-clusterdown",
 				Title: "Disown a master and watch the whole cluster refuse writes",
-				Instructions: "Pick a master and note its node ID from `valkey-cli -a valkey_password --no-auth-warning CLUSTER NODES`. " +
+				Instructions: "Pick a master and note its node ID from `valkey-cli -a valkey_password --no-auth-warning CLUSTER NODES`.\n\n" +
 					"Crash it: on that node, run `valkey-cli -a valkey_password --no-auth-warning SHUTDOWN NOSAVE` (systemd will restart the " +
-					"Valkey service and it'll rejoin on its own within a second or two — that's fine, the next step doesn't depend on it staying down). On EACH of " +
-					"the other two nodes, declare it gone: `valkey-cli -a valkey_password --no-auth-warning CLUSTER FORGET <that-node-id>`. On " +
-					"one of those two nodes, run `CLUSTER INFO` — `cluster_state` should now read `fail`. Try any write there, even one that " +
-					"has nothing to do with the missing shard: `valkey-cli -a valkey_password --no-auth-warning SET some:key val` — it should " +
-					"be refused with `CLUSTERDOWN`. Click Check Work.",
+					"Valkey service and it'll rejoin on its own within a second or two — that's fine, the next step doesn't depend on it staying down).\n\n" +
+					"On EACH of the other two nodes, declare it gone: `valkey-cli -a valkey_password --no-auth-warning CLUSTER FORGET <that-node-id>`.\n\n" +
+					"On one of those two nodes, run `CLUSTER INFO` — `cluster_state` should now read `fail`.\n\n" +
+					"Try any write there, even one that has nothing to do with the missing shard: `valkey-cli -a valkey_password --no-auth-warning SET some:key val` " +
+					"— it should be refused with `CLUSTERDOWN`. Click Check Work.",
 				Hint: "CLUSTER FORGET has to be run on each surviving node individually — it changes only that node's own view, so a node you skip will still see the \"forgotten\" node as a normal, healthy member.",
 			},
 			{
 				ID:    "disable-full-coverage-requirement",
 				Title: "Trade strict consistency for partial availability",
-				Instructions: "On the SAME two nodes you ran CLUSTER FORGET on, run `valkey-cli -a valkey_password --no-auth-warning CONFIG " +
-					"SET cluster-require-full-coverage no`. Check `CLUSTER INFO` again on either of them — `cluster_state` should now read `ok` " +
-					"despite still not knowing about the third master. Confirm writes to healthy slots now work: `valkey-cli -a valkey_password " +
-					"--no-auth-warning SET some:key val` should succeed. Click Check Work.",
+				Instructions: "On the SAME two nodes you ran CLUSTER FORGET on, run `valkey-cli -a valkey_password --no-auth-warning CONFIG SET cluster-require-full-coverage no`.\n\n" +
+					"Check `CLUSTER INFO` again on either of them — `cluster_state` should now read `ok` despite still not knowing about the third master.\n\n" +
+					"Confirm writes to healthy slots now work: `valkey-cli -a valkey_password --no-auth-warning SET some:key val` should succeed. Click Check Work.",
 				Hint: "You have to set this on both of the forgetting nodes individually — CONFIG SET isn't a cluster-wide operation, so a node you skip will still enforce full coverage on its own. The third node (the one you originally crashed) doesn't matter for this check — it rejoined on its own and was never told to forget anyone.",
 			},
 		},
@@ -1049,23 +1040,24 @@ A replica that's genuinely restarted from scratch — not just reconnected, but 
 			{
 				ID:    "trigger-partial-resync",
 				Title: "Simulate a network blip and confirm a partial resync",
-				Instructions: "On valkey-b, connect it: `valkey-cli -a valkey_password --no-auth-warning REPLICAOF valkey-a 6379`. Wait for " +
-					"`INFO replication` on valkey-b to show `master_link_status:up`. On valkey-a, simulate the blip from the master's side " +
-					"— this drops the TCP connection without touching valkey-b's own REPLICAOF configuration, so it reconnects on its own: " +
-					"`valkey-cli -a valkey_password --no-auth-warning CLIENT KILL TYPE replica`. Wait a couple seconds, then check `valkey-cli " +
-					"-a valkey_password --no-auth-warning INFO stats` on valkey-a: `sync_partial_ok` should now be at least 1, while " +
-					"`sync_full` should still read 1 (only the very first connection). Click Check Work.",
+				Instructions: "On valkey-b, connect it: `valkey-cli -a valkey_password --no-auth-warning REPLICAOF valkey-a 6379`.\n\n" +
+					"Wait for `INFO replication` on valkey-b to show `master_link_status:up`.\n\n" +
+					"On valkey-a, simulate the blip from the master's side — this drops the TCP connection without touching valkey-b's own " +
+					"REPLICAOF configuration, so it reconnects on its own:\n\n" +
+					"`valkey-cli -a valkey_password --no-auth-warning CLIENT KILL TYPE replica`\n\n" +
+					"Wait a couple seconds, then check `valkey-cli -a valkey_password --no-auth-warning INFO stats` on valkey-a: `sync_partial_ok` " +
+					"should now be at least 1, while `sync_full` should still read 1 (only the very first connection). Click Check Work.",
 				Hint: "Don't use `REPLICAOF NO ONE` to simulate the disconnect — that command explicitly discards valkey-b's cached master state, which guarantees a full resync on reconnect instead of the partial one this step is demonstrating.",
 			},
 			{
 				ID:    "trigger-full-resync-after-outage",
 				Title: "Crash the replica for real and confirm it costs a full resync",
-				Instructions: "On valkey-b, crash it for real: `valkey-cli -a valkey_password --no-auth-warning SHUTDOWN NOSAVE`. Wait a few " +
-					"seconds for systemd to restart the Valkey service automatically (it comes back with no replication configured at all — " +
-					"REPLICAOF was never written to its config file). Reconnect it: " +
-					"`valkey-cli -a valkey_password --no-auth-warning REPLICAOF valkey-a 6379`. Wait for the link to come back up, then check " +
-					"`INFO stats` on valkey-a again: `sync_full` should now be higher than before — a second full resync, not a partial one. Click " +
-					"Check Work.",
+				Instructions: "On valkey-b, crash it for real: `valkey-cli -a valkey_password --no-auth-warning SHUTDOWN NOSAVE`.\n\n" +
+					"Wait a few seconds for systemd to restart the Valkey service automatically (it comes back with no replication configured " +
+					"at all — REPLICAOF was never written to its config file).\n\n" +
+					"Reconnect it: `valkey-cli -a valkey_password --no-auth-warning REPLICAOF valkey-a 6379`.\n\n" +
+					"Wait for the link to come back up, then check `INFO stats` on valkey-a again: `sync_full` should now be higher than before " +
+					"— a second full resync, not a partial one. Click Check Work.",
 				Hint: "A real restart runs a brand-new valkey-server process that only ever reads its static config file — REPLICAOF was set at runtime, never persisted there, so the restarted instance has no cached replication ID or offset to present at all. There's nothing to resume from, so PSYNC has no choice but to fall back to a full transfer.",
 			},
 		},
@@ -1073,7 +1065,7 @@ A replica that's genuinely restarted from scratch — not just reconnected, but 
 	{
 		ID:          "valkey-tls",
 		Title:       "Securing Valkey with TLS & Mutual Authentication",
-		Description: "Every earlier lab in this curriculum authenticated with a plaintext password over an unencrypted connection. This one turns on TLS at runtime — no restart — and confirms it actually enforces client certificates, not just server identity.",
+		Description: "This node authenticates with a plaintext password over an unencrypted connection by default. This lab turns on TLS at runtime — no restart — and confirms it actually enforces client certificates, not just server identity.",
 		Difficulty:  "Advanced",
 		Database:    "Valkey",
 		Technology:  "Valkey",
@@ -1099,23 +1091,23 @@ The private key file has to actually be readable by the user Valkey runs as, or 
 			{
 				ID:    "enable-tls",
 				Title: "Generate a certificate and turn on TLS at runtime",
-				Instructions: "Install openssl: `apt-get update -qq && apt-get install -y -qq openssl`. Generate a self-signed cert: `mkdir " +
-					"-p /tmp/tls && cd /tmp/tls && openssl req -x509 -newkey rsa:2048 -days 1 -nodes -keyout key.pem -out cert.pem -subj " +
-					"'/CN=valkey-lab'`. Make the key readable: `chmod 644 /tmp/tls/key.pem`. Turn TLS on: `valkey-cli -a valkey_password " +
-					"--no-auth-warning CONFIG SET tls-cert-file /tmp/tls/cert.pem tls-key-file /tmp/tls/key.pem tls-ca-cert-file " +
-					"/tmp/tls/cert.pem tls-port 6380`. Confirm it's listening: `valkey-cli --tls --cert /tmp/tls/cert.pem --key " +
-					"/tmp/tls/key.pem --cacert /tmp/tls/cert.pem -p 6380 -a valkey_password --no-auth-warning PING` should return `PONG`. " +
-					"Click Check Work.",
+				Instructions: "Install openssl: `apt-get update -qq && apt-get install -y -qq openssl`.\n\n" +
+					"Generate a self-signed cert: `mkdir -p /tmp/tls && cd /tmp/tls && openssl req -x509 -newkey rsa:2048 -days 1 -nodes -keyout key.pem -out cert.pem -subj '/CN=valkey-lab'`.\n\n" +
+					"Make the key readable: `chmod 644 /tmp/tls/key.pem`.\n\n" +
+					"Turn TLS on: `valkey-cli -a valkey_password --no-auth-warning CONFIG SET tls-cert-file /tmp/tls/cert.pem tls-key-file /tmp/tls/key.pem tls-ca-cert-file /tmp/tls/cert.pem tls-port 6380`.\n\n" +
+					"Confirm it's listening: `valkey-cli --tls --cert /tmp/tls/cert.pem --key /tmp/tls/key.pem --cacert /tmp/tls/cert.pem -p 6380 -a valkey_password --no-auth-warning PING` " +
+					"should return `PONG`. Click Check Work.",
 				Hint: "If CONFIG SET fails with a permission error mentioning the key file, that's the `chmod 644` step — `openssl req` writes the key world-unreadable by default, and CONFIG SET fails closed rather than partially applying a broken TLS config.",
 			},
 			{
 				ID:    "verify-mutual-tls-enforced",
 				Title: "Confirm the server actually requires a client certificate",
-				Instructions: "Try connecting over TLS without presenting a client certificate: `valkey-cli --tls --cacert " +
-					"/tmp/tls/cert.pem -p 6380 -a valkey_password --no-auth-warning PING` — this should fail (an I/O or connection error, " +
-					"not a normal Valkey error reply), because `tls-auth-clients` defaults to `yes`. Confirm the same connection succeeds " +
-					"when you DO present the certificate: `valkey-cli --tls --cert /tmp/tls/cert.pem --key /tmp/tls/key.pem --cacert " +
-					"/tmp/tls/cert.pem -p 6380 -a valkey_password --no-auth-warning PING` should return `PONG`. Click Check Work.",
+				Instructions: "Try connecting over TLS without presenting a client certificate:\n\n" +
+					"`valkey-cli --tls --cacert /tmp/tls/cert.pem -p 6380 -a valkey_password --no-auth-warning PING`\n\n" +
+					"— this should fail (an I/O or connection error, not a normal Valkey error reply), because `tls-auth-clients` defaults to `yes`.\n\n" +
+					"Confirm the same connection succeeds when you DO present the certificate:\n\n" +
+					"`valkey-cli --tls --cert /tmp/tls/cert.pem --key /tmp/tls/key.pem --cacert /tmp/tls/cert.pem -p 6380 -a valkey_password --no-auth-warning PING`\n\n" +
+					"should return `PONG`. Click Check Work.",
 				Hint: "The no-cert failure happens during the TLS handshake itself, before Valkey's own command processing even runs — that's why it shows up as a connection-level I/O error rather than an AUTH or permission error from the server.",
 			},
 		},
@@ -1149,21 +1141,20 @@ Resource limits exist too, just not covered hands-on here
 			{
 				ID:    "find-and-kill-a-client",
 				Title: "Find a specific client by its command, then kill it",
-				Instructions: "Open a long-lived blocking connection in the background: `setsid valkey-cli -a valkey_password " +
-					"--no-auth-warning BLPOP lab:nokey 30 > /tmp/blpop.log 2>&1 < /dev/null &`. Find it: `valkey-cli -a valkey_password " +
-					"--no-auth-warning CLIENT LIST` — look for the line with `cmd=blpop` and note its `id=`. Kill it: `valkey-cli -a " +
-					"valkey_password --no-auth-warning CLIENT KILL ID <that-id>`. Confirm `cat /tmp/blpop.log` shows a connection-closed " +
-					"error (not a normal BLPOP timeout reply), and that `CLIENT LIST` no longer shows any `cmd=blpop` client. Click Check " +
-					"Work.",
+				Instructions: "Open a long-lived blocking connection in the background:\n\n" +
+					"`setsid valkey-cli -a valkey_password --no-auth-warning BLPOP lab:nokey 30 > /tmp/blpop.log 2>&1 < /dev/null &`\n\n" +
+					"Find it: `valkey-cli -a valkey_password --no-auth-warning CLIENT LIST` — look for the line with `cmd=blpop` and note its `id=`.\n\n" +
+					"Kill it: `valkey-cli -a valkey_password --no-auth-warning CLIENT KILL ID <that-id>`.\n\n" +
+					"Confirm `cat /tmp/blpop.log` shows a connection-closed error (not a normal BLPOP timeout reply), and that `CLIENT LIST` " +
+					"no longer shows any `cmd=blpop` client. Click Check Work.",
 				Hint: "If you wait the full 30 seconds instead of killing it, BLPOP just times out normally and the log won't show the connection-closed error this check looks for — kill it well before then.",
 			},
 			{
 				ID:    "pause-writes-briefly",
 				Title: "Confirm CLIENT PAUSE actually blocks a write for its duration",
-				Instructions: "Pause writes for 2 seconds: `valkey-cli -a valkey_password --no-auth-warning CLIENT PAUSE 2000 WRITE`. " +
+				Instructions: "Pause writes for 2 seconds: `valkey-cli -a valkey_password --no-auth-warning CLIENT PAUSE 2000 WRITE`.\n\n" +
 					"Immediately time a write against it: `time valkey-cli -a valkey_password --no-auth-warning SET lab:paused val` — the " +
-					"real time reported should be close to 2 seconds, not near-instant, proving the write genuinely waited rather than the " +
-					"pause being a no-op. Click Check Work.",
+					"real time reported should be close to 2 seconds, not near-instant, proving the write genuinely waited rather than the pause being a no-op. Click Check Work.",
 				Hint: "Run the timed SET immediately after CLIENT PAUSE, not a few seconds later — if the 2-second window has already elapsed by the time your write arrives, it'll return instantly and look like the pause did nothing.",
 			},
 		},

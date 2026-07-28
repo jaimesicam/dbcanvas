@@ -301,16 +301,19 @@ func backendFrameForProxySQL(doc designDoc, startID string) (designFrame, string
 	return designFrame{}, "", false
 }
 
-// haproxyClusterFrames returns the distinct Patroni or PXC cluster frames directly
-// associated (by an association line) with an HAProxy node. HAProxy fronts exactly one
-// backend cluster, so 0 (unlinked) or >1 (ambiguous — not mutually exclusive) are
-// validation errors; the provisioner uses the single frame. The Patroni and PXC configs
-// differ (Patroni REST health checks vs PXC clustercheck), so the *kind* also selects the
-// provisioning path — see haproxyBackend.
+// haproxyClusterFrames returns the distinct Patroni, repmgr, Spock, PXC, or MySQL
+// replication cluster frames directly associated (by an association line) with an
+// HAProxy node. HAProxy fronts exactly one backend cluster, so 0 (unlinked) or >1
+// (ambiguous — not mutually exclusive) are validation errors; the provisioner uses
+// the single frame. The five configs differ (Patroni REST health checks vs a
+// pg_is_in_recovery()-based responder for repmgr vs HAProxy's native pgsql-check for
+// Spock vs PXC clustercheck vs a read_only-based mysqlchk for plain MySQL
+// replication), so the *kind* also selects the provisioning path — see
+// haproxyBackend.
 func haproxyClusterFrames(doc designDoc, startID string) []designFrame {
 	cluster := map[string]designFrame{}
 	for _, f := range doc.Frames {
-		if f.Type == "patroni" || f.Type == "pxc" {
+		if f.Type == "patroni" || f.Type == "repmgr" || f.Type == "spock" || f.Type == "pxc" || f.Type == "mysql" {
 			cluster[f.ID] = f
 		}
 	}
@@ -334,8 +337,9 @@ func haproxyClusterFrames(doc designDoc, startID string) []designFrame {
 	return out
 }
 
-// haproxyBackend returns the single backend cluster frame + its kind ("patroni" | "pxc")
-// an HAProxy fronts, ok only when exactly one is associated (the mutual-exclusivity rule).
+// haproxyBackend returns the single backend cluster frame + its kind
+// ("patroni" | "repmgr" | "spock" | "pxc" | "mysql") an HAProxy fronts, ok only when
+// exactly one is associated (the mutual-exclusivity rule).
 func haproxyBackend(doc designDoc, startID string) (designFrame, string, bool) {
 	fr := haproxyClusterFrames(doc, startID)
 	if len(fr) != 1 {
@@ -691,12 +695,14 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
 				}
 			}
-			// HAProxy fronts exactly one backend cluster — a Patroni PostgreSQL cluster
-			// OR a PXC cluster (mutually exclusive; the two use different configs).
+			// HAProxy fronts exactly one backend cluster — a Patroni PostgreSQL cluster,
+			// a repmgr cluster, a Spock (multi-master) cluster, a PXC cluster, or a
+			// MySQL replication frame (mutually exclusive; each uses a different
+			// config).
 			if hf := haproxyClusterFrames(doc, n.ID); len(hf) == 0 {
-				out = append(out, issue{"error", "HAProxy node " + n.Label + " must be linked to a Patroni or PXC cluster — draw an association line from one to it"})
+				out = append(out, issue{"error", "HAProxy node " + n.Label + " must be linked to a Patroni, repmgr, Spock, PXC, or MySQL replication cluster — draw an association line from one to it"})
 			} else if len(hf) > 1 {
-				out = append(out, issue{"error", "HAProxy node " + n.Label + " can front only one cluster — remove the extra association (Patroni and PXC are mutually exclusive)"})
+				out = append(out, issue{"error", "HAProxy node " + n.Label + " can front only one cluster — remove the extra association (Patroni, repmgr, Spock, PXC, and MySQL replication are mutually exclusive)"})
 			}
 			if n.ExportEnabled && n.ExportHostPort > 0 {
 				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
@@ -722,6 +728,28 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			}
 			if _, _, _, ok := hotelSimTarget(doc, n.ID); !ok {
 				out = append(out, issue{"error", "Hotel Sim node " + n.Label + " must be linked to a PS MongoDB (standalone, replica set, or sharded cluster) node — draw an association line from one to it"})
+			}
+		case "airlinesim":
+			others++
+			if !seenImg[airlineSimImage] {
+				seenImg[airlineSimImage] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, airlineSimImage); !ok {
+					out = append(out, issue{"error", "Missing image " + airlineSimImage + " — run `make airlinesim-image` first"})
+				}
+			}
+			if _, _, ok := airlineSimTarget(doc, n.ID); !ok {
+				out = append(out, issue{"error", "Airline Sim node " + n.Label + " must be linked to a standalone Percona Server node, a MySQL replication or PXC cluster, or a ProxySQL/HAProxy node fronting one — draw an association line from one to it"})
+			}
+		case "carsim":
+			others++
+			if !seenImg[carSimImage] {
+				seenImg[carSimImage] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, carSimImage); !ok {
+					out = append(out, issue{"error", "Missing image " + carSimImage + " — run `make carsim-image` first"})
+				}
+			}
+			if _, _, ok := carSimTarget(doc, n.ID); !ok {
+				out = append(out, issue{"error", "Car Rental Sim node " + n.Label + " must be linked to a standalone PostgreSQL node, a Patroni/repmgr/Spock cluster, or an HAProxy node fronting one — draw an association line from one to it"})
 			}
 		default:
 			others++
@@ -1402,6 +1430,10 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionTrafficSim(st, n, doc)
 		case "hotelsim":
 			a.provisionHotelSim(st, n, doc)
+		case "airlinesim":
+			a.provisionAirlineSim(st, n, doc)
+		case "carsim":
+			a.provisionCarSim(st, n, doc)
 		}
 	}
 
@@ -2179,7 +2211,6 @@ func (a *App) removeNodeResources(ctx context.Context, st Stack, d Deployment) {
 // teardownStack stops and removes every container deployed for a stack and
 // removes its network. Best-effort.
 func (a *App) teardownStack(stackID int64) {
-	stopLabTraffic(stackID)
 	if a.docker == nil {
 		return
 	}

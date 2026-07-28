@@ -9,7 +9,7 @@ monitoring, backups). Nodes are **Docker containers** by default, or — in
 driven by Vagrant for the OS/database nodes. It then gives you tools to *use* and *understand*
 those databases: a **Data Generator** for realistic test data, a **Query Runner** and
 **Benchmark** for workloads, a **Visual Summary** that turns pt-stalk captures into charts, an
-**experimental Labs** catalog of 80 AI-generated hands-on scenarios (see
+**experimental Labs** catalog of 95 AI-generated hands-on scenarios (see
 [below](#labs-experimental) — verify before relying on them), a live **Dashboard**, and a
 **notification** center for what's happening across your stacks.
 
@@ -84,24 +84,20 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
   **Ubuntu VNC** desktop, a **Linux Client** jump box (a bare OS host with nothing installed —
   join the stack's DNS/CA trust, then use its terminal to install and exercise whatever client
   tools a task needs), and **Watchtower**.
-- **App Simulators** — link **Traffic Sim** to a Valkey node/cluster or **Hotel Sim** to a PS
-  MongoDB standalone/replica-set/sharded node and it drives real, continuous background traffic
-  against it (reads/writes for Traffic Sim; a 100-hotel reservation workload exercising CRUD,
-  transactions and change streams for Hotel Sim), with a live dashboard reachable from the
-  stack's Ubuntu VNC desktop.
+- **App Simulators** — link **Traffic Sim** to a Valkey node/cluster, **Hotel Sim** to a PS
+  MongoDB standalone/replica-set/sharded node, **Airline Sim** to a standalone Percona Server
+  node, a MySQL replication or PXC cluster, or a ProxySQL/HAProxy node fronting one, or **Car
+  Rental Sim** to a standalone PostgreSQL node, a Patroni/repmgr/Spock cluster, or an HAProxy
+  node fronting one, and it drives real, continuous background traffic against it (reads/writes
+  for Traffic Sim; a 100-hotel reservation workload exercising CRUD, transactions and change
+  streams for Hotel Sim; a 200-route reservation workload against a 2000-aircraft fleet,
+  exercising real MySQL transactions and Galera certification-conflict retries under contention,
+  for Airline Sim; a 180-location rental workload against a 2000-vehicle fleet, exercising a
+  date-range-guarded multi-row UPDATE for booking and a `FOR UPDATE SKIP LOCKED` claim for
+  vehicle check-out, for Car Rental Sim), with a live dashboard reachable from the stack's
+  Ubuntu VNC desktop.
 - **Operations** — cross-cluster replication links, per-node web terminals, certificate
   management, on-demand backups, and TTL-based auto-teardown.
-
-**Finding nodes.** The **Infrastructure Library** is searchable and collapsible: type to filter
-across every category (aliases included — `redis` finds Valkey, `k8s` finds K3D, `mongo` finds
-the PSMDB entries), fold away the categories a stack doesn't use, and reach for the entries you
-add most from **Recently used**. Collapsed categories and recents are remembered per browser.
-
-<img src="docs/screenshots/infrastructure-library.png" alt="The Infrastructure Library — search box, Recently used, and collapsible categories" width="260">
-
-> *The palette after adding an Intranet, a PXC cluster and a ProxySQL: the three land in
-> **Recently used**, unused categories are folded away with their item counts, and the search
-> box filters the whole library.*
 
 **Authentication.** Point a database at a directory and it is wired at deploy: **LDAP** against
 the Intranet OpenLDAP or the Samba AD DC (Percona Server, PostgreSQL, PSMDB), **Kerberos/GSSAPI**
@@ -248,9 +244,10 @@ and stays resilient when files are missing from the archive.
 ![Visual Summary — timeline charts from a pt-stalk archive](docs/screenshots/visual-summary.png)
 
 ### Labs (experimental)
-A catalog of **80 hands-on scenarios** — 27 for **Patroni** (PostgreSQL HA), 30 for **PS MongoDB**
-(10 each for standalone, replica set, and sharded), and 23 for **Valkey** (15 standalone, 8
-cluster) — grouped by category (Failover & Elections, Sharding & Routing, Security & Access
+A catalog of **95 hands-on scenarios** — 27 for **Patroni** (PostgreSQL HA), 30 for **PS MongoDB**
+(10 each for standalone, replica set, and sharded), 23 for **Valkey** (15 standalone, 8
+cluster), and 15 for the **MySQL family** (6 MySQL Replication, 6 PXC, 3 HAProxy+PXC) — grouped
+by category (Failover & Elections, Sharding & Routing, Security & Access
 Control, Backup & Recovery, …) and difficulty. Starting a lab provisions a real, disposable stack
 through the same design-JSON + deploy pipeline **Database Stacks** uses; each step's **Check
 Work** button inspects that stack's actual live state — real `rs.status()`, `config.chunks`,
@@ -345,6 +342,10 @@ DBCanvas provisions sibling nodes, so it needs access to the Docker daemon and t
 | `make restart` | Recreate the app container |
 | `make logs` | Follow application logs |
 | `make clean` | Stop the app and remove the built image |
+| `make trafficsim-image` | Build the **Traffic Sim** app-simulator image — required for every **Valkey** Lab, which deploys one alongside the cluster |
+| `make hotelsim-image` | Build the **Hotel Sim** app-simulator image — required for every **PS MongoDB** Lab, which deploys one alongside the cluster |
+| `make airlinesim-image` | Build the **Airline Sim** app-simulator image — required for every **MySQL family** Lab, which deploys one alongside the cluster |
+| `make carsim-image` | Build the **Car Rental Sim** app-simulator image (canvas-only — no Lab deploys one; needed only to place a Car Rental Sim node yourself) |
 
 ### Docker (default)
 
@@ -352,6 +353,13 @@ DBCanvas provisions sibling nodes, so it needs access to the Docker daemon and t
 make images     # build the dbcanvas-systemd:* base images used by DB nodes (first time)
 make versions   # probe those images to populate versions.yaml (Percona versions catalog)
 make compose    # create .env if needed, build the app image, and start the container
+
+# app-simulator images: build these too, or the corresponding Labs (Valkey,
+# PS MongoDB, MySQL family) fail to deploy — each lab's stack includes a sim node
+make trafficsim-image
+make hotelsim-image
+make airlinesim-image
+make carsim-image
 ```
 
 Then open **http://localhost:8080**. The first visit asks you to create an administrator
