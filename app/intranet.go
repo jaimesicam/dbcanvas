@@ -751,6 +751,17 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			if _, _, ok := carSimTarget(doc, n.ID); !ok {
 				out = append(out, issue{"error", "Car Rental Sim node " + n.Label + " must be linked to a standalone PostgreSQL node, a Patroni/repmgr/Spock cluster, or an HAProxy node fronting one — draw an association line from one to it"})
 			}
+		case "marketchaos":
+			others++
+			if !seenImg[marketChaosImage] {
+				seenImg[marketChaosImage] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, marketChaosImage); !ok {
+					out = append(out, issue{"error", "Missing image " + marketChaosImage + " — run `make marketchaos-image` first"})
+				}
+			}
+			if _, _, ok := marketChaosTarget(doc, n.ID); !ok {
+				out = append(out, issue{"error", "MarketChaos node " + n.Label + " must be linked to a standalone Percona Server node, a direct PXC member node, a PXC cluster or MySQL replication frame, or an HAProxy node fronting one — draw an association line from one to it"})
+			}
 		default:
 			others++
 		}
@@ -1434,6 +1445,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionAirlineSim(st, n, doc)
 		case "carsim":
 			a.provisionCarSim(st, n, doc)
+		case "marketchaos":
+			a.provisionMarketChaos(st, n, doc)
 		}
 	}
 

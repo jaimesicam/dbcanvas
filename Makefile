@@ -3,7 +3,7 @@ SHELL := /bin/bash
 # Load APP_PORT for echoing the URL (falls back to 8080).
 APP_PORT ?= $(shell test -f .env && grep -E '^APP_PORT=' .env | cut -d= -f2 || echo 8080)
 
-.PHONY: compose env build up down logs restart clean images versions trafficsim-image hotelsim-image airlinesim-image carsim-image
+.PHONY: compose env build up down logs restart clean images versions trafficsim-image hotelsim-image airlinesim-image carsim-image marketchaos-image
 
 ## compose: create .env if needed, then build and start the stack
 compose: env
@@ -70,3 +70,10 @@ airlinesim-image:
 ## needs this.
 carsim-image:
 	docker build -t dbcanvas-carsim:latest carsim/
+
+## marketchaos-image: build the "Unoptimized MySQL Challenge" (MarketChaos)
+## stock-exchange performance-troubleshooting demo app image (first-party Go
+## binary + embedded static frontend, no systemd) — an Unoptimized MySQL
+## Challenge node needs this.
+marketchaos-image:
+	docker build -t dbcanvas-marketchaos:latest marketchaos/

@@ -412,6 +412,25 @@ const NODE_TYPES = {
     osOptions: [{ id: 'carsim', label: 'dbcanvas-carsim' }],
     defaults: {},
   },
+  // MarketChaos — the "Unoptimized MySQL Challenge": a fictional stock-exchange
+  // demo app deliberately deployed with bad indexes, queries, and transaction
+  // patterns for a learner to diagnose and fix. Runs dbcanvas's own first-party
+  // image, not an OS/DB image, so it carries no os/osVersion/arch fields at all.
+  // Links to a standalone Percona Server node, a direct PXC member node, a PXC
+  // cluster or MySQL replication frame, or an HAProxy node fronting one of the
+  // latter two, via a drawn association line (see endpointKind/tryConnect) —
+  // never published to the host; reached from inside a VNC desktop.
+  marketchaos: {
+    label: 'Unoptimized MySQL Challenge',
+    slug: 'marketchaos',
+    sub: 'MarketChaos — stock-exchange performance troubleshooting lab',
+    color: '#dc2626',
+    icon: 'Flask',
+    singleton: false,
+    ports: true,
+    osOptions: [{ id: 'marketchaos', label: 'dbcanvas-marketchaos' }],
+    defaults: {},
+  },
 }
 
 // ---------------------------------------------------------- PXC cluster frames
@@ -867,6 +886,7 @@ const PALETTE_ALIASES = {
   hotelsim: 'demo simulation hotel reservation booking mongo mongodb',
   airlinesim: 'demo simulation airline flight reservation booking mysql pxc',
   carsim: 'demo simulation car rental booking postgres postgresql patroni repmgr spock',
+  marketchaos: 'demo simulation stock market exchange trading mysql pxc performance tuning index challenge unoptimized',
 }
 function loadPalettePrefs() {
   try { return { collapsed: [], recent: [], ...JSON.parse(localStorage.getItem(PALETTE_KEY) || '{}') } }
@@ -1181,6 +1201,7 @@ function StackEditor({ stackId, onBack }) {
       if (n.type === 'pg' && !n.frameId) return 'pg'
       if (n.type === 'airlinesim') return 'airlinesim'
       if (n.type === 'carsim') return 'carsim'
+      if (n.type === 'marketchaos') return 'marketchaos'
       return null
     }
     const f = refs.current.frames.find((x) => x.id === id)
@@ -1283,6 +1304,20 @@ function StackEditor({ stackId, onBack }) {
     if (k2 === 'spock' && k1 === 'carsim') return createFlow(e2, e1, { singleOutgoing: true })
     if (k1 === 'haproxy' && k2 === 'carsim') return createFlow(e1, e2, { singleOutgoing: true })
     if (k2 === 'haproxy' && k1 === 'carsim') return createFlow(e2, e1, { singleOutgoing: true })
+    // Standalone Percona Server node, a single PXC member node linked directly
+    // ('replmember' — bypasses the cluster frame on purpose, for challenges about
+    // an app that never load-balances at all), a PXC/MySQL backend frame, or an
+    // HAProxy node fronting one of the latter two → MarketChaos node (same shape
+    // as the Airline Sim rules above; a MarketChaos node links to exactly one
+    // target, single incoming). No ProxySQL rule here — out of scope for V1.
+    if (k1 === 'ps' && k2 === 'marketchaos') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'ps' && k1 === 'marketchaos') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'replmember' && k2 === 'marketchaos') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'replmember' && k1 === 'marketchaos') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'backend' && k2 === 'marketchaos') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'backend' && k1 === 'marketchaos') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'haproxy' && k2 === 'marketchaos') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'haproxy' && k1 === 'marketchaos') return createFlow(e2, e1, { singleOutgoing: true })
     // ProxySQL node ↔ ProxySQL node: ask which way the data flows.
     if (k1 === 'proxysql' && k2 === 'proxysql') { setLinkPrompt({ e1, e2 }); return }
     // Cluster member ↔ cluster member (PXC/Percona Server, different frames): a
@@ -2000,6 +2035,7 @@ function StackEditor({ stackId, onBack }) {
       { label: 'Hotel Sim', type: 'hotelsim', onClick: () => addNode('hotelsim') },
       { label: 'Airline Sim', type: 'airlinesim', onClick: () => addNode('airlinesim') },
       { label: 'Car Rental Sim', type: 'carsim', onClick: () => addNode('carsim') },
+      { label: 'Unoptimized MySQL Challenge', type: 'marketchaos', onClick: () => addNode('marketchaos') },
     ] },
   ]
 
@@ -4458,6 +4494,97 @@ function CarSimManager({ dep, onDeleteNode }) {
       <p className="text-xs text-muted">Open this URL from a browser inside the stack — it isn't published to the host.</p>
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
         <div className="flex justify-between gap-3"><span className="text-muted">URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8091</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Linked to</span><span className="font-mono text-xs">{cfg.targetName} ({TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></div>
+      </div>
+      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// MarketChaosForm edits a (not-yet-deployed) "Unoptimized MySQL Challenge"
+// (MarketChaos) node. It resolves its own linked target across all four source
+// shapes: a standalone Percona Server node, a single PXC member node linked
+// directly ('replmember' — bypasses cluster-wide resolution on purpose), a
+// PXC/MySQL backend frame, or an HAProxy node — the last one only makes sense
+// once it's itself fronting one of the former two, but that's verified by
+// dbcanvas at deploy time, not here.
+function MarketChaosForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep, deployed }) {
+  const MARKETCHAOS_KIND_LABEL = { ps: 'Percona Server', pxcnode: 'PXC member (direct)', pxc: 'PXC Cluster', mysql: 'MySQL Replication', haproxy: 'HAProxy' }
+  const linkedTarget = (() => {
+    for (const e of edges) {
+      const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
+      if (!other) continue
+      const psNode = nodes.find((x) => x.id === other && x.type === 'ps' && !x.frameId)
+      if (psNode) return { kind: 'ps', label: psNode.label }
+      const pxcMember = nodes.find((x) => x.id === other && x.type === 'pxc' && x.frameId)
+      if (pxcMember) return { kind: 'pxcnode', label: pxcMember.label }
+      const backendFrame = frames.find((x) => x.id === other && (x.type === 'pxc' || x.type === 'mysql'))
+      if (backendFrame) return { kind: backendFrame.type, label: backendFrame.label }
+      const haproxyNode = nodes.find((x) => x.id === other && x.type === 'haproxy')
+      if (haproxyNode) return { kind: 'haproxy', label: haproxyNode.label }
+    }
+    return null
+  })()
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Unoptimized MySQL Challenge</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <p className="text-xs text-muted">
+        MarketChaos: a fictional stock exchange deliberately deployed with bad indexes,
+        queries, and transaction patterns. Diagnose and fix them against the linked
+        MySQL-family target without breaking correctness. A live dashboard is served from
+        this node; open it from a browser inside the stack (e.g. a VNC desktop's Firefox) —
+        it's never published to the host. No product besides the sim itself; not monitored
+        by PMM.
+      </p>
+
+      {linkedTarget ? (
+        <div className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
+          Linked to {MARKETCHAOS_KIND_LABEL[linkedTarget.kind]} <span className="font-mono font-medium">{linkedTarget.label}</span>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+          Not linked. Draw an association line from a standalone Percona Server node, a
+          direct PXC member node, a PXC/MySQL replication cluster frame, or an HAProxy node
+          fronting one, to this node.
+        </div>
+      )}
+
+      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// MarketChaosManager shows a deployed MarketChaos node's URL (never published to
+// the host — open it from inside the stack) and what it's linked to. cfg.targetKind
+// here is the fully-resolved 5-way kind dbcanvas settled on (e.g. "haproxy-pxc"),
+// not the coarser 4-way shape MarketChaosForm resolves on the canvas before deploy.
+function MarketChaosManager({ dep, onDeleteNode }) {
+  const cfg = dep?.config || {}
+  const TARGET_KIND_LABEL = {
+    ps: 'Percona Server', pxcnode: 'PXC member (direct)', pxc: 'PXC Cluster', mysql: 'MySQL Replication',
+    'haproxy-pxc': 'HAProxy → PXC', 'haproxy-mysql': 'HAProxy → MySQL Replication',
+  }
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Unoptimized MySQL Challenge</span>
+        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+      </div>
+      <p className="text-xs text-muted">Open this URL from a browser inside the stack — it isn't published to the host.</p>
+      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
+        <div className="flex justify-between gap-3"><span className="text-muted">URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8092</span></div>
         <div className="flex justify-between gap-3"><span className="text-muted">Linked to</span><span className="font-mono text-xs">{cfg.targetName} ({TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></div>
       </div>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
@@ -7106,6 +7233,13 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <CarSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <CarSimForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+    // MarketChaos node — the "Unoptimized MySQL Challenge" stock-exchange demo app.
+    if (n.type === 'marketchaos') {
+      if (dep && dep.state === 'running') {
+        return <MarketChaosManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <MarketChaosForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
     return (
       <div className="space-y-3">

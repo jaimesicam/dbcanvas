@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MarketChaos — Unoptimized MySQL Challenge</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="error-banner" class="banner hidden"></div>
+  <header>
+    <div>
+      <h1>MarketChaos <span class="badge">Unoptimized MySQL Challenge</span></h1>
+      <div class="sub">Fix a struggling stock exchange before the market collapses.</div>
+    </div>
+    <div class="topbar">
+      <span id="conn-status" class="dot"></span>
+      <span id="kind-badge" class="badge">…</span>
+      <span id="version-badge" class="badge">…</span>
+      <div class="controls">
+        <button data-level="stop">Stopped</button>
+        <button data-level="low">Low</button>
+        <button data-level="medium">Medium</button>
+        <button data-level="high">High</button>
+        <button data-level="extreme">Extreme</button>
+        <button id="reset-btn" class="danger">Reset</button>
+      </div>
+    </div>
+  </header>
+  <main>
+    <section class="panel">
+      <h2>Status</h2>
+      <div class="stat-grid">
+        <div class="stat-tile"><div id="stat-state" class="v">—</div><div class="l">Control state</div></div>
+        <div class="stat-tile"><div id="stat-level" class="v">—</div><div class="l">Traffic level</div></div>
+        <div class="stat-tile"><div id="stat-uptime" class="v">—</div><div class="l">Uptime (s)</div></div>
+      </div>
+      <p class="muted">
+        This is the stage-S0 scaffold: connection wiring, schema bootstrap, and health
+        reporting are live. The market simulation, challenge catalog, and full dashboard
+        (market overview, live trading, portfolio, database performance, PXC, and
+        slow-query leaderboard panels) land in later implementation stages.
+      </p>
+    </section>
+    <section class="panel">
+      <h2>Agents</h2>
+      <div id="agents-list" class="muted">No agents running yet.</div>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
