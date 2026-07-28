@@ -85,6 +85,11 @@ type Engine struct {
 
 	leaderboard *leaderboard
 
+	// gradingMu guards baseline — the one stored CaptureBaseline result a
+	// subsequent ValidateSolution scores against (see grading.go).
+	gradingMu sync.Mutex
+	baseline  baselineState
+
 	// Challenges is the challenge lifecycle manager — public because the API
 	// layer drives it directly (start/reset/hint/diagnosis/apply-variant are
 	// all thin passthroughs, see internal/api/challenge.go); grading (stage

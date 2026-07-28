@@ -251,8 +251,13 @@ function renderChallengeList() {
     btn.textContent = 'Start'
     btn.addEventListener('click', async () => {
       const res = await fetch(`/api/challenges/${c.id}/start`, { method: 'POST' })
-      if (res.ok) fetchChallenges()
-      else alert(await res.text())
+      if (res.ok) {
+        document.getElementById('ca-grade-result').classList.add('hidden')
+        document.getElementById('ca-hints').innerHTML = ''
+        fetchChallenges()
+      } else {
+        alert(await res.text())
+      }
     })
     card.appendChild(btn)
     list.appendChild(card)
@@ -288,6 +293,68 @@ function renderActiveChallenge(active) {
   const hintBtn = document.getElementById('ca-hint-btn')
   hintBtn.disabled = active.hintsUsed >= active.totalHints
   hintBtn.textContent = active.hintsUsed >= active.totalHints ? 'No more hints' : `Get a hint (${active.hintsUsed}/${active.totalHints} used)`
+
+  const baselineBtn = document.getElementById('ca-baseline-btn')
+  const validateBtn = document.getElementById('ca-validate-btn')
+  const gradingStatus = document.getElementById('ca-grading-status')
+  const haveBaseline = active.state === 'baseline' || active.state === 'graded'
+  if (!gradingInFlight) {
+    baselineBtn.disabled = haveBaseline
+    validateBtn.disabled = !haveBaseline
+    gradingStatus.textContent = haveBaseline
+      ? 'Baseline captured — fix the problem, then Validate Solution.'
+      : 'Capture a baseline first, while the problem is still active.'
+  }
+}
+
+let gradingInFlight = false
+
+async function runGradingStep(btnId, path, onDone) {
+  if (gradingInFlight) return
+  gradingInFlight = true
+  const status = document.getElementById('ca-grading-status')
+  document.getElementById('ca-baseline-btn').disabled = true
+  document.getElementById('ca-validate-btn').disabled = true
+  status.textContent = 'Measuring… this takes about 15 seconds.'
+  try {
+    const res = await fetch(path, { method: 'POST' })
+    if (!res.ok) {
+      status.textContent = await res.text()
+      return
+    }
+    onDone(await res.json())
+  } finally {
+    gradingInFlight = false
+    fetchChallenges()
+  }
+}
+
+document.getElementById('ca-baseline-btn').addEventListener('click', () => {
+  runGradingStep('ca-baseline-btn', '/api/challenges/baseline', () => {
+    document.getElementById('ca-grading-status').textContent = 'Baseline captured — fix the problem, then Validate Solution.'
+  })
+})
+
+document.getElementById('ca-validate-btn').addEventListener('click', () => {
+  runGradingStep('ca-validate-btn', '/api/challenges/validate', renderGrade)
+})
+
+function renderGrade(g) {
+  const box = document.getElementById('ca-grade-result')
+  box.classList.remove('hidden')
+  document.getElementById('ca-grading-status').textContent = ''
+  document.getElementById('ca-grade-total').textContent = `${g.totalScore} / 100`
+  document.getElementById('ca-grade-band').textContent = g.grade
+  document.getElementById('ca-grade-gate').textContent = g.passed
+    ? (g.functionalNote || '')
+    : `Correctness gate failed: ${g.correctnessFailure} — score is 0 regardless of everything else.`
+  document.getElementById('ca-grade-functional').textContent = g.functionalPoints
+  document.getElementById('ca-grade-performance').textContent = g.performancePoints
+  document.getElementById('ca-grade-regression').textContent = g.regressionPoints
+  document.getElementById('ca-grade-diagnosis').textContent = g.diagnosisPoints
+  document.getElementById('ca-grade-metric').textContent =
+    `${g.performanceMetric}: ${g.performanceBefore.toFixed(2)} baseline -> ${g.performanceAfter.toFixed(2)} now` +
+    (g.regressionNote ? ` · ${g.regressionNote}` : '')
 }
 
 document.getElementById('ca-hint-btn').addEventListener('click', async () => {
@@ -304,6 +371,7 @@ document.getElementById('ca-hint-btn').addEventListener('click', async () => {
 
 document.getElementById('ca-reset-btn').addEventListener('click', async () => {
   document.getElementById('ca-hints').innerHTML = ''
+  document.getElementById('ca-grade-result').classList.add('hidden')
   await fetch('/api/challenges/reset', { method: 'POST' })
   fetchChallenges()
 })

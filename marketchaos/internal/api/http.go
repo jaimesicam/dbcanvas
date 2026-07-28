@@ -47,6 +47,8 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /api/challenges/hint", h.handleChallengeHint)
 	mux.HandleFunc("POST /api/challenges/diagnosis", h.handleChallengeDiagnosis)
 	mux.HandleFunc("POST /api/challenges/apply-variant", h.handleChallengeApplyVariant)
+	mux.HandleFunc("POST /api/challenges/baseline", h.handleChallengeBaseline)
+	mux.HandleFunc("POST /api/challenges/validate", h.handleChallengeValidate)
 	mux.Handle("GET /", http.FileServerFS(h.Web))
 	return mux
 }

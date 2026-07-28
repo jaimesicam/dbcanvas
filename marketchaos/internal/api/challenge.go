@@ -132,3 +132,24 @@ func (h *Handler) handleChallengeApplyVariant(w http.ResponseWriter, r *http.Req
 	}
 	writeJSON(w, h.activeView())
 }
+
+// handleChallengeBaseline/handleChallengeValidate each block for
+// grading.go's gradingWindow (~15s) — a learner clicking "Capture Baseline"
+// or "Validate Solution" and watching a brief wait is the expected UX here,
+// not a background job with progress polling.
+func (h *Handler) handleChallengeBaseline(w http.ResponseWriter, r *http.Request) {
+	if err := h.Engine.CaptureBaseline(r.Context()); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	writeJSON(w, h.activeView())
+}
+
+func (h *Handler) handleChallengeValidate(w http.ResponseWriter, r *http.Request) {
+	result, err := h.Engine.ValidateSolution(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	writeJSON(w, result)
+}

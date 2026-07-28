@@ -75,6 +75,25 @@
           <button id="ca-variant-btn">Apply improved implementation</button>
           <span id="ca-variant-status" class="muted"></span>
         </div>
+        <div class="controls" style="margin:14px 0 0">
+          <button id="ca-baseline-btn">Capture baseline (~15s)</button>
+          <button id="ca-validate-btn">Validate solution (~15s)</button>
+        </div>
+        <p id="ca-grading-status" class="muted" style="margin-top:8px"></p>
+        <div id="ca-grade-result" class="hidden" style="margin-top:10px">
+          <div class="flex-row">
+            <span id="ca-grade-total" class="ca-title"></span>
+            <span id="ca-grade-band" class="tag"></span>
+          </div>
+          <p id="ca-grade-gate" class="muted"></p>
+          <div class="stat-grid" style="margin-top:8px">
+            <div class="stat-tile"><div id="ca-grade-functional" class="v">—</div><div class="l">Functional (/30)</div></div>
+            <div class="stat-tile"><div id="ca-grade-performance" class="v">—</div><div class="l">Performance (/50)</div></div>
+            <div class="stat-tile"><div id="ca-grade-regression" class="v">—</div><div class="l">Regression (/10)</div></div>
+            <div class="stat-tile"><div id="ca-grade-diagnosis" class="v">—</div><div class="l">Diagnosis (/10)</div></div>
+          </div>
+          <p id="ca-grade-metric" class="muted" style="margin-top:8px"></p>
+        </div>
       </div>
     </section>
     <section id="seed-panel" class="panel hidden">
