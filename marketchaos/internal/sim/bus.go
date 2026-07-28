@@ -2,6 +2,15 @@ package sim
 
 import "sync"
 
+// busMessage is the envelope every WebSocket push uses — a "type" tag plus
+// whichever payload field is relevant, so the frontend's single onmessage
+// handler can dispatch by type instead of needing one WS message shape per
+// kind of event.
+type busMessage struct {
+	Type string        `json:"type"`
+	Seed *SeedProgress `json:"seed,omitempty"`
+}
+
 // EventBus is the in-process pub/sub layer: background pollers publish here
 // (stage S2+), and every WebSocket handler subscribes independently. This is
 // a convenience channel only — a client that misses a message always

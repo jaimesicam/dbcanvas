@@ -7,10 +7,9 @@
 // against, plus a web server exposing a live operations-style dashboard.
 // See app/marketchaos.go for how dbcanvas resolves and wires the target.
 //
-// This is stage S0 of the implementation plan: module skeleton, schema
-// bootstrap, and an empty dashboard proving the node deploys and reports
-// healthy against every connection-target shape. The market/challenge
-// engine (stages S1+) is not implemented yet.
+// Stage S1: the 13-table domain schema, the 4 data-size profiles, and the
+// batched parallel seeder. The workload agents and challenge/grading engine
+// (stages S2+) are not implemented yet.
 package main
 
 import (
@@ -21,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -49,6 +49,7 @@ func main() {
 	kind := sim.TargetKind(envOr("TARGET_KIND", string(sim.TargetPS)))
 	targetLabel := envOr("TARGET_LABEL", "")
 	port := envOr("PORT", "8092")
+	dataset := datasetFromEnv()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -71,7 +72,7 @@ func main() {
 		log.Fatalf("marketchaos: embedded web assets: %v", err)
 	}
 
-	engine := sim.NewEngine(st, kind, targetLabel)
+	engine := sim.NewEngine(st, kind, targetLabel, dataset)
 	engine.Start(ctx)
 
 	h := api.New(engine, st, webFS)
@@ -86,10 +87,59 @@ func main() {
 		srv.Shutdown(shutCtx)
 	}()
 
-	log.Printf("marketchaos: listening on :%s (mysql schema %s, kind %s)", port, dbName, kind)
+	// Seeding runs in the background, AFTER the HTTP server starts listening
+	// (below) — a Large profile's ~28M rows can take many minutes, and
+	// dbcanvas's own readiness check only waits up to 60s for /healthz to
+	// answer. /healthz only checks MySQL reachability, never seed
+	// completion, so the node is correctly marked "running" as soon as it
+	// can talk to its target — the dashboard's own seeding panel (driven by
+	// GET /api/state's "seed" field) is what shows real progress from there.
+	go func() {
+		if err := engine.SeedIfNeeded(ctx); err != nil {
+			log.Printf("marketchaos: seed: %v", err)
+		}
+	}()
+
+	log.Printf("marketchaos: listening on :%s (mysql schema %s, kind %s, dataset %d traders/%d orders/%d trades/%d ticks)",
+		port, dbName, kind, dataset.Traders, dataset.Orders, dataset.Trades, dataset.Ticks)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("marketchaos: %v", err)
 	}
+}
+
+// datasetFromEnv resolves the dataset-size profile dbcanvas passed in.
+// DATASET_PROFILE selects a preset (small/medium/large); DATASET_TRADERS/
+// ORDERS/TRADES/TICKS override individual counts — set by dbcanvas for a
+// "custom" profile, but also honored for a named preset in case a future
+// dbcanvas version wants to fine-tune one count without a 5th preset name.
+func datasetFromEnv() sim.DatasetCounts {
+	profile := sim.DatasetProfile(envOr("DATASET_PROFILE", string(sim.ProfileMedium)))
+	d := sim.Preset(profile)
+	if v := envInt("DATASET_TRADERS", 0); v > 0 {
+		d.Traders = v
+	}
+	if v := envInt("DATASET_ORDERS", 0); v > 0 {
+		d.Orders = v
+	}
+	if v := envInt("DATASET_TRADES", 0); v > 0 {
+		d.Trades = v
+	}
+	if v := envInt("DATASET_TICKS", 0); v > 0 {
+		d.Ticks = v
+	}
+	return d
+}
+
+func envInt(key string, def int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return def
+	}
+	return n
 }
 
 func waitForMySQL(ctx context.Context, st *store.Store) {

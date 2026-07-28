@@ -111,6 +111,17 @@ type designNode struct {
 	// (PS 8.4), the keyring_vault plugin (PS 5.7/8.0) or mongod's security.vault (PSMDB).
 	EnableVault   bool   `json:"enableVault"`
 	OpenBaoNodeID string `json:"openbaoNodeId"`
+	// MarketChaos node fields (Type=="marketchaos"). Unlike every other app
+	// simulator, dataset size is a deploy-time choice, not a fixed constant —
+	// re-seeding a large market after deploy would take the same many minutes
+	// as the initial seed, so the learner picks it up front. MCDataset selects
+	// a named preset; the MCTraders/.../MCTicks counts are only read when
+	// MCDataset=="custom" (0 → that preset's own default for the field).
+	MCDataset string `json:"mcDataset"` // "small" | "medium" (default) | "large" | "custom"
+	MCTraders int    `json:"mcTraders"`
+	MCOrders  int    `json:"mcOrders"`
+	MCTrades  int    `json:"mcTrades"`
+	MCTicks   int    `json:"mcTicks"`
 }
 
 // designEdge is a connection drawn on the canvas. The endpoints' Node field holds

@@ -14,6 +14,7 @@ type Snapshot struct {
 	ServerVersion string                 `json:"serverVersion"`
 	Agents        []store.AgentHeartbeat `json:"agents"`
 	Control       ControlInfo            `json:"control"`
+	Seed          SeedProgress           `json:"seed"`
 	UptimeSec     int64                  `json:"uptimeSeconds"`
 	Error         string                 `json:"error,omitempty"`
 }
@@ -39,6 +40,7 @@ func runningState(running bool) string {
 func (e *Engine) BuildSnapshot(ctx context.Context) Snapshot {
 	snap := Snapshot{
 		Control:   ControlInfo{State: runningState(e.Running()), Level: string(e.Level()), Kind: string(e.Kind)},
+		Seed:      e.SeedProgress(),
 		UptimeSec: e.UptimeSeconds(),
 	}
 	if err := e.Store.Ping(ctx); err != nil {

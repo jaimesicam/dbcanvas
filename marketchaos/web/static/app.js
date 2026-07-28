@@ -8,6 +8,7 @@ const connStatus = document.getElementById('conn-status')
 const kindBadge = document.getElementById('kind-badge')
 const versionBadge = document.getElementById('version-badge')
 const agentsList = document.getElementById('agents-list')
+const seedPanel = document.getElementById('seed-panel')
 
 async function fetchState() {
   try {
@@ -39,6 +40,8 @@ function render(snap) {
   document.querySelectorAll('.controls button[data-level]').forEach((btn) => {
     btn.classList.toggle('active', snap.control && btn.dataset.level === snap.control.level)
   })
+
+  renderSeed(snap.seed)
 
   if (Array.isArray(snap.agents) && snap.agents.length > 0) {
     agentsList.innerHTML = ''
@@ -74,14 +77,44 @@ document.getElementById('reset-btn').addEventListener('click', async () => {
   fetchState()
 })
 
+// renderSeed shows the seed-progress panel while the initial (or a
+// post-Reset) seed is running, and hides it once done — a market that's
+// already seeded has nothing left to show here. RowsTotal is 0 until the
+// seeder has counted the current table, so the bar only reflects real
+// progress once a table is in flight, never a misleading 0/0 stall.
+function renderSeed(seed) {
+  if (!seed || seed.done) {
+    seedPanel.classList.add('hidden')
+    return
+  }
+  seedPanel.classList.remove('hidden')
+  const pct = seed.rowsTotal > 0 ? Math.min(100, Math.round((seed.rowsDone / seed.rowsTotal) * 100)) : 0
+  document.getElementById('seed-bar').style.width = pct + '%'
+  document.getElementById('seed-table').textContent = seed.table || '—'
+  document.getElementById('seed-rows').textContent = seed.rowsTotal ? `${seed.rowsDone.toLocaleString()} / ${seed.rowsTotal.toLocaleString()}` : '—'
+  const elapsed = seed.startedAt ? Math.max(0, Math.round((Date.now() - new Date(seed.startedAt).getTime()) / 1000)) : null
+  document.getElementById('seed-elapsed').textContent = elapsed != null ? elapsed : '—'
+  const status = document.getElementById('seed-status')
+  if (seed.error) {
+    status.textContent = 'Seed failed: ' + seed.error
+  } else {
+    status.textContent = `Seeding ${seed.table || 'market data'}… the market isn't ready for traffic until this finishes.`
+  }
+}
+
 function connectWS() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const ws = new WebSocket(`${proto}//${location.host}/ws`)
+  ws.onmessage = (ev) => {
+    try {
+      const msg = JSON.parse(ev.data)
+      if (msg.type === 'seed' && msg.seed) renderSeed(msg.seed)
+    } catch (e) {
+      // ignore malformed pushes — the next /api/state poll recovers state
+    }
+  }
   ws.onclose = () => setTimeout(connectWS, 2000)
   ws.onerror = () => ws.close()
-  // No event payloads to consume yet (stage S0 has no agents publishing to
-  // the bus) — the connection exists so the dashboard proves the WS bridge
-  // itself works end to end.
 }
 
 fetchState()

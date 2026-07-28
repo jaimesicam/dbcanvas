@@ -86,6 +86,35 @@ func marketChaosTarget(doc designDoc, startID string) (kind, targetID string, ok
 	return "", "", false
 }
 
+// marketChaosDatasetEnv translates the node's dataset-profile property into the
+// DATASET_* env vars main.go reads (see datasetFromEnv in marketchaos/main.go).
+// "" defaults to the engine's own "medium" default, so designs saved before this
+// property existed still deploy exactly as before. For "custom" only the counts
+// the learner actually set (>0) are passed — a zero field falls back to the
+// medium preset on the container side, same as leaving it blank.
+func marketChaosDatasetEnv(n designNode) []string {
+	env := []string{}
+	if n.MCDataset != "" {
+		env = append(env, "DATASET_PROFILE="+n.MCDataset)
+	}
+	if n.MCDataset != "custom" {
+		return env
+	}
+	if n.MCTraders > 0 {
+		env = append(env, fmt.Sprintf("DATASET_TRADERS=%d", n.MCTraders))
+	}
+	if n.MCOrders > 0 {
+		env = append(env, fmt.Sprintf("DATASET_ORDERS=%d", n.MCOrders))
+	}
+	if n.MCTrades > 0 {
+		env = append(env, fmt.Sprintf("DATASET_TRADES=%d", n.MCTrades))
+	}
+	if n.MCTicks > 0 {
+		env = append(env, fmt.Sprintf("DATASET_TICKS=%d", n.MCTicks))
+	}
+	return env
+}
+
 // provisionMarketChaos records the deployment then brings up the sim container once
 // its linked MySQL-family target is running.
 func (a *App) provisionMarketChaos(st Stack, n designNode, doc designDoc) {
@@ -138,12 +167,14 @@ func (a *App) provisionMarketChaos(st Stack, n designNode, doc designDoc) {
 			a.engCtx(ctx).ContainerRemove(ctx, cid)
 		}
 		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/", sec.AppUser, sec.AppPassword, targetHost, targetPort)
+		env := []string{
+			"MYSQL_DSN=" + dsn, "MYSQL_DB=marketchaos", "TARGET_KIND=" + cfg.TargetKind,
+			"TARGET_LABEL=" + cfg.TargetName, fmt.Sprintf("PORT=%d", marketChaosPort),
+		}
+		env = append(env, marketChaosDatasetEnv(n)...)
 		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
 			Name: name, Image: marketChaosImage, Hostname: host,
-			Env: []string{
-				"MYSQL_DSN=" + dsn, "MYSQL_DB=marketchaos", "TARGET_KIND=" + cfg.TargetKind,
-				"TARGET_LABEL=" + cfg.TargetName, fmt.Sprintf("PORT=%d", marketChaosPort),
-			},
+			Env:     env,
 			Network: networkName(st.ID), Aliases: []string{host},
 			DNS: []string{intranetIP}, DNSSearch: []string{domain},
 		})

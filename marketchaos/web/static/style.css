@@ -48,3 +48,9 @@ main { padding: 16px 20px 40px; max-width: 1400px; margin: 0 auto; }
 .muted { color: var(--muted); font-size: 13px; }
 .agent-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; }
 .agent-row .dot { width: 8px; height: 8px; }
+.hidden { display: none; }
+.progress-track {
+  background: var(--panel2); border: 1px solid var(--border); border-radius: 6px;
+  height: 10px; overflow: hidden; margin: 8px 0 12px;
+}
+.progress-fill { background: var(--accent); height: 100%; transition: width .4s ease; }

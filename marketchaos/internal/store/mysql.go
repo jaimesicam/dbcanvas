@@ -118,17 +118,45 @@ func (s *Store) ServerVersion(ctx context.Context) string {
 	return v
 }
 
-// Table name constants. Only the app-infra tables needed to prove the node
-// deploys and reports live status exist as of stage S0 — the 13 domain
-// tables (securities, price_ticks, orders, trades, ...) are stage S1 work.
+// CountRows returns COUNT(*) for one of this app's own tables — table is
+// always one of the constants below, never user input, so building the
+// query string with it directly is safe. Used by SeedIfNeeded to decide
+// whether the schema already has data.
+func (s *Store) CountRows(ctx context.Context, table string) (int64, error) {
+	var n int64
+	err := s.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM `"+table+"`").Scan(&n)
+	return n, err
+}
+
+// Table name constants — the complete set of tables this app owns.
 const (
 	TableAgents   = "agents" // per-agent heartbeat rows
 	TableMetrics  = "metrics"
 	TableSimState = "sim_state"
+
+	TableSectors       = "sectors"
+	TableSecurities    = "securities"
+	TableMarketQuotes  = "market_quotes"
+	TablePriceTicks    = "price_ticks"
+	TableTraders       = "traders"
+	TableAccounts      = "accounts"
+	TableOrders        = "orders"
+	TableTrades        = "trades"
+	TablePositions     = "positions"
+	TableAccountLedger = "account_ledger"
+	TableWatchlists    = "watchlists"
+	TableMarketNews    = "market_news"
+	TableAuditEvents   = "audit_events"
 )
 
 // AllTables lists every table this app owns, for Reset's truncate step and
-// the diagnostics panel's table-size listing.
+// the diagnostics panel's table-size listing. Truncate order matters here:
+// FOREIGN_KEY_CHECKS is disabled around the whole batch (see Wipe) so the
+// listed order itself doesn't have to respect dependencies, but it's kept
+// dependents-before-references anyway for readability.
 var AllTables = []string{
 	TableAgents, TableMetrics, TableSimState,
+	TableAuditEvents, TableMarketNews, TableWatchlists, TableAccountLedger,
+	TablePositions, TableTrades, TableOrders, TablePriceTicks, TableMarketQuotes,
+	TableAccounts, TableTraders, TableSecurities, TableSectors,
 }

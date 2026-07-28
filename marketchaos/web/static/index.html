@@ -36,11 +36,21 @@
         <div class="stat-tile"><div id="stat-uptime" class="v">—</div><div class="l">Uptime (s)</div></div>
       </div>
       <p class="muted">
-        This is the stage-S0 scaffold: connection wiring, schema bootstrap, and health
-        reporting are live. The market simulation, challenge catalog, and full dashboard
-        (market overview, live trading, portfolio, database performance, PXC, and
-        slow-query leaderboard panels) land in later implementation stages.
+        This is the stage-S1 scaffold: connection wiring, the full domain schema, dataset
+        seeding, and health reporting are live. The workload agents, challenge catalog, and
+        full dashboard (market overview, live trading, portfolio, database performance, PXC,
+        and slow-query leaderboard panels) land in later implementation stages.
       </p>
+    </section>
+    <section id="seed-panel" class="panel hidden">
+      <h2>Seeding market data</h2>
+      <div id="seed-status" class="muted"></div>
+      <div class="progress-track"><div id="seed-bar" class="progress-fill" style="width:0%"></div></div>
+      <div class="stat-grid">
+        <div class="stat-tile"><div id="seed-table" class="v">—</div><div class="l">Current table</div></div>
+        <div class="stat-tile"><div id="seed-rows" class="v">—</div><div class="l">Rows done / total</div></div>
+        <div class="stat-tile"><div id="seed-elapsed" class="v">—</div><div class="l">Elapsed (s)</div></div>
+      </div>
     </section>
     <section class="panel">
       <h2>Agents</h2>

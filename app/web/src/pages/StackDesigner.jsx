@@ -4510,8 +4510,31 @@ function CarSimManager({ dep, onDeleteNode }) {
 // PXC/MySQL backend frame, or an HAProxy node — the last one only makes sense
 // once it's itself fronting one of the former two, but that's verified by
 // dbcanvas at deploy time, not here.
+// MC_DATASET_PRESETS mirrors marketchaos/internal/sim/dataset.go's own preset
+// table — kept as a small display-only copy here (not fetched from the
+// engine) since the estimate needs to render before the node is ever
+// deployed. medium is the default profile everywhere else in the stack.
+const MC_DATASET_PRESETS = {
+  small: { label: 'Small', hint: '2K traders, ~575K rows total', size: '~200 MB', time: '~30s' },
+  medium: { label: 'Medium (default)', hint: '10K traders, ~5.8M rows total', size: '~1.2 GB', time: '~3-5 min' },
+  large: { label: 'Large', hint: '25K traders, ~28M rows total', size: '~5 GB', time: '~15-30 min' },
+  custom: { label: 'Custom', hint: 'set exact row counts below', size: null, time: null },
+}
+const MC_CUSTOM_DEFAULTS = { traders: 10000, orders: 500000, trades: 250000, ticks: 5000000 }
+
 function MarketChaosForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep, deployed }) {
   const MARKETCHAOS_KIND_LABEL = { ps: 'Percona Server', pxcnode: 'PXC member (direct)', pxc: 'PXC Cluster', mysql: 'MySQL Replication', haproxy: 'HAProxy' }
+  const mcDataset = n.mcDataset || 'medium'
+  const preset = MC_DATASET_PRESETS[mcDataset]
+  const pxcTarget = (() => {
+    for (const e of edges) {
+      const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
+      if (!other) continue
+      if (nodes.find((x) => x.id === other && x.type === 'pxc')) return true
+      if (frames.find((x) => x.id === other && x.type === 'pxc')) return true
+    }
+    return false
+  })()
   const linkedTarget = (() => {
     for (const e of edges) {
       const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
@@ -4559,6 +4582,43 @@ function MarketChaosForm({ node: n, nodes, frames, edges, patchNode, deleteNode,
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
+      <Field label="Dataset size" hint="Fixed at deploy — reseeding at a different size means deleting and redeploying this node.">
+        <select
+          className={`${inputCls} ${deployed ? 'opacity-70' : ''}`}
+          disabled={deployed}
+          value={mcDataset}
+          onChange={(e) => {
+            const v = e.target.value
+            if (v === 'custom' && !n.mcTraders) {
+              patchNode(n.id, { mcDataset: v, mcTraders: MC_CUSTOM_DEFAULTS.traders, mcOrders: MC_CUSTOM_DEFAULTS.orders, mcTrades: MC_CUSTOM_DEFAULTS.trades, mcTicks: MC_CUSTOM_DEFAULTS.ticks })
+            } else {
+              patchNode(n.id, { mcDataset: v })
+            }
+          }}
+        >
+          {Object.entries(MC_DATASET_PRESETS).map(([k, p]) => <option key={k} value={k}>{p.label}</option>)}
+        </select>
+      </Field>
+
+      {mcDataset === 'custom' ? (
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Traders"><input type="number" min={100} className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} disabled={deployed} value={n.mcTraders || ''} onChange={(e) => patchNode(n.id, { mcTraders: parseInt(e.target.value, 10) || 0 })} /></Field>
+          <Field label="Orders"><input type="number" min={1000} className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} disabled={deployed} value={n.mcOrders || ''} onChange={(e) => patchNode(n.id, { mcOrders: parseInt(e.target.value, 10) || 0 })} /></Field>
+          <Field label="Trades"><input type="number" min={500} className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} disabled={deployed} value={n.mcTrades || ''} onChange={(e) => patchNode(n.id, { mcTrades: parseInt(e.target.value, 10) || 0 })} /></Field>
+          <Field label="Price ticks"><input type="number" min={10000} className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} disabled={deployed} value={n.mcTicks || ''} onChange={(e) => patchNode(n.id, { mcTicks: parseInt(e.target.value, 10) || 0 })} /></Field>
+        </div>
+      ) : (
+        <div className="flex justify-between gap-3 rounded-lg bg-surface2 px-3 py-2 text-xs text-muted">
+          <span>{preset.hint}</span>
+          <span className="whitespace-nowrap font-mono">{preset.size} · {preset.time}</span>
+        </div>
+      )}
+      {pxcTarget && (mcDataset === 'large' || mcDataset === 'custom') && (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+          Linked to a PXC cluster — certification overhead makes seeding roughly 2-3x slower than the same size against a standalone target. Medium is usually plenty for the PXC-specific challenges.
+        </div>
+      )}
+
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
         <Icon.Trash size={16} /> Delete node
       </Button>
@@ -4570,12 +4630,14 @@ function MarketChaosForm({ node: n, nodes, frames, edges, patchNode, deleteNode,
 // the host — open it from inside the stack) and what it's linked to. cfg.targetKind
 // here is the fully-resolved 5-way kind dbcanvas settled on (e.g. "haproxy-pxc"),
 // not the coarser 4-way shape MarketChaosForm resolves on the canvas before deploy.
-function MarketChaosManager({ dep, onDeleteNode }) {
+function MarketChaosManager({ node: n, dep, onDeleteNode }) {
   const cfg = dep?.config || {}
   const TARGET_KIND_LABEL = {
     ps: 'Percona Server', pxcnode: 'PXC member (direct)', pxc: 'PXC Cluster', mysql: 'MySQL Replication',
     'haproxy-pxc': 'HAProxy → PXC', 'haproxy-mysql': 'HAProxy → MySQL Replication',
   }
+  const mcDataset = n?.mcDataset || 'medium'
+  const preset = MC_DATASET_PRESETS[mcDataset]
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -4586,7 +4648,9 @@ function MarketChaosManager({ dep, onDeleteNode }) {
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
         <div className="flex justify-between gap-3"><span className="text-muted">URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8092</span></div>
         <div className="flex justify-between gap-3"><span className="text-muted">Linked to</span><span className="font-mono text-xs">{cfg.targetName} ({TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Dataset</span><span className="font-mono text-xs">{preset.label}{mcDataset === 'custom' ? ` (${n.mcTraders || 0}/${n.mcOrders || 0}/${n.mcTrades || 0}/${n.mcTicks || 0})` : ''}</span></div>
       </div>
+      <p className="text-xs text-muted">Seeding progress is shown live on the dashboard itself, not here.</p>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
       </Button>
@@ -7237,7 +7301,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     // MarketChaos node — the "Unoptimized MySQL Challenge" stock-exchange demo app.
     if (n.type === 'marketchaos') {
       if (dep && dep.state === 'running') {
-        return <MarketChaosManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+        return <MarketChaosManager node={n} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <MarketChaosForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
