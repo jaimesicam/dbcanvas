@@ -390,6 +390,83 @@ document.getElementById('ca-variant-btn').addEventListener('click', async () => 
   fetchChallenges()
 })
 
+// ------------------------------------------------------------- market panels
+
+async function fetchMarketPanels() {
+  try {
+    const [overview, trades, portfolio] = await Promise.all([
+      fetch('/api/market/overview').then((r) => r.json()),
+      fetch('/api/market/trades?limit=20').then((r) => r.json()),
+      fetch('/api/market/portfolio?account=1').then((r) => r.json()),
+    ])
+    renderMarketOverview(overview)
+    renderRecentTrades(trades)
+    renderPortfolio(portfolio)
+  } catch (e) {
+    // best-effort — next poll recovers
+  }
+  const symbol = document.getElementById('orderbook-symbol').value.trim()
+  if (symbol) {
+    fetch('/api/market/orderbook?symbol=' + encodeURIComponent(symbol))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((levels) => { if (levels) renderOrderBook(levels) })
+      .catch(() => {})
+  }
+}
+
+function moverRow(m) {
+  const cls = m.pctChange >= 0 ? 'pct-up' : 'pct-down'
+  const sign = m.pctChange >= 0 ? '+' : ''
+  return `<tr><td>${m.symbol}</td><td class="num">$${m.lastPrice.toFixed(2)}</td><td class="num ${cls}">${sign}${m.pctChange.toFixed(2)}%</td></tr>`
+}
+
+function renderMarketOverview(ov) {
+  document.getElementById('market-gainers').innerHTML = (ov.topGainers || []).map(moverRow).join('') || '<tr><td class="muted">No data yet.</td></tr>'
+  document.getElementById('market-losers').innerHTML = (ov.topLosers || []).map(moverRow).join('') || '<tr><td class="muted">No data yet.</td></tr>'
+  const sectors = document.getElementById('market-sectors')
+  sectors.innerHTML = (ov.sectors || []).map((s) =>
+    `<div class="stat-tile"><div class="v">${s.volume.toLocaleString()}</div><div class="l">${s.sectorName}</div></div>`).join('')
+}
+
+function renderRecentTrades(trades) {
+  const body = document.getElementById('trades-body')
+  if (!Array.isArray(trades) || trades.length === 0) {
+    body.innerHTML = '<tr><td colspan="4" class="muted">No trades yet.</td></tr>'
+    return
+  }
+  body.innerHTML = trades.map((t) =>
+    `<tr><td>${t.symbol}</td><td class="num">$${t.price.toFixed(2)}</td><td class="num">${t.quantity}</td><td>${t.executedAt}</td></tr>`).join('')
+}
+
+function renderOrderBook(levels) {
+  const box = document.getElementById('orderbook-body')
+  if (!Array.isArray(levels) || levels.length === 0) {
+    box.innerHTML = '<div class="muted">No open orders for that symbol (or symbol not found).</div>'
+    return
+  }
+  box.innerHTML = levels.map((l) =>
+    `<div class="stat-tile"><div class="v">${l.count} / ${l.qty.toLocaleString()}</div><div class="l">${l.side} orders / qty</div></div>`).join('')
+}
+
+function renderPortfolio(pf) {
+  document.getElementById('pf-cash').textContent = '$' + (pf.cashBalance || 0).toFixed(2)
+  document.getElementById('pf-holdings').textContent = '$' + (pf.holdingsValue || 0).toFixed(2)
+  document.getElementById('pf-total').textContent = '$' + (pf.totalValue || 0).toFixed(2)
+  const body = document.getElementById('pf-holdings-body')
+  if (!Array.isArray(pf.holdings) || pf.holdings.length === 0) {
+    body.innerHTML = '<tr><td colspan="6" class="muted">No open positions for this account.</td></tr>'
+    return
+  }
+  body.innerHTML = pf.holdings.map((h) => {
+    const cls = h.unrealizedPl >= 0 ? 'pct-up' : 'pct-down'
+    return `<tr><td>${h.symbol}</td><td class="num">${h.quantity}</td><td class="num">$${h.averageCost.toFixed(2)}</td>` +
+      `<td class="num">$${h.lastPrice.toFixed(2)}</td><td class="num">$${h.marketValue.toFixed(2)}</td>` +
+      `<td class="num ${cls}">$${h.unrealizedPl.toFixed(2)}</td></tr>`
+  }).join('')
+}
+
+document.getElementById('orderbook-symbol').addEventListener('change', fetchMarketPanels)
+
 function connectWS() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const ws = new WebSocket(`${proto}//${location.host}/ws`)
@@ -408,7 +485,9 @@ function connectWS() {
 fetchState()
 fetchDiagnostics()
 fetchChallenges()
+fetchMarketPanels()
 setInterval(fetchState, 2000)
 setInterval(fetchDiagnostics, 2000)
 setInterval(fetchChallenges, 2000)
+setInterval(fetchMarketPanels, 3000)
 connectWS()

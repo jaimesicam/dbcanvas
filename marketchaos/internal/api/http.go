@@ -49,6 +49,10 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /api/challenges/apply-variant", h.handleChallengeApplyVariant)
 	mux.HandleFunc("POST /api/challenges/baseline", h.handleChallengeBaseline)
 	mux.HandleFunc("POST /api/challenges/validate", h.handleChallengeValidate)
+	mux.HandleFunc("GET /api/market/overview", h.handleMarketOverview)
+	mux.HandleFunc("GET /api/market/trades", h.handleRecentTrades)
+	mux.HandleFunc("GET /api/market/orderbook", h.handleOrderBook)
+	mux.HandleFunc("GET /api/market/portfolio", h.handlePortfolio)
 	mux.Handle("GET /", http.FileServerFS(h.Web))
 	return mux
 }

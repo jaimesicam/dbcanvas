@@ -44,11 +44,56 @@
         <div class="stat-tile"><div id="stat-uptime" class="v">—</div><div class="l">Uptime (s)</div></div>
       </div>
       <p class="muted">
-        This is the stage-S4 scaffold: connection wiring, the full domain schema, dataset
-        seeding, all 10 workload agents, the database-performance/PXC/HAProxy diagnostic
-        panels, and the 18-challenge catalog below are live. Grading (baseline/validate/score)
-        and the market/trading/portfolio panels land in later implementation stages.
+        This is the stage-S6 scaffold: connection wiring, the full domain schema, dataset
+        seeding, all 10 workload agents, diagnostic panels, the 18-challenge catalog with
+        full grading, and the market/trading/portfolio panels below are all live.
       </p>
+    </section>
+    <section class="panel">
+      <h2>Market overview</h2>
+      <div class="two-col">
+        <div>
+          <div class="muted" style="margin-bottom:4px">Top gainers</div>
+          <table class="data-table"><tbody id="market-gainers"></tbody></table>
+        </div>
+        <div>
+          <div class="muted" style="margin-bottom:4px">Top losers</div>
+          <table class="data-table"><tbody id="market-losers"></tbody></table>
+        </div>
+      </div>
+      <div class="muted" style="margin-top:12px">Volume by sector</div>
+      <div id="market-sectors" class="stat-grid" style="margin-top:6px"></div>
+    </section>
+    <section class="panel">
+      <h2>Live trading</h2>
+      <div class="two-col">
+        <div>
+          <div class="muted" style="margin-bottom:4px">Recent trades</div>
+          <table class="data-table">
+            <thead><tr><th>Symbol</th><th>Price</th><th>Qty</th><th>Executed</th></tr></thead>
+            <tbody id="trades-body"></tbody>
+          </table>
+        </div>
+        <div>
+          <div class="muted" style="margin-bottom:4px">Order book depth</div>
+          <div class="controls" style="margin-bottom:8px">
+            <input id="orderbook-symbol" placeholder="Symbol, e.g. NBLX" style="background:var(--panel2);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;width:140px">
+          </div>
+          <div id="orderbook-body" class="stat-grid"></div>
+        </div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Portfolio <span class="muted" style="font-weight:normal">(sample account #1)</span></h2>
+      <div class="stat-grid">
+        <div class="stat-tile"><div id="pf-cash" class="v">—</div><div class="l">Cash balance</div></div>
+        <div class="stat-tile"><div id="pf-holdings" class="v">—</div><div class="l">Holdings value</div></div>
+        <div class="stat-tile"><div id="pf-total" class="v">—</div><div class="l">Total value</div></div>
+      </div>
+      <table class="data-table" style="margin-top:10px">
+        <thead><tr><th>Symbol</th><th>Qty</th><th>Avg cost</th><th>Last price</th><th>Market value</th><th>Unrealized P/L</th></tr></thead>
+        <tbody id="pf-holdings-body"></tbody>
+      </table>
     </section>
     <section class="panel">
       <h2>Challenges</h2>

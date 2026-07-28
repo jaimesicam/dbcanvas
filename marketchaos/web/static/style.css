@@ -42,7 +42,7 @@ h1 { font-size: 18px; margin: 0; }
 main { padding: 16px 20px 40px; max-width: 1400px; margin: 0 auto; }
 .panel {
   background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
-  padding: 16px 18px; margin-bottom: 16px;
+  padding: 16px 18px; margin-bottom: 16px; overflow-x: auto;
 }
 .panel h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
@@ -91,3 +91,9 @@ main { padding: 16px 20px 40px; max-width: 1400px; margin: 0 auto; }
   width: 100%; background: var(--panel2); color: var(--fg); border: 1px solid var(--border);
   border-radius: 6px; padding: 8px; font-family: inherit; font-size: 13px; resize: vertical;
 }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 720px) {
+  .two-col { grid-template-columns: 1fr; }
+}
+.pct-up { color: var(--ok); }
+.pct-down { color: var(--bad); }

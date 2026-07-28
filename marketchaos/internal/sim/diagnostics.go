@@ -123,3 +123,21 @@ func (e *Engine) Explain(ctx context.Context, sql string) ([]store.ExplainRow, e
 }
 
 func (e *Engine) Leaderboard() []LeaderboardRow { return e.leaderboard.snapshot() }
+
+// Market overview/live-trading/portfolio passthroughs (stage S6) — plain
+// reads, not part of the workload leaderboard tracks, see store/market.go.
+func (e *Engine) MarketOverview(ctx context.Context) (store.MarketOverview, error) {
+	return e.Store.MarketOverview(ctx)
+}
+
+func (e *Engine) RecentTrades(ctx context.Context, limit int) ([]store.RecentTrade, error) {
+	return e.Store.RecentTrades(ctx, limit)
+}
+
+func (e *Engine) OrderBookDepth(ctx context.Context, symbol string) ([]store.OrderBookLevel, error) {
+	return e.Store.OrderBookDepth(ctx, symbol)
+}
+
+func (e *Engine) Portfolio(ctx context.Context, accountID int) (store.PortfolioView, error) {
+	return e.Store.Portfolio(ctx, accountID)
+}
