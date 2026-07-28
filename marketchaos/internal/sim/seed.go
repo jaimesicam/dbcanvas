@@ -47,9 +47,7 @@ func Seed(ctx context.Context, st *store.Store, counts DatasetCounts, family str
 	d := counts.Derive()
 	started := time.Now()
 
-	securities := GenerateSecurities()
-	sort.Slice(securities, func(i, j int) bool { return securities[i].Symbol < securities[j].Symbol })
-	popCum := cumulativeWeights(securities)
+	securities, popCum := LoadWorld()
 
 	now := time.Now().UTC()
 	lookback := now.Add(-seedLookbackDays * 24 * time.Hour)

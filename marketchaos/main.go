@@ -7,14 +7,16 @@
 // against, plus a web server exposing a live operations-style dashboard.
 // See app/marketchaos.go for how dbcanvas resolves and wires the target.
 //
-// Stage S1: the 13-table domain schema, the 4 data-size profiles, and the
-// batched parallel seeder. The workload agents and challenge/grading engine
-// (stages S2+) are not implemented yet.
+// Stage S2: the 10 workload agents (hybrid ticker/worker-pool concurrency)
+// on top of stage S1's schema/profiles/seeder. The challenge/grading engine
+// and full dashboard panels (stage S3+) are not implemented yet.
 package main
 
 import (
 	"context"
+	"database/sql"
 	"embed"
+	"encoding/json"
 	"io/fs"
 	"log"
 	"net/http"
@@ -72,7 +74,9 @@ func main() {
 		log.Fatalf("marketchaos: embedded web assets: %v", err)
 	}
 
-	engine := sim.NewEngine(st, kind, targetLabel, dataset)
+	members := openMembers(envOr("MYSQL_DSN_MEMBERS", ""))
+
+	engine := sim.NewEngine(st, kind, targetLabel, dataset, members)
 	engine.Start(ctx)
 
 	h := api.New(engine, st, webFS)
@@ -82,6 +86,7 @@ func main() {
 		<-ctx.Done()
 		log.Printf("marketchaos: shutting down")
 		engine.Stop()
+		members.Close()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		srv.Shutdown(shutCtx)
@@ -94,10 +99,14 @@ func main() {
 	// completion, so the node is correctly marked "running" as soon as it
 	// can talk to its target — the dashboard's own seeding panel (driven by
 	// GET /api/state's "seed" field) is what shows real progress from there.
+	// Workload agents only start once seeding is confirmed done — pointing
+	// 10 agent types at a half-seeded market would be meaningless at best.
 	go func() {
 		if err := engine.SeedIfNeeded(ctx); err != nil {
 			log.Printf("marketchaos: seed: %v", err)
+			return
 		}
+		engine.StartAgents(ctx)
 	}()
 
 	log.Printf("marketchaos: listening on :%s (mysql schema %s, kind %s, dataset %d traders/%d orders/%d trades/%d ticks)",
@@ -128,6 +137,37 @@ func datasetFromEnv() sim.DatasetCounts {
 		d.Ticks = v
 	}
 	return d
+}
+
+// openMembers parses MYSQL_DSN_MEMBERS (a JSON array of DSNs, set only for a
+// direct PXC cluster-frame link — see app/marketchaos.go's
+// waitPXCAllMembersRunning) and opens an independent connection to each.
+// Returns nil (a valid, empty *sim.MemberPool per pxc.go's nil-receiver
+// methods) for every other target shape, or if any member DSN fails to
+// parse — a malformed member list shouldn't take down the whole app when
+// the primary MYSQL_DSN connection above already works fine on its own.
+func openMembers(raw string) *sim.MemberPool {
+	if raw == "" {
+		return nil
+	}
+	var dsns []string
+	if err := json.Unmarshal([]byte(raw), &dsns); err != nil {
+		log.Printf("marketchaos: MYSQL_DSN_MEMBERS: invalid JSON, ignoring: %v", err)
+		return nil
+	}
+	dbs := make([]*sql.DB, 0, len(dsns))
+	for _, dsn := range dsns {
+		db, err := store.OpenMember(dsn, sim.MemberConnCap)
+		if err != nil {
+			log.Printf("marketchaos: MYSQL_DSN_MEMBERS: %v", err)
+			continue
+		}
+		dbs = append(dbs, db)
+	}
+	if len(dbs) == 0 {
+		return nil
+	}
+	return sim.NewMemberPool(dbs)
 }
 
 func envInt(key string, def int) int {

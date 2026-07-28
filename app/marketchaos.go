@@ -153,7 +153,7 @@ func (a *App) provisionMarketChaos(st Stack, n designNode, doc designDoc) {
 		}
 
 		pr.phase("Waiting for linked MySQL-family target", 20)
-		targetHost, targetPort, sec, kind, targetName, werr := a.waitMarketChaosTarget(ctx, st.ID, hosts, doc, domain, coarseKind, targetID, deployTimeout())
+		targetHost, targetPort, sec, kind, targetName, members, werr := a.waitMarketChaosTarget(ctx, st.ID, hosts, doc, domain, coarseKind, targetID, deployTimeout())
 		if werr != nil {
 			pr.fail("%v", werr)
 			return
@@ -172,6 +172,17 @@ func (a *App) provisionMarketChaos(st Stack, n designNode, doc designDoc) {
 			"TARGET_LABEL=" + cfg.TargetName, fmt.Sprintf("PORT=%d", marketChaosPort),
 		}
 		env = append(env, marketChaosDatasetEnv(n)...)
+		// MYSQL_DSN_MEMBERS: only set for a direct PXC cluster-frame link (kind
+		// "pxc") — the PXC-specific challenge pack's genuinely simultaneous
+		// multi-member connections (see waitPXCAllMembersRunning). Every other
+		// target shape only ever gets the one primary DSN above.
+		if cfg.TargetKind == "pxc" && len(members) > 0 {
+			memberDSNs := make([]string, len(members))
+			for i, m := range members {
+				memberDSNs[i] = fmt.Sprintf("%s:%s@tcp(%s:%d)/marketchaos", sec.AppUser, sec.AppPassword, m, targetPort)
+			}
+			env = append(env, "MYSQL_DSN_MEMBERS="+string(mustJSON(memberDSNs)))
+		}
 		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
 			Name: name, Image: marketChaosImage, Hostname: host,
 			Env:     env,
@@ -206,45 +217,45 @@ func (a *App) provisionMarketChaos(st Stack, n designNode, doc designDoc) {
 // way down to a connectable host:port and app credentials, blocking until that
 // target is actually running. Returns the resolved TargetKind string (one of the 5)
 // and a display name for the deployed node's config.
-func (a *App) waitMarketChaosTarget(ctx context.Context, stackID int64, hosts map[string]string, doc designDoc, domain, coarseKind, targetID string, timeout time.Duration) (host string, port int, sec pxcSecrets, kind, displayName string, err error) {
+func (a *App) waitMarketChaosTarget(ctx context.Context, stackID int64, hosts map[string]string, doc designDoc, domain, coarseKind, targetID string, timeout time.Duration) (host string, port int, sec pxcSecrets, kind, displayName string, members []string, err error) {
 	switch coarseKind {
 	case "ps":
 		h, s, werr := a.waitPSNodeRunning(ctx, stackID, targetID, hosts, domain, timeout)
 		if werr != nil {
-			return "", 0, pxcSecrets{}, "", "", werr
+			return "", 0, pxcSecrets{}, "", "", nil, werr
 		}
-		return h, pxcMySQLPort, s, "ps", nodeLabel(doc, targetID), nil
+		return h, pxcMySQLPort, s, "ps", nodeLabel(doc, targetID), nil, nil
 
 	case "pxcnode":
 		h, s, werr := a.waitPXCNodeRunning(ctx, stackID, targetID, hosts, domain, timeout)
 		if werr != nil {
-			return "", 0, pxcSecrets{}, "", "", werr
+			return "", 0, pxcSecrets{}, "", "", nil, werr
 		}
-		return h, pxcMySQLPort, s, "pxcnode", nodeLabel(doc, targetID), nil
+		return h, pxcMySQLPort, s, "pxcnode", nodeLabel(doc, targetID), nil, nil
 
 	case "mysql":
 		frame := frameByID(doc, targetID)
 		primaryFQDN, _, s, werr := a.waitMySQLRunning(ctx, stackID, frame, doc, domain, timeout)
 		if werr != nil {
-			return "", 0, pxcSecrets{}, "", "", werr
+			return "", 0, pxcSecrets{}, "", "", nil, werr
 		}
-		return primaryFQDN, pxcMySQLPort, s, "mysql", frame.Label, nil
+		return primaryFQDN, pxcMySQLPort, s, "mysql", frame.Label, nil, nil
 
 	case "pxc":
 		frame := frameByID(doc, targetID)
-		h, s, werr := a.waitPXCRunning(ctx, stackID, frame, doc, domain, timeout)
+		h, s, mem, werr := a.waitPXCAllMembersRunning(ctx, stackID, frame, doc, hosts, domain, timeout)
 		if werr != nil {
-			return "", 0, pxcSecrets{}, "", "", werr
+			return "", 0, pxcSecrets{}, "", "", nil, werr
 		}
-		return h, pxcMySQLPort, s, "pxc", frame.Label, nil
+		return h, pxcMySQLPort, s, "pxc", frame.Label, mem, nil
 
 	case "haproxy":
 		backFrame, backKind, hok := haproxyBackend(doc, targetID)
 		if !hok || (backKind != "pxc" && backKind != "mysql") {
-			return "", 0, pxcSecrets{}, "", "", fmt.Errorf("MarketChaos's linked HAProxy node must front a PXC or MySQL replication cluster (found %q)", backKind)
+			return "", 0, pxcSecrets{}, "", "", nil, fmt.Errorf("MarketChaos's linked HAProxy node must front a PXC or MySQL replication cluster (found %q)", backKind)
 		}
 		if !a.waitNodeRunning(stackID, targetID, timeout) {
-			return "", 0, pxcSecrets{}, "", "", fmt.Errorf("linked HAProxy node did not become ready within %s", timeout)
+			return "", 0, pxcSecrets{}, "", "", nil, fmt.Errorf("linked HAProxy node did not become ready within %s", timeout)
 		}
 		var s pxcSecrets
 		var werr error
@@ -254,11 +265,64 @@ func (a *App) waitMarketChaosTarget(ctx context.Context, stackID int64, hosts ma
 			_, _, s, werr = a.waitMySQLRunning(ctx, stackID, backFrame, doc, domain, timeout)
 		}
 		if werr != nil {
-			return "", 0, pxcSecrets{}, "", "", werr
+			return "", 0, pxcSecrets{}, "", "", nil, werr
 		}
-		return fqdnOf(hosts[targetID], domain), haproxyWritePort, s, "haproxy-" + backKind, nodeLabel(doc, targetID), nil
+		return fqdnOf(hosts[targetID], domain), haproxyWritePort, s, "haproxy-" + backKind, nodeLabel(doc, targetID), nil, nil
 	}
-	return "", 0, pxcSecrets{}, "", "", fmt.Errorf("unresolved MarketChaos target")
+	return "", 0, pxcSecrets{}, "", "", nil, fmt.Errorf("unresolved MarketChaos target")
+}
+
+// waitPXCAllMembersRunning is waitPXCRunning's polling shape, extended to
+// return every regular (non-arbitrator) member's FQDN once the whole set is
+// running — not just the first one. The PXC-specific challenge pack (stage
+// S4+) needs genuinely independent connections to more than one member to
+// manufacture real cross-node Galera certification conflicts (see the
+// written plan's §5.3 design note on why that replaces "multi-writer through
+// HAProxy", which this repo's single-writer HAProxy+PXC config can't
+// represent). Every other MarketChaos target shape only ever needs the one
+// connection waitMarketChaosTarget's other cases already resolve.
+func (a *App) waitPXCAllMembersRunning(ctx context.Context, stackID int64, frame designFrame, doc designDoc, hosts map[string]string, domain string, timeout time.Duration) (primary string, sec pxcSecrets, members []string, err error) {
+	var regulars []designNode
+	for _, n := range doc.Nodes {
+		if n.FrameID == frame.ID && n.Type == "pxc" && n.Role != "arbitrator" {
+			regulars = append(regulars, n)
+		}
+	}
+	if len(regulars) == 0 {
+		return "", pxcSecrets{}, nil, fmt.Errorf("associated PXC cluster %s has no regular (data) node", frame.Label)
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		allRunning := true
+		var fqdns []string
+		for _, n := range regulars {
+			dep, derr := a.store.GetDeployment(stackID, n.ID)
+			if derr != nil {
+				allRunning = false
+				break
+			}
+			if dep.State == DeployError {
+				return "", pxcSecrets{}, nil, fmt.Errorf("associated PXC cluster %s failed to provision", frame.Label)
+			}
+			if dep.State != DeployRunning {
+				allRunning = false
+				break
+			}
+			json.Unmarshal(dep.Secrets, &sec)
+			fqdns = append(fqdns, fqdnOf(hosts[n.ID], domain))
+		}
+		if allRunning {
+			return fqdns[0], sec, fqdns, nil
+		}
+		if time.Now().After(deadline) {
+			return "", pxcSecrets{}, nil, fmt.Errorf("associated PXC cluster %s did not become ready within %s", frame.Label, timeout)
+		}
+		select {
+		case <-ctx.Done():
+			return "", pxcSecrets{}, nil, ctx.Err()
+		case <-time.After(3 * time.Second):
+		}
+	}
 }
 
 // waitPXCNodeRunning blocks until a single, directly-linked PXC member node

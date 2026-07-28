@@ -28,6 +28,7 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("GET /api/state", h.handleState)
 	mux.HandleFunc("GET /ws", h.handleWS)
 	mux.HandleFunc("POST /api/control/level", h.handleLevel)
+	mux.HandleFunc("POST /api/control/mix", h.handleMix)
 	mux.HandleFunc("POST /api/control/pause", h.controlAction(func() { h.Engine.Pause() }))
 	mux.HandleFunc("POST /api/control/resume", h.controlAction(func() { h.Engine.Resume() }))
 	mux.HandleFunc("POST /api/control/reset", h.controlActionCtx(func(r *http.Request) error { return h.Engine.Reset(r.Context()) }))
@@ -85,6 +86,23 @@ func (h *Handler) handleLevel(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]string{"status": "ok", "level": body.Level})
 	default:
 		http.Error(w, "level must be one of stop|low|medium|high|extreme|custom", http.StatusBadRequest)
+	}
+}
+
+func (h *Handler) handleMix(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Mix string `json:"mix"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	switch sim.WorkloadMix(body.Mix) {
+	case sim.MixBalanced, sim.MixReadHeavy, sim.MixWriteHeavy, sim.MixAnalyticsHeavy, sim.MixContentionHeavy, sim.MixPXCConflictHeavy:
+		h.Engine.SetMix(sim.WorkloadMix(body.Mix))
+		writeJSON(w, map[string]string{"status": "ok", "mix": body.Mix})
+	default:
+		http.Error(w, "mix must be one of balanced|read-heavy|write-heavy|analytics-heavy|contention-heavy|pxc-conflict-heavy", http.StatusBadRequest)
 	}
 }
 

@@ -9,6 +9,10 @@ const kindBadge = document.getElementById('kind-badge')
 const versionBadge = document.getElementById('version-badge')
 const agentsList = document.getElementById('agents-list')
 const seedPanel = document.getElementById('seed-panel')
+const mixSelect = document.getElementById('mix-select')
+let mixSelectFocused = false
+mixSelect.addEventListener('focus', () => { mixSelectFocused = true })
+mixSelect.addEventListener('blur', () => { mixSelectFocused = false })
 
 async function fetchState() {
   try {
@@ -40,6 +44,9 @@ function render(snap) {
   document.querySelectorAll('.controls button[data-level]').forEach((btn) => {
     btn.classList.toggle('active', snap.control && btn.dataset.level === snap.control.level)
   })
+  if (!mixSelectFocused && snap.control && snap.control.mix) {
+    mixSelect.value = snap.control.mix
+  }
 
   renderSeed(snap.seed)
 
@@ -70,6 +77,15 @@ document.querySelectorAll('.controls button[data-level]').forEach((btn) => {
     })
     fetchState()
   })
+})
+
+mixSelect.addEventListener('change', async () => {
+  await fetch('/api/control/mix', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mix: mixSelect.value }),
+  })
+  fetchState()
 })
 
 document.getElementById('reset-btn').addEventListener('click', async () => {

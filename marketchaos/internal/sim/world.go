@@ -3,6 +3,7 @@ package sim
 import (
 	"fmt"
 	"math/rand"
+	"sort"
 )
 
 // worldSeed makes every deployment's 200-security universe identical and
@@ -108,6 +109,18 @@ func GenerateSecurities() []Security {
 		out[idx].Popularity = 1.0 / float64(rank)
 	}
 	return out
+}
+
+// LoadWorld returns the fixed 200-security universe sorted by symbol (the
+// stable order both the seeder and every live agent index into) plus its
+// cumulative Zipf popularity weights for weightedPick — the one place this
+// sort+cumulative-weights pairing happens, so the seeder (seed.go) and the
+// live engine (engine.go) can never independently drift out of sync with
+// each other's idea of "security index N".
+func LoadWorld() ([]Security, []float64) {
+	securities := GenerateSecurities()
+	sort.Slice(securities, func(i, j int) bool { return securities[i].Symbol < securities[j].Symbol })
+	return securities, cumulativeWeights(securities)
 }
 
 // symbolFor derives a short, unique ticker-style symbol from a generated

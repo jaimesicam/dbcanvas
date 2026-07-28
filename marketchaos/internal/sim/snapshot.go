@@ -22,6 +22,7 @@ type Snapshot struct {
 type ControlInfo struct {
 	State string `json:"state"` // "running" | "paused"
 	Level string `json:"level"` // stop|low|medium|high|extreme|custom
+	Mix   string `json:"mix"`   // balanced|read-heavy|write-heavy|analytics-heavy|contention-heavy|pxc-conflict-heavy
 	Kind  string `json:"kind"`
 }
 
@@ -39,7 +40,7 @@ func runningState(running bool) string {
 // own -healthcheck exec (via /healthz) fails on.
 func (e *Engine) BuildSnapshot(ctx context.Context) Snapshot {
 	snap := Snapshot{
-		Control:   ControlInfo{State: runningState(e.Running()), Level: string(e.Level()), Kind: string(e.Kind)},
+		Control:   ControlInfo{State: runningState(e.Running()), Level: string(e.Level()), Mix: string(e.Mix()), Kind: string(e.Kind)},
 		Seed:      e.SeedProgress(),
 		UptimeSec: e.UptimeSeconds(),
 	}

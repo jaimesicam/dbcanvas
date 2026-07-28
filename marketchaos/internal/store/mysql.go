@@ -62,6 +62,32 @@ func Connect(dsn string) (*Store, error) {
 	return &Store{DB: db, cfg: cfg, Schema: ""}, nil
 }
 
+// OpenMember opens an independent connection pool against dsn — used only
+// for MYSQL_DSN_MEMBERS (a direct PXC cluster-frame link's per-member
+// connections; see internal/sim/pxc.go), never wrapped in a Store since
+// these connections never run schema setup, seeding, or Reset — only live
+// workload agent queries against an already-provisioned database. maxOpen
+// must be capped by the caller (sim.MemberConnCap) — Go's database/sql
+// defaults to unlimited open connections, and this pool's connections are
+// additional to Store's own primary pool against the SAME cluster, so
+// leaving it uncapped risks blowing through a node's max_connections
+// under heavy traffic (found live: see sim.PoolSize's doc comment).
+func OpenMember(dsn string, maxOpen int) (*sql.DB, error) {
+	cfg, err := mysqldriver.ParseDSN(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("parse member dsn: %w", err)
+	}
+	cfg.ParseTime = true
+	db, err := sql.Open("mysql", cfg.FormatDSN())
+	if err != nil {
+		return nil, fmt.Errorf("open member: %w", err)
+	}
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetMaxOpenConns(maxOpen)
+	db.SetMaxIdleConns(maxOpen / 2)
+	return db, nil
+}
+
 func (s *Store) Ping(ctx context.Context) error {
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

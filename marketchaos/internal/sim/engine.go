@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -11,61 +12,173 @@ import (
 	"marketchaos/internal/store"
 )
 
-// Engine owns the connection to the target database and (from stage S2
-// onward) every background workload agent. As of stage S1 it can seed the
-// domain schema and report progress while doing so; the actual workload
-// agents are still stage S2.
+// counters holds every atomic metric the workload agents update — the only
+// path through which anything counted here becomes visible outside the
+// Engine (surfaced via BuildSnapshot/metrics in a later stage; S2 just
+// starts counting so that plumbing has real numbers to read).
+type counters struct {
+	ordersPlaced   atomic.Int64 // retail+institutional combined
+	tradesExecuted atomic.Int64
+	txnRetries     atomic.Int64 // deadlock/Galera-certification retries (error 1213/1205)
+	agentErrors    atomic.Int64
+
+	retailOrders        atomic.Int64
+	institutionalOrders atomic.Int64
+	portfolioReads      atomic.Int64
+}
+
+// Engine owns the connection(s) to the target database and every background
+// workload agent. MySQL is the durable, shareable view of everything it
+// does — the web API and every browser client only ever read from it (via
+// BuildSnapshot), never from Engine's own memory directly.
 type Engine struct {
 	Store       *store.Store
 	Kind        TargetKind
 	TargetLabel string
 	Dataset     DatasetCounts
 	Bus         *EventBus
+	// Members holds independent connections to specific PXC cluster members
+	// — nil for every target shape except a direct "pxc" cluster-frame link
+	// (see pxc.go). Only the Institutional Trader agent uses it.
+	Members *MemberPool
+
+	// Securities/popCum are the fixed, deterministic 200-security universe
+	// (see world.go's LoadWorld) — loaded once at construction, shared
+	// read-only by every agent, indexed identically to how the seeder wrote
+	// security_id = index+1.
+	Securities []Security
+	popCum     []float64
+
+	counters counters
 
 	level   atomic.Value // LoadLevel
+	mix     atomic.Value // WorkloadMix
 	running atomic.Bool
 	started time.Time
 
 	seedMu       sync.RWMutex
 	seedProgress SeedProgress
 	lastPersist  time.Time
+
+	// baseCtx is the process's long-lived context — StartAgents/Reset always
+	// derive from this, never from a caller's request-scoped context (a
+	// Reset triggered from an HTTP handler whose r.Context() is canceled the
+	// instant that response is written would otherwise kill every freshly-
+	// restarted agent goroutine a moment after Reset returned "ok"; same
+	// reasoning as every sibling sim's identical baseCtx field).
+	baseCtx context.Context
+	ctx     context.Context
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
+
+	// pools are the 4 concurrency-sensitive (worker-pool) agents — created
+	// once here and resized live by resizePools, never recreated, so Stop
+	// followed by StartAgents (as Reset does) resumes from a clean 0 rather
+	// than accumulating goroutines across restarts.
+	pools map[string]*workerPool
 }
 
-func NewEngine(st *store.Store, kind TargetKind, targetLabel string, dataset DatasetCounts) *Engine {
-	e := &Engine{Store: st, Kind: kind, TargetLabel: targetLabel, Dataset: dataset, Bus: NewEventBus()}
+func NewEngine(st *store.Store, kind TargetKind, targetLabel string, dataset DatasetCounts, members *MemberPool) *Engine {
+	securities, popCum := LoadWorld()
+	e := &Engine{
+		Store: st, Kind: kind, TargetLabel: targetLabel, Dataset: dataset, Bus: NewEventBus(),
+		Members: members, Securities: securities, popCum: popCum,
+	}
 	e.level.Store(LevelStop)
+	e.mix.Store(MixBalanced)
+	// Bound the primary pool from construction, not just from the first
+	// explicit SetLevel call — Go's database/sql defaults to unlimited open
+	// connections, and nothing else touches pool sizing before a user picks
+	// a traffic level for the first time.
+	maxOpen, maxIdle := PoolSize(kind.Family(), LevelStop)
+	st.SetPoolSize(maxOpen, maxIdle)
+	e.pools = map[string]*workerPool{
+		"retail":        newWorkerPool(e.retailTraderLoop),
+		"institutional": newWorkerPool(e.institutionalTraderLoop),
+		"matching":      newWorkerPool(e.matchingEngineLoop),
+		"portfolio":     newWorkerPool(e.portfolioLoop),
+	}
 	return e
 }
 
-// Start marks the engine running. Stage S2 adds the actual agent goroutines
-// here; for now this only flips state so the dashboard's status bar and
-// control buttons have something real to reflect.
+// Start marks the engine up (heartbeat, uptime clock) without starting any
+// workload agent — main.go calls this immediately, then StartAgents only
+// once seeding has finished (see main.go's comment on why: a Large-profile
+// seed can take many minutes, and agents hitting an half-seeded market would
+// be at best meaningless, at worst actively confusing).
 func (e *Engine) Start(ctx context.Context) {
+	if e.baseCtx == nil {
+		e.baseCtx = ctx
+	}
 	e.running.Store(true)
 	e.started = time.Now()
 	e.Store.Heartbeat(ctx, "system", "ok", "marketchaos started")
 }
 
-func (e *Engine) Stop() {
-	e.running.Store(false)
-}
-
-func (e *Engine) Pause() {
-	e.running.Store(false)
-}
-
-func (e *Engine) Resume() {
+// StartAgents launches every background workload agent goroutine and sizes
+// the worker pools for the current level/mix. Idempotent to call again after
+// Stop (used by Reset).
+func (e *Engine) StartAgents(ctx context.Context) {
+	if e.baseCtx == nil {
+		e.baseCtx = ctx
+	}
+	e.ctx, e.cancel = context.WithCancel(e.baseCtx)
 	e.running.Store(true)
+
+	rateAgents := []func(context.Context){
+		e.runMarketDataAgent,
+		e.runNewsAgent,
+		e.runScannerAgent,
+		e.runComplianceAgent,
+		e.runCleanupAgent,
+		e.runDashboardPollAgent,
+	}
+	for _, fn := range rateAgents {
+		e.wg.Add(1)
+		go func(f func(context.Context)) {
+			defer e.wg.Done()
+			f(e.ctx)
+		}(fn)
+	}
+	e.resizePools()
+	log.Printf("marketchaos: agents started (kind=%s family=%s mix=%s level=%s members=%d)",
+		e.Kind, e.Kind.Family(), e.Mix(), e.Level(), e.Members.Len())
 }
 
-// Reset truncates every owned table, then re-seeds with the same dataset
-// counts the node was deployed with — the same "wipe, then rebuild the
-// static/starting world" shape every sibling sim's Reset follows.
+// Stop cancels every agent goroutine (rate-driven and worker-pool alike —
+// pool workers derive their context from e.ctx, so canceling it cascades to
+// them too) and waits for all of them to exit.
+func (e *Engine) Stop() {
+	if e.cancel != nil {
+		e.cancel()
+	}
+	e.wg.Wait()
+	for _, p := range e.pools {
+		p.Stop()
+	}
+}
+
+func (e *Engine) Pause()  { e.running.Store(false) }
+func (e *Engine) Resume() { e.running.Store(true) }
+
+// Reset stops every agent, wipes every table this app owns, re-seeds with
+// the same dataset counts the node was deployed with, then starts fresh —
+// the same "wipe, then rebuild the static/starting world" shape every
+// sibling sim's Reset follows. Takes no meaningful use of ctx for the
+// restart itself: agents always resume from baseCtx (see StartAgents),
+// never a caller-supplied request context.
 func (e *Engine) Reset(ctx context.Context) error {
+	e.Stop()
+	e.counters = counters{}
+
 	if err := store.Wipe(ctx, e.Store); err != nil {
 		return err
 	}
-	return e.RunSeed(ctx)
+	if err := e.RunSeed(ctx); err != nil {
+		return err
+	}
+	e.StartAgents(e.baseCtx)
+	return nil
 }
 
 // SeedIfNeeded seeds the schema only if it looks empty — idempotent across
@@ -129,8 +242,14 @@ func (e *Engine) SeedProgress() SeedProgress {
 	return e.seedProgress
 }
 
+// SetLevel changes the simulated traffic level, resizes the MySQL connection
+// pool to match (see PoolSize — deliberately not equal to the worker count),
+// and resizes every worker-pool agent for the new level x mix combination.
 func (e *Engine) SetLevel(level LoadLevel) {
 	e.level.Store(level)
+	maxOpen, maxIdle := PoolSize(e.Kind.Family(), level)
+	e.Store.SetPoolSize(maxOpen, maxIdle)
+	e.resizePools()
 }
 
 func (e *Engine) Level() LoadLevel {
@@ -138,6 +257,81 @@ func (e *Engine) Level() LoadLevel {
 		return v
 	}
 	return LevelStop
+}
+
+// SetMix changes which kind of traffic the current level produces and
+// re-sizes the worker pools accordingly (rate-driven agents just read the
+// new mix on their next tick — no resize needed for those).
+func (e *Engine) SetMix(mix WorkloadMix) {
+	e.mix.Store(mix)
+	e.resizePools()
+}
+
+func (e *Engine) Mix() WorkloadMix {
+	if v, ok := e.mix.Load().(WorkloadMix); ok {
+		return v
+	}
+	return MixBalanced
+}
+
+// resizePools splits WorkerCounts[level] across the 4 concurrency-sensitive
+// agents by the current mix's pool shares. A no-op before StartAgents has
+// run once (e.ctx is nil — nothing to parent the pool workers' contexts to
+// yet); StartAgents calls this itself once it has set e.ctx.
+func (e *Engine) resizePools() {
+	if e.ctx == nil {
+		return
+	}
+	shares := sharesFor(e.Mix())
+	total := WorkerCounts[e.Level()]
+	poolTotal := shares.poolTotal()
+	sizeFor := func(w float64) int {
+		if poolTotal <= 0 {
+			return 0
+		}
+		return int(float64(total) * w / poolTotal)
+	}
+	e.pools["retail"].Resize(e.ctx, sizeFor(shares.RetailTrader))
+	e.pools["institutional"].Resize(e.ctx, sizeFor(shares.InstitutionalTrader))
+	e.pools["matching"].Resize(e.ctx, sizeFor(shares.MatchingEngine))
+	e.pools["portfolio"].Resize(e.ctx, sizeFor(shares.Portfolio))
+}
+
+// agentRate returns a rate-driven agent's own ops/sec budget: the target
+// family's total rate-agent budget for the current level, split by the
+// current mix's rate shares.
+func (e *Engine) agentRate(weight float64) float64 {
+	shares := sharesFor(e.Mix())
+	rt := shares.rateTotal()
+	if rt <= 0 {
+		return 0
+	}
+	total := rateOpsPerSecond[e.Kind.Family()][e.Level()]
+	return total * weight / rt
+}
+
+// opsThisTick converts a per-second rate into a per-tick batch size, so the
+// same tick interval produces proportionally different throughput at every
+// traffic level.
+func opsThisTick(ratePerSec float64, interval time.Duration) int {
+	n := int(ratePerSec * interval.Seconds())
+	if n < 1 && ratePerSec > 0 {
+		n = 1
+	}
+	return n
+}
+
+// randAccountID picks a random account/trader id in [1, Dataset.Traders] —
+// accounts and traders share the same 1:1 auto-increment range (see seed.go:
+// "trader_id N maps to trader row N"), so every agent that needs either
+// picks from this one range. Returns 0 (never a valid id) if the dataset
+// somehow has no traders, so callers can bail out instead of panicking on
+// rand.Intn(0).
+func (e *Engine) randAccountID(rng *rand.Rand) int {
+	if e.Dataset.Traders <= 0 {
+		return 0
+	}
+	return 1 + rng.Intn(e.Dataset.Traders)
 }
 
 func (e *Engine) Running() bool {
