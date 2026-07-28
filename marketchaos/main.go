@@ -107,6 +107,12 @@ func main() {
 			log.Printf("marketchaos: seed: %v", err)
 			return
 		}
+		// Restore any challenge state a prior process's restart left behind
+		// (see challenge.Manager.LoadPersisted's doc comment) before agents
+		// start reading ActiveVariant() for their bad/reference branches.
+		if err := engine.Challenges.LoadPersisted(ctx); err != nil {
+			log.Printf("marketchaos: load challenge state: %v", err)
+		}
 		engine.StartAgents(ctx)
 	}()
 

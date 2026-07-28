@@ -40,6 +40,13 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("GET /api/diag/locks", h.handleLockWaits)
 	mux.HandleFunc("GET /api/diag/tablesizes", h.handleTableSizes)
 	mux.HandleFunc("POST /api/diag/explain", h.handleExplain)
+	mux.HandleFunc("GET /api/challenges", h.handleChallengeCatalog)
+	mux.HandleFunc("GET /api/challenges/active", h.handleChallengeActive)
+	mux.HandleFunc("POST /api/challenges/{id}/start", h.handleChallengeStart)
+	mux.HandleFunc("POST /api/challenges/reset", h.handleChallengeReset)
+	mux.HandleFunc("POST /api/challenges/hint", h.handleChallengeHint)
+	mux.HandleFunc("POST /api/challenges/diagnosis", h.handleChallengeDiagnosis)
+	mux.HandleFunc("POST /api/challenges/apply-variant", h.handleChallengeApplyVariant)
 	mux.Handle("GET /", http.FileServerFS(h.Web))
 	return mux
 }

@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"marketchaos/internal/challenge"
 	"marketchaos/internal/store"
 )
 
@@ -25,6 +26,12 @@ type counters struct {
 	retailOrders        atomic.Int64
 	institutionalOrders atomic.Int64
 	portfolioReads      atomic.Int64
+	// portfolioSummaryQueries is portfolio-n-plus-1's grading signal — see
+	// agents_analytics.go's dashboardSummary — the actual SQL statement
+	// count behind however many dashboard-poll events ran, since the N+1
+	// bad state issues entirely different leaderboard shapes than the
+	// reference JOIN and there's no shared shape ID to diff against.
+	portfolioSummaryQueries atomic.Int64
 }
 
 // Engine owns the connection(s) to the target database and every background
@@ -52,6 +59,11 @@ type Engine struct {
 	// security_id = index+1.
 	Securities []Security
 	popCum     []float64
+	// topSymbolIdx is the single most-popular security's index — used only
+	// by the pxc-hot-parent-row and pxc-hot-symbol-conflict challenges'
+	// institutional-trader variants (see agents_trading.go) to concentrate
+	// writes beyond what natural Zipf weighting alone produces.
+	topSymbolIdx int
 
 	counters counters
 
@@ -73,6 +85,13 @@ type Engine struct {
 
 	leaderboard *leaderboard
 
+	// Challenges is the challenge lifecycle manager — public because the API
+	// layer drives it directly (start/reset/hint/diagnosis/apply-variant are
+	// all thin passthroughs, see internal/api/challenge.go); grading (stage
+	// S5) lives on Engine itself in grading.go, since it needs
+	// leaderboard/wsrep/serverstats access Manager deliberately doesn't have.
+	Challenges *challenge.Manager
+
 	// baseCtx is the process's long-lived context — StartAgents/Reset always
 	// derive from this, never from a caller's request-scoped context (a
 	// Reset triggered from an HTTP handler whose r.Context() is canceled the
@@ -93,10 +112,17 @@ type Engine struct {
 
 func NewEngine(st *store.Store, kind TargetKind, targetLabel string, dataset DatasetCounts, members *MemberPool, haproxyStatsURL string) *Engine {
 	securities, popCum := LoadWorld()
+	topIdx := 0
+	for i, s := range securities {
+		if s.Popularity > securities[topIdx].Popularity {
+			topIdx = i
+		}
+	}
 	e := &Engine{
 		Store: st, Kind: kind, TargetLabel: targetLabel, Dataset: dataset, Bus: NewEventBus(),
 		Members: members, Securities: securities, popCum: popCum, HAProxyStatsURL: haproxyStatsURL,
-		leaderboard: newLeaderboard(),
+		topSymbolIdx: topIdx,
+		leaderboard:  newLeaderboard(), Challenges: challenge.NewManager(st.DB),
 	}
 	e.level.Store(LevelStop)
 	e.mix.Store(MixBalanced)
@@ -347,6 +373,16 @@ func (e *Engine) randAccountID(rng *rand.Rand) int {
 		return 0
 	}
 	return 1 + rng.Intn(e.Dataset.Traders)
+}
+
+// ActiveVariant is the short form agent code actually calls — see
+// challenge.Manager.ActiveVariantID's doc comment. Returns "" almost always
+// (no challenge active, or a DB-mechanism one, or an app-mechanism one
+// whose fix has already been applied) — every app-variant branch in the
+// agent files is `if e.ActiveVariant() == "some-challenge-id" { bad } else
+// { reference }`.
+func (e *Engine) ActiveVariant() string {
+	return e.Challenges.ActiveVariantID()
 }
 
 func (e *Engine) Running() bool {

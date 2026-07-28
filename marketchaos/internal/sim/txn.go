@@ -26,8 +26,16 @@ const maxTxnRetries = 5
 // pxc.go), and that connection needs the exact same retry semantics as the
 // primary one.
 func withRetry(ctx context.Context, db *sql.DB, retries *counters, fn func(tx *sql.Tx) error) error {
+	return withRetryN(ctx, db, retries, maxTxnRetries, fn)
+}
+
+// withRetryN is withRetry with an explicit attempt budget — the
+// pxc-no-retry-classification challenge's bad state passes 1 (surfacing
+// every certification conflict as a hard error instead of transparently
+// retrying it), everything else uses withRetry's maxTxnRetries default.
+func withRetryN(ctx context.Context, db *sql.DB, retries *counters, maxAttempts int, fn func(tx *sql.Tx) error) error {
 	var lastErr error
-	for attempt := 0; attempt < maxTxnRetries; attempt++ {
+	for attempt := 0; attempt < maxAttempts; attempt++ {
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
 			return fmt.Errorf("begin: %w", err)
@@ -50,7 +58,7 @@ func withRetry(ctx context.Context, db *sql.DB, retries *counters, fn func(tx *s
 		}
 		time.Sleep(time.Duration(5+rand.Intn(20)) * time.Millisecond * time.Duration(attempt+1))
 	}
-	return fmt.Errorf("giving up after %d retries: %w", maxTxnRetries, lastErr)
+	return fmt.Errorf("giving up after %d retries: %w", maxAttempts, lastErr)
 }
 
 func isRetryable(err error) bool {

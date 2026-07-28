@@ -44,11 +44,38 @@
         <div class="stat-tile"><div id="stat-uptime" class="v">—</div><div class="l">Uptime (s)</div></div>
       </div>
       <p class="muted">
-        This is the stage-S3 scaffold: connection wiring, the full domain schema, dataset
-        seeding, all 10 workload agents, and the database-performance/PXC/HAProxy diagnostic
-        panels below are live. The challenge catalog, grading engine, and the market/trading/
-        portfolio panels land in later implementation stages.
+        This is the stage-S4 scaffold: connection wiring, the full domain schema, dataset
+        seeding, all 10 workload agents, the database-performance/PXC/HAProxy diagnostic
+        panels, and the 18-challenge catalog below are live. Grading (baseline/validate/score)
+        and the market/trading/portfolio panels land in later implementation stages.
       </p>
+    </section>
+    <section class="panel">
+      <h2>Challenges</h2>
+      <div id="challenge-idle">
+        <p class="muted">Pick a challenge below to inject it, then diagnose and fix it — indexing/schema challenges are fixed with real SQL through DBCanvas's own Terminal or Query Runner; app-behavior challenges are fixed with the toggle that appears here once you've used a hint and recorded a diagnosis.</p>
+        <div id="challenge-list" class="challenge-list"></div>
+      </div>
+      <div id="challenge-active" class="hidden">
+        <div class="flex-row">
+          <span id="ca-title" class="ca-title"></span>
+          <span id="ca-badges"></span>
+        </div>
+        <p id="ca-scenario" class="muted"></p>
+        <p id="ca-symptom"></p>
+        <div id="ca-hints" class="ca-hints"></div>
+        <div class="controls" style="margin:10px 0 14px">
+          <button id="ca-hint-btn">Get a hint</button>
+          <button id="ca-reset-btn" class="danger">Reset challenge</button>
+        </div>
+        <label class="muted" style="display:block;margin-bottom:4px">Your diagnosis (what's wrong, and why)</label>
+        <textarea id="ca-diagnosis" rows="2"></textarea>
+        <button id="ca-diagnosis-btn">Save diagnosis</button>
+        <div id="ca-variant-block" class="hidden" style="margin-top:12px">
+          <button id="ca-variant-btn">Apply improved implementation</button>
+          <span id="ca-variant-status" class="muted"></span>
+        </div>
+      </div>
     </section>
     <section id="seed-panel" class="panel hidden">
       <h2>Seeding market data</h2>

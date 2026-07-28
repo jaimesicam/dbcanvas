@@ -66,3 +66,28 @@ main { padding: 16px 20px 40px; max-width: 1400px; margin: 0 auto; }
 .data-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
 .data-table tr:last-child td { border-bottom: none; }
 .data-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.challenge-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin-top: 10px; }
+.challenge-card {
+  background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;
+}
+.challenge-card .title { font-weight: 600; font-size: 14px; }
+.challenge-card .tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.tag {
+  display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: .03em;
+  padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted);
+}
+.tag.pxc { border-color: var(--accent); color: var(--accent); }
+.challenge-card button { align-self: flex-start; }
+.flex-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.ca-title { font-size: 16px; font-weight: 700; }
+.ca-hints { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.ca-hint {
+  background: var(--panel2); border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 10px; font-size: 13px;
+}
+#ca-diagnosis {
+  width: 100%; background: var(--panel2); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px; font-family: inherit; font-size: 13px; resize: vertical;
+}

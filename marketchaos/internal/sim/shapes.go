@@ -40,6 +40,14 @@ var shapeRegistry = []shapePattern{
 		Contains: []string{"SELECT", "volume", "market_quotes", "ORDER BY", "volume"}},
 	{ID: "scanner.top_movers", Label: "Scan: top movers by day range", Agent: "scanner",
 		Contains: []string{"SELECT", "day_high", "day_low", "market_quotes"}},
+	{ID: "scanner.full_history_agg", Label: "Scan: volume aggregation over price history", Agent: "scanner",
+		// "SUM ( `volume` )" — MySQL's digest normalizer spaces out parens and
+		// backtick-quotes identifiers; found live (a function call written
+		// without spaces here never matched, so this shape silently never
+		// appeared on the leaderboard until this was fixed).
+		Contains: []string{"SELECT", "SUM (", "volume", "price_ticks", "GROUP BY"}},
+	{ID: "history.price_range", Label: "Price history for a symbol", Agent: "scanner",
+		Contains: []string{"SELECT", "price_ticks", "recorded_at"}},
 	{ID: "dashboard.portfolio_summary", Label: "Dashboard portfolio summary", Agent: "dashboard-poll",
 		Contains: []string{"SELECT", "positions", "market_quotes", "JOIN"}},
 	{ID: "portfolio.revalue", Label: "Portfolio revaluation read", Agent: "portfolio",
@@ -48,6 +56,13 @@ var shapeRegistry = []shapePattern{
 		Contains: []string{"SELECT", "trade_value", "trades", "ORDER BY"}},
 	{ID: "compliance.flag_insert", Label: "Compliance: flag large trade", Agent: "compliance",
 		Contains: []string{"INSERT", "audit_events"}},
+	{ID: "trades.recent", Label: "Recent trades view", Agent: "compliance",
+		Contains: []string{"SELECT", "trade_id", "security_id", "trades", "ORDER BY"}},
+	{ID: "orders.daily_lookup", Label: "Count today's orders", Agent: "compliance",
+		// "COUNT ( * )" — same spaced-parens normalization as SUM above.
+		Contains: []string{"SELECT", "COUNT (", "orders", "created_at"}},
+	{ID: "orders.by_account", Label: "Look up orders for an account", Agent: "compliance",
+		Contains: []string{"SELECT", "orders", "account_id", "ORDER BY"}},
 	{ID: "cleanup.expire_orders", Label: "Expire stale open orders", Agent: "cleanup",
 		Contains: []string{"UPDATE", "orders", "cancelled_at", "created_at"}},
 	{ID: "orders.insert", Label: "Place order", Agent: "retail-trader / institutional-trader",

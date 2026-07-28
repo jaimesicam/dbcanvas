@@ -42,10 +42,13 @@ func (e *Engine) revaluePortfolio(ctx context.Context, rng *rand.Rand) bool {
 	if accountID == 0 {
 		return false
 	}
+	// Full table names, not aliases — see agents_analytics.go's
+	// dashboardSummary for why (a reproducible Percona Server 8.0.46 digest
+	// quirk with short JOIN aliases, found live).
 	rows, err := e.Store.DB.QueryContext(ctx,
-		`SELECT p.security_id, p.quantity, p.average_cost, q.last_price
-		 FROM positions p JOIN market_quotes q ON q.security_id=p.security_id
-		 WHERE p.account_id=?`, accountID)
+		`SELECT positions.security_id, positions.quantity, positions.average_cost, market_quotes.last_price
+		 FROM positions JOIN market_quotes ON market_quotes.security_id=positions.security_id
+		 WHERE positions.account_id=?`, accountID)
 	if err != nil {
 		return false
 	}

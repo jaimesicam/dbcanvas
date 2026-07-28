@@ -203,6 +203,125 @@ function renderSeed(seed) {
   }
 }
 
+// ----------------------------------------------------------- challenges
+
+let challengeCatalog = null // fetched once — the catalog itself never changes for a running deployment
+
+async function fetchChallenges() {
+  try {
+    if (!challengeCatalog) {
+      challengeCatalog = await fetch('/api/challenges').then((r) => r.json())
+    }
+    const active = await fetch('/api/challenges/active').then((r) => r.json())
+    renderChallenges(active)
+  } catch (e) {
+    // best-effort — the next poll recovers
+  }
+}
+
+function renderChallenges(active) {
+  const idle = document.getElementById('challenge-idle')
+  const activeEl = document.getElementById('challenge-active')
+  if (!active || !active.active) {
+    idle.classList.remove('hidden')
+    activeEl.classList.add('hidden')
+    renderChallengeList()
+    return
+  }
+  idle.classList.add('hidden')
+  activeEl.classList.remove('hidden')
+  renderActiveChallenge(active)
+}
+
+function renderChallengeList() {
+  const list = document.getElementById('challenge-list')
+  if (!Array.isArray(challengeCatalog) || challengeCatalog.length === 0) {
+    list.innerHTML = '<p class="muted">No challenges available for this target.</p>'
+    return
+  }
+  list.innerHTML = ''
+  for (const c of challengeCatalog) {
+    const card = document.createElement('div')
+    card.className = 'challenge-card'
+    const tags = [`<span class="tag">${c.difficulty}</span>`, `<span class="tag">${c.category}</span>`]
+    if (c.requiresFamily === 'pxc') tags.push('<span class="tag pxc">PXC</span>')
+    card.innerHTML = `<div class="title">${c.title}</div><div class="tags">${tags.join('')}</div>` +
+      `<div class="muted">${c.hintCount} hints available</div>`
+    const btn = document.createElement('button')
+    btn.textContent = 'Start'
+    btn.addEventListener('click', async () => {
+      const res = await fetch(`/api/challenges/${c.id}/start`, { method: 'POST' })
+      if (res.ok) fetchChallenges()
+      else alert(await res.text())
+    })
+    card.appendChild(btn)
+    list.appendChild(card)
+  }
+}
+
+function renderActiveChallenge(active) {
+  document.getElementById('ca-title').textContent = active.title
+  const tags = [`<span class="tag">${active.difficulty}</span>`, `<span class="tag">${active.category}</span>`, `<span class="tag">${active.mechanism === 'app' ? 'app-behavior fix' : 'SQL fix'}</span>`]
+  document.getElementById('ca-badges').innerHTML = tags.join(' ')
+  document.getElementById('ca-scenario').textContent = active.scenario
+  document.getElementById('ca-symptom').textContent = active.symptom
+
+  const diagField = document.getElementById('ca-diagnosis')
+  if (document.activeElement !== diagField) diagField.value = active.diagnosis || ''
+
+  const variantBlock = document.getElementById('ca-variant-block')
+  const variantStatus = document.getElementById('ca-variant-status')
+  if (active.mechanism === 'app') {
+    variantBlock.classList.remove('hidden')
+    if (active.appliedVariant) {
+      variantStatus.textContent = 'Improved implementation applied.'
+      document.getElementById('ca-variant-btn').disabled = true
+    } else {
+      document.getElementById('ca-variant-btn').disabled = false
+      variantStatus.textContent = active.hintsUsed > 0 && active.diagnosis
+        ? '' : 'Use a hint and save a diagnosis to unlock this.'
+    }
+  } else {
+    variantBlock.classList.add('hidden')
+  }
+
+  const hintBtn = document.getElementById('ca-hint-btn')
+  hintBtn.disabled = active.hintsUsed >= active.totalHints
+  hintBtn.textContent = active.hintsUsed >= active.totalHints ? 'No more hints' : `Get a hint (${active.hintsUsed}/${active.totalHints} used)`
+}
+
+document.getElementById('ca-hint-btn').addEventListener('click', async () => {
+  const res = await fetch('/api/challenges/hint', { method: 'POST' })
+  if (!res.ok) return
+  const hint = await res.json()
+  const hints = document.getElementById('ca-hints')
+  const div = document.createElement('div')
+  div.className = 'ca-hint'
+  div.textContent = `Hint ${hint.tier}: ${hint.text}`
+  hints.appendChild(div)
+  fetchChallenges()
+})
+
+document.getElementById('ca-reset-btn').addEventListener('click', async () => {
+  document.getElementById('ca-hints').innerHTML = ''
+  await fetch('/api/challenges/reset', { method: 'POST' })
+  fetchChallenges()
+})
+
+document.getElementById('ca-diagnosis-btn').addEventListener('click', async () => {
+  const text = document.getElementById('ca-diagnosis').value
+  await fetch('/api/challenges/diagnosis', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
+  })
+  fetchChallenges()
+})
+
+document.getElementById('ca-variant-btn').addEventListener('click', async () => {
+  const res = await fetch('/api/challenges/apply-variant', { method: 'POST' })
+  if (!res.ok) { alert(await res.text()); return }
+  fetchChallenges()
+})
+
 function connectWS() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const ws = new WebSocket(`${proto}//${location.host}/ws`)
@@ -220,6 +339,8 @@ function connectWS() {
 
 fetchState()
 fetchDiagnostics()
+fetchChallenges()
 setInterval(fetchState, 2000)
 setInterval(fetchDiagnostics, 2000)
+setInterval(fetchChallenges, 2000)
 connectWS()

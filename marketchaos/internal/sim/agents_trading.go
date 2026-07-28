@@ -115,30 +115,89 @@ func (e *Engine) institutionalTraderLoop(ctx context.Context, workerIndex int) {
 	}
 }
 
+// institutionalSymbolPick is the normal weighted-random pick, except for the
+// 2 PXC challenges that deliberately concentrate writes beyond it: hot-
+// parent-row always targets the single most popular symbol, and
+// hot-symbol-conflict leans toward it most (not all) of the time — a
+// graduated distinction between "worse than baseline" and "worst case."
+func (e *Engine) institutionalSymbolPick(rng *rand.Rand) int {
+	switch e.ActiveVariant() {
+	case "pxc-hot-parent-row":
+		return e.topSymbolIdx
+	case "pxc-hot-symbol-conflict":
+		if rng.Intn(10) < 7 {
+			return e.topSymbolIdx
+		}
+		return weightedPick(e.popCum, rng)
+	default:
+		return weightedPick(e.popCum, rng)
+	}
+}
+
+// placeInstitutionalOrder covers 6 of the PXC-specific challenge pack's
+// bad states, each an app-only behavior no learner SQL could reach (see
+// internal/challenge's package doc comment) — every branch here reverts to
+// the plain baseline behavior the instant ActiveVariant() stops returning
+// that challenge's ID (a challenge is reset, or its fix is applied).
 func (e *Engine) placeInstitutionalOrder(ctx context.Context, rng *rand.Rand, db *sql.DB) bool {
 	accountID := e.randAccountID(rng)
 	if accountID == 0 {
 		return false
 	}
-	secIdx := weightedPick(e.popCum, rng)
-	secID := secIdx + 1
-	side := "buy"
-	if rng.Intn(2) == 0 {
-		side = "sell"
-	}
-	qty := 500 + rng.Intn(5000)
+	variant := e.ActiveVariant()
 	now := time.Now().UTC()
 
-	err := withRetry(ctx, db, &e.counters, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx,
-			"UPDATE market_quotes SET volume=volume+?, updated_at=? WHERE security_id=?", qty, now, secID); err != nil {
-			return err
+	maxAttempts := maxTxnRetries
+	if variant == "pxc-no-retry-classification" {
+		maxAttempts = 1
+	}
+	batch := 1
+	if variant == "pxc-flow-control-pressure" {
+		batch = 50 // one oversized writeset instead of 50 small ones
+	}
+
+	err := withRetryN(ctx, db, &e.counters, maxAttempts, func(tx *sql.Tx) error {
+		if variant == "pxc-oversized-transaction" {
+			// touches every security's quote row, not just the one this
+			// order is actually about — a much larger writeset than the job
+			// needs, certified as a single unit.
+			if _, err := tx.ExecContext(ctx, "UPDATE market_quotes SET updated_at=?", now); err != nil {
+				return err
+			}
 		}
-		_, err := tx.ExecContext(ctx,
-			`INSERT INTO orders (account_id, security_id, side, order_type, quantity, remaining_quantity, limit_price, status, priority, created_at, updated_at, cancelled_at)
-			 VALUES (?,?,?,?,?,?,NULL,?,?,?,?,NULL)`,
-			accountID, secID, side, "market", qty, qty, "open", 1, now, now)
-		return err
+		for i := 0; i < batch; i++ {
+			secID := e.institutionalSymbolPick(rng) + 1
+			side := "buy"
+			if rng.Intn(2) == 0 {
+				side = "sell"
+			}
+			qty := 500 + rng.Intn(5000)
+			if _, err := tx.ExecContext(ctx,
+				"UPDATE market_quotes SET volume=volume+?, updated_at=? WHERE security_id=?", qty, now, secID); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx,
+				`INSERT INTO orders (account_id, security_id, side, order_type, quantity, remaining_quantity, limit_price, status, priority, created_at, updated_at, cancelled_at)
+				 VALUES (?,?,?,?,?,?,NULL,?,?,?,?,NULL)`,
+				accountID, secID, side, "market", qty, qty, "open", 1, now, now); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
-	return err == nil
+	if err != nil {
+		return false
+	}
+
+	// pxc-read-after-write's bad state: read back from a different,
+	// round-robined member instead of the one that just wrote — the read's
+	// result is discarded (this is a demonstration of possible staleness,
+	// not something anything downstream depends on).
+	if variant == "pxc-read-after-write" && e.Members.Len() > 1 {
+		octx, cancel := opCtx(ctx)
+		var status sql.NullString
+		e.Members.Next().QueryRowContext(octx, "SELECT status FROM orders WHERE account_id=? ORDER BY order_id DESC LIMIT 1", accountID).Scan(&status)
+		cancel()
+	}
+	return true
 }

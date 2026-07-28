@@ -55,22 +55,50 @@ func (e *Engine) matchOneOrder(ctx context.Context, rng *rand.Rand) (bool, error
 	secIdx := weightedPick(e.popCum, rng)
 	secID := secIdx + 1
 	matched := false
+
+	// broad-select-for-update's bad state: drop the LIMIT 1, locking every
+	// open/partial order for this security+side instead of just the one
+	// about to be used.
+	limitClause := " LIMIT 1"
+	if e.ActiveVariant() == "broad-select-for-update" {
+		limitClause = ""
+	}
+	buyQuery := "SELECT order_id, account_id, remaining_quantity FROM orders WHERE security_id=? AND side='buy' AND status IN ('open','partial') ORDER BY order_id" + limitClause + " FOR UPDATE"
+	sellQuery := "SELECT order_id, account_id, remaining_quantity FROM orders WHERE security_id=? AND side='sell' AND status IN ('open','partial') ORDER BY order_id" + limitClause + " FOR UPDATE"
+
+	// inconsistent-lock-ordering's bad state: half the time, lock sell
+	// before buy instead of always buy-before-sell — two workers racing the
+	// same symbol with opposite lock orders is a textbook deadlock.
+	sellFirst := e.ActiveVariant() == "inconsistent-lock-ordering" && rng.Intn(2) == 0
+
 	err := withRetry(ctx, e.Store.DB, &e.counters, func(tx *sql.Tx) error {
 		matched = false
 		var buyID, sellID int64
 		var buyAcct, sellAcct, buyRemain, sellRemain int
-		err := tx.QueryRowContext(ctx,
-			"SELECT order_id, account_id, remaining_quantity FROM orders WHERE security_id=? AND side='buy' AND status IN ('open','partial') ORDER BY order_id LIMIT 1 FOR UPDATE",
-			secID).Scan(&buyID, &buyAcct, &buyRemain)
+
+		fetchBuy := func() error {
+			return tx.QueryRowContext(ctx, buyQuery, secID).Scan(&buyID, &buyAcct, &buyRemain)
+		}
+		fetchSell := func() error {
+			return tx.QueryRowContext(ctx, sellQuery, secID).Scan(&sellID, &sellAcct, &sellRemain)
+		}
+		var err error
+		if sellFirst {
+			err = fetchSell()
+		} else {
+			err = fetchBuy()
+		}
 		if err == sql.ErrNoRows {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		err = tx.QueryRowContext(ctx,
-			"SELECT order_id, account_id, remaining_quantity FROM orders WHERE security_id=? AND side='sell' AND status IN ('open','partial') ORDER BY order_id LIMIT 1 FOR UPDATE",
-			secID).Scan(&sellID, &sellAcct, &sellRemain)
+		if sellFirst {
+			err = fetchBuy()
+		} else {
+			err = fetchSell()
+		}
 		if err == sql.ErrNoRows {
 			return nil
 		}

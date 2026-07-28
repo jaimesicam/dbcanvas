@@ -2,6 +2,7 @@ package sim
 
 import (
 	"context"
+	"math/rand"
 	"time"
 )
 
@@ -9,8 +10,13 @@ import (
 
 // runComplianceAgent looks at the most recently executed trades and flags
 // unusually large ones into audit_events — a lightweight stand-in for a real
-// exchange's surveillance system.
+// exchange's surveillance system. It also runs 3 smaller compliance-style
+// reads each tick (recent-trades view, today's-order-count, orders-by-
+// account) that exist mainly to give the deep-offset-pagination,
+// unbounded-trade-history, function-wrapped-timestamp, and
+// pxc-ddl-during-load challenges real, continuous traffic to grade against.
 func (e *Engine) runComplianceAgent(ctx context.Context) {
+	rng := newAgentRand()
 	var events, errs int64
 	tickLoop(ctx, 2*time.Second, func() {
 		if !e.Running() {
@@ -29,8 +35,78 @@ func (e *Engine) runComplianceAgent(ctx context.Context) {
 			}
 			events += int64(flagged)
 		}
+		octx, cancel := opCtx(ctx)
+		e.recentTradesView(octx)
+		e.dailyOrderCount(octx)
+		e.ordersByAccount(octx, rng)
+		cancel()
 		e.Store.Heartbeat(ctx, "compliance", "ok", detailStr(events, errs))
 	})
+}
+
+// recentTradesView is deep-offset-pagination's and unbounded-trade-history's
+// target — a plain "recent trades" list. Reference: LIMIT 20, no offset.
+// deep-offset-pagination's bad state adds a large OFFSET (still bounded by
+// LIMIT, but forces MySQL to scan and discard everything before it);
+// unbounded-trade-history's bad state drops LIMIT/OFFSET entirely. Only one
+// of the two challenges is ever active at a time, so both safely share this
+// one query and shape.
+func (e *Engine) recentTradesView(ctx context.Context) {
+	query := "SELECT trade_id, security_id, price, executed_at FROM trades ORDER BY trade_id DESC LIMIT 20"
+	switch e.ActiveVariant() {
+	case "deep-offset-pagination":
+		query = "SELECT trade_id, security_id, price, executed_at FROM trades ORDER BY trade_id DESC LIMIT 20 OFFSET 5000"
+	case "unbounded-trade-history":
+		query = "SELECT trade_id, security_id, price, executed_at FROM trades ORDER BY trade_id DESC"
+	}
+	rows, err := e.Store.DB.QueryContext(ctx, query)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, secID int64
+		var price float64
+		var executedAt time.Time
+		rows.Scan(&id, &secID, &price, &executedAt)
+	}
+}
+
+// dailyOrderCount is function-wrapped-timestamp's target. Reference: a
+// sargable range predicate. Bad: DATE(created_at) = ?, which defeats any
+// index on created_at outright regardless of what exists.
+func (e *Engine) dailyOrderCount(ctx context.Context) {
+	now := time.Now().UTC()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	var n int
+	if e.ActiveVariant() == "function-wrapped-timestamp" {
+		e.Store.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM orders WHERE DATE(created_at) = ?", today.Format("2006-01-02")).Scan(&n)
+		return
+	}
+	e.Store.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM orders WHERE created_at >= ? AND created_at < ?",
+		today, today.AddDate(0, 0, 1)).Scan(&n)
+}
+
+// ordersByAccount is pxc-ddl-during-load's target — no bad variant of its
+// own (that challenge's bad state is a dropped index, applied via Setup,
+// not an app-side query change).
+func (e *Engine) ordersByAccount(ctx context.Context, rng *rand.Rand) {
+	accountID := e.randAccountID(rng)
+	if accountID == 0 {
+		return
+	}
+	rows, err := e.Store.DB.QueryContext(ctx,
+		"SELECT order_id, side, quantity, status FROM orders WHERE account_id=? ORDER BY created_at DESC LIMIT 20", accountID)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var side, status string
+		var qty int
+		rows.Scan(&id, &side, &qty, &status)
+	}
 }
 
 // complianceLargeTradeThreshold is the trade_value above which a trade gets
