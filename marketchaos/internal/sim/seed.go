@@ -135,21 +135,31 @@ func Seed(ctx context.Context, st *store.Store, counts DatasetCounts, family str
 	}
 	finishTable(len(Sectors))
 
-	// --- securities ---
+	// --- securities. security_id is assigned explicitly (i+1): every other
+	// table below references a security via secIdx+1 assuming the row at
+	// LoadWorld() index i has security_id exactly i+1 — the same
+	// auto-increment-gap hazard documented at the orders insert below, except
+	// here the blast radius is every table in the schema (all of them
+	// reference security_id), so this is the single most important table to
+	// pin explicitly. ---
 	if err := st.BulkInsert(ctx, store.TableSecurities,
-		[]string{"symbol", "company_name", "sector_id", "status", "ipo_date", "shares_outstanding", "created_at"},
+		[]string{"security_id", "symbol", "company_name", "sector_id", "status", "ipo_date", "shares_outstanding", "created_at"},
 		len(securities), 1, func(i int) []any {
 			s := securities[i]
 			ipo := lookback.AddDate(-rand.New(rand.NewSource(worldSeed+int64(i))).Intn(15), 0, 0)
-			return []any{s.Symbol, s.CompanyName, s.SectorID, "active", ipo, s.SharesOut, now}
+			return []any{i + 1, s.Symbol, s.CompanyName, s.SectorID, "active", ipo, s.SharesOut, now}
 		}, progressFn("securities")); err != nil {
 		return fmt.Errorf("seed securities: %w", err)
 	}
 	finishTable(len(securities))
 
-	// --- traders ---
+	// --- traders. trader_id assigned explicitly (i+1) — accounts.trader_id
+	// and watchlists.trader_id below both assume traders occupy exactly
+	// [1, d.Traders]; seedWorkers=6 concurrent loaders makes a retried batch
+	// here more likely than most tables, so this is not a theoretical risk.
+	// See the orders insert below for the full explanation of this hazard. ---
 	if err := st.BulkInsert(ctx, store.TableTraders,
-		[]string{"username", "email", "account_status", "risk_level", "country_code", "created_at", "last_login_at"},
+		[]string{"trader_id", "username", "email", "account_status", "risk_level", "country_code", "created_at", "last_login_at"},
 		d.Traders, seedWorkers, func(i int) []any {
 			r := rand.New(rand.NewSource(worldSeed + 1_000_000 + int64(i)))
 			username := fmt.Sprintf("trader%06d", i+1)
@@ -158,20 +168,23 @@ func Seed(ctx context.Context, st *store.Store, counts DatasetCounts, family str
 			country := []string{"US", "GB", "DE", "SG", "AU", "CA", "JP"}[r.Intn(7)]
 			created := lookback.Add(-time.Duration(r.Intn(365*3)) * 24 * time.Hour)
 			lastLogin := created.Add(time.Duration(r.Intn(int(now.Sub(created).Hours()))) * time.Hour)
-			return []any{username, email, "active", risk, country, created, lastLogin}
+			return []any{i + 1, username, email, "active", risk, country, created, lastLogin}
 		}, progressFn("traders")); err != nil {
 		return fmt.Errorf("seed traders: %w", err)
 	}
 	finishTable(d.Traders)
 
-	// --- accounts (1:1 with traders; trader_id N maps to trader row N since
-	// both start from an empty, freshly auto-incrementing table) ---
+	// --- accounts. account_id assigned explicitly (i+1) — orders,
+	// posRows/positions, and account_ledger below all pick a random account
+	// via 1+r.Intn(d.Accounts), assuming accounts occupy exactly
+	// [1, d.Accounts]. trader_id (i+1) relies on the same guarantee just
+	// established for traders above. ---
 	if err := st.BulkInsert(ctx, store.TableAccounts,
-		[]string{"trader_id", "cash_balance", "reserved_cash", "margin_limit", "updated_at"},
+		[]string{"account_id", "trader_id", "cash_balance", "reserved_cash", "margin_limit", "updated_at"},
 		d.Accounts, seedWorkers, func(i int) []any {
 			r := rand.New(rand.NewSource(worldSeed + 2_000_000 + int64(i)))
 			cash := 1_000 + r.Float64()*499_000
-			return []any{i + 1, round2(cash), 0.0, round2(cash * 0.5), now}
+			return []any{i + 1, i + 1, round2(cash), 0.0, round2(cash * 0.5), now}
 		}, progressFn("accounts")); err != nil {
 		return fmt.Errorf("seed accounts: %w", err)
 	}
@@ -190,10 +203,24 @@ func Seed(ctx context.Context, st *store.Store, counts DatasetCounts, family str
 	}
 	finishTable(len(wlRows))
 
-	// --- orders ---
+	// --- orders. order_id is assigned explicitly (i+1) rather than left to
+	// AUTO_INCREMENT — found live (stage S7 final verification): a PXC
+	// batch that fails its Galera certification and gets retried (see
+	// seedbulk.go's execBatchWithRetry, added in this same verification
+	// pass) permanently burns the auto-increment values that failed
+	// attempt would have used, since InnoDB never rolls back the counter
+	// itself. That leaves gaps in the actual order_id range, breaking
+	// trades' assumption below that valid order ids span exactly
+	// [1, d.Orders] — a real trade ended up seeded with a buy_order_id
+	// that had been burned by a retry and never belonged to an actual row,
+	// tripping CheckInvariants' "trade references a nonexistent order"
+	// check the very first time a PXC seed needed to retry. Explicit ids
+	// make a retried batch idempotent (the failed attempt left nothing
+	// behind for those specific values, so re-inserting them is safe) and
+	// guarantee the [1, d.Orders] range trades relies on is exactly right. ---
 	orderStatuses := []string{"filled", "filled", "filled", "cancelled", "open", "partial"}
 	if err := st.BulkInsert(ctx, store.TableOrders,
-		[]string{"account_id", "security_id", "side", "order_type", "quantity", "remaining_quantity", "limit_price", "status", "priority", "created_at", "updated_at", "cancelled_at"},
+		[]string{"order_id", "account_id", "security_id", "side", "order_type", "quantity", "remaining_quantity", "limit_price", "status", "priority", "created_at", "updated_at", "cancelled_at"},
 		d.Orders, seedWorkers, func(i int) []any {
 			r := rand.New(rand.NewSource(worldSeed + 4_000_000 + int64(i)))
 			secIdx := weightedPick(popCum, r)
@@ -223,7 +250,7 @@ func Seed(ctx context.Context, st *store.Store, counts DatasetCounts, family str
 				cancelledAt = updated
 			}
 			return []any{
-				1 + r.Intn(d.Accounts), secIdx + 1, side, orderType, qty, remaining, limitPrice,
+				i + 1, 1 + r.Intn(d.Accounts), secIdx + 1, side, orderType, qty, remaining, limitPrice,
 				status, 0, created, updated, cancelledAt,
 			}
 		}, progressFn("orders")); err != nil {
@@ -235,9 +262,12 @@ func Seed(ctx context.Context, st *store.Store, counts DatasetCounts, family str
 	// necessarily the literal pair a matching engine would have produced —
 	// seed data is statistically plausible, not perfectly cross-table
 	// reconciled; stage S2's live matching-engine agents are what maintains
-	// true consistency for everything generated after the app starts). ---
+	// true consistency for everything generated after the app starts).
+	// trade_id assigned explicitly (i+1) — account_ledger below picks
+	// tradeID := i/2+1, assuming trades occupy exactly [1, d.Trades]; see
+	// the orders insert above for the full explanation of this hazard. ---
 	if err := st.BulkInsert(ctx, store.TableTrades,
-		[]string{"buy_order_id", "sell_order_id", "security_id", "quantity", "price", "trade_value", "executed_at"},
+		[]string{"trade_id", "buy_order_id", "sell_order_id", "security_id", "quantity", "price", "trade_value", "executed_at"},
 		d.Trades, seedWorkers, func(i int) []any {
 			r := rand.New(rand.NewSource(worldSeed + 5_000_000 + int64(i)))
 			secIdx := weightedPick(popCum, r)
@@ -247,7 +277,7 @@ func Seed(ctx context.Context, st *store.Store, counts DatasetCounts, family str
 			executed := lookback.Add(time.Duration(r.Int63n(int64(now.Sub(lookback)))))
 			buyOrder := 1 + r.Intn(d.Orders)
 			sellOrder := 1 + r.Intn(d.Orders)
-			return []any{buyOrder, sellOrder, secIdx + 1, qty, price, round2(price * float64(qty)), executed}
+			return []any{i + 1, buyOrder, sellOrder, secIdx + 1, qty, price, round2(price * float64(qty)), executed}
 		}, progressFn("trades")); err != nil {
 		return fmt.Errorf("seed trades: %w", err)
 	}

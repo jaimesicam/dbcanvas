@@ -2,10 +2,16 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
+	"math/rand"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	mysqldriver "github.com/go-sql-driver/mysql"
 )
 
 // seedBatchSize is how many rows go into one multi-row INSERT statement.
@@ -87,7 +93,7 @@ func (s *Store) BulkInsert(ctx context.Context, table string, cols []string, row
 					sb.WriteString(placeholders)
 					args = append(args, rowFn(i)...)
 				}
-				if _, err := s.DB.ExecContext(ctx, sb.String(), args...); err != nil {
+				if err := execBatchWithRetry(ctx, s.DB, sb.String(), args); err != nil {
 					setErr(fmt.Errorf("bulk insert %s [%d,%d): %w", table, batchStart, batchEnd, err))
 					return
 				}
@@ -100,4 +106,44 @@ func (s *Store) BulkInsert(ctx context.Context, table string, cols []string, row
 	}
 	wg.Wait()
 	return firstErr
+}
+
+// maxSeedBatchRetries bounds how many times one seed batch retries after a
+// transient Galera certification conflict — found live (stage S7 final
+// verification): seeding a real PXC target with several seedWorkers
+// goroutines all inserting concurrently produces genuine cross-worker
+// certification conflicts on the same table, exactly like the live
+// workload's own withRetry (txn.go) already has to handle, but the seeder
+// had no equivalent and simply aborted the whole seed on the first one.
+const maxSeedBatchRetries = 5
+
+// execBatchWithRetry runs one autocommitted batch INSERT, retrying on a
+// MySQL 1213 (certification conflict / deadlock) or 1205 (lock wait
+// timeout) with a small jittered backoff — the same retry shape as
+// internal/sim/txn.go's withRetry, duplicated here rather than shared
+// because this package doesn't depend on internal/sim (and a single
+// autocommit statement doesn't need withRetry's transaction/rollback
+// machinery, just the retry loop itself).
+func execBatchWithRetry(ctx context.Context, db *sql.DB, query string, args []any) error {
+	var lastErr error
+	for attempt := 0; attempt < maxSeedBatchRetries; attempt++ {
+		_, err := db.ExecContext(ctx, query, args...)
+		if err == nil {
+			return nil
+		}
+		if !isSeedRetryable(err) {
+			return err
+		}
+		lastErr = err
+		time.Sleep(time.Duration(10+rand.Intn(40)) * time.Millisecond * time.Duration(attempt+1))
+	}
+	return fmt.Errorf("giving up after %d retries: %w", maxSeedBatchRetries, lastErr)
+}
+
+func isSeedRetryable(err error) bool {
+	var me *mysqldriver.MySQLError
+	if errors.As(err, &me) {
+		return me.Number == 1213 || me.Number == 1205
+	}
+	return false
 }

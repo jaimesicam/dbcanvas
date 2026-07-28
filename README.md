@@ -86,15 +86,21 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
   tools a task needs), and **Watchtower**.
 - **App Simulators** — link **Traffic Sim** to a Valkey node/cluster, **Hotel Sim** to a PS
   MongoDB standalone/replica-set/sharded node, **Airline Sim** to a standalone Percona Server
-  node, a MySQL replication or PXC cluster, or a ProxySQL/HAProxy node fronting one, or **Car
+  node, a MySQL replication or PXC cluster, or a ProxySQL/HAProxy node fronting one, **Car
   Rental Sim** to a standalone PostgreSQL node, a Patroni/repmgr/Spock cluster, or an HAProxy
-  node fronting one, and it drives real, continuous background traffic against it (reads/writes
+  node fronting one, or **Unoptimized MySQL Challenge (MarketChaos)** to a standalone Percona
+  Server node, a direct PXC member, a MySQL replication or PXC cluster, or an HAProxy node
+  fronting one, and it drives real, continuous background traffic against it (reads/writes
   for Traffic Sim; a 100-hotel reservation workload exercising CRUD, transactions and change
   streams for Hotel Sim; a 200-route reservation workload against a 2000-aircraft fleet,
   exercising real MySQL transactions and Galera certification-conflict retries under contention,
   for Airline Sim; a 180-location rental workload against a 2000-vehicle fleet, exercising a
   date-range-guarded multi-row UPDATE for booking and a `FOR UPDATE SKIP LOCKED` claim for
-  vehicle check-out, for Car Rental Sim), with a live dashboard reachable from the stack's
+  vehicle check-out, for Car Rental Sim; a 200-security fictional stock exchange — 10 workload
+  agents, a traffic level × mix control, and an 18-challenge catalog of deliberately-injected
+  indexing/query/locking/PXC problems the learner diagnoses and fixes, graded on outcome
+  (baseline vs. validated measurements, a hard correctness gate, a 100-point score) rather than
+  a checked SQL answer, for MarketChaos), with a live dashboard reachable from the stack's
   Ubuntu VNC desktop.
 - **Operations** — cross-cluster replication links, per-node web terminals, certificate
   management, on-demand backups, and TTL-based auto-teardown.
@@ -346,6 +352,7 @@ DBCanvas provisions sibling nodes, so it needs access to the Docker daemon and t
 | `make hotelsim-image` | Build the **Hotel Sim** app-simulator image — required for every **PS MongoDB** Lab, which deploys one alongside the cluster |
 | `make airlinesim-image` | Build the **Airline Sim** app-simulator image — required for every **MySQL family** Lab, which deploys one alongside the cluster |
 | `make carsim-image` | Build the **Car Rental Sim** app-simulator image (canvas-only — no Lab deploys one; needed only to place a Car Rental Sim node yourself) |
+| `make marketchaos-image` | Build the **Unoptimized MySQL Challenge (MarketChaos)** app-simulator image (canvas-only — no Lab deploys one; needed only to place a MarketChaos node yourself) |
 
 ### Docker (default)
 
@@ -360,6 +367,7 @@ make trafficsim-image
 make hotelsim-image
 make airlinesim-image
 make carsim-image
+make marketchaos-image
 ```
 
 Then open **http://localhost:8080**. The first visit asks you to create an administrator

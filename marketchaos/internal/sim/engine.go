@@ -232,15 +232,34 @@ func (e *Engine) Reset(ctx context.Context) error {
 // already-fully-seeded node) doesn't wipe and redo work, and a genuinely
 // empty schema always gets seeded exactly once.
 func (e *Engine) SeedIfNeeded(ctx context.Context) error {
-	n, err := e.Store.CountRows(ctx, store.TableSecurities)
+	// Check the persisted seed marker's own Done flag, not merely "does
+	// some early table have rows" — found live (stage S7 final
+	// verification): a seed that fails partway through (e.g. a PXC
+	// certification conflict on the last, largest table, price_ticks) still
+	// leaves earlier tables like securities fully populated, so checking
+	// securities alone would wrongly treat a broken, partial seed as
+	// complete on the next restart and never retry it.
+	raw, err := e.Store.GetMetrics(ctx, "seed")
 	if err != nil {
 		return err
 	}
-	if n > 0 {
-		e.seedMu.Lock()
-		e.seedProgress = SeedProgress{Done: true, RowsTotal: 1, RowsDone: 1}
-		e.seedMu.Unlock()
-		return nil
+	if raw != nil {
+		var p SeedProgress
+		if json.Unmarshal(raw, &p) == nil && p.Done && p.Error == "" {
+			e.seedMu.Lock()
+			e.seedProgress = p
+			e.seedMu.Unlock()
+			return nil
+		}
+	}
+	// No confirmed-complete marker — either a genuinely fresh schema (Wipe
+	// on already-empty tables is a cheap no-op) or a prior attempt that
+	// failed partway through, in which case Wipe is required: re-running
+	// Seed on tables that already partially have rows would hit duplicate
+	// key errors on the tables that DID finish (sectors/securities/etc. all
+	// have unique keys), not just silently redo the missing part.
+	if err := store.Wipe(ctx, e.Store); err != nil {
+		return err
 	}
 	return e.RunSeed(ctx)
 }
