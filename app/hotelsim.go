@@ -16,9 +16,11 @@ import (
 // drawn edge, exactly like Traffic Sim links to a Valkey node/cluster), while an
 // embedded web server exposes a live dashboard of the result. Runs dbcanvas's own
 // first-party dbcanvas-hotelsim:latest image (built by `make hotelsim-image`), not
-// a systemd OS image — no product installed on top, no PMM monitoring. Never
-// published to the host: it's reached from inside a lab's Ubuntu VNC desktop's own
-// browser, at hotelsim.<domain>:8089 on the stack's internal network.
+// a systemd OS image — no product installed on top, no PMM monitoring. Its
+// dashboard port is published to the host (like PMM's own HTTP/HTTPS ports) on a
+// fixed, auto-assigned port that's reused across a redeploy — see the HTTPPort
+// field below — so it's reachable directly from the host browser, with no VNC
+// desktop needed.
 
 const (
 	hotelSimImage = "dbcanvas-hotelsim:latest"
@@ -32,6 +34,7 @@ type hotelSimConfig struct {
 	FQDN       string `json:"fqdn"`
 	TargetKind string `json:"targetKind"` // "psm" | "psmrs" | "psmdb"
 	TargetName string `json:"targetName"` // linked node/frame label, for display
+	HTTPPort   int    `json:"httpPort"`   // host port mapped to the container's dashboard port
 }
 
 // hotelSimTarget resolves the standalone psm node, psmrs replica-set frame, or
@@ -73,8 +76,24 @@ func (a *App) provisionHotelSim(st Stack, n designNode, doc designDoc) {
 	}
 	fqdn := fqdnOf(host, domain)
 
+	// Reuse the previously published host port across a redeploy so the dashboard
+	// URL shown in node properties stays stable — mirrors provisionPMM's own
+	// reused-host-port pattern.
+	httpPort := 0
+	if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Config) > 0 {
+		var old hotelSimConfig
+		if json.Unmarshal(dep.Config, &old) == nil {
+			httpPort = old.HTTPPort
+		}
+	}
+	if httpPort == 0 {
+		if p, e := freeHostPort(); e == nil {
+			httpPort = p
+		}
+	}
+
 	targetNodeID, targetFrame, kind, ok := hotelSimTarget(doc, n.ID)
-	cfg := hotelSimConfig{Image: hotelSimImage, Hostname: host, FQDN: fqdn}
+	cfg := hotelSimConfig{Image: hotelSimImage, Hostname: host, FQDN: fqdn, HTTPPort: httpPort}
 	if !ok {
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployError, Config: mustJSON(cfg)})
 		return
@@ -122,7 +141,8 @@ func (a *App) provisionHotelSim(st Stack, n designNode, doc designDoc) {
 			Name: name, Image: hotelSimImage, Hostname: host,
 			Env:     []string{"MONGO_URI=" + uri, "MONGO_DB=hotelsim", "MONGO_TARGET_LABEL=" + cfg.TargetName, fmt.Sprintf("PORT=%d", hotelSimPort)},
 			Network: networkName(st.ID), Aliases: []string{host},
-			DNS: []string{intranetIP}, DNSSearch: []string{domain},
+			PublishMap: []PortMap{{ContainerPort: hotelSimPort, HostPort: httpPort}},
+			DNS:        []string{intranetIP}, DNSSearch: []string{domain},
 		})
 		if err != nil {
 			pr.fail("create container: %v", err)
@@ -131,6 +151,11 @@ func (a *App) provisionHotelSim(st Stack, n designNode, doc designDoc) {
 		if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 			pr.fail("start container: %v", err)
 			return
+		}
+		if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", hotelSimPort)); e == nil {
+			if p, e2 := strconv.Atoi(hp); e2 == nil {
+				cfg.HTTPPort = p
+			}
 		}
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: mustJSON(cfg)})
 

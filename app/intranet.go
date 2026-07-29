@@ -111,6 +111,17 @@ type designNode struct {
 	// (PS 8.4), the keyring_vault plugin (PS 5.7/8.0) or mongod's security.vault (PSMDB).
 	EnableVault   bool   `json:"enableVault"`
 	OpenBaoNodeID string `json:"openbaoNodeId"`
+	// MarketChaos node fields (Type=="marketchaos"). Unlike every other app
+	// simulator, dataset size is a deploy-time choice, not a fixed constant —
+	// re-seeding a large market after deploy would take the same many minutes
+	// as the initial seed, so the learner picks it up front. MCDataset selects
+	// a named preset; the MCTraders/.../MCTicks counts are only read when
+	// MCDataset=="custom" (0 → that preset's own default for the field).
+	MCDataset string `json:"mcDataset"` // "small" | "medium" (default) | "large" | "custom"
+	MCTraders int    `json:"mcTraders"`
+	MCOrders  int    `json:"mcOrders"`
+	MCTrades  int    `json:"mcTrades"`
+	MCTicks   int    `json:"mcTicks"`
 }
 
 // designEdge is a connection drawn on the canvas. The endpoints' Node field holds
@@ -750,6 +761,17 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			}
 			if _, _, ok := carSimTarget(doc, n.ID); !ok {
 				out = append(out, issue{"error", "Car Rental Sim node " + n.Label + " must be linked to a standalone PostgreSQL node, a Patroni/repmgr/Spock cluster, or an HAProxy node fronting one — draw an association line from one to it"})
+			}
+		case "marketchaos":
+			others++
+			if !seenImg[marketChaosImage] {
+				seenImg[marketChaosImage] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, marketChaosImage); !ok {
+					out = append(out, issue{"error", "Missing image " + marketChaosImage + " — run `make marketchaos-image` first"})
+				}
+			}
+			if _, _, ok := marketChaosTarget(doc, n.ID); !ok {
+				out = append(out, issue{"error", "MarketChaos node " + n.Label + " must be linked to a standalone Percona Server node, a direct PXC member node, a PXC cluster or MySQL replication frame, or an HAProxy node fronting one — draw an association line from one to it"})
 			}
 		default:
 			others++
@@ -1434,6 +1456,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionAirlineSim(st, n, doc)
 		case "carsim":
 			a.provisionCarSim(st, n, doc)
+		case "marketchaos":
+			a.provisionMarketChaos(st, n, doc)
 		}
 	}
 
