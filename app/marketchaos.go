@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -22,9 +23,11 @@ import (
 // just the one primary connection every other sim resolves to.
 //
 // Runs dbcanvas's own first-party dbcanvas-marketchaos:latest image (built by
-// `make marketchaos-image`), not a systemd OS image. Never published to the host:
-// it's reached from inside the stack's Ubuntu VNC desktop's own browser, at
-// marketchaos.<domain>:8092 on the stack's internal network.
+// `make marketchaos-image`), not a systemd OS image. Its dashboard port is
+// published to the host (like PMM's own HTTP/HTTPS ports) on a fixed,
+// auto-assigned port that's reused across a redeploy — see the HTTPPort field
+// below — so it's reachable directly from the host browser, with no VNC desktop
+// needed.
 
 const (
 	marketChaosImage = "dbcanvas-marketchaos:latest"
@@ -38,6 +41,7 @@ type marketChaosConfig struct {
 	FQDN       string `json:"fqdn"`
 	TargetKind string `json:"targetKind"` // ps | pxcnode | pxc | mysql | haproxy-pxc | haproxy-mysql
 	TargetName string `json:"targetName"` // linked node/frame label, for display
+	HTTPPort   int    `json:"httpPort"`   // host port mapped to the container's dashboard port
 }
 
 // marketChaosTarget resolves the coarse kind ("ps" | "pxcnode" | "pxc" | "mysql" |
@@ -127,8 +131,24 @@ func (a *App) provisionMarketChaos(st Stack, n designNode, doc designDoc) {
 	}
 	fqdn := fqdnOf(host, domain)
 
+	// Reuse the previously published host port across a redeploy so the dashboard
+	// URL shown in node properties stays stable — mirrors provisionPMM's own
+	// reused-host-port pattern.
+	httpPort := 0
+	if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Config) > 0 {
+		var old marketChaosConfig
+		if json.Unmarshal(dep.Config, &old) == nil {
+			httpPort = old.HTTPPort
+		}
+	}
+	if httpPort == 0 {
+		if p, e := freeHostPort(); e == nil {
+			httpPort = p
+		}
+	}
+
 	coarseKind, targetID, ok := marketChaosTarget(doc, n.ID)
-	cfg := marketChaosConfig{Image: marketChaosImage, Hostname: host, FQDN: fqdn}
+	cfg := marketChaosConfig{Image: marketChaosImage, Hostname: host, FQDN: fqdn, HTTPPort: httpPort}
 	if !ok {
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployError, Config: mustJSON(cfg)})
 		return
@@ -195,7 +215,8 @@ func (a *App) provisionMarketChaos(st Stack, n designNode, doc designDoc) {
 			Name: name, Image: marketChaosImage, Hostname: host,
 			Env:     env,
 			Network: networkName(st.ID), Aliases: []string{host},
-			DNS: []string{intranetIP}, DNSSearch: []string{domain},
+			PublishMap: []PortMap{{ContainerPort: marketChaosPort, HostPort: httpPort}},
+			DNS:        []string{intranetIP}, DNSSearch: []string{domain},
 		})
 		if err != nil {
 			pr.fail("create container: %v", err)
@@ -204,6 +225,11 @@ func (a *App) provisionMarketChaos(st Stack, n designNode, doc designDoc) {
 		if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 			pr.fail("start container: %v", err)
 			return
+		}
+		if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", marketChaosPort)); e == nil {
+			if p, e2 := strconv.Atoi(hp); e2 == nil {
+				cfg.HTTPPort = p
+			}
 		}
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: mustJSON(cfg)})
 

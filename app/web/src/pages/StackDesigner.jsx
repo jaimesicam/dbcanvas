@@ -345,7 +345,8 @@ const NODE_TYPES = {
   // a web map). Runs dbcanvas's own first-party image, not an OS/DB image, so it
   // carries no os/osVersion/arch fields at all. Links to a standalone Valkey node
   // or a Valkey Cluster frame via a drawn association line (see endpointKind/
-  // tryConnect) — never published to the host; reached from inside a VNC desktop.
+  // tryConnect) — its dashboard port is published to the host (like PMM), so no
+  // VNC desktop is needed to reach it.
   trafficsim: {
     label: 'Traffic Sim',
     slug: 'trafficsim',
@@ -361,8 +362,9 @@ const NODE_TYPES = {
   // agents + a web dashboard). Runs dbcanvas's own first-party image, not an OS/DB
   // image, so it carries no os/osVersion/arch fields at all. Links to a standalone
   // PS MongoDB node, a PS MongoDB replica-set frame, or a PS MongoDB sharded-cluster
-  // frame via a drawn association line (see endpointKind/tryConnect) — never
-  // published to the host; reached from inside a VNC desktop.
+  // frame via a drawn association line (see endpointKind/tryConnect) — its
+  // dashboard port is published to the host (like PMM), so no VNC desktop is
+  // needed to reach it.
   hotelsim: {
     label: 'Hotel Sim',
     slug: 'hotelsim',
@@ -380,8 +382,8 @@ const NODE_TYPES = {
   // so it carries no os/osVersion/arch fields at all. Links to a standalone Percona
   // Server node, a MySQL replication frame, a PXC cluster frame, or a
   // ProxySQL/HAProxy node or cluster fronting one of the latter two, via a drawn
-  // association line (see endpointKind/tryConnect) — never published to the host;
-  // reached from inside a VNC desktop.
+  // association line (see endpointKind/tryConnect) — its dashboard port is
+  // published to the host (like PMM), so no VNC desktop is needed to reach it.
   airlinesim: {
     label: 'Airline Sim',
     slug: 'airlinesim',
@@ -399,8 +401,8 @@ const NODE_TYPES = {
   // so it carries no os/osVersion/arch fields at all. Links to a standalone
   // PostgreSQL node, a Patroni/repmgr/Spock cluster frame, or an HAProxy node
   // fronting one of the latter three, via a drawn association line (see
-  // endpointKind/tryConnect) — never published to the host; reached from inside a
-  // VNC desktop.
+  // endpointKind/tryConnect) — its dashboard port is published to the host (like
+  // PMM), so no VNC desktop is needed to reach it.
   carsim: {
     label: 'Car Rental Sim',
     slug: 'carsim',
@@ -418,8 +420,9 @@ const NODE_TYPES = {
   // image, not an OS/DB image, so it carries no os/osVersion/arch fields at all.
   // Links to a standalone Percona Server node, a direct PXC member node, a PXC
   // cluster or MySQL replication frame, or an HAProxy node fronting one of the
-  // latter two, via a drawn association line (see endpointKind/tryConnect) —
-  // never published to the host; reached from inside a VNC desktop.
+  // latter two, via a drawn association line (see endpointKind/tryConnect) — its
+  // dashboard port is published to the host (like PMM), so no VNC desktop is
+  // needed to reach it.
   marketchaos: {
     label: 'Unoptimized MySQL Challenge',
     slug: 'marketchaos',
@@ -4179,6 +4182,23 @@ function LinuxClientManager({ dep, onDeleteNode }) {
   )
 }
 
+// SimDashboardLink is the "Open Dashboard" button shown on every first-party sim
+// node's Manager, once deployed — its dashboard port is published to the host
+// (like PMM's own HTTP/HTTPS ports; see provisionPMM/each sim's provision* for
+// the backend half of this), so it opens directly in the host's own browser
+// instead of requiring a VNC desktop.
+function SimDashboardLink({ port }) {
+  if (!port) return null
+  const host = typeof location !== 'undefined' ? location.hostname : 'localhost'
+  const url = `http://${host}:${port}/`
+  return (
+    <a href={url} target="_blank" rel="noreferrer"
+      className="flex items-center justify-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/15">
+      <Icon.External size={15} /> Open Dashboard
+    </a>
+  )
+}
+
 // TrafficSimForm edits a (not-yet-running) Traffic Sim node. No OS/version/arch (a
 // fixed first-party image) and no config fields — the only thing that matters is
 // which Valkey node or Valkey Cluster frame it's linked to, resolved from the
@@ -4205,8 +4225,8 @@ function TrafficSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, 
       <p className="text-xs text-muted">
         Background agents simulate a small fictional city's traffic — vehicles, sensors, signals,
         incidents — continuously reading and writing the linked Valkey. A live map is served from
-        this node; open it from a browser inside the stack (e.g. a VNC desktop's Firefox) — it's
-        never published to the host. No product besides the sim itself; not monitored by PMM.
+        this node, published to the host (like PMM) once deployed — no VNC desktop needed. No
+        product besides the sim itself; not monitored by PMM.
       </p>
 
       {linkedTarget ? (
@@ -4230,8 +4250,8 @@ function TrafficSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, 
   )
 }
 
-// TrafficSimManager shows a deployed Traffic Sim node's URL (never published to the
-// host — open it from inside the stack) and what it's linked to.
+// TrafficSimManager shows a deployed Traffic Sim node's published dashboard URL
+// and what it's linked to.
 function TrafficSimManager({ dep, onDeleteNode }) {
   const cfg = dep?.config || {}
   return (
@@ -4240,9 +4260,9 @@ function TrafficSimManager({ dep, onDeleteNode }) {
         <span className="text-sm font-semibold">Traffic Sim</span>
         <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
       </div>
-      <p className="text-xs text-muted">Open this URL from a browser inside the stack — it isn't published to the host.</p>
+      <SimDashboardLink port={cfg.httpPort} />
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <div className="flex justify-between gap-3"><span className="text-muted">URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8088</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Internal URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8088</span></div>
         <div className="flex justify-between gap-3"><span className="text-muted">Linked to</span><span className="font-mono text-xs">{cfg.targetName} ({cfg.targetKind})</span></div>
       </div>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
@@ -4279,9 +4299,8 @@ function HotelSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, de
       <p className="text-xs text-muted">
         Background agents run a 100-hotel reservation chain — guest search, booking, modification,
         cancellation, check-in/out — continuously reading and writing the linked MongoDB. A live
-        dashboard is served from this node; open it from a browser inside the stack (e.g. a VNC
-        desktop's Firefox) — it's never published to the host. No product besides the sim itself;
-        not monitored by PMM.
+        dashboard is served from this node, published to the host (like PMM) once deployed — no
+        VNC desktop needed. No product besides the sim itself; not monitored by PMM.
       </p>
 
       {linkedTarget ? (
@@ -4305,8 +4324,8 @@ function HotelSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, de
   )
 }
 
-// HotelSimManager shows a deployed Hotel Sim node's URL (never published to the
-// host — open it from inside the stack) and what it's linked to.
+// HotelSimManager shows a deployed Hotel Sim node's published dashboard URL and
+// what it's linked to.
 function HotelSimManager({ dep, onDeleteNode }) {
   const cfg = dep?.config || {}
   const KIND_LABEL = { psm: 'PSMDB', psmrs: 'PSMDB Replica Set', psmdb: 'PSMDB Sharded' }
@@ -4316,9 +4335,9 @@ function HotelSimManager({ dep, onDeleteNode }) {
         <span className="text-sm font-semibold">Hotel Sim</span>
         <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
       </div>
-      <p className="text-xs text-muted">Open this URL from a browser inside the stack — it isn't published to the host.</p>
+      <SimDashboardLink port={cfg.httpPort} />
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <div className="flex justify-between gap-3"><span className="text-muted">URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8089</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Internal URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8089</span></div>
         <div className="flex justify-between gap-3"><span className="text-muted">Linked to</span><span className="font-mono text-xs">{cfg.targetName} ({KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></div>
       </div>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
@@ -4362,9 +4381,9 @@ function AirlineSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, 
       <p className="text-xs text-muted">
         Background agents run a 200-route reservation workload against a 2000-aircraft fleet — route
         search, booking, modification, cancellation, check-in, flight completion — continuously reading
-        and writing the linked MySQL-family target. A live dashboard is served from this node; open it
-        from a browser inside the stack (e.g. a VNC desktop's Firefox) — it's never published to the
-        host. No product besides the sim itself; not monitored by PMM.
+        and writing the linked MySQL-family target. A live dashboard is served from this node,
+        published to the host (like PMM) once deployed — no VNC desktop needed. No product besides
+        the sim itself; not monitored by PMM.
       </p>
 
       {linkedTarget ? (
@@ -4389,10 +4408,10 @@ function AirlineSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, 
   )
 }
 
-// AirlineSimManager shows a deployed Airline Sim node's URL (never published to the
-// host — open it from inside the stack) and what it's linked to. cfg.targetKind here
-// is the fully-resolved 7-way kind dbcanvas settled on (e.g. "haproxy-pxc"), not the
-// coarser 5-way shape AirlineSimForm resolves on the canvas before deploy.
+// AirlineSimManager shows a deployed Airline Sim node's published dashboard URL
+// and what it's linked to. cfg.targetKind here is the fully-resolved 7-way kind
+// dbcanvas settled on (e.g. "haproxy-pxc"), not the coarser 5-way shape
+// AirlineSimForm resolves on the canvas before deploy.
 function AirlineSimManager({ dep, onDeleteNode }) {
   const cfg = dep?.config || {}
   const TARGET_KIND_LABEL = {
@@ -4406,9 +4425,9 @@ function AirlineSimManager({ dep, onDeleteNode }) {
         <span className="text-sm font-semibold">Airline Sim</span>
         <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
       </div>
-      <p className="text-xs text-muted">Open this URL from a browser inside the stack — it isn't published to the host.</p>
+      <SimDashboardLink port={cfg.httpPort} />
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <div className="flex justify-between gap-3"><span className="text-muted">URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8090</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Internal URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8090</span></div>
         <div className="flex justify-between gap-3"><span className="text-muted">Linked to</span><span className="font-mono text-xs">{cfg.targetName} ({TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></div>
       </div>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
@@ -4448,9 +4467,9 @@ function CarSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep,
       <p className="text-xs text-muted">
         Background agents run a 180-location rental workload against a 2000-vehicle fleet — location
         search, booking, modification, cancellation, check-out, check-in — continuously reading and
-        writing the linked PostgreSQL-family target. A live dashboard is served from this node; open it
-        from a browser inside the stack (e.g. a VNC desktop's Firefox) — it's never published to the
-        host. No product besides the sim itself; not monitored by PMM.
+        writing the linked PostgreSQL-family target. A live dashboard is served from this node,
+        published to the host (like PMM) once deployed — no VNC desktop needed. No product besides
+        the sim itself; not monitored by PMM.
       </p>
 
       {linkedTarget ? (
@@ -4475,10 +4494,10 @@ function CarSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep,
   )
 }
 
-// CarSimManager shows a deployed Car Rental Sim node's URL (never published to the
-// host — open it from inside the stack) and what it's linked to. cfg.targetKind here
-// is the fully-resolved 7-way kind dbcanvas settled on (e.g. "haproxy-spock"), not the
-// coarser 5-way shape CarSimForm resolves on the canvas before deploy.
+// CarSimManager shows a deployed Car Rental Sim node's published dashboard URL
+// and what it's linked to. cfg.targetKind here is the fully-resolved 7-way kind
+// dbcanvas settled on (e.g. "haproxy-spock"), not the coarser 5-way shape
+// CarSimForm resolves on the canvas before deploy.
 function CarSimManager({ dep, onDeleteNode }) {
   const cfg = dep?.config || {}
   const TARGET_KIND_LABEL = {
@@ -4491,9 +4510,9 @@ function CarSimManager({ dep, onDeleteNode }) {
         <span className="text-sm font-semibold">Car Rental Sim</span>
         <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
       </div>
-      <p className="text-xs text-muted">Open this URL from a browser inside the stack — it isn't published to the host.</p>
+      <SimDashboardLink port={cfg.httpPort} />
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <div className="flex justify-between gap-3"><span className="text-muted">URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8091</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Internal URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8091</span></div>
         <div className="flex justify-between gap-3"><span className="text-muted">Linked to</span><span className="font-mono text-xs">{cfg.targetName} ({TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></div>
       </div>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
@@ -4561,9 +4580,8 @@ function MarketChaosForm({ node: n, nodes, frames, edges, patchNode, deleteNode,
         MarketChaos: a fictional stock exchange deliberately deployed with bad indexes,
         queries, and transaction patterns. Diagnose and fix them against the linked
         MySQL-family target without breaking correctness. A live dashboard is served from
-        this node; open it from a browser inside the stack (e.g. a VNC desktop's Firefox) —
-        it's never published to the host. No product besides the sim itself; not monitored
-        by PMM.
+        this node, published to the host (like PMM) once deployed — no VNC desktop needed.
+        No product besides the sim itself; not monitored by PMM.
       </p>
 
       {linkedTarget ? (
@@ -4626,10 +4644,10 @@ function MarketChaosForm({ node: n, nodes, frames, edges, patchNode, deleteNode,
   )
 }
 
-// MarketChaosManager shows a deployed MarketChaos node's URL (never published to
-// the host — open it from inside the stack) and what it's linked to. cfg.targetKind
-// here is the fully-resolved 5-way kind dbcanvas settled on (e.g. "haproxy-pxc"),
-// not the coarser 4-way shape MarketChaosForm resolves on the canvas before deploy.
+// MarketChaosManager shows a deployed MarketChaos node's published dashboard URL
+// and what it's linked to. cfg.targetKind here is the fully-resolved 5-way kind
+// dbcanvas settled on (e.g. "haproxy-pxc"), not the coarser 4-way shape
+// MarketChaosForm resolves on the canvas before deploy.
 function MarketChaosManager({ node: n, dep, onDeleteNode }) {
   const cfg = dep?.config || {}
   const TARGET_KIND_LABEL = {
@@ -4644,9 +4662,9 @@ function MarketChaosManager({ node: n, dep, onDeleteNode }) {
         <span className="text-sm font-semibold">Unoptimized MySQL Challenge</span>
         <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
       </div>
-      <p className="text-xs text-muted">Open this URL from a browser inside the stack — it isn't published to the host.</p>
+      <SimDashboardLink port={cfg.httpPort} />
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <div className="flex justify-between gap-3"><span className="text-muted">URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8092</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Internal URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8092</span></div>
         <div className="flex justify-between gap-3"><span className="text-muted">Linked to</span><span className="font-mono text-xs">{cfg.targetName} ({TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></div>
         <div className="flex justify-between gap-3"><span className="text-muted">Dataset</span><span className="font-mono text-xs">{preset.label}{mcDataset === 'custom' ? ` (${n.mcTraders || 0}/${n.mcOrders || 0}/${n.mcTrades || 0}/${n.mcTicks || 0})` : ''}</span></div>
       </div>
