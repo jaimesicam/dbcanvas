@@ -3,6 +3,8 @@ package challenge
 import (
 	"context"
 	"database/sql"
+	"hash/fnv"
+	"math/rand"
 )
 
 // indexExists is the shared FunctionalCheck helper every DB-fixable
@@ -44,6 +46,102 @@ func anyIndexOnColumn(table, column string) func(context.Context, *sql.DB) strin
 	}
 }
 
+// RootCauseOptions is the fixed, catalog-wide pool of answers for every
+// challenge's "what's the root cause" diagnosis question. Deliberately more
+// specific than Category (which is already shown as a badge on the active
+// challenge view before the learner answers anything — reusing it verbatim
+// as the graded answer would just be reading it off the screen) and shared
+// across challenges on purpose: several challenges legitimately share a root
+// cause (e.g. pxc-hot-symbol-conflict and pxc-hot-parent-row both come down
+// to writes concentrated on one row), which is what makes the multiple-choice
+// list a real test rather than a 1:1 lookup.
+var RootCauseOptions = []DiagOption{
+	{"missing-index", "A needed index is missing"},
+	{"wrong-composite-index", "An index exists but doesn't cover the right columns in the right order"},
+	{"function-wrapped-column", "A function wraps an indexed column in the WHERE clause, defeating the index"},
+	{"unbounded-offset", "Pagination uses OFFSET, which still scans and discards every skipped row"},
+	{"n-plus-one", "One query is issued per row of another query's result (N+1)"},
+	{"missing-limit", "A query is missing a LIMIT clause and returns far more rows than needed"},
+	{"unbounded-aggregation", "An aggregation scans the entire table instead of a bounded recent window"},
+	{"broad-lock-scope", "A locking SELECT (FOR UPDATE) locks far more rows than it needs to"},
+	{"inconsistent-lock-order", "Transactions acquire the same locks in different orders, causing deadlocks"},
+	{"redundant-indexes", "Unused, redundant indexes are slowing down writes"},
+	{"pxc-hot-row-writes", "Multiple writers are concentrated on the same row, causing certification conflicts"},
+	{"pxc-no-retry", "Certification conflicts aren't being retried by the client"},
+	{"pxc-oversized-writeset", "A transaction touches far more rows than necessary, enlarging its writeset"},
+	{"pxc-batched-writeset", "Writes are batched into large transactions, triggering flow control"},
+	{"pxc-stale-read", "A read lands on a different node than the one just written to"},
+	{"pxc-no-primary-key", "A table has no primary key, hurting Galera's row-based replication"},
+}
+
+// FixApproachOptions is the fixed, catalog-wide pool of answers for every
+// challenge's "how do you fix it" diagnosis question. Same sharing rationale
+// as RootCauseOptions — e.g. every "concentrated writes" challenge shares
+// "spread-writes" as its correct fix regardless of which specific challenge
+// produced the concentration.
+var FixApproachOptions = []DiagOption{
+	{"add-index", "Create the missing/correct index"},
+	{"drop-redundant-indexes", "Drop the unused/redundant indexes"},
+	{"rewrite-sargable", "Rewrite the query so the column isn't wrapped in a function"},
+	{"keyset-pagination", "Replace OFFSET paging with keyset pagination (WHERE id < :last LIMIT n)"},
+	{"add-limit", "Add a LIMIT clause to bound the result set"},
+	{"bound-aggregation-window", "Bound the aggregation to a recent time window"},
+	{"join-instead-of-loop", "Replace the per-row query loop with a single JOIN"},
+	{"narrow-lock-scope", "Add LIMIT to the locking SELECT so it only locks the row(s) actually needed"},
+	{"consistent-lock-order", "Always acquire locks in the same fixed order"},
+	{"spread-writes", "Spread writes across more rows/symbols instead of concentrating them"},
+	{"restore-retry-budget", "Restore the normal retry budget for certification conflicts"},
+	{"shrink-transaction", "Scope the transaction down to only the rows it actually needs to touch"},
+	{"smaller-batches", "Commit smaller batches instead of one large transaction"},
+	{"read-own-write-node", "Read back from the same node/connection that performed the write"},
+	{"add-primary-key", "Add a primary key to the table"},
+}
+
+// diagnosisChoices narrows a full option pool down to 4 radio-button
+// choices for one challenge's diagnosis question: the correct answer plus 3
+// others, in an order that's a pure function of seed — so every viewer
+// (and a page reload mid-challenge) sees the identical 4 choices in the
+// identical order without the server persisting anything extra. seed
+// should be unique per challenge+question (e.g. challenge ID + "|root") so
+// the two questions on the same challenge don't shuffle in lockstep.
+func diagnosisChoices(pool []DiagOption, correctID, seed string) []DiagOption {
+	h := fnv.New64a()
+	h.Write([]byte(seed))
+	rng := rand.New(rand.NewSource(int64(h.Sum64())))
+
+	var correct DiagOption
+	others := make([]DiagOption, 0, len(pool)-1)
+	for _, o := range pool {
+		if o.ID == correctID {
+			correct = o
+			continue
+		}
+		others = append(others, o)
+	}
+	rng.Shuffle(len(others), func(i, j int) { others[i], others[j] = others[j], others[i] })
+
+	n := 3
+	if n > len(others) {
+		n = len(others)
+	}
+	choices := append([]DiagOption{correct}, others[:n]...)
+	rng.Shuffle(len(choices), func(i, j int) { choices[i], choices[j] = choices[j], choices[i] })
+	return choices
+}
+
+// validDiagOption reports whether id names a real option in pool — used to
+// reject an unrecognized answer id outright (400) rather than silently
+// storing it, the same closed-vocabulary guarantee that makes automatic
+// grading possible at all (an open free-text field had no such guarantee).
+func validDiagOption(pool []DiagOption, id string) bool {
+	for _, o := range pool {
+		if o.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 // Catalog is every challenge MarketChaos ships — the spec's 10 generic
 // challenges (5 beginner + 5 intermediate) plus the full PXC-specific pack
 // (8), gated to appear only when the linked target is PXC-family. See the
@@ -64,6 +162,7 @@ var Catalog = []Challenge{
 			{2, "Check information_schema.STATISTICS for price_ticks — what indexes exist right now?"},
 			{3, "CREATE INDEX ... ON price_ticks (security_id, recorded_at) — column order matters: equality column first, range column second."},
 		},
+		RootCause: "missing-index", FixApproach: "add-index",
 		FunctionalCheck: indexExists("price_ticks", "idx_ticks_security_time"),
 	},
 	{
@@ -77,6 +176,7 @@ var Catalog = []Challenge{
 			{2, "A function wrapped around an indexed column (DATE(created_at)) can't use a range scan on that column, even if the index exists."},
 			{3, "The equivalent range form is created_at >= CURDATE() AND created_at < CURDATE() + INTERVAL 1 DAY — same result, sargable."},
 		},
+		RootCause: "function-wrapped-column", FixApproach: "rewrite-sargable",
 	},
 	{
 		ID: "deep-offset-pagination", Title: "Deep OFFSET pagination",
@@ -89,6 +189,7 @@ var Catalog = []Challenge{
 			{2, "OFFSET doesn't skip work — MySQL still reads and discards every skipped row."},
 			{3, "Keyset pagination (WHERE trade_id < :last_seen_id ORDER BY trade_id DESC LIMIT n) reads exactly n rows regardless of how deep you are."},
 		},
+		RootCause: "unbounded-offset", FixApproach: "keyset-pagination",
 	},
 	{
 		ID: "portfolio-n-plus-1", Title: "Portfolio N+1",
@@ -101,6 +202,7 @@ var Catalog = []Challenge{
 			{2, "A query issued once per row in a result set, inside a loop over another query's results, is the N+1 pattern."},
 			{3, "A single JOIN across positions and market_quotes returns exactly the same data in one round trip."},
 		},
+		RootCause: "n-plus-one", FixApproach: "join-instead-of-loop",
 	},
 	{
 		ID: "unbounded-trade-history", Title: "Unbounded trade-history query",
@@ -113,6 +215,7 @@ var Catalog = []Challenge{
 			{2, "Missing LIMIT clauses don't error — they just quietly return everything."},
 			{3, "Add ORDER BY trade_id DESC LIMIT n back — bound the result set to what's actually displayed."},
 		},
+		RootCause: "missing-limit", FixApproach: "add-limit",
 	},
 
 	// ------------------------------------------------------- intermediate
@@ -136,6 +239,7 @@ var Catalog = []Challenge{
 			{3, "CREATE INDEX ... ON orders (security_id, status) — column order matches the WHERE clause's equality predicates."},
 		},
 		FunctionalCheck: indexExists("orders", "idx_orders_security_status"),
+		RootCause:       "wrong-composite-index", FixApproach: "add-index",
 	},
 	{
 		ID: "live-full-history-aggregation", Title: "Live full-history dashboard aggregation",
@@ -148,6 +252,7 @@ var Catalog = []Challenge{
 			{2, "An unbounded GROUP BY over a growing table gets slower every single day it runs, even if nothing else changes."},
 			{3, "Bound the aggregation with a WHERE recorded_at > (a fixed recent window) before grouping."},
 		},
+		RootCause: "unbounded-aggregation", FixApproach: "bound-aggregation-window",
 	},
 	{
 		ID: "broad-select-for-update", Title: "Broad SELECT ... FOR UPDATE",
@@ -160,6 +265,7 @@ var Catalog = []Challenge{
 			{2, "A FOR UPDATE without a LIMIT locks every row it examines, not just the one that ends up used — that's real lock contention held for the whole transaction."},
 			{3, "LIMIT 1 on the lock-acquiring SELECT bounds the lock footprint to exactly the row being matched."},
 		},
+		RootCause: "broad-lock-scope", FixApproach: "narrow-lock-scope",
 	},
 	{
 		ID: "inconsistent-lock-ordering", Title: "Inconsistent lock ordering",
@@ -172,6 +278,7 @@ var Catalog = []Challenge{
 			{2, "Check txnRetries — is it climbing faster than the traffic level alone would explain?"},
 			{3, "Always lock in the same fixed order (e.g. always buy row before sell row) across every worker, every time."},
 		},
+		RootCause: "inconsistent-lock-order", FixApproach: "consistent-lock-order",
 	},
 	{
 		ID: "redundant-indexes-tick-inserts", Title: "Redundant indexes degrading tick inserts",
@@ -195,6 +302,7 @@ var Catalog = []Challenge{
 			{3, "DROP the indexes that don't serve idx_ticks_security_time's job and aren't used by any query shape on the leaderboard."},
 		},
 		MaxNewIndexes: 0,
+		RootCause:     "redundant-indexes", FixApproach: "drop-redundant-indexes",
 	},
 
 	// -------------------------------------------------------------- PXC
@@ -209,6 +317,7 @@ var Catalog = []Challenge{
 			{2, "Two nodes both trying to certify a write to the SAME row at the same time is exactly what Galera certification conflicts are — the busier a single popular symbol gets, the worse it is."},
 			{3, "Spreading institutional writes across the full 200-security universe (round-robin) instead of concentrating on the handful of popular symbols removes the same-row race."},
 		},
+		RootCause: "pxc-hot-row-writes", FixApproach: "spread-writes",
 	},
 	{
 		ID: "pxc-no-retry-classification", Title: "No certification-conflict retry",
@@ -221,6 +330,7 @@ var Catalog = []Challenge{
 			{2, "A MySQL 1213 (certification conflict) is specifically the error class that's supposed to be retried, not surfaced — Galera doesn't retry a client's transaction on its own."},
 			{3, "Restore the retry loop's normal attempt budget instead of capping it at 1."},
 		},
+		RootCause: "pxc-no-retry", FixApproach: "restore-retry-budget",
 	},
 	{
 		ID: "pxc-oversized-transaction", Title: "Oversized transaction",
@@ -233,6 +343,7 @@ var Catalog = []Challenge{
 			{2, "A larger writeset means more certification surface — every row it touches is a row that can conflict with a concurrent writer on another node."},
 			{3, "Scope the transaction back down to exactly the one order and the one hot quote row it's placing."},
 		},
+		RootCause: "pxc-oversized-writeset", FixApproach: "shrink-transaction",
 	},
 	{
 		ID: "pxc-hot-parent-row", Title: "Hot parent-row contention",
@@ -245,6 +356,7 @@ var Catalog = []Challenge{
 			{2, "Concentrating every writer on one single row is the worst case for row-level (and Galera certification) contention — worse than even a naturally popular symbol."},
 			{3, "Restore weighted-random symbol selection instead of a single fixed security."},
 		},
+		RootCause: "pxc-hot-row-writes", FixApproach: "spread-writes",
 	},
 	{
 		ID: "pxc-flow-control-pressure", Title: "Flow-control pressure",
@@ -257,6 +369,7 @@ var Catalog = []Challenge{
 			{2, "A bigger writeset takes every member longer to apply — Galera pauses faster nodes (flow control) rather than let them race ahead of a slower one."},
 			{3, "Commit each institutional order as its own transaction instead of batching many into one."},
 		},
+		RootCause: "pxc-batched-writeset", FixApproach: "smaller-batches",
 	},
 	{
 		ID: "pxc-read-after-write", Title: "Read-after-write consistency",
@@ -269,6 +382,7 @@ var Catalog = []Challenge{
 			{2, "Every PXC member applies a writeset asynchronously (relative to the writer's own commit) unless the session explicitly waits for it — a different node can be momentarily behind."},
 			{3, "Read back from the same connection/member that performed the write, not a round-robined one."},
 		},
+		RootCause: "pxc-stale-read", FixApproach: "read-own-write-node",
 	},
 	{
 		ID: "pxc-ddl-during-load", Title: "DDL during active load",
@@ -284,6 +398,7 @@ var Catalog = []Challenge{
 			{3, "CREATE INDEX ... ON orders (account_id) restores the seek path."},
 		},
 		FunctionalCheck: anyIndexOnColumn("orders", "account_id"),
+		RootCause:       "missing-index", FixApproach: "add-index",
 	},
 	{
 		ID: "pxc-table-without-pk", Title: "Table without a primary key",
@@ -311,6 +426,7 @@ var Catalog = []Challenge{
 			}
 			return ""
 		},
+		RootCause: "pxc-no-primary-key", FixApproach: "add-primary-key",
 	},
 }
 

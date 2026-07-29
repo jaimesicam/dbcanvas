@@ -61,6 +61,18 @@ type Hint struct {
 	Text string `json:"text"`
 }
 
+// DiagOption is one selectable answer for a diagnosis multiple-choice
+// question. ID is what the client posts back (and what a Challenge's
+// RootCause/FixApproach fields compare against to grade it); Label is the
+// human-readable text shown in the UI. The full option pools
+// (RootCauseOptions/FixApproachOptions) live in catalog.go, shared across
+// every challenge — not authored per-challenge — so the same options serve
+// as real distractors for every other challenge too.
+type DiagOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
 // Challenge is one catalog entry — a Go struct literal, not embedded YAML
 // (see the written plan's §5.1 for why: this repo's own precedent,
 // app/labs.go, is plain Go data too, and half of every challenge here is
@@ -93,6 +105,17 @@ type Challenge struct {
 	ShapeIDs []string
 
 	Hints []Hint
+
+	// RootCause and FixApproach are the correct-answer option IDs (from
+	// RootCauseOptions/FixApproachOptions in catalog.go) for this
+	// challenge's two multiple-choice diagnosis questions — replacing an
+	// earlier free-text diagnosis field that couldn't be graded without a
+	// human comparing prose against the actual performance result. Every
+	// challenge answers both questions, DB- or app-mechanism alike; only
+	// app-mechanism challenges additionally gate their "apply improved
+	// implementation" toggle on having answered (see Manager.ToggleVariant).
+	RootCause   string
+	FixApproach string
 
 	// FunctionalCheck runs after Setup (and again during grading) — returns
 	// a human-readable failure reason, or "" if the check passes. Every

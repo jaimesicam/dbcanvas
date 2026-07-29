@@ -207,6 +207,34 @@ function renderSeed(seed) {
 
 let challengeCatalog = null // fetched once — the catalog itself never changes for a running deployment
 
+// diagChallengeId tracks which challenge the two radio groups were last
+// built for — the 4 choices are per-challenge (see the server's
+// rootCauseChoices/fixApproachChoices), so the groups only need rebuilding
+// when the active challenge changes, not on every 2s poll tick. That also
+// means an in-progress (unsaved) radio pick is never clobbered by a poll,
+// since polls after the initial build never touch the DOM here at all.
+let diagChallengeId = null
+
+// renderDiagChoices (re)builds one question's radio group from scratch —
+// only called when the active challenge id changes, so a click on a radio
+// is never fought by the next poll's re-render.
+function renderDiagChoices(containerId, name, choices, selected) {
+  const el = document.getElementById(containerId)
+  el.innerHTML = ''
+  for (const opt of choices || []) {
+    const label = document.createElement('label')
+    label.className = 'diag-choice'
+    const input = document.createElement('input')
+    input.type = 'radio'
+    input.name = name
+    input.value = opt.id
+    if (opt.id === selected) input.checked = true
+    label.appendChild(input)
+    label.appendChild(document.createTextNode(opt.label))
+    el.appendChild(label)
+  }
+}
+
 async function fetchChallenges() {
   try {
     if (!challengeCatalog) {
@@ -271,20 +299,28 @@ function renderActiveChallenge(active) {
   document.getElementById('ca-scenario').textContent = active.scenario
   document.getElementById('ca-symptom').textContent = active.symptom
 
-  const diagField = document.getElementById('ca-diagnosis')
-  if (document.activeElement !== diagField) diagField.value = active.diagnosis || ''
+  if (diagChallengeId !== active.id) {
+    diagChallengeId = active.id
+    renderDiagChoices('ca-root-cause', 'rootCause', active.rootCauseChoices, active.rootCause)
+    renderDiagChoices('ca-fix-approach', 'fixApproach', active.fixApproachChoices, active.fixApproach)
+  }
 
   const variantBlock = document.getElementById('ca-variant-block')
   const variantStatus = document.getElementById('ca-variant-status')
+  const variantBtn = document.getElementById('ca-variant-btn')
   if (active.mechanism === 'app') {
     variantBlock.classList.remove('hidden')
+    const unlocked = active.hintsUsed > 0 && active.rootCause && active.fixApproach
+    variantBtn.classList.toggle('on', active.appliedVariant)
     if (active.appliedVariant) {
-      variantStatus.textContent = 'Improved implementation applied.'
-      document.getElementById('ca-variant-btn').disabled = true
+      variantBtn.textContent = 'Revert to buggy implementation'
+      variantBtn.disabled = false
+      variantStatus.textContent = 'Improved implementation applied — toggle off to compare against the bad one.'
     } else {
-      document.getElementById('ca-variant-btn').disabled = false
-      variantStatus.textContent = active.hintsUsed > 0 && active.diagnosis
-        ? '' : 'Use a hint and save a diagnosis to unlock this.'
+      variantBtn.textContent = 'Apply improved implementation'
+      variantBtn.disabled = !unlocked
+      variantStatus.textContent = unlocked
+        ? '' : 'Use a hint and save a diagnosis (both questions) to unlock this.'
     }
   } else {
     variantBlock.classList.add('hidden')
@@ -354,7 +390,8 @@ function renderGrade(g) {
   document.getElementById('ca-grade-diagnosis').textContent = g.diagnosisPoints
   document.getElementById('ca-grade-metric').textContent =
     `${g.performanceMetric}: ${g.performanceBefore.toFixed(2)} baseline -> ${g.performanceAfter.toFixed(2)} now` +
-    (g.regressionNote ? ` · ${g.regressionNote}` : '')
+    (g.regressionNote ? ` · ${g.regressionNote}` : '') +
+    (g.diagnosisNote ? ` · ${g.diagnosisNote}` : '')
 }
 
 document.getElementById('ca-hint-btn').addEventListener('click', async () => {
@@ -377,15 +414,18 @@ document.getElementById('ca-reset-btn').addEventListener('click', async () => {
 })
 
 document.getElementById('ca-diagnosis-btn').addEventListener('click', async () => {
-  const text = document.getElementById('ca-diagnosis').value
-  await fetch('/api/challenges/diagnosis', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
+  const rootCause = document.querySelector('input[name="rootCause"]:checked')?.value || ''
+  const fixApproach = document.querySelector('input[name="fixApproach"]:checked')?.value || ''
+  const res = await fetch('/api/challenges/diagnosis', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rootCause, fixApproach }),
   })
+  if (!res.ok) { alert(await res.text()); return }
   fetchChallenges()
 })
 
 document.getElementById('ca-variant-btn').addEventListener('click', async () => {
-  const res = await fetch('/api/challenges/apply-variant', { method: 'POST' })
+  const res = await fetch('/api/challenges/toggle-variant', { method: 'POST' })
   if (!res.ok) { alert(await res.text()); return }
   fetchChallenges()
 })

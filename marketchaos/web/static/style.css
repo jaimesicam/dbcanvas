@@ -87,10 +87,24 @@ main { padding: 16px 20px 40px; max-width: 1400px; margin: 0 auto; }
   background: var(--panel2); border: 1px solid var(--border); border-radius: 6px;
   padding: 8px 10px; font-size: 13px;
 }
+#ca-variant-btn {
+  background: var(--panel2); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 13px;
+}
+#ca-variant-btn:hover { border-color: var(--accent); }
+#ca-variant-btn.on { background: var(--ok); color: #0b2415; font-weight: 700; border-color: var(--ok); }
 #ca-diagnosis {
   width: 100%; background: var(--panel2); color: var(--fg); border: 1px solid var(--border);
   border-radius: 6px; padding: 8px; font-family: inherit; font-size: 13px; resize: vertical;
 }
+.diag-choices { display: flex; flex-direction: column; gap: 6px; }
+.diag-choice {
+  display: flex; align-items: flex-start; gap: 8px; background: var(--panel2);
+  border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px;
+  font-size: 13px; cursor: pointer;
+}
+.diag-choice:hover { border-color: var(--accent); }
+.diag-choice input { margin-top: 2px; flex-shrink: 0; }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 @media (max-width: 720px) {
   .two-col { grid-template-columns: 1fr; }

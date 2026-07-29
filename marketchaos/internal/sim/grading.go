@@ -95,6 +95,7 @@ type GradeResult struct {
 	RegressionPoints   int     `json:"regressionPoints"`
 	RegressionNote     string  `json:"regressionNote,omitempty"`
 	DiagnosisPoints    int     `json:"diagnosisPoints"`
+	DiagnosisNote      string  `json:"diagnosisNote,omitempty"`
 	TotalScore         int     `json:"totalScore"`
 	Grade              string  `json:"grade"`
 }
@@ -264,8 +265,15 @@ func (e *Engine) score(ctx context.Context, c challenge.Challenge, baseline, val
 		r.RegressionNote = fmt.Sprintf("%d new index(es) added — more than this challenge's guideline of %d", newIndexes, maxNew)
 	}
 
-	if e.Challenges.Diagnosis() != "" {
-		r.DiagnosisPoints = 10
+	rootCause, fixApproach := e.Challenges.DiagnosisAnswers()
+	if rootCause != "" && rootCause == c.RootCause {
+		r.DiagnosisPoints += 5
+	}
+	if fixApproach != "" && fixApproach == c.FixApproach {
+		r.DiagnosisPoints += 5
+	}
+	if r.DiagnosisPoints < 10 {
+		r.DiagnosisNote = "diagnosis: pick the correct root cause and fix approach for full credit"
 	}
 
 	r.TotalScore = r.FunctionalPoints + r.PerformancePoints + r.RegressionPoints + r.DiagnosisPoints

@@ -37,8 +37,9 @@ type Manager struct {
 	state          State
 	startedAt      time.Time
 	hintsUsed      int
-	diagnosis      string
-	appliedVariant bool // for MechanismApp challenges: has the "apply improved implementation" toggle been flipped?
+	rootCause      string // selected DiagOption id from RootCauseOptions, "" if unanswered
+	fixApproach    string // selected DiagOption id from FixApproachOptions, "" if unanswered
+	appliedVariant bool   // for MechanismApp challenges: is the improved-implementation toggle currently on?
 }
 
 func NewManager(db *sql.DB) *Manager { return &Manager{db: db, state: StateNone} }
@@ -58,7 +59,8 @@ type persistedState struct {
 	State          State     `json:"state"`
 	StartedAt      time.Time `json:"startedAt"`
 	HintsUsed      int       `json:"hintsUsed"`
-	Diagnosis      string    `json:"diagnosis"`
+	RootCause      string    `json:"rootCause"`
+	FixApproach    string    `json:"fixApproach"`
 	AppliedVariant bool      `json:"appliedVariant"`
 }
 
@@ -70,7 +72,7 @@ type persistedState struct {
 func (m *Manager) persist() {
 	p := persistedState{
 		State: m.state, StartedAt: m.startedAt, HintsUsed: m.hintsUsed,
-		Diagnosis: m.diagnosis, AppliedVariant: m.appliedVariant,
+		RootCause: m.rootCause, FixApproach: m.fixApproach, AppliedVariant: m.appliedVariant,
 	}
 	if m.state != StateNone {
 		p.ChallengeID = m.challenge.ID
@@ -119,7 +121,8 @@ func (m *Manager) LoadPersisted(ctx context.Context) error {
 	m.state = p.State
 	m.startedAt = p.StartedAt
 	m.hintsUsed = p.HintsUsed
-	m.diagnosis = p.Diagnosis
+	m.rootCause = p.RootCause
+	m.fixApproach = p.FixApproach
 	m.appliedVariant = p.AppliedVariant
 	m.mu.Unlock()
 	return nil
@@ -161,7 +164,8 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 	m.state = StateActive
 	m.startedAt = time.Now()
 	m.hintsUsed = 0
-	m.diagnosis = ""
+	m.rootCause = ""
+	m.fixApproach = ""
 	m.appliedVariant = false
 	m.persist()
 	return nil
@@ -205,25 +209,67 @@ func (m *Manager) UnlockHint() (Hint, bool) {
 	return h, true
 }
 
-func (m *Manager) SetDiagnosis(text string) {
-	m.mu.Lock()
-	m.diagnosis = text
-	m.persist()
-	m.mu.Unlock()
-}
-
-func (m *Manager) Diagnosis() string {
+// SetDiagnosisAnswers records the learner's selected answers for the two
+// multiple-choice diagnosis questions (root cause, fix approach) — replacing
+// an earlier free-text field that stored anything at all, which meant
+// grading it required a human to read the prose and judge it against the
+// actual performance result. Both ids are validated against the fixed,
+// catalog-wide option pools; an unrecognized id is rejected outright rather
+// than silently stored, since that closed vocabulary is what makes
+// automatic grading possible. A challenge must be active.
+func (m *Manager) SetDiagnosisAnswers(rootCause, fixApproach string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.diagnosis
+	if m.state == StateNone {
+		return fmt.Errorf("no challenge active")
+	}
+	if rootCause != "" && !validDiagOption(RootCauseOptions, rootCause) {
+		return fmt.Errorf("unrecognized root cause option %q", rootCause)
+	}
+	if fixApproach != "" && !validDiagOption(FixApproachOptions, fixApproach) {
+		return fmt.Errorf("unrecognized fix approach option %q", fixApproach)
+	}
+	m.rootCause = rootCause
+	m.fixApproach = fixApproach
+	m.persist()
+	return nil
 }
 
-// ApplyVariant flips the "improved implementation" toggle for an
-// app-mechanism challenge — unlocked once at least 1 hint has been used and
-// a diagnosis has been recorded, per the written plan's §5.1 (this is the
+// DiagnosisAnswers returns the learner's currently selected answer ids
+// (each "" if unanswered) — not whether they're correct; grading.go compares
+// these against the active Challenge's own RootCause/FixApproach fields.
+func (m *Manager) DiagnosisAnswers() (rootCause, fixApproach string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.rootCause, m.fixApproach
+}
+
+// DiagnosisChoices returns the 4 radio-button choices for each of the
+// active challenge's two diagnosis questions — nil, nil if no challenge is
+// active. See diagnosisChoices for how the 4-of-N subset is picked.
+func (m *Manager) DiagnosisChoices() (rootCause, fixApproach []DiagOption) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.state == StateNone {
+		return nil, nil
+	}
+	return diagnosisChoices(RootCauseOptions, m.challenge.RootCause, m.challenge.ID+"|root"),
+		diagnosisChoices(FixApproachOptions, m.challenge.FixApproach, m.challenge.ID+"|fix")
+}
+
+// ToggleVariant flips the "improved implementation" toggle for an
+// app-mechanism challenge back and forth between the bad and reference
+// behavior — turning it on is gated on at least 1 hint used and both
+// diagnosis questions answered, per the written plan's §5.1 (this is the
 // only "fix" mechanism app-only challenges have, since no learner SQL can
-// reach their own Go code).
-func (m *Manager) ApplyVariant() error {
+// reach their own Go code); turning it back off to compare against the bad
+// implementation is always allowed once that gate has been cleared once.
+// Answering isn't the same as answering correctly — correctness is graded
+// separately in grading.go, not enforced at this gate, so a learner who
+// guesses wrong can still apply the real fix and earn functional/
+// performance credit; only the diagnosis points themselves depend on
+// getting the two questions right.
+func (m *Manager) ToggleVariant() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.state == StateNone {
@@ -232,10 +278,10 @@ func (m *Manager) ApplyVariant() error {
 	if m.challenge.Mechanism != MechanismApp {
 		return fmt.Errorf("challenge %q is fixed via SQL, not a variant toggle", m.challenge.ID)
 	}
-	if m.hintsUsed == 0 || m.diagnosis == "" {
-		return fmt.Errorf("use at least one hint and record a diagnosis before applying the fix")
+	if !m.appliedVariant && (m.hintsUsed == 0 || m.rootCause == "" || m.fixApproach == "") {
+		return fmt.Errorf("use at least one hint and answer both diagnosis questions before applying the fix")
 	}
-	m.appliedVariant = true
+	m.appliedVariant = !m.appliedVariant
 	m.persist()
 	return nil
 }

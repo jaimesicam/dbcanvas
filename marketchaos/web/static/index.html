@@ -98,7 +98,7 @@
     <section class="panel">
       <h2>Challenges</h2>
       <div id="challenge-idle">
-        <p class="muted">Pick a challenge below to inject it, then diagnose and fix it — indexing/schema challenges are fixed with real SQL through DBCanvas's own Terminal or Query Runner; app-behavior challenges are fixed with the toggle that appears here once you've used a hint and recorded a diagnosis.</p>
+        <p class="muted">Pick a challenge below to inject it, then diagnose and fix it — indexing/schema challenges are fixed with real SQL through DBCanvas's own Terminal or Query Runner; app-behavior challenges are fixed with the toggle that appears here once you've used a hint and answered both diagnosis questions.</p>
         <div id="challenge-list" class="challenge-list"></div>
       </div>
       <div id="challenge-active" class="hidden">
@@ -113,9 +113,19 @@
           <button id="ca-hint-btn">Get a hint</button>
           <button id="ca-reset-btn" class="danger">Reset challenge</button>
         </div>
-        <label class="muted" style="display:block;margin-bottom:4px">Your diagnosis (what's wrong, and why)</label>
-        <textarea id="ca-diagnosis" rows="2"></textarea>
-        <button id="ca-diagnosis-btn">Save diagnosis</button>
+        <div class="two-col">
+          <div>
+            <label class="muted" style="display:block;margin-bottom:4px">Root cause</label>
+            <div id="ca-root-cause" class="diag-choices"></div>
+          </div>
+          <div>
+            <label class="muted" style="display:block;margin-bottom:4px">Fix approach</label>
+            <div id="ca-fix-approach" class="diag-choices"></div>
+          </div>
+        </div>
+        <div class="controls" style="margin-top:8px">
+          <button id="ca-diagnosis-btn">Save diagnosis</button>
+        </div>
         <div id="ca-variant-block" class="hidden" style="margin-top:12px">
           <button id="ca-variant-btn">Apply improved implementation</button>
           <span id="ca-variant-status" class="muted"></span>

@@ -44,20 +44,31 @@ func (h *Handler) handleChallengeCatalog(w http.ResponseWriter, r *http.Request)
 }
 
 type activeChallengeView struct {
-	Active         bool      `json:"active"`
-	ID             string    `json:"id,omitempty"`
-	Title          string    `json:"title,omitempty"`
-	Category       string    `json:"category,omitempty"`
-	Difficulty     string    `json:"difficulty,omitempty"`
-	Mechanism      string    `json:"mechanism,omitempty"`
-	Scenario       string    `json:"scenario,omitempty"`
-	Symptom        string    `json:"symptom,omitempty"`
-	State          string    `json:"state,omitempty"`
-	HintsUsed      int       `json:"hintsUsed"`
-	TotalHints     int       `json:"totalHints"`
-	Diagnosis      string    `json:"diagnosis,omitempty"`
-	AppliedVariant bool      `json:"appliedVariant"`
-	StartedAt      time.Time `json:"startedAt,omitempty"`
+	Active     bool   `json:"active"`
+	ID         string `json:"id,omitempty"`
+	Title      string `json:"title,omitempty"`
+	Category   string `json:"category,omitempty"`
+	Difficulty string `json:"difficulty,omitempty"`
+	Mechanism  string `json:"mechanism,omitempty"`
+	Scenario   string `json:"scenario,omitempty"`
+	Symptom    string `json:"symptom,omitempty"`
+	State      string `json:"state,omitempty"`
+	HintsUsed  int    `json:"hintsUsed"`
+	TotalHints int    `json:"totalHints"`
+	// RootCause/FixApproach are the learner's currently SELECTED answer ids
+	// (echoed back so the panel can restore selection across a reload) —
+	// never the correct answer, which lives only in the Challenge struct on
+	// the server and is never serialized to the client.
+	RootCause   string `json:"rootCause,omitempty"`
+	FixApproach string `json:"fixApproach,omitempty"`
+	// RootCauseChoices/FixApproachChoices are the 4 radio-button options for
+	// each diagnosis question — a deterministic (per challenge) subset of
+	// the full pools in catalog.go, computed fresh on every request rather
+	// than cached, so they're never stale across a container restart.
+	RootCauseChoices   []challenge.DiagOption `json:"rootCauseChoices,omitempty"`
+	FixApproachChoices []challenge.DiagOption `json:"fixApproachChoices,omitempty"`
+	AppliedVariant     bool                   `json:"appliedVariant"`
+	StartedAt          time.Time              `json:"startedAt,omitempty"`
 }
 
 func (h *Handler) handleChallengeActive(w http.ResponseWriter, r *http.Request) {
@@ -69,12 +80,16 @@ func (h *Handler) activeView() activeChallengeView {
 	if !active {
 		return activeChallengeView{Active: false}
 	}
+	rootCause, fixApproach := h.Engine.Challenges.DiagnosisAnswers()
+	rootCauseChoices, fixApproachChoices := h.Engine.Challenges.DiagnosisChoices()
 	return activeChallengeView{
 		Active: true, ID: c.ID, Title: c.Title, Category: string(c.Category), Difficulty: string(c.Difficulty),
 		Mechanism: string(c.Mechanism), Scenario: c.Scenario, Symptom: c.Symptom, State: string(state),
 		HintsUsed: h.Engine.Challenges.HintsUsed(), TotalHints: len(c.Hints),
-		Diagnosis: h.Engine.Challenges.Diagnosis(), AppliedVariant: h.Engine.Challenges.AppliedVariant(),
-		StartedAt: h.Engine.Challenges.StartedAt(),
+		RootCause: rootCause, FixApproach: fixApproach,
+		RootCauseChoices: rootCauseChoices, FixApproachChoices: fixApproachChoices,
+		AppliedVariant: h.Engine.Challenges.AppliedVariant(),
+		StartedAt:      h.Engine.Challenges.StartedAt(),
 	}
 }
 
@@ -115,18 +130,22 @@ func (h *Handler) handleChallengeHint(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleChallengeDiagnosis(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Text string `json:"text"`
+		RootCause   string `json:"rootCause"`
+		FixApproach string `json:"fixApproach"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid body", http.StatusBadRequest)
 		return
 	}
-	h.Engine.Challenges.SetDiagnosis(body.Text)
+	if err := h.Engine.Challenges.SetDiagnosisAnswers(body.RootCause, body.FixApproach); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	writeJSON(w, h.activeView())
 }
 
-func (h *Handler) handleChallengeApplyVariant(w http.ResponseWriter, r *http.Request) {
-	if err := h.Engine.Challenges.ApplyVariant(); err != nil {
+func (h *Handler) handleChallengeToggleVariant(w http.ResponseWriter, r *http.Request) {
+	if err := h.Engine.Challenges.ToggleVariant(); err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}

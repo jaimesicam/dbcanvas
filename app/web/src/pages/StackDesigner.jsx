@@ -2033,7 +2033,7 @@ function StackEditor({ stackId, onBack }) {
       { label: 'Ubuntu VNC', type: 'vnc', onClick: () => addNode('vnc'), off: has('vnc') },
       { label: 'Linux Client', type: 'linuxclient', onClick: () => addNode('linuxclient') },
     ] },
-    { title: 'App Simulators', items: [
+    { title: 'App Simulators (experimental)', items: [
       { label: 'Traffic Sim', type: 'trafficsim', onClick: () => addNode('trafficsim') },
       { label: 'Hotel Sim', type: 'hotelsim', onClick: () => addNode('hotelsim') },
       { label: 'Airline Sim', type: 'airlinesim', onClick: () => addNode('airlinesim') },
