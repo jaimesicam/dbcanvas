@@ -413,8 +413,9 @@ type ContainerSpec struct {
 	// which is right for the arch-tagged dbcanvas-systemd:* images we build
 	// locally. Set it for pulled images. See platformAMD64 / pullPlatform.
 	Platform string
-	// CPUs / MemoryMB size a Vagrant VM (the vagrant backend only; Docker ignores
-	// them). 0 → the engine's default. Set from the design node via applyVMSize.
+	// CPUs / MemoryMB size the node: a Vagrant VM's vb.cpus/vb.memory, or a Docker
+	// container's --cpus/--memory. 0 → Vagrant's engine default / no Docker limit.
+	// Set from the design node via applyVMSize.
 	CPUs     int
 	MemoryMB int
 }
@@ -482,6 +483,17 @@ func (d *Docker) ContainerCreate(ctx context.Context, spec ContainerSpec) (strin
 	}
 	if len(spec.DNSSearch) > 0 {
 		host["DnsSearch"] = spec.DNSSearch
+	}
+	// Per-node sizing (applyVMSize) → the API equivalents of `docker run --cpus/--memory`.
+	// Zero = unset, i.e. the daemon default of no limit, which is what stacks designed
+	// before these fields existed keep getting.
+	if spec.CPUs > 0 {
+		host["NanoCpus"] = int64(spec.CPUs) * 1e9
+	}
+	if spec.MemoryMB > 0 {
+		memBytes := int64(spec.MemoryMB) * (1 << 20)
+		host["Memory"] = memBytes
+		host["MemorySwap"] = memBytes // no swap headroom: the limit means what it says
 	}
 	ports := spec.PublishPorts
 	if spec.PublishPort > 0 {

@@ -321,8 +321,12 @@ or depend on Docker itself:
 
 Nothing is rejected: the deploy routes each node to the engine that supports it, and DBCanvas
 joins the two networks on the host (iptables + routes) so a VM database still resolves the
-Intranet's DNS, trusts its CA, gets scraped by PMM, and reaches SeaweedFS by name. In hybrid
-mode each VM-capable node also gains **vCPUs** and **Memory (GiB)** fields in its properties.
+Intranet's DNS, trusts its CA, gets scraped by PMM, and reaches SeaweedFS by name.
+
+Each of these node types carries its own **CPUs** and **Memory (GiB)** in its properties, on
+either backend: on Vagrant they size the VirtualBox VM (blank → the `DBCANVAS_VM_CPUS`/
+`DBCANVAS_VM_MEMORY` defaults below), and on Docker they become the container's `--cpus` and
+`--memory` limits (blank → unlimited, the daemon default).
 
 Two things to know before you switch:
 
@@ -485,7 +489,7 @@ active. All optional; the defaults work out of the box.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `DBCANVAS_VAGRANT_ROOT` | `~/.dbcanvas/vagrant` | Working root — one subdirectory per VM (holding its `Vagrantfile`), plus the network and host-port allocation state. |
-| `DBCANVAS_VM_CPUS` | `2` | vCPUs for a VM whose node doesn't set its own. Per-node **vCPUs** in the designer wins. |
+| `DBCANVAS_VM_CPUS` | `2` | vCPUs for a VM whose node doesn't set its own. Per-node **CPUs** in the designer wins. |
 | `DBCANVAS_VM_MEMORY` | `2048` | Memory (MB) for a VM whose node doesn't set its own. Per-node **Memory (GiB)** wins. |
 | `DBCANVAS_VM_SUBNET_BASE` | `192.168` | First two octets of the host-only range stacks draw their `/24`s from. VirtualBox only permits `192.168.56.0/21` unless you widen it in `/etc/vbox/networks.conf` — change both together. |
 | `DBCANVAS_BOX_<OS>_<VER>` | — | Override the Vagrant box for one OS (dots/dashes → underscores), e.g. `DBCANVAS_BOX_UBUNTU_24_04=my/box`. |

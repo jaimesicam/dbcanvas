@@ -3366,24 +3366,29 @@ function KeycloakOidcFields({ node: n, nodes, patchNode, deployed, label, pg18, 
   )
 }
 
-// VMSizeFields edits a node's per-VM sizing (vCPUs + memory in GiB) for the Vagrant backend.
-// It self-gates on the deploying user's backend: on Docker (where the values have no effect) it
-// renders nothing, so callers can drop it into any VM-capable node form unconditionally.
-// Defaults (2/2) mirror the DBCANVAS_VM_CPUS/MEMORY engine defaults. Locked once the node is
-// deployed, matching the OS/version fields.
+// VMSizeFields edits a node's per-node sizing (CPUs + memory in GiB). Both backends honour it:
+// Vagrant sizes the VirtualBox VM, Docker passes the values as --cpus/--memory on the container.
+// The two differ in what "unset" means, so the fields adapt: Vagrant always sizes a VM and shows
+// the 2/2 engine defaults (DBCANVAS_VM_CPUS/MEMORY), while on Docker a blank field means no limit
+// — which is what every stack designed before these fields existed keeps getting. Locked once the
+// node is deployed, matching the OS/version fields.
 function VMSizeFields({ node: n, patchNode, deployed }) {
   const { settings } = useSettings()
-  if (settings.deploymentBackend !== 'vagrant') return null
+  const docker = settings.deploymentBackend !== 'vagrant'
   const lock = deployed ? 'opacity-70' : ''
+  // Blank clears the limit (0), so Docker users can go back to unlimited after typing a value.
+  const size = (v) => (v === '' ? 0 : Number(v))
   return (
     <div className="grid grid-cols-2 gap-2">
-      <Field label="vCPUs" hint="VirtualBox VM CPUs.">
+      <Field label="CPUs" hint={docker ? 'Container --cpus limit; blank = unlimited.' : 'VirtualBox VM CPUs.'}>
         <input type="number" min="1" max="64" className={`${inputCls} ${lock}`} disabled={deployed}
-          value={n.cpus || 2} onChange={(e) => patchNode(n.id, { cpus: Number(e.target.value) })} />
+          placeholder={docker ? 'unlimited' : undefined}
+          value={docker ? (n.cpus || '') : (n.cpus || 2)} onChange={(e) => patchNode(n.id, { cpus: size(e.target.value) })} />
       </Field>
-      <Field label="Memory (GiB)" hint="VirtualBox VM memory.">
+      <Field label="Memory (GiB)" hint={docker ? 'Container --memory limit; blank = unlimited.' : 'VirtualBox VM memory.'}>
         <input type="number" min="1" max="256" className={`${inputCls} ${lock}`} disabled={deployed}
-          value={n.memoryGb || 2} onChange={(e) => patchNode(n.id, { memoryGb: Number(e.target.value) })} />
+          placeholder={docker ? 'unlimited' : undefined}
+          value={docker ? (n.memoryGb || '') : (n.memoryGb || 2)} onChange={(e) => patchNode(n.id, { memoryGb: size(e.target.value) })} />
       </Field>
     </div>
   )

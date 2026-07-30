@@ -147,7 +147,7 @@ type proxysqlPlan struct {
 	ExportEnabled   bool
 	ExportHostPort  int
 	ProxySQLCluster string // ProxySQL cluster frame label (members only; "" standalone)
-	CPUs, MemoryGB  int    // Vagrant VM sizing (0 → engine default)
+	CPUs, MemoryGB  int    // per-node sizing (0 → Vagrant engine default / no Docker limit)
 }
 
 // provisionProxySQL records + provisions a standalone ProxySQL node.

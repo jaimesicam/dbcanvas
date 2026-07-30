@@ -8551,3 +8551,38 @@ The user reported `failed to generate seccomp spec opts: seccomp is not supporte
 No live verification performed this session — diagnosis was reasoned from the code (`k3d.go`'s pre-pull comments, `docker_it_test.go`'s `TestK3DPlatformAmbiguity`, which documents the underlying containerd-image-store ambiguity this mechanism guards against) rather than reproduced against a live Apple Silicon Docker daemon. `go build`/`go vet` clean.
 
 **Verified live** against this sandbox's real `/var/run/docker.sock` (same containerd-snapshotter driver as the reported environment, host arch amd64 — the test picks whichever platform the host is *not*, so the reproduction can't accidentally pass by coincidence of matching the host): new `TestK3DPlatformAmbiguity` (`docker_it_test.go`, opt-in via `DOCKER_IT=1`) reproduces the exact bug (seed the "other" platform, then `EnsureImage` the target, then a platform-blind create — resolves to the host's arch, not the target, confirming the bug is real and the reproduction isn't stale) and then confirms the fix (`ImageRemove` before the same `EnsureImage` — the same platform-blind create now correctly resolves to the target platform). Reading which platform a container actually got requires `ImageManifestDescriptor.platform.architecture` off the container inspect response, not `.Image` chased through `/images/{ref}/json` — under the containerd store `.Image` resolves to the shared OCI index digest (identical regardless of which platform variants are cached beneath it), whose own inspect reports an empty `Architecture`; only the container's own manifest descriptor records which concrete variant that specific container got. `go build`/`go vet`/`gofmt -l` clean; full existing unit suite (`go test ./...`) and both integration tests (`TestEnsureImageCrossPlatform`, `TestK3DPlatformAmbiguity`) pass.
+
+## 191. Per-node CPU & memory now apply on Docker too (`--cpus` / `--memory`) — `app/{docker,vagrant,intranet,proxysql}.go`, `docker_it_test.go`, `StackDesigner.jsx`, `README.md`
+
+Session 143 added per-node **CPUs** / **Memory (GiB)** to every VM-capable node type, but wired
+them to the Vagrant backend only: `ContainerSpec.CPUs`/`MemoryMB` were documented as
+"Docker ignores them", and `VMSizeFields` returned `null` unless `deploymentBackend === 'vagrant'`,
+so a Docker user never saw the fields at all. The user asked for them back on Docker, with the
+values passed straight through to the container as `--cpus` and `--memory`.
+
+**Backend.** `Docker.ContainerCreate` now translates the spec's sizing into the API equivalents of
+those CLI flags — `HostConfig.NanoCpus = CPUs × 1e9` and `HostConfig.Memory = MemoryMB × 2²⁰`,
+plus `MemorySwap` pinned to the same value (no swap headroom, matching the existing
+`ContainerUpdate` used for K3D cluster budgets — otherwise the daemon silently grants 2× the
+memory limit in swap). Zero stays unset, i.e. an unlimited container: every stack designed before
+this session keeps exactly the behaviour it had. Nothing else changed on the provisioning path —
+all 17 VM-capable provisioners already call `applyVMSize(&spec, n.CPUs, n.MemoryGB)`
+unconditionally (its clamps, 1–64 CPUs / 1–256 GiB, now bound both backends), so the values were
+already reaching `ContainerSpec` on Docker and were simply being dropped at create time. Comments
+on `ContainerSpec`, `applyVMSize`, `designNode.CPUs/MemoryGB` and `proxysqlPlan` were corrected
+from "Vagrant only / Docker ignores" to describe both backends.
+
+**Frontend.** `VMSizeFields` no longer self-gates to Vagrant; it renders on both backends and
+adapts to what "unset" means on each. Vagrant is unchanged (always sizes a VM, so it keeps showing
+the 2/2 engine defaults); on Docker the inputs are blank with an `unlimited` placeholder, and
+clearing a field writes `0` back so a user can return to unlimited after typing a value. The
+"vCPUs" label became "CPUs" since it is no longer always a VM. All 18 call sites are untouched —
+the component reads the backend setting itself.
+
+**Verified live** against this sandbox's real `/var/run/docker.sock` (Docker 29.1.3): new
+`TestContainerCreateSizing` (`docker_it_test.go`, opt-in via `DOCKER_IT=1`, matching the existing
+integration tests' style) drives the real path — `applyVMSize` → `ContainerCreate` → container
+inspect — and asserts a node with `cpus:2, memoryGb:3` lands as `NanoCpus: 2000000000` /
+`Memory: 3221225472` on the created container, while an unsized node comes back `0`/`0`
+(unlimited). `go build`/`go vet`/`gofmt -l` clean; full unit suite (`go test ./...`) and the web
+bundle (`vite build`) pass.

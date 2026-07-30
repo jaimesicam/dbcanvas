@@ -636,10 +636,10 @@ func renderVagrantfile(spec ContainerSpec, box vagrantBoxSpec, ip string, fwds [
 	return b.String()
 }
 
-// applyVMSize copies a node's per-node VM sizing (vCPUs + memory in GiB, from the design)
-// onto the spec, clamped to sane bounds. Zero values are left unset so renderVagrantfile
-// falls back to the engine default; Docker ignores CPUs/MemoryMB entirely, so this is a
-// safe no-op on that backend.
+// applyVMSize copies a node's per-node sizing (CPUs + memory in GiB, from the design) onto
+// the spec, clamped to sane bounds. Zero values are left unset: renderVagrantfile then falls
+// back to the engine default, and ContainerCreate leaves the container unlimited. Both
+// backends honour the values — Vagrant as vb.cpus/vb.memory, Docker as --cpus/--memory.
 func applyVMSize(spec *ContainerSpec, cpus, memGB int) {
 	if cpus > 0 {
 		spec.CPUs = clampInt(cpus, 1, 64)

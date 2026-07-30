@@ -171,3 +171,56 @@ func dockerServerArch(t *testing.T, d *Docker, ctx context.Context) string {
 	}
 	return v.Arch
 }
+
+// TestContainerCreateSizing verifies the per-node CPU/memory sizing (applyVMSize → ContainerSpec)
+// lands on the container as the daemon-side equivalents of `docker run --cpus/--memory`, and that
+// a zero-valued spec still creates an unlimited container (what stacks designed before these
+// fields existed rely on).
+//
+// Opt-in (needs the daemon socket and network): DOCKER_IT=1 go test -run ContainerCreateSizing
+func TestContainerCreateSizing(t *testing.T) {
+	if os.Getenv("DOCKER_IT") == "" {
+		t.Skip("integration test; set DOCKER_IT=1 to run against /var/run/docker.sock")
+	}
+	const (
+		repo = "alpine"
+		tag  = "3.19"
+		ref  = repo + ":" + tag
+	)
+	d := NewDocker("/var/run/docker.sock")
+	ctx := context.Background()
+	if err := d.ImagePull(ctx, repo, tag, ""); err != nil {
+		t.Fatalf("pull %s: %v", ref, err)
+	}
+
+	create := func(name string, cpus, memGB int) (int64, int64) {
+		spec := ContainerSpec{Name: name, Image: ref, Cmd: []string{"true"}}
+		applyVMSize(&spec, cpus, memGB)
+		id, err := d.ContainerCreate(ctx, spec)
+		if err != nil {
+			t.Fatalf("ContainerCreate(%s, cpus=%d mem=%dGiB): %v", name, cpus, memGB, err)
+		}
+		defer d.ContainerRemove(ctx, id)
+		resp, err := d.do(ctx, "GET", "/containers/"+id+"/json", nil)
+		if err != nil {
+			t.Fatalf("inspect %s: %v", name, err)
+		}
+		var c struct {
+			HostConfig struct {
+				NanoCpus int64
+				Memory   int64
+			}
+		}
+		if err := json.Unmarshal(drain(resp), &c); err != nil {
+			t.Fatalf("decode container json: %v", err)
+		}
+		return c.HostConfig.NanoCpus, c.HostConfig.Memory
+	}
+
+	if nano, mem := create("dbcanvas-sizing-it-set", 2, 3); nano != 2e9 || mem != 3<<30 {
+		t.Fatalf("cpus=2 memoryGb=3 → NanoCpus=%d Memory=%d, want %d / %d", nano, mem, int64(2e9), int64(3)<<30)
+	}
+	if nano, mem := create("dbcanvas-sizing-it-unset", 0, 0); nano != 0 || mem != 0 {
+		t.Fatalf("unsized node should stay unlimited, got NanoCpus=%d Memory=%d", nano, mem)
+	}
+}
