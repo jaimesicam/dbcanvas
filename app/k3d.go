@@ -441,6 +441,23 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 			return
 		}
 
+		// ---- pull the k3s image ourselves, for OUR platform, before k3d ever touches it ----
+		// k3d does not have a --platform flag, and its own pull path (docker.ImagePull with empty
+		// PullOptions, then ContainerCreate with a nil platform) never sends one either — see
+		// https://github.com/k3d-io/k3d/discussions/1031. Left alone, the daemon resolves
+		// rancher/k3s's multi-arch manifest against its OWN host architecture, which silently
+		// ignores DOCKER_PLATFORM (e.g. an arm64 daemon creates arm64 k3s nodes even though this
+		// installation targets linux/amd64). Pre-pulling the exact repo:tag for pullPlatform()
+		// avoids that entirely: k3d's ContainerCreate only calls its own (platform-blind) pull as a
+		// fallback when the image is missing, and it is not — ours is already cached under that
+		// reference, so k3d creates the node from the platform we just pulled.
+		pr.phase("Pulling the k3s image", 10)
+		if err := a.engCtx(ctx).EnsureImage(ctx, k3sCat.Repository, k3sTag, pullPlatform()); err != nil {
+			failAll("pull k3s image %s: %v", k3sImage, err)
+			return
+		}
+		pr.logln("k3s image " + k3sImage + " ready for " + pullPlatform())
+
 		// ---- create the cluster on the stack network ----
 		pr.phase("Creating k3d cluster", 15)
 		// NOTE: k3d's --servers-memory/--agents-memory are deliberately NOT used. They work by

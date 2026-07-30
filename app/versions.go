@@ -342,6 +342,12 @@ func loadPSMDBCatalog() []PXCImage    { return loadImageCatalog("percona_server_
 func loadPPGCatalog() []PXCImage      { return loadImageCatalog("percona_postgresql") }
 func loadValkeyCatalog() []PXCImage   { return loadImageCatalog("percona_valkey") }
 
+// loadOrchestratorCatalog parses the per-image `percona_orchestrator` section —
+// the percona-orchestrator versions installable on each image, keyed under a
+// single "3" series (Orchestrator has no per-MySQL-major split; see
+// orchestratorRepo in app/orchestrator.go for why only PDPS repos are probed).
+func loadOrchestratorCatalog() []PXCImage { return loadImageCatalog("percona_orchestrator") }
+
 // loadSpockCatalog returns the Spock (source-built PostgreSQL) availability:
 // which PG majors/minors and OS/platforms Spock can be deployed on. Unlike the
 // PPG catalog (Percona packages), this comes from the `spock:` section that
@@ -487,6 +493,14 @@ func (a *App) handlePSCatalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"images": loadPSCatalog()})
+}
+
+func (a *App) handleOrchestratorCatalog(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.currentUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"images": loadOrchestratorCatalog()})
 }
 
 func (a *App) handlePSMDBCatalog(w http.ResponseWriter, r *http.Request) {

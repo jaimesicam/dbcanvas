@@ -133,6 +133,15 @@ echo '@@PPG18@@'; elsearch percona-postgresql18 | sed -E 's/^[0-9]+://' | grep -
 # plus the bloom/json/ldap/search modules); its own version tracks the set.
 percona-release enable valkey-91 >/dev/null 2>&1 || percona-release setup -y valkey-91 >/dev/null 2>&1
 echo '@@VALKEY91@@'; elsearch percona-valkey-bundle | grep -E '^9\.1\.' | sort -rV -u
+# Percona Orchestrator: bundled only in PDPS ("Percona Distribution for MySQL"),
+# NOT in PDPXC ("...- PXC") — confirmed live: pdpxc-84-lts carries no
+# percona-orchestrator package at all, even though it sounds like the more
+# on-the-nose choice for a PXC-adjacent tool. Not versioned per MySQL major
+# series, so no grep filter beyond a leading digit. The package carries an
+# epoch (e.g. percona-orchestrator-2:3.2.6-22.el9), stripped the same way the
+# PG packages are.
+percona-release setup pdps-84-lts >/dev/null 2>&1
+echo '@@ORCH@@'; elsearch percona-orchestrator | sed -E 's/^[0-9]+://' | sort -rV -u
 echo '@@END@@'
 EOS
 }
@@ -184,6 +193,10 @@ percona-release setup ppg-18 >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@PPG18@@'; madison percona-postgresql-18 | grep -E '^18\.' | sort -rV -u
 percona-release enable valkey-91 >/dev/null 2>&1 || percona-release setup -y valkey-91 >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@VALKEY91@@'; madison percona-valkey-bundle | grep -E '^9\.1\.' | sort -rV -u
+# Percona Orchestrator: see the matching comment in rhel_probe — PDPS only, not
+# versioned per MySQL major series. madison() already strips the epoch/codename.
+percona-release setup pdps-84-lts >/dev/null 2>&1; apt-get update >/dev/null 2>&1
+echo '@@ORCH@@'; madison percona-orchestrator | sort -rV -u
 echo '@@END@@'
 EOS
 }
@@ -343,6 +356,7 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
   mdb60="" ; mdb70="" ; mdb80=""
   pg13="" ; pg14="" ; pg15="" ; pg16="" ; pg17="" ; pg18=""
   vk91=""
+  orch=""
   if [ -n "$probe" ]; then
     if out="$(docker run --rm "$tag" bash -lc "$probe" 2>/dev/null)"; then
       ps80="$(printf '%s\n' "$out" | section PS80)"
@@ -362,6 +376,7 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
       pg17="$(printf '%s\n' "$out" | section PPG17)"
       pg18="$(printf '%s\n' "$out" | section PPG18)"
       vk91="$(printf '%s\n' "$out" | section VALKEY91)"
+      orch="$(printf '%s\n' "$out" | section ORCH)"
     else
       echo "    FAIL  could not run ${tag} (recording empty version lists)" >&2
     fi
@@ -384,7 +399,8 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
   g17=$(printf '%s' "$pg17" | grep -c . || true)
   g18=$(printf '%s' "$pg18" | grep -c . || true)
   vk9=$(printf '%s' "$vk91" | grep -c . || true)
-  echo "    ps: ${n80}+${n84}+${n57}  pxc: ${px0}+${px4}  proxysql: ${pq2}+${pq3}  psmdb: ${m6}+${m7}+${m8}  ppg: ${g13}+${g14}+${g15}+${g16}+${g17}+${g18}  valkey: ${vk9}" >&2
+  orc=$(printf '%s' "$orch" | grep -c . || true)
+  echo "    ps: ${n80}+${n84}+${n57}  pxc: ${px0}+${px4}  proxysql: ${pq2}+${pq3}  psmdb: ${m6}+${m7}+${m8}  ppg: ${g13}+${g14}+${g15}+${g16}+${g17}+${g18}  valkey: ${vk9}  orchestrator: ${orc}" >&2
 
   # emit_series <indent-key> <key1> <list1> [<key2> <list2> ...]: emit a major-series
   # map under `key:` with one or more series (e.g. "8.0"/"8.4", "2"/"3", or the three
@@ -438,6 +454,7 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
     emit_series percona_server_mongodb "6.0" "$mdb60" "7.0" "$mdb70" "8.0" "$mdb80"
     emit_series percona_postgresql     "13" "$pg13" "14" "$pg14" "15" "$pg15" "16" "$pg16" "17" "$pg17" "18" "$pg18"
     emit_series percona_valkey         "9.1" "$vk91"
+    emit_series percona_orchestrator   "3"   "$orch"
     emit_spock
   } >>"$TMP"
 done < <(parse_entries)

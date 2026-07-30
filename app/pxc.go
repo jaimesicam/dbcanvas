@@ -29,21 +29,22 @@ var pxcPorts = []int{3306, 4567, 4444, 4568}
 
 // pxcConfig is the non-secret profile shown for a deployed PXC node.
 type pxcConfig struct {
-	Cluster      string `json:"cluster"`
-	Image        string `json:"image"`
-	OS           string `json:"os"`   // os family (oraclelinux | ubuntu | …) — drives config paths
-	Role         string `json:"role"` // regular | arbitrator
-	Hostname     string `json:"hostname"`
-	FQDN         string `json:"fqdn"`
-	ServerID     int    `json:"serverId"`
-	PXCVersion   string `json:"pxcVersion"`
-	Bootstrap    bool   `json:"bootstrap"`
-	GTID         bool   `json:"gtid"`
-	GenerateCert bool   `json:"generateCert"`
-	UseProxy     bool   `json:"useProxy"`
-	MonitoredBy  string `json:"monitoredBy"` // PMM node FQDN, if any
-	Ports        []int  `json:"ports"`
-	ExportPort   int    `json:"exportPort"` // published host port for 3306 (0 = none)
+	Cluster        string `json:"cluster"`
+	Image          string `json:"image"`
+	OS             string `json:"os"`   // os family (oraclelinux | ubuntu | …) — drives config paths
+	Role           string `json:"role"` // regular | arbitrator
+	Hostname       string `json:"hostname"`
+	FQDN           string `json:"fqdn"`
+	ServerID       int    `json:"serverId"`
+	PXCVersion     string `json:"pxcVersion"`
+	Bootstrap      bool   `json:"bootstrap"`
+	GTID           bool   `json:"gtid"`
+	GenerateCert   bool   `json:"generateCert"`
+	UseProxy       bool   `json:"useProxy"`
+	MonitoredBy    string `json:"monitoredBy"`    // PMM node FQDN, if any
+	OrchestratedBy string `json:"orchestratedBy"` // Orchestrator node FQDN, if any
+	Ports          []int  `json:"ports"`
+	ExportPort     int    `json:"exportPort"` // published host port for 3306 (0 = none)
 }
 
 // pxcSecrets holds a PXC node's credentials (root is cluster-wide; app/repl come
@@ -66,6 +67,12 @@ type pxcSecrets struct {
 	// the users above) so it exists cluster-wide without a post-baseline write.
 	ClusterCheckUser     string `json:"clusterCheckUser"`
 	ClusterCheckPassword string `json:"clusterCheckPassword"` // from CLUSTERCHECK_PASSWORD env
+	// orchestrator@'%' — the topology user Percona Orchestrator connects as to discover
+	// and monitor this cluster (SUPER, PROCESS, REPLICATION SLAVE/CLIENT, RELOAD).
+	// Created unconditionally like the users above, whether or not any Orchestrator
+	// node is actually linked to this cluster. See app/orchestrator.go.
+	OrchestratorUser     string `json:"orchestratorUser"`
+	OrchestratorPassword string `json:"orchestratorPassword"` // from ORCHESTRATOR_PASSWORD env
 }
 
 func pxcImage(os, osVersion, arch string) string {
@@ -87,6 +94,7 @@ func mysqlFamilySecrets() pxcSecrets {
 		MonitorUser: "monitor", MonitorPassword: envOr("MONITOR_PASSWORD", "monitor_password"),
 		ClusterUser: "cluster", ClusterPassword: envOr("CLUSTER_PASSWORD", "cluster_password"),
 		ClusterCheckUser: "clustercheck", ClusterCheckPassword: envOr("CLUSTERCHECK_PASSWORD", "cluster_password"),
+		OrchestratorUser: "orchestrator", OrchestratorPassword: envOr("ORCHESTRATOR_PASSWORD", "orchestrator_password"),
 	}
 }
 
@@ -297,6 +305,14 @@ func (a *App) provisionPXCFrame(st Stack, frame designFrame, doc designDoc) {
 			}
 		}
 	}
+	orchestratedBy := ""
+	if frame.OrchestratorNodeID != "" {
+		for _, n := range doc.Nodes {
+			if n.ID == frame.OrchestratorNodeID {
+				orchestratedBy = fqdnOf(hosts[n.ID], domain)
+			}
+		}
+	}
 
 	// Record every member as pending with its profile.
 	for i, n := range members {
@@ -305,7 +321,7 @@ func (a *App) provisionPXCFrame(st Stack, frame designFrame, doc designDoc) {
 			Cluster: frame.Label, Image: image, OS: frame.OS, Role: roleOf(n), Hostname: host, FQDN: fqdnOf(host, domain),
 			ServerID: pxcServerID(host), PXCVersion: frame.PXCVersion, Bootstrap: i == 0 && n.Role != "arbitrator",
 			GTID: frame.GTID, GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
-			Ports: pxcPorts,
+			OrchestratedBy: orchestratedBy, Ports: pxcPorts,
 		}
 		cfgJSON, _ := json.Marshal(cfg)
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
@@ -389,6 +405,20 @@ func (a *App) provisionPXCFrame(st Stack, frame designFrame, doc designDoc) {
 			for _, n := range members {
 				barrier.arrive(n.ID)
 			}
+		}
+
+		// Orchestrator discovery, once per frame (not per member): seed/refresh
+		// topology for every data member (arbitrators run no MySQL). Best-effort,
+		// like PMM registration below.
+		if frame.OrchestratorNodeID != "" {
+			var orchMembers []pxcMember
+			for _, n := range regulars {
+				if dep, e := a.store.GetDeployment(st.ID, n.ID); e == nil && dep.ContainerID != "" {
+					orchMembers = append(orchMembers, pxcMember{FQDN: fqdnOf(hosts[n.ID], domain), ContainerID: dep.ContainerID})
+				}
+			}
+			baseProg.phase("Registering with Orchestrator", 93)
+			a.registerOrchestrator(ctx, st, frame.OrchestratorNodeID, orchMembers, baseProg.logln)
 		}
 
 		// ---- Phase 3: monitoring + finalize ----
@@ -605,6 +635,7 @@ func (a *App) pxcBootstrap(ctx context.Context, st Stack, frame designFrame, n d
 		"MON_USER=" + sec.MonitorUser, "MON_PW=" + sec.MonitorPassword,
 		"CLUSTER_USER=" + sec.ClusterUser, "CLUSTER_PW=" + sec.ClusterPassword,
 		"CC_USER=" + sec.ClusterCheckUser, "CC_PW=" + sec.ClusterCheckPassword,
+		"ORCH_USER=" + sec.OrchestratorUser, "ORCH_PW=" + sec.OrchestratorPassword,
 		"RESET_CMD=" + mysqlResetCmd(frame.PXCMajor),
 		"LOGERR=" + pxcLogError(frame.OS),
 	}
@@ -882,6 +913,9 @@ GRANT ALL PRIVILEGES ON *.* TO '$CLUSTER_USER'@'%' WITH GRANT OPTION;
 CREATE USER IF NOT EXISTS '$CC_USER'@'localhost' IDENTIFIED BY '$CC_PW';
 ALTER USER '$CC_USER'@'localhost' IDENTIFIED BY '$CC_PW';
 GRANT PROCESS ON *.* TO '$CC_USER'@'localhost';
+CREATE USER IF NOT EXISTS '$ORCH_USER'@'%' IDENTIFIED BY '$ORCH_PW';
+ALTER USER '$ORCH_USER'@'%' IDENTIFIED BY '$ORCH_PW';
+GRANT SUPER, PROCESS, REPLICATION SLAVE, REPLICATION CLIENT, RELOAD ON *.* TO '$ORCH_USER'@'%';
 FLUSH PRIVILEGES;
 SQL
 # Clear GTID/binlog history now that credentials exist — the joiners have not yet

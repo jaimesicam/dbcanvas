@@ -232,6 +232,27 @@ const NODE_TYPES = {
       exportEnabled: false, exportHostPort: 0, pmmNodeId: '', useProxy: false,
     },
   },
+  // Percona Orchestrator — topology visualization / failure-detection for a PXC or
+  // MySQL replication cluster frame. Unlike HAProxy/ProxySQL it is NOT wired via a
+  // canvas association line: a PXC or MySQL replication frame optionally points at
+  // it through its own "Monitored by (Orchestrator)" picker (orchestratorNodeId),
+  // the same optional relationship PMM already has (pmmNodeId) — so it carries no
+  // connection endpoints of its own. Its web UI is always published to the host
+  // (like PMM and the app simulators), not an opt-in export toggle.
+  orchestrator: {
+    label: 'Orchestrator',
+    slug: 'orchestrator',
+    sub: 'Percona Orchestrator — MySQL topology & failure detection',
+    color: '#f97316',
+    icon: 'Monitor',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
+    defaults: {
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64',
+      orchestratorVersion: '', alertEmail: '', useProxy: false,
+    },
+  },
   // SeaweedFS — an S3-compatible object store (backup target). Like PMM it runs a
   // ready-made image (pulled at deploy), not a systemd OS image.
   seaweedfs: {
@@ -598,6 +619,7 @@ const ENGINE_SHORT = {
   valkey: 'Valkey', valkeycluster: 'Valkey',
   pmm: 'PMM', openbao: 'OpenBao', keycloak: 'Keycloak',
   seaweedfs: 'SeaweedFS', sambaad: 'Samba', vnc: 'Ubuntu', watchtower: 'Watchtower', k3d: 'k3s',
+  orchestrator: 'Orchestrator',
 }
 
 // frameDeployedLabel is the same for a cluster frame: the version its members actually deployed
@@ -648,7 +670,7 @@ const proxyModeOpts = (backendType) => PROXY_MODE_OPTS[backendType === 'mysql' ?
 
 // nodeOSLabel renders a free node's OS line; ProxySQL carries its own os/version
 // (like a PXC frame), other nodes map via their osOptions.
-const nodeOSLabel = (n) => (n.type === 'proxysql' || n.type === 'ps' || n.type === 'pg' || n.type === 'psm' || n.type === 'haproxy' || n.type === 'vnc' || n.type === 'linuxclient' || n.type === 'valkey' ? pxcOSLabel(n) : osLabel(n.type, n.os))
+const nodeOSLabel = (n) => (n.type === 'proxysql' || n.type === 'ps' || n.type === 'pg' || n.type === 'psm' || n.type === 'haproxy' || n.type === 'orchestrator' || n.type === 'vnc' || n.type === 'linuxclient' || n.type === 'valkey' ? pxcOSLabel(n) : osLabel(n.type, n.os))
 
 // Auto-numbered per-type labels: a non-singleton node is named "<slug>-NN" with
 // NN zero-padded from 01 and increasing per node type (pmm-01, pmm-02, …, and in
@@ -880,6 +902,7 @@ const PALETTE_ALIASES = {
   pg: 'postgres postgresql', patroni: 'postgres postgresql ha', repmgr: 'postgres postgresql ha',
   spock: 'postgres postgresql logical replication',
   proxysql: 'mysql lb load balancer', haproxy: 'lb load balancer',
+  orchestrator: 'mysql topology failover failure detection recovery',
   pmm: 'monitoring metrics grafana', openbao: 'vault secrets',
   sambaad: 'ldap active directory domain', keycloak: 'sso oidc identity',
   seaweedfs: 's3 object storage', vnc: 'desktop gui ubuntu',
@@ -2003,6 +2026,7 @@ function StackEditor({ stackId, onBack }) {
       { label: 'Percona Server', type: 'ps', onClick: () => addNode('ps') },
       { label: 'PS Replication', type: 'mysql', onClick: addMySQLCluster },
       { label: 'InnoDB / GR', type: 'innodb', onClick: addInnoDBCluster },
+      { label: 'Orchestrator', type: 'orchestrator', onClick: () => addNode('orchestrator') },
     ] },
     { title: 'Load Balancer', items: [
       { label: 'ProxySQL', type: 'proxysql', onClick: () => addNode('proxysql') },
@@ -2795,6 +2819,9 @@ function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, delete
   const [monBusy, setMonBusy] = useState(false)
   const [monMsg, setMonMsg] = useState('')
   const [monErr, setMonErr] = useState('')
+  const [orchBusy, setOrchBusy] = useState(false)
+  const [orchMsg, setOrchMsg] = useState('')
+  const [orchErr, setOrchErr] = useState('')
   useEffect(() => {
     let alive = true
     stackApi.pxcCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
@@ -2832,6 +2859,7 @@ function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, delete
   }, [imgs, f.id, f.os, f.osVersion, f.arch, f.pxcMajor, f.pxcVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const pmmNodes = nodes.filter((n) => n.type === 'pmm')
+  const orchestratorNodes = nodes.filter((n) => n.type === 'orchestrator')
   const regulars = frameNodes.filter((n) => n.role !== 'arbitrator').length
   const total = frameNodes.length
 
@@ -2896,6 +2924,30 @@ function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, delete
               } catch (e) { setMonErr(e.message) } finally { setMonBusy(false) }
             }}>
             {monBusy ? 'Applying…' : (f.pmmNodeId ? 'Apply PMM monitoring' : 'Disable PMM monitoring')}
+          </Button>
+        </div>
+      )}
+
+      <Field label="Monitored by (Orchestrator)" hint={running ? 'Pick an Orchestrator node (or none), then apply to the running cluster.' : 'Optional — seeds topology discovery on an Orchestrator node.'}>
+        <select className={inputCls} value={f.orchestratorNodeId || ''} onChange={(e) => { patchFrame(f.id, { orchestratorNodeId: e.target.value }); setOrchMsg(''); setOrchErr('') }}>
+          <option value="">none</option>
+          {orchestratorNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </Field>
+      {running && (
+        <div className="space-y-1.5 rounded-lg border border-dashed p-2">
+          <div className="text-xs text-muted">Seeds/refreshes topology discovery on the Orchestrator node now (clearing it just stops re-seeding — Orchestrator itself isn't asked to forget the cluster).</div>
+          {orchErr && <div className="rounded border border-danger/30 bg-danger/15 px-2 py-1 text-xs text-danger">{orchErr}</div>}
+          {orchMsg && <div className="rounded border border-success/30 bg-success/15 px-2 py-1 text-xs text-success">{orchMsg}</div>}
+          <Button size="sm" className="w-full" disabled={orchBusy}
+            onClick={async () => {
+              setOrchBusy(true); setOrchErr(''); setOrchMsg('')
+              try {
+                const r = await frameApi(stackId, f.id).setOrchestrator(f.orchestratorNodeId || '')
+                setOrchMsg(f.orchestratorNodeId ? `Discovery seeded (${r.updated} node${r.updated === 1 ? '' : 's'}).` : `Link cleared (${r.updated} node${r.updated === 1 ? '' : 's'}).`)
+              } catch (e) { setOrchErr(e.message) } finally { setOrchBusy(false) }
+            }}>
+            {orchBusy ? 'Applying…' : (f.orchestratorNodeId ? 'Apply Orchestrator discovery' : 'Clear Orchestrator link')}
           </Button>
         </div>
       )}
@@ -2978,8 +3030,11 @@ function PXCNodeForm({ node: n, frame, nodes, patchNode, dep, deployed }) {
 
 // MySQLFrameForm edits a MySQL replication frame: catalog-driven OS/version +
 // Percona Server major/minor, replication mode, root password, PMM/proxy/GTID/cert.
-function MySQLFrameForm({ frame: f, nodes, frames, edges, patchFrame, deleteFrame, deployed }) {
+function MySQLFrameForm({ frame: f, stackId, nodes, frames, edges, patchFrame, deleteFrame, deployed, running }) {
   const [cat, setCat] = useState(null)
+  const [orchBusy, setOrchBusy] = useState(false)
+  const [orchMsg, setOrchMsg] = useState('')
+  const [orchErr, setOrchErr] = useState('')
   useEffect(() => {
     let alive = true
     stackApi.psCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
@@ -3013,6 +3068,7 @@ function MySQLFrameForm({ frame: f, nodes, frames, edges, patchFrame, deleteFram
   }, [imgs, f.id, f.os, f.osVersion, f.arch, f.psMajor, f.psVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const pmmNodes = nodes.filter((x) => x.type === 'pmm')
+  const orchestratorNodes = nodes.filter((x) => x.type === 'orchestrator')
   const members = nodes.filter((x) => x.frameId === f.id)
   const primaries = members.filter((x) => x.role === 'primary').length
   const secondaries = members.length - primaries
@@ -3071,6 +3127,30 @@ function MySQLFrameForm({ frame: f, nodes, frames, edges, patchFrame, deleteFram
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
         </select>
       </Field>
+
+      <Field label="Monitored by (Orchestrator)" hint={running ? 'Pick an Orchestrator node (or none), then apply to the running cluster.' : 'Optional — seeds topology discovery on an Orchestrator node.'}>
+        <select className={inputCls} value={f.orchestratorNodeId || ''} onChange={(e) => { patchFrame(f.id, { orchestratorNodeId: e.target.value }); setOrchMsg(''); setOrchErr('') }}>
+          <option value="">none</option>
+          {orchestratorNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </Field>
+      {running && (
+        <div className="space-y-1.5 rounded-lg border border-dashed p-2">
+          <div className="text-xs text-muted">Seeds/refreshes topology discovery on the Orchestrator node now (clearing it just stops re-seeding — Orchestrator itself isn't asked to forget the cluster).</div>
+          {orchErr && <div className="rounded border border-danger/30 bg-danger/15 px-2 py-1 text-xs text-danger">{orchErr}</div>}
+          {orchMsg && <div className="rounded border border-success/30 bg-success/15 px-2 py-1 text-xs text-success">{orchMsg}</div>}
+          <Button size="sm" className="w-full" disabled={orchBusy}
+            onClick={async () => {
+              setOrchBusy(true); setOrchErr(''); setOrchMsg('')
+              try {
+                const r = await frameApi(stackId, f.id).setOrchestrator(f.orchestratorNodeId || '')
+                setOrchMsg(f.orchestratorNodeId ? `Discovery seeded (${r.updated} node${r.updated === 1 ? '' : 's'}).` : `Link cleared (${r.updated} node${r.updated === 1 ? '' : 's'}).`)
+              } catch (e) { setOrchErr(e.message) } finally { setOrchBusy(false) }
+            }}>
+            {orchBusy ? 'Applying…' : (f.orchestratorNodeId ? 'Apply Orchestrator discovery' : 'Clear Orchestrator link')}
+          </Button>
+        </div>
+      )}
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
@@ -6716,6 +6796,137 @@ function HAProxyForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep
   )
 }
 
+// OrchestratorForm edits a (not-yet-running) Percona Orchestrator node: catalog
+// OS/version/arch, an optional alert-email mailbox, and the export toggle for its
+// web UI (:3000). Unlike HAProxy it carries no canvas association — a PXC or MySQL
+// replication frame optionally points at it via its own "Monitored by
+// (Orchestrator)" picker (see PXCFrameForm / MySQLFrameForm), so there is no
+// linked-cluster banner here.
+function OrchestratorForm({ node: n, patchNode, deleteNode, dep, deployed }) {
+  const [cat, setCat] = useState(null)
+  useEffect(() => {
+    let alive = true
+    stackApi.orchestratorCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    return () => { alive = false }
+  }, [])
+  const imgs = cat || []
+  const lock = deployed ? 'opacity-70' : ''
+
+  const osFamilies = [...new Set(imgs.map((i) => i.os))]
+  const osVersions = [...new Set(imgs.filter((i) => i.os === n.os).map((i) => i.osVersion))]
+  const archs = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === n.osVersion).map((i) => i.arch))]
+  // No "major" split (Orchestrator isn't versioned per MySQL series) — a single
+  // catalog key (currently "3") carries the installable minors.
+  const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion && i.arch === n.arch)
+  const versionKey = entry ? Object.keys(entry.versions || {})[0] : null
+  const versions = (versionKey && entry.versions[versionKey]) || []
+
+  // Snap invalid dependent selects once the catalog loads.
+  useEffect(() => {
+    if (deployed || !imgs.length) return
+    const patch = {}
+    const osVer = osVersions.includes(n.osVersion) ? n.osVersion : (osVersions[0] ?? n.osVersion)
+    if (osVer !== n.osVersion) patch.osVersion = osVer
+    const archList = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === osVer).map((i) => i.arch))]
+    const arch = archList.includes(n.arch) ? n.arch : (archList[0] ?? n.arch)
+    if (arch !== n.arch) patch.arch = arch
+    const e2 = imgs.find((i) => i.os === n.os && i.osVersion === osVer && i.arch === arch)
+    const vk = e2 ? Object.keys(e2.versions || {})[0] : null
+    const vList = (vk && e2.versions[vk]) || []
+    if (n.orchestratorVersion && !vList.includes(n.orchestratorVersion)) patch.orchestratorVersion = ''
+    if (Object.keys(patch).length) patchNode(n.id, patch)
+  }, [imgs, n.id, n.os, n.osVersion, n.arch, n.orchestratorVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Orchestrator</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+
+      <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
+
+      <Field label="Label"><input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} /></Field>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+          <select className={`${inputCls} ${lock}`} value={n.os} disabled={deployed} onChange={(e) => patchNode(n.id, { os: e.target.value })}>
+            {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="OS version">
+          <select className={`${inputCls} ${lock}`} value={n.osVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { osVersion: e.target.value })}>
+            {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+      </div>
+      <Field label="Platform / arch">
+        <select className={`${inputCls} ${lock}`} value={n.arch} disabled={deployed} onChange={(e) => patchNode(n.id, { arch: e.target.value })}>
+          {archs.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+      </Field>
+
+      <Field label="Orchestrator version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+        <select className={`${inputCls} ${lock}`} value={n.orchestratorVersion || ''} disabled={deployed}
+          onChange={(e) => patchNode(n.id, { orchestratorVersion: e.target.value })}>
+          <option value="">latest{versions[0] ? ` (${versions[0]})` : ''}</option>
+          {versions.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </Field>
+
+      <Field label="Alert email" hint="Optional — a mailbox on the stack's Intranet domain (or a full address) that failure-detection alerts are emailed to.">
+        <input className={`${inputCls} ${lock}`} placeholder="admin" value={n.alertEmail || ''} disabled={deployed}
+          onChange={(e) => patchNode(n.id, { alertEmail: e.target.value })} />
+      </Field>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for downloads</span>
+      </label>
+      <p className="text-xs text-muted">The web UI (:3000) is always published to the host, like PMM.</p>
+
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// OrchestratorManager is the running-node detail view: a link to Orchestrator's web
+// UI (published host port), same "location.hostname + cfg port" idiom as VNCManager.
+function OrchestratorManager({ dep, onDeleteNode }) {
+  const cfg = dep?.config || {}
+  const host = typeof location !== 'undefined' ? location.hostname : 'localhost'
+  const url = cfg.exportPort ? `http://${host}:${cfg.exportPort}/` : null
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Orchestrator</span>
+        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+      </div>
+      <p className="text-xs text-muted">MySQL replication topology visualization and failure detection.</p>
+      {url ? (
+        <a href={url} target="_blank" rel="noreferrer"
+          className="flex items-center justify-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/15">
+          <Icon.External size={15} /> Open Orchestrator
+        </a>
+      ) : (
+        <div className="rounded-lg border border-dashed px-2.5 py-1.5 text-xs text-muted">
+          Host port not recorded yet — refresh once the node finishes provisioning.
+        </div>
+      )}
+      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
+        <div className="flex justify-between gap-3"><span className="text-muted">Host</span><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Version</span><span className="font-mono text-xs">{cfg.version || 'latest'}</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Alert email</span><span className="font-mono text-xs">{cfg.alertEmail || 'none'}</span></div>
+      </div>
+      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
 // PSMStandaloneForm edits a standalone PS MongoDB node: catalog OS/version/arch + PS
 // MongoDB major/minor, admin password, PMM/proxy/cert and host export. (Same options
 // as the replica-set frame, minus replication.)
@@ -7068,7 +7279,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       return <ProxySQLFrameForm frame={f} nodes={nodes} frames={frames} edges={edges} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
     }
     if (f.type === 'mysql') {
-      return <MySQLFrameForm frame={f} nodes={nodes} frames={frames} edges={edges} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+      return <MySQLFrameForm frame={f} stackId={stackId} nodes={nodes} frames={frames} edges={edges} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} running={running} />
     }
     if (f.type === 'innodb') {
       return <InnoDBFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
@@ -7194,6 +7405,16 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <HAProxyManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <HAProxyForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+
+    // Percona Orchestrator node (topology visualization / failure detection). Not
+    // linked via a canvas edge — PXC/MySQL replication frames point at it through
+    // their own "Monitored by (Orchestrator)" picker instead.
+    if (n.type === 'orchestrator') {
+      if (dep && dep.state === 'running') {
+        return <OrchestratorManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <OrchestratorForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
 
     const def = NODE_TYPES[n.type] || NODE_TYPES.intranet

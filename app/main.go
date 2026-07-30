@@ -81,6 +81,7 @@ func main() {
 	mux.HandleFunc("GET /api/catalog/proxysql", app.handleProxySQLCatalog)
 	mux.HandleFunc("GET /api/catalog/valkey", app.handleValkeyCatalog)
 	mux.HandleFunc("GET /api/catalog/ps", app.handlePSCatalog)
+	mux.HandleFunc("GET /api/catalog/orchestrator", app.handleOrchestratorCatalog)
 	mux.HandleFunc("GET /api/catalog/psmdb", app.handlePSMDBCatalog)
 	mux.HandleFunc("GET /api/catalog/ppg", app.handlePPGCatalog)
 	mux.HandleFunc("GET /api/catalog/spock", app.handleSpockCatalog)
@@ -219,6 +220,10 @@ func main() {
 
 	// PXC cluster (frame) management — toggle PMM monitoring post-deploy.
 	mux.HandleFunc("POST /api/stacks/{id}/frames/{fid}/pmm", app.handlePXCFrameMonitor)
+
+	// PXC / MySQL replication cluster (frame) management — toggle Orchestrator
+	// monitoring post-deploy.
+	mux.HandleFunc("POST /api/stacks/{id}/frames/{fid}/orchestrator", app.handleFrameOrchestrator)
 
 	// Patroni cluster (frame) management — run an on-demand pgBackRest backup.
 	mux.HandleFunc("POST /api/stacks/{id}/frames/{fid}/patroni/backup", app.handlePatroniBackup)

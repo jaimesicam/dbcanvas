@@ -53,6 +53,7 @@ export const stackApi = {
   proxysqlCatalog: () => request('GET', '/api/catalog/proxysql'),
   valkeyCatalog: () => request('GET', '/api/catalog/valkey'),
   psCatalog: () => request('GET', '/api/catalog/ps'),
+  orchestratorCatalog: () => request('GET', '/api/catalog/orchestrator'),
   psmdbCatalog: () => request('GET', '/api/catalog/psmdb'),
   ppgCatalog: () => request('GET', '/api/catalog/ppg'),
   spockCatalog: () => request('GET', '/api/catalog/spock'),
@@ -101,12 +102,15 @@ export function pxcApi(id, nid) {
   }
 }
 
-// PXC cluster (frame) management. `fid` is the design frame id.
+// PXC / MySQL replication cluster (frame) management. `fid` is the design frame id.
 export function frameApi(id, fid) {
   const base = `/api/stacks/${id}/frames/${fid}`
   return {
     // pmmNodeId "" turns monitoring off; a node id registers the cluster with that PMM server.
     setMonitoring: (pmmNodeId) => request('POST', `${base}/pmm`, { pmmNodeId }),
+    // orchestratorNodeId "" clears the link; a node id seeds/refreshes topology discovery
+    // against that Orchestrator node. Works for both "pxc" and "mysql" frames.
+    setOrchestrator: (orchestratorNodeId) => request('POST', `${base}/orchestrator`, { orchestratorNodeId }),
   }
 }
 

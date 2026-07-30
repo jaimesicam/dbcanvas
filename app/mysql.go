@@ -27,24 +27,25 @@ var mysqlPorts = []int{3306}
 
 // mysqlConfig is the non-secret profile shown for a deployed MySQL replication node.
 type mysqlConfig struct {
-	Cluster      string `json:"cluster"`
-	Image        string `json:"image"`
-	OS           string `json:"os"`
-	Arch         string `json:"arch"`
-	Role         string `json:"role"` // primary | secondary
-	Hostname     string `json:"hostname"`
-	FQDN         string `json:"fqdn"`
-	ServerID     int    `json:"serverId"`
-	PSVersion    string `json:"psVersion"`
-	ReplMode     string `json:"replMode"` // async | semisync
-	GTID         bool   `json:"gtid"`
-	ReadOnly     bool   `json:"readOnly"`
-	SourceHost   string `json:"sourceHost"` // primary FQDN (secondaries)
-	GenerateCert bool   `json:"generateCert"`
-	UseProxy     bool   `json:"useProxy"`
-	MonitoredBy  string `json:"monitoredBy"`
-	Ports        []int  `json:"ports"`
-	ExportPort   int    `json:"exportPort"`
+	Cluster        string `json:"cluster"`
+	Image          string `json:"image"`
+	OS             string `json:"os"`
+	Arch           string `json:"arch"`
+	Role           string `json:"role"` // primary | secondary
+	Hostname       string `json:"hostname"`
+	FQDN           string `json:"fqdn"`
+	ServerID       int    `json:"serverId"`
+	PSVersion      string `json:"psVersion"`
+	ReplMode       string `json:"replMode"` // async | semisync
+	GTID           bool   `json:"gtid"`
+	ReadOnly       bool   `json:"readOnly"`
+	SourceHost     string `json:"sourceHost"` // primary FQDN (secondaries)
+	GenerateCert   bool   `json:"generateCert"`
+	UseProxy       bool   `json:"useProxy"`
+	MonitoredBy    string `json:"monitoredBy"`
+	OrchestratedBy string `json:"orchestratedBy"` // Orchestrator node FQDN, if any
+	Ports          []int  `json:"ports"`
+	ExportPort     int    `json:"exportPort"`
 }
 
 func mysqlUnit(os string) string {
@@ -124,6 +125,14 @@ func (a *App) provisionMySQLFrame(st Stack, frame designFrame, doc designDoc) {
 			}
 		}
 	}
+	orchestratedBy := ""
+	if frame.OrchestratorNodeID != "" {
+		for _, n := range doc.Nodes {
+			if n.ID == frame.OrchestratorNodeID {
+				orchestratedBy = fqdnOf(hosts[n.ID], domain)
+			}
+		}
+	}
 
 	for _, n := range members {
 		host := hosts[n.ID]
@@ -136,7 +145,7 @@ func (a *App) provisionMySQLFrame(st Stack, frame designFrame, doc designDoc) {
 			Role: role, Hostname: host, FQDN: fqdnOf(host, domain), ServerID: mysqlServerID(host),
 			PSVersion: frame.PSVersion, ReplMode: mysqlReplMode(frame.ReplMode), GTID: frame.GTID,
 			ReadOnly: role == "secondary", GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy,
-			MonitoredBy: monitoredBy, Ports: mysqlPorts,
+			MonitoredBy: monitoredBy, OrchestratedBy: orchestratedBy, Ports: mysqlPorts,
 		}
 		if role == "secondary" {
 			cfg.SourceHost = primaryFQDN
@@ -245,6 +254,19 @@ func (a *App) provisionMySQLFrame(st Stack, frame designFrame, doc designDoc) {
 			if err := a.mysqlAttachReplica(ctx, st, frame, n, primary.ID, primaryFQDN, sec, pr); err != nil {
 				return
 			}
+		}
+
+		// Orchestrator discovery, once per frame (not per member): seed/refresh
+		// topology for every member. Best-effort, like PMM registration below.
+		if frame.OrchestratorNodeID != "" {
+			var orchMembers []pxcMember
+			for _, n := range members {
+				if dep, e := a.store.GetDeployment(st.ID, n.ID); e == nil && dep.ContainerID != "" {
+					orchMembers = append(orchMembers, pxcMember{FQDN: fqdnOf(hosts[n.ID], domain), ContainerID: dep.ContainerID})
+				}
+			}
+			progs[primary.ID].phase("Registering with Orchestrator", 93)
+			a.registerOrchestrator(ctx, st, frame.OrchestratorNodeID, orchMembers, progs[primary.ID].logln)
 		}
 
 		// ---- Phase 4: TLS + PMM + finalize ----
@@ -673,6 +695,7 @@ func (a *App) mysqlSetupBaseline(ctx context.Context, st Stack, frame designFram
 		"MON_USER=" + sec.MonitorUser, "MON_PW=" + sec.MonitorPassword,
 		"CLUSTER_USER=" + sec.ClusterUser, "CLUSTER_PW=" + sec.ClusterPassword,
 		"CC_USER=" + sec.ClusterCheckUser, "CC_PW=" + sec.ClusterCheckPassword,
+		"ORCH_USER=" + sec.OrchestratorUser, "ORCH_PW=" + sec.OrchestratorPassword,
 	}
 	if err := a.runStep(ctx, id, mysqlBaselineScript, env, pr.logln); err != nil {
 		return pr.fail("configure %s baseline: %v", role, err)
@@ -840,6 +863,9 @@ GRANT ALL PRIVILEGES ON *.* TO '$CLUSTER_USER'@'%' WITH GRANT OPTION;
 CREATE USER IF NOT EXISTS '$CC_USER'@'localhost' IDENTIFIED BY '$CC_PW';
 ALTER USER '$CC_USER'@'localhost' IDENTIFIED BY '$CC_PW';
 GRANT PROCESS ON *.* TO '$CC_USER'@'localhost';
+CREATE USER IF NOT EXISTS '$ORCH_USER'@'%' IDENTIFIED BY '$ORCH_PW';
+ALTER USER '$ORCH_USER'@'%' IDENTIFIED BY '$ORCH_PW';
+GRANT SUPER, PROCESS, REPLICATION SLAVE, REPLICATION CLIENT, RELOAD ON *.* TO '$ORCH_USER'@'%';
 FLUSH PRIVILEGES;
 SQL
 # Clear GTID/binlog history now that every local user exists, so the node starts

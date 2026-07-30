@@ -122,6 +122,18 @@ type designNode struct {
 	MCOrders  int    `json:"mcOrders"`
 	MCTrades  int    `json:"mcTrades"`
 	MCTicks   int    `json:"mcTicks"`
+	// Percona Orchestrator node fields (Type=="orchestrator"). A standalone topology
+	// visualization/failure-detection node — not a cluster frame — that PXC and MySQL
+	// replication frames optionally point at (designFrame.OrchestratorNodeID), the same
+	// way they point at a PMM node. Reuses OS/OSVersion/Arch, ExportEnabled/
+	// ExportHostPort (the web UI, default :3000) above. Installed via percona-release
+	// (any pdps/pdpxc repo — the percona-orchestrator package is identical across
+	// them), not a pulled image.
+	OrchestratorVersion string `json:"orchestratorVersion"` // minor (e.g. 3.2.6-22); "" → latest
+	// AlertEmail is a mailbox on the stack's Intranet mail domain (local part or a
+	// full user@domain address) that failure-detection alerts are sent to. "" → no
+	// alert hook is wired.
+	AlertEmail string `json:"alertEmail"`
 }
 
 // designEdge is a connection drawn on the canvas. The endpoints' Node field holds
@@ -166,13 +178,19 @@ type designFrame struct {
 	GenerateCert bool   `json:"generateCert"` // per-node certs signed by the Intranet CA
 	CertTTLValue int    `json:"certTtlValue"`
 	CertTTLUnit  string `json:"certTtlUnit"`
+	// OrchestratorNodeID is a Percona Orchestrator node that discovers/monitors this
+	// cluster's topology (optional; "" → not monitored). Shared by "pxc" and "mysql"
+	// frames, the same way PMMNodeID is — one Orchestrator node can be pointed at by
+	// many frames. See app/orchestrator.go.
+	OrchestratorNodeID string `json:"orchestratorNodeId"`
 	// ProxySQL cluster frame config (Type=="proxysql"; reuses OS/OSVersion/Arch,
 	// PMMNodeID, UseProxy above).
 	ProxySQLMajor   string `json:"proxysqlMajor"`   // "2" | "3"
 	ProxySQLVersion string `json:"proxysqlVersion"` // minor; "" → latest
 	Mode            string `json:"mode"`            // "singlewrite" | "loadbal"
 	// MySQL replication frame config (Type=="mysql"; reuses OS/OSVersion/Arch,
-	// RootPassword, PMMNodeID, UseProxy, GTID, GenerateCert/CertTTL above).
+	// RootPassword, PMMNodeID, OrchestratorNodeID, UseProxy, GTID, GenerateCert/CertTTL
+	// above).
 	PSMajor   string `json:"psMajor"`   // Percona Server "8.0" | "8.4"
 	PSVersion string `json:"psVersion"` // minor; "" → latest
 	ReplMode  string `json:"replMode"`  // mysql: "async"|"semisync" · innodb: "innodbcluster"|"groupreplication"
@@ -718,6 +736,25 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			if n.ExportEnabled && n.ExportHostPort > 0 {
 				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
 			}
+		case "orchestrator":
+			others++
+			img := pxcImage(n.OS, n.OSVersion, n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+				}
+			}
+			// No "must be linked to a cluster" error, unlike HAProxy — an Orchestrator
+			// with nothing linked yet is a legal (if pointless) deploy, the same as an
+			// unlinked PMMNodeID everywhere else.
+			if email := strings.TrimSpace(n.AlertEmail); email != "" {
+				if !validName(localPart(email)) || strings.Count(email, "@") > 1 {
+					out = append(out, issue{"error", "Orchestrator node " + n.Label + " has an invalid alert email " + email})
+				}
+			}
+			// The web UI is always published to an auto-assigned free host port
+			// (like PMM/the app simulators) — no user-chosen port to collide with.
 		case "trafficsim":
 			others++
 			if !seenImg[trafficSimImage] {
@@ -1446,6 +1483,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionValkeyStandalone(st, n, doc)
 		case "haproxy":
 			a.provisionHAProxy(st, n, doc)
+		case "orchestrator":
+			a.provisionOrchestrator(st, n, doc)
 		case "linuxclient":
 			a.provisionLinuxClient(st, n, doc)
 		case "trafficsim":

@@ -5,7 +5,7 @@
 # image versions selectable for a PMM node.
 # Re-run image discovery: make images   Re-run version discovery: make versions
 generated_at: 2026-07-15T03:41:40Z
-versions_generated_at: 2026-07-26T13:48:02Z
+versions_generated_at: 2026-07-29T06:08:55Z
 image_prefix: dbcanvas-systemd
 images:
   - os: oraclelinux
@@ -110,6 +110,7 @@ images:
         - 8.0.19-10.1
         - 8.0.18-9.3
       "8.4":
+        - 8.4.10-10.1
         - 8.4.8-8.1
         - 8.4.7-7.1
         - 8.4.6-6.1
@@ -217,6 +218,16 @@ images:
     percona_valkey:
       "9.1":
         - 9.1.0-1
+    percona_orchestrator:
+      "3":
+        - 3.2.6-22
+        - 3.2.6-20
+        - 3.2.6-19
+        - 3.2.6-18
+        - 3.2.6-17
+        - 3.2.6-16
+        - 3.2.6-15
+        - 3.2.6-14
     spock:
       "15":
         - 15.18
@@ -334,6 +345,7 @@ images:
         - 8.0.31-23.1
         - 8.0.30-22.1
       "8.4":
+        - 8.4.10-10.1
         - 8.4.8-8.1
         - 8.4.7-7.1
         - 8.4.6-6.1
@@ -507,6 +519,16 @@ images:
     percona_valkey:
       "9.1":
         - 9.1.0-1
+    percona_orchestrator:
+      "3":
+        - 3.2.6-22
+        - 3.2.6-20
+        - 3.2.6-19
+        - 3.2.6-18
+        - 3.2.6-17
+        - 3.2.6-16
+        - 3.2.6-15
+        - 3.2.6-14
     spock:
       "15":
         - 15.18
@@ -582,6 +604,7 @@ images:
     percona_xtradb_cluster:
       "8.0": []
       "8.4":
+        - 8.4.10-10.1
         - 8.4.8-8.1
         - 8.4.7-7.1
         - 8.4.6-6.1
@@ -644,6 +667,12 @@ images:
     percona_valkey:
       "9.1":
         - 9.1.0-1
+    percona_orchestrator:
+      "3":
+        - 3.2.6-22
+        - 3.2.6-20
+        - 3.2.6-19
+        - 3.2.6-18
     spock:
       "15":
         - 15.18
@@ -757,11 +786,11 @@ images:
         - 8.0.31-23-1
         - 8.0.30-22-1
       "8.4":
+        - 8.4.10-10-1
         - 8.4.8-8-1
         - 8.4.7-7-1
         - 8.4.6-6-1
         - 8.4.5-5-1
-        - 8.4.4-4-1
     proxysql:
       "2":
         - 2.7.3-1.2
@@ -871,6 +900,13 @@ images:
     percona_valkey:
       "9.1":
         - 9.1.0-1
+    percona_orchestrator:
+      "3":
+        - 3.2.6-22
+        - 3.2.6-20
+        - 3.2.6-19
+        - 3.2.6-18
+        - 3.2.6-17
     spock:
   - os: ubuntu
     version: "24.04"
@@ -909,11 +945,11 @@ images:
         - 8.0.39-30-1
         - 8.0.37-29-1
       "8.4":
+        - 8.4.10-10-1
         - 8.4.8-8-1
         - 8.4.7-7-1
         - 8.4.6-6-1
         - 8.4.5-5-1
-        - 8.4.4-4-1
     proxysql:
       "2":
         - 2.7.3-1.2
@@ -986,6 +1022,13 @@ images:
     percona_valkey:
       "9.1":
         - 9.1.0-1
+    percona_orchestrator:
+      "3":
+        - 3.2.6-22
+        - 3.2.6-20
+        - 3.2.6-19
+        - 3.2.6-18
+        - 3.2.6-17
     spock:
 # PMM3 (Percona Monitoring and Management) server image versions, discovered
 # from the percona/pmm-server registry. 'default_tag' is the rolling latest-3.x tag
