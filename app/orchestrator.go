@@ -454,11 +454,20 @@ WantedBy=multi-user.target
 // hook subprocess was not verified live) — changing AlertEmail means redeploying
 // this node.
 //
-// Every SMTP response is read and discarded before the next command is sent
-// (including after DATA's terminating "." and after QUIT) — skipping those reads
-// leaves server responses unread in the kernel receive buffer, so closing the
-// socket sends a TCP RST instead of a clean FIN and the message can be lost
-// mid-delivery. Verified against a live raw-SMTP handshake test.
+// Every SMTP reply is read in full — a reply is one or more lines, each "CODE-text"
+// except the last, which is "CODE text" (a space, not a hyphen); read_reply loops
+// until it sees that terminal line — before the next command is sent (including
+// after DATA's terminating "." and after QUIT). A previous version of this script
+// read exactly one line per reply, which happened to work for single-line replies
+// but silently desynced the whole conversation on Postfix's multi-line EHLO
+// greeting (11 lines advertising PIPELINING/SIZE/STARTTLS/etc.): every read after
+// that consumed a leftover EHLO continuation line instead of the real reply to
+// MAIL FROM/RCPT TO/DATA, so the message was never actually accepted — found live
+// (mail silently never arrived) and confirmed by replaying the same handshake by
+// hand both ways: single-line reads never got a "250 2.0.0 Ok: queued" but reading
+// each full multi-line reply did. Skipping any read (single- or multi-line) leaves
+// server bytes unread in the kernel receive buffer, so closing the socket sends a
+// TCP RST instead of a clean FIN and the message can be lost mid-delivery.
 const orchestratorAlertScriptTpl = `#!/bin/bash
 TO='__TO__'
 FROM='orchestrator@__DOMAIN__'
@@ -469,20 +478,28 @@ Cluster: $2
 Failed host: $3:$4
 Detected at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+read_reply() {
+	local line
+	while IFS= read -r -u3 -t 5 line; do
+		[[ $line == [0-9][0-9][0-9]\ * ]] && return 0
+	done
+	return 1
+}
+
 exec 3<>"/dev/tcp/$RELAY/25" 2>/dev/null || exit 0
-IFS= read -r -u3 -t 5 _ 2>/dev/null
+read_reply
 printf 'EHLO orchestrator.__DOMAIN__\r\n' >&3
-IFS= read -r -u3 -t 5 _ 2>/dev/null
+read_reply
 printf 'MAIL FROM:<%s>\r\n' "$FROM" >&3
-IFS= read -r -u3 -t 5 _ 2>/dev/null
+read_reply
 printf 'RCPT TO:<%s>\r\n' "$TO" >&3
-IFS= read -r -u3 -t 5 _ 2>/dev/null
+read_reply
 printf 'DATA\r\n' >&3
-IFS= read -r -u3 -t 5 _ 2>/dev/null
+read_reply
 printf 'From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s\r\n.\r\n' "$FROM" "$TO" "$SUBJECT" "$BODY" >&3
-IFS= read -r -u3 -t 5 _ 2>/dev/null
+read_reply
 printf 'QUIT\r\n' >&3
-IFS= read -r -u3 -t 5 _ 2>/dev/null
+read_reply
 exec 3<&- 3>&- 2>/dev/null
 `
 
