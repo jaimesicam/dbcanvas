@@ -443,6 +443,7 @@ a working default — but **change the passwords before exposing anything beyond
 | `DOMAIN` | `example.net` | Domain used to configure deployed stacks (Intranet LDAP base DN, DNS, mail, CA). |
 | `DEPLOYMENT_TIMEOUT` | `60` | Minutes a provisioner waits for a dependency (cluster / node / shared service) to become ready before failing the deploy. Raise it for large stacks. |
 | `DOCKER_PLATFORM` | `linux/amd64` | The platform this installation targets — exactly one of `linux/amd64` or `linux/arm64`. Drives the app image build, and the systemd base images: `make images` builds only this platform and `make versions` only probes/records images on it. |
+| `K3D_PLATFORM` | `linux/amd64` | The platform K3D frames' Kubernetes (k3s) nodes target — exactly one of `linux/amd64` or `linux/arm64`. Independent of `DOCKER_PLATFORM`: forcing a k3s node onto a non-native platform runs its own inner containerd/runc under emulation, which can break pod-sandbox creation (e.g. "seccomp is not supported"). Set to `linux/arm64` to run K3D natively on Apple Silicon. |
 
 **Credentials** — passwords for deployed database & service nodes. These are the single
 source of truth (they can't be set per-node on the canvas), and a redeploy re-reads them.

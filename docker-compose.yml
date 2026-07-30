@@ -44,6 +44,9 @@ services:
       # SeaweedFS, Valkey). PMM and Watchtower are pinned to linux/amd64 in code
       # because upstream publishes no arm64 image for them.
       DOCKER_PLATFORM: ${DOCKER_PLATFORM:-linux/amd64}
+      # The platform K3D frames' k3s nodes target. Independent of
+      # DOCKER_PLATFORM above — see K3D_PLATFORM in .env.example.
+      K3D_PLATFORM: ${K3D_PLATFORM:-linux/amd64}
       # Minutes a provisioner waits for a dependency (cluster/node/service) to
       # become ready before failing the deploy. Raise for large stacks.
       DEPLOYMENT_TIMEOUT: ${DEPLOYMENT_TIMEOUT:-60}

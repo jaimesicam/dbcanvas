@@ -191,6 +191,15 @@ const platformAMD64 = "linux/amd64"
 // to be. See images/platform.sh.
 func pullPlatform() string { return envOr("DOCKER_PLATFORM", platformAMD64) }
 
+// k3dPlatform is the platform K3D/k3s node containers target. Deliberately
+// independent of pullPlatform/DOCKER_PLATFORM: forcing k3s nodes onto a
+// non-native platform runs their *own* inner containerd/runc under emulation,
+// which can fail pod-sandbox creation entirely (e.g. "seccomp is not
+// supported" under qemu/binfmt) — a K3D frame should be able to run
+// Kubernetes on the host's native architecture regardless of what platform
+// the rest of the installation targets.
+func k3dPlatform() string { return envOr("K3D_PLATFORM", platformAMD64) }
+
 // ImagePull pulls an image reference (repo:tag) from its registry, blocking
 // until the pull stream completes. The streamed JSON progress is drained and
 // discarded; a non-2xx response or a transport error is returned.

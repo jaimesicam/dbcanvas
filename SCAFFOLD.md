@@ -210,6 +210,10 @@ APP_PORT=8080
 
 # Target platform for the Docker image build. Default: linux/amd64
 DOCKER_PLATFORM=linux/amd64
+
+# Target platform for K3D frames' Kubernetes (k3s) nodes. Independent of
+# DOCKER_PLATFORM. Default: linux/amd64
+K3D_PLATFORM=linux/amd64
 ```
 
 ### `.gitignore`

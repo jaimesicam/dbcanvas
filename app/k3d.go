@@ -446,22 +446,22 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		// PullOptions, then ContainerCreate with a nil platform) never sends one either — see
 		// https://github.com/k3d-io/k3d/discussions/1031. Left alone, the daemon resolves
 		// rancher/k3s's multi-arch manifest against its OWN host architecture, which silently
-		// ignores DOCKER_PLATFORM (e.g. an arm64 daemon creates arm64 k3s nodes even though this
-		// installation targets linux/amd64).
+		// ignores K3D_PLATFORM (e.g. an arm64 daemon creates arm64 k3s nodes even though this
+		// K3D frame targets linux/amd64).
 		//
-		// Pre-pulling the exact repo:tag for pullPlatform() is not enough on its own: under the
+		// Pre-pulling the exact repo:tag for k3dPlatform() is not enough on its own: under the
 		// containerd image store, a tag can hold multiple platform variants at once, and k3d's
 		// platform-blind ContainerCreate then resolves to the HOST's architecture regardless of
 		// which variant we just pulled (verified live — see ImageRemove's doc comment in docker.go).
-		// Removing the reference first guarantees only pullPlatform()'s variant is cached, so k3d's
+		// Removing the reference first guarantees only k3dPlatform()'s variant is cached, so k3d's
 		// create has nothing left to be ambiguous about.
 		pr.phase("Pulling the k3s image", 10)
 		a.engCtx(ctx).ImageRemove(ctx, k3sImage)
-		if err := a.engCtx(ctx).EnsureImage(ctx, k3sCat.Repository, k3sTag, pullPlatform()); err != nil {
+		if err := a.engCtx(ctx).EnsureImage(ctx, k3sCat.Repository, k3sTag, k3dPlatform()); err != nil {
 			failAll("pull k3s image %s: %v", k3sImage, err)
 			return
 		}
-		pr.logln("k3s image " + k3sImage + " ready for " + pullPlatform())
+		pr.logln("k3s image " + k3sImage + " ready for " + k3dPlatform())
 
 		// ---- create the cluster on the stack network ----
 		pr.phase("Creating k3d cluster", 15)
