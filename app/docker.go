@@ -364,6 +364,24 @@ func (d *Docker) EnsureImage(ctx context.Context, repo, tag, platform string) er
 	return nil
 }
 
+// ImageRemove untags a local image reference (best-effort — a missing reference, or one still
+// referenced by an existing container, is not an error). Used before a platform-pinned pull to
+// clear a stale wrong-platform copy: under the containerd image store (the default on modern
+// Docker Desktop, including Apple Silicon), a single tag can hold *multiple* platform variants at
+// once, and a container create that omits `platform` (as k3d's own does — see k3d.go) then always
+// resolves to the host's native architecture, not whichever variant was pulled most recently.
+// Removing the tag first guarantees only the platform we are about to pull is cached, so the next
+// platform-blind create has nothing to be ambiguous about. Verified live against
+// /var/run/docker.sock: with both linux/amd64 and linux/arm64 cached under the same tag, `docker
+// create` (no --platform) picks the host's arch regardless of pull order; with only one variant
+// cached, it picks that one even when it does not match the host.
+func (d *Docker) ImageRemove(ctx context.Context, ref string) {
+	resp, err := d.do(ctx, "DELETE", "/images/"+ref+"?force=true", nil)
+	if err == nil {
+		drain(resp)
+	}
+}
+
 // ContainerSpec describes a container to create.
 type ContainerSpec struct {
 	Name         string

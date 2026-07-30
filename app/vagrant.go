@@ -206,6 +206,10 @@ func (v *Vagrant) ImageExists(ctx context.Context, ref string) (bool, error) { r
 // node's OS, not the Docker image ref the generic caller passes.
 func (v *Vagrant) EnsureImage(ctx context.Context, repo, tag, platform string) error { return nil }
 
+// ImageRemove is a no-op: there is no Docker-style multi-platform tag ambiguity for
+// Vagrant boxes (see ImageRemove's doc comment on *Docker for what this guards against).
+func (v *Vagrant) ImageRemove(ctx context.Context, ref string) {}
+
 // ensureBox adds the box locally if it isn't already present. A box_url is added by
 // URL (its metadata JSON declares the name); a plain box is added by name off the
 // registry.

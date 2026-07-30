@@ -27,6 +27,7 @@ type Engine interface {
 	// Images / boxes.
 	ImageExists(ctx context.Context, ref string) (bool, error)
 	EnsureImage(ctx context.Context, repo, tag, platform string) error
+	ImageRemove(ctx context.Context, ref string)
 
 	// Networks.
 	NetworkEnsure(ctx context.Context, name string) error
