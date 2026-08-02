@@ -28,7 +28,7 @@ there.
 | MySQL | `ps` · `psrepl` · `innodb` · `pxc` | `psrepl` is async or semi-sync; `innodb` is Group Replication (InnoDB Cluster mode needs MySQL Shell and is refused) |
 | MySQL Community | `mysqlce` · `mysqlcerepl` · `mysqlceinnodb` | Oracle's builds; same shapes as the Percona ones |
 | MariaDB | `mariadb` · `mariadbrepl` · `mariadbgalera` | MariaDB GTIDs are `domain-server-seq`; Galera uses `mariabackup` |
-| PostgreSQL | `pg` · `repmgr` · `patroni` · `spock` | Oracle Linux only. `pg` may run a different major per instance |
+| PostgreSQL | `pg` · `repmgr` · `patroni` · `spock` | Oracle Linux only. `pg` may run a different major per instance; `spock` is limited to the majors its patch set covers (15–18 today), not the full PPG range |
 | MongoDB | `psmdb` · `psmrs` · `psmdbsharded` | One install serves all three |
 | Valkey | `valkey` · `valkeycluster` | |
 | Proxies | `proxysql` · `haproxy` | Front an instance chosen by drop-down, not a drawn line |
