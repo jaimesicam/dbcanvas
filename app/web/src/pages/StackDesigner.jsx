@@ -663,7 +663,7 @@ function nextMemberName(usedSet, prefix) {
 }
 
 // Per-frame-type presentation: accent color and the description line.
-const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', psmdb: '#10b981', psmrs: '#059669', patroni: '#336791', repmgr: '#0e7490', spock: '#dc2626', valkeycluster: '#7c3aed', k3d: '#326ce5' }
+const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', mariadbrepl: '#c0765a', mariadbgalera: '#a85d43', mysqlcerepl: '#00758f', mysqlceinnodb: '#005d72', psmdb: '#10b981', psmrs: '#059669', patroni: '#336791', repmgr: '#0e7490', spock: '#dc2626', valkeycluster: '#7c3aed', k3d: '#326ce5' }
 
 // A SeaweedFS node creates up to ten buckets, so several databases can share one object store
 // without sharing a bucket. Every consumer picks which one it uses; "" means the node's first.
@@ -695,6 +695,11 @@ const addBtnStyle = (t) => {
   return c ? { backgroundColor: c, borderColor: c, color: '#fff' } : undefined
 }
 const frameColor = (f) => FRAME_COLORS[f?.type] || '#a855f7'
+
+// Member-name prefixes for the MariaDB / MySQL Community cluster frames. Having one
+// table means the add-cluster builder and the add-member button cannot disagree
+// about what a member of a given frame type is called — or what type it is.
+const UPSTREAM_FRAME_PREFIX = { mariadbrepl: 'mariadb', mariadbgalera: 'galera', mysqlcerepl: 'mysqlce', mysqlceinnodb: 'myidc' }
 
 // osLabel is the OS line on a node's canvas card. It compacts "Oracle Linux 9" to "OL9" — the
 // cards are small, and this is the same shortening pxcOSLabel does for the nodes that carry their
@@ -751,11 +756,49 @@ const deployedLabel = (type, dep) => {
 // else the major series, e.g. "Percona XtraDB Cluster 8.0").
 const pxcVersionLabel = (f) => `Percona XtraDB Cluster ${f?.pxcVersion || f?.pxcMajor || ''}`.trim()
 
+// Frames whose members are a primary plus read-only secondaries. Grouped because
+// three places need the same answer: the member's description, the greyed accent on
+// a secondary, and which added members default to 'secondary'.
+export const REPL_FRAME_TYPES = new Set(['mysql', 'mariadbrepl', 'mysqlcerepl'])
+
+// frameMemberSub is the one-line description under a cluster member's name on the
+// canvas.
+//
+// Extracted and exported so the render smoke test can assert every frame type
+// answers for itself. It used to default to 'Galera data node', which silently
+// mislabelled the members of every frame type added afterwards — MariaDB and MySQL
+// replication members were being described as Galera data nodes.
+export function frameMemberSub(f, n, kids = []) {
+  if (n?.role === 'arbitrator') return 'Arbitrator · garbd'
+  switch (f?.type) {
+    case 'proxysql': return 'ProxySQL'
+    case 'pxc': return 'Galera data node'
+    case 'mariadbgalera': return 'Galera data node'
+    case 'mysql':
+    case 'mariadbrepl':
+    case 'mysqlcerepl': return n?.role === 'primary' ? 'Primary' : 'Secondary · read-only'
+    case 'innodb':
+    case 'mysqlceinnodb': return f.replMode === 'groupreplication' ? 'GR member' : 'Cluster member'
+    case 'psmdb': return n?.role === 'mongos' ? 'mongos router' : n?.role === 'config' ? 'config server' : `shard ${n?.shard} member`
+    case 'psmrs': return 'replica-set member'
+    case 'patroni': return 'Patroni node'
+    case 'repmgr': return 'PostgreSQL + repmgr'
+    case 'spock': return 'PostgreSQL + Spock'
+    case 'valkeycluster': return 'Valkey shard'
+    case 'k3d': return kids.indexOf(n) === 0 ? 'k3s server' : 'k3s agent'
+    default: return 'Cluster member'
+  }
+}
+
 // frameVersionLabel: the description line for a cluster-frame type.
 const frameVersionLabel = (f) => {
   if (f?.type === 'proxysql') return `ProxySQL ${f?.proxysqlVersion || f?.proxysqlMajor || ''}`.trim()
   if (f?.type === 'mysql') return `Percona Server ${f?.psVersion || f?.psMajor || ''} replication`.trim()
   if (f?.type === 'innodb') return `${f?.replMode === 'groupreplication' ? 'Group Replication' : 'InnoDB Cluster'}${f?.pdpsRepo ? ` · ${f.pdpsRepo}` : ''}`
+  if (f?.type === 'mariadbrepl') return `MariaDB ${f?.mariadbVersion || f?.mariadbMajor || ''} replication`.replace(/\s+/g, ' ').trim()
+  if (f?.type === 'mariadbgalera') return `MariaDB ${f?.mariadbVersion || f?.mariadbMajor || ''} Galera`.replace(/\s+/g, ' ').trim()
+  if (f?.type === 'mysqlcerepl') return `MySQL ${f?.mysqlceVersion || f?.mysqlceMajor || ''} replication`.replace(/\s+/g, ' ').trim()
+  if (f?.type === 'mysqlceinnodb') return `MySQL ${f?.mysqlceVersion || f?.mysqlceMajor || ''} · ${f?.replMode === 'groupreplication' ? 'Group Replication' : 'InnoDB Cluster'}`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'psmdb') return `PS MongoDB ${f?.psmdbVersion || f?.psmdbMajor || ''} sharded · ${f?.psmdbSetup === 'minimum' ? 'minimum' : 'standard'}`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'psmrs') return `PS MongoDB ${f?.psmdbVersion || f?.psmdbMajor || ''} replica set`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'patroni') return `Percona PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · Patroni`.replace(/\s+/g, ' ').trim()
@@ -1698,13 +1741,26 @@ function StackEditor({ stackId, onBack }) {
     setNodes(r.nodes)
     setSelected({ kind: 'frame', id: fid })
   }
-  const addMariaDBCluster = () => addUpstreamCluster('mariadbrepl', 'mariadb', 3,
+  // newUpstreamMember adds one member to an existing MariaDB / MySQL Community
+  // frame. Without this the generic fallback in addFrameMember would create a
+  // `pxc` node inside, say, a MariaDB frame — the member type must match the
+  // frame's, because the provisioner selects members by n.Type == frame.Type.
+  function newUpstreamMember(frameId, type) {
+    const prefix = UPSTREAM_FRAME_PREFIX[type]
+    const used = new Set(nodes.filter((n) => n.type === type).map((n) => n.label))
+    const node = { id: uid(prefix), type, label: nextMemberName(used, prefix), frameId, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
+    // Replication frames keep exactly one primary, so an added member is a
+    // secondary. Galera and Group Replication members carry no role at all.
+    if (REPL_FRAME_TYPES.has(type)) node.role = 'secondary'
+    return node
+  }
+  const addMariaDBCluster = () => addUpstreamCluster('mariadbrepl', UPSTREAM_FRAME_PREFIX['mariadbrepl'], 3,
     { mariadbMajor: '11.4', mariadbVersion: '', gtid: true, replMode: 'async' }, true)
-  const addMariaDBGaleraCluster = () => addUpstreamCluster('mariadbgalera', 'galera', 3,
+  const addMariaDBGaleraCluster = () => addUpstreamCluster('mariadbgalera', UPSTREAM_FRAME_PREFIX['mariadbgalera'], 3,
     { mariadbMajor: '11.4', mariadbVersion: '' }, false)
-  const addMySQLCECluster = () => addUpstreamCluster('mysqlcerepl', 'mysqlce', 3,
+  const addMySQLCECluster = () => addUpstreamCluster('mysqlcerepl', UPSTREAM_FRAME_PREFIX['mysqlcerepl'], 3,
     { mysqlceMajor: '8.4', mysqlceVersion: '', gtid: true, replMode: 'async' }, true)
-  const addMySQLCEInnoDBCluster = () => addUpstreamCluster('mysqlceinnodb', 'myidc', 3,
+  const addMySQLCEInnoDBCluster = () => addUpstreamCluster('mysqlceinnodb', UPSTREAM_FRAME_PREFIX['mysqlceinnodb'], 3,
     { mysqlceMajor: '8.4', mysqlceVersion: '', replMode: 'innodbcluster', mysqlRouter: true }, false)
 
   // A K3D cluster's members are the k3s nodes k3d creates: the first is the server, the rest
@@ -1995,6 +2051,11 @@ function StackEditor({ stackId, onBack }) {
       const r = relayout(frame.id, frames, [...nodes, newValkeyMember(frame.id)])
       setFrames(r.frames)
       setNodes(r.nodes)
+    } else if (UPSTREAM_FRAME_PREFIX[frame.type]) {
+      if (nodes.filter((n) => n.frameId === frame.id).length >= 9) return // max 9
+      const r = relayout(frame.id, frames, [...nodes, newUpstreamMember(frame.id, frame.type)])
+      setFrames(r.frames)
+      setNodes(r.nodes)
     } else {
       addPXCNode(frame.id)
     }
@@ -2005,7 +2066,7 @@ function StackEditor({ stackId, onBack }) {
     if (mine.length <= 1) return // keep at least one node
     // Patroni/repmgr need ≥3 members: never drop below 3.
     const frame = frames.find((f) => f.id === frameId)
-    if ((frame?.type === 'patroni' || frame?.type === 'repmgr' || frame?.type === 'valkeycluster') && mine.length <= 3) return
+    if ((frame?.type === 'patroni' || frame?.type === 'repmgr' || frame?.type === 'valkeycluster' || frame?.type === 'mariadbgalera' || frame?.type === 'mysqlceinnodb') && mine.length <= 3) return
     if (frame?.type === 'spock' && mine.length <= 2) return // Spock keeps ≥2 members
     const target = mine[mine.length - 1]
     // Confirm when the member being dropped is deployed (its container + volume go).
@@ -2499,19 +2560,9 @@ function StackEditor({ stackId, onBack }) {
                     const dep = depByNode[n.id]
                     const arb = n.role === 'arbitrator'
                     const isPrimary = n.role === 'primary'
-                    let sub = 'Galera data node'
-                    if (f.type === 'proxysql') sub = 'ProxySQL'
-                    else if (f.type === 'mysql') sub = isPrimary ? 'Primary' : 'Secondary · read-only'
-                    else if (f.type === 'innodb') sub = f.replMode === 'groupreplication' ? 'GR member' : 'Cluster member'
-                    else if (f.type === 'psmdb') sub = n.role === 'mongos' ? 'mongos router' : n.role === 'config' ? 'config server' : `shard ${n.shard} member`
-                    else if (f.type === 'psmrs') sub = 'replica-set member'
-    else if (f.type === 'patroni') sub = 'Patroni node'
-                    else if (f.type === 'repmgr') sub = 'PostgreSQL + repmgr'
-                    else if (f.type === 'spock') sub = 'PostgreSQL + Spock'
-                    else if (f.type === 'valkeycluster') sub = 'Valkey shard'
-                    else if (f.type === 'k3d') sub = kids.indexOf(n) === 0 ? 'k3s server' : 'k3s agent'
-                    else if (arb) sub = 'Arbitrator · garbd'
-                    const barCol = (f.type === 'pxc' && arb) || (f.type === 'mysql' && !isPrimary) ? '#64748b' : col
+                    const sub = frameMemberSub(f, n, kids)
+                    // Replicas are greyed so a read-only member reads as subordinate.
+                    const barCol = (f.type === 'pxc' && arb) || (REPL_FRAME_TYPES.has(f.type) && !isPrimary) ? '#64748b' : col
                     // PXC and Percona Server replication members expose ports for
                     // cross-cluster replication links (the wrapper, not the clipped
                     // card, carries them so they sit outside the rounded border).

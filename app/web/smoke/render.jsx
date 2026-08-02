@@ -23,6 +23,7 @@ import {
   MySQLCENodeForm, MySQLCEFrameForm, MySQLCEInnoDBFrameForm,
   UpstreamMemberForm,
 } from '../src/pages/UpstreamForms.jsx'
+import { frameMemberSub, REPL_FRAME_TYPES } from '../src/pages/StackDesigner.jsx'
 
 const noop = () => {}
 let failures = 0
@@ -229,6 +230,50 @@ check('UpstreamMemberForm (with role)', () => renderToString(
   <UpstreamMemberForm node={frameMembers('f1', 'mariadbrepl')[0]} frame={mdFrame} patchNode={noop} deleteNode={noop} deployed={false} roles />))
 check('UpstreamMemberForm (Galera, no role)', () => renderToString(
   <UpstreamMemberForm node={{ id: 'g1', label: 'galera01', exportEnabled: true, exportHostPort: 3307 }} frame={galFrame} patchNode={noop} deleteNode={noop} deployed roles={false} />))
+
+// ---- canvas member descriptions ----
+// frameMemberSub used to default to 'Galera data node', so every frame type added
+// after PXC inherited it — MariaDB and MySQL replication members were labelled as
+// Galera data nodes on the canvas. Assert each type answers for itself, and that
+// nothing claims Galera unless it actually runs Galera.
+check('every frame type describes its own members', () => {
+  const galera = new Set(['pxc', 'mariadbgalera'])
+  const expected = {
+    pxc: 'Galera data node',
+    mariadbgalera: 'Galera data node',
+    proxysql: 'ProxySQL',
+    mysql: 'Primary',
+    mariadbrepl: 'Primary',
+    mysqlcerepl: 'Primary',
+    innodb: 'Cluster member',
+    mysqlceinnodb: 'Cluster member',
+    psmrs: 'replica-set member',
+    patroni: 'Patroni node',
+    repmgr: 'PostgreSQL + repmgr',
+    spock: 'PostgreSQL + Spock',
+    valkeycluster: 'Valkey shard',
+  }
+  const out = []
+  for (const [type, want] of Object.entries(expected)) {
+    const node = { id: 'n1', role: 'primary' }
+    const got = frameMemberSub({ type }, node, [node])
+    if (got !== want) throw new Error(`${type}: got "${got}", want "${want}"`)
+    if (!galera.has(type) && got.toLowerCase().includes('galera')) {
+      throw new Error(`${type} is described as Galera but does not run Galera`)
+    }
+    out.push(`${type}=${got}`)
+  }
+  // A secondary in a replication frame must read as read-only.
+  for (const type of REPL_FRAME_TYPES) {
+    const got = frameMemberSub({ type }, { id: 'n2', role: 'secondary' })
+    if (!got.includes('read-only')) throw new Error(`${type} secondary: got "${got}"`)
+  }
+  // An arbitrator wins over the frame's own label.
+  if (frameMemberSub({ type: 'pxc' }, { role: 'arbitrator' }) !== 'Arbitrator · garbd') {
+    throw new Error('arbitrator description lost')
+  }
+  return out.join(' ')
+})
 
 if (failures > 0) {
   console.error(`\n${failures} render failure(s)`)
