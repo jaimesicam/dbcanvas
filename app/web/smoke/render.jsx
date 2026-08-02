@@ -18,6 +18,11 @@ import { renderToString } from 'react-dom/server'
 import { AllInOneForm, AllInOneManager, connectString, credRows, __tabsForTest } from '../src/pages/AllInOne.jsx'
 import { TerminalProvider } from '../src/terminal/TerminalProvider.jsx'
 import { AIO_KINDS, kindOf } from '../src/lib/aioPorts.js'
+import {
+  MariaDBNodeForm, MariaDBFrameForm, MariaDBGaleraFrameForm,
+  MySQLCENodeForm, MySQLCEFrameForm, MySQLCEInnoDBFrameForm,
+  UpstreamMemberForm,
+} from '../src/pages/UpstreamForms.jsx'
 
 const noop = () => {}
 let failures = 0
@@ -178,6 +183,52 @@ check('credential rows for every family present', () => {
   }
   return JSON.stringify(rows)
 })
+
+// ---- MariaDB / MySQL Community designer forms ----
+// Same reasoning as the All-in-One cards above: these six forms are only reachable
+// by selecting a node, so a bad element reference in one of them would blank the
+// inspector and nothing else would notice. Effects (the catalog fetch) do not run
+// under SSR, so each form renders against its *empty* catalog — which is also the
+// real first-paint state, before the fetch resolves.
+const upstreamNodes = [{ id: 'pmm1', type: 'pmm', label: 'pmm' }]
+
+const mariadbNode = {
+  id: 'md1', type: 'mariadb', label: 'mariadb01', os: 'oraclelinux', osVersion: '9', arch: 'amd64',
+  mariadbMajor: '11.4', mariadbVersion: '', gtid: true, pmmNodeId: '', useProxy: false,
+  generateCert: true, certTtlValue: 365, certTtlUnit: 'days', exportEnabled: true, exportHostPort: 0,
+}
+const mysqlceNode = {
+  id: 'my1', type: 'mysqlce', label: 'mysql01', os: 'oraclelinux', osVersion: '9', arch: 'amd64',
+  mysqlceMajor: '8.4', mysqlceVersion: '', gtid: true, pmmNodeId: '', useProxy: false,
+  generateCert: false, exportEnabled: false, exportHostPort: 0,
+}
+const mdFrame = { id: 'f1', type: 'mariadbrepl', label: 'mariadb', os: 'oraclelinux', osVersion: '9', arch: 'amd64', mariadbMajor: '11.4', mariadbVersion: '', gtid: true, replMode: 'async' }
+const galFrame = { ...mdFrame, id: 'f2', type: 'mariadbgalera', label: 'galera' }
+const ceFrame = { id: 'f3', type: 'mysqlcerepl', label: 'mysqlce', os: 'oraclelinux', osVersion: '9', arch: 'amd64', mysqlceMajor: '8.4', mysqlceVersion: '', gtid: true, replMode: 'async' }
+const idcFrame = { ...ceFrame, id: 'f4', type: 'mysqlceinnodb', label: 'myidc', replMode: 'innodbcluster', mysqlRouter: true }
+
+// Two members: enough to exercise the "exactly one primary" and quorum warnings.
+const frameMembers = (fid, type) => [
+  { id: `${fid}n1`, type, label: `${type}01`, frameId: fid, role: 'primary', exportEnabled: false },
+  { id: `${fid}n2`, type, label: `${type}02`, frameId: fid, role: 'secondary', exportEnabled: false },
+]
+
+check('MariaDBNodeForm', () => renderToString(
+  <MariaDBNodeForm node={mariadbNode} nodes={upstreamNodes} patchNode={noop} deleteNode={noop} deployed={false} />))
+check('MySQLCENodeForm', () => renderToString(
+  <MySQLCENodeForm node={mysqlceNode} nodes={upstreamNodes} patchNode={noop} deleteNode={noop} deployed={false} />))
+check('MariaDBFrameForm', () => renderToString(
+  <MariaDBFrameForm frame={mdFrame} nodes={frameMembers('f1', 'mariadbrepl')} patchFrame={noop} deleteFrame={noop} deployed={false} />))
+check('MariaDBGaleraFrameForm', () => renderToString(
+  <MariaDBGaleraFrameForm frame={galFrame} nodes={frameMembers('f2', 'mariadbgalera')} patchFrame={noop} deleteFrame={noop} deployed={false} />))
+check('MySQLCEFrameForm', () => renderToString(
+  <MySQLCEFrameForm frame={ceFrame} nodes={frameMembers('f3', 'mysqlcerepl')} patchFrame={noop} deleteFrame={noop} deployed={false} />))
+check('MySQLCEInnoDBFrameForm', () => renderToString(
+  <MySQLCEInnoDBFrameForm frame={idcFrame} nodes={frameMembers('f4', 'mysqlceinnodb')} patchFrame={noop} deleteFrame={noop} deployed={false} />))
+check('UpstreamMemberForm (with role)', () => renderToString(
+  <UpstreamMemberForm node={frameMembers('f1', 'mariadbrepl')[0]} frame={mdFrame} patchNode={noop} deleteNode={noop} deployed={false} roles />))
+check('UpstreamMemberForm (Galera, no role)', () => renderToString(
+  <UpstreamMemberForm node={{ id: 'g1', label: 'galera01', exportEnabled: true, exportHostPort: 3307 }} frame={galFrame} patchNode={noop} deleteNode={noop} deployed roles={false} />))
 
 if (failures > 0) {
   console.error(`\n${failures} render failure(s)`)

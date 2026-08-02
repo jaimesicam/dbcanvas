@@ -20,6 +20,11 @@ import PGManager from './PGManager.jsx'
 import RepmgrManager from './RepmgrManager.jsx'
 import SpockManager from './SpockManager.jsx'
 import { AllInOneForm, AllInOneManager } from './AllInOne.jsx'
+import {
+  MariaDBNodeForm, MariaDBFrameForm, MariaDBGaleraFrameForm,
+  MySQLCENodeForm, MySQLCEFrameForm, MySQLCEInnoDBFrameForm,
+  UpstreamMemberForm,
+} from './UpstreamForms.jsx'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import { SecretInline, CopyButton as CopyBtn } from '../components/Secret.jsx'
 import {
@@ -181,6 +186,85 @@ const NODE_TYPES = {
       exportEnabled: false, exportHostPort: 0,
       enableVault: false, openbaoNodeId: '',
     },
+  },
+  // MariaDB, from mariadb.org. Both packaging families are offered: unlike the
+  // Percona nodes this upstream publishes Debian builds dbcanvas can use directly.
+  mariadb: {
+    label: 'MariaDB',
+    slug: 'mariadb',
+    sub: 'MariaDB (standalone)',
+    color: '#c0765a',
+    icon: 'Database',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }],
+    defaults: {
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64', mariadbMajor: '11.4', mariadbVersion: '',
+      rootPassword: '', gtid: true, pmmNodeId: '', useProxy: false,
+      generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
+      exportEnabled: false, exportHostPort: 0,
+    },
+  },
+  mariadbrepl: {
+    label: 'MariaDB Replication',
+    slug: 'mariadbrepl',
+    sub: 'MariaDB replication member',
+    color: '#c0765a',
+    icon: 'Database',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }],
+    defaults: { exportEnabled: false, exportHostPort: 0 },
+  },
+  mariadbgalera: {
+    label: 'MariaDB Galera',
+    slug: 'mariadbgalera',
+    sub: 'MariaDB Galera member',
+    color: '#a85d43',
+    icon: 'Database',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }],
+    defaults: { exportEnabled: false, exportHostPort: 0 },
+  },
+  // Oracle's MySQL Community builds, from repo.mysql.com.
+  mysqlce: {
+    label: 'MySQL',
+    slug: 'mysqlce',
+    sub: 'MySQL Community (standalone)',
+    color: '#00758f',
+    icon: 'Database',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }],
+    defaults: {
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64', mysqlceMajor: '8.4', mysqlceVersion: '',
+      rootPassword: '', gtid: true, pmmNodeId: '', useProxy: false,
+      generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
+      exportEnabled: false, exportHostPort: 0,
+    },
+  },
+  mysqlcerepl: {
+    label: 'MySQL Replication',
+    slug: 'mysqlcerepl',
+    sub: 'MySQL replication member',
+    color: '#00758f',
+    icon: 'Database',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }],
+    defaults: { exportEnabled: false, exportHostPort: 0 },
+  },
+  mysqlceinnodb: {
+    label: 'MySQL InnoDB / GR',
+    slug: 'mysqlceinnodb',
+    sub: 'MySQL InnoDB Cluster member',
+    color: '#005d72',
+    icon: 'Database',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }],
+    defaults: { exportEnabled: false, exportHostPort: 0 },
   },
   // Standalone single PostgreSQL instance (no Patroni/etcd/replication).
   pg: {
@@ -1583,6 +1667,46 @@ function StackEditor({ stackId, onBack }) {
     setNodes(r.nodes)
     setSelected({ kind: 'frame', id: fid })
   }
+  // The four upstream cluster kinds share one shape — a frame carrying the version
+  // and options, plus N member nodes of the same type — so one builder serves them
+  // all. Only the defaults and the member count differ.
+  function addUpstreamCluster(type, prefix, count, frameDefaults, withRoles) {
+    if (!nodes.some((n) => n.type === 'intranet')) return
+    const fid = uid('frame')
+    const fx = (-view.x + 200) / view.z
+    const fy = (-view.y + 200) / view.z
+    const frame = {
+      id: fid, type, label: nextNamedCluster(frames, prefix), x: fx, y: fy, w: 0, h: 0,
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64',
+      rootPassword: '', pmmNodeId: '', useProxy: false,
+      generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
+      ...frameDefaults,
+    }
+    const used = new Set(nodes.filter((n) => n.type === type).map((n) => n.label))
+    const newNodes = []
+    for (let i = 0; i < count; i++) {
+      const name = nextMemberName(used, prefix)
+      used.add(name)
+      const node = { id: uid(prefix), type, label: name, frameId: fid, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
+      // Galera and Group Replication are multi-master: no member is "the primary",
+      // and the seed is chosen positionally by the provisioner.
+      if (withRoles) node.role = i === 0 ? 'primary' : 'secondary'
+      newNodes.push(node)
+    }
+    const r = relayout(fid, [...frames, frame], [...nodes, ...newNodes])
+    setFrames(r.frames)
+    setNodes(r.nodes)
+    setSelected({ kind: 'frame', id: fid })
+  }
+  const addMariaDBCluster = () => addUpstreamCluster('mariadbrepl', 'mariadb', 3,
+    { mariadbMajor: '11.4', mariadbVersion: '', gtid: true, replMode: 'async' }, true)
+  const addMariaDBGaleraCluster = () => addUpstreamCluster('mariadbgalera', 'galera', 3,
+    { mariadbMajor: '11.4', mariadbVersion: '' }, false)
+  const addMySQLCECluster = () => addUpstreamCluster('mysqlcerepl', 'mysqlce', 3,
+    { mysqlceMajor: '8.4', mysqlceVersion: '', gtid: true, replMode: 'async' }, true)
+  const addMySQLCEInnoDBCluster = () => addUpstreamCluster('mysqlceinnodb', 'myidc', 3,
+    { mysqlceMajor: '8.4', mysqlceVersion: '', replMode: 'innodbcluster', mysqlRouter: true }, false)
+
   // A K3D cluster's members are the k3s nodes k3d creates: the first is the server, the rest
   // agents. Default 1 node (a k3s cluster is perfectly happy single-node), resizable to 3.
   function newK3DMember(frameId) {
@@ -2053,6 +2177,16 @@ function StackEditor({ stackId, onBack }) {
       { label: 'PS Replication', type: 'mysql', onClick: addMySQLCluster },
       { label: 'InnoDB / GR', type: 'innodb', onClick: addInnoDBCluster },
       { label: 'Orchestrator', type: 'orchestrator', onClick: () => addNode('orchestrator') },
+    ] },
+    { title: 'MySQL Community', items: [
+      { label: 'MySQL', type: 'mysqlce', onClick: () => addNode('mysqlce') },
+      { label: 'MySQL Replication', type: 'mysqlcerepl', onClick: addMySQLCECluster },
+      { label: 'InnoDB / GR', type: 'mysqlceinnodb', onClick: addMySQLCEInnoDBCluster },
+    ] },
+    { title: 'MariaDB', items: [
+      { label: 'MariaDB', type: 'mariadb', onClick: () => addNode('mariadb') },
+      { label: 'MariaDB Replication', type: 'mariadbrepl', onClick: addMariaDBCluster },
+      { label: 'MariaDB Galera', type: 'mariadbgalera', onClick: addMariaDBGaleraCluster },
     ] },
     { title: 'Load Balancer', items: [
       { label: 'ProxySQL', type: 'proxysql', onClick: () => addNode('proxysql') },
@@ -7315,6 +7449,18 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     if (f.type === 'innodb') {
       return <InnoDBFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
     }
+    if (f.type === 'mariadbrepl') {
+      return <MariaDBFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+    }
+    if (f.type === 'mariadbgalera') {
+      return <MariaDBGaleraFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+    }
+    if (f.type === 'mysqlcerepl') {
+      return <MySQLCEFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+    }
+    if (f.type === 'mysqlceinnodb') {
+      return <MySQLCEInnoDBFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+    }
     if (f.type === 'psmdb') {
       return <MongoDBFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} rebuildCluster={rebuildMongoCluster} deployed={deployed} />
     }
@@ -7344,6 +7490,25 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     if (!n) return null
     const dep = depByNode[n.id]
     const deployed = !!dep
+
+    // Standalone MariaDB / MySQL Community nodes.
+    if (n.type === 'mariadb') {
+      return <MariaDBNodeForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} deployed={deployed} />
+    }
+    if (n.type === 'mysqlce') {
+      return <MySQLCENodeForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} deployed={deployed} />
+    }
+    // Members of the four upstream cluster kinds. Replication members carry a role;
+    // Galera and Group Replication members do not (both are multi-master).
+    if (n.type === 'mariadbrepl' || n.type === 'mariadbgalera' || n.type === 'mysqlcerepl' || n.type === 'mysqlceinnodb') {
+      return (
+        <UpstreamMemberForm
+          node={n} frame={frames.find((fr) => fr.id === n.frameId)}
+          patchNode={patchNode} deleteNode={deleteNode} deployed={deployed}
+          roles={n.type === 'mariadbrepl' || n.type === 'mysqlcerepl'}
+        />
+      )
+    }
 
     // PXC cluster member node.
     if (n.type === 'pxc') {

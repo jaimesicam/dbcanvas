@@ -710,6 +710,20 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			if n.ExportEnabled && n.ExportHostPort > 0 {
 				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
 			}
+		case "mariadb", "mysqlce":
+			others++
+			img := pxcImage(n.OS, n.OSVersion, n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+				}
+			}
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+			out = append(out, upstreamVersionIssues(n.Type, n.Label, n.OS, n.OSVersion, n.Arch,
+				n.MariaDBMajor, n.MariaDBVersion, n.MySQLCEMajor, n.MySQLCEVersion)...)
 		case "ps", "psm":
 			others++
 			img := pxcImage(n.OS, n.OSVersion, n.Arch)
@@ -1019,6 +1033,78 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	for name, c := range mysqlNames {
 		if c > 1 && name != "" {
 			out = append(out, issue{"error", "Duplicate MySQL replication name: " + name})
+		}
+	}
+
+	// --- MariaDB and MySQL Community frames ---
+	// All four share a shape, so one loop handles them: count members, check the
+	// topology rule for the kind, verify the image, and check the chosen version
+	// against the catalog (availability is uneven — see upstreamVersionIssues).
+	upstreamNames := map[string]int{}
+	for _, f := range doc.Frames {
+		var pretty string
+		switch f.Type {
+		case "mariadbrepl":
+			pretty = "MariaDB replication"
+		case "mariadbgalera":
+			pretty = "MariaDB Galera"
+		case "mysqlcerepl":
+			pretty = "MySQL replication"
+		case "mysqlceinnodb":
+			pretty = "MySQL InnoDB Cluster"
+		default:
+			continue
+		}
+		upstreamNames[f.Type+"\x00"+strings.TrimSpace(f.Label)]++
+		primaries, members := 0, 0
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != f.Type {
+				continue
+			}
+			members++
+			if n.Role == "primary" {
+				primaries++
+			}
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		}
+		switch f.Type {
+		case "mariadbrepl", "mysqlcerepl":
+			if primaries != 1 {
+				out = append(out, issue{"error", fmt.Sprintf("%s %s must have exactly one primary (has %d)", pretty, f.Label, primaries)})
+			}
+			if members-primaries < 1 {
+				out = append(out, issue{"error", pretty + " " + f.Label + " needs at least one secondary"})
+			}
+		case "mariadbgalera":
+			// Galera needs a majority to hold a primary component, so an even member
+			// count buys no extra fault tolerance and two nodes cannot survive one loss.
+			if members < 3 {
+				out = append(out, issue{"error", fmt.Sprintf("%s %s needs at least 3 members (has %d)", pretty, f.Label, members)})
+			} else if members%2 == 0 {
+				out = append(out, issue{"warning", fmt.Sprintf("%s %s has %d members — an even cluster cannot break a tie; use an odd number", pretty, f.Label, members)})
+			}
+		case "mysqlceinnodb":
+			if members < 3 {
+				out = append(out, issue{"error", fmt.Sprintf("%s %s needs at least 3 members (has %d)", pretty, f.Label, members)})
+			} else if members%2 == 0 {
+				out = append(out, issue{"warning", fmt.Sprintf("%s %s has %d members — Group Replication needs an odd number to reach quorum", pretty, f.Label, members)})
+			}
+		}
+		img := pxcImage(f.OS, f.OSVersion, f.Arch)
+		if !seenImg[img] {
+			seenImg[img] = true
+			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+				out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+			}
+		}
+		out = append(out, upstreamVersionIssues(f.Type, f.Label, f.OS, f.OSVersion, f.Arch,
+			f.MariaDBMajor, f.MariaDBVersion, f.MySQLCEMajor, f.MySQLCEVersion)...)
+	}
+	for key, c := range upstreamNames {
+		if name := key[strings.IndexByte(key, 0)+1:]; c > 1 && name != "" {
+			out = append(out, issue{"error", "Duplicate cluster name: " + name})
 		}
 	}
 
@@ -2243,8 +2329,15 @@ func (a *App) refreshPublishedPorts(ctx context.Context, st Stack, nid string, d
 			cfg.AdminPort = p
 		}
 		save(cfg)
-	case "mysql", "ps":
+	case "mysql", "ps", "mysqlce", "mysqlcerepl":
 		var cfg mysqlConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("3306/tcp"); ok {
+			cfg.ExportPort = p
+		}
+		save(cfg)
+	case "mariadb", "mariadbrepl", "mariadbgalera":
+		var cfg mariadbConfig
 		json.Unmarshal(dep.Config, &cfg)
 		if p, ok := readPort("3306/tcp"); ok {
 			cfg.ExportPort = p

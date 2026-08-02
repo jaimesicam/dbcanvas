@@ -508,6 +508,61 @@ func (a *App) handlePSCatalog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"images": loadPSCatalog()})
 }
 
+// upstreamVersionIssues checks a MariaDB or MySQL-Community selection against the
+// catalog for the node's own image.
+//
+// Worth validating rather than leaving to the deploy because availability is
+// genuinely uneven across the image matrix, in ways nothing about the form hints
+// at: mariadb.org publishes no 10.6 for EL10 or for Ubuntu noble, and Oracle
+// publishes no MySQL 8.0 repository for EL10 at all. Without this, picking one of
+// those combinations fails minutes later inside a dnf transaction, with a mirror
+// error rather than "that series does not exist for this OS".
+//
+// Only one of the two version pairs is consulted, chosen by node/frame type; the
+// other is ignored, so callers can pass both without branching.
+func upstreamVersionIssues(typ, label, os, osVersion, arch, mdMajor, mdVersion, ceMajor, ceVersion string) []issue {
+	var (
+		images  []PXCImage
+		major   string
+		version string
+		product string
+	)
+	switch typ {
+	case "mariadb", "mariadbrepl", "mariadbgalera":
+		images, major, version, product = loadMariaDBCatalog(), mariadbMajorOf(mdMajor), mdVersion, "MariaDB"
+	case "mysqlce", "mysqlcerepl", "mysqlceinnodb":
+		images, major, version, product = loadMySQLCECatalog(), mysqlceMajorOf(ceMajor), ceVersion, "MySQL Community"
+	default:
+		return nil
+	}
+	// No catalog at all means versions.yaml predates these sections; `make versions`
+	// is the fix, and saying so beats silently accepting anything.
+	if len(images) == 0 {
+		return []issue{{"warning", label + ": no " + product + " version catalog — run `make versions`"}}
+	}
+	arch = archOr(arch)
+	for _, im := range images {
+		if im.OS != os || im.OSVersion != osVersion || im.Arch != arch {
+			continue
+		}
+		avail := im.Versions[major]
+		where := product + " " + major + " on " + os + " " + osVersion
+		if len(avail) == 0 {
+			return []issue{{"error", label + ": " + where + " has no packages — choose another series"}}
+		}
+		if version == "" {
+			return nil // "" means newest available, which by definition exists
+		}
+		for _, v := range avail {
+			if v == version {
+				return nil
+			}
+		}
+		return []issue{{"error", label + ": " + product + " " + version + " is not available for " + os + " " + osVersion + " — newest is " + avail[0]}}
+	}
+	return nil // unknown image; the missing-image check already reports it
+}
+
 func (a *App) handleMariaDBCatalog(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.currentUser(r); !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")

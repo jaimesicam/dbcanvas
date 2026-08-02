@@ -20,7 +20,9 @@ func dbEngineOf(t string) string {
 	switch t {
 	case "pg", "patroni", "repmgr", "spock":
 		return "postgres"
-	case "pxc", "ps", "mysql", "innodb":
+	case "pxc", "ps", "mysql", "innodb",
+		"mariadb", "mariadbrepl", "mariadbgalera",
+		"mysqlce", "mysqlcerepl", "mysqlceinnodb":
 		return "mysql"
 	case "psm", "psmdb", "psmrs":
 		return "mongodb"

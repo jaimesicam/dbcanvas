@@ -278,3 +278,65 @@ func contains(ss []string, want string) bool {
 	}
 	return false
 }
+
+// ---------------------------------------------------------------- validation
+
+// Availability across the image matrix is uneven in ways the form cannot hint at,
+// and an unavailable combination otherwise fails minutes later inside a dnf
+// transaction with a mirror error rather than a useful message.
+func TestUpstreamVersionIssuesCatchesRealAvailabilityGaps(t *testing.T) {
+	if len(loadMariaDBCatalog()) == 0 {
+		t.Skip("versions.yaml has no mariadb catalog")
+	}
+	cases := []struct {
+		name                 string
+		typ, os, osVer, arch string
+		mdMaj, mdVer         string
+		ceMaj, ceVer         string
+		wantErr              bool
+	}{
+		// mariadb.org publishes no 10.6 build for EL10 or Ubuntu noble.
+		{"mariadb 10.6 on EL10", "mariadb", "oraclelinux", "10", "amd64", "10.6", "", "", "", true},
+		{"mariadb 10.6 on noble", "mariadb", "ubuntu", "24.04", "amd64", "10.6", "", "", "", true},
+		{"mariadb 10.6 on EL9", "mariadb", "oraclelinux", "9", "amd64", "10.6", "", "", "", false},
+		{"mariadb 11.4 on EL10", "mariadbgalera", "oraclelinux", "10", "amd64", "11.4", "", "", "", false},
+		// Oracle publishes no MySQL 8.0 repository for EL10.
+		{"mysqlce 8.0 on EL10", "mysqlce", "oraclelinux", "10", "amd64", "", "", "8.0", "", true},
+		{"mysqlce 8.4 on EL10", "mysqlce", "oraclelinux", "10", "amd64", "", "", "8.4", "", false},
+		{"mysqlce 8.0 on EL9", "mysqlcerepl", "oraclelinux", "9", "amd64", "", "", "8.0", "", false},
+		// A pinned minor that does not exist must be rejected too.
+		{"bogus mariadb minor", "mariadb", "oraclelinux", "9", "amd64", "11.4", "11.4.999-1", "", "", true},
+		// An unknown image is the missing-image check's job, not this one.
+		{"unknown image", "mariadb", "plan9", "1", "amd64", "11.4", "", "", "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := upstreamVersionIssues(c.typ, "lbl", c.os, c.osVer, c.arch, c.mdMaj, c.mdVer, c.ceMaj, c.ceVer)
+			hasErr := false
+			for _, i := range got {
+				if i.Level == "error" {
+					hasErr = true
+				}
+			}
+			if hasErr != c.wantErr {
+				t.Errorf("wantErr=%v got %+v", c.wantErr, got)
+			}
+		})
+	}
+}
+
+// An empty minor means "newest available" and must never be reported as missing.
+func TestUpstreamVersionIssuesAcceptsBlankMinor(t *testing.T) {
+	if len(loadMySQLCECatalog()) == 0 {
+		t.Skip("versions.yaml has no mysql_community catalog")
+	}
+	for _, typ := range []string{"mariadb", "mysqlce", "mariadbrepl", "mysqlceinnodb"} {
+		if got := upstreamVersionIssues(typ, "l", "oraclelinux", "9", "amd64", "11.4", "", "8.4", ""); len(got) != 0 {
+			t.Errorf("%s: blank minor reported %+v", typ, got)
+		}
+	}
+	// A type outside these families must not be judged by this catalog at all.
+	if got := upstreamVersionIssues("ps", "l", "oraclelinux", "9", "amd64", "", "", "", ""); got != nil {
+		t.Errorf("non-upstream type returned %+v", got)
+	}
+}

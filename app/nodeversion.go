@@ -31,6 +31,15 @@ var nodeVersionScripts = map[string]string{
 	"ps":     "mysqld --version 2>/dev/null",
 	"mysql":  "mysqld --version 2>/dev/null",
 	"innodb": "mysqld --version 2>/dev/null",
+	// MySQL Community — same server, same banner.
+	"mysqlce":       "mysqld --version 2>/dev/null",
+	"mysqlcerepl":   "mysqld --version 2>/dev/null",
+	"mysqlceinnodb": "mysqld --version 2>/dev/null",
+	// MariaDB — "mariadbd  Ver 11.4.12-MariaDB for Linux…"; the mysqld symlink
+	// exists too, but mariadbd is the real binary name from 10.5 on.
+	"mariadb":       "mariadbd --version 2>/dev/null || mysqld --version 2>/dev/null",
+	"mariadbrepl":   "mariadbd --version 2>/dev/null || mysqld --version 2>/dev/null",
+	"mariadbgalera": "mariadbd --version 2>/dev/null || mysqld --version 2>/dev/null",
 	// MongoDB family — "db version v8.0.26-11". A mongos router has no mongod.
 	"psm":   "(mongod --version 2>/dev/null || mongos --version 2>/dev/null) | head -1",
 	"psmdb": "(mongod --version 2>/dev/null || mongos --version 2>/dev/null) | head -1",
