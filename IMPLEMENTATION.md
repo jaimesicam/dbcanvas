@@ -9834,3 +9834,35 @@ correctly declines to reconfigure the already-registered agent, and running the 
 per-instance adds takes PMM from 1 service to all 11 — six MySQL over their own sockets and
 five PostgreSQL on their own ports. 4 new Go tests, one of which pins the Go catalog and the
 form's WEB_KINDS table against drift.
+
+## 198. All-in-One stops offering PMM where it cannot work — `app/{aio_target,aio_validate}.go`, `app/web/src/pages/AllInOne.jsx`
+
+Follow-up to 197. Having established that Orchestrator instances are never registered as a
+PMM service, the conclusion is that the picker should not be there: a control that
+provably does nothing is worse than an absent one, which is the rule `aioTLSSupported`
+already enforces for certificates.
+
+`aioPMMSupported` now gates it, and the form offers the picker only for the three database
+engines — the same family gate the TLS control uses. The two categories are deliberately
+kept distinct in the message, because the right advice differs:
+
+- **Orchestrator** has no PMM service type anywhere in dbcanvas (its dedicated node has no
+  PMM field either), so there is nowhere to send the user.
+- **Valkey and the proxies** *do* have a working PMM integration on their dedicated nodes;
+  All-in-One simply has not wired it. Pointing at the dedicated node is real advice.
+
+This is why PMM is not in `aioUnimplementedOptions`: that list feeds one generic sentence
+ending "use a dedicated node for that database", which is wrong twice over for
+Orchestrator. It gets its own message, and a *warning* rather than an error — the instance
+itself is fine, and the node's OS metrics are collected either way. A stale design keeps
+deploying; it just says what will not happen.
+
+An existing test had to change: `TestAIOUnimplementedOptionsAreRejected` asserted
+`aioUnimplementedOptions(aioInstance{PMMNodeID: "pmm1"})` was empty — an instance with no
+Kind at all, which was meaningless once PMM support became kind-dependent. It now uses a
+real kind, which is what it always meant.
+
+Verified through the API: an All-in-One node with PMM ticked on an Orchestrator, a Valkey
+and a MySQL Community instance produces two warnings with the right advice each, and
+nothing for the MySQL one. 2 new Go tests, one pinning the Go predicate against the form's
+family gate so the picker cannot promise what the registration path skips.

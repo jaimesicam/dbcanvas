@@ -1725,8 +1725,11 @@ func TestAIOUnimplementedOptionsAreRejected(t *testing.T) {
 			t.Errorf("PMM monitoring is implemented and should validate: %s", is.Message)
 		}
 	}
-	if len(aioUnimplementedOptions(aioInstance{PMMNodeID: "pmm1"})) != 0 {
-		t.Error("PMM must not be listed as unimplemented")
+	// PMM is implemented for the database engines, so it must not be flagged there.
+	// It IS flagged on kinds with no service exporter — see
+	// TestAIOPMMOfferedOnlyWhereItWorks — so the kind has to be a real one here.
+	if len(aioUnimplementedOptions(aioInstance{Kind: "ps", Name: "ps01", PMMNodeID: "pmm1"})) != 0 {
+		t.Error("PMM must not be listed as unimplemented for a MySQL instance")
 	}
 	// A plain instance with nothing enabled is clean.
 	if len(aioUnimplementedOptions(aioInstance{Kind: "ps", Name: "ps01"})) != 0 {

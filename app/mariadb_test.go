@@ -929,3 +929,73 @@ func TestAIOWebKindsMatchTheJSTable(t *testing.T) {
 		}
 	}
 }
+
+// A control that provably does nothing must not be offered. PMM registration only
+// works for the three database engines; Orchestrator has no PMM service type, and
+// Valkey and the proxies have one on their dedicated nodes but no All-in-One
+// provisioner adds it. Reported from a live node whose Orchestrator instance had
+// monitoring ticked and was never monitored.
+func TestAIOPMMOfferedOnlyWhereItWorks(t *testing.T) {
+	for _, kind := range []string{"ps", "mysqlce", "mariadb", "psrepl", "innodb", "pxc", "pg", "patroni", "repmgr", "spock", "psmdb", "psmrs"} {
+		if !aioPMMSupported(kind) {
+			t.Errorf("%s should support PMM", kind)
+		}
+	}
+	for _, kind := range []string{"orchestrator", "valkey", "valkeycluster", "proxysql", "haproxy"} {
+		if aioPMMSupported(kind) {
+			t.Errorf("%s has no PMM service exporter here — the option must not be offered", kind)
+		}
+	}
+	// Setting it anyway is reported — as a warning, since the instance itself is
+	// fine and its OS metrics are collected — with advice that fits the kind.
+	warn := func(in aioInstance) string {
+		n := designNode{ID: "n1", Type: "aio", Label: "aio1", OS: "oraclelinux", OSVersion: "9", Arch: "amd64", AIOInstances: []aioInstance{in}}
+		doc := designDoc{Nodes: []designNode{n, {ID: "pmm1", Type: "pmm", Label: "pmm"}}}
+		for _, is := range aioIssues(n, doc, map[int][]string{}, 0) {
+			if strings.Contains(is.Message, "not monitored as a service") {
+				if is.Level != "warning" {
+					t.Errorf("should be a warning, got %q", is.Level)
+				}
+				return is.Message
+			}
+		}
+		return ""
+	}
+	orch := warn(aioInstance{ID: "a", Kind: "orchestrator", Name: "orch01", PMMNodeID: "pmm1"})
+	if orch == "" {
+		t.Error("PMM on an Orchestrator instance not reported")
+	} else if strings.Contains(orch, "dedicated") {
+		t.Errorf("must not suggest a dedicated node — Orchestrator has no PMM exporter anywhere: %s", orch)
+	}
+	vk := warn(aioInstance{ID: "a", Kind: "valkey", Name: "vk01", PMMNodeID: "pmm1"})
+	if vk == "" || !strings.Contains(vk, "dedicated") {
+		t.Errorf("Valkey should be pointed at its dedicated node, which does support PMM: %s", vk)
+	}
+	// Not reported where it works, nor when it was never set.
+	if m := warn(aioInstance{ID: "a", Kind: "ps", Name: "ps01", PMMNodeID: "pmm1"}); m != "" {
+		t.Errorf("PMM wrongly flagged on a MySQL instance: %s", m)
+	}
+	if m := warn(aioInstance{ID: "a", Kind: "orchestrator", Name: "orch01"}); m != "" {
+		t.Errorf("PMM flagged when it was never set: %s", m)
+	}
+}
+
+// The registration path and the form must agree on which kinds are offered PMM, or
+// the picker promises something aioRegisterPMM will skip.
+func TestAIOPMMFormGateMatchesTheRegistrationPath(t *testing.T) {
+	js, err := os.ReadFile("web/src/pages/AllInOne.jsx")
+	if err != nil {
+		t.Skip("AllInOne.jsx not readable")
+	}
+	// Both the PMM picker and the TLS control gate on the same family list.
+	if n := strings.Count(string(js), "['mysql', 'postgres', 'mongodb'].includes(fam)"); n < 2 {
+		t.Errorf("expected the PMM picker and the TLS control to share the family gate, found %d use(s)", n)
+	}
+	for _, k := range aioKinds {
+		wantOffered := aioPMMSupported(k.Kind)
+		famOK := k.Family == famMySQL || k.Family == famPG || k.Family == famMongo
+		if wantOffered != famOK {
+			t.Errorf("%s: aioPMMSupported=%v but family gate would give %v", k.Kind, wantOffered, famOK)
+		}
+	}
+}

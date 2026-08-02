@@ -55,6 +55,19 @@ func aioEngineForKind(kind string) string {
 	return "" // valkey, proxies and orchestrator are not SQL/Mongo query targets
 }
 
+// aioPMMSupported reports whether an instance kind can actually be registered as a
+// PMM *service*.
+//
+// Only the three database engines are wired here. Orchestrator has no PMM service
+// type at all; Valkey and the proxies do have one on their dedicated nodes, but no
+// All-in-One provisioner adds it. Either way the control must not be offered — a
+// picker that silently does nothing is worse than an absent one, which is the same
+// rule aioTLSSupported enforces for certificates.
+//
+// The node's OS metrics are still collected for every instance once any one of them
+// registers the agent, so "not monitored" here means "no per-service dashboard".
+func aioPMMSupported(kind string) bool { return aioEngineForKind(kind) != "" }
+
 // aioFindInstance returns one instance's runtime row from a node's deployment.
 func aioFindInstance(dep Deployment, inst string) (aioInstanceRuntime, bool) {
 	for _, m := range aioRuntimeInstances(dep) {

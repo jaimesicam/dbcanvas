@@ -194,11 +194,17 @@ host. Publishing maps the web port as well as the client port, since a UI you ca
 reach is not much of a UI; the client port keeps whatever host port you asked for and the
 web port is auto-assigned, because only one of them can honour a specific request.
 
-**PMM is per instance.** Each instance names its own PMM node, and the agent is configured
-once for the container — `pmm-admin config` re-registers the node and drops every service
-already on it, so doing that per instance would leave only the last one monitored. Valkey,
-the proxies and Orchestrator have no per-service exporter here; their OS metrics are still
-collected by the node exporter, and the deploy log says so rather than skipping quietly.
+**PMM is per instance, and only where it works.** Each instance names its own PMM node,
+and the agent is configured once for the container — `pmm-admin config` re-registers the
+node and drops every service already on it, so doing that per instance would leave only
+the last one monitored.
+
+The picker is offered for the three database engines only. Orchestrator has no PMM service
+type at all; Valkey and the proxies have one on their dedicated nodes, but no All-in-One
+provisioner registers it. Rather than show a control that does nothing, the form omits it —
+and a design saved while it was offered gets a warning naming the kind. The node's OS
+metrics are collected for every instance regardless, once any one of them registers the
+agent; what is missing is the per-service dashboard.
 
 ---
 

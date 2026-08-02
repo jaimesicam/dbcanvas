@@ -140,6 +140,22 @@ func aioIssues(n designNode, doc designDoc, exportReq map[int][]string, hostMemB
 					"turn it off, or use a dedicated node for that database", iname, o)})
 		}
 
+		// PMM gets its own message rather than the generic unimplemented-option one:
+		// the advice differs by kind. Valkey and the proxies really do have a PMM
+		// exporter on their dedicated nodes, so pointing there is useful; Orchestrator
+		// has none anywhere, and saying otherwise sends someone hunting for a setting
+		// that does not exist. A warning, not an error — the instance is fine, and the
+		// node's OS metrics are collected regardless.
+		if in.PMMNodeID != "" && !aioPMMSupported(in.Kind) {
+			advice := "PMM has no exporter for it at all"
+			if k.Family == famValkey || k.Family == famProxy || k.Family == famHAProxy {
+				advice = "All-in-One does not register one yet — a dedicated " + k.Label + " node does"
+			}
+			out = append(out, issue{"warning", fmt.Sprintf(
+				"All-in-One instance %s names a PMM node, but %s is not monitored as a service: %s. "+
+					"The node's OS metrics are still collected.", iname, k.Label, advice)})
+		}
+
 		if why, blocked := aioUnsupportedModes[in.Kind+":"+strings.TrimSpace(in.ReplMode)]; blocked {
 			out = append(out, issue{"error", fmt.Sprintf("All-in-One instance %s: %s", iname, why)})
 		}
@@ -298,5 +314,9 @@ func aioUnimplementedOptions(in aioInstance) []string {
 	if in.EnableOIDC {
 		out = append(out, "Keycloak OIDC authentication")
 	}
+	// PMM is deliberately NOT here even though it is unsupported on some kinds: the
+	// generic sentence this list feeds ends "use a dedicated node for that database",
+	// which is good advice for Valkey and the proxies and simply wrong for
+	// Orchestrator. It gets its own message in aioIssues instead.
 	return out
 }
