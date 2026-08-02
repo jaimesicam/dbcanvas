@@ -20,11 +20,21 @@ What the four partial phases still owe, in priority order:
    Keycloak OIDC and SeaweedFS backups are gated: `aioUnimplementedOptions`
    rejects them by name rather than letting the form promise what nothing reads.
    InnoDB Cluster *mode* is likewise gated (needs MySQL Shell).
-2. **Phase 9** — `dbauth`, `dbcerts`, Visual Summary and Labs still resolve
-   *node → one connection*. Labs is the largest remaining piece of work.
+2. **Phase 9** — assessed, and smaller than it looked. `dbcerts` (per-user client
+   certificates) depends on the per-instance TLS that is still unverified, so it
+   waits on that. **Visual Summary is arguably not applicable**: it renders a
+   pt-stalk archive, which captures HOST-level metrics plus one database — in a
+   container where several servers share the host, "run pt-stalk on this node" has
+   no single right answer, and the same is true of the Diagnostics tab that
+   produces it. `dbauth` has nothing to integrate until Phase 8's LDAP lands.
+   That leaves **Labs**, which is the real remaining work: labs are authored
+   against a node type with a fixed topology, so targeting an instance needs
+   authoring support rather than a resolution change.
 3. **Phase 6** — everything works; only the PDPS/PDPXC repo interaction is
    unverified, and it is reachable only in a PXC node that also runs Orchestrator.
-4. **Phase 10** — screenshots and a standalone `docs/ALL_IN_ONE.md`.
+4. **Phase 10** — `docs/ALL_IN_ONE.md` ✅ (operator guide: full port map, `aioctl`
+   reference, container layout, packaging rules, troubleshooting). Screenshots
+   outstanding — they need a deployed stack.
 
 Known limits, deliberate rather than accidental: PostgreSQL kinds are Oracle
 Linux only; published host ports are fixed at container-create, so an instance
@@ -571,8 +581,8 @@ verify-live rule) and an `IMPLEMENTATION.md` session entry.
 | **6** | ⏳ **partial** — `orchestrator`, `proxysql` and `haproxy` ✅, with `backendInstanceId` wiring verified live against a running cluster. The PDPS/PDPXC repo interaction is still unverified — only reachable once PXC lands. |
 | **7** | ✅ **done** — N clusters, one shared version, Galera pinned to slot ports, bootstrap via a generated start wrapper (no `mysql@bootstrap` unit) |
 | **8** | ⏳ **partial** — Orchestrator ✅, PMM ✅, per-instance TLS ✅ for MySQL/PostgreSQL/MongoDB (**unit-tested only — not yet verified live**, see session 204). LDAP, OpenBao, Keycloak OIDC and SeaweedFS backups remain gated: `aioUnimplementedOptions` rejects them by name so the form cannot promise what no provisioner reads. |
-| **9** | ⏳ **partial** — Query Runner, Benchmark and Data Generator ✅ via a composite `<nodeId>#<inst>` target id. `dbauth`, `dbcerts`, Visual Summary and Labs still resolve *node → one connection*. |
-| **10** | ⏳ **partial** — README's *All in One* section ✅. Screenshots and a standalone `docs/ALL_IN_ONE.md` outstanding. |
+| **9** | ⏳ **partial** — Query Runner, Benchmark and Data Generator ✅ via a composite `<nodeId>#<inst>` target id. `dbcerts` waits on TLS verification; `dbauth` waits on Phase 8's LDAP; **Visual Summary is likely not applicable** (pt-stalk captures host-level metrics, and the host is shared by every instance); **Labs** is the real remaining work and needs authoring support, not a resolution change. |
+| **10** | ⏳ **partial** — README's *All in One* section ✅ and `docs/ALL_IN_ONE.md` ✅. Screenshots outstanding (they need a deployed stack). |
 
 Phases 2–7 are independent as *development* work and can be reordered or
 parallelised — note only that phases 2 and 7 produce mutually exclusive node

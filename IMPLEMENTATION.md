@@ -9310,3 +9310,39 @@ object) because the stylesheet entry must match before the package-prefix entry.
 
 Phase 1 is now genuinely complete: **8 of 11 phases done.** 63 Go tests; 32 render checks.
 `go build`/`go vet`/`gofmt -l` clean; unit suite, `vite build` and `make smoke` all pass.
+
+## 209. Operator guide, and an honest re-assessment of what phase 9 actually contains
+
+Internet connection issues kept every live verification blocked — including the TLS run owed
+since session 204. Shipping more *unverifiable
+provisioning* code would only add unproven claims to a feature that has already produced a dozen
+bugs visible solely on a real deploy, so this session did the work that does not depend on a
+deploy.
+
+**`docs/ALL_IN_ONE.md`** — the operator guide the plan asked for in phase 10, linked from the
+README's section: what the node is for, the kind table, the full port map with slot offsets and
+why allocation is positional, an `aioctl` reference, the container layout (including why the
+registry is TSV-read-with-awk and why vendor units are masked rather than disabled), both
+packaging rules, editing a deployed node, and troubleshooting. Every factual claim — port bases,
+command list, paths, registry filename — was checked against the source rather than written from
+memory. Screenshots still outstanding; they need a deployed stack.
+
+**Phase 9 turns out to be smaller than "four things remaining" suggested**, and saying so is more
+useful than working through the list mechanically:
+
+- **Visual Summary is likely not applicable.** It renders a pt-stalk archive, and pt-stalk
+  captures HOST-level metrics plus one database. In a container where six servers share the host,
+  "run pt-stalk on this node" has no single right answer — and the same applies to the Diagnostics
+  tab that produces the archive. Forcing a node→instance mapping here would invent a meaning the
+  tool does not have.
+- **`dbcerts`** (per-user client certificates) depends on the per-instance TLS that is still
+  unverified. Building on an unproven foundation is how the flavor-conflict class of bug happens.
+- **`dbauth`** has nothing to integrate until phase 8's LDAP exists.
+- **Labs** is the genuine remainder, and it is authoring work rather than a resolution change:
+  labs are written against a node type with a fixed topology, so targeting an instance means
+  teaching the lab format about instances, not swapping an id.
+
+Recorded in the plan so the next session starts from the assessment rather than repeating it.
+
+`go build`/`go vet`/`gofmt -l` clean; 63 Go tests, 32 render checks, `vite build` and `make smoke`
+pass.

@@ -287,6 +287,9 @@ when the container is created.)
 port. Non-database instances (Valkey, the proxies, Orchestrator) are not offered there — reach
 those on their own ports.
 
+See **[docs/ALL_IN_ONE.md](docs/ALL_IN_ONE.md)** for the operator guide: the full port map,
+an `aioctl` reference, the container layout, and troubleshooting.
+
 **Limits.** PostgreSQL kinds are Oracle Linux only for now (Debian's packaging is cluster-managed,
 a different model). InnoDB *Cluster* mode needs MySQL Shell and is not installed; use Group
 Replication. A container running thirty daemons is slow to deploy and memory-hungry — the form
