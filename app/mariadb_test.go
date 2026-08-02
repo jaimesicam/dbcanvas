@@ -1234,3 +1234,60 @@ func TestOrchestratorDefaultAlertResolvesToTheIntranetMailbox(t *testing.T) {
 		t.Errorf("the Intranet no longer provisions the %q mailbox the default assumes", mailAdmin)
 	}
 }
+
+// Everything wired while an All-in-One node provisions addresses instances by their
+// FQDN — a replica's MASTER_HOST, Orchestrator's discovery — and only the Intranet
+// zone answers for "<instance>.<domain>". Reconciling DNS just once, at the end,
+// meant those names did not exist yet: attaching a MariaDB replica failed ten times
+// over with "Unknown server host 'mariadbrepl-cluster-01-n1.example.net'".
+func TestAIOPublishesInstanceDNSBeforeProvisioningFamilies(t *testing.T) {
+	src, err := os.ReadFile("aio.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(src)
+	first := strings.Index(s, "a.reconcileStackDNS(ctx, st.ID)")
+	if first < 0 {
+		t.Fatal("provisionAIO never reconciles DNS")
+	}
+	// It must happen before any family is provisioned, not only afterwards.
+	fam := strings.Index(s, "a.aioProvisionFamily(")
+	if fam < 0 {
+		t.Fatal("aioProvisionFamily call not found")
+	}
+	if first > fam {
+		t.Error("DNS is reconciled only after the families are provisioned — instance FQDNs will not resolve while replication is wired")
+	}
+	// And the deployment row it reads must already carry the instances.
+	store := strings.Index(s, "State: DeployProvisioning, Config: cfgJSON")
+	if store < 0 || store > first {
+		t.Error("DNS is reconciled before the instance list is stored, so it has nothing to publish")
+	}
+}
+
+// runStep keeps only the final 160 characters of a failed step's output, so the
+// reason has to be printed LAST. Following SHOW SLAVE STATUS field order put the
+// usually-empty Last_SQL_Error at the end and pushed the populated Last_IO_Error out
+// of the window — the reported failure read as healthy while hiding a DNS error.
+func TestAttachFailureReportsTheRealErrorLast(t *testing.T) {
+	for name, s := range map[string]string{
+		"aio-mysql":   aioMySQLAttachScript,
+		"aio-mariadb": aioMariaDBAttachScript,
+		"mariadb":     mariadbAttachScript,
+		"mysql":       mysqlAttachScript,
+		"mysql-5.7":   mysqlAttachScript57,
+	} {
+		if !strings.Contains(s, "grep -vE ':[[:space:]]*$'") {
+			t.Errorf("%s: empty error fields are not filtered — an blank Last_SQL_Error reads as healthy", name)
+		}
+		run := strings.LastIndex(s, "_Running:")
+		errs := strings.LastIndex(s, "Last_(IO|SQL)_Error:")
+		if run < 0 || errs < 0 {
+			t.Errorf("%s: failure report does not show both the thread flags and the errors", name)
+			continue
+		}
+		if errs < run {
+			t.Errorf("%s: the error is printed before the thread flags, so truncation hides it", name)
+		}
+	}
+}

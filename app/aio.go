@@ -408,6 +408,19 @@ func (a *App) provisionAIO(st Stack, n designNode, doc designDoc) {
 		}
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON, Secrets: secJSON})
 
+		// Publish the per-instance DNS names BEFORE any family is provisioned, not
+		// only at the end. Everything wired during provisioning addresses instances
+		// by their FQDN — a replica's MASTER_HOST, Orchestrator's discovery — and the
+		// Intranet zone is the only thing that answers for "<instance>.<domain>". With
+		// the reconcile left until the end, attaching a MariaDB replica failed with
+		// "Unknown server host 'mariadbrepl-cluster-01-n1.example.net'" and burned all
+		// ten retries, because the name it was told to use did not exist yet.
+		//
+		// The deployment row above already carries the instance list, which is what
+		// reconcileStackDNS reads, so this is safe here. It runs again at the end to
+		// pick up anything the family provisioners discovered.
+		a.reconcileStackDNS(ctx, st.ID)
+
 		pr.phase("Waiting for systemd", 12)
 		if err := a.engCtx(ctx).WaitSystemd(ctx, id, 120*time.Second); err != nil {
 			pr.fail("systemd did not start: %v", err)

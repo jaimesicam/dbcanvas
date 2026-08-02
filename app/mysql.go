@@ -901,7 +901,17 @@ for i in $(seq 1 30); do
   if echo "$S" | grep -q "Replica_IO_Running: Yes" && echo "$S" | grep -q "Replica_SQL_Running: Yes"; then OK=1; break; fi
   sleep 2
 done
-[ "$OK" = 1 ] || { echo "replica threads not running:"; mysql -uroot -p"$ROOT_PW" -e "SHOW REPLICA STATUS\G" 2>/dev/null | grep -iE 'Running|Last_(IO|SQL)_Error' | head -8; exit 1; }
+[ "$OK" = 1 ] || {
+  S=$(mysql -uroot -p"$ROOT_PW" -e "SHOW REPLICA STATUS\\G" 2>/dev/null)
+  echo "replica threads not running:"
+  echo "$S" | grep -iE 'Replica_(IO|SQL)_Running:' | head -4
+  # The reason, last: runStep keeps only the final 160 characters of the output, so
+  # anything printed after this is what the user actually sees. Empty error fields
+  # are dropped — reporting "Last_SQL_Error:" with nothing after it reads as healthy
+  # and hides the populated Last_IO_Error above it.
+  echo "$S" | grep -iE 'Last_(IO|SQL)_Error:' | grep -vE ':[[:space:]]*$' | head -2
+  exit 1
+}
 mysql -uroot -p"$ROOT_PW" -e "SET PERSIST read_only=ON; SET PERSIST super_read_only=ON; SET GLOBAL super_read_only=ON;"`
 
 // mysqlAttachScript57 is the Percona Server 5.7 counterpart of mysqlAttachScript.
@@ -925,5 +935,15 @@ for i in $(seq 1 30); do
   if echo "$S" | grep -q "Slave_IO_Running: Yes" && echo "$S" | grep -q "Slave_SQL_Running: Yes"; then OK=1; break; fi
   sleep 2
 done
-[ "$OK" = 1 ] || { echo "replica threads not running:"; mysql -uroot -p"$ROOT_PW" -e "SHOW SLAVE STATUS\G" 2>/dev/null | grep -iE 'Running|Last_(IO|SQL)_Error' | head -8; exit 1; }
+[ "$OK" = 1 ] || {
+  S=$(mysql -uroot -p"$ROOT_PW" -e "SHOW SLAVE STATUS\\G" 2>/dev/null)
+  echo "replica threads not running:"
+  echo "$S" | grep -iE 'Slave_(IO|SQL)_Running:' | head -4
+  # The reason, last: runStep keeps only the final 160 characters of the output, so
+  # anything printed after this is what the user actually sees. Empty error fields
+  # are dropped — reporting "Last_SQL_Error:" with nothing after it reads as healthy
+  # and hides the populated Last_IO_Error above it.
+  echo "$S" | grep -iE 'Last_(IO|SQL)_Error:' | grep -vE ':[[:space:]]*$' | head -2
+  exit 1
+}
 mysql -uroot -p"$ROOT_PW" -e "SET GLOBAL read_only=ON; SET GLOBAL super_read_only=ON;"`

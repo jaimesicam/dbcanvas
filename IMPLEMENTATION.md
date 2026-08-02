@@ -10055,3 +10055,46 @@ Intranet's mailbox:
     Subject: Orchestrator alert: DeadMaster on mycluster
 
 1 new Go test.
+
+## 204. All-in-One replication failed because instance DNS was published too late — `app/{aio,aio_mysql,mariadb,mysql}.go`
+
+Reported: an All-in-One node with two MariaDB replication clusters failed to deploy with
+replication errors.
+
+`reconcileStackDNS` ran once, at the very *end* of `provisionAIO`. Everything wired while
+the node provisions addresses instances by their FQDN — a replica's `MASTER_HOST`,
+Orchestrator's discovery — and only the Intranet zone answers for
+`<instance>.<domain>`. So attaching a replica asked MariaDB to connect to a name that did
+not exist yet:
+
+    Last_IO_Error: error connecting to master
+    'repl@mariadbrepl-cluster-01-n1.example.net:13000' …
+    Unknown server host 'mariadbrepl-cluster-01-n1.example.net' (-2)
+
+All ten retries failed identically and the deploy stopped at 46%. The bare Docker network
+alias (`mariadbrepl-cluster-01-n1`) resolved throughout — only the zone record was missing.
+This was latent until session 200 moved `MASTER_HOST` off `127.0.0.1` onto the FQDN to stop
+Orchestrator collapsing every cluster onto one primary; loopback needed no DNS, so the
+ordering never mattered before.
+
+DNS is now reconciled immediately after the deployment row carrying the instance list is
+stored, before any family is provisioned, and again at the end for what the provisioners
+discover. A test asserts the first reconcile precedes `aioProvisionFamily` and follows the
+row it reads.
+
+**The error report was worse than the error.** `runStep` keeps only the final 160
+characters of a failed step, and the failure printed `SHOW SLAVE STATUS` fields in their
+natural order — which ends with the usually-empty `Last_SQL_Error`. What surfaced was
+
+    Last_SQL_Error:
+    Using_Gtid: Slave_Pos
+    Slave_SQL_Running_State: Slave has read all relay log; waiting for more updates
+
+— three lines that read as a *healthy* replica, with the populated `Last_IO_Error` pushed
+out of the window. All five attach scripts now print the thread flags first and the reason
+last, and drop error fields that are empty.
+
+Verified on the reported node: redeployed clean, both clusters have
+`Slave_IO_Running: Yes`/`Slave_SQL_Running: Yes` on all four replicas, `MASTER_HOST` is each
+cluster's own primary FQDN, rows replicate, and GTID positions match within each cluster
+(`51769-197409643-3` and `51420-240055848-3`) while staying in distinct domains. 2 new tests.
