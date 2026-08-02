@@ -9866,3 +9866,38 @@ Verified through the API: an All-in-One node with PMM ticked on an Orchestrator,
 and a MySQL Community instance produces two warnings with the right advice each, and
 nothing for the MySQL one. 2 new Go tests, one pinning the Go predicate against the form's
 family gate so the picker cannot promise what the registration path skips.
+
+## 199. All-in-One registers Valkey, ProxySQL and HAProxy with PMM — `app/aio_target.go`, `app/web/src/pages/AllInOne.jsx`
+
+198 removed the PMM picker from every kind All-in-One could not register. Three of those
+four have a perfectly good PMM exporter — they were simply never wired here — so they are
+now wired instead of hidden. Orchestrator remains the only kind without the option, because
+PMM genuinely has no service type for it.
+
+`aioPMMServiceType` replaces `aioEngineForKind` as the gate. They answer different
+questions: the latter means "is this a SQL/Mongo *query target*", which is the right test
+for the Query Runner and the wrong one for monitoring, and using it is what excluded Valkey
+and the proxies in the first place.
+
+The three additions follow their dedicated nodes' scripts, adapted for co-tenancy:
+
+- **Valkey** — the read-only `pmm` ACL user is created over the instance's own **socket**.
+  With several Valkeys in one container a TCP connect to the wrong port would silently
+  configure a different server. A clustered member is tagged `--cluster=<group>` so PMM
+  groups the shards into one view.
+- **ProxySQL** — scraped over its **admin** interface (slot+1), authenticating with the
+  cluster user, not the MySQL interface.
+- **HAProxy** — scraped over its **stats** listener (slot+2), no credentials.
+
+That port distinction is the substance of `aioPMMTarget`: the client port is right for the
+databases and Valkey and wrong for both proxies, and passing it would register a service
+that reports nothing rather than failing loudly.
+
+The form's gate moved from an inline family list to a `PMM_KINDS` table mirroring
+`aioPMMSupported`, pinned by a test that compares the two per kind.
+
+**Not verified live.** The intent was to add these three instances to the reported node and
+watch them appear in PMM. Mid-deploy that stack was deleted — not by me, and not by its TTL,
+which had 16 hours left. The code is unit-tested (service type, port selection and cluster
+tagging per kind, plus the form/Go agreement) but no deploy has exercised the three new
+`pmm-admin add` calls.

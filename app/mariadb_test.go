@@ -930,24 +930,33 @@ func TestAIOWebKindsMatchTheJSTable(t *testing.T) {
 	}
 }
 
-// A control that provably does nothing must not be offered. PMM registration only
-// works for the three database engines; Orchestrator has no PMM service type, and
-// Valkey and the proxies have one on their dedicated nodes but no All-in-One
-// provisioner adds it. Reported from a live node whose Orchestrator instance had
-// monitoring ticked and was never monitored.
+// A control that provably does nothing must not be offered. PMM ships an exporter
+// for every kind here except Orchestrator, which has no PMM service type at all.
 func TestAIOPMMOfferedOnlyWhereItWorks(t *testing.T) {
-	for _, kind := range []string{"ps", "mysqlce", "mariadb", "psrepl", "innodb", "pxc", "pg", "patroni", "repmgr", "spock", "psmdb", "psmrs"} {
+	for _, kind := range []string{
+		"ps", "mysqlce", "mariadb", "psrepl", "innodb", "pxc",
+		"pg", "patroni", "repmgr", "spock", "psmdb", "psmrs",
+		"valkey", "valkeycluster", "proxysql", "haproxy",
+	} {
 		if !aioPMMSupported(kind) {
 			t.Errorf("%s should support PMM", kind)
 		}
 	}
-	for _, kind := range []string{"orchestrator", "valkey", "valkeycluster", "proxysql", "haproxy"} {
-		if aioPMMSupported(kind) {
-			t.Errorf("%s has no PMM service exporter here — the option must not be offered", kind)
+	if aioPMMSupported("orchestrator") {
+		t.Error("PMM has no Orchestrator service type — the option must not be offered")
+	}
+	// Each kind maps to the right `pmm-admin add <type>` sub-command.
+	for kind, want := range map[string]string{
+		"mysqlce": "mysql", "mariadbgalera": "mysql", "patroni": "postgresql",
+		"psmrs": "mongodb", "valkeycluster": "valkey", "proxysql": "proxysql",
+		"haproxy": "haproxy", "orchestrator": "",
+	} {
+		if got := aioPMMServiceType(kind); got != want {
+			t.Errorf("%s service type = %q, want %q", kind, got, want)
 		}
 	}
-	// Setting it anyway is reported — as a warning, since the instance itself is
-	// fine and its OS metrics are collected — with advice that fits the kind.
+	// Setting it on Orchestrator is reported as a warning: the instance is fine, and
+	// the node's OS metrics are collected either way.
 	warn := func(in aioInstance) string {
 		n := designNode{ID: "n1", Type: "aio", Label: "aio1", OS: "oraclelinux", OSVersion: "9", Arch: "amd64", AIOInstances: []aioInstance{in}}
 		doc := designDoc{Nodes: []designNode{n, {ID: "pmm1", Type: "pmm", Label: "pmm"}}}
@@ -961,22 +970,46 @@ func TestAIOPMMOfferedOnlyWhereItWorks(t *testing.T) {
 		}
 		return ""
 	}
-	orch := warn(aioInstance{ID: "a", Kind: "orchestrator", Name: "orch01", PMMNodeID: "pmm1"})
-	if orch == "" {
+	if m := warn(aioInstance{ID: "a", Kind: "orchestrator", Name: "orch01", PMMNodeID: "pmm1"}); m == "" {
 		t.Error("PMM on an Orchestrator instance not reported")
-	} else if strings.Contains(orch, "dedicated") {
-		t.Errorf("must not suggest a dedicated node — Orchestrator has no PMM exporter anywhere: %s", orch)
+	} else if strings.Contains(m, "dedicated") {
+		t.Errorf("must not suggest a dedicated node — Orchestrator has no PMM exporter anywhere: %s", m)
 	}
-	vk := warn(aioInstance{ID: "a", Kind: "valkey", Name: "vk01", PMMNodeID: "pmm1"})
-	if vk == "" || !strings.Contains(vk, "dedicated") {
-		t.Errorf("Valkey should be pointed at its dedicated node, which does support PMM: %s", vk)
+	// Everything else is registered, so nothing to warn about.
+	for _, k := range []string{"ps", "valkey", "proxysql", "haproxy"} {
+		if m := warn(aioInstance{ID: "a", Kind: k, Name: k + "01", PMMNodeID: "pmm1", Members: 1}); m != "" {
+			t.Errorf("%s is monitored now and must not be flagged: %s", k, m)
+		}
 	}
-	// Not reported where it works, nor when it was never set.
-	if m := warn(aioInstance{ID: "a", Kind: "ps", Name: "ps01", PMMNodeID: "pmm1"}); m != "" {
-		t.Errorf("PMM wrongly flagged on a MySQL instance: %s", m)
+}
+
+// Two exporters do NOT scrape the client port: ProxySQL's is read over its admin
+// interface and HAProxy's over its stats listener. Passing the client port would
+// register a service that never reports.
+func TestAIOPMMTargetUsesTheRightPortPerKind(t *testing.T) {
+	dep := Deployment{Secrets: []byte(`{"clusterUser":"cl","clusterPassword":"clpw","adminUser":"admin","adminPassword":"apw"}`)}
+	for _, tc := range []struct {
+		kind string
+		want func(aioPorts) int
+	}{
+		{"proxysql", func(p aioPorts) int { return p.Admin }},
+		{"haproxy", func(p aioPorts) int { return p.Admin }},
+		{"valkey", func(p aioPorts) int { return p.Client }},
+		{"ps", func(p aioPorts) int { return p.Client }},
+	} {
+		ports := aioPortsFor(tc.kind, 0, 0)
+		m := aioInstanceRuntime{Inst: tc.kind + "01", Kind: tc.kind, Ports: ports}
+		got, _, _ := aioPMMTarget(dep, aioInstance{Kind: tc.kind}, m)
+		if want := tc.want(ports); got != want {
+			t.Errorf("%s: PMM port = %d, want %d (client=%d admin=%d)", tc.kind, got, want, ports.Client, ports.Admin)
+		}
 	}
-	if m := warn(aioInstance{ID: "a", Kind: "orchestrator", Name: "orch01"}); m != "" {
-		t.Errorf("PMM flagged when it was never set: %s", m)
+	// A clustered Valkey member is tagged so PMM groups its shards.
+	if arg := aioValkeyClusterArg(aioInstanceRuntime{Kind: "valkeycluster", Group: "vk01"}); arg != "--cluster=vk01" {
+		t.Errorf("cluster arg = %q", arg)
+	}
+	if arg := aioValkeyClusterArg(aioInstanceRuntime{Kind: "valkey"}); arg != "" {
+		t.Errorf("a standalone Valkey must not be tagged as a cluster: %q", arg)
 	}
 }
 
@@ -987,15 +1020,22 @@ func TestAIOPMMFormGateMatchesTheRegistrationPath(t *testing.T) {
 	if err != nil {
 		t.Skip("AllInOne.jsx not readable")
 	}
-	// Both the PMM picker and the TLS control gate on the same family list.
-	if n := strings.Count(string(js), "['mysql', 'postgres', 'mongodb'].includes(fam)"); n < 2 {
-		t.Errorf("expected the PMM picker and the TLS control to share the family gate, found %d use(s)", n)
+	// The form gates the PMM picker on the kind, not a hardcoded family list, so it
+	// cannot drift from aioPMMSupported.
+	if !strings.Contains(string(js), "PMM_KINDS") {
+		t.Error("the form should gate the PMM picker on a kind table, not an inline family list")
 	}
+	// Orchestrator is the one kind that must be absent from it.
+	i := strings.Index(string(js), "const PMM_KINDS")
+	if i < 0 {
+		t.Fatal("PMM_KINDS table not found")
+	}
+	block := string(js)[i:]
+	block = block[:strings.Index(block, "]")]
 	for _, k := range aioKinds {
-		wantOffered := aioPMMSupported(k.Kind)
-		famOK := k.Family == famMySQL || k.Family == famPG || k.Family == famMongo
-		if wantOffered != famOK {
-			t.Errorf("%s: aioPMMSupported=%v but family gate would give %v", k.Kind, wantOffered, famOK)
+		inJS := strings.Contains(block, "'"+k.Kind+"'")
+		if inJS != aioPMMSupported(k.Kind) {
+			t.Errorf("%s: JS PMM_KINDS=%v, aioPMMSupported=%v", k.Kind, inJS, aioPMMSupported(k.Kind))
 		}
 	}
 }

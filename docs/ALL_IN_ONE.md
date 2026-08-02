@@ -199,12 +199,15 @@ and the agent is configured once for the container — `pmm-admin config` re-reg
 node and drops every service already on it, so doing that per instance would leave only
 the last one monitored.
 
-The picker is offered for the three database engines only. Orchestrator has no PMM service
-type at all; Valkey and the proxies have one on their dedicated nodes, but no All-in-One
-provisioner registers it. Rather than show a control that does nothing, the form omits it —
-and a design saved while it was offered gets a warning naming the kind. The node's OS
-metrics are collected for every instance regardless, once any one of them registers the
-agent; what is missing is the per-service dashboard.
+The picker is offered for every kind PMM ships an exporter for — the three database
+engines, Valkey, ProxySQL and HAProxy. **Orchestrator is the exception**: PMM has no
+Orchestrator service type, so the form omits the control rather than showing one that does
+nothing, and a design saved while it was offered gets a warning. Its OS metrics are still
+collected, like every other instance's, once any one of them registers the agent.
+
+Two of the exporters do not scrape the client port: ProxySQL's is read over its **admin**
+interface (slot+1) and HAProxy's over its **stats** listener (slot+2). Handing either the
+client port registers a service that never reports, so the port is chosen per kind.
 
 ---
 

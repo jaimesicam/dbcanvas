@@ -58,15 +58,37 @@ func aioEngineForKind(kind string) string {
 // aioPMMSupported reports whether an instance kind can actually be registered as a
 // PMM *service*.
 //
-// Only the three database engines are wired here. Orchestrator has no PMM service
-// type at all; Valkey and the proxies do have one on their dedicated nodes, but no
-// All-in-One provisioner adds it. Either way the control must not be offered — a
-// picker that silently does nothing is worse than an absent one, which is the same
-// rule aioTLSSupported enforces for certificates.
+// The three database engines plus Valkey and the two proxies — every kind PMM ships
+// an exporter for. Orchestrator is the sole exception: PMM has no Orchestrator
+// service type at all, so the control must not be offered for it. A picker that
+// silently does nothing is worse than an absent one, the same rule aioTLSSupported
+// enforces for certificates.
 //
-// The node's OS metrics are still collected for every instance once any one of them
+// The node's OS metrics are collected for every instance once any one of them
 // registers the agent, so "not monitored" here means "no per-service dashboard".
-func aioPMMSupported(kind string) bool { return aioEngineForKind(kind) != "" }
+func aioPMMSupported(kind string) bool { return aioPMMServiceType(kind) != "" }
+
+// aioPMMServiceType is the `pmm-admin add <type>` sub-command for a kind, or "" when
+// PMM has no exporter for it. It is deliberately separate from aioEngineForKind,
+// which answers a different question — whether an instance is a SQL/Mongo *query
+// target* — and would wrongly exclude Valkey and the proxies here.
+func aioPMMServiceType(kind string) string {
+	switch aioFamilyOf(kind) {
+	case famMySQL:
+		return "mysql"
+	case famPG:
+		return "postgresql"
+	case famMongo:
+		return "mongodb"
+	case famValkey:
+		return "valkey"
+	case famProxy:
+		return "proxysql"
+	case famHAProxy:
+		return "haproxy"
+	}
+	return "" // orchestrator
+}
 
 // aioFindInstance returns one instance's runtime row from a node's deployment.
 func aioFindInstance(dep Deployment, inst string) (aioInstanceRuntime, bool) {
@@ -128,6 +150,37 @@ func aioInstanceCreds(dep Deployment, m aioInstanceRuntime) (engine string, port
 		user, pass = "admin", envOr("MONGO_ADMIN_PASSWORD", envOr("MYSQL_ADMIN_PASSWORD", "admin_password"))
 	}
 	return engine, port, user, pass
+}
+
+// aioValkeyClusterArg tags a clustered Valkey member so PMM groups its shards into
+// one cluster view instead of showing N unrelated servers.
+func aioValkeyClusterArg(m aioInstanceRuntime) string {
+	if m.Kind == "valkeycluster" && m.Group != "" {
+		return "--cluster=" + m.Group
+	}
+	return ""
+}
+
+// aioPMMTarget is the port and credentials `pmm-admin add` needs for one instance.
+//
+// It differs from aioInstanceCreds because two of these exporters do not talk to the
+// client port at all: ProxySQL's is scraped over its ADMIN interface, and HAProxy's
+// over its stats listener. Handing either the client port yields a service that
+// registers and then never reports.
+func aioPMMTarget(dep Deployment, in aioInstance, m aioInstanceRuntime) (port int, user, pass string) {
+	switch aioFamilyOf(m.Kind) {
+	case famValkey:
+		// The instance's own requirepass, used to create the read-only pmm ACL user.
+		return m.Ports.Client, "", aioValkeyPassword(in)
+	case famProxy:
+		var s pxcSecrets
+		json.Unmarshal(dep.Secrets, &s)
+		return m.Ports.Admin, s.ClusterUser, s.ClusterPassword
+	case famHAProxy:
+		return m.Ports.Admin, "", "" // stats listener; no credentials
+	}
+	_, port, user, pass = aioInstanceCreds(dep, m)
+	return port, user, pass
 }
 
 // aioTargetLabel is how an instance is named in a target list: the node's label
@@ -265,6 +318,26 @@ mongodb)
   pmm-admin remove mongodb "$SVC" >/dev/null 2>&1 || true
   pmm-admin add mongodb --username="$DB_USER" --password="$DB_PW" --host=127.0.0.1 --port="$PORT" "$SVC"
   ;;
+valkey)
+  pmm-admin remove valkey "$SVC" >/dev/null 2>&1 || true
+  # PMM connects as a read-only ACL user, per Percona's Valkey docs. Created over
+  # this instance's own socket — with N Valkeys in one container, a TCP connect to
+  # the wrong port would silently configure a different server.
+  valkey-cli -s "$SOCK" -a "$DB_PW" --no-auth-warning ACL SETUSER pmm on ">$PMM_PW" "~*" +@read +info "+config|get" +slowlog +latency >/dev/null
+  pmm-admin add valkey "$SVC" "127.0.0.1:$PORT" --username=pmm --password="$PMM_PW" $CLUSTER_ARG >/dev/null 2>&1 || \
+  pmm-admin add valkey "$SVC" "127.0.0.1:$PORT" --username=pmm --password="$PMM_PW" $CLUSTER_ARG --skip-connection-check >/dev/null
+  ;;
+proxysql)
+  pmm-admin remove proxysql "$SVC" >/dev/null 2>&1 || true
+  # $PORT is this instance's ADMIN interface (slot+1), not its MySQL interface.
+  pmm-admin add proxysql --username="$DB_USER" --password="$DB_PW" --host=127.0.0.1 --port="$PORT" "$SVC"
+  ;;
+haproxy)
+  pmm-admin remove haproxy "$SVC" >/dev/null 2>&1 || true
+  # HAProxy exposes Prometheus metrics on its stats listener (slot+2); pmm-admin
+  # scrapes that rather than connecting to a database.
+  pmm-admin add haproxy --listen-port="$PORT" "$SVC"
+  ;;
 *) echo "no PMM integration for engine $ENGINE"; exit 0 ;;
 esac
 exit 0`
@@ -324,11 +397,11 @@ func (a *App) aioRegisterPMM(ctx context.Context, st Stack, n designNode, doc de
 		if !ok {
 			continue
 		}
-		engine := aioEngineForKind(m.Kind)
+		engine := aioPMMServiceType(m.Kind)
 		if engine == "" {
-			// Valkey, the proxies and Orchestrator have no PMM service exporter here.
-			// Say so rather than skipping in silence: the instance asked to be
-			// monitored, and its OS metrics ARE collected by the node exporter.
+			// Orchestrator only: PMM has no service type for it. Say so rather than
+			// skipping in silence — the instance asked to be monitored, and its OS
+			// metrics ARE collected by the node exporter.
 			unsupported = append(unsupported, m.Inst+" ("+m.Kind+")")
 			continue
 		}
@@ -337,7 +410,7 @@ func (a *App) aioRegisterPMM(ctx context.Context, st Stack, n designNode, doc de
 			pr.logln(m.Inst + ": PMM server not available yet — monitoring not registered")
 			continue
 		}
-		_, port, dbUser, dbPass := aioInstanceCreds(dep, m)
+		port, dbUser, dbPass := aioPMMTarget(dep, in, m)
 		l := aioLayout(m.Inst, m.Kind, m.Ports)
 		env := []string{
 			"ENGINE=" + engine,
@@ -347,6 +420,7 @@ func (a *App) aioRegisterPMM(ctx context.Context, st Stack, n designNode, doc de
 			"PMM_URL=" + pmmServerURL(pmmFQDN, pmmUser, pmmPass),
 			"PMM_PW=" + sec.MonitorPassword,
 			"DB_USER=" + dbUser, "DB_PW=" + dbPass,
+			"CLUSTER_ARG=" + aioValkeyClusterArg(m),
 		}
 		if engine == "mysql" {
 			// The MySQL path creates the pmm account as root over the socket.

@@ -328,6 +328,18 @@ function VersionPicker({ label, catalog, node: n, patchNode, deployed, majorKey,
   )
 }
 
+// Kinds PMM ships an exporter for — everything except Orchestrator, which has no
+// PMM service type at all. Mirrors aioPMMSupported in app/aio_target.go;
+// TestAIOPMMFormGateMatchesTheRegistrationPath keeps the two in step.
+const PMM_KINDS = [
+  'ps', 'psrepl', 'innodb', 'pxc',
+  'mysqlce', 'mysqlcerepl', 'mysqlceinnodb',
+  'mariadb', 'mariadbrepl', 'mariadbgalera',
+  'pg', 'patroni', 'repmgr', 'spock',
+  'psmdb', 'psmrs', 'psmdbsharded',
+  'valkey', 'valkeycluster', 'proxysql', 'haproxy',
+]
+
 // Kinds that serve an HTTP interface, and what to call it. Mirrors
 // aioWebEndpoints in app/aio_ports.go — the Go side decides which ports get
 // published; this only names them for the form. Keep the two in step.
@@ -530,7 +542,7 @@ function InstanceCard({ inst, node, nodes, instances, open, onToggle, patch, onR
               PMM service type, and Valkey and the proxies have one on their dedicated
               nodes but no All-in-One provisioner registers it. Same rule as the TLS
               control below, and validateStack rejects a stale value. */}
-          {['mysql', 'postgres', 'mongodb'].includes(fam) ? (
+          {PMM_KINDS.includes(inst.kind) ? (
             <Field label="Monitored by (PMM)">
               <select className={`${inputCls} ${lock}`} value={inst.pmmNodeId || ''} disabled={deployed}
                 onChange={(e) => patch({ pmmNodeId: e.target.value })}>
@@ -542,8 +554,8 @@ function InstanceCard({ inst, node, nodes, instances, open, onToggle, patch, onR
             // A design saved while the picker was offered. Say why it is going away
             // rather than dropping the value silently.
             <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] leading-snug text-amber-700 dark:text-amber-400">
-              PMM has no per-service exporter for {kindOf(inst.kind)?.label || inst.kind} here, so this
-              instance was never monitored. Its OS metrics are still collected.
+              PMM has no service type for {kindOf(inst.kind)?.label || inst.kind}, so this instance
+              cannot be monitored as a service. Its OS metrics are still collected.
               <button type="button" className="ml-1 underline" disabled={deployed}
                 onClick={() => patch({ pmmNodeId: '' })}>Clear the setting</button>
             </div>
