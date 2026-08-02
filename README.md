@@ -232,6 +232,11 @@ Add it from the palette, then build it up from the **Add feature** menu. Each fe
 | Proxies | ProxySQL · HAProxy |
 | Topology | Orchestrator |
 
+**Versions** are per family, chosen once at the top of the node's form — major *and* minor,
+from the same `make versions` catalog the other node types use, filtered to what the node's
+OS and architecture can actually install. PostgreSQL is the exception: its packages co-install
+per major, so each PostgreSQL instance picks its own.
+
 **Nothing runs on a default port.** Each instance gets a private 10-port slot — MySQL from 13000,
 PostgreSQL 15000, ProxySQL 16000, MongoDB 17000, HAProxy 18000, Valkey 19000, Orchestrator 20000 —
 and the form shows the exact ports before you deploy. Allocation is positional, so adding an

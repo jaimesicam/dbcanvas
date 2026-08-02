@@ -35,6 +35,14 @@ there.
 Cluster kinds expand into one *member* per daemon: `repl01` with three members becomes
 `repl01-n1`, `repl01-n2`, `repl01-n3`, each an independent server.
 
+**Versions.** One package install serves a whole family, so the major and minor are chosen
+once per family at the top of the node's form — Percona Server *or* PXC, PS MongoDB, Valkey,
+ProxySQL, Orchestrator. Both lists come from the `make versions` catalog and are filtered by
+the node's OS/version/arch, so they only offer what is actually installable; leaving the
+minor blank means "the newest available". PostgreSQL is the exception: its packages are
+per-major and co-install, so each PostgreSQL instance carries **its own** major and minor,
+set on the instance card.
+
 ---
 
 ## Ports

@@ -136,27 +136,51 @@ export function AllInOneForm({ node: n, nodes, patchNode, deleteNode, dep, deplo
       </label>
 
       {/* Per-family versions. One package install serves every instance of a
-          family, so these are node-level — the hint says so where it matters. */}
+          family, so these are node-level — except PostgreSQL, whose packages are
+          per-major and co-install, so its major lives on each instance. Minors
+          come from the same `make versions` catalog the classic node forms use;
+          blank means "the newest the catalog has". */}
       {familiesUsed.length > 0 && (
         <div className="space-y-2 rounded-lg border border-border bg-surface2 px-3 py-2">
           <div className="text-xs font-semibold">Versions</div>
           {familiesUsed.includes('mysql') && flavor.flavor === 'ps' && (
-            <Field label="Percona Server" hint={`Applies to all ${instances.filter((i) => familyOf(i.kind) === 'mysql').length} MySQL instance(s) — one install per container.`}>
-              <select className={`${inputCls} ${lock}`} value={n.aioPsMajor || '8.0'} disabled={deployed}
-                onChange={(e) => patchNode(n.id, { aioPsMajor: e.target.value })}>
-                <option value="8.0">8.0</option>
-                <option value="8.4">8.4</option>
-              </select>
-            </Field>
+            <VersionPicker
+              label="Percona Server" catalog="ps" node={n} patchNode={patchNode} deployed={deployed}
+              majorKey="aioPsMajor" minorKey="aioPsVersion"
+              hint={`Applies to all ${instances.filter((i) => familyOf(i.kind) === 'mysql').length} MySQL instance(s) — one install per container.`} />
           )}
           {familiesUsed.includes('mysql') && flavor.flavor === 'pxc' && (
-            <Field label="Percona XtraDB Cluster" hint="Applies to every PXC cluster in this node — one install per container.">
-              <select className={`${inputCls} ${lock}`} value={n.aioPxcMajor || '8.0'} disabled={deployed}
-                onChange={(e) => patchNode(n.id, { aioPxcMajor: e.target.value })}>
-                <option value="8.0">8.0</option>
-                <option value="8.4">8.4</option>
-              </select>
-            </Field>
+            <VersionPicker
+              label="Percona XtraDB Cluster" catalog="pxc" node={n} patchNode={patchNode} deployed={deployed}
+              majorKey="aioPxcMajor" minorKey="aioPxcVersion"
+              hint="Applies to every PXC cluster in this node — one install per container." />
+          )}
+          {familiesUsed.includes('mongodb') && (
+            <VersionPicker
+              label="PS MongoDB" catalog="psmdb" node={n} patchNode={patchNode} deployed={deployed}
+              majorKey="aioPsmdbMajor" minorKey="aioPsmdbVersion"
+              hint="One install serves the standalone, replica-set and sharded instances alike." />
+          )}
+          {familiesUsed.includes('valkey') && (
+            <VersionPicker
+              label="Valkey" catalog="valkey" node={n} patchNode={patchNode} deployed={deployed}
+              majorKey="aioValkeyMajor" minorKey="aioValkeyVersion" />
+          )}
+          {familiesUsed.includes('proxysql') && (
+            <VersionPicker
+              label="ProxySQL" catalog="proxysql" node={n} patchNode={patchNode} deployed={deployed}
+              majorKey="aioProxysqlMajor" minorKey="aioProxysqlVersion" />
+          )}
+          {familiesUsed.includes('orchestrator') && (
+            <VersionPicker
+              label="Orchestrator" catalog="orchestrator" node={n} patchNode={patchNode} deployed={deployed}
+              minorKey="aioOrchestratorVersion" />
+          )}
+          {familiesUsed.includes('postgres') && (
+            <div className="text-[10px] leading-snug text-muted">
+              PostgreSQL packages are per-major and install side by side, so each PostgreSQL
+              instance carries its own major — set it on the instance below.
+            </div>
           )}
         </div>
       )}
@@ -215,6 +239,123 @@ export function AllInOneForm({ node: n, nodes, patchNode, deleteNode, dep, deplo
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
         <Icon.Trash size={16} /> Delete node
       </Button>
+    </div>
+  )
+}
+
+// VersionPicker is a catalog-driven major + minor pair for one family.
+//
+// The minors come from the same `make versions` catalog every classic node form
+// reads, keyed by the node's OS/version/arch — so the list only ever offers what
+// is actually installable on this image. Blank minor means "newest available",
+// which is what the provisioners pass as an empty $VER.
+//
+// Omit majorKey for a product with no major series of its own (Orchestrator):
+// the minor list is then flattened across whatever the catalog reports.
+function VersionPicker({ label, catalog, node: n, patchNode, deployed, majorKey, minorKey, hint }) {
+  const [cat, setCat] = useState(null)
+  useEffect(() => {
+    let alive = true
+    const fn = stackApi[`${catalog}Catalog`]
+    if (typeof fn !== 'function') return undefined
+    fn().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep whatever is set */ })
+    return () => { alive = false }
+  }, [catalog])
+
+  const imgs = cat || []
+  const lock = deployed ? 'opacity-70' : ''
+  const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion && i.arch === n.arch)
+  const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
+  const major = majorKey ? (n[majorKey] || majors[0] || '') : ''
+  const minors = majorKey
+    ? (entry?.versions?.[major] || [])
+    : Object.values(entry?.versions || {}).flat()
+
+  // Snap a stale selection once the catalog loads, the same way the classic
+  // forms do — an OS change can invalidate both the major and the minor.
+  useEffect(() => {
+    if (deployed || !imgs.length) return
+    const patch = {}
+    if (majorKey && majors.length && !majors.includes(n[majorKey])) patch[majorKey] = majors[0]
+    const list = majorKey
+      ? (entry?.versions?.[patch[majorKey] || major] || [])
+      : Object.values(entry?.versions || {}).flat()
+    if (n[minorKey] && !list.includes(n[minorKey])) patch[minorKey] = ''
+    if (Object.keys(patch).length) patchNode(n.id, patch)
+  }, [imgs, n.id, n.os, n.osVersion, n.arch, n[majorKey], n[minorKey], deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const unavailable = imgs.length > 0 && majors.length === 0 && minors.length === 0
+
+  return (
+    <div className="space-y-1">
+      <div className="grid grid-cols-2 gap-2">
+        {majorKey && (
+          <Field label={label}>
+            <select className={`${inputCls} ${lock}`} value={major} disabled={deployed || !majors.length}
+              onChange={(e) => patchNode(n.id, { [majorKey]: e.target.value, [minorKey]: '' })}>
+              {majors.length === 0 && <option value={major}>{major || '—'}</option>}
+              {majors.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </Field>
+        )}
+        <Field label={majorKey ? 'Minor version' : label}>
+          <select className={`${inputCls} ${lock}`} value={n[minorKey] || ''} disabled={deployed}
+            onChange={(e) => patchNode(n.id, { [minorKey]: e.target.value })}>
+            <option value="">latest</option>
+            {minors.map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </Field>
+      </div>
+      {hint && <div className="text-[10px] leading-snug text-muted">{hint}</div>}
+      {unavailable && (
+        <div className="text-[10px] leading-snug text-warning">
+          No {label} versions catalogued for {n.os} {n.osVersion} {n.arch} — run <code className="font-mono">make versions</code>.
+        </div>
+      )}
+    </div>
+  )
+}
+
+// PGVersionPicker is the per-instance PostgreSQL major + minor. Unlike every
+// other family this cannot be node-level: percona-postgresql16 and
+// postgresql17 install into different prefixes and coexist, so two instances in
+// one container may genuinely run different majors.
+function PGVersionPicker({ inst, node: n, patch, deployed }) {
+  const [cat, setCat] = useState(null)
+  useEffect(() => {
+    let alive = true
+    stackApi.ppgCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => {})
+    return () => { alive = false }
+  }, [])
+  const imgs = cat || []
+  const lock = deployed ? 'opacity-70' : ''
+  const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion && i.arch === n.arch)
+  const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
+  const major = inst.pgMajor || majors[0] || '16'
+  const minors = entry?.versions?.[major] || []
+
+  useEffect(() => {
+    if (deployed || !imgs.length) return
+    if (majors.length && !majors.includes(inst.pgMajor)) patch({ pgMajor: majors[0], pgVersion: '' })
+    else if (inst.pgVersion && !minors.includes(inst.pgVersion)) patch({ pgVersion: '' })
+  }, [imgs, inst.pgMajor, inst.pgVersion, n.os, n.osVersion, n.arch, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <Field label="PostgreSQL major" hint={deployed ? '' : 'Per instance — majors co-install.'}>
+        <select className={`${inputCls} ${lock}`} value={major} disabled={deployed || !majors.length}
+          onChange={(e) => patch({ pgMajor: e.target.value, pgVersion: '' })}>
+          {majors.length === 0 && <option value={major}>{major}</option>}
+          {majors.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </Field>
+      <Field label="Minor version">
+        <select className={`${inputCls} ${lock}`} value={inst.pgVersion || ''} disabled={deployed}
+          onChange={(e) => patch({ pgVersion: e.target.value })}>
+          <option value="">latest</option>
+          {minors.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </Field>
     </div>
   )
 }
@@ -340,6 +481,12 @@ function InstanceCard({ inst, node, nodes, instances, open, onToggle, patch, onR
                 onChange={(e) => patch({ gtid: e.target.checked })} />
               <span>Enable GTID</span>
             </label>
+          )}
+
+          {/* PostgreSQL is the one family whose packages are per-major and
+              co-install, so its version is per instance rather than node-level. */}
+          {fam === 'postgres' && (
+            <PGVersionPicker inst={inst} node={node} patch={patch} deployed={deployed} />
           )}
 
           {isProxy && (

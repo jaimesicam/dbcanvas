@@ -2137,3 +2137,87 @@ func TestAIOTLSWiringIsIdempotent(t *testing.T) {
 		})
 	}
 }
+
+// Every version field the design model carries must be reachable from the form.
+// They were not: the model had majors AND minors for six families and the
+// provisioners passed them through as $VER, but the form rendered only the
+// Percona Server and PXC majors — so a user could not choose a minor at all, and
+// four families had no version control whatsoever.
+//
+// This pins the wiring by checking the form references each field, and that the
+// Go side still consumes it. It is a static check, but the failure it guards
+// against is silent: a picker that is simply absent looks like a design choice.
+func TestAIOVersionFieldsAreReachableFromTheForm(t *testing.T) {
+	form, err := os.ReadFile("web/src/pages/AllInOne.jsx")
+	if err != nil {
+		t.Skipf("form not readable: %v", err)
+	}
+	src := string(form)
+
+	// JSON name -> the Go field that consumes it, so a rename breaks loudly.
+	fields := map[string]string{
+		"aioPsMajor":             "AIOPSMajor",
+		"aioPsVersion":           "AIOPSVersion",
+		"aioPxcMajor":            "AIOPXCMajor",
+		"aioPxcVersion":          "AIOPXCVersion",
+		"aioPsmdbMajor":          "AIOPSMDBMajor",
+		"aioPsmdbVersion":        "AIOPSMDBVersion",
+		"aioValkeyMajor":         "AIOValkeyMajor",
+		"aioValkeyVersion":       "AIOValkeyVer",
+		"aioProxysqlMajor":       "AIOProxySQLMajor",
+		"aioProxysqlVersion":     "AIOProxySQLVer",
+		"aioOrchestratorVersion": "AIOOrchVersion",
+	}
+	for jsonName := range fields {
+		if !strings.Contains(src, jsonName) {
+			t.Errorf("the form never references %q, so that version cannot be selected", jsonName)
+		}
+	}
+
+	// PostgreSQL is per instance rather than node-level.
+	for _, perInstance := range []string{"pgMajor", "pgVersion"} {
+		if !strings.Contains(src, perInstance) {
+			t.Errorf("the instance form never references %q", perInstance)
+		}
+	}
+
+	// And the Go struct must still carry them under those JSON names.
+	model, err := os.ReadFile("intranet.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for jsonName, goField := range fields {
+		// gofmt aligns struct fields, so the gap between name, type and tag is
+		// variable — match on whitespace rather than an exact string.
+		re := regexp.MustCompile(goField + `\s+string\s+` + "`" + `json:"` + jsonName + `"`)
+		if !re.Match(model) {
+			t.Errorf("designNode no longer declares %s as json:%q — the form would silently stop working", goField, jsonName)
+		}
+	}
+}
+
+// A minor is only meaningful if it reaches the installer. Each family's
+// provisioner must pass its version through as $VER.
+func TestAIOMinorVersionsReachTheInstaller(t *testing.T) {
+	for name, src := range map[string]string{
+		"mysql":        readSrc(t, "aio_mysql.go"),
+		"mongodb":      readSrc(t, "aio_mongo.go"),
+		"valkey":       readSrc(t, "aio_valkey.go"),
+		"proxysql":     readSrc(t, "aio_proxy.go"),
+		"orchestrator": readSrc(t, "aio_orch.go"),
+		"postgres":     readSrc(t, "aio_pg.go"),
+	} {
+		if !strings.Contains(src, `"VER="`) && !strings.Contains(src, `"VER=" +`) {
+			t.Errorf("%s provisioner never passes VER= to its install script, so a chosen minor is ignored", name)
+		}
+	}
+}
+
+func readSrc(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatalf("read %s: %v", name, err)
+	}
+	return string(b)
+}

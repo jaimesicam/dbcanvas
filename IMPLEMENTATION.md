@@ -9461,3 +9461,38 @@ mirror.
 
 69 AiO tests (one new, one replaced). `go build`/`go vet`/`gofmt -l` clean; unit suite,
 `vite build` and `make smoke` pass. Scratch container, test stack and temporary user removed.
+
+## 213. Version pickers: the form exposed two majors and no minors at all
+
+Reported by the user: minor versions cannot be selected per feature.
+
+Confirmed, and worse than reported. `designNode` carries eleven version fields — a major and a
+minor for Percona Server, PXC, PS MongoDB, Valkey and ProxySQL, plus Orchestrator's minor — and
+every provisioner already passes its value through as `$VER` to the install script. The **form
+rendered two controls**: the Percona Server major and the PXC major. No minor was selectable
+anywhere, and PS MongoDB, Valkey, ProxySQL and Orchestrator had no version control at all. The
+plumbing was complete end to end and simply had no UI on it.
+
+Added a shared `VersionPicker`: a major + minor pair driven by the same `make versions` catalog
+the classic node forms read, keyed by the node's OS/version/arch so the list only offers what is
+installable on that image, with a blank minor meaning "newest" (the empty `$VER` the provisioners
+already expect) and a warning when the catalog has nothing for the current image. It snaps a stale
+selection when the OS changes, matching the classic forms' behaviour. Orchestrator has no major
+series of its own, so the picker omits that half and flattens the minor list.
+
+PostgreSQL needed its own control rather than a node-level one: its packages are per-major and
+co-install, so `pgMajor`/`pgVersion` live on each instance. `PGVersionPicker` renders on the
+instance card, and the node-level block explains why PostgreSQL is absent from it.
+
+Two guards, because the failure mode here is silence — an absent picker looks like a design
+decision rather than an omission. `TestAIOVersionFieldsAreReachableFromTheForm` checks every
+version field is referenced by the form AND still declared on `designNode` under that JSON name
+(whitespace-tolerant, since gofmt aligns struct tags), and `TestAIOMinorVersionsReachTheInstaller`
+checks each family's provisioner still passes `VER=`. Verified by deleting the PS MongoDB picker,
+which reproduces the reported symptom as a named failure.
+
+README and the operator guide now state the rule: versions are per family, except PostgreSQL,
+which is per instance.
+
+71 AiO tests (two new). `go build`/`go vet`/`gofmt -l` clean; unit suite, `vite build` and
+`make smoke` pass.
