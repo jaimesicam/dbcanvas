@@ -811,3 +811,121 @@ func TestAIORejectsSpockOnUnsupportedMajor(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------- AiO PMM + web
+
+// `pmm-admin config` re-registers the node and DROPS every service already added.
+// Running it per instance meant each one silently deleted its predecessors: a node
+// with eleven monitored instances ended up with one in PMM while the deploy log
+// said "11 instance(s) registered with PMM".
+func TestAIOPMMConfiguresTheAgentOncePerNode(t *testing.T) {
+	if strings.Contains(aioPMMAddScript, "pmm-admin config") {
+		t.Error("the per-instance script still reconfigures the agent — it will wipe earlier services")
+	}
+	if !strings.Contains(aioPMMSetupScript, "pmm-admin config") {
+		t.Error("the node-level setup script never configures the agent")
+	}
+	// The setup must not reconfigure an already-registered agent either, or an
+	// incremental redeploy wipes the instances it is not re-adding.
+	if !strings.Contains(aioPMMSetupScript, "pmm-admin status") {
+		t.Error("setup does not check for an already-registered agent before reconfiguring")
+	}
+	// And it must fail loudly rather than leave the adds to fail one by one.
+	if !strings.Contains(aioPMMSetupScript, "did not register") {
+		t.Error("setup does not verify the agent actually registered")
+	}
+}
+
+// Only the client port used to be published, so an instance's web UI was
+// unreachable from the host even with the export ticked.
+func TestAIOPublishesWebPortsAlongsideTheClientPort(t *testing.T) {
+	cases := map[string]struct {
+		label     string
+		wantExtra bool
+	}{
+		"orchestrator": {"Orchestrator", false}, // its UI *is* the client port
+		"haproxy":      {"HAProxy stats", true}, // stats sits on admin (+2)
+		"patroni":      {"Patroni REST", true},  // REST sits on +1
+	}
+	for kind, c := range cases {
+		p := aioPortsFor(kind, 0, 0)
+		eps := aioWebEndpoints(kind, p)
+		if len(eps) == 0 {
+			t.Errorf("%s should expose a web endpoint", kind)
+			continue
+		}
+		if eps[0].Label != c.label {
+			t.Errorf("%s label = %q, want %q", kind, eps[0].Label, c.label)
+		}
+		if eps[0].Port == 0 {
+			t.Errorf("%s web endpoint has no port", kind)
+		}
+		pub := aioPublishPorts(kind, p)
+		if pub[0] != p.Client {
+			t.Errorf("%s: the client port must stay first (it keeps the requested host port)", kind)
+		}
+		if got := len(pub) > 1; got != c.wantExtra {
+			t.Errorf("%s: extra published port = %v, want %v (%v)", kind, got, c.wantExtra, pub)
+		}
+		for _, cp := range pub {
+			if cp < p.Base || cp >= p.Base+aioSlotWidth {
+				t.Errorf("%s publishes %d, outside its slot %d..%d", kind, cp, p.Base, p.Base+aioSlotWidth-1)
+			}
+		}
+	}
+	// A kind with no HTTP interface publishes exactly its client port.
+	for _, kind := range []string{"ps", "mariadb", "psmdb", "valkey"} {
+		if eps := aioWebEndpoints(kind, aioPortsFor(kind, 0, 0)); len(eps) != 0 {
+			t.Errorf("%s should have no web endpoint, got %v", kind, eps)
+		}
+		if pub := aioPublishPorts(kind, aioPortsFor(kind, 0, 0)); len(pub) != 1 {
+			t.Errorf("%s should publish one port, got %v", kind, pub)
+		}
+	}
+}
+
+// The plan must carry the web endpoints, or the manager has nothing to link to.
+func TestAIOPlanRecordsWebEndpoints(t *testing.T) {
+	n := designNode{
+		Label: "aio1", OS: "oraclelinux", OSVersion: "9", Arch: "amd64",
+		AIOInstances: []aioInstance{{ID: "o", Kind: "orchestrator", Name: "orch01", ExportEnabled: true}},
+	}
+	plan := aioPlan(n, "example.net", "aio1")
+	if len(plan) != 1 {
+		t.Fatalf("plan = %d members", len(plan))
+	}
+	m := plan[0]
+	if len(m.Web) != 1 || m.Web[0].Port != m.Ports.Client {
+		t.Fatalf("orchestrator web endpoint not recorded: %+v", m.Web)
+	}
+	if !m.ExportOn {
+		t.Error("export not carried into the plan")
+	}
+	// HostPort stays 0 until the container exists — that is what the manager keys on.
+	if m.Web[0].HostPort != 0 {
+		t.Errorf("HostPort should be unresolved in the plan, got %d", m.Web[0].HostPort)
+	}
+}
+
+// The form names the web interface on the export toggle, so the Go catalog and the
+// JS table cannot drift about which kinds have one.
+func TestAIOWebKindsMatchTheJSTable(t *testing.T) {
+	js, err := os.ReadFile("web/src/pages/AllInOne.jsx")
+	if err != nil {
+		t.Skip("AllInOne.jsx not readable")
+	}
+	block := string(js)
+	i := strings.Index(block, "const WEB_KINDS = {")
+	if i < 0 {
+		t.Fatal("WEB_KINDS table not found in AllInOne.jsx")
+	}
+	block = block[i:]
+	block = block[:strings.Index(block, "}")]
+	for _, k := range aioKinds {
+		hasGo := len(aioWebEndpoints(k.Kind, aioPortsFor(k.Kind, 0, 0))) > 0
+		hasJS := strings.Contains(block, k.Kind+":")
+		if hasGo != hasJS {
+			t.Errorf("%s: Go web endpoint=%v, JS WEB_KINDS=%v — the two must agree", k.Kind, hasGo, hasJS)
+		}
+	}
+}

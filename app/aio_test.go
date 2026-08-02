@@ -1737,18 +1737,23 @@ func TestAIOUnimplementedOptionsAreRejected(t *testing.T) {
 // PMM registration must name a service per INSTANCE, not per node, or several
 // instances overwrite one PMM service and only the last reports. It must also
 // use the instance's own socket/port rather than the product defaults.
+//
+// Note what this did NOT catch: the names were per-instance all along, yet only one
+// service survived, because the per-instance script also ran `pmm-admin config`,
+// which drops every service on the node. Asserting the name was necessary and
+// nowhere near sufficient — see TestAIOPMMConfiguresTheAgentOncePerNode.
 func TestAIOPMMScriptIsInstanceScoped(t *testing.T) {
-	if strings.Contains(aioPMMRegisterScript, "/var/lib/mysql/mysql.sock") {
+	if strings.Contains(aioPMMAddScript, "/var/lib/mysql/mysql.sock") {
 		t.Error("the PMM script uses the shared MySQL socket; it must use the instance's")
 	}
 	for _, want := range []string{`--socket="$SOCK"`, `--port="$PORT"`, `"$SVC"`} {
-		if !strings.Contains(aioPMMRegisterScript, want) {
+		if !strings.Contains(aioPMMAddScript, want) {
 			t.Errorf("PMM script missing %s", want)
 		}
 	}
 	// All three database engines are handled.
 	for _, eng := range []string{"mysql)", "postgres)", "mongodb)"} {
-		if !strings.Contains(aioPMMRegisterScript, eng) {
+		if !strings.Contains(aioPMMAddScript, eng) {
 			t.Errorf("PMM script has no branch for %s", eng)
 		}
 	}
@@ -1906,7 +1911,8 @@ func TestAIOScriptsDoNotMaskExitStatus(t *testing.T) {
 		"aioMongoInitRSScript":           aioMongoInitRSScript,
 		"aioMongoAddShardsScript":        aioMongoAddShardsScript,
 		"aioMongoCreateAdminScript":      aioMongoCreateAdminScript,
-		"aioPMMRegisterScript":           aioPMMRegisterScript,
+		"aioPMMAddScript":                aioPMMAddScript,
+		"aioPMMSetupScript":              aioPMMSetupScript,
 		"aioSpockNodeSetupScript":        aioSpockNodeSetupScript,
 		"aioSpockSubCreateScript":        aioSpockSubCreateScript,
 		"aioMySQLBaselineScript":         aioMySQLBaselineScript,
@@ -2025,7 +2031,8 @@ func TestAIOGeneratedScriptsAreValidShell(t *testing.T) {
 		"aioCertWireMySQL":               aioCertWireMySQL,
 		"aioCertWirePostgres":            aioCertWirePostgres,
 		"aioCertWireMongo":               aioCertWireMongo,
-		"aioPMMRegisterScript":           aioPMMRegisterScript,
+		"aioPMMAddScript":                aioPMMAddScript,
+		"aioPMMSetupScript":              aioPMMSetupScript,
 	}
 	dir := t.TempDir()
 	for name, script := range scripts {

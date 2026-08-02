@@ -328,6 +328,15 @@ function VersionPicker({ label, catalog, node: n, patchNode, deployed, majorKey,
   )
 }
 
+// Kinds that serve an HTTP interface, and what to call it. Mirrors
+// aioWebEndpoints in app/aio_ports.go — the Go side decides which ports get
+// published; this only names them for the form. Keep the two in step.
+const WEB_KINDS = {
+  orchestrator: 'Orchestrator web UI',
+  haproxy: 'HAProxy stats page',
+  patroni: 'Patroni REST API',
+}
+
 // PGVersionPicker is the per-instance PostgreSQL major + minor. Unlike every
 // other family this cannot be node-level: percona-postgresql16 and
 // postgresql17 install into different prefixes and coexist, so two instances in
@@ -580,8 +589,13 @@ function InstanceCard({ inst, node, nodes, instances, open, onToggle, patch, onR
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={!!inst.exportEnabled} disabled={deployed}
               onChange={(e) => patch({ exportEnabled: e.target.checked })} />
-            <span>Publish client port to the host</span>
+            <span>{WEB_KINDS[inst.kind] ? `Publish to the host (includes the ${WEB_KINDS[inst.kind]})` : 'Publish client port to the host'}</span>
           </label>
+          {WEB_KINDS[inst.kind] && !inst.exportEnabled && (
+            <p className="text-[10px] text-muted">
+              {WEB_KINDS[inst.kind]} is only reachable from your browser once this is published.
+            </p>
+          )}
           {inst.exportEnabled && (
             <Field label="Host port" hint="0 = pick a free one automatically.">
               <input type="number" className={`${inputCls} ${lock}`} value={inst.exportHostPort || 0} disabled={deployed}
@@ -900,9 +914,30 @@ function CredentialsTab({ rows, sec }) {
 
 function PortsTab({ rows }) {
   const published = rows.filter((r) => r.export > 0)
+  // Instances that serve HTTP and had that port published: Orchestrator's UI,
+  // HAProxy's stats page, Patroni's REST API. Without this the manager showed a
+  // host:port string the user had to turn into a URL by hand.
+  const web = rows.flatMap((r) => (r.web || [])
+    .filter((w) => w.hostPort > 0)
+    .map((w) => ({ ...w, inst: r.inst })))
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted">Nothing here listens on its product&apos;s default port.</p>
+      {web.length > 0 && (
+        <div className="rounded-lg bg-surface2 px-2 py-1.5">
+          <div className="pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">Web interfaces</div>
+          {web.map((w) => {
+            const url = `http://${browserHost()}:${w.hostPort}${w.path || '/'}`
+            return (
+              <div key={`${w.inst}-${w.port}`} className="flex items-center justify-between gap-2 py-0.5 text-[10px]">
+                <span className="truncate text-muted">{w.inst} · {w.label}</span>
+                <a href={url} target="_blank" rel="noreferrer"
+                  className="truncate font-mono text-primary hover:underline">{url}</a>
+              </div>
+            )
+          })}
+        </div>
+      )}
       <div className="rounded-lg bg-surface2 px-2 py-1.5">
         {rows.map((r) => (
           <div key={r.inst} className="flex justify-between gap-2 py-0.5 font-mono text-[10px]">

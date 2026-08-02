@@ -9788,3 +9788,49 @@ The check is skipped when no Spock catalog is recorded, so "not yet generated" r
 catalog endpoints return the expected ranges and the API refuses the 13 design. 2 new Go
 tests, one of which asserts the PPG catalog still carries 13/14 — the distinction is only
 meaningful while it does.
+
+## 197. All-in-One: PMM monitored one instance of eleven, and web UIs had no host links — `app/{aio_target,aio_ports,aio}.go`, `app/web/src/pages/AllInOne.jsx`
+
+Reported from a live node: Orchestrator and the other web interfaces offer no way in from
+the host, and PMM is not showing everything.
+
+**PMM registered exactly one instance.** The per-instance script began with
+`pmm-admin config --force`, which re-registers the node and **drops every service already
+added to it**. Each instance therefore deleted its predecessors, leaving the last one — a
+node with eleven monitored instances had one service in PMM while the deploy log read
+"11 instance(s) registered with PMM". The count was of successful `pmm-admin add` calls,
+every one of which was true at the time and undone a moment later.
+
+The script is now split: `aioPMMSetupScript` runs once per node, skips the config entirely
+when the agent is already registered (so an incremental redeploy cannot wipe anything), and
+verifies the agent actually came up instead of `|| true`-ing past it. `aioPMMAddScript`
+adds one service and is idempotent. The add loop also dropped its `fresh` gate — the adds
+are remove-then-add, so re-adding everything is what makes a node converge if a service was
+ever lost, which is precisely the state this bug left behind.
+
+Note the existing test, `TestAIOPMMScriptIsInstanceScoped`, whose comment says "or several
+instances overwrite one PMM service and only the last reports". It asserted the service
+*name* was per-instance — which it always was — and passed throughout. The names were never
+the problem. Its comment now records what it does not cover.
+
+Kinds with no PMM service exporter (Valkey, the proxies, Orchestrator) were skipped in
+silence even though the user had ticked monitoring on them. The deploy now says so, and
+notes that the node's OS metrics are still collected.
+
+**Web interfaces were unreachable and unlinked.** Two separate gaps: only the *client* port
+was ever published, so HAProxy's stats page (+2) and Patroni's REST API (+1) could not be
+reached from the host at all; and the Ports tab printed `host:port` as plain text, never a
+link. `aioWebEndpoints` now names the HTTP interface per kind, `aioPublishPorts` maps it
+alongside the client port, and the manager renders a real URL. The export toggle names the
+interface it will publish, so it is discoverable rather than something to infer.
+
+A third gap surfaced while wiring it: the node never read back the host ports Docker
+assigned, so `Export` held only the *requested* value and an auto-assigned port (the
+default) stayed 0 — the Ports tab filters on `export > 0`, so it showed nothing.
+`aioResolveHostPorts` now reads them after the container starts.
+
+Verified against the reported node (stack 32, twelve instances): the node-level setup
+correctly declines to reconfigure the already-registered agent, and running the new
+per-instance adds takes PMM from 1 service to all 11 — six MySQL over their own sockets and
+five PostgreSQL on their own ports. 4 new Go tests, one of which pins the Go catalog and the
+form's WEB_KINDS table against drift.

@@ -207,11 +207,30 @@ func aioPGMajorOfRuntime(cfg aioConfig, m aioInstanceRuntime) string {
 // instance would overwrite the same PMM service and only the last would report.
 // pmm-agent itself is per container and configured once; `pmm-admin add` is what
 // runs per instance.
-const aioPMMRegisterScript = `set -e
-command -v pmm-admin >/dev/null 2>&1 || { percona-release setup -y pmm3-client >/dev/null 2>&1; dnf -y -q install pmm-client >/dev/null; }
+// aioPMMSetupScript installs pmm-client and points the agent at the PMM server.
+//
+// It runs ONCE per node, deliberately. `pmm-admin config` re-registers the node and
+// DROPS every service already added to it — so running it per instance (as this used
+// to) meant each instance silently deleted the ones before it, and only the last of
+// eleven survived while the deploy reported all eleven registered. The config is also
+// skipped when the agent is already connected, so a redeploy that adds one instance
+// does not wipe the rest.
+const aioPMMSetupScript = `set -e
+command -v pmm-admin >/dev/null 2>&1 || { percona-release setup -y pmm3-client >/dev/null 2>&1; dnf -y -q install pmm-client >/dev/null 2>&1 || { apt-get update -qq >/dev/null 2>&1; apt-get install -y -qq pmm-client >/dev/null; }; }
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
-pmm-admin config --force --server-insecure-tls --server-url="$PMM_URL" >/dev/null 2>&1 || true
-systemctl enable --now pmm-agent >/dev/null 2>&1 || true
+if pmm-admin status >/dev/null 2>&1; then
+  echo "pmm-agent already registered — keeping existing services"
+else
+  pmm-admin config --force --server-insecure-tls --server-url="$PMM_URL" >/dev/null 2>&1 || true
+  systemctl enable --now pmm-agent >/dev/null 2>&1 || true
+  for i in $(seq 1 15); do pmm-admin status >/dev/null 2>&1 && break; sleep 2; done
+  pmm-admin status >/dev/null 2>&1 || { echo "pmm-agent did not register with $PMM_URL"; exit 1; }
+  echo "pmm-agent registered"
+fi`
+
+// aioPMMAddScript adds ONE instance as a PMM service. Idempotent: the remove-then-add
+// pair means a redeploy re-points an existing service rather than erroring on it.
+const aioPMMAddScript = `set -e
 case "$ENGINE" in
 mysql)
   pmm-admin remove mysql "$SVC" >/dev/null 2>&1 || true
@@ -255,19 +274,50 @@ func (a *App) aioRegisterPMM(ctx context.Context, st Stack, n designNode, doc de
 		return
 	}
 	dep, _ := a.store.GetDeployment(st.ID, n.ID)
+
+	// The agent is configured once for the whole node, before any service is added.
+	// Doing it per instance dropped every service added so far (see
+	// aioPMMSetupScript). Any PMM-enabled instance can supply the server URL — they
+	// all point at the same node in practice, and the first one that resolves wins.
+	configured := false
+	for _, in := range byInst {
+		pmmFQDN, pmmUser, pmmPass, ok := a.pmmServerFor(st, doc, in.PMMNodeID)
+		if !ok {
+			continue
+		}
+		if err := a.runStep(ctx, id, aioPMMSetupScript, []string{"PMM_URL=" + pmmServerURL(pmmFQDN, pmmUser, pmmPass)}, pr.logln); err != nil {
+			pr.logln("PMM agent setup failed: " + err.Error())
+			return
+		}
+		configured = true
+		break
+	}
+	if !configured {
+		pr.logln("PMM server not available yet — monitoring not registered")
+		return
+	}
+
 	registered := 0
+	var unsupported []string
+	// Every PMM-enabled instance is (re)added, not just the fresh ones: the adds are
+	// idempotent, and re-adding is what makes the node converge if a service was ever
+	// dropped — which is exactly the state this function used to leave behind.
 	for _, m := range cfg.Instances {
 		key := m.Group
 		if key == "" {
 			key = m.Inst
 		}
 		in, ok := byInst[key]
-		if !ok || !fresh[m.Inst] {
+		if !ok {
 			continue
 		}
 		engine := aioEngineForKind(m.Kind)
 		if engine == "" {
-			continue // proxies/Orchestrator: PMM has its own exporters, not wired here
+			// Valkey, the proxies and Orchestrator have no PMM service exporter here.
+			// Say so rather than skipping in silence: the instance asked to be
+			// monitored, and its OS metrics ARE collected by the node exporter.
+			unsupported = append(unsupported, m.Inst+" ("+m.Kind+")")
+			continue
 		}
 		pmmFQDN, pmmUser, pmmPass, ok := a.pmmServerFor(st, doc, in.PMMNodeID)
 		if !ok {
@@ -289,7 +339,7 @@ func (a *App) aioRegisterPMM(ctx context.Context, st Stack, n designNode, doc de
 			// The MySQL path creates the pmm account as root over the socket.
 			env = append(env, "DB_USER="+sec.RootUser, "DB_PW="+sec.RootPassword)
 		}
-		if err := a.runStep(ctx, id, aioPMMRegisterScript, env, pr.logln); err != nil {
+		if err := a.runStep(ctx, id, aioPMMAddScript, env, pr.logln); err != nil {
 			pr.logln(m.Inst + ": PMM registration failed: " + err.Error())
 			continue
 		}
@@ -297,5 +347,9 @@ func (a *App) aioRegisterPMM(ctx context.Context, st Stack, n designNode, doc de
 	}
 	if registered > 0 {
 		pr.logln(fmt.Sprintf("%d instance(s) registered with PMM", registered))
+	}
+	if len(unsupported) > 0 {
+		pr.logln("no PMM service exporter for " + strings.Join(unsupported, ", ") +
+			" — the node's OS metrics are still collected, but there is no per-service dashboard")
 	}
 }

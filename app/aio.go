@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -111,6 +112,11 @@ type aioInstanceRuntime struct {
 	// ExportOn==true, which a single int cannot express.
 	ExportOn bool `json:"exportOn"`
 	Export   int  `json:"export"`
+	// Web is the instance's HTTP interfaces (Orchestrator's UI, HAProxy's stats
+	// page, Patroni's REST API). Each carries the container port and, once the
+	// container exists and the instance exports, the host port it landed on — which
+	// is what lets the manager offer a link instead of a host:port to assemble.
+	Web []aioWebEndpointRT `json:"web,omitempty"`
 	// PGMajor is recorded for PostgreSQL instances so tools that exec a client
 	// inside the container can pick the psql that matches this server — the
 	// container may hold several majors, and PATH points at only one.
@@ -121,6 +127,15 @@ type aioInstanceRuntime struct {
 	// that failed halfway would otherwise make the next one skip the instance it
 	// never finished. See aioPrevInstances / aioMarkReady.
 	Ready bool `json:"ready"`
+}
+
+// aioWebEndpointRT is one HTTP interface as deployed: the label and path from the
+// catalog, plus the ports it is reachable on.
+type aioWebEndpointRT struct {
+	Label    string `json:"label"`
+	Path     string `json:"path"`
+	Port     int    `json:"port"`               // inside the container
+	HostPort int    `json:"hostPort,omitempty"` // 0 = not published to the host
 }
 
 // aioConfig is the deployment's non-secret profile: enough for the manager UI to
@@ -168,6 +183,9 @@ func aioPlan(n designNode, domain, host string) []aioInstanceRuntime {
 			}
 			if k.Family == famPG {
 				rt.PGMajor = ppgMajorOf(in.PGMajor)
+			}
+			for _, w := range aioWebEndpoints(in.Kind, ports) {
+				rt.Web = append(rt.Web, aioWebEndpointRT{Label: w.Label, Path: w.Path, Port: w.Port})
 			}
 			// Only the first member of an instance can publish to the host: the
 			// export toggle is per instance, and N members cannot share one port.
@@ -380,6 +398,14 @@ func (a *App) provisionAIO(st Stack, n designNode, doc designDoc) {
 		if reused {
 			pr.logln(fmt.Sprintf("reusing the running container; %d new instance(s) to provision", len(fresh)))
 		}
+		// Resolve the host ports Docker actually assigned. Until now Export held only
+		// the *requested* port, so an auto-assigned one (the default) stayed 0 and the
+		// manager had nothing to show — and the web endpoints had no host port at all.
+		a.aioResolveHostPorts(ctx, id, members)
+		cfg.Instances = members
+		if b, e := json.Marshal(cfg); e == nil {
+			cfgJSON = b
+		}
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON, Secrets: secJSON})
 
 		pr.phase("Waiting for systemd", 12)
@@ -526,6 +552,30 @@ func (a *App) aioEnsureContainer(ctx context.Context, st Stack, n designNode, me
 	return id, false, err
 }
 
+// aioResolveHostPorts fills in the host ports Docker assigned, for the client port
+// and for every HTTP endpoint. Best-effort: a port that cannot be read stays 0,
+// which every consumer already treats as "not published".
+func (a *App) aioResolveHostPorts(ctx context.Context, id string, members []aioInstanceRuntime) {
+	for i := range members {
+		m := &members[i]
+		if !m.ExportOn {
+			continue
+		}
+		if hp, err := a.engCtx(ctx).ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", m.Ports.Client)); err == nil {
+			if p, e := strconv.Atoi(hp); e == nil {
+				m.Export = p
+			}
+		}
+		for j := range m.Web {
+			if hp, err := a.engCtx(ctx).ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", m.Web[j].Port)); err == nil {
+				if p, e := strconv.Atoi(hp); e == nil {
+					m.Web[j].HostPort = p
+				}
+			}
+		}
+	}
+}
+
 // aioCreateContainer creates and starts the node's single container. Every
 // instance's name is registered as a network alias so in-container resolution
 // works before the Intranet zone is rewritten, and each instance that opted into
@@ -540,7 +590,16 @@ func (a *App) aioCreateContainer(ctx context.Context, st Stack, n designNode, me
 	for _, m := range members {
 		aliases = append(aliases, m.Inst)
 		if m.ExportOn {
-			pubs = append(pubs, PortMap{ContainerPort: m.Ports.Client, HostPort: m.Export})
+			// The client port keeps the user's requested host port; any extra HTTP
+			// endpoint (HAProxy stats, Patroni REST) is auto-assigned, since only one
+			// port can honour a specific request.
+			for i, cp := range aioPublishPorts(m.Kind, m.Ports) {
+				hp := 0
+				if i == 0 {
+					hp = m.Export
+				}
+				pubs = append(pubs, PortMap{ContainerPort: cp, HostPort: hp})
+			}
 		}
 	}
 	spec := ContainerSpec{

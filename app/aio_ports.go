@@ -314,3 +314,48 @@ func aioSlotsUsed(instances []aioInstance, family string) int {
 	}
 	return n
 }
+
+// ---------------------------------------------------------------- web endpoints
+
+// aioWebEndpoint is an HTTP interface an instance serves: which of its ports, and
+// what to call it.
+type aioWebEndpoint struct {
+	Label string `json:"label"`
+	Port  int    `json:"port"`
+	Path  string `json:"path"`
+}
+
+// aioWebEndpoints lists the HTTP interfaces one member serves.
+//
+// These exist so the manager can offer a real link instead of a host:port string a
+// user has to assemble by hand — and so aioCreateContainer knows to publish them.
+// Only the client port was ever published, which left HAProxy's stats page and
+// Patroni's REST API unreachable from the host even with the export ticked.
+func aioWebEndpoints(kind string, p aioPorts) []aioWebEndpoint {
+	switch kind {
+	case "orchestrator":
+		// Orchestrator's web UI and its API are the same listener.
+		return []aioWebEndpoint{{Label: "Orchestrator", Port: p.Client, Path: "/"}}
+	case "haproxy":
+		return []aioWebEndpoint{{Label: "HAProxy stats", Port: p.Admin, Path: "/stats"}}
+	case "patroni":
+		// JSON rather than a UI, but it is how you read cluster state over HTTP.
+		return []aioWebEndpoint{{Label: "Patroni REST", Port: p.REST, Path: "/cluster"}}
+	}
+	return nil
+}
+
+// aioPublishPorts is every container port an instance should publish when it opts
+// into an export: the client port, plus any HTTP endpoint that is on a different
+// port (a web UI is useless if only the client port is mapped).
+func aioPublishPorts(kind string, p aioPorts) []int {
+	out := []int{p.Client}
+	seen := map[int]bool{p.Client: true}
+	for _, w := range aioWebEndpoints(kind, p) {
+		if w.Port > 0 && !seen[w.Port] {
+			out = append(out, w.Port)
+			seen[w.Port] = true
+		}
+	}
+	return out
+}
