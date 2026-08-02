@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -438,5 +439,210 @@ func TestOrchestratableFramesAreReplicationOnly(t *testing.T) {
 	}
 	if mysqlFamilyFrame("patroni") || mysqlFamilyFrame("") {
 		t.Error("non-MySQL frame types must not join the barrier")
+	}
+}
+
+// ---------------------------------------------------------------- All-in-One
+
+// All four MySQL flavors are mutually exclusive inside one container, and every
+// kind must map to exactly one flavor and one shape or the provisioner silently
+// treats it as "not MySQL family".
+func TestAIOFlavorAndShapeCoverEveryMySQLKind(t *testing.T) {
+	want := map[string][2]string{
+		"ps":            {flavorPS, shapeSingle},
+		"psrepl":        {flavorPS, shapeRepl},
+		"innodb":        {flavorPS, shapeGR},
+		"pxc":           {flavorPXC, shapeGalera},
+		"mysqlce":       {flavorMySQLCE, shapeSingle},
+		"mysqlcerepl":   {flavorMySQLCE, shapeRepl},
+		"mysqlceinnodb": {flavorMySQLCE, shapeGR},
+		"mariadb":       {flavorMariaDB, shapeSingle},
+		"mariadbrepl":   {flavorMariaDB, shapeRepl},
+		"mariadbgalera": {flavorMariaDB, shapeGalera},
+	}
+	for kind, w := range want {
+		if got := aioMySQLFlavorOfKind(kind); got != w[0] {
+			t.Errorf("%s flavor = %q, want %q", kind, got, w[0])
+		}
+		if got := aioMySQLShape(kind); got != w[1] {
+			t.Errorf("%s shape = %q, want %q", kind, got, w[1])
+		}
+	}
+	// Every MySQL-family kind in the catalog must be covered above, or a newly
+	// added kind would fall through every switch without a compile error.
+	for _, k := range aioKinds {
+		if k.Family != famMySQL {
+			continue
+		}
+		if _, ok := want[k.Kind]; !ok {
+			t.Errorf("MySQL-family kind %q has no flavor/shape mapping", k.Kind)
+		}
+	}
+	// Non-MySQL kinds must map to neither.
+	for _, k := range []string{"pg", "psmdb", "valkey", "haproxy", ""} {
+		if aioMySQLFlavorOfKind(k) != flavorNone || aioMySQLShape(k) != shapeNone {
+			t.Errorf("%q should not be MySQL-family", k)
+		}
+	}
+}
+
+func TestAIOMySQLFlavorConflictIsNWay(t *testing.T) {
+	mk := func(kinds ...string) []aioInstance {
+		var out []aioInstance
+		for i, k := range kinds {
+			out = append(out, aioInstance{ID: string(rune('a' + i)), Kind: k, Name: k + "01"})
+		}
+		return out
+	}
+	// Any two distinct flavors collide — not just the original PS/PXC pair.
+	for _, pair := range [][]string{
+		{"ps", "pxc"}, {"ps", "mariadb"}, {"ps", "mysqlce"},
+		{"mariadb", "mysqlce"}, {"pxc", "mariadbgalera"}, {"mysqlceinnodb", "innodb"},
+	} {
+		if _, conflict := aioMySQLFlavor(mk(pair...)); !conflict {
+			t.Errorf("%v should conflict", pair)
+		}
+	}
+	// Same flavor, different shapes: fine, one install serves them all.
+	for _, set := range [][]string{
+		{"ps", "psrepl", "innodb"},
+		{"mariadb", "mariadbrepl", "mariadbgalera"},
+		{"mysqlce", "mysqlcerepl", "mysqlceinnodb"},
+	} {
+		f, conflict := aioMySQLFlavor(mk(set...))
+		if conflict {
+			t.Errorf("%v should not conflict", set)
+		}
+		if f != aioMySQLFlavorOfKind(set[0]) {
+			t.Errorf("%v resolved to %q", set, f)
+		}
+	}
+	if f, c := aioMySQLFlavor(mk("pg", "valkey")); f != flavorNone || c {
+		t.Errorf("non-MySQL instances resolved to %q/%v", f, c)
+	}
+}
+
+// Each flavor keeps its own version fields: a version string carried across a
+// flavor switch would silently mean a different product's numbering.
+func TestAIOFlavorVersionReadsThePerFlavorFields(t *testing.T) {
+	n := designNode{
+		AIOPSMajor: "8.0", AIOPSVersion: "8.0.46-37.1",
+		AIOPXCMajor: "8.4", AIOPXCVersion: "8.4.5-5.1",
+		AIOMariaDBMajor: "11.4", AIOMariaDBVersion: "11.4.11",
+		AIOMySQLCEMajor: "8.0", AIOMySQLCEVersion: "8.0.46-1",
+	}
+	for flavor, want := range map[string][2]string{
+		flavorPS:      {"8.0", "8.0.46-37.1"},
+		flavorPXC:     {"8.4", "8.4.5-5.1"},
+		flavorMariaDB: {"11.4", "11.4.11"},
+		flavorMySQLCE: {"8.0", "8.0.46-1"},
+	} {
+		maj, ver := aioFlavorVersion(n, flavor)
+		if maj != want[0] || ver != want[1] {
+			t.Errorf("%s → %q/%q, want %q/%q", flavor, maj, ver, want[0], want[1])
+		}
+	}
+}
+
+// The AiO MariaDB config must speak MariaDB, not MySQL: the MySQL-only keys are
+// unknown variables there and the server refuses to start.
+func TestAIOMariaDBCnfUsesMariaDBDialect(t *testing.T) {
+	m := aioInstanceRuntime{Inst: "mariadb01", Kind: "mariadb", Group: "", Ports: aioPortsFor("mariadb", 0, 0)}
+	l := aioLayout(m.Inst, m.Kind, m.Ports)
+	cnf := aioMySQLCnf(l, m, designNode{AIOInstances: []aioInstance{{Kind: "mariadb", Name: "mariadb01", GTID: true}}}, "11.4", "")
+	for _, bad := range []string{"gtid_mode", "enforce_gtid_consistency", "mysqlx_port", "mysqlx_socket"} {
+		if strings.Contains(cnf, bad) {
+			t.Errorf("MariaDB config contains MySQL-only %q:\n%s", bad, cnf)
+		}
+	}
+	for _, want := range []string{"gtid_domain_id=", "gtid_strict_mode=ON", "log_slave_updates=ON"} {
+		if !strings.Contains(cnf, want) {
+			t.Errorf("MariaDB config missing %q:\n%s", want, cnf)
+		}
+	}
+	// The Percona path must be unchanged.
+	pm := aioInstanceRuntime{Inst: "ps01", Kind: "ps", Ports: aioPortsFor("ps", 0, 0)}
+	ps := aioMySQLCnf(aioLayout(pm.Inst, pm.Kind, pm.Ports), pm, designNode{AIOInstances: []aioInstance{{Kind: "ps", Name: "ps01", GTID: true}}}, "8.0", "")
+	if !strings.Contains(ps, "gtid_mode=ON") || !strings.Contains(ps, "mysqlx_port=") {
+		t.Errorf("Percona Server config changed:\n%s", ps)
+	}
+}
+
+// A MariaDB Galera member in a shared container must pin every wsrep listener into
+// its own port slot, and quote the SST credentials.
+func TestAIOMariaDBGaleraSettingsPinPortsAndQuoteAuth(t *testing.T) {
+	members := []aioInstanceRuntime{
+		{Inst: "gal01-n1", Kind: "mariadbgalera", Ports: aioPortsFor("mariadbgalera", 0, 0)},
+		{Inst: "gal01-n2", Kind: "mariadbgalera", Ports: aioPortsFor("mariadbgalera", 0, 1)},
+	}
+	s := aioMariaDBGaleraSettings(members[0], designNode{OS: "oraclelinux"}, "gal01", members)
+	for _, want := range []string{
+		"wsrep_on=ON", "wsrep_sst_method=mariabackup",
+		"/usr/lib64/galera-4/libgalera_smm.so", "innodb_autoinc_lock_mode=2",
+		fmt.Sprintf("gmcast.listen_addr=tcp://127.0.0.1:%d", members[0].Ports.Group),
+		fmt.Sprintf("ist.recv_addr=127.0.0.1:%d", members[0].Ports.IST),
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("galera settings missing %q:\n%s", want, s)
+		}
+	}
+	// wsrep_sst_auth must be quoted — '#' in a password would otherwise truncate it.
+	if !strings.Contains(s, `wsrep_sst_auth="`) {
+		t.Errorf("wsrep_sst_auth is not quoted:\n%s", s)
+	}
+	// Both members must appear in the gcomm list, on their own group ports.
+	for _, m := range members {
+		if !strings.Contains(s, fmt.Sprintf("127.0.0.1:%d", m.Ports.Group)) {
+			t.Errorf("gcomm list omits %s:\n%s", m.Inst, s)
+		}
+	}
+}
+
+// The MariaDB AiO scripts must speak MariaDB and stay re-runnable.
+func TestAIOMariaDBScriptsDialect(t *testing.T) {
+	if !strings.Contains(aioMariaDBInitScript, "mariadb-install-db") ||
+		!strings.Contains(aioMariaDBInitScript, "mysql/global_priv.frm") {
+		t.Error("AiO MariaDB init does not use mariadb-install-db guarded on the privilege store")
+	}
+	if strings.Contains(aioMariaDBBaselineScript, "validate_password") {
+		t.Error("MariaDB ships no validate_password component to relax")
+	}
+	if !strings.Contains(aioMariaDBBaselineScript, "SLAVE MONITOR") {
+		t.Error("MariaDB accounts need SLAVE MONITOR for SHOW SLAVE STATUS")
+	}
+	stop := strings.Index(aioMariaDBBaselineScript, "STOP SLAVE")
+	reset := strings.Index(aioMariaDBBaselineScript, "gtid_slave_pos")
+	if stop < 0 || reset < 0 || stop > reset {
+		t.Error("baseline must STOP SLAVE before clearing gtid_slave_pos (ERROR 1198 on redeploy)")
+	}
+	if !strings.Contains(aioMariaDBAttachScript, "MASTER_USE_GTID = slave_pos") {
+		t.Error("attach does not use MariaDB auto-positioning")
+	}
+	for _, bad := range []string{"SOURCE_AUTO_POSITION", "SET PERSIST"} {
+		if strings.Contains(aioMariaDBAttachScript, bad) {
+			t.Errorf("attach contains MySQL-only %q", bad)
+		}
+	}
+	// read_only drop-ins need a group header or MariaDB rejects the whole file.
+	for name, s := range map[string]string{"attach": aioMariaDBAttachScript, "semisync": aioMariaDBSemisyncScript} {
+		if strings.Contains(s, "printf") && !strings.Contains(s, "[mysqld]") {
+			t.Errorf("%s writes a drop-in without a [mysqld] header", name)
+		}
+	}
+}
+
+// The Galera start wrapper is shared by both flavors and must launch the right
+// daemon; --wsrep-new-cluster is the same flag for mariadbd and mysqld.
+func TestAIOGaleraStartWrapperPicksTheDaemon(t *testing.T) {
+	l := aioLayout("gal01-n1", "mariadbgalera", aioPortsFor("mariadbgalera", 0, 0))
+	md := aioGaleraStartWrapper(l, true, "/usr/sbin/mariadbd")
+	if !strings.Contains(md, "exec /usr/sbin/mariadbd") {
+		t.Errorf("MariaDB wrapper does not exec mariadbd:\n%s", md)
+	}
+	if !strings.Contains(md, "--wsrep-new-cluster") || !strings.Contains(md, "safe_to_bootstrap") {
+		t.Error("wrapper lost its bootstrap logic")
+	}
+	if px := aioGaleraStartWrapper(l, true, "/usr/sbin/mysqld"); !strings.Contains(px, "exec /usr/sbin/mysqld") {
+		t.Errorf("PXC wrapper does not exec mysqld:\n%s", px)
 	}
 }

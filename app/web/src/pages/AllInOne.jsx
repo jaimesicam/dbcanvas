@@ -6,7 +6,7 @@ import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import SecretRow, { CopyButton as CopyBtn } from '../components/Secret.jsx'
 import {
   AIO_KINDS, FAMILY_LABEL, kindOf, familyOf, memberCount, planMembers, portList,
-  PORT_ROLE, estMemMB, mysqlFlavor, addBlockedReason, nextInstanceName, sanitizeInst,
+  PORT_ROLE, estMemMB, mysqlFlavor, FLAVOR_LABEL, addBlockedReason, nextInstanceName, sanitizeInst,
 } from '../lib/aioPorts.js'
 
 // AllInOne.jsx — the All-in-One node's designer form and its deployed manager.
@@ -155,6 +155,18 @@ export function AllInOneForm({ node: n, nodes, patchNode, deleteNode, dep, deplo
               majorKey="aioPxcMajor" minorKey="aioPxcVersion"
               hint="Applies to every PXC cluster in this node — one install per container." />
           )}
+          {familiesUsed.includes('mysql') && flavor.flavor === 'mariadb' && (
+            <VersionPicker
+              label="MariaDB" catalog="mariadb" node={n} patchNode={patchNode} deployed={deployed}
+              majorKey="aioMariadbMajor" minorKey="aioMariadbVersion"
+              hint="Applies to every MariaDB instance in this node — one install per container." />
+          )}
+          {familiesUsed.includes('mysql') && flavor.flavor === 'mysqlce' && (
+            <VersionPicker
+              label="MySQL Community" catalog="mysqlce" node={n} patchNode={patchNode} deployed={deployed}
+              majorKey="aioMysqlceMajor" minorKey="aioMysqlceVersion"
+              hint="Applies to every MySQL Community instance in this node — one install per container." />
+          )}
           {familiesUsed.includes('mongodb') && (
             <VersionPicker
               label="PS MongoDB" catalog="psmdb" node={n} patchNode={patchNode} deployed={deployed}
@@ -188,11 +200,11 @@ export function AllInOneForm({ node: n, nodes, patchNode, deleteNode, dep, deplo
       {/* The flavor conflict, if a saved design somehow contains one. */}
       {flavor.conflict && (
         <div className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs leading-snug text-danger">
-          <strong>PXC and Percona Server can't share a container.</strong> This node declares
-          PXC ({flavor.pxc.join(', ')}) and Percona Server ({flavor.ps.join(', ')}).
-          <code className="font-mono"> percona-xtradb-cluster-server</code> conflicts with
-          <code className="font-mono"> percona-server-server</code> at the package level, so the
-          deploy is blocked until one set is removed.
+          <strong>Only one MySQL flavor can share a container.</strong> This node declares{' '}
+          {Object.keys(flavor.byFlavor).map((f) => `${FLAVOR_LABEL[f]} (${flavor.byFlavor[f].join(', ')})`).join(' and ')}.
+          Each of these server packages provides <code className="font-mono">mysql-server</code> and
+          conflicts with the others at the package level, so the deploy is blocked until all but one
+          set is removed.
         </div>
       )}
 

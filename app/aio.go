@@ -184,13 +184,22 @@ func aioPlan(n designNode, domain, host string) []aioInstanceRuntime {
 // aioRoleFor names a member's role within its instance. Roles drive start order
 // (aioctl starts a group's bootstrap/primary first) and provisioning logic.
 func aioRoleFor(in aioInstance, member, total int) string {
-	switch in.Kind {
-	case "psrepl":
+	// MySQL-family kinds are keyed by shape, so a MariaDB or MySQL Community
+	// cluster gets the same roles as its Percona counterpart.
+	switch aioMySQLShape(in.Kind) {
+	case shapeRepl:
 		if member == 0 {
 			return "primary"
 		}
 		return "replica"
-	case "pxc", "innodb", "valkeycluster":
+	case shapeGR, shapeGalera:
+		if member == 0 {
+			return "bootstrap"
+		}
+		return "member"
+	}
+	switch in.Kind {
+	case "valkeycluster":
 		if member == 0 {
 			return "bootstrap"
 		}
@@ -239,26 +248,38 @@ func aioClientFor(family string) string {
 }
 
 // aioMySQLFlavor derives the node's single MySQL flavor from its instances, and
-// reports whether the design asks for both (which cannot be installed together).
+// reports whether the design asks for more than one (which cannot be installed
+// together — every one of these server packages Provides: mysql-server).
 func aioMySQLFlavor(instances []aioInstance) (flavor string, conflict bool) {
-	ps, pxc := false, false
+	seen := map[string]bool{}
 	for _, in := range instances {
-		switch aioMySQLFlavorOfKind(in.Kind) {
-		case flavorPS:
-			ps = true
-		case flavorPXC:
-			pxc = true
+		if f := aioMySQLFlavorOfKind(in.Kind); f != flavorNone {
+			seen[f] = true
 		}
 	}
-	switch {
-	case ps && pxc:
+	if len(seen) > 1 {
 		return flavorNone, true
-	case pxc:
-		return flavorPXC, false
-	case ps:
-		return flavorPS, false
+	}
+	for f := range seen {
+		return f, false
 	}
 	return flavorNone, false
+}
+
+// aioMySQLFlavorsUsed lists the distinct MySQL flavors a design asks for, in a
+// stable order, so a conflict message can name them.
+func aioMySQLFlavorsUsed(instances []aioInstance) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, f := range []string{flavorPS, flavorPXC, flavorMariaDB, flavorMySQLCE} {
+		for _, in := range instances {
+			if aioMySQLFlavorOfKind(in.Kind) == f && !seen[f] {
+				seen[f] = true
+				out = append(out, f)
+			}
+		}
+	}
+	return out
 }
 
 // aioFamiliesUsed is the sorted set of families a node's instances need, so the

@@ -52,6 +52,83 @@ func aioMySQLMajor(n designNode) (major, version string) {
 	return psMajorOf(n.AIOPSMajor), n.AIOPSVersion
 }
 
+// aioFlavorVersion is the node-level series + pinned minor for whichever MySQL
+// flavor the node resolved to. Each flavor keeps its own pair of fields, so
+// switching flavors does not silently reinterpret a version string that belonged
+// to a different product's numbering (Percona 8.0.x, MariaDB 11.4.x, …).
+func aioFlavorVersion(n designNode, flavor string) (major, version string) {
+	switch flavor {
+	case flavorPXC:
+		return aioPXCMajor(n)
+	case flavorMariaDB:
+		return mariadbMajorOf(n.AIOMariaDBMajor), n.AIOMariaDBVersion
+	case flavorMySQLCE:
+		return mysqlceMajorOf(n.AIOMySQLCEMajor), n.AIOMySQLCEVersion
+	}
+	return aioMySQLMajor(n)
+}
+
+// aioMySQLInstallFor installs the node's single MySQL flavor. Everything after this
+// is shape-driven and flavor-agnostic — the servers differ only in packaging, and
+// (for MariaDB) in the dialect the scripts speak.
+func (a *App) aioMySQLInstallFor(ctx context.Context, id string, n designNode, flavor, major, version string, pr *pxcProg, base int) error {
+	pr.phase("Installing "+aioFlavorLabel(flavor), base)
+	debian := isDebianOS(n.OS)
+	var script string
+	var env []string
+	var what string
+	switch flavor {
+	case flavorMariaDB:
+		script = mariadbInstallRHEL
+		if debian {
+			script = mariadbInstallDebian
+		}
+		// Galera's provider is only needed when a Galera instance exists, but it is
+		// a small package and installing it unconditionally keeps one install path.
+		pkgs := strings.Join(mariadbServerPackages(n.OS, true), " ")
+		env = []string{"MAJOR=" + major, "PKGS=" + pkgs, "VER=" + version}
+		what = pkgs
+	case flavorMySQLCE:
+		script = mysqlceInstallRHEL
+		if debian {
+			script = mysqlceInstallDebian
+		}
+		// MySQL Shell is what turns a Group Replication group into an InnoDB
+		// Cluster; install it whenever the node declares a GR-shaped instance.
+		shell := false
+		for _, in := range n.AIOInstances {
+			if aioMySQLShape(in.Kind) == shapeGR {
+				shell = true
+			}
+		}
+		pkgs := strings.Join(mysqlceServerPackages(n.OS, shell, false), " ")
+		env = []string{"MAJOR=" + major, "PKGS=" + pkgs, "VER=" + version, "TOOLS=" + mysqlceToolsRepo(major)}
+		what = pkgs
+	default:
+		product, pkg := aioMySQLPackages(major, n.OS)
+		script = mysqlInstallRHEL
+		if debian {
+			script = mysqlInstallDebian
+		}
+		env = []string{"PRODUCT=" + product, "PKG=" + pkg, "VER=" + version}
+		what = pkg
+	}
+	if err := a.runStep(ctx, id, script, env, pr.logln); err != nil {
+		return fmt.Errorf("install %s: %w", what, err)
+	}
+	pr.logln(what + " installed")
+
+	// Nothing may hold port 3306: the package's own unit would, so mask it before
+	// any instance starts. Masking survives a later package upgrade. MariaDB's unit
+	// is "mariadb" and the others' is mysqld/mysql — mask the whole set regardless
+	// of flavor, since a package could pull in an alias either way.
+	if err := a.runStep(ctx, id, aioMaskVendorUnits, []string{"UNITS=" + mysqlUnit(n.OS) + " mysqld mysql mariadb"}, pr.logln); err != nil {
+		return fmt.Errorf("mask vendor mysql units: %w", err)
+	}
+	pr.logln("vendor server unit masked — instances own their ports")
+	return nil
+}
+
 // aioProvisionMySQL installs the flavor's packages once, then brings up every
 // MySQL-family instance the node declares.
 func (a *App) aioProvisionMySQL(ctx context.Context, st Stack, n designNode, doc designDoc, id string, cfg aioConfig, fresh map[string]bool, sec pxcSecrets, pr *pxcProg, base, span int) error {
@@ -59,32 +136,17 @@ func (a *App) aioProvisionMySQL(ctx context.Context, st Stack, n designNode, doc
 	if conflict {
 		// validateStack blocks this before deploy; this is the backstop for a
 		// design that reached here another way.
-		return fmt.Errorf("this node declares both PXC and Percona Server instances, which cannot share a container")
+		return fmt.Errorf("this node declares more than one MySQL flavor, which cannot share a container")
 	}
-	major, version := aioMySQLMajor(n)
+	major, version := aioFlavorVersion(n, flavor)
 	if flavor == flavorPXC {
-		major, version = aioPXCMajor(n)
+		// PXC's install is its own path: it pulls percona-xtradb-cluster plus the
+		// matching XtraBackup for SST, and pins them together.
 		if err := a.aioPXCInstall(ctx, id, n, pr, base); err != nil {
 			return err
 		}
-	} else {
-		product, pkg := aioMySQLPackages(major, n.OS)
-		pr.phase("Installing Percona Server", base)
-		instScript := mysqlInstallRHEL
-		if isDebianOS(n.OS) {
-			instScript = mysqlInstallDebian
-		}
-		if err := a.runStep(ctx, id, instScript, []string{"PRODUCT=" + product, "PKG=" + pkg, "VER=" + version}, pr.logln); err != nil {
-			return fmt.Errorf("install %s: %w", pkg, err)
-		}
-		pr.logln(pkg + " installed")
-
-		// Nothing may hold port 3306: the package's own unit would, so mask it
-		// before any instance starts. Masking survives a later package upgrade.
-		if err := a.runStep(ctx, id, aioMaskVendorUnits, []string{"UNITS=" + mysqlUnit(n.OS) + " mysqld mysql mariadb"}, pr.logln); err != nil {
-			return fmt.Errorf("mask vendor mysql units: %w", err)
-		}
-		pr.logln("vendor mysqld unit masked — instances own their ports")
+	} else if err := a.aioMySQLInstallFor(ctx, id, n, flavor, major, version, pr, base); err != nil {
+		return err
 	}
 
 	mysqls := aioMembersOfFamily(cfg, famMySQL)
@@ -92,15 +154,21 @@ func (a *App) aioProvisionMySQL(ctx context.Context, st Stack, n designNode, doc
 		return nil
 	}
 
-	if flavor == flavorPXC {
-		return a.aioPXCBringUp(ctx, id, n, cfg, fresh, sec, pr, base, span)
+	// Galera members must come up seed-first, one at a time, so they get their own
+	// bring-up. Everything else follows the prepare/baseline/replicate sequence
+	// below; a MariaDB node may legally mix a Galera cluster with standalones, so
+	// this is not an early return.
+	if aioNodeHasGalera(n) {
+		if err := a.aioGaleraBringUp(ctx, id, n, cfg, fresh, sec, pr, base, span); err != nil {
+			return err
+		}
 	}
 
 	// Phase 1: every NEW member gets its tree, config, datadir, unit — and starts.
 	// Existing members are skipped: re-running the baseline below on a live server
 	// would RESET its binlog/GTID history and break the replication it is part of.
 	for i, m := range mysqls {
-		if !fresh[m.Inst] {
+		if !fresh[m.Inst] || aioMySQLShape(m.Kind) == shapeGalera {
 			continue
 		}
 		pr.phase(fmt.Sprintf("Preparing MySQL instance %s (%d/%d)", m.Inst, i+1, len(mysqls)), base+span/4)
@@ -110,7 +178,7 @@ func (a *App) aioProvisionMySQL(ctx context.Context, st Stack, n designNode, doc
 	}
 	// Phase 2: baseline each new server (root password, accounts, GTID reset).
 	for _, m := range mysqls {
-		if !fresh[m.Inst] {
+		if !fresh[m.Inst] || aioMySQLShape(m.Kind) == shapeGalera {
 			continue
 		}
 		pr.phase("Configuring "+m.Inst, base+span/2)
@@ -182,7 +250,7 @@ func (a *App) aioWriteGRHook(ctx context.Context, id string, m aioInstanceRuntim
 func aioMySQLGRMembers(cfg aioConfig, group string) []aioInstanceRuntime {
 	var out []aioInstanceRuntime
 	for _, m := range cfg.Instances {
-		if m.Kind == "innodb" && m.Group == group {
+		if aioMySQLShape(m.Kind) == shapeGR && m.Group == group {
 			out = append(out, m)
 		}
 	}
@@ -200,7 +268,7 @@ func aioMySQLGRMembers(cfg aioConfig, group string) []aioInstanceRuntime {
 // arbitrary peer. This uses MEMBER_ID=@@server_uuid, which is unique per instance.
 func (a *App) aioMySQLFormGroups(ctx context.Context, id string, n designNode, cfg aioConfig, sec pxcSecrets, pr *pxcProg, pct int) error {
 	for _, in := range n.AIOInstances {
-		if in.Kind != "innodb" {
+		if aioMySQLShape(in.Kind) != shapeGR {
 			continue
 		}
 		group := aioSanitizeInst(in.Name)
@@ -270,20 +338,29 @@ func (a *App) aioMySQLPrepare(ctx context.Context, id string, n designNode, m ai
 	}
 	// Initialize the datadir with this instance's own config, so the server's
 	// idea of datadir/socket/log matches the unit that will run it.
-	if err := a.runStep(ctx, id, aioMySQLInitScript, []string{
+	mariadb := aioIsMariaDB(aioMySQLFlavorOfKind(m.Kind))
+	initScript := aioMySQLInitScript
+	if mariadb {
+		initScript = aioMariaDBInitScript
+	}
+	if err := a.runStep(ctx, id, initScript, []string{
 		"DATADIR=" + l.DataDir, "LOGERR=" + l.LogErr, "INST=" + m.Inst,
-		"SOCK=" + l.Sock, "RUNDIR=" + l.RunDir,
+		"SOCK=" + l.Sock, "RUNDIR=" + l.RunDir, "CONF=" + l.ConfPath,
 	}, pr.logln); err != nil {
 		return fmt.Errorf("%s: initialize datadir: %w", m.Inst, err)
 	}
 
-	exec := fmt.Sprintf("/usr/sbin/mysqld --defaults-file=%s", l.ConfPath)
-	if m.Kind == "pxc" {
+	daemon := "/usr/sbin/mysqld"
+	if mariadb {
+		daemon = "/usr/sbin/mariadbd"
+	}
+	exec := fmt.Sprintf("%s --defaults-file=%s", daemon, l.ConfPath)
+	if aioMySQLShape(m.Kind) == shapeGalera {
 		// Galera needs exactly one member launched with --wsrep-new-cluster; the
 		// wrapper decides when (see aioPXCStartWrapper).
 		wrapper := l.ConfDir + "/start.sh"
 		if err := a.engCtx(ctx).CopyFile(ctx, id, l.ConfDir, "start.sh", 0o755,
-			[]byte(aioPXCStartWrapper(l, m.Role == "bootstrap"))); err != nil {
+			[]byte(aioGaleraStartWrapper(l, m.Role == "bootstrap", daemon))); err != nil {
 			return fmt.Errorf("%s: write start wrapper: %w", m.Inst, err)
 		}
 		exec = wrapper
@@ -308,14 +385,22 @@ func (a *App) aioMySQLPrepare(ctx context.Context, id string, n designNode, m ai
 // aioMySQLCnf renders one instance's my.cnf. Every path and port is the
 // instance's own; nothing here may be a product default.
 func aioMySQLCnf(l instLayout, m aioInstanceRuntime, n designNode, major, version string) string {
+	mariadb := aioIsMariaDB(aioMySQLFlavorOfKind(m.Kind))
 	var b strings.Builder
 	fmt.Fprintf(&b, "# dbcanvas All-in-One — instance %s (%s). Generated; edits are lost on redeploy.\n", m.Inst, m.Kind)
 	fmt.Fprintf(&b, "[client]\nsocket=%s\nport=%d\n\n", l.Sock, m.Ports.Client)
 	b.WriteString("[mysqld]\n")
 	fmt.Fprintf(&b, "server-id=%d\n", serverIDFor(m.Inst))
-	fmt.Fprintf(&b, "port=%d\nmysqlx_port=%d\n", m.Ports.Client, m.Ports.Admin)
+	fmt.Fprintf(&b, "port=%d\n", m.Ports.Client)
+	if !mariadb {
+		fmt.Fprintf(&b, "mysqlx_port=%d\n", m.Ports.Admin)
+	}
 	fmt.Fprintf(&b, "datadir=%s\nsocket=%s\n", l.DataDir, l.Sock)
-	fmt.Fprintf(&b, "mysqlx_socket=%s/mysqlx.sock\n", l.RunDir)
+	if !mariadb {
+		// MariaDB has no X Protocol, so mysqlx_* are unknown variables there and
+		// the server refuses to start.
+		fmt.Fprintf(&b, "mysqlx_socket=%s/mysqlx.sock\n", l.RunDir)
+	}
 	fmt.Fprintf(&b, "log-error=%s\npid-file=%s/mysqld.pid\n", l.LogErr, l.RunDir)
 	fmt.Fprintf(&b, "user=mysql\nbind-address=0.0.0.0\n")
 	fmt.Fprintf(&b, "slow_query_log=ON\nslow_query_log_file=%s/slow.log\nlong_query_time=2\n", l.LogDir)
@@ -323,15 +408,30 @@ func aioMySQLCnf(l instLayout, m aioInstanceRuntime, n designNode, major, versio
 	// default buffer pool; without this a handful of instances exhausts memory.
 	b.WriteString("innodb_buffer_pool_size=128M\nperformance_schema=ON\n")
 	if aioMySQLGTID(n, m) {
-		b.WriteString("gtid_mode=ON\nenforce_gtid_consistency=ON\n")
+		if mariadb {
+			// MariaDB's GTIDs are domain-server-seq; gtid_mode /
+			// enforce_gtid_consistency do not exist. The domain is per *group* so
+			// every member of one topology agrees, and distinct between groups.
+			fmt.Fprintf(&b, "gtid_domain_id=%d\ngtid_strict_mode=ON\n", mariadbGTIDDomain(m.Group+m.Kind))
+		} else {
+			b.WriteString("gtid_mode=ON\nenforce_gtid_consistency=ON\n")
+		}
 	}
-	fmt.Fprintf(&b, "log_bin=%s/binlog\n%s\nbinlog_format=ROW\n", l.DataDir, logUpdatesOption(major, version))
+	if mariadb {
+		fmt.Fprintf(&b, "log_bin=%s/binlog\nlog_slave_updates=ON\nbinlog_format=ROW\n", l.DataDir)
+	} else {
+		fmt.Fprintf(&b, "log_bin=%s/binlog\n%s\nbinlog_format=ROW\n", l.DataDir, logUpdatesOption(major, version))
+	}
 	fmt.Fprintf(&b, "relay_log=%s/relay-bin\n", l.DataDir)
-	switch m.Kind {
-	case "innodb":
+	switch aioMySQLShape(m.Kind) {
+	case shapeGR:
 		b.WriteString(aioMySQLGRSettings(m, n))
-	case "pxc":
-		b.WriteString(aioPXCSettings(m, n, m.Group, aioPXCMembers(n, m.Group)))
+	case shapeGalera:
+		if mariadb {
+			b.WriteString(aioMariaDBGaleraSettings(m, n, m.Group, aioPXCMembers(n, m.Group)))
+		} else {
+			b.WriteString(aioPXCSettings(m, n, m.Group, aioPXCMembers(n, m.Group)))
+		}
 	}
 	return b.String()
 }
@@ -340,7 +440,7 @@ func aioMySQLCnf(l instLayout, m aioInstanceRuntime, n designNode, major, versio
 func aioPXCMembers(n designNode, group string) []aioInstanceRuntime {
 	var out []aioInstanceRuntime
 	for _, m := range aioPlan(n, envOr("DOMAIN", "example.net"), "") {
-		if m.Kind == "pxc" && m.Group == group {
+		if aioMySQLShape(m.Kind) == shapeGalera && m.Group == group {
 			out = append(out, m)
 		}
 	}
@@ -397,8 +497,9 @@ func aioMySQLGTID(n designNode, m aioInstanceRuntime) bool {
 		if aioSanitizeInst(in.Name) != m.Group && aioSanitizeInst(in.Name) != m.Inst {
 			continue
 		}
-		switch in.Kind {
-		case "psrepl", "innodb":
+		// Replication and Group Replication both require GTIDs, whatever the flavor.
+		switch aioMySQLShape(in.Kind) {
+		case shapeRepl, shapeGR:
 			return true
 		default:
 			return in.GTID
@@ -434,7 +535,11 @@ func (a *App) aioMySQLBaseline(ctx context.Context, id string, m aioInstanceRunt
 		"CLUSTER_USER=" + sec.ClusterUser, "CLUSTER_PW=" + sec.ClusterPassword,
 		"ORCH_USER=" + sec.OrchestratorUser, "ORCH_PW=" + sec.OrchestratorPassword,
 	}
-	if err := a.runStep(ctx, id, aioMySQLBaselineScript, env, pr.logln); err != nil {
+	script := aioMySQLBaselineScript
+	if aioIsMariaDB(aioMySQLFlavorOfKind(m.Kind)) {
+		script = aioMariaDBBaselineScript
+	}
+	if err := a.runStep(ctx, id, script, env, pr.logln); err != nil {
 		return fmt.Errorf("%s: baseline: %w", m.Inst, err)
 	}
 	pr.logln(m.Inst + ": root password set; admin/app/repl/monitor accounts created")
@@ -446,7 +551,7 @@ func (a *App) aioMySQLBaseline(ctx context.Context, id string, m aioInstanceRunt
 // clearest demonstration of why nothing may use a default port.
 func (a *App) aioMySQLReplicate(ctx context.Context, id string, n designNode, cfg aioConfig, sec pxcSecrets, major string, pr *pxcProg) error {
 	for _, in := range n.AIOInstances {
-		if in.Kind != "psrepl" {
+		if aioMySQLShape(in.Kind) != shapeRepl {
 			continue
 		}
 		group := aioSanitizeInst(in.Name)
@@ -473,14 +578,25 @@ func (a *App) aioMySQLReplicate(ctx context.Context, id string, n designNode, cf
 				"REPL_USER=" + sec.ReplUser, "REPL_PW=" + sec.ReplPassword,
 				"SOURCE_HOST=127.0.0.1",
 				fmt.Sprintf("SOURCE_PORT=%d", primary.Ports.Client),
+				"CNFDIR=" + rl.ConfDir,
 			}
-			if err := a.runStep(ctx, id, aioMySQLAttachScript, env, pr.logln); err != nil {
+			attach := aioMySQLAttachScript
+			if aioIsMariaDB(aioMySQLFlavorOfKind(r.Kind)) {
+				attach = aioMariaDBAttachScript
+			}
+			if err := a.runStep(ctx, id, attach, env, pr.logln); err != nil {
 				return fmt.Errorf("%s: attach to %s: %w", r.Inst, primary.Inst, err)
 			}
 			pr.logln(fmt.Sprintf("%s replicating from %s (127.0.0.1:%d)", r.Inst, primary.Inst, primary.Ports.Client))
 		}
 		if mysqlReplMode(in.ReplMode) == "semisync" {
-			if err := a.aioMySQLSemisync(ctx, id, primary, replicas, major, sec, pr); err != nil {
+			if aioIsMariaDB(aioMySQLFlavorOfKind(in.Kind)) {
+				// MariaDB 10.3+ builds semi-sync into the server, so there is no
+				// plugin to install — only the enable variables to set.
+				if err := a.aioMariaDBSemisync(ctx, id, primary, replicas, sec, pr); err != nil {
+					return err
+				}
+			} else if err := a.aioMySQLSemisync(ctx, id, primary, replicas, major, sec, pr); err != nil {
 				return err
 			}
 		}
@@ -813,13 +929,16 @@ func aioPXCSettings(m aioInstanceRuntime, n designNode, cluster string, members 
 //
 // Everything else joins normally. Because this lives in ExecStart, `aioctl start
 // <group>` brings a stopped cluster back without any extra machinery.
-func aioPXCStartWrapper(l instLayout, seed bool) string {
+// aioGaleraStartWrapper launches a Galera member, adding --wsrep-new-cluster only
+// when this member must create the primary component. The daemon differs by flavor
+// (mysqld for PXC, mariadbd for MariaDB) but the flag and the grastate logic do not.
+func aioGaleraStartWrapper(l instLayout, seed bool, daemon string) string {
 	seedFlag := "0"
 	if seed {
 		seedFlag = "1"
 	}
 	return fmt.Sprintf(`#!/usr/bin/env bash
-# dbcanvas All-in-One — start wrapper for PXC instance %s. Generated.
+# dbcanvas All-in-One — start wrapper for Galera instance %s. Generated.
 CNF=%q
 GRASTATE=%q
 SEED=%s
@@ -831,8 +950,8 @@ elif [ "$SEED" = 1 ]; then
   # First ever start of the designated seed: nothing to join yet.
   EXTRA="--wsrep-new-cluster"
 fi
-exec /usr/sbin/mysqld --defaults-file="$CNF" $EXTRA
-`, l.Inst, l.ConfPath, l.DataDir+"/grastate.dat", seedFlag)
+exec %s --defaults-file="$CNF" $EXTRA
+`, l.Inst, l.ConfPath, l.DataDir+"/grastate.dat", seedFlag, daemon)
 }
 
 // aioPXCBringUp provisions every PXC cluster in the node: the seed first, then
@@ -844,10 +963,12 @@ exec /usr/sbin/mysqld --defaults-file="$CNF" $EXTRA
 // that never forms. The seed is also the only member that gets the standard
 // account set — unlike Percona Server replication, Galera replicates DDL/DCL to
 // the whole cluster, so creating users on each member would conflict.
-func (a *App) aioPXCBringUp(ctx context.Context, id string, n designNode, cfg aioConfig, fresh map[string]bool, sec pxcSecrets, pr *pxcProg, base, span int) error {
-	major, _ := aioPXCMajor(n)
+func (a *App) aioGaleraBringUp(ctx context.Context, id string, n designNode, cfg aioConfig, fresh map[string]bool, sec pxcSecrets, pr *pxcProg, base, span int) error {
+	flavor, _ := aioMySQLFlavor(n.AIOInstances)
+	major, _ := aioFlavorVersion(n, flavor)
+	label := aioFlavorLabel(flavor)
 	for _, in := range n.AIOInstances {
-		if in.Kind != "pxc" {
+		if aioMySQLShape(in.Kind) != shapeGalera {
 			continue
 		}
 		members := aioPXCMembers(n, aioSanitizeInst(in.Name))
@@ -859,7 +980,7 @@ func (a *App) aioPXCBringUp(ctx context.Context, id string, n designNode, cfg ai
 			if i == 0 {
 				role = "seed"
 			}
-			pr.phase(fmt.Sprintf("Starting PXC %s member %s (%s, %d/%d)", in.Name, m.Inst, role, i+1, len(members)), base+span/3)
+			pr.phase(fmt.Sprintf("Starting %s %s member %s (%s, %d/%d)", label, in.Name, m.Inst, role, i+1, len(members)), base+span/3)
 			if err := a.aioMySQLPrepare(ctx, id, n, m, major, "", pr); err != nil {
 				return err
 			}
@@ -922,3 +1043,174 @@ if [ "$OK" != 1 ]; then
   exit 1
 fi
 exit 0`
+
+// ---------------------------------------------------------------- MariaDB in AiO
+
+// aioNodeHasGalera reports whether any instance on the node is Galera-shaped, in
+// either flavor that provides it (PXC or MariaDB).
+func aioNodeHasGalera(n designNode) bool {
+	for _, in := range n.AIOInstances {
+		if aioMySQLShape(in.Kind) == shapeGalera {
+			return true
+		}
+	}
+	return false
+}
+
+// aioMariaDBGaleraSettings is the wsrep block for a MariaDB Galera member — the
+// MariaDB counterpart of aioPXCSettings.
+//
+// The two differ in more than the provider path. MariaDB's SST method is
+// mariabackup (PXC's is xtrabackup-v2), and its wsrep_sst_auth must be QUOTED: '#'
+// starts a comment in an option file, so an unquoted password containing one is
+// truncated and SST fails with a bare "Access denied". As in the PXC path every
+// address is pinned to this instance's own slot, because Galera's defaults are
+// per-host and the second member in a shared container could not otherwise bind.
+func aioMariaDBGaleraSettings(m aioInstanceRuntime, n designNode, cluster string, members []aioInstanceRuntime) string {
+	var peers []string
+	for _, o := range members {
+		peers = append(peers, fmt.Sprintf("127.0.0.1:%d", o.Ports.Group))
+	}
+	sec := mysqlFamilySecrets()
+	var b strings.Builder
+	b.WriteString("wsrep_on=ON\n")
+	fmt.Fprintf(&b, "wsrep_provider=%s\n", mariadbGaleraProvider(n.OS))
+	fmt.Fprintf(&b, "wsrep_cluster_name=%s\n", mariadbOptQuote(cluster))
+	fmt.Fprintf(&b, "wsrep_cluster_address=%s\n", mariadbOptQuote("gcomm://"+strings.Join(peers, ",")))
+	fmt.Fprintf(&b, "wsrep_node_name=%s\n", mariadbOptQuote(m.Inst))
+	fmt.Fprintf(&b, "wsrep_node_address=%s\n", mariadbOptQuote(fmt.Sprintf("127.0.0.1:%d", m.Ports.Group)))
+	// Every listener pinned into this instance's slot.
+	fmt.Fprintf(&b, "wsrep_provider_options=%s\n", mariadbOptQuote(fmt.Sprintf(
+		"gmcast.listen_addr=tcp://127.0.0.1:%d;ist.recv_addr=127.0.0.1:%d", m.Ports.Group, m.Ports.IST)))
+	fmt.Fprintf(&b, "wsrep_sst_receive_address=%s\n", mariadbOptQuote(fmt.Sprintf("127.0.0.1:%d", m.Ports.SST)))
+	b.WriteString("wsrep_sst_method=mariabackup\n")
+	fmt.Fprintf(&b, "wsrep_sst_auth=%s\n", mariadbOptQuote(sec.ClusterUser+":"+sec.ClusterPassword))
+	b.WriteString("default_storage_engine=InnoDB\ninnodb_autoinc_lock_mode=2\nwsrep_slave_threads=2\n")
+	return b.String()
+}
+
+// aioMariaDBInitScript initializes one instance's datadir with mariadb-install-db.
+//
+// MariaDB has no `mysqld --initialize-insecure`: mariadb-install-db is the only
+// supported way to lay down the system tables, and an existing-but-empty datadir is
+// NOT initialized on first start — the server aborts on "Table 'mysql.db' doesn't
+// exist", which under Galera escalates to a FATAL view-callback error that reads
+// like a clustering fault. mysql/global_priv.frm is MariaDB's privilege store and
+// the marker for "already initialized"; the directory alone is not enough, because
+// an interrupted first start leaves it present but empty.
+//
+// Like the MySQL path this leaves root@localhost reachable over the socket with no
+// password, which is what the baseline then sets.
+const aioMariaDBInitScript = `set -e
+mkdir -p "$DATADIR" "$RUNDIR" "$(dirname "$LOGERR")"
+: >"$LOGERR" 2>/dev/null || true
+chown -R mysql:mysql "$DATADIR" "$RUNDIR" "$LOGERR" 2>/dev/null || true
+if [ ! -f "$DATADIR/mysql/global_priv.frm" ]; then
+  rm -rf "$DATADIR"/* 2>/dev/null || true
+  mariadb-install-db --user=mysql --datadir="$DATADIR" --auth-root-authentication-method=socket >/tmp/init-$INST.log 2>&1 \
+    || { echo "mariadb-install-db failed for $INST:"; tail -15 /tmp/init-$INST.log; exit 1; }
+  chown -R mysql:mysql "$DATADIR"
+  echo "$INST: datadir initialized"
+else
+  echo "$INST: datadir already initialized"
+fi`
+
+// aioMariaDBBaselineScript is the MariaDB counterpart of aioMySQLBaselineScript.
+//
+// It is a separate script rather than more parameters because nearly every line
+// differs: MariaDB ships no validate_password component to relax, authenticates
+// root over the socket (so there is no plugin to name in ALTER USER), splits the
+// old REPLICATION CLIENT privilege into BINLOG MONITOR + SLAVE MONITOR, and clears
+// GTID state with RESET MASTER plus gtid_slave_pos rather than one statement.
+//
+// STOP SLAVE precedes the reset because SET GLOBAL gtid_slave_pos fails with
+// ERROR 1198 while a slave thread is running — a redeploy-only failure.
+const aioMariaDBBaselineScript = `set -e
+MB="mariadb --no-defaults --socket=$SOCK -uroot"
+if $MB -p"$ROOT_PW" -e "SELECT 1" >/dev/null 2>&1; then
+  M="$MB -p$ROOT_PW"
+elif $MB -e "SELECT 1" >/dev/null 2>&1; then
+  # Freshly initialized: root@localhost is unix_socket-authenticated.
+  $MB -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$ROOT_PW';"
+  M="$MB -p$ROOT_PW"
+else
+  echo "cannot authenticate to $SOCK as root (neither the configured password nor the socket worked)"
+  exit 1
+fi
+$M <<SQL
+SET GLOBAL read_only=OFF;
+CREATE USER IF NOT EXISTS '$ADMIN_USER'@'%' IDENTIFIED BY '$ADMIN_PW';
+ALTER USER '$ADMIN_USER'@'%' IDENTIFIED BY '$ADMIN_PW';
+GRANT ALL PRIVILEGES ON *.* TO '$ADMIN_USER'@'%' WITH GRANT OPTION;
+CREATE USER IF NOT EXISTS '$APP_USER'@'%' IDENTIFIED BY '$APP_PW';
+GRANT ALL PRIVILEGES ON *.* TO '$APP_USER'@'%';
+CREATE USER IF NOT EXISTS '$REPL_USER'@'%' IDENTIFIED BY '$REPL_PW';
+GRANT REPLICATION SLAVE ON *.* TO '$REPL_USER'@'%';
+CREATE USER IF NOT EXISTS '$MON_USER'@'%' IDENTIFIED BY '$MON_PW' WITH MAX_USER_CONNECTIONS 10;
+ALTER USER '$MON_USER'@'%' IDENTIFIED BY '$MON_PW';
+GRANT SELECT, PROCESS, RELOAD, BINLOG MONITOR, SLAVE MONITOR ON *.* TO '$MON_USER'@'%';
+GRANT SELECT ON performance_schema.* TO '$MON_USER'@'%';
+CREATE USER IF NOT EXISTS '$CLUSTER_USER'@'localhost' IDENTIFIED BY '$CLUSTER_PW';
+ALTER USER '$CLUSTER_USER'@'localhost' IDENTIFIED BY '$CLUSTER_PW';
+GRANT ALL PRIVILEGES ON *.* TO '$CLUSTER_USER'@'localhost' WITH GRANT OPTION;
+GRANT RELOAD, PROCESS, LOCK TABLES, BINLOG MONITOR, SLAVE MONITOR ON *.* TO '$CLUSTER_USER'@'localhost';
+CREATE USER IF NOT EXISTS '$CLUSTER_USER'@'%' IDENTIFIED BY '$CLUSTER_PW';
+ALTER USER '$CLUSTER_USER'@'%' IDENTIFIED BY '$CLUSTER_PW';
+GRANT ALL PRIVILEGES ON *.* TO '$CLUSTER_USER'@'%' WITH GRANT OPTION;
+CREATE USER IF NOT EXISTS '$ORCH_USER'@'%' IDENTIFIED BY '$ORCH_PW';
+ALTER USER '$ORCH_USER'@'%' IDENTIFIED BY '$ORCH_PW';
+GRANT SUPER, PROCESS, REPLICATION SLAVE, RELOAD, BINLOG MONITOR, SLAVE MONITOR ON *.* TO '$ORCH_USER'@'%';
+FLUSH PRIVILEGES;
+SQL
+$M -e "STOP SLAVE;" 2>/dev/null || true
+$M -e "RESET MASTER; SET GLOBAL gtid_slave_pos='';" 2>/dev/null || true
+exit 0`
+
+// aioMariaDBAttachScript points one MariaDB instance at another in the SAME
+// container. As in the classic path it uses MASTER_USE_GTID = slave_pos, and
+// persists read_only by writing it into the instance's own config — MariaDB has no
+// SET PERSIST. The [mysqld] header is required: MariaDB rejects an option file
+// whose first line is a bare option, and that would break the client too.
+const aioMariaDBAttachScript = `set -e
+M="mariadb --no-defaults --socket=$SOCK -uroot -p$ROOT_PW"
+$M -e "STOP SLAVE;" 2>/dev/null || true
+$M -e "CHANGE MASTER TO MASTER_HOST='127.0.0.1', MASTER_PORT=$SOURCE_PORT, MASTER_USER='$REPL_USER', MASTER_PASSWORD='$REPL_PW', MASTER_USE_GTID = slave_pos;"
+$M -e "START SLAVE;"
+OK=0
+for i in $(seq 1 30); do
+  S=$($M -e "SHOW SLAVE STATUS\G" 2>/dev/null)
+  if echo "$S" | grep -q "Slave_IO_Running: Yes" && echo "$S" | grep -q "Slave_SQL_Running: Yes"; then OK=1; break; fi
+  sleep 2
+done
+[ "$OK" = 1 ] || { echo "replica threads not running:"; $M -e "SHOW SLAVE STATUS\G" 2>/dev/null | grep -iE 'Running|Last_(IO|SQL)_Error|Using_Gtid' | head -8; exit 1; }
+$M -e "SET GLOBAL read_only=ON;"
+printf '[mysqld]\nread_only=ON\n' >"$CNFDIR/zz-readonly.cnf"`
+
+// aioMariaDBSemisync enables semi-sync on one MariaDB replication group. MariaDB
+// has built the plugin into the server since 10.3, so unlike the MySQL path there
+// is nothing to INSTALL — and no SET PERSIST, so the setting is also written to the
+// instance's config to survive a restart.
+func (a *App) aioMariaDBSemisync(ctx context.Context, id string, primary aioInstanceRuntime, replicas []aioInstanceRuntime, sec pxcSecrets, pr *pxcProg) error {
+	set := func(m aioInstanceRuntime, v string) error {
+		l := aioLayout(m.Inst, m.Kind, m.Ports)
+		return a.runStep(ctx, id, aioMariaDBSemisyncScript, []string{
+			"SOCK=" + l.Sock, "ROOT_PW=" + sec.RootPassword,
+			"ENABLEVAR=" + v, "CNFDIR=" + l.ConfDir,
+		}, pr.logln)
+	}
+	if err := set(primary, "rpl_semi_sync_master_enabled"); err != nil {
+		return fmt.Errorf("%s: enable semi-sync source: %w", primary.Inst, err)
+	}
+	for _, r := range replicas {
+		if err := set(r, "rpl_semi_sync_slave_enabled"); err != nil {
+			return fmt.Errorf("%s: enable semi-sync replica: %w", r.Inst, err)
+		}
+	}
+	pr.logln("semi-sync enabled for " + primary.Group)
+	return nil
+}
+
+const aioMariaDBSemisyncScript = `set -e
+M="mariadb --no-defaults --socket=$SOCK -uroot -p$ROOT_PW"
+$M -e "SET GLOBAL $ENABLEVAR=ON;"
+printf '[mysqld]\n%s=ON\n' "$ENABLEVAR" >"$CNFDIR/zz-semisync.cnf"`

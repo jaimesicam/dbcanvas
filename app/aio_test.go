@@ -168,7 +168,7 @@ func TestAIOValidateRejectsMixedMySQLFlavors(t *testing.T) {
 	issues := aioIssues(n, designDoc{Nodes: []designNode{n}}, map[int][]string{}, 0)
 	var found string
 	for _, is := range issues {
-		if is.Level == "error" && strings.Contains(is.Message, "conflicts with percona-server-server") {
+		if is.Level == "error" && strings.Contains(is.Message, "more than one MySQL flavor") {
 			found = is.Message
 		}
 	}
@@ -1084,8 +1084,8 @@ func TestAIOPXCGaleraAddressing(t *testing.T) {
 // safe_to_bootstrap marker so a cleanly stopped cluster restarts correctly.
 func TestAIOPXCStartWrapper(t *testing.T) {
 	l := aioLayout("pxc-cluster-01-n1", "pxc", aioPortsFor("pxc", 0, 0))
-	seed := aioPXCStartWrapper(l, true)
-	joiner := aioPXCStartWrapper(l, false)
+	seed := aioGaleraStartWrapper(l, true, "/usr/sbin/mysqld")
+	joiner := aioGaleraStartWrapper(l, false, "/usr/sbin/mysqld")
 
 	for _, s := range []string{seed, joiner} {
 		if !strings.Contains(s, "safe_to_bootstrap") {

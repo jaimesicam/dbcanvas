@@ -45,6 +45,12 @@ export const AIO_KINDS = [
   { kind: 'psrepl', label: 'PS Replication', family: FAM.MYSQL, cluster: true, min: 2, max: 5, def: 3, est: 700, supported: true },
   { kind: 'innodb', label: 'InnoDB Cluster / GR', family: FAM.MYSQL, cluster: true, min: 3, max: 9, def: 3, odd: true, est: 800, supported: true },
   { kind: 'pxc', label: 'PXC Cluster', family: FAM.MYSQL, cluster: true, min: 2, max: 5, def: 3, est: 900, supported: true },
+  { kind: 'mysqlce', label: 'MySQL Community', family: FAM.MYSQL, est: 700, supported: true },
+  { kind: 'mysqlcerepl', label: 'MySQL Replication', family: FAM.MYSQL, cluster: true, min: 2, max: 5, def: 3, est: 700, supported: true },
+  { kind: 'mysqlceinnodb', label: 'MySQL InnoDB / GR', family: FAM.MYSQL, cluster: true, min: 3, max: 9, def: 3, odd: true, est: 800, supported: true },
+  { kind: 'mariadb', label: 'MariaDB', family: FAM.MYSQL, est: 600, supported: true },
+  { kind: 'mariadbrepl', label: 'MariaDB Replication', family: FAM.MYSQL, cluster: true, min: 2, max: 5, def: 3, est: 600, supported: true },
+  { kind: 'mariadbgalera', label: 'MariaDB Galera', family: FAM.MYSQL, cluster: true, min: 3, max: 5, def: 3, odd: true, est: 800, supported: true },
   { kind: 'pg', label: 'PostgreSQL', family: FAM.PG, est: 300, supported: true },
   { kind: 'patroni', label: 'Patroni Cluster', family: FAM.PG, cluster: true, min: 2, max: 5, def: 3, est: 450, supported: true },
   { kind: 'repmgr', label: 'repmgr Cluster', family: FAM.PG, cluster: true, min: 2, max: 5, def: 3, est: 350, supported: true },
@@ -188,27 +194,56 @@ export function planMembers(instances) {
 }
 
 // --- MySQL flavor ----------------------------------------------------------
-// percona-server-server and percona-xtradb-cluster-server both Provides:
-// mysql-server and cannot both be installed, so an All-in-One node has at most
-// one MySQL flavor. It is derived from the instances, never chosen.
+// Every one of these server packages declares Provides: mysql-server and conflicts
+// with the others, so an All-in-One node has at most one MySQL flavor. It is
+// derived from the instances, never chosen. Mirrors app/aio_ports.go.
 
 export const FLAVOR_PS = 'ps'
 export const FLAVOR_PXC = 'pxc'
+export const FLAVOR_MARIADB = 'mariadb'
+export const FLAVOR_MYSQLCE = 'mysqlce'
+
+export const FLAVOR_LABEL = {
+  [FLAVOR_PS]: 'Percona Server',
+  [FLAVOR_PXC]: 'Percona XtraDB Cluster',
+  [FLAVOR_MARIADB]: 'MariaDB',
+  [FLAVOR_MYSQLCE]: 'MySQL Community',
+}
 
 export const flavorOfKind = (kind) => {
   if (kind === 'ps' || kind === 'psrepl' || kind === 'innodb') return FLAVOR_PS
   if (kind === 'pxc') return FLAVOR_PXC
+  if (kind === 'mariadb' || kind === 'mariadbrepl' || kind === 'mariadbgalera') return FLAVOR_MARIADB
+  if (kind === 'mysqlce' || kind === 'mysqlcerepl' || kind === 'mysqlceinnodb') return FLAVOR_MYSQLCE
   return ''
 }
 
-// mysqlFlavor returns { flavor, conflict, ps: [names], pxc: [names] }.
+// A kind's shape is its topology, independent of whose build provides it.
+export const SHAPE_SINGLE = 'single'
+export const SHAPE_REPL = 'repl'
+export const SHAPE_GR = 'gr'
+export const SHAPE_GALERA = 'galera'
+
+export const shapeOfKind = (kind) => {
+  if (kind === 'ps' || kind === 'mariadb' || kind === 'mysqlce') return SHAPE_SINGLE
+  if (kind === 'psrepl' || kind === 'mariadbrepl' || kind === 'mysqlcerepl') return SHAPE_REPL
+  if (kind === 'innodb' || kind === 'mysqlceinnodb') return SHAPE_GR
+  if (kind === 'pxc' || kind === 'mariadbgalera') return SHAPE_GALERA
+  return ''
+}
+
+// mysqlFlavor returns { flavor, conflict, byFlavor } where byFlavor maps each
+// flavor present to the instance names that pulled it in.
 export function mysqlFlavor(instances) {
-  const ps = instances.filter((i) => flavorOfKind(i.kind) === FLAVOR_PS).map((i) => i.name)
-  const pxc = instances.filter((i) => flavorOfKind(i.kind) === FLAVOR_PXC).map((i) => i.name)
-  if (ps.length && pxc.length) return { flavor: '', conflict: true, ps, pxc }
-  if (pxc.length) return { flavor: FLAVOR_PXC, conflict: false, ps, pxc }
-  if (ps.length) return { flavor: FLAVOR_PS, conflict: false, ps, pxc }
-  return { flavor: '', conflict: false, ps, pxc }
+  const byFlavor = {}
+  for (const i of instances) {
+    const f = flavorOfKind(i.kind)
+    if (!f) continue
+    ;(byFlavor[f] ||= []).push(i.name)
+  }
+  const present = Object.keys(byFlavor)
+  if (present.length > 1) return { flavor: '', conflict: true, byFlavor }
+  return { flavor: present[0] || '', conflict: false, byFlavor }
 }
 
 // addBlockedReason explains why a kind cannot be added to the current node, or
@@ -220,14 +255,11 @@ export function addBlockedReason(kind, instances) {
   if (!k.supported) return `${k.label} instances are not implemented yet — use a dedicated ${k.label} node`
   const want = flavorOfKind(kind)
   if (!want) return ''
-  const { ps, pxc } = mysqlFlavor(instances)
-  if (want === FLAVOR_PXC && ps.length) {
-    return `PXC can't share a container with Percona Server — percona-xtradb-cluster-server conflicts with percona-server-server (${ps.join(', ')})`
-  }
-  if (want === FLAVOR_PS && pxc.length) {
-    return `Percona Server can't share a container with PXC — percona-server-server conflicts with percona-xtradb-cluster-server (${pxc.join(', ')})`
-  }
-  return ''
+  const { byFlavor } = mysqlFlavor(instances)
+  const other = Object.keys(byFlavor).filter((f) => f !== want)
+  if (!other.length) return ''
+  const names = other.map((f) => `${FLAVOR_LABEL[f]} (${byFlavor[f].join(', ')})`).join(' and ')
+  return `${FLAVOR_LABEL[want]} can't share a container with ${names} — these server packages all provide mysql-server and conflict`
 }
 
 // estMemMB is the rough total footprint, for the form's sizing warning.

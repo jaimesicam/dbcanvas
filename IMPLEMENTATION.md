@@ -9574,3 +9574,57 @@ not evidence a form renders, which is how the blank inspector shipped before.
 
 18 new Go tests. `go build`/`go vet`/`gofmt -l` clean; unit suite, `vite build` and
 `make smoke` pass.
+
+## 192. Orchestrator for the new replication frames, and all six kinds in All-in-One — `app/{orchestrator,aio_ports,aio,aio_mysql,aio_validate}.go`, `app/web/src/{lib/aioPorts.js,pages/AllInOne.jsx,pages/UpstreamForms.jsx}`
+
+**Orchestrator.** Both new replication frames already seeded discovery on deploy, but
+there was no designer picker, the post-deploy toggle rejected them, and they sat outside
+the MySQL-family baseline barrier. The scattered `f.Type == "pxc" || f.Type == "mysql"`
+checks became two named predicates — `orchestratableFrame` (classic source/replica only:
+Galera and Group Replication elect their own primary, so there is nothing to fail over)
+and `mysqlFamilyFrame` (the barrier set, which does include the cluster kinds).
+
+One MariaDB bug, found only by pointing a real Orchestrator at a real pair: MariaDB 10.5
+split `REPLICATION CLIENT` into `BINLOG MONITOR` and `SLAVE MONITOR`, and granting the
+MySQL spelling maps to `BINLOG MONITOR` alone. Orchestrator's first probe therefore died
+with "Access denied; you need (at least one of) the SLAVE MONITOR privilege(s)" and the
+cluster was never discovered. Both the Orchestrator and PMM accounts now grant them
+explicitly. Verified live with Percona Orchestrator 3.2.6 against MariaDB 11.4.12,
+reporting the primary read-write with the replica read-only and GTID-tagged beneath it.
+
+**All-in-One gains the other six kinds.** The MySQL family is now modelled as *flavor* ×
+*shape* rather than a list of kind names:
+
+| | single | repl | gr | galera |
+| --- | --- | --- | --- | --- |
+| Percona Server | `ps` | `psrepl` | `innodb` | |
+| PXC | | | | `pxc` |
+| MySQL Community | `mysqlce` | `mysqlcerepl` | `mysqlceinnodb` | |
+| MariaDB | `mariadb` | `mariadbrepl` | | `mariadbgalera` |
+
+Shape drives the topology code and flavor drives packaging, which is what lets MySQL
+Community reuse the Percona paths outright — it is the same server, so only the install
+differs. Existing kind-name switches were converted to shape rather than extended.
+
+The flavor rule generalized from a 2-way boolean to N-way exclusivity: all four server
+packages `Provides: mysql-server`, so the conflict message now names whichever flavors
+collide and the instances that pulled them in. Each flavor keeps its own major/minor
+fields, so switching does not silently reinterpret a version string from different
+numbering — and the AiO form gained MariaDB and MySQL Community pickers with **both**
+major and minor, matching session 190's rule.
+
+MariaDB needed a real dialect inside AiO, not just a different package: no `mysqlx_*`
+(unknown variables there), `gtid_domain_id`/`gtid_strict_mode` instead of
+`gtid_mode`/`enforce_gtid_consistency`, `mariadb-install-db` instead of
+`mysqld --initialize-insecure`, `mariadbd` as the daemon, `MASTER_USE_GTID = slave_pos`
+to attach, built-in semi-sync with no `INSTALL PLUGIN`, and config drop-ins (with a
+`[mysqld]` header) in place of `SET PERSIST`. Its Galera settings use `mariabackup` and a
+quoted `wsrep_sst_auth`, with every wsrep listener pinned into the instance's own port
+slot as the PXC path already does. The PXC bring-up generalized into `aioGaleraBringUp`
+and is no longer an early return, because a MariaDB node may legally mix a Galera cluster
+with standalones.
+
+11 new Go tests (one asserts every MySQL-family kind in the catalog has a flavor/shape
+mapping, so a future kind cannot fall through the switches silently). The render smoke
+test now covers all six new instance cards and the eight designer forms.
+`go build`/`go vet`/`gofmt -l` clean; unit suite, `vite build` and `make smoke` pass.

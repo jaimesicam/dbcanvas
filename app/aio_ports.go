@@ -56,6 +56,12 @@ var aioKinds = []aioKind{
 	{Kind: "psrepl", Label: "PS Replication", Family: famMySQL, Cluster: true, MinMem: 2, MaxMem: 5, DefMem: 3, EstMemMB: 700},
 	{Kind: "innodb", Label: "InnoDB Cluster / GR", Family: famMySQL, Cluster: true, MinMem: 3, MaxMem: 9, DefMem: 3, OddOnly: true, EstMemMB: 800},
 	{Kind: "pxc", Label: "PXC Cluster", Family: famMySQL, Cluster: true, MinMem: 2, MaxMem: 5, DefMem: 3, EstMemMB: 900},
+	{Kind: "mysqlce", Label: "MySQL Community", Family: famMySQL, EstMemMB: 700},
+	{Kind: "mysqlcerepl", Label: "MySQL Replication", Family: famMySQL, Cluster: true, MinMem: 2, MaxMem: 5, DefMem: 3, EstMemMB: 700},
+	{Kind: "mysqlceinnodb", Label: "MySQL InnoDB / GR", Family: famMySQL, Cluster: true, MinMem: 3, MaxMem: 9, DefMem: 3, OddOnly: true, EstMemMB: 800},
+	{Kind: "mariadb", Label: "MariaDB", Family: famMySQL, EstMemMB: 600},
+	{Kind: "mariadbrepl", Label: "MariaDB Replication", Family: famMySQL, Cluster: true, MinMem: 2, MaxMem: 5, DefMem: 3, EstMemMB: 600},
+	{Kind: "mariadbgalera", Label: "MariaDB Galera", Family: famMySQL, Cluster: true, MinMem: 3, MaxMem: 5, DefMem: 3, OddOnly: true, EstMemMB: 800},
 	{Kind: "pg", Label: "PostgreSQL", Family: famPG, EstMemMB: 300},
 	{Kind: "patroni", Label: "Patroni Cluster", Family: famPG, Cluster: true, MinMem: 2, MaxMem: 5, DefMem: 3, EstMemMB: 450},
 	{Kind: "repmgr", Label: "repmgr Cluster", Family: famPG, Cluster: true, MinMem: 2, MaxMem: 5, DefMem: 3, EstMemMB: 350},
@@ -113,15 +119,29 @@ func aioMemberCount(kind string, members int) int {
 
 // ---------------------------------------------------------------- MySQL flavor
 
-// The MySQL family is the one place where two feature kinds cannot share a
-// container: percona-xtradb-cluster-server and percona-server-server both
-// Provides: mysql-server and conflict at the package level. So an AiO node has
-// at most ONE MySQL flavor, derived from the instances present rather than
-// chosen by the user.
+// The MySQL family is the one place where feature kinds cannot share a container.
+// Every one of these server packages declares Provides: mysql-server and conflicts
+// with the others at the package level, so an AiO node has at most ONE MySQL
+// flavor, derived from the instances present rather than chosen by the user.
 const (
-	flavorNone = ""
-	flavorPS   = "ps"  // percona-server-server: ps, psrepl, innodb
-	flavorPXC  = "pxc" // percona-xtradb-cluster-server: pxc
+	flavorNone    = ""
+	flavorPS      = "ps"      // percona-server-server
+	flavorPXC     = "pxc"     // percona-xtradb-cluster-server
+	flavorMariaDB = "mariadb" // MariaDB-server (mariadb.org)
+	flavorMySQLCE = "mysqlce" // mysql-community-server (repo.mysql.com)
+)
+
+// A kind's *shape* is its topology, independent of whose build provides it: the
+// three flavors that speak MySQL run the same standalone / replication / Group
+// Replication code, and Galera is Galera whether PXC or MariaDB ships it. Keeping
+// shape separate from flavor is what lets MySQL Community reuse the Percona paths
+// outright — only the packages differ.
+const (
+	shapeNone   = ""
+	shapeSingle = "single" // one standalone server
+	shapeRepl   = "repl"   // primary + replicas, classic async/semi-sync
+	shapeGR     = "gr"     // Group Replication (optionally InnoDB Cluster)
+	shapeGalera = "galera" // Galera / wsrep
 )
 
 // aioMySQLFlavorOfKind is the flavor a single MySQL-family kind requires
@@ -132,8 +152,48 @@ func aioMySQLFlavorOfKind(kind string) string {
 		return flavorPS
 	case "pxc":
 		return flavorPXC
+	case "mariadb", "mariadbrepl", "mariadbgalera":
+		return flavorMariaDB
+	case "mysqlce", "mysqlcerepl", "mysqlceinnodb":
+		return flavorMySQLCE
 	}
 	return flavorNone
+}
+
+// aioMySQLShape is a MySQL-family kind's topology (shapeNone outside the family).
+func aioMySQLShape(kind string) string {
+	switch kind {
+	case "ps", "mariadb", "mysqlce":
+		return shapeSingle
+	case "psrepl", "mariadbrepl", "mysqlcerepl":
+		return shapeRepl
+	case "innodb", "mysqlceinnodb":
+		return shapeGR
+	case "pxc", "mariadbgalera":
+		return shapeGalera
+	}
+	return shapeNone
+}
+
+// aioIsMariaDB reports whether a flavor speaks MariaDB's dialect rather than
+// MySQL's. This is the only axis on which MariaDB genuinely differs here: its GTIDs
+// are domain-server-seq, it attaches replicas with MASTER_USE_GTID, it has no SET
+// PERSIST, and its client/daemon are mariadb/mariadbd.
+func aioIsMariaDB(flavor string) bool { return flavor == flavorMariaDB }
+
+// aioFlavorLabel names a flavor for progress lines and validation messages.
+func aioFlavorLabel(flavor string) string {
+	switch flavor {
+	case flavorPS:
+		return "Percona Server"
+	case flavorPXC:
+		return "Percona XtraDB Cluster"
+	case flavorMariaDB:
+		return "MariaDB"
+	case flavorMySQLCE:
+		return "MySQL Community"
+	}
+	return "MySQL"
 }
 
 // ---------------------------------------------------------------- ports

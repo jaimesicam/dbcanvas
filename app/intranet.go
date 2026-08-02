@@ -157,17 +157,24 @@ type designNode struct {
 	// the version is a node-level choice, not a per-instance one. PostgreSQL is the
 	// exception (PPG packages are per-major and co-install), so its major lives on
 	// aioInstance instead.
-	AIOPSMajor       string `json:"aioPsMajor"`   // Percona Server "8.0" | "8.4"
-	AIOPSVersion     string `json:"aioPsVersion"` // minor; "" → latest
-	AIOPXCMajor      string `json:"aioPxcMajor"`
-	AIOPXCVersion    string `json:"aioPxcVersion"`
-	AIOPSMDBMajor    string `json:"aioPsmdbMajor"`
-	AIOPSMDBVersion  string `json:"aioPsmdbVersion"`
-	AIOValkeyMajor   string `json:"aioValkeyMajor"`
-	AIOValkeyVer     string `json:"aioValkeyVersion"`
-	AIOProxySQLMajor string `json:"aioProxysqlMajor"`
-	AIOProxySQLVer   string `json:"aioProxysqlVersion"`
-	AIOOrchVersion   string `json:"aioOrchestratorVersion"`
+	AIOPSMajor    string `json:"aioPsMajor"`   // Percona Server "8.0" | "8.4"
+	AIOPSVersion  string `json:"aioPsVersion"` // minor; "" → latest
+	AIOPXCMajor   string `json:"aioPxcMajor"`
+	AIOPXCVersion string `json:"aioPxcVersion"`
+	// MariaDB / MySQL Community keep their own pair per flavor rather than sharing
+	// one: the numbering schemes are unrelated, so a version string carried across
+	// a flavor switch would silently mean something else.
+	AIOMariaDBMajor   string `json:"aioMariadbMajor"`
+	AIOMariaDBVersion string `json:"aioMariadbVersion"`
+	AIOMySQLCEMajor   string `json:"aioMysqlceMajor"`
+	AIOMySQLCEVersion string `json:"aioMysqlceVersion"`
+	AIOPSMDBMajor     string `json:"aioPsmdbMajor"`
+	AIOPSMDBVersion   string `json:"aioPsmdbVersion"`
+	AIOValkeyMajor    string `json:"aioValkeyMajor"`
+	AIOValkeyVer      string `json:"aioValkeyVersion"`
+	AIOProxySQLMajor  string `json:"aioProxysqlMajor"`
+	AIOProxySQLVer    string `json:"aioProxysqlVersion"`
+	AIOOrchVersion    string `json:"aioOrchestratorVersion"`
 }
 
 // designEdge is a connection drawn on the canvas. The endpoints' Node field holds

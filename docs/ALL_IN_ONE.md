@@ -26,6 +26,8 @@ there.
 | Family | Kinds | Notes |
 | --- | --- | --- |
 | MySQL | `ps` · `psrepl` · `innodb` · `pxc` | `psrepl` is async or semi-sync; `innodb` is Group Replication (InnoDB Cluster mode needs MySQL Shell and is refused) |
+| MySQL Community | `mysqlce` · `mysqlcerepl` · `mysqlceinnodb` | Oracle's builds; same shapes as the Percona ones |
+| MariaDB | `mariadb` · `mariadbrepl` · `mariadbgalera` | MariaDB GTIDs are `domain-server-seq`; Galera uses `mariabackup` |
 | PostgreSQL | `pg` · `repmgr` · `patroni` · `spock` | Oracle Linux only. `pg` may run a different major per instance |
 | MongoDB | `psmdb` · `psmrs` · `psmdbsharded` | One install serves all three |
 | Valkey | `valkey` · `valkeycluster` | |
@@ -142,10 +144,13 @@ member's own idempotent bootstrap/join there.
 Both are refused before deploy, with the offending instances named, rather than failing
 halfway through a `dnf` transaction.
 
-**MySQL — one flavor per node.** `percona-server-server` and
-`percona-xtradb-cluster-server` both `Provides: mysql-server`, so a node is either PXC or
-Percona Server. Add one and the designer greys out the other with the reason. Several PXC
-clusters in one node are fine; they share the single install's version.
+**MySQL — one flavor per node.** `percona-server-server`,
+`percona-xtradb-cluster-server`, `MariaDB-server` and `mysql-community-server` all
+`Provides: mysql-server` and conflict with one another, so a node commits to exactly one of
+Percona Server, PXC, MariaDB or MySQL Community. Add one and the designer greys out the
+others with the reason. Several clusters of the same flavor are fine; they share the single
+install's version, and each flavor keeps its own major/minor fields so switching does not
+reinterpret a version string that belonged to different numbering.
 
 **PostgreSQL — one distribution per major.** `repmgr_NN` requires PGDG's
 `postgresqlNN-server`, which `percona-postgresqlNN-server` does not provide; Spock

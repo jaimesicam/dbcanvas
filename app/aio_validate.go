@@ -41,19 +41,23 @@ func aioIssues(n designNode, doc designDoc, exportReq map[int][]string, hostMemB
 
 	// --- the flavor conflict -------------------------------------------------
 	if _, conflict := aioMySQLFlavor(n.AIOInstances); conflict {
-		var psNames, pxcNames []string
-		for _, in := range n.AIOInstances {
-			switch aioMySQLFlavorOfKind(in.Kind) {
-			case flavorPS:
-				psNames = append(psNames, in.Name)
-			case flavorPXC:
-				pxcNames = append(pxcNames, in.Name)
+		// Name every colliding flavor with the instances that pulled it in, so the
+		// fix is obvious without counting kinds by hand.
+		var parts []string
+		for _, f := range aioMySQLFlavorsUsed(n.AIOInstances) {
+			var names []string
+			for _, in := range n.AIOInstances {
+				if aioMySQLFlavorOfKind(in.Kind) == f {
+					names = append(names, in.Name)
+				}
 			}
+			parts = append(parts, fmt.Sprintf("%s (%s)", aioFlavorLabel(f), strings.Join(names, ", ")))
 		}
 		out = append(out, issue{"error", fmt.Sprintf(
-			"All-in-One node %s declares both PXC (%s) and Percona Server (%s) instances. "+
-				"percona-xtradb-cluster-server conflicts with percona-server-server, so only one MySQL flavor can be installed per container — remove one set.",
-			label, strings.Join(pxcNames, ", "), strings.Join(psNames, ", "))})
+			"All-in-One node %s declares more than one MySQL flavor: %s. "+
+				"Each of these server packages Provides: mysql-server and conflicts with the others, "+
+				"so only one can be installed per container — keep one set and remove the rest.",
+			label, strings.Join(parts, " and "))})
 	}
 
 	// --- the PostgreSQL flavor conflict --------------------------------------
