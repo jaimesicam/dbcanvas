@@ -9989,3 +9989,38 @@ clusters named as drawn, three members each, every replica under its own primary
 
 As in session 200, existing nodes need their instances recreated to pick the unit and grant
 up; the reported node was patched by hand to confirm the fix. 2 new Go tests.
+
+## 202. Alert email for All-in-One Orchestrator instances — `app/aio_orch.go`, `app/web/src/pages/AllInOne.jsx`
+
+Requested: an option to supply an alert address on an All-in-One Orchestrator instance.
+
+The field already existed on `aioInstance` and `aioOrchConfJSON` already consumed it — but
+nothing exposed it, and it would not have worked if anything had. The config wired
+`OnFailureDetectionProcesses` to `/usr/local/bin/dbcanvas-orch-alert.sh`, the *classic*
+node's path, which no All-in-One code path ever writes. Setting the address through the API
+would have pointed Orchestrator at a script that does not exist — a hook that fails only
+when a failure is actually detected, which is the worst time to discover it.
+
+The hook is now staged per instance, beside its own config, and the config points there.
+Per instance rather than the shared path because one container can hold several
+Orchestrators: a single script would give all of them whichever address was written last.
+
+The form exposes it on Orchestrator instances only, noting that a bare name is delivered
+inside the stack's domain through the Intranet mail server (`alertEmailAddress` qualifies
+it), so `dba` and `dba@example.net` both work.
+
+Verified on a live node by adding a second Orchestrator instance with its own address:
+
+    orchestrator02: failure alerts wired to oncall@corp.test
+    /opt/aio/orchestrator02/etc/orch-alert.sh          contains oncall@corp.test
+    "OnFailureDetectionProcesses": ["bash /opt/aio/orchestrator02/etc/orch-alert.sh …"]
+    orchestrator01 (no address): no hook script, "OnFailureDetectionProcesses": []
+
+The hook was then executed directly with a synthetic failure and exited 0. The temporary
+instance was removed afterwards.
+
+One limitation worth stating: editing this on an *existing* instance does nothing on
+redeploy. All-in-One skips instances it has already provisioned — deliberately, since
+re-running a baseline would reset a live server's GTID history — so an option changed after
+the fact needs the instance recreated. That applies to every per-instance option, not just
+this one. 1 new Go test.

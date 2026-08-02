@@ -1162,3 +1162,41 @@ func TestAIOOrchestratorUnitSetsItsWorkingDirectory(t *testing.T) {
 		t.Errorf("empty WorkingDirectory should be omitted:\n%s", plain)
 	}
 }
+
+// The All-in-One Orchestrator config named /usr/local/bin/dbcanvas-orch-alert.sh —
+// the classic node's path — but nothing in the All-in-One path ever wrote it, so a
+// configured alert pointed Orchestrator at a script that did not exist. The hook is
+// now staged per instance, which also stops two Orchestrators in one container from
+// overwriting each other's address.
+func TestAIOOrchAlertHookIsPerInstanceAndReal(t *testing.T) {
+	l := aioLayout("orch01", "orchestrator", aioPortsFor("orchestrator", 0, 0))
+	m := aioInstanceRuntime{Inst: "orch01", Kind: "orchestrator", Ports: aioPortsFor("orchestrator", 0, 0)}
+	sec := pxcSecrets{OrchestratorUser: "orc", OrchestratorPassword: "pw"}
+
+	off := aioOrchConfJSON(l, m, sec, "")
+	if !strings.Contains(off, `"OnFailureDetectionProcesses": []`) {
+		t.Error("no alert email should leave the hook list empty")
+	}
+	on := aioOrchConfJSON(l, m, sec, "dba@example.net")
+	// It must point at this instance's own directory, not the classic shared path.
+	if strings.Contains(on, "/usr/local/bin/dbcanvas-orch-alert.sh") {
+		t.Error("hook still points at the shared path the All-in-One path never writes")
+	}
+	want := l.ConfDir + "/" + aioOrchAlertScriptName
+	if !strings.Contains(on, want) {
+		t.Errorf("hook does not point at %s:\n%s", want, on)
+	}
+	// Two instances must not share a hook path.
+	l2 := aioLayout("orch02", "orchestrator", aioPortsFor("orchestrator", 1, 0))
+	if l2.ConfDir == l.ConfDir {
+		t.Fatal("two instances share a config directory")
+	}
+	// The script itself resolves a bare name against the stack domain.
+	s := orchestratorAlertScript("dba", "example.net")
+	if !strings.Contains(s, "dba@example.net") {
+		t.Errorf("bare alert name not qualified with the domain:\n%s", s[:200])
+	}
+	if s2 := orchestratorAlertScript("ops@corp.test", "example.net"); !strings.Contains(s2, "ops@corp.test") {
+		t.Error("a full address should be used as given")
+	}
+}

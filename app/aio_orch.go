@@ -81,7 +81,22 @@ func (a *App) aioOrchPrepare(ctx context.Context, id string, in aioInstance, m a
 	if err := a.runStep(ctx, id, l.mkdirScript(), nil, pr.logln); err != nil {
 		return fmt.Errorf("%s: create directories: %w", m.Inst, err)
 	}
-	conf := aioOrchConfJSON(l, m, sec, strings.TrimSpace(in.AlertEmail))
+	// The alert hook is staged per instance, not at the shared
+	// /usr/local/bin/dbcanvas-orch-alert.sh the classic node uses: one container can
+	// hold several Orchestrator instances, and a shared script would give them all
+	// whichever address was written last. The config previously named that shared
+	// path without anything ever creating it, so a configured alert pointed at a
+	// script that did not exist.
+	alertEmail := strings.TrimSpace(in.AlertEmail)
+	if alertEmail != "" {
+		domain := envOr("DOMAIN", "example.net")
+		if err := a.engCtx(ctx).CopyFile(ctx, id, l.ConfDir, aioOrchAlertScriptName, 0o755,
+			[]byte(orchestratorAlertScript(alertEmail, domain))); err != nil {
+			return fmt.Errorf("%s: write alert hook: %w", m.Inst, err)
+		}
+		pr.logln(m.Inst + ": failure alerts wired to " + alertEmailAddress(alertEmail, domain))
+	}
+	conf := aioOrchConfJSON(l, m, sec, alertEmail)
 	if err := a.engCtx(ctx).CopyFile(ctx, id, l.ConfDir, "orchestrator.conf.json", 0o640, []byte(conf)); err != nil {
 		return fmt.Errorf("%s: write orchestrator.conf.json: %w", m.Inst, err)
 	}
@@ -122,7 +137,8 @@ func (a *App) aioOrchPrepare(ctx context.Context, id string, in aioInstance, m a
 func aioOrchConfJSON(l instLayout, m aioInstanceRuntime, sec pxcSecrets, alertEmail string) string {
 	hooks := "[]"
 	if alertEmail != "" {
-		hooks = `["bash /usr/local/bin/dbcanvas-orch-alert.sh '{failureType}' '{failureCluster}' '{failedHost}' '{failedPort}'"]`
+		hooks = fmt.Sprintf(`["bash %s/%s '{failureType}' '{failureCluster}' '{failedHost}' '{failedPort}'"]`,
+			l.ConfDir, aioOrchAlertScriptName)
 	}
 	return fmt.Sprintf(`{
   "ListenAddress": ":%d",
@@ -140,6 +156,11 @@ func aioOrchConfJSON(l instLayout, m aioInstanceRuntime, sec pxcSecrets, alertEm
 `, m.Ports.Client, l.DataDir+"/orchestrator.sqlite3",
 		sec.OrchestratorUser, sec.OrchestratorPassword, aioOrchClusterAliasQuery, hooks)
 }
+
+// aioOrchAlertScriptName is the per-instance failure-detection hook, written beside
+// the instance's own config so two Orchestrators in one container cannot share (and
+// overwrite) each other's alert address.
+const aioOrchAlertScriptName = "orch-alert.sh"
 
 // aioOrchClusterAliasQuery gives each cluster the name the user typed instead of
 // the master's host:port.

@@ -513,6 +513,16 @@ function InstanceCard({ inst, node, nodes, instances, open, onToggle, patch, onR
               </select>
             </Field>
           )}
+          {inst.kind === 'orchestrator' && (
+            <Field
+              label="Alert email"
+              hint="Optional. Orchestrator mails this address when it detects a failure. A bare name is delivered inside the stack's domain via the Intranet mail server."
+            >
+              <input className={`${inputCls} ${lock}`} type="text" placeholder="dba  or  dba@example.net"
+                value={inst.alertEmail || ''} disabled={deployed}
+                onChange={(e) => patch({ alertEmail: e.target.value })} />
+            </Field>
+          )}
           {isMySQL && inst.kind === 'ps' && (
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={!!inst.gtid} disabled={deployed}
