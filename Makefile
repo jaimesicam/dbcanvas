@@ -3,7 +3,7 @@ SHELL := /bin/bash
 # Load APP_PORT for echoing the URL (falls back to 8080).
 APP_PORT ?= $(shell test -f .env && grep -E '^APP_PORT=' .env | cut -d= -f2 || echo 8080)
 
-.PHONY: compose env build up down logs restart clean images versions trafficsim-image hotelsim-image airlinesim-image carsim-image marketchaos-image
+.PHONY: compose env build up down logs restart clean images versions smoke trafficsim-image hotelsim-image airlinesim-image carsim-image marketchaos-image
 
 ## compose: create .env if needed, then build and start the stack
 compose: env
@@ -39,6 +39,10 @@ logs:
 ## clean: stop stack and remove the built image
 clean:
 	docker compose down --rmi local --remove-orphans
+
+## smoke: render the React components off-browser and fail on any render error
+smoke:
+	cd app/web && npm run smoke
 
 ## images: build systemd base images (OS × platform matrix) → versions.yaml
 images:
