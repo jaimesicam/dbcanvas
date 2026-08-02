@@ -28,6 +28,25 @@ type dbConn struct {
 	Password    string
 	StackID     int64  // for joining the stack network (MongoDB driver dials the container IP)
 	eng         Engine // the node's provisioning engine (Vagrant VM in a hybrid stack, else Docker)
+	// Args are extra client arguments that select ONE server inside the container.
+	// Empty for a classic node, where the client's defaults find the only server
+	// there is. An All-in-One instance sets --socket/-h+-p and, for PostgreSQL, an
+	// absolute client path, because the container holds several servers and the
+	// defaults would reach the wrong one — or nothing at all.
+	Args []string
+	Bin  string // absolute client binary ("" = whatever is on PATH)
+	// Port matters only for the network-dialed engine (MongoDB); the exec-based
+	// ones select their server through Args. 0 = the engine's default.
+	Port int
+}
+
+// client returns the argv prefix for this connection's CLI.
+func (c dbConn) client(name string) []string {
+	bin := name
+	if c.Bin != "" {
+		bin = c.Bin + "/" + name
+	}
+	return append([]string{bin}, c.Args...)
 }
 
 // engine returns the connection's provisioning engine. Set by dbConnFor for the
@@ -40,7 +59,9 @@ func engineForType(t string) string {
 	switch t {
 	case "pg", "patroni", "repmgr", "spock":
 		return "postgres"
-	case "pxc", "ps", "mysql", "innodb":
+	case "pxc", "ps", "mysql", "innodb",
+		"mariadb", "mariadbrepl", "mariadbgalera",
+		"mysqlce", "mysqlcerepl", "mysqlceinnodb":
 		return "mysql"
 	case "psm", "psmdb", "psmrs":
 		return "mongodb"
@@ -48,10 +69,14 @@ func engineForType(t string) string {
 	return ""
 }
 
-func (a *App) dbConnFor(st Stack, nid string) (dbConn, bool) {
+func (a *App) dbConnFor(st Stack, target string) (dbConn, bool) {
+	nid, inst := aioSplitTarget(target)
 	dep, err := a.store.GetDeployment(st.ID, nid)
 	if err != nil || dep.ContainerID == "" || dep.State != DeployRunning {
 		return dbConn{}, false
+	}
+	if inst != "" {
+		return a.aioDBConn(st, dep, inst)
 	}
 	typ := nodeTypeIn(st, nid)
 	engine := engineForType(typ)
@@ -111,11 +136,11 @@ func (a *App) queryJSON(ctx context.Context, c dbConn, db, sql string, out any) 
 	var err error
 	if c.Engine == "mysql" {
 		res, err = c.engine().ExecInput(ctx, c.ContainerID, "",
-			[]string{"mysql", "-u", c.Super, "-N", "--raw", "-B"},
+			append(c.client("mysql"), "-u", c.Super, "-N", "--raw", "-B"),
 			[]string{"MYSQL_PWD=" + c.Password}, []byte(sql))
 	} else {
 		res, err = c.engine().ExecAs(ctx, c.ContainerID, "postgres",
-			[]string{"psql", "-U", c.Super, "-d", db, "-tAqc", sql}, nil)
+			append(c.client("psql"), "-U", c.Super, "-d", db, "-tAqc", sql), nil)
 	}
 	if err != nil {
 		return err
@@ -137,11 +162,11 @@ func (a *App) execSQL(ctx context.Context, c dbConn, db, sql string) error {
 	var err error
 	if c.Engine == "mysql" {
 		res, err = c.engine().ExecInput(ctx, c.ContainerID, "",
-			[]string{"mysql", "-u", c.Super, "-D", db},
+			append(c.client("mysql"), "-u", c.Super, "-D", db),
 			[]string{"MYSQL_PWD=" + c.Password}, []byte(sql))
 	} else {
 		res, err = c.engine().ExecInput(ctx, c.ContainerID, "postgres",
-			[]string{"psql", "-v", "ON_ERROR_STOP=1", "-U", c.Super, "-d", db, "-q", "-f", "-"}, nil, []byte(sql))
+			append(c.client("psql"), "-v", "ON_ERROR_STOP=1", "-U", c.Super, "-d", db, "-q", "-f", "-"), nil, []byte(sql))
 	}
 	if err != nil {
 		return err
@@ -180,6 +205,27 @@ func (a *App) handleDataGenConnections(w http.ResponseWriter, r *http.Request) {
 		}
 		doc := buildDoc(st)
 		for _, n := range doc.Nodes {
+			// An All-in-One node offers one connection per database instance.
+			if n.Type == "aio" {
+				dep, err := a.store.GetDeployment(st.ID, n.ID)
+				if err != nil || dep.State != DeployRunning {
+					continue
+				}
+				for _, m := range aioTargetableInstances(dep) {
+					eng := aioEngineForKind(m.Kind)
+					// Same rule as below: a sharded cluster only accepts writes
+					// through its router.
+					if m.Kind == "psmdbsharded" && m.Role != "mongos" {
+						continue
+					}
+					out = append(out, dgConnection{
+						StackID: st.ID, StackName: st.Name,
+						NodeID: aioJoinTarget(n.ID, m.Inst),
+						Label:  aioTargetLabel(n.Label, m), Engine: eng, Type: m.Kind,
+					})
+				}
+				continue
+			}
 			engine := engineForType(n.Type)
 			if engine == "" {
 				continue
@@ -210,7 +256,7 @@ func (a *App) loadDGNode(w http.ResponseWriter, r *http.Request) (dbConn, bool) 
 	}
 	c, ok := a.dbConnFor(st, r.PathValue("nid"))
 	if !ok {
-		writeErr(w, http.StatusConflict, "node is not running")
+		writeErr(w, http.StatusConflict, "node is not running, or is not a database the Data Generator can target")
 		return dbConn{}, false
 	}
 	return c, true

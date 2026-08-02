@@ -82,6 +82,8 @@ func main() {
 	mux.HandleFunc("GET /api/catalog/valkey", app.handleValkeyCatalog)
 	mux.HandleFunc("GET /api/catalog/ps", app.handlePSCatalog)
 	mux.HandleFunc("GET /api/catalog/orchestrator", app.handleOrchestratorCatalog)
+	mux.HandleFunc("GET /api/catalog/mariadb", app.handleMariaDBCatalog)
+	mux.HandleFunc("GET /api/catalog/mysqlce", app.handleMySQLCECatalog)
 	mux.HandleFunc("GET /api/catalog/psmdb", app.handlePSMDBCatalog)
 	mux.HandleFunc("GET /api/catalog/ppg", app.handlePPGCatalog)
 	mux.HandleFunc("GET /api/catalog/spock", app.handleSpockCatalog)
@@ -243,6 +245,14 @@ func main() {
 	mux.HandleFunc("POST /api/stacks/{id}/frames/{fid}/k3d/users", app.handleK3DUserCreate)
 	mux.HandleFunc("POST /api/stacks/{id}/frames/{fid}/k3d/users/delete", app.handleK3DUserDelete)
 	mux.HandleFunc("GET /api/stacks/{id}/frames/{fid}/k3d/users/{username}/kubeconfig", app.handleK3DUserKubeconfig)
+
+	// All-in-One node: instance inventory + lifecycle. Every action execs the
+	// container's own `aioctl`, so the UI and the CLI cannot diverge.
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/aio/instances", app.handleAIOInstances)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/aio/instances/{inst}/start", app.handleAIOInstanceAction("start"))
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/aio/instances/{inst}/stop", app.handleAIOInstanceAction("stop"))
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/aio/instances/{inst}/restart", app.handleAIOInstanceAction("restart"))
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/aio/instances/{inst}/logs", app.handleAIOInstanceLogs)
 
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/term", app.handleNodeTerminal)
 

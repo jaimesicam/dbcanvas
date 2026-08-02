@@ -70,6 +70,13 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
   TimescaleDB supported).
 - **MySQL / PXC** — **Percona XtraDB Cluster**, Percona Server, MySQL replication, and
   **InnoDB / Group Replication** clusters.
+- **MySQL Community** — Oracle's community builds (8.0 / 8.4) from repo.mysql.com:
+  standalone, replication, and **InnoDB Cluster / Group Replication** (MySQL Shell +
+  MySQL Router).
+- **MariaDB** — from mariadb.org (10.6 / 10.11 / 11.4 / 11.8): standalone, replication
+  and **Galera** clusters. MariaDB's GTIDs are `domain-server-seq`, so replication is
+  wired with `MASTER_USE_GTID = slave_pos` and the cluster's `gtid_domain_id` is derived
+  from its name; Galera state transfers use `mariabackup`.
 - **MongoDB** — Percona Server for MongoDB: standalone, replica set, and sharded
   (PBM backups; optional Keycloak OIDC auth).
 - **Valkey** — standalone and cluster (LDAP integration, PMM monitoring).
@@ -102,6 +109,14 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
   (baseline vs. validated measurements, a hard correctness gate, a 100-point score) rather than
   a checked SQL answer, for MarketChaos), with a live dashboard reachable from the stack's
   Ubuntu VNC desktop.
+- **All in One** — one container running **many** database instances side by side, instead of
+  one product per node. Add features to it from a menu (Percona Server, PS replication, InnoDB
+  Cluster / Group Replication, PXC, PostgreSQL, repmgr, Patroni, Spock, PSMDB standalone /
+  replica set / sharded, Valkey standalone / cluster, ProxySQL, HAProxy, Orchestrator) and each
+  becomes an independent instance with its own datadir, config, systemd unit and **non-default
+  port**. It draws no association lines: every relationship — PMM monitoring, an LDAP directory,
+  OpenBao, Keycloak, a SeaweedFS backup target, the instance a proxy fronts — is a drop-down on
+  the instance itself. See [All in One](#all-in-one) below.
 - **Operations** — cross-cluster replication links, per-node web terminals, certificate
   management, on-demand backups, and TTL-based auto-teardown.
 
@@ -204,6 +219,93 @@ reachable over a browser-based VNC client — handy for GUI database tools insid
 download it: **pg_gather** (a single `GatherReport.html`) on PostgreSQL nodes, or
 **pt-stalk** + `pt-summary` + `pt-mysql-summary` (a tarball) on MySQL/PXC nodes. Feed a
 pt-stalk archive straight into **Visual Summary** (below) to chart it.
+
+### All in One
+
+Every other node type is one product per container: it owns the machine, so it can use the
+product's default port, `/var/lib/<product>`, and the vendor systemd unit. An **All in One** node
+inverts that — a single container hosting a whole estate, so you can demonstrate replication, a
+cluster and a proxy without spending a container (and an IP, and a DNS name) on each.
+
+Add it from the palette, then build it up from the **Add feature** menu. Each feature becomes an
+*instance* with its own name, options and slice of the node's port space:
+
+| Family | Kinds |
+| --- | --- |
+| MySQL | Percona Server · PS Replication (async/semi-sync) · InnoDB Cluster / GR · PXC Cluster |
+| PostgreSQL | PostgreSQL · repmgr Cluster · Patroni Cluster · Spock Cluster |
+| MongoDB | PSMDB · PSMDB Replica Set · PSMDB Sharded |
+| Valkey | Valkey · Valkey Cluster |
+| Proxies | ProxySQL · HAProxy |
+| Topology | Orchestrator |
+
+**Versions** are per family, chosen once at the top of the node's form — major *and* minor,
+from the same `make versions` catalog the other node types use, filtered to what the node's
+OS and architecture can actually install. PostgreSQL is the exception: its packages co-install
+per major, so each PostgreSQL instance picks its own.
+
+**Nothing runs on a default port.** Each instance gets a private 10-port slot — MySQL from 13000,
+PostgreSQL 15000, ProxySQL 16000, MongoDB 17000, HAProxy 18000, Valkey 19000, Orchestrator 20000 —
+and the form shows the exact ports before you deploy. Allocation is positional, so adding an
+instance never moves an existing one's port. Each instance also gets its own DNS name
+(`ps01.example.net`, `repl01-n2.example.net`, …), all resolving to the one container: the port is
+what distinguishes them.
+
+**Controlling instances — `aioctl`.** Open the node's terminal and you get a control tool in the
+spirit of `supervisorctl`:
+
+```
+$ aioctl list
+INSTANCE       KIND     GROUP    ROLE        STATE    PORTS
+ps01           ps       -        standalone  active   13000,13001,…
+repl01-n1      psrepl   repl01   primary     active   13010,13011,…
+repl01-n2      psrepl   repl01   replica     active   13020,13021,…
+
+$ aioctl start repl01        # a whole cluster, seed first
+$ aioctl stop  repl01        # …and followers first on the way down
+$ aioctl connect ps01        # this instance's own CLI, credentials prefilled
+$ aioctl ports               # the node's full port map
+```
+
+`list · ports · info · status · start · stop · restart · logs · connect` all take an instance name,
+a cluster name, or `all`. The node's management panel drives the same script, so the UI and the
+terminal cannot disagree.
+
+**Two packaging conflicts, both enforced before deploy.** They are different, and the designer
+explains each where you hit it:
+
+- **MySQL, node-wide.** `percona-xtradb-cluster-server` and `percona-server-server` both
+  `Provides: mysql-server`, so a node is either PXC *or* Percona Server. Add one and the other is
+  greyed out in the menu with the reason; validation refuses the deploy regardless, so a design
+  saved before the rule existed still cannot reach `dnf`. Several PXC clusters in one node are
+  fine — they share the single install's version.
+- **PostgreSQL, per major.** repmgr needs PGDG's `postgresqlNN-server` (which
+  `percona-postgresqlNN-server` does not provide) and Spock compiles a patched PostgreSQL into the
+  same `/usr/pgsql-NN` prefix. Since PostgreSQL packages are per-major, the rule is per major too:
+  a Percona `pg` on 16 alongside a PGDG `repmgr` on 17 is fine, both on 16 is not.
+
+Everything else only shares a *version* — one install of PSMDB serves a standalone, a replica set
+and a sharded cluster at once, at no cost in capability. PostgreSQL is the one family where
+different instances may run genuinely different majors side by side.
+
+**Editing a deployed node.** Add a feature to a node that is already running and redeploy: the new
+instance is built into the existing container without touching the ones already there. (Removing an
+instance leaves it running — tearing down a datadir stays an explicit action. An instance that
+newly opts into publishing a host port needs a destroy/redeploy, since published ports are fixed
+when the container is created.)
+
+**Using the databases.** All-in-One instances appear individually in the **Query Runner**,
+**Benchmark** and **Data Generator** target lists, named `<node> / <instance>`, each on its own
+port. Non-database instances (Valkey, the proxies, Orchestrator) are not offered there — reach
+those on their own ports.
+
+See **[docs/ALL_IN_ONE.md](docs/ALL_IN_ONE.md)** for the operator guide: the full port map,
+an `aioctl` reference, the container layout, and troubleshooting.
+
+**Limits.** PostgreSQL kinds are Oracle Linux only for now (Debian's packaging is cluster-managed,
+a different model). InnoDB *Cluster* mode needs MySQL Shell and is not installed; use Group
+Replication. A container running thirty daemons is slow to deploy and memory-hungry — the form
+shows a running estimate and validation warns before you get there.
 
 ### Data Generator
 Generate realistic test data for existing tables in your deployed **PostgreSQL** and

@@ -77,8 +77,14 @@ func (a *App) mongoClientFor(ctx context.Context, c dbConn) (*mongo.Client, func
 	if err != nil || ip == "" {
 		return nil, nil, fmt.Errorf("could not resolve node address on the stack network")
 	}
-	uri := fmt.Sprintf("mongodb://%s:%s@%s:27017/?authSource=admin&directConnection=true",
-		url.QueryEscape(c.Super), url.QueryEscape(c.Password), ip)
+	// An All-in-One instance never listens on 27017, so the port travels with the
+	// connection; 0 means a classic node and its default.
+	port := c.Port
+	if port == 0 {
+		port = 27017
+	}
+	uri := fmt.Sprintf("mongodb://%s:%s@%s:%d/?authSource=admin&directConnection=true",
+		url.QueryEscape(c.Super), url.QueryEscape(c.Password), ip, port)
 
 	cctx, cancel := context.WithTimeout(ctx, mongoConnectTimeout)
 	defer cancel()

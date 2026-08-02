@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"net/http"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -338,9 +340,22 @@ type PXCImage struct {
 func loadPXCCatalog() []PXCImage      { return loadImageCatalog("percona_xtradb_cluster") }
 func loadProxySQLCatalog() []PXCImage { return loadImageCatalog("proxysql") }
 func loadPSCatalog() []PXCImage       { return loadImageCatalog("percona_server") }
-func loadPSMDBCatalog() []PXCImage    { return loadImageCatalog("percona_server_mongodb") }
-func loadPPGCatalog() []PXCImage      { return loadImageCatalog("percona_postgresql") }
-func loadValkeyCatalog() []PXCImage   { return loadImageCatalog("percona_valkey") }
+
+// loadMariaDBCatalog parses the per-image `mariadb` section — the MariaDB Server
+// versions installable from mariadb.org, keyed by major series (10.6/10.11/11.4/11.8).
+// Availability is genuinely uneven across the image matrix and the catalog is what
+// keeps the picker honest about it: there is no 10.6 build for EL10 or for Ubuntu
+// noble, so those series come back empty on those images.
+func loadMariaDBCatalog() []PXCImage { return loadImageCatalog("mariadb") }
+
+// loadMySQLCECatalog parses the per-image `mysql_community` section — the Oracle
+// MySQL Community Server versions from repo.mysql.com, keyed by major series
+// (8.0/8.4). 5.7 is deliberately absent: Oracle publishes it only for el7, which is
+// not in the image matrix. EL10 has an 8.4 repo but no 8.0 one.
+func loadMySQLCECatalog() []PXCImage { return loadImageCatalog("mysql_community") }
+func loadPSMDBCatalog() []PXCImage   { return loadImageCatalog("percona_server_mongodb") }
+func loadPPGCatalog() []PXCImage     { return loadImageCatalog("percona_postgresql") }
+func loadValkeyCatalog() []PXCImage  { return loadImageCatalog("percona_valkey") }
 
 // loadOrchestratorCatalog parses the per-image `percona_orchestrator` section —
 // the percona-orchestrator versions installable on each image, keyed under a
@@ -493,6 +508,109 @@ func (a *App) handlePSCatalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"images": loadPSCatalog()})
+}
+
+// upstreamVersionIssues checks a MariaDB or MySQL-Community selection against the
+// catalog for the node's own image.
+//
+// Worth validating rather than leaving to the deploy because availability is
+// genuinely uneven across the image matrix, in ways nothing about the form hints
+// at: mariadb.org publishes no 10.6 for EL10 or for Ubuntu noble, and Oracle
+// publishes no MySQL 8.0 repository for EL10 at all. Without this, picking one of
+// those combinations fails minutes later inside a dnf transaction, with a mirror
+// error rather than "that series does not exist for this OS".
+//
+// Only one of the two version pairs is consulted, chosen by node/frame type; the
+// other is ignored, so callers can pass both without branching.
+func upstreamVersionIssues(typ, label, os, osVersion, arch, mdMajor, mdVersion, ceMajor, ceVersion string) []issue {
+	var (
+		images  []PXCImage
+		major   string
+		version string
+		product string
+	)
+	switch typ {
+	case "mariadb", "mariadbrepl", "mariadbgalera":
+		images, major, version, product = loadMariaDBCatalog(), mariadbMajorOf(mdMajor), mdVersion, "MariaDB"
+	case "mysqlce", "mysqlcerepl", "mysqlceinnodb":
+		images, major, version, product = loadMySQLCECatalog(), mysqlceMajorOf(ceMajor), ceVersion, "MySQL Community"
+	default:
+		return nil
+	}
+	// No catalog at all means versions.yaml predates these sections; `make versions`
+	// is the fix, and saying so beats silently accepting anything.
+	if len(images) == 0 {
+		return []issue{{"warning", label + ": no " + product + " version catalog — run `make versions`"}}
+	}
+	arch = archOr(arch)
+	for _, im := range images {
+		if im.OS != os || im.OSVersion != osVersion || im.Arch != arch {
+			continue
+		}
+		avail := im.Versions[major]
+		where := product + " " + major + " on " + os + " " + osVersion
+		if len(avail) == 0 {
+			return []issue{{"error", label + ": " + where + " has no packages — choose another series"}}
+		}
+		if version == "" {
+			return nil // "" means newest available, which by definition exists
+		}
+		for _, v := range avail {
+			if v == version {
+				return nil
+			}
+		}
+		return []issue{{"error", label + ": " + product + " " + version + " is not available for " + os + " " + osVersion + " — newest is " + avail[0]}}
+	}
+	return nil // unknown image; the missing-image check already reports it
+}
+
+// aioSpockMajors lists the PostgreSQL majors Spock can be built on for one image,
+// newest first. Empty when the image is unknown or the catalog has not been
+// generated, so callers treat "no catalog" as "cannot judge" rather than "nothing
+// is allowed".
+func aioSpockMajors(os, osVersion, arch string) []string {
+	arch = archOr(arch)
+	for _, im := range loadSpockCatalog() {
+		if im.OS != os || im.OSVersion != osVersion || im.Arch != arch {
+			continue
+		}
+		var out []string
+		for m, vs := range im.Versions {
+			if len(vs) > 0 {
+				out = append(out, m)
+			}
+		}
+		sort.Slice(out, func(i, j int) bool { return pgMajorNum(out[i]) > pgMajorNum(out[j]) })
+		return out
+	}
+	return nil
+}
+
+// pgMajorNum parses a PostgreSQL major for ordering ("16" → 16); 0 when unparseable,
+// which sorts such entries last rather than panicking on odd catalog data.
+func pgMajorNum(s string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func (a *App) handleMariaDBCatalog(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.currentUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"images": loadMariaDBCatalog()})
+}
+
+func (a *App) handleMySQLCECatalog(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.currentUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"images": loadMySQLCECatalog()})
 }
 
 func (a *App) handleOrchestratorCatalog(w http.ResponseWriter, r *http.Request) {

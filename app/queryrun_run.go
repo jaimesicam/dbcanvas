@@ -74,6 +74,7 @@ type qrQuery struct {
 	dbUser          string
 	dbPass          string
 	database        string
+	dbPort          int // 0 = the engine default; non-zero for an All-in-One instance
 
 	executed  int64 // atomic
 	errs      int64 // atomic
@@ -160,6 +161,14 @@ func (run *qrRun) launch(ctx context.Context) {
 // unaided. Shared by the Query Runner and Benchmark.
 // An empty database means the engine default (MySQL: none; Postgres: "postgres").
 func (a *App) dialNodeDSN(ctx context.Context, stackID int64, containerID, engine, user, pass, database string) (string, string, error) {
+	// Port 0 → the engine's default, i.e. every classic node.
+	return a.dialNodeDSNPort(ctx, stackID, containerID, engine, user, pass, database, 0)
+}
+
+// dialNodeDSNPort is dialNodeDSN with an explicit port. An All-in-One instance
+// never listens on its product's default, so its port must be carried here
+// rather than inferred from the engine.
+func (a *App) dialNodeDSNPort(ctx context.Context, stackID int64, containerID, engine, user, pass, database string, port int) (string, string, error) {
 	netName := networkName(stackID)
 	eng := a.dialEngine(stackID, containerID)
 	if err := a.joinStackForDial(ctx, eng, netName); err != nil {
@@ -170,7 +179,14 @@ func (a *App) dialNodeDSN(ctx context.Context, stackID int64, containerID, engin
 		return "", "", fmt.Errorf("could not resolve node address on the stack network")
 	}
 	if engine == "mysql" {
-		return "mysql", qrMySQLDSN(user, pass, fmt.Sprintf("%s:3306", ip), database), nil
+		p := port
+		if p == 0 {
+			p = 3306
+		}
+		return "mysql", qrMySQLDSN(user, pass, fmt.Sprintf("%s:%d", ip, p), database), nil
+	}
+	if port == 0 {
+		port = 5432
 	}
 	db := database
 	if db == "" {
@@ -179,7 +195,7 @@ func (a *App) dialNodeDSN(ctx context.Context, stackID int64, containerID, engin
 	dsn := (&url.URL{
 		Scheme:   "postgres",
 		User:     url.UserPassword(user, pass),
-		Host:     fmt.Sprintf("%s:5432", ip),
+		Host:     fmt.Sprintf("%s:%d", ip, port),
 		Path:     "/" + db,
 		RawQuery: "sslmode=prefer&connect_timeout=10",
 	}).String()
@@ -188,7 +204,7 @@ func (a *App) dialNodeDSN(ctx context.Context, stackID int64, containerID, engin
 
 // dial resolves the query's connection at run start (off the HTTP handler).
 func (run *qrRun) dial(ctx context.Context, q *qrQuery) error {
-	driver, dsn, err := run.app.dialNodeDSN(ctx, q.stackID, q.nodeContainerID, q.engine, q.dbUser, q.dbPass, q.database)
+	driver, dsn, err := run.app.dialNodeDSNPort(ctx, q.stackID, q.nodeContainerID, q.engine, q.dbUser, q.dbPass, q.database, q.dbPort)
 	if err != nil {
 		return err
 	}

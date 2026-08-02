@@ -18,3 +18,6 @@ dist/
 
 # OS
 .DS_Store
+
+# vite SSR bundle for the render smoke test (npm run smoke)
+app/web/.smoke/

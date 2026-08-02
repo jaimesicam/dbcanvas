@@ -71,6 +71,9 @@ type benchRun struct {
 	label           string
 	dbUser, dbPass  string
 	nodeContainerID string
+	// dbPort is 0 for a classic node (the engine's default) and the instance's
+	// slot port for an All-in-One target, which never uses a default.
+	dbPort int
 
 	cancel context.CancelFunc
 
@@ -211,7 +214,7 @@ func (run *benchRun) execute(ctx context.Context) {
 		}
 	}
 
-	_, dsn, err := run.app.dialNodeDSN(ctx, run.cfg.StackID, run.nodeContainerID, run.engine, run.dbUser, run.dbPass, run.cfg.Database)
+	_, dsn, err := run.app.dialNodeDSNPort(ctx, run.cfg.StackID, run.nodeContainerID, run.engine, run.dbUser, run.dbPass, run.cfg.Database, run.dbPort)
 	if err != nil {
 		run.fail(err.Error())
 		return

@@ -348,6 +348,15 @@ func (a *App) reconcileStackDNS(ctx context.Context, stackID int64) {
 			continue
 		}
 		recs = append(recs, dnsRecord{host: h, ip: ip})
+		// An All-in-One node runs many instances behind one container IP. Publish
+		// each instance's name as its own A record so a replication config, a PMM
+		// registration or a psql -h reads as a hostname rather than "the AiO box,
+		// port 15020". Same IP, different names — the port disambiguates.
+		if typeByID[d.NodeID] == "aio" {
+			for _, inst := range aioRuntimeInstances(d) {
+				recs = append(recs, dnsRecord{host: inst.Inst, ip: ip})
+			}
+		}
 	}
 	sort.Slice(recs, func(i, j int) bool { return recs[i].host < recs[j].host })
 

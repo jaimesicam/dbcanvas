@@ -54,6 +54,8 @@ export const stackApi = {
   valkeyCatalog: () => request('GET', '/api/catalog/valkey'),
   psCatalog: () => request('GET', '/api/catalog/ps'),
   orchestratorCatalog: () => request('GET', '/api/catalog/orchestrator'),
+  mariadbCatalog: () => request('GET', '/api/catalog/mariadb'),
+  mysqlceCatalog: () => request('GET', '/api/catalog/mysqlce'),
   psmdbCatalog: () => request('GET', '/api/catalog/psmdb'),
   ppgCatalog: () => request('GET', '/api/catalog/ppg'),
   spockCatalog: () => request('GET', '/api/catalog/spock'),
@@ -90,6 +92,21 @@ export function seaweedApi(id, nid) {
     objects: (bucket, path = '', after = '') =>
       request('GET', `${base}/objects?bucket=${encodeURIComponent(bucket)}` +
         `&path=${encodeURIComponent(path)}&after=${encodeURIComponent(after)}`),
+  }
+}
+
+// All-in-One node management. Every action execs the container's own `aioctl`
+// (see app/aio_mgmt.go), so these buttons and the CLI an operator runs in the
+// node's terminal are the same implementation. `sel` is an instance name, a
+// group (cluster) name, or "all" — the selectors aioctl itself accepts.
+export function aioApi(id, nid) {
+  const base = `/api/stacks/${id}/nodes/${nid}/aio`
+  return {
+    instances: () => request('GET', `${base}/instances`),
+    start: (sel) => request('POST', `${base}/instances/${encodeURIComponent(sel)}/start`),
+    stop: (sel) => request('POST', `${base}/instances/${encodeURIComponent(sel)}/stop`),
+    restart: (sel) => request('POST', `${base}/instances/${encodeURIComponent(sel)}/restart`),
+    logs: (inst) => request('GET', `${base}/instances/${encodeURIComponent(inst)}/logs`),
   }
 }
 

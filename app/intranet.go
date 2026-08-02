@@ -51,6 +51,18 @@ type designNode struct {
 	RootPassword string `json:"rootPassword"` // "" → auto-generated
 	CertTTLValue int    `json:"certTtlValue"`
 	CertTTLUnit  string `json:"certTtlUnit"`
+	// MariaDB node fields (Type=="mariadb" standalone; the "mariadbrepl" and
+	// "mariadbgalera" members take these from their frame). Reuses OS/OSVersion/Arch,
+	// GTID, RootPassword, PMMNodeID, UseProxy, GenerateCert/CertTTL and export above.
+	// Packages come from mariadb.org, whose repo is per major series.
+	MariaDBMajor   string `json:"mariadbMajor"`   // "10.6" | "10.11" | "11.4" | "11.8"
+	MariaDBVersion string `json:"mariadbVersion"` // minor; "" → latest
+	// MySQL Community node fields (Type=="mysqlce" standalone; "mysqlcerepl" and
+	// "mysqlceinnodb" members take these from their frame). Oracle's community
+	// packages from repo.mysql.com — only 8.0 and 8.4 are published for this image
+	// matrix (5.7 exists for el7 only).
+	MySQLCEMajor   string `json:"mysqlceMajor"`   // "8.0" | "8.4"
+	MySQLCEVersion string `json:"mysqlceVersion"` // minor; "" → latest
 	// Standalone PS MongoDB node fields (Type=="psm"; reuses OS/OSVersion/Arch,
 	// RootPassword (admin pw), PMMNodeID, UseProxy, GenerateCert/CertTTL, export above).
 	PSMDBMajor   string `json:"psmdbMajor"`   // "6.0" | "7.0" | "8.0"
@@ -134,6 +146,35 @@ type designNode struct {
 	// full user@domain address) that failure-detection alerts are sent to. "" → no
 	// alert hook is wired.
 	AlertEmail string `json:"alertEmail"`
+	// All-in-One node fields (Type=="aio"). ONE container running many database
+	// feature instances side by side, instead of one product per node — see aio.go.
+	// Reuses OS/OSVersion/Arch, CPUs/MemoryGB and UseProxy above; every other option
+	// is per instance. The node draws no association lines (its NODE_TYPES entry sets
+	// ports:false): each instance wires itself to PMM/LDAP/OpenBao/etc. through its
+	// own picker, the same optional relationship PMMNodeID already is elsewhere.
+	AIOInstances []aioInstance `json:"aioInstances"`
+	// Per-family versions. One package install serves every instance of a family, so
+	// the version is a node-level choice, not a per-instance one. PostgreSQL is the
+	// exception (PPG packages are per-major and co-install), so its major lives on
+	// aioInstance instead.
+	AIOPSMajor    string `json:"aioPsMajor"`   // Percona Server "8.0" | "8.4"
+	AIOPSVersion  string `json:"aioPsVersion"` // minor; "" → latest
+	AIOPXCMajor   string `json:"aioPxcMajor"`
+	AIOPXCVersion string `json:"aioPxcVersion"`
+	// MariaDB / MySQL Community keep their own pair per flavor rather than sharing
+	// one: the numbering schemes are unrelated, so a version string carried across
+	// a flavor switch would silently mean something else.
+	AIOMariaDBMajor   string `json:"aioMariadbMajor"`
+	AIOMariaDBVersion string `json:"aioMariadbVersion"`
+	AIOMySQLCEMajor   string `json:"aioMysqlceMajor"`
+	AIOMySQLCEVersion string `json:"aioMysqlceVersion"`
+	AIOPSMDBMajor     string `json:"aioPsmdbMajor"`
+	AIOPSMDBVersion   string `json:"aioPsmdbVersion"`
+	AIOValkeyMajor    string `json:"aioValkeyMajor"`
+	AIOValkeyVer      string `json:"aioValkeyVersion"`
+	AIOProxySQLMajor  string `json:"aioProxysqlMajor"`
+	AIOProxySQLVer    string `json:"aioProxysqlVersion"`
+	AIOOrchVersion    string `json:"aioOrchestratorVersion"`
 }
 
 // designEdge is a connection drawn on the canvas. The endpoints' Node field holds
@@ -194,6 +235,16 @@ type designFrame struct {
 	PSMajor   string `json:"psMajor"`   // Percona Server "8.0" | "8.4"
 	PSVersion string `json:"psVersion"` // minor; "" → latest
 	ReplMode  string `json:"replMode"`  // mysql: "async"|"semisync" · innodb: "innodbcluster"|"groupreplication"
+	// MariaDB frame config (Type=="mariadbrepl" replication | "mariadbgalera"
+	// Galera). Reuses OS/OSVersion/Arch, RootPassword, PMMNodeID,
+	// OrchestratorNodeID, UseProxy, GTID, ReplMode, GenerateCert/CertTTL above.
+	MariaDBMajor   string `json:"mariadbMajor"`   // "10.6" | "10.11" | "11.4" | "11.8"
+	MariaDBVersion string `json:"mariadbVersion"` // minor; "" → latest
+	// MySQL Community frame config (Type=="mysqlcerepl" replication |
+	// "mysqlceinnodb" InnoDB Cluster / Group Replication). Reuses the same shared
+	// fields, plus ReplMode and MySQLRouter for the InnoDB frame.
+	MySQLCEMajor   string `json:"mysqlceMajor"`   // "8.0" | "8.4"
+	MySQLCEVersion string `json:"mysqlceVersion"` // minor; "" → latest
 	// InnoDB / Group Replication frame config (Type=="innodb"; reuses OS/OSVersion/
 	// Arch, RootPassword, PMMNodeID, UseProxy, GenerateCert/CertTTL, ReplMode above;
 	// GTID is always on). The Percona Server version comes from the PDPS repo.
@@ -666,6 +717,20 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			if n.ExportEnabled && n.ExportHostPort > 0 {
 				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
 			}
+		case "mariadb", "mysqlce":
+			others++
+			img := pxcImage(n.OS, n.OSVersion, n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+				}
+			}
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+			out = append(out, upstreamVersionIssues(n.Type, n.Label, n.OS, n.OSVersion, n.Arch,
+				n.MariaDBMajor, n.MariaDBVersion, n.MySQLCEMajor, n.MySQLCEVersion)...)
 		case "ps", "psm":
 			others++
 			img := pxcImage(n.OS, n.OSVersion, n.Arch)
@@ -755,6 +820,17 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			}
 			// The web UI is always published to an auto-assigned free host port
 			// (like PMM/the app simulators) — no user-chosen port to collide with.
+		case "aio":
+			others++
+			img := pxcImage(n.OS, n.OSVersion, n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+				}
+			}
+			_, hostMem := a.engCtx(ctx).HostResources(ctx)
+			out = append(out, aioIssues(n, doc, exportReq, hostMem)...)
 		case "trafficsim":
 			others++
 			if !seenImg[trafficSimImage] {
@@ -964,6 +1040,78 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	for name, c := range mysqlNames {
 		if c > 1 && name != "" {
 			out = append(out, issue{"error", "Duplicate MySQL replication name: " + name})
+		}
+	}
+
+	// --- MariaDB and MySQL Community frames ---
+	// All four share a shape, so one loop handles them: count members, check the
+	// topology rule for the kind, verify the image, and check the chosen version
+	// against the catalog (availability is uneven — see upstreamVersionIssues).
+	upstreamNames := map[string]int{}
+	for _, f := range doc.Frames {
+		var pretty string
+		switch f.Type {
+		case "mariadbrepl":
+			pretty = "MariaDB replication"
+		case "mariadbgalera":
+			pretty = "MariaDB Galera"
+		case "mysqlcerepl":
+			pretty = "MySQL replication"
+		case "mysqlceinnodb":
+			pretty = "MySQL InnoDB Cluster"
+		default:
+			continue
+		}
+		upstreamNames[f.Type+"\x00"+strings.TrimSpace(f.Label)]++
+		primaries, members := 0, 0
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != f.Type {
+				continue
+			}
+			members++
+			if n.Role == "primary" {
+				primaries++
+			}
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		}
+		switch f.Type {
+		case "mariadbrepl", "mysqlcerepl":
+			if primaries != 1 {
+				out = append(out, issue{"error", fmt.Sprintf("%s %s must have exactly one primary (has %d)", pretty, f.Label, primaries)})
+			}
+			if members-primaries < 1 {
+				out = append(out, issue{"error", pretty + " " + f.Label + " needs at least one secondary"})
+			}
+		case "mariadbgalera":
+			// Galera needs a majority to hold a primary component, so an even member
+			// count buys no extra fault tolerance and two nodes cannot survive one loss.
+			if members < 3 {
+				out = append(out, issue{"error", fmt.Sprintf("%s %s needs at least 3 members (has %d)", pretty, f.Label, members)})
+			} else if members%2 == 0 {
+				out = append(out, issue{"warning", fmt.Sprintf("%s %s has %d members — an even cluster cannot break a tie; use an odd number", pretty, f.Label, members)})
+			}
+		case "mysqlceinnodb":
+			if members < 3 {
+				out = append(out, issue{"error", fmt.Sprintf("%s %s needs at least 3 members (has %d)", pretty, f.Label, members)})
+			} else if members%2 == 0 {
+				out = append(out, issue{"warning", fmt.Sprintf("%s %s has %d members — Group Replication needs an odd number to reach quorum", pretty, f.Label, members)})
+			}
+		}
+		img := pxcImage(f.OS, f.OSVersion, f.Arch)
+		if !seenImg[img] {
+			seenImg[img] = true
+			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+				out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+			}
+		}
+		out = append(out, upstreamVersionIssues(f.Type, f.Label, f.OS, f.OSVersion, f.Arch,
+			f.MariaDBMajor, f.MariaDBVersion, f.MySQLCEMajor, f.MySQLCEVersion)...)
+	}
+	for key, c := range upstreamNames {
+		if name := key[strings.IndexByte(key, 0)+1:]; c > 1 && name != "" {
+			out = append(out, issue{"error", "Duplicate cluster name: " + name})
 		}
 	}
 
@@ -1452,7 +1600,14 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if d, ok := existing[n.ID]; ok && d.State == DeployRunning {
-			continue
+			// An All-in-One node is the one type whose contents can legitimately
+			// grow after it is running: its instance list is edited on the node
+			// itself, not by adding canvas nodes. Re-enter it when the planned
+			// instance set has changed so the new instances get built; provisionAIO
+			// reuses the container and skips the ones already there.
+			if !(n.Type == "aio" && aioNeedsRedeploy(a, st, n, d)) {
+				continue
+			}
 		}
 		switch n.Type {
 		case "intranet":
@@ -1465,6 +1620,10 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionProxySQL(st, n, doc)
 		case "ps":
 			a.provisionPerconaServer(st, n, doc)
+		case "mariadb":
+			a.provisionMariaDB(st, n, doc)
+		case "mysqlce":
+			a.provisionMySQLCE(st, n, doc)
 		case "pg":
 			a.provisionPG(st, n, doc)
 		case "psm":
@@ -1497,6 +1656,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionCarSim(st, n, doc)
 		case "marketchaos":
 			a.provisionMarketChaos(st, n, doc)
+		case "aio":
+			a.provisionAIO(st, n, doc)
 		}
 	}
 
@@ -1506,7 +1667,7 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 	// cross-cluster channels are held until all of them reach their reset baseline.
 	var barrierIDs []string
 	for _, f := range doc.Frames {
-		if f.Type != "pxc" && f.Type != "mysql" {
+		if !mysqlFamilyFrame(f.Type) {
 			continue
 		}
 		var ids []string
@@ -1540,6 +1701,14 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			memberType = "mysql"
 		case "innodb":
 			memberType = "innodb"
+		case "mariadbrepl":
+			memberType = "mariadbrepl"
+		case "mariadbgalera":
+			memberType = "mariadbgalera"
+		case "mysqlcerepl":
+			memberType = "mysqlcerepl"
+		case "mysqlceinnodb":
+			memberType = "mysqlceinnodb"
 		case "psmdb":
 			memberType = "psmdb"
 		case "psmrs":
@@ -1579,6 +1748,14 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionMySQLFrame(st, f, doc)
 		case "innodb":
 			a.provisionInnoDBFrame(st, f, doc)
+		case "mariadbrepl":
+			a.provisionMariaDBFrame(st, f, doc)
+		case "mariadbgalera":
+			a.provisionMariaDBGaleraFrame(st, f, doc)
+		case "mysqlcerepl":
+			a.provisionMySQLCEFrame(st, f, doc)
+		case "mysqlceinnodb":
+			a.provisionMySQLCEInnoDBFrame(st, f, doc)
 		case "psmdb":
 			a.provisionMongoDBFrame(st, f, doc)
 		case "psmrs":
@@ -2159,14 +2336,21 @@ func (a *App) refreshPublishedPorts(ctx context.Context, st Stack, nid string, d
 			cfg.AdminPort = p
 		}
 		save(cfg)
-	case "mysql", "ps":
+	case "mysql", "ps", "mysqlce", "mysqlcerepl":
 		var cfg mysqlConfig
 		json.Unmarshal(dep.Config, &cfg)
 		if p, ok := readPort("3306/tcp"); ok {
 			cfg.ExportPort = p
 		}
 		save(cfg)
-	case "innodb":
+	case "mariadb", "mariadbrepl", "mariadbgalera":
+		var cfg mariadbConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("3306/tcp"); ok {
+			cfg.ExportPort = p
+		}
+		save(cfg)
+	case "innodb", "mysqlceinnodb":
 		var cfg innodbConfig
 		json.Unmarshal(dep.Config, &cfg)
 		if p, ok := readPort("6446/tcp"); ok {

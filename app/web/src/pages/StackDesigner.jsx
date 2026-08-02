@@ -19,6 +19,12 @@ import HAProxyManager from './HAProxyManager.jsx'
 import PGManager from './PGManager.jsx'
 import RepmgrManager from './RepmgrManager.jsx'
 import SpockManager from './SpockManager.jsx'
+import { AllInOneForm, AllInOneManager } from './AllInOne.jsx'
+import {
+  MariaDBNodeForm, MariaDBFrameForm, MariaDBGaleraFrameForm,
+  MySQLCENodeForm, MySQLCEFrameForm, MySQLCEInnoDBFrameForm,
+  UpstreamMemberForm,
+} from './UpstreamForms.jsx'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import { SecretInline, CopyButton as CopyBtn } from '../components/Secret.jsx'
 import {
@@ -181,6 +187,85 @@ const NODE_TYPES = {
       enableVault: false, openbaoNodeId: '',
     },
   },
+  // MariaDB, from mariadb.org. Both packaging families are offered: unlike the
+  // Percona nodes this upstream publishes Debian builds dbcanvas can use directly.
+  mariadb: {
+    label: 'MariaDB',
+    slug: 'mariadb',
+    sub: 'MariaDB (standalone)',
+    color: '#c0765a',
+    icon: 'Database',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }],
+    defaults: {
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64', mariadbMajor: '11.4', mariadbVersion: '',
+      rootPassword: '', gtid: true, pmmNodeId: '', useProxy: false,
+      generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
+      exportEnabled: false, exportHostPort: 0,
+    },
+  },
+  mariadbrepl: {
+    label: 'MariaDB Replication',
+    slug: 'mariadbrepl',
+    sub: 'MariaDB replication member',
+    color: '#c0765a',
+    icon: 'Database',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }],
+    defaults: { exportEnabled: false, exportHostPort: 0 },
+  },
+  mariadbgalera: {
+    label: 'MariaDB Galera',
+    slug: 'mariadbgalera',
+    sub: 'MariaDB Galera member',
+    color: '#a85d43',
+    icon: 'Database',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }],
+    defaults: { exportEnabled: false, exportHostPort: 0 },
+  },
+  // Oracle's MySQL Community builds, from repo.mysql.com.
+  mysqlce: {
+    label: 'MySQL',
+    slug: 'mysqlce',
+    sub: 'MySQL Community (standalone)',
+    color: '#00758f',
+    icon: 'Database',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }],
+    defaults: {
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64', mysqlceMajor: '8.4', mysqlceVersion: '',
+      rootPassword: '', gtid: true, pmmNodeId: '', useProxy: false,
+      generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
+      exportEnabled: false, exportHostPort: 0,
+    },
+  },
+  mysqlcerepl: {
+    label: 'MySQL Replication',
+    slug: 'mysqlcerepl',
+    sub: 'MySQL replication member',
+    color: '#00758f',
+    icon: 'Database',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }],
+    defaults: { exportEnabled: false, exportHostPort: 0 },
+  },
+  mysqlceinnodb: {
+    label: 'MySQL InnoDB / GR',
+    slug: 'mysqlceinnodb',
+    sub: 'MySQL InnoDB Cluster member',
+    color: '#005d72',
+    icon: 'Database',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }],
+    defaults: { exportEnabled: false, exportHostPort: 0 },
+  },
   // Standalone single PostgreSQL instance (no Patroni/etcd/replication).
   pg: {
     label: 'PostgreSQL',
@@ -250,7 +335,7 @@ const NODE_TYPES = {
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: {
       os: 'oraclelinux', osVersion: '9', arch: 'amd64',
-      orchestratorVersion: '', alertEmail: '', useProxy: false,
+      orchestratorVersion: '', alertEmail: 'admin', useProxy: false,
     },
   },
   // SeaweedFS — an S3-compatible object store (backup target). Like PMM it runs a
@@ -444,6 +529,28 @@ const NODE_TYPES = {
   // latter two, via a drawn association line (see endpointKind/tryConnect) — its
   // dashboard port is published to the host (like PMM), so no VNC desktop is
   // needed to reach it.
+  // All in One — ONE container running many database instances side by side,
+  // instead of one product per node. It carries no connection endpoints
+  // (ports:false) on purpose: every relationship an instance has (PMM, LDAP,
+  // OpenBao, the instance a proxy fronts) is a drop-down inside the node's form,
+  // not a line drawn on the canvas. Instance options live in node.aioInstances;
+  // see app/aio.go and pages/AllInOne.jsx.
+  aio: {
+    label: 'All in One',
+    slug: 'aio',
+    sub: 'Every database feature in one container',
+    color: '#7c3aed',
+    icon: 'Server',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }],
+    defaults: {
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64', useProxy: false,
+      aioPsMajor: '8.0', aioPsVersion: '', aioPxcMajor: '8.0', aioPxcVersion: '',
+      aioPsmdbMajor: '8.0', aioValkeyMajor: '9.1', aioProxysqlMajor: '2',
+      aioInstances: [],
+    },
+  },
   marketchaos: {
     label: 'Unoptimized MySQL Challenge',
     slug: 'marketchaos',
@@ -556,7 +663,7 @@ function nextMemberName(usedSet, prefix) {
 }
 
 // Per-frame-type presentation: accent color and the description line.
-const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', psmdb: '#10b981', psmrs: '#059669', patroni: '#336791', repmgr: '#0e7490', spock: '#dc2626', valkeycluster: '#7c3aed', k3d: '#326ce5' }
+const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', mariadbrepl: '#c0765a', mariadbgalera: '#a85d43', mysqlcerepl: '#00758f', mysqlceinnodb: '#005d72', psmdb: '#10b981', psmrs: '#059669', patroni: '#336791', repmgr: '#0e7490', spock: '#dc2626', valkeycluster: '#7c3aed', k3d: '#326ce5' }
 
 // A SeaweedFS node creates up to ten buckets, so several databases can share one object store
 // without sharing a bucket. Every consumer picks which one it uses; "" means the node's first.
@@ -588,6 +695,11 @@ const addBtnStyle = (t) => {
   return c ? { backgroundColor: c, borderColor: c, color: '#fff' } : undefined
 }
 const frameColor = (f) => FRAME_COLORS[f?.type] || '#a855f7'
+
+// Member-name prefixes for the MariaDB / MySQL Community cluster frames. Having one
+// table means the add-cluster builder and the add-member button cannot disagree
+// about what a member of a given frame type is called — or what type it is.
+const UPSTREAM_FRAME_PREFIX = { mariadbrepl: 'mariadb', mariadbgalera: 'galera', mysqlcerepl: 'mysqlce', mysqlceinnodb: 'myidc' }
 
 // osLabel is the OS line on a node's canvas card. It compacts "Oracle Linux 9" to "OL9" — the
 // cards are small, and this is the same shortening pxcOSLabel does for the nodes that carry their
@@ -644,11 +756,49 @@ const deployedLabel = (type, dep) => {
 // else the major series, e.g. "Percona XtraDB Cluster 8.0").
 const pxcVersionLabel = (f) => `Percona XtraDB Cluster ${f?.pxcVersion || f?.pxcMajor || ''}`.trim()
 
+// Frames whose members are a primary plus read-only secondaries. Grouped because
+// three places need the same answer: the member's description, the greyed accent on
+// a secondary, and which added members default to 'secondary'.
+export const REPL_FRAME_TYPES = new Set(['mysql', 'mariadbrepl', 'mysqlcerepl'])
+
+// frameMemberSub is the one-line description under a cluster member's name on the
+// canvas.
+//
+// Extracted and exported so the render smoke test can assert every frame type
+// answers for itself. It used to default to 'Galera data node', which silently
+// mislabelled the members of every frame type added afterwards — MariaDB and MySQL
+// replication members were being described as Galera data nodes.
+export function frameMemberSub(f, n, kids = []) {
+  if (n?.role === 'arbitrator') return 'Arbitrator · garbd'
+  switch (f?.type) {
+    case 'proxysql': return 'ProxySQL'
+    case 'pxc': return 'Galera data node'
+    case 'mariadbgalera': return 'Galera data node'
+    case 'mysql':
+    case 'mariadbrepl':
+    case 'mysqlcerepl': return n?.role === 'primary' ? 'Primary' : 'Secondary · read-only'
+    case 'innodb':
+    case 'mysqlceinnodb': return f.replMode === 'groupreplication' ? 'GR member' : 'Cluster member'
+    case 'psmdb': return n?.role === 'mongos' ? 'mongos router' : n?.role === 'config' ? 'config server' : `shard ${n?.shard} member`
+    case 'psmrs': return 'replica-set member'
+    case 'patroni': return 'Patroni node'
+    case 'repmgr': return 'PostgreSQL + repmgr'
+    case 'spock': return 'PostgreSQL + Spock'
+    case 'valkeycluster': return 'Valkey shard'
+    case 'k3d': return kids.indexOf(n) === 0 ? 'k3s server' : 'k3s agent'
+    default: return 'Cluster member'
+  }
+}
+
 // frameVersionLabel: the description line for a cluster-frame type.
 const frameVersionLabel = (f) => {
   if (f?.type === 'proxysql') return `ProxySQL ${f?.proxysqlVersion || f?.proxysqlMajor || ''}`.trim()
   if (f?.type === 'mysql') return `Percona Server ${f?.psVersion || f?.psMajor || ''} replication`.trim()
   if (f?.type === 'innodb') return `${f?.replMode === 'groupreplication' ? 'Group Replication' : 'InnoDB Cluster'}${f?.pdpsRepo ? ` · ${f.pdpsRepo}` : ''}`
+  if (f?.type === 'mariadbrepl') return `MariaDB ${f?.mariadbVersion || f?.mariadbMajor || ''} replication`.replace(/\s+/g, ' ').trim()
+  if (f?.type === 'mariadbgalera') return `MariaDB ${f?.mariadbVersion || f?.mariadbMajor || ''} Galera`.replace(/\s+/g, ' ').trim()
+  if (f?.type === 'mysqlcerepl') return `MySQL ${f?.mysqlceVersion || f?.mysqlceMajor || ''} replication`.replace(/\s+/g, ' ').trim()
+  if (f?.type === 'mysqlceinnodb') return `MySQL ${f?.mysqlceVersion || f?.mysqlceMajor || ''} · ${f?.replMode === 'groupreplication' ? 'Group Replication' : 'InnoDB Cluster'}`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'psmdb') return `PS MongoDB ${f?.psmdbVersion || f?.psmdbMajor || ''} sharded · ${f?.psmdbSetup === 'minimum' ? 'minimum' : 'standard'}`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'psmrs') return `PS MongoDB ${f?.psmdbVersion || f?.psmdbMajor || ''} replica set`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'patroni') return `Percona PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · Patroni`.replace(/\s+/g, ' ').trim()
@@ -670,7 +820,7 @@ const proxyModeOpts = (backendType) => PROXY_MODE_OPTS[backendType === 'mysql' ?
 
 // nodeOSLabel renders a free node's OS line; ProxySQL carries its own os/version
 // (like a PXC frame), other nodes map via their osOptions.
-const nodeOSLabel = (n) => (n.type === 'proxysql' || n.type === 'ps' || n.type === 'pg' || n.type === 'psm' || n.type === 'haproxy' || n.type === 'orchestrator' || n.type === 'vnc' || n.type === 'linuxclient' || n.type === 'valkey' ? pxcOSLabel(n) : osLabel(n.type, n.os))
+const nodeOSLabel = (n) => (n.type === 'proxysql' || n.type === 'ps' || n.type === 'pg' || n.type === 'psm' || n.type === 'haproxy' || n.type === 'orchestrator' || n.type === 'vnc' || n.type === 'linuxclient' || n.type === 'valkey' || n.type === 'aio' ? pxcOSLabel(n) : osLabel(n.type, n.os))
 
 // Auto-numbered per-type labels: a non-singleton node is named "<slug>-NN" with
 // NN zero-padded from 01 and increasing per node type (pmm-01, pmm-02, …, and in
@@ -1560,6 +1710,59 @@ function StackEditor({ stackId, onBack }) {
     setNodes(r.nodes)
     setSelected({ kind: 'frame', id: fid })
   }
+  // The four upstream cluster kinds share one shape — a frame carrying the version
+  // and options, plus N member nodes of the same type — so one builder serves them
+  // all. Only the defaults and the member count differ.
+  function addUpstreamCluster(type, prefix, count, frameDefaults, withRoles) {
+    if (!nodes.some((n) => n.type === 'intranet')) return
+    const fid = uid('frame')
+    const fx = (-view.x + 200) / view.z
+    const fy = (-view.y + 200) / view.z
+    const frame = {
+      id: fid, type, label: nextNamedCluster(frames, prefix), x: fx, y: fy, w: 0, h: 0,
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64',
+      rootPassword: '', pmmNodeId: '', useProxy: false,
+      generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
+      ...frameDefaults,
+    }
+    const used = new Set(nodes.filter((n) => n.type === type).map((n) => n.label))
+    const newNodes = []
+    for (let i = 0; i < count; i++) {
+      const name = nextMemberName(used, prefix)
+      used.add(name)
+      const node = { id: uid(prefix), type, label: name, frameId: fid, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
+      // Galera and Group Replication are multi-master: no member is "the primary",
+      // and the seed is chosen positionally by the provisioner.
+      if (withRoles) node.role = i === 0 ? 'primary' : 'secondary'
+      newNodes.push(node)
+    }
+    const r = relayout(fid, [...frames, frame], [...nodes, ...newNodes])
+    setFrames(r.frames)
+    setNodes(r.nodes)
+    setSelected({ kind: 'frame', id: fid })
+  }
+  // newUpstreamMember adds one member to an existing MariaDB / MySQL Community
+  // frame. Without this the generic fallback in addFrameMember would create a
+  // `pxc` node inside, say, a MariaDB frame — the member type must match the
+  // frame's, because the provisioner selects members by n.Type == frame.Type.
+  function newUpstreamMember(frameId, type) {
+    const prefix = UPSTREAM_FRAME_PREFIX[type]
+    const used = new Set(nodes.filter((n) => n.type === type).map((n) => n.label))
+    const node = { id: uid(prefix), type, label: nextMemberName(used, prefix), frameId, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
+    // Replication frames keep exactly one primary, so an added member is a
+    // secondary. Galera and Group Replication members carry no role at all.
+    if (REPL_FRAME_TYPES.has(type)) node.role = 'secondary'
+    return node
+  }
+  const addMariaDBCluster = () => addUpstreamCluster('mariadbrepl', UPSTREAM_FRAME_PREFIX['mariadbrepl'], 3,
+    { mariadbMajor: '11.4', mariadbVersion: '', gtid: true, replMode: 'async' }, true)
+  const addMariaDBGaleraCluster = () => addUpstreamCluster('mariadbgalera', UPSTREAM_FRAME_PREFIX['mariadbgalera'], 3,
+    { mariadbMajor: '11.4', mariadbVersion: '' }, false)
+  const addMySQLCECluster = () => addUpstreamCluster('mysqlcerepl', UPSTREAM_FRAME_PREFIX['mysqlcerepl'], 3,
+    { mysqlceMajor: '8.4', mysqlceVersion: '', gtid: true, replMode: 'async' }, true)
+  const addMySQLCEInnoDBCluster = () => addUpstreamCluster('mysqlceinnodb', UPSTREAM_FRAME_PREFIX['mysqlceinnodb'], 3,
+    { mysqlceMajor: '8.4', mysqlceVersion: '', replMode: 'innodbcluster', mysqlRouter: true }, false)
+
   // A K3D cluster's members are the k3s nodes k3d creates: the first is the server, the rest
   // agents. Default 1 node (a k3s cluster is perfectly happy single-node), resizable to 3.
   function newK3DMember(frameId) {
@@ -1848,6 +2051,11 @@ function StackEditor({ stackId, onBack }) {
       const r = relayout(frame.id, frames, [...nodes, newValkeyMember(frame.id)])
       setFrames(r.frames)
       setNodes(r.nodes)
+    } else if (UPSTREAM_FRAME_PREFIX[frame.type]) {
+      if (nodes.filter((n) => n.frameId === frame.id).length >= 9) return // max 9
+      const r = relayout(frame.id, frames, [...nodes, newUpstreamMember(frame.id, frame.type)])
+      setFrames(r.frames)
+      setNodes(r.nodes)
     } else {
       addPXCNode(frame.id)
     }
@@ -1858,7 +2066,7 @@ function StackEditor({ stackId, onBack }) {
     if (mine.length <= 1) return // keep at least one node
     // Patroni/repmgr need ≥3 members: never drop below 3.
     const frame = frames.find((f) => f.id === frameId)
-    if ((frame?.type === 'patroni' || frame?.type === 'repmgr' || frame?.type === 'valkeycluster') && mine.length <= 3) return
+    if ((frame?.type === 'patroni' || frame?.type === 'repmgr' || frame?.type === 'valkeycluster' || frame?.type === 'mariadbgalera' || frame?.type === 'mysqlceinnodb') && mine.length <= 3) return
     if (frame?.type === 'spock' && mine.length <= 2) return // Spock keeps ≥2 members
     const target = mine[mine.length - 1]
     // Confirm when the member being dropped is deployed (its container + volume go).
@@ -2021,12 +2229,25 @@ function StackEditor({ stackId, onBack }) {
       { label: 'Watchtower', type: 'watchtower', onClick: () => addNode('watchtower'), off: has('watchtower') },
       { label: 'Keycloak', type: 'keycloak', onClick: () => addNode('keycloak'), off: has('keycloak') },
     ] },
+    { title: 'All in One', items: [
+      { label: 'All in One', type: 'aio', onClick: () => addNode('aio') },
+    ] },
     { title: 'MySQL', items: [
       { label: 'PXC Cluster', type: 'pxc', onClick: addPXCCluster },
       { label: 'Percona Server', type: 'ps', onClick: () => addNode('ps') },
       { label: 'PS Replication', type: 'mysql', onClick: addMySQLCluster },
       { label: 'InnoDB / GR', type: 'innodb', onClick: addInnoDBCluster },
       { label: 'Orchestrator', type: 'orchestrator', onClick: () => addNode('orchestrator') },
+    ] },
+    { title: 'MySQL Community', items: [
+      { label: 'MySQL', type: 'mysqlce', onClick: () => addNode('mysqlce') },
+      { label: 'MySQL Replication', type: 'mysqlcerepl', onClick: addMySQLCECluster },
+      { label: 'InnoDB / GR', type: 'mysqlceinnodb', onClick: addMySQLCEInnoDBCluster },
+    ] },
+    { title: 'MariaDB', items: [
+      { label: 'MariaDB', type: 'mariadb', onClick: () => addNode('mariadb') },
+      { label: 'MariaDB Replication', type: 'mariadbrepl', onClick: addMariaDBCluster },
+      { label: 'MariaDB Galera', type: 'mariadbgalera', onClick: addMariaDBGaleraCluster },
     ] },
     { title: 'Load Balancer', items: [
       { label: 'ProxySQL', type: 'proxysql', onClick: () => addNode('proxysql') },
@@ -2339,19 +2560,9 @@ function StackEditor({ stackId, onBack }) {
                     const dep = depByNode[n.id]
                     const arb = n.role === 'arbitrator'
                     const isPrimary = n.role === 'primary'
-                    let sub = 'Galera data node'
-                    if (f.type === 'proxysql') sub = 'ProxySQL'
-                    else if (f.type === 'mysql') sub = isPrimary ? 'Primary' : 'Secondary · read-only'
-                    else if (f.type === 'innodb') sub = f.replMode === 'groupreplication' ? 'GR member' : 'Cluster member'
-                    else if (f.type === 'psmdb') sub = n.role === 'mongos' ? 'mongos router' : n.role === 'config' ? 'config server' : `shard ${n.shard} member`
-                    else if (f.type === 'psmrs') sub = 'replica-set member'
-    else if (f.type === 'patroni') sub = 'Patroni node'
-                    else if (f.type === 'repmgr') sub = 'PostgreSQL + repmgr'
-                    else if (f.type === 'spock') sub = 'PostgreSQL + Spock'
-                    else if (f.type === 'valkeycluster') sub = 'Valkey shard'
-                    else if (f.type === 'k3d') sub = kids.indexOf(n) === 0 ? 'k3s server' : 'k3s agent'
-                    else if (arb) sub = 'Arbitrator · garbd'
-                    const barCol = (f.type === 'pxc' && arb) || (f.type === 'mysql' && !isPrimary) ? '#64748b' : col
+                    const sub = frameMemberSub(f, n, kids)
+                    // Replicas are greyed so a read-only member reads as subordinate.
+                    const barCol = (f.type === 'pxc' && arb) || (REPL_FRAME_TYPES.has(f.type) && !isPrimary) ? '#64748b' : col
                     // PXC and Percona Server replication members expose ports for
                     // cross-cluster replication links (the wrapper, not the clipped
                     // card, carries them so they sit outside the rounded border).
@@ -6879,7 +7090,7 @@ function OrchestratorForm({ node: n, patchNode, deleteNode, dep, deployed }) {
         </select>
       </Field>
 
-      <Field label="Alert email" hint="Optional — a mailbox on the stack's Intranet domain (or a full address) that failure-detection alerts are emailed to.">
+      <Field label="Alert email" hint="A mailbox on the stack's Intranet domain (or a full address) that failure-detection alerts are emailed to. Defaults to admin, which the Intranet always provisions; clear it to disable alerts.">
         <input className={`${inputCls} ${lock}`} placeholder="admin" value={n.alertEmail || ''} disabled={deployed}
           onChange={(e) => patchNode(n.id, { alertEmail: e.target.value })} />
       </Field>
@@ -7183,7 +7394,7 @@ function loadProps() {
 function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster, deployOpen, deployments, onDeployMinimize }) {
   const selNode = selected?.kind === 'node' ? nodes.find((n) => n.id === selected.id) : null
   const selDep = selNode ? depByNode[selNode.id] : null
-  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm' || selNode.type === 'seaweedfs' || selNode.type === 'patroni' || selNode.type === 'haproxy' || selNode.type === 'pg' || selNode.type === 'repmgr' || selNode.type === 'spock')) || selected?.kind === 'frame'
+  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm' || selNode.type === 'seaweedfs' || selNode.type === 'patroni' || selNode.type === 'haproxy' || selNode.type === 'pg' || selNode.type === 'repmgr' || selNode.type === 'spock' || selNode.type === 'aio' || selNode.type === 'mariadb' || selNode.type === 'mariadbrepl' || selNode.type === 'mariadbgalera' || selNode.type === 'mysqlce' || selNode.type === 'mysqlcerepl' || selNode.type === 'mysqlceinnodb')) || selected?.kind === 'frame'
 
   const saved = useRef(loadProps()).current
   const [docked, setDocked] = useState(saved.docked !== false)
@@ -7289,6 +7500,18 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     if (f.type === 'innodb') {
       return <InnoDBFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
     }
+    if (f.type === 'mariadbrepl') {
+      return <MariaDBFrameForm frame={f} stackId={stackId} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} running={running} />
+    }
+    if (f.type === 'mariadbgalera') {
+      return <MariaDBGaleraFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+    }
+    if (f.type === 'mysqlcerepl') {
+      return <MySQLCEFrameForm frame={f} stackId={stackId} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} running={running} />
+    }
+    if (f.type === 'mysqlceinnodb') {
+      return <MySQLCEInnoDBFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+    }
     if (f.type === 'psmdb') {
       return <MongoDBFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} rebuildCluster={rebuildMongoCluster} deployed={deployed} />
     }
@@ -7318,6 +7541,42 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     if (!n) return null
     const dep = depByNode[n.id]
     const deployed = !!dep
+
+    // Standalone MariaDB / MySQL Community nodes.
+    // Once running these show the manager, not the design form — same as `ps`.
+    // MySQLManager reads mysqlConfig's keys, and mariadbConfig carries the same
+    // JSON tags for every one of them (the two it lacks, dirAuth and vault, are
+    // features MariaDB does not offer here and render falsy).
+    if (n.type === 'mariadb') {
+      if (dep && dep.state === 'running') {
+        return <MySQLManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <MariaDBNodeForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} deployed={deployed} />
+    }
+    if (n.type === 'mysqlce') {
+      if (dep && dep.state === 'running') {
+        return <MySQLManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <MySQLCENodeForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} deployed={deployed} />
+    }
+    // Members of the four upstream cluster kinds. Replication members carry a role;
+    // Galera and Group Replication members do not (both are multi-master).
+    if (n.type === 'mariadbrepl' || n.type === 'mariadbgalera' || n.type === 'mysqlcerepl' || n.type === 'mysqlceinnodb') {
+      if (dep && dep.state === 'running') {
+        // The InnoDB/GR members record innodbConfig, so they get the manager that
+        // understands it (cluster topology, group name, Router RW/RO ports).
+        return n.type === 'mysqlceinnodb'
+          ? <InnoDBManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+          : <MySQLManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return (
+        <UpstreamMemberForm
+          node={n} frame={frames.find((fr) => fr.id === n.frameId)}
+          patchNode={patchNode} deleteNode={deleteNode} deployed={deployed}
+          roles={n.type === 'mariadbrepl' || n.type === 'mysqlcerepl'}
+        />
+      )
+    }
 
     // PXC cluster member node.
     if (n.type === 'pxc') {
@@ -7420,6 +7679,15 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <OrchestratorManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <OrchestratorForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+
+    // All-in-One node: one container, many database instances. Running → the
+    // instance console (start/stop/logs per instance or per cluster).
+    if (n.type === 'aio') {
+      if (dep && dep.state === 'running') {
+        return <AllInOneManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <AllInOneForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
 
     const def = NODE_TYPES[n.type] || NODE_TYPES.intranet
