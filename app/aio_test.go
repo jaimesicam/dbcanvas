@@ -1778,9 +1778,13 @@ func TestAIOTLSWiringPerEngine(t *testing.T) {
 	if !strings.Contains(aioCertWirePostgres, "ssl_key_file = '$DIR/server-key.pem'") {
 		t.Error("PostgreSQL should point at the separate key")
 	}
-	// Every wiring block must be replaced, not stacked, on a re-issue.
+	// The two append-based wirings must strip the previous block before adding a
+	// new one. MongoDB is deliberately absent: it edits YAML structurally rather
+	// than appending, and asserting it contained this marker is exactly what let a
+	// non-idempotent editor through — replacement is now proven by behaviour in
+	// TestAIOTLSWiringIsIdempotent, which runs every script twice and compares.
 	for name, script := range map[string]string{
-		"mysql": aioCertWireMySQL, "postgres": aioCertWirePostgres, "mongodb": aioCertWireMongo,
+		"mysql": aioCertWireMySQL, "postgres": aioCertWirePostgres,
 	} {
 		if !strings.Contains(script, `sed -i '/^# --- dbcanvas tls ---$/,$d'`) {
 			t.Errorf("%s TLS block is appended without replacing the previous one", name)
@@ -2037,5 +2041,99 @@ func TestAIOGeneratedScriptsAreValidShell(t *testing.T) {
 		if err != nil {
 			t.Errorf("%s is not valid shell:\n%s", name, strings.TrimSpace(string(out)))
 		}
+	}
+}
+
+// The TLS wiring is applied again on every re-issue and redeploy, so it must be
+// idempotent — and the previous test only checked that each script CONTAINED a
+// `sed … /,$d` marker. The MongoDB one did, and was still wrong: its editor
+// dropped the `tls:` line but left the indented children, so a second run
+// appended a fresh block beside the orphans and produced duplicate keys under
+// `net:`. A test that asserts a marker is not a test of the behaviour.
+//
+// This runs each script twice against a realistic config and compares the two
+// results. Anything that stacks shows up as a difference.
+func TestAIOTLSWiringIsIdempotent(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not available")
+	}
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available (the MongoDB editor needs it)")
+	}
+	dir := t.TempDir()
+
+	cases := []struct {
+		name    string
+		script  string
+		file    string
+		initial string
+		env     func(path string) []string
+	}{
+		{
+			name: "mysql", script: aioCertWireMySQL, file: "my.cnf",
+			initial: "[mysqld]\nport=13000\ndatadir=/opt/aio/x/data\n",
+			env:     func(p string) []string { return []string{"CNF=" + p, "DIR=/opt/aio/x/tls"} },
+		},
+		{
+			name: "postgres", script: aioCertWirePostgres, file: "postgresql.conf",
+			initial: "port = 15000\nlisten_addresses = '*'\n",
+			env:     func(p string) []string { return []string{"DATADIR=" + filepath.Dir(p), "DIR=/opt/aio/y/tls"} },
+		},
+		{
+			name: "mongodb", script: aioCertWireMongo, file: "mongod.conf",
+			initial: "storage:\n  dbPath: /opt/aio/m/data\nnet:\n  port: 17000\n  bindIpAll: true\nsecurity:\n  authorization: enabled\n",
+			env:     func(p string) []string { return []string{"CNF=" + p, "DIR=/opt/aio/m/tls"} },
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sub := filepath.Join(dir, tc.name)
+			if err := os.MkdirAll(sub, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			conf := filepath.Join(sub, tc.file)
+			if err := os.WriteFile(conf, []byte(tc.initial), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			sh := filepath.Join(sub, "wire.sh")
+			if err := os.WriteFile(sh, []byte(tc.script), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			run := func() string {
+				cmd := exec.Command("bash", sh)
+				// chown to a vendor user will fail as an ordinary test user; the
+				// scripts tolerate it, and the config edit is what is under test.
+				cmd.Env = append(os.Environ(), tc.env(conf)...)
+				out, err := cmd.CombinedOutput()
+				if err != nil && !strings.Contains(string(out), "chown") {
+					t.Fatalf("script failed: %v\n%s", err, out)
+				}
+				b, rerr := os.ReadFile(conf)
+				if rerr != nil {
+					t.Fatal(rerr)
+				}
+				return string(b)
+			}
+			first := run()
+			second := run()
+			if first != second {
+				t.Errorf("not idempotent — a second run changed the config:\n--- after 1 ---\n%s\n--- after 2 ---\n%s", first, second)
+			}
+			// And the settings must appear exactly once, not merely stably.
+			for _, key := range map[string][]string{
+				"mysql":    {"ssl-ca=", "ssl-cert=", "ssl-key="},
+				"postgres": {"ssl = on", "ssl_cert_file", "ssl_key_file"},
+				"mongodb":  {"tls:", "mode: preferTLS", "certificateKeyFile", "CAFile"},
+			}[tc.name] {
+				if n := strings.Count(second, key); n != 1 {
+					t.Errorf("%q appears %d times after two runs, want 1:\n%s", key, n, second)
+				}
+			}
+			// The original settings must survive.
+			if !strings.Contains(second, "17000") && tc.name == "mongodb" {
+				t.Error("the MongoDB editor dropped the original port")
+			}
+		})
 	}
 }

@@ -9416,3 +9416,48 @@ A sweep for other unreferenced identifiers across the fifteen `aio*.go` files fo
 
 68 AiO tests (two new). `go build`/`go vet`/`gofmt -l` clean; unit suite, `vite build` and
 `make smoke` pass.
+
+## 212. TLS certificate generation verified live — and a non-idempotent MongoDB editor it exposed
+
+Internet connection issues persisted, but the TLS work owed since session 204 does not actually
+need Percona packages to verify its riskiest half: certificate *generation* needs only openssl and
+the Intranet CA, and the Intranet installs from Oracle repos — which are fast (it deployed in 75
+seconds). So the certificate half was verified for real against a live CA, with the shipped script
+constants extracted from source rather than reimplemented.
+
+**Verified against a real Intranet CA** (`O=DBCanvas, CN=DBCanvas CA`), running `aioCertScript`
+unmodified in a `dbcanvas-systemd:oraclelinux-9-amd64` container:
+
+- server and client certificates both `openssl verify` against the CA;
+- the CN is the **instance's** DNS name (`repl01-n2.example.net`), not the node's — the design
+  claim from session 204, now demonstrated;
+- key and certificate moduli match;
+- both TTL units work: 90 `days` produced Aug 2 → Oct 31, and 12 `hours` produced a same-day expiry
+  twelve hours out, so the unit arithmetic is right;
+- MongoDB's combined `server.pem` contains exactly one key and one certificate and parses;
+- two instances receive **distinct** keys;
+- the CA private key is not left behind in the instance directory.
+
+Ownership and modes are as intended: `0600` on the keys and the combined PEM, `0644` on the
+certificates, all owned by the engine's vendor user.
+
+**The bug this exposed.** Running the MongoDB wiring a second time — which happens on any redeploy
+or certificate re-issue — **duplicated the TLS settings** under `net:`, because the editor removed
+the `tls:` line but left its indented children, then inserted a fresh block beside the orphans.
+MongoDB would have seen duplicate keys in a mapping.
+
+Session 204's test did not catch it because it asserted the script *contained*
+`sed -i '/…dbcanvas tls…/,$d'`. The MongoDB script did contain that line — it strips an appended
+marker — while the YAML editing that actually mattered was wrong. **A test that asserts a marker is
+not a test of the behaviour.** The editor now skips the whole block by indentation, and
+`TestAIOTLSWiringIsIdempotent` runs each of the three wirings twice against a realistic config and
+compares the results, additionally asserting each setting appears exactly once and that the
+original settings survive. Verified against the real defect. The weak marker assertion was removed
+for MongoDB rather than left alongside it.
+
+Still unverified: the engine wiring's *effect* — that a real mysqld/postgres/mongod starts with
+these settings and accepts a TLS connection — and the restart that applies them. Those need the
+mirror.
+
+69 AiO tests (one new, one replaced). `go build`/`go vet`/`gofmt -l` clean; unit suite,
+`vite build` and `make smoke` pass. Scratch container, test stack and temporary user removed.

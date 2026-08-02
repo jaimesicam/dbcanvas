@@ -223,29 +223,35 @@ exit 0`
 // connect, and the app's own tooling — with no way for the user to see why.
 const aioCertWireMongo = `set -e
 [ -f "$CNF" ] || { echo "mongod.conf not found at $CNF"; exit 1; }
-# Strip any previous block, including its indented children.
-sed -i '/^# --- dbcanvas tls ---$/,$d' "$CNF"
-{
-  echo "# --- dbcanvas tls ---"
-  echo "# appended last so it wins over anything above"
-} >> "$CNF"
 python3 - "$CNF" "$DIR" <<'PY'
 import sys
 conf, d = sys.argv[1], sys.argv[2]
-lines = [l for l in open(conf).read().splitlines() if not l.startswith("# --- dbcanvas tls ---") and not l.startswith("# appended last")]
-out, in_net = [], False
-for l in lines:
-    if in_net and l and not l.startswith(" "):
+lines = open(conf).read().splitlines()
+
+# Drop any existing tls block under net:, INCLUDING its indented children. An
+# earlier version removed only the "tls:" line itself and left the children
+# behind, so a second run — a redeploy, or a certificate re-issue — appended a
+# fresh block beside the orphans and produced duplicate keys under net:.
+out, in_net, skip_indent = [], False, None
+for line in lines:
+    stripped = line.strip()
+    if skip_indent is not None:
+        if stripped and (len(line) - len(line.lstrip())) > skip_indent:
+            continue
+        skip_indent = None
+    if in_net and line and not line.startswith(" "):
         in_net = False
-    if in_net and l.strip().startswith("tls:"):
+    if in_net and stripped.startswith("tls:"):
+        skip_indent = len(line) - len(line.lstrip())
         continue
-    out.append(l)
-    if l.startswith("net:"):
+    out.append(line)
+    if line.startswith("net:"):
         in_net = True
         out.append("  tls:")
         out.append("    mode: preferTLS")
         out.append("    certificateKeyFile: %s/server.pem" % d)
         out.append("    CAFile: %s/ca.pem" % d)
+
 open(conf, "w").write("\n".join(out) + "\n")
 PY
 exit 0`
