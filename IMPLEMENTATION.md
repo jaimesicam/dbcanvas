@@ -9960,3 +9960,32 @@ the old identity until its instances are recreated. The reported node was repair
 to confirm the fix; it is not something a plain redeploy will do.
 
 3 new Go tests.
+
+## 201. The All-in-One Orchestrator's web UI had never worked — `app/{aio_ctl,aio_orch,aio_mysql,mariadb}.go`
+
+`http://<host>:<port>/web/clusters` returned 500 with `html/template: "templates/layout" is
+undefined`. The journal showed the same 500 twenty minutes before session 200's changes, so
+this was not a regression from those — the All-in-One Orchestrator's UI had never rendered.
+Its API answered normally throughout, which is a quiet way for a web UI to be broken.
+
+**Cause.** Orchestrator loads its templates from `./resources/templates`, relative to the
+working directory. The classic Orchestrator node's unit sets
+`WorkingDirectory=/usr/local/orchestrator`; `aioUnitSpec` had no such field at all, so under
+systemd the process ran from `/` and found nothing. The field now exists and the
+Orchestrator instance sets it. It is omitted from units that do not need one.
+
+**Second, unrelated failure in the same logs.** Every poll logged
+`Access denied; you need (at least one of) the REPLICATION MASTER ADMIN privilege(s)` for
+`SHOW SLAVE HOSTS`. This is the third MariaDB privilege split to bite: 10.5 divided SUPER,
+and Orchestrator needs SLAVE MONITOR (session 192), BINLOG MONITOR (same), and
+REPLICATION MASTER ADMIN — which only became reachable once session 200's `report_host`
+made `SHOW SLAVE HOSTS` return real hosts worth querying. Added to both MariaDB baselines,
+classic and All-in-One, and a test now asserts all three together rather than one at a time.
+
+Verified on the reported node: `/web/clusters` and `/web/cluster/<name>` both return 200,
+the page is the real Orchestrator shell (`<title>Orchestrator - clusters</title>`), the
+privilege errors have stopped, and the topology behind it is still the corrected one — two
+clusters named as drawn, three members each, every replica under its own primary.
+
+As in session 200, existing nodes need their instances recreated to pick the unit and grant
+up; the reported node was patched by hand to confirm the fix. 2 new Go tests.

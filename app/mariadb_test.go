@@ -1115,3 +1115,50 @@ func TestAIOReplicasRecordTheirOwnPrimary(t *testing.T) {
 		}
 	}
 }
+
+// MariaDB 10.5 split SUPER into fine-grained privileges. Orchestrator needs three of
+// them and each was found the hard way: SLAVE MONITOR for SHOW SLAVE STATUS,
+// BINLOG MONITOR for SHOW BINLOG STATUS, and REPLICATION MASTER ADMIN for SHOW SLAVE
+// HOSTS — which only surfaced once report_host made that call meaningful.
+func TestMariaDBOrchestratorGrantCoversEveryProbe(t *testing.T) {
+	want := []string{"SLAVE MONITOR", "BINLOG MONITOR", "REPLICATION MASTER ADMIN"}
+	for name, sql := range map[string]string{
+		"classic": mariadbRootSQL,
+		"aio":     aioMariaDBBaselineScript,
+	} {
+		var line string
+		for _, l := range strings.Split(sql, "\n") {
+			if strings.HasPrefix(l, "GRANT ") && strings.Contains(l, "'$ORCH_USER'@'%'") {
+				line = l
+			}
+		}
+		if line == "" {
+			t.Errorf("%s: no orchestrator GRANT found", name)
+			continue
+		}
+		for _, p := range want {
+			if !strings.Contains(line, p) {
+				t.Errorf("%s: orchestrator grant lacks %s — %s", name, p, line)
+			}
+		}
+	}
+}
+
+// Orchestrator resolves its web templates relative to the cwd, so its unit must set
+// one. Without it every /web/ page 500s with "templates/layout is undefined" while
+// the API answers normally — the AiO Orchestrator UI never worked.
+func TestAIOOrchestratorUnitSetsItsWorkingDirectory(t *testing.T) {
+	l := aioLayout("orch01", "orchestrator", aioPortsFor("orchestrator", 0, 0))
+	unit := aioUnitFile(l, aioUnitSpec{
+		Description: "x", ExecStart: "/usr/local/orchestrator/orchestrator http",
+		WorkingDirectory: "/usr/local/orchestrator", Type: "simple", User: "root", Group: "root",
+	})
+	if !strings.Contains(unit, "WorkingDirectory=/usr/local/orchestrator") {
+		t.Errorf("unit does not set WorkingDirectory:\n%s", unit)
+	}
+	// An instance that does not need one must not get an empty directive.
+	plain := aioUnitFile(l, aioUnitSpec{Description: "x", ExecStart: "/bin/true", Type: "simple", User: "root", Group: "root"})
+	if strings.Contains(plain, "WorkingDirectory=") {
+		t.Errorf("empty WorkingDirectory should be omitted:\n%s", plain)
+	}
+}

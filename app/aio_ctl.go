@@ -51,11 +51,16 @@ type aioUnitSpec struct {
 	PIDFile      string
 	User         string // "" → the layout's owner
 	Group        string
-	EnvFile      string   // contents; written to <aioEtc>/<inst>.env and referenced
-	After        []string // extra ordering (e.g. a cluster's bootstrap member)
-	Requires     []string
-	TimeoutSec   int // start timeout; 0 → 300
-	LimitNOFILE  int // 0 → 65535
+	// WorkingDirectory is required by programs that resolve their assets relative
+	// to the cwd. Orchestrator is one: it loads its web templates from
+	// ./resources/templates, so under systemd (cwd "/") every /web/ page returns
+	// 500 "templates/layout is undefined" while the API keeps working.
+	WorkingDirectory string
+	EnvFile          string   // contents; written to <aioEtc>/<inst>.env and referenced
+	After            []string // extra ordering (e.g. a cluster's bootstrap member)
+	Requires         []string
+	TimeoutSec       int // start timeout; 0 → 300
+	LimitNOFILE      int // 0 → 65535
 }
 
 // aioUnitFile renders one instance's systemd unit.
@@ -99,6 +104,9 @@ func aioUnitFile(l instLayout, u aioUnitSpec) string {
 	b.WriteString("\n[Service]\n")
 	fmt.Fprintf(&b, "Type=%s\n", typ)
 	fmt.Fprintf(&b, "User=%s\nGroup=%s\n", user, group)
+	if u.WorkingDirectory != "" {
+		fmt.Fprintf(&b, "WorkingDirectory=%s\n", u.WorkingDirectory)
+	}
 	fmt.Fprintf(&b, "RuntimeDirectory=aio/%s\nRuntimeDirectoryMode=0750\nRuntimeDirectoryPreserve=yes\n", l.Inst)
 	if u.EnvFile != "" {
 		fmt.Fprintf(&b, "EnvironmentFile=-%s\n", l.EnvFile)

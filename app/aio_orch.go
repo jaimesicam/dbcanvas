@@ -89,11 +89,16 @@ func (a *App) aioOrchPrepare(ctx context.Context, id string, in aioInstance, m a
 		Description: fmt.Sprintf("dbcanvas All-in-One Orchestrator instance %s (port %d)", m.Inst, m.Ports.Client),
 		// -config is mandatory here: without it the binary picks up
 		// /etc/orchestrator.conf.json and every instance would share one config.
-		ExecStart:  fmt.Sprintf("/usr/local/orchestrator/orchestrator -config %s http", l.ConfPath),
-		Type:       "simple",
-		User:       "root",
-		Group:      "root",
-		TimeoutSec: 120,
+		ExecStart: fmt.Sprintf("/usr/local/orchestrator/orchestrator -config %s http", l.ConfPath),
+		// Orchestrator loads its web templates from ./resources/templates, so it must
+		// run from its install prefix. Without this every /web/ page returns 500
+		// "templates/layout is undefined" while the API answers normally — which is a
+		// confusing way to find out. The classic Orchestrator node's unit does the same.
+		WorkingDirectory: "/usr/local/orchestrator",
+		Type:             "simple",
+		User:             "root",
+		Group:            "root",
+		TimeoutSec:       120,
 		EnvFile: fmt.Sprintf("AIO_INST=%s\nAIO_KIND=%s\nAIO_PORT=%d\nAIO_CNF=%s\nORCHESTRATOR_API=http://127.0.0.1:%d/api\n",
 			m.Inst, m.Kind, m.Ports.Client, l.ConfPath, m.Ports.Client),
 	}
