@@ -7563,7 +7563,11 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     // Galera and Group Replication members do not (both are multi-master).
     if (n.type === 'mariadbrepl' || n.type === 'mariadbgalera' || n.type === 'mysqlcerepl' || n.type === 'mysqlceinnodb') {
       if (dep && dep.state === 'running') {
-        return <MySQLManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+        // The InnoDB/GR members record innodbConfig, so they get the manager that
+        // understands it (cluster topology, group name, Router RW/RO ports).
+        return n.type === 'mysqlceinnodb'
+          ? <InnoDBManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+          : <MySQLManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return (
         <UpstreamMemberForm

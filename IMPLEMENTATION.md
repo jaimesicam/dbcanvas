@@ -9712,3 +9712,51 @@ on the MariaDB replication form instead of being left to surprise someone compar
 two flavours.
 
 The stack was destroyed and deleted afterwards; no containers left behind.
+
+## 195. MySQL InnoDB Cluster / GR: three bugs found by deploying it — `app/{innodb,mysqlce,intranet}.go`, `app/web/src/pages/StackDesigner.jsx`
+
+The last untested path. Deployed the `mysqlceinnodb` frame end-to-end on Ubuntu 24.04 in
+both modes. It failed three times, each for a different reason, and none of them would
+have surfaced without a real deploy.
+
+**1. MySQL Shell 8.4 rejects `interactive`.** `dba.configureInstance()` took
+`{interactive:false, restart:false}` — needed on Shell 8.0, or it prompts "[y/n]" and
+hangs forever on a TTY-less exec. Shell 8.4 *removed* the option and fails with
+`Invalid options: interactive (ArgumentError)`, so all ten retry attempts died
+identically. The option set is now chosen from `mysqlsh --version` at run time, keeping
+the 8.0 behaviour intact. This is not new-code-only: the existing Percona `innodb` node
+installs `percona-mysql-shell` from PDPS, which on the 84-lts repo is also 8.4, so it was
+latently broken there too.
+
+**2. `systemctl enable --now mysqlrouter` silently does nothing on Debian.** mysql-router
+ships a SysV init script, so systemctl redirects to `systemd-sysv-install`, **returns 0**,
+and ignores `--now`. The router stayed down while the deploy reported success — and the
+`|| systemctl restart` fallback never ran, precisely because the exit status was zero.
+Enable and start are now separate calls and the result is verified rather than assumed.
+Affects the existing Percona InnoDB node on Ubuntu identically.
+
+**3. The deployed InnoDB members recorded the wrong config shape.** They stored
+`mysqlConfig`, so the properties panel had no `groupName`, `bootstrap`, `router` or Router
+port pair, and the node rendered a replication panel instead of `InnoDBManager`. Fixed to
+record `innodbConfig` — but that alone was not enough: `mysqlceContainer`, shared by the
+replication and InnoDB prepare paths, decoded the stored config into `mysqlConfig` and
+re-marshalled it, dropping every field the other shape has. It now patches through a
+`map[string]any`, so neither path can erase the other's fields. The Router's published
+host ports are also recorded at deploy time, as the Percona frame does —
+`refreshPublishedPorts` only runs on a start/restart action, so nothing else filled them in.
+
+Verified after the fixes, on Ubuntu 24.04:
+
+- **InnoDB Cluster mode** — `dba.getCluster().status()` reports the cluster OK with
+  `myidc-01` PRIMARY and two SECONDARY members ONLINE; MySQL Router active on all three;
+  a write through RW and reads through RO landing on the primary and both secondaries
+  respectively; and, from the *host*, the recorded ports (32795/32796) reaching the
+  cluster and round-robining reads.
+- **Raw Group Replication mode** — `performance_schema.replication_group_members` shows
+  one PRIMARY and two SECONDARY ONLINE, with the static-router path taking the same
+  hardened start.
+- Node properties complete in both: `replMode`, `bootstrap` true on the seed only,
+  `router`, a `groupName` UUID shared by all members, per-node RW/RO ports (set on the
+  exporting node, 0 on the others) and a probed `serverVersion` of 8.4.11.
+
+Stack destroyed and deleted; no containers left behind. 3 new Go tests.

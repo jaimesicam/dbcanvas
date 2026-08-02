@@ -392,14 +392,18 @@ func (a *App) provisionMySQLCEInnoDBFrame(st Stack, frame designFrame, doc desig
 		}
 	}
 
-	for _, n := range members {
+	for i, n := range members {
 		host := hosts[n.ID]
-		cfg := mysqlConfig{
+		// innodbConfig, not mysqlConfig: this is the same shape the Percona InnoDB
+		// node records, so the deployed node gets InnoDBManager — cluster topology,
+		// group name and the Router's published RW/RO ports — rather than a
+		// replication panel that knows nothing about any of them.
+		cfg := innodbConfig{
 			Cluster: frame.Label, Image: image, OS: frame.OS, Arch: archOr(frame.Arch),
-			Role: "member", Hostname: host, FQDN: fqdnOf(host, domain), ServerID: mysqlServerID(host),
-			PSVersion: frame.MySQLCEVersion, ReplMode: mode, GTID: true,
-			GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy,
-			MonitoredBy: monitoredBy, Ports: mysqlPorts,
+			ReplMode: mode, Hostname: host, FQDN: fqdnOf(host, domain),
+			ServerID: mysqlServerID(host), GroupName: groupName, Bootstrap: i == 0,
+			Router: frame.MySQLRouter, GenerateCert: frame.GenerateCert,
+			UseProxy: frame.UseProxy, MonitoredBy: monitoredBy, Ports: mysqlPorts,
 		}
 		cfgJSON, _ := json.Marshal(cfg)
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
@@ -461,6 +465,19 @@ func (a *App) provisionMySQLCEInnoDBFrame(st Stack, frame designFrame, doc desig
 				}
 			}
 			dep, _ := a.store.GetDeployment(st.ID, n.ID)
+			// Record the Router's published host ports, as the Percona InnoDB frame
+			// does. Nothing else fills them in at deploy time — refreshPublishedPorts
+			// only runs on a start/restart action — so without this the manager shows
+			// no way to reach the cluster from the host even though the ports exist.
+			if frame.MySQLRouter {
+				var icfg innodbConfig
+				json.Unmarshal(dep.Config, &icfg)
+				icfg.RWPort, icfg.ROPort = a.readInnoDBRouterPorts(ctx, dep.ContainerID, n.ExportEnabled)
+				if b, e := json.Marshal(icfg); e == nil {
+					a.store.UpsertDeployment(Deployment{StackID: dep.StackID, NodeID: dep.NodeID, ContainerID: dep.ContainerID, State: dep.State, Config: b, Secrets: dep.Secrets})
+					dep.Config = b
+				}
+			}
 			if frame.GenerateCert {
 				pr.phase("Issuing certificate", 90)
 				if err := a.pxcApplyCert(ctx, dep.ContainerID, intranetID, fqdnOf(hosts[n.ID], domain), mysqlUnit(frame.OS), frame.OS, frame.CertTTLValue, frame.CertTTLUnit, pr.logln, false); err != nil {
@@ -593,22 +610,27 @@ func (a *App) mysqlceContainer(ctx context.Context, st Stack, frame designFrame,
 	}
 	a.pointResolverAtIntranet(ctx, id, intranetIP, domain)
 
-	var cfg mysqlConfig
+	// Patch the stored config through a map rather than a struct. This helper is
+	// shared by the replication and InnoDB paths, which record *different* config
+	// shapes (mysqlConfig and innodbConfig); round-tripping through either one
+	// silently drops every field the other has — which is how the InnoDB members
+	// lost bootstrap, router, groupName and the Router port pair.
+	cfgMap := map[string]any{}
+	secJSON := []byte("{}")
 	if dep, e := a.store.GetDeployment(st.ID, n.ID); e == nil {
-		json.Unmarshal(dep.Config, &cfg)
+		if len(dep.Config) > 0 {
+			json.Unmarshal(dep.Config, &cfgMap)
+		}
+		secJSON = dep.Secrets
 	}
 	if n.ExportEnabled && publish == nil {
 		if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, "3306/tcp"); e == nil {
 			if p, e2 := strconv.Atoi(hp); e2 == nil {
-				cfg.ExportPort = p
+				cfgMap["exportPort"] = p
 			}
 		}
 	}
-	cfgJSON, _ := json.Marshal(cfg)
-	secJSON := []byte("{}")
-	if dep, e := a.store.GetDeployment(st.ID, n.ID); e == nil {
-		secJSON = dep.Secrets
-	}
+	cfgJSON, _ := json.Marshal(cfgMap)
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON, Secrets: secJSON})
 
 	pr.phase("Waiting for systemd", 25)

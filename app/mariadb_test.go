@@ -677,3 +677,59 @@ func TestMariaDBBaselinesDropAnonymousUsers(t *testing.T) {
 		}
 	}
 }
+
+// MySQL Shell 8.0 needs interactive:false on dba.configureInstance() or it prompts
+// "[y/n]" and hangs on a TTY-less exec. Shell 8.4 REMOVED the option and rejects it
+// with "Invalid options: interactive (ArgumentError)", failing every attempt of the
+// retry loop. Found deploying a MySQL Community InnoDB Cluster, whose Shell is 8.4.
+func TestInnoDBShellOptionsAreVersionSelected(t *testing.T) {
+	s := innodbShellClusterScript
+	if !strings.Contains(s, "SHVER=") || !strings.Contains(s, "mysqlsh --version") {
+		t.Error("the Shell option set is not derived from the shell's own version")
+	}
+	if !strings.Contains(s, `CFGOPT="{interactive:false, restart:false}"`) {
+		t.Error("no 8.0 branch: Shell 8.0 would hang on the configure wizard")
+	}
+	if !strings.Contains(s, `CFGOPT="{restart:false}"`) {
+		t.Error("no 8.4 branch: Shell 8.4 rejects the interactive option")
+	}
+	// Nothing may pass `interactive` literally any more — that is the 8.4 failure.
+	for _, line := range strings.Split(s, "\n") {
+		if strings.Contains(line, "configureInstance") && strings.Contains(line, "interactive:false") &&
+			!strings.Contains(line, "CFGOPT=") {
+			t.Errorf("configureInstance still hardcodes the option: %s", strings.TrimSpace(line))
+		}
+	}
+	// Both call sites must use the selected set.
+	if n := strings.Count(s, "configureInstance"); n != strings.Count(s, "$CFGOPT")+1 {
+		t.Errorf("configureInstance calls (%d) do not all use $CFGOPT", n)
+	}
+}
+
+// mysqlceContainer is shared by the replication and InnoDB prepare paths, which
+// record different config shapes (mysqlConfig vs innodbConfig). It must patch the
+// stored config generically: round-tripping through either struct drops every field
+// the other has, which is how the deployed InnoDB members lost bootstrap, router,
+// groupName and the Router port pair while still reporting success.
+func TestMySQLCEContainerDoesNotRoundTripThroughOneConfigStruct(t *testing.T) {
+	src, err := os.ReadFile("mysqlce.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := strings.Index(string(src), "func (a *App) mysqlceContainer(")
+	if i < 0 {
+		t.Fatal("mysqlceContainer not found")
+	}
+	body := string(src)[i:]
+	if j := strings.Index(body, "\nfunc "); j > 0 {
+		body = body[:j]
+	}
+	for _, bad := range []string{"var cfg mysqlConfig", "var cfg innodbConfig"} {
+		if strings.Contains(body, bad) {
+			t.Errorf("mysqlceContainer decodes into a concrete config struct (%q) and will drop the other shape's fields", bad)
+		}
+	}
+	if !strings.Contains(body, "cfgMap") {
+		t.Error("mysqlceContainer should patch the stored config through a map")
+	}
+}

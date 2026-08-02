@@ -2350,7 +2350,7 @@ func (a *App) refreshPublishedPorts(ctx context.Context, st Stack, nid string, d
 			cfg.ExportPort = p
 		}
 		save(cfg)
-	case "innodb":
+	case "innodb", "mysqlceinnodb":
 		var cfg innodbConfig
 		json.Unmarshal(dep.Config, &cfg)
 		if p, ok := readPort("6446/tcp"); ok {

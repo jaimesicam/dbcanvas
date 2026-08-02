@@ -593,7 +593,7 @@ done
 
 // innodbShellClusterScript creates an InnoDB Cluster with MySQL Shell on the primary
 // and adds the other members (clone recovery). Connects as the 'cluster' user.
-// Every Shell call runs with interactive:false so it never blocks on the wizard's
+// Every Shell call is made non-interactive so it never blocks on the wizard's
 // [y/n] prompt (the exec has no TTY/stdin, so a prompt would hang forever), and under
 // `timeout` so a stalled clone/RESTART surfaces as an error instead of hanging the
 // deploy. createCluster/addInstance are guarded so the runStep retry loop is
@@ -617,10 +617,20 @@ sh_run() {
   if timeout "$1" mysqlsh --uri "$ADMIN" --js -e "$2" >/tmp/sh.log 2>&1; then cat /tmp/sh.log; return 0; fi
   echo "MySQL Shell step failed:"; grep -iE 'ERROR|exception|Dba\.|Cluster\.' /tmp/sh.log | tail -4 || true; return 1
 }
-# interactive:false makes configureInstance auto-apply required fixes (e.g.
-# binlog_transaction_dependency_tracking=WRITESET); without it Shell prompts
-# "perform changes? [y/n]" and hangs forever on the no-TTY exec.
-sh_run 300 "dba.configureInstance('$ADMIN', {interactive:false, restart:false});"
+# configureInstance auto-applies required fixes (e.g.
+# binlog_transaction_dependency_tracking=WRITESET). On Shell 8.0 that needs
+# interactive:false, or it prompts "perform changes? [y/n]" and hangs forever on the
+# no-TTY exec. Shell 8.4 REMOVED that option and rejects it outright with
+# "Invalid options: interactive (ArgumentError)" — it is non-interactive by default
+# there. So the option set is chosen from the shell's own version rather than
+# hardcoded; passing the wrong one fails every attempt of the retry loop.
+SHVER=$(mysqlsh --version 2>/dev/null | grep -oE 'Ver [0-9]+\.[0-9]+' | head -1 | cut -d' ' -f2)
+case "$SHVER" in
+  8.0|5.7|"") CFGOPT="{interactive:false, restart:false}" ;;
+  *)          CFGOPT="{restart:false}" ;;
+esac
+echo "MySQL Shell ${SHVER:-unknown}: configureInstance options $CFGOPT"
+sh_run 300 "dba.configureInstance('$ADMIN', $CFGOPT);"
 # Reuse an existing cluster on redeploy; otherwise create fresh. MySQL Shell 8.0.46
 # SEGFAULTS in createCluster's "adopt existing GR" path (when a prior attempt left
 # Group Replication running with stale/invalid metadata), so first force a clean
@@ -640,9 +650,26 @@ CLEAN
 fi
 IFS=','; for h in $MEMBERS; do
   [ -n "$h" ] || continue
-  sh_run 300 "dba.configureInstance('$CLUSTER_USER:$CLUSTER_PW@$h:3306', {interactive:false, restart:false});"
+  sh_run 300 "dba.configureInstance('$CLUSTER_USER:$CLUSTER_PW@$h:3306', $CFGOPT);"
   sh_run 600 "var c=dba.getCluster('$CLUSTER'); try { c.addInstance('$CLUSTER_USER:$CLUSTER_PW@$h:3306', {recoveryMethod:'clone'}); } catch (e) { if (String(e).indexOf('already') < 0) throw e; }"
 done`
+
+// routerStart enables MySQL Router and starts it, then proves it is actually up.
+//
+// `systemctl enable --now` is not enough on Debian: mysql-router ships a SysV init
+// script, so systemctl redirects to systemd-sysv-install, returns 0, and silently
+// ignores --now. The service stays down while the deploy reports success — and any
+// `|| fallback` never runs, because the exit status was zero. So enable and start
+// are separate calls, and the state is verified rather than assumed.
+const routerStart = `systemctl enable mysqlrouter >/dev/null 2>&1 || true
+systemctl restart mysqlrouter >/dev/null 2>&1 || systemctl start mysqlrouter >/dev/null 2>&1 || true
+OK=0
+for i in $(seq 1 20); do
+  [ "$(systemctl is-active mysqlrouter 2>/dev/null)" = active ] && { OK=1; break; }
+  sleep 1
+done
+[ "$OK" = 1 ] || { echo "mysqlrouter did not start:"; journalctl -u mysqlrouter -n 15 --no-pager 2>/dev/null | tail -10; exit 1; }
+echo "mysqlrouter active (RW 6446 / RO 6447)"`
 
 // innodbRouterBootstrapScript bootstraps MySQL Router against the InnoDB Cluster
 // metadata and starts it (RW 6446 / RO 6447).
@@ -650,7 +677,7 @@ const innodbRouterBootstrapScript = `set -e
 id -u mysqlrouter >/dev/null 2>&1 || useradd -r -s /sbin/nologin mysqlrouter 2>/dev/null || true
 install -d -o mysqlrouter -g mysqlrouter /var/lib/mysqlrouter 2>/dev/null || true
 mysqlrouter --bootstrap "$CLUSTER_USER:$CLUSTER_PW@$PRIMARY_FQDN:3306" --user=mysqlrouter --force --conf-use-sockets >/tmp/router.log 2>&1 || { echo "router bootstrap failed:"; tail -20 /tmp/router.log; exit 1; }
-systemctl enable --now mysqlrouter >/dev/null 2>&1 || systemctl restart mysqlrouter`
+` + routerStart
 
 // innodbRouterStaticScript writes a static MySQL Router config for raw Group
 // Replication (no InnoDB Cluster metadata) routing to the members. Not primary-aware.
@@ -674,4 +701,4 @@ destinations=$DESTS
 routing_strategy=round-robin
 protocol=classic
 EOF
-systemctl enable --now mysqlrouter >/dev/null 2>&1 || systemctl restart mysqlrouter`
+` + routerStart
