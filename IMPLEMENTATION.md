@@ -9896,8 +9896,20 @@ that reports nothing rather than failing loudly.
 The form's gate moved from an inline family list to a `PMM_KINDS` table mirroring
 `aioPMMSupported`, pinned by a test that compares the two per kind.
 
-**Not verified live.** The intent was to add these three instances to the reported node and
-watch them appear in PMM. Mid-deploy that stack was deleted — not by me, and not by its TTL,
-which had 16 hours left. The code is unit-tested (service type, port selection and cluster
-tagging per kind, plus the form/Go agreement) but no deploy has exercised the three new
-`pmm-admin add` calls.
+**Verified live** on a purpose-built stack (Intranet + PMM + an All-in-One node holding a
+MySQL Community, a Valkey, a ProxySQL and an HAProxy instance, all monitored). All four
+registered, and — the part worth checking — on the right ports:
+
+    MySQL       aio-pmm-my01       /run/aio/my01/mysql.sock
+    Valkey      aio-pmm-vk01       127.0.0.1:19000
+    ProxySQL    aio-pmm-px01-n1    127.0.0.1:16001      <- admin, not the client 16000
+    HAProxy     aio-pmm-ha01       (stats listener 18002)
+
+`mysqld_exporter`, `valkey_exporter` and `proxysql_exporter` all report Running; HAProxy's
+is an external exporter, whose "Unknown" status is normal, so its endpoint was checked
+directly — `http://127.0.0.1:18002/metrics` returns 200 and real `haproxy_*` series, because
+the generated config carries `http-request use-service prometheus-exporter`. The read-only
+`pmm` ACL user was confirmed present in Valkey, created over the instance's own socket.
+
+The first attempt was going to use the reported node instead; that stack was deleted
+mid-deploy — not by me, and not by its TTL, which had 16 hours left.
