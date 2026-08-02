@@ -722,4 +722,3 @@ apt-get update -qq >/dev/null
 echo "mysql-community-server mysql-community-server/root-pass password" | debconf-set-selections
 echo "mysql-community-server mysql-community-server/re-root-pass password" | debconf-set-selections
 for p in $PKGS; do pin_install "$p"; done`
-

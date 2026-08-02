@@ -954,14 +954,45 @@ if [ ! -f /var/lib/mysql/mysql/global_priv.frm ]; then
   chown -R mysql:mysql /var/lib/mysql
 fi`
 
-// mariadbRootSQL is the shared user set. MariaDB needs no expired-temp-password
-// dance and ships no validate_password component, so root@localhost is reachable
-// over the unix socket and the password is set with a plain ALTER USER.
+// mdbRootClient defines mdb_root(), the client invocation the SQL below runs
+// through.
 //
-// Careful: because root@localhost authenticates via unix_socket, `mariadb -uroot`
-// succeeds even with the WRONG -p. A script that silently no-ops therefore looks
-// like it worked — so every statement here runs in one session that must succeed.
-const mariadbRootSQL = `mariadb -uroot <<SQL
+// On a FIRST deploy root@localhost is unix_socket-authenticated, so `mariadb
+// -uroot` connects with no password. The first baseline then gives root a password,
+// which switches it to password auth — so on a REDEPLOY the same command is
+// rejected with ERROR 1045 and the whole baseline dies before it starts. Probing
+// once and reusing the result keeps the step re-runnable either way.
+//
+// Note also that while root is still on unix_socket, a WRONG -p is ignored rather
+// than refused, so a mis-parameterised script looks like it succeeded. That is why
+// the SQL runs as one session whose failure is fatal, not a best-effort sequence.
+// The working mode is remembered after the first success. Without that, the
+// readiness and wsrep polls below would each retry the losing form first and log
+// an "Access denied" warning per iteration — up to 150 of them while a slow SST
+// runs. Caching only on SUCCESS matters too: early in the baseline the server is
+// not up yet and both forms fail, and latching a guess there would pin the wrong
+// one for the rest of the run.
+const mdbRootClient = `mdb_root() {
+  case "${MDB_AUTH:-}" in
+    socket) mariadb -uroot "$@"; return ;;
+    pw)     mariadb -uroot -p"$ROOT_PW" "$@"; return ;;
+  esac
+  if mariadb -uroot -e "SELECT 1" >/dev/null 2>&1; then
+    MDB_AUTH=socket; mariadb -uroot "$@"
+  elif mariadb -uroot -p"$ROOT_PW" -e "SELECT 1" >/dev/null 2>&1; then
+    MDB_AUTH=pw; mariadb -uroot -p"$ROOT_PW" "$@"
+  else
+    # Server not up (or credentials wrong): run the password form so the caller
+    # sees the real error rather than a swallowed one.
+    mariadb -uroot -p"$ROOT_PW" "$@"
+  fi
+}`
+
+// mariadbRootSQL is the shared user set. MariaDB needs no expired-temp-password
+// dance and ships no validate_password component, so the password is set with a
+// plain ALTER USER.
+const mariadbRootSQL = mdbRootClient + `
+mdb_root <<SQL
 ALTER USER 'root'@'localhost' IDENTIFIED BY '$ROOT_PW';
 CREATE USER IF NOT EXISTS '$ADMIN_USER'@'%' IDENTIFIED BY '$ADMIN_PW';
 ALTER USER '$ADMIN_USER'@'%' IDENTIFIED BY '$ADMIN_PW';
@@ -997,8 +1028,10 @@ SQL`
 // catch.
 const mariadbBaselineScript = `set -e
 ` + mariadbDatadirInit + `
+` + mdbRootClient + `
 systemctl is-active --quiet "$UNIT" || { systemctl reset-failed "$UNIT" 2>/dev/null || true; systemctl start "$UNIT" || { say_err "mariadbd failed to start"; exit 1; }; }
-for i in $(seq 1 30); do mariadb -uroot -e "SELECT 1" >/dev/null 2>&1 && break; sleep 2; done
+# Readiness must accept either auth mode — on a redeploy root already has a password.
+for i in $(seq 1 30); do mdb_root -e "SELECT 1" >/dev/null 2>&1 && break; sleep 2; done
 ` + mariadbRootSQL + `
 mariadb -uroot -p"$ROOT_PW" -e "STOP SLAVE;" 2>/dev/null || true
 mariadb -uroot -p"$ROOT_PW" -e "RESET MASTER; SET GLOBAL gtid_slave_pos='';"
@@ -1036,7 +1069,11 @@ for i in $(seq 1 30); do
 done
 [ "$OK" = 1 ] || { echo "replica threads not running:"; mariadb -uroot -p"$ROOT_PW" -e "SHOW SLAVE STATUS\G" 2>/dev/null | grep -iE 'Running|Last_(IO|SQL)_Error|Using_Gtid' | head -8; exit 1; }
 mariadb -uroot -p"$ROOT_PW" -e "SET GLOBAL read_only=ON;"
-printf 'read_only=ON\n' >"$CNFDIR/zz-dbcanvas-readonly.cnf"`
+# The [mysqld] header is required: MariaDB refuses an option file whose first line
+# is a bare option ("Found option without preceding group") — and because this
+# directory is read by the CLIENT too, a malformed drop-in breaks every later
+# mariadb invocation on the node, not just the server's read_only setting.
+printf '[mysqld]\nread_only=ON\n' >"$CNFDIR/zz-dbcanvas-readonly.cnf"`
 
 // mariadbGaleraBootstrapScript initializes the datadir and starts the seed with
 // galera_new_cluster (equivalently `systemctl start mariadb@bootstrap`), which is
@@ -1047,11 +1084,13 @@ printf 'read_only=ON\n' >"$CNFDIR/zz-dbcanvas-readonly.cnf"`
 // denied" that the joiner's own log attributes to a state-transfer error.
 const mariadbGaleraBootstrapScript = `set -e
 ` + mariadbDatadirInit + `
+` + mdbRootClient + `
+wsrep_stat() { mdb_root -N -e "SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS WHERE VARIABLE_NAME='$1'" 2>/dev/null; }
 if systemctl is-active --quiet "$UNIT"; then
   # Already running: only usable if this node is in a primary component, otherwise
-  # stop it so the bootstrap below can create one.
-  ST=$(mariadb -uroot -p"$ROOT_PW" -N -e "SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS WHERE VARIABLE_NAME='WSREP_CLUSTER_STATUS'" 2>/dev/null || true)
-  [ "$ST" = "Primary" ] || systemctl stop "$UNIT"
+  # stop it so the bootstrap below can create one. A lone member that was merely
+  # restarted cannot re-form one by itself.
+  [ "$(wsrep_stat WSREP_CLUSTER_STATUS)" = "Primary" ] || systemctl stop "$UNIT"
 fi
 if ! systemctl is-active --quiet "$UNIT"; then
   systemctl reset-failed "$UNIT" 2>/dev/null || true
@@ -1059,15 +1098,15 @@ if ! systemctl is-active --quiet "$UNIT"; then
 fi
 OK=0
 for i in $(seq 1 45); do
-  S=$(mariadb -uroot -e "SELECT 1" >/dev/null 2>&1 && mariadb -uroot -N -e "SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS WHERE VARIABLE_NAME='WSREP_LOCAL_STATE_COMMENT'" 2>/dev/null \
-       || mariadb -uroot -p"$ROOT_PW" -N -e "SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS WHERE VARIABLE_NAME='WSREP_LOCAL_STATE_COMMENT'" 2>/dev/null)
-  [ "$S" = "Synced" ] && { OK=1; break; }
+  [ "$(wsrep_stat WSREP_LOCAL_STATE_COMMENT)" = "Synced" ] && { OK=1; break; }
   sleep 2
 done
 [ "$OK" = 1 ] || { say_err "seed did not reach Synced"; exit 1; }
 ` + mariadbRootSQL + `
-mariadb -uroot -p"$ROOT_PW" -e "GRANT RELOAD, PROCESS, LOCK TABLES, BINLOG MONITOR, REPLICA MONITOR ON *.* TO '$CLUSTER_USER'@'localhost';" 2>/dev/null || true
-echo "wsrep_cluster_size: $(mariadb -uroot -p"$ROOT_PW" -N -e "SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS WHERE VARIABLE_NAME='WSREP_CLUSTER_SIZE'" 2>/dev/null)"`
+# mariabackup authenticates as this account on the donor. BINLOG MONITOR is the
+# 10.5+ name for what older releases called REPLICATION CLIENT.
+mdb_root -e "GRANT RELOAD, PROCESS, LOCK TABLES, BINLOG MONITOR, REPLICA MONITOR ON *.* TO '$CLUSTER_USER'@'localhost';" 2>/dev/null || true
+echo "wsrep_cluster_size: $(wsrep_stat WSREP_CLUSTER_SIZE)"`
 
 // mariadbGaleraJoinScript starts a joiner and waits for SST to finish.
 //
@@ -1081,14 +1120,15 @@ const mariadbGaleraJoinScript = `set -e
 mkdir -p "$(dirname "$LOGERR")"; : >"$LOGERR" 2>/dev/null || true
 chown mysql:mysql "$LOGERR" 2>/dev/null || true
 say_err() { echo "$1"; [ -f "$LOGERR" ] && grep -iE '\[ERROR\]|WSREP_SST: \[ERROR\]' "$LOGERR" | tail -8; }
+` + mdbRootClient + `
+wsrep_stat() { mdb_root -N -e "SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS WHERE VARIABLE_NAME='$1'" 2>/dev/null; }
 systemctl reset-failed "$UNIT" 2>/dev/null || true
 systemctl restart --no-block "$UNIT" 2>/dev/null || systemctl start --no-block "$UNIT" || true
 OK=0
 for i in $(seq 1 150); do
-  S=$(mariadb -uroot -p"$ROOT_PW" -N -e "SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS WHERE VARIABLE_NAME='WSREP_LOCAL_STATE_COMMENT'" 2>/dev/null || true)
-  [ "$S" = "Synced" ] && { OK=1; break; }
+  [ "$(wsrep_stat WSREP_LOCAL_STATE_COMMENT)" = "Synced" ] && { OK=1; break; }
   if [ "$(systemctl is-active "$UNIT" 2>/dev/null)" = "failed" ]; then say_err "mariadb failed while joining"; exit 1; fi
   sleep 2
 done
 [ "$OK" = 1 ] || { say_err "joiner did not reach Synced"; exit 1; }
-echo "wsrep_cluster_size: $(mariadb -uroot -p"$ROOT_PW" -N -e "SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS WHERE VARIABLE_NAME='WSREP_CLUSTER_SIZE'" 2>/dev/null)"`
+echo "wsrep_cluster_size: $(wsrep_stat WSREP_CLUSTER_SIZE)"`

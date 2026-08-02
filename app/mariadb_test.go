@@ -340,3 +340,41 @@ func TestUpstreamVersionIssuesAcceptsBlankMinor(t *testing.T) {
 		t.Errorf("non-upstream type returned %+v", got)
 	}
 }
+
+// The first deploy gives root a password, which switches root@localhost off
+// unix_socket auth — so a redeploy's `mariadb -uroot` is rejected with ERROR 1045
+// and the whole step dies before it starts. Found by re-running a baseline against
+// an already-provisioned node, which a first deploy cannot exercise.
+func TestMariaDBScriptsSurviveARedeploy(t *testing.T) {
+	for name, s := range map[string]string{
+		"baseline":  mariadbBaselineScript,
+		"bootstrap": mariadbGaleraBootstrapScript,
+		"join":      mariadbGaleraJoinScript,
+	} {
+		if !strings.Contains(s, "mdb_root()") {
+			t.Errorf("%s does not define the auth-probing client", name)
+		}
+	}
+	// A bare `mariadb -uroot` outside the probe would be the 1045 path again. The
+	// helper's own definition is the only legitimate occurrence.
+	body := strings.Replace(mariadbBaselineScript, mdbRootClient, "", 1)
+	for _, line := range strings.Split(body, "\n") {
+		l := strings.TrimSpace(line)
+		if strings.HasPrefix(l, "mariadb -uroot ") && !strings.Contains(l, "-p") {
+			t.Errorf("baseline uses unauthenticated root outside mdb_root: %s", l)
+		}
+	}
+}
+
+// MariaDB refuses an option file whose first line is a bare option. Because the
+// drop-in directory is read by the client too, a malformed file breaks every later
+// mariadb invocation on the node — not just the server setting it was meant to fix.
+func TestMariaDBReadOnlyDropInHasSectionHeader(t *testing.T) {
+	i := strings.Index(mariadbAttachScript, "zz-dbcanvas-readonly.cnf")
+	if i < 0 {
+		t.Fatal("attach script no longer writes the read_only drop-in")
+	}
+	if !strings.Contains(mariadbAttachScript, `printf '[mysqld]\nread_only=ON\n'`) {
+		t.Error("read_only drop-in is written without a [mysqld] group header")
+	}
+}

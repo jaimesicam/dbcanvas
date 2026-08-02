@@ -9496,3 +9496,81 @@ which is per instance.
 
 71 AiO tests (two new). `go build`/`go vet`/`gofmt -l` clean; unit suite, `vite build` and
 `make smoke` pass.
+
+## 191. Six new node types: MariaDB and MySQL Community — `app/{mariadb,mysqlce,versions,intranet}.go`, `app/web/src/pages/UpstreamForms.jsx`, `images/versions.sh`
+
+Adds MariaDB standalone / replication / Galera and MySQL Community standalone /
+replication / InnoDB Cluster-GR, alongside the existing Percona types.
+
+**Version discovery.** Both upstreams publish one repository *per major series* (like
+PGDG, unlike percona-release), so `versions.sh` writes a repo per series and records
+`mariadb:` (10.6/10.11/11.4/11.8) and `mysql_community:` (8.0/8.4) maps per image.
+Coverage is genuinely uneven and the catalog now records it: no MariaDB 10.6 for EL10
+or Ubuntu noble, no MySQL 8.0 for EL10. MySQL 5.7 is deliberately absent — Oracle
+publishes it for el7 only, which is not in the image matrix.
+
+`versions.sh` also gained `ONLY=`, selecting the `percona` or `upstream` probe group.
+The groups fail independently, so internet connection issues reaching one
+upstream must not block recording the other. A group that
+is not probed is *carried forward verbatim* from the existing file rather than erased,
+so a partial run only edits what it measured. Verified by diffing: the sole change
+outside the two new sections was the timestamp.
+
+**MySQL Community reuses the Percona code paths.** It is the same server, so the
+baseline, attach and Group Replication steps are shared outright; the provisioners
+pass a frame whose `PSMajor` carries the community major, and only packaging differs.
+
+**MariaDB could not share them.** Its replication vocabulary is different, and that is
+where the work went: `gtid_domain_id` / `gtid_strict_mode` and `MASTER_USE_GTID =
+slave_pos` rather than `SOURCE_AUTO_POSITION`, no `enforce_gtid_consistency`, and no
+`SET PERSIST` — so `read_only` is persisted with a config drop-in. The GTID domain is
+derived from the cluster label: shared by every member (it identifies the write
+source), distinct between clusters so cross-cluster replication can still order
+transactions, and never 0, which is the server default.
+
+**Six bugs that only a real deploy could find**, each now pinned by a test:
+
+1. `#` starts a comment in an option file, so an unquoted `wsrep_sst_auth` truncated
+   the password; SST then failed with a bare "Access denied" and the joiner looped on
+   "State transfer failed: Invalid argument". dbcanvas passwords come from `.env` and
+   routinely contain `#`.
+2. MariaDB does not auto-initialize an existing-but-empty datadir. Under Galera the
+   resulting abort surfaces as a FATAL "View callback failed", which reads like a
+   clustering fault rather than a missing `mariadb-install-db`.
+3. `SET GLOBAL gtid_slave_pos` fails with ERROR 1198 while a slave is running — a
+   redeploy-only failure a first deploy cannot reach.
+4. The first deploy gives root a password, which switches `root@localhost` off
+   unix_socket auth, so **the baseline could not re-run at all** (ERROR 1045). Now a
+   probing client picks whichever mode works.
+5. That probe then logged an "Access denied" warning per poll iteration — up to 150
+   during a slow SST — so the working mode is memoized, and only on success (both
+   forms fail before the server is up, and latching a guess there pins the wrong one).
+6. The `read_only` drop-in was written without a `[mysqld]` header. MariaDB rejects
+   such a file, so `read_only` did **not** survive a restart — the drop-in's whole
+   purpose — and because the directory is read by the client too, it broke every later
+   `mariadb` invocation on the node.
+
+Bugs 4–6 were found by re-running provisioning against an already-provisioned node.
+Nothing in a first deploy exercises that path.
+
+**Verified live on OL9**, driving the actual generated scripts and configs (emitted
+from Go, not retyped):
+
+- MySQL Community 8.4.11 — install, generated `my.cnf`, shared baseline and attach;
+  both replica threads running, data replicated, `read_only`/`super_read_only`
+  persisted, GTID `uuid:1-3`.
+- MariaDB 11.4 replication — version pinning honoured (11.4.11 installed while 11.4.12
+  was newest), `Using_Gtid: Slave_Pos`, position `7-1-3` on both nodes, redeploy
+  re-runs cleanly, and `read_only` plus replication both survive a restart.
+- MariaDB Galera — three nodes Synced via `mariabackup` SST, multi-master writes
+  accepted on all three, and a restarted member rejoining at size 3.
+
+**Frontend.** The catalog-driven OS/major/minor picker is extracted into one hook
+rather than inlined six more times; that block is where the All-in-One form silently
+lost its minor lists in session 190. Validation refuses an unavailable series or a
+pinned minor the catalog does not list, and warns on an even Galera/GR member count.
+All eight new components are in the SSR render smoke test — a passing `vite build` is
+not evidence a form renders, which is how the blank inspector shipped before.
+
+18 new Go tests. `go build`/`go vet`/`gofmt -l` clean; unit suite, `vite build` and
+`make smoke` pass.

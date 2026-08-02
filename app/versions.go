@@ -351,9 +351,9 @@ func loadMariaDBCatalog() []PXCImage { return loadImageCatalog("mariadb") }
 // (8.0/8.4). 5.7 is deliberately absent: Oracle publishes it only for el7, which is
 // not in the image matrix. EL10 has an 8.4 repo but no 8.0 one.
 func loadMySQLCECatalog() []PXCImage { return loadImageCatalog("mysql_community") }
-func loadPSMDBCatalog() []PXCImage    { return loadImageCatalog("percona_server_mongodb") }
-func loadPPGCatalog() []PXCImage      { return loadImageCatalog("percona_postgresql") }
-func loadValkeyCatalog() []PXCImage   { return loadImageCatalog("percona_valkey") }
+func loadPSMDBCatalog() []PXCImage   { return loadImageCatalog("percona_server_mongodb") }
+func loadPPGCatalog() []PXCImage     { return loadImageCatalog("percona_postgresql") }
+func loadValkeyCatalog() []PXCImage  { return loadImageCatalog("percona_valkey") }
 
 // loadOrchestratorCatalog parses the per-image `percona_orchestrator` section —
 // the percona-orchestrator versions installable on each image, keyed under a
