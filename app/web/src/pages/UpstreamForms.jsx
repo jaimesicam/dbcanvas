@@ -262,6 +262,11 @@ export function MariaDBFrameForm({ frame: f, stackId, nodes, patchFrame, deleteF
           GTID positions are <code>domain-server-seq</code>; the domain is derived from the cluster name.
         </p>
       )}
+      <p className="text-xs text-amber-600 dark:text-amber-400">
+        Secondaries are <code>read_only</code>, but MariaDB has no <code>super_read_only</code>, so a
+        SUPER account (admin, app) can still write to one. Use the app credentials against the primary,
+        or a non-SUPER user, if you need that guarantee — MySQL and Percona replicas set both.
+      </p>
       {primaries !== 1 && (
         <p className="text-xs text-red-600 dark:text-red-400">Needs exactly one primary (has {primaries}).</p>
       )}

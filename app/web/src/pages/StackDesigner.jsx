@@ -7394,7 +7394,7 @@ function loadProps() {
 function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster, deployOpen, deployments, onDeployMinimize }) {
   const selNode = selected?.kind === 'node' ? nodes.find((n) => n.id === selected.id) : null
   const selDep = selNode ? depByNode[selNode.id] : null
-  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm' || selNode.type === 'seaweedfs' || selNode.type === 'patroni' || selNode.type === 'haproxy' || selNode.type === 'pg' || selNode.type === 'repmgr' || selNode.type === 'spock' || selNode.type === 'aio')) || selected?.kind === 'frame'
+  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm' || selNode.type === 'seaweedfs' || selNode.type === 'patroni' || selNode.type === 'haproxy' || selNode.type === 'pg' || selNode.type === 'repmgr' || selNode.type === 'spock' || selNode.type === 'aio' || selNode.type === 'mariadb' || selNode.type === 'mariadbrepl' || selNode.type === 'mariadbgalera' || selNode.type === 'mysqlce' || selNode.type === 'mysqlcerepl' || selNode.type === 'mysqlceinnodb')) || selected?.kind === 'frame'
 
   const saved = useRef(loadProps()).current
   const [docked, setDocked] = useState(saved.docked !== false)
@@ -7543,15 +7543,28 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     const deployed = !!dep
 
     // Standalone MariaDB / MySQL Community nodes.
+    // Once running these show the manager, not the design form — same as `ps`.
+    // MySQLManager reads mysqlConfig's keys, and mariadbConfig carries the same
+    // JSON tags for every one of them (the two it lacks, dirAuth and vault, are
+    // features MariaDB does not offer here and render falsy).
     if (n.type === 'mariadb') {
+      if (dep && dep.state === 'running') {
+        return <MySQLManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
       return <MariaDBNodeForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} deployed={deployed} />
     }
     if (n.type === 'mysqlce') {
+      if (dep && dep.state === 'running') {
+        return <MySQLManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
       return <MySQLCENodeForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} deployed={deployed} />
     }
     // Members of the four upstream cluster kinds. Replication members carry a role;
     // Galera and Group Replication members do not (both are multi-master).
     if (n.type === 'mariadbrepl' || n.type === 'mariadbgalera' || n.type === 'mysqlcerepl' || n.type === 'mysqlceinnodb') {
+      if (dep && dep.state === 'running') {
+        return <MySQLManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
       return (
         <UpstreamMemberForm
           node={n} frame={frames.find((fr) => fr.id === n.frameId)}

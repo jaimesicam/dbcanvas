@@ -24,6 +24,8 @@ import {
   UpstreamMemberForm,
 } from '../src/pages/UpstreamForms.jsx'
 import { frameMemberSub, REPL_FRAME_TYPES } from '../src/pages/StackDesigner.jsx'
+import MySQLManager from '../src/pages/MySQLManager.jsx'
+import realDeps from './real-deps.json' with { type: 'json' }
 
 const noop = () => {}
 let failures = 0
@@ -274,6 +276,27 @@ check('every frame type describes its own members', () => {
   }
   return out.join(' ')
 })
+
+// ---- the manager, against REAL deployed configs ----
+// These payloads were captured from an actual Ubuntu 24.04 deploy of the six new
+// node types, so this renders the manager over exactly the shape the backend
+// produces — including MariaDB's mariadbConfig, which is a different Go struct from
+// mysqlConfig and merely shares its JSON tags.
+for (const [nodeId, dep] of Object.entries(realDeps)) {
+  check(`MySQLManager over the real ${nodeId} deployment (${dep.config?.serverVersion || '?'})`, () => {
+    const html = renderToString(
+      <TerminalProvider>
+        <MySQLManager stackId={1} nodeId={nodeId} dep={dep} onDeleteNode={noop} />
+      </TerminalProvider>,
+    )
+    // The panel must actually show this node's identity and version, not blanks.
+    for (const want of [dep.config.fqdn, dep.config.serverVersion]) {
+      if (want && !html.includes(want)) throw new Error(`panel omits ${want}`)
+    }
+    if (html.includes('undefined')) throw new Error('panel rendered a literal "undefined"')
+    return html
+  })
+}
 
 if (failures > 0) {
   console.error(`\n${failures} render failure(s)`)

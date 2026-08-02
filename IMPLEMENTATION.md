@@ -9669,3 +9669,46 @@ in the provisioner both read the same source.
 Not covered here: the systemd unit files, the `aioctl` registry and DNS aliases were
 exercised via the existing Percona AiO path rather than re-run per flavor, since none of
 that code branches on flavor. 1 new Go test.
+
+## 194. Ubuntu end-to-end deploy, and the deployed-node manager — `app/web/src/pages/{StackDesigner,UpstreamForms}.jsx`, `app/mariadb.go`
+
+First full end-to-end run of the new node types through the running app: a nine-node
+Ubuntu 24.04 stack (Intranet, MariaDB standalone, MariaDB replication ×2, MariaDB
+Galera ×3, MySQL Community standalone, MySQL Community replication ×2), created,
+validated, deployed and inspected over the HTTP API rather than by driving scripts.
+
+Everything provisioned and works on the Debian packaging path: MariaDB replication with
+`Using_Gtid: Slave_Pos` and data flowing; MySQL Community with `Replica_IO_Running: Yes`;
+a three-member Galera cluster Synced at `wsrep_cluster_size 3` using the Debian provider
+`/usr/lib/galera/libgalera_smm.so`; the two GTID dialects visibly distinct
+(`29742-200416827-3` against `<uuid>:1-3`); and a cross-node connection over the Intranet
+DNS name authenticating with the generated admin credentials.
+
+Node properties after deployment are correct: image, OS, arch, role, cluster, `sourceHost`,
+`readOnly`, per-flavor version fields, and a probed `serverVersion`
+(`11.4.12-MariaDB-ubu2404-log`, `8.4.11`). `gtidDomainId` behaves as designed — shared by
+both members of a replication cluster, different from an unrelated standalone. A
+transient `serverVersion: null` right after deploy is only the lazy prober's cooldown,
+not a fault.
+
+**Two real gaps found.**
+
+*Deployed nodes had no manager.* All six types returned their design form even when
+running, so a deployed node offered edit fields instead of connection details, credentials
+and console access. They now route to MySQLManager once running, like `ps` does —
+`mariadbConfig` is a different Go struct but carries the same JSON tags for everything the
+manager reads (the two it lacks, `dirAuth` and `vault`, are features MariaDB does not offer
+here and render falsy). The render smoke test now exercises the manager against the *real*
+captured deployment payloads from this run, secrets redacted, so it pins the shape the
+backend actually produces rather than a hand-written guess.
+
+*MariaDB replicas are not protected from SUPER writes.* MariaDB has no `super_read_only`
+— the variable does not exist — so `read_only=ON` cannot stop an account holding SUPER,
+which every `ALL PRIVILEGES` account here does. An INSERT as the admin user against a
+MariaDB secondary succeeded, where the same write against a MySQL Community secondary is
+refused (that path sets both flags). This is a MariaDB limitation, not something the
+provisioner can close, so it is documented in the attach script and surfaced as a warning
+on the MariaDB replication form instead of being left to surprise someone comparing the
+two flavours.
+
+The stack was destroyed and deleted afterwards; no containers left behind.

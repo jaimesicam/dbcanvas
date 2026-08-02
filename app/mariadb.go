@@ -1057,6 +1057,12 @@ grep -q "^$ENABLEVAR" "$CNF" || printf '%s=ON\n' "$ENABLEVAR" >>"$CNF"`
 //
 // read_only is persisted by writing a drop-in rather than SET PERSIST, which
 // MariaDB does not have.
+//
+// Note the limit of that protection: MariaDB has no super_read_only (the variable
+// does not exist), so read_only cannot stop an account holding SUPER — which every
+// ALL PRIVILEGES account here does. A MariaDB secondary therefore accepts writes
+// from admin/app where a MySQL or Percona one refuses them, and will silently
+// diverge until a conflicting row arrives. Verified live; surfaced in the form.
 const mariadbAttachScript = `set -e
 mariadb -uroot -p"$ROOT_PW" -e "STOP SLAVE;" 2>/dev/null || true
 if [ "$AUTO" = 1 ]; then
