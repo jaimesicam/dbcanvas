@@ -97,6 +97,31 @@ func (a *App) listBenchTargets(u User) []qrTarget {
 		}
 		doc := buildDoc(st)
 		for _, n := range doc.Nodes {
+			// An All-in-One node's MongoDB instances are separate targets (its SQL
+			// ones are already covered by listSQLTargets above).
+			if n.Type == "aio" {
+				dep, err := a.store.GetDeployment(st.ID, n.ID)
+				if err != nil || dep.State != DeployRunning {
+					continue
+				}
+				for _, m := range aioTargetableInstances(dep) {
+					if aioEngineForKind(m.Kind) != "mongodb" {
+						continue
+					}
+					// In a sharded cluster only the router is a sensible target.
+					if m.Kind == "psmdbsharded" && m.Role != "mongos" {
+						continue
+					}
+					out = append(out, qrTarget{
+						StackID: st.ID, StackName: st.Name,
+						NodeID: aioJoinTarget(n.ID, m.Inst),
+						Label:  aioTargetLabel(n.Label, m),
+						Engine: "mongodb", Type: m.Kind, Port: m.Ports.Client,
+						Host: fqdnOf(m.Inst, envOr("DOMAIN", "example.net")),
+					})
+				}
+				continue
+			}
 			if engineForType(n.Type) != "mongodb" {
 				continue
 			}
@@ -166,12 +191,14 @@ func (a *App) handleBenchStart(w http.ResponseWriter, r *http.Request) {
 		cfg.Seed = time.Now().UnixNano()
 	}
 
-	engine, containerID, label, user, pass, err := a.resolveNodeCreds(u, cfg.StackID, cfg.NodeID)
+	engine, containerID, label, user, pass, port, err := a.resolveNodeCredsPort(u, cfg.StackID, cfg.NodeID)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	run := newBenchRun(a, u.ID, cfg, engine, containerID, label, user, pass)
+	// Non-zero only for an All-in-One instance, which never uses a default port.
+	run.dbPort = port
 	ctx, cancel := context.WithCancel(context.Background())
 	run.cancel = cancel
 	benchRegister(run)

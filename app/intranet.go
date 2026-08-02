@@ -134,6 +134,28 @@ type designNode struct {
 	// full user@domain address) that failure-detection alerts are sent to. "" → no
 	// alert hook is wired.
 	AlertEmail string `json:"alertEmail"`
+	// All-in-One node fields (Type=="aio"). ONE container running many database
+	// feature instances side by side, instead of one product per node — see aio.go.
+	// Reuses OS/OSVersion/Arch, CPUs/MemoryGB and UseProxy above; every other option
+	// is per instance. The node draws no association lines (its NODE_TYPES entry sets
+	// ports:false): each instance wires itself to PMM/LDAP/OpenBao/etc. through its
+	// own picker, the same optional relationship PMMNodeID already is elsewhere.
+	AIOInstances []aioInstance `json:"aioInstances"`
+	// Per-family versions. One package install serves every instance of a family, so
+	// the version is a node-level choice, not a per-instance one. PostgreSQL is the
+	// exception (PPG packages are per-major and co-install), so its major lives on
+	// aioInstance instead.
+	AIOPSMajor       string `json:"aioPsMajor"`   // Percona Server "8.0" | "8.4"
+	AIOPSVersion     string `json:"aioPsVersion"` // minor; "" → latest
+	AIOPXCMajor      string `json:"aioPxcMajor"`
+	AIOPXCVersion    string `json:"aioPxcVersion"`
+	AIOPSMDBMajor    string `json:"aioPsmdbMajor"`
+	AIOPSMDBVersion  string `json:"aioPsmdbVersion"`
+	AIOValkeyMajor   string `json:"aioValkeyMajor"`
+	AIOValkeyVer     string `json:"aioValkeyVersion"`
+	AIOProxySQLMajor string `json:"aioProxysqlMajor"`
+	AIOProxySQLVer   string `json:"aioProxysqlVersion"`
+	AIOOrchVersion   string `json:"aioOrchestratorVersion"`
 }
 
 // designEdge is a connection drawn on the canvas. The endpoints' Node field holds
@@ -755,6 +777,17 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			}
 			// The web UI is always published to an auto-assigned free host port
 			// (like PMM/the app simulators) — no user-chosen port to collide with.
+		case "aio":
+			others++
+			img := pxcImage(n.OS, n.OSVersion, n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+				}
+			}
+			_, hostMem := a.engCtx(ctx).HostResources(ctx)
+			out = append(out, aioIssues(n, doc, exportReq, hostMem)...)
 		case "trafficsim":
 			others++
 			if !seenImg[trafficSimImage] {
@@ -1452,7 +1485,14 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if d, ok := existing[n.ID]; ok && d.State == DeployRunning {
-			continue
+			// An All-in-One node is the one type whose contents can legitimately
+			// grow after it is running: its instance list is edited on the node
+			// itself, not by adding canvas nodes. Re-enter it when the planned
+			// instance set has changed so the new instances get built; provisionAIO
+			// reuses the container and skips the ones already there.
+			if !(n.Type == "aio" && aioNeedsRedeploy(a, st, n, d)) {
+				continue
+			}
 		}
 		switch n.Type {
 		case "intranet":
@@ -1497,6 +1537,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionCarSim(st, n, doc)
 		case "marketchaos":
 			a.provisionMarketChaos(st, n, doc)
+		case "aio":
+			a.provisionAIO(st, n, doc)
 		}
 	}
 

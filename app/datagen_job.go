@@ -211,7 +211,7 @@ func (a *App) handleDataGenGenerate(w http.ResponseWriter, r *http.Request) {
 	}
 	c, ok := a.dbConnFor(st, r.PathValue("nid"))
 	if !ok {
-		writeErr(w, http.StatusConflict, "node is not running")
+		writeErr(w, http.StatusConflict, "node is not running, or is not a database the Data Generator can target")
 		return
 	}
 	var cfg dgGenConfig

@@ -1,0 +1,345 @@
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+// aio_ctl.go — the All-in-One node's in-container control plane.
+//
+// PMM's container gives an operator `supervisorctl` to list, start and stop the
+// processes inside it. An All-in-One node needs the same affordance, but over
+// systemd and over instances rather than raw processes: `aioctl`.
+//
+// Everything it knows comes from /etc/dbcanvas/aio/instances.tsv (rendered by
+// aioRegistryTSV). The format is TSV read with awk rather than JSON read with
+// jq, because jq is not installed on the dbcanvas-systemd base images and adding
+// a package dependency to make a control script work would be the wrong trade.
+//
+// The node's manager UI drives the same script over `docker exec` (aio_mgmt.go),
+// so the CLI and the UI cannot diverge.
+
+// aioPrepControlScript creates the control-plane directories. Runs before any
+// product is installed.
+const aioPrepControlScript = `set -e
+install -d -m 0755 /etc/dbcanvas/aio
+install -d -m 0755 ` + aioRoot + `
+install -d -m 0755 ` + aioRunRoot + `
+install -d -m 0755 /usr/local/bin`
+
+// aioTargetUnit groups every instance so the whole node starts and stops as one.
+// Instances are WantedBy= this target, not multi-user.target, which is what lets
+// `aioctl stop all` be a single systemctl call.
+const aioTargetUnit = `[Unit]
+Description=dbcanvas All-in-One database instances
+After=network-online.target
+Wants=network-online.target
+
+[Install]
+WantedBy=multi-user.target
+`
+
+// aioUnitSpec is the product-specific part of an instance unit. Everything else
+// (naming, ordering, the aio.target binding, restart policy) is uniform, which
+// is what allows aioctl to treat every kind identically.
+type aioUnitSpec struct {
+	Description  string
+	ExecStart    string
+	ExecStop     string   // optional; systemd's default SIGTERM otherwise
+	ExecStartPre []string // optional pre-start commands (run as root unless User is set)
+	Type         string   // "simple" (default), "forking", "notify"
+	PIDFile      string
+	User         string // "" → the layout's owner
+	Group        string
+	EnvFile      string   // contents; written to <aioEtc>/<inst>.env and referenced
+	After        []string // extra ordering (e.g. a cluster's bootstrap member)
+	Requires     []string
+	TimeoutSec   int // start timeout; 0 → 300
+	LimitNOFILE  int // 0 → 65535
+}
+
+// aioUnitFile renders one instance's systemd unit.
+//
+// RuntimeDirectory= is what gives each instance a private, correctly-owned
+// /run/aio/<inst> for its socket and pid without a tmpfiles.d snippet — systemd
+// creates it on start and cleans it on stop.
+func aioUnitFile(l instLayout, u aioUnitSpec) string {
+	user, group := l.userGroup()
+	if u.User != "" {
+		user = u.User
+	}
+	if u.Group != "" {
+		group = u.Group
+	}
+	typ := u.Type
+	if typ == "" {
+		typ = "simple"
+	}
+	timeout := u.TimeoutSec
+	if timeout == 0 {
+		timeout = 300
+	}
+	nofile := u.LimitNOFILE
+	if nofile == 0 {
+		nofile = 65535
+	}
+	desc := u.Description
+	if desc == "" {
+		desc = fmt.Sprintf("dbcanvas All-in-One %s instance %s", l.Kind, l.Inst)
+	}
+
+	var b strings.Builder
+	b.WriteString("[Unit]\n")
+	fmt.Fprintf(&b, "Description=%s\n", desc)
+	fmt.Fprintf(&b, "PartOf=%s\n", aioTarget)
+	fmt.Fprintf(&b, "After=network-online.target %s\n", strings.Join(u.After, " "))
+	if len(u.Requires) > 0 {
+		fmt.Fprintf(&b, "Requires=%s\n", strings.Join(u.Requires, " "))
+	}
+	b.WriteString("\n[Service]\n")
+	fmt.Fprintf(&b, "Type=%s\n", typ)
+	fmt.Fprintf(&b, "User=%s\nGroup=%s\n", user, group)
+	fmt.Fprintf(&b, "RuntimeDirectory=aio/%s\nRuntimeDirectoryMode=0750\nRuntimeDirectoryPreserve=yes\n", l.Inst)
+	if u.EnvFile != "" {
+		fmt.Fprintf(&b, "EnvironmentFile=-%s\n", l.EnvFile)
+	}
+	for _, pre := range u.ExecStartPre {
+		fmt.Fprintf(&b, "ExecStartPre=%s\n", pre)
+	}
+	fmt.Fprintf(&b, "ExecStart=%s\n", u.ExecStart)
+	if u.ExecStop != "" {
+		fmt.Fprintf(&b, "ExecStop=%s\n", u.ExecStop)
+	}
+	if u.PIDFile != "" {
+		fmt.Fprintf(&b, "PIDFile=%s\n", u.PIDFile)
+	}
+	fmt.Fprintf(&b, "TimeoutStartSec=%d\nTimeoutStopSec=120\n", timeout)
+	fmt.Fprintf(&b, "LimitNOFILE=%d\n", nofile)
+	b.WriteString("Restart=no\n")
+	b.WriteString("\n[Install]\n")
+	fmt.Fprintf(&b, "WantedBy=%s\n", aioTarget)
+	return b.String()
+}
+
+// aioMaskVendorUnits disables and masks the vendor units a package drops in, so
+// nothing can bind a default port. Masking (not just disabling) also stops a
+// package upgrade's post-install from starting the service behind our back.
+// Unknown units are ignored, so one script covers every OS/product combination.
+const aioMaskVendorUnits = `set -e
+for u in $UNITS; do
+  systemctl disable --now "$u" >/dev/null 2>&1 || true
+  systemctl mask "$u" >/dev/null 2>&1 || true
+done
+exit 0`
+
+// aioCtlScript is /usr/local/bin/aioctl.
+//
+// Deliberately plain bash over coreutils + systemctl + awk: it must work on a
+// container where the only thing installed is a database.
+const aioCtlScript = `#!/usr/bin/env bash
+# aioctl — control the database instances inside a dbcanvas All-in-One node.
+#
+# Generated by dbcanvas. The instance table lives in $REG; it is rewritten on
+# every deploy, so edits here are lost. Run 'aioctl help' for usage.
+set -o pipefail
+
+REG=/etc/dbcanvas/aio/instances.tsv
+TARGET=aio.target
+
+die() { echo "aioctl: $*" >&2; exit 1; }
+
+[ -r "$REG" ] || die "no instance registry at $REG (is this an All-in-One node?)"
+
+# rows prints the registry without comments or blank lines.
+rows() { grep -v '^[[:space:]]*#' "$REG" 2>/dev/null | grep -v '^[[:space:]]*$'; }
+
+# field <inst> <n> reads column n of an instance's row.
+field() { rows | awk -F'\t' -v i="$1" -v n="$2" '$1==i{print $n; exit}'; }
+
+exists()   { rows | awk -F'\t' -v i="$1" '$1==i{f=1} END{exit !f}'; }
+unit_of()  { field "$1" 6; }
+group_of() { field "$1" 4; }
+role_of()  { field "$1" 5; }
+
+# insts_in <group> lists a group's instances with the bootstrap/primary member
+# first, so starting a cluster brings its seed up before the followers.
+insts_in() {
+  rows | awk -F'\t' -v g="$1" '$4==g{
+    # Seeds first, then plain members, and routers LAST: a mongos cannot start
+    # until the config replica set it points at is up.
+    r = ($5=="mongos") ? 2 : (($5=="bootstrap"||$5=="primary"||$5=="config") ? 0 : 1)
+    print r "\t" $1
+  }' | sort -s -k1,1n | cut -f2
+}
+
+all_insts()  { rows | awk -F'\t' '{print $1}'; }
+all_groups() { rows | awk -F'\t' '$4!="-"{print $4}' | awk '!seen[$0]++'; }
+
+# systemctl is-active PRINTS the state and EXITS NON-ZERO for anything that is
+# not active, so "|| echo unknown" would emit a second line and shift every
+# column of the table. Capture the output and only fall back when it is empty.
+state_of() {
+  local s
+  s=$(systemctl is-active "$(unit_of "$1")" 2>/dev/null)
+  [ -n "$s" ] || s=unknown
+  echo "$s"
+}
+
+# resolve <selector> expands "all", a group name, or an instance name into a
+# start-ordered instance list.
+resolve() {
+  local sel="$1"
+  if [ "$sel" = "all" ]; then
+    local g
+    for g in $(all_groups); do insts_in "$g"; done
+    rows | awk -F'\t' '$4=="-"{print $1}'
+    return
+  fi
+  if rows | awk -F'\t' -v g="$sel" '$4==g{f=1} END{exit !f}'; then insts_in "$sel"; return; fi
+  exists "$sel" || die "unknown instance or group: $sel (try 'aioctl list')"
+  echo "$sel"
+}
+
+cmd_list() {
+  printf '%-22s %-14s %-18s %-11s %-10s %s\n' INSTANCE KIND GROUP ROLE STATE PORTS
+  local i
+  for i in $(all_insts); do
+    printf '%-22s %-14s %-18s %-11s %-10s %s\n' \
+      "$i" "$(field "$i" 2)" "$(group_of "$i")" "$(role_of "$i")" \
+      "$(state_of "$i")" "$(field "$i" 8)"
+  done
+}
+
+cmd_ports() {
+  printf '%-22s %-12s %-8s %s\n' INSTANCE KIND CLIENT 'ALL PORTS'
+  local i
+  for i in $(all_insts); do
+    printf '%-22s %-12s %-8s %s\n' "$i" "$(field "$i" 2)" "$(field "$i" 7)" "$(field "$i" 8)"
+  done
+}
+
+cmd_info() {
+  local i="$1"; exists "$i" || die "unknown instance: $i"
+  echo "instance   : $i"
+  echo "kind       : $(field "$i" 2)  (family $(field "$i" 3))"
+  echo "group      : $(group_of "$i")"
+  echo "role       : $(role_of "$i")"
+  echo "unit       : $(unit_of "$i").service  [$(state_of "$i")]"
+  echo "client port: $(field "$i" 7)"
+  echo "all ports  : $(field "$i" 8)"
+  echo "datadir    : $(field "$i" 9)"
+  echo "config     : $(field "$i" 10)"
+  echo "hostname   : $(field "$i" 12)"
+  [ -r "/etc/dbcanvas/aio/$i.env" ] && { echo "env file   : /etc/dbcanvas/aio/$i.env"; }
+  return 0
+}
+
+# do_units applies a systemctl verb to a resolved selector. Stop and restart walk
+# the list in reverse so followers go down before the member they replicate from.
+do_units() {
+  local verb="$1" sel="$2" list rc=0
+  list=$(resolve "$sel") || exit 1
+  [ -n "$list" ] || die "nothing matched: $sel"
+  if [ "$verb" = "stop" ]; then list=$(echo "$list" | tac); fi
+  local i u hook
+  for i in $list; do
+    u="$(unit_of "$i").service"
+    printf '%-22s %s ... ' "$i" "$verb"
+    if systemctl "$verb" "$u" >/dev/null 2>&1; then
+      # Some products need work AFTER their daemon is up before the instance is
+      # really "started". Group Replication is the case that forced this: its
+      # members run with group_replication_start_on_boot=OFF (so a cold start
+      # cannot race three members into a split group), which means systemd
+      # reporting "active" leaves the group itself DOWN. A per-instance hook lets
+      # the product re-form itself while keeping this script product-agnostic.
+      hook="/etc/dbcanvas/aio/$i.poststart"
+      if [ "$verb" != "stop" ] && [ -x "$hook" ]; then
+        if "$hook" >/dev/null 2>&1; then echo ok; else echo "ok (unit) / FAILED (post-start)"; rc=1; fi
+      else
+        echo ok
+      fi
+    else
+      echo FAILED; rc=1
+    fi
+  done
+  return $rc
+}
+
+cmd_status() {
+  local sel="${1:-all}" list
+  list=$(resolve "$sel") || exit 1
+  local i
+  for i in $list; do systemctl status --no-pager --lines=5 "$(unit_of "$i").service"; echo; done
+  return 0
+}
+
+cmd_logs() {
+  local i="$1"; shift
+  exists "$i" || die "unknown instance: $i"
+  journalctl -u "$(unit_of "$i").service" --no-pager "$@"
+}
+
+# cmd_connect opens the product's own CLI against the instance, with the port and
+# socket already right — the single most common reason to shell into this node.
+#
+# Connect over the instance's own UNIX SOCKET, not TCP. Two reasons: with N
+# servers on one host a stray TCP port is the easiest way to land in the wrong
+# database, and the engines' superuser accounts are 'root'@'localhost' /
+# postgres peer auth, which TCP does not satisfy. Credentials come from
+# /root/.my.cnf (written at provision time), so no password appears here.
+cmd_connect() {
+  local i="$1"; shift
+  exists "$i" || die "unknown instance: $i"
+  local client port sock
+  client="$(field "$i" 11)"; port="$(field "$i" 7)"
+  sock=""
+  [ -r "/etc/dbcanvas/aio/$i.env" ] && sock=$(. "/etc/dbcanvas/aio/$i.env" 2>/dev/null; echo "$AIO_SOCKET")
+  # runuser, not sudo: sudo is not installed on the dbcanvas-systemd base images
+  # (the rest of the codebase uses runuser for the postgres user too).
+  # PGBIN/AIO_VALKEY_PW come from the instance env file sourced above.
+  local pgbin vkpw
+  pgbin=$(. "/etc/dbcanvas/aio/$i.env" 2>/dev/null; echo "${PGBIN:-/usr/bin}")
+  vkpw=$(. "/etc/dbcanvas/aio/$i.env" 2>/dev/null; echo "$AIO_VALKEY_PW")
+  case "$client" in
+    mysql)      exec mysql ${sock:+--socket="$sock"} -u root "$@" ;;
+    psql)       exec runuser -u postgres -- "$pgbin/psql" -h "${sock:-/run/aio/$i}" -p "$port" -U postgres "$@" ;;
+    mongosh)    exec mongosh --host 127.0.0.1 --port "$port" "$@" ;;
+    valkey-cli) exec valkey-cli -h 127.0.0.1 -p "$port" ${vkpw:+-a "$vkpw"} --no-auth-warning "$@" ;;
+    *)          die "no interactive client for $i" ;;
+  esac
+}
+
+cmd_help() {
+  cat <<'EOF'
+aioctl — control the database instances inside a dbcanvas All-in-One node.
+
+  aioctl list                       instances, their state and ports
+  aioctl ports                      the node's full port map
+  aioctl info     <inst>            paths, ports and config for one instance
+  aioctl status   [<sel>]           systemctl status (default: all)
+  aioctl start    <sel>             start   (clusters seed-first)
+  aioctl stop     <sel>             stop    (clusters followers-first)
+  aioctl restart  <sel>             restart
+  aioctl logs     <inst> [args...]  journalctl for one instance (e.g. -f, -n 200)
+  aioctl connect  <inst> [args...]  open this instance's own CLI
+
+<sel> is an instance name, a group (cluster) name, or "all".
+Nothing here listens on its product's default port — always use the port shown
+by 'aioctl list'.
+EOF
+}
+
+case "${1:-list}" in
+  list|ls)   cmd_list ;;
+  ports)     cmd_ports ;;
+  info)      shift; [ $# -ge 1 ] || die "usage: aioctl info <inst>"; cmd_info "$1" ;;
+  status)    shift; cmd_status "${1:-all}" ;;
+  start)     shift; [ $# -ge 1 ] || die "usage: aioctl start <inst|group|all>"; do_units start "$1" ;;
+  stop)      shift; [ $# -ge 1 ] || die "usage: aioctl stop <inst|group|all>";  do_units stop "$1" ;;
+  restart)   shift; [ $# -ge 1 ] || die "usage: aioctl restart <inst|group|all>"; do_units restart "$1" ;;
+  logs)      shift; [ $# -ge 1 ] || die "usage: aioctl logs <inst> [journalctl args]"; cmd_logs "$@" ;;
+  connect)   shift; [ $# -ge 1 ] || die "usage: aioctl connect <inst>"; cmd_connect "$@" ;;
+  help|-h|--help) cmd_help ;;
+  *)         die "unknown command: $1 (try 'aioctl help')" ;;
+esac
+`

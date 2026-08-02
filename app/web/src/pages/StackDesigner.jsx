@@ -19,6 +19,7 @@ import HAProxyManager from './HAProxyManager.jsx'
 import PGManager from './PGManager.jsx'
 import RepmgrManager from './RepmgrManager.jsx'
 import SpockManager from './SpockManager.jsx'
+import { AllInOneForm, AllInOneManager } from './AllInOne.jsx'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import { SecretInline, CopyButton as CopyBtn } from '../components/Secret.jsx'
 import {
@@ -444,6 +445,28 @@ const NODE_TYPES = {
   // latter two, via a drawn association line (see endpointKind/tryConnect) — its
   // dashboard port is published to the host (like PMM), so no VNC desktop is
   // needed to reach it.
+  // All in One — ONE container running many database instances side by side,
+  // instead of one product per node. It carries no connection endpoints
+  // (ports:false) on purpose: every relationship an instance has (PMM, LDAP,
+  // OpenBao, the instance a proxy fronts) is a drop-down inside the node's form,
+  // not a line drawn on the canvas. Instance options live in node.aioInstances;
+  // see app/aio.go and pages/AllInOne.jsx.
+  aio: {
+    label: 'All in One',
+    slug: 'aio',
+    sub: 'Every database feature in one container',
+    color: '#7c3aed',
+    icon: 'Server',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }],
+    defaults: {
+      os: 'oraclelinux', osVersion: '9', arch: 'amd64', useProxy: false,
+      aioPsMajor: '8.0', aioPsVersion: '', aioPxcMajor: '8.0', aioPxcVersion: '',
+      aioPsmdbMajor: '8.0', aioValkeyMajor: '9.1', aioProxysqlMajor: '2',
+      aioInstances: [],
+    },
+  },
   marketchaos: {
     label: 'Unoptimized MySQL Challenge',
     slug: 'marketchaos',
@@ -670,7 +693,7 @@ const proxyModeOpts = (backendType) => PROXY_MODE_OPTS[backendType === 'mysql' ?
 
 // nodeOSLabel renders a free node's OS line; ProxySQL carries its own os/version
 // (like a PXC frame), other nodes map via their osOptions.
-const nodeOSLabel = (n) => (n.type === 'proxysql' || n.type === 'ps' || n.type === 'pg' || n.type === 'psm' || n.type === 'haproxy' || n.type === 'orchestrator' || n.type === 'vnc' || n.type === 'linuxclient' || n.type === 'valkey' ? pxcOSLabel(n) : osLabel(n.type, n.os))
+const nodeOSLabel = (n) => (n.type === 'proxysql' || n.type === 'ps' || n.type === 'pg' || n.type === 'psm' || n.type === 'haproxy' || n.type === 'orchestrator' || n.type === 'vnc' || n.type === 'linuxclient' || n.type === 'valkey' || n.type === 'aio' ? pxcOSLabel(n) : osLabel(n.type, n.os))
 
 // Auto-numbered per-type labels: a non-singleton node is named "<slug>-NN" with
 // NN zero-padded from 01 and increasing per node type (pmm-01, pmm-02, …, and in
@@ -2020,6 +2043,9 @@ function StackEditor({ stackId, onBack }) {
       { label: 'PMM3', type: 'pmm', onClick: () => addNode('pmm') },
       { label: 'Watchtower', type: 'watchtower', onClick: () => addNode('watchtower'), off: has('watchtower') },
       { label: 'Keycloak', type: 'keycloak', onClick: () => addNode('keycloak'), off: has('keycloak') },
+    ] },
+    { title: 'All in One', items: [
+      { label: 'All in One', type: 'aio', onClick: () => addNode('aio') },
     ] },
     { title: 'MySQL', items: [
       { label: 'PXC Cluster', type: 'pxc', onClick: addPXCCluster },
@@ -7183,7 +7209,7 @@ function loadProps() {
 function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster, deployOpen, deployments, onDeployMinimize }) {
   const selNode = selected?.kind === 'node' ? nodes.find((n) => n.id === selected.id) : null
   const selDep = selNode ? depByNode[selNode.id] : null
-  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm' || selNode.type === 'seaweedfs' || selNode.type === 'patroni' || selNode.type === 'haproxy' || selNode.type === 'pg' || selNode.type === 'repmgr' || selNode.type === 'spock')) || selected?.kind === 'frame'
+  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm' || selNode.type === 'seaweedfs' || selNode.type === 'patroni' || selNode.type === 'haproxy' || selNode.type === 'pg' || selNode.type === 'repmgr' || selNode.type === 'spock' || selNode.type === 'aio')) || selected?.kind === 'frame'
 
   const saved = useRef(loadProps()).current
   const [docked, setDocked] = useState(saved.docked !== false)
@@ -7420,6 +7446,15 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <OrchestratorManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <OrchestratorForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+
+    // All-in-One node: one container, many database instances. Running → the
+    // instance console (start/stop/logs per instance or per cluster).
+    if (n.type === 'aio') {
+      if (dep && dep.state === 'running') {
+        return <AllInOneManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <AllInOneForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
 
     const def = NODE_TYPES[n.type] || NODE_TYPES.intranet

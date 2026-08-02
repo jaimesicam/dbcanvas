@@ -244,6 +244,14 @@ func main() {
 	mux.HandleFunc("POST /api/stacks/{id}/frames/{fid}/k3d/users/delete", app.handleK3DUserDelete)
 	mux.HandleFunc("GET /api/stacks/{id}/frames/{fid}/k3d/users/{username}/kubeconfig", app.handleK3DUserKubeconfig)
 
+	// All-in-One node: instance inventory + lifecycle. Every action execs the
+	// container's own `aioctl`, so the UI and the CLI cannot diverge.
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/aio/instances", app.handleAIOInstances)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/aio/instances/{inst}/start", app.handleAIOInstanceAction("start"))
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/aio/instances/{inst}/stop", app.handleAIOInstanceAction("stop"))
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/aio/instances/{inst}/restart", app.handleAIOInstanceAction("restart"))
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/aio/instances/{inst}/logs", app.handleAIOInstanceLogs)
+
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/term", app.handleNodeTerminal)
 
 	app.startReaper()

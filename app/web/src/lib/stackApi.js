@@ -93,6 +93,21 @@ export function seaweedApi(id, nid) {
   }
 }
 
+// All-in-One node management. Every action execs the container's own `aioctl`
+// (see app/aio_mgmt.go), so these buttons and the CLI an operator runs in the
+// node's terminal are the same implementation. `sel` is an instance name, a
+// group (cluster) name, or "all" — the selectors aioctl itself accepts.
+export function aioApi(id, nid) {
+  const base = `/api/stacks/${id}/nodes/${nid}/aio`
+  return {
+    instances: () => request('GET', `${base}/instances`),
+    start: (sel) => request('POST', `${base}/instances/${encodeURIComponent(sel)}/start`),
+    stop: (sel) => request('POST', `${base}/instances/${encodeURIComponent(sel)}/stop`),
+    restart: (sel) => request('POST', `${base}/instances/${encodeURIComponent(sel)}/restart`),
+    logs: (inst) => request('GET', `${base}/instances/${encodeURIComponent(inst)}/logs`),
+  }
+}
+
 // PXC node management.
 export function pxcApi(id, nid) {
   const base = `/api/stacks/${id}/nodes/${nid}`

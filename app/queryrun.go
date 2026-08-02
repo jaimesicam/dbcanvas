@@ -114,6 +114,28 @@ func (a *App) listSQLTargets(u User) []qrTarget {
 		}
 		doc := buildDoc(st)
 		for _, n := range doc.Nodes {
+			// An All-in-One node is many targets, not one: each instance has its
+			// own engine, port and schema. Emit them individually.
+			if n.Type == "aio" {
+				dep, err := a.store.GetDeployment(st.ID, n.ID)
+				if err != nil || dep.State != DeployRunning {
+					continue
+				}
+				for _, m := range aioTargetableInstances(dep) {
+					eng, port, _, _ := aioInstanceCreds(dep, m)
+					if eng == "" || eng == "mongodb" {
+						continue // SQL-only, as below
+					}
+					out = append(out, qrTarget{
+						StackID: st.ID, StackName: st.Name,
+						NodeID: aioJoinTarget(n.ID, m.Inst),
+						Label:  aioTargetLabel(n.Label, m),
+						Engine: eng, Type: m.Kind, Port: port,
+						Host: fqdnOf(m.Inst, envOr("DOMAIN", "example.net")),
+					})
+				}
+				continue
+			}
 			engine := engineForType(n.Type)
 			if engine == "" || engine == "mongodb" {
 				continue // the Query Runner is SQL-only; MongoDB has its own target list (benchmark)
@@ -138,14 +160,61 @@ func (a *App) listSQLTargets(u User) []qrTarget {
 // resolveNodeCreds validates ownership + that the node is a running supported SQL
 // target, returning its engine, container id, label, and network-account credentials
 // (MySQL admin@'%', Postgres superuser). Shared by the Query Runner and Benchmark.
-func (a *App) resolveNodeCreds(u User, stackID int64, nodeID string) (engine, containerID, label, user, pass string, err error) {
+func (a *App) resolveNodeCreds(u User, stackID int64, target string) (engine, containerID, label, user, pass string, err error) {
+	e2, c, l, us, pw, _, err := a.resolveNodeCredsPort(u, stackID, target)
+	return e2, c, l, us, pw, err
+}
+
+// resolveNodeCredsPort is resolveNodeCreds plus the port to dial. An ordinary
+// node uses its engine's default; an All-in-One instance uses its slot port,
+// which is never a default — so the port has to travel with the credentials
+// rather than being inferred at dial time.
+func (a *App) resolveNodeCredsPort(u User, stackID int64, target string) (engine, containerID, label, user, pass string, port int, err error) {
+	nodeID, inst := aioSplitTarget(target)
 	st, e := a.store.GetStack(stackID)
 	if e != nil {
-		return "", "", "", "", "", fmt.Errorf("target stack not found")
+		return "", "", "", "", "", 0, fmt.Errorf("target stack not found")
 	}
 	if st.OwnerID != u.ID && u.Role != RoleAdmin {
-		return "", "", "", "", "", fmt.Errorf("not your stack")
+		return "", "", "", "", "", 0, fmt.Errorf("not your stack")
 	}
+	if inst != "" {
+		dep, e2 := a.store.GetDeployment(stackID, nodeID)
+		if e2 != nil || dep.State != DeployRunning || dep.ContainerID == "" {
+			return "", "", "", "", "", 0, fmt.Errorf("node is not running")
+		}
+		m, ok := aioFindInstance(dep, inst)
+		if !ok {
+			return "", "", "", "", "", 0, fmt.Errorf("instance %q not found on this node", inst)
+		}
+		eng, p, us, pw := aioInstanceCreds(dep, m)
+		if eng == "" {
+			return "", "", "", "", "", 0, fmt.Errorf("instance %q is not a supported target", inst)
+		}
+		nodeLabel := inst
+		for _, n := range buildDoc(st).Nodes {
+			if n.ID == nodeID {
+				nodeLabel = aioTargetLabel(n.Label, m)
+			}
+		}
+		return eng, dep.ContainerID, nodeLabel, us, pw, p, nil
+	}
+	engine, containerID, label, user, pass, err = a.resolveClassicNodeCreds(st, nodeID)
+	if err != nil {
+		return "", "", "", "", "", 0, err
+	}
+	port = 3306
+	if engine == "postgres" {
+		port = 5432
+	} else if engine == "mongodb" {
+		port = 27017
+	}
+	return engine, containerID, label, user, pass, port, nil
+}
+
+// resolveClassicNodeCreds is the original one-product-per-node resolution.
+func (a *App) resolveClassicNodeCreds(st Stack, nodeID string) (engine, containerID, label, user, pass string, err error) {
+	stackID := st.ID
 	var node designNode
 	found := false
 	for _, n := range buildDoc(st).Nodes {
@@ -264,52 +333,30 @@ func (a *App) qrBuildQuery(u User, spec qrQuerySpec) (*qrQuery, error) {
 	if spec.TimeLimitS > 3600 {
 		spec.TimeLimitS = 3600
 	}
-	st, err := a.store.GetStack(spec.StackID)
+	// Shared with the Benchmark, and the single place that understands a composite
+	// "<nodeId>#<inst>" target — so the Query Runner gained All-in-One instances
+	// without growing a second copy of this resolution.
+	engine, containerID, label, dbUser, dbPass, port, err := a.resolveNodeCredsPort(u, spec.StackID, spec.NodeID)
 	if err != nil {
-		return nil, fmt.Errorf("target stack not found")
+		return nil, err
 	}
-	if st.OwnerID != u.ID && u.Role != RoleAdmin {
-		return nil, fmt.Errorf("not your stack")
+	if engine == "mongodb" {
+		return nil, fmt.Errorf("the Query Runner is SQL-only; use the Benchmark for MongoDB")
 	}
-	var node designNode
-	found := false
-	for _, n := range buildDoc(st).Nodes {
-		if n.ID == spec.NodeID {
-			node, found = n, true
-			break
-		}
+	driver := "pgx"
+	if engine == "mysql" {
+		driver = "mysql"
 	}
-	if !found {
-		return nil, fmt.Errorf("node not found in stack")
-	}
-	engine := engineForType(node.Type)
-	if engine == "" {
-		return nil, fmt.Errorf("node type %q is not a supported query target", node.Type)
-	}
-	dep, err := a.store.GetDeployment(st.ID, spec.NodeID)
-	if err != nil || dep.State != DeployRunning || dep.ContainerID == "" {
-		return nil, fmt.Errorf("node is not running")
-	}
-
 	q := &qrQuery{
-		spec: spec, label: node.Label, engine: engine, status: "pending",
+		spec: spec, label: label, engine: engine, status: "pending",
 		token:           qrMarker + "-" + qrNewID(), // unique per query, for gate self-exclusion
-		stackID:         st.ID,
-		nodeContainerID: dep.ContainerID,
+		stackID:         spec.StackID,
+		nodeContainerID: containerID,
 		database:        spec.Database,
-	}
-	switch engine {
-	case "mysql":
-		var s pxcSecrets
-		json.Unmarshal(dep.Secrets, &s)
-		q.driver, q.dbUser, q.dbPass = "mysql", s.AdminUser, s.AdminPassword
-		if q.dbUser == "" {
-			q.dbUser = "admin"
-		}
-	default: // postgres
-		var s pgSecrets
-		json.Unmarshal(dep.Secrets, &s)
-		q.driver, q.dbUser, q.dbPass = "pgx", s.Super(), s.SuperPassword
+		driver:          driver,
+		dbUser:          dbUser,
+		dbPass:          dbPass,
+		dbPort:          port,
 	}
 	if spec.Gate.Enabled {
 		if spec.Gate.PollMs < 100 {
