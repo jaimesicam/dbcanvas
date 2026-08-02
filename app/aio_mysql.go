@@ -403,6 +403,13 @@ func aioMySQLCnf(l instLayout, m aioInstanceRuntime, n designNode, major, versio
 	}
 	fmt.Fprintf(&b, "log-error=%s\npid-file=%s/mysqld.pid\n", l.LogErr, l.RunDir)
 	fmt.Fprintf(&b, "user=mysql\nbind-address=0.0.0.0\n")
+	// Every instance in this container shares the container's hostname, so without
+	// report_host all of them announce themselves identically and are told apart
+	// only by port. That breaks two things: SHOW SLAVE HOSTS reports "localhost"
+	// for each replica (which Orchestrator's DiscoverByShowSlaveHosts would then
+	// chase), and Orchestrator's UI shows six servers all called aio-01. Each
+	// instance already owns a DNS alias — announce it.
+	fmt.Fprintf(&b, "report_host=%s\nreport_port=%d\n", m.FQDN, m.Ports.Client)
 	fmt.Fprintf(&b, "slow_query_log=ON\nslow_query_log_file=%s/slow.log\nlong_query_time=2\n", l.LogDir)
 	// A container running many servers cannot give each the single-instance
 	// default buffer pool; without this a handful of instances exhausts memory.
@@ -549,6 +556,16 @@ func (a *App) aioMySQLBaseline(ctx context.Context, id string, m aioInstanceRunt
 // aioMySQLReplicate attaches each psrepl group's replicas to its primary. Both
 // ends are in this container, so the link is 127.0.0.1:<primary port> — the
 // clearest demonstration of why nothing may use a default port.
+// aioSourceHost is the address a replica records for its primary: the primary's own
+// DNS alias, falling back to loopback only if the plan somehow has no FQDN. Distinct
+// per instance, which is the whole point — see the call site.
+func aioSourceHost(primary aioInstanceRuntime) string {
+	if primary.FQDN != "" {
+		return primary.FQDN
+	}
+	return "127.0.0.1"
+}
+
 func (a *App) aioMySQLReplicate(ctx context.Context, id string, n designNode, cfg aioConfig, sec pxcSecrets, major string, pr *pxcProg) error {
 	for _, in := range n.AIOInstances {
 		if aioMySQLShape(in.Kind) != shapeRepl {
@@ -576,7 +593,13 @@ func (a *App) aioMySQLReplicate(ctx context.Context, id string, n designNode, cf
 				"SOCK=" + rl.Sock,
 				"ROOT_PW=" + sec.RootPassword,
 				"REPL_USER=" + sec.ReplUser, "REPL_PW=" + sec.ReplPassword,
-				"SOURCE_HOST=127.0.0.1",
+				// The primary's own DNS alias, not 127.0.0.1. Every instance in the
+				// container would otherwise record the same Master_Host, and anything
+				// reasoning about the topology from it — Orchestrator resolves that one
+				// string to a single host — collapses every cluster in the node onto
+				// one master. The alias is a container network alias, so it resolves
+				// locally without leaving the node.
+				"SOURCE_HOST=" + aioSourceHost(primary),
 				fmt.Sprintf("SOURCE_PORT=%d", primary.Ports.Client),
 				"CNFDIR=" + rl.ConfDir,
 			}
@@ -1181,7 +1204,7 @@ exit 0`
 const aioMariaDBAttachScript = `set -e
 M="mariadb --no-defaults --socket=$SOCK -uroot -p$ROOT_PW"
 $M -e "STOP SLAVE;" 2>/dev/null || true
-$M -e "CHANGE MASTER TO MASTER_HOST='127.0.0.1', MASTER_PORT=$SOURCE_PORT, MASTER_USER='$REPL_USER', MASTER_PASSWORD='$REPL_PW', MASTER_USE_GTID = slave_pos;"
+$M -e "CHANGE MASTER TO MASTER_HOST='$SOURCE_HOST', MASTER_PORT=$SOURCE_PORT, MASTER_USER='$REPL_USER', MASTER_PASSWORD='$REPL_PW', MASTER_USE_GTID = slave_pos;"
 $M -e "START SLAVE;"
 OK=0
 for i in $(seq 1 30); do

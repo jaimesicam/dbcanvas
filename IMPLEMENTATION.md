@@ -9913,3 +9913,50 @@ the generated config carries `http-request use-service prometheus-exporter`. The
 
 The first attempt was going to use the reported node instead; that stack was deleted
 mid-deploy — not by me, and not by its TTL, which had 16 hours left.
+
+## 200. Orchestrator's view of an All-in-One node was wrong three ways — `app/{aio_mysql,aio_orch}.go`
+
+Reported: two MariaDB replication clusters in one All-in-One node, and Orchestrator's
+`/web/clusters` "looks misconfigured". It was. The topology it had discovered was right;
+everything about how it *identified* the servers was not.
+
+**1. Every instance announced the container's hostname.** Nothing set `report_host`, so all
+six MariaDB servers claimed `aio-01` and differed only by port. `SHOW SLAVE HOSTS` reported
+`localhost` for each replica — actively dangerous with `DiscoverByShowSlaveHosts: true`,
+which the config enables. Each instance already owns a DNS alias; it now announces it, with
+`report_port` alongside.
+
+**2. Clusters were named after the master's host:port.** Orchestrator derives a cluster name
+from its master's key unless an alias is detected, so the two clusters rendered as
+`aio-01:13000` and `aio-01:13030` — accurate, and unrecognisable as the clusters the user
+drew. `DetectClusterAliasQuery` now recovers the declaring instance's name from
+`report_host`. The member suffix is stripped with an end-anchored `-n[0-9]+$` rather than
+`SUBSTRING_INDEX(x, '-n', 1)`, which would truncate any cluster whose own name contains
+"-n" ("my-node-cluster" → "my"); that case is in the test.
+
+`report_host` alone was not enough, which cost a round of debugging: Orchestrator keys
+instances on `@@hostname` by default and resolved the FQDN straight back to `aio-01`. It
+also needs `MySQLHostnameResolveMethod: "report_host"` and `HostnameResolveMethod: "none"`.
+
+**3. Every replica recorded `Master_Host: 127.0.0.1`.** This was the real defect. Intra-node
+replication attached over loopback, so all six replicas recorded the same master address —
+and Orchestrator, which resolves one hostname per address string, put *both* clusters'
+replicas under whichever primary it resolved last. Displayed: cluster-01's replicas as
+replicas of cluster-02's primary. Replicas now record the primary's own alias.
+
+Verified on the reported node, after applying all three and resetting Orchestrator's
+backend so nothing stale remained:
+
+    'mariadbrepl-cluster-01'   instances=3
+    'mariadbrepl-cluster-02'   instances=3
+
+    mariadbrepl-cluster-01-n1:13000  PRIMARY
+    mariadbrepl-cluster-01-n2:13010  replica of mariadbrepl-cluster-01-n1
+    ...
+
+**Existing nodes need rebuilding.** `report_host` is written into an instance's my.cnf, and
+a redeploy only writes configs for *fresh* instances — so a node deployed before this keeps
+the old identity until its instances are recreated. The reported node was repaired by hand
+to confirm the fix; it is not something a plain redeploy will do.
+
+3 new Go tests.

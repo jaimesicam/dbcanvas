@@ -1039,3 +1039,79 @@ func TestAIOPMMFormGateMatchesTheRegistrationPath(t *testing.T) {
 		}
 	}
 }
+
+// Every instance in an All-in-One container shares the container's hostname, so
+// without report_host they all announce themselves identically and are told apart
+// only by port: SHOW SLAVE HOSTS reports "localhost" for each replica, and
+// Orchestrator lists six servers all called aio-01.
+func TestAIOMySQLCnfAnnouncesTheInstancesOwnName(t *testing.T) {
+	for _, kind := range []string{"mariadbrepl", "mysqlcerepl", "psrepl", "ps"} {
+		ports := aioPortsFor(kind, 0, 1)
+		m := aioInstanceRuntime{
+			Inst: "cluster01-n2", Kind: kind, Group: "cluster01",
+			FQDN: "cluster01-n2.example.net", Ports: ports,
+		}
+		n := designNode{AIOInstances: []aioInstance{{Kind: kind, Name: "cluster01", GTID: true}}}
+		cnf := aioMySQLCnf(aioLayout(m.Inst, m.Kind, ports), m, n, "11.4", "")
+		if !strings.Contains(cnf, "report_host=cluster01-n2.example.net") {
+			t.Errorf("%s: config does not announce the instance's own name:\n%s", kind, cnf)
+		}
+		if !strings.Contains(cnf, fmt.Sprintf("report_port=%d", ports.Client)) {
+			t.Errorf("%s: config does not announce the instance's own port", kind)
+		}
+	}
+}
+
+// Orchestrator names a cluster after its master's host:port unless an alias is
+// detected, so two All-in-One clusters render as "aio-01:13000" and "aio-01:13030".
+// The alias query recovers the name the user typed from report_host.
+func TestAIOOrchClusterAliasQueryRecoversTheClusterName(t *testing.T) {
+	q := aioOrchClusterAliasQuery
+	if !strings.Contains(q, "@@report_host") {
+		t.Error("the alias must be derived from report_host")
+	}
+	// SUBSTRING_INDEX(x,'-n',1) would truncate a cluster whose own name contains
+	// "-n"; the suffix must be stripped with an anchored pattern instead.
+	if strings.Contains(q, "'-n', 1") || strings.Contains(q, `"-n", 1`) {
+		t.Error("stripping the member suffix with SUBSTRING_INDEX truncates names containing '-n'")
+	}
+	if !strings.Contains(q, "-n[0-9]+$") {
+		t.Error("the member suffix should be removed with an end-anchored pattern")
+	}
+	// The AiO member naming this relies on must not drift.
+	if got := aioMemberInst("mariadbrepl-cluster-01", "mariadbrepl", 1, 3); got != "mariadbrepl-cluster-01-n2" {
+		t.Errorf("member naming changed to %q — the alias query's suffix pattern assumes -n<N>", got)
+	}
+	if got := aioMemberInst("mariadb01", "mariadb", 0, 1); got != "mariadb01" {
+		t.Errorf("a standalone must have no member suffix, got %q", got)
+	}
+}
+
+// Replicas must record the primary's own alias, not 127.0.0.1. Every instance in an
+// All-in-One container shares loopback, so anything resolving Master_Host — which
+// Orchestrator does, to one host per address string — collapses every cluster in the
+// node onto a single master. Seen live: cluster-01's replicas were displayed as
+// replicas of cluster-02's primary.
+func TestAIOReplicasRecordTheirOwnPrimary(t *testing.T) {
+	p := aioInstanceRuntime{Inst: "c01-n1", FQDN: "c01-n1.example.net", Ports: aioPortsFor("mariadbrepl", 0, 0)}
+	if got := aioSourceHost(p); got != "c01-n1.example.net" {
+		t.Errorf("source host = %q, want the primary's alias", got)
+	}
+	// Two primaries in one node must not share an address.
+	q := aioInstanceRuntime{Inst: "c02-n1", FQDN: "c02-n1.example.net"}
+	if aioSourceHost(p) == aioSourceHost(q) {
+		t.Error("two clusters' primaries resolved to the same address")
+	}
+	if got := aioSourceHost(aioInstanceRuntime{Inst: "x"}); got != "127.0.0.1" {
+		t.Errorf("fallback = %q, want loopback", got)
+	}
+	// Neither attach script may hardcode loopback any more.
+	for name, s := range map[string]string{"mysql": aioMySQLAttachScript, "mariadb": aioMariaDBAttachScript} {
+		if strings.Contains(s, "'127.0.0.1'") {
+			t.Errorf("%s attach script still hardcodes 127.0.0.1 as the source", name)
+		}
+		if !strings.Contains(s, "$SOURCE_HOST") {
+			t.Errorf("%s attach script does not use $SOURCE_HOST", name)
+		}
+	}
+}

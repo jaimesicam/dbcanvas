@@ -127,13 +127,32 @@ func aioOrchConfJSON(l instLayout, m aioInstanceRuntime, sec pxcSecrets, alertEm
   "MySQLTopologyPassword": %q,
   "MySQLTopologySSLSkipVerify": true,
   "DiscoverByShowSlaveHosts": true,
+  "DetectClusterAliasQuery": %q,
   "InstancePollSeconds": 5,
   "AuthenticationMethod": "",
   "OnFailureDetectionProcesses": %s
 }
 `, m.Ports.Client, l.DataDir+"/orchestrator.sqlite3",
-		sec.OrchestratorUser, sec.OrchestratorPassword, hooks)
+		sec.OrchestratorUser, sec.OrchestratorPassword, aioOrchClusterAliasQuery, hooks)
 }
+
+// aioOrchClusterAliasQuery gives each cluster the name the user typed instead of
+// the master's host:port.
+//
+// Orchestrator names a cluster after its master's key unless an alias is detected,
+// so two All-in-One replication clusters show up as "aio-01:13000" and
+// "aio-01:13030" — accurate, and unrecognisable as the clusters you drew. Every
+// instance's report_host is "<instance>.<domain>" and a cluster member is
+// "<cluster>-n<N>", so stripping the domain and the member suffix recovers the
+// declaring instance's name.
+//
+// The suffix is removed with a regex anchored at the end rather than
+// SUBSTRING_INDEX(x, '-n', 1), which would truncate any cluster whose own name
+// contains "-n" ("my-node-cluster" → "my"). REGEXP_REPLACE is available on both
+// MariaDB 10.0+ and MySQL 8.0+. A standalone instance has no -nN suffix and is left
+// alone; a server with no report_host yields NULL, which Orchestrator reads as
+// "no alias" and falls back to its default naming.
+const aioOrchClusterAliasQuery = `SELECT REGEXP_REPLACE(SUBSTRING_INDEX(@@report_host, '.', 1), '-n[0-9]+$', '')`
 
 // aioOrchDiscover points an Orchestrator instance at the MySQL instances that
 // selected it, so a freshly deployed node shows its topology without the user
