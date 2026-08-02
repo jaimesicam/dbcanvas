@@ -646,3 +646,34 @@ func TestAIOGaleraStartWrapperPicksTheDaemon(t *testing.T) {
 		t.Errorf("PXC wrapper does not exec mysqld:\n%s", px)
 	}
 }
+
+// mariadb-install-db creates anonymous ”@'localhost' and ”@'<hostname>' accounts.
+// They are MORE host-specific than a '%' grant, so a connection made over localhost
+// matches them first and fails with a misleading "Access denied for user
+// 'repl'@'localhost'" — even though repl@'%' exists with the right password.
+//
+// Found by running an All-in-One MariaDB replication pair, where both servers live in
+// one container and the replica therefore dials 127.0.0.1. The classic node path
+// attaches over an FQDN, so it never hit this.
+func TestMariaDBBaselinesDropAnonymousUsers(t *testing.T) {
+	for name, s := range map[string]string{
+		"classic": mariadbRootSQL,
+		"aio":     aioMariaDBBaselineScript,
+	} {
+		if !strings.Contains(s, "DELETE FROM mysql.global_priv WHERE User=''") {
+			t.Errorf("%s baseline does not remove the anonymous accounts", name)
+		}
+		// The removal must precede the accounts it would otherwise shadow.
+		del := strings.Index(s, "WHERE User=''")
+		repl := strings.Index(s, "'$REPL_USER'@'%'")
+		if del < 0 || repl < 0 || del > repl {
+			t.Errorf("%s: anonymous cleanup must come before the real grants", name)
+		}
+	}
+	// Neither init should leave the sample `test` database behind either.
+	for name, s := range map[string]string{"classic": mariadbDatadirInit, "aio": aioMariaDBInitScript} {
+		if !strings.Contains(s, "--skip-test-db") {
+			t.Errorf("%s init does not pass --skip-test-db", name)
+		}
+	}
+}

@@ -9628,3 +9628,44 @@ with standalones.
 mapping, so a future kind cannot fall through the switches silently). The render smoke
 test now covers all six new instance cards and the eight designer forms.
 `go build`/`go vet`/`gofmt -l` clean; unit suite, `vite build` and `make smoke` pass.
+
+## 193. Live-verify the All-in-One MariaDB / MySQL Community paths — `app/{aio_mysql,mariadb}.go`
+
+Session 192 shipped these unit-tested only. Verified them by emitting the *real*
+artifacts from Go — `aioPlan` / `aioLayout` / `aioMySQLCnf` / the generated scripts and
+Galera start wrappers — and driving them into a container, rather than retyping
+approximations.
+
+One bug, of a kind only the All-in-One layout can expose. `mariadb-install-db` creates
+anonymous `''@'localhost'` and `''@'<hostname>'` accounts. Those are *more*
+host-specific than a `'%'` grant, so MariaDB matches them first for a connection made
+over localhost and the replica's IO thread dies with `Access denied for user
+'repl'@'localhost'` — while `repl@'%'` sits there with the right password. Every
+intra-node replication link in an AiO node dials 127.0.0.1, so this broke MariaDB
+replication there completely; the classic node path attaches over an FQDN and never
+touched it. Both MariaDB baselines now delete the anonymous rows before creating the
+real accounts (what `mysql_secure_installation` does), and both datadir inits pass
+`--skip-test-db`.
+
+Verified in one container each:
+
+- **MariaDB replication** — two servers on 13000/13010, distinct server-ids, a *shared*
+  `gtid_domain_id` (correct: one write source), own datadirs and sockets. After the fix,
+  `Using_Gtid: Slave_Pos`, both threads running, and `59152-229050115-3` on primary and
+  replica alike.
+- **MariaDB Galera, 3 members in one container** — the case the port-slot design exists
+  for. All three Synced at `wsrep_cluster_size 3`, mariabackup SST carried the seed's
+  data, writes accepted on every member. Listeners came up on 13000/13002, 13010/13012,
+  13020/13022 with nothing on 3306, 4567 or 4444.
+- **MySQL Community replication** — 8.4.11 plus MySQL Shell 8.4.10, two instances,
+  `Replica_IO_Running: Yes`, data replicated, GTID `uuid:1-3` (against MariaDB's
+  `domain-server-seq`), ports 13000/13001 and 13010/13011, nothing on 3306 or 33060.
+
+Two failures during the run were harness mistakes, not product bugs, and are recorded
+so the distinction is not re-litigated: the SST credentials in the emitted config come
+from `.env` via `mysqlFamilySecrets()`, and I baselined with a different password —
+in the provisioner both read the same source.
+
+Not covered here: the systemd unit files, the `aioctl` registry and DNS aliases were
+exercised via the existing Percona AiO path rather than re-run per flavor, since none of
+that code branches on flavor. 1 new Go test.

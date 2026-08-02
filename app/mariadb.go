@@ -948,7 +948,7 @@ mkdir -p "$(dirname "$LOGERR")"
 chown mysql:mysql "$LOGERR" 2>/dev/null || true
 if [ ! -f /var/lib/mysql/mysql/global_priv.frm ]; then
   rm -rf /var/lib/mysql/* 2>/dev/null || true
-  mariadb-install-db --user=mysql --datadir=/var/lib/mysql >/dev/null 2>&1 \
+  mariadb-install-db --user=mysql --datadir=/var/lib/mysql --skip-test-db >/dev/null 2>&1 \
     || mysql_install_db --user=mysql --datadir=/var/lib/mysql >/dev/null 2>&1 \
     || { say_err "datadir initialization failed"; exit 1; }
   chown -R mysql:mysql /var/lib/mysql
@@ -994,6 +994,11 @@ const mdbRootClient = `mdb_root() {
 const mariadbRootSQL = mdbRootClient + `
 mdb_root <<SQL
 ALTER USER 'root'@'localhost' IDENTIFIED BY '$ROOT_PW';
+-- Drop the anonymous accounts mariadb-install-db leaves behind: they are more
+-- host-specific than our '%' grants, so any connection made over localhost matches
+-- them first and fails with a misleading "Access denied".
+DELETE FROM mysql.global_priv WHERE User='';
+FLUSH PRIVILEGES;
 CREATE USER IF NOT EXISTS '$ADMIN_USER'@'%' IDENTIFIED BY '$ADMIN_PW';
 ALTER USER '$ADMIN_USER'@'%' IDENTIFIED BY '$ADMIN_PW';
 GRANT ALL PRIVILEGES ON *.* TO '$ADMIN_USER'@'%' WITH GRANT OPTION;

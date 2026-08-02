@@ -1107,7 +1107,7 @@ mkdir -p "$DATADIR" "$RUNDIR" "$(dirname "$LOGERR")"
 chown -R mysql:mysql "$DATADIR" "$RUNDIR" "$LOGERR" 2>/dev/null || true
 if [ ! -f "$DATADIR/mysql/global_priv.frm" ]; then
   rm -rf "$DATADIR"/* 2>/dev/null || true
-  mariadb-install-db --user=mysql --datadir="$DATADIR" --auth-root-authentication-method=socket >/tmp/init-$INST.log 2>&1 \
+  mariadb-install-db --user=mysql --datadir="$DATADIR" --auth-root-authentication-method=socket --skip-test-db >/tmp/init-$INST.log 2>&1 \
     || { echo "mariadb-install-db failed for $INST:"; tail -15 /tmp/init-$INST.log; exit 1; }
   chown -R mysql:mysql "$DATADIR"
   echo "$INST: datadir initialized"
@@ -1139,6 +1139,13 @@ else
 fi
 $M <<SQL
 SET GLOBAL read_only=OFF;
+-- mariadb-install-db creates anonymous ''@'localhost' and ''@'<hostname>' accounts.
+-- They are MORE host-specific than our '%' grants, so for a connection from inside
+-- the container -- which is every intra-node replication link in an All-in-One node
+-- -- they shadow the real account and the link fails with a bare "Access denied for
+-- user 'repl'@'localhost'". Removing them is also what mysql_secure_installation does.
+DELETE FROM mysql.global_priv WHERE User='';
+FLUSH PRIVILEGES;
 CREATE USER IF NOT EXISTS '$ADMIN_USER'@'%' IDENTIFIED BY '$ADMIN_PW';
 ALTER USER '$ADMIN_USER'@'%' IDENTIFIED BY '$ADMIN_PW';
 GRANT ALL PRIVILEGES ON *.* TO '$ADMIN_USER'@'%' WITH GRANT OPTION;
