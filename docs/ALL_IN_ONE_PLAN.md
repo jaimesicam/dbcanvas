@@ -3,11 +3,11 @@
 A new Database Stacks node type (`aio`) that provisions **one container running many
 database feature instances side by side**, instead of one product per node.
 
-Status — **7 of 11 phases complete**; all sixteen feature kinds deploy.
+Status — **8 of 11 phases complete**; all sixteen feature kinds deploy.
 
 | ✅ done | ⏳ partial |
 | --- | --- |
-| 0 ports/layout · 2 MySQL PS · 3 PostgreSQL · 4 MongoDB · 5 Valkey · 7 PXC | 1 node end-to-end · 6 proxies+Orchestrator · 8 cross-cutting · 9 app integration · 10 docs |
+| 0 ports/layout · 1 node end-to-end · 2 MySQL PS · 3 PostgreSQL · 4 MongoDB · 5 Valkey · 7 PXC | 6 proxies+Orchestrator · 8 cross-cutting · 9 app integration · 10 docs |
 
 Deployable kinds: `ps`, `psrepl`, `innodb` (Group Replication mode), `pxc`, `pg`,
 `repmgr`, `patroni`, `spock`, `psmdb`, `psmrs`, `psmdbsharded`, `valkey`,
@@ -15,19 +15,16 @@ Deployable kinds: `ps`, `psrepl`, `innodb` (Group Replication mode), `pxc`, `pg`
 
 What the four partial phases still owe, in priority order:
 
-1. **Phase 1** — the manager UI is missing its *Credentials*, *Console* and
-   *Certificates* tabs, so a deployed node never shows how to connect to its
-   instances. Biggest usability gap.
-2. **Phase 8** — per-instance TLS is implemented but **unit-tested only, never
+1. **Phase 8** — per-instance TLS is implemented but **unit-tested only, never
    verified live** (internet connection issues mid-session). LDAP, OpenBao,
    Keycloak OIDC and SeaweedFS backups are gated: `aioUnimplementedOptions`
    rejects them by name rather than letting the form promise what nothing reads.
    InnoDB Cluster *mode* is likewise gated (needs MySQL Shell).
-3. **Phase 9** — `dbauth`, `dbcerts`, Visual Summary and Labs still resolve
+2. **Phase 9** — `dbauth`, `dbcerts`, Visual Summary and Labs still resolve
    *node → one connection*. Labs is the largest remaining piece of work.
-4. **Phase 6** — everything works; only the PDPS/PDPXC repo interaction is
+3. **Phase 6** — everything works; only the PDPS/PDPXC repo interaction is
    unverified, and it is reachable only in a PXC node that also runs Orchestrator.
-5. **Phase 10** — screenshots and a standalone `docs/ALL_IN_ONE.md`.
+4. **Phase 10** — screenshots and a standalone `docs/ALL_IN_ONE.md`.
 
 Known limits, deliberate rather than accidental: PostgreSQL kinds are Oracle
 Linux only; published host ports are fixed at container-create, so an instance
@@ -566,7 +563,7 @@ verify-live rule) and an `IMPLEMENTATION.md` session entry.
 | Phase | Deliverable |
 | --- | --- |
 | **0** | ✅ **done** — `instLayout` + `defaultLayout`, existing node types unchanged, `aio_ports.go` + tests |
-| **1** | ⏳ **partial** — palette, form, container, `aioctl`, registry, `aio.target`, mgmt endpoints, validation, DNS aliases ✅. The **manager UI is incomplete**: of the five tabs specified above only *Instances* and a partial *Ports* (no copyable connection strings) were built. *Credentials*, *Console* and *Certificates* are missing, so a deployed node never shows how to connect to its instances — every classic manager does. |
+| **1** | ✅ **done** — palette, form, container, `aioctl`, registry, `aio.target`, mgmt endpoints, validation, DNS aliases, and the manager UI: *Instances* (lifecycle + logs), *Connect* (per-instance connection strings, in-stack and from the host, plus the root console), *Credentials* (per family, via `SecretRow`) and *Ports*. Certificates are shown as part of Connect rather than a tab of their own — re-issue lives on the instance form. |
 | **2** | ✅ **done** — `ps`, `psrepl`, `innodb` in **Group Replication** mode. InnoDB Cluster mode stays gated by `aioUnsupportedModes` (needs MySQL Shell). Flavor-conflict validation + disabled-menu-entry UI landed here, and is now verified from both the PS and PXC sides. |
 | **3** | ✅ **done** — `pg`, `repmgr` (PGDG, repmgrd armed), `patroni` (co-located etcd; Patroni owns postgres), `spock` (source build shared per major, full mesh). Oracle Linux only. |
 | **4** | ✅ **done** — `psmdb`, `psmrs`, `psmdbsharded` (one install serves all three; flatter sharded topology than the classic frame) |

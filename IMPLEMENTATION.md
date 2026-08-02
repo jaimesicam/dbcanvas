@@ -9269,3 +9269,44 @@ than it is to build.
 phase 0 explicitly as done (it had been left unmarked). No code changed in this entry — it is a
 correction to the record, made because the status was overstated rather than because anything
 broke.
+
+## 208. Phase 1 completed: the All-in-One manager's missing tabs
+
+Session 207 recorded that phase 1 had been marked done with three of its five specified manager
+tabs unbuilt — a deployed node showed ports and lifecycle controls but never credentials or how to
+connect, which every classic manager does. This finishes it.
+
+The manager is now tabbed like the others:
+
+- **Instances** — unchanged: the `aioctl list` table with per-row and per-group lifecycle and logs.
+- **Connect** — a copyable connection string per database instance, each carrying its own port
+  (there is no default to fall back on), plus a second line for instances that published a host
+  port, plus the root console button and a pointer to `aioctl connect`.
+- **Credentials** — via the existing `SecretRow`, and only for the families actually present, so a
+  Valkey-only node is not shown a MySQL root password it does not have.
+- **Ports** — the full map, with published host ports called out separately.
+
+Certificates did not become a tab: the useful action is *issuing* one, which lives on the instance
+form, and the resulting state is visible in Connect. A tab that only said "TLS: on" would be a tab
+for its own sake.
+
+**A coverage hole found while testing this, and worth recording.** The render smoke test from
+session 206 only renders the DEFAULT tab — SSR cannot click — so a bad reference in Connect,
+Credentials or Ports would have been invisible to it. Injecting `Icon.TerminalWindow` (which does
+not exist) into the new Connect tab **passed**. That is precisely the bug class the harness was
+built for, one layer deeper.
+
+Fixed by extracting the three read-only tabs into their own components, which the smoke test now
+renders directly — better structure anyway, since the manager was getting long. Re-injecting the
+same fault now fails, as does a bad field access in Ports. Also added: empty-state cases for each
+tab (no databases, no secrets), since those branches are easy to break and never exercised by a
+populated fixture.
+
+Getting the provider into the harness needed one piece of build plumbing: `TerminalProvider`
+imports xterm and its stylesheet at module scope, and xterm reaches for browser globals on load, so
+node could not import it at all. `smoke/vite.config.js` aliases the xterm packages to stubs for the
+SSR build only — the app's own build is untouched. The alias list is ordered (an array, not an
+object) because the stylesheet entry must match before the package-prefix entry.
+
+Phase 1 is now genuinely complete: **8 of 11 phases done.** 63 Go tests; 32 render checks.
+`go build`/`go vet`/`gofmt -l` clean; unit suite, `vite build` and `make smoke` all pass.

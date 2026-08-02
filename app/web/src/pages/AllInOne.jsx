@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { Icon } from '../components/Icons.jsx'
 import { Button, Badge, Field, inputCls } from '../components/ui.jsx'
 import { stackApi, aioApi, DEPLOY_TONE } from '../lib/stackApi.js'
+import { useTerminals } from '../terminal/TerminalProvider.jsx'
+import SecretRow, { CopyButton as CopyBtn } from '../components/Secret.jsx'
 import {
   AIO_KINDS, FAMILY_LABEL, kindOf, familyOf, memberCount, planMembers, portList,
   PORT_ROLE, estMemMB, mysqlFlavor, addBlockedReason, nextInstanceName, sanitizeInst,
@@ -454,12 +456,34 @@ function InstanceCard({ inst, node, nodes, instances, open, onToggle, patch, onR
 // per-row and per-group lifecycle controls. Every button calls the API, which
 // execs aioctl — so the UI and the terminal do the same thing, including the
 // cluster start ordering.
+// ---------------------------------------------------------------- the manager
+
+// AllInOneManager is the deployed node's console. It follows the tab shape every
+// other *Manager.jsx uses, because the questions are the same ones: what is
+// running, how do I reach it, what are the credentials, let me in.
+//
+// The difference is that all four answers are per INSTANCE rather than per node,
+// which is precisely what a node holding six databases needs — a panel that only
+// listed ports would leave an operator reading the deploy log to find a password.
+const MGR_TABS = [
+  { id: 'instances', label: 'Instances' },
+  { id: 'connect', label: 'Connect' },
+  { id: 'creds', label: 'Credentials' },
+  { id: 'ports', label: 'Ports' },
+]
+
 export function AllInOneManager({ stackId, nodeId, dep, onDeleteNode }) {
   const api = aioApi(stackId, nodeId)
+  const { openTerminal } = useTerminals()
+  const [tab, setTab] = useState('instances')
   const [data, setData] = useState(null)
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
   const [logs, setLogs] = useState(null)
+
+  const cfg = dep.config || {}
+  const sec = dep.secrets || {}
+  const openConsole = () => openTerminal({ stackId, nodeId, title: `${cfg.hostname || 'aio'} · root` })
 
   const load = useCallback(() => {
     api.instances().then(setData).catch((e) => setErr(e.message))
@@ -480,83 +504,92 @@ export function AllInOneManager({ stackId, nodeId, dep, onDeleteNode }) {
     try { const r = await api.logs(inst); setLogs({ inst, text: r.logs }) } catch (e) { setErr(e.message) } finally { setBusy('') }
   }
 
-  const rows = data?.instances || []
+  // Prefer the live list (it carries systemd state); fall back to the stored plan
+  // so the panel is useful even before the first poll returns.
+  const rows = data?.instances || cfg.instances || []
   const groups = [...new Set(rows.map((r) => r.group).filter(Boolean))]
   const tone = (s) => (s === 'active' ? 'success' : s === 'failed' ? 'danger' : 'muted')
+  const dbRows = rows.filter((r) => ENGINE_OF[r.family])
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">All in One</span>
+        <span className="text-sm font-semibold">All in One · {cfg.hostname || 'node'}</span>
         <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
       </div>
-      <p className="text-xs text-muted">
-        {rows.length} instance(s) in one container. The same operations are available as
-        <code className="font-mono"> aioctl</code> in this node's terminal.
-      </p>
+
+      <div className="flex flex-wrap gap-1 rounded-lg bg-surface2 p-1">
+        {MGR_TABS.map((t) => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${tab === t.id ? 'bg-surface text-fg shadow' : 'text-muted'}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
 
       {err && <div className="rounded-md border border-danger/40 bg-danger/10 px-2 py-1.5 text-xs text-danger">{err}</div>}
 
-      <div className="flex gap-1">
-        <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => act('start', 'all')}>Start all</Button>
-        <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => act('stop', 'all')}>Stop all</Button>
-        <Button size="sm" variant="secondary" disabled={!!busy} onClick={load}>Refresh</Button>
-      </div>
-
-      {groups.map((g) => (
-        <div key={g} className="flex items-center gap-2 rounded-md bg-surface2 px-2 py-1 text-xs">
-          <span className="flex-1 truncate font-medium">{g}</span>
-          <button className="text-[11px] text-primary hover:underline" disabled={!!busy} onClick={() => act('start', g)}>start</button>
-          <button className="text-[11px] text-primary hover:underline" disabled={!!busy} onClick={() => act('stop', g)}>stop</button>
-          <button className="text-[11px] text-primary hover:underline" disabled={!!busy} onClick={() => act('restart', g)}>restart</button>
-        </div>
-      ))}
-
-      <div className="space-y-1">
-        {rows.map((r) => (
-          <div key={r.inst} className="rounded-md border border-border px-2 py-1.5">
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: FAMILY_COLOR[r.family] }} />
-              <span className="min-w-0 flex-1 truncate text-xs font-medium">{r.inst}</span>
-              <Badge tone={tone(r.state)}>{r.state}</Badge>
-            </div>
-            <div className="flex items-center gap-2 pt-1 text-[10px] text-muted">
-              <span className="font-mono">:{r.ports?.client}</span>
-              <span>{kindOf(r.kind)?.label || r.kind}</span>
-              {r.role && r.role !== 'standalone' && <span>· {r.role}</span>}
-              {r.export > 0 && <span>· host :{r.export}</span>}
-              <span className="flex-1" />
-              <button className="text-primary hover:underline" disabled={!!busy} onClick={() => act('start', r.inst)}>start</button>
-              <button className="text-primary hover:underline" disabled={!!busy} onClick={() => act('stop', r.inst)}>stop</button>
-              <button className="text-primary hover:underline" disabled={!!busy} onClick={() => act('restart', r.inst)}>restart</button>
-              <button className="text-primary hover:underline" disabled={!!busy} onClick={() => showLogs(r.inst)}>logs</button>
-            </div>
+      {tab === 'instances' && (
+        <div className="space-y-3">
+          <p className="text-xs text-muted">
+            {rows.length} instance(s) in one container. The same operations are available as
+            <code className="font-mono"> aioctl</code> in this node&apos;s console.
+          </p>
+          <div className="flex gap-1">
+            <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => act('start', 'all')}>Start all</Button>
+            <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => act('stop', 'all')}>Stop all</Button>
+            <Button size="sm" variant="secondary" disabled={!!busy} onClick={load}>Refresh</Button>
           </div>
-        ))}
-      </div>
 
-      {logs && (
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold">{logs.inst} — last 200 lines</span>
-            <button onClick={() => setLogs(null)} className="px-1 text-xs text-muted hover:text-fg">✕</button>
+          {groups.map((g) => (
+            <div key={g} className="flex items-center gap-2 rounded-md bg-surface2 px-2 py-1 text-xs">
+              <span className="flex-1 truncate font-medium">{g}</span>
+              <button className="text-[11px] text-primary hover:underline" disabled={!!busy} onClick={() => act('start', g)}>start</button>
+              <button className="text-[11px] text-primary hover:underline" disabled={!!busy} onClick={() => act('stop', g)}>stop</button>
+              <button className="text-[11px] text-primary hover:underline" disabled={!!busy} onClick={() => act('restart', g)}>restart</button>
+            </div>
+          ))}
+
+          <div className="space-y-1">
+            {rows.map((r) => (
+              <div key={r.inst} className="rounded-md border border-border px-2 py-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: FAMILY_COLOR[r.family] }} />
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium">{r.inst}</span>
+                  <Badge tone={tone(r.state)}>{r.state || 'unknown'}</Badge>
+                </div>
+                <div className="flex items-center gap-2 pt-1 text-[10px] text-muted">
+                  <span className="font-mono">:{r.ports?.client}</span>
+                  <span>{kindOf(r.kind)?.label || r.kind}</span>
+                  {r.role && r.role !== 'standalone' && <span>· {r.role}</span>}
+                  {r.export > 0 && <span>· host :{r.export}</span>}
+                  <span className="flex-1" />
+                  <button className="text-primary hover:underline" disabled={!!busy} onClick={() => act('start', r.inst)}>start</button>
+                  <button className="text-primary hover:underline" disabled={!!busy} onClick={() => act('stop', r.inst)}>stop</button>
+                  <button className="text-primary hover:underline" disabled={!!busy} onClick={() => act('restart', r.inst)}>restart</button>
+                  <button className="text-primary hover:underline" disabled={!!busy} onClick={() => showLogs(r.inst)}>logs</button>
+                </div>
+              </div>
+            ))}
           </div>
-          <pre className="max-h-64 overflow-auto rounded-md bg-surface2 p-2 font-mono text-[10px] leading-snug">{logs.text || '(empty)'}</pre>
+
+          {logs && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold">{logs.inst} — last 200 lines</span>
+                <button onClick={() => setLogs(null)} className="px-1 text-xs text-muted hover:text-fg">✕</button>
+              </div>
+              <pre className="max-h-64 overflow-auto rounded-md bg-surface2 p-2 font-mono text-[10px] leading-snug">{logs.text || '(empty)'}</pre>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Ports matter more here than on any other node type: nothing is on a
-          default, so this table is how anyone connects. */}
-      <div className="rounded-lg bg-surface2 px-2 py-1.5">
-        <div className="pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">Port map</div>
-        {rows.map((r) => (
-          <div key={r.inst} className="flex justify-between gap-2 font-mono text-[10px]">
-            <span className="truncate text-muted">{r.inst}</span>
-            <span>{Object.entries(r.ports || {}).filter(([kk, v]) => v && kk !== 'base')
-              .map(([kk, v]) => `${PORT_ROLE[kk] || kk}:${v}`).join('  ')}</span>
-          </div>
-        ))}
-      </div>
+      {tab === 'connect' && <ConnectTab rows={dbRows} sec={sec} onConsole={openConsole} />}
+
+      {tab === 'creds' && <CredentialsTab rows={rows} sec={sec} />}
+
+      {tab === 'ports' && <PortsTab rows={rows} />}
 
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
@@ -564,3 +597,170 @@ export function AllInOneManager({ stackId, nodeId, dep, onDeleteNode }) {
     </div>
   )
 }
+
+// ENGINE_OF maps an instance family to the engine whose client/DSN shape applies.
+// Non-database families are absent, which is what excludes them from Connect.
+const ENGINE_OF = { mysql: 'mysql', postgres: 'postgres', mongodb: 'mongodb' }
+
+const browserHost = () => (typeof location !== 'undefined' ? location.hostname : 'localhost')
+
+// connectString is how to reach an instance from INSIDE the stack — the node's
+// own console, or any other node. Each carries the instance's port explicitly,
+// because none of them is where the client would look by default.
+export function connectString(r, sec) {
+  const p = r.ports?.client
+  switch (ENGINE_OF[r.family]) {
+    case 'mysql':
+      return `mysql -h ${r.fqdn} -P ${p} -u ${sec.adminUser || 'admin'} -p'${sec.adminPassword || ''}'`
+    case 'postgres':
+      return `psql "postgresql://postgres:${sec.superPassword || ''}@${r.fqdn}:${p}/postgres"`
+    case 'mongodb':
+      return `mongosh "mongodb://admin:${sec.adminPassword || ''}@${r.fqdn}:${p}/?authSource=admin"`
+    default:
+      return `${r.fqdn}:${p}`
+  }
+}
+
+// hostConnectString is the same instance reached from the machine running the
+// browser, valid only when the instance published a port.
+function hostConnectString(r, sec) {
+  const h = browserHost()
+  switch (ENGINE_OF[r.family]) {
+    case 'mysql':
+      return `mysql -h ${h} -P ${r.export} -u ${sec.adminUser || 'admin'} -p'${sec.adminPassword || ''}'`
+    case 'postgres':
+      return `psql "postgresql://postgres:${sec.superPassword || ''}@${h}:${r.export}/postgres"`
+    case 'mongodb':
+      return `mongosh "mongodb://admin:${sec.adminPassword || ''}@${h}:${r.export}/?authSource=admin"`
+    default:
+      return `${h}:${r.export}`
+  }
+}
+
+// credRows is the credential set actually relevant to the families present, so a
+// Valkey-only node is not shown a MySQL root password it does not have.
+export function credRows(rows, sec) {
+  const fams = new Set(rows.map((r) => r.family))
+  const out = []
+  if (fams.has('mysql')) {
+    out.push({ label: 'MySQL — network superuser', user: sec.adminUser || 'admin', pass: sec.adminPassword || '',
+      note: 'admin@\'%\' — use this over the network; root only works over the local socket.' })
+    out.push({ label: 'MySQL — root (local socket)', user: sec.rootUser || 'root', pass: sec.rootPassword || '',
+      note: 'From the console: aioctl connect <instance>.' })
+    out.push({ label: 'MySQL — replication', user: sec.replUser || 'repl', pass: sec.replPassword || '', note: '' })
+  }
+  if (fams.has('postgres')) {
+    out.push({ label: 'PostgreSQL — superuser', user: 'postgres', pass: sec.superPassword || '',
+      note: 'Shared by every PostgreSQL instance on this node.' })
+  }
+  if (fams.has('mongodb')) {
+    out.push({ label: 'MongoDB — root', user: 'admin', pass: sec.adminPassword || '',
+      note: 'authSource=admin.' })
+  }
+  if (fams.has('valkey')) {
+    out.push({ label: 'Valkey — requirepass', user: 'default', pass: sec.valkeyPassword || '', note: '' })
+  }
+  return out.filter((c) => c.pass)
+}
+
+// CopyLine is a one-line, copyable command. Long strings scroll rather than
+// wrapping, so the panel stays readable at the designer's width.
+function CopyLine({ text, label }) {
+  return (
+    <div>
+      {label && <div className="pb-0.5 text-[10px] text-muted">{label}</div>}
+      <div className="flex items-center gap-1 rounded-lg border border-border bg-bg px-2 py-1.5">
+        <span className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[10px] text-fg">{text}</span>
+        <CopyBtn text={text} />
+      </div>
+    </div>
+  )
+}
+
+// The three read-only tabs are separate components, not inline JSX, so the render
+// smoke test can exercise each one. Only the default tab renders under SSR, so
+// anything inline in a non-default tab is invisible to it — which is precisely
+// how a bad icon reference reached a user in the first place.
+
+function ConnectTab({ rows, sec, onConsole }) {
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted">
+        Every instance is on its own port — none of them the product default — so a
+        connection string is the only reliable way in. Ready to paste from this node&apos;s
+        console, or from any other node on the stack.
+      </p>
+      {rows.length === 0 && <div className="text-xs text-muted">No database instances on this node.</div>}
+      {rows.map((r) => (
+        <div key={r.inst} className="space-y-1">
+          <div className="flex items-center gap-2 text-xs font-medium">
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: FAMILY_COLOR[r.family] }} />
+            {r.inst}
+            <span className="font-normal text-muted">· {kindOf(r.kind)?.label || r.kind}</span>
+          </div>
+          <CopyLine text={connectString(r, sec)} />
+          {r.export > 0 && <CopyLine text={hostConnectString(r, sec)} label="from the host" />}
+        </div>
+      ))}
+      <Button variant="outline" size="sm" className="w-full" onClick={onConsole}>
+        <Icon.Nodes size={16} /> Open root console
+      </Button>
+      <p className="text-[10px] leading-snug text-muted">
+        In the console, <code className="font-mono">aioctl list</code> shows every instance and
+        <code className="font-mono"> aioctl connect &lt;instance&gt;</code> opens its own client
+        with the credentials already applied.
+      </p>
+    </div>
+  )
+}
+
+function CredentialsTab({ rows, sec }) {
+  const creds = credRows(rows, sec)
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted">
+        Shared across this node&apos;s instances of a family, exactly as a classic multi-node
+        cluster shares them — all from the stack&apos;s <code className="font-mono">.env</code>.
+      </p>
+      {creds.length === 0 && <div className="text-xs text-muted">No credentialed instances on this node.</div>}
+      {creds.map((c) => (
+        <div key={c.label} className="space-y-1">
+          <div className="text-xs font-medium">{c.label}</div>
+          {c.note && <div className="text-[10px] text-muted">{c.note}</div>}
+          <SecretRow label={c.user} value={c.pass} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function PortsTab({ rows }) {
+  const published = rows.filter((r) => r.export > 0)
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-muted">Nothing here listens on its product&apos;s default port.</p>
+      <div className="rounded-lg bg-surface2 px-2 py-1.5">
+        {rows.map((r) => (
+          <div key={r.inst} className="flex justify-between gap-2 py-0.5 font-mono text-[10px]">
+            <span className="truncate text-muted">{r.inst}</span>
+            <span>{Object.entries(r.ports || {}).filter(([k, v]) => v && k !== 'base')
+              .map(([k, v]) => `${PORT_ROLE[k] || k}:${v}`).join('  ')}</span>
+          </div>
+        ))}
+      </div>
+      {published.length > 0 && (
+        <div className="rounded-lg bg-surface2 px-2 py-1.5">
+          <div className="pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">Published to the host</div>
+          {published.map((r) => (
+            <div key={r.inst} className="flex justify-between gap-2 font-mono text-[10px]">
+              <span className="truncate text-muted">{r.inst}</span>
+              <span>{browserHost()}:{r.export}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export const __tabsForTest = { ConnectTab, CredentialsTab, PortsTab }

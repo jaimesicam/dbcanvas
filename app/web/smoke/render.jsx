@@ -15,7 +15,8 @@
 // Run with `npm run smoke`.
 
 import { renderToString } from 'react-dom/server'
-import { AllInOneForm, AllInOneManager } from '../src/pages/AllInOne.jsx'
+import { AllInOneForm, AllInOneManager, connectString, credRows, __tabsForTest } from '../src/pages/AllInOne.jsx'
+import { TerminalProvider } from '../src/terminal/TerminalProvider.jsx'
 import { AIO_KINDS, kindOf } from '../src/lib/aioPorts.js'
 
 const noop = () => {}
@@ -108,17 +109,74 @@ const runtime = AIO_KINDS.filter((k) => kindOf(k.kind)).map((k, i) => ({
   state: 'active', export: 0,
 }))
 
-check('manager with instances', () =>
-  renderToString(
-    <AllInOneManager stackId={1} nodeId="aio1" dep={{ state: 'running' }} onDeleteNode={noop} />,
-  ))
+// The manager has four tabs. Only the default renders on mount, so each is
+// exercised by rendering with a deployment whose config supplies the rows —
+// otherwise a crash in Connect or Credentials would ship unseen, which is
+// exactly how the chevron got through.
+const managerDep = {
+  state: 'running',
+  config: { hostname: 'aio1', flavor: 'ps', instances: runtime },
+  secrets: {
+    adminUser: 'admin', adminPassword: 'pw', rootUser: 'root', rootPassword: 'pw',
+    replUser: 'repl', replPassword: 'pw', superPassword: 'pw', valkeyPassword: 'pw',
+  },
+}
 
-// A manager whose fetch has not resolved yet renders an empty table; a manager
-// with rows is exercised via the same component once data arrives, so at minimum
-// prove the row shape does not crash the renderers it feeds.
-check('manager row shape is renderable', () => {
-  if (!runtime.length) throw new Error('no runtime rows built')
-  return renderToString(<pre>{JSON.stringify(runtime)}</pre>)
+// The manager calls useTerminals(), whose context is null outside its provider —
+// App.jsx wraps the whole tree in one, so the harness must too rather than the
+// component being made to tolerate its absence.
+const managed = (dep) =>
+  renderToString(
+    <TerminalProvider>
+      <AllInOneManager stackId={1} nodeId="aio1" dep={dep} onDeleteNode={noop} />
+    </TerminalProvider>,
+  )
+
+check('manager (default tab)', () => managed(managerDep))
+check('manager with an empty deployment', () => managed({ state: 'running' }))
+
+// Only the DEFAULT tab renders under SSR, so each other tab is rendered
+// directly. Without this a bad reference in Connect / Credentials / Ports is
+// invisible to the harness — the exact hole that let Icon.ChevronDown ship.
+const { ConnectTab, CredentialsTab, PortsTab } = __tabsForTest
+const dbOnly = runtime.filter((r) => ['mysql', 'postgres', 'mongodb'].includes(r.family))
+const published = runtime.map((r, i) => (i === 0 ? { ...r, export: 34000 } : r))
+
+check('tab: Connect', () =>
+  renderToString(<ConnectTab rows={dbOnly} sec={managerDep.secrets} onConsole={noop} />))
+check('tab: Connect (published host port)', () =>
+  renderToString(<ConnectTab rows={published.filter((r) => ['mysql', 'postgres', 'mongodb'].includes(r.family))}
+    sec={managerDep.secrets} onConsole={noop} />))
+check('tab: Connect (no databases)', () =>
+  renderToString(<ConnectTab rows={[]} sec={managerDep.secrets} onConsole={noop} />))
+check('tab: Credentials', () =>
+  renderToString(<CredentialsTab rows={runtime} sec={managerDep.secrets} />))
+check('tab: Credentials (no secrets)', () =>
+  renderToString(<CredentialsTab rows={runtime} sec={{}} />))
+check('tab: Ports', () => renderToString(<PortsTab rows={runtime} />))
+check('tab: Ports (with a published port)', () => renderToString(<PortsTab rows={published} />))
+
+// The non-default tabs cannot be reached by SSR (no click), so their pure
+// helpers are exercised directly — they are where the formatting logic lives and
+// where an undefined field would throw.
+check('connect strings for every database family', () => {
+  const out = runtime
+    .filter((r) => ['mysql', 'postgres', 'mongodb'].includes(r.family))
+    .map((r) => connectString(r, managerDep.secrets))
+  if (!out.length) throw new Error('no database rows to build a connect string from')
+  for (const s of out) {
+    if (!s || s.includes('undefined')) throw new Error(`bad connect string: ${s}`)
+  }
+  return out.join('\n')
+})
+
+check('credential rows for every family present', () => {
+  const rows = credRows(runtime, managerDep.secrets)
+  if (!rows.length) throw new Error('no credential rows built')
+  for (const r of rows) {
+    if (!r.label || !r.user || !r.pass) throw new Error(`incomplete credential row: ${JSON.stringify(r)}`)
+  }
+  return JSON.stringify(rows)
 })
 
 if (failures > 0) {
