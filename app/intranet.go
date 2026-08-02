@@ -1660,7 +1660,7 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 	// cross-cluster channels are held until all of them reach their reset baseline.
 	var barrierIDs []string
 	for _, f := range doc.Frames {
-		if f.Type != "pxc" && f.Type != "mysql" {
+		if !mysqlFamilyFrame(f.Type) {
 			continue
 		}
 		var ids []string

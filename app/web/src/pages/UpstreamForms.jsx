@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { stackApi } from '../lib/stackApi'
-import { Badge, ConfirmButton, Field, Toggle, inputCls } from '../components/ui'
+import { stackApi, frameApi } from '../lib/stackApi'
+import { Badge, Button, ConfirmButton, Field, Toggle, inputCls } from '../components/ui'
 
 // Designer forms for the non-Percona upstreams: MariaDB (standalone, replication,
 // Galera) and MySQL Community (standalone, replication, InnoDB Cluster / GR).
@@ -149,6 +149,56 @@ function CommonOptions({ obj, patch, nodes, deployed, showGtid, showRepl }) {
   )
 }
 
+// OrchestratorPicker links a replication cluster to an Orchestrator node, and once
+// the cluster is running lets discovery be re-seeded without a redeploy.
+//
+// Offered on the two replication kinds only. Orchestrator manages classic
+// source/replica topologies — it has nothing to fail over in a Galera or Group
+// Replication cluster, which elect their own primary.
+//
+// It works for MariaDB unchanged: Orchestrator detects the flavour from the version
+// banner and reads MariaDB's own GTID state, and the topology account the baseline
+// creates is the same one the Percona clusters use.
+function OrchestratorPicker({ frame: f, stackId, nodes, patch, running }) {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [err, setErr] = useState('')
+  const orchestratorNodes = nodes.filter((x) => x.type === 'orchestrator')
+  return (
+    <>
+      <Field
+        label="Monitored by (Orchestrator)"
+        hint={running ? 'Pick an Orchestrator node (or none), then apply to the running cluster.' : 'Optional — seeds topology discovery on an Orchestrator node.'}
+      >
+        <select className={inputCls} value={f.orchestratorNodeId || ''} onChange={(e) => { patch({ orchestratorNodeId: e.target.value }); setMsg(''); setErr('') }}>
+          <option value="">none</option>
+          {orchestratorNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </Field>
+      {running && stackId && (
+        <div className="space-y-1.5 rounded-lg border border-dashed p-2">
+          <div className="text-xs text-muted">
+            Seeds/refreshes topology discovery on the Orchestrator node now (clearing it just stops
+            re-seeding — Orchestrator itself isn&apos;t asked to forget the cluster).
+          </div>
+          {err && <div className="rounded border border-danger/30 bg-danger/15 px-2 py-1 text-xs text-danger">{err}</div>}
+          {msg && <div className="rounded border border-success/30 bg-success/15 px-2 py-1 text-xs text-success">{msg}</div>}
+          <Button size="sm" className="w-full" disabled={busy}
+            onClick={async () => {
+              setBusy(true); setErr(''); setMsg('')
+              try {
+                const r = await frameApi(stackId, f.id).setOrchestrator(f.orchestratorNodeId || '')
+                setMsg(f.orchestratorNodeId ? `Discovery seeded (${r.updated} node${r.updated === 1 ? '' : 's'}).` : `Link cleared (${r.updated} node${r.updated === 1 ? '' : 's'}).`)
+              } catch (e) { setErr(e.message) } finally { setBusy(false) }
+            }}>
+            {busy ? 'Applying…' : (f.orchestratorNodeId ? 'Apply Orchestrator discovery' : 'Clear Orchestrator link')}
+          </Button>
+        </div>
+      )}
+    </>
+  )
+}
+
 function ExportRow({ node: n, patchNode, deployed }) {
   return (
     <>
@@ -185,7 +235,7 @@ export function MariaDBNodeForm({ node: n, nodes, patchNode, deleteNode, deploye
   )
 }
 
-export function MariaDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed }) {
+export function MariaDBFrameForm({ frame: f, stackId, nodes, patchFrame, deleteFrame, deployed, running }) {
   const patch = (p) => patchFrame(f.id, p)
   const cat = useUpstreamCatalog({
     fetchCatalog: stackApi.mariadbCatalog, obj: f,
@@ -204,6 +254,7 @@ export function MariaDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, dep
       </Field>
       <VersionPickers obj={f} patch={patch} deployed={deployed} majorKey="mariadbMajor" versionKey="mariadbVersion" majorLabel="MariaDB" cat={cat} />
       <CommonOptions obj={f} patch={patch} nodes={nodes} deployed={deployed} showGtid showRepl />
+      <OrchestratorPicker frame={f} stackId={stackId} nodes={nodes} patch={patch} running={running} />
       {/* MariaDB GTIDs are domain-server-seq; the domain is derived from the cluster
           name so every member shares it and two clusters never collide. */}
       {f.gtid !== false && (
@@ -277,7 +328,7 @@ export function MySQLCENodeForm({ node: n, nodes, patchNode, deleteNode, deploye
   )
 }
 
-export function MySQLCEFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed }) {
+export function MySQLCEFrameForm({ frame: f, stackId, nodes, patchFrame, deleteFrame, deployed, running }) {
   const patch = (p) => patchFrame(f.id, p)
   const cat = useUpstreamCatalog({
     fetchCatalog: stackApi.mysqlceCatalog, obj: f,
@@ -296,6 +347,7 @@ export function MySQLCEFrameForm({ frame: f, nodes, patchFrame, deleteFrame, dep
       </Field>
       <VersionPickers obj={f} patch={patch} deployed={deployed} majorKey="mysqlceMajor" versionKey="mysqlceVersion" majorLabel="MySQL" cat={cat} />
       <CommonOptions obj={f} patch={patch} nodes={nodes} deployed={deployed} showGtid showRepl />
+      <OrchestratorPicker frame={f} stackId={stackId} nodes={nodes} patch={patch} running={running} />
       {primaries !== 1 && (
         <p className="text-xs text-red-600 dark:text-red-400">Needs exactly one primary (has {primaries}).</p>
       )}

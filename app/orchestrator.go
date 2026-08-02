@@ -290,6 +290,36 @@ func (a *App) registerOrchestrator(ctx context.Context, st Stack, orchestratorNo
 	a.orchestratorDiscover(ctx, dep.ContainerID, members, logln)
 }
 
+// orchestratableFrame reports whether a frame type is one Orchestrator can manage.
+//
+// Classic source/replica topologies only. Orchestrator's job is discovering a
+// replication tree and failing it over; in a Galera or Group Replication cluster
+// the members elect their own primary, so there is nothing for it to do — which is
+// why "mariadbgalera" and the InnoDB/GR types are absent even though they are
+// MySQL-family. PXC is the exception in the other direction: it is listed because
+// dbcanvas has always allowed pointing Orchestrator at one to *observe* it.
+//
+// MariaDB needs no special casing. Orchestrator identifies the flavour from the
+// version banner and reads MariaDB's own GTID state, and the topology account is
+// the shared one every MySQL-family baseline creates.
+func orchestratableFrame(t string) bool {
+	switch t {
+	case "pxc", "mysql", "mariadbrepl", "mysqlcerepl":
+		return true
+	}
+	return false
+}
+
+// mysqlFamilyFrame reports whether a frame type runs MySQL-family servers that must
+// clear the stack-wide baseline barrier together before any replication is wired.
+func mysqlFamilyFrame(t string) bool {
+	switch t {
+	case "pxc", "mysql", "innodb", "mariadbrepl", "mariadbgalera", "mysqlcerepl", "mysqlceinnodb":
+		return true
+	}
+	return false
+}
+
 // ---------------------------------------------------------------- management
 
 // handleFrameOrchestrator turns Orchestrator monitoring on or off for an already
@@ -322,13 +352,13 @@ func (a *App) handleFrameOrchestrator(w http.ResponseWriter, r *http.Request) {
 	var frame designFrame
 	found := false
 	for _, f := range doc.Frames {
-		if f.ID == fid && (f.Type == "pxc" || f.Type == "mysql") {
+		if f.ID == fid && orchestratableFrame(f.Type) {
 			frame, found = f, true
 			break
 		}
 	}
 	if !found {
-		writeErr(w, http.StatusNotFound, "PXC or MySQL replication cluster not found")
+		writeErr(w, http.StatusNotFound, "no Orchestrator-manageable cluster with that id")
 		return
 	}
 
@@ -374,8 +404,16 @@ func (a *App) handleFrameOrchestrator(w http.ResponseWriter, r *http.Request) {
 			cfg.OrchestratedBy = orchestratedBy
 			cfgJSON, _ := json.Marshal(cfg)
 			a.store.UpsertDeployment(Deployment{StackID: dep.StackID, NodeID: dep.NodeID, ContainerID: dep.ContainerID, State: dep.State, Config: cfgJSON, Secrets: dep.Secrets})
-		case "mysql":
+		case "mysql", "mysqlcerepl":
+			// MySQL Community records the same mysqlConfig as Percona Server — it is
+			// the same server, so the profile has the same shape.
 			var cfg mysqlConfig
+			json.Unmarshal(dep.Config, &cfg)
+			cfg.OrchestratedBy = orchestratedBy
+			cfgJSON, _ := json.Marshal(cfg)
+			a.store.UpsertDeployment(Deployment{StackID: dep.StackID, NodeID: dep.NodeID, ContainerID: dep.ContainerID, State: dep.State, Config: cfgJSON, Secrets: dep.Secrets})
+		case "mariadbrepl":
+			var cfg mariadbConfig
 			json.Unmarshal(dep.Config, &cfg)
 			cfg.OrchestratedBy = orchestratedBy
 			cfgJSON, _ := json.Marshal(cfg)

@@ -378,3 +378,65 @@ func TestMariaDBReadOnlyDropInHasSectionHeader(t *testing.T) {
 		t.Error("read_only drop-in is written without a [mysqld] group header")
 	}
 }
+
+// MariaDB 10.5 split the old REPLICATION CLIENT privilege in two: BINLOG MONITOR
+// (SHOW BINLOG STATUS) and SLAVE MONITOR (SHOW SLAVE STATUS). Granting the MySQL
+// spelling maps to BINLOG MONITOR *only*, so Orchestrator's very first probe fails
+// with "Access denied; you need (at least one of) the SLAVE MONITOR privilege(s)"
+// and the cluster never gets discovered. Found by pointing a real Orchestrator at
+// a real MariaDB pair.
+func TestMariaDBGrantsIncludeSlaveMonitor(t *testing.T) {
+	for _, user := range []string{"$ORCH_USER", "$MON_USER"} {
+		i := strings.Index(mariadbRootSQL, "GRANT")
+		if i < 0 {
+			t.Fatal("no grants in the baseline SQL")
+		}
+		// Find the GRANT line that names this user on *.*.
+		var line string
+		for _, l := range strings.Split(mariadbRootSQL, "\n") {
+			if strings.HasPrefix(l, "GRANT ") && strings.Contains(l, "ON *.* TO '"+user+"'") {
+				line = l
+				break
+			}
+		}
+		if line == "" {
+			t.Fatalf("no *.* GRANT for %s", user)
+		}
+		if !strings.Contains(line, "SLAVE MONITOR") {
+			t.Errorf("%s cannot run SHOW SLAVE STATUS on MariaDB 10.5+: %s", user, line)
+		}
+		if !strings.Contains(line, "BINLOG MONITOR") {
+			t.Errorf("%s is missing BINLOG MONITOR: %s", user, line)
+		}
+		// The MySQL spelling silently degrades to BINLOG MONITOR alone, so it must
+		// not be relied on here.
+		if strings.Contains(line, "REPLICATION CLIENT") {
+			t.Errorf("%s uses the MySQL-only REPLICATION CLIENT spelling: %s", user, line)
+		}
+	}
+}
+
+// Orchestrator manages classic source/replica topologies. Galera and Group
+// Replication elect their own primary, so there is nothing for it to fail over.
+func TestOrchestratableFramesAreReplicationOnly(t *testing.T) {
+	for _, want := range []string{"mysql", "mariadbrepl", "mysqlcerepl", "pxc"} {
+		if !orchestratableFrame(want) {
+			t.Errorf("%s should be Orchestrator-manageable", want)
+		}
+	}
+	for _, no := range []string{"mariadbgalera", "mysqlceinnodb", "innodb", "psmdb", "patroni", ""} {
+		if orchestratableFrame(no) {
+			t.Errorf("%s should not be offered to Orchestrator", no)
+		}
+	}
+	// Every MySQL-family frame must clear the shared baseline barrier, including
+	// the cluster kinds Orchestrator does not manage.
+	for _, want := range []string{"pxc", "mysql", "innodb", "mariadbrepl", "mariadbgalera", "mysqlcerepl", "mysqlceinnodb"} {
+		if !mysqlFamilyFrame(want) {
+			t.Errorf("%s missing from the MySQL-family barrier set", want)
+		}
+	}
+	if mysqlFamilyFrame("patroni") || mysqlFamilyFrame("") {
+		t.Error("non-MySQL frame types must not join the barrier")
+	}
+}
