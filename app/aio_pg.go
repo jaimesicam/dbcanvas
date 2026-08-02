@@ -510,7 +510,7 @@ func (a *App) aioProvisionRepmgr(ctx context.Context, id string, n designNode, i
 		} else {
 			if err := a.runStep(ctx, id, aioRepmgrStandbyRegisterScript, []string{
 				"BINDIR=" + bindir, "RUNDIR=" + l.RunDir, "CONF=" + aioRepmgrConfPath(l),
-				fmt.Sprintf("PORT=%d", m.Ports.Client),
+				fmt.Sprintf("PORT=%d", m.Ports.Client), "NODE=" + m.Inst,
 			}, pr.logln); err != nil {
 				return fmt.Errorf("%s: repmgr standby register: %w", m.Inst, err)
 			}
@@ -602,7 +602,15 @@ P -qtAc "SELECT 1 FROM pg_roles WHERE rolname='$REPLUSER'" | grep -q 1 || \
   P -v ON_ERROR_STOP=1 -qtAc "CREATE ROLE $REPLUSER WITH LOGIN REPLICATION SUPERUSER PASSWORD '$REPLPW';" >/dev/null
 P -qtAc "SELECT 1 FROM pg_database WHERE datname='repmgr'" | grep -q 1 || \
   P -v ON_ERROR_STOP=1 -qtAc "CREATE DATABASE repmgr OWNER $REPLUSER;" >/dev/null
-runuser -u postgres -- "$BINDIR/repmgr" -f "$CONF" primary register -F 2>&1 | tail -10
+# NOT piped into tail: a pipeline exits with its LAST command's status, so
+# "| tail" reports success even when the registration failed — the same defect
+# that made a failed standby clone look fine. Capture, then verify the row
+# actually exists rather than trusting the exit code alone.
+OUT=$(runuser -u postgres -- "$BINDIR/repmgr" -f "$CONF" primary register -F 2>&1) || {
+  echo "$OUT" | tail -15; exit 1; }
+echo "$OUT" | tail -3
+P -qtAc "SELECT 1 FROM repmgr.nodes WHERE type='primary'" -d repmgr | grep -q 1 || {
+  echo "repmgr reported success but no primary row exists in repmgr.nodes"; exit 1; }
 exit 0`
 
 // aioRepmgrCloneScript clones a standby's datadir from the primary, then pins the
@@ -646,7 +654,14 @@ for i in $(seq 1 60); do
   runuser -u postgres -- "$BINDIR/pg_isready" -h "$RUNDIR" -p "$PORT" >/dev/null 2>&1 && break
   sleep 2
 done
-runuser -u postgres -- "$BINDIR/repmgr" -f "$CONF" standby register -F --wait-start=60 2>&1 | tail -10
+# Same reasoning as the primary: capture the status instead of losing it to a
+# pipeline, then confirm the node really is registered.
+OUT=$(runuser -u postgres -- "$BINDIR/repmgr" -f "$CONF" standby register -F --wait-start=60 2>&1) || {
+  echo "$OUT" | tail -15; exit 1; }
+echo "$OUT" | tail -3
+runuser -u postgres -- "$BINDIR/psql" -h "$RUNDIR" -p "$PORT" -U postgres -d repmgr \
+  -qtAc "SELECT 1 FROM repmgr.nodes WHERE node_name='$NODE'" | grep -q 1 || {
+  echo "repmgr reported success but $NODE is not in repmgr.nodes"; exit 1; }
 exit 0`
 
 // ---------------------------------------------------------------- Patroni

@@ -1873,3 +1873,70 @@ func TestAIOIconsExist(t *testing.T) {
 		}
 	}
 }
+
+// A shell pipeline exits with its LAST command's status, so piping a command
+// whose failure matters into `tail` reports success regardless. That defect hid
+// a failed `repmgr standby clone` behind a baffling sed error (session 199), and
+// an audit later found the SAME shape in both `repmgr … register` scripts —
+// which had been called verified, because on that run the registration happened
+// to succeed.
+//
+// This scans every AiO script constant rather than the two that were found, so
+// the next one is caught when it is written.
+func TestAIOScriptsDoNotMaskExitStatus(t *testing.T) {
+	// Commands whose failure must fail the step. Read-only probes are excluded:
+	// piping those into grep/awk IS the test, which is a different intent.
+	mutating := regexp.MustCompile(`\b(repmgr|initdb|pg_basebackup|mongosh --quiet --port "\$PORT" --eval 'try \{ rs\.initiate|pmm-admin add|sh\.addShard)\b`)
+	pipeInto := regexp.MustCompile(`\|\s*(tail|head)\b`)
+
+	scripts := map[string]string{
+		"aioRepmgrPrimaryRegisterScript": aioRepmgrPrimaryRegisterScript,
+		"aioRepmgrStandbyRegisterScript": aioRepmgrStandbyRegisterScript,
+		"aioRepmgrCloneScript":           aioRepmgrCloneScript,
+		"aioRepmgrPrimaryConfigScript":   aioRepmgrPrimaryConfigScript,
+		"aioPGInitScript":                aioPGInitScript,
+		"aioPGConfigureScript":           aioPGConfigureScript,
+		"aioPGPasswordScript":            aioPGPasswordScript,
+		"aioMongoInitRSScript":           aioMongoInitRSScript,
+		"aioMongoAddShardsScript":        aioMongoAddShardsScript,
+		"aioMongoCreateAdminScript":      aioMongoCreateAdminScript,
+		"aioPMMRegisterScript":           aioPMMRegisterScript,
+		"aioSpockNodeSetupScript":        aioSpockNodeSetupScript,
+		"aioSpockSubCreateScript":        aioSpockSubCreateScript,
+		"aioMySQLBaselineScript":         aioMySQLBaselineScript,
+		"aioMySQLAttachScript":           aioMySQLAttachScript,
+	}
+
+	for name, script := range scripts {
+		for i, line := range strings.Split(script, "\n") {
+			code, _, _ := strings.Cut(strings.TrimSpace(line), "#")
+			if code == "" || !pipeInto.MatchString(code) || !mutating.MatchString(code) {
+				continue
+			}
+			// A guarded pipeline is fine: `cmd || { …; exit 1; }` and the
+			// diagnostic tails inside an already-failing branch both keep the
+			// status. What is not fine is a bare `mutating-cmd | tail`.
+			if strings.Contains(code, "||") || strings.HasPrefix(code, "echo ") {
+				continue
+			}
+			t.Errorf("%s line %d pipes a mutating command into tail/head, "+
+				"which discards its exit status:\n    %s", name, i+1, code)
+		}
+	}
+}
+
+// The register steps must not merely trust repmgr's exit code — verify the row
+// landed. `-F` (force) makes several failure modes non-fatal to the binary.
+func TestAIORepmgrRegisterVerifiesTheRow(t *testing.T) {
+	for name, script := range map[string]string{
+		"primary": aioRepmgrPrimaryRegisterScript,
+		"standby": aioRepmgrStandbyRegisterScript,
+	} {
+		if !strings.Contains(script, "FROM repmgr.nodes") {
+			t.Errorf("%s register does not confirm the node reached repmgr.nodes", name)
+		}
+		if !strings.Contains(script, "OUT=$(runuser") {
+			t.Errorf("%s register should capture output rather than pipe it away", name)
+		}
+	}
+}

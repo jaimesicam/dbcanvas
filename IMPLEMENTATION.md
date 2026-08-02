@@ -9346,3 +9346,42 @@ Recorded in the plan so the next session starts from the assessment rather than 
 
 `go build`/`go vet`/`gofmt -l` clean; 63 Go tests, 32 render checks, `vite build` and `make smoke`
 pass.
+
+## 210. Audit: two more instances of the exit-status-masking bug, in code called verified
+
+Internet connection issues kept live verification blocked. Rather than write
+more provisioning code that cannot be run, this session audited the existing All-in-One code for
+the *bug classes that live testing had already revealed* — on the reasoning that a pattern which
+bit once is likely present elsewhere, and that is findable without a deploy.
+
+Five patterns were checked, one per bug previously found the hard way:
+
+| Pattern | Origin | Result |
+| --- | --- | --- |
+| A pipeline discarding a mutating command's exit status | repmgr clone (s199) | **2 found** |
+| A hardcoded product default port | the node's whole premise | clean |
+| Readiness keyed on a value identical across instances | GR `MEMBER_HOST` (s194) | clean |
+| Blocking start of a `Type=notify` unit per member | etcd deadlock (s200) | clean |
+| A probe assuming one credential state | `/root/.my.cnf` (s195), PXC Synced (s197) | clean |
+
+**The two findings are both in `repmgr … register`**, and both were in code recorded as verified
+live in session 199 — the live run passed because the registration happened to succeed, so the
+masked failure path was never taken. `repmgr primary register -F … | tail -10` followed by
+`exit 0` reports success whatever repmgr did; a failed registration would have produced a green
+deploy with an unregistered node and a cluster that looks healthy until a failover is attempted.
+
+Both now capture the status instead of losing it to the pipeline, and — because `-F` (force) makes
+several failure modes non-fatal to the binary itself — additionally **verify the row actually
+landed in `repmgr.nodes`** rather than trusting the exit code.
+
+The guard is written against every AiO script constant, not the two that were found, so the next
+one is caught when it is written: `TestAIOScriptsDoNotMaskExitStatus` scans for a mutating command
+piped into `tail`/`head`, while deliberately allowing guarded pipelines (`cmd || { …; exit 1; }`)
+and the diagnostic tails that sit inside an already-failing branch. Verified against the real
+defect: restoring the original line makes it fail naming the script and line number.
+
+The clean results are worth as much as the findings — they say the other four fixes were applied
+everywhere the pattern occurs, not just where it was noticed.
+
+66 AiO tests (two new). `go build`/`go vet`/`gofmt -l` clean; unit suite, `vite build` and
+`make smoke` pass.
