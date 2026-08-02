@@ -143,8 +143,8 @@ const aioCtlScript = `#!/usr/bin/env bash
 # every deploy, so edits here are lost. Run 'aioctl help' for usage.
 set -o pipefail
 
-REG=/etc/dbcanvas/aio/instances.tsv
-TARGET=aio.target
+REG=` + aioRegistry + `
+TARGET=` + aioTarget + `
 
 die() { echo "aioctl: $*" >&2; exit 1; }
 

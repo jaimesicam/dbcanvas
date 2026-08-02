@@ -622,7 +622,7 @@ func dash(s string) string {
 }
 
 func (a *App) aioWriteRegistry(ctx context.Context, id string, cfg aioConfig) error {
-	return a.engCtx(ctx).CopyFile(ctx, id, aioEtc, "instances.tsv", 0o644, []byte(aioRegistryTSV(cfg)))
+	return a.engCtx(ctx).CopyFile(ctx, id, aioEtc, aioRegistryName, 0o644, []byte(aioRegistryTSV(cfg)))
 }
 
 // aioInstallControl lays down the control plane: the aio.target every instance

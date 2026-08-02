@@ -9385,3 +9385,34 @@ everywhere the pattern occurs, not just where it was noticed.
 
 66 AiO tests (two new). `go build`/`go vet`/`gofmt -l` clean; unit suite, `vite build` and
 `make smoke` pass.
+
+## 211. Shell syntax checking for every generated script, and a single-sourced registry path
+
+Internet connection issues kept all deploy-dependent work blocked. Labs — the
+one remaining item that looked deploy-independent — turns out not to be: its 168 checks are
+hand-written Go that inspects a live stack, and this project's own rule (learned the hard way with
+valkey-cli, which broke three checks) is never to trust a lab check until it has run against a real
+deployment. Writing them blind would violate exactly the practice that makes them reliable.
+
+So the session continued the audit line from 210 with two deploy-free improvements.
+
+**`bash -n` over all 44 generated scripts.** Every script this package runs is assembled in Go —
+raw strings spliced with constants, shared fragments concatenated into bootstrap and join variants
+— and a syntax error only shows up inside a container as a shell diagnostic several steps from its
+cause. `bash -n` parses without executing, so the whole set is now checked in the unit suite. This
+is worth most precisely when deploys are blocked by connection issues: it covers scripts
+that currently cannot be run for real. Verified against a realistic fault — an unterminated `${FIRST%:*` of the sort raw-string
+splicing produces — which fails naming the script.
+
+**The registry path was declared three times and wired twice.** `aioRegistry` existed as a constant
+but nothing referenced it: the Go writer passed the literal `"instances.tsv"` and aioctl hardcoded
+the full path. Nothing was broken, but a change to one would have left aioctl reading a file nobody
+writes, and every manager action failing with "no instance registry". Both are now built from the
+constant (`aioRegistryName` for the basename the writer needs), with a test asserting the generated
+script really carries them — a raw-string concatenation is easy to get subtly wrong, and the
+previous byte-for-byte extraction technique no longer works now that the constant is spliced.
+
+A sweep for other unreferenced identifiers across the fifteen `aio*.go` files found nothing else.
+
+68 AiO tests (two new). `go build`/`go vet`/`gofmt -l` clean; unit suite, `vite build` and
+`make smoke` pass.

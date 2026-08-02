@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -1937,6 +1939,103 @@ func TestAIORepmgrRegisterVerifiesTheRow(t *testing.T) {
 		}
 		if !strings.Contains(script, "OUT=$(runuser") {
 			t.Errorf("%s register should capture output rather than pipe it away", name)
+		}
+	}
+}
+
+// The registry path and the target name appear in Go (which writes them) and in
+// aioctl (which reads them). They were three separate literals; if one drifted,
+// aioctl would look at a file nobody writes and every manager action would fail
+// with "no instance registry". They are now built from the same constants — this
+// asserts the generated script really carries them, since a raw-string
+// concatenation is easy to get subtly wrong.
+func TestAIOCtlUsesTheSharedPaths(t *testing.T) {
+	if !strings.Contains(aioCtlScript, "REG="+aioRegistry+"\n") {
+		t.Errorf("aioctl's REG is not the shared constant %q", aioRegistry)
+	}
+	if !strings.Contains(aioCtlScript, "TARGET="+aioTarget+"\n") {
+		t.Errorf("aioctl's TARGET is not the shared constant %q", aioTarget)
+	}
+	// And the literal must still be the real path, not an empty or mangled one.
+	if aioRegistry != "/etc/dbcanvas/aio/instances.tsv" {
+		t.Errorf("registry path changed to %q — update the operator guide too", aioRegistry)
+	}
+	// The Go writer must target the same basename it advertises.
+	if !strings.HasSuffix(aioRegistry, "/"+aioRegistryName) {
+		t.Errorf("aioRegistry %q does not end in aioRegistryName %q", aioRegistry, aioRegistryName)
+	}
+}
+
+// Every script this package generates is assembled in Go — raw strings spliced
+// with constants, shared fragments concatenated into bootstrap and join
+// variants — and then run inside a container where a syntax error surfaces as a
+// deploy failure with a shell diagnostic three steps from the cause.
+//
+// `bash -n` parses without executing, so the whole set can be checked here. It
+// costs nothing and covers the scripts that no unit test can otherwise reach.
+func TestAIOGeneratedScriptsAreValidShell(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not available")
+	}
+	scripts := map[string]string{
+		"aioCtlScript":                   aioCtlScript,
+		"aioPrepControlScript":           aioPrepControlScript,
+		"aioMaskVendorUnits":             aioMaskVendorUnits,
+		"aioStartUnitScript":             aioStartUnitScript,
+		"aioRestartUnitScript":           aioRestartUnitScript,
+		"aioMySQLInitScript":             aioMySQLInitScript,
+		"aioMySQLBaselineScript":         aioMySQLBaselineScript,
+		"aioMySQLAttachScript":           aioMySQLAttachScript,
+		"aioMySQLSemisyncScript":         aioMySQLSemisyncScript,
+		"aioMySQLGRBootstrapScript":      aioMySQLGRBootstrapScript,
+		"aioMySQLGRJoinScript":           aioMySQLGRJoinScript,
+		"aioPXCWaitSyncedScript":         aioPXCWaitSyncedScript,
+		"aioPGInitScript":                aioPGInitScript,
+		"aioPGConfigureScript":           aioPGConfigureScript,
+		"aioPGPasswordScript":            aioPGPasswordScript,
+		"aioRepmgrPrimaryConfigScript":   aioRepmgrPrimaryConfigScript,
+		"aioRepmgrPrimaryRegisterScript": aioRepmgrPrimaryRegisterScript,
+		"aioRepmgrCloneScript":           aioRepmgrCloneScript,
+		"aioRepmgrStandbyRegisterScript": aioRepmgrStandbyRegisterScript,
+		"aioRepmgrConfOwnScript":         aioRepmgrConfOwnScript,
+		"aioEtcdDirScript":               aioEtcdDirScript,
+		"aioEtcdStartScript":             aioEtcdStartScript,
+		"aioEtcdWaitScript":              aioEtcdWaitScript,
+		"aioPatroniOwnScript":            aioPatroniOwnScript,
+		"aioPatroniWaitScript":           aioPatroniWaitScript,
+		"aioSpockConfigScript":           aioSpockConfigScript,
+		"aioSpockNodeSetupScript":        aioSpockNodeSetupScript,
+		"aioSpockSubCreateScript":        aioSpockSubCreateScript,
+		"aioMongoKeyFileScript":          aioMongoKeyFileScript,
+		"aioMongoWaitScript":             aioMongoWaitScript,
+		"aioMongoInitRSScript":           aioMongoInitRSScript,
+		"aioMongoCreateAdminScript":      aioMongoCreateAdminScript,
+		"aioMongoAddShardsScript":        aioMongoAddShardsScript,
+		"aioValkeyOwnConfScript":         aioValkeyOwnConfScript,
+		"aioValkeyClusterCreateScript":   aioValkeyClusterCreateScript,
+		"aioHAProxyCheckScript":          aioHAProxyCheckScript,
+		"aioProxySQLOwnScript":           aioProxySQLOwnScript,
+		"aioProxySQLLoadScript":          aioProxySQLLoadScript,
+		"aioOrchDiscoverScript":          aioOrchDiscoverScript,
+		"aioCertScript":                  aioCertScript,
+		"aioCertWireMySQL":               aioCertWireMySQL,
+		"aioCertWirePostgres":            aioCertWirePostgres,
+		"aioCertWireMongo":               aioCertWireMongo,
+		"aioPMMRegisterScript":           aioPMMRegisterScript,
+	}
+	dir := t.TempDir()
+	for name, script := range scripts {
+		if strings.TrimSpace(script) == "" {
+			t.Errorf("%s is empty", name)
+			continue
+		}
+		f := filepath.Join(dir, name+".sh")
+		if err := os.WriteFile(f, []byte(script), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		out, err := exec.Command("bash", "-n", f).CombinedOutput()
+		if err != nil {
+			t.Errorf("%s is not valid shell:\n%s", name, strings.TrimSpace(string(out)))
 		}
 	}
 }

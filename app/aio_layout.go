@@ -20,12 +20,13 @@ import (
 // a single-product node.
 
 const (
-	aioRoot     = "/opt/aio"          // per-instance trees
-	aioEtc      = "/etc/dbcanvas/aio" // registry + per-instance env files
-	aioRunRoot  = "/run/aio"          // sockets/pids (tmpfs, recreated by RuntimeDirectory=)
-	aioCtlPath  = "/usr/local/bin/aioctl"
-	aioTarget   = "aio.target"
-	aioRegistry = aioEtc + "/instances.tsv"
+	aioRoot         = "/opt/aio"          // per-instance trees
+	aioEtc          = "/etc/dbcanvas/aio" // registry + per-instance env files
+	aioRunRoot      = "/run/aio"          // sockets/pids (tmpfs, recreated by RuntimeDirectory=)
+	aioCtlPath      = "/usr/local/bin/aioctl"
+	aioTarget       = "aio.target"
+	aioRegistryName = "instances.tsv"
+	aioRegistry     = aioEtc + "/" + aioRegistryName
 )
 
 // instLayout is one instance's filesystem + service identity. A zero Inst means
