@@ -9760,3 +9760,31 @@ Verified after the fixes, on Ubuntu 24.04:
   exporting node, 0 on the others) and a probed `serverVersion` of 8.4.11.
 
 Stack destroyed and deleted; no containers left behind. 3 new Go tests.
+
+## 196. All-in-One offered Spock PostgreSQL majors it cannot build — `app/web/src/pages/AllInOne.jsx`, `app/{versions,aio_validate}.go`
+
+Reported: the All-in-One form listed PostgreSQL 13 and 14 for a Spock instance. Spock
+supports 15–18.
+
+The catalog was already right — `make versions` derives a separate `spock:` section from
+the patch set and postgresql.org tags, and `/api/catalog/spock` correctly returns
+15/16/17/18 while `/api/catalog/ppg` returns 13–18. The bug was the consumer:
+`PGVersionPicker` fetched `ppgCatalog` for *every* PostgreSQL kind, so a Spock instance
+inherited the Percona package range. The classic Spock frame form already made this
+distinction (`usePPGCatalog(..., stackApi.spockCatalog)`); the All-in-One form did not.
+It now selects the catalog from the instance's kind.
+
+Spock is not a package — spock.go compiles a patched PostgreSQL from source — so an
+unsupported major does not fail at `dnf` but minutes later inside a build, as a compiler
+error. Neither the classic frame nor the All-in-One node validated the major server-side,
+so a design saved before this fix (or edited through the API) would still reach that.
+`aioIssues` now rejects it by name:
+
+    All-in-One node aio-01: Spock instance spock01 asks for PostgreSQL 13, which Spock
+    does not support here (available: 18, 17, 16, 15).
+
+The check is skipped when no Spock catalog is recorded, so "not yet generated" reads as
+"cannot judge" rather than "nothing is allowed". Verified against the running app: both
+catalog endpoints return the expected ranges and the API refuses the 13 design. 2 new Go
+tests, one of which asserts the PPG catalog still carries 13/14 — the distinction is only
+meaningful while it does.

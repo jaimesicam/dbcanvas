@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -58,6 +59,25 @@ func aioIssues(n designNode, doc designDoc, exportReq map[int][]string, hostMemB
 				"Each of these server packages Provides: mysql-server and conflicts with the others, "+
 				"so only one can be installed per container — keep one set and remove the rest.",
 			label, strings.Join(parts, " and "))})
+	}
+
+	// --- Spock's PostgreSQL major --------------------------------------------
+	// Spock is not a package: spock.go compiles a patched PostgreSQL from source,
+	// and the patch set exists only for some majors (15-18 today). The form offers
+	// the Spock catalog rather than the PPG one, so this catches a design that was
+	// hand-edited or saved before a major dropped out — otherwise the wrong major
+	// fails deep inside a source build, minutes in, with a compiler error.
+	if majors := aioSpockMajors(n.OS, n.OSVersion, n.Arch); len(majors) > 0 {
+		for _, in := range n.AIOInstances {
+			if in.Kind != "spock" || in.PGMajor == "" {
+				continue
+			}
+			if !slices.Contains(majors, in.PGMajor) {
+				out = append(out, issue{"error", fmt.Sprintf(
+					"All-in-One node %s: Spock instance %s asks for PostgreSQL %s, which Spock does not support here (available: %s).",
+					label, in.Name, in.PGMajor, strings.Join(majors, ", "))})
+			}
+		}
 	}
 
 	// --- the PostgreSQL flavor conflict --------------------------------------

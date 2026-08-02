@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"net/http"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -561,6 +563,38 @@ func upstreamVersionIssues(typ, label, os, osVersion, arch, mdMajor, mdVersion, 
 		return []issue{{"error", label + ": " + product + " " + version + " is not available for " + os + " " + osVersion + " — newest is " + avail[0]}}
 	}
 	return nil // unknown image; the missing-image check already reports it
+}
+
+// aioSpockMajors lists the PostgreSQL majors Spock can be built on for one image,
+// newest first. Empty when the image is unknown or the catalog has not been
+// generated, so callers treat "no catalog" as "cannot judge" rather than "nothing
+// is allowed".
+func aioSpockMajors(os, osVersion, arch string) []string {
+	arch = archOr(arch)
+	for _, im := range loadSpockCatalog() {
+		if im.OS != os || im.OSVersion != osVersion || im.Arch != arch {
+			continue
+		}
+		var out []string
+		for m, vs := range im.Versions {
+			if len(vs) > 0 {
+				out = append(out, m)
+			}
+		}
+		sort.Slice(out, func(i, j int) bool { return pgMajorNum(out[i]) > pgMajorNum(out[j]) })
+		return out
+	}
+	return nil
+}
+
+// pgMajorNum parses a PostgreSQL major for ordering ("16" → 16); 0 when unparseable,
+// which sorts such entries last rather than panicking on odd catalog data.
+func pgMajorNum(s string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 func (a *App) handleMariaDBCatalog(w http.ResponseWriter, r *http.Request) {

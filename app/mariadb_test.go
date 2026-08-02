@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -731,5 +732,82 @@ func TestMySQLCEContainerDoesNotRoundTripThroughOneConfigStruct(t *testing.T) {
 	}
 	if !strings.Contains(body, "cfgMap") {
 		t.Error("mysqlceContainer should patch the stored config through a map")
+	}
+}
+
+// Spock is not a package — spock.go compiles a patched PostgreSQL from source, and
+// the patch set exists only for some majors. The All-in-One form was offering the
+// Percona PostgreSQL list (13-18) for Spock instances, advertising 13 and 14, which
+// cannot be built. The catalog itself was already correct; only the consumer was wrong.
+func TestSpockMajorsExcludeUnsupportedSeries(t *testing.T) {
+	if len(loadSpockCatalog()) == 0 {
+		t.Skip("versions.yaml has no spock catalog")
+	}
+	majors := aioSpockMajors("oraclelinux", "9", "amd64")
+	if len(majors) == 0 {
+		t.Fatal("no Spock majors for oraclelinux 9")
+	}
+	for _, m := range majors {
+		if n := pgMajorNum(m); n < 15 {
+			t.Errorf("Spock must not offer PostgreSQL %s — supported series start at 15 (got %v)", m, majors)
+		}
+	}
+	// Newest first, so a picker's default lands on the newest supported major.
+	for i := 1; i < len(majors); i++ {
+		if pgMajorNum(majors[i-1]) < pgMajorNum(majors[i]) {
+			t.Errorf("Spock majors not ordered newest-first: %v", majors)
+		}
+	}
+	// The Percona PostgreSQL catalog DOES carry 13/14 — which is exactly why Spock
+	// must not be driven from it.
+	ppg := map[string]bool{}
+	for _, im := range loadPPGCatalog() {
+		if im.OS == "oraclelinux" && im.OSVersion == "9" && im.Arch == "amd64" {
+			for m, vs := range im.Versions {
+				if len(vs) > 0 {
+					ppg[m] = true
+				}
+			}
+		}
+	}
+	if len(ppg) > 0 && !ppg["13"] && !ppg["14"] {
+		t.Skip("PPG catalog no longer carries 13/14; the distinction this guards is moot")
+	}
+	for _, old := range []string{"13", "14"} {
+		if slices.Contains(majors, old) {
+			t.Errorf("Spock majors leaked PPG-only series %s", old)
+		}
+	}
+}
+
+// A design that names an unsupported major for Spock must be refused before deploy,
+// or it fails minutes into a source build with a compiler error.
+func TestAIORejectsSpockOnUnsupportedMajor(t *testing.T) {
+	if len(loadSpockCatalog()) == 0 {
+		t.Skip("versions.yaml has no spock catalog")
+	}
+	n := designNode{
+		Label: "aio1", OS: "oraclelinux", OSVersion: "9", Arch: "amd64",
+		AIOInstances: []aioInstance{{ID: "s", Kind: "spock", Name: "spock01", Members: 2, PGMajor: "13"}},
+	}
+	found := false
+	for _, is := range aioIssues(n, designDoc{Nodes: []designNode{n}}, map[int][]string{}, 0) {
+		if is.Level == "error" && strings.Contains(is.Message, "Spock does not support") {
+			found = true
+			if !strings.Contains(is.Message, "spock01") || !strings.Contains(is.Message, "13") {
+				t.Errorf("message should name the instance and the bad major: %s", is.Message)
+			}
+		}
+	}
+	if !found {
+		t.Error("PostgreSQL 13 accepted for a Spock instance")
+	}
+	// A supported major must pass.
+	ok := aioSpockMajors("oraclelinux", "9", "amd64")[0]
+	n.AIOInstances[0].PGMajor = ok
+	for _, is := range aioIssues(n, designDoc{Nodes: []designNode{n}}, map[int][]string{}, 0) {
+		if is.Level == "error" && strings.Contains(is.Message, "Spock does not support") {
+			t.Errorf("supported major %s was rejected: %s", ok, is.Message)
+		}
 	}
 }

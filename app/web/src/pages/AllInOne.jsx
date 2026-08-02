@@ -334,11 +334,16 @@ function VersionPicker({ label, catalog, node: n, patchNode, deployed, majorKey,
 // one container may genuinely run different majors.
 function PGVersionPicker({ inst, node: n, patch, deployed }) {
   const [cat, setCat] = useState(null)
+  // Spock is not a Percona PostgreSQL package — it is a patched PostgreSQL built
+  // from source, and only some majors carry the patch set. It therefore has its own
+  // catalog (15–18 today), and offering it the PPG list would advertise 13 and 14,
+  // which cannot be built. Same split the classic Spock frame form makes.
+  const catalogFn = inst.kind === 'spock' ? stackApi.spockCatalog : stackApi.ppgCatalog
   useEffect(() => {
     let alive = true
-    stackApi.ppgCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => {})
+    catalogFn().then((c) => { if (alive) setCat(c.images || []) }).catch(() => {})
     return () => { alive = false }
-  }, [])
+  }, [inst.kind]) // eslint-disable-line react-hooks/exhaustive-deps
   const imgs = cat || []
   const lock = deployed ? 'opacity-70' : ''
   const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion && i.arch === n.arch)
