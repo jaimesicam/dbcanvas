@@ -32,7 +32,7 @@ there.
 | MongoDB | `psmdb` · `psmrs` · `psmdbsharded` | One install serves all three |
 | Valkey | `valkey` · `valkeycluster` | |
 | Proxies | `proxysql` · `haproxy` | Front an instance chosen by drop-down, not a drawn line |
-| Topology | `orchestrator` | Monitors the node's own MySQL instances, or a canvas Orchestrator node can. Optional **alert email** — Orchestrator mails it on failure detection; a bare name is delivered inside the stack's domain |
+| Topology | `orchestrator` | Monitors the node's own MySQL instances, or a canvas Orchestrator node can. **Alert email** — Orchestrator mails it on failure detection. Defaults to `admin`, the mailbox the Intranet always provisions; a bare name is delivered inside the stack's domain, and clearing it disables alerts |
 
 Cluster kinds expand into one *member* per daemon: `repl01` with three members becomes
 `repl01-n1`, `repl01-n2`, `repl01-n3`, each an independent server.

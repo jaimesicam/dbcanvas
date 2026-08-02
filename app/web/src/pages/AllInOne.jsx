@@ -68,6 +68,12 @@ export function AllInOneForm({ node: n, nodes, patchNode, deleteNode, dep, deplo
       replMode: kind === 'innodb' ? 'groupreplication' : 'async',
       certTtlValue: 365,
       certTtlUnit: 'days',
+      // The Intranet is mandatory and always provisions an admin@<domain> mailbox,
+      // so an Orchestrator has somewhere to send failure alerts out of the box. The
+      // bare local part is stored deliberately: alertEmailAddress qualifies it with
+      // the stack's own domain, so this keeps working if DOMAIN changes. Clear it to
+      // turn alerts off.
+      ...(kind === 'orchestrator' ? { alertEmail: ORCH_DEFAULT_ALERT } : {}),
     }
     setInstances([...instances, inst])
     setOpenId(inst.id)
@@ -328,6 +334,11 @@ function VersionPicker({ label, catalog, node: n, patchNode, deployed, majorKey,
   )
 }
 
+// The Intranet's admin mailbox, as the default Orchestrator alert recipient. Stored
+// as the bare local part so it follows the stack's DOMAIN — see alertEmailAddress in
+// app/orchestrator.go, and MAIL_ADMIN in app/intranet.go which creates the mailbox.
+export const ORCH_DEFAULT_ALERT = 'admin'
+
 // Kinds PMM ships an exporter for — everything except Orchestrator, which has no
 // PMM service type at all. Mirrors aioPMMSupported in app/aio_target.go;
 // TestAIOPMMFormGateMatchesTheRegistrationPath keeps the two in step.
@@ -516,7 +527,7 @@ function InstanceCard({ inst, node, nodes, instances, open, onToggle, patch, onR
           {inst.kind === 'orchestrator' && (
             <Field
               label="Alert email"
-              hint="Optional. Orchestrator mails this address when it detects a failure. A bare name is delivered inside the stack's domain via the Intranet mail server."
+              hint="Orchestrator mails this address when it detects a failure. A bare name is delivered inside the stack's domain via the Intranet mail server, which always provisions admin. Clear it to disable alerts."
             >
               <input className={`${inputCls} ${lock}`} type="text" placeholder="dba  or  dba@example.net"
                 value={inst.alertEmail || ''} disabled={deployed}

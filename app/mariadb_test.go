@@ -1200,3 +1200,37 @@ func TestAIOOrchAlertHookIsPerInstanceAndReal(t *testing.T) {
 		t.Error("a full address should be used as given")
 	}
 }
+
+// The Intranet is mandatory and always provisions an admin@<domain> mailbox, so an
+// Orchestrator has a working alert destination without the user inventing one. The
+// default is stored as the bare local part so it follows the stack's DOMAIN.
+func TestOrchestratorDefaultAlertResolvesToTheIntranetMailbox(t *testing.T) {
+	// The mailbox the Intranet creates, and the default the forms store, must agree.
+	const mailAdmin = "admin"
+	if got := alertEmailAddress(mailAdmin, "example.net"); got != "admin@example.net" {
+		t.Errorf("default alert address = %q, want admin@example.net", got)
+	}
+	// It must track the domain rather than being baked in.
+	if got := alertEmailAddress(mailAdmin, "corp.test"); got != "admin@corp.test" {
+		t.Errorf("default did not follow DOMAIN: %q", got)
+	}
+	// A full address the user typed is used verbatim.
+	if got := alertEmailAddress("oncall@elsewhere.test", "example.net"); got != "oncall@elsewhere.test" {
+		t.Errorf("explicit address rewritten: %q", got)
+	}
+	// Both forms must seed the same bare local part the Intranet actually creates.
+	for _, f := range []string{"web/src/pages/AllInOne.jsx", "web/src/pages/StackDesigner.jsx"} {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Skipf("%s not readable", f)
+		}
+		if !strings.Contains(string(b), "'"+mailAdmin+"'") {
+			t.Errorf("%s does not seed the alert default with %q", f, mailAdmin)
+		}
+	}
+	// And the Intranet must still create that mailbox.
+	src, err := os.ReadFile("intranet.go")
+	if err == nil && !strings.Contains(string(src), `"MAIL_ADMIN=`+mailAdmin+`"`) {
+		t.Errorf("the Intranet no longer provisions the %q mailbox the default assumes", mailAdmin)
+	}
+}

@@ -335,7 +335,7 @@ const NODE_TYPES = {
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: {
       os: 'oraclelinux', osVersion: '9', arch: 'amd64',
-      orchestratorVersion: '', alertEmail: '', useProxy: false,
+      orchestratorVersion: '', alertEmail: 'admin', useProxy: false,
     },
   },
   // SeaweedFS — an S3-compatible object store (backup target). Like PMM it runs a
@@ -7090,7 +7090,7 @@ function OrchestratorForm({ node: n, patchNode, deleteNode, dep, deployed }) {
         </select>
       </Field>
 
-      <Field label="Alert email" hint="Optional — a mailbox on the stack's Intranet domain (or a full address) that failure-detection alerts are emailed to.">
+      <Field label="Alert email" hint="A mailbox on the stack's Intranet domain (or a full address) that failure-detection alerts are emailed to. Defaults to admin, which the Intranet always provisions; clear it to disable alerts.">
         <input className={`${inputCls} ${lock}`} placeholder="admin" value={n.alertEmail || ''} disabled={deployed}
           onChange={(e) => patchNode(n.id, { alertEmail: e.target.value })} />
       </Field>

@@ -10024,3 +10024,34 @@ redeploy. All-in-One skips instances it has already provisioned — deliberately
 re-running a baseline would reset a live server's GTID history — so an option changed after
 the fact needs the instance recreated. That applies to every per-instance option, not just
 this one. 1 new Go test.
+
+## 203. Orchestrator's alert email defaults to the Intranet's admin mailbox — `app/web/src/pages/{AllInOne,StackDesigner}.jsx`
+
+Both Orchestrator forms started with an empty alert address, so failure-detection alerts
+were off unless the user knew a mailbox existed to send them to. One always does: the
+Intranet is mandatory in every stack and provisions `admin@<domain>` (`MAIL_ADMIN=admin`,
+app/intranet.go). Both the All-in-One instance and the classic node now default to it.
+
+Stored as the bare local part `admin` rather than a full address, because
+`alertEmailAddress` qualifies it with the stack's own domain — so the default follows
+`DOMAIN` instead of hardcoding example.net. Clearing the field still disables alerts; this
+changes the default, not the semantics.
+
+A test ties the three facts together — the forms' seed, `alertEmailAddress`'s behaviour,
+and the mailbox the Intranet actually creates — so moving any one of them fails rather than
+silently producing alerts addressed to a mailbox that does not exist.
+
+Verified live end to end: a stack with a classic Orchestrator node and an All-in-One
+Orchestrator instance, both left at their defaults, logged
+
+    orch01: failure alerts wired to admin@example.net          (All-in-One)
+    failure-detection alerts wired to admin@example.net        (classic node)
+
+and firing the All-in-One hook with a synthetic DeadMaster delivered a real message into the
+Intranet's mailbox:
+
+    /var/mail/vhosts/example.net/admin/new/…
+    To: admin@example.net
+    Subject: Orchestrator alert: DeadMaster on mycluster
+
+1 new Go test.
