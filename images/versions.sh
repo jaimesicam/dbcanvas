@@ -67,6 +67,49 @@ parse_entries() {
   ' "$OUT"
 }
 
+# ---- ONLY: probe a subset of the upstreams ----
+# ONLY is a comma-separated list of probe groups: "percona" (everything served by
+# percona-release) and "upstream" (MariaDB from mariadb.org, MySQL Community from
+# repo.mysql.com). Unset means both.
+#
+# This exists because the groups fail independently: internet connection issues can
+# make one upstream unreachable, and re-probing it would otherwise block recording
+# the other. A group that is not probed is not erased — carry_section copies that
+# product's existing map out of the current versions.yaml, so a partial run edits
+# only what it actually measured.
+#
+#   ONLY=upstream make versions    # refresh MariaDB + MySQL CE, keep Percona as-is
+ONLY="${ONLY:-}"
+want_probe() {
+  [ -z "$ONLY" ] && return 0
+  case ",${ONLY}," in *",$1,"*) return 0 ;; esac
+  return 1
+}
+if [ -n "$ONLY" ]; then
+  for g in ${ONLY//,/ }; do
+    case "$g" in
+      percona|upstream) ;;
+      *) echo "ERROR: unknown ONLY group '${g}' (want: percona, upstream)" >&2; exit 1 ;;
+    esac
+  done
+  echo "==> ONLY=${ONLY} — other product groups keep their recorded versions" >&2
+fi
+
+# carry_section <tag> <product-key>: reprint one product's existing block for one
+# image, verbatim, from the versions.yaml being replaced. Returns 1 when the image
+# or the product is not in the old file (a newly built image, or a product recorded
+# for the first time), which tells the caller to emit an empty map instead.
+carry_section() {
+  awk -v tag="$1" -v key="$2" '
+    $0 == "    tag: " tag { inimg = 1; next }
+    inimg && /^  - os:/   { exit }
+    inimg && $0 == "    " key ":" { found = 1; print; next }
+    inimg && found && /^    [a-z_]+:/ { exit }
+    inimg && found { print }
+    END { exit !found }
+  ' "$OUT"
+}
+
 # ---- in-container probe scripts, one per OS family ----
 # Each prints version lines (newest first) fenced by @@PS80@@ / @@PS84@@ /
 # @@PS57@@ / @@PXC80@@ / @@PXC84@@ / @@PROXYSQL2@@ / @@PROXYSQL3@@ /
@@ -78,14 +121,17 @@ parse_entries() {
 rhel_probe() {
   cat <<'EOS'
 set +e
-# On EL8 the distro ships a default `mysql` dnf module that masks Percona's
-# packages; disabling it makes the versions visible. Harmless no-op on EL9/EL10.
-dnf -y -q module disable mysql >/dev/null 2>&1
+# On EL8 the distro ships default `mysql` and `mariadb` dnf modules that mask the
+# third-party packages of the same name; disabling them makes the upstream versions
+# visible. Harmless no-ops on EL9/EL10.
+dnf -y -q module disable mysql mariadb >/dev/null 2>&1
 # elsearch <pkg>: exact package versions, normalised (e.g. 8.0.30-22.1).
 elsearch() {
   dnf -q search "$1" --showduplicates 2>/dev/null | grep -iE "^$1-[0-9]" \
     | sed -E "s/ .*//; s/^$1-//; s/\.el[0-9]+\.(x86_64|aarch64|noarch)$//"
 }
+EOS
+  want_probe percona && cat <<'EOS'
 percona-release setup ps80     >/dev/null 2>&1
 echo '@@PS80@@';  elsearch percona-server-server   | grep -E '^8\.0\.' | sort -rV -u
 percona-release setup ps84lts  >/dev/null 2>&1
@@ -142,8 +188,57 @@ echo '@@VALKEY91@@'; elsearch percona-valkey-bundle | grep -E '^9\.1\.' | sort -
 # PG packages are.
 percona-release setup pdps-84-lts >/dev/null 2>&1
 echo '@@ORCH@@'; elsearch percona-orchestrator | sed -E 's/^[0-9]+://' | sort -rV -u
-echo '@@END@@'
 EOS
+  want_probe upstream && cat <<'EOS'
+# ---- Non-Percona upstreams: MariaDB and MySQL Community ----
+# Neither is managed by percona-release, so their repos are written by hand. Both
+# are PER MAJOR (like the ppg-NN repos): one baseurl per series, so every series
+# gets its own repo file. They are all left enabled and the series is selected by
+# grepping the version — filtering by repo would need dnf config-manager, which
+# buys nothing here because the version prefix already identifies the series.
+#
+# skip_if_unavailable=1 matters: not every series exists for every EL release
+# (MySQL 8.0 has no el10 repo, MariaDB has no el10 build before 11.4). Without it
+# one 404 aborts the whole dnf transaction and every later probe returns empty.
+for V in 10.6 10.11 11.4 11.8; do
+  cat >"/etc/yum.repos.d/dbc-mariadb-$V.repo" <<EOF
+[dbc-mariadb-$V]
+name=MariaDB $V
+baseurl=https://mirror.mariadb.org/yum/$V/rhel/\$releasever/\$basearch
+gpgkey=https://mirror.mariadb.org/yum/RPM-GPG-KEY-MariaDB
+gpgcheck=1
+skip_if_unavailable=1
+module_hotfixes=1
+EOF
+done
+# The EL packages are capitalised (MariaDB-server) — the distro's own lowercase
+# mariadb-server is a different, older build from AppStream and is NOT what these
+# repos install. On EL8 the distro also ships a `mariadb` dnf module that would
+# mask the upstream packages, hence the module disable above.
+echo '@@MARIADB106@@';  elsearch MariaDB-server | grep -E '^10\.6\.'  | sort -rV -u
+echo '@@MARIADB1011@@'; elsearch MariaDB-server | grep -E '^10\.11\.' | sort -rV -u
+echo '@@MARIADB114@@';  elsearch MariaDB-server | grep -E '^11\.4\.'  | sort -rV -u
+echo '@@MARIADB118@@';  elsearch MariaDB-server | grep -E '^11\.8\.'  | sort -rV -u
+# MySQL Community. Note the repo path is mysql-8.4-community on yum but the apt
+# component is mysql-8.4-lts — the two are not spelled the same (see debian_probe).
+# The signing key MUST be RPM-GPG-KEY-mysql-2025: the widely-cited -2023 file is the
+# same key ID (B7B3B788A8D3785C) but its published copy expired 2025-10-22, so
+# installs fail the signature check even though metadata downloads fine.
+for V in 8.0 8.4; do
+  cat >"/etc/yum.repos.d/dbc-mysqlce-$V.repo" <<EOF
+[dbc-mysqlce-$V]
+name=MySQL $V Community
+baseurl=https://repo.mysql.com/yum/mysql-$V-community/el/\$releasever/\$basearch/
+gpgkey=https://repo.mysql.com/RPM-GPG-KEY-mysql-2025
+gpgcheck=1
+skip_if_unavailable=1
+module_hotfixes=1
+EOF
+done
+echo '@@MYSQLCE80@@'; elsearch mysql-community-server | grep -E '^8\.0\.' | sort -rV -u
+echo '@@MYSQLCE84@@'; elsearch mysql-community-server | grep -E '^8\.4\.' | sort -rV -u
+EOS
+  echo "echo '@@END@@'"
 }
 
 debian_probe() {
@@ -159,6 +254,8 @@ madison() {
       }' \
     | sed -E 's/^[0-9]+://; s/\.(noble|jammy|focal|bookworm|bullseye|trixie)$//'
 }
+EOS
+  want_probe percona && cat <<'EOS'
 percona-release setup ps80     >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@PS80@@';  madison percona-server-server   | grep -E '^8\.0\.' | sort -rV -u
 percona-release setup ps84lts  >/dev/null 2>&1; apt-get update >/dev/null 2>&1
@@ -197,8 +294,43 @@ echo '@@VALKEY91@@'; madison percona-valkey-bundle | grep -E '^9\.1\.' | sort -r
 # versioned per MySQL major series. madison() already strips the epoch/codename.
 percona-release setup pdps-84-lts >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@ORCH@@'; madison percona-orchestrator | sort -rV -u
-echo '@@END@@'
 EOS
+  want_probe upstream && cat <<'EOS'
+# ---- Non-Percona upstreams: MariaDB and MySQL Community ----
+# See the matching block in rhel_probe. Two Debian-specific differences:
+#   * MariaDB's apt repo is per major AND per codename, and older series have no
+#     build for newer codenames (10.6 has no noble). A missing series makes
+#     `apt-get update` print an error for that one list file and carry on, so the
+#     other series still resolve — the missing one just yields an empty list.
+#   * MySQL's apt components are spelled differently from its yum repo paths:
+#     mysql-8.0 but mysql-8.4-lts (yum uses mysql-8.4-community).
+export DEBIAN_FRONTEND=noninteractive
+apt-get install -y -qq curl gnupg ca-certificates >/dev/null 2>&1
+install -d /etc/apt/keyrings
+CODE="$(. /etc/os-release; echo "$VERSION_CODENAME")"
+curl -fsSL https://mariadb.org/mariadb_release_signing_key.pgp -o /etc/apt/keyrings/dbc-mariadb.pgp 2>/dev/null
+# RPM-GPG-KEY-mysql-2025, not -2023: same key, but the -2023 copy is expired.
+curl -fsSL https://repo.mysql.com/RPM-GPG-KEY-mysql-2025 2>/dev/null | gpg --dearmor -o /etc/apt/keyrings/dbc-mysql.gpg 2>/dev/null
+for V in 10.6 10.11 11.4 11.8; do
+  echo "deb [signed-by=/etc/apt/keyrings/dbc-mariadb.pgp] https://mirror.mariadb.org/repo/$V/ubuntu $CODE main" \
+    >"/etc/apt/sources.list.d/dbc-mariadb-$V.list"
+done
+echo "deb [signed-by=/etc/apt/keyrings/dbc-mysql.gpg] https://repo.mysql.com/apt/ubuntu $CODE mysql-8.0" \
+  >/etc/apt/sources.list.d/dbc-mysqlce-8.0.list
+echo "deb [signed-by=/etc/apt/keyrings/dbc-mysql.gpg] https://repo.mysql.com/apt/ubuntu $CODE mysql-8.4-lts" \
+  >/etc/apt/sources.list.d/dbc-mysqlce-8.4.list
+apt-get update >/dev/null 2>&1
+# Restrict to the upstream builds (+maria~): Ubuntu's own archive also carries a
+# mariadb-server, and offering its version here would advertise a build that the
+# configured mariadb.org repo cannot install.
+echo '@@MARIADB106@@';  madison mariadb-server | grep -E '^10\.6\..*\+maria'  | sort -rV -u
+echo '@@MARIADB1011@@'; madison mariadb-server | grep -E '^10\.11\..*\+maria' | sort -rV -u
+echo '@@MARIADB114@@';  madison mariadb-server | grep -E '^11\.4\..*\+maria'  | sort -rV -u
+echo '@@MARIADB118@@';  madison mariadb-server | grep -E '^11\.8\..*\+maria'  | sort -rV -u
+echo '@@MYSQLCE80@@'; madison mysql-community-server | grep -E '^8\.0\.' | sort -rV -u
+echo '@@MYSQLCE84@@'; madison mysql-community-server | grep -E '^8\.4\.' | sort -rV -u
+EOS
+  echo "echo '@@END@@'"
 }
 
 # Extract the lines for one marker section from captured probe output.
@@ -357,6 +489,8 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
   pg13="" ; pg14="" ; pg15="" ; pg16="" ; pg17="" ; pg18=""
   vk91=""
   orch=""
+  md106="" ; md1011="" ; md114="" ; md118=""
+  myc80="" ; myc84=""
   if [ -n "$probe" ]; then
     if out="$(docker run --rm "$tag" bash -lc "$probe" 2>/dev/null)"; then
       ps80="$(printf '%s\n' "$out" | section PS80)"
@@ -377,6 +511,12 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
       pg18="$(printf '%s\n' "$out" | section PPG18)"
       vk91="$(printf '%s\n' "$out" | section VALKEY91)"
       orch="$(printf '%s\n' "$out" | section ORCH)"
+      md106="$(printf '%s\n' "$out" | section MARIADB106)"
+      md1011="$(printf '%s\n' "$out" | section MARIADB1011)"
+      md114="$(printf '%s\n' "$out" | section MARIADB114)"
+      md118="$(printf '%s\n' "$out" | section MARIADB118)"
+      myc80="$(printf '%s\n' "$out" | section MYSQLCE80)"
+      myc84="$(printf '%s\n' "$out" | section MYSQLCE84)"
     else
       echo "    FAIL  could not run ${tag} (recording empty version lists)" >&2
     fi
@@ -400,7 +540,14 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
   g18=$(printf '%s' "$pg18" | grep -c . || true)
   vk9=$(printf '%s' "$vk91" | grep -c . || true)
   orc=$(printf '%s' "$orch" | grep -c . || true)
+  d106=$(printf '%s' "$md106" | grep -c . || true)
+  d1011=$(printf '%s' "$md1011" | grep -c . || true)
+  d114=$(printf '%s' "$md114" | grep -c . || true)
+  d118=$(printf '%s' "$md118" | grep -c . || true)
+  c80=$(printf '%s' "$myc80" | grep -c . || true)
+  c84=$(printf '%s' "$myc84" | grep -c . || true)
   echo "    ps: ${n80}+${n84}+${n57}  pxc: ${px0}+${px4}  proxysql: ${pq2}+${pq3}  psmdb: ${m6}+${m7}+${m8}  ppg: ${g13}+${g14}+${g15}+${g16}+${g17}+${g18}  valkey: ${vk9}  orchestrator: ${orc}" >&2
+  echo "    mariadb: ${d106}+${d1011}+${d114}+${d118}  mysql_community: ${c80}+${c84}" >&2
 
   # emit_series <indent-key> <key1> <list1> [<key2> <list2> ...]: emit a major-series
   # map under `key:` with one or more series (e.g. "8.0"/"8.4", "2"/"3", or the three
@@ -417,6 +564,17 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
         echo "      \"${k}\": []"
       fi
     done
+  }
+
+  # emit_group <group> <key> <series...>: emit a product's map when its probe group
+  # ran, otherwise carry the recorded map forward unchanged (see carry_section).
+  emit_group() {
+    local group="$1" key="$2"; shift 2
+    if want_probe "$group"; then
+      emit_series "$key" "$@"
+    elif ! carry_section "$tag" "$key"; then
+      emit_series "$key" "$@"   # nothing recorded yet — emit the empty maps
+    fi
   }
 
   # emit_spock: the source-built Spock catalog (from SPOCK_MAP), recorded only on
@@ -448,13 +606,15 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
     echo "    tag: ${tag}"
     echo "    base: ${base}"
     echo "    built_at: ${built}"
-    emit_series percona_server         "8.0" "$ps80"  "8.4" "$ps84"  "5.7" "$ps57"
-    emit_series percona_xtradb_cluster "8.0" "$pxc80" "8.4" "$pxc84"
-    emit_series proxysql               "2"   "$psql2" "3"   "$psql3"
-    emit_series percona_server_mongodb "6.0" "$mdb60" "7.0" "$mdb70" "8.0" "$mdb80"
-    emit_series percona_postgresql     "13" "$pg13" "14" "$pg14" "15" "$pg15" "16" "$pg16" "17" "$pg17" "18" "$pg18"
-    emit_series percona_valkey         "9.1" "$vk91"
-    emit_series percona_orchestrator   "3"   "$orch"
+    emit_group percona  percona_server         "8.0" "$ps80"  "8.4" "$ps84"  "5.7" "$ps57"
+    emit_group percona  percona_xtradb_cluster "8.0" "$pxc80" "8.4" "$pxc84"
+    emit_group percona  proxysql               "2"   "$psql2" "3"   "$psql3"
+    emit_group percona  percona_server_mongodb "6.0" "$mdb60" "7.0" "$mdb70" "8.0" "$mdb80"
+    emit_group percona  percona_postgresql     "13" "$pg13" "14" "$pg14" "15" "$pg15" "16" "$pg16" "17" "$pg17" "18" "$pg18"
+    emit_group percona  percona_valkey         "9.1" "$vk91"
+    emit_group percona  percona_orchestrator   "3"   "$orch"
+    emit_group upstream mariadb                "10.6" "$md106" "10.11" "$md1011" "11.4" "$md114" "11.8" "$md118"
+    emit_group upstream mysql_community        "8.0" "$myc80" "8.4" "$myc84"
     emit_spock
   } >>"$TMP"
 done < <(parse_entries)
@@ -497,8 +657,15 @@ echo "    pmm3: ${pmm_n} version(s)${pmm_latest:+, latest ${pmm_latest}}" >&2
 } >>"$TMP"
 
 # ---- PDPS repositories (from percona-release, for InnoDB/Group Replication) ----
-echo "==> discovering PDPS repositories from percona-release (${first_tag})" >&2
-pdps_repos="$(pdps_discover "$first_tag")"
+# The only top-level discovery that talks to the Percona repository, so it honours ONLY
+# the same way the per-image product maps do: skipped, the recorded list is reused.
+if want_probe percona; then
+  echo "==> discovering PDPS repositories from percona-release (${first_tag})" >&2
+  pdps_repos="$(pdps_discover "$first_tag")"
+else
+  pdps_repos="$(awk '/^pdps:/{f=1;next} f && /^  - /{gsub(/^  - "|"$/,""); print; next} f{exit}' "$OUT")"
+  echo "==> keeping recorded PDPS repositories (ONLY=${ONLY})" >&2
+fi
 pdps_n=$(printf '%s' "$pdps_repos" | grep -c . || true)
 echo "    pdps: ${pdps_n} repo(s)" >&2
 {

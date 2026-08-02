@@ -338,6 +338,19 @@ type PXCImage struct {
 func loadPXCCatalog() []PXCImage      { return loadImageCatalog("percona_xtradb_cluster") }
 func loadProxySQLCatalog() []PXCImage { return loadImageCatalog("proxysql") }
 func loadPSCatalog() []PXCImage       { return loadImageCatalog("percona_server") }
+
+// loadMariaDBCatalog parses the per-image `mariadb` section — the MariaDB Server
+// versions installable from mariadb.org, keyed by major series (10.6/10.11/11.4/11.8).
+// Availability is genuinely uneven across the image matrix and the catalog is what
+// keeps the picker honest about it: there is no 10.6 build for EL10 or for Ubuntu
+// noble, so those series come back empty on those images.
+func loadMariaDBCatalog() []PXCImage { return loadImageCatalog("mariadb") }
+
+// loadMySQLCECatalog parses the per-image `mysql_community` section — the Oracle
+// MySQL Community Server versions from repo.mysql.com, keyed by major series
+// (8.0/8.4). 5.7 is deliberately absent: Oracle publishes it only for el7, which is
+// not in the image matrix. EL10 has an 8.4 repo but no 8.0 one.
+func loadMySQLCECatalog() []PXCImage { return loadImageCatalog("mysql_community") }
 func loadPSMDBCatalog() []PXCImage    { return loadImageCatalog("percona_server_mongodb") }
 func loadPPGCatalog() []PXCImage      { return loadImageCatalog("percona_postgresql") }
 func loadValkeyCatalog() []PXCImage   { return loadImageCatalog("percona_valkey") }
@@ -493,6 +506,22 @@ func (a *App) handlePSCatalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"images": loadPSCatalog()})
+}
+
+func (a *App) handleMariaDBCatalog(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.currentUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"images": loadMariaDBCatalog()})
+}
+
+func (a *App) handleMySQLCECatalog(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.currentUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"images": loadMySQLCECatalog()})
 }
 
 func (a *App) handleOrchestratorCatalog(w http.ResponseWriter, r *http.Request) {

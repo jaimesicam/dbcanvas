@@ -82,6 +82,8 @@ func main() {
 	mux.HandleFunc("GET /api/catalog/valkey", app.handleValkeyCatalog)
 	mux.HandleFunc("GET /api/catalog/ps", app.handlePSCatalog)
 	mux.HandleFunc("GET /api/catalog/orchestrator", app.handleOrchestratorCatalog)
+	mux.HandleFunc("GET /api/catalog/mariadb", app.handleMariaDBCatalog)
+	mux.HandleFunc("GET /api/catalog/mysqlce", app.handleMySQLCECatalog)
 	mux.HandleFunc("GET /api/catalog/psmdb", app.handlePSMDBCatalog)
 	mux.HandleFunc("GET /api/catalog/ppg", app.handlePPGCatalog)
 	mux.HandleFunc("GET /api/catalog/spock", app.handleSpockCatalog)

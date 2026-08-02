@@ -51,6 +51,18 @@ type designNode struct {
 	RootPassword string `json:"rootPassword"` // "" → auto-generated
 	CertTTLValue int    `json:"certTtlValue"`
 	CertTTLUnit  string `json:"certTtlUnit"`
+	// MariaDB node fields (Type=="mariadb" standalone; the "mariadbrepl" and
+	// "mariadbgalera" members take these from their frame). Reuses OS/OSVersion/Arch,
+	// GTID, RootPassword, PMMNodeID, UseProxy, GenerateCert/CertTTL and export above.
+	// Packages come from mariadb.org, whose repo is per major series.
+	MariaDBMajor   string `json:"mariadbMajor"`   // "10.6" | "10.11" | "11.4" | "11.8"
+	MariaDBVersion string `json:"mariadbVersion"` // minor; "" → latest
+	// MySQL Community node fields (Type=="mysqlce" standalone; "mysqlcerepl" and
+	// "mysqlceinnodb" members take these from their frame). Oracle's community
+	// packages from repo.mysql.com — only 8.0 and 8.4 are published for this image
+	// matrix (5.7 exists for el7 only).
+	MySQLCEMajor   string `json:"mysqlceMajor"`   // "8.0" | "8.4"
+	MySQLCEVersion string `json:"mysqlceVersion"` // minor; "" → latest
 	// Standalone PS MongoDB node fields (Type=="psm"; reuses OS/OSVersion/Arch,
 	// RootPassword (admin pw), PMMNodeID, UseProxy, GenerateCert/CertTTL, export above).
 	PSMDBMajor   string `json:"psmdbMajor"`   // "6.0" | "7.0" | "8.0"
@@ -216,6 +228,16 @@ type designFrame struct {
 	PSMajor   string `json:"psMajor"`   // Percona Server "8.0" | "8.4"
 	PSVersion string `json:"psVersion"` // minor; "" → latest
 	ReplMode  string `json:"replMode"`  // mysql: "async"|"semisync" · innodb: "innodbcluster"|"groupreplication"
+	// MariaDB frame config (Type=="mariadbrepl" replication | "mariadbgalera"
+	// Galera). Reuses OS/OSVersion/Arch, RootPassword, PMMNodeID,
+	// OrchestratorNodeID, UseProxy, GTID, ReplMode, GenerateCert/CertTTL above.
+	MariaDBMajor   string `json:"mariadbMajor"`   // "10.6" | "10.11" | "11.4" | "11.8"
+	MariaDBVersion string `json:"mariadbVersion"` // minor; "" → latest
+	// MySQL Community frame config (Type=="mysqlcerepl" replication |
+	// "mysqlceinnodb" InnoDB Cluster / Group Replication). Reuses the same shared
+	// fields, plus ReplMode and MySQLRouter for the InnoDB frame.
+	MySQLCEMajor   string `json:"mysqlceMajor"`   // "8.0" | "8.4"
+	MySQLCEVersion string `json:"mysqlceVersion"` // minor; "" → latest
 	// InnoDB / Group Replication frame config (Type=="innodb"; reuses OS/OSVersion/
 	// Arch, RootPassword, PMMNodeID, UseProxy, GenerateCert/CertTTL, ReplMode above;
 	// GTID is always on). The Percona Server version comes from the PDPS repo.
@@ -1505,6 +1527,10 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionProxySQL(st, n, doc)
 		case "ps":
 			a.provisionPerconaServer(st, n, doc)
+		case "mariadb":
+			a.provisionMariaDB(st, n, doc)
+		case "mysqlce":
+			a.provisionMySQLCE(st, n, doc)
 		case "pg":
 			a.provisionPG(st, n, doc)
 		case "psm":
@@ -1582,6 +1608,14 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			memberType = "mysql"
 		case "innodb":
 			memberType = "innodb"
+		case "mariadbrepl":
+			memberType = "mariadbrepl"
+		case "mariadbgalera":
+			memberType = "mariadbgalera"
+		case "mysqlcerepl":
+			memberType = "mysqlcerepl"
+		case "mysqlceinnodb":
+			memberType = "mysqlceinnodb"
 		case "psmdb":
 			memberType = "psmdb"
 		case "psmrs":
@@ -1621,6 +1655,14 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionMySQLFrame(st, f, doc)
 		case "innodb":
 			a.provisionInnoDBFrame(st, f, doc)
+		case "mariadbrepl":
+			a.provisionMariaDBFrame(st, f, doc)
+		case "mariadbgalera":
+			a.provisionMariaDBGaleraFrame(st, f, doc)
+		case "mysqlcerepl":
+			a.provisionMySQLCEFrame(st, f, doc)
+		case "mysqlceinnodb":
+			a.provisionMySQLCEInnoDBFrame(st, f, doc)
 		case "psmdb":
 			a.provisionMongoDBFrame(st, f, doc)
 		case "psmrs":
