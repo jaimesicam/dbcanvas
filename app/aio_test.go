@@ -772,54 +772,224 @@ func TestAIOFreshInstancesExcludesExisting(t *testing.T) {
 	}
 }
 
-// MongoDB: one install, every topology. The sharded layout must produce exactly
-// one mongos, one config server and one shard per remaining member, each with a
-// distinct replica-set name and port.
+// MongoDB: one install, every topology. A sharded instance is the dedicated
+// frame's cluster folded into one container, so both member counts must produce
+// three shards — and the 13-member one must spend its extra members on a config
+// RS and 3-member shards, not on a longer row of single-member shards (which is
+// how it once ended up with a single config server).
 func TestAIOMongoShardedTopology(t *testing.T) {
-	in := aioInstance{ID: "s", Kind: "psmdbsharded", Name: "sh01", Members: 5}
-	n := designNode{AIOInstances: []aioInstance{in}}
-	cfg := aioConfig{Instances: aioPlan(n, "example.net", "aio1")}
+	for _, tc := range []struct {
+		members, configs, rsSize int
+	}{
+		{5, 1, 1},
+		{13, 3, 3},
+	} {
+		in := aioInstance{ID: "s", Kind: "psmdbsharded", Name: "sh01", Members: tc.members}
+		n := designNode{AIOInstances: []aioInstance{in}}
+		cfg := aioConfig{Instances: aioPlan(n, "example.net", "aio1")}
 
-	roles := map[string]int{}
-	ports := map[int]bool{}
-	for _, m := range cfg.Instances {
-		roles[m.Role]++
-		if ports[m.Ports.Client] {
-			t.Errorf("duplicate port %d", m.Ports.Client)
+		if len(cfg.Instances) != tc.members {
+			t.Errorf("%d members: planned %d daemons", tc.members, len(cfg.Instances))
 		}
-		ports[m.Ports.Client] = true
-		if m.Ports.Client == 27017 {
-			t.Errorf("%s got MongoDB's default port", m.Inst)
+		roles := map[string]int{}
+		ports := map[int]bool{}
+		for _, m := range cfg.Instances {
+			roles[m.Role]++
+			if ports[m.Ports.Client] {
+				t.Errorf("%d members: duplicate port %d", tc.members, m.Ports.Client)
+			}
+			ports[m.Ports.Client] = true
+			if m.Ports.Client == 27017 {
+				t.Errorf("%s got MongoDB's default port", m.Inst)
+			}
+		}
+		if roles["mongos"] != 1 || roles["config"] != tc.configs || roles["shard"] != aioMongoShards*tc.rsSize {
+			t.Errorf("%d members: unexpected topology: %v", tc.members, roles)
+		}
+		// Three shards, each its OWN replica set of rsSize members — one RS across
+		// two shards and addShard would register a single shard.
+		perRS := map[string]int{}
+		for _, m := range cfg.Instances {
+			if m.Role != "shard" {
+				continue
+			}
+			perRS[aioMongoRSName(in, m, cfg)]++
+		}
+		if len(perRS) != aioMongoShards {
+			t.Errorf("%d members: %d shard replica sets, want %d: %v", tc.members, len(perRS), aioMongoShards, perRS)
+		}
+		for rs, n := range perRS {
+			if n != tc.rsSize {
+				t.Errorf("%d members: shard RS %s has %d member(s), want %d", tc.members, rs, n, tc.rsSize)
+			}
+		}
+		// The router must point at the config RS by name, and at every one of its
+		// members: a mongos given only one host of a 3-member config RS is one
+		// stopped member away from a router that cannot start.
+		var mongos aioInstanceRuntime
+		var config []aioInstanceRuntime
+		for _, m := range cfg.Instances {
+			switch m.Role {
+			case "mongos":
+				mongos = m
+			case "config":
+				config = append(config, m)
+			}
+		}
+		got := aioMongoConfigDB(mongos, cfg, in)
+		if !strings.HasPrefix(got, "sh01-cfg/") {
+			t.Errorf("%d members: configDB %q should name the config RS", tc.members, got)
+		}
+		for _, c := range config {
+			if !strings.Contains(got, fmt.Sprint(c.Ports.Client)) {
+				t.Errorf("%d members: configDB %q omits config member %s", tc.members, got, c.Inst)
+			}
 		}
 	}
-	if roles["mongos"] != 1 || roles["config"] != 1 || roles["shard"] != 3 {
-		t.Errorf("unexpected topology: %v", roles)
+}
+
+// A shard does not inherit the cluster's users — those live in the config servers
+// — so every direct-to-shard connection (PMM's exporter, aioctl connect, the Data
+// Generator) failed with "(AuthenticationFailed) Authentication failed." The
+// provisioner creates the admin on each shard's PRIMARY, which is where the
+// localhost exception applies and the only member of the set that accepts a write.
+// This pins the ports it must target: the first member of each shard group, three
+// of them, in both topologies.
+func TestAIOMongoShardPrimariesTakeTheLocalAdmin(t *testing.T) {
+	for _, members := range []int{5, 13} {
+		in := aioInstance{ID: "s", Kind: "psmdbsharded", Name: "sh01", Members: members}
+		n := designNode{AIOInstances: []aioInstance{in}}
+		cfg := aioConfig{Instances: aioPlan(n, "example.net", "aio1")}
+		groups := aioMongoShardGroups("sh01", cfg)
+
+		if len(groups) != aioMongoShards {
+			t.Fatalf("%d members: %d shard group(s), want %d", members, len(groups), aioMongoShards)
+		}
+		seen := map[int]bool{}
+		for i := 0; i < aioMongoShards; i++ {
+			g := groups[i]
+			if len(g) == 0 {
+				t.Fatalf("%d members: shard %d has no members", members, i)
+			}
+			// rs.initiate lists members in this order and elects the first, so the
+			// primary is the lowest-ported member of its own set. Creating the user
+			// anywhere else would hit NotWritablePrimary.
+			for _, m := range g {
+				if m.Ports.Client < g[0].Ports.Client {
+					t.Errorf("%d members: shard %d primary %s is not its first member (%s is lower)",
+						members, i, g[0].Inst, m.Inst)
+				}
+			}
+			if seen[g[0].Ports.Client] {
+				t.Errorf("%d members: port %d is the primary of two shards", members, g[0].Ports.Client)
+			}
+			seen[g[0].Ports.Client] = true
+		}
 	}
-	// Each shard needs its OWN replica-set name, or addShard registers one shard.
-	seen := map[string]bool{}
+}
+
+// Two sharded clusters in one container were eighteen ungrouped mongods in PMM:
+// nothing on the service said which cluster a shard belonged to, because only
+// Valkey ever sent a --cluster. Every member of a clustered instance must carry its
+// instance name as the cluster, and every mongod its replica set below that — with
+// the two clusters' labels disjoint, which is the whole point.
+func TestAIOPMMClusterLabelsSeparateTwoShardedClusters(t *testing.T) {
+	insts := []aioInstance{
+		{ID: "a", Kind: "psmdbsharded", Name: "sh01", Members: 13},
+		{ID: "b", Kind: "psmdbsharded", Name: "sh02", Members: 5},
+		{ID: "c", Kind: "psmdb", Name: "m01"},
+	}
+	n := designNode{AIOInstances: insts}
+	cfg := aioConfig{Instances: aioPlan(n, "example.net", "aio1")}
+	byInst := map[string]aioInstance{}
+	for _, in := range insts {
+		byInst[aioSanitizeInst(in.Name)] = in
+	}
+
+	rsPerCluster := map[string]map[string]bool{}
 	for _, m := range cfg.Instances {
-		if m.Role != "shard" {
+		key := m.Group
+		if key == "" {
+			key = m.Inst
+		}
+		args := aioPMMClusterArgs(byInst[key], m, cfg)
+		if m.Kind == "psmdb" {
+			if args != "" {
+				t.Errorf("standalone %s must not be tagged: %q", m.Inst, args)
+			}
 			continue
 		}
-		rs := aioMongoRSName(in, m, cfg)
-		if seen[rs] {
-			t.Errorf("two shard members share replica set %q", rs)
+		want := "--cluster=" + m.Group
+		if !strings.HasPrefix(args, want+" ") && args != want {
+			t.Fatalf("%s: args %q do not name its cluster %s", m.Inst, args, m.Group)
 		}
-		seen[rs] = true
+		// A router belongs to no replica set; every mongod belongs to exactly one.
+		rs, hasRS := strings.CutPrefix(strings.TrimPrefix(args, want), " --replication-set=")
+		if m.Role == "mongos" {
+			if hasRS {
+				t.Errorf("%s: a mongos has no replica set, got %q", m.Inst, args)
+			}
+			continue
+		}
+		if !hasRS {
+			t.Errorf("%s (%s): no replication set in %q", m.Inst, m.Role, args)
+			continue
+		}
+		if rsPerCluster[m.Group] == nil {
+			rsPerCluster[m.Group] = map[string]bool{}
+		}
+		rsPerCluster[m.Group][rs] = true
 	}
-	// The router must point at the config RS, by name and by member port.
-	var mongos, config aioInstanceRuntime
-	for _, m := range cfg.Instances {
-		switch m.Role {
-		case "mongos":
-			mongos = m
-		case "config":
-			config = m
+
+	// One config RS + three shard RS's per cluster, and no name shared across the
+	// two clusters — sharing one would merge them in the dashboards again.
+	for _, group := range []string{"sh01", "sh02"} {
+		if got := len(rsPerCluster[group]); got != aioMongoShards+1 {
+			t.Errorf("%s: %d replica set(s), want %d: %v", group, got, aioMongoShards+1, rsPerCluster[group])
 		}
 	}
-	got := aioMongoConfigDB(mongos, cfg, in)
-	if !strings.HasPrefix(got, "sh01-cfg/") || !strings.Contains(got, fmt.Sprint(config.Ports.Client)) {
-		t.Errorf("configDB %q should name the config RS and its port", got)
+	for rs := range rsPerCluster["sh01"] {
+		if rsPerCluster["sh02"][rs] {
+			t.Errorf("both clusters use replica set %q", rs)
+		}
+	}
+}
+
+// PSMDB Sharded is fixed-topology: 5 or 13 and nothing else. A count in between
+// is a design error the validator names, and the planner snaps rather than
+// building a shape aioMongoShardedTopo does not describe.
+func TestAIOShardedMemberChoices(t *testing.T) {
+	for _, tc := range []struct {
+		members int
+		ok      bool
+		snapTo  int
+	}{
+		{5, true, 5}, {13, true, 13},
+		{3, false, 5}, {7, false, 5}, {12, false, 5}, {20, false, 13},
+	} {
+		if got := aioMemberCount("psmdbsharded", tc.members); got != tc.snapTo {
+			t.Errorf("%d members: planner used %d, want %d", tc.members, got, tc.snapTo)
+		}
+		n := designNode{
+			ID: "n1", Type: "aio", Label: "aio1", OS: "oraclelinux",
+			AIOInstances: []aioInstance{{ID: "s", Kind: "psmdbsharded", Name: "sh01", Members: tc.members}},
+		}
+		var msg string
+		for _, is := range aioIssues(n, designDoc{Nodes: []designNode{n}}, map[int][]string{}, 0) {
+			if is.Level == "error" && strings.Contains(is.Message, "member(s)") {
+				msg = is.Message
+			}
+		}
+		if tc.ok && msg != "" {
+			t.Errorf("%d members is supported but was rejected: %s", tc.members, msg)
+		}
+		if !tc.ok {
+			if msg == "" {
+				t.Errorf("%d members should be rejected — PSMDB Sharded is 5 or 13", tc.members)
+			} else if !strings.Contains(msg, "5 or 13") {
+				t.Errorf("%d members: error should name the supported counts: %s", tc.members, msg)
+			}
+		}
 	}
 }
 

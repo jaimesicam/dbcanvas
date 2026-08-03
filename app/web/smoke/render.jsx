@@ -101,6 +101,11 @@ check('form with a PXC + Percona Server conflict', () =>
     { id: 'b', kind: 'pxc', name: 'pxc-cluster-01', members: 3 },
   ]))
 
+// PSMDB Sharded is fixed-topology (5 or 13). A design saved with anything else
+// renders the picker's "not a supported topology" option — its own branch.
+check('form with an unsupported PSMDB Sharded topology', () =>
+  form([{ id: 'a', kind: 'psmdbsharded', name: 'sh01', members: 7 }]))
+
 // Each kind on its own, so a failure names the kind rather than "everything".
 for (const k of AIO_KINDS) {
   check(`instance card: ${k.kind}`, () =>

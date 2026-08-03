@@ -152,13 +152,31 @@ func aioInstanceCreds(dep Deployment, m aioInstanceRuntime) (engine string, port
 	return engine, port, user, pass
 }
 
-// aioValkeyClusterArg tags a clustered Valkey member so PMM groups its shards into
-// one cluster view instead of showing N unrelated servers.
-func aioValkeyClusterArg(m aioInstanceRuntime) string {
-	if m.Kind == "valkeycluster" && m.Group != "" {
-		return "--cluster=" + m.Group
+// aioPMMClusterArgs tags an instance's PMM service with the cluster it belongs to
+// and, for MongoDB, the replica set inside that cluster.
+//
+// Only Valkey ever sent a --cluster, so to PMM every other service in the node was
+// an unrelated standalone: a container holding two sharded MongoDB clusters showed
+// up as eighteen ungrouped mongods with nothing saying which shard belonged to
+// which cluster — and the same was true of two MySQL replication clusters. The
+// cluster name is the instance name, which is unique within the node and is what
+// the user typed on the canvas, so PMM groups services the way the design does.
+//
+// A standalone instance gets neither flag: it is a cluster of one, and inventing a
+// name for it would put it in the dashboards' cluster pickers as noise.
+func aioPMMClusterArgs(in aioInstance, m aioInstanceRuntime, cfg aioConfig) string {
+	if m.Group == "" {
+		return ""
 	}
-	return ""
+	args := "--cluster=" + m.Group
+	// Members of a sharded cluster sit in *different* replica sets — the config RS
+	// and one per shard — which is the level PMM's MongoDB dashboards group by
+	// below the cluster. A plain replica set's members all share one. A mongos
+	// belongs to none, and aioMongoRSName says so by returning "".
+	if rs := aioMongoRSName(in, m, cfg); rs != "" {
+		args += " --replication-set=" + rs
+	}
+	return args
 }
 
 // aioPMMTarget is the port and credentials `pmm-admin add` needs for one instance.
@@ -308,15 +326,15 @@ GRANT SELECT ON performance_schema.* TO 'pmm'@'%';
 SQL
   QS=perfschema
   [ "$(mysql --no-defaults --socket="$SOCK" -upmm -p"$PMM_PW" -N -e 'SELECT @@global.slow_query_log' 2>/dev/null)" = "1" ] && QS=slowlog
-  pmm-admin add mysql --username=pmm --password="$PMM_PW" --socket="$SOCK" --query-source="$QS" "$SVC"
+  pmm-admin add mysql --username=pmm --password="$PMM_PW" --socket="$SOCK" --query-source="$QS" $CLUSTER_ARG "$SVC"
   ;;
 postgres)
   pmm-admin remove postgresql "$SVC" >/dev/null 2>&1 || true
-  pmm-admin add postgresql --username="$DB_USER" --password="$DB_PW" --host=127.0.0.1 --port="$PORT" "$SVC"
+  pmm-admin add postgresql --username="$DB_USER" --password="$DB_PW" --host=127.0.0.1 --port="$PORT" $CLUSTER_ARG "$SVC"
   ;;
 mongodb)
   pmm-admin remove mongodb "$SVC" >/dev/null 2>&1 || true
-  pmm-admin add mongodb --username="$DB_USER" --password="$DB_PW" --host=127.0.0.1 --port="$PORT" "$SVC"
+  pmm-admin add mongodb --username="$DB_USER" --password="$DB_PW" --host=127.0.0.1 --port="$PORT" $CLUSTER_ARG "$SVC"
   ;;
 valkey)
   pmm-admin remove valkey "$SVC" >/dev/null 2>&1 || true
@@ -420,7 +438,7 @@ func (a *App) aioRegisterPMM(ctx context.Context, st Stack, n designNode, doc de
 			"PMM_URL=" + pmmServerURL(pmmFQDN, pmmUser, pmmPass),
 			"PMM_PW=" + sec.MonitorPassword,
 			"DB_USER=" + dbUser, "DB_PW=" + dbPass,
-			"CLUSTER_ARG=" + aioValkeyClusterArg(m),
+			"CLUSTER_ARG=" + aioPMMClusterArgs(in, m, cfg),
 		}
 		if engine == "mysql" {
 			// The MySQL path creates the pmm account as root over the socket.

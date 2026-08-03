@@ -1005,10 +1005,11 @@ func TestAIOPMMTargetUsesTheRightPortPerKind(t *testing.T) {
 		}
 	}
 	// A clustered Valkey member is tagged so PMM groups its shards.
-	if arg := aioValkeyClusterArg(aioInstanceRuntime{Kind: "valkeycluster", Group: "vk01"}); arg != "--cluster=vk01" {
+	vkc := aioInstanceRuntime{Kind: "valkeycluster", Group: "vk01"}
+	if arg := aioPMMClusterArgs(aioInstance{Kind: "valkeycluster", Name: "vk01"}, vkc, aioConfig{}); arg != "--cluster=vk01" {
 		t.Errorf("cluster arg = %q", arg)
 	}
-	if arg := aioValkeyClusterArg(aioInstanceRuntime{Kind: "valkey"}); arg != "" {
+	if arg := aioPMMClusterArgs(aioInstance{Kind: "valkey", Name: "vk02"}, aioInstanceRuntime{Kind: "valkey"}, aioConfig{}); arg != "" {
 		t.Errorf("a standalone Valkey must not be tagged as a cluster: %q", arg)
 	}
 }

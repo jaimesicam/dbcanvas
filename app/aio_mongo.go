@@ -137,6 +137,33 @@ func (a *App) aioProvisionMongo(ctx context.Context, st Stack, n designNode, doc
 	return nil
 }
 
+// aioMongoShards is how many shards a sharded instance always has — three, the
+// same fixed count the dedicated PSMDB Sharded frame builds. The member count
+// chooses how many members each replica set has, not how many shards there are.
+const aioMongoShards = 3
+
+// aioMongoShardedTopo splits a sharded instance's member count into its parts:
+// one mongos, a config replica set, and aioMongoShards shard replica sets.
+//
+// The two counts are exactly the dedicated frame's two setups (psmdbMembers in
+// StackDesigner.jsx, provisionMongoDBFrame in mongodb.go), so a sharded All-in-One
+// instance is the same cluster that frame builds, folded into one container:
+//
+//	 5 → 1 mongos + 1 config server    + 3 × 1-member shard RS   ("minimum")
+//	13 → 1 mongos + 3-member config RS + 3 × 3-member shard RS    ("standard")
+//
+// Nothing in between is offered: the counts that would fit there describe a
+// cluster with a lopsided number of shards or a config RS that cannot hold an
+// election, which is not a topology anyone learns anything from. An earlier
+// version accepted 5..13 and spent every extra member on one more single-member
+// shard, which is how a 13-member cluster ended up with one config server.
+func aioMongoShardedTopo(total int) (configs, shards, rsSize int) {
+	if total >= 13 {
+		return 3, aioMongoShards, 3
+	}
+	return 1, aioMongoShards, 1
+}
+
 // aioMongoRSName is the replica-set name a member belongs to. Shard members get
 // one RS per shard; the sharded cluster's config servers get their own.
 func aioMongoRSName(in aioInstance, m aioInstanceRuntime, cfg aioConfig) string {
@@ -156,20 +183,49 @@ func aioMongoRSName(in aioInstance, m aioInstanceRuntime, cfg aioConfig) string 
 }
 
 // aioMongoShardIndex is a shard member's shard number, derived from its position
-// among the instance's shard members. Keeping it positional means the planner and
-// the initiator agree without storing it.
+// among the instance's shard members: they are laid out shard by shard, so the
+// first rsSize of them belong to shard 0, the next rsSize to shard 1, and so on.
+// Keeping it positional means the planner and the initiator agree without storing
+// it. rsSize comes from the members present rather than from the declared count,
+// so a config written by an older planner still reads correctly.
 func aioMongoShardIndex(m aioInstanceRuntime, cfg aioConfig) int {
-	i := 0
+	pos, n := -1, 0
 	for _, x := range cfg.Instances {
 		if x.Group != m.Group || x.Role != "shard" {
 			continue
 		}
 		if x.Inst == m.Inst {
-			return i
+			pos = n
 		}
-		i++
+		n++
 	}
-	return 0
+	if pos < 0 {
+		return 0
+	}
+	rsSize := n / aioMongoShards
+	if rsSize < 1 {
+		rsSize = 1 // fewer shard members than shards: one member each
+	}
+	if i := pos / rsSize; i < aioMongoShards {
+		return i
+	}
+	return aioMongoShards - 1
+}
+
+// aioMongoShardGroups collects a sharded instance's shard members by shard index,
+// keeping member order — so element 0 of each group is that shard's PRIMARY, the
+// member rs.initiate lists first and elects. Anything shard-local (initiating the
+// set, creating a shard-local user) has to run there.
+func aioMongoShardGroups(group string, cfg aioConfig) map[int][]aioInstanceRuntime {
+	out := map[int][]aioInstanceRuntime{}
+	for _, m := range cfg.Instances {
+		if m.Group != group || m.Role != "shard" {
+			continue
+		}
+		i := aioMongoShardIndex(m, cfg)
+		out[i] = append(out[i], m)
+	}
+	return out
 }
 
 // aioMongoPrepare writes one member's config and unit and starts it.
@@ -352,7 +408,6 @@ func (a *App) aioMongoRunInit(ctx context.Context, id, rs string, members []aioI
 func (a *App) aioMongoInitSharded(ctx context.Context, id string, in aioInstance, cfg aioConfig, sec pxcSecrets, pr *pxcProg, pct int, startRouters func() error) error {
 	group := aioSanitizeInst(in.Name)
 	var mongos, config []aioInstanceRuntime
-	shards := map[int][]aioInstanceRuntime{}
 	for _, m := range cfg.Instances {
 		if m.Group != group {
 			continue
@@ -362,11 +417,9 @@ func (a *App) aioMongoInitSharded(ctx context.Context, id string, in aioInstance
 			mongos = append(mongos, m)
 		case "config":
 			config = append(config, m)
-		case "shard":
-			i := aioMongoShardIndex(m, cfg)
-			shards[i] = append(shards[i], m)
 		}
 	}
+	shards := aioMongoShardGroups(group, cfg)
 	if len(mongos) == 0 || len(config) == 0 {
 		return fmt.Errorf("sharded cluster %s needs a mongos and at least one config server", in.Name)
 	}
@@ -386,8 +439,8 @@ func (a *App) aioMongoInitSharded(ctx context.Context, id string, in aioInstance
 		return err
 	}
 
-	// The admin user is created through mongos, so it lands in the config RS and
-	// every shard inherits it — the same order the classic sharded path uses.
+	// The admin user is created through mongos, which stores it in the CONFIG
+	// servers — so it authenticates on the router and on every config member.
 	if err := a.aioMongoCreateAdmin(ctx, id, mongos[0].Ports.Client, in, sec, pr); err != nil {
 		return err
 	}
@@ -411,6 +464,24 @@ func (a *App) aioMongoInitSharded(ctx context.Context, id string, in aioInstance
 	}, pr.logln); err != nil {
 		return fmt.Errorf("add shards to %s: %w", in.Name, err)
 	}
+	// A shard does NOT inherit the cluster's users: those live in the config
+	// servers, and a shard keeps its own local user store — which is empty. Every
+	// connection that dials a shard member directly authenticates as admin (PMM's
+	// exporter, `aioctl connect`, the Data Generator, the manager's Connect tab),
+	// so all of them got
+	//
+	//	(AuthenticationFailed) Authentication failed.
+	//
+	// Create the admin on each shard's PRIMARY, where the localhost exception
+	// still applies because the shard has no users, and let it replicate to that
+	// shard's secondaries. The classic frame does the same thing, later, when it
+	// creates the PMM user (mongoPMMUserScript).
+	for i := 0; i < len(shards); i++ {
+		if err := a.aioMongoCreateAdmin(ctx, id, shards[i][0].Ports.Client, in, sec, pr); err != nil {
+			return fmt.Errorf("shard %d of %s: %w", i, in.Name, err)
+		}
+	}
+
 	pr.logln(fmt.Sprintf("sharded cluster %s assembled (%d shard(s), mongos on 127.0.0.1:%d)",
 		in.Name, len(shards), mongos[0].Ports.Client))
 	return nil
@@ -462,8 +533,20 @@ fi
 exit 0`
 
 // aioMongoCreateAdminScript creates the root admin user via the localhost
-// exception, then proves it can authenticate. Idempotent.
+// exception, then proves it can authenticate.
+//
+// It asks whether the credentials already work BEFORE trying to create anything,
+// for two reasons. A redeploy would otherwise log
+// "Command createUser requires authentication" from every instance — the
+// exception closes as soon as the first user exists, so the unauthenticated
+// create is refused with a message that reads like a failure and is not the
+// "already exists" this used to filter. And it makes the step safe to run against
+// a replica-set SECONDARY, which has the user replicated but cannot accept a
+// write: no write is attempted when auth already works.
 const aioMongoCreateAdminScript = `set -e
+if mongosh --quiet --port "$PORT" -u "$ADMIN_USER" -p "$ADMIN_PW" --authenticationDatabase admin --eval 'db.adminCommand({ping:1})' >/dev/null 2>&1; then
+  exit 0
+fi
 mongosh --quiet --port "$PORT" --eval 'db.getSiblingDB("admin").createUser({user:"'"$ADMIN_USER"'",pwd:"'"$ADMIN_PW"'",roles:[{role:"root",db:"admin"}]})' 2>&1 | grep -viE 'already exists' || true
 mongosh --quiet --port "$PORT" -u "$ADMIN_USER" -p "$ADMIN_PW" --authenticationDatabase admin --eval 'db.adminCommand({ping:1})' >/dev/null
 exit 0`

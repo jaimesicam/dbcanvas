@@ -57,7 +57,7 @@ export const AIO_KINDS = [
   { kind: 'spock', label: 'Spock Cluster', family: FAM.PG, cluster: true, min: 2, max: 5, def: 2, est: 350, supported: true },
   { kind: 'psmdb', label: 'PSMDB', family: FAM.MONGO, est: 500, supported: true },
   { kind: 'psmrs', label: 'PSMDB Replica Set', family: FAM.MONGO, cluster: true, min: 3, max: 7, def: 3, odd: true, est: 500, supported: true },
-  { kind: 'psmdbsharded', label: 'PSMDB Sharded', family: FAM.MONGO, cluster: true, min: 5, max: 13, def: 5, est: 400, supported: true },
+  { kind: 'psmdbsharded', label: 'PSMDB Sharded', family: FAM.MONGO, cluster: true, min: 5, max: 13, def: 5, choices: [5, 13], est: 400, supported: true },
   { kind: 'valkey', label: 'Valkey', family: FAM.VALKEY, est: 120, supported: true },
   { kind: 'valkeycluster', label: 'Valkey Cluster', family: FAM.VALKEY, cluster: true, min: 3, max: 7, def: 3, est: 120, supported: true },
   { kind: 'proxysql', label: 'ProxySQL', family: FAM.PROXY, cluster: true, min: 1, max: 3, def: 1, est: 200, supported: true },
@@ -85,9 +85,25 @@ export function memberCount(kind, members) {
   const k = kindOf(kind)
   if (!k) return 1
   if (!k.cluster) return 1
+  if (k.choices) {
+    // Fixed topology: snap to the largest one the count covers, as
+    // aioMemberCount() does. Never a shape in between.
+    const fits = k.choices.filter((c) => members >= c)
+    return fits.length ? Math.max(...fits) : k.def
+  }
   if (!members || members < k.min) return k.def
   if (members > k.max) return k.max
   return members
+}
+
+// MEMBER_CHOICE_LABEL names each allowed count of a fixed-topology kind, so the
+// picker says what the number buys instead of showing a bare number. Mirrors
+// aioMongoShardedTopo in app/aio_mongo.go — the shard count is always three.
+export const MEMBER_CHOICE_LABEL = {
+  psmdbsharded: {
+    5: '5 — mongos + 1 config server + 3 × 1-member shards',
+    13: '13 — mongos + 3-member config RS + 3 × 3-member shards',
+  },
 }
 
 // portsFor resolves one member's ports. Offsets must match aioPortsFor().

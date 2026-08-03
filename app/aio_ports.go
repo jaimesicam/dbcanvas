@@ -1,6 +1,10 @@
 package main
 
-import "sort"
+import (
+	"sort"
+	"strconv"
+	"strings"
+)
 
 // aio_ports.go — the All-in-One node's feature catalog and port allocator.
 //
@@ -45,6 +49,11 @@ type aioKind struct {
 	MaxMem  int
 	DefMem  int
 	OddOnly bool // member count must be odd (quorum-based topologies)
+	// MemChoices, when set, is the ONLY member counts the kind accepts — a
+	// fixed-topology kind, where a count in between would not describe a cluster
+	// anyone would build. PSMDB Sharded is the case: its two counts are the two
+	// setups the dedicated frame offers (see aioMongoShardedTopo).
+	MemChoices []int
 	// EstMemMB is a rough per-member resident footprint, used only to warn the
 	// user before they ask one container to run thirty daemons.
 	EstMemMB int
@@ -68,7 +77,7 @@ var aioKinds = []aioKind{
 	{Kind: "spock", Label: "Spock Cluster", Family: famPG, Cluster: true, MinMem: 2, MaxMem: 5, DefMem: 2, EstMemMB: 350},
 	{Kind: "psmdb", Label: "PSMDB", Family: famMongo, EstMemMB: 500},
 	{Kind: "psmrs", Label: "PSMDB Replica Set", Family: famMongo, Cluster: true, MinMem: 3, MaxMem: 7, DefMem: 3, OddOnly: true, EstMemMB: 500},
-	{Kind: "psmdbsharded", Label: "PSMDB Sharded", Family: famMongo, Cluster: true, MinMem: 5, MaxMem: 13, DefMem: 5, EstMemMB: 400},
+	{Kind: "psmdbsharded", Label: "PSMDB Sharded", Family: famMongo, Cluster: true, MinMem: 5, MaxMem: 13, DefMem: 5, MemChoices: []int{5, 13}, EstMemMB: 400},
 	{Kind: "valkey", Label: "Valkey", Family: famValkey, EstMemMB: 120},
 	{Kind: "valkeycluster", Label: "Valkey Cluster", Family: famValkey, Cluster: true, MinMem: 3, MaxMem: 7, DefMem: 3, EstMemMB: 120},
 	{Kind: "proxysql", Label: "ProxySQL", Family: famProxy, Cluster: true, MinMem: 1, MaxMem: 3, DefMem: 1, EstMemMB: 200},
@@ -108,6 +117,22 @@ func aioMemberCount(kind string, members int) int {
 	if !k.Cluster {
 		return 1
 	}
+	if len(k.MemChoices) > 0 {
+		// A fixed-topology kind snaps to the largest topology the count covers,
+		// rather than clamping into a shape that does not exist. Snapping instead
+		// of failing keeps a design saved before the choices narrowed deployable;
+		// validateStack still flags the count so the user can correct it.
+		best := 0
+		for _, c := range k.MemChoices {
+			if members >= c && c > best {
+				best = c
+			}
+		}
+		if best == 0 {
+			return k.DefMem
+		}
+		return best
+	}
 	if members < k.MinMem {
 		return k.DefMem
 	}
@@ -115,6 +140,37 @@ func aioMemberCount(kind string, members int) int {
 		return k.MaxMem
 	}
 	return members
+}
+
+// aioMemberChoiceOK reports whether a declared member count is one the kind
+// accepts. Kinds without MemChoices accept anything inside their bounds, so the
+// range/odd checks in validateStack remain the test for those.
+func aioMemberChoiceOK(k aioKind, members int) bool {
+	if len(k.MemChoices) == 0 {
+		return true
+	}
+	for _, c := range k.MemChoices {
+		if members == c {
+			return true
+		}
+	}
+	return false
+}
+
+// aioMemberChoicesText lists a kind's allowed member counts for a message —
+// "5 or 13".
+func aioMemberChoicesText(k aioKind) string {
+	var parts []string
+	for _, c := range k.MemChoices {
+		parts = append(parts, strconv.Itoa(c))
+	}
+	switch len(parts) {
+	case 0:
+		return ""
+	case 1:
+		return parts[0]
+	}
+	return strings.Join(parts[:len(parts)-1], ", ") + " or " + parts[len(parts)-1]
 }
 
 // ---------------------------------------------------------------- MySQL flavor

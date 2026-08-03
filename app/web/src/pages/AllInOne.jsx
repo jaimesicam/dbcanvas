@@ -7,6 +7,7 @@ import SecretRow, { CopyButton as CopyBtn } from '../components/Secret.jsx'
 import {
   AIO_KINDS, FAMILY_LABEL, kindOf, familyOf, memberCount, planMembers, portList,
   PORT_ROLE, estMemMB, mysqlFlavor, FLAVOR_LABEL, addBlockedReason, nextInstanceName, sanitizeInst,
+  MEMBER_CHOICE_LABEL,
 } from '../lib/aioPorts.js'
 
 // AllInOne.jsx — the All-in-One node's designer form and its deployed manager.
@@ -497,13 +498,29 @@ function InstanceCard({ inst, node, nodes, instances, open, onToggle, patch, onR
               onChange={(e) => patch({ name: e.target.value })} />
           </Field>
 
-          {k.cluster && (
+          {/* A fixed-topology kind (PSMDB Sharded) picks between whole cluster
+              shapes, not a member count — the counts in between describe a
+              lopsided cluster nobody would build. */}
+          {k.cluster && (k.choices ? (
+            <Field label="Topology" hint="The same two setups the dedicated PSMDB Sharded frame offers.">
+              <select className={`${inputCls} ${lock}`} disabled={deployed}
+                value={k.choices.includes(inst.members) ? inst.members : ''}
+                onChange={(e) => patch({ members: parseInt(e.target.value, 10) || k.def })}>
+                {!k.choices.includes(inst.members) && (
+                  <option value="">— {inst.members} members is not a supported topology —</option>
+                )}
+                {k.choices.map((c) => (
+                  <option key={c} value={c}>{MEMBER_CHOICE_LABEL[inst.kind]?.[c] || `${c} members`}</option>
+                ))}
+              </select>
+            </Field>
+          ) : (
             <Field label="Members" hint={`${k.min}–${k.max}${k.odd ? ', odd only (quorum)' : ''}`}>
               <input type="number" min={k.min} max={k.max} className={`${inputCls} ${lock}`}
                 value={inst.members ?? k.def} disabled={deployed}
                 onChange={(e) => patch({ members: parseInt(e.target.value, 10) || k.def })} />
             </Field>
-          )}
+          ))}
 
           {isMySQL && inst.kind === 'psrepl' && (
             <Field label="Replication mode">

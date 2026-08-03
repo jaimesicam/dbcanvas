@@ -29,7 +29,7 @@ there.
 | MySQL Community | `mysqlce` · `mysqlcerepl` · `mysqlceinnodb` | Oracle's builds; same shapes as the Percona ones |
 | MariaDB | `mariadb` · `mariadbrepl` · `mariadbgalera` | MariaDB GTIDs are `domain-server-seq`; Galera uses `mariabackup` |
 | PostgreSQL | `pg` · `repmgr` · `patroni` · `spock` | Oracle Linux only. `pg` may run a different major per instance; `spock` is limited to the majors its patch set covers (15–18 today), not the full PPG range |
-| MongoDB | `psmdb` · `psmrs` · `psmdbsharded` | One install serves all three |
+| MongoDB | `psmdb` · `psmrs` · `psmdbsharded` | One install serves all three. `psmdbsharded` has a fixed topology — always 3 shards, and a **5** or **13** daemon choice matching the dedicated frame's two setups: 5 = mongos + 1 config server + 3 single-member shards, 13 = mongos + 3-member config RS + 3 × 3-member shards |
 | Valkey | `valkey` · `valkeycluster` | |
 | Proxies | `proxysql` · `haproxy` | Front an instance chosen by drop-down, not a drawn line |
 | Topology | `orchestrator` | Monitors the node's own MySQL instances, or a canvas Orchestrator node can. **Alert email** — Orchestrator mails it on failure detection. Defaults to `admin`, the mailbox the Intranet always provisions; a bare name is delivered inside the stack's domain, and clearing it disables alerts |
@@ -208,6 +208,12 @@ collected, like every other instance's, once any one of them registers the agent
 Two of the exporters do not scrape the client port: ProxySQL's is read over its **admin**
 interface (slot+1) and HAProxy's over its **stats** listener (slot+2). Handing either the
 client port registers a service that never reports, so the port is chosen per kind.
+
+**Every clustered instance is tagged with its cluster**, so PMM groups services the way the
+design does: `--cluster=<instance name>`, plus `--replication-set=<replica set>` for MongoDB
+members (`<inst>-cfg`, `<inst>-shard0`…). Without it two sharded clusters in one container
+are one undifferentiated pile of mongods in the dashboards. A standalone instance is left
+untagged — it is a cluster of one, and a name for it would only clutter the cluster picker.
 
 ---
 

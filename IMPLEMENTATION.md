@@ -10098,3 +10098,128 @@ Verified on the reported node: redeployed clean, both clusters have
 `Slave_IO_Running: Yes`/`Slave_SQL_Running: Yes` on all four replicas, `MASTER_HOST` is each
 cluster's own primary FQDN, rows replicate, and GTID positions match within each cluster
 (`51769-197409643-3` and `51420-240055848-3`) while staying in distinct domains. 2 new tests.
+
+---
+
+## 205. All-in-One PSMDB Sharded is fixed-topology: 5 or 13, like the frame — `app/{aio_ports,aio,aio_mongo,aio_validate}.go`, `app/web/src/{lib/aioPorts.js,pages/AllInOne.jsx}`
+
+Reported: a 13-member All-in-One sharded cluster has **one config server**.
+
+It did. The kind accepted any member count from 5 to 13 and spent the members
+positionally — member 0 the `mongos`, member 1 the config server, and *every remaining
+member its own single-member shard*. Thirteen members therefore bought eleven shards and a
+config replica set that could not hold an election, which is not a cluster anyone would
+draw. The dedicated PSMDB Sharded frame has always offered exactly two shapes
+(`psmdbMembers` in `StackDesigner.jsx`), and an All-in-One instance should be those same
+shapes folded into one container:
+
+| Daemons | mongos | config RS | shards |
+| --- | --- | --- | --- |
+| 5 (*minimum*) | 1 | 1 member | 3 × 1 member |
+| 13 (*standard*) | 1 | 3 members | 3 × 3 members |
+
+The shard count is now fixed at three (`aioMongoShards`) and the member count chooses how
+long each replica set is, via `aioMongoShardedTopo`. `aioRoleFor` reads the config-RS size
+from it instead of hardcoding member 1, and `aioMongoShardIndex` groups the shard members
+`rsSize` at a time rather than one per shard — it derives `rsSize` from the members actually
+present, so a config written by the old planner still reads back consistently.
+
+**Only 5 or 13 are selectable.** `aioKind` gained `MemChoices`, the general "this kind has
+fixed topologies" constraint: `aioMemberCount` snaps a stray count to the largest topology it
+covers (so a design saved before this still deploys) while `aioIssues` names the supported
+counts as an error, and the form replaces the *Members* number input with a *Topology*
+drop-down that spells out what each count builds. A stored count that is no longer supported
+shows as its own option rather than silently reading as 5, so the validator's message and the
+form agree.
+
+Ports are unchanged: 5 or 13 slots from 17000, none of them 27017.
+
+### The 13-daemon deploy then exposed a second bug: shards reject the admin password
+
+The live deploy produced the right topology and then failed to register nine of thirteen
+mongods with PMM, ten attempts each:
+
+    psmdbsharded-cluster-01-n6: PMM registration failed:
+    connection handshake: auth error: … (AuthenticationFailed) Authentication failed.
+
+Exactly the shard members. **A shard does not inherit the cluster's users.** The admin user is
+created through `mongos`, which stores it in the *config servers*, so it authenticates on the
+router and on every config member — but a shard keeps its own local user store and a fresh
+shard's is empty. Everything that dials a shard member directly authenticates as admin: PMM's
+exporter, `aioctl connect`, the Data Generator, the manager's Connect tab. All of them were
+broken, and had been since the sharded kind landed — the 5-daemon shape has three shard
+members with the same problem, so this was never about 13. It only surfaced now because a
+13-daemon node makes nine failures hard to miss.
+
+`aioMongoInitSharded` now creates the admin on **each shard's primary** after the shards are
+added, where the localhost exception still applies (a shard has no users) and which is the only
+member of the set that can accept the write; it replicates to that shard's secondaries. This is
+what the classic frame does at PMM time (`mongoPMMUserScript`), moved earlier because
+All-in-One hands out one credential for every purpose, not just monitoring.
+
+`aioMongoCreateAdminScript` also now tests the credentials *before* trying to create anything.
+The localhost exception closes as soon as the first user exists, so a redeploy's
+unauthenticated `createUser` is refused with `Command createUser requires authentication` —
+not the `already exists` the script filtered — which would have logged a scary line from every
+instance on every redeploy. Checking first silences that and makes the step safe against a
+secondary (user replicated, writes refused), while a wrong password still fails loudly.
+
+### Verification performed (live)
+
+On the reported node (stack 42, an All-in-One with a 13-daemon *and* a 5-daemon sharded
+instance, 18 mongods in one container):
+
+- Topology is the frame's: `config.shards` lists three shards of
+  `127.0.0.1:17040,17050,17060` / `17070,17080,17090` / `17100,17110,17120`, and the config RS
+  is `17010:PRIMARY, 17020:SECONDARY, 17030:SECONDARY` — three config servers, not one.
+- Shard members rejected `admin` before the fix (`MongoServerError: Authentication failed`)
+  while the localhost exception still answered, confirming the diagnosis and the remedy.
+- The new script text, run verbatim in the container: creates the user on a shard primary
+  (exit 0), is silent on a re-run (exit 0), is silent on a 3-member shard's *secondary*
+  (exit 0), and still fails with exit 1 on a wrong password.
+- Admin auth then succeeded on all nine shard members of the 13-daemon instance — the user
+  reached the secondaries by replication — and `pmm-admin add mongodb` succeeded for every
+  one. `pmm-admin list`: **18 MongoDB services, 18 `mongodb_exporter` Running.**
+
+### …and a third: PMM could not tell one cluster from another
+
+With registration finally working, every one of the eighteen mongods arrived in PMM as an
+unrelated standalone. `--cluster` was only ever sent for Valkey (`aioValkeyClusterArg`), so
+nothing on a service said which sharded cluster it belonged to — the inventory reported
+`cluster: ""`, `replication_set: ""` for all of them, and two 3-shard clusters in one
+container were one undifferentiated pile. Two MySQL replication clusters had the same problem.
+
+`aioPMMClusterArgs` replaces the Valkey-only helper and tags **every** clustered instance:
+
+- `--cluster=<instance name>` — unique within the node, and what the user typed on the canvas,
+  so PMM's grouping matches the design's.
+- `--replication-set=<replica set>` for MongoDB, the level the dashboards group by below the
+  cluster: `<inst>-cfg` for the config servers, `<inst>-shard0…2` per shard, and nothing for a
+  `mongos`, which belongs to no set.
+
+A standalone instance stays untagged — it is a cluster of one, and naming it would only add
+noise to the cluster pickers. The arg is now passed on the MySQL, PostgreSQL and MongoDB
+branches of `aioPMMAddScript`, not just Valkey's.
+
+**Verified live** on the same node. `pmm-admin list --json` does not report either label (it
+only lists names and ports — worth knowing before concluding the flags did nothing); the PMM
+server's `/v1/inventory/services` does, and it shows exactly the intended shape:
+
+    psmdbsharded-cluster-01  (router)                        n1
+    psmdbsharded-cluster-01  psmdbsharded-cluster-01-cfg     n2 n3 n4
+    psmdbsharded-cluster-01  psmdbsharded-cluster-01-shard0  n5 n6 n7
+    psmdbsharded-cluster-01  psmdbsharded-cluster-01-shard1  n8 n9 n10
+    psmdbsharded-cluster-01  psmdbsharded-cluster-01-shard2  n11 n12 n13
+    psmdbsharded-cluster-02  (router)                        n1
+    psmdbsharded-cluster-02  psmdbsharded-cluster-02-cfg     n2
+    psmdbsharded-cluster-02  psmdbsharded-cluster-02-shard0  n3
+    psmdbsharded-cluster-02  psmdbsharded-cluster-02-shard1  n4
+    psmdbsharded-cluster-02  psmdbsharded-cluster-02-shard2  n5
+
+— byte-identical to what `aioPMMClusterArgs` computes for that design, with all 18 exporters
+`Running`.
+
+6 new/expanded tests (both topologies' role counts, three shard RS's of the right length, the
+router pointing at *every* config member, the shard-primary ports that take the local admin,
+the choice/snap/reject matrix, and two sharded clusters' PMM labels being disjoint), plus a
+render check for the unsupported-count branch.

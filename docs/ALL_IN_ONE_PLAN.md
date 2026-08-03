@@ -576,7 +576,7 @@ verify-live rule) and an `IMPLEMENTATION.md` session entry.
 | **1** | ✅ **done** — palette, form, container, `aioctl`, registry, `aio.target`, mgmt endpoints, validation, DNS aliases, and the manager UI: *Instances* (lifecycle + logs), *Connect* (per-instance connection strings, in-stack and from the host, plus the root console), *Credentials* (per family, via `SecretRow`) and *Ports*. Certificates are shown as part of Connect rather than a tab of their own — re-issue lives on the instance form. |
 | **2** | ✅ **done** — `ps`, `psrepl`, `innodb` in **Group Replication** mode. InnoDB Cluster mode stays gated by `aioUnsupportedModes` (needs MySQL Shell). Flavor-conflict validation + disabled-menu-entry UI landed here, and is now verified from both the PS and PXC sides. |
 | **3** | ✅ **done** — `pg`, `repmgr` (PGDG, repmgrd armed), `patroni` (co-located etcd; Patroni owns postgres), `spock` (source build shared per major, full mesh). Oracle Linux only. |
-| **4** | ✅ **done** — `psmdb`, `psmrs`, `psmdbsharded` (one install serves all three; flatter sharded topology than the classic frame) |
+| **4** | ✅ **done** — `psmdb`, `psmrs`, `psmdbsharded` (one install serves all three; sharded is fixed-topology, 5 or 13 daemons, the same two setups the classic frame offers) |
 | **5** | ✅ **done** — `valkey`, `valkeycluster` (`cluster-port` pinned in-slot, verified live) |
 | **6** | ⏳ **partial** — `orchestrator`, `proxysql` and `haproxy` ✅, with `backendInstanceId` wiring verified live against a running cluster. The PDPS/PDPXC repo interaction is still unverified — only reachable once PXC lands. |
 | **7** | ✅ **done** — N clusters, one shared version, Galera pinned to slot ports, bootstrap via a generated start wrapper (no `mysql@bootstrap` unit) |

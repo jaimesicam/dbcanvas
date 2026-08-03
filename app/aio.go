@@ -228,16 +228,15 @@ func aioRoleFor(in aioInstance, member, total int) string {
 		}
 		return "member"
 	case "psmdbsharded":
-		// Topology inside one container: member 0 is the mongos router, member 1
-		// the (single-member) config replica set, and every remaining member its
-		// own single-member shard replica set. Deliberately flatter than the
-		// classic frame's 3x3 — thirty mongods in one container is not the point
-		// of this node type, and MongoDB accepts single-member replica sets for
-		// both the config servers and the shards.
+		// Topology inside one container, in member order: the mongos router, then
+		// the config replica set, then three shard replica sets. How many members
+		// the config RS and each shard get comes from the total — the same two
+		// setups the dedicated PSMDB Sharded frame offers (aioMongoShardedTopo).
+		configs, _, _ := aioMongoShardedTopo(total)
 		if member == 0 {
 			return "mongos"
 		}
-		if member == 1 {
+		if member <= configs {
 			return "config"
 		}
 		return "shard"

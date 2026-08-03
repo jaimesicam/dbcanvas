@@ -162,10 +162,18 @@ func aioIssues(n designNode, doc designDoc, exportReq map[int][]string, hostMemB
 
 		if k.Cluster {
 			m := in.Members
-			if m < k.MinMem || m > k.MaxMem {
+			switch {
+			// A fixed-topology kind has no range, only the counts it was built for.
+			case len(k.MemChoices) > 0:
+				if !aioMemberChoiceOK(k, m) {
+					out = append(out, issue{"error", fmt.Sprintf(
+						"All-in-One instance %s (%s) has %d member(s) — %s has a fixed topology and supports %s members",
+						iname, k.Label, m, k.Label, aioMemberChoicesText(k))})
+				}
+			case m < k.MinMem || m > k.MaxMem:
 				out = append(out, issue{"error", fmt.Sprintf(
 					"All-in-One instance %s (%s) has %d member(s) — allowed range is %d–%d", iname, k.Label, m, k.MinMem, k.MaxMem)})
-			} else if k.OddOnly && m%2 == 0 {
+			case k.OddOnly && m%2 == 0:
 				out = append(out, issue{"error", fmt.Sprintf(
 					"All-in-One instance %s (%s) needs an odd member count for quorum — %d is even", iname, k.Label, m)})
 			}
