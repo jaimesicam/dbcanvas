@@ -142,11 +142,16 @@ type pktCapRequest struct {
 	Seconds int // wall-clock ceiling
 	Packets int // -c ceiling
 	Snaplen int // -s
-	Port    int // the MySQL port to filter on
+	Port    int // the database port to filter on
+	// Engine is "mysql" or "postgres": which protocol Port carries, so the decode
+	// does not have to guess (pktDecodeOpts.Engine).
+	Engine string
 	// Roles maps every port the capture should cover to the protocol it carries
-	// (pktRole*). For a plain MySQL node that is one entry; for PXC it is four,
-	// because a cluster member's traffic is on 3306 *and* Galera's 4567/4568/4444
-	// (or, for an All-in-One PXC instance, that instance's slot ports).
+	// (pktRole*). For a plain MySQL or PostgreSQL node that is one entry; for PXC it
+	// is four, because a cluster member's traffic is on 3306 *and* Galera's
+	// 4567/4568/4444, and for Patroni it is four as well — 5432 plus Patroni's REST
+	// API and both etcd ports (or, for an All-in-One instance, that instance's slot
+	// ports).
 	Roles    map[int]string
 	Filter   string // extra BPF, ANDed with the port filter
 	Iface    string // "" = auto-detect

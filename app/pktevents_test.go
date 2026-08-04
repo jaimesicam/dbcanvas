@@ -455,7 +455,7 @@ func TestPktLogWindowView(t *testing.T) {
 		"this line is not a log record at all",
 	}, "\n")
 
-	entries := pktParseServerLog([]byte(log))
+	entries := pktParseServerLog([]byte(log), pktEngineMySQL)
 	if len(entries) != 4 {
 		t.Fatalf("parsed %d records, want 4 (the junk line must be skipped)", len(entries))
 	}
@@ -492,7 +492,7 @@ func TestPktLogWindowView(t *testing.T) {
 		t.Errorf("class filter returned %d records, want 1", len(got.Entries))
 	}
 	// The mistake that matters: a log from another period entirely.
-	wrong := pktParseServerLog([]byte(mk(500, "Aborted connection 9 to db: 'x' user: 'y' host: 'h' (Got packets out of order).")))
+	wrong := pktParseServerLog([]byte(mk(500, "Aborted connection 9 to db: 'x' user: 'y' host: 'h' (Got packets out of order).")), pktEngineMySQL)
 	mv := pktLogWindowView(wrong, from, to, "", false)
 	if !mv.Mismatch {
 		t.Error("a log with records but none in the window must be flagged as a mismatch")

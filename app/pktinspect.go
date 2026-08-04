@@ -158,12 +158,13 @@ func pktList(u User) []*pktCapture {
 
 // ---------------------------------------------------------------- targets
 
-// handlePktTargets lists the MySQL-family nodes a capture can be taken on.
+// handlePktTargets lists the nodes a capture can be taken on: the MySQL family and
+// the PostgreSQL family, which are the two protocols the decoder speaks. A MongoDB
+// node is deliberately absent — a capture of one would decode as "TCP data", which
+// is worse than not offering it.
 //
-// MySQL only, deliberately: the decoder speaks that protocol, and offering a
-// PostgreSQL node here would produce a capture whose payloads are all "TCP data".
 // The same list logic serves the Query Runner, so an All-in-One instance shows up
-// with its own slot port rather than 3306.
+// with its own slot port rather than 3306 or 5432.
 func (a *App) handlePktTargets(w http.ResponseWriter, r *http.Request) {
 	u, ok := a.currentUser(r)
 	if !ok {
@@ -172,7 +173,7 @@ func (a *App) handlePktTargets(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []qrTarget{}
 	for _, t := range a.listSQLTargets(u) {
-		if t.Engine == "mysql" {
+		if t.Engine == pktEngineMySQL || t.Engine == pktEnginePostgres {
 			out = append(out, t)
 		}
 	}
@@ -182,14 +183,23 @@ func (a *App) handlePktTargets(w http.ResponseWriter, r *http.Request) {
 // pktTargetRoles is every port a capture of this target should cover, mapped to the
 // protocol it carries.
 //
-// A PXC member is the case that makes this necessary: its cluster traffic is on
-// Galera's 4567 (group communication), 4568 (IST) and 4444 (SST), none of which is the
-// MySQL protocol, and a capture of 3306 alone shows none of the replication that makes
-// PXC interesting. An All-in-One PXC instance uses its slot's ports instead of the
-// defaults — several instances share one container, so 4567 can only belong to one of
-// them (see aioPortsFor).
-func (a *App) pktTargetRoles(u User, stackID int64, target string, mysqlPort int) (map[int]string, string) {
-	roles := map[int]string{mysqlPort: pktRoleMySQL}
+// A clustered node is the case that makes this necessary, and the two engines put
+// their cluster traffic in different places. A PXC member's is on Galera's 4567
+// (group communication), 4568 (IST) and 4444 (SST), none of which is the MySQL
+// protocol, and a capture of 3306 alone shows none of the replication that makes PXC
+// interesting. A Patroni member's is on 8008 (Patroni's own REST API) and 2379/2380
+// (etcd, where the leader lock lives) — while its PostgreSQL replication is on 5432
+// with everything else, because a walsender connection is just a connection.
+//
+// An All-in-One instance uses its slot's ports instead of the defaults — several
+// instances share one container, so 4567 or 8008 can only belong to one of them (see
+// aioPortsFor).
+func (a *App) pktTargetRoles(u User, stackID int64, target string, port int, engine string) (map[int]string, string) {
+	baseRole := pktRoleMySQL
+	if engine == pktEnginePostgres {
+		baseRole = pktRolePostgres
+	}
+	roles := map[int]string{port: baseRole}
 	nodeID, inst := aioSplitTarget(target)
 	st, err := a.store.GetStack(stackID)
 	if err != nil {
@@ -201,22 +211,38 @@ func (a *App) pktTargetRoles(u User, stackID int64, target string, mysqlPort int
 			return roles, ""
 		}
 		m, ok := aioFindInstance(dep, inst)
-		if !ok || aioMySQLShape(m.Kind) != shapeGalera {
-			return roles, m.Kind
+		if !ok {
+			return roles, ""
 		}
-		// The instance's own slot: group/IST/SST are fixed offsets inside it.
-		roles[m.Ports.Group] = pktRoleGaleraGCS
-		roles[m.Ports.IST] = pktRoleGaleraIST
-		roles[m.Ports.SST] = pktRoleGaleraSST
+		switch {
+		case aioMySQLShape(m.Kind) == shapeGalera:
+			// The instance's own slot: group/IST/SST are fixed offsets inside it.
+			roles[m.Ports.Group] = pktRoleGaleraGCS
+			roles[m.Ports.IST] = pktRoleGaleraIST
+			roles[m.Ports.SST] = pktRoleGaleraSST
+		case m.Kind == "patroni":
+			// Likewise for a Patroni instance: REST and both etcd ports come from
+			// the slot, never from the well-known numbers.
+			roles[m.Ports.REST] = pktRolePatroniREST
+			roles[m.Ports.EtcdCli] = pktRoleEtcdClient
+			roles[m.Ports.EtcdPr] = pktRoleEtcdPeer
+		}
 		return roles, m.Kind
 	}
 	for _, n := range buildDoc(st).Nodes {
 		if n.ID != nodeID {
 			continue
 		}
-		// PXC and MariaDB Galera both speak wsrep on the standard ports.
-		if n.Type == "pxc" || n.Type == "mariadbgalera" {
-			return pktGaleraPortRoles(mysqlPort), n.Type
+		switch n.Type {
+		case "pxc", "mariadbgalera":
+			// PXC and MariaDB Galera both speak wsrep on the standard ports.
+			return pktGaleraPortRoles(port), n.Type
+		case "patroni":
+			return pktPGPortRoles(port), n.Type
+		case "pg", "repmgr", "spock":
+			// No sidecar protocols: repmgr's daemon and Spock's apply workers are
+			// PostgreSQL connections like any other, and both are on 5432.
+			return roles, n.Type
 		}
 		return roles, n.Type
 	}
@@ -253,8 +279,9 @@ func (a *App) handlePktStart(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if engine != "mysql" {
-		writeErr(w, http.StatusBadRequest, "the Packet Inspector decodes MySQL traffic; pick a MySQL, PXC, MariaDB or All-in-One MySQL target")
+	if engine != pktEngineMySQL && engine != pktEnginePostgres {
+		writeErr(w, http.StatusBadRequest,
+			"the Packet Inspector decodes MySQL and PostgreSQL traffic; pick a MySQL/PXC/MariaDB or PostgreSQL/Patroni/repmgr/Spock target")
 		return
 	}
 	if err := pktValidateFilter(body.Filter); err != nil {
@@ -262,8 +289,9 @@ func (a *App) handlePktStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	roles, nodeType := a.pktTargetRoles(u, body.StackID, body.NodeID, port)
+	roles, nodeType := a.pktTargetRoles(u, body.StackID, body.NodeID, port, engine)
 	req := pktCapRequest{
+		Engine:  engine,
 		Seconds: pktClamp(body.Seconds, 1, pktMaxSeconds, 20),
 		Packets: pktClamp(body.Packets, 100, pktMaxCapPackets, 50000),
 		Snaplen: pktClamp(body.Snaplen, 64, 262144, 65535),
@@ -354,7 +382,7 @@ func (a *App) pktRunCapture(ctx context.Context, cancel context.CancelFunc, c *p
 		c.fail(err)
 		return
 	}
-	c.finish(buf, req.Port, req.Roles)
+	c.finish(buf, req.Port, req.Roles, req.Engine)
 }
 
 // fail records a capture-level failure.
@@ -366,8 +394,8 @@ func (c *pktCapture) fail(err error) {
 }
 
 // finish decodes the capture bytes and marks it ready.
-func (c *pktCapture) finish(buf []byte, serverPort int, roles map[int]string) {
-	d, err := pktDecode(buf, pktDecodeOpts{ServerPort: serverPort, PortRoles: roles})
+func (c *pktCapture) finish(buf []byte, serverPort int, roles map[int]string, engine string) {
+	d, err := pktDecode(buf, pktDecodeOpts{ServerPort: serverPort, PortRoles: roles, Engine: engine})
 	if err != nil {
 		c.fail(err)
 		return
@@ -376,6 +404,9 @@ func (c *pktCapture) finish(buf []byte, serverPort int, roles map[int]string) {
 	defer c.mu.Unlock()
 	c.raw, c.decoded = buf, d
 	c.Summary = pktSummarize(d)
+	// An upload may not have said which protocol it holds; the decoder worked it out
+	// from the bytes, and that answer is what the UI should show.
+	c.Engine = d.Engine
 	c.State = "ready"
 	c.End = time.Now().UTC().Format(time.RFC3339)
 }
@@ -979,7 +1010,25 @@ func (a *App) handlePktUpload(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("capture is over the %s limit", pktBytes(pktMaxCapBytes)))
 		return
 	}
-	port := pktClamp(atoiDef(r.FormValue("port"), 0), 1, 65535, 3306)
+	// Which protocol the capture holds. "auto" (or nothing) leaves it to
+	// pktSniffEngine, which reads the answer out of the bytes; the port's default
+	// then follows whatever was chosen or asked for.
+	engine := strings.ToLower(strings.TrimSpace(r.FormValue("engine")))
+	if engine != pktEngineMySQL && engine != pktEnginePostgres {
+		engine = ""
+	}
+	// The port's default follows the protocol, so it cannot be chosen until the protocol
+	// is known: defaulting to 3306 and then sniffing would hand the decoder a MySQL port
+	// for a PostgreSQL capture, and the port is what decides which end is the server.
+	sniffed := engine
+	if sniffed == "" {
+		sniffed = pktSniffEngine(buf, 0)
+	}
+	defPort := 3306
+	if sniffed == pktEnginePostgres {
+		defPort = pgClientPort
+	}
+	port := pktClamp(atoiDef(r.FormValue("port"), 0), 1, 65535, defPort)
 
 	// An optional MySQL error log, uploaded with the capture so the two can be read
 	// together. Its absence is normal, not an error.
@@ -997,17 +1046,21 @@ func (a *App) handlePktUpload(w http.ResponseWriter, r *http.Request) {
 				fmt.Sprintf("server log is over the %s limit", pktBytes(pktMaxLogBytes)))
 			return
 		}
-		logEntries, logName = pktParseServerLog(lb), lhdr.Filename
+		// The engine chosen for the capture also decides how the log is read; when
+		// the capture is on "auto", the log is sniffed on its own (the two formats
+		// look nothing alike).
+		logEntries, logName = pktParseServerLog(lb, engine), lhdr.Filename
 		if len(logEntries) == 0 {
 			writeErr(w, http.StatusBadRequest,
-				"no MySQL error-log records were recognised in "+lhdr.Filename+
-					" — expected lines like \"2026-08-03T19:19:01.501234Z 12 [Note] [MY-010914] [Server] …\"")
+				"no server-log records were recognised in "+lhdr.Filename+
+					" — expected MySQL lines like \"2026-08-03T19:19:01.501234Z 12 [Note] [MY-010914] [Server] …\""+
+					" or PostgreSQL lines like \"2026-08-04 06:15:44.142 UTC [2948] ERROR:  …\"")
 			return
 		}
 	}
 
 	c := &pktCapture{
-		ID: qrNewID(), Label: hdr.Filename, Source: "upload", Engine: "mysql", Port: port,
+		ID: qrNewID(), Label: hdr.Filename, Source: "upload", Engine: engine, Port: port,
 		State: "decoding", Start: time.Now().UTC().Format(time.RFC3339), owner: u.ID, mu: &sync.Mutex{},
 		Command:  fmt.Sprintf("(uploaded %s, decoded with server port %d)", hdr.Filename, port),
 		LogFile:  logName,
@@ -1015,7 +1068,7 @@ func (a *App) handlePktUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	c.logEntries = logEntries
 	pktRemember(c)
-	c.finish(buf, port, nil)
+	c.finish(buf, port, nil, engine)
 	if c.State == "error" {
 		writeErr(w, http.StatusBadRequest, c.Error)
 		return

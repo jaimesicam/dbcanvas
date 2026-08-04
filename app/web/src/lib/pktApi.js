@@ -47,13 +47,15 @@ export const pktApi = {
   // The error-log side: records a capture cannot contain by construction (aborted
   // connections, DNS, TLS, listener), narrowed to the capture's own window.
   serverLog: (id, opts) => request('GET', `/api/pktinspect/captures/${id}/serverlog${qs(opts)}`),
-  // An upload may carry a MySQL error log beside the pcap: an uploaded capture has no
-  // node to read one from, and the log holds the events a capture cannot contain.
-  upload: async (file, port, logFile) => {
+  // An upload may carry the server's error log beside the pcap: an uploaded capture has
+  // no node to read one from, and the log holds the events a capture cannot contain.
+  // engine is '' for "work it out from the bytes", which is the default.
+  upload: async (file, port, logFile, engine) => {
     const fd = new FormData()
     fd.append('file', file)
     if (logFile) fd.append('log', logFile)
     if (port) fd.append('port', String(port))
+    if (engine) fd.append('engine', engine)
     const res = await fetch('/api/pktinspect/upload', { method: 'POST', body: fd, credentials: 'same-origin' })
     const text = await res.text()
     let data = null
@@ -146,12 +148,19 @@ export function pktBytesFmt(n) {
 export const PROTO_TONE = {
   MySQL: 'primary',
   'MySQL/compressed': 'warning',
+  PostgreSQL: 'primary',
   TLS: 'warning',
   // PXC's cluster ports: a different protocol on each, none of them MySQL.
   'Galera/GCS': 'success',
   'Galera/IST': 'primary',
   'Galera/SST': 'warning',
   'Galera/GCS/UDP': 'success',
+  // A Patroni member's cluster ports. Patroni's REST API and etcd are not the
+  // PostgreSQL protocol, and its replication is — it rides port 5432 like any other
+  // connection, so there is no separate label for it.
+  'Patroni/REST': 'success',
+  'etcd/client': 'success',
+  'etcd/raft': 'accent',
   // The traffic underneath the database: name resolution and layer 2.
   DNS: 'accent',
   ARP: 'accent',
@@ -166,7 +175,15 @@ export const PORT_ROLE_TEXT = {
   'galera-gcs': 'Galera group communication — heartbeats, quorum, write-sets',
   'galera-ist': 'Galera IST — incremental catch-up from a donor',
   'galera-sst': 'Galera SST — full dataset copy from a donor',
+  postgres: 'PostgreSQL frontend/backend protocol — client sessions and WAL streaming',
+  'patroni-rest': "Patroni's REST API — HAProxy's health checks and patronictl",
+  'etcd-client': 'etcd client API — where the Patroni leader lock is taken and renewed',
+  'etcd-peer': 'etcd peer traffic — raft heartbeats between the etcd members',
 }
+
+// ENGINE_LABEL names the protocol a capture was decoded as. Shown because an upload
+// may have been decided by the sniffer rather than chosen.
+export const ENGINE_LABEL = { mysql: 'MySQL', postgres: 'PostgreSQL' }
 
 // SEVERE marks the issue kinds drawn as errors rather than warnings — the same split
 // the server applies when bucketing the timeline (pktSevereIssues in Go, which is
@@ -194,6 +211,21 @@ const SEVERE = [
   // connection never happened at all.
   'DNS NXDOMAIN', 'DNS SERVFAIL', 'DNS REFUSED', 'DNS FORMERR', 'DNS query unanswered',
   'DNS returned no', 'ARP unanswered', 'ARP conflict',
+  // PostgreSQL. The wording comes from pgErrCatalog and pktpg.go, and the same rule
+  // applies as above: something wrong with the server, the cluster or the connection —
+  // never an ordinary SQL mistake, so no unique violation or syntax error here.
+  'FATAL', 'PANIC', 'Protocol violation', 'Connection failure', 'Connection exception',
+  'Authorisation failed', 'Password authentication failed', 'No pg_hba.conf entry',
+  'The database named at connect time does not exist', 'The role is not permitted to log in',
+  'Disk full', 'Out of memory', 'A configuration limit was hit',
+  'Lock not available', 'The object is in use elsewhere', 'The object is not in a state',
+  'Query cancelled', 'Statement cancelled', 'Serialisation failure',
+  'Administrator shutdown', 'Crash shutdown', 'The server cannot accept connections yet',
+  'A write was attempted on a read-only connection', 'The transaction has already failed',
+  'Replication lag', 'The primary is asking the standby',
+  'Requested WAL segment', 'Internal error', 'Data corruption', 'Index corruption',
+  'I/O error', 'Cleartext password authentication', 'SSL refused by the server',
+  'Unrecognised protocol version', 'Patroni REST returned', 'etcd answered',
 ]
 
 export const isSevereIssue = (s) => SEVERE.some((k) => (s || '').includes(k))

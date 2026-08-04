@@ -75,9 +75,13 @@ type pktLogEntry struct {
 // that carry no MY- number.
 type pktLogFamily struct {
 	codes  []string
-	substr []string
-	class  pktLogClass
-	label  string
+	substr []string // any one of these is a match
+	// allOf is for the families that can only be told apart by two fragments at once:
+	// "role … does not exist" and "database … does not exist" differ by one word, and
+	// PostgreSQL puts the name between them. Empty for every other family.
+	allOf []string
+	class pktLogClass
+	label string
 }
 
 // pktLogFamilies covers the network-facing families, including the ones the user of a
@@ -233,13 +237,22 @@ var pktServerLogPaths = []string{
 	"/var/lib/mysql/error.log",
 }
 
-// pktReadServerLog tails and classifies the node's error log.
-func (a *App) pktReadServerLog(ctx context.Context, containerID string, lines int) ([]pktLogEntry, string, error) {
+// pktReadServerLog tails and classifies the node's server log. Which log, and which
+// format it is in, follows the engine: MySQL's single error log at a fixed path, or
+// PostgreSQL's day-of-week-rotated file plus Patroni's own log when the node has one.
+func (a *App) pktReadServerLog(ctx context.Context, containerID, engine string, lines int) ([]pktLogEntry, string, error) {
 	if lines <= 0 || lines > 20000 {
 		lines = 2000
 	}
-	res, err := a.engCtx(ctx).Exec(ctx, containerID, []string{"bash", "-c", pktLogTailScript},
-		[]string{"PATHS=" + strings.Join(pktServerLogPaths, " "), "LINES=" + strconv.Itoa(lines)})
+	script, env := pktLogTailScript, []string{
+		"PATHS=" + strings.Join(pktServerLogPaths, " "), "LINES=" + strconv.Itoa(lines)}
+	if engine == pktEnginePostgres {
+		script, env = pktPGLogTailScript, []string{
+			"PATHS=" + strings.Join(pktPGLogPaths, " "),
+			"PATRONI_PATHS=" + strings.Join(pktPatroniLogPaths, " "),
+			"LINES=" + strconv.Itoa(lines)}
+	}
+	res, err := a.engCtx(ctx).Exec(ctx, containerID, []string{"bash", "-c", script}, env)
 	if err != nil {
 		return nil, "", err
 	}
@@ -253,11 +266,42 @@ func (a *App) pktReadServerLog(ctx context.Context, containerID string, lines in
 			path = strings.TrimSpace(p)
 			continue
 		}
-		if e, ok := pktClassifyLogLine(line); ok {
-			out = append(out, e)
+		// The PostgreSQL script may append Patroni's log after the PostgreSQL one;
+		// both are shown, and the path says so.
+		if p, ok := strings.CutPrefix(line, "ALSO="); ok {
+			path += " + " + strings.TrimSpace(p)
+			continue
 		}
+		out = pktAppendLogLine(out, line, engine)
 	}
 	return out, path, nil
+}
+
+// pktAppendLogLine classifies one line for the right engine and appends it, folding a
+// PostgreSQL continuation record (DETAIL, HINT, STATEMENT …) into the record above it.
+// Those lines are not events of their own: STATEMENT carries the SQL that produced the
+// ERROR on the line before, and shown separately it is an orphan fragment.
+func pktAppendLogLine(out []pktLogEntry, line, engine string) []pktLogEntry {
+	if engine == pktEnginePostgres {
+		e, continuation, ok := pktClassifyPGLogLine(line)
+		if !ok {
+			return out
+		}
+		if continuation {
+			if n := len(out); n > 0 {
+				out[n-1].Message += " | " + e.Level + ": " + e.Message
+				if e.Level == "DETAIL" && out[n-1].Reason == "" {
+					out[n-1].Reason = e.Message
+				}
+			}
+			return out
+		}
+		return append(out, e)
+	}
+	if e, ok := pktClassifyLogLine(line); ok {
+		return append(out, e)
+	}
+	return out
 }
 
 // pktAbortStatsScript reads the counters and settings that decide whether aborted
@@ -284,6 +328,18 @@ type pktAbortStats struct {
 	Suppression string            `json:"suppressionList"`
 	Counters    map[string]string `json:"counters"`
 	Hint        string            `json:"hint,omitempty"`
+}
+
+// pktAbortStatsFor asks the server for its own counters, when the server is one that
+// has them. PostgreSQL does not: it logs every aborted connection regardless of
+// verbosity, so the question MySQL's counters answer ("is the log even telling me?")
+// does not arise, and there is nothing to read.
+func (a *App) pktAbortStatsFor(ctx context.Context, containerID, engine, user, pass string) pktAbortStats {
+	if engine == pktEnginePostgres {
+		return pktAbortStats{Counters: map[string]string{},
+			Hint: "PostgreSQL logs a dropped or refused connection unconditionally — there is no verbosity setting to check and no Aborted_clients equivalent to read."}
+	}
+	return a.pktAbortStats(ctx, containerID, user, pass)
 }
 
 func (a *App) pktAbortStats(ctx context.Context, containerID, user, pass string) pktAbortStats {
@@ -439,7 +495,8 @@ func (a *App) handlePktServerLog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	entries, path, err := a.pktReadServerLog(r.Context(), containerID, atoiDef(r.URL.Query().Get("lines"), 2000))
+	entries, path, err := a.pktReadServerLog(r.Context(), containerID, c.Engine,
+		atoiDef(r.URL.Query().Get("lines"), 2000))
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
@@ -449,7 +506,10 @@ func (a *App) handlePktServerLog(w http.ResponseWriter, r *http.Request) {
 		"path": path, "source": "node", "entries": v.Entries, "top": v.Top,
 		"scanned": v.Scanned, "inWindow": v.InWindow, "logFrom": v.LogFrom, "logTo": v.LogTo,
 		"mismatch": v.Mismatch, "windowFrom": from, "windowTo": to,
-		"stats": a.pktAbortStats(r.Context(), containerID, dbUser, dbPass),
+		// Aborted_clients and log_error_verbosity are MySQL's; PostgreSQL logs an
+		// aborted connection unconditionally, so there is no equivalent question to
+		// ask and no equivalent counter to read.
+		"stats": a.pktAbortStatsFor(r.Context(), containerID, c.Engine, dbUser, dbPass),
 	})
 }
 
@@ -461,16 +521,44 @@ const pktMaxLogBytes = 64 << 20
 // tool anyway.
 const pktMaxLogEntries = 200000
 
-// pktParseServerLog classifies a whole uploaded log file.
-func pktParseServerLog(b []byte) []pktLogEntry {
+// pktParseServerLog classifies a whole uploaded log file for the given engine
+// ("mysql" or "postgres"; empty means try both and keep whichever recognised more).
+//
+// Sniffing rather than asking matters for the upload path: somebody with a capture and
+// a log has no reason to also tell the tool which product wrote the log, and the two
+// formats are unmistakable — MySQL's stamp is RFC3339 with a T in it, PostgreSQL's has
+// a space and a zone name.
+func pktParseServerLog(b []byte, engine string) []pktLogEntry {
+	if engine == "" {
+		engine = pktSniffLogEngine(b)
+	}
 	var out []pktLogEntry
 	for _, line := range strings.Split(string(b), "\n") {
 		if len(out) >= pktMaxLogEntries {
 			break
 		}
-		if e, ok := pktClassifyLogLine(line); ok {
-			out = append(out, e)
-		}
+		out = pktAppendLogLine(out, line, engine)
 	}
 	return out
+}
+
+// pktSniffLogEngine decides which product wrote a log, by trying both classifiers over
+// the first lines that parse at all.
+func pktSniffLogEngine(b []byte) string {
+	my, pg := 0, 0
+	for i, line := range strings.Split(string(b), "\n") {
+		if i > 500 || my >= 5 || pg >= 5 {
+			break
+		}
+		if _, ok := pktClassifyLogLine(line); ok {
+			my++
+		}
+		if _, _, ok := pktClassifyPGLogLine(line); ok {
+			pg++
+		}
+	}
+	if pg > my {
+		return pktEnginePostgres
+	}
+	return pktEngineMySQL
 }

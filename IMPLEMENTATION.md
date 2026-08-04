@@ -10921,3 +10921,211 @@ native input surviving hidden-but-focusable) and with a file (name, size, remove
 icon rendered at 16/18/24 px asserting the viewBox, `currentColor`, and that all five
 elements are present rather than a smudge. An `accent` Badge tone was added in §213 for DNS
 and ARP; nothing else in the shared UI kit changed.
+
+---
+
+## 215. Packet Inspector: PostgreSQL — `app/pktpg{,err,ha,log}.go`, `app/pkt{decode,inspect,cap,serverlog}.go`, `app/web/src/{pages/PacketInspector.jsx,lib/pktApi.js}`
+
+"Do the same plan for a different type of Postgres traffic. Please do the needful of
+setting up testbed." So: the same feature, the second protocol, verified the same way —
+against a real cluster with real faults provoked in it, not against fixtures.
+
+### The testbed
+
+Stack 47 (`pktinspect-pg`), built through the app's own API and deployed by it:
+
+    intranet                 DNS / CA / proxy
+    pg01 (generateCert)      standalone PostgreSQL 16.14, ssl = on
+    patroni-cluster-00       3 members, each PostgreSQL + Patroni + etcd
+    haproxy01                :5000 → leader, :5001 → replicas
+    carsim-01                Car Rental Sim: 10 agents through HAProxy
+
+The Patroni cluster gives what a standalone cannot: streaming replication between real
+members, Patroni's REST API being polled by a real HAProxy, etcd holding a real leader
+lock, and a workload that produces genuine constraint violations. `patronictl list`
+confirmed a leader and two `streaming` replicas at the same LSN before anything was
+captured.
+
+### What the protocol needed that MySQL's did not
+
+PostgreSQL is easier to frame — type byte, length that counts itself, body; no 16 MB
+chunking — and harder to *anchor*. Three things had to be right or nothing decoded:
+
+- **The first client message has no type byte.** Length, then a code: 196608 for
+  protocol 3.0, or `SSLRequest` / `GSSENCRequest` / `CancelRequest`.
+- **The answer to `SSLRequest` is a naked byte** (`S` or `N`) outside the framing
+  entirely. Reading it as a message puts every following length four bytes out.
+- **Requests and responses do not alternate.** The extended protocol pipelines
+  Parse/Bind/Describe/Execute/Sync, so response time is measured to `ReadyForQuery`,
+  not to the next server packet.
+
+New: `pktpg.go` (protocol), `pktpgerr.go` (SQLSTATE catalogue), `pktpgha.go` (Patroni
+REST + etcd, the analogue of `pktgalera.go`), `pktpglog.go` (PostgreSQL and Patroni
+logs). `pktDecodeOpts` grew an `Engine`; `pktConn`/`pktDirState` grew `pg` pointers
+allocated on first use, so a MySQL capture carries none of the new state.
+
+### The first live capture: the server decoded, the client did not
+
+20 seconds on the Patroni leader: 19 119 packets, correctly split across
+`PostgreSQL` / `Patroni/REST` / `etcd/client` / `etcd/raft`. And **almost every
+client-to-server frame read "capture joined mid-connection"**, thousands of them, while
+the server's half decoded cleanly.
+
+Two anchors were missing, and the second one matters more than the first:
+
+- **`ReadyForQuery` aligns the client too.** The server's own anchor is easy — `5A 00 00
+  00 05` plus a status byte is unmistakable. A client's next message is usually `Bind`
+  or `Execute`: five bytes of length and then binary parameters, with nothing
+  distinctive in it. But the protocol says what follows `ReadyForQuery`: the server is
+  idle and the client's next byte begins a message. So the anchor found in one direction
+  is handed to the other, and the client's stale half-message buffer is discarded.
+- **A replication stream has no cycle at all.** A standby that attached hours ago sends
+  no Query and receives no `ReadyForQuery`, ever — so it can never anchor on either.
+  What it does send forever is `CopyData` whose body starts with `w`/`k`/`r`/`h` at a
+  length only that sub-type can have. Anchoring on that is what makes replication
+  readable, and it is also what identifies the connection as replication in the first
+  place when its startup message predates the capture.
+
+After both: **one** frame in a 22 578-packet capture stayed unknown, 4 684 queries
+decoded, and `Standby status: write 0/25211CE8, flush 0/25211CE8, apply 0/25211B98,
+296 B behind` appeared on frame 1 — lag, measured from a capture that joined mid-stream.
+
+Also fixed from the same capture: `Result set complete: 10 row(s), 0 column(s)`. An
+extended-protocol client asks for a `RowDescription` once and every later execution
+returns rows without one, so the column count is genuinely unknown — it is now left out
+rather than reported as zero. And driver-generated statement names (asyncpg's are 51
+characters of hash) are shortened, because one filled the whole Info line.
+
+### The fault battery
+
+22 deliberate faults, driven from another container against pg01. Two lessons before any
+of them worked:
+
+- **A client on the node itself is invisible.** Connecting to pg01's own address from
+  inside pg01 routes over loopback, not `eth0`. The first battery produced a capture with
+  **zero packets**. Every later run was driven from `patroni01`.
+- **`psql` defaults to `sslmode=prefer`, and pg01 has `ssl = on`.** The second run came
+  back **99 097 TLS frames and 71 PostgreSQL ones** — the entire battery ran inside TLS.
+  `PGSSLMODE=disable` for the diagnostic window is now documented in both the UI's TLS
+  advisory and `docs/PACKET_INSPECTOR.md`.
+
+With those fixed, one 81 939-packet capture produced this issue list — which is the
+battery's own table of contents read back off the wire:
+
+    20  Too many connections (53300)         1  Deadlock detected (40P01)
+     2  Password authentication failed        1  Lock not available (55P03)
+     1  Database does not exist (3D000)       1  Statement cancelled by statement_timeout
+     1  Write on a read-only connection       1  Query cancelled at the client's request
+     1  Failed transaction (25P02)            1  Query cancellation requested for pid 6120
+     2  Replication connection (physical)     1  BASE_BACKUP started
+     2  Replication connection (logical)      1  START_REPLICATION (logical / physical)
+     1  Heavy result set                      1  Unnamed statement parsed 20 times
+    24  FATAL                               113  Slow response
+
+A second, shorter capture covered the three the first run failed to actually provoke —
+my SQL was wrong, not the decoder: a genuine serialisation failure (`40001`, two
+`REPEATABLE READ` transactions updating the same row), a genuine idle-in-transaction (the
+client has to pause *between* statements, not inside a multi-statement), and bare TCP
+connect/close probes. All three now flag.
+
+`pg_recvlogical` with `pgoutput` produced real logical decoding —
+`BEGIN xid 821` / `relation public.dl` / `INSERT on public.dl` / `COMMIT` — and
+`pg_basebackup` produced the `BASE_BACKUP` command with its options, PostgreSQL's
+equivalent of a Galera SST. Both needed the server changed first (`wal_level=logical`, a
+`pg_hba` replication line), which is itself worth knowing.
+
+### Findings that are not errors
+
+A capture is the only place some things are visible, and PostgreSQL has more of them than
+MySQL does:
+
+- **Cleartext password on an unencrypted connection** — the password is in the capture
+  file. The server logs a successful login, not a weak one.
+- **A connection opened and closed without sending anything** — HAProxy's `tcp-check`, a
+  Kubernetes probe, a port scan. There is no protocol side to look at, so it is detected
+  in a post-pass over connections with a completed handshake and no payload; the server
+  calls it "incomplete startup packet", which is one of the least self-explanatory lines
+  in a PostgreSQL log. MySQL needs no equivalent: there the server speaks first.
+- **Idle in transaction for N s** — the snapshot and every lock held for that whole time,
+  and VACUUM unable to clean up behind it.
+- **The same statement parsed N times as an unnamed prepared statement** — every
+  execution re-planned. `pgbench -M extended` produces exactly this, which is how it was
+  tested.
+- **Replication lag in bytes**, from both ends' LSNs, with no access to either server.
+
+And what is deliberately *not* flagged: `23505` unique violations and `42601` syntax
+errors (the workload produces them by design — flagging them would paint the timeline red
+for nothing), `AAAA` lookups answering NOERROR-with-nothing, and **a 503 from Patroni's
+`/primary`**, which is the correct answer from every member that is not the leader and
+arrives every couple of seconds per member.
+
+### etcd: described, not decoded
+
+Patroni's etcd3 client turned out to use the gRPC **gateway** on the live cluster, so the
+paths are readable HTTP/1.1 (`POST /v3/lease/keepalive`, `/v3/kv/txn`, `/v3/kv/range`) and
+each is explained — the lease *is* the leader lock. For a real HTTP/2 connection the frame
+layer is named and a gRPC method visible as a literal in a HEADERS frame is reported as
+what it is: a string seen in a header frame. HPACK is not implemented and protobuf is not
+guessed at. Raft on 2380 is reported by volume. An etcd 5xx is flagged with its
+consequence, because *that* is the failure every Patroni cluster eventually has, and it is
+visible seconds before the PostgreSQL side changes.
+
+### Two engines, one UI
+
+`handlePktTargets` now offers both families; `pktTargetRoles` returns Patroni's REST and
+etcd ports for a `patroni` node (and an All-in-One Patroni instance's slot ports, since
+8008 can only belong to one instance in a shared container); `pktBPF` picks them up
+automatically. The upload path grew a **protocol** selector whose default is "detect
+automatically", and `pktSniffEngine` reads the answer out of the bytes — PostgreSQL's
+first-message codes, `ReadyForQuery`, replication sub-types; MySQL's protocol-10
+greeting — falling back to *ports* when a capture holds no database payload at all, which
+a Patroni cluster capture does not. The port default follows the sniffed protocol rather
+than preceding it: `pg-replication.pcap` was read as MySQL until it did, because a 3306
+default decides which end is the server.
+
+In the UI: `PostgreSQL`, `Patroni/REST`, `etcd/client` and `etcd/raft` tones, the port-role
+explanations, a SQLSTATE row in the details panel (a string, so it cannot share MySQL's
+numeric `errCode`), an engine badge on every capture, "PostgreSQL errors" instead of
+"MySQL errors", an engine-specific TLS advisory, and a **protocol mix** in the summary
+whose entries are filters — the fastest way to click 596 etcd frames away and see the
+18 000 that matter.
+
+### The server log, twice over
+
+`pktserverlog.go` reads whichever log the engine has. PostgreSQL's is glob-matched and
+newest-first, because it rotates by **day of week** (`postgresql-Tue.log`) and a fixed
+path would read last Tuesday's file. Patroni's own log is read alongside it when it exists,
+because a failover is Patroni's decision and PostgreSQL's log holds only the consequences.
+`DETAIL` / `HINT` / `STATEMENT` / `CONTEXT` / `QUERY` fold into the record above them —
+`STATEMENT` carries the failing SQL, which is what the reader wants next. Verified live:
+397 lines scanned on pg01, **2 in the capture's window**, both correctly classified as
+`auth`, with the `DETAIL` folded in. MySQL's `Aborted_clients` / `log_error_verbosity`
+counters are skipped with an explanation, because PostgreSQL logs a dropped connection
+unconditionally and there is no equivalent question to ask.
+
+Two bugs of my own here. `pktLogFamily`'s substring list is **any-of** for MySQL, and I
+applied it as **all-of** for PostgreSQL — which silently broke every family that lists
+alternatives ("received fast/smart/immediate shutdown request" matched nothing). It now has
+both: `substr` any-of, plus an explicit `allOf` for the two families that can only be told
+apart by two fragments at once ("role … does not exist" versus "database … does not
+exist"). And the timestamp pattern had to accept a zone *name* or an offset (`UTC`, `+08`,
+`+0800`) — the same mistake the MySQL pattern made with `Z` versus `+08:00`, which had
+rejected every line of a `log_timestamps=SYSTEM` log.
+
+### Tests
+
+47 new Go tests (`pktpg_test.go`, `pktpgha_test.go`) over hand-built captures: the session,
+the extended protocol, nine error states including the two that must *not* flag, SSL
+accepted and refused, cleartext passwords, cancellation, physical and logical replication,
+both mid-stream anchors, bare-connect probes, COPY not being mistaken for replication,
+idle-in-transaction, engine sniffing on a non-standard port, and garbage that must not
+decode into a query. Three new generated samples (`pg-session-errors`, `pg-replication`,
+`pg-patroni-cluster`) join the five MySQL ones, and the PostgreSQL ones are decoded
+*without* being told the engine, so each one also tests the upload path. 13 new render
+checks, including that a PostgreSQL summary never says "MySQL" and that the TLS advice
+follows the engine.
+
+Three of my own test assertions were wrong before they were right, all in the same way as
+last time: a frame's Info shows its first three messages and then "+N more", a frame's
+`Command` is the last message it completed rather than the first, and `pgLSN` splits at 32
+bits (`0x3000000` is `0/3000000`, not `3/000000`). The decoder was correct in all three.

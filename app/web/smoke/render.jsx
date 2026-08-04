@@ -32,6 +32,7 @@ import PacketInspector, {
   CaptureState as PktState, Pager as PktPager, ServerLogCard as PktServerLog,
   FilePick as PktFilePick,
 } from '../src/pages/PacketInspector.jsx'
+import { PORT_ROLE_TEXT, isSevereIssue } from '../src/lib/pktApi.js'
 import realDeps from './real-deps.json' with { type: 'json' }
 
 const noop = () => {}
@@ -554,6 +555,159 @@ check('packet inspector: packet list marks a log record\'s moment', () => {
   if (!html.includes('bg-warning/10')) throw new Error('no rows tinted for the marked moment')
   return html
 })
+// ---- PostgreSQL. Same components, a different protocol: the point of the checks below
+// is that nothing in the UI is MySQL-only, and that a PostgreSQL capture's own
+// vocabulary (SQLSTATE, Patroni, etcd, WAL) actually reaches the screen.
+const pgFixtureSummary = {
+  packets: 22578, streams: 67, bytes: 14012044, firstTs: 1785824100.0, lastTs: 1785824120.0,
+  protos: { PostgreSQL: 18252, TCP: 3656, 'etcd/raft': 596, 'Patroni/REST': 55, 'etcd/client': 19 },
+  issueTop: [
+    { kind: 'TCP reset', count: 23 },
+    { kind: 'Replication lag', count: 2 },
+    { kind: 'Deadlock detected', count: 1 },
+    { kind: 'A write was attempted on a read-only connection', count: 1 },
+  ],
+  queries: 4684, errors: 3, tlsStreams: 1, dropped: 0, truncated: 0, format: 'pcap', linkType: 1,
+}
+const pgFixtureCap = {
+  id: 'pg1', label: 'patroni01', stackName: 'pktinspect-pg', state: 'ready', engine: 'postgres',
+  iface: 'eth0', port: 5432, source: 'node', bytes: 14012044, nodePackets: 22578, kernelDropped: 0,
+  command: 'tcpdump -i eth0 -s 65535 -n -q -c 50000 (port 2379 or port 2380 or port 5432 or port 8008) -w /var/tmp/x.cap',
+  ports: { 5432: 'postgres', 8008: 'patroni-rest', 2379: 'etcd-client', 2380: 'etcd-peer' },
+  nodeType: 'patroni', summary: pgFixtureSummary,
+}
+const pgFixturePackets = [
+  {
+    no: 14, ts: 1785824100.2, stream: 3, dir: 'c2s', src: '172.29.0.6:35570', dst: '172.29.0.4:5432',
+    proto: 'PostgreSQL', frameLen: 214, payloadLen: 148, flags: 'ACK,PSH', command: 'Execute',
+    info: 'Bind "stmtcache_407f32e38a17…" → portal unnamed portal, 4 parameter(s), largest 10 B | Execute portal unnamed',
+    query: 'UPDATE cars SET mileage = mileage + $1 WHERE id = $2',
+  },
+  {
+    no: 61, ts: 1785824101.9, stream: 3, dir: 's2c', src: '172.29.0.4:5432', dst: '172.29.0.6:35570',
+    proto: 'PostgreSQL', frameLen: 190, payloadLen: 124, flags: 'ACK,PSH',
+    info: 'ERROR 40P01: deadlock detected | detail: Process 5539 waits for ShareLock…',
+    status: 'Error 40P01 (deadlock_detected): deadlock detected', errState: '40P01', lagMs: 1204.5,
+    issues: ['Deadlock detected — two transactions each held what the other needed'],
+  },
+  {
+    no: 88, ts: 1785824102.4, stream: 9, dir: 's2c', src: '172.29.0.4:5432', dst: '172.29.0.7:44634',
+    proto: 'PostgreSQL', frameLen: 1520, payloadLen: 1454, flags: 'ACK,PSH',
+    info: 'XLogData: 1.4 KB WAL at 0/25211F38',
+  },
+  {
+    no: 91, ts: 1785824102.5, stream: 9, dir: 'c2s', src: '172.29.0.7:44634', dst: '172.29.0.4:5432',
+    proto: 'PostgreSQL', frameLen: 105, payloadLen: 39, flags: 'ACK,PSH',
+    info: 'Standby status: write 0/25211F38, flush 0/25211E10, apply 0/25211E10, 24.0 MB behind',
+    issues: ['Replication lag 24.0 MB — the standby has flushed 0/25211E10'],
+  },
+  {
+    no: 234, ts: 1785824103.1, stream: 21, dir: 'c2s', src: '172.29.0.8:34420', dst: '172.29.0.4:8008',
+    proto: 'Patroni/REST', frameLen: 140, payloadLen: 74, flags: 'ACK,PSH', command: 'GET /primary',
+    info: 'GET /primary — "am I the leader?" — 200 yes, 503 no; this is HAProxy\'s write-port health check',
+  },
+  {
+    no: 1291, ts: 1785824105.6, stream: 30, dir: 'c2s', src: '172.29.0.4:60824', dst: '172.29.0.4:2379',
+    proto: 'etcd/client', frameLen: 160, payloadLen: 94, flags: 'ACK,PSH', command: 'POST /v3/lease/keepalive',
+    info: 'POST /v3/lease/keepalive — a lease — the TTL behind the leader lock',
+  },
+]
+
+check('packet inspector: PostgreSQL capture state (engine badge)', () => {
+  const html = renderToString(<PktState cap={pgFixtureCap} />)
+  if (!html.includes('PostgreSQL')) throw new Error('the decoded protocol is not shown')
+  return html
+})
+check('packet inspector: PostgreSQL summary strip', () => {
+  const html = renderToString(<PktSummary cap={pgFixtureCap} range={pktRange} setRange={noop} />)
+  // The protocol mix and the issue kinds both belong here, and the errors stat must be
+  // labelled for the engine that produced them rather than "MySQL errors".
+  for (const want of ['Patroni/REST', 'etcd/raft', 'Replication lag', 'PostgreSQL errors']) {
+    if (!html.includes(want)) throw new Error(`summary omits ${want}`)
+  }
+  if (html.includes('MySQL')) throw new Error('a PostgreSQL summary mentions MySQL')
+  return html
+})
+check('packet inspector: TLS advice follows the engine', () => {
+  const pg = renderToString(<PktSummary cap={pgFixtureCap} range={pktRange} setRange={noop} />)
+  if (!pg.includes('sslmode=prefer') || !pg.includes('pg_stat_statements')) {
+    throw new Error('PostgreSQL TLS advice missing')
+  }
+  if (pg.includes('caching_sha2_password')) throw new Error('MySQL TLS advice shown for PostgreSQL')
+  const my = renderToString(<PktSummary cap={{ ...pktFixtureCap, engine: 'mysql',
+    summary: { ...pktFixtureSummary, tlsStreams: 2 } }} range={pktRange} setRange={noop} />)
+  if (!my.includes('caching_sha2_password')) throw new Error('MySQL TLS advice missing')
+  if (my.includes('sslmode=prefer')) throw new Error('PostgreSQL TLS advice shown for MySQL')
+  return pg + my
+})
+check('packet inspector: PostgreSQL packet list', () => {
+  const html = renderToString(<PktList packets={pgFixturePackets} first={pgFixtureSummary.firstTs}
+    selectedNo={61} onSelect={noop} />)
+  // A PostgreSQL row has to show its own vocabulary: SQLSTATE, WAL positions, the
+  // cluster's own protocols.
+  for (const want of ['40P01', 'XLogData', 'Standby status', 'Patroni/REST', 'etcd/client', '24.0 MB behind']) {
+    if (!html.includes(want)) throw new Error(`packet list omits ${want}`)
+  }
+  if (html.includes('undefined')) throw new Error('packet list rendered a literal "undefined"')
+  return html
+})
+for (const p of pgFixturePackets) {
+  check(`packet inspector: PostgreSQL details for #${p.no} (${p.proto})`, () => {
+    const html = renderToString(<PktDetails
+      d={{ packet: p, stream: { index: p.stream, version: '16.14', user: 'carsim', database: 'rental',
+        role: 'postgres', roleLabel: p.proto }, hex: '0000  51 00 00 00  |Q...|', bytes: p.frameLen }}
+      first={pgFixtureSummary.firstTs} />)
+    if (html.includes('undefined')) throw new Error('details rendered a literal "undefined"')
+    // A SQLSTATE is a string and has its own row; it must not be lost with MySQL's
+    // numeric error code.
+    if (p.errState && !html.includes(p.errState)) throw new Error('SQLSTATE not shown in details')
+    return html
+  })
+}
+check('packet inspector: PostgreSQL cluster ports explained', () => {
+  const html = renderToString(<PacketInspector />)
+  // The page renders in its empty state here; the port-role text itself is what the
+  // capture card uses, so check the table that feeds it instead of the mounted card.
+  if (!PORT_ROLE_TEXT['patroni-rest'].includes('REST')) throw new Error('no Patroni port role text')
+  if (!PORT_ROLE_TEXT['etcd-client'].includes('leader lock')) throw new Error('no etcd port role text')
+  if (!PORT_ROLE_TEXT.postgres.includes('WAL')) throw new Error('no PostgreSQL port role text')
+  return html
+})
+check('packet inspector: PostgreSQL issues are severe, ordinary SQL errors are not', () => {
+  const severe = ['Deadlock detected', 'Replication lag 24.0 MB', 'FATAL — the server closes',
+    'A write was attempted on a read-only connection', 'Password authentication failed']
+  for (const s of severe) {
+    if (!isSevereIssue(s)) throw new Error(`${s} should be severe`)
+  }
+  // A unique violation from an application that expects them must not paint the
+  // timeline red.
+  for (const s of ['ERROR 23505: duplicate key value violates unique constraint',
+    'syntax error at or near "form"']) {
+    if (isSevereIssue(s)) throw new Error(`${s} should not be severe`)
+  }
+  return 'ok'
+})
+check('packet inspector: PostgreSQL server log', () => {
+  const html = renderToString(<PktServerLog onReload={noop} log={{
+    path: '/var/lib/pgsql/16/data/log/postgresql-Tue.log', source: 'node', scanned: 397, inWindow: 2,
+    windowFrom: 1785824070, windowTo: 1785824150,
+    top: [{ label: 'Password authentication failed', count: 1 }, { label: 'Database does not exist', count: 1 }],
+    entries: [
+      { ts: 1785824105.049, time: '2026-08-04 06:48:25.049 UTC', level: 'FATAL', class: 'auth',
+        label: 'Password authentication failed', inWindow: true,
+        message: 'password authentication failed for user "postgres" | DETAIL: Connection matched pg_hba.conf line 8' },
+      { ts: 1785824105.057, time: '2026-08-04 06:48:25.057 UTC', level: 'FATAL', class: 'auth',
+        label: 'Database does not exist', inWindow: true, message: 'database "nosuch" does not exist' },
+    ],
+    stats: { verbosity: 0, suppressionList: '', counters: {},
+      hint: 'PostgreSQL logs a dropped or refused connection unconditionally — there is no verbosity setting to check.' },
+  }} />)
+  for (const want of ['postgresql-Tue.log', 'Password authentication failed', 'unconditionally']) {
+    if (!html.includes(want)) throw new Error(`PostgreSQL server log omits ${want}`)
+  }
+  return html
+})
+
 check('packet inspector: server error log (window mismatch)', () => {
   const html = renderToString(<PktServerLog onReload={noop}
     log={{ path: 'mysqld.log', source: 'upload', scanned: 40, inWindow: 0, mismatch: true,

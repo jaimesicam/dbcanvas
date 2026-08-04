@@ -35,6 +35,27 @@ var pktSampleCaptures = []struct {
 	{"mysql-tls-upgrade.pcap", sampleTLSUpgrade, "SSLRequest", 5},
 	{"mysql-tcp-trouble.pcap", sampleTCPTrouble, "TCP retransmission", 5},
 	{"net-arp-dns.pcap", sampleARPandDNS, "who-has", 10},
+	// PostgreSQL. The engine is not passed to the decoder for these on purpose — the
+	// sniffer has to reach the right answer from the bytes, which is what an upload
+	// depends on.
+	{"pg-session-errors.pcap", samplePGSession, "ERROR 40P01", 20},
+	{"pg-replication.pcap", samplePGReplication, "Standby status", 8},
+	{"pg-patroni-cluster.pcap", samplePGPatroni, "Patroni/REST", 8},
+}
+
+// sampleOpts is how each sample is decoded. The MySQL ones name their port; the
+// PostgreSQL ones name nothing but the port a real capture would have been taken on,
+// leaving the protocol to pktSniffEngine — the sample then also tests the path an
+// upload takes. The Patroni sample carries its cluster port roles, exactly as a
+// capture of a Patroni member does.
+func sampleOpts(name string) pktDecodeOpts {
+	switch {
+	case strings.HasPrefix(name, "pg-patroni"):
+		return pktDecodeOpts{ServerPort: pgClientPort, PortRoles: pktPGPortRoles(pgClientPort)}
+	case strings.HasPrefix(name, "pg-"):
+		return pktDecodeOpts{ServerPort: pgClientPort}
+	}
+	return pktDecodeOpts{ServerPort: srvPort}
 }
 
 func TestWriteSampleCaptures(t *testing.T) {
@@ -48,7 +69,7 @@ func TestWriteSampleCaptures(t *testing.T) {
 		if err := os.WriteFile(path, buf, 0o644); err != nil {
 			t.Fatalf("%s: %v", s.name, err)
 		}
-		d, err := pktDecode(buf, pktDecodeOpts{ServerPort: srvPort})
+		d, err := pktDecode(buf, sampleOpts(s.name))
 		if err != nil {
 			t.Fatalf("%s: decodes with an error: %v", s.name, err)
 		}
@@ -263,7 +284,7 @@ func sampleARPandDNS() []byte {
 // absent, which is the same as not having a test.)
 func TestSampleCapturesDecode(t *testing.T) {
 	for _, s := range pktSampleCaptures {
-		d, err := pktDecode(s.build(), pktDecodeOpts{ServerPort: srvPort})
+		d, err := pktDecode(s.build(), sampleOpts(s.name))
 		if err != nil {
 			t.Errorf("%s: %v", s.name, err)
 			continue
@@ -287,4 +308,136 @@ func TestSampleCapturesDecode(t *testing.T) {
 			t.Errorf("%s no longer demonstrates %q", s.name, s.want)
 		}
 	}
+}
+
+// ---------------------------------------------------------------- PostgreSQL samples
+
+// samplePGSession is one connection that does everything an application connection
+// does, and then fails in the four ways worth recognising: a deadlock, a write to a
+// read-only connection, a cancelled statement, and a FATAL that ends the session.
+func samplePGSession() []byte {
+	b := newPcap(pktLinkEther)
+	c := pgSession(b)
+	pgSend(c, time.Millisecond, pgStartup("user", "carsim", "database", "rental", "application_name", "carsim"))
+	pgRecv(c, time.Millisecond, pgMsg('R', []byte{0, 0, 0, 10, 'S', 'C', 'R', 'A', 'M', '-', 'S', 'H', 'A', '-', '2', '5', '6', 0, 0}))
+	pgSend(c, time.Millisecond, pgMsg('p', []byte("SCRAM-SHA-256\x00n,,n=,r=rOprNGfwEbeRWgbNEkqO")))
+	pgRecv(c, time.Millisecond, pgMsg('R', []byte{0, 0, 0, 11}))
+	pgSend(c, time.Millisecond, pgMsg('p', []byte("c=biws,r=rOprNGfwEbeRWgbNEkqO,p=dHzbZapWIk4jUhN+")))
+	pgRecv(c, 2*time.Millisecond, concat(
+		pgMsg('R', []byte{0, 0, 0, 12}), pgAuthOK(),
+		pgMsg('S', []byte("server_version\x0016.14\x00")),
+		pgMsg('K', []byte{0, 0, 0x0b, 0x94, 0x11, 0x22, 0x33, 0x44}),
+		pgReady('I')))
+
+	// A simple query with a result set.
+	pgSend(c, 3*time.Millisecond, pgQuery("SELECT id, plate, mileage FROM cars WHERE branch_id = 12 ORDER BY id"))
+	pgRecv(c, 4*time.Millisecond, concat(
+		pgRowDesc("id", "plate", "mileage"),
+		pgDataRow("1", "ABC-1234", "84210"), pgDataRow("2", "XYZ-9876", "12995"),
+		pgCmdDone("SELECT 2"), pgReady('I')))
+
+	// The extended protocol: a named statement bound and executed inside a transaction.
+	parse := pgMsg('P', concat([]byte("s1\x00"),
+		[]byte("UPDATE cars SET mileage = mileage + $1 WHERE id = $2"), []byte{0, 0, 0}))
+	bind := pgMsg('B', concat([]byte{0}, []byte("s1\x00"), []byte{0, 0, 0, 2},
+		[]byte{0, 0, 0, 3}, []byte("120"), []byte{0, 0, 0, 1}, []byte("1"), []byte{0, 0}))
+	pgSend(c, 2*time.Millisecond, concat(pgQuery("BEGIN")))
+	pgRecv(c, time.Millisecond, concat(pgCmdDone("BEGIN"), pgReady('T')))
+	pgSend(c, time.Millisecond, concat(parse, bind, pgMsg('E', []byte{0, 0, 0, 0, 0}), pgMsg('S', nil)))
+	pgRecv(c, 2*time.Millisecond, concat(pgMsg('1', nil), pgMsg('2', nil), pgCmdDone("UPDATE 1")))
+	pgRecv(c, time.Millisecond, pgReady('T'))
+
+	// A deadlock ends the transaction.
+	pgSend(c, time.Millisecond, pgQuery("UPDATE branches SET fleet = fleet - 1 WHERE id = 12"))
+	pgRecv(c, 1200*time.Millisecond, concat(
+		pgErr('E', "ERROR", "40P01", "deadlock detected", map[byte]string{
+			'D': "Process 5539 waits for ShareLock on transaction 821; blocked by process 5540.",
+			'H': "See server log for query details."}),
+		pgReady('E')))
+	pgSend(c, time.Millisecond, pgQuery("ROLLBACK"))
+	pgRecv(c, time.Millisecond, concat(pgCmdDone("ROLLBACK"), pgReady('I')))
+
+	// A write that reached a standby: the load balancer sent it to the wrong node.
+	pgSend(c, 2*time.Millisecond, pgQuery("INSERT INTO bookings (car_id, day) VALUES (1, current_date)"))
+	pgRecv(c, time.Millisecond, concat(
+		pgErr('E', "ERROR", "25006", "cannot execute INSERT in a read-only transaction", nil),
+		pgReady('I')))
+
+	// A statement cancelled by statement_timeout, then a FATAL that ends the session.
+	pgSend(c, 2*time.Millisecond, pgQuery("SELECT pg_sleep(30)"))
+	pgRecv(c, 300*time.Millisecond, concat(
+		pgErr('E', "ERROR", "57014", "canceling statement due to statement timeout", nil),
+		pgReady('I')))
+	pgRecv(c, 5*time.Millisecond, pgErr('E', "FATAL", "57P01",
+		"terminating connection due to administrator command", nil))
+	c.b.frame(c.tick(time.Millisecond), pgS2C(c.sseq, c.cseq, tcpACK|tcpFIN, nil))
+	return b.buf
+}
+
+// samplePGReplication is a standby streaming from a primary, captured mid-stream — the
+// normal case, since replication connections outlive any capture. It carries the LSNs
+// that make lag measurable, then falls a WAL segment behind.
+func samplePGReplication() []byte {
+	b := newPcap(pktLinkEther)
+	// No SYN: this connection is older than the capture.
+	c := &sampleConn{b: b, cseq: 70000, sseq: 90000}
+	sent := uint64(0x25211CE8)
+	flushed := sent
+	for i := 0; i < 6; i++ {
+		pgSend(c, 400*time.Millisecond, pgStandbyStatus(flushed, flushed, flushed))
+		sent += 0x1000
+		pgRecv(c, 100*time.Millisecond, pgXLogData(flushed, sent, make([]byte, 296)))
+		flushed = sent
+	}
+	// The standby stops keeping up: the primary streams on, the standby's flush LSN
+	// stays where it was, and the gap passes a WAL segment.
+	for i := 0; i < 4; i++ {
+		sent += 0x600000
+		pgRecv(c, 200*time.Millisecond, pgXLogData(sent-0x600000, sent, make([]byte, 1400)))
+	}
+	pgSend(c, 400*time.Millisecond, pgStandbyStatus(flushed, flushed, flushed))
+	pgRecv(c, 100*time.Millisecond, pgKeepalive(sent, 1))
+	return b.buf
+}
+
+// samplePGPatroni is the traffic that decides who leads: HAProxy's health checks against
+// two members' REST APIs, and Patroni renewing its lease in etcd. The replica answering
+// 503 on /primary is correct behaviour, not a fault, and the sample exists partly to
+// show that it is not flagged.
+func samplePGPatroni() []byte {
+	b := newPcap(pktLinkEther)
+	http := func(port int, cseq, sseq uint32, at time.Duration, req, res string) {
+		b.frame(at, ethIPv4TCP(cliIP, srvIP, cliPort+int(cseq%97), port, cseq, sseq, tcpACK|tcpPSH, 64240, []byte(req)))
+		b.frame(at+2*time.Millisecond, ethIPv4TCP(srvIP, cliIP, port, cliPort+int(cseq%97), sseq, cseq+uint32(len(req)), tcpACK|tcpPSH, 64240, []byte(res)))
+	}
+	// The leader answers 200 on /primary; the same check on a replica answers 503.
+	http(patroniRESTPort, 1000, 5000, 0,
+		"GET /primary HTTP/1.1\r\nHost: patroni01:8008\r\nUser-Agent: HAProxy\r\n\r\n",
+		"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"state\": \"running\", \"role\": \"primary\", \"timeline\": 1}")
+	http(patroniRESTPort, 2000, 6000, 2*time.Second,
+		"GET /replica HTTP/1.1\r\nHost: patroni01:8008\r\nUser-Agent: HAProxy\r\n\r\n",
+		"HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\n\r\n{\"state\": \"running\", \"role\": \"primary\"}")
+	// Patroni renewing the lease that holds the leader lock, and reading cluster state.
+	http(etcdClientPort, 3000, 7000, 3*time.Second,
+		"POST /v3/lease/keepalive HTTP/1.1\r\nHost: patroni01:2379\r\nContent-Length: 29\r\n\r\n",
+		"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n")
+	http(etcdClientPort, 4000, 8000, 4*time.Second,
+		"POST /v3/kv/range HTTP/1.1\r\nHost: patroni01:2379\r\nContent-Length: 96\r\n\r\n",
+		"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n")
+	// And the failure that precedes every Patroni failover: etcd stops answering.
+	http(etcdClientPort, 5000, 9000, 5*time.Second,
+		"POST /v3/kv/txn HTTP/1.1\r\nHost: patroni01:2379\r\nContent-Length: 142\r\n\r\n",
+		"HTTP/1.1 503 Service Unavailable\r\n\r\netcdserver: request timed out")
+	return b.buf
+}
+
+// concat joins byte slices, which the PostgreSQL samples need constantly: one TCP
+// segment usually carries several protocol messages, and nested append() calls are
+// unreadable at four deep.
+func concat(parts ...[]byte) []byte {
+	var out []byte
+	for _, p := range parts {
+		out = append(out, p...)
+	}
+	return out
 }
