@@ -173,6 +173,14 @@ export const PROTO_TONE = {
   'MongoDB/config': 'accent',
   'MongoDB/election': 'warning',
   'MongoDB/internal': 'accent',
+  // Valkey: RESP on the client port (which also carries replication), and a binary
+  // gossip bus on the client port + 10000.
+  Valkey: 'primary',
+  'Valkey/replication': 'primary',
+  'Valkey/pubsub': 'accent',
+  'Valkey/monitor': 'muted',
+  'Valkey/bus': 'success',
+  'Valkey/sentinel': 'success',
   // The traffic underneath the database: name resolution and layer 2.
   DNS: 'accent',
   ARP: 'accent',
@@ -188,6 +196,10 @@ export const PORT_ROLE_TEXT = {
   'galera-ist': 'Galera IST — incremental catch-up from a donor',
   'galera-sst': 'Galera SST — full dataset copy from a donor',
   postgres: 'PostgreSQL frontend/backend protocol — client sessions and WAL streaming',
+  valkey: 'RESP: client commands and replication, which share this port',
+  'valkey-bus': 'the cluster bus: binary gossip — heartbeats, failure detection and failover votes',
+  'valkey-sentinel': 'Sentinel: monitoring and failover for a non-clustered primary/replica pair',
+  mongodb: 'the MongoDB wire protocol — clients, heartbeats, oplog tailing and routing all share this port',
   'patroni-rest': "Patroni's REST API — HAProxy's health checks and patronictl",
   'etcd-client': 'etcd client API — where the Patroni leader lock is taken and renewed',
   'etcd-peer': 'etcd peer traffic — raft heartbeats between the etcd members',
@@ -195,7 +207,9 @@ export const PORT_ROLE_TEXT = {
 
 // ENGINE_LABEL names the protocol a capture was decoded as. Shown because an upload
 // may have been decided by the sniffer rather than chosen.
-export const ENGINE_LABEL = { mysql: 'MySQL', postgres: 'PostgreSQL', mongodb: 'MongoDB' }
+export const ENGINE_LABEL = {
+  mysql: 'MySQL', postgres: 'PostgreSQL', mongodb: 'MongoDB', valkey: 'Valkey',
+}
 
 // MONGO_KIND_TEXT explains the connection kinds MongoDB multiplexes onto one port. It is
 // the analogue of PORT_ROLE_TEXT, keyed by kind instead of by port, because for MongoDB
@@ -269,6 +283,16 @@ const SEVERE = [
   'Election in progress', 'replSetStepDown', 'replSetStepUp', 'Chunk migration',
   'Replica-set configuration change', 'Write concern not satisfied',
   'legacy opcode removed', 'legacy read path',
+  // Valkey. From valkeyErrCatalog and pktvalkey.go/pktvalkeybus.go. WRONGTYPE, NOSCRIPT
+  // and a plain ERR are absent on purpose: those are the application's business.
+  'MOVED', 'ASK ', 'TRYAGAIN', 'CROSSSLOT', 'CLUSTERDOWN', 'MASTERDOWN',
+  'LOADING', 'MISCONF', 'READONLY', 'OOM', 'NOREPLICAS',
+  'NOAUTH', 'WRONGPASS', 'NOPERM', 'BUSY', 'UNKILLABLE',
+  'FULLRESYNC', 'Replication lag', 'KEYS *', 'FLUSHALL', 'FLUSHDB', 'DEBUG SLEEP',
+  'SHUTDOWN', 'SAVE —', 'SWAPDB', 'SCRIPT FLUSH', 'CONFIG SET',
+  'MONITOR —', 'FAILOVER —', 'CLUSTER FAILOVER', 'FAIL message', 'MEET from',
+  'FAILOVER_AUTH', 'Cluster epoch rose', 'Inline command', 'maxclients reached',
+  'Protocol error', 'AUTH on an unencrypted connection', 'Client-side cache invalidation',
 ]
 
 export const isSevereIssue = (s) => SEVERE.some((k) => (s || '').includes(k))

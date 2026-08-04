@@ -17,6 +17,7 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +45,10 @@ var pktSampleCaptures = []struct {
 	// MongoDB. Also decoded without being told the engine, so the sniffer is exercised.
 	{"mongo-session-errors.pcap", sampleMongoSession, "DuplicateKey", 18},
 	{"mongo-replset.pcap", sampleMongoReplSet, "MongoDB/oplog", 12},
+	// Valkey, likewise decoded without being told the engine.
+	{"valkey-session-errors.pcap", sampleValkeySession, "MOVED", 20},
+	{"valkey-replication.pcap", sampleValkeyReplication, "RDB transfer", 14},
+	{"valkey-cluster-bus.pcap", sampleValkeyBus, "Valkey/bus", 6},
 }
 
 // sampleOpts is how each sample is decoded. The MySQL ones name their port; the
@@ -59,6 +64,10 @@ func sampleOpts(name string) pktDecodeOpts {
 		return pktDecodeOpts{ServerPort: pgClientPort}
 	case strings.HasPrefix(name, "mongo-"):
 		return pktDecodeOpts{ServerPort: mongoClientPort}
+	case strings.HasPrefix(name, "valkey-cluster"):
+		return pktDecodeOpts{ServerPort: valkeyClientPort, PortRoles: pktValkeyPortRoles(valkeyClientPort)}
+	case strings.HasPrefix(name, "valkey-"):
+		return pktDecodeOpts{ServerPort: valkeyClientPort}
 	}
 	return pktDecodeOpts{ServerPort: srvPort}
 }
@@ -612,5 +621,143 @@ func sampleMongoReplSet() []byte {
 		bInt32("replSetRequestVotes", 1), bInt32("term", 2),
 		bStr("setName", "psmrs-00"), bStr("$db", "admin")), ""))
 	el.recv(2*time.Millisecond, okReply(41, bBool("voteGranted", true)))
+	return b.buf
+}
+
+// ---------------------------------------------------------------- Valkey samples
+
+// sampleValkeySession is one client connection doing ordinary work and then meeting the
+// five errors worth recognising: a cluster redirect, a write to a replica, a server out
+// of memory, a server refusing writes because persistence is failing, and a wrong type.
+// It also carries the two commands a capture is the right place to catch in the act.
+func sampleValkeySession() []byte {
+	b := newPcap(pktLinkEther)
+	c := vkSession(b)
+	vkSend(c, time.Millisecond, respArr("AUTH", "default", "valkey_password"))
+	vkRecv(c, time.Millisecond, respSimpleStr("OK"))
+	vkSend(c, time.Millisecond, respArr("HELLO", "3"))
+	vkRecv(c, time.Millisecond, []byte("%3\r\n$6\r\nserver\r\n$6\r\nvalkey\r\n$7\r\nversion\r\n$5\r\n9.1.1\r\n$5\r\nproto\r\n:3\r\n"))
+
+	// Ordinary work.
+	vkSend(c, 2*time.Millisecond, respArr("SET", "session:abc", "user=1000;cart=3", "EX", "1800"))
+	vkRecv(c, time.Millisecond, respSimpleStr("OK"))
+	vkSend(c, time.Millisecond, respArr("GET", "session:abc"))
+	vkRecv(c, time.Millisecond, respBulkStr("user=1000;cart=3"))
+	vkSend(c, time.Millisecond, respArr("HSET", "cart:1000", "sku:1", "2", "sku:2", "1"))
+	vkRecv(c, time.Millisecond, respIntVal(2))
+	vkSend(c, time.Millisecond, respArr("HGETALL", "cart:1000"))
+	vkRecv(c, time.Millisecond, respArr("sku:1", "2", "sku:2", "1"))
+	vkSend(c, time.Millisecond, respArr("INCR", "hits:home"))
+	vkRecv(c, time.Millisecond, respIntVal(84213))
+	vkSend(c, time.Millisecond, respArr("GET", "gone"))
+	vkRecv(c, time.Millisecond, respNil())
+
+	// A pipeline, which is how a client should be using this.
+	var batch, replies []byte
+	for i := 0; i < 40; i++ {
+		batch = append(batch, respArr("SET", "batch:"+strconv.Itoa(i), "v")...)
+		replies = append(replies, respSimpleStr("OK")...)
+	}
+	vkSend(c, 2*time.Millisecond, batch)
+	vkRecv(c, 3*time.Millisecond, replies)
+
+	// KEYS on the whole keyspace: safe on a laptop, a stall on a real server.
+	vkSend(c, 2*time.Millisecond, respArr("KEYS", "session:*"))
+	vkRecv(c, 120*time.Millisecond, respArr("session:abc", "session:def"))
+
+	// The five errors.
+	vkSend(c, 2*time.Millisecond, respArr("GET", "user:{other}:1"))
+	vkRecv(c, time.Millisecond, respErr("MOVED 12182 172.31.0.5:6379"))
+	vkSend(c, 2*time.Millisecond, respArr("SET", "written:here", "1"))
+	vkRecv(c, time.Millisecond, respErr("READONLY You can't write against a read only replica."))
+	vkSend(c, 2*time.Millisecond, respArr("SET", "big:blob", "…"))
+	vkRecv(c, time.Millisecond, respErr("OOM command not allowed when used memory > 'maxmemory'."))
+	vkSend(c, 2*time.Millisecond, respArr("SET", "any:key", "1"))
+	vkRecv(c, time.Millisecond, respErr("MISCONF Errors writing to the AOF file: No space left on device"))
+	vkSend(c, 2*time.Millisecond, respArr("LPUSH", "session:abc", "nope"))
+	vkRecv(c, time.Millisecond, respErr("WRONGTYPE Operation against a key holding the wrong kind of value"))
+
+	// A slow reply, which on a single-threaded server delayed every other client too.
+	vkSend(c, 2*time.Millisecond, respArr("SINTERSTORE", "dest", "big:set:1", "big:set:2"))
+	vkRecv(c, 220*time.Millisecond, respIntVal(19004))
+	vkSend(c, time.Millisecond, respArr("QUIT"))
+	vkRecv(c, time.Millisecond, respSimpleStr("OK"))
+	return b.buf
+}
+
+// sampleValkeyReplication is a replica attaching to a primary: the REPLCONF handshake,
+// PSYNC, the keep-alive newlines a forking primary sends, a diskless RDB transfer, the
+// propagated command stream, and the offsets that make lag measurable.
+func sampleValkeyReplication() []byte {
+	b := newPcap(pktLinkEther)
+	c := vkSession(b)
+	vkSend(c, time.Millisecond, respArr("PING"))
+	vkRecv(c, time.Millisecond, respSimpleStr("PONG"))
+	vkSend(c, time.Millisecond, respArr("REPLCONF", "listening-port", "6379"))
+	vkRecv(c, time.Millisecond, respSimpleStr("OK"))
+	vkSend(c, time.Millisecond, respArr("REPLCONF", "capa", "eof", "capa", "psync2"))
+	vkRecv(c, time.Millisecond, respSimpleStr("OK"))
+	vkSend(c, time.Millisecond, respArr("PSYNC", "?", "-1"))
+	// The primary forks and saves, keeping the link warm with bare newlines.
+	for i := 0; i < 3; i++ {
+		vkRecv(c, 700*time.Millisecond, []byte("\n"))
+	}
+	mark := "0123456789abcdef0123456789abcdef01234567"
+	vkRecv(c, 300*time.Millisecond, respSimpleStr("FULLRESYNC 31b51a3dbeef7ab0f2f0a34e0e4d5a5b6c7d8e9f 22238"))
+	vkRecv(c, time.Millisecond, []byte("$EOF:"+mark+"\r\n"))
+	// The dataset, in wire-sized pieces.
+	for i := 0; i < 8; i++ {
+		vkRecv(c, 2*time.Millisecond, []byte(strings.Repeat("R", 8000)))
+	}
+	vkRecv(c, 2*time.Millisecond, append([]byte(strings.Repeat("R", 1200)), []byte(mark)...))
+	// Then the incremental stream, forever.
+	vkRecv(c, 5*time.Millisecond, respArr("SELECT", "0"))
+	for i := 0; i < 12; i++ {
+		vkRecv(c, 40*time.Millisecond, respArr("SET", "prop:"+strconv.Itoa(i), "value-"+strconv.Itoa(i)))
+	}
+	vkRecv(c, 10*time.Millisecond, respArr("PING"))
+	vkSend(c, 5*time.Millisecond, respArr("REPLCONF", "ACK", "22238"))
+	vkRecv(c, 100*time.Millisecond, respArr("REPLCONF", "GETACK", "*"))
+	vkSend(c, 2*time.Millisecond, respArr("REPLCONF", "ACK", "22902"))
+	return b.buf
+}
+
+// sampleValkeyBus is the cluster's own protocol: gossip between three nodes, a node
+// declared failed, and the election that follows. None of it is RESP, and none of it is
+// visible on the client port.
+func sampleValkeyBus() []byte {
+	b := newPcap(pktLinkEther)
+	busPort := valkeyClientPort + valkeyBusOffset
+	cseq, sseq := uint32(1000), uint32(5000)
+	b.frame(0, ethIPv4TCP(cliIP, srvIP, cliPort, busPort, cseq, 0, tcpSYN, 64240, nil))
+	cseq++
+	b.frame(time.Millisecond, ethIPv4TCP(srvIP, cliIP, busPort, cliPort, sseq, cseq, tcpSYN|tcpACK, 64240, nil))
+	sseq++
+	at := 2 * time.Millisecond
+	send := func(msg []byte) {
+		b.frame(at, ethIPv4TCP(cliIP, srvIP, cliPort, busPort, cseq, sseq, tcpACK|tcpPSH, 64240, msg))
+		cseq += uint32(len(msg))
+		at += 500 * time.Millisecond
+	}
+	recv := func(msg []byte) {
+		b.frame(at, ethIPv4TCP(srvIP, cliIP, busPort, cliPort, sseq, cseq, tcpACK|tcpPSH, 64240, msg))
+		sseq += uint32(len(msg))
+		at += 500 * time.Millisecond
+	}
+	a := "00089dc7c673aaaabbbbccccddddeeeeffff0000"
+	bb := "43080f81daebda5d8ae03150c03393b73fe593b3"
+	cc := "9f710104eb03b450dcd4d00875977b0eeac9329c"
+	// The steady state: three primaries, 16 384 slots between them.
+	for i := 0; i < 3; i++ {
+		send(vkBusMsg(busPing, a, 3, 1, 100+uint64(i)*10, 5461, ""))
+		recv(vkBusMsg(busPong, bb, 3, 2, 200+uint64(i)*10, 5461, ""))
+	}
+	// One node stops answering, and the cluster says so.
+	send(vkBusMsg(busFail, a, 4, 1, 130, 5461, ""))
+	// Its replica stands for election, and a primary votes.
+	recv(vkBusMsg(busFailoverAuthReq, cc, 5, 0, 0, 0, bb))
+	send(vkBusMsg(busFailoverAuthAck, a, 5, 1, 130, 5461, ""))
+	// And the winner now claims the slots.
+	recv(vkBusMsg(busPong, cc, 5, 5, 240, 5462, ""))
 	return b.buf
 }

@@ -28,7 +28,7 @@ import {
 const DEFAULTS = { seconds: 20, packets: 50000, snaplen: 65535, filter: '', allPorts: false }
 // Each protocol's own port, for the upload form's placeholder. Blank means the decoder
 // sniffs the protocol first and then applies its default.
-const DEFAULT_PORTS = { mysql: '3306', postgres: '5432', mongodb: '27017' }
+const DEFAULT_PORTS = { mysql: '3306', postgres: '5432', mongodb: '27017', valkey: '6379' }
 const PAGE = 200
 
 // A range is the single source of truth for what the list and the timeline show.
@@ -219,6 +219,7 @@ export default function PacketInspector() {
                   <option value="mysql">MySQL</option>
                   <option value="postgres">PostgreSQL</option>
                   <option value="mongodb">MongoDB</option>
+                  <option value="valkey">Valkey</option>
                 </select>
               </Field>
               <Field label="Server port"
@@ -246,7 +247,7 @@ export default function PacketInspector() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="Database node">
             <select className={inputCls} value={target} onChange={(e) => setTarget(e.target.value)}>
-              <option value="">Select a provisioned MySQL, PostgreSQL or MongoDB node…</option>
+              <option value="">Select a provisioned MySQL, PostgreSQL, MongoDB or Valkey node…</option>
               {(targets || []).map((t) => (
                 <option key={pktTargetKey(t)} value={pktTargetKey(t)}>
                   {t.label} · {t.stackName} ({ENGINE_LABEL[t.engine] || t.engine}, port {t.port})
@@ -303,7 +304,7 @@ export default function PacketInspector() {
             </a>
           )}
           {!targets?.length && targets !== null && (
-            <span className="text-xs text-muted">No running MySQL, PostgreSQL or MongoDB nodes — deploy one first.</span>
+            <span className="text-xs text-muted">No running MySQL, PostgreSQL, MongoDB or Valkey nodes — deploy one first.</span>
           )}
         </div>
 
@@ -339,7 +340,9 @@ export default function PacketInspector() {
                 ? 'A Galera cluster member speaks four protocols on four ports — all four are captured:'
                 : cap.nodeType === 'patroni'
                   ? 'A Patroni member speaks PostgreSQL, its own REST API and etcd — all of them are captured, because a failover is decided in etcd rather than in PostgreSQL:'
-                  : 'Ports covered by this capture:'}
+                  : cap.nodeType === 'valkeycluster'
+                    ? 'A clustered Valkey node speaks RESP on its client port and a binary gossip bus on that port + 10000, where failure detection and failover votes happen:'
+                    : 'Ports covered by this capture:'}
             </div>
             <div className="space-y-0.5">
               {Object.entries(cap.ports).sort((a, b) => Number(a[0]) - Number(b[0])).map(([port, role]) => (
@@ -572,7 +575,17 @@ export function SummaryStrip({ cap, range, setRange }) {
           <span className="font-medium text-warning">
             {s.tlsStreams} connection(s) are encrypted, so their payload is not readable here.
           </span>
-          {cap.engine === 'mongodb' ? (
+          {cap.engine === 'valkey' ? (
+            <span className="mt-1 block text-muted">
+              Sizes, timing and every TCP-level problem are still accurate; only the commands are
+              not available. Valkey&apos;s TLS is a separate port (<code className="font-mono">tls-port</code>)
+              with no in-band upgrade, so a capture of it is opaque from the first byte. For the
+              commands: capture the plaintext port for the diagnostic window, or read them from
+              the server&apos;s own <code className="font-mono">SLOWLOG</code> or a
+              <code className="font-mono"> MONITOR</code> stream — remembering that MONITOR makes the
+              server serialise every command a second time.
+            </span>
+          ) : cap.engine === 'mongodb' ? (
             <span className="mt-1 block text-muted">
               Sizes, timing and every TCP-level problem are still accurate; only the commands are
               not available. MongoDB has no in-band upgrade — TLS either starts the connection or

@@ -8,22 +8,24 @@ server say back", which neither the slow log nor `SHOW PROCESSLIST` can answer.
 
 Open it from the sidebar (**Packet Inspector**) or at `#packet-inspector`.
 
-Three protocols are decoded:
+Four protocols are decoded:
 
 | Family | Nodes | Cluster traffic also captured |
 | --- | --- | --- |
 | **MySQL** | Percona Server, PXC, MariaDB (incl. Galera), MySQL Community, All-in-One MySQL instances | Galera on 4567 / 4568 / 4444 |
 | **PostgreSQL** | PostgreSQL, Patroni, repmgr, Spock, All-in-One PostgreSQL instances | Patroni's REST API on 8008, etcd on 2379 / 2380 |
 | **MongoDB** | Percona Server for MongoDB — standalone, replica set, sharded cluster (mongod, mongos and config servers), All-in-One MongoDB instances | all of it, on 27017: heartbeats, elections, oplog tailing, mongos→shard routing |
+| **Valkey** | Valkey — standalone or clustered, All-in-One Valkey instances | the binary cluster bus on 16379 (client port + 10000), and Sentinel on 26379 |
 
-Everything below applies to all three unless a section says otherwise. The
+Everything below applies to all four unless a section says otherwise. The
 engine-specific parts are [PostgreSQL](#postgresql-the-frontendbackend-protocol),
 [MongoDB](#mongodb-one-port-many-conversations),
+[Valkey](#valkey-resp-and-a-binary-cluster-bus),
 [PXC / Galera](#pxc--galera-four-ports-four-protocols),
 [Patroni](#patroni-postgresql-its-rest-api-and-etcd) and
 [MySQL communication errors](#mysql-communication-errors-where-each-one-is-visible).
 
-The three engines put their cluster traffic in strikingly different places, which is why
+The four engines put their cluster traffic in strikingly different places, which is why
 each gets its own section:
 
 | | Client protocol | Replication | Cluster control |
@@ -31,9 +33,11 @@ each gets its own section:
 | MySQL/PXC | 3306 | binlog stream on 3306 | Galera on **three separate ports** |
 | PostgreSQL/Patroni | 5432 | walsender on **5432**, alongside clients | Patroni REST + etcd on **three separate ports** |
 | MongoDB | 27017 | oplog tailing on **27017** | heartbeats, elections, routing — **all on 27017** |
+| Valkey | 6379 | PSYNC on **6379**, alongside clients | a binary gossip bus on **16379** |
 
 MongoDB is the extreme case: one port carries everything, so its connections are told
-apart by what is *in* them rather than by where they arrived.
+apart by what is *in* them rather than by where they arrived. Valkey sits in between — one
+port for clients and replication, a separate one for the cluster's own decisions.
 
 ## Where the capture happens
 
@@ -80,6 +84,7 @@ capture long before the hour is up.
 | MySQL | greeting (server version, connection id), login (user), `COM_QUERY` and the rest, OK / ERR / EOF, result sets (columns, rows, bytes), prepared statements, and replication (`COM_BINLOG_DUMP` + the binlog event stream) |
 | PostgreSQL | startup (user, database, `application_name`), authentication (SCRAM, md5, cleartext, GSSAPI), simple and extended query protocol (Parse/Bind/Describe/Execute/Sync), row descriptions and data rows, `CommandComplete` tags, ErrorResponse/NoticeResponse with SQLSTATE, COPY, `ReadyForQuery` with its transaction status, and replication — physical and logical, with both ends' LSNs |
 | MongoDB | the wire protocol (OP_MSG, OP_QUERY/OP_REPLY, OP_COMPRESSED) and the **BSON** inside it: the command and its namespace, filters, sorts, pipelines, document sequences, replies with their cursors and counts, `ok: 0` errors with code and codeName, `writeErrors` and `writeConcernError`, sessions and transactions — plus **snappy and zlib decompression**, since a real deployment compresses by default |
+| Valkey | **RESP2 and RESP3**: commands with their keys and arguments, every reply type (including maps, sets, doubles, big numbers and pushes), pipelined batches matched by order, error replies by their code word, pub/sub delivery, and replication — PSYNC, `+FULLRESYNC`/`+CONTINUE`, the RDB transfer (disk-based and diskless) and the propagated command stream with both ends' offsets. Plus the **binary cluster bus**: message type, sender, epochs and the slot bitmap |
 | TLS | records by type and version once a connection upgrades — see [Encrypted traffic](#encrypted-traffic) |
 | DNS | queries and responses: name, type, answers, response code, and the lookup's latency |
 | ARP | who-has / is-at, gratuitous announcements, and who claims which address |
@@ -121,6 +126,13 @@ That second one is not a nicety. On the live 3-node Patroni cluster this was bui
 against, the first version decoded the server's half of every session and left **22 000
 client frames** and every standby stream as "joined mid-connection"; with both anchors,
 one frame in a 20-second capture stayed unknown.
+
+**Valkey** is the hardest of the four to re-anchor, and the reason is that RESP is text: a
+type byte and a CRLF occur constantly inside ordinary data. A cached JSON document, a
+serialised session, an RDB chunk — any of them contains bytes that look like the start of a
+value. So the re-anchor requires a **complete, well-formed aggregate or bulk string**, and
+a lone `+OK` or `:1` is never enough to anchor on. Being conservative costs a few frames of
+"framing lost" and buys not inventing commands out of somebody's cache contents.
 
 **MongoDB** needs no re-anchoring logic once the stream is aligned — every message states
 its own length in its first four bytes — but finding that alignment mid-stream is the
@@ -500,6 +512,144 @@ each message states its own side. The stream list's client/server columns additi
 the SYN — whoever sent it is the client — which is remembered per address pair and only
 consulted for same-port connections.
 
+## Valkey: RESP, and a binary cluster bus
+
+Valkey puts two protocols on two ports, which is Galera's model rather than MongoDB's:
+
+| Port | Carries | Shown as |
+| --- | --- | --- |
+| 6379 | **RESP** — client commands *and* replication. A replica's link starts as an ordinary connection, sends PSYNC, and then never stops | `Valkey`, `Valkey/replication`, `Valkey/pubsub`, `Valkey/monitor` |
+| 16379 | the **cluster bus**: binary gossip between nodes — heartbeats, failure detection, failover votes and slot ownership. Always the client port + 10000 | `Valkey/bus` |
+| 26379 | **Sentinel**: RESP again, for monitoring and failover of a non-clustered pair | `Valkey/sentinel` |
+
+RESP itself is the only text protocol of the four, and the only one with **no request id**.
+Replies are matched to commands by order alone, so the decoder keeps a FIFO of outstanding
+commands per connection — which is also the only way to report a command's latency at all.
+A client may pipeline dozens of commands into one segment before reading any reply, and
+that depth is reported once per connection: it is good for throughput, and it is the depth
+a decoder has to stay in step with.
+
+### Reading a command
+
+| Shown as | From |
+| --- | --- |
+| `SET session:abc ← user=1000;cart=3 (16 bytes) [EX 1800]` | the command, its key, the value's size, and the expiry options — because a `SET` with no expiry in a cache is where a memory problem starts |
+| `GET → "alice" (0.3 ms)` | the reply, paired with its command by position, and the round trip |
+| `LRANGE → ["a" "b" "c"]` / `HGETALL → {…4 fields}` | aggregate replies, rendered shallowly: a 10 000-element reply is summarised by its count, never printed |
+| `AUTH user default, password (not shown)` | the password is **never** rendered — see below |
+| `MGET → 12 key(s): …` / `aggregate 3-stage pipeline` | the commands whose shape matters get their own summary |
+| `HELLO protocol 3` | the RESP version negotiated, which changes what a reply can be |
+| `push: message on "news", 17 bytes` | pub/sub delivery — **unprompted**, so it must not consume a queued command, or every later reply is mislabelled |
+| `PING (inline, no RESP framing)` | an inline command: bare text, no array. Legal, and what a health check or a telnet session sends |
+
+**The password is never shown.** `AUTH` and `HELLO … AUTH` are decoded down to the user
+name and stop there. What *is* reported is that the password crossed an unencrypted
+connection at all — Valkey sends it as a plain RESP bulk string, so it is in the capture
+file, and only a TLS port prevents that.
+
+### Valkey's errors: the code word is the whole convention
+
+Valkey has no error numbers. An error reply is a line of text whose first word is an
+uppercase code, and that convention is the entire diagnostic surface. The catalogue is
+`valkeyErrCatalog` in `app/pktvalkeyerr.go`; the two that look alike and behave completely
+differently are worth stating on their own:
+
+| | Means | The client must |
+| --- | --- | --- |
+| **MOVED** | the slot has moved **permanently** | update its slot map, then retry there |
+| **ASK** | the slot is **mid-migration** and this key is already on the far side | retry with `ASKING` and **not** touch its slot map |
+
+A client that treats them the same either caches a redirect it should not or re-asks
+forever, and both look like ordinary error replies to the application. A steady stream of
+MOVED means the client is not caching the slot map at all — every operation costing two
+round trips — which is exactly the sort of thing only a capture shows.
+
+The rest, grouped by what they mean for the server:
+
+| Family | Codes | Why it is a finding |
+| --- | --- | --- |
+| **the cluster is not serving** | `CLUSTERDOWN` · `TRYAGAIN` · `CROSSSLOT` · `MASTERDOWN` | slots are uncovered, mid-migration, or spread across nodes in a way a multi-key command cannot satisfy |
+| **writes are refused** | `LOADING` · `MISCONF` · `READONLY` · `OOM` · `NOREPLICAS` | each is an outage with a specific cause. `MISCONF` means a background save keeps failing and Valkey has stopped accepting writes on purpose; `READONLY` means a write reached a replica; `LOADING` means the node is still reading its dataset from disk |
+| **auth** | `NOAUTH` · `WRONGPASS` · `NOPERM` | refused. `NOPERM` is the one that looks like an application bug: the connection works and the operation does not |
+| **scripting** | `BUSY` · `UNKILLABLE` | a Lua script is still holding the single execution thread, so nothing else is being served |
+
+Deliberately **never** flagged: `WRONGTYPE`, a plain `ERR`, `NOSCRIPT` (normal after a
+restart or `SCRIPT FLUSH`) and `EXECABORT`. Those are the application's business.
+
+### Replication, read off the wire
+
+A replica's link is an ordinary connection until it sends `PSYNC`, and then it is one of
+the two most informative conversations in a Valkey deployment:
+
+| Shown as | Means |
+| --- | --- |
+| `REPLCONF listening-port 6379 \| REPLCONF capa eof capa psync2` | the handshake, including whether the replica can accept a diskless transfer |
+| `PSYNC <replid> <offset>` | the replica asking to continue from where it was |
+| `+FULLRESYNC replid … offset …` | **the expensive path**: the primary will fork, serialise its entire dataset, and send it. A partial resync was not possible — usually because the backlog no longer holds the replica's offset |
+| `+CONTINUE` | the cheap path: only the missing stream is sent |
+| `3 keep-alive newline(s)` | bare `\n` bytes the primary sends **while it forks**, so the replica does not time out during a transfer that can take minutes |
+| `RDB transfer begins, 8.0 KB to come` / `RDB transfer begins (diskless, EOF-delimited)` | the two forms of dataset transfer |
+| `RDB payload (diskless), 479.2 KB so far` → `RDB transfer complete` | progress, counted rather than kept |
+| `propagated: SET prop:1 ← v1 (2 bytes)` | the incremental stream: every write the primary applies, forwarded forever |
+| `propagated: PING` / `REPLCONF GETACK` | the primary's keep-alive, and its request for the replica's position |
+| `REPLCONF ACK 22902` | the replica's offset — and with the primary's own offset, **the lag** |
+
+Three details here are the difference between a decoder that works on a real link and one
+that does not, and all three were found on a live one:
+
+- **The keep-alive newlines are not RESP.** Buffering them desynchronised the parser badly
+  enough that the `+FULLRESYNC` line which followed was discarded.
+- **The RDB payload has no trailing CRLF**, and it is as large as the dataset. Parsing it
+  as an ordinary bulk string would buffer the whole database in the decoder and never
+  complete.
+- **The primary's half of the link is one-way.** Consuming the reply queue for propagated
+  writes mislabelled every one of them as an answer to the replica's last `REPLCONF`.
+
+### The cluster bus
+
+Unlike Galera's gcomm, this binary protocol is documented enough to decode rather than
+merely describe. Every message begins with the four bytes `RCmb` and a self-consistent
+length, and its fixed header states the sender, the type, both epochs, the sender's
+replication offset and a 2 048-byte bitmap of the slots it claims:
+
+    PING from 00089dc7c673…, claims 5461 slot(s), epoch 3/1, offset 0, 1 gossip section(s)
+    PONG from 43080f81daeb…, claims 5461 slot(s), epoch 3/3, offset 12345, 1 gossip section(s)
+
+The slot count is the most useful field after the type: a node claiming none is a replica,
+and a primary that has lost its slots is a resharding caught halfway. `PING`/`PONG` are
+heartbeats and are never flagged — they arrive constantly, forever. What *is* flagged:
+
+| Message | Means |
+| --- | --- |
+| **MEET** | a node is being introduced into the cluster. Clusters do not grow on their own |
+| **FAIL** | a majority of primaries agreed a node is unreachable. Its slots are uncovered until a replica takes over, and clients hitting them get `CLUSTERDOWN` |
+| **FAILOVER_AUTH_REQUEST** | a replica is asking the primaries to vote for its promotion — a cluster election, with its slots unserved until it wins |
+| **FAILOVER_AUTH_ACK** | a primary voted. Once a majority does, the slots move and every client's cached slot map is stale |
+| **UPDATE** | a node is being told its configuration is out of date — how a partitioned node learns it no longer owns its slots |
+| **MFSTART** | a manual failover: the primary pauses writes so its replica can catch up completely |
+| a rising **epoch** | the cluster's own clock for configuration changes; a jump is what a failover or a resharding leaves behind |
+
+### Commands worth catching in the act
+
+Valkey executes commands **one at a time**. That makes a handful of ordinary commands
+operationally different from their equivalents in a threaded database, and a capture is the
+only place to see them happen:
+
+| Flagged | Why |
+| --- | --- |
+| **KEYS** | walks the entire keyspace in one blocking operation, so every other client waits for it. `SCAN` does the same job in cursor-sized pieces |
+| **FLUSHALL / FLUSHDB** | every key deleted — synchronously unless `ASYNC` was given |
+| **SAVE** | a synchronous snapshot; the server is blocked for the whole write. `BGSAVE` forks instead |
+| **DEBUG SLEEP** | the server deliberately blocked. Every other client is stalled |
+| **SCRIPT FLUSH** | every cached script gone, so every `EVALSHA` afterwards fails with `NOSCRIPT` until clients resend the bodies |
+| **CONFIG SET** | the configuration changed at runtime, and only until restart unless `CONFIG REWRITE` follows |
+| **MONITOR** | this connection now receives every command from every client, and the server serialises each one a second time for it |
+| **SHUTDOWN / FAILOVER / CLUSTER FAILOVER** | the topology is being changed by hand |
+| a **slow reply** (over 50 ms) | tighter than the SQL engines' 100 ms on purpose: Valkey's own slowlog threshold is 10 ms, and a 50 ms command delayed every other client. Blocking commands (`BLPOP`, `XREAD`, `WAIT`, `SUBSCRIBE`, `PSYNC`) are exempt — waiting is the point of them |
+
+Each is flagged **once per connection**, not once per call: three `KEYS` in a row are one
+finding, because the second and third tell you nothing new.
+
 ## PXC / Galera: four ports, four protocols
 
 A cluster member's traffic is not just 3306. Capturing a PXC (or MariaDB Galera) target
@@ -641,7 +791,7 @@ written by the server to **its own log** and sent to nobody. No capture can cont
 them, however long it runs — by the time the server writes "Aborted connection …
 (Got an error reading communication packets)" there is no client left to tell.
 
-All three engines' logs are read, and the format is detected rather than asked for:
+All four engines' logs are read, and the format is detected rather than asked for:
 
 | | MySQL | PostgreSQL | MongoDB |
 | --- | --- | --- | --- |
@@ -651,6 +801,8 @@ All three engines' logs are read, and the format is detected rather than asked f
 | Timestamps | `Z` or an offset (`log_timestamps=SYSTEM`) | a zone name (`UTC`) or an offset (`+08`, `+0800`) | RFC3339 with an offset |
 | Also read | — | **Patroni's own log**, when it writes to a file. A failover is Patroni's decision, taken because a lease expired or a member could not reach etcd; PostgreSQL's log only records the consequences | — |
 | Counters | `Aborted_clients`, `log_error_verbosity` and the `Connection_errors_*` family, because MySQL may not log an abort at all | none, and the panel says why: PostgreSQL logs a dropped or refused connection unconditionally | none: MongoDB logs every connection accepted and ended (ids 22943 and 22944) at its default verbosity |
+
+Valkey's is different enough to describe separately — see below.
 
 **MongoDB's log is the one that pairs best with a capture**, because it holds the *reason*
 for what the wire only times. A capture says a command took 219 ms; the log record for the
@@ -668,6 +820,40 @@ knowing about:
 | `Rollback` | this member had writes the new primary does not, and is discarding them |
 | `too stale to catch up` | the member has fallen off the oplog and needs a full resync |
 | `Authentication failed` (20883) | with the mechanism and the user |
+
+**Valkey's log is the odd one**, in two ways. Its format is its own and predates anyone
+caring about machine parsing:
+
+    253:M 04 Aug 2026 12:16:19.361 * Cluster state changed: ok
+      ^  ^ ^                       ^ the level: . debug  - verbose  * notice  # warning
+      |  | the timestamp: day first, month by name, and no zone at all
+      |  the role — M primary, S replica, C the RDB/AOF child, X sentinel
+      the pid
+
+The **role letter** is worth having: it says what the process thought it was when it wrote
+the line, so a log that turns from `M` to `S` partway is a demotion, which is often the
+whole story of an incident. The timestamp carries no zone, so it is read as UTC and the
+log's own text is kept for display — correct on a dbcanvas node, and honest everywhere
+else.
+
+And it is **not in a file**. dbcanvas sets no `logfile`, so Valkey writes to stdout and
+systemd captures it: the log is in the **journal**, and the unit is a templated one
+(`valkey@dbcanvas.service`, so one host can serve several named instances). `journalctl -u
+valkey` matches none of that, which is why the patterns tried are globs. A node that does
+set `logfile` is read from the file instead.
+
+Records worth knowing about:
+
+| Record | Means |
+| --- | --- |
+| `Full resync from primary` / `Starting BGSAVE for SYNC` | the expensive path, and the fork behind it |
+| `Partial resynchronization accepted` / `Unable to partial resync` | the cheap path, or why it was not available |
+| `MASTER aborted replication` / `Connection with primary lost` | the link broke |
+| `Setting secondary replication ID` | this node was promoted or reparented |
+| `Cluster state changed: fail` / `FAIL message received` / `Failover auth granted` | the cluster's own decisions |
+| `Can't save in background` | the failure that makes writes return `MISCONF` |
+| `max number of clients reached` | new connections refused |
+| `WARNING overcommit_memory` / `Transparent Huge Pages` | the host warnings people ignore until a fork fails or latency spikes |
 
 PostgreSQL's continuation records — `DETAIL`, `HINT`, `STATEMENT`, `CONTEXT`, `QUERY` —
 are folded into the record above them rather than listed separately. `STATEMENT` carries
@@ -764,6 +950,11 @@ That is the normal case, not an edge case, and it is the normal case in both fam
 PostgreSQL's upgrade is visible either way: `SSLRequest` is decoded, the server's naked
 `S` or `N` answer is decoded, and a refusal is flagged with its consequence.
 
+**Valkey is the same**: TLS is a separate port (`tls-port`) with no in-band upgrade, so a
+capture of it is opaque from the first byte. The remedies are the plaintext port for a
+diagnostic window, the server's own `SLOWLOG`, or a `MONITOR` stream — remembering that
+MONITOR makes the server serialise every command a second time.
+
 **MongoDB has no in-band upgrade at all**: TLS either starts the connection or never
 happens. So a capture of a TLS-enabled member is opaque from the first byte — there is no
 handshake-in-the-clear to read, and the only remedies are to capture with TLS off for the
@@ -844,6 +1035,9 @@ PKT_SAMPLE_DIR=/tmp/pkt-samples go test -run TestWriteSampleCaptures ./app
 | `pg-replication.pcap` | A standby streaming from a primary, captured **mid-stream** — the normal case, since a replication connection outlives any capture. Its `CopyData` sub-types are the only thing available to anchor on, and the LSNs in them produce `Replication lag 24.0 MB` once the standby stops keeping up. |
 | `mongo-session-errors.pcap` | One MongoDB application connection doing what an application does — a `hello` handshake with client metadata, SCRAM, a find with a cursor and a getMore, a 3-stage aggregation, a bulk insert — and then failing in the four ways worth recognising: a **duplicate key inside an otherwise successful reply**, a write to a member that is **not the primary**, a **write-concern failure** (applied here, not durable), and a **killed cursor**. |
 | `mongo-replset.pcap` | What a replica-set member's port actually carries, and almost none of it is the application: heartbeats every 2 s, a secondary **tailing the oplog** (with `awaitData` getMores that block on purpose and must not be called slow), `replSetUpdatePosition`, and an **election**. Four connections on four client ports — one port would be one connection, and a connection keeps the classification of its first command. Also carries `electionTime` as MongoDB really sends it: an OpTime's raw bits in a Date-typed field. |
+| `valkey-session-errors.pcap` | One Valkey client connection: AUTH, `HELLO 3`, ordinary key/hash work, a 40-command pipeline, `KEYS` on the keyspace, a slow `SINTERSTORE` — and the five errors worth recognising: **MOVED**, **READONLY**, **OOM**, **MISCONF** and `WRONGTYPE` (the last reported but deliberately not flagged). |
+| `valkey-replication.pcap` | A replica attaching to a primary: the `REPLCONF` handshake, `PSYNC`, the **keep-alive newlines a forking primary sends**, a **diskless RDB transfer** with its EOF delimiter, the propagated command stream, and the `REPLCONF ACK` offsets that make lag measurable. |
+| `valkey-cluster-bus.pcap` | The cluster's own binary protocol, and none of it is RESP: gossip between three primaries with their slot counts and epochs, a **FAIL** message, a **FAILOVER_AUTH_REQUEST**, the **ACK** that grants it, and the winner claiming the slots at a higher epoch. |
 | `pg-patroni-cluster.pcap` | The traffic that decides who leads, and none of it is PostgreSQL: HAProxy's health checks against `/primary` and `/replica` (200 and 503 — the 503 deliberately **not** flagged), Patroni renewing its etcd lease, and finally etcd answering **503**, which is the failure that precedes every Patroni failover. Also a test of the engine sniffer: there is no PostgreSQL protocol in the file at all, and it must still be read as PostgreSQL. |
 | `mysql-oversized-blob.pcap` | ~17 MB, because a MySQL packet only splits above `0xffffff`: a 16 MB+ row arriving as a `0xffffff` chunk plus a remainder across 11 600 segments. Must come back as one complete row with a heavy-result-set flag. |
 
@@ -851,8 +1045,8 @@ PKT_SAMPLE_DIR=/tmp/pkt-samples go test -run TestWriteSampleCaptures ./app
 change that stops one of them demonstrating its case fails the suite whether or not the
 files have been written.
 
-Any pcap from anywhere decodes here as long as the traffic is MySQL, PostgreSQL or
-MongoDB. The upload form takes a **protocol** and a **server port**, and both default to
+Any pcap from anywhere decodes here as long as the traffic is MySQL, PostgreSQL, MongoDB or
+Valkey. The upload form takes a **protocol** and a **server port**, and both default to
 being worked out rather than asked for:
 
 - The **protocol** is sniffed from the bytes — PostgreSQL's four fixed first-message
@@ -862,8 +1056,8 @@ being worked out rather than asked for:
   greeting whose bytes 12-16 happen to read as OP_REPLY, which sent a whole suite of MySQL
   captures through the MongoDB decoder. When a capture contains no database payload at all
   (a Patroni cluster capture is entirely HTTP), the *ports* decide: 8008/2379/2380 say
-  PostgreSQL cluster, 4567/4568/4444 say MySQL cluster, 27017 says MongoDB. A payload tell
-  always outweighs a port.
+  PostgreSQL cluster, 4567/4568/4444 say MySQL cluster, 27017 says MongoDB, and
+  6379/16379/26379 say Valkey. A payload tell always outweighs a port.
 - The **port** then defaults to that protocol's own — which is why it is chosen after the
   protocol and not before. Give it explicitly for a capture taken off a non-standard port
   (an All-in-One instance is on 13000-something, never 3306 or 5432).
@@ -875,6 +1069,7 @@ rather than mysterious. To capture by hand the way the tool does:
 tcpdump -i eth0 -s 65535 -n -q -c 50000 port 3306 -w /tmp/mysql.cap
 tcpdump -i eth0 -s 65535 -n -q -c 50000 '(port 5432 or port 8008 or port 2379)' -w /tmp/pg.cap
 tcpdump -i eth0 -s 65535 -n -q -c 50000 port 27017 -w /tmp/mongo.cap
+tcpdump -i eth0 -s 65535 -n -q -c 50000 '(port 6379 or port 16379)' -w /tmp/valkey.cap
 ```
 
 Three things worth knowing before you do:
@@ -928,6 +1123,11 @@ completion never arrived.
 - **Nothing is decoded across engines.** A capture is read as one protocol, chosen from
   the node's own record or sniffed from the bytes; a file holding both a MySQL and a
   PostgreSQL conversation will have one of them read as TCP payload.
+- **A Valkey capture of a cluster is mostly gossip.** Three nodes exchange bus messages
+  continuously, and each one is 2 256 bytes of header; filter by protocol to see the client
+  traffic. And a **replication** capture is as large as the dataset, because a FULLRESYNC
+  transfers all of it — the RDB payload is counted rather than kept, so the decode stays
+  cheap, but the capture file does not.
 - **MongoDB captures are large for their duration.** Two thirds of a replica-set member's
   traffic can be `replSetUpdatePosition` and heartbeats, so the packet ceiling arrives
   sooner than the clock does. Filter by protocol in the summary rather than capturing

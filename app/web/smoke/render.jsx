@@ -856,6 +856,149 @@ check('packet inspector: MongoDB server log', () => {
   return html
 })
 
+// ---- Valkey. Two protocols on two ports, and a client port that also carries
+// replication — so the checks are that the kind reaches the screen and that RESP's own
+// vocabulary (MOVED, FULLRESYNC, the cluster bus) does.
+const vkFixtureSummary = {
+  packets: 897, streams: 40, bytes: 214012, firstTs: 1785840100.0, lastTs: 1785840160.0,
+  protos: { TCP: 529, Valkey: 221, 'Valkey/replication': 144, 'Valkey/bus': 78, 'Valkey/pubsub': 3 },
+  issueTop: [
+    { kind: 'AUTH on an unencrypted connection', count: 35 },
+    { kind: 'MOVED', count: 4 },
+    { kind: 'KEYS *', count: 1 },
+    { kind: 'FULLRESYNC', count: 1 },
+  ],
+  queries: 105, errors: 13, tlsStreams: 0, dropped: 0, truncated: 0, format: 'pcap', linkType: 1,
+}
+const vkFixtureCap = {
+  id: 'vk1', label: 'valkey01', stackName: 'pktinspect-valkey', state: 'ready', engine: 'valkey',
+  iface: 'eth0', port: 6379, source: 'node', bytes: 214012, nodePackets: 897, kernelDropped: 0,
+  command: "tcpdump -i eth0 -s 65535 -n -q -c 40000 '(port 6379 or port 16379 or port 26379)' -w /var/tmp/x.cap",
+  ports: { 6379: 'valkey', 16379: 'valkey-bus', 26379: 'valkey-sentinel' },
+  nodeType: 'valkeycluster', summary: vkFixtureSummary,
+}
+const vkFixturePackets = [
+  {
+    no: 116, ts: 1785840100.3, stream: 2, dir: 'c2s', src: '172.31.0.6:44100', dst: '172.31.0.7:6379',
+    proto: 'Valkey', frameLen: 120, payloadLen: 54, flags: 'ACK,PSH', command: 'SET',
+    query: 'SET session:abc', info: 'SET session:abc ← user=1000;cart=3 (16 bytes) [EX 1800]',
+  },
+  {
+    no: 117, ts: 1785840100.31, stream: 2, dir: 's2c', src: '172.31.0.7:6379', dst: '172.31.0.6:44100',
+    proto: 'Valkey', frameLen: 100, payloadLen: 34, flags: 'ACK,PSH', lagMs: 1.2, errState: 'MOVED',
+    status: 'Error MOVED: 12182 172.31.0.5:6379',
+    info: 'SET → -MOVED 12182 172.31.0.5:6379',
+    issues: ['MOVED → slot 12182 is on 172.31.0.5:6379. MOVED — the slot this key belongs to is served by another node'],
+  },
+  {
+    no: 24, ts: 1785840101.0, stream: 5, dir: 's2c', src: '172.31.0.7:6379', dst: '172.31.0.4:44210',
+    proto: 'Valkey/replication', frameLen: 126, payloadLen: 60, flags: 'ACK,PSH',
+    info: '+FULLRESYNC replid 31b51a3dbeef7ab0… offset 22238 — a full dataset transfer follows',
+    issues: ['FULLRESYNC — the primary is about to send its ENTIRE dataset as an RDB snapshot'],
+  },
+  {
+    no: 28, ts: 1785840101.4, stream: 5, dir: 's2c', src: '172.31.0.7:6379', dst: '172.31.0.4:44210',
+    proto: 'Valkey/replication', frameLen: 7306, payloadLen: 7240, flags: 'ACK,PSH',
+    info: 'RDB payload (diskless), 14.1 KB so far',
+  },
+  {
+    no: 158, ts: 1785840102.0, stream: 5, dir: 's2c', src: '172.31.0.7:6379', dst: '172.31.0.4:44210',
+    proto: 'Valkey/replication', frameLen: 104, payloadLen: 38, flags: 'ACK,PSH',
+    info: 'propagated: SET prop3:1 ← v1 (2 bytes)',
+  },
+  {
+    no: 1, ts: 1785840100.0, stream: 0, dir: 'c2s', src: '172.31.0.6:52000', dst: '172.31.0.7:16379',
+    proto: 'Valkey/bus', frameLen: 2322, payloadLen: 2256, flags: 'ACK,PSH', command: 'bus PING',
+    info: 'PING from 00089dc7c673…, claims 5461 slot(s), epoch 3/1, offset 0, 1 gossip section(s)',
+  },
+]
+
+check('packet inspector: Valkey capture state (engine badge)', () => {
+  const html = renderToString(<PktState cap={vkFixtureCap} />)
+  if (!html.includes('Valkey')) throw new Error('the decoded protocol is not shown')
+  return html
+})
+check('packet inspector: Valkey summary strip', () => {
+  const html = renderToString(<PktSummary cap={vkFixtureCap} range={pktRange} setRange={noop} />)
+  for (const want of ['Valkey/bus', 'Valkey/replication', 'Valkey errors', 'FULLRESYNC', 'MOVED']) {
+    if (!html.includes(want)) throw new Error(`summary omits ${want}`)
+  }
+  return html
+})
+check('packet inspector: Valkey packet list', () => {
+  const html = renderToString(<PktList packets={vkFixturePackets} first={vkFixtureSummary.firstTs}
+    selectedNo={117} onSelect={noop} />)
+  for (const want of ['Valkey/bus', 'Valkey/replication', 'MOVED', 'FULLRESYNC',
+    'RDB payload', 'propagated: SET', 'claims 5461 slot(s)']) {
+    if (!html.includes(want)) throw new Error(`packet list omits ${want}`)
+  }
+  if (html.includes('undefined')) throw new Error('packet list rendered a literal "undefined"')
+  return html
+})
+for (const p of vkFixturePackets) {
+  check(`packet inspector: Valkey details for #${p.no} (${p.proto})`, () => {
+    const html = renderToString(<PktDetails
+      d={{ packet: p, stream: { index: p.stream, user: 'default',
+        role: p.proto === 'Valkey/bus' ? 'valkey-bus' : 'client', roleLabel: p.proto },
+        hex: '0000  2a 33 0d 0a 24 33  |*3..$3|', bytes: p.frameLen }}
+      first={vkFixtureSummary.firstTs} />)
+    if (html.includes('undefined')) throw new Error('details rendered a literal "undefined"')
+    if (p.errState && !html.includes(p.errState)) throw new Error('the error code is not shown')
+    return html
+  })
+}
+check('packet inspector: Valkey port roles are explained', () => {
+  if (!PORT_ROLE_TEXT.valkey.includes('replication')) throw new Error('no Valkey client-port text')
+  if (!PORT_ROLE_TEXT['valkey-bus'].includes('gossip')) throw new Error('no cluster-bus text')
+  if (!PORT_ROLE_TEXT['valkey-sentinel'].includes('Sentinel')) throw new Error('no sentinel text')
+  return 'ok'
+})
+check('packet inspector: Valkey issues are severe, ordinary ones are not', () => {
+  for (const s of ['MOVED → slot 12182 is on 172.31.0.5:6379', 'READONLY — a write reached a replica',
+    'OOM — used_memory is above maxmemory', 'MISCONF — writes are refused',
+    'FULLRESYNC — the primary is about to send its ENTIRE dataset',
+    'KEYS * — this walks the ENTIRE keyspace', 'FAIL message — a node is telling the cluster',
+    'Replication lag 12.0 MB']) {
+    if (!isSevereIssue(s)) throw new Error(`${s} should be severe`)
+  }
+  for (const s of ['WRONGTYPE Operation against a key holding the wrong kind of value',
+    'NOSCRIPT No matching script']) {
+    if (isSevereIssue(s)) throw new Error(`${s} should not be severe`)
+  }
+  return 'ok'
+})
+check('packet inspector: Valkey TLS advice', () => {
+  const html = renderToString(<PktSummary cap={{ ...vkFixtureCap,
+    summary: { ...vkFixtureSummary, tlsStreams: 2 } }} range={pktRange} setRange={noop} />)
+  if (!html.includes('tls-port') || !html.includes('SLOWLOG')) {
+    throw new Error('Valkey TLS advice missing')
+  }
+  return html
+})
+check('packet inspector: Valkey server log', () => {
+  const html = renderToString(<PktServerLog onReload={noop} log={{
+    path: 'journal:valkey', source: 'node', scanned: 240, inWindow: 4,
+    windowFrom: 1785840070, windowTo: 1785840190,
+    top: [{ label: 'Full resync — the whole dataset is being transferred', count: 1 },
+      { label: 'Cluster state OK', count: 1 }],
+    entries: [
+      { ts: 1785840101.0, time: '04 Aug 2026 12:16:19.361', level: 'NOTICE', class: 'replication',
+        code: '253', subsystem: 'primary', inWindow: true,
+        label: 'Full resync — the whole dataset is being transferred',
+        message: 'Starting BGSAVE for SYNC with target: replicas sockets' },
+      { ts: 1785840102.0, time: '04 Aug 2026 12:16:20.001', level: 'NOTICE', class: 'cluster',
+        code: '253', subsystem: 'primary', inWindow: true, label: 'Cluster state OK',
+        message: 'Cluster state changed: ok' },
+    ],
+    stats: { verbosity: 0, suppressionList: '', counters: {},
+      hint: 'Valkey has no aborted-connection counters: INFO\'s stats section counts rejected_connections.' },
+  }} />)
+  for (const want of ['journal:valkey', 'Full resync', 'Cluster state OK', 'rejected_connections']) {
+    if (!html.includes(want)) throw new Error(`Valkey server log omits ${want}`)
+  }
+  return html
+})
+
 check('packet inspector: server error log (window mismatch)', () => {
   const html = renderToString(<PktServerLog onReload={noop}
     log={{ path: 'mysqld.log', source: 'upload', scanned: 40, inWindow: 0, mismatch: true,

@@ -191,6 +191,9 @@ func (a *App) listPktTargets(u User) []qrTarget {
 			out = append(out, t)
 		}
 	}
+	// Valkey nodes come from the same walk as MongoDB's below, because neither is in
+	// listSQLTargets — see listPktValkeyTargets.
+	out = append(out, a.listPktValkeyTargets(u)...)
 	stacks, _ := a.store.ListStacks(u.ID, u.Role == RoleAdmin)
 	for _, s := range stacks {
 		st, err := a.store.GetStack(s.ID)
@@ -242,6 +245,106 @@ func (a *App) listPktTargets(u User) []qrTarget {
 	return out
 }
 
+// pktResolveTarget resolves a capture target to its engine, container, label and port.
+//
+// It delegates to resolveNodeCredsPort — the resolver the Query Runner and Benchmark
+// share — and handles Valkey itself, because engineForType maps only the SQL and MongoDB
+// families: those two features need credentials and a query language, and Valkey is
+// neither's target. A capture needs none of that. It needs a container to run tcpdump in
+// and a port to filter on, which is why this wrapper exists rather than a change to a
+// function three features depend on.
+func (a *App) pktResolveTarget(u User, stackID int64, target string) (engine, containerID, label, dbUser, dbPass string, port int, err error) {
+	engine, containerID, label, dbUser, dbPass, port, err = a.resolveNodeCredsPort(u, stackID, target)
+	if err == nil {
+		return engine, containerID, label, dbUser, dbPass, port, nil
+	}
+	// Not a SQL/Mongo target. Valkey?
+	st, e := a.store.GetStack(stackID)
+	if e != nil {
+		return "", "", "", "", "", 0, err
+	}
+	if st.OwnerID != u.ID && u.Role != RoleAdmin {
+		return "", "", "", "", "", 0, fmt.Errorf("not your stack")
+	}
+	nodeID, inst := aioSplitTarget(target)
+	dep, e2 := a.store.GetDeployment(stackID, nodeID)
+	if e2 != nil || dep.State != DeployRunning || dep.ContainerID == "" {
+		return "", "", "", "", "", 0, fmt.Errorf("node is not running")
+	}
+	if inst != "" {
+		m, ok := aioFindInstance(dep, inst)
+		if !ok || aioFamilyOf(m.Kind) != famValkey {
+			return "", "", "", "", "", 0, err
+		}
+		return pktEngineValkey, dep.ContainerID, aioTargetLabel(nodeID, m), "", "", m.Ports.Client, nil
+	}
+	for _, n := range buildDoc(st).Nodes {
+		if n.ID != nodeID {
+			continue
+		}
+		if n.Type != "valkey" && n.Type != "valkeycluster" {
+			return "", "", "", "", "", 0, err
+		}
+		return pktEngineValkey, dep.ContainerID, n.Label, "", "", valkeyClientPort, nil
+	}
+	return "", "", "", "", "", 0, err
+}
+
+// listPktValkeyTargets is every running Valkey node, standalone or clustered.
+//
+// Valkey is in none of the shared target lists: the Query Runner is SQL-only and the
+// benchmark drives SQL and MongoDB, so this is the Packet Inspector's own walk. Every
+// member of a cluster is offered, not just one — which member a capture is taken on
+// decides whether it holds the slots being asked for, and therefore whether it holds the
+// MOVED replies that are the most interesting thing on a cluster's client port.
+func (a *App) listPktValkeyTargets(u User) []qrTarget {
+	out := []qrTarget{}
+	stacks, _ := a.store.ListStacks(u.ID, u.Role == RoleAdmin)
+	for _, s := range stacks {
+		st, err := a.store.GetStack(s.ID)
+		if err != nil {
+			continue
+		}
+		doc := buildDoc(st)
+		for _, n := range doc.Nodes {
+			if n.Type == "aio" {
+				dep, err := a.store.GetDeployment(st.ID, n.ID)
+				if err != nil || dep.State != DeployRunning {
+					continue
+				}
+				for _, m := range aioTargetableInstances(dep) {
+					// aioEngineForKind answers "" for Valkey — it maps the SQL and Mongo
+					// families only, because those are the query-target engines. The
+					// family is what identifies a Valkey instance.
+					if aioFamilyOf(m.Kind) != famValkey {
+						continue
+					}
+					out = append(out, qrTarget{
+						StackID: st.ID, StackName: st.Name,
+						NodeID: aioJoinTarget(n.ID, m.Inst),
+						Label:  aioTargetLabel(n.Label, m),
+						Engine: pktEngineValkey, Type: m.Kind, Port: m.Ports.Client,
+						Host: fqdnOf(m.Inst, envOr("DOMAIN", "example.net")),
+					})
+				}
+				continue
+			}
+			if n.Type != "valkey" && n.Type != "valkeycluster" {
+				continue
+			}
+			if dep, err := a.store.GetDeployment(st.ID, n.ID); err != nil || dep.State != DeployRunning {
+				continue
+			}
+			out = append(out, qrTarget{
+				StackID: st.ID, StackName: st.Name, NodeID: n.ID, Label: n.Label,
+				Engine: pktEngineValkey, Type: n.Type, Port: valkeyClientPort,
+				Host: fqdnOf(stackHostnames(doc)[n.ID], envOr("DOMAIN", "example.net")),
+			})
+		}
+	}
+	return out
+}
+
 // pktTargetRoles is every port a capture of this target should cover, mapped to the
 // protocol it carries.
 //
@@ -263,6 +366,8 @@ func (a *App) pktTargetRoles(u User, stackID int64, target string, port int, eng
 		baseRole = pktRolePostgres
 	case pktEngineMongoDB:
 		baseRole = pktRoleMongo
+	case pktEngineValkey:
+		baseRole = pktRoleValkey
 	}
 	roles := map[int]string{port: baseRole}
 	nodeID, inst := aioSplitTarget(target)
@@ -308,6 +413,13 @@ func (a *App) pktTargetRoles(u User, stackID int64, target string, port int, eng
 			// No sidecar protocols: repmgr's daemon and Spock's apply workers are
 			// PostgreSQL connections like any other, and both are on 5432.
 			return roles, n.Type
+		case "valkeycluster":
+			// A clustered Valkey node has a second protocol on the client port + 10000:
+			// the binary gossip bus, where failure detection and failover votes happen.
+			return pktValkeyPortRoles(port), n.Type
+		case "valkey":
+			// A standalone has only RESP — replication rides the client port.
+			return roles, n.Type
 		case "psm", "psmrs", "psmdb":
 			// MongoDB has nothing to add either, for the opposite reason: mongod,
 			// mongos and the config servers all listen on 27017, and heartbeats,
@@ -345,16 +457,16 @@ func (a *App) handlePktStart(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	engine, containerID, label, _, _, port, err := a.resolveNodeCredsPort(u, body.StackID, body.NodeID)
+	engine, containerID, label, _, _, port, err := a.pktResolveTarget(u, body.StackID, body.NodeID)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	switch engine {
-	case pktEngineMySQL, pktEnginePostgres, pktEngineMongoDB:
+	case pktEngineMySQL, pktEnginePostgres, pktEngineMongoDB, pktEngineValkey:
 	default:
 		writeErr(w, http.StatusBadRequest,
-			"the Packet Inspector decodes MySQL, PostgreSQL and MongoDB traffic; pick one of those targets")
+			"the Packet Inspector decodes MySQL, PostgreSQL, MongoDB and Valkey traffic; pick one of those targets")
 		return
 	}
 	if err := pktValidateFilter(body.Filter); err != nil {
@@ -1103,6 +1215,8 @@ func (a *App) handlePktUpload(w http.ResponseWriter, r *http.Request) {
 		defPort = pgClientPort
 	case pktEngineMongoDB:
 		defPort = mongoClientPort
+	case pktEngineValkey:
+		defPort = valkeyClientPort
 	}
 	port := pktClamp(atoiDef(r.FormValue("port"), 0), 1, 65535, defPort)
 
