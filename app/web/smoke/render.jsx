@@ -15,6 +15,7 @@
 // Run with `npm run smoke`.
 
 import { renderToString } from 'react-dom/server'
+import { Icon } from '../src/components/Icons.jsx'
 import { AllInOneForm, AllInOneManager, connectString, credRows, __tabsForTest } from '../src/pages/AllInOne.jsx'
 import { TerminalProvider } from '../src/terminal/TerminalProvider.jsx'
 import { AIO_KINDS, kindOf } from '../src/lib/aioPorts.js'
@@ -25,6 +26,12 @@ import {
 } from '../src/pages/UpstreamForms.jsx'
 import { frameMemberSub, REPL_FRAME_TYPES } from '../src/pages/StackDesigner.jsx'
 import MySQLManager from '../src/pages/MySQLManager.jsx'
+import PacketInspector, {
+  Timeline as PktTimeline, RangeControls as PktRangeControls, Filters as PktFilters,
+  PacketList as PktList, PacketDetails as PktDetails, SummaryStrip as PktSummary,
+  CaptureState as PktState, Pager as PktPager, ServerLogCard as PktServerLog,
+  FilePick as PktFilePick,
+} from '../src/pages/PacketInspector.jsx'
 import realDeps from './real-deps.json' with { type: 'json' }
 
 const noop = () => {}
@@ -302,6 +309,259 @@ for (const [nodeId, dep] of Object.entries(realDeps)) {
     return html
   })
 }
+
+// --- Packet Inspector -------------------------------------------------------
+// The page itself renders only its empty state under SSR (no effects, no fetch),
+// so each data-bearing component is rendered over a fixture shaped exactly like
+// the decoder's JSON — the packet list, the detail panel, the timeline strip and
+// the range controls all read fields the Go side must keep producing.
+
+const pktFixtureSummary = {
+  packets: 13227, streams: 41, bytes: 8612851, firstTs: 1785775360.0, lastTs: 1785775372.6,
+  protos: { MySQL: 4304, TCP: 1507, TLS: 7416 }, queries: 822, errors: 9, tlsStreams: 24,
+  dropped: 0, truncated: 0, format: 'pcap', linkType: 1,
+  issueTop: [
+    { kind: 'MySQL error 1064', count: 6 },
+    { kind: 'High latency', count: 4 },
+    { kind: 'TCP zero window', count: 7 },
+  ],
+}
+const pktFixtureCap = {
+  id: 'abc123', label: 'mysql-1', stackName: 'packet-inspector-dev', state: 'ready',
+  iface: 'eth0', port: 3306, source: 'node', bytes: 8612851, nodePackets: 13227,
+  kernelDropped: 0, command: 'tcpdump -i eth0 -s 65535 -n -q -c 60000 port 3306 -w /var/tmp/x.cap',
+  ports: { 3306: 'mysql' }, nodeType: 'mysql', summary: pktFixtureSummary,
+}
+const pktFixturePackets = [
+  {
+    no: 1221, ts: 1785775365.5, stream: 8, dir: 'c2s', src: '172.29.0.3:41236', dst: '172.29.0.4:3306',
+    proto: 'MySQL', info: "Query: INSERT INTO t (v) VALUES ('light-1')", frameLen: 128, payloadLen: 62,
+    flags: 'ACK,PSH', seq: 12, ack: 34, window: 502, command: 'COM_QUERY',
+    query: "INSERT INTO t (v) VALUES ('light-1')",
+  },
+  {
+    no: 1228, ts: 1785775365.6, stream: 8, dir: 's2c', src: '172.29.0.4:3306', dst: '172.29.0.3:41236',
+    proto: 'MySQL', info: 'OK: 1 row(s) affected, insert_id 4', frameLen: 78, payloadLen: 11,
+    status: 'Success', rows: 1, lagMs: 1.42, command: 'COM_QUERY',
+  },
+  {
+    no: 1302, ts: 1785775366.1, stream: 8, dir: 's2c', src: '172.29.0.4:3306', dst: '172.29.0.3:41236',
+    proto: 'MySQL', info: "Error 1054: Unknown column 'bogus' in 'field list'", frameLen: 120, payloadLen: 53,
+    status: "Error 1054 (42S22): Unknown column 'bogus' in 'field list'", errCode: 1054, lagMs: 0.9,
+    issues: ["MySQL error 1054: Unknown column 'bogus' in 'field list'"],
+  },
+  {
+    no: 887, ts: 1785775364.2, stream: 1, dir: 'c2s', src: '172.29.0.3:36818', dst: '172.29.0.4:3306',
+    proto: 'TCP', info: '[ACK] seq=1986407221 ack=3176508254 win=0', frameLen: 66, payloadLen: 0,
+    flags: 'ACK', window: 0, issues: ['TCP zero window — receiver buffer full'],
+  },
+  {
+    no: 4001, ts: 1785775367.0, stream: 11, dir: 'c2s', src: '172.29.0.3:43952', dst: '172.29.0.4:3306',
+    proto: 'TLS', info: 'TLS 1.3 Application Data (283 bytes)', frameLen: 349, payloadLen: 288,
+    status: 'Encrypted',
+  },
+]
+const pktFixtureTimeline = {
+  fromTs: 1785775360.0, toTs: 1785775372.6, fromNo: 1, toNo: 13227, total: 13227,
+  buckets: [
+    { ts: 1785775360.0, firstNo: 1, lastNo: 312, count: 312, bytes: 40000, warnings: 0, errors: 0, queries: 184 },
+    { ts: 1785775361.0, firstNo: 313, lastNo: 432, count: 120, bytes: 12000, warnings: 1, errors: 0, queries: 72 },
+    { ts: 1785775362.0, firstNo: 433, lastNo: 1153, count: 721, bytes: 90000, warnings: 0, errors: 2, queries: 262 },
+    { ts: 1785775363.0, firstNo: 0, lastNo: 0, count: 0, bytes: 0, warnings: 0, errors: 0, queries: 0 },
+  ],
+  kinds: pktFixtureSummary.issueTop,
+  streams: [
+    { index: 8, client: '172.29.0.3:41236', server: '172.29.0.4:3306', label: '#8 client (admin)' },
+    { index: 11, client: '172.29.0.3:43952', server: '172.29.0.4:3306', label: '#11 client TLS' },
+  ],
+}
+const pktRange = { fromNo: '', toNo: '', fromTs: '', toTs: '', stream: -1, proto: '', dir: '', issue: '', q: '' }
+
+check('PacketInspector page (empty state)', () => renderToString(<PacketInspector />))
+check('packet inspector: capture state', () => renderToString(<PktState cap={pktFixtureCap} />))
+check('packet inspector: summary strip', () =>
+  renderToString(<PktSummary cap={pktFixtureCap} range={pktRange} setRange={noop} />))
+check('packet inspector: timeline strip', () =>
+  renderToString(<PktTimeline timeline={pktFixtureTimeline} first={pktFixtureSummary.firstTs} onSelect={noop} />))
+check('packet inspector: timeline while loading', () =>
+  renderToString(<PktTimeline timeline={null} first={0} onSelect={noop} />))
+check('packet inspector: range controls', () =>
+  renderToString(<PktRangeControls range={pktRange} setRange={noop} buckets={160} setBuckets={noop}
+    summary={pktFixtureSummary} timeline={pktFixtureTimeline} span={12.6} />))
+check('packet inspector: filters', () =>
+  renderToString(<PktFilters range={pktRange} setRange={noop} summary={pktFixtureSummary}
+    streams={pktFixtureTimeline.streams} />))
+check('packet inspector: packet list', () => {
+  const html = renderToString(<PktList packets={pktFixturePackets} first={pktFixtureSummary.firstTs}
+    selectedNo={1228} onSelect={noop} />)
+  // The row must show the decoded MySQL, the peers, and the issue text.
+  // The list shows proto / info / issues — a TLS row is recognisable by both.
+  for (const want of ['light-1', '172.29.0.4:3306', 'zero window', 'TLS', 'Application Data']) {
+    if (!html.includes(want)) throw new Error(`packet list omits ${want}`)
+  }
+  if (html.includes('undefined')) throw new Error('packet list rendered a literal "undefined"')
+  return html
+})
+check('packet inspector: packet list (empty range)', () =>
+  renderToString(<PktList packets={[]} first={0} selectedNo={null} onSelect={noop} />))
+// Every time-display mode has to render, and the absolute ones must actually show a
+// date/time rather than the relative offset they replaced.
+for (const mode of ['relative', 'clock', 'datetime', 'utc', 'delta']) {
+  check(`packet inspector: packet list time mode ${mode}`, () => {
+    const html = renderToString(<PktList packets={pktFixturePackets} first={pktFixtureSummary.firstTs}
+      selectedNo={null} onSelect={noop} timeMode={mode} />)
+    if (mode === 'datetime' && !/\d{4}-\d{2}-\d{2} /.test(html)) throw new Error('no date rendered')
+    if (mode === 'utc' && !html.includes('Z')) throw new Error('no UTC timestamp rendered')
+    if (mode === 'relative' && !/\+\d+\.\d{6}/.test(html)) throw new Error('no relative offset rendered')
+    return html
+  })
+}
+check('packet inspector: pager', () =>
+  renderToString(<PktPager page={{ matched: 13227, offset: 400, limit: 200 }} onPage={noop} />))
+for (const p of pktFixturePackets) {
+  check(`packet inspector: details for #${p.no} (${p.proto})`, () => {
+    const html = renderToString(<PktDetails
+      d={{ packet: p, stream: { index: p.stream, version: '8.0.46-37', user: 'admin', tls: p.proto === 'TLS' }, hex: '0000  16 03 03  |...|', bytes: p.frameLen }}
+      first={pktFixtureSummary.firstTs} />)
+    if (html.includes('undefined')) throw new Error('details rendered a literal "undefined"')
+    return html
+  })
+}
+
+// The server-error-log panel: the events a capture cannot contain.
+const pktLogFixture = {
+  path: '/var/log/mysqld.log', scanned: 209, windowFrom: 1785775360, windowTo: 1785775372,
+  stats: {
+    verbosity: 3, suppressionList: '',
+    counters: { Aborted_clients: '15', Aborted_connects: '9', Connection_errors_max_connections: '193' },
+    hint: 'Aborted_clients is 15 — the server has counted that many clients disappearing without a clean QUIT.',
+  },
+  top: [{ label: 'Aborted connection', count: 4 }, { label: 'Too many connections', count: 63 }],
+  entries: [
+    {
+      ts: 1785775361, time: '2026-08-03T19:19:01.501234Z', level: 'Note', code: 'MY-010914',
+      subsystem: 'Server', class: 'aborted', label: 'Aborted connection',
+      reason: 'Got an error reading communication packets',
+      message: "Aborted connection 12 to db: 'pi_demo' user: 'app' host: 'mysql-2.example.net' (Got an error reading communication packets).",
+      inWindow: true,
+    },
+    {
+      ts: 1785775300, time: '2026-08-03T16:27:09.236842Z', level: 'Warning', code: 'MY-010055',
+      subsystem: 'Server', class: 'dns', label: 'Client IP could not be resolved', reason: '',
+      message: "IP address '172.29.0.5' could not be resolved: Name or service not known", inWindow: false,
+    },
+    {
+      ts: 1785775362, time: '2026-08-03T19:19:02.000000Z', level: 'ERROR', code: 'MY-010262',
+      subsystem: 'Server', class: 'listener', label: 'TCP listener problem', reason: '',
+      message: "Can't start server: Bind on TCP/IP port: Address already in use", inWindow: true,
+    },
+  ],
+}
+// The upload control has to read as clickable: a bare file input renders as browser chrome
+// that looks like static text, which is what it was before.
+// The nav icon is its own component; render it at the sizes the sidebar uses so a broken
+// path or a missing element is caught rather than shipped as a smudge.
+for (const size of [16, 18, 24]) {
+  check(`packet inspector: nav icon at ${size}px`, () => {
+    const html = renderToString(<Icon.Packet size={size} />)
+    if (!html.includes(`width="${size}"`)) throw new Error('size not applied')
+    if (!html.includes('viewBox="0 0 24 24"')) throw new Error('wrong viewBox for the icon set')
+    if (!html.includes('stroke="currentColor"')) throw new Error('icon must follow the theme colour')
+    // Three list rows plus a lens (circle + handle) — five elements, no fill.
+    const lines = (html.match(/<line /g) || []).length
+    if (lines !== 4) throw new Error(`expected 4 lines (3 rows + handle), got ${lines}`)
+    if (!html.includes('<circle')) throw new Error('the lens is missing')
+    return html
+  })
+}
+
+check('packet inspector: file picker (empty)', () => {
+  const html = renderToString(<PktFilePick id="f1" accept=".pcap" file={null} onPick={noop}
+    placeholder="Choose a capture, or drop it here" />)
+  for (const want of ['Choose a capture, or drop it here', 'cursor-pointer', 'border-dashed', 'for="f1"']) {
+    if (!html.includes(want)) throw new Error(`picker omits ${want}`)
+  }
+  // The native input must still be present and reachable, just not visible.
+  if (!html.includes('type="file"') || !html.includes('sr-only')) {
+    throw new Error('the native input must remain, hidden but focusable')
+  }
+  return html
+})
+check('packet inspector: file picker (file chosen)', () => {
+  const html = renderToString(<PktFilePick id="f2" accept=".pcap"
+    file={{ name: 'pxc01-tcpdump.pcap', size: 18687067 }} onPick={noop} placeholder="unused" />)
+  if (!html.includes('pxc01-tcpdump.pcap')) throw new Error('the chosen file is not named')
+  if (!html.includes('17.8 MB')) throw new Error('the size is not shown')
+  if (!html.includes('remove')) throw new Error('no way to clear the choice')
+  return html
+})
+
+check('packet inspector: server error log', () => {
+  const html = renderToString(<PktServerLog log={pktLogFixture} onReload={noop} />)
+  for (const want of ['Aborted connection', 'Got an error reading communication packets',
+    'Aborted_clients', 'MY-010055', '/var/log/mysqld.log']) {
+    if (!html.includes(want)) throw new Error(`server log panel omits ${want}`)
+  }
+  return html
+})
+check('packet inspector: server error log (nothing in window)', () =>
+  renderToString(<PktServerLog log={{ path: '/var/log/mysqld.log', source: 'node', scanned: 12, entries: [], top: [], stats: {} }} onReload={noop} />))
+// An uploaded capture with no log at all, and one whose log does not overlap the capture —
+// the second is the mistake an upload pair actually makes.
+check('packet inspector: server error log (none uploaded)', () => {
+  const html = renderToString(<PktServerLog onReload={noop}
+    log={{ path: '', source: 'upload', scanned: 0, entries: [], top: [],
+      note: 'no server log was uploaded with this capture — upload one alongside the pcap to correlate' }} />)
+  if (!html.includes('no server log was uploaded')) throw new Error('note not shown')
+  return html
+})
+check('packet inspector: server error log (follows the selected packet)', () => {
+  const html = renderToString(<PktServerLog log={pktLogFixture} onReload={noop}
+    selectedTs={1785775361.2} selectedNo={1221} />)
+  if (!html.includes('nearest')) throw new Error('the nearest record is not marked')
+  // renderToString splits adjacent text nodes with comment markers, so the frame number
+  // is not contiguous with the label in the HTML — assert on each part.
+  if (!html.includes('Nearest record to frame')) throw new Error('no delta line')
+  if (!html.includes('1221')) throw new Error('delta line omits the frame number')
+  // The sign and the number are separate text nodes too, hence the loose match.
+  if (!/[+−](<!-- -->)?\d+\.\d{3}/.test(html)) throw new Error('delta value not rendered')
+  if (!html.includes('ring-primary')) throw new Error('the nearest record is not highlighted')
+  return html
+})
+check('packet inspector: server error log (selection with nothing nearby)', () => {
+  const html = renderToString(<PktServerLog log={pktLogFixture} onReload={noop}
+    selectedTs={1785999999} selectedNo={99} />)
+  if (!html.includes('nothing in the log is close to this packet')) {
+    throw new Error('a far-away selection should say so')
+  }
+  return html
+})
+// Clicking a record is the reverse jump; the rows must advertise it and be clickable.
+check('packet inspector: server error log (records are clickable)', () => {
+  let picked = null
+  const html = renderToString(<PktServerLog log={pktLogFixture} onReload={noop}
+    onPick={(ts) => { picked = ts }} />)
+  if (!html.includes('Click a record to send the packet list to that moment')) {
+    throw new Error('the jump affordance is not shown')
+  }
+  if (!html.includes('cursor-pointer')) throw new Error('records are not clickable')
+  return html
+})
+// …and the packet list tints the neighbourhood of the record that was clicked.
+check('packet inspector: packet list marks a log record\'s moment', () => {
+  const html = renderToString(<PktList packets={pktFixturePackets} first={pktFixtureSummary.firstTs}
+    selectedNo={null} onSelect={noop} markTs={1785775365.5} />)
+  if (!html.includes('bg-warning/10')) throw new Error('no rows tinted for the marked moment')
+  return html
+})
+check('packet inspector: server error log (window mismatch)', () => {
+  const html = renderToString(<PktServerLog onReload={noop}
+    log={{ path: 'mysqld.log', source: 'upload', scanned: 40, inWindow: 0, mismatch: true,
+      logFrom: 1785000000, logTo: 1785000600, windowFrom: 1785775330, windowTo: 1785775402,
+      entries: [], top: [] }} />)
+  if (!html.includes('none of them fall in this capture')) throw new Error('mismatch warning not shown')
+  return html
+})
 
 if (failures > 0) {
   console.error(`\n${failures} render failure(s)`)

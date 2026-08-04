@@ -58,6 +58,9 @@ export function Button({
 const BADGE_TONES = {
   muted: 'bg-muted/15 text-muted',
   primary: 'bg-primary/15 text-primary',
+  // accent is for a category rather than a status — the Packet Inspector labels DNS and
+  // ARP with it, which are neither good news nor bad, just not the database.
+  accent: 'bg-accent/15 text-accent',
   success: 'bg-success/15 text-success',
   warning: 'bg-warning/15 text-warning',
   danger: 'bg-danger/15 text-danger',

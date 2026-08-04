@@ -231,6 +231,18 @@ export const Icon = {
       <polyline points="15 7 20 12 15 17" />
     </Svg>
   ),
+  // Packet Inspector: rows of captured traffic (a packet list, shortening as it goes) with
+  // a lens over them. A plain magnifier is already Search, and a plain waveform is already
+  // Monitor — the pairing is what distinguishes this one at sidebar size.
+  Packet: (p) => (
+    <Svg {...p}>
+      <line x1="3" y1="4.5" x2="18" y2="4.5" />
+      <line x1="3" y1="9" x2="13.5" y2="9" />
+      <line x1="3" y1="13.5" x2="8.5" y2="13.5" />
+      <circle cx="15.5" cy="14.5" r="5" />
+      <line x1="19.2" y1="18.2" x2="21.5" y2="20.5" />
+    </Svg>
+  ),
   Line: (p) => (
     <Svg {...p}>
       <line x1="4" y1="12" x2="20" y2="12" />

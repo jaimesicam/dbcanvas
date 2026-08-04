@@ -2037,7 +2037,22 @@ func TestAIOIconsExist(t *testing.T) {
 		t.Fatal("parsed no icons out of Icons.jsx — the guard would pass vacuously")
 	}
 
-	for _, page := range []string{"web/src/pages/AllInOne.jsx"} {
+	// The nav's icons are named as strings, not as Icon.X references, so a typo there is
+	// invisible to the check below — and renders an undefined component, which blanks the
+	// whole page. Check them by name against the same set.
+	if app, err := os.ReadFile("web/src/App.jsx"); err == nil {
+		navIcons := regexp.MustCompile(`icon:\s*'([A-Za-z][A-Za-z0-9]*)'`).FindAllStringSubmatch(string(app), -1)
+		if len(navIcons) == 0 {
+			t.Error("App.jsx: parsed no nav icons — the guard would pass vacuously")
+		}
+		for _, m := range navIcons {
+			if !available[m[1]] {
+				t.Errorf("App.jsx nav references icon %q, which does not exist in Icons.jsx", m[1])
+			}
+		}
+	}
+
+	for _, page := range []string{"web/src/pages/AllInOne.jsx", "web/src/pages/PacketInspector.jsx"} {
 		src, err := os.ReadFile(page)
 		if err != nil {
 			t.Errorf("%s: %v", page, err)

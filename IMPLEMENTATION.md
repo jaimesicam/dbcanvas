@@ -10223,3 +10223,701 @@ server's `/v1/inventory/services` does, and it shows exactly the intended shape:
 router pointing at *every* config member, the shard-primary ports that take the local admin,
 the choice/snap/reject matrix, and two sharded clusters' PMM labels being disjoint), plus a
 render check for the unsupported-count branch.
+
+---
+
+## 206. Packet Inspector: tcpdump on a MySQL node, decoded — `app/pkt{inspect,cap,decode,mysql}.go`, `app/web/src/{pages/PacketInspector,lib/pktApi}.jsx|js`
+
+**Goal.** A new feature: capture traffic on a provisioned MySQL node and read it back as
+decoded MySQL — statements, responses, latency — together with the network problems
+underneath. MVP is MySQL only. The layout follows a mock (`Packet_Reviewer`: Traffic
+Timeline over a packet list, deep-inspection panel beside it) with one explicit
+change: the timeline had to be **more configurable** than dragging a fixed window.
+
+### Shape
+
+| File | Does |
+| --- | --- |
+| `pktcap.go` | Runs `tcpdump` in the node: installs it on first use, detects the interface holding the node's stack address, bounds every capture by duration **and** packet count, reads the pcap back over the exec channel (`readContainerFile`), deletes it from the node. |
+| `pktdecode.go` | Capture file → frames: classic pcap (µs/ns) and pcapng; Ethernet (+VLAN), Linux cooked v1/v2, raw IP, loopback; IPv4/IPv6; TCP. Plus the TCP health signals. |
+| `pktmysql.go` | MySQL protocol, reassembled across segments: greeting, login, commands, OK/ERR/EOF, result sets, prepared statements, binlog events. TLS records once a connection upgrades. |
+| `pktinspect.go` | HTTP: targets, capture lifecycle, and **range-addressable** packet/timeline queries (packet numbers, time, stream, protocol, direction, issue kind, search). |
+
+No new dependency: `gopacket` would be a large tree for a dozen struct offsets, and
+MySQL's protocol has to be hand-written regardless. Captures live in memory (newest
+12) like Query Runner's runs — a decoded capture is large and worthless once the stack
+is gone.
+
+**Configurable timeline.** Buckets are computed server-side over whatever range is
+being drawn, so the browser holds one page of a capture that may be 400k packets. A
+range comes from a drag, from exact packet numbers, from second offsets, from
+zoom/pan, or from a preset — plus filters and a resolution control (40–640 buckets).
+
+### What the first live capture broke
+
+Written against the protocol spec, run against a real node with Airline Sim's load
+plus replication, and four things were wrong immediately. All four are now tests.
+
+1. **Most connections are older than the capture.** The decoder assumed frame one of a
+   direction was the greeting, so mid-stream bytes became "Server greeting: `\x01\xfc`
+   (protocol 0)" and a binlog event became `OK: 87024254250021057 row(s) affected`.
+   Now: a state machine only runs when the connection's SYN was captured. Otherwise
+   frames say *"capture joined mid-connection"* — except an **ERR** packet, which is
+   unambiguous, and a **binlog event**, which is recognised by shape (the declared
+   event size matching the payload). Since MySQL is strictly request/response, a
+   complete command re-anchors the server direction and a completed response
+   re-anchors the client's, so a long-lived connection becomes fully readable one
+   round-trip in.
+2. **A prepared statement's response is not an OK packet.** `COM_STMT_PREPARE_OK`
+   read as one claimed millions of affected rows; it now reports statement id, columns
+   and parameters, and consumes the definition packets that follow.
+3. **Warning counts were flagged as issues**, once per MySQL message per frame, which
+   buried the real problems under hundreds of amber rows. They are reported in the
+   info line and never flagged.
+4. **Text off the wire went into the UI unsanitised** — a misparse put control bytes
+   in an info line. Everything derived from payload bytes is stripped of control
+   characters, and the detail panel renders SQL as React children rather than the
+   mock's `dangerouslySetInnerHTML`: a decoded packet is untrusted input.
+
+A fifth bug was caught later, by the unit tests rather than by reading output:
+**column definitions were counted as result rows**, so a 9-column, 8-row answer
+reported "17 row(s)". The live capture had shown that number and it looked plausible.
+Definitions are now consumed quietly, and the terminator is any `0xfe` packet (under
+`CLIENT_DEPRECATE_EOF` it is an OK longer than the classic 5-byte EOF).
+
+### Verification performed (live)
+
+A stack of Intranet + 1 primary + 1 replica (Percona Server 8.0.46-37, GTID) + Airline
+Sim as continuous load, stack 43.
+
+**Light and heavy traffic, unencrypted.** 13 227 packets in one 14 s capture: 822
+queries, 41 connections. A hand-run `INSERT INTO t (v) VALUES ('light-1')` was found
+by the search box with its matching `OK: 1 row(s) affected, insert_id 4`; `SELECT
+SLEEP(0.25)` appeared as `High latency — 250 ms`; a deliberate `SELECT bogus` as
+`Error 1054`. `mysqlslap --concurrency=8` showed up as a single 7 700-packet bucket in
+the timeline. The replication connection decoded as `GTID_LOG_EVENT` /`QUERY_EVENT`
+with next-position — mid-stream, as it always will be.
+
+**Network issues, provoked deliberately.** With `tc qdisc … netem loss 12% delay 40ms`
+on the client's egress, plus a killed client and a lock-contention pair, one 40 s
+capture produced: **45 TCP retransmissions**, **11 TCP gaps**, **2 duplicate ACKs**,
+**5 resets**, **9 high-latency responses**, a **1205 lock wait timeout** (2 950 ms to
+first response byte), and — unprompted — **1158 "Got an error reading communication
+packets"**, the server's own view of the client that vanished. Zero windows had already
+appeared unprompted during the 3 MB binlog stream.
+
+**Encrypted traffic.** Two findings worth writing down. The `mysql` CLI encrypts by
+default (`--ssl-mode=PREFERRED`), so an ordinary session is opaque without anyone
+choosing it; and `caching_sha2_password` refuses to send a password in the clear at
+all — `--ssl-mode=DISABLED` fails with `ERROR 2061 (HY000): Authentication requires
+secure connection`, which is *why* clients default to TLS. So "just turn it off" is
+not a one-flag answer, and the UI says what it actually takes.
+
+A TLS session is therefore reported for what it is — handshake steps by name, record
+sizes, timing, and every TCP-level problem underneath — with the statements marked
+unavailable rather than guessed at. Getting the statements means either capturing again
+with an account whose plugin allows a cleartext password, or reading them from the
+server's own general log or `performance_schema`.
+
+**Also verified:** the upload path (the 3.8 MB capture re-decoded through
+`POST /api/pktinspect/upload`), and the row-count fix on that same real capture — the
+result set that read "17 row(s), 9 column(s)" now reads "8 row(s), 9 column(s)".
+
+**Not verified:** the page has not been seen in a browser — this machine has no
+browser and no headless Chrome, so the UI is covered by 14 SSR render checks over
+fixtures shaped like the decoder's JSON (`npm run smoke`) and by the API responses
+those components consume. Someone should look at it.
+
+26 new Go test functions (a byte-level pcap builder, so every case is a real capture
+file), plus 14 render checks.
+
+---
+
+## 207. Packet Inspector: oversized packets, blobs, and demo captures — `app/pkt{mysql,samples_test}.go`
+
+Asked two questions of §206: are there demo captures to check against, and was the
+`max_allowed_packet` / large-blob path tested. The honest answer to the second was
+**no** — and testing it found two more bugs, one of them a silent data-loss bug.
+
+### A 16 MB+ row was being swallowed
+
+A MySQL packet carries at most `0xffffff` bytes, so a larger payload is split into a
+16 MiB chunk plus a remainder. That much was handled. What was not: **a text-protocol
+row whose first column is ≥ 16 MB begins with `0xfe`** — the length-encoded-integer
+marker for "an 8-byte length follows", which is also the marker for an EOF packet. The
+terminator test accepted any `0xfe` packet inside a result set, so a real 20 MB
+LONGBLOB row was consumed as the *end of the result set* and reported as
+
+    Result set complete: 0 row(s), 1 column(s), 0 B | EOF
+
+The size is what separates the two: a terminator is a handful of bytes (the classic
+EOF is 5; the OK that replaces it under `CLIENT_DEPRECATE_EOF` adds a little), while
+such a row is at least 16 MB. `pktEOFMaxLen` (512) is now the test. The same class of
+collision applies to `0xfb`, which is both the LOCAL INFILE marker and NULL in a text
+row — that is now only read as LOCAL INFILE outside a result set.
+
+### …and reassembling it took 6.5 seconds
+
+`pktNextMySQL` accumulated the payload as it walked the chunk headers and threw the
+copy away every time the tail turned out to be missing. With a 16 MB chunk arriving
+over ~14 000 segments that is quadratic: one row took **6.5 s**. It now walks the
+headers first and copies once — and for the single-chunk case (almost everything)
+returns a subslice with no copy at all. The same row now decodes in **0.10 s**, and the
+test fails if it ever exceeds a second again.
+
+Two new named events, because both are operational rather than SQL mistakes:
+`1153` "packet bigger than max_allowed_packet" and `1301` "result truncated at
+max_allowed_packet".
+
+### Verification performed (live)
+
+On stack 43, against Percona Server 8.0.46-37:
+
+- **A 20 MB LONGBLOB round trip.** `LENGTH(b)` = 20 971 520 on the server; the capture
+  carried 20 971 598 server→client bytes after the SELECT, framed exactly as the
+  protocol says (`0xffffff`, then 4 194 314, then a 7-byte EOF). Before the fix the
+  row vanished; after it, `Result set complete: 1 row(s), 1 column(s), 20.0 MB` with a
+  heavy-result flag.
+- **A genuine `max_allowed_packet` violation.** With the server limit at 1 MB and a
+  4 MB literal sent from the client, the capture shows
+  `Error 1153: Got a packet bigger than 'max_allowed_packet' bytes` immediately
+  followed by `[ACK,RST]` and `[RST]` — the server refusing the packet and then
+  hanging up, which is the pair worth seeing together. (An earlier attempt using
+  `REPEAT()` produced `1301` instead: the expression is evaluated server-side, so
+  nothing oversized ever crossed the wire. Both are now named.)
+- The row-count fix from §206 re-checked on the original 3.8 MB capture: the result set
+  that read "17 row(s), 9 column(s)" reads "8 row(s), 9 column(s)".
+
+### Demo captures
+
+`TestWriteSampleCaptures` generates a set on demand — every TCP fault in 15 packets, a
+mid-connection join, a TLS upgrade, the ARP/DNS cases, and the oversized row, which can
+only be ~17 MB because the split happens above 16 MB:
+
+```
+PKT_SAMPLE_DIR=/tmp/pkt-samples go test -run TestWriteSampleCaptures ./app
+```
+
+No capture files are committed. `TestSampleCapturesDecode` decodes the same bytes in
+memory on every run instead, from the same table that drives the writer, so a builder
+that stops demonstrating its case fails the suite and the two lists cannot drift.
+
+Real traffic was used throughout the work below — a Percona Server primary with a replica
+under the Airline Sim workload, and a 3-node PXC cluster — but the recordings stay out of
+the repository: they are large, and a capture is whatever happened to be on the wire that
+day, which is the opposite of a fixture. Where a capture *is* trimmed for sharing, trim by
+**whole connections** only; filtering out individual frames — the obvious way to shrink
+one — fabricates TCP gaps, which would make it lie about the very thing it exists to show.
+
+Two things learned while producing them, worth knowing before capturing by hand:
+
+- **On a busy server the `-c` ceiling ends a capture in seconds.** Airline Sim's load
+  reaches 8 000 packets in about three, which silently truncated several runs before
+  the interesting traffic happened.
+- **Loss injected on the server's own egress is invisible in a server-side capture.**
+  `netem` drops after tcpdump's tap point, so neither the drop nor a distinguishable
+  retransmission is recorded. Inject on the client to see retransmissions and gaps at
+  the server. (Also: `docker exec -d` proved unreliable for starting the capture in
+  ad-hoc scripts, while `setsid nohup` — what `pktStartScript` already uses — is not.)
+
+4 new tests (oversized-row reassembly with a performance ceiling, NULL-first-column vs
+LOCAL INFILE, `1153` naming, and the sample-integrity check) plus the sample generator.
+
+---
+
+## 208. Packet Inspector: the MySQL communication-error catalogue — `app/pkt{mysql,decode,serverlog}.go`, `app/web/src/pages/PacketInspector.jsx`
+
+Asked to audit the Packet Inspector against MySQL's documented list of network,
+handshake, TCP and error-log failures: which are already flagged, and can the rest be
+provoked and added. The audit found that the list splits three ways, and that the split
+is the whole answer:
+
+| Class | Visible where | Before | Now |
+| --- | --- | --- | --- |
+| Server ERR packets (1152–1161, 1184, 1835, 1189/1190, 1040–1130, 1203) | on the wire | only 1040/1045/1053/1129/1130/1153 named; the rest showed as "MySQL error N" | all named, with symbol and class, from `pktErrCatalog` |
+| Client codes (2003, 2006, 2013, 2026, 2027, 2065/2066) | **never on the wire** | not detected | the *evidence* is detected and labelled with the code the client will report |
+| Error-log records (MY-010055, MY-010914, MY-010262, MY-015010 …) | **only in the log** | not read | `pktserverlog.go` tails, classifies and windows the node's error log |
+
+### What the wire can and cannot say
+
+A 2xxx code is the client library's own diagnosis — it is never transmitted, so a
+decoder claiming to have "seen a 2013" would be lying. What a capture does hold is the
+shape that produced it, and that is now flagged:
+
+- a RST answering a SYN → **Connection refused** (client reports 2003);
+- a SYN nothing ever answers → **Connection attempt unanswered** (2003 after the
+  connect timeout), reported on the first attempt rather than the last retry;
+- a RST or FIN while a command is unanswered → **Server closed the connection with
+  COM_QUERY in flight** (2013 for a reset, 2006 for a FIN);
+- a TLS alert record → **TLS alert** (2026);
+- a break in MySQL's own packet numbering → the 1156 / 2027 condition.
+
+`CLIENT_COMPRESS` / `CLIENT_ZSTD_COMPRESSION_ALGORITHM` is now detected in the
+handshake and the connection marked `MySQL/compressed`, for the same reason TLS is:
+zlib framing makes the payload unreadable, and emitting decoded garbage would be worse
+than saying so. That is also where 1157 and 2065/2066 live.
+
+### Two bugs found by chasing false positives
+
+The sequence-break detection was measured against six real captures before being
+kept — and it fired **thousands** of times on the first attempt, then twice more after
+that. Both were bugs in the tool, not in the traffic:
+
+1. **The sequence byte is per connection, not per direction**, and it restarts at each
+   client command: greeting 0, handshake response 1, OK 2. Tracking it per direction
+   made every normal response look like a break. Then: **an oversized payload consumes
+   one sequence number per 16 MB chunk**, so every blob transfer reported a break too.
+2. Chasing the last hit turned up a genuine decoding gap. **`caching_sha2_password` —
+   the default plugin on MySQL 8 — sends an AuthMoreData packet beginning with `0x01`,
+   which is also a length-encoded column count of 1.** Every such login therefore
+   decoded as a bogus one-column result set, and the packets after it were counted as
+   its rows. The authentication phase now has its own decode: AuthMoreData (with "fast
+   auth succeeded" / "full authentication required"), AuthSwitchRequest with the plugin
+   name, and the OK/ERR that ends it.
+
+A third, smaller one: an unknown command byte was being reported as `COM_0x4e`, which
+produced "Server closed the connection with COM_0x4e in flight". An unrecognised byte
+is now reported as an unrecognised payload rather than invented as a command.
+
+After all four fixes: **zero sequence-break false positives across six real captures**,
+and the detection is suppressed when an ERR packet on the same frame already explains
+the break (a server refusing an oversized packet mid-read breaks the framing by
+definition — saying both buries the useful half).
+
+### Provoked live, on stack 43
+
+One 40 s capture, everything below in it, decoded and named:
+
+    1045 Authentication failed          wrong password on a mysql_native_password account
+    1156 Packets out of order           a raw socket sending a bad packet header
+    1158 Error reading communication…   a garbage handshake response, server gave up
+    1040 Too many connections           max_connections=3, 24 refusals in the window
+    1044 / 1062 / 1064                  privilege, duplicate-key and syntax errors
+    Server closed … COM_QUERY in flight KILL against a running SELECT SLEEP (client: 2013)
+    TCP reset                           the connection teardown that followed
+
+`1045` needed a `mysql_native_password` account to reach the wire at all:
+`caching_sha2_password` refuses to send a password over an unencrypted channel, so a
+wrong password there fails client-side with 2061 before any ERR packet exists.
+
+**Self-inflicted, worth recording:** setting `max_connections=3` locked me out of
+restoring it — the restore needs a connection, and even the SUPER reserved slot was
+taken by the workload's pool. Fixed by stopping the Airline Sim container to drain the
+pool, restoring the variable over the local socket, and starting it again.
+
+### The error-log side
+
+`pktserverlog.go` tails the node's error log (path per `pxcLogError`, plus the
+distribution defaults), classifies each line into aborted / auth / dns / listener / tls
+/ replication, pulls the parenthesised reason out of an aborted-connection note, and
+narrows the result to the capture's window ±30 s. Two classifier bugs were fixed by the
+tests: real lines end `(…).` with a trailing period, and a MY- code must win over a text
+pattern (MY-010056 "Host name … could not be resolved" was being claimed by
+MY-010055's substring).
+
+**The important discovery is what the log does *not* say.** On the live node
+`Aborted_clients` was **15** and `Aborted_connects` **9**, with **not one** aborted
+connection in the log — because a note is only written when the disconnect produced a
+real read/write error, and only at `log_error_verbosity` 3. A tool that read only the
+log would have reported "no aborted connections" on a server with 15 of them. The panel
+therefore shows the counters (`Aborted_clients`, `Aborted_connects`,
+`Connection_errors_*`) beside the records, and says which of the two reasons is
+suppressing the notes.
+
+7 new tests: the catalogue's coverage and classes (including that the 2xxx codes are
+*absent* from it), the four client-side evidence shapes, compression, the auth phase,
+refused logins, the sequence-break rules, and 15 error-log line formats — the
+aborted-connection variants among them, since this build would not emit them live.
+
+---
+
+## 209. Packet Inspector: PXC's Galera ports (4567 / 4568 / 4444) — `app/pkt{galera,cap,decode,inspect}.go`
+
+A capture of a PXC member on 3306 alone contains none of the replication that makes it a
+cluster. Asked to include Galera's ports, which is two changes, not one: the **filter**
+has to cover them, and the **decoder** must not treat them as MySQL.
+
+| Port | Carries | Reported as |
+| --- | --- | --- |
+| 3306 | client/server protocol | `MySQL`, fully decoded |
+| 4567 | group communication (gcs/gcomm) — heartbeats, quorum, write-sets, between every member and every other, continuously; TCP and UDP multicast | `Galera/GCS` |
+| 4568 | IST — incremental state transfer from a donor's writeset cache | `Galera/IST` |
+| 4444 | SST — a full physical dataset copy, streamed by xtrabackup/rsync/mysqldump | `Galera/SST` |
+
+The filter is now built from a **port→role map** rather than a single port:
+`(port 3306 or port 4444 or port 4567 or port 4568)`, ascending so the command line is
+stable between runs. An **All-in-One PXC instance uses its slot's ports** instead of the
+defaults — several instances share one container, so 4567 can belong to at most one of
+them — and `pktTargetRoles` reads those from `aioPortsFor`. MariaDB Galera nodes get the
+same treatment; a plain MySQL node keeps the single-port form.
+
+**Galera's payloads are deliberately not decoded.** gcomm's message layout is internal to
+Galera rather than a documented, stable protocol, and an SST is an opaque backup stream:
+running the MySQL decoder over either would manufacture exactly the kind of confident
+nonsense §206 and §207 were spent removing. What the wire says for certain is reported —
+volume, direction, continuity, cumulative transfer size — plus the one thing an SST does
+announce, its **stream format**, sniffed from the head of the transfer (`XBSTCK01` for
+xbstream, `@RSYNCD:` for rsync, gzip/zstd magic, or SQL text for mysqldump).
+
+Three Galera events are flagged: **IST started** (the cheap rejoin), **SST started**
+with its format (the expensive one), and **SST is large** past 1 MB — raised once per
+connection, because a 5 GB transfer would otherwise produce millions of identical issues.
+
+Everything at the TCP layer applies unchanged, which is the point of putting these ports
+in the same tool: **retransmissions and gaps on 4567 are the classic cause of a cluster
+that keeps evicting members**, and they are now attributed to the port that explains them.
+
+4 new tests: the filter composition for PXC / plain MySQL / All-in-One-with-slot-ports,
+the three roles being classified and *not* MySQL-decoded, SST format detection across six
+stream types, and the large-SST flag firing exactly once.
+
+### Verification performed (live, stack 44)
+
+A real 3-node PXC 8.0 cluster (`wsrep_cluster_size 3`, Primary, Synced), capturing on
+`px-1` for 100 s while the third member left and rejoined twice — once by IST, once by a
+forced full SST with `wsrep_sst_donor=pxc-1` so the transfer would cross the node being
+captured.
+
+The filter the tool built, and what came back:
+
+    (port 3306 or port 4444 or port 4567 or port 4568)
+
+    protocols   Galera/GCS 1988 · Galera/SST 1873 · Galera/IST 14 · MySQL 24 · TCP 1898
+    issues      231 TCP zero window · 3 TCP retransmission · 2 TCP gap · 1 dup ACK · 1 reset
+                Galera IST started · Galera SST started (xbstream / xtrabackup) · SST is large
+
+    #0 Galera/GCS  172.30.0.3:52190 → …:4567   1421 pkts   201 KB
+    #5 Galera/GCS  172.30.0.5:58756 → …:4567    637 pkts    85 KB
+    #6 Galera/IST  172.30.0.4:32952 → …:4568     26 pkts    10 KB
+    #8 Galera/SST  172.30.0.4:50110 → …:4444   2973 pkts  54.4 MB
+
+The SST's stream format was read off the wire correctly (`XBSTCK01` → xbstream /
+xtrabackup), and the **231 zero-window events on the SST connection** are the joiner's
+receive buffer filling under a 54 MB transfer — Galera flow control, visible as plain
+TCP, which is the kind of thing having all four ports in one capture is for.
+
+**One bug the live run found:** the "transfer started" flag fired twice for a single IST
+connection, because an IST carries data one way and acknowledgements the other and each
+direction announced it. The announcement is now per connection. (The *two* SST
+announcements are correct: xtrabackup opens a control connection alongside the data
+stream, and the capture holds both.)
+
+For the record, the shape of that capture: 2 824 packets over 8 connections once the
+54 MB SST data stream was set aside — 94 % of the bytes in one connection — leaving four
+`Galera/GCS` streams on 4567 (~1 990 packets of continuous heartbeat and write-set
+traffic), one IST stream on 4568, one SST control connection on 4444, and the client
+traffic on 3306. The data stream itself raised **231 TCP zero windows**: the joiner's
+receive buffer filling under the transfer, which is Galera flow control showing up as
+plain TCP.
+
+**Also fixed, unrelated to PXC:** `TestSampleCapturesDecode` had been silently deleted by
+an earlier rewrite of `pktsamples_test.go`, and nothing noticed, because a deleted test
+passes. It is back, and now runs against bytes built in memory from the same table as the
+sample writer, so it cannot skip its way into being absent again either.
+
+---
+
+## 210. Packet Inspector: a sticky inspection panel, and timestamps that include the date — `app/web/src/{pages/PacketInspector.jsx,lib/pktApi.js}`
+
+Two observations from using the page: the inspection panel scrolls away when you pick a
+packet from further down the list, and there is no date or time anywhere.
+
+**The panel is now sticky** on a wide screen (`xl:sticky` with its own max height and
+scroll), so a frame selected from deep in a capture stays readable while the list moves.
+On a narrow screen it still stacks below, where sticky would be in the way.
+
+**The timestamps were a display gap, not a data gap** — worth stating precisely, because
+the two have different fixes. Every packet already carried its absolute capture time:
+`pktPacket.TSUnix` is epoch seconds with a microsecond fraction (nanosecond for a
+`pcap-ns` file), read straight from the pcap record and used for the timeline's
+bucketing and for every range query. What the UI did with it was the problem: the list
+showed only `+0.1234` relative to the capture start, the detail panel showed a time of
+day with no date, and **no date appeared anywhere at all**. A capture read the next
+morning, or correlated against an error-log line, had nothing to correlate on.
+
+So the same number is now offered five ways, the choice Wireshark puts under View → Time
+Display Format:
+
+| Mode | Example |
+| --- | --- |
+| Seconds since capture start (default) | `+5.500000` |
+| Time of day | `19:19:01.501234` |
+| Date and time | `2026-08-03 19:19:01.501234` |
+| UTC (ISO) | `2026-08-03 11:19:01.501234Z` |
+| Delta from previous row | `+0.000181` |
+
+Relative stays the default because that is how a 20-second window is usually read. The
+UTC form exists for one specific job: pasting next to a server error-log line, which is
+written in UTC while the browser renders local time — and §208's whole point is
+correlating those two.
+
+Also: the Summary card now carries the capture's own date and window
+(`2026-08-03 19:19:01.501 → 19:19:21.502 · 20.001s`), the timeline axis is labelled with
+real times alongside the offsets, each bar's tooltip names its bucket's time, and the
+detail panel gives local, UTC and offset together rather than a lone offset.
+
+5 new render checks, one per time mode, asserting the absolute modes actually emit a
+date/UTC stamp rather than the offset they replaced. (The first version of that assertion
+was wrong, not the code: the fixture's offsets start at +5.5, so a check for "+0." failed
+on correct output.)
+
+---
+
+## 211. Packet Inspector: hour-long captures, and a TLS label that was guessing — `app/pkt{cap,inspect,mysql,decode}.go`, `app/web/src/pages/PacketInspector.jsx`
+
+**Ceilings raised.** Duration goes to **3600 s** (was 300) and the `-c` ceiling to
+**100,000** (was clamped against the 400k *decode* limit, which is a different budget and
+stays where it is for uploaded pcaps). Both are now named constants next to the byte
+ceiling they interact with.
+
+Raising the duration made the byte ceiling load-bearing: an hour on a busy node can reach
+a file that cannot be read back over the exec channel at all. The poll loop now **stops a
+capture that reaches 192 MB** and keeps what it has, rather than letting it run to
+something unfetchable — reported as `sizeCapped` and shown in the UI. The Capture card
+says which of the three bounds will realistically end a capture, because on a busy server
+it is the packet ceiling, not the clock.
+
+**A TLS label that was guessing.** Reading a live TLS session on the current build showed
+a record labelled `TLS 1.2 Handshake: ClientHello` *after* the ServerHello. A
+handshake record's first body byte names the message — ClientHello, Certificate,
+Finished — but only while the handshake is in the clear. After a ChangeCipherSpec, and
+under TLS 1.3 after the ServerHello, that byte is ciphertext, and this one happened to be
+`0x01`. Those records now read **`Handshake (encrypted)`**. `pktTLSSeals` decides when the
+handshake is sealed (a ChangeCipherSpec, or a ServerHello) and the connection remembers it.
+
+Live, the same session now reads:
+
+    TLS 1.0 Handshake: ClientHello (1478 bytes)
+    TLS 1.2 Handshake: ServerHello (88 bytes) | TLS 1.2 ChangeCipherSpec (1 bytes)
+    TLS 1.2 Handshake (encrypted) (291 bytes)          ← was "Handshake: ClientHello"
+    TLS 1.2 Application Data (234 bytes)
+
+2 new tests: the capture ceilings and their relationship to the decode limit, and the
+sealed handshake not being named plus what seals it.
+
+---
+
+## 212. Packet Inspector: upload a server error log with a capture — `app/pkt{serverlog,inspect}.go`, `app/web/src/{pages/PacketInspector.jsx,lib/pktApi.js}`
+
+The error-log panel (§208) only worked for captures taken on a node, because it read the
+log off that node. An **uploaded** pcap — from a production server, or a colleague — had no
+node to ask, which is exactly the case where the log is hardest to get hold of otherwise.
+The upload form now takes it as a second, optional file, and from there both sources go
+through the same classifier and the same windowing.
+
+**A parser bug this exposed first.** `log_timestamps` is UTC by default, but `SYSTEM` is
+common, and a SYSTEM-stamped log writes a zone offset (`…+08:00`) instead of a `Z`. The
+line pattern demanded the `Z`, so it **rejected every line** of such a log — invisible for
+a node this app provisioned, fatal for an uploaded log from someone else's server. Both
+forms are now accepted and parsed through RFC3339, so a log from a server in another
+timezone resolves to the same instants as the packets.
+
+**What the panel does with a pair that does not match.** A log whose records fall entirely
+outside the capture's window now says so, with both ranges — the log covers this, the
+capture covers that — because a log from the wrong day or the wrong server is the mistake
+this pairing actually invites, and "no events in window" looks identical to "wrong file"
+otherwise. A file with no recognisable records at all is refused at upload with an example
+of the expected format, rather than being accepted as an empty log.
+
+Also fixed while looking at it: the panel rendered each record's timestamp **as written in
+the log**, so a SYSTEM-stamped line sat on a different clock from the rest of the list.
+Times now come from the parsed instant (the raw text stays in the tooltip), which is what
+makes a mixed-zone log readable in one column.
+
+Bounds: 64 MB per log, 200k records kept. `pktLogWindowView` is the shared filter — a pure
+function over classified records, which is what let the windowing be tested without an
+HTTP handler.
+
+### Verification performed (live)
+
+No node was needed, which is the point of the feature: the whole path was exercised through
+the real API with uploaded captures.
+
+- **Correlated pair.** A plaintext capture off the Percona Server primary plus a log
+  written with timestamps inside that capture's own window: 7 records parsed, **5 in
+  window**, families
+  `Aborted connection ×3` / `Client IP could not be resolved` / `TLS / certificate problem`,
+  with the aborted-connection reasons extracted. The two records deliberately placed an
+  hour before and two hours after the capture were excluded; one of the in-window records
+  was written with a `+08:00` offset and still landed in the right place.
+- **No log** (the ordinary upload): the panel explains that one can be uploaded, rather
+  than erroring.
+- **Wrong period**: 1 record parsed, 0 in window, `mismatch: true`, nothing shown.
+- **Not a log at all**: refused with
+  `no MySQL error-log records were recognised in junk.log — expected lines like …`.
+
+2 new Go tests (the shared windowing over a parsed file, including the mismatch, the
+class filter, `all=1`, and untimed records; plus the three timestamp zone forms resolving
+to the correct distinct instants) and 2 new render checks.
+
+### The pane follows the selection
+
+Correlating by eye across two panes is work the tool should be doing, so the log pane moved
+under **Packet Inspection** in the right-hand sticky column, and selecting a packet now
+scrolls it to the record nearest that packet in time and highlights it. The offset is
+stated rather than implied — `Nearest record to frame #1221: −0.200 s` — because a note the
+server wrote two seconds later is about the same event and one written an hour later is
+not: records within ±2 s are tinted, the closest is ringed and labelled *nearest*, and when
+nothing is close the pane says so instead of highlighting something irrelevant. `scrollIntoView`
+uses `block: 'nearest'` so the surrounding column does not jump with it.
+
+**follow selection** (default on) switches it off, because reading the log straight through
+is also legitimate and having it move under you would be maddening. The table became a
+compact list on the way, since the right-hand column is too narrow for six columns.
+
+3 further render checks: the nearest record marked and its delta shown, a selection with
+nothing nearby, and the highlight class actually applied. (Two of those assertions were
+wrong before they were right — `renderToString` splits adjacent text nodes with
+`<!-- -->` markers, so `frame #1221` and `−0.200` are not contiguous strings in the HTML.
+The component was correct both times.)
+
+### …and back the other way
+
+Clicking a log record now sends the packet list to the moment it describes. The naive
+version of this would set the time range and reload, which throws away whatever the user
+had narrowed to; instead the list endpoint takes **`around=<epoch seconds>`** and returns
+the page holding the packet nearest that instant, centred, along with `nearestNo` and the
+signed delta. The range and the filters stay exactly as they were — only the paging moves.
+
+Two rules make it honest rather than approximate:
+
+- **Only matched packets are candidates.** Jumping to a packet the user's own filters
+  exclude would misrepresent what the list contains, so the search runs over the filtered
+  set and the offset is computed within it.
+- **Nothing near means nothing happens.** If no packet in the current range is close to the
+  record, the UI says so instead of jumping somewhere arbitrary.
+
+`pktAroundPage` is a plain function over the decode, extracted from the handler
+specifically so the test drives the real thing — the first version of that test
+re-implemented the paging arithmetic in the test body and "passed" against its own copy of
+the logic, which proves nothing. (It also had the centring off by one: packet #101 is
+index 100, so a 20-row page starts at 90, not 91.)
+
+**Verified live** on an uploaded pcap + log pair: the `MY-010914` aborted-connection record
+at `…591.556` resolves to frame **#612** at **−0.000 s**, page offset 606 of 1213 matched;
+with a `dir=s2c` filter applied the same record resolves to the same frame but offset **307**
+within the filtered set, and every row on the returned page is `s2c`.
+
+2 further render checks (records advertise the jump and are clickable; the packet list tints
+the marked moment) and 1 Go test covering the nearest-packet search, the filtered variants,
+both out-of-range ends, and a range that admits nothing.
+
+---
+
+## 213. Packet Inspector: ARP and DNS, and three bugs a real PXC capture exposed — `app/pkt{net,decode,mysql,serverlog}.go`
+
+Asked to decode more than MySQL, with a pointer to a real 50 000-frame capture from a PXC
+node (`~/pxc01-tcpdump.pcap`). Surveying it first was the right order: it decided what was
+worth writing, and it turned up three defects before a line of new decoding was added.
+
+    ethertypes   0x0800=49990  0x0806=10          ← ARP
+    ip protos    tcp=49936     udp=54             ← all 54 UDP frames are port 53
+    tcp ports    3306=27637    4567=22202         ← MySQL and Galera, on one node
+
+### What the capture found
+
+1. **Galera's 4567 traffic was being run through the MySQL decoder.** An uploaded capture
+   carries no port roles (§209 only passed them for captures taken on a node, where the
+   node type is known), so 22 000 frames of group communication came out as *"Client
+   payload, 72 bytes (capture joined mid-connection)"* — and 10 201 of them were labelled
+   `MySQL/compressed`, a false positive from reading gcomm bytes as a handshake. The
+   decoder now falls back to the well-known Galera ports when no roles are declared, and
+   those frames read as `Galera/GCS` (19 185), `Galera/IST` (45) and `Galera/SST` (2).
+2. **1047 was mislabelled.** PXC reuses `ER_UNKNOWN_COM_ERROR` for *"WSREP has not yet
+   prepared node for application use"*, and the capture held **69 of them** reported as
+   "Unknown command". What they actually meant is that a node was refusing queries because
+   it was not synced, so that message is now read as well as the code:
+   **Node not ready for application use (1047 wsrep)**.
+3. **ARP and DNS were not decoded at all** — the thing that was asked for.
+
+### ARP and DNS
+
+Both have fixed, documented layouts, so neither is guessed at; anything that does not
+parse is reported as unparsed. What they add is the class of problem where **no packet on
+the database port can explain anything**, because the connection never happened:
+
+- **DNS**: query and response with name, type, answers, rcode and the lookup's latency.
+  Flagged: `NXDOMAIN`/`SERVFAIL`/`REFUSED` (what a client reports as `2005
+  CR_UNKNOWN_HOST`), a query nothing answered, a response over 100 ms (paid by every
+  connection resolving that name), and NOERROR-with-no-records — but **only for `A`, `SRV`
+  and `PTR`**. A resolver asks `A` and `AAAA` in parallel, so every IPv4-only host answers
+  `AAAA` that way; flagging it produced 12 meaningless issues on the real capture before
+  the rule was narrowed.
+- **ARP**: who-has / is-at, plus three things worth a flag — a **gratuitous** announcement
+  (how a virtual IP says it has moved, i.e. the moment clients get disconnected), an
+  **address conflict** when a second MAC claims an IP already claimed, and an
+  **unanswered** who-has (unreachable at layer 2, which surfaces later as a connect
+  timeout). Unanswered requests and unanswered DNS queries are found in a post-pass, the
+  same shape as the unanswered-SYN check.
+
+### Verified on the real capture
+
+    ARP 10   DNS 54   Galera/GCS 19185   Galera/IST 45   Galera/SST 2   MySQL 22342   TCP 8362
+
+    DNS query A pxc01.example.net → DNS response A pxc01.example.net → 172.28.0.6 (0.3 ms)
+    ARP who-has 172.28.0.2? tell 172.28.0.6 (12:83:e9:65:6e:6b)
+    3 × Gratuitous ARP for 172.28.0.7 · 1 × ARP unanswered · 1 × DNS NXDOMAIN for 7.0.28.172.in-addr.arpa
+    69 × Node not ready for application use · 8 × Server shutdown in progress
+    257 × TCP reset · 247 × Connection refused · 247 × Connection attempt unanswered
+
+**And the log paired with it.** The same node's `mysqld.log` overlapped the capture window,
+so the upload-pair path (§212) was exercised on real data: 1 880 records parsed, **483 in
+window**, and the first one explains the entire capture —
+
+    01:05:03  lifecycle  Server shutdown         Received SHUTDOWN from user <via user signal>
+    01:05:13  cluster    Cluster state change    Server status change synced -> disconnecting
+    01:05:15  lifecycle  Server startup          mysqld 8.0.46-38.1 starting as process …
+    01:05:26  dns        Client IP could not be resolved   IP address '172.28.0.7' …
+
+That is why the packets show 1053s, wsrep-not-ready errors, resets and refused connections.
+Two log families were added to make it read that way — **lifecycle** (shutdown/startup) and
+**cluster** (wsrep state changes, cluster views, quorum) — because on a PXC node those are
+not noise, they are the reason. Note also the cross-signal: the log's *"IP address
+'172.28.0.7' could not be resolved"* and the capture's *"DNS NXDOMAIN for
+7.0.28.172.in-addr.arpa"* are the same failing reverse lookup seen from both sides.
+
+4 new tests (ARP request/reply/gratuitous/conflict/unanswered; DNS query/response with
+latency, NXDOMAIN naming the client code, the A-versus-AAAA no-answer rule, slow and
+unanswered lookups; the default port roles covering Galera; the wsrep 1047 label and its
+grouping), a new generated sample `net-arp-dns.pcap` (13 packets, 1.1 KB), and an `accent`
+Badge tone for the two categories that are neither good news nor bad — just not the
+database.
+
+---
+
+## 214. Packet Inspector: a file picker that looks clickable, and an icon of its own — `app/web/src/{pages/PacketInspector.jsx,components/{Icons,ui}.jsx}`, `app/aio_test.go`
+
+Two pieces of UI that were technically working and visually mute.
+
+**The upload's file inputs.** A bare `<input type="file">` renders as browser chrome — a
+system-font *"Choose File / No file chosen"* with no border — which in this app reads as
+static text, not a control. `FilePick` replaces both: a dashed drop target with an icon and
+a prompt, the whole box clickable via `htmlFor`, a hover and drag-over state, and the chosen
+file's name and size with a **remove** link. **Upload and decode** stays disabled until a
+capture is chosen, so the required field is obvious.
+
+The native input stays — it is the only way to open a file dialog, and keyboards and screen
+readers depend on it — moved out of sight with `sr-only` rather than `hidden` so it remains
+focusable, with its focus ring mirrored onto the box via `peer-focus-visible`. Chosen files
+now live in React state instead of being read back off the DOM input, because a **dropped**
+file never appears in `input.files`.
+
+**The nav icon.** The feature was borrowing `Icon.Line` — a single horizontal stroke. It has
+its own now: three list rows shortening downward with a lens over them, which is what the
+page is (a packet list plus an inspection panel). A plain magnifier is already `Search` and
+a plain waveform is already `Monitor`, so the pairing is what makes it distinguishable at
+sidebar size; the lens is drawn at r=5 because a smaller circle closes up against the set's
+1.8 stroke at 16 px.
+
+**A hole in the icon guard, found while doing it.** `TestAIOIconsExist` checks `Icon.X`
+references in page sources, but the sidebar names its icons as **strings**
+(`icon: 'Packet'`), which that pattern cannot see — and a typo there renders an undefined
+component and blanks the entire page, the exact failure the guard exists for. It now also
+resolves every `icon: '…'` in `App.jsx` against the icon set, and covers
+`PacketInspector.jsx` alongside `AllInOne.jsx`.
+
+5 new render checks: the picker empty (prompt, clickable classes, `htmlFor` wiring, and the
+native input surviving hidden-but-focusable) and with a file (name, size, remove), plus the
+icon rendered at 16/18/24 px asserting the viewBox, `currentColor`, and that all five
+elements are present rather than a smudge. An `accent` Badge tone was added in §213 for DNS
+and ARP; nothing else in the shared UI kit changed.

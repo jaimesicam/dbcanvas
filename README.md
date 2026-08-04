@@ -8,7 +8,8 @@ monitoring, backups). Nodes are **Docker containers** by default, or — in
 [**hybrid** mode](#deployment-backends--docker-or-vagrant-hybrid) — real **VirtualBox VMs**
 driven by Vagrant for the OS/database nodes. It then gives you tools to *use* and *understand*
 those databases: a **Data Generator** for realistic test data, a **Query Runner** and
-**Benchmark** for workloads, a **Visual Summary** that turns pt-stalk captures into charts, an
+**Benchmark** for workloads, a **Packet Inspector** that decodes MySQL traffic off the wire, a
+**Visual Summary** that turns pt-stalk captures into charts, an
 **experimental Labs** catalog of 95 AI-generated hands-on scenarios (see
 [below](#labs-experimental) — verify before relying on them), a live **Dashboard**, and a
 **notification** center for what's happening across your stacks.
@@ -339,6 +340,18 @@ Load a `bench_*` star schema into a chosen database and drive it with a selected
 throughput + latency.
 
 ![The Benchmark tool](docs/screenshots/benchmark.png)
+
+### Packet Inspector
+Capture traffic on a provisioned **MySQL** node with `tcpdump` and read it back as decoded
+MySQL: statements, responses, response times, prepared statements, result-set shapes, the
+replication stream — and the network problems underneath (**retransmissions**, **gaps**,
+**duplicate ACKs**, **zero windows**, **resets**), plus operational MySQL errors like `1205`
+lock-wait timeouts. The **Traffic Timeline** buckets density server-side and takes a range by
+drag, by packet number, by time offset, by zoom/pan or by preset, so a 400k-packet capture
+stays responsive. Encrypted sessions are marked rather than guessed at: sizes, timing and TCP
+behaviour stay accurate and the statements are reported as unavailable. Uploaded pcaps
+decode the same way. See
+[`docs/PACKET_INSPECTOR.md`](docs/PACKET_INSPECTOR.md).
 
 ### Visual Summary
 Turn a **pt-stalk** archive — collected from a MySQL/PXC node's **Diagnostics** tab or uploaded
