@@ -24,7 +24,7 @@ const NAV = [
   { id: 'data-generator', label: 'Data Generator', icon: 'Table', page: DataGenerator, hint: 'Generate test data for stack tables' },
   { id: 'queryrun', label: 'Query Runner', icon: 'Database', page: QueryRunner, hint: 'Run parallel queries with processlist gating' },
   { id: 'benchmark', label: 'Benchmark', icon: 'Monitor', page: Benchmark, hint: 'OLTP/OLAP/RW/RO throughput + latency' },
-  { id: 'packet-inspector', label: 'Packet Inspector', icon: 'Packet', page: PacketInspector, hint: 'tcpdump on a MySQL node, decoded packet by packet' },
+  { id: 'packet-inspector', label: 'Packet Inspector', icon: 'Packet', page: PacketInspector, hint: 'tcpdump on a database node, decoded packet by packet — MySQL, PostgreSQL, MongoDB, Valkey' },
   { id: 'visual-summary', label: 'Visual Summary', icon: 'Monitor', page: VisualSummary, hint: 'Charts from a pt-stalk archive' },
   { id: 'labs', label: 'Labs (experimental)', icon: 'Flask', page: Labs, hint: 'Hands-on scenarios with real check-work verification' },
   { id: 'settings', label: 'Settings', icon: 'Settings', page: Settings, hint: 'Terminal & theme preferences' },

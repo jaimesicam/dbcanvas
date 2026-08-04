@@ -11499,3 +11499,43 @@ replication-lag fixture that put a 100 KB value in **one IP packet**. The total-
 is 16 bits, so those frames were truncated and the decoder correctly reported gaps and
 incomplete values. On the wire a large value arrives as many MSS-sized segments, which the
 live 479 KB RDB transfer covers; the fixture now uses 1 250 modest writes instead.
+
+---
+
+## 219. README: the Packet Inspector, shown rather than described — `README.md`, `docs/screenshots/`, `app/web/src/App.jsx`
+
+The feature had one paragraph in the README and no picture. It now has a showcase section
+with three real screenshots and a sub-section per capability: the four protocols and where
+each engine keeps its cluster traffic, deep inspection and what the decoder refuses to
+guess, the Traffic Timeline as a range control, the error catalogues (and what is
+deliberately *not* flagged), the findings only a capture can make, the server-log
+correlation, and uploads.
+
+**The screenshots are real captures of a running instance**, taken with the isolated
+headless tooling described in §59 — recreated at `app/web/scripts/` (its own package,
+Playwright as its only dependency, the whole directory gitignored, so nothing reaches the
+app's `package.json` or the Docker build). Playwright's Chromium was already cached from
+that work. Three shots at 1440×900 @2x, dark:
+
+    packet-inspector.png            24 s on a live PXC member under Airline Sim's load:
+                                    12,992 packets, 932 queries, the four Galera ports,
+                                    and the summary's protocol mix and issue filters
+    packet-inspector-detail.png     a prepared-statement round trip selected — Prepare →
+                                    Prepared OK → Execute → Result set → CLOSE, with the
+                                    sticky panel's SQL, timing, TCP state and hex dump
+    packet-inspector-serverlog.png  a PostgreSQL capture beside the node's own log,
+                                    narrowed to the capture's window, each record classified
+
+Both data-bearing shots are of *provoked* traffic rather than an idle server: the PXC one
+runs under the Airline Sim workload, and the PostgreSQL one had an authentication failure, a
+missing database and a failing statement driven into its window so the log pane has
+something true to correlate.
+
+**Two things the exercise found.** The nav's page hint still read "tcpdump on a MySQL node,
+decoded packet by packet" — stale by three engines — and now names all four. And the first
+screenshot run came back with an empty page: restarting the app container to pick up the
+rebuilt bundle had discarded every capture, because captures live in memory by design. That
+is documented behaviour working as intended, and it is worth remembering when seeding a
+demo — seed *after* the last restart, not before.
+
+`docs/screenshots/README.md` indexes the three new images alongside the existing fourteen.
