@@ -343,32 +343,99 @@ throughput + latency.
 ![The Benchmark tool](docs/screenshots/benchmark.png)
 
 ### Packet Inspector
-Capture traffic on a provisioned **MySQL**, **PostgreSQL**, **MongoDB** or **Valkey** node with `tcpdump`
-and read it back as decoded protocol: statements and commands, responses, response times,
-prepared statements, result-set shapes, the replication stream — and the network problems
-underneath (**retransmissions**, **gaps**, **duplicate ACKs**, **zero windows**, **resets**),
-plus the operational errors that explain an outage: MySQL's `1205` lock-wait timeouts and
-`1047` wsrep-not-ready, PostgreSQL's `40P01` deadlocks, `53300` too-many-connections and
-`25006` writes that reached a standby, MongoDB's `10107` NotWritablePrimary, `13388`
-StaleConfig and write-concern failures that leave a write **not durable** inside an
-otherwise successful reply, and Valkey's `MOVED`/`ASK` slot redirects, `READONLY`, `OOM` and
-`MISCONF` (writes refused because persistence is failing). Each engine's cluster traffic comes too, wherever it lives:
-Galera's 4567/4568/4444 for PXC, **Patroni's REST API and etcd** for a Patroni member
-(because a failover is decided in etcd, not in PostgreSQL), and for MongoDB — where
-heartbeats, elections, oplog tailing and mongos→shard routing all share port 27017 —
-connections are classified **by content**, so two thirds of a capture that is cluster
-chatter can be filtered away in one click. PostgreSQL replication lag is read straight off
-the wire from both ends' **LSNs** and Valkey's from its replication offsets; MongoDB's BSON
-is decoded, including **snappy and zlib** decompression, since a real deployment compresses
-by default; and Valkey's **binary cluster bus** is decoded down to the slot bitmap, so a
-`FAIL` message or a failover vote is a line you can read rather than opaque gossip. The **Traffic Timeline**
-buckets density server-side and takes a range by drag, by packet number, by time offset, by
-zoom/pan or by preset, so a 400k-packet capture stays responsive. Encrypted sessions are
-marked rather than guessed at: sizes, timing and TCP behaviour stay accurate and the
-statements are reported as unavailable. Uploaded pcaps decode the same way — the protocol is
-sniffed from the bytes — and can carry the server's log alongside for correlation, which for
-MongoDB means the `planSummary` and `docsExamined` the wire cannot show. See
-[`docs/PACKET_INSPECTOR.md`](docs/PACKET_INSPECTOR.md).
+Capture traffic on a provisioned **MySQL**, **PostgreSQL**, **MongoDB** or **Valkey** node with
+`tcpdump` and read it back as decoded protocol — statements and commands, responses, response
+times, prepared statements, result-set shapes, the replication stream — together with the
+network problems underneath and the server-log records a capture cannot contain. It answers
+"what actually crossed the wire, and what did the server say back", which neither the slow log
+nor a processlist can.
+
+![The Packet Inspector — a live capture of a PXC member, with the Galera ports it covered and the summary's protocol mix and issue filters](docs/screenshots/packet-inspector.png)
+
+> *Above: 24 seconds on a PXC member under Airline Sim's load — 12,992 packets, 932 queries,
+> and the four ports a Galera member actually speaks. The Summary's **protocol mix** and
+> **issue chips** are filters: click `Galera/GCS · 5,894` to see only cluster traffic, or
+> `MySQL error 1064 · 30` to see only the statements that failed.*
+
+**Four protocols, and each engine's cluster traffic wherever it lives.** tcpdump runs inside
+the node's own container, on the interface carrying its stack address, and the capture covers
+every port that engine uses:
+
+| Family | Client protocol | Replication | Cluster control |
+| --- | --- | --- | --- |
+| **MySQL** · PS, PXC, MariaDB, MySQL CE | 3306 | binlog stream on 3306 | Galera on **4567 / 4568 / 4444** |
+| **PostgreSQL** · PostgreSQL, Patroni, repmgr, Spock | 5432 | walsender on **5432**, beside clients | Patroni REST **8008** + etcd **2379/2380** |
+| **MongoDB** · standalone, replica set, sharded | 27017 | oplog tailing on **27017** | heartbeats, elections, routing — **all on 27017** |
+| **Valkey** · standalone, clustered | 6379 | PSYNC on **6379**, beside clients | binary gossip bus on **16379** |
+
+MongoDB is the extreme case — one port carries application queries, heartbeats, elections,
+oplog tailing and mongos→shard routing at once — so its connections are classified by **what is
+in them** rather than by where they arrived, and shown as `MongoDB/oplog`,
+`MongoDB/heartbeat`, `MongoDB/routed` and so on. On a busy replica set two thirds of a capture
+is cluster chatter; clicking it away is what makes the application visible.
+
+![A prepared-statement round trip selected in the packet list, with the sticky inspection panel showing its SQL, timing and hex dump](docs/screenshots/packet-inspector-detail.png)
+
+> *Above: the prepared-statement lifecycle decoded — `Prepare` → `Prepared OK: stmt 589` →
+> `Execute` → `Result set` → `CLOSE` — interleaved with Galera group communication, and the
+> selected frame's SQL, response time, TCP state and hex dump in the sticky panel beside it.*
+
+**Deep inspection, and honesty about what cannot be known.** Every frame gets its timing five
+ways (including UTC, for lining a capture up against a log), its TCP state, its decoded payload
+and a hex dump. On a busy server most connections are **older than the capture**, so a frame
+whose meaning cannot be known says *"capture joined mid-connection"* rather than being decoded
+into something plausible — and each protocol then re-anchors on its own landmark
+(PostgreSQL's `ReadyForQuery`, MongoDB's message header, a Valkey aggregate) so a long-lived
+connection becomes readable one round trip in. Encrypted sessions are reported for what they
+are: handshake steps, record sizes and timing stay accurate, and the statements are marked
+unavailable instead of guessed at.
+
+**A Traffic Timeline that is a range control, not a picture.** Density is bucketed
+**server-side** over exactly the window you are looking at, so a 400,000-packet capture stays
+responsive while the browser holds one page of it. A range comes from dragging the strip,
+typing packet numbers or second offsets, zoom/pan, or a preset — and every filter below it
+(connection, protocol, direction, issue kind, free-text search over SQL and addresses) narrows
+the same range.
+
+**Errors named, with their consequence.** Each engine's error vocabulary is catalogued rather
+than printed: MySQL's `1205` lock-wait timeouts and `1047` wsrep-not-ready, PostgreSQL's
+`40P01` deadlocks, `53300` too-many-connections and `25006` writes that reached a standby,
+MongoDB's `10107` NotWritablePrimary, `13388` StaleConfig and the write-concern failures that
+leave a write **not durable** inside an otherwise successful reply, Valkey's `MOVED`/`ASK` slot
+redirects, `READONLY`, `OOM` and `MISCONF`. Ordinary application errors — a unique violation, a
+syntax error, a driver probing for optional commands — are decoded and shown but **never
+flagged**, so the timeline stays red only for things that are actually wrong.
+
+**Findings only a capture can make**, such as a cleartext password on an unencrypted
+connection, a connection opened and closed without sending anything (a health check or a port
+probe), a transaction left idle while holding its locks, a statement re-planned on every
+execution, `KEYS` walking a whole keyspace on a single-threaded server, and replication lag
+computed **from both ends' offsets on the wire** — PostgreSQL LSNs and Valkey replication
+offsets — with no access to either server.
+
+![The server log read from the node and narrowed to the capture's own window, with each record classified](docs/screenshots/packet-inspector-serverlog.png)
+
+> *Above: a PostgreSQL capture beside the node's own log, narrowed to the capture's window —
+> the authentication failure, the missing database and the failing statement, each classified,
+> with the failing SQL folded into its error.*
+
+**The half a capture cannot hold.** Aborted connections, DNS failures, TLS problems and
+listener errors are written by the server to its own log and sent to nobody. So a ready capture
+also shows that log, classified and narrowed to the capture's own window: MySQL's error log,
+PostgreSQL's (plus **Patroni's**, because a failover is decided there), MongoDB's structured
+JSON (whose `planSummary` and `docsExamined` explain the latency the wire only measures), and
+Valkey's — read from the **journal**, since that is where it goes. Selecting a packet scrolls
+the log to the nearest record and says how far away it is; clicking a record sends the packet
+list to that moment.
+
+**Uploads.** Any pcap or pcapng decodes the same way — from a production server, or a file a
+colleague sent. The protocol is **sniffed from the bytes** (falling back to the ports when a
+capture holds no client protocol at all, as a cluster-only capture does), and the server's log
+can ride along beside it for the same correlation. Nothing is persisted: captures live in
+memory and die with the process.
+
+See [`docs/PACKET_INSPECTOR.md`](docs/PACKET_INSPECTOR.md) for the full protocol-by-protocol
+detail, the error catalogues, and how to generate sample captures to try it on.
 
 ### Visual Summary
 Turn a **pt-stalk** archive — collected from a MySQL/PXC node's **Diagnostics** tab or uploaded
