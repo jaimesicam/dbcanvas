@@ -473,12 +473,94 @@ func TestPGSSLRefused(t *testing.T) {
 	c := pgSession(b)
 	pgSend(c, time.Millisecond, pgFirst(pgSSLRequest, nil))
 	pgRecv(c, time.Millisecond, []byte{'N'})
+	// sslmode=require: the client gives up here, and the capture holds nothing else.
+	c.b.frame(c.tick(time.Millisecond), pgC2S(c.cseq, c.sseq, tcpACK|tcpFIN, nil))
 	d := decodePG(t, b)
 	if !infoHas(d, "SSL refused ('N')") {
 		t.Error("a refused SSLRequest was not decoded")
 	}
 	if !issueHas(d, "sslmode=require") {
 		t.Error("the consequence of a refusal was not stated")
+	}
+}
+
+// TestPGSSLRefusedThenPlaintext is the shape of every connection to a server with
+// ssl = off from a client at its default sslmode: ask, be refused, carry on in the
+// clear. The StartupMessage that follows the refusal is ANOTHER untyped message, and
+// treating the connection's untyped state as used up by the SSLRequest cost the
+// startup parameters and the whole authentication exchange — silently, since the
+// stream recovered at the first ReadyForQuery and the queries decoded fine.
+//
+// Found by capturing against a Patroni member, which has ssl = off: the client frames
+// read "[framing lost] 63 bytes" while the server's half decoded perfectly.
+func TestPGSSLRefusedThenPlaintext(t *testing.T) {
+	b := newPcap(pktLinkEther)
+	c := pgSession(b)
+	pgSend(c, time.Millisecond, pgFirst(pgSSLRequest, nil))
+	pgRecv(c, time.Millisecond, []byte{'N'})
+	// …and now the real startup, in the clear.
+	pgSend(c, time.Millisecond, pgStartup("user", "postgres", "database", "postgres", "application_name", "psql"))
+	pgRecv(c, time.Millisecond, pgMsg('R', []byte{0, 0, 0, 10, 'S', 'C', 'R', 'A', 'M', '-', 'S', 'H', 'A', '-', '2', '5', '6', 0, 0}))
+	pgSend(c, time.Millisecond, pgMsg('p', []byte("SCRAM-SHA-256\x00n,,n=,r=rOprNGfwEbeRWgbN")))
+	pgRecv(c, time.Millisecond, pgMsg('R', []byte{0, 0, 0, 11}))
+	pgSend(c, time.Millisecond, pgMsg('p', []byte("c=biws,r=rOprNGfwEbeRWgbN,p=dHzbZapWIk4jUhN+")))
+	pgRecv(c, time.Millisecond, concat(pgMsg('R', []byte{0, 0, 0, 12}), pgAuthOK(),
+		pgMsg('S', []byte("server_version\x0016.14\x00")), pgReady('I')))
+	pgSend(c, time.Millisecond, pgQuery("select current_setting('ssl')"))
+	pgRecv(c, time.Millisecond, concat(pgRowDesc("current_setting"), pgDataRow("off"),
+		pgCmdDone("SELECT 1"), pgReady('I')))
+	pgSend(c, time.Millisecond, pgMsg('X', nil))
+
+	d := decodePG(t, b)
+	for _, want := range []string{
+		"SSL refused ('N')",
+		"StartupMessage 3.0: user=postgres database=postgres application_name=psql",
+		"AuthenticationSASL: SCRAM-SHA-256",
+		"SASLInitialResponse: SCRAM-SHA-256",
+		"Query: select current_setting('ssl')",
+		"Terminate",
+	} {
+		if !infoHas(d, want) {
+			t.Errorf("no packet shows %q", want)
+		}
+	}
+	// Nothing may be reported as unreadable: every byte of this connection is in the
+	// clear and the capture holds all of it.
+	for _, p := range d.Packets {
+		if strings.Contains(p.Info, "framing lost") || strings.Contains(p.Info, "joined mid-connection") {
+			t.Errorf("#%d could not be framed: %q", p.No, p.Info)
+		}
+	}
+	// The connection's identity comes from a StartupMessage that arrives AFTER the
+	// refusal, so losing it lost the user and the database too.
+	if st := d.Streams[0]; st.User != "postgres" || st.Database != "postgres" || st.Version != "16.14" {
+		t.Errorf("stream identity: user=%q db=%q version=%q", st.User, st.Database, st.Version)
+	}
+	if d.Streams[0].TLS {
+		t.Error("the connection is in the clear and must not be marked TLS")
+	}
+}
+
+// TestPGGSSThenSSLThenStartup is libpq with both negotiations declined: three untyped
+// messages in a row before anything typed.
+func TestPGGSSThenSSLThenStartup(t *testing.T) {
+	b := newPcap(pktLinkEther)
+	c := pgSession(b)
+	pgSend(c, time.Millisecond, pgFirst(pgGSSENCRequest, nil))
+	pgRecv(c, time.Millisecond, []byte{'N'})
+	pgSend(c, time.Millisecond, pgFirst(pgSSLRequest, nil))
+	pgRecv(c, time.Millisecond, []byte{'N'})
+	pgSend(c, time.Millisecond, pgStartup("user", "bob", "database", "rental"))
+	pgRecv(c, time.Millisecond, concat(pgAuthOK(), pgReady('I')))
+	d := decodePG(t, b)
+	for _, want := range []string{
+		"GSSENCRequest", "GSSAPI encryption refused ('N')",
+		"SSLRequest", "SSL refused ('N')",
+		"StartupMessage 3.0: user=bob database=rental",
+	} {
+		if !infoHas(d, want) {
+			t.Errorf("no packet shows %q", want)
+		}
 	}
 }
 

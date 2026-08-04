@@ -11129,3 +11129,69 @@ Three of my own test assertions were wrong before they were right, all in the sa
 last time: a frame's Info shows its first three messages and then "+N more", a frame's
 `Command` is the last message it completed rather than the first, and `pgLSN` splits at 32
 bits (`0x3000000` is `0/3000000`, not `3/000000`). The decoder was correct in all three.
+
+---
+
+## 216. Packet Inspector: the `ssl = off` server, and two negotiation bugs — `app/pktpg.go`
+
+"Can you also try decoding when postgresql ssl is off?" The §215 testbed had `ssl = on`
+on pg01, so every SSLRequest in every capture was **accepted** — and two bugs were
+hiding behind that, on the shape that is probably the most common one in the wild: a
+server with `ssl = off` and a client at its default `sslmode=prefer`.
+
+The Patroni members turned out to have `ssl = off` already (`generateCert: false` on the
+frame), so the test needed no configuration change: five `sslmode` variants driven from
+`patroni02` at the leader, inside one 40-second capture.
+
+### The StartupMessage after a refusal is a *second* untyped message
+
+A PostgreSQL connection's first message has no type byte. `SSLRequest` is one of those —
+and when the server answers `N`, the client carries on in the clear and its **next**
+message is the StartupMessage, which is untyped too. libpq can send three in a row
+(`GSSENCRequest`, `SSLRequest`, `StartupMessage`) when both negotiations are declined.
+
+`pktNextPG` marked the untyped state used up as soon as it consumed one message, so the
+StartupMessage was read as a typed message: its length's high byte (`0x00`) became the
+type, no such type exists, and the direction desynced. The live capture showed exactly
+that — the server's half decoding perfectly while every client frame read
+
+    [framing lost] 63 bytes, hunting for the next message boundary
+    [framing lost] 55 bytes, hunting for the next message boundary
+    [framing lost] 109 bytes, hunting for the next message boundary
+
+63 bytes is the StartupMessage; 55 and 109 are the two SCRAM responses. The connection
+recovered at the first `ReadyForQuery` and its queries decoded fine, which is exactly why
+this was invisible in the §215 numbers: 8 963 queries decoded, and the startup parameters
+and the whole authentication exchange silently missing. The stream's user, database and
+server version were empty for every such connection.
+
+Now the untyped state persists until a message *ends* it, and only a StartupMessage or a
+CancelRequest does.
+
+### One "answered" flag for two negotiations
+
+`GSSENCRequest` and `SSLRequest` each get one naked byte back, and both were sharing
+`sslAnswered`. With GSSAPI declined first, its `N` consumed the flag and the SSL
+refusal's `N` fell through to be framed as a message. Two flags now. (This one was found
+by the test written for the fix above, not by the capture — libpq only sends
+`GSSENCRequest` when `gssencmode` is not `disable`.)
+
+### After both fixes, on the same live scenario
+
+    framing lost:            0   (was 1 per client frame on every ssl-off connection)
+    StartupMessage:          9   (was 0)
+    SASLInitialResponse:     9   (was 0)
+    SSL refused:             9 flagged
+    stream identity:         user=postgres database=postgres version="16.14 - Percona Distribution"
+
+and the whole `sslmode=prefer` connection reads end to end: SSLRequest → `SSL refused
+('N')` → StartupMessage with its parameters → SASL in four steps → Query → result set →
+Terminate. The `sslmode=require` connections show the refusal followed straight by a FIN,
+which is precisely what psql reports as *"server does not support SSL, but SSL was
+required"*, and `sslmode=disable` sends no SSLRequest at all.
+
+3 new tests: the refusal-then-plaintext session asserting that **nothing** in it is
+reported as unframeable and that the identity survives, the three-untyped-messages case,
+and the abort case. The `ssl = off` negotiation table is now in
+`docs/PACKET_INSPECTOR.md`, since which of the three outcomes follows a refusal is the
+client's setting rather than the server's.

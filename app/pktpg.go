@@ -99,6 +99,7 @@ type pktPGConn struct {
 	sslRequested bool
 	sslAnswered  bool
 	gssRequested bool
+	gssAnswered  bool
 	authMethod   string
 	authDone     bool
 	// replication is "" for an ordinary client, "physical" for a streaming standby
@@ -172,7 +173,21 @@ func pktPGDecode(p *pktPacket, c *pktConn, dir *pktDirState, fromClient bool, pa
 		}
 		return
 	}
-	// The server's answer to SSLRequest is one naked byte outside the framing.
+	// The answers to GSSENCRequest and SSLRequest are each one naked byte outside the
+	// framing, and they have a flag each: libpq asks for GSSAPI encryption first and
+	// then for TLS, so a single "answered" flag let the first refusal consume the
+	// second one's answer — leaving an 'N' to be framed as a message.
+	if pc.gssRequested && !pc.gssAnswered && !fromClient && len(payload) == 1 {
+		pc.gssAnswered = true
+		p.Proto = "PostgreSQL"
+		if payload[0] == 'G' {
+			p.Info = "GSSAPI encryption accepted ('G')"
+			c.sslRequested = true // pktdecode's encryption bookkeeping
+		} else {
+			p.Info = "GSSAPI encryption refused ('N') — the client falls back to TLS or to the clear"
+		}
+		return
+	}
 	if pc.sslRequested && !pc.sslAnswered && !fromClient && len(payload) > 0 {
 		pc.sslAnswered = true
 		switch payload[0] {
@@ -187,7 +202,7 @@ func pktPGDecode(p *pktPacket, c *pktConn, dir *pktDirState, fromClient bool, pa
 			p.Proto = "PostgreSQL"
 			p.Info = "SSL refused ('N') — the server has ssl=off or no certificate"
 			p.Issues = append(p.Issues,
-				"SSL refused by the server — a client with sslmode=require or verify-full aborts here; one with sslmode=prefer silently continues in the clear")
+				"SSL refused by the server — a client with sslmode=require or verify-full aborts here; one with sslmode=prefer silently continues in the clear, and everything after this point is readable in this capture")
 			return
 		case 'E':
 			// A pre-8.0 style error, or a server that cannot even consider SSL.
@@ -197,17 +212,6 @@ func pktPGDecode(p *pktPacket, c *pktConn, dir *pktDirState, fromClient bool, pa
 			// Not an SSL answer after all: fall through and frame it normally.
 			pc.sslAnswered = false
 		}
-	}
-	if pc.gssRequested && !pc.sslAnswered && !fromClient && len(payload) == 1 {
-		pc.sslAnswered = true
-		p.Proto = "PostgreSQL"
-		if payload[0] == 'G' {
-			p.Info = "GSSAPI encryption accepted ('G')"
-			c.sslRequested = true
-		} else {
-			p.Info = "GSSAPI encryption refused ('N')"
-		}
-		return
 	}
 	// The client's TLS ClientHello may share the segment with, or immediately
 	// follow, its SSLRequest.
@@ -295,26 +299,42 @@ func pktPGDecode(p *pktPacket, c *pktConn, dir *pktDirState, fromClient bool, pa
 func pktNextPG(c *pktConn, dir *pktDirState, fromClient bool) (typ byte, body []byte, ok bool) {
 	pd := dir.pgDir()
 
-	// The untyped first message, which only exists at the true start of a
-	// connection — so only when the capture holds the SYN.
+	// The untyped messages at the true start of a connection — so only when the capture
+	// holds the SYN.
+	//
+	// There can be more than one of them, which is the whole subtlety here. A refused
+	// SSLRequest does not end the connection: the client carries on in the clear and its
+	// NEXT message is the StartupMessage, which is also untyped. libpq can send three in
+	// a row — GSSENCRequest, SSLRequest, StartupMessage — if both are declined. So the
+	// untyped state persists until a message arrives that ends it, and only a
+	// StartupMessage (or a CancelRequest, which is the whole connection) does.
+	//
+	// Getting this wrong is invisible on a server with ssl=on, because there the request
+	// is accepted and everything after it is TLS. On a server with ssl=off — with any
+	// client at its default sslmode=prefer — it silently cost the startup parameters and
+	// the entire authentication exchange: the StartupMessage's length was read as a type
+	// byte, the direction desynced, and it only recovered at the first ReadyForQuery.
 	if fromClient && !pd.firstDone && c.synced {
 		if len(dir.buf) < 8 {
 			return 0, nil, false
 		}
 		n := int(binary.BigEndian.Uint32(dir.buf))
-		pd.firstDone = true
 		if n >= 8 && n <= 10000 {
 			if len(dir.buf) < n {
-				pd.firstDone = false // wait for the rest of it
-				return 0, nil, false
+				return 0, nil, false // wait for the rest of it
 			}
+			code := binary.BigEndian.Uint32(dir.buf[4:])
+			// A negotiation request leaves the connection untyped; anything else
+			// (a startup, a cancel, or a version this server will reject) ends it.
+			pd.firstDone = code != pgSSLRequest && code != pgGSSENCRequest
 			body = dir.buf[4:n]
 			dir.buf = dir.buf[n:]
 			pd.aligned = true
 			return 0, body, true
 		}
-		// Not a startup message after all; fall through and treat this direction
-		// like any other unaligned one.
+		// Not a first message at all; treat this direction like any other unaligned
+		// one from here on.
+		pd.firstDone = true
 	}
 
 	for {
