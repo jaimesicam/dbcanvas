@@ -161,6 +161,18 @@ export const PROTO_TONE = {
   'Patroni/REST': 'success',
   'etcd/client': 'success',
   'etcd/raft': 'accent',
+  // MongoDB puts everything on 27017, so the label carries the connection's KIND —
+  // decided from what is in it, not from which port it arrived on. On a real member most
+  // rows are cluster chatter rather than the application.
+  MongoDB: 'primary',
+  'MongoDB/oplog': 'primary',
+  'MongoDB/routed': 'primary',
+  'MongoDB/heartbeat': 'success',
+  'MongoDB/replpos': 'success',
+  'MongoDB/monitor': 'muted',
+  'MongoDB/config': 'accent',
+  'MongoDB/election': 'warning',
+  'MongoDB/internal': 'accent',
   // The traffic underneath the database: name resolution and layer 2.
   DNS: 'accent',
   ARP: 'accent',
@@ -183,7 +195,23 @@ export const PORT_ROLE_TEXT = {
 
 // ENGINE_LABEL names the protocol a capture was decoded as. Shown because an upload
 // may have been decided by the sniffer rather than chosen.
-export const ENGINE_LABEL = { mysql: 'MySQL', postgres: 'PostgreSQL' }
+export const ENGINE_LABEL = { mysql: 'MySQL', postgres: 'PostgreSQL', mongodb: 'MongoDB' }
+
+// MONGO_KIND_TEXT explains the connection kinds MongoDB multiplexes onto one port. It is
+// the analogue of PORT_ROLE_TEXT, keyed by kind instead of by port, because for MongoDB
+// there is no second port to explain — mongod, mongos and the config servers all listen
+// on 27017 and the difference is in the messages.
+export const MONGO_KIND_TEXT = {
+  client: 'an application connection',
+  monitor: 'hello/isMaster monitoring — a driver or a member watching the topology',
+  heartbeat: 'replica-set heartbeats: every member checks every other every 2 seconds, forever',
+  election: 'an election — the seconds in which the primary changes',
+  oplog: 'oplog tailing: a secondary reading local.oplog.rs — this IS MongoDB replication',
+  replpos: 'replSetUpdatePosition: how far secondaries have applied, which is what write concern waits on',
+  config: "config database traffic: the sharded cluster's routing table",
+  routed: 'mongos → shard: a routed command carrying the shard version that decides whether it is answered',
+  internal: 'internal cluster traffic, authenticated as __system',
+}
 
 // SEVERE marks the issue kinds drawn as errors rather than warnings — the same split
 // the server applies when bucketing the timeline (pktSevereIssues in Go, which is
@@ -226,6 +254,21 @@ const SEVERE = [
   'Requested WAL segment', 'Internal error', 'Data corruption', 'Index corruption',
   'I/O error', 'Cleartext password authentication', 'SSL refused by the server',
   'Unrecognised protocol version', 'Patroni REST returned', 'etcd answered',
+  // MongoDB. Every one of these comes from mongoErrCatalog or pktmongorepl.go, and the
+  // same rule holds: something wrong with the server, the cluster or the connection.
+  // DuplicateKey, NamespaceNotFound and CommandNotFound are deliberately absent — a
+  // unique index doing its job and a driver probing for optional commands are not faults.
+  'NotWritablePrimary', 'PrimarySteppedDown', 'InterruptedDueToReplStateChange',
+  'NotPrimaryNoSecondaryOk', 'NotPrimaryOrSecondary', 'FailedToSatisfyReadPreference',
+  'ShutdownInProgress', 'HostUnreachable', 'HostNotFound', 'NetworkTimeout',
+  'SocketException', 'AuthenticationFailed', 'Unauthorized', 'UserNotFound',
+  'WriteConcernFailed', 'UnknownReplWriteConcern', 'UnsatisfiableWriteConcern',
+  'WriteConflict', 'LockTimeout', 'NoSuchTransaction', 'TransactionTooOld',
+  'StaleConfig', 'StaleShardVersion', 'CursorNotFound', 'CursorKilled',
+  'MaxTimeMSExpired', 'ExceededTimeLimit', 'QueryExceededMemoryLimit', 'OutOfDiskSpace',
+  'Election in progress', 'replSetStepDown', 'replSetStepUp', 'Chunk migration',
+  'Replica-set configuration change', 'Write concern not satisfied',
+  'legacy opcode removed', 'legacy read path',
 ]
 
 export const isSevereIssue = (s) => SEVERE.some((k) => (s || '').includes(k))

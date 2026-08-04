@@ -32,7 +32,7 @@ import PacketInspector, {
   CaptureState as PktState, Pager as PktPager, ServerLogCard as PktServerLog,
   FilePick as PktFilePick,
 } from '../src/pages/PacketInspector.jsx'
-import { PORT_ROLE_TEXT, isSevereIssue } from '../src/lib/pktApi.js'
+import { PORT_ROLE_TEXT, MONGO_KIND_TEXT, isSevereIssue } from '../src/lib/pktApi.js'
 import realDeps from './real-deps.json' with { type: 'json' }
 
 const noop = () => {}
@@ -704,6 +704,154 @@ check('packet inspector: PostgreSQL server log', () => {
   }} />)
   for (const want of ['postgresql-Tue.log', 'Password authentication failed', 'unconditionally']) {
     if (!html.includes(want)) throw new Error(`PostgreSQL server log omits ${want}`)
+  }
+  return html
+})
+
+// ---- MongoDB. One port, many kinds of conversation: the checks below are that the kind
+// reaches the screen, that MongoDB's own vocabulary does, and that nothing is MySQL-only.
+const mgFixtureSummary = {
+  packets: 80157, streams: 97, bytes: 41022044, firstTs: 1785830100.0, lastTs: 1785830220.0,
+  protos: {
+    'MongoDB/replpos': 34008, 'MongoDB/oplog': 19726, TCP: 15850, MongoDB: 9100,
+    'MongoDB/heartbeat': 998, 'MongoDB/monitor': 472, 'MongoDB/election': 3,
+  },
+  issueTop: [
+    { kind: 'TCP duplicate ACK', count: 113 },
+    { kind: 'Unauthorized (13)', count: 4 },
+    { kind: 'DuplicateKey (11000)', count: 3 },
+    { kind: 'Election in progress', count: 1 },
+  ],
+  queries: 1251, errors: 37, tlsStreams: 0, dropped: 0, truncated: 0, format: 'pcap', linkType: 1,
+}
+const mgFixtureCap = {
+  id: 'mg1', label: 'psmrs01', stackName: 'pktinspect-mongo', state: 'ready', engine: 'mongodb',
+  iface: 'eth0', port: 27017, source: 'node', bytes: 41022044, nodePackets: 80157, kernelDropped: 0,
+  command: 'tcpdump -i eth0 -s 65535 -n -q -c 100000 port 27017 -w /var/tmp/x.cap',
+  ports: { 27017: 'mongodb' }, nodeType: 'psmrs', summary: mgFixtureSummary,
+}
+const mgFixturePackets = [
+  {
+    no: 19, ts: 1785830100.4, stream: 3, dir: 'c2s', src: '172.30.0.5:45001', dst: '172.30.0.4:27017',
+    proto: 'MongoDB/replpos', frameLen: 640, payloadLen: 574, flags: 'ACK,PSH',
+    command: 'replSetUpdatePosition',
+    info: '[snappy] replSetUpdatePosition admin — optimes: [{…8 fields}, {…8 fields}, {…8 fields}]',
+  },
+  {
+    no: 8742, ts: 1785830104.1, stream: 9, dir: 'c2s', src: '172.30.0.6:45002', dst: '172.30.0.4:27017',
+    proto: 'MongoDB/oplog', frameLen: 320, payloadLen: 254, flags: 'ACK,PSH', command: 'find',
+    query: 'local.oplog.rs',
+    info: '[snappy] find local.oplog.rs — filter {ts: {…1 fields}}, batch 13981010, tailable',
+  },
+  {
+    no: 11965, ts: 1785830108.9, stream: 12, dir: 's2c', src: '172.30.0.4:27017', dst: '172.30.0.9:49636',
+    proto: 'MongoDB', frameLen: 410, payloadLen: 344, flags: 'ACK,PSH', lagMs: 2.4, errCode: 11000,
+    status: 'Write error 11000: E11000 duplicate key error collection: hotelsim.bookings index: _id_',
+    info: 'insert → 1 write error(s), first 11000 DuplicateKey: E11000 duplicate key error',
+    issues: ['DuplicateKey (11000) — A unique index rejected the document'],
+  },
+  {
+    no: 12001, ts: 1785830109.2, stream: 14, dir: 'c2s', src: '172.30.0.5:45004', dst: '172.30.0.4:27017',
+    proto: 'MongoDB/election', frameLen: 260, payloadLen: 194, flags: 'ACK,PSH',
+    command: 'replSetRequestVotes',
+    info: 'replSetRequestVotes admin — term: 2, setName: "psmrs-00"',
+    issues: ['Election in progress — replSetRequestVotes: a member is standing for primary'],
+  },
+  {
+    no: 12100, ts: 1785830110.0, stream: 16, dir: 'c2s', src: '172.30.0.7:45010', dst: '172.30.0.4:27017',
+    proto: 'MongoDB/routed', frameLen: 300, payloadLen: 234, flags: 'ACK,PSH', command: 'find',
+    query: 'shlab.orders',
+    info: 'find shlab.orders — filter {sk: 42} [shardVersion Timestamp(1785830373, 4)]',
+  },
+]
+
+check('packet inspector: MongoDB capture state (engine badge)', () => {
+  const html = renderToString(<PktState cap={mgFixtureCap} />)
+  if (!html.includes('MongoDB')) throw new Error('the decoded protocol is not shown')
+  return html
+})
+check('packet inspector: MongoDB summary strip', () => {
+  const html = renderToString(<PktSummary cap={mgFixtureCap} range={pktRange} setRange={noop} />)
+  for (const want of ['MongoDB/oplog', 'MongoDB/heartbeat', 'MongoDB errors', 'Election in progress']) {
+    if (!html.includes(want)) throw new Error(`summary omits ${want}`)
+  }
+  if (html.includes('MySQL') || html.includes('PostgreSQL')) {
+    throw new Error('a MongoDB summary mentions another engine')
+  }
+  return html
+})
+check('packet inspector: MongoDB packet list', () => {
+  const html = renderToString(<PktList packets={mgFixturePackets} first={mgFixtureSummary.firstTs}
+    selectedNo={11965} onSelect={noop} />)
+  for (const want of ['MongoDB/replpos', 'MongoDB/oplog', 'MongoDB/election', 'MongoDB/routed',
+    'local.oplog.rs', 'DuplicateKey', 'shardVersion', 'snappy']) {
+    if (!html.includes(want)) throw new Error(`packet list omits ${want}`)
+  }
+  if (html.includes('undefined')) throw new Error('packet list rendered a literal "undefined"')
+  return html
+})
+for (const p of mgFixturePackets) {
+  check(`packet inspector: MongoDB details for #${p.no} (${p.proto})`, () => {
+    const html = renderToString(<PktDetails
+      d={{ packet: p, stream: { index: p.stream, user: 'hotelsim', database: 'hotelsim',
+        role: p.proto === 'MongoDB' ? 'client' : p.proto.slice(8), roleLabel: p.proto },
+        hex: '0000  e6 00 00 00  |....|', bytes: p.frameLen }}
+      first={mgFixtureSummary.firstTs} />)
+    if (html.includes('undefined')) throw new Error('details rendered a literal "undefined"')
+    return html
+  })
+}
+check('packet inspector: MongoDB connection kinds are explained', () => {
+  for (const [kind, needle] of [['heartbeat', '2 seconds'], ['oplog', 'local.oplog.rs'],
+    ['routed', 'shard version'], ['replpos', 'write concern'], ['election', 'primary changes']]) {
+    if (!MONGO_KIND_TEXT[kind] || !MONGO_KIND_TEXT[kind].includes(needle)) {
+      throw new Error(`MONGO_KIND_TEXT.${kind} does not explain ${needle}`)
+    }
+  }
+  return 'ok'
+})
+check('packet inspector: MongoDB issues are severe, ordinary ones are not', () => {
+  for (const s of ['NotWritablePrimary (10107) — This member is not the primary',
+    'Election in progress — replSetRequestVotes', 'StaleConfig (13388) — The shard refused',
+    'WriteConcernFailed (64)', 'CursorNotFound (43)', 'Chunk migration (moveChunk)']) {
+    if (!isSevereIssue(s)) throw new Error(`${s} should be severe`)
+  }
+  // A unique index doing its job and a driver probing for optional commands are not faults.
+  for (const s of ['DuplicateKey (11000) — A unique index rejected the document',
+    'CommandNotFound (59)', 'NamespaceNotFound (26)']) {
+    if (isSevereIssue(s)) throw new Error(`${s} should not be severe`)
+  }
+  return 'ok'
+})
+check('packet inspector: MongoDB TLS advice', () => {
+  const html = renderToString(<PktSummary cap={{ ...mgFixtureCap,
+    summary: { ...mgFixtureSummary, tlsStreams: 3 } }} range={pktRange} setRange={noop} />)
+  if (!html.includes('no in-band upgrade') || !html.includes('system.profile')) {
+    throw new Error('MongoDB TLS advice missing')
+  }
+  if (html.includes('sslmode=prefer') || html.includes('caching_sha2_password')) {
+    throw new Error('another engine\'s TLS advice shown for MongoDB')
+  }
+  return html
+})
+check('packet inspector: MongoDB server log', () => {
+  const html = renderToString(<PktServerLog onReload={noop} log={{
+    path: '/var/log/mongo/mongod.log', source: 'node', scanned: 412, inWindow: 3,
+    windowFrom: 1785830070, windowTo: 1785830250,
+    top: [{ label: 'Slow query', count: 2 }, { label: 'Election succeeded — this member is now primary', count: 1 }],
+    entries: [
+      { ts: 1785830106.958, time: '2026-08-04T07:39:06.958+00:00', level: 'INFO', class: 'other',
+        label: 'Slow query', code: '51803', subsystem: 'WRITE', inWindow: true,
+        message: 'Slow query | ns=hotelsim.dailyInventory planSummary=IXSCAN docsExamined=5600 durationMillis=151' },
+      { ts: 1785830110.0, time: '2026-08-04T07:40:00.000+00:00', level: 'INFO', class: 'cluster',
+        label: 'Election succeeded — this member is now primary', code: '20698', subsystem: 'ELECTION',
+        inWindow: true, message: 'Election succeeded, assuming primary role | term=2' },
+    ],
+    stats: { verbosity: 0, suppressionList: '', counters: {},
+      hint: 'MongoDB logs every connection accepted and ended (ids 22943 and 22944) at its default verbosity.' },
+  }} />)
+  for (const want of ['mongod.log', 'planSummary=IXSCAN', 'Election succeeded', '22943']) {
+    if (!html.includes(want)) throw new Error(`MongoDB server log omits ${want}`)
   }
   return html
 })

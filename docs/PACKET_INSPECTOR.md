@@ -8,20 +8,32 @@ server say back", which neither the slow log nor `SHOW PROCESSLIST` can answer.
 
 Open it from the sidebar (**Packet Inspector**) or at `#packet-inspector`.
 
-Two protocols are decoded:
+Three protocols are decoded:
 
 | Family | Nodes | Cluster traffic also captured |
 | --- | --- | --- |
 | **MySQL** | Percona Server, PXC, MariaDB (incl. Galera), MySQL Community, All-in-One MySQL instances | Galera on 4567 / 4568 / 4444 |
 | **PostgreSQL** | PostgreSQL, Patroni, repmgr, Spock, All-in-One PostgreSQL instances | Patroni's REST API on 8008, etcd on 2379 / 2380 |
+| **MongoDB** | Percona Server for MongoDB — standalone, replica set, sharded cluster (mongod, mongos and config servers), All-in-One MongoDB instances | all of it, on 27017: heartbeats, elections, oplog tailing, mongos→shard routing |
 
-MongoDB nodes are not offered: the decoder does not speak the wire protocol, and a
-capture of one would be a list of "TCP data", which is worse than not offering it.
-
-Everything below applies to both families unless a section says otherwise. The
+Everything below applies to all three unless a section says otherwise. The
 engine-specific parts are [PostgreSQL](#postgresql-the-frontendbackend-protocol),
-[PXC / Galera](#pxc--galera-four-ports-four-protocols) and
+[MongoDB](#mongodb-one-port-many-conversations),
+[PXC / Galera](#pxc--galera-four-ports-four-protocols),
+[Patroni](#patroni-postgresql-its-rest-api-and-etcd) and
 [MySQL communication errors](#mysql-communication-errors-where-each-one-is-visible).
+
+The three engines put their cluster traffic in strikingly different places, which is why
+each gets its own section:
+
+| | Client protocol | Replication | Cluster control |
+| --- | --- | --- | --- |
+| MySQL/PXC | 3306 | binlog stream on 3306 | Galera on **three separate ports** |
+| PostgreSQL/Patroni | 5432 | walsender on **5432**, alongside clients | Patroni REST + etcd on **three separate ports** |
+| MongoDB | 27017 | oplog tailing on **27017** | heartbeats, elections, routing — **all on 27017** |
+
+MongoDB is the extreme case: one port carries everything, so its connections are told
+apart by what is *in* them rather than by where they arrived.
 
 ## Where the capture happens
 
@@ -67,6 +79,7 @@ capture long before the hour is up.
 | Transport | TCP: payload, flags, seq/ack, window |
 | MySQL | greeting (server version, connection id), login (user), `COM_QUERY` and the rest, OK / ERR / EOF, result sets (columns, rows, bytes), prepared statements, and replication (`COM_BINLOG_DUMP` + the binlog event stream) |
 | PostgreSQL | startup (user, database, `application_name`), authentication (SCRAM, md5, cleartext, GSSAPI), simple and extended query protocol (Parse/Bind/Describe/Execute/Sync), row descriptions and data rows, `CommandComplete` tags, ErrorResponse/NoticeResponse with SQLSTATE, COPY, `ReadyForQuery` with its transaction status, and replication — physical and logical, with both ends' LSNs |
+| MongoDB | the wire protocol (OP_MSG, OP_QUERY/OP_REPLY, OP_COMPRESSED) and the **BSON** inside it: the command and its namespace, filters, sorts, pipelines, document sequences, replies with their cursors and counts, `ok: 0` errors with code and codeName, `writeErrors` and `writeConcernError`, sessions and transactions — plus **snappy and zlib decompression**, since a real deployment compresses by default |
 | TLS | records by type and version once a connection upgrades — see [Encrypted traffic](#encrypted-traffic) |
 | DNS | queries and responses: name, type, answers, response code, and the lookup's latency |
 | ARP | who-has / is-at, gratuitous announcements, and who claims which address |
@@ -108,6 +121,16 @@ That second one is not a nicety. On the live 3-node Patroni cluster this was bui
 against, the first version decoded the server's half of every session and left **22 000
 client frames** and every standby stream as "joined mid-connection"; with both anchors,
 one frame in a 20-second capture stayed unknown.
+
+**MongoDB** needs no re-anchoring logic once the stream is aligned — every message states
+its own length in its first four bytes — but finding that alignment mid-stream is the
+riskiest of the three, because "a small integer followed by a known opcode" occurs by
+chance in binary data. A candidate header is therefore accepted only if the body matches
+what its opcode requires (for OP_MSG: a valid BSON document at the right offset) and, when
+the whole message is present, the bytes after it look like another header. A guessed
+anchor is also capped at 1 MB and abandoned if the message it claims never arrives —
+losing one message and re-anchoring beats waiting forever on a header that was never
+there.
 
 ## The Traffic Timeline
 
@@ -343,6 +366,140 @@ instances share one container, so 8008 and 2379 can only belong to one of them. 
 capture of a Patroni instance uses that instance's REST and etcd ports, and the Capture
 card lists exactly which ports it covered.
 
+## MongoDB: one port, many conversations
+
+MongoDB's framing is the simplest of the three — a 16-byte header (length, requestID,
+responseTo, opCode) and then a body — and its classification problem is the hardest.
+Every MongoDB process listens on **27017**: mongod members, config servers and mongos
+routers alike. That one port carries all of this at once:
+
+| On 27017 | What it is |
+| --- | --- |
+| queries, writes, aggregations | the application |
+| `hello` / `isMaster` | monitoring — every driver, every few seconds, plus every member watching its peers |
+| `replSetHeartbeat` | replica-set heartbeats: every member checks every other every 2 seconds, forever |
+| `find` / `getMore` on `local.oplog.rs` | **oplog tailing — this IS MongoDB replication** |
+| `replSetUpdatePosition` | secondaries reporting how far they have applied, which is what write concern waits on |
+| `replSetRequestVotes`, `replSetStepUp` | an election: the seconds in which the primary changes |
+| commands carrying `shardVersion` | mongos → shard, routed |
+| reads of `config.*` | mongos → config server: the routing table |
+
+So a MongoDB capture is classified **by content**, per connection, and the protocol
+column shows the kind: `MongoDB`, `MongoDB/heartbeat`, `MongoDB/oplog`,
+`MongoDB/replpos`, `MongoDB/monitor`, `MongoDB/election`, `MongoDB/config`,
+`MongoDB/routed`, `MongoDB/internal`. This is not cosmetic. A 30-second capture of the
+testbed's replica-set primary under load came back:
+
+    MongoDB/replpos    9 731 frames      MongoDB/heartbeat    172
+    MongoDB            6 621             MongoDB/monitor       30
+    TCP                4 586
+
+Two thirds of it is one secondary telling the primary where it has got to. Clicking
+`MongoDB/replpos` away in the summary is what makes the 6 621 frames that are the
+application visible — and no port-based tool can offer that, because there is only one
+port.
+
+Classification is by precedence rather than first-past-the-post: a heartbeat connection
+stays a heartbeat connection, but **every** driver connection opens with `hello`, so one
+that later runs a query is promoted from `monitor` to a client. Getting that wrong is
+what labelled real application connections "monitor" and left them there.
+
+### Reading a command
+
+| Shown as | From |
+| --- | --- |
+| `find hotelsim.bookings — filter {status: "confirmed"}, sort {createdAt: -1}, limit 20` | the command document. The **first key is the command name** — MongoDB's own rule — so element order is preserved when the BSON is walked |
+| `insert hotelsim.bookings — 3 document(s) in a "documents" sequence, 1.2 KB` | an OP_MSG kind-1 document sequence, counted rather than printed: a bulk insert is one section holding 10 000 documents |
+| `aggregate hotelsim.bookings — 3-stage pipeline: $match → $group → $sort` | the pipeline's stage names, which is what identifies an aggregation at a glance |
+| `hello admin — driver MongoDB Internal Client 8.0.26-11, app OplogFetcher` | the handshake's client metadata: **which driver and which application** opened this connection. On a shared cluster this is the fact a capture is most often taken to establish |
+| `find → 2 doc(s) in firstBatch, cursor 7648922318530284142 stays open (2.4 ms)` | the reply, its cursor, and the round trip. A reply is matched to its request by **responseTo**, not by order — a driver pipelines and the server may answer out of order |
+| `getMore local.oplog.rs — cursor 7648922318530284142, maxTimeMS 5000` | a getMore, with the namespace resolved from the cursor the `find` opened |
+| `commitTransaction admin — writeConcern: {w: "majority"}, txnNumber: 1745, autocommit: false` | a multi-document transaction committing |
+| `[snappy] find hotelsim.bookings — …` | the message was compressed on the wire and decompressed here |
+
+BSON values are rendered for one line, not round-tripped: an ObjectId becomes its hex, a
+40 KB array becomes `[…128 items]`, and the fields every message carries (`$db`, `lsid`,
+`$clusterTime`, `$readPreference`) are skipped because they would be noise on every row.
+
+### Compression: snappy is not optional
+
+Percona Server for MongoDB negotiates **snappy** by default, for driver *and* internal
+connections. The first capture taken against the testbed came back with almost every
+message reading "compressed with snappy (not decoded)" — which would have made the whole
+feature a description of MongoDB traffic rather than a decode of it.
+
+So OP_COMPRESSED is unwrapped for three of its four compressors:
+
+| Compressor | Treatment |
+| --- | --- |
+| `noop` | not compression at all — the inner message is decoded |
+| `snappy` | decompressed (`app/pktsnappy.go`: the raw block format is a varint length and two element kinds, which did not justify a dependency) |
+| `zlib` | decompressed with the standard library |
+| `zstd` | **named, not decoded** — Huffman plus FSE plus a dictionary format is a dependency, not a function. The same honest line Galera's SST stream gets |
+
+### MongoDB errors: the reply body is the only signal
+
+MongoDB reports a failed command **inside an otherwise ordinary reply**: `ok: 0` with a
+`code`, a `codeName` and an `errmsg`. There is nothing at the transport level to notice,
+which is exactly why a decoder has to read the BSON. Worse — and more useful — a *partly*
+failed write comes back inside a **successful** reply:
+
+- **`writeErrors`** — a duplicate key rejected one document of a bulk insert while the
+  command as a whole succeeded. A tool that watches command status never sees it.
+- **`writeConcernError`** — the write was applied on this member but not acknowledged by
+  enough of the set. It is **not durable** and can still be rolled back if this primary
+  steps down. The command said `ok: 1`.
+
+The catalogue is `mongoErrCatalog` in `app/pktmongoerr.go`. The codes that become
+findings:
+
+| Family | Codes | Why it is a finding |
+| --- | --- | --- |
+| **the primary** | `10107` NotWritablePrimary · `189` PrimarySteppedDown · `11602` InterruptedDueToReplStateChange · `91` ShutdownInProgress | a write reached a member that cannot take it. Either an election is happening or the driver's view of the topology is stale — and `11602` means the operation was killed mid-flight, which a retryable write survives and an ordinary one does not |
+| **read preference** | `13435` NotPrimaryNoSecondaryOk · `13436` NotPrimaryOrSecondary · `133` FailedToSatisfyReadPreference | the read went somewhere that will not serve it, or nothing matching the preference exists |
+| **the network** | `6` HostUnreachable · `7` HostNotFound · `89` NetworkTimeout · `9001` SocketException | one member's view of another. On a heartbeat, `89` is what starts an election |
+| **durability** | `64` WriteConcernFailed · `79` UnknownReplWriteConcern · `100` UnsatisfiableWriteConcern | the write is not as safe as the application thinks |
+| **contention** | `112` WriteConflict · `24` LockTimeout · `251` NoSuchTransaction · `225` TransactionTooOld | concurrency. `251` usually means the transaction timed out — 60 seconds by default |
+| **sharding** | `13388` StaleConfig · `63` StaleShardVersion · `82` NoProgressMade · `118` CannotSplit | the router's routing table is behind the cluster's. A few after a chunk migration are normal; a stream of them is not |
+| **auth** | `18` AuthenticationFailed · `13` Unauthorized · `11` UserNotFound | refused. `18` as `__system` is a keyFile mismatch, and no application change will fix it |
+| **cursors** | `43` CursorNotFound · `237` CursorKilled | the cursor is gone — killed, or timed out after 10 idle minutes |
+| **limits** | `50` MaxTimeMSExpired · `262` ExceededTimeLimit · `292` QueryExceededMemoryLimitNoDiskUseAllowed | a deadline or a memory ceiling the client or the server imposed |
+
+Deliberately **never** flagged: `11000` DuplicateKey (a unique index doing its job — the
+test workload produces them by design), `26` NamespaceNotFound, `59` CommandNotFound and
+`72` InvalidOptions. Those last two are how every driver discovers what a deployment
+supports; 21 of them turned up in one two-minute capture of a nearly idle replica set.
+
+Three codes are read together with their message, because the code alone is ambiguous:
+`50`/`262` on a tailing cursor is normal and is not flagged, `10107` on a routed command
+means the shard just failed over, and `18` as `__system` is a cluster-trust problem
+rather than a user one.
+
+### Events worth knowing about
+
+| Flagged | Means |
+| --- | --- |
+| **Election in progress** (`replSetRequestVotes`) | a member is standing for primary. Every write is refused with NotWritablePrimary until one wins — what an application experiences as a brief outage |
+| **replSetStepDown / replSetStepUp** | a planned failover starting |
+| **Replica-set configuration change** | membership or settings being rewritten |
+| **Chunk migration** (`moveChunk`, `_shardsvrMoveRange`) | the balancer is moving data between shards; it competes with production traffic and briefly blocks writes on the range |
+| **shutdown** | this member is being stopped deliberately, so every later connection failure is a consequence |
+| **A legacy opcode** (OP_INSERT, OP_UPDATE, OP_DELETE, OP_GET_MORE, OP_KILL_CURSORS) | removed from the server in MongoDB 5.1. A driver still sending these will fail against any current server — and "OP_INSERT, removed in 5.1" is a better answer than "TCP data" for somebody wondering why an old application stopped working |
+| **Connection opened and closed without sending anything** | a TCP health check or a port probe |
+| **Heavy reply** | over 1 MB in one message |
+| **Slow response** | over 100 ms, matching MongoDB's own slow-query threshold — but never for `hello` with `topologyVersion` or a tailing `getMore`, both of which block **on purpose** |
+
+### mongos and the same-port problem
+
+A capture on a mongos holds connections where mongos is the server (the application's) and
+connections where mongos is the client (to shards and config servers) — and **both are
+27017 to 27017**. No port comparison can say which end is which.
+
+The header settles it: `responseTo` is 0 in a request and the request's id in a reply, so
+each message states its own side. The stream list's client/server columns additionally use
+the SYN — whoever sent it is the client — which is remembered per address pair and only
+consulted for same-port connections.
+
 ## PXC / Galera: four ports, four protocols
 
 A cluster member's traffic is not just 3306. Capturing a PXC (or MariaDB Galera) target
@@ -484,15 +641,33 @@ written by the server to **its own log** and sent to nobody. No capture can cont
 them, however long it runs — by the time the server writes "Aborted connection …
 (Got an error reading communication packets)" there is no client left to tell.
 
-Both engines' logs are read, and the format is detected rather than asked for:
+All three engines' logs are read, and the format is detected rather than asked for:
 
-| | MySQL | PostgreSQL |
-| --- | --- | --- |
-| Where | `/var/log/mysqld.log` and the distribution alternatives | `/var/lib/pgsql/*/data/log/postgresql-*.log` and the distribution alternatives. PostgreSQL rotates by day of week, so the path is a glob and the newest match is used — a fixed path would happily read last Tuesday's file |
-| Line shape | `2026-08-03T19:19:01.501234Z 12 [Note] [MY-010914] [Server] …` | `2026-08-04 06:15:44.142 UTC [2948] ERROR:  …`, with `%u@%d` and `%l` prefixes tolerated |
-| Timestamps | `Z` or an offset (`log_timestamps=SYSTEM`) | a zone name (`UTC`) or an offset (`+08`, `+0800`) |
-| Also read | — | **Patroni's own log**, when it writes to a file. A failover is Patroni's decision, taken because a lease expired or a member could not reach etcd; PostgreSQL's log only records the consequences |
-| Counters | `Aborted_clients`, `log_error_verbosity` and the `Connection_errors_*` family, because MySQL may not log an abort at all | none, and the panel says why: PostgreSQL logs a dropped or refused connection unconditionally |
+| | MySQL | PostgreSQL | MongoDB |
+| --- | --- | --- | --- |
+| Where | `/var/log/mysqld.log` and the distribution alternatives | `/var/lib/pgsql/*/data/log/postgresql-*.log` and the distribution alternatives. PostgreSQL rotates by day of week, so the path is a glob and the newest match is used — a fixed path would happily read last Tuesday's file | `/var/log/mongo/mongod.log`, plus the upstream and container defaults |
+| Line shape | `2026-08-03T19:19:01.501234Z 12 [Note] [MY-010914] [Server] …` | `2026-08-04 06:15:44.142 UTC [2948] ERROR:  …`, with `%u@%d` and `%l` prefixes tolerated | one **JSON object per line**: `{"t":{"$date":…},"s":"I","c":"COMMAND","id":51803,"msg":"Slow query","attr":{…}}` |
+| Record identity | the `MY-` code | the message text | the numeric **`id`**, which is stable across releases where wording is not |
+| Timestamps | `Z` or an offset (`log_timestamps=SYSTEM`) | a zone name (`UTC`) or an offset (`+08`, `+0800`) | RFC3339 with an offset |
+| Also read | — | **Patroni's own log**, when it writes to a file. A failover is Patroni's decision, taken because a lease expired or a member could not reach etcd; PostgreSQL's log only records the consequences | — |
+| Counters | `Aborted_clients`, `log_error_verbosity` and the `Connection_errors_*` family, because MySQL may not log an abort at all | none, and the panel says why: PostgreSQL logs a dropped or refused connection unconditionally | none: MongoDB logs every connection accepted and ended (ids 22943 and 22944) at its default verbosity |
+
+**MongoDB's log is the one that pairs best with a capture**, because it holds the *reason*
+for what the wire only times. A capture says a command took 219 ms; the log record for the
+same instant says `planSummary=IXSCAN { date: 1, availableRooms: 1 }`,
+`keysExamined=5600`, `docsExamined=5600`, `numYields=12`. None of that is on the wire in
+any form, and the correlation is by time, which the panel already does. Records worth
+knowing about:
+
+| Record | Means |
+| --- | --- |
+| `Slow query` (id 51803) | with its plan summary and examined counts — the explanation the capture cannot give |
+| `Connection accepted` / `Connection ended` (22943 / 22944) | every connection, unconditionally |
+| `Election succeeded` (20698) / `Replica set state transition` (21358) | the primary changed, and which way |
+| `Heartbeat failed` | what precedes an election |
+| `Rollback` | this member had writes the new primary does not, and is discarding them |
+| `too stale to catch up` | the member has fallen off the oplog and needs a full resync |
+| `Authentication failed` (20883) | with the mechanism and the user |
 
 PostgreSQL's continuation records — `DETAIL`, `HINT`, `STATEMENT`, `CONTEXT`, `QUERY` —
 are folded into the record above them rather than listed separately. `STATEMENT` carries
@@ -589,6 +764,12 @@ That is the normal case, not an edge case, and it is the normal case in both fam
 PostgreSQL's upgrade is visible either way: `SSLRequest` is decoded, the server's naked
 `S` or `N` answer is decoded, and a refusal is flagged with its consequence.
 
+**MongoDB has no in-band upgrade at all**: TLS either starts the connection or never
+happens. So a capture of a TLS-enabled member is opaque from the first byte — there is no
+handshake-in-the-clear to read, and the only remedies are to capture with TLS off for the
+diagnostic window, or to read the commands from the server's own log (a `Slow query`
+record carries the whole command document) or the profiler.
+
 ### When the server has `ssl = off`
 
 This is the case a capture is *most* useful for, because everything stays readable — and
@@ -661,6 +842,8 @@ PKT_SAMPLE_DIR=/tmp/pkt-samples go test -run TestWriteSampleCaptures ./app
 | `net-arp-dns.pcap` | 13 packets of the traffic underneath a database problem that is not database traffic: a resolving name with its latency, an `AAAA` answering NOERROR-with-nothing (normal, deliberately not flagged), an NXDOMAIN, a 280 ms lookup, an ARP who-has/is-at pair, a gratuitous ARP, an address conflict, and an unanswered who-has. |
 | `pg-session-errors.pcap` | One PostgreSQL connection doing everything an application connection does — SCRAM authentication, a simple query with a result set, a named prepared statement bound and executed in a transaction — and then failing in the four ways worth recognising: a **deadlock (40P01)**, a **write to a read-only connection (25006)**, a **statement cancelled by `statement_timeout` (57014)**, and a **FATAL (57P01)** that ends the session. |
 | `pg-replication.pcap` | A standby streaming from a primary, captured **mid-stream** — the normal case, since a replication connection outlives any capture. Its `CopyData` sub-types are the only thing available to anchor on, and the LSNs in them produce `Replication lag 24.0 MB` once the standby stops keeping up. |
+| `mongo-session-errors.pcap` | One MongoDB application connection doing what an application does — a `hello` handshake with client metadata, SCRAM, a find with a cursor and a getMore, a 3-stage aggregation, a bulk insert — and then failing in the four ways worth recognising: a **duplicate key inside an otherwise successful reply**, a write to a member that is **not the primary**, a **write-concern failure** (applied here, not durable), and a **killed cursor**. |
+| `mongo-replset.pcap` | What a replica-set member's port actually carries, and almost none of it is the application: heartbeats every 2 s, a secondary **tailing the oplog** (with `awaitData` getMores that block on purpose and must not be called slow), `replSetUpdatePosition`, and an **election**. Four connections on four client ports — one port would be one connection, and a connection keeps the classification of its first command. Also carries `electionTime` as MongoDB really sends it: an OpTime's raw bits in a Date-typed field. |
 | `pg-patroni-cluster.pcap` | The traffic that decides who leads, and none of it is PostgreSQL: HAProxy's health checks against `/primary` and `/replica` (200 and 503 — the 503 deliberately **not** flagged), Patroni renewing its etcd lease, and finally etcd answering **503**, which is the failure that precedes every Patroni failover. Also a test of the engine sniffer: there is no PostgreSQL protocol in the file at all, and it must still be read as PostgreSQL. |
 | `mysql-oversized-blob.pcap` | ~17 MB, because a MySQL packet only splits above `0xffffff`: a 16 MB+ row arriving as a `0xffffff` chunk plus a remainder across 11 600 segments. Must come back as one complete row with a heavy-result-set flag. |
 
@@ -668,15 +851,19 @@ PKT_SAMPLE_DIR=/tmp/pkt-samples go test -run TestWriteSampleCaptures ./app
 change that stops one of them demonstrating its case fails the suite whether or not the
 files have been written.
 
-Any pcap from anywhere decodes here as long as the traffic is MySQL or PostgreSQL. The
-upload form takes a **protocol** and a **server port**, and both default to being worked
-out rather than asked for:
+Any pcap from anywhere decodes here as long as the traffic is MySQL, PostgreSQL or
+MongoDB. The upload form takes a **protocol** and a **server port**, and both default to
+being worked out rather than asked for:
 
 - The **protocol** is sniffed from the bytes — PostgreSQL's four fixed first-message
-  codes, its `ReadyForQuery`, its replication sub-types; MySQL's protocol-10 greeting.
-  When a capture contains no database payload at all (a Patroni cluster capture is
-  entirely HTTP), the *ports* decide: 8008/2379/2380 say PostgreSQL cluster, 4567/4568/4444
-  say MySQL cluster. A payload tell always outweighs a port.
+  codes, its `ReadyForQuery`, its replication sub-types; MySQL's protocol-10 greeting;
+  MongoDB's 16-byte header **plus the body structure its opcode requires**. That last
+  condition is not pedantry: "a plausible length and a known opcode" matched a MySQL
+  greeting whose bytes 12-16 happen to read as OP_REPLY, which sent a whole suite of MySQL
+  captures through the MongoDB decoder. When a capture contains no database payload at all
+  (a Patroni cluster capture is entirely HTTP), the *ports* decide: 8008/2379/2380 say
+  PostgreSQL cluster, 4567/4568/4444 say MySQL cluster, 27017 says MongoDB. A payload tell
+  always outweighs a port.
 - The **port** then defaults to that protocol's own — which is why it is chosen after the
   protocol and not before. Give it explicitly for a capture taken off a non-standard port
   (an All-in-One instance is on 13000-something, never 3306 or 5432).
@@ -687,6 +874,7 @@ rather than mysterious. To capture by hand the way the tool does:
 ```
 tcpdump -i eth0 -s 65535 -n -q -c 50000 port 3306 -w /tmp/mysql.cap
 tcpdump -i eth0 -s 65535 -n -q -c 50000 '(port 5432 or port 8008 or port 2379)' -w /tmp/pg.cap
+tcpdump -i eth0 -s 65535 -n -q -c 50000 port 27017 -w /tmp/mongo.cap
 ```
 
 Three things worth knowing before you do:
@@ -740,6 +928,10 @@ completion never arrived.
 - **Nothing is decoded across engines.** A capture is read as one protocol, chosen from
   the node's own record or sniffed from the bytes; a file holding both a MySQL and a
   PostgreSQL conversation will have one of them read as TCP payload.
+- **MongoDB captures are large for their duration.** Two thirds of a replica-set member's
+  traffic can be `replSetUpdatePosition` and heartbeats, so the packet ceiling arrives
+  sooner than the clock does. Filter by protocol in the summary rather than capturing
+  longer.
 - **Uploads are not persisted anywhere.** A capture — and any server log uploaded with it
   — lives in the app's memory for as long as it is one of the newest 12, and is gone when
   the process restarts. Nothing is written to the database or to disk, and nothing leaves

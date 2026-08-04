@@ -3,7 +3,7 @@ import { Icon } from '../components/Icons.jsx'
 import { Card, Button, Badge, Field, inputCls } from '../components/ui.jsx'
 import {
   pktApi, pktTargetKey, pktBytesFmt, PROTO_TONE, isSevereIssue, issueKind,
-  PORT_ROLE_TEXT, ENGINE_LABEL, TIME_MODES, pktFormatTime, pktDateTime, pktISO, pktTimeOfDay,
+  PORT_ROLE_TEXT, ENGINE_LABEL, MONGO_KIND_TEXT, TIME_MODES, pktFormatTime, pktDateTime, pktISO, pktTimeOfDay,
 } from '../lib/pktApi.js'
 
 // Packet Inspector — run tcpdump on a provisioned MySQL or PostgreSQL node, then read
@@ -26,6 +26,9 @@ import {
 // See docs/PACKET_INSPECTOR.md.
 
 const DEFAULTS = { seconds: 20, packets: 50000, snaplen: 65535, filter: '', allPorts: false }
+// Each protocol's own port, for the upload form's placeholder. Blank means the decoder
+// sniffs the protocol first and then applies its default.
+const DEFAULT_PORTS = { mysql: '3306', postgres: '5432', mongodb: '27017' }
 const PAGE = 200
 
 // A range is the single source of truth for what the list and the timeline show.
@@ -215,11 +218,13 @@ export default function PacketInspector() {
                   <option value="">Detect automatically</option>
                   <option value="mysql">MySQL</option>
                   <option value="postgres">PostgreSQL</option>
+                  <option value="mongodb">MongoDB</option>
                 </select>
               </Field>
-              <Field label="Server port" hint={uploadEngine === 'postgres' ? 'blank = 5432' : 'blank = 3306'}>
+              <Field label="Server port"
+                hint={`blank = ${DEFAULT_PORTS[uploadEngine] || 'the protocol default'}`}>
                 <input type="number" min="1" max="65535" className={inputCls} value={uploadPort}
-                  placeholder={uploadEngine === 'postgres' ? '5432' : '3306'}
+                  placeholder={DEFAULT_PORTS[uploadEngine] || 'detected'}
                   onChange={(e) => setUploadPort(e.target.value)} />
               </Field>
             </div>
@@ -241,7 +246,7 @@ export default function PacketInspector() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="Database node">
             <select className={inputCls} value={target} onChange={(e) => setTarget(e.target.value)}>
-              <option value="">Select a provisioned MySQL or PostgreSQL node…</option>
+              <option value="">Select a provisioned MySQL, PostgreSQL or MongoDB node…</option>
               {(targets || []).map((t) => (
                 <option key={pktTargetKey(t)} value={pktTargetKey(t)}>
                   {t.label} · {t.stackName} ({ENGINE_LABEL[t.engine] || t.engine}, port {t.port})
@@ -298,12 +303,34 @@ export default function PacketInspector() {
             </a>
           )}
           {!targets?.length && targets !== null && (
-            <span className="text-xs text-muted">No running MySQL or PostgreSQL nodes — deploy one first.</span>
+            <span className="text-xs text-muted">No running MySQL, PostgreSQL or MongoDB nodes — deploy one first.</span>
           )}
         </div>
 
         {cap?.command && (
           <pre className="mt-3 overflow-x-auto rounded-md bg-surface2 px-2 py-1.5 font-mono text-[11px] text-muted">{cap.command}</pre>
+        )}
+        {cap?.engine === 'mongodb' && cap?.summary?.protos && (
+          <div className="mt-2 rounded-lg border bg-bg px-3 py-2 text-[11px]">
+            <div className="mb-1 text-muted">
+              Every MongoDB process listens on {cap.port} — mongod, mongos and the config servers alike —
+              so this capture&apos;s connections are told apart by what is in them, not by port:
+            </div>
+            <div className="space-y-0.5">
+              {Object.keys(cap.summary.protos)
+                .filter((pr) => pr.startsWith('MongoDB'))
+                .sort()
+                .map((pr) => {
+                  const kind = pr === 'MongoDB' ? 'client' : pr.slice('MongoDB/'.length)
+                  return (
+                    <div key={pr} className="flex gap-2">
+                      <span className="w-36 shrink-0 font-mono text-fg">{pr}</span>
+                      <span className="text-muted">{MONGO_KIND_TEXT[kind] || kind}</span>
+                    </div>
+                  )
+                })}
+            </div>
+          </div>
         )}
         {cap?.ports && Object.keys(cap.ports).length > 1 && (
           <div className="mt-2 rounded-lg border bg-bg px-3 py-2 text-[11px]">
@@ -545,7 +572,17 @@ export function SummaryStrip({ cap, range, setRange }) {
           <span className="font-medium text-warning">
             {s.tlsStreams} connection(s) are encrypted, so their payload is not readable here.
           </span>
-          {cap.engine === 'postgres' ? (
+          {cap.engine === 'mongodb' ? (
+            <span className="mt-1 block text-muted">
+              Sizes, timing and every TCP-level problem are still accurate; only the commands are
+              not available. MongoDB has no in-band upgrade — TLS either starts the connection or
+              never happens — so a capture of a TLS-enabled member is opaque from the first byte.
+              For the commands themselves: capture with <code className="font-mono">tls=false</code> on the
+              client for the diagnostic window, or read them from the server&apos;s own log
+              (<code className="font-mono">Slow query</code> records carry the whole command) or the
+              profiler (<code className="font-mono">system.profile</code>).
+            </span>
+          ) : cap.engine === 'postgres' ? (
             <span className="mt-1 block text-muted">
               Sizes, timing and every TCP-level problem are still accurate; only the statements are
               not available. psql and libpq default to

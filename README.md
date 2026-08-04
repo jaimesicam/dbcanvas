@@ -8,8 +8,8 @@ monitoring, backups). Nodes are **Docker containers** by default, or — in
 [**hybrid** mode](#deployment-backends--docker-or-vagrant-hybrid) — real **VirtualBox VMs**
 driven by Vagrant for the OS/database nodes. It then gives you tools to *use* and *understand*
 those databases: a **Data Generator** for realistic test data, a **Query Runner** and
-**Benchmark** for workloads, a **Packet Inspector** that decodes MySQL and PostgreSQL traffic
-off the wire, a
+**Benchmark** for workloads, a **Packet Inspector** that decodes MySQL, PostgreSQL and
+MongoDB traffic off the wire, a
 **Visual Summary** that turns pt-stalk captures into charts, an
 **experimental Labs** catalog of 95 AI-generated hands-on scenarios (see
 [below](#labs-experimental) — verify before relying on them), a live **Dashboard**, and a
@@ -343,22 +343,29 @@ throughput + latency.
 ![The Benchmark tool](docs/screenshots/benchmark.png)
 
 ### Packet Inspector
-Capture traffic on a provisioned **MySQL** or **PostgreSQL** node with `tcpdump` and read it
-back as decoded protocol: statements, responses, response times, prepared statements,
-result-set shapes, the replication stream — and the network problems underneath
-(**retransmissions**, **gaps**, **duplicate ACKs**, **zero windows**, **resets**), plus the
-operational errors that explain an outage: MySQL's `1205` lock-wait timeouts and `1047`
-wsrep-not-ready, PostgreSQL's `40P01` deadlocks, `53300` too-many-connections, `25006` writes
-that reached a standby, and `57P01` shutdowns. A cluster member's own traffic is captured too
-— Galera's 4567/4568/4444 for PXC, **Patroni's REST API and etcd** for a Patroni member,
-because a failover is decided in etcd rather than in PostgreSQL. Replication lag is read
-straight off the wire from both ends' **LSNs**, with no access to either server. The
-**Traffic Timeline** buckets density server-side and takes a range by drag, by packet number,
-by time offset, by zoom/pan or by preset, so a 400k-packet capture stays responsive.
-Encrypted sessions are marked rather than guessed at: sizes, timing and TCP behaviour stay
-accurate and the statements are reported as unavailable. Uploaded pcaps decode the same way —
-the protocol is sniffed from the bytes — and can carry the server's log alongside for
-correlation. See [`docs/PACKET_INSPECTOR.md`](docs/PACKET_INSPECTOR.md).
+Capture traffic on a provisioned **MySQL**, **PostgreSQL** or **MongoDB** node with `tcpdump`
+and read it back as decoded protocol: statements and commands, responses, response times,
+prepared statements, result-set shapes, the replication stream — and the network problems
+underneath (**retransmissions**, **gaps**, **duplicate ACKs**, **zero windows**, **resets**),
+plus the operational errors that explain an outage: MySQL's `1205` lock-wait timeouts and
+`1047` wsrep-not-ready, PostgreSQL's `40P01` deadlocks, `53300` too-many-connections and
+`25006` writes that reached a standby, MongoDB's `10107` NotWritablePrimary, `13388`
+StaleConfig and write-concern failures that leave a write **not durable** inside an
+otherwise successful reply. Each engine's cluster traffic comes too, wherever it lives:
+Galera's 4567/4568/4444 for PXC, **Patroni's REST API and etcd** for a Patroni member
+(because a failover is decided in etcd, not in PostgreSQL), and for MongoDB — where
+heartbeats, elections, oplog tailing and mongos→shard routing all share port 27017 —
+connections are classified **by content**, so two thirds of a capture that is cluster
+chatter can be filtered away in one click. PostgreSQL replication lag is read straight off
+the wire from both ends' **LSNs**; MongoDB's BSON is decoded, including **snappy and zlib**
+decompression, since a real deployment compresses by default. The **Traffic Timeline**
+buckets density server-side and takes a range by drag, by packet number, by time offset, by
+zoom/pan or by preset, so a 400k-packet capture stays responsive. Encrypted sessions are
+marked rather than guessed at: sizes, timing and TCP behaviour stay accurate and the
+statements are reported as unavailable. Uploaded pcaps decode the same way — the protocol is
+sniffed from the bytes — and can carry the server's log alongside for correlation, which for
+MongoDB means the `planSummary` and `docsExamined` the wire cannot show. See
+[`docs/PACKET_INSPECTOR.md`](docs/PACKET_INSPECTOR.md).
 
 ### Visual Summary
 Turn a **pt-stalk** archive — collected from a MySQL/PXC node's **Diagnostics** tab or uploaded

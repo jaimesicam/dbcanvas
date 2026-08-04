@@ -11195,3 +11195,174 @@ reported as unframeable and that the identity survives, the three-untyped-messag
 and the abort case. The `ssl = off` negotiation table is now in
 `docs/PACKET_INSPECTOR.md`, since which of the three outcomes follows a refusal is the
 client's setting rather than the server's.
+
+---
+
+## 217. Packet Inspector: MongoDB — `app/pkt{mongo,mongoerr,mongorepl,mongolog,bson,snappy}.go`, `app/pkt{decode,inspect,serverlog}.go`, `app/web/src/{pages/PacketInspector.jsx,lib/pktApi.js}`
+
+"Do the same plan for a different type of MongoDB traffic. Please do the needful of
+setting up testbed." Third engine, same method: a real cluster, real faults, and every
+fix driven by what the wire actually held.
+
+### The testbed
+
+Stack 48 (`pktinspect-mongo`), 10 nodes, built and deployed through the app's own API:
+
+    intranet                    DNS / CA / proxy
+    psmrs-00 (3 members)        a replica set: heartbeats, elections, oplog tailing
+    hotelsim-01                 Hotel Sim — 10 agents of hotel workload on the set
+    psmdb-00 (minimum, 5)       a sharded cluster: mongos + config server + 3 shards
+
+The replica set gives what a standalone cannot — heartbeats between real members, a real
+oplog tail, a real election — and the sharded cluster gives mongos↔shard routing and
+config-server reads.
+
+### MongoDB's problem is the opposite of Galera's
+
+Framing is the easiest of the three engines: a 16-byte header whose first field is the
+length. No chunking, no naked negotiation byte, no ambiguity about where a message starts.
+
+Classification is the hardest, because **everything is on 27017**. A Galera member
+separates its cluster traffic by port and a Patroni member does too, so both can be
+classified before a byte of payload is read. A MongoDB member puts application queries,
+`replSetHeartbeat`, elections, oplog tailing, `replSetUpdatePosition`, mongos→shard
+routing and every driver's monitoring on one port. So classification is by **content**,
+per connection, and the protocol column carries the kind: `MongoDB/heartbeat`,
+`MongoDB/oplog`, `MongoDB/replpos`, `MongoDB/monitor`, `MongoDB/election`,
+`MongoDB/config`, `MongoDB/routed`, `MongoDB/internal`.
+
+That is not cosmetic. 30 seconds on the primary under load:
+
+    MongoDB/replpos    9 731        MongoDB/heartbeat   172
+    MongoDB            6 621        MongoDB/monitor      30
+
+Two thirds of the capture is one secondary reporting its position. Being able to click it
+away is what makes the third that is the application visible.
+
+New files: `pktbson.go` (enough BSON to read a message, bounds-checked and rendered for
+one line), `pktmongo.go` (the wire protocol), `pktmongorepl.go` (classification, the
+analogue of `pktgalera.go`/`pktpgha.go`), `pktmongoerr.go` (the error catalogue),
+`pktmongolog.go` (the JSON server log), `pktsnappy.go` (see below).
+
+### Five bugs the live cluster found
+
+**1. An OP_MSG's document starts 21 bytes in, not 20.** Header (16) + flag word (4) +
+**section-kind byte** (1). My anchor validated the BSON length at +20, so it rejected
+*every genuine header* — and then anchored on a false positive further into the payload
+and waited forever for a message that was never there. The capture showed the server's
+half decoding while every client frame read `[framing lost] 63 bytes`, with the buffer
+growing frame by frame. 2 009 frames of it. The same off-by-one was in the engine sniffer.
+
+Reading the hex of one 230-byte frame settled it in seconds: length 0x000000e6 = 230,
+opcode 0x7dd = 2013, flags, `00`, then `d1 00 00 00` — a perfectly valid message the
+decoder was refusing.
+
+**2. Snappy is not optional.** PSMDB negotiates it by default for driver *and* internal
+connections, so the first capture came back almost entirely
+"compressed with snappy (not decoded)" — a description of MongoDB traffic rather than a
+decode of it. `pktsnappy.go` implements the raw block format (a varint length and two
+element kinds, literals and back-references); the alternative was a dependency for what
+turned out to be one function. zstd stays named-not-decoded, the same honest line Galera's
+SST stream gets, and zlib uses the standard library.
+
+**3. A getMore names its collection in a separate field.** `{getMore: <cursor>,
+collection: "oplog.rs", $db: "local"}` — and the classifier ran *before* that field was
+read, so the namespace was just "local" and **every oplog tail looked like an ordinary
+read**. The oplog tail is the single most important connection in a replica-set capture.
+The namespace is now complete before classification.
+
+**4. mongos↔shard is 27017 to 27017.** No port comparison can say which end is the
+server, so a capture on a router had every frame looking like a client's. The header
+already says: `responseTo` is 0 in a request and the request's id in a reply. Dispatching
+on that instead of on the TCP direction makes the decode correct for every topology. (The
+stream list's client/server columns additionally learn the client from the SYN, kept per
+address pair and consulted only for same-port connections.)
+
+**5. Every driver connection opens with `hello`,** so a first-command-wins classifier
+labelled real application connections "monitor" and left them there. Kinds now have a
+precedence: a specific kind is sticky, a client beats a monitor, and a monitor is only the
+answer for a connection that has done nothing else.
+
+### …and one bug that had been hiding in MySQL support since §206
+
+Adding a third engine broke **eleven MySQL tests**, which is the useful kind of failure.
+Two causes, both worth having found:
+
+- The MongoDB sniff test was "a plausible length plus a known opcode", and a MySQL
+  **greeting** for `8.0.46` has `01 00 00 00` at bytes 12-16 — OP_REPLY. Every capture
+  whose greeting was short enough went through the MongoDB decoder.
+- The reason it was *short enough*: the MySQL greeting check sampled a fixed 9-byte window
+  for printability, and for a version string of six characters that window ran past the
+  NUL into the connection id, so three of nine bytes were control characters and the
+  check failed. `8.0.46-37` passed; `8.0.46` did not. A latent bug that only mattered once
+  something else competed for the same bytes.
+
+Both are now structural rather than statistical: `mongoLooksLikeHeader` requires the body
+that the opcode implies (a valid BSON document at +21 for OP_MSG, a sane
+`numberReturned` and a document for OP_REPLY, a printable namespace for OP_QUERY, a
+checkable wrapper for OP_COMPRESSED) and a length consistent with the segment;
+`mysqlLooksLikeGreeting` reads the version string properly, to its NUL. The suite also
+went from 10.3 s back to 0.41 s — the 17 MB oversized-row fixture had been hunting MongoDB
+anchors.
+
+### The fault battery
+
+14 deliberate faults driven from a second member against the primary, one capture:
+
+    AuthenticationFailed (18)     Unauthorized (13)        UserNotFound (11)
+    DuplicateKey (11000) ×3       CursorNotFound (43)      MaxTimeMSExpired (50)
+    WriteConflict (112)           NoSuchTransaction (251)  WriteConcernFailed (64)
+    Election in progress          replSetStepDown          replSetStepUp
+    4 × bare TCP connect/close    Slow response ×2         a committed transaction
+
+`rs.stepDown()` produced a genuine failover (psmrs01 → psmrs02 PRIMARY) with the election
+visible on the wire. The sharded side produced routed commands carrying `shardVersion`,
+config-server reads of `config.databases`/`config.chunks`, and
+`_shardsvrNotifyShardingEvent`. **StaleConfig did not appear live** — the only router in
+the testbed initiated the chunk move itself and refreshed synchronously, so there was
+nothing stale to catch; it is covered by unit test rather than by capture, and this is
+worth stating plainly rather than implying live coverage.
+
+Two error families are deliberately **not** flagged, both discovered by their noise:
+`CommandNotFound`/`InvalidOptions` (21 of them in two minutes — `atlasVersion` and
+`getParameter` are how a driver discovers what a deployment supports) and `DuplicateKey`
+(the workload produces them by design).
+
+### A Date that is not a date
+
+A heartbeat reply's `electionTime` arrives as BSON type 0x09 — a UTC datetime — holding
+an OpTime's raw bits (`seconds << 32 | increment`). Rendered as a calendar instant that is
+`243057045-12-23T22:12:28.801Z`. A unit test confirmed the type handling was right and the
+*server* was sending an OpTime in a Date field, so the renderer now refuses to print an
+impossible date: outside 1970–2096 it shows `Timestamp(1785830373, 5) [in a Date-typed
+field]` when the high word is a plausible Unix time, and the raw value otherwise.
+
+### The log that explains the capture
+
+MongoDB's log is one JSON object per line, with a numeric `id` that is stable where
+wording is not — so records are recognised by id first and by text second. It is also the
+best of the three at complementing a capture: the wire says a command took 219 ms, and the
+log record for the same instant says `planSummary=IXSCAN { date: 1, availableRooms: 1 }`,
+`keysExamined=5600`, `docsExamined=5600`, `numYields=12`. None of that is on the wire in
+any form. Verified live: 2 000 lines scanned on the primary, **57 in the capture's
+window**, slow queries with their plans, connections accepted and ended, authentications.
+
+`attr` is read selectively rather than unmarshalled whole — a slow-query record is
+several kilobytes of lock-acquisition counts — and only scalars are taken.
+
+### Tests, samples, UI
+
+50 new Go tests (`pktmongo_test.go`): the session, the extended protocol's document
+sequences, 13 error codes including the three that must *not* flag, write errors inside a
+successful reply, write-concern failures, all six connection kinds, the oplog ordering
+bug, the mongos same-port case, snappy round-trips and corruption refusal, BSON reading
+and rendering including the Date-typed OpTime, legacy opcodes, bare-connect probes, engine
+sniffing on a non-standard port, and junk that must not decode into a cursor reply. Two
+new generated samples (`mongo-session-errors`, `mongo-replset`), both decoded *without*
+being told the engine. 11 new render checks.
+
+Three of my own mistakes, again mostly in test data: a snappy copy tag encoding 9 bytes
+where I meant 6, a date assertion two days out, and a sample builder that gave four
+connections the same client port — which collapsed them into one stream, and one stream
+keeps its first classification, so heartbeats swallowed the oplog tail. The decoder was
+right in all three.

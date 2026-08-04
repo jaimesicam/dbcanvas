@@ -171,13 +171,75 @@ func (a *App) handlePktTargets(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
+	writeJSON(w, http.StatusOK, a.listPktTargets(u))
+}
+
+// listPktTargets is every node a capture can be taken on: the SQL families from
+// listSQLTargets, plus every running MongoDB process.
+//
+// It cannot just reuse listBenchTargets, which also covers MongoDB, because that list
+// deliberately offers **only the mongos** of a sharded cluster — the benchmark writes
+// data, and a shard member or a config server would reject it. For a capture the opposite
+// is true: a shard member is where routed commands arrive with their shard versions, and a
+// config server is where the routing table is read. Those are two of the most interesting
+// vantage points in a sharded cluster, so all of them are offered.
+func (a *App) listPktTargets(u User) []qrTarget {
 	out := []qrTarget{}
 	for _, t := range a.listSQLTargets(u) {
-		if t.Engine == pktEngineMySQL || t.Engine == pktEnginePostgres {
+		switch t.Engine {
+		case pktEngineMySQL, pktEnginePostgres:
 			out = append(out, t)
 		}
 	}
-	writeJSON(w, http.StatusOK, out)
+	stacks, _ := a.store.ListStacks(u.ID, u.Role == RoleAdmin)
+	for _, s := range stacks {
+		st, err := a.store.GetStack(s.ID)
+		if err != nil {
+			continue
+		}
+		doc := buildDoc(st)
+		for _, n := range doc.Nodes {
+			// An All-in-One node's MongoDB instances are separate targets; its SQL ones
+			// came from listSQLTargets above.
+			if n.Type == "aio" {
+				dep, err := a.store.GetDeployment(st.ID, n.ID)
+				if err != nil || dep.State != DeployRunning {
+					continue
+				}
+				for _, m := range aioTargetableInstances(dep) {
+					if aioEngineForKind(m.Kind) != pktEngineMongoDB {
+						continue
+					}
+					out = append(out, qrTarget{
+						StackID: st.ID, StackName: st.Name,
+						NodeID: aioJoinTarget(n.ID, m.Inst),
+						Label:  aioTargetLabel(n.Label, m),
+						Engine: pktEngineMongoDB, Type: m.Kind, Port: m.Ports.Client,
+						Host: fqdnOf(m.Inst, envOr("DOMAIN", "example.net")),
+					})
+				}
+				continue
+			}
+			if engineForType(n.Type) != pktEngineMongoDB {
+				continue
+			}
+			if dep, err := a.store.GetDeployment(st.ID, n.ID); err != nil || dep.State != DeployRunning {
+				continue
+			}
+			label := n.Label
+			// A sharded cluster's members are only distinguishable by role, and which one
+			// a capture is taken on decides what it will contain.
+			if n.Role != "" && n.Role != "regular" {
+				label += " (" + n.Role + ")"
+			}
+			out = append(out, qrTarget{
+				StackID: st.ID, StackName: st.Name, NodeID: n.ID, Label: label,
+				Engine: pktEngineMongoDB, Type: n.Type, Port: mongoClientPort,
+				Host: fqdnOf(stackHostnames(doc)[n.ID], envOr("DOMAIN", "example.net")),
+			})
+		}
+	}
+	return out
 }
 
 // pktTargetRoles is every port a capture of this target should cover, mapped to the
@@ -196,8 +258,11 @@ func (a *App) handlePktTargets(w http.ResponseWriter, r *http.Request) {
 // aioPortsFor).
 func (a *App) pktTargetRoles(u User, stackID int64, target string, port int, engine string) (map[int]string, string) {
 	baseRole := pktRoleMySQL
-	if engine == pktEnginePostgres {
+	switch engine {
+	case pktEnginePostgres:
 		baseRole = pktRolePostgres
+	case pktEngineMongoDB:
+		baseRole = pktRoleMongo
 	}
 	roles := map[int]string{port: baseRole}
 	nodeID, inst := aioSplitTarget(target)
@@ -243,6 +308,12 @@ func (a *App) pktTargetRoles(u User, stackID int64, target string, port int, eng
 			// No sidecar protocols: repmgr's daemon and Spock's apply workers are
 			// PostgreSQL connections like any other, and both are on 5432.
 			return roles, n.Type
+		case "psm", "psmrs", "psmdb":
+			// MongoDB has nothing to add either, for the opposite reason: mongod,
+			// mongos and the config servers all listen on 27017, and heartbeats,
+			// elections, oplog tailing and routed commands share it with the
+			// application. They are told apart by content (pktmongorepl.go).
+			return roles, n.Type
 		}
 		return roles, n.Type
 	}
@@ -279,9 +350,11 @@ func (a *App) handlePktStart(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if engine != pktEngineMySQL && engine != pktEnginePostgres {
+	switch engine {
+	case pktEngineMySQL, pktEnginePostgres, pktEngineMongoDB:
+	default:
 		writeErr(w, http.StatusBadRequest,
-			"the Packet Inspector decodes MySQL and PostgreSQL traffic; pick a MySQL/PXC/MariaDB or PostgreSQL/Patroni/repmgr/Spock target")
+			"the Packet Inspector decodes MySQL, PostgreSQL and MongoDB traffic; pick one of those targets")
 		return
 	}
 	if err := pktValidateFilter(body.Filter); err != nil {
@@ -1025,8 +1098,11 @@ func (a *App) handlePktUpload(w http.ResponseWriter, r *http.Request) {
 		sniffed = pktSniffEngine(buf, 0)
 	}
 	defPort := 3306
-	if sniffed == pktEnginePostgres {
+	switch sniffed {
+	case pktEnginePostgres:
 		defPort = pgClientPort
+	case pktEngineMongoDB:
+		defPort = mongoClientPort
 	}
 	port := pktClamp(atoiDef(r.FormValue("port"), 0), 1, 65535, defPort)
 
@@ -1054,7 +1130,8 @@ func (a *App) handlePktUpload(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest,
 				"no server-log records were recognised in "+lhdr.Filename+
 					" — expected MySQL lines like \"2026-08-03T19:19:01.501234Z 12 [Note] [MY-010914] [Server] …\""+
-					" or PostgreSQL lines like \"2026-08-04 06:15:44.142 UTC [2948] ERROR:  …\"")
+					", PostgreSQL lines like \"2026-08-04 06:15:44.142 UTC [2948] ERROR:  …\","+
+					" or MongoDB JSON lines like {\"t\":{\"$date\":\"…\"},\"s\":\"I\",\"c\":\"NETWORK\",\"id\":22943,…}")
 			return
 		}
 	}
