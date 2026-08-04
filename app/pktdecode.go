@@ -79,12 +79,15 @@ type pktPacket struct {
 
 	// Application detail. Query is the SQL text or a description of the command;
 	// Status/Rows/ErrCode describe a server response.
-	Query   string  `json:"query,omitempty"`
-	Command string  `json:"command,omitempty"` // COM_QUERY, COM_STMT_EXECUTE, …
-	Status  string  `json:"status,omitempty"`  // Success | Error 1064 (42000): … | Encrypted
-	Rows    int     `json:"rows,omitempty"`
-	ErrCode int     `json:"errCode,omitempty"`
-	LagMS   float64 `json:"lagMs,omitempty"` // request→response for a response; SYN→SYN,ACK for a handshake
+	Query   string `json:"query,omitempty"`
+	Command string `json:"command,omitempty"` // COM_QUERY, COM_STMT_EXECUTE, Parse, Execute, …
+	Status  string `json:"status,omitempty"`  // Success | Error 1064 (42000): … | Encrypted
+	Rows    int    `json:"rows,omitempty"`
+	ErrCode int    `json:"errCode,omitempty"` // MySQL error number
+	// ErrState is PostgreSQL's SQLSTATE ("40P01"), which is a string and has no
+	// numeric equivalent — the two engines' error identity does not share a field.
+	ErrState string  `json:"errState,omitempty"`
+	LagMS    float64 `json:"lagMs,omitempty"` // request→response for a response; SYN→SYN,ACK for a handshake
 
 	// Offset/length of the frame inside the capture buffer, so the detail endpoint
 	// can produce a hex dump without a second copy of every packet in memory.
@@ -119,6 +122,11 @@ type pktDecoded struct {
 	Format   string      `json:"format"` // pcap | pcap-ns | pcapng
 	Dropped  int         `json:"dropped"`
 	Truncat  int         `json:"truncated"` // frames the snaplen cut short
+	// Engine is the protocol the decode was run as, which for an upload may have
+	// been decided by pktSniffEngine rather than by the caller. Reported so the UI
+	// can say which it chose — a capture read as the wrong engine is otherwise a
+	// mystery rather than a wrong setting.
+	Engine string `json:"engine"`
 }
 
 // ---------------------------------------------------------------- capture file
@@ -496,6 +504,9 @@ type pktDirState struct {
 	xferStarted bool
 	xferBig     bool
 	xferFormat  string
+	// PostgreSQL per-direction state (pktpg.go), allocated on first use so a MySQL
+	// capture carries none of it.
+	pg *pktPGDir
 }
 
 // pktConn is the decoder's per-connection state.
@@ -541,6 +552,10 @@ type pktConn struct {
 	synAcked       bool // a SYN,ACK came back
 	sawData        bool // any payload in either direction
 	stream         pktStream
+	// PostgreSQL state (pktpg.go) and the state its cluster ports need
+	// (pktpgha.go), both allocated on first use.
+	pg   *pktPGConn
+	pgha *pktPGHA
 }
 
 // pktDecodeOpts controls a decode run.
@@ -553,10 +568,21 @@ type pktDecodeOpts struct {
 	// PortRoles maps a server port to the protocol it carries (pktRole*). A PXC
 	// capture covers 4567/4568/4444 as well as 3306, and those three are NOT the
 	// MySQL protocol — running the MySQL decoder over Galera's group communication
-	// would manufacture nonsense. Empty means "everything is MySQL on ServerPort".
-	PortRoles  map[int]string
+	// would manufacture nonsense. Empty means "the well-known ports for Engine".
+	PortRoles map[int]string
+	// Engine is "mysql" or "postgres" — which protocol the server port carries, and
+	// therefore which set of well-known ports the default role map uses. Empty means
+	// sniff it out of the capture (pktSniffEngine), which is what an upload needs:
+	// the file arrives with no node behind it to ask.
+	Engine     string
 	MaxPackets int
 }
+
+// Engine names, as they arrive from the node's own record (queryrun.go's qrTarget).
+const (
+	pktEngineMySQL    = "mysql"
+	pktEnginePostgres = "postgres"
+)
 
 // pktDecode turns capture bytes into annotated packets.
 func pktDecode(buf []byte, opts pktDecodeOpts) (*pktDecoded, error) {
@@ -567,15 +593,29 @@ func pktDecode(buf []byte, opts pktDecodeOpts) (*pktDecoded, error) {
 	if opts.MaxPackets <= 0 || opts.MaxPackets > pktMaxPackets {
 		opts.MaxPackets = pktMaxPackets
 	}
+	// Which protocol is on the server port. A capture taken here knows, because the
+	// node's record says so; an upload does not, so it is read out of the bytes.
+	engine := opts.Engine
+	if engine == "" {
+		engine = pktSniffEngine(buf, opts.ServerPort)
+	}
 	// Roles decide which decoder each connection gets. A caller that knows the node
 	// (a capture taken here) passes them explicitly, including an All-in-One instance's
-	// slot ports; anything else — an upload — gets the well-known ones, so a PXC capture
-	// from somebody else's server is still read correctly.
+	// slot ports; anything else — an upload — gets the well-known ones, so a PXC or
+	// Patroni capture from somebody else's server is still read correctly.
 	roles := opts.PortRoles
 	if len(roles) == 0 {
-		roles = pktGaleraPortRoles(opts.ServerPort)
+		if engine == pktEnginePostgres {
+			roles = pktPGPortRoles(opts.ServerPort)
+		} else {
+			roles = pktGaleraPortRoles(opts.ServerPort)
+		}
 	}
-	out := &pktDecoded{LinkType: r.linkType, Format: r.format}
+	defaultRole := pktRoleMySQL
+	if engine == pktEnginePostgres {
+		defaultRole = pktRolePostgres
+	}
+	out := &pktDecoded{LinkType: r.linkType, Format: r.format, Engine: engine}
 	conns := map[string]*pktConn{}
 	var order []*pktConn
 	net := newPktNetState()
@@ -638,11 +678,13 @@ func pktDecode(buf []byte, opts pktDecodeOpts) (*pktDecoded, error) {
 				}
 			}
 			// Galera can carry group communication over UDP multicast; label it
-			// rather than leaving it as an anonymous datagram.
+			// rather than leaving it as an anonymous datagram. Nothing else here
+			// does: PostgreSQL, Patroni and etcd are TCP only, so a datagram on one
+			// of their ports is not theirs and must not be labelled as if it were.
 			if len(l3.payload) >= 8 && len(opts.PortRoles) > 0 {
 				sp, dp := int(binary.BigEndian.Uint16(l3.payload)), int(binary.BigEndian.Uint16(l3.payload[2:]))
 				for _, port := range []int{dp, sp} {
-					if r, ok := opts.PortRoles[port]; ok && r != pktRoleMySQL {
+					if r, ok := opts.PortRoles[port]; ok && pktRoleIsGalera(r) {
 						p.Proto = pktRoleLabel(r) + "/UDP"
 						p.Info = fmt.Sprintf("%s over UDP, %d bytes", pktRoleLabel(r), len(l3.payload)-8)
 						break
@@ -680,7 +722,7 @@ func pktDecode(buf []byte, opts pktDecodeOpts) (*pktDecoded, error) {
 		// Which end is the server, and what is it speaking? A port with a declared
 		// role identifies both at once; otherwise the configured MySQL port decides,
 		// and failing that the lower port wins, which is the usual convention.
-		role := pktRoleMySQL
+		role := defaultRole
 		fromClient := tcp.dstPort == opts.ServerPort ||
 			(tcp.srcPort != opts.ServerPort && tcp.dstPort < tcp.srcPort)
 		if r, ok := roles[tcp.dstPort]; ok {
@@ -699,7 +741,7 @@ func pktDecode(buf []byte, opts pktDecodeOpts) (*pktDecoded, error) {
 		if c == nil {
 			c = &pktConn{idx: len(order), client: ckey, server: skey, role: role}
 			c.stream = pktStream{Index: c.idx, Client: ckey, Server: skey, StartTS: p.TSUnix,
-				Role: role, RoleLabel: pktRoleLabel(role)}
+				Role: role, RoleLabel: pktRoleAnyLabel(role)}
 			conns[key] = c
 			order = append(order, c)
 		}
@@ -722,9 +764,16 @@ func pktDecode(buf []byte, opts pktDecodeOpts) (*pktDecoded, error) {
 		// Application decode runs on payload bytes only, and only for the protocol
 		// this connection actually carries.
 		if len(tcp.payload) > 0 && !p.hasIssue("TCP retransmission") {
-			if c.role == pktRoleMySQL {
+			switch c.role {
+			case pktRoleMySQL:
 				pktAppDecode(&p, c, dir, fromClient, tcp.payload, ts)
-			} else {
+			case pktRolePostgres:
+				pktPGDecode(&p, c, dir, fromClient, tcp.payload, ts)
+			case pktRolePatroniREST:
+				pktPatroniDecode(&p, c, dir, fromClient, tcp.payload)
+			case pktRoleEtcdClient, pktRoleEtcdPeer:
+				pktEtcdDecode(&p, c, dir, c.role, fromClient, tcp.payload)
+			default:
 				pktGaleraDecode(&p, c, dir, c.role, tcp.payload)
 			}
 		}
@@ -753,6 +802,24 @@ func pktDecode(buf []byte, opts pktDecodeOpts) (*pktDecoded, error) {
 			}
 		}
 	}
+	// A PostgreSQL connection that completed its TCP handshake and then said nothing
+	// at all is a health check or a port probe. It cannot be seen from the protocol
+	// side — there is no protocol side — and the server records it as "incomplete
+	// startup packet", which is one of the most common lines in a PostgreSQL log and
+	// one of the least self-explanatory. MySQL needs no equivalent: there the SERVER
+	// speaks first, so a bare connect always carries a greeting.
+	for _, c := range order {
+		if c.role != pktRolePostgres || !c.haveSyn || !c.synAcked || c.sawData || c.synNo == 0 {
+			continue
+		}
+		for i := range out.Packets {
+			if out.Packets[i].No == c.synNo {
+				out.Packets[i].Issues = pktDedupe(append(out.Packets[i].Issues,
+					"Connection opened and closed without sending anything — a TCP-level health check (HAProxy's tcp-check, a Kubernetes probe) or a port scan; the server logs it as \"incomplete startup packet\" and it still costs a backend fork"))
+				break
+			}
+		}
+	}
 	for _, c := range order {
 		c.stream.TLS = c.tls
 		c.stream.User, c.stream.Database, c.stream.Version = c.user, c.database, c.version
@@ -760,6 +827,140 @@ func pktDecode(buf []byte, opts pktDecodeOpts) (*pktDecoded, error) {
 	}
 	sort.Slice(out.Streams, func(i, j int) bool { return out.Streams[i].Index < out.Streams[j].Index })
 	return out, nil
+}
+
+// pktRoleAnyLabel is the display label for a role from either engine. The two
+// engines keep their own label functions (pktgalera.go, pktpgha.go) so neither can
+// answer for the other's roles; this is the one place that has to know both.
+func pktRoleAnyLabel(role string) string {
+	if l := pktPGRoleLabel(role); l != "" {
+		return l
+	}
+	return pktRoleLabel(role)
+}
+
+// pktRoleIsGalera reports whether a role is one of Galera's three cluster protocols.
+func pktRoleIsGalera(role string) bool {
+	switch role {
+	case pktRoleGaleraGCS, pktRoleGaleraIST, pktRoleGaleraSST:
+		return true
+	}
+	return false
+}
+
+// pktSniffEngine decides whether a capture holds MySQL or PostgreSQL when nobody has
+// said which — the upload case, where there is no node to ask.
+//
+// It looks for the two protocols' unmistakable openings rather than trusting the port
+// number, because the port is exactly what is unusual about the captures people need
+// help with: an All-in-One instance on 13000-something, PostgreSQL behind pgBouncer
+// on 6432, MySQL moved off 3306 by a hosting provider. The port is still the
+// tie-breaker when the bytes say nothing.
+//
+// PostgreSQL's tells are its four fixed first-message codes, ReadyForQuery, and the
+// sub-types of a replication stream — that last one because a capture may hold nothing
+// but a standby streaming, with no startup message anywhere in it (its connection is
+// older than the capture) and no ReadyForQuery ever. MySQL's tell is the protocol-10
+// greeting.
+//
+// A capture can also hold no database protocol at all and still be unambiguous: traffic
+// on Patroni's REST port and etcd's two ports says PostgreSQL cluster, and Galera's
+// three ports say MySQL cluster, as clearly as any payload would. Those count as hints
+// rather than proof, so a payload tell always outweighs them.
+//
+// Only the first few thousand frames are read: this runs before the decode proper, and a
+// decision that needs 400 000 frames to make is not a decision.
+func pktSniffEngine(buf []byte, serverPort int) string {
+	r, err := pktOpen(buf)
+	if err != nil {
+		return pktEngineForPort(serverPort)
+	}
+	pgHits, myHits := 0, 0
+	pgPortHits, myPortHits := 0, 0
+	for i := 0; i < 4000; i++ {
+		_, data, _, _, ok := r.next()
+		if !ok {
+			break
+		}
+		et, l2, okLink := pktStripLink(r.linkType, data)
+		if !okLink {
+			continue
+		}
+		l3 := pktParseIP(et, l2)
+		if !l3.ok || l3.proto != 6 {
+			continue
+		}
+		tcp := pktParseTCP(l3.payload)
+		if !tcp.ok {
+			continue
+		}
+		// Ports first: they are readable even on a frame with no payload at all.
+		for _, port := range []int{tcp.srcPort, tcp.dstPort} {
+			switch port {
+			case patroniRESTPort, etcdClientPort, etcdPeerPort, pgClientPort, pgBouncerPort:
+				pgPortHits++
+			case galeraGCSPort, galeraISTPort, galeraSSTPort, 3306:
+				myPortHits++
+			}
+		}
+		if len(tcp.payload) < 5 {
+			continue
+		}
+		b := tcp.payload
+		// PostgreSQL: an untyped first message, or a ReadyForQuery.
+		if len(b) >= 8 {
+			switch binary.BigEndian.Uint32(b[4:]) {
+			case pgSSLRequest, pgCancelRequest, pgGSSENCRequest, pgProtocol30, pgProtocol31:
+				if n := binary.BigEndian.Uint32(b); n >= 8 && n <= 10000 {
+					pgHits += 2
+				}
+			}
+		}
+		if len(b) >= 6 && b[0] == 'Z' && binary.BigEndian.Uint32(b[1:]) == 5 &&
+			(b[5] == 'I' || b[5] == 'T' || b[5] == 'E') {
+			pgHits++
+		}
+		// A replication stream: CopyData whose body starts with a streaming sub-type,
+		// at exactly the length that sub-type must have.
+		if len(b) >= 6 && b[0] == 'd' {
+			if n := int(binary.BigEndian.Uint32(b[1:])); pgReplSubtypeLen(b[5], n) && n+1 <= len(b)+4 {
+				pgHits += 2
+			}
+		}
+		// MySQL: a greeting is a 4-byte header with sequence 0 whose first payload
+		// byte is protocol version 10, followed by a printable version string.
+		if len(b) > 10 && b[3] == 0 && b[4] == 10 && pktMostlyPrintable(b[5:min(len(b), 14)]) {
+			myHits += 2
+		}
+		if pgHits >= 4 || myHits >= 4 {
+			break
+		}
+	}
+	switch {
+	case pgHits > myHits:
+		return pktEnginePostgres
+	case myHits > pgHits:
+		return pktEngineMySQL
+	// No payload said anything. The ports still might — a capture of a Patroni member's
+	// cluster traffic holds no PostgreSQL protocol whatsoever, and reading it as MySQL
+	// would be wrong in a way nobody could explain from the screen.
+	case pgPortHits > myPortHits:
+		return pktEnginePostgres
+	case myPortHits > pgPortHits:
+		return pktEngineMySQL
+	}
+	return pktEngineForPort(serverPort)
+}
+
+// pktEngineForPort is the fallback: the well-known ports, and MySQL for anything
+// unrecognised, which keeps every capture taken before PostgreSQL support existed
+// decoding exactly as it did.
+func pktEngineForPort(port int) string {
+	switch port {
+	case pgClientPort, pgBouncerPort, pgProxyRWPort, pgProxyROPort:
+		return pktEnginePostgres
+	}
+	return pktEngineMySQL
 }
 
 func pktTS(ts time.Time) float64 {

@@ -3,12 +3,18 @@ import { Icon } from '../components/Icons.jsx'
 import { Card, Button, Badge, Field, inputCls } from '../components/ui.jsx'
 import {
   pktApi, pktTargetKey, pktBytesFmt, PROTO_TONE, isSevereIssue, issueKind,
-  PORT_ROLE_TEXT, TIME_MODES, pktFormatTime, pktDateTime, pktISO, pktTimeOfDay,
+  PORT_ROLE_TEXT, ENGINE_LABEL, TIME_MODES, pktFormatTime, pktDateTime, pktISO, pktTimeOfDay,
 } from '../lib/pktApi.js'
 
-// Packet Inspector — run tcpdump on a provisioned MySQL node, then read the capture
-// as decoded MySQL: queries, responses, latency, and the network problems underneath
-// (retransmissions, resets, zero windows, gaps).
+// Packet Inspector — run tcpdump on a provisioned MySQL or PostgreSQL node, then read
+// the capture as decoded protocol: queries, responses, latency, and the network
+// problems underneath (retransmissions, resets, zero windows, gaps).
+//
+// Both engines land in the same UI because the questions are the same, and only the
+// vocabulary differs: MySQL answers with an error number, PostgreSQL with a SQLSTATE;
+// a PXC member's cluster traffic is on Galera's three ports, a Patroni member's is on
+// Patroni's REST API and etcd. The protocol column and the ports panel say which is
+// which, and every filter, range and correlation works identically for both.
 //
 // The layout follows the Packet Reviewer mock: a Traffic Timeline over a packet list
 // on the left, a deep-inspection panel on the right. The timeline is deliberately
@@ -43,7 +49,10 @@ export default function PacketInspector() {
   const [srvLog, setSrvLog] = useState(null)
   const [timeMode, setTimeMode] = useState('relative')
   const [uploadOpen, setUploadOpen] = useState(false)
-  const [uploadPort, setUploadPort] = useState(3306)
+  const [uploadPort, setUploadPort] = useState('')
+  // '' = work the protocol out from the bytes, which is what an upload usually wants:
+  // whoever has a pcap has no reason to also state which product wrote it.
+  const [uploadEngine, setUploadEngine] = useState('')
   // The instant a server-log record points at, so the packet list can tint its
   // neighbourhood the same way the log tints the selected packet's.
   const [logMarkTs, setLogMarkTs] = useState(null)
@@ -129,7 +138,7 @@ export default function PacketInspector() {
     if (!capFile) { setErr('choose a capture file to upload'); return }
     setErr(''); setBusy(true)
     try {
-      const c = await pktApi.upload(capFile, Number(uploadPort) || 3306, logFile)
+      const c = await pktApi.upload(capFile, Number(uploadPort) || 0, logFile, uploadEngine)
       await refreshCaptures()
       await openCapture(c.id)
       setUploadOpen(false)
@@ -191,24 +200,34 @@ export default function PacketInspector() {
       >
         {uploadOpen && (
           <div className="mb-4 rounded-lg border bg-bg p-3">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Field label="Capture file" hint=".pcap · .pcapng · .cap">
                 <FilePick id="pkt-upload-cap" accept=".pcap,.cap,.pcapng,.dmp"
                   file={capFile} onPick={setCapFile} placeholder="Choose a capture, or drop it here" />
               </Field>
-              <Field label="MySQL error log" hint="optional — correlates with the timeline">
+              <Field label="Server log" hint="optional — MySQL or PostgreSQL, correlated with the timeline">
                 <FilePick id="pkt-upload-log" accept=".log,.err,.txt,text/plain"
                   file={logFile} onPick={setLogFile} placeholder="Choose a log, or drop it here" />
               </Field>
-              <Field label="Server port" hint="the port the traffic was on">
+              <Field label="Protocol" hint="detected from the bytes unless you say">
+                <select className={inputCls} value={uploadEngine}
+                  onChange={(e) => setUploadEngine(e.target.value)}>
+                  <option value="">Detect automatically</option>
+                  <option value="mysql">MySQL</option>
+                  <option value="postgres">PostgreSQL</option>
+                </select>
+              </Field>
+              <Field label="Server port" hint={uploadEngine === 'postgres' ? 'blank = 5432' : 'blank = 3306'}>
                 <input type="number" min="1" max="65535" className={inputCls} value={uploadPort}
+                  placeholder={uploadEngine === 'postgres' ? '5432' : '3306'}
                   onChange={(e) => setUploadPort(e.target.value)} />
               </Field>
             </div>
             <p className="mt-2 text-[11px] text-muted">
-              The error log is where aborted connections, DNS, TLS and listener failures live — a
+              The server log is where aborted connections, DNS, TLS and listener failures live — a
               capture cannot contain them. Upload the server&apos;s log covering the same period and
-              its records are shown against this capture&apos;s window.
+              its records are shown against this capture&apos;s window. Give the port only if the
+              traffic was not on the default one; the protocol is read out of the capture itself.
             </p>
             <div className="mt-3 flex gap-2">
               <Button variant="primary" size="sm" onClick={upload} disabled={busy || !capFile}>
@@ -220,12 +239,12 @@ export default function PacketInspector() {
         )}
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Field label="MySQL server">
+          <Field label="Database node">
             <select className={inputCls} value={target} onChange={(e) => setTarget(e.target.value)}>
-              <option value="">Select a provisioned MySQL node…</option>
+              <option value="">Select a provisioned MySQL or PostgreSQL node…</option>
               {(targets || []).map((t) => (
                 <option key={pktTargetKey(t)} value={pktTargetKey(t)}>
-                  {t.label} · {t.stackName} (port {t.port})
+                  {t.label} · {t.stackName} ({ENGINE_LABEL[t.engine] || t.engine}, port {t.port})
                 </option>
               ))}
             </select>
@@ -279,7 +298,7 @@ export default function PacketInspector() {
             </a>
           )}
           {!targets?.length && targets !== null && (
-            <span className="text-xs text-muted">No running MySQL nodes — deploy one first.</span>
+            <span className="text-xs text-muted">No running MySQL or PostgreSQL nodes — deploy one first.</span>
           )}
         </div>
 
@@ -290,8 +309,10 @@ export default function PacketInspector() {
           <div className="mt-2 rounded-lg border bg-bg px-3 py-2 text-[11px]">
             <div className="mb-1 text-muted">
               {cap.nodeType === 'pxc' || cap.nodeType === 'mariadbgalera'
-                ? 'A cluster member speaks four protocols on four ports — all four are captured:'
-                : 'Ports covered by this capture:'}
+                ? 'A Galera cluster member speaks four protocols on four ports — all four are captured:'
+                : cap.nodeType === 'patroni'
+                  ? 'A Patroni member speaks PostgreSQL, its own REST API and etcd — all of them are captured, because a failover is decided in etcd rather than in PostgreSQL:'
+                  : 'Ports covered by this capture:'}
             </div>
             <div className="space-y-0.5">
               {Object.entries(cap.ports).sort((a, b) => Number(a[0]) - Number(b[0])).map(([port, role]) => (
@@ -447,6 +468,9 @@ export function CaptureState({ cap }) {
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
       <Badge tone={tone}>{cap.state}</Badge>
+      {/* Which protocol the capture was read as. It matters most for an upload, where
+          nobody chose it and the decoder worked it out from the bytes. */}
+      {cap.engine && <Badge tone="accent">{ENGINE_LABEL[cap.engine] || cap.engine}</Badge>}
       {cap.iface && <span>iface <span className="font-mono text-fg">{cap.iface}</span></span>}
       {cap.state === 'capturing' && <span>{pktBytesFmt(cap.bytes)} captured</span>}
       {cap.sizeCapped && <span className="text-warning">stopped at the 192 MB size limit</span>}
@@ -486,9 +510,25 @@ export function SummaryStrip({ cap, range, setRange }) {
         {stat('Bytes', pktBytesFmt(s.bytes))}
         {stat('Connections', s.streams)}
         {stat('Queries', s.queries.toLocaleString())}
-        {stat('MySQL errors', s.errors, s.errors ? 'text-danger' : '')}
+        {stat(`${ENGINE_LABEL[cap.engine] || 'Server'} errors`, s.errors, s.errors ? 'text-danger' : '')}
         {stat('TLS streams', s.tlsStreams, s.tlsStreams ? 'text-warning' : '')}
       </div>
+      {/* The protocol mix, as filters. On a cluster member this is the fastest way to
+          see how much of a capture is health checks and lock renewals rather than
+          database traffic — a 20-second capture of a Patroni leader held 596 etcd raft
+          frames and 55 Patroni REST frames, and being able to click either away is
+          what makes the remaining 18 000 legible. */}
+      {Object.keys(s.protos || {}).length > 1 && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-muted">Protocols:</span>
+          {Object.entries(s.protos).sort((a, b) => b[1] - a[1]).map(([proto, n]) => (
+            <button key={proto} onClick={() => setRange((r) => ({ ...r, proto: r.proto === proto ? '' : proto }))}
+              className={`rounded-md border px-2 py-0.5 text-[11px] ${range.proto === proto ? 'border-primary bg-primary/10' : 'bg-bg hover:bg-surface2'}`}>
+              {proto} · {n.toLocaleString()}
+            </button>
+          ))}
+        </div>
+      )}
       {(s.issueTop || []).length > 0 && (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <span className="text-xs text-muted">Issues found:</span>
@@ -505,17 +545,30 @@ export function SummaryStrip({ cap, range, setRange }) {
           <span className="font-medium text-warning">
             {s.tlsStreams} connection(s) are encrypted, so their payload is not readable here.
           </span>
-          <span className="mt-1 block text-muted">
-            Sizes, timing and every TCP-level problem are still accurate; only the statements are
-            not available. MySQL 8 clients use TLS by default
-            (<code className="font-mono">--ssl-mode=PREFERRED</code>), and
-            <code className="font-mono"> caching_sha2_password</code> refuses to send a password in the clear
-            at all — <code className="font-mono">--ssl-mode=DISABLED</code> alone fails with ERROR 2061. For the
-            statements themselves: capture again with an account that allows a cleartext password
-            (<code className="font-mono">mysql_native_password</code>, or
-            <code className="font-mono"> --get-server-public-key</code>), or read them from the server&apos;s
-            own general log / <code className="font-mono">performance_schema</code>.
-          </span>
+          {cap.engine === 'postgres' ? (
+            <span className="mt-1 block text-muted">
+              Sizes, timing and every TCP-level problem are still accurate; only the statements are
+              not available. psql and libpq default to
+              <code className="font-mono"> sslmode=prefer</code>, so every connection to a server with
+              <code className="font-mono"> ssl=on</code> is encrypted without anyone choosing it. For the
+              statements themselves: capture again with
+              <code className="font-mono"> PGSSLMODE=disable</code> for the diagnostic window, or read them
+              from the server&apos;s own log (<code className="font-mono">log_statement</code>) or
+              <code className="font-mono"> pg_stat_statements</code>.
+            </span>
+          ) : (
+            <span className="mt-1 block text-muted">
+              Sizes, timing and every TCP-level problem are still accurate; only the statements are
+              not available. MySQL 8 clients use TLS by default
+              (<code className="font-mono">--ssl-mode=PREFERRED</code>), and
+              <code className="font-mono"> caching_sha2_password</code> refuses to send a password in the clear
+              at all — <code className="font-mono">--ssl-mode=DISABLED</code> alone fails with ERROR 2061. For the
+              statements themselves: capture again with an account that allows a cleartext password
+              (<code className="font-mono">mysql_native_password</code>, or
+              <code className="font-mono"> --get-server-public-key</code>), or read them from the server&apos;s
+              own general log / <code className="font-mono">performance_schema</code>.
+            </span>
+          )}
         </div>
       )}
       {(s.dropped > 0 || s.truncated > 0 || cap.kernelDropped > 0) && (
@@ -1027,6 +1080,7 @@ export function PacketDetails({ d, first }) {
         <Row k="flags" v={p.flags || '—'} /><Row k="window" v={p.window ?? '—'} />
         <Row k="seq" v={p.seq ?? '—'} /><Row k="ack" v={p.ack ?? '—'} />
         {p.errCode ? <Row k="error" v={p.errCode} /> : null}
+        {p.errState ? <Row k="sqlstate" v={p.errState} /> : null}
         {d.stream?.version ? <Row k="server" v={d.stream.version} /> : null}
         {d.stream?.user ? <Row k="user" v={d.stream.user} /> : null}
         {d.stream?.tls ? <Row k="tls" v="encrypted after handshake" /> : null}

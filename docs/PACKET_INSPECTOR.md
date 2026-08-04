@@ -1,16 +1,27 @@
 # Packet Inspector
 
-The **Packet Inspector** captures traffic on a provisioned MySQL node with `tcpdump`
-and reads it back as **decoded MySQL**: the statements, the responses, the response
+The **Packet Inspector** captures traffic on a provisioned database node with `tcpdump`
+and reads it back as **decoded protocol**: the statements, the responses, the response
 times, and the network problems underneath them — retransmissions, gaps, resets, zero
 windows. It's for the question "what actually crossed the wire, and what did the
 server say back", which neither the slow log nor `SHOW PROCESSLIST` can answer.
 
 Open it from the sidebar (**Packet Inspector**) or at `#packet-inspector`.
 
-MVP scope: **MySQL** (Percona Server, PXC, MariaDB, MySQL Community, and All-in-One
-MySQL instances). PostgreSQL and MongoDB nodes are not offered — the decoder speaks
-MySQL, and a capture of anything else would be a list of "TCP data".
+Two protocols are decoded:
+
+| Family | Nodes | Cluster traffic also captured |
+| --- | --- | --- |
+| **MySQL** | Percona Server, PXC, MariaDB (incl. Galera), MySQL Community, All-in-One MySQL instances | Galera on 4567 / 4568 / 4444 |
+| **PostgreSQL** | PostgreSQL, Patroni, repmgr, Spock, All-in-One PostgreSQL instances | Patroni's REST API on 8008, etcd on 2379 / 2380 |
+
+MongoDB nodes are not offered: the decoder does not speak the wire protocol, and a
+capture of one would be a list of "TCP data", which is worse than not offering it.
+
+Everything below applies to both families unless a section says otherwise. The
+engine-specific parts are [PostgreSQL](#postgresql-the-frontendbackend-protocol),
+[PXC / Galera](#pxc--galera-four-ports-four-protocols) and
+[MySQL communication errors](#mysql-communication-errors-where-each-one-is-visible).
 
 ## Where the capture happens
 
@@ -55,6 +66,7 @@ capture long before the hour is up.
 | Network | IPv4 / IPv6 |
 | Transport | TCP: payload, flags, seq/ack, window |
 | MySQL | greeting (server version, connection id), login (user), `COM_QUERY` and the rest, OK / ERR / EOF, result sets (columns, rows, bytes), prepared statements, and replication (`COM_BINLOG_DUMP` + the binlog event stream) |
+| PostgreSQL | startup (user, database, `application_name`), authentication (SCRAM, md5, cleartext, GSSAPI), simple and extended query protocol (Parse/Bind/Describe/Execute/Sync), row descriptions and data rows, `CommandComplete` tags, ErrorResponse/NoticeResponse with SQLSTATE, COPY, `ReadyForQuery` with its transaction status, and replication — physical and logical, with both ends' LSNs |
 | TLS | records by type and version once a connection upgrades — see [Encrypted traffic](#encrypted-traffic) |
 | DNS | queries and responses: name, type, answers, response code, and the lookup's latency |
 | ARP | who-has / is-at, gratuitous announcements, and who claims which address |
@@ -81,6 +93,21 @@ So a long-lived connection becomes fully readable one round-trip into the captur
 SQLSTATE — which is how a `1205 Lock wait timeout` on a connection that has been open
 for hours still shows up. A **binlog event stream** is likewise recognised by shape,
 because a replica's connection essentially never starts inside a capture window.
+
+**PostgreSQL** recovers the same way, from different landmarks:
+
+- **`ReadyForQuery`** is always the six bytes `5A 00 00 00 05` and a status byte, and it
+  ends every command cycle. Finding one aligns the server's stream — and the client's,
+  because the protocol says the client's next byte begins a message.
+- A **replication stream** has no such cycle: a standby that attached hours ago sends no
+  Query and receives no `ReadyForQuery`, ever. It is anchored on its own `CopyData`
+  sub-types instead (`w` WAL data, `k` keepalive, `r` standby status, `h` hot standby
+  feedback), each of which has a length only it can have.
+
+That second one is not a nicety. On the live 3-node Patroni cluster this was built
+against, the first version decoded the server's half of every session and left **22 000
+client frames** and every standby stream as "joined mid-connection"; with both anchors,
+one frame in a 20-second capture stayed unknown.
 
 ## The Traffic Timeline
 
@@ -150,6 +177,172 @@ Warnings reported in an OK packet are shown in the info line but **not** flagged
 MySQL raises them for entirely ordinary statements, and flagging them buries the real
 problems.
 
+## PostgreSQL: the frontend/backend protocol
+
+PostgreSQL's protocol is simpler to frame than MySQL's and richer to read. Every message
+after the first is a type byte, a length **that counts itself**, and a body — no 16 MB
+chunking to stitch back together. Every error carries a SQLSTATE, a message, a detail and
+a hint. And replication is not a separate port: a standby is an ordinary connection with
+`replication=true` in its startup parameters, which means one capture of 5432 holds the
+application traffic *and* the replication, with the LSNs of both ends in it.
+
+Three places in the protocol decide whether a decoder works at all, and each was got
+wrong here first:
+
+- The **first client message has no type byte** — just a length and a code, which is
+  either the protocol version (196608 = 3.0) or one of `SSLRequest`, `GSSENCRequest`,
+  `CancelRequest`.
+- The answer to `SSLRequest` is **a single naked byte**, `S` or `N`, outside the message
+  framing entirely. Miss it and every following length is read four bytes off.
+- Requests and responses do **not** alternate. The extended query protocol pipelines
+  Parse/Bind/Describe/Execute/Sync and the server answers with a run of messages ending
+  in `ReadyForQuery` — so response time is measured to the end of the cycle, not to "the
+  next server packet".
+
+### What a session looks like
+
+| Shown as | From |
+| --- | --- |
+| `StartupMessage 3.0: user=carsim database=rental application_name=carsim` | the startup parameters — also where the connection's user and database in the stream list come from |
+| `AuthenticationSASL: SCRAM-SHA-256` → `SASLInitialResponse` → `AuthenticationSASLFinal` | the authentication exchange, named at each step |
+| `Query: SELECT id, plate FROM cars WHERE branch_id = 12` | a simple query |
+| `Parse "s1": UPDATE cars SET mileage = …` / `Bind "s1" → portal unnamed portal, 4 parameter(s), largest 10 B` / `Execute portal unnamed` | the extended protocol. A Bind carries no SQL of its own, so the statement's text is remembered from its Parse and shown against it |
+| `Row description: 3 column(s) — id, plate, mileage` | `RowDescription`, with the column names |
+| `Result set complete: 2 row(s), 3 column(s), 180 B — SELECT 2` | the completed result set, its size, and the server's own tag |
+| `ReadyForQuery (in transaction), 1.2 ms` | the end of the cycle, its transaction status, and the round-trip time |
+| `ERROR 40P01 (deadlock_detected): deadlock detected \| detail: … \| hint: …` | an ErrorResponse, in full |
+| `Terminate` | a clean disconnect |
+
+A **result set with no column count** is not a bug: an extended-protocol client asks for
+a `RowDescription` once and every later execution of that statement returns rows without
+one. The count is left out rather than reported as zero.
+
+### PostgreSQL errors: SQLSTATE, and what it costs you
+
+A SQLSTATE is reported with its condition name, its message, and — for the states a
+capture is the right tool for — what it means operationally. The full catalogue is
+`pgErrCatalog` in `app/pktpgerr.go`; the ones that become **findings** are:
+
+| Class | States | Why it is a finding |
+| --- | --- | --- |
+| **08** connection | `08000` `08001` `08003` `08004` `08006` `08007` `08P01` | the connection failed at the protocol level. `08P01` in particular means the server could not make sense of the bytes — a broken driver, a proxy corrupting the stream, or something that is not PostgreSQL talking to the port |
+| **28** authorization | `28000` `28P01` | refused at the door. `28000` with "no pg_hba.conf entry" is a configuration answer, not a password answer, and the tool says which |
+| **3D000** | database does not exist | a connection string pointing at the wrong server, or a dropped database |
+| **53** resources | `53100` disk full · `53200` out of memory · `53300` too many connections · `53400` configuration limit | the server is out of something. `53300` is the one a connection pool exists to prevent |
+| **55** state | `55000` `55006` `55P03` | `55P03` lock not available means a `NOWAIT` or `lock_timeout` gave up — and on a busy table, what it gave up to is often an idle-in-transaction session |
+| **57** intervention | `57014` cancelled · `57P01` admin shutdown · `57P02` crash shutdown · `57P03` cannot connect now · `57P05` idle session timeout | the server is going away or said no. A capture full of `57P01` is a restart or a failover, and everything after it is a consequence |
+| **58** external | `58000` `58030` `58P01` | the storage under PostgreSQL failed |
+| **40001 / 40P01** | serialisation failure, deadlock | concurrency. Both are expected to be retried by the application, and both are worth counting |
+| **25006 / 25P02 / 25P03** | read-only transaction, failed transaction, idle-in-transaction timeout | `25006` is the one to look for after a failover: **a write reached a standby** — a load balancer routing writes to a replica, a stale DNS record, or `default_transaction_read_only` left on |
+| **42501** | permission denied | after a restore or a role change, this is what "the application is failing everywhere" looks like |
+| **XX000 / XX001 / XX002** | internal error, data or index corruption | belongs in a bug report, with the server log around it |
+
+Ordinary SQL errors — `23505` unique violation, `42601` syntax error, `42P01` undefined
+table — are **decoded and shown but never flagged**. The workload this was tested against
+produces unique violations by design, and flagging them would have painted the timeline
+red for something nobody needs to know about.
+
+Three states are read together with their message text, because the code alone is
+ambiguous:
+
+- `57014` is a **statement timeout**, a **client cancellation**, a **lock timeout** or a
+  **recovery conflict on a standby** — four different things to fix.
+- `40001` on a standby is a recovery conflict rather than a serialisation failure.
+- `0A000` with "unsupported frontend protocol" means something that is not a PostgreSQL
+  3.0 client is talking to the port.
+
+### Severity is separate from the code
+
+The same SQLSTATE arrives as an `ERROR` that leaves the session usable or as a `FATAL`
+that ends it. A FATAL is flagged as such, with the consequence spelled out: *the server
+closes the connection after this message; the client sees a lost connection rather than a
+query error*. An application reporting "the database dropped my connection" is almost
+always looking at a FATAL it never logged.
+
+### Replication, and lag measured from the wire
+
+A walsender connection is announced when it starts (`replication=physical` or
+`replication=logical` in the startup, or `START_REPLICATION` / `BASE_BACKUP` as a query),
+and adopted mid-stream when the capture joined late.
+
+| Shown as | Means |
+| --- | --- |
+| `XLogData: 1.4 KB WAL at 0/25211F38` | the primary streaming WAL, with the LSN it starts at |
+| `Standby status: write 0/25211F38, flush 0/25211E10, apply 0/25211E10, 24.0 MB behind` | the standby's own report — and the difference from what the primary has sent, **in bytes of WAL** |
+| `Primary keepalive: WAL end 0/5100000, reply requested` | the primary has not heard back and is asking |
+| `XLogData at 0/1A2B3C4D: BEGIN xid 821` / `relation public.cars` / `INSERT on public.cars` / `COMMIT at 0/1A2B3C99` | logical decoding with **pgoutput**, whose format is documented and stable. A third-party output plugin is described by size instead of guessed at |
+| `Query: BASE_BACKUP ( LABEL 'pg_basebackup base backup', PROGRESS, CHECKPOINT 'fast', …)` | a new standby cloning this server — PostgreSQL's equivalent of a Galera SST, and it competes with production traffic for disk and network |
+
+Two findings come out of this and out of nothing else:
+
+- **`Replication lag N` — the standby has flushed X but the primary has sent up to Y.**
+  Raised once per connection past one WAL segment (16 MB). No access to either server is
+  needed: both LSNs are on the wire.
+- **The primary is asking the standby to reply and has not heard from it for N s** —
+  what precedes a dropped replication connection.
+
+### Findings only a capture can make
+
+| Finding | Why it is invisible elsewhere |
+| --- | --- |
+| **Cleartext password authentication on an unencrypted connection** | the password is on the wire, and in the capture file. The server logs a successful login, not a weak one |
+| **Connection opened and closed without sending anything** | a TCP health check (HAProxy's `tcp-check`, a Kubernetes probe) or a port scan. The server writes "incomplete startup packet" and nothing else; each one still costs a backend fork |
+| **Connection opened and closed without running a statement** | a pool churning connections: full startup, full authentication round trip, then `Terminate` |
+| **Idle in transaction for N s** | the snapshot and every lock were held for that whole time and VACUUM could not clean up behind it. `pg_stat_activity` shows it only while it is happening |
+| **The same statement has been parsed N times as an unnamed prepared statement** | every execution is being re-planned. Measured per connection, said once |
+| **SSL refused by the server** | a client with `sslmode=require` aborts here; one with `sslmode=prefer` silently continues in the clear |
+| **Unrecognised protocol version in a startup message** | a port scanner, or a client pointed at the wrong port |
+| **Query cancellation requested for backend pid N** | a `CancelRequest` arrives on its own short-lived connection, which is why it looks like nothing in the session it kills |
+
+## Patroni: PostgreSQL, its REST API, and etcd
+
+Capturing a **Patroni** target covers four ports, for the same reason a PXC capture
+covers four: the thing that decides whether the cluster works is not on the database
+port.
+
+    tcpdump -i eth0 -s 65535 -n -q -c 50000 (port 2379 or port 2380 or port 5432 or port 8008) -w …
+
+| Port | Carries | Shown as |
+| --- | --- | --- |
+| 5432 | client sessions **and** WAL streaming — replication is a normal connection here | `PostgreSQL` — fully decoded |
+| 8008 | **Patroni's REST API**: HAProxy polls `/primary` and `/replica` to decide where to route, `patronictl` drives switchovers through it, and every member exposes `/cluster`. Plain HTTP/1.1 | `Patroni/REST` |
+| 2379 | **etcd client API** — where Patroni takes and renews the leader lock. A member that cannot reach it gives up the lock and demotes itself, whatever PostgreSQL is doing | `etcd/client` |
+| 2380 | **etcd peer traffic** — raft heartbeats and log replication between the etcd members themselves | `etcd/raft` |
+
+Patroni's REST exchanges are decoded and explained by endpoint:
+
+- `GET /primary → 200 OK — this member IS the leader`
+- `GET /primary → 503 Service Unavailable — this member is not the leader (normal for a replica)`
+- `POST /switchover — a controlled role change: the leader steps down to a named candidate`
+- the JSON body's `role`, `state`, `timeline`, `pending_restart`, `paused` and any
+  scheduled switchover, read out without unmarshalling — a snaplen-truncated body would
+  make `json.Unmarshal` reject the whole thing
+
+**A 503 on `/primary` is not flagged.** It is the correct answer from every member that
+is not the leader, it arrives every couple of seconds per member per port, and flagging
+it would bury the capture. A **500** is flagged: that is Patroni itself failing, and
+HAProxy will route away from the member while `patronictl` cannot drive it either.
+
+**etcd is described, not decoded.** Patroni's etcd3 client talks to the gRPC gateway, so
+in practice the paths are readable HTTP/1.1 (`POST /v3/lease/keepalive`, `/v3/kv/txn`,
+`/v3/kv/range`) and each is explained — the lease *is* the leader lock, and a `txn` is
+how the lock is contested. When a connection is real HTTP/2 instead, the frame layer is
+named (`HEADERS`, `DATA`, `GOAWAY`, `PING`, with stream ids) and any gRPC method visible
+as a literal string in a HEADERS frame is reported **as what it is**: a string seen in a
+header frame. HPACK is not implemented, and pretending to decode protobuf inside a
+compressed header table would print plausible nonsense. Raft peer traffic on 2380 is
+reported by volume, because its stream framing is internal to etcd.
+
+An etcd **5xx** is flagged with its consequence, because this is the failure every
+Patroni cluster eventually has: *a member that cannot read or write the DCS gives up the
+Patroni leader lock and demotes itself*. On the wire it is visible seconds before
+anything changes on the PostgreSQL side — which no PostgreSQL-only capture can show.
+
+**All-in-One PostgreSQL instances use their slot's ports**, not the defaults: several
+instances share one container, so 8008 and 2379 can only belong to one of them. A
+capture of a Patroni instance uses that instance's REST and etcd ports, and the Capture
+card lists exactly which ports it covered.
+
 ## PXC / Galera: four ports, four protocols
 
 A cluster member's traffic is not just 3306. Capturing a PXC (or MariaDB Galera) target
@@ -201,7 +394,7 @@ connection was ever attempted — so nothing on port 3306 can explain it:
 | Event | Means |
 | --- | --- |
 | `DNS query A mysql-1.example.net` / `DNS response A … → 10.0.0.5 (2.0 ms)` | the normal case, with the latency every connection pays |
-| **DNS NXDOMAIN / SERVFAIL / REFUSED** | the name did not resolve — what a client reports as `2005 CR_UNKNOWN_HOST` ("Unknown MySQL server host") |
+| **DNS NXDOMAIN / SERVFAIL / REFUSED** | the name did not resolve — what a MySQL client reports as `2005 CR_UNKNOWN_HOST` ("Unknown MySQL server host") and libpq as "could not translate host name" |
 | **DNS returned no A record** | the name resolves but has nothing to connect to. Only flagged for `A`, `SRV` and `PTR`: a resolver asks `A` and `AAAA` in parallel, so every IPv4-only host answers `AAAA` with NOERROR and no records, and flagging that produced a dozen meaningless issues on a real capture |
 | **DNS query unanswered** | the resolver never replied; the client waits out its timeout |
 | **Slow DNS response** | over 100 ms, which is added to every connection that resolves that name |
@@ -291,6 +484,35 @@ written by the server to **its own log** and sent to nobody. No capture can cont
 them, however long it runs — by the time the server writes "Aborted connection …
 (Got an error reading communication packets)" there is no client left to tell.
 
+Both engines' logs are read, and the format is detected rather than asked for:
+
+| | MySQL | PostgreSQL |
+| --- | --- | --- |
+| Where | `/var/log/mysqld.log` and the distribution alternatives | `/var/lib/pgsql/*/data/log/postgresql-*.log` and the distribution alternatives. PostgreSQL rotates by day of week, so the path is a glob and the newest match is used — a fixed path would happily read last Tuesday's file |
+| Line shape | `2026-08-03T19:19:01.501234Z 12 [Note] [MY-010914] [Server] …` | `2026-08-04 06:15:44.142 UTC [2948] ERROR:  …`, with `%u@%d` and `%l` prefixes tolerated |
+| Timestamps | `Z` or an offset (`log_timestamps=SYSTEM`) | a zone name (`UTC`) or an offset (`+08`, `+0800`) |
+| Also read | — | **Patroni's own log**, when it writes to a file. A failover is Patroni's decision, taken because a lease expired or a member could not reach etcd; PostgreSQL's log only records the consequences |
+| Counters | `Aborted_clients`, `log_error_verbosity` and the `Connection_errors_*` family, because MySQL may not log an abort at all | none, and the panel says why: PostgreSQL logs a dropped or refused connection unconditionally |
+
+PostgreSQL's continuation records — `DETAIL`, `HINT`, `STATEMENT`, `CONTEXT`, `QUERY` —
+are folded into the record above them rather than listed separately. `STATEMENT` carries
+the SQL that failed, which is exactly what somebody reading an `ERROR` wants next; on its
+own row it would be an unexplained fragment.
+
+The families PostgreSQL's log is classified into are the same ones MySQL's is (aborted,
+auth, DNS, listener, TLS, replication, lifecycle, cluster), so the class filter, the
+window view and the packet correlation are shared rather than duplicated. The
+PostgreSQL-specific records worth knowing about:
+
+| Record | Means |
+| --- | --- |
+| `incomplete startup packet` | a TCP health check or a port probe — the connection is gone before it says anything |
+| `could not receive data from client: Connection reset by peer` | the client vanished mid-statement |
+| `terminating connection because of crash of another server process` | one backend died, so every other connection was dropped. The capture shows the drops; only the log says why |
+| `requested WAL segment … has already been removed` | a standby asked for WAL the primary no longer has. Replication is over until it is rebuilt |
+| `checkpoints are occurring too frequently` | `max_wal_size` is too small for this write rate, and the resulting I/O is the latency the capture measures |
+| Patroni: `failed to update leader lock` / `Error communicating with DCS` / `Loop time exceeded` | the member is about to lose, or has lost, the leadership race |
+
 So a ready capture also shows the error log, classified and narrowed to the capture's own
 window (±30 s, because the server notices an abort a little after the packets that
 explain it). It comes from one of two places:
@@ -351,13 +573,21 @@ guessing: the stream is marked **TLS**, the handshake steps are named
 (ClientHello, ServerHello, Certificate…), application data is reported by size, and no
 SQL is invented.
 
-That is the normal case, not an edge case:
+That is the normal case, not an edge case, and it is the normal case in both families:
 
 - MySQL 8's client defaults to `--ssl-mode=PREFERRED`, so an ordinary interactive
   session is encrypted without anyone choosing it.
 - `caching_sha2_password` — the default plugin — **refuses to send a password over an
   unencrypted channel**. `--ssl-mode=DISABLED` on its own fails with
   `ERROR 2061 (HY000): Authentication requires secure connection`.
+- **psql and libpq default to `sslmode=prefer`**, so every connection to a server with
+  `ssl = on` is encrypted too. The first 150-second capture taken for this feature came
+  back **99 097 TLS frames and 71 PostgreSQL ones** for exactly this reason — the whole
+  battery of deliberate faults ran inside TLS. Setting `PGSSLMODE=disable` for the
+  diagnostic window is what makes a PostgreSQL capture readable.
+
+PostgreSQL's upgrade is visible either way: `SSLRequest` is decoded, the server's naked
+`S` or `N` answer is decoded, and a refusal is flagged with its consequence.
 
 ### Reading an encrypted session
 
@@ -369,14 +599,16 @@ than guessing.
 If you need the statements themselves, there are two ways to get them, neither of which
 involves this capture:
 
-1. **Take TLS off for the diagnostic window** and capture again. `--ssl-mode=DISABLED`
-   needs an account whose plugin allows a cleartext password — `mysql_native_password` —
-   or a client that fetches the server's RSA key (`--get-server-public-key`).
-2. **Ask the server what it ran.** The general log, or
-   `performance_schema.events_statements_history`, has the statements regardless of how
-   they arrived; use this tool alongside it for the timing and the TCP behaviour, which are
-   readable either way. For replication this is the only option, since both ends are
-   `mysqld`.
+1. **Take TLS off for the diagnostic window** and capture again. On MySQL,
+   `--ssl-mode=DISABLED` needs an account whose plugin allows a cleartext password —
+   `mysql_native_password` — or a client that fetches the server's RSA key
+   (`--get-server-public-key`). On PostgreSQL, `PGSSLMODE=disable` is enough unless
+   `pg_hba.conf` demands `hostssl`.
+2. **Ask the server what it ran.** MySQL's general log or
+   `performance_schema.events_statements_history`, PostgreSQL's `log_statement` or
+   `pg_stat_statements`, has the statements regardless of how they arrived; use this tool
+   alongside it for the timing and the TCP behaviour, which are readable either way. For
+   replication this is the only option, since both ends are the server itself.
 
 ## Uploads and downloads
 
@@ -404,22 +636,42 @@ PKT_SAMPLE_DIR=/tmp/pkt-samples go test -run TestWriteSampleCaptures ./app
 | `mysql-midstream-join.pcap` | A connection already running when the capture began, whose first server payload starts with the byte an OK packet starts with. Must read *"capture joined mid-connection"* rather than being decoded; a later client command re-anchors the stream. |
 | `mysql-tls-upgrade.pcap` | Greeting in the clear, `SSLRequest`, handshake records by name, then application data — where a plaintext capture stops being able to read a connection. |
 | `net-arp-dns.pcap` | 13 packets of the traffic underneath a database problem that is not database traffic: a resolving name with its latency, an `AAAA` answering NOERROR-with-nothing (normal, deliberately not flagged), an NXDOMAIN, a 280 ms lookup, an ARP who-has/is-at pair, a gratuitous ARP, an address conflict, and an unanswered who-has. |
+| `pg-session-errors.pcap` | One PostgreSQL connection doing everything an application connection does — SCRAM authentication, a simple query with a result set, a named prepared statement bound and executed in a transaction — and then failing in the four ways worth recognising: a **deadlock (40P01)**, a **write to a read-only connection (25006)**, a **statement cancelled by `statement_timeout` (57014)**, and a **FATAL (57P01)** that ends the session. |
+| `pg-replication.pcap` | A standby streaming from a primary, captured **mid-stream** — the normal case, since a replication connection outlives any capture. Its `CopyData` sub-types are the only thing available to anchor on, and the LSNs in them produce `Replication lag 24.0 MB` once the standby stops keeping up. |
+| `pg-patroni-cluster.pcap` | The traffic that decides who leads, and none of it is PostgreSQL: HAProxy's health checks against `/primary` and `/replica` (200 and 503 — the 503 deliberately **not** flagged), Patroni renewing its etcd lease, and finally etcd answering **503**, which is the failure that precedes every Patroni failover. Also a test of the engine sniffer: there is no PostgreSQL protocol in the file at all, and it must still be read as PostgreSQL. |
 | `mysql-oversized-blob.pcap` | ~17 MB, because a MySQL packet only splits above `0xffffff`: a 16 MB+ row arriving as a `0xffffff` chunk plus a remainder across 11 600 segments. Must come back as one complete row with a heavy-result-set flag. |
 
 `TestSampleCapturesDecode` decodes the same bytes in memory on every test run, so a
 change that stops one of them demonstrating its case fails the suite whether or not the
 files have been written.
 
-Any pcap from anywhere decodes here as long as the traffic is MySQL — the upload form
-takes a server port, which matters for a capture taken off a non-standard port (an
-All-in-One instance is on 13000-something, never 3306). To capture by hand the way the
-tool does:
+Any pcap from anywhere decodes here as long as the traffic is MySQL or PostgreSQL. The
+upload form takes a **protocol** and a **server port**, and both default to being worked
+out rather than asked for:
+
+- The **protocol** is sniffed from the bytes — PostgreSQL's four fixed first-message
+  codes, its `ReadyForQuery`, its replication sub-types; MySQL's protocol-10 greeting.
+  When a capture contains no database payload at all (a Patroni cluster capture is
+  entirely HTTP), the *ports* decide: 8008/2379/2380 say PostgreSQL cluster, 4567/4568/4444
+  say MySQL cluster. A payload tell always outweighs a port.
+- The **port** then defaults to that protocol's own — which is why it is chosen after the
+  protocol and not before. Give it explicitly for a capture taken off a non-standard port
+  (an All-in-One instance is on 13000-something, never 3306 or 5432).
+
+The capture's badge says which protocol it was decoded as, so a wrong guess is visible
+rather than mysterious. To capture by hand the way the tool does:
 
 ```
 tcpdump -i eth0 -s 65535 -n -q -c 50000 port 3306 -w /tmp/mysql.cap
+tcpdump -i eth0 -s 65535 -n -q -c 50000 '(port 5432 or port 8008 or port 2379)' -w /tmp/pg.cap
 ```
 
-Two things worth knowing before you do:
+Three things worth knowing before you do:
+
+- **A client on the node itself will not appear.** Connecting to the node's own address
+  from inside the node is routed over loopback, not the stack interface, so tcpdump on
+  `eth0` sees nothing. The first PostgreSQL capture taken for this feature came back with
+  zero packets for exactly this reason. Drive the traffic from another node.
 
 - **On a busy server the `-c` ceiling ends the capture in seconds.** Airline Sim's load
   hits 8 000 packets in about three.
@@ -451,8 +703,9 @@ completion never arrived.
 - Captures live **in memory** in the app process (the newest 12, like Query Runner's
   and Benchmark's runs) and do **not** survive a restart. Download anything you want
   to keep.
-- Ceilings: 300 s per capture, 400 000 packets decoded, 192 MB per capture file. A
-  capture that hits the decode limit says how many packets it skipped.
+- Ceilings: 3600 s per capture, 100 000 packets on the node (`-c`), 400 000 packets
+  decoded, 192 MB per capture file. A capture that hits the decode limit says how many
+  packets it skipped.
 - `packets dropped by kernel` in the summary means the load outran tcpdump's buffer —
   shorten the capture or narrow the filter; the decode is still valid for what was
   captured.
@@ -460,4 +713,11 @@ completion never arrived.
   peer (`host 10.0.0.7`) but not accidentally widen past the database port. **All
   ports** drops the port term when you need to see something else entirely.
 - A **snaplen** below 65535 truncates payloads; the summary counts how many frames
-  were cut short, and a truncated MySQL packet reads as a continuation.
+  were cut short, and a truncated MySQL or PostgreSQL message reads as a continuation.
+- **Nothing is decoded across engines.** A capture is read as one protocol, chosen from
+  the node's own record or sniffed from the bytes; a file holding both a MySQL and a
+  PostgreSQL conversation will have one of them read as TCP payload.
+- **Uploads are not persisted anywhere.** A capture — and any server log uploaded with it
+  — lives in the app's memory for as long as it is one of the newest 12, and is gone when
+  the process restarts. Nothing is written to the database or to disk, and nothing leaves
+  the app.
