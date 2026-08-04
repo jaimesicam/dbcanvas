@@ -41,6 +41,9 @@ var pktSampleCaptures = []struct {
 	{"pg-session-errors.pcap", samplePGSession, "ERROR 40P01", 20},
 	{"pg-replication.pcap", samplePGReplication, "Standby status", 8},
 	{"pg-patroni-cluster.pcap", samplePGPatroni, "Patroni/REST", 8},
+	// MongoDB. Also decoded without being told the engine, so the sniffer is exercised.
+	{"mongo-session-errors.pcap", sampleMongoSession, "DuplicateKey", 18},
+	{"mongo-replset.pcap", sampleMongoReplSet, "MongoDB/oplog", 12},
 }
 
 // sampleOpts is how each sample is decoded. The MySQL ones name their port; the
@@ -54,6 +57,8 @@ func sampleOpts(name string) pktDecodeOpts {
 		return pktDecodeOpts{ServerPort: pgClientPort, PortRoles: pktPGPortRoles(pgClientPort)}
 	case strings.HasPrefix(name, "pg-"):
 		return pktDecodeOpts{ServerPort: pgClientPort}
+	case strings.HasPrefix(name, "mongo-"):
+		return pktDecodeOpts{ServerPort: mongoClientPort}
 	}
 	return pktDecodeOpts{ServerPort: srvPort}
 }
@@ -440,4 +445,172 @@ func concat(parts ...[]byte) []byte {
 		out = append(out, p...)
 	}
 	return out
+}
+
+// ---------------------------------------------------------------- MongoDB samples
+
+// sampleMongoSession is one application connection doing what an application does, and
+// then failing in the four ways worth recognising: a duplicate key inside an otherwise
+// successful reply, a write to a member that is not the primary, a killed cursor, and a
+// write-concern failure that means the write is not durable.
+func sampleMongoSession() []byte {
+	b := newPcap(pktLinkEther)
+	c := mgSession(b)
+	// The handshake, with the client metadata that says which driver and app this is.
+	mgSend(c, time.Millisecond, mongoMsg(1, 0, bdoc(
+		bInt32("hello", 1),
+		bSubDoc("client", bdoc(
+			bSubDoc("driver", bdoc(bStr("name", "nodejs"), bStr("version", "6.3.0"))),
+			bSubDoc("application", bdoc(bStr("name", "hotelsim"))),
+		)),
+		bStr("$db", "admin"),
+	), ""))
+	mgRecv(c, time.Millisecond, okReply(1,
+		bBool("isWritablePrimary", true), bStr("setName", "psmrs-00"),
+		bStr("primary", "psmrs01.example.net:27017")))
+	// SCRAM, which is what a real connection does next.
+	mgSend(c, time.Millisecond, mongoMsg(2, 0, bdoc(
+		bInt32("saslStart", 1), bStr("mechanism", "SCRAM-SHA-256"), bStr("$db", "admin")), ""))
+	mgRecv(c, time.Millisecond, okReply(2, bInt32("conversationId", 1), bBool("done", false)))
+	mgSend(c, time.Millisecond, mongoMsg(3, 0, bdoc(
+		bInt32("saslContinue", 1), bInt32("conversationId", 1), bStr("$db", "admin")), ""))
+	mgRecv(c, time.Millisecond, okReply(3, bInt32("conversationId", 1), bBool("done", true)))
+
+	// A find with a cursor that stays open, then a getMore.
+	mgSend(c, 2*time.Millisecond, mongoMsg(4, 0, bdoc(
+		bStr("find", "bookings"),
+		bSubDoc("filter", bdoc(bStr("status", "confirmed"))),
+		bInt32("batchSize", 2),
+		bStr("$db", "hotelsim"),
+	), ""))
+	mgRecv(c, 3*time.Millisecond, mongoMsg(1004, 4, bdoc(
+		bSubDoc("cursor", bdoc(bInt64("id", 7648922318530284142), bStr("ns", "hotelsim.bookings"),
+			bArr("firstBatch", bSubDoc("0", bdoc(bStr("_id", "a"))), bSubDoc("1", bdoc(bStr("_id", "b")))))),
+		bDouble("ok", 1)), ""))
+	mgSend(c, time.Millisecond, mongoMsg(5, 0, bdoc(
+		bInt64("getMore", 7648922318530284142), bStr("collection", "bookings"), bStr("$db", "hotelsim")), ""))
+	mgRecv(c, 2*time.Millisecond, mongoMsg(1005, 5, bdoc(
+		bSubDoc("cursor", bdoc(bInt64("id", 0), bStr("ns", "hotelsim.bookings"),
+			bArr("nextBatch", bSubDoc("0", bdoc(bStr("_id", "c")))))),
+		bDouble("ok", 1)), ""))
+
+	// An aggregation, so a pipeline's stages show up.
+	mgSend(c, 2*time.Millisecond, mongoMsg(6, 0, bdoc(
+		bStr("aggregate", "bookings"),
+		bArr("pipeline",
+			bSubDoc("0", bdoc(bSubDoc("$match", bdoc(bStr("status", "confirmed"))))),
+			bSubDoc("1", bdoc(bSubDoc("$group", bdoc(bStr("_id", "$hotelId"))))),
+			bSubDoc("2", bdoc(bSubDoc("$sort", bdoc(bInt32("n", -1)))))),
+		bStr("$db", "hotelsim"),
+	), ""))
+	mgRecv(c, 4*time.Millisecond, mongoMsg(1006, 6, bdoc(
+		bSubDoc("cursor", bdoc(bInt64("id", 0), bStr("ns", "hotelsim.bookings"),
+			bArr("firstBatch", bSubDoc("0", bdoc(bStr("_id", "H034")))))),
+		bDouble("ok", 1)), ""))
+
+	// An insert whose documents ride in a kind-1 sequence, and a duplicate key inside an
+	// otherwise successful reply — the case a tool watching command status never sees.
+	mgSend(c, 2*time.Millisecond, mongoMsg(7, 0, bdoc(
+		bStr("insert", "bookings"), bStr("$db", "hotelsim")), "documents",
+		bdoc(bStr("_id", "a")), bdoc(bStr("_id", "d"))))
+	mgRecv(c, 2*time.Millisecond, mongoMsg(1007, 7, bdoc(
+		bDouble("ok", 1), bInt32("n", 1),
+		bArr("writeErrors", bSubDoc("0", bdoc(
+			bInt32("index", 0), bInt32("code", 11000),
+			bStr("errmsg", "E11000 duplicate key error collection: hotelsim.bookings index: _id_")))),
+	), ""))
+
+	// A write that reached a member which is no longer the primary.
+	mgSend(c, 2*time.Millisecond, mongoMsg(8, 0, bdoc(
+		bStr("update", "bookings"), bStr("$db", "hotelsim")), ""))
+	mgRecv(c, 2*time.Millisecond, errReply(8, 10107, "NotWritablePrimary", "not primary"))
+
+	// A write concern that could not be satisfied: applied here, not durable.
+	mgSend(c, 2*time.Millisecond, mongoMsg(9, 0, bdoc(
+		bStr("update", "bookings"),
+		bSubDoc("writeConcern", bdoc(bStr("w", "majority"), bInt32("wtimeout", 500))),
+		bStr("$db", "hotelsim")), ""))
+	mgRecv(c, 600*time.Millisecond, mongoMsg(1009, 9, bdoc(
+		bDouble("ok", 1), bInt32("n", 1),
+		bSubDoc("writeConcernError", bdoc(bInt32("code", 64), bStr("codeName", "WriteConcernFailed"),
+			bStr("errmsg", "waiting for replication timed out"))),
+	), ""))
+
+	// And a cursor that was killed under the client's feet.
+	mgSend(c, 2*time.Millisecond, mongoMsg(10, 0, bdoc(
+		bInt64("getMore", 1269414675510485420), bStr("collection", "bookings"), bStr("$db", "hotelsim")), ""))
+	mgRecv(c, 2*time.Millisecond, errReply(10, 43, "CursorNotFound", "cursor id 1269414675510485420 not found"))
+	return b.buf
+}
+
+// sampleMongoReplSet is what a replica-set member's port actually carries, which is
+// mostly not the application: heartbeats between members, a secondary tailing the oplog,
+// position reports, and an election. Four connections, four client ports — one port for
+// all of them would be one connection, and a connection keeps the classification of its
+// first command.
+func sampleMongoReplSet() []byte {
+	b := newPcap(pktLinkEther)
+
+	// A heartbeat connection, ticking every two seconds like a real one.
+	hb := mgOpen(b, 45001, 0)
+	for i := 0; i < 3; i++ {
+		hb.send(2*time.Second, mongoMsg(int32(10+i), 0, bdoc(
+			bInt32("replSetHeartbeat", 1), bStr("replSetName", "psmrs-00"),
+			bInt32("term", 1), bStr("$db", "admin")), ""))
+		hb.recv(400*time.Microsecond, okReply(int32(10+i),
+			bInt32("state", 1), bInt32("term", 1),
+			// electionTime as MongoDB really sends it: an OpTime's raw bits in a
+			// Date-typed field, which naive rendering turns into the year 243 million.
+			bDateRaw("electionTime", int64(1785830373)<<32|5)))
+	}
+
+	// The oplog tail: this IS MongoDB replication.
+	op := mgOpen(b, 45002, 10*time.Millisecond)
+	op.send(time.Millisecond, mongoMsg(20, 0, bdoc(
+		bInt32("hello", 1),
+		bSubDoc("client", bdoc(
+			bSubDoc("driver", bdoc(bStr("name", "MongoDB Internal Client"), bStr("version", "8.0.26-11"))),
+			bSubDoc("application", bdoc(bStr("name", "OplogFetcher"))))),
+		bStr("$db", "admin")), ""))
+	op.recv(time.Millisecond, okReply(20, bBool("isWritablePrimary", true), bStr("setName", "psmrs-00")))
+	op.send(time.Millisecond, mongoMsg(21, 0, bdoc(
+		bStr("find", "oplog.rs"),
+		bSubDoc("filter", bdoc(bSubDoc("ts", bdoc(bTimestamp("$gte", 1785830000, 1))))),
+		bBool("tailable", true), bBool("awaitData", true),
+		bInt32("batchSize", 13981010), bStr("$db", "local")), ""))
+	op.recv(2*time.Millisecond, mongoMsg(1021, 21, bdoc(
+		bSubDoc("cursor", bdoc(bInt64("id", 7648922318530284142), bStr("ns", "local.oplog.rs"),
+			bArr("firstBatch", bSubDoc("0", bdoc(bTimestamp("ts", 1785830001, 1)))))),
+		bDouble("ok", 1)), ""))
+	for i := 0; i < 3; i++ {
+		op.send(500*time.Millisecond, mongoMsg(int32(22+i), 0, bdoc(
+			bInt64("getMore", 7648922318530284142), bStr("collection", "oplog.rs"),
+			bInt32("maxTimeMS", 5000), bStr("$db", "local")), ""))
+		// An awaitData getMore blocks on purpose — and must not be reported as slow.
+		op.recv(900*time.Millisecond, mongoMsg(int32(1022+i), int32(22+i), bdoc(
+			bSubDoc("cursor", bdoc(bInt64("id", 7648922318530284142), bStr("ns", "local.oplog.rs"),
+				bArr("nextBatch", bSubDoc("0", bdoc(bTimestamp("ts", uint32(1785830002+i), 1)))))),
+			bDouble("ok", 1)), ""))
+	}
+
+	// A secondary reporting how far it has applied, which is what write concern waits on.
+	rp := mgOpen(b, 45003, 20*time.Millisecond)
+	rp.send(time.Millisecond, mongoMsg(30, 0, bdoc(
+		bInt32("replSetUpdatePosition", 1),
+		bArr("optimes",
+			bSubDoc("0", bdoc(bStr("_id", "0"), bTimestamp("ts", 1785830002, 1))),
+			bSubDoc("1", bdoc(bStr("_id", "1"), bTimestamp("ts", 1785830002, 1)))),
+		bStr("$db", "admin")), ""))
+	rp.recv(time.Millisecond, okReply(30))
+
+	// And the election: a step-down, then a member standing for primary.
+	el := mgOpen(b, 45004, 3*time.Second)
+	el.send(time.Millisecond, mongoMsg(40, 0, bdoc(
+		bInt32("replSetStepDown", 20), bStr("$db", "admin")), ""))
+	el.recv(2*time.Millisecond, okReply(40))
+	el.send(50*time.Millisecond, mongoMsg(41, 0, bdoc(
+		bInt32("replSetRequestVotes", 1), bInt32("term", 2),
+		bStr("setName", "psmrs-00"), bStr("$db", "admin")), ""))
+	el.recv(2*time.Millisecond, okReply(41, bBool("voteGranted", true)))
+	return b.buf
 }

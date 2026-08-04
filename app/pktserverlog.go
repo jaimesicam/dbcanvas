@@ -246,11 +246,15 @@ func (a *App) pktReadServerLog(ctx context.Context, containerID, engine string, 
 	}
 	script, env := pktLogTailScript, []string{
 		"PATHS=" + strings.Join(pktServerLogPaths, " "), "LINES=" + strconv.Itoa(lines)}
-	if engine == pktEnginePostgres {
+	switch engine {
+	case pktEnginePostgres:
 		script, env = pktPGLogTailScript, []string{
 			"PATHS=" + strings.Join(pktPGLogPaths, " "),
 			"PATRONI_PATHS=" + strings.Join(pktPatroniLogPaths, " "),
 			"LINES=" + strconv.Itoa(lines)}
+	case pktEngineMongoDB:
+		script, env = pktMongoLogTailScript, []string{
+			"PATHS=" + strings.Join(pktMongoLogPaths, " "), "LINES=" + strconv.Itoa(lines)}
 	}
 	res, err := a.engCtx(ctx).Exec(ctx, containerID, []string{"bash", "-c", script}, env)
 	if err != nil {
@@ -282,6 +286,14 @@ func (a *App) pktReadServerLog(ctx context.Context, containerID, engine string, 
 // Those lines are not events of their own: STATEMENT carries the SQL that produced the
 // ERROR on the line before, and shown separately it is an orphan fragment.
 func pktAppendLogLine(out []pktLogEntry, line, engine string) []pktLogEntry {
+	if engine == pktEngineMongoDB {
+		// One JSON object per line, so there are no continuations to fold and nothing to
+		// resynchronise: a line either parses or it is not a record.
+		if e, ok := pktClassifyMongoLogLine(line); ok {
+			return append(out, e)
+		}
+		return out
+	}
 	if engine == pktEnginePostgres {
 		e, continuation, ok := pktClassifyPGLogLine(line)
 		if !ok {
@@ -335,9 +347,13 @@ type pktAbortStats struct {
 // verbosity, so the question MySQL's counters answer ("is the log even telling me?")
 // does not arise, and there is nothing to read.
 func (a *App) pktAbortStatsFor(ctx context.Context, containerID, engine, user, pass string) pktAbortStats {
-	if engine == pktEnginePostgres {
+	switch engine {
+	case pktEnginePostgres:
 		return pktAbortStats{Counters: map[string]string{},
 			Hint: "PostgreSQL logs a dropped or refused connection unconditionally — there is no verbosity setting to check and no Aborted_clients equivalent to read."}
+	case pktEngineMongoDB:
+		return pktAbortStats{Counters: map[string]string{},
+			Hint: "MongoDB logs every connection accepted and ended (ids 22943 and 22944) at its default verbosity, so there is nothing to switch on and no counter to read."}
 	}
 	return a.pktAbortStats(ctx, containerID, user, pass)
 }
@@ -545,9 +561,9 @@ func pktParseServerLog(b []byte, engine string) []pktLogEntry {
 // pktSniffLogEngine decides which product wrote a log, by trying both classifiers over
 // the first lines that parse at all.
 func pktSniffLogEngine(b []byte) string {
-	my, pg := 0, 0
+	my, pg, mg := 0, 0, 0
 	for i, line := range strings.Split(string(b), "\n") {
-		if i > 500 || my >= 5 || pg >= 5 {
+		if i > 500 || my >= 5 || pg >= 5 || mg >= 5 {
 			break
 		}
 		if _, ok := pktClassifyLogLine(line); ok {
@@ -556,8 +572,14 @@ func pktSniffLogEngine(b []byte) string {
 		if _, _, ok := pktClassifyPGLogLine(line); ok {
 			pg++
 		}
+		if _, ok := pktClassifyMongoLogLine(line); ok {
+			mg++
+		}
 	}
-	if pg > my {
+	switch {
+	case mg > pg && mg > my:
+		return pktEngineMongoDB
+	case pg > my:
 		return pktEnginePostgres
 	}
 	return pktEngineMySQL

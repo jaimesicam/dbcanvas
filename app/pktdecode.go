@@ -507,6 +507,8 @@ type pktDirState struct {
 	// PostgreSQL per-direction state (pktpg.go), allocated on first use so a MySQL
 	// capture carries none of it.
 	pg *pktPGDir
+	// MongoDB per-direction state (pktmongo.go), likewise.
+	mongo *pktMongoDir
 }
 
 // pktConn is the decoder's per-connection state.
@@ -556,6 +558,8 @@ type pktConn struct {
 	// (pktpgha.go), both allocated on first use.
 	pg   *pktPGConn
 	pgha *pktPGHA
+	// MongoDB state (pktmongo.go).
+	mongo *pktMongoConn
 }
 
 // pktDecodeOpts controls a decode run.
@@ -570,10 +574,10 @@ type pktDecodeOpts struct {
 	// MySQL protocol — running the MySQL decoder over Galera's group communication
 	// would manufacture nonsense. Empty means "the well-known ports for Engine".
 	PortRoles map[int]string
-	// Engine is "mysql" or "postgres" — which protocol the server port carries, and
-	// therefore which set of well-known ports the default role map uses. Empty means
-	// sniff it out of the capture (pktSniffEngine), which is what an upload needs:
-	// the file arrives with no node behind it to ask.
+	// Engine is "mysql", "postgres" or "mongodb" — which protocol the server port
+	// carries, and therefore which set of well-known ports the default role map uses.
+	// Empty means sniff it out of the capture (pktSniffEngine), which is what an upload
+	// needs: the file arrives with no node behind it to ask.
 	Engine     string
 	MaxPackets int
 }
@@ -582,6 +586,7 @@ type pktDecodeOpts struct {
 const (
 	pktEngineMySQL    = "mysql"
 	pktEnginePostgres = "postgres"
+	pktEngineMongoDB  = "mongodb"
 )
 
 // pktDecode turns capture bytes into annotated packets.
@@ -605,18 +610,31 @@ func pktDecode(buf []byte, opts pktDecodeOpts) (*pktDecoded, error) {
 	// Patroni capture from somebody else's server is still read correctly.
 	roles := opts.PortRoles
 	if len(roles) == 0 {
-		if engine == pktEnginePostgres {
+		switch engine {
+		case pktEnginePostgres:
 			roles = pktPGPortRoles(opts.ServerPort)
-		} else {
+		case pktEngineMongoDB:
+			// MongoDB has no second port to map: mongod, mongos and config servers all
+			// listen on 27017, and what a connection carries is decided from its
+			// content instead (pktmongorepl.go).
+			roles = pktMongoPortRoles(opts.ServerPort)
+		default:
 			roles = pktGaleraPortRoles(opts.ServerPort)
 		}
 	}
 	defaultRole := pktRoleMySQL
-	if engine == pktEnginePostgres {
+	switch engine {
+	case pktEnginePostgres:
 		defaultRole = pktRolePostgres
+	case pktEngineMongoDB:
+		defaultRole = pktRoleMongo
 	}
 	out := &pktDecoded{LinkType: r.linkType, Format: r.format, Engine: engine}
 	conns := map[string]*pktConn{}
+	// samePortClient remembers which end of a same-port connection sent the SYN, keyed
+	// by the address pair. Only same-port pairs are ever inserted, so this stays empty
+	// for every ordinary capture.
+	samePortClient := map[string]string{}
 	var order []*pktConn
 	net := newPktNetState()
 	no := 0
@@ -730,6 +748,21 @@ func pktDecode(buf []byte, opts pktDecodeOpts) (*pktDecoded, error) {
 		} else if r, ok := roles[tcp.srcPort]; ok {
 			role, fromClient = r, false
 		}
+		// A connection between two identical ports defeats every port rule: mongos talks
+		// to a shard on 27017 from 27017, so both directions claim to be the client. The
+		// SYN settles it — whoever sent it is the client — and is remembered for the pair.
+		if tcp.srcPort == tcp.dstPort {
+			pair := p.Src + "|" + p.Dst
+			if p.Dst < p.Src {
+				pair = p.Dst + "|" + p.Src
+			}
+			if tcp.flags&tcpSYN != 0 && tcp.flags&tcpACK == 0 {
+				samePortClient[pair] = p.Src
+			}
+			if cli, known := samePortClient[pair]; known {
+				fromClient = p.Src == cli
+			}
+		}
 		var ckey, skey string
 		if fromClient {
 			ckey, skey = p.Src, p.Dst
@@ -769,6 +802,8 @@ func pktDecode(buf []byte, opts pktDecodeOpts) (*pktDecoded, error) {
 				pktAppDecode(&p, c, dir, fromClient, tcp.payload, ts)
 			case pktRolePostgres:
 				pktPGDecode(&p, c, dir, fromClient, tcp.payload, ts)
+			case pktRoleMongo:
+				pktMongoDecode(&p, c, dir, fromClient, tcp.payload, ts)
 			case pktRolePatroniREST:
 				pktPatroniDecode(&p, c, dir, fromClient, tcp.payload)
 			case pktRoleEtcdClient, pktRoleEtcdPeer:
@@ -809,7 +844,10 @@ func pktDecode(buf []byte, opts pktDecodeOpts) (*pktDecoded, error) {
 	// one of the least self-explanatory. MySQL needs no equivalent: there the SERVER
 	// speaks first, so a bare connect always carries a greeting.
 	for _, c := range order {
-		if c.role != pktRolePostgres || !c.haveSyn || !c.synAcked || c.sawData || c.synNo == 0 {
+		if c.role != pktRolePostgres && c.role != pktRoleMongo {
+			continue
+		}
+		if !c.haveSyn || !c.synAcked || c.sawData || c.synNo == 0 {
 			continue
 		}
 		for i := range out.Packets {
@@ -833,6 +871,9 @@ func pktDecode(buf []byte, opts pktDecodeOpts) (*pktDecoded, error) {
 // engines keep their own label functions (pktgalera.go, pktpgha.go) so neither can
 // answer for the other's roles; this is the one place that has to know both.
 func pktRoleAnyLabel(role string) string {
+	if role == pktRoleMongo {
+		return "MongoDB"
+	}
 	if l := pktPGRoleLabel(role); l != "" {
 		return l
 	}
@@ -875,8 +916,8 @@ func pktSniffEngine(buf []byte, serverPort int) string {
 	if err != nil {
 		return pktEngineForPort(serverPort)
 	}
-	pgHits, myHits := 0, 0
-	pgPortHits, myPortHits := 0, 0
+	pgHits, myHits, mgHits := 0, 0, 0
+	pgPortHits, myPortHits, mgPortHits := 0, 0, 0
 	for i := 0; i < 4000; i++ {
 		_, data, _, _, ok := r.next()
 		if !ok {
@@ -901,6 +942,8 @@ func pktSniffEngine(buf []byte, serverPort int) string {
 				pgPortHits++
 			case galeraGCSPort, galeraISTPort, galeraSSTPort, 3306:
 				myPortHits++
+			case mongoClientPort:
+				mgPortHits++
 			}
 		}
 		if len(tcp.payload) < 5 {
@@ -927,29 +970,112 @@ func pktSniffEngine(buf []byte, serverPort int) string {
 				pgHits += 2
 			}
 		}
-		// MySQL: a greeting is a 4-byte header with sequence 0 whose first payload
-		// byte is protocol version 10, followed by a printable version string.
-		if len(b) > 10 && b[3] == 0 && b[4] == 10 && pktMostlyPrintable(b[5:min(len(b), 14)]) {
+		// MongoDB: a 16-byte header, a length that fits what arrived, a known opcode, AND
+		// structure behind it that the opcode requires. The last part is not optional —
+		// "a plausible length plus opcode 1" matched a MySQL *greeting* whose bytes 12-16
+		// happen to be 01 00 00 00, which is how a whole suite of MySQL tests started
+		// decoding as MongoDB.
+		if mongoLooksLikeHeader(b) {
+			mgHits += 2
+		}
+		// MySQL: a greeting is a 4-byte header with sequence 0, protocol version 10, and
+		// then a NUL-terminated printable version string.
+		if mysqlLooksLikeGreeting(b) {
 			myHits += 2
 		}
-		if pgHits >= 4 || myHits >= 4 {
+		if pgHits >= 4 || myHits >= 4 || mgHits >= 4 {
 			break
 		}
 	}
 	switch {
-	case pgHits > myHits:
+	case mgHits > pgHits && mgHits > myHits:
+		return pktEngineMongoDB
+	case pgHits > myHits && pgHits >= mgHits:
 		return pktEnginePostgres
-	case myHits > pgHits:
+	case myHits > pgHits && myHits >= mgHits:
 		return pktEngineMySQL
 	// No payload said anything. The ports still might — a capture of a Patroni member's
 	// cluster traffic holds no PostgreSQL protocol whatsoever, and reading it as MySQL
 	// would be wrong in a way nobody could explain from the screen.
-	case pgPortHits > myPortHits:
+	case mgPortHits > pgPortHits && mgPortHits > myPortHits:
+		return pktEngineMongoDB
+	case pgPortHits > myPortHits && pgPortHits >= mgPortHits:
 		return pktEnginePostgres
-	case myPortHits > pgPortHits:
+	case myPortHits > pgPortHits && myPortHits >= mgPortHits:
 		return pktEngineMySQL
 	}
 	return pktEngineForPort(serverPort)
+}
+
+// mongoLooksLikeHeader reports whether b starts with something that can only be a
+// MongoDB message: the header, a length consistent with what arrived, and the body
+// structure the opcode implies.
+func mongoLooksLikeHeader(b []byte) bool {
+	if len(b) < mongoHeaderLen+5 {
+		return false
+	}
+	n := int(int32(binary.LittleEndian.Uint32(b)))
+	op := int32(binary.LittleEndian.Uint32(b[12:]))
+	if n < mongoHeaderLen || n > mongoMaxMsg || !mongoKnownOp(op) {
+		return false
+	}
+	// The length must be consistent with the segment: either the whole message is here,
+	// or it continues past the end. A length far *smaller* than the payload means the
+	// bytes are something else that happens to start with a small number.
+	if n < len(b) && n+mongoHeaderLen <= len(b) {
+		// The message ends inside this segment, so what follows must be another header.
+		nn := int(int32(binary.LittleEndian.Uint32(b[n:])))
+		nop := int32(binary.LittleEndian.Uint32(b[n+12:]))
+		if nn < mongoHeaderLen || nn > mongoMaxMsg || !mongoKnownOp(nop) {
+			return false
+		}
+	}
+	switch op {
+	case mongoOpMsg:
+		return len(b) > mongoMsgDocOff && bsonDocOK(b[mongoMsgDocOff:])
+	case mongoOpCompressed:
+		// original opcode, uncompressed size, compressor id: all three are checkable.
+		inner := int32(binary.LittleEndian.Uint32(b[mongoHeaderLen:]))
+		size := int(int32(binary.LittleEndian.Uint32(b[mongoHeaderLen+4:])))
+		return mongoKnownOp(inner) && inner != mongoOpCompressed &&
+			size > 0 && size <= mongoMaxMsg && b[mongoHeaderLen+8] <= 3
+	case mongoOpReply:
+		if len(b) < mongoHeaderLen+20+5 {
+			return false
+		}
+		numReturned := int(int32(binary.LittleEndian.Uint32(b[mongoHeaderLen+16:])))
+		return numReturned >= 0 && numReturned <= 1<<20 && bsonDocOK(b[mongoHeaderLen+20:])
+	case mongoOpQuery:
+		// flags, then a NUL-terminated namespace, then skip/limit, then a document.
+		ns, rest, ok := bsonCString(b[mongoHeaderLen+4:])
+		if !ok || ns == "" || !pktMostlyPrintable([]byte(ns)) || len(rest) < 8+5 {
+			return false
+		}
+		return bsonDocOK(rest[8:])
+	}
+	return false
+}
+
+// mysqlLooksLikeGreeting reports whether b is a MySQL server greeting.
+//
+// The version string is what makes this unambiguous, so it is read properly rather than
+// sampled: a fixed 9-byte printability window failed on "8.0.46" (short enough that the
+// window ran past the NUL into the connection id) while passing on "8.0.46-37", which is
+// exactly the kind of near-miss that hides until a third engine competes for the same
+// bytes.
+func mysqlLooksLikeGreeting(b []byte) bool {
+	if len(b) < 12 || b[3] != 0 || b[4] != 10 {
+		return false
+	}
+	for i := 5; i < len(b) && i < 5+32; i++ {
+		if b[i] == 0 {
+			return i >= 8 // at least three characters of version before the NUL
+		}
+		if b[i] < 0x20 || b[i] > 0x7e {
+			return false
+		}
+	}
+	return false
 }
 
 // pktEngineForPort is the fallback: the well-known ports, and MySQL for anything
@@ -959,6 +1085,8 @@ func pktEngineForPort(port int) string {
 	switch port {
 	case pgClientPort, pgBouncerPort, pgProxyRWPort, pgProxyROPort:
 		return pktEnginePostgres
+	case mongoClientPort:
+		return pktEngineMongoDB
 	}
 	return pktEngineMySQL
 }
