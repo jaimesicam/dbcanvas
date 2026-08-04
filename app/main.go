@@ -156,6 +156,23 @@ func main() {
 	mux.HandleFunc("POST /api/queryrun/runs/{id}/stop", app.handleQueryRunStop)
 	mux.HandleFunc("GET /api/queryrun/history", app.handleQueryRunHistory)
 
+	// Packet Inspector: tcpdump on a MySQL node, decoded into a browsable packet
+	// list. Ranges are query parameters on the list/timeline endpoints, so the
+	// timeline can be zoomed and paged without re-capturing (see pktinspect.go).
+	mux.HandleFunc("GET /api/pktinspect/targets", app.handlePktTargets)
+	mux.HandleFunc("GET /api/pktinspect/captures", app.handlePktList)
+	mux.HandleFunc("POST /api/pktinspect/captures", app.handlePktStart)
+	mux.HandleFunc("POST /api/pktinspect/upload", app.handlePktUpload)
+	mux.HandleFunc("GET /api/pktinspect/captures/{id}", app.handlePktGet)
+	mux.HandleFunc("POST /api/pktinspect/captures/{id}/stop", app.handlePktStop)
+	mux.HandleFunc("GET /api/pktinspect/captures/{id}/packets", app.handlePktPackets)
+	mux.HandleFunc("GET /api/pktinspect/captures/{id}/packets/{no}", app.handlePktPacket)
+	mux.HandleFunc("GET /api/pktinspect/captures/{id}/timeline", app.handlePktTimeline)
+	mux.HandleFunc("GET /api/pktinspect/captures/{id}/download", app.handlePktDownload)
+	// The error-log side: the MY-xxxxxx records a capture is blind to by construction
+	// (aborted connections, DNS, TLS, listener), narrowed to the capture's window.
+	mux.HandleFunc("GET /api/pktinspect/captures/{id}/serverlog", app.handlePktServerLog)
+
 	mux.HandleFunc("GET /api/benchmark/targets", app.handleBenchTargets)
 	mux.HandleFunc("POST /api/benchmark/runs", app.handleBenchStart)
 	mux.HandleFunc("GET /api/benchmark/runs/{id}", app.handleBenchStatus)
