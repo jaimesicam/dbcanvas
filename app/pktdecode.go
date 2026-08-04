@@ -509,6 +509,10 @@ type pktDirState struct {
 	pg *pktPGDir
 	// MongoDB per-direction state (pktmongo.go), likewise.
 	mongo *pktMongoDir
+	// Valkey per-direction state: RESP (pktvalkey.go) and the cluster bus
+	// (pktvalkeybus.go), which are different protocols on different ports.
+	valkey    *pktValkeyDir
+	valkeybus *pktValkeyBusDir
 }
 
 // pktConn is the decoder's per-connection state.
@@ -560,6 +564,9 @@ type pktConn struct {
 	pgha *pktPGHA
 	// MongoDB state (pktmongo.go).
 	mongo *pktMongoConn
+	// Valkey state (pktvalkey.go, pktvalkeybus.go).
+	valkey    *pktValkeyConn
+	valkeybus *pktValkeyBusConn
 }
 
 // pktDecodeOpts controls a decode run.
@@ -574,7 +581,7 @@ type pktDecodeOpts struct {
 	// MySQL protocol — running the MySQL decoder over Galera's group communication
 	// would manufacture nonsense. Empty means "the well-known ports for Engine".
 	PortRoles map[int]string
-	// Engine is "mysql", "postgres" or "mongodb" — which protocol the server port
+	// Engine is "mysql", "postgres", "mongodb" or "valkey" — which protocol the server port
 	// carries, and therefore which set of well-known ports the default role map uses.
 	// Empty means sniff it out of the capture (pktSniffEngine), which is what an upload
 	// needs: the file arrives with no node behind it to ask.
@@ -587,6 +594,7 @@ const (
 	pktEngineMySQL    = "mysql"
 	pktEnginePostgres = "postgres"
 	pktEngineMongoDB  = "mongodb"
+	pktEngineValkey   = "valkey"
 )
 
 // pktDecode turns capture bytes into annotated packets.
@@ -618,6 +626,10 @@ func pktDecode(buf []byte, opts pktDecodeOpts) (*pktDecoded, error) {
 			// listen on 27017, and what a connection carries is decided from its
 			// content instead (pktmongorepl.go).
 			roles = pktMongoPortRoles(opts.ServerPort)
+		case pktEngineValkey:
+			// Valkey follows Galera's model instead: RESP on the client port, a binary
+			// gossip bus on the client port + 10000, and Sentinel on 26379.
+			roles = pktValkeyPortRoles(opts.ServerPort)
 		default:
 			roles = pktGaleraPortRoles(opts.ServerPort)
 		}
@@ -628,6 +640,8 @@ func pktDecode(buf []byte, opts pktDecodeOpts) (*pktDecoded, error) {
 		defaultRole = pktRolePostgres
 	case pktEngineMongoDB:
 		defaultRole = pktRoleMongo
+	case pktEngineValkey:
+		defaultRole = pktRoleValkey
 	}
 	out := &pktDecoded{LinkType: r.linkType, Format: r.format, Engine: engine}
 	conns := map[string]*pktConn{}
@@ -804,6 +818,10 @@ func pktDecode(buf []byte, opts pktDecodeOpts) (*pktDecoded, error) {
 				pktPGDecode(&p, c, dir, fromClient, tcp.payload, ts)
 			case pktRoleMongo:
 				pktMongoDecode(&p, c, dir, fromClient, tcp.payload, ts)
+			case pktRoleValkey, pktRoleSentinel:
+				pktValkeyDecode(&p, c, dir, fromClient, tcp.payload, ts)
+			case pktRoleValkeyBus:
+				pktValkeyBusDecode(&p, c, dir, tcp.payload)
 			case pktRolePatroniREST:
 				pktPatroniDecode(&p, c, dir, fromClient, tcp.payload)
 			case pktRoleEtcdClient, pktRoleEtcdPeer:
@@ -844,7 +862,9 @@ func pktDecode(buf []byte, opts pktDecodeOpts) (*pktDecoded, error) {
 	// one of the least self-explanatory. MySQL needs no equivalent: there the SERVER
 	// speaks first, so a bare connect always carries a greeting.
 	for _, c := range order {
-		if c.role != pktRolePostgres && c.role != pktRoleMongo {
+		switch c.role {
+		case pktRolePostgres, pktRoleMongo, pktRoleValkey:
+		default:
 			continue
 		}
 		if !c.haveSyn || !c.synAcked || c.sawData || c.synNo == 0 {
@@ -873,6 +893,9 @@ func pktDecode(buf []byte, opts pktDecodeOpts) (*pktDecoded, error) {
 func pktRoleAnyLabel(role string) string {
 	if role == pktRoleMongo {
 		return "MongoDB"
+	}
+	if l := pktValkeyRoleLabel(role); l != "" {
+		return l
 	}
 	if l := pktPGRoleLabel(role); l != "" {
 		return l
@@ -916,8 +939,8 @@ func pktSniffEngine(buf []byte, serverPort int) string {
 	if err != nil {
 		return pktEngineForPort(serverPort)
 	}
-	pgHits, myHits, mgHits := 0, 0, 0
-	pgPortHits, myPortHits, mgPortHits := 0, 0, 0
+	pgHits, myHits, mgHits, vkHits := 0, 0, 0, 0
+	pgPortHits, myPortHits, mgPortHits, vkPortHits := 0, 0, 0, 0
 	for i := 0; i < 4000; i++ {
 		_, data, _, _, ok := r.next()
 		if !ok {
@@ -944,6 +967,8 @@ func pktSniffEngine(buf []byte, serverPort int) string {
 				myPortHits++
 			case mongoClientPort:
 				mgPortHits++
+			case valkeyClientPort, valkeyClientPort + valkeyBusOffset, valkeySentinelPort:
+				vkPortHits++
 			}
 		}
 		if len(tcp.payload) < 5 {
@@ -983,28 +1008,72 @@ func pktSniffEngine(buf []byte, serverPort int) string {
 		if mysqlLooksLikeGreeting(b) {
 			myHits += 2
 		}
-		if pgHits >= 4 || myHits >= 4 || mgHits >= 4 {
+		// Valkey: either the cluster bus's fixed signature, or a RESP command array —
+		// "*<n>\r\n$<len>\r\n<NAME>" with a name that is actually a command. RESP is
+		// text, so the check has to be about structure rather than about bytes that
+		// could occur anywhere.
+		if valkeyLooksLikeBus(b) || valkeyLooksLikeRESP(b) {
+			vkHits += 2
+		}
+		if pgHits >= 4 || myHits >= 4 || mgHits >= 4 || vkHits >= 4 {
 			break
 		}
 	}
-	switch {
-	case mgHits > pgHits && mgHits > myHits:
-		return pktEngineMongoDB
-	case pgHits > myHits && pgHits >= mgHits:
-		return pktEnginePostgres
-	case myHits > pgHits && myHits >= mgHits:
-		return pktEngineMySQL
-	// No payload said anything. The ports still might — a capture of a Patroni member's
-	// cluster traffic holds no PostgreSQL protocol whatsoever, and reading it as MySQL
-	// would be wrong in a way nobody could explain from the screen.
-	case mgPortHits > pgPortHits && mgPortHits > myPortHits:
-		return pktEngineMongoDB
-	case pgPortHits > myPortHits && pgPortHits >= mgPortHits:
-		return pktEnginePostgres
-	case myPortHits > pgPortHits && myPortHits >= mgPortHits:
-		return pktEngineMySQL
+	// Whichever protocol's own bytes were seen most often wins; ports only break a tie
+	// of zero, because a capture of a cluster's own traffic may hold no client protocol
+	// at all (a Patroni capture is entirely HTTP, a Valkey bus capture entirely gossip).
+	best, engine := 0, ""
+	for _, cand := range []struct {
+		hits   int
+		engine string
+	}{
+		{mgHits, pktEngineMongoDB}, {pgHits, pktEnginePostgres},
+		{vkHits, pktEngineValkey}, {myHits, pktEngineMySQL},
+	} {
+		if cand.hits > best {
+			best, engine = cand.hits, cand.engine
+		}
+	}
+	if engine != "" {
+		return engine
+	}
+	best = 0
+	for _, cand := range []struct {
+		hits   int
+		engine string
+	}{
+		{mgPortHits, pktEngineMongoDB}, {pgPortHits, pktEnginePostgres},
+		{vkPortHits, pktEngineValkey}, {myPortHits, pktEngineMySQL},
+	} {
+		if cand.hits > best {
+			best, engine = cand.hits, cand.engine
+		}
+	}
+	if engine != "" {
+		return engine
 	}
 	return pktEngineForPort(serverPort)
+}
+
+// valkeyLooksLikeBus reports whether b starts with a cluster-bus message: the fixed
+// four-byte signature plus a self-consistent length.
+func valkeyLooksLikeBus(b []byte) bool {
+	if len(b) < 8 || string(b[:4]) != valkeyBusSig {
+		return false
+	}
+	n := int(binary.BigEndian.Uint32(b[4:]))
+	return n >= valkeyBusMinLen && n <= 8<<20
+}
+
+// valkeyLooksLikeRESP reports whether b starts with a RESP command array — the one RESP
+// shape specific enough to identify the protocol. A bare "+OK" or ":1" is two or three
+// bytes of text that occur in anything.
+func valkeyLooksLikeRESP(b []byte) bool {
+	if len(b) < 12 || b[0] != respArray {
+		return false
+	}
+	v, _, ok, bad := respParse(b, 0)
+	return ok && !bad && respIsCommand(v)
 }
 
 // mongoLooksLikeHeader reports whether b starts with something that can only be a
@@ -1087,6 +1156,8 @@ func pktEngineForPort(port int) string {
 		return pktEnginePostgres
 	case mongoClientPort:
 		return pktEngineMongoDB
+	case valkeyClientPort, valkeyClientPort + valkeyBusOffset, valkeySentinelPort:
+		return pktEngineValkey
 	}
 	return pktEngineMySQL
 }

@@ -255,6 +255,13 @@ func (a *App) pktReadServerLog(ctx context.Context, containerID, engine string, 
 	case pktEngineMongoDB:
 		script, env = pktMongoLogTailScript, []string{
 			"PATHS=" + strings.Join(pktMongoLogPaths, " "), "LINES=" + strconv.Itoa(lines)}
+	case pktEngineValkey:
+		// The only engine here whose log is not a file by default: dbcanvas sets no
+		// `logfile`, so Valkey writes to stdout and systemd captures it.
+		script, env = pktValkeyLogTailScript, []string{
+			"PATHS=" + strings.Join(pktValkeyLogPaths, " "),
+			"UNITS=" + strings.Join(pktValkeyLogUnits, " "),
+			"LINES=" + strconv.Itoa(lines)}
 	}
 	res, err := a.engCtx(ctx).Exec(ctx, containerID, []string{"bash", "-c", script}, env)
 	if err != nil {
@@ -286,6 +293,12 @@ func (a *App) pktReadServerLog(ctx context.Context, containerID, engine string, 
 // Those lines are not events of their own: STATEMENT carries the SQL that produced the
 // ERROR on the line before, and shown separately it is an orphan fragment.
 func pktAppendLogLine(out []pktLogEntry, line, engine string) []pktLogEntry {
+	if engine == pktEngineValkey {
+		if e, ok := pktClassifyValkeyLogLine(line); ok {
+			return append(out, e)
+		}
+		return out
+	}
 	if engine == pktEngineMongoDB {
 		// One JSON object per line, so there are no continuations to fold and nothing to
 		// resynchronise: a line either parses or it is not a record.
@@ -354,6 +367,9 @@ func (a *App) pktAbortStatsFor(ctx context.Context, containerID, engine, user, p
 	case pktEngineMongoDB:
 		return pktAbortStats{Counters: map[string]string{},
 			Hint: "MongoDB logs every connection accepted and ended (ids 22943 and 22944) at its default verbosity, so there is nothing to switch on and no counter to read."}
+	case pktEngineValkey:
+		return pktAbortStats{Counters: map[string]string{},
+			Hint: "Valkey has no aborted-connection counters: INFO's stats section counts rejected_connections and total_connections_received, and a client that simply vanished leaves nothing behind but a log line."}
 	}
 	return a.pktAbortStats(ctx, containerID, user, pass)
 }
@@ -506,7 +522,7 @@ func (a *App) handlePktServerLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	u, _ := a.currentUser(r)
-	_, containerID, _, dbUser, dbPass, _, err := a.resolveNodeCredsPort(u, c.StackID, c.NodeID)
+	_, containerID, _, dbUser, dbPass, _, err := a.pktResolveTarget(u, c.StackID, c.NodeID)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
@@ -561,9 +577,9 @@ func pktParseServerLog(b []byte, engine string) []pktLogEntry {
 // pktSniffLogEngine decides which product wrote a log, by trying both classifiers over
 // the first lines that parse at all.
 func pktSniffLogEngine(b []byte) string {
-	my, pg, mg := 0, 0, 0
+	my, pg, mg, vk := 0, 0, 0, 0
 	for i, line := range strings.Split(string(b), "\n") {
-		if i > 500 || my >= 5 || pg >= 5 || mg >= 5 {
+		if i > 500 || my >= 5 || pg >= 5 || mg >= 5 || vk >= 5 {
 			break
 		}
 		if _, ok := pktClassifyLogLine(line); ok {
@@ -575,12 +591,18 @@ func pktSniffLogEngine(b []byte) string {
 		if _, ok := pktClassifyMongoLogLine(line); ok {
 			mg++
 		}
+		if _, ok := pktClassifyValkeyLogLine(line); ok {
+			vk++
+		}
 	}
-	switch {
-	case mg > pg && mg > my:
-		return pktEngineMongoDB
-	case pg > my:
-		return pktEnginePostgres
+	best, engine := 0, pktEngineMySQL
+	for _, cand := range []struct {
+		n      int
+		engine string
+	}{{mg, pktEngineMongoDB}, {pg, pktEnginePostgres}, {vk, pktEngineValkey}, {my, pktEngineMySQL}} {
+		if cand.n > best {
+			best, engine = cand.n, cand.engine
+		}
 	}
-	return pktEngineMySQL
+	return engine
 }

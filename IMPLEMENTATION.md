@@ -11366,3 +11366,136 @@ where I meant 6, a date assertion two days out, and a sample builder that gave f
 connections the same client port — which collapsed them into one stream, and one stream
 keeps its first classification, so heartbeats swallowed the oplog tail. The decoder was
 right in all three.
+
+---
+
+## 218. Packet Inspector: Valkey — `app/pkt{resp,valkey,valkeyerr,valkeybus,valkeylog}.go`, `app/pkt{decode,inspect,serverlog}.go`, `app/web/src/{pages/PacketInspector.jsx,lib/pktApi.js}`
+
+"Do the same plan for different types of Valkey traffic. Please do the needful of setting
+up testbed." Fourth engine, same method.
+
+### The testbed
+
+Stack 49 (`pktinspect-valkey`), 6 nodes:
+
+    intranet                  DNS / CA / proxy
+    valkey-cluster-00 (3)     all-master cluster: the binary bus on 16379, MOVED redirects
+    valkey-a, valkey-b        two standalones, made a primary/replica pair by hand — which
+                              is what gives PSYNC, FULLRESYNC, the RDB transfer and the
+                              propagated command stream on one connection
+
+There is no Valkey workload generator in dbcanvas (MarketChaos and Airline Sim are MySQL,
+Car Rental is PostgreSQL, Hotel Sim is MongoDB), so the traffic was driven with
+`valkey-cli` and hand-written RESP over a socket.
+
+### Two protocols, two ports
+
+Valkey follows Galera's model rather than MongoDB's: RESP on 6379 for clients **and**
+replication, a binary gossip bus on 16379 (always the client port + 10000), and Sentinel on
+26379, which is RESP again.
+
+New files: `pktresp.go` (the serialisation protocol, RESP2 and RESP3), `pktvalkey.go` (what
+the conversation means), `pktvalkeyerr.go` (the error-code catalogue),
+`pktvalkeybus.go` (the cluster bus), `pktvalkeylog.go` (the server log).
+
+RESP is the only text protocol of the four and the only one with **no request id**, so the
+decoder keeps a FIFO of outstanding commands per connection and pairs each reply with its
+head. That queue is the correlation, and it is also the only way to report latency. Three
+things break it if treated as ordinary replies, and all three are handled: pub/sub delivery
+(unprompted), RESP3 pushes (likewise), and a replication link (one-way after the sync).
+
+### Five bugs the live pair and the live cluster found
+
+**1. A forking primary sends bare newlines.** While it forks and serialises its dataset,
+the primary writes `\n` bytes to the replica so the link does not time out. They are not
+RESP. Buffering them desynchronised the parser, and then the re-anchor — which requires a
+*complete aggregate or bulk string*, deliberately — threw away the `+FULLRESYNC` simple
+string that followed. The whole handshake vanished from a capture that contained it, and the
+first sign was `PSYNC → ["SELECT" "0"] (6208 ms)`: the reply queue had skipped ahead.
+
+**2. The RDB payload has no trailing CRLF.** `$<len>\r\n` then exactly len bytes, and
+nothing after them — so parsing it as an ordinary bulk string never completes, and buffers
+the entire dataset in the decoder while it waits. Both forms are now handled as a transfer
+rather than a value: disk-based by its announced length, diskless by hunting the 40-byte
+EOF delimiter the primary announced (keeping only a tail, since the delimiter can straddle
+frames). The payload is **counted and dropped**, so a 10 GB resync costs the decoder
+nothing.
+
+**3. The primary's half of a replication link is one-way.** After the sync it is a stream
+of propagated writes plus periodic `PING` and `REPLCONF GETACK`, none of it a reply.
+Consuming the queue for them labelled every propagated write as the answer to the replica's
+last `REPLCONF`. They are now recognised as propagated, and their byte lengths accumulate
+into the primary's offset — which is exactly how the replica computes the offset it
+acknowledges, so the lag against `REPLCONF ACK` is a real measurement rather than a guess.
+
+**4. The Valkey log is not a file.** dbcanvas sets no `logfile`, so it goes to the journal —
+a first among these engines. And the unit is **templated** (`valkey@dbcanvas.service`), so
+`journalctl -u valkey` matches nothing at all: the first live read came back
+`scanned: 0` from a path that had been found successfully. The patterns are globs now
+(`valkey@*` first), and journald's own line prefix is stripped by the same regex that reads
+Valkey's format.
+
+**5. `engineForType` does not know about Valkey** — by design: it maps the SQL and MongoDB
+families because those are the Query Runner's and the Data Generator's targets. So
+`resolveNodeCredsPort` refused a Valkey node with *"node type valkeycluster is not a
+supported target"*. A capture needs no credentials and no query language, only a container
+and a port, so the Packet Inspector got its own thin resolver rather than a change to a
+function three features depend on.
+
+### The battery
+
+19 faults driven from a second node, one capture:
+
+    MOVED (from the cluster)      WRONGTYPE                 NOAUTH / WRONGPASS
+    OOM                           NOSCRIPT                  EXECABORT
+    unknown command               inline command            KEYS *
+    DEBUG SLEEP                   SCRIPT FLUSH              CONFIG SET ×3
+    pipelining 64 deep            pub/sub push              3 bare connect/close
+    FULLRESYNC + diskless RDB (479 KB) + propagated writes + REPLCONF ACK offsets
+    READONLY (on the replica)
+
+`MISCONF` and `LOADING` were not provoked live — `CONFIG SET dir /proc` did not make the
+background save fail synchronously enough, and catching `LOADING` needs a restart timed
+against a capture. Both are covered by unit test, and saying so is better than implying
+live coverage.
+
+The cluster bus decoded on the first attempt, which the fixed-layout header deserves:
+
+    PING from 00089dc7c673…, claims 5461 slot(s), epoch 3/1, offset 0, 1 gossip section(s)
+    PONG from 43080f81daeb…, claims 5461 slot(s), epoch 3/3, offset 12345
+
+5461 + 5461 + 5462 = 16 384, which is the whole slot space and a good check that the bitmap
+is being read correctly. `PING`/`PONG` are never flagged — they are the heartbeat, forever.
+`MEET`, `FAIL`, the two `FAILOVER_AUTH` messages, `UPDATE`, `MFSTART` and a rising epoch are.
+
+### Two judgements worth recording
+
+**MOVED and ASK are not the same thing**, and the catalogue says so at length, because a
+client that treats them alike either caches a redirect it must not (ASK) or re-asks forever
+(MOVED). Both look like ordinary error replies to an application; only a capture shows the
+difference.
+
+**Valkey's slow threshold is 50 ms, not 100.** Its own slowlog defaults to 10 ms, and it
+executes commands one at a time — a 50 ms command delayed every other client on the server,
+which is not true of any of the other three. Blocking commands (`BLPOP`, `XREAD`, `WAIT`,
+`SUBSCRIBE`, `PSYNC`, `MONITOR`) are exempt, the same exemption MongoDB's `awaitData`
+getMore and PostgreSQL's streaming `hello` get: waiting is the point of them.
+
+### Tests, samples, UI
+
+44 new Go tests (`pktvalkey_test.go`): the session, a bulk payload containing CRLF that
+must not shift the framing, pipelining, 16 error codes including the three that must *not*
+flag, the dangerous commands (flagged once per connection, not once per call), the
+keep-alive newlines, both RDB forms, propagated writes, replication lag, pub/sub and RESP3
+pushes, the cluster bus including a too-short message that must not decode, inline commands,
+bare-connect probes, engine sniffing on a non-standard port and from a bus-only capture, and
+a RESP unit table covering every type plus the incomplete/malformed distinction that decides
+whether the caller waits or re-anchors. Three new generated samples, all decoded without
+being told the engine. 12 new render checks.
+
+Three of my own test mistakes, all in fixtures again: a key rendering I quoted when the
+decoder does not, a catalogue phrase I misremembered, and — the instructive one — a
+replication-lag fixture that put a 100 KB value in **one IP packet**. The total-length field
+is 16 bits, so those frames were truncated and the decoder correctly reported gaps and
+incomplete values. On the wire a large value arrives as many MSS-sized segments, which the
+live 479 KB RDB transfer covers; the fixture now uses 1 250 modest writes instead.
