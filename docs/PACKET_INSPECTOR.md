@@ -589,6 +589,29 @@ That is the normal case, not an edge case, and it is the normal case in both fam
 PostgreSQL's upgrade is visible either way: `SSLRequest` is decoded, the server's naked
 `S` or `N` answer is decoded, and a refusal is flagged with its consequence.
 
+### When the server has `ssl = off`
+
+This is the case a capture is *most* useful for, because everything stays readable — and
+it has a shape worth knowing:
+
+| Client `sslmode` | On the wire |
+| --- | --- |
+| `prefer` (**the default**), `allow` | `SSLRequest` → **`N`** → the client carries on **in the clear**: StartupMessage, authentication, statements, all decoded |
+| `require`, `verify-ca`, `verify-full` | `SSLRequest` → **`N`** → the client aborts immediately. psql says *"server does not support SSL, but SSL was required"*, and the capture shows the refusal followed straight by a FIN — no startup message ever |
+| `disable` | no `SSLRequest` at all; the connection opens with the StartupMessage |
+
+The refusal itself is flagged once per connection, because which of those three outcomes
+follows is the client's setting and not the server's — the same `N` either lets the whole
+session be read or ends it.
+
+**The StartupMessage after a refusal is a second untyped message.** A PostgreSQL
+connection's first message has no type byte, and `SSLRequest` is one of them — but so is
+the StartupMessage that follows when SSL is declined, and libpq sends *three* in a row
+(`GSSENCRequest`, `SSLRequest`, `StartupMessage`) when both negotiations fail. Treating
+the untyped state as used up by the first one cost the startup parameters and the entire
+authentication exchange on every plaintext connection to an `ssl = off` server, which is
+about the most common shape there is; see IMPLEMENTATION.md §216.
+
 ### Reading an encrypted session
 
 **This tool does not decrypt anything.** What it gives you for a TLS connection is real
