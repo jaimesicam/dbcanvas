@@ -56,6 +56,20 @@ const (
 	// ScheduledBackup's pluginConfiguration.
 	barmanPluginName = "barman-cloud.cloudnative-pg.io"
 	barmanObjectAPI  = "barmancloud.cnpg.io/v1"
+
+	// The operator's own Deployment. Waiting for its CRDs is NOT enough before creating a
+	// Cluster: the mutating webhook is served by this Deployment, and applying a Cluster
+	// before it has endpoints fails with
+	//   failed calling webhook "mcluster.cnpg.io": no endpoints available for service
+	//   "cnpg-webhook-service"
+	// It is a race — it passes whenever anything else happened to take a few seconds first.
+	cnpgOperatorDeployment = "cloudnative-pg"
+	// The phase string CNPG reports when the cluster is up.
+	cnpgHealthyPhase = "Cluster in healthy state"
+	cnpgPostgresPort = 5432
+	// Grafana's Service, named by helm-controller after the HelmChart release.
+	grafanaService = promChart + "-grafana"
+	grafanaPort    = 80
 )
 
 // Defaults for the CNPG knobs, so an older design (or a hand-written one) still deploys.
@@ -71,6 +85,24 @@ func cnpgStorageGB(f designFrame) int {
 		return clampInt(f.K3DCNPGStorageGB, 1, 512)
 	}
 	return 1
+}
+
+// cnpgExposeLoadBalancer reports whether the cluster's primary should get a LoadBalancer
+// address. Default off: the other operators' expose settings default to in-cluster too, and an
+// address is a finite resource from the MetalLB pool.
+func cnpgExposeLoadBalancer(f designFrame) bool {
+	return k3dExposeOf(f.K3DCNPGExpose, "clusterip") == "LoadBalancer"
+}
+
+// cnpgSecretValue reads and decodes one key out of a Secret. Empty on any problem — these feed
+// display fields, and a blank row beats failing a deploy that otherwise worked.
+func (a *App) cnpgSecretValue(ctx context.Context, serverID, ns, secret, key string) string {
+	out, err := a.kubectl(ctx, serverID, "-n", ns, "get", "secret", secret,
+		"-o", "go-template={{index .data \""+key+"\" | base64decode}}")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
 }
 
 // helmChartManifest renders a k3s HelmChart object. targetNamespace is created if missing;
@@ -198,6 +230,80 @@ prometheus:
 `, grafanaPassword)
 }
 
+// cnpgPrimaryServiceManifest exposes the cluster's *primary* on a LoadBalancer address, which
+// is the only way to reach Postgres from outside the cluster — CNPG's own -rw/-ro/-r services
+// are all ClusterIP. The selector is the pair CNPG puts on the pod that currently holds the
+// primary role, so the address follows a failover rather than pinning to one instance.
+func cnpgPrimaryServiceManifest(cluster, ns string) []byte {
+	return []byte(fmt.Sprintf(`apiVersion: v1
+kind: Service
+metadata:
+  name: %s
+  namespace: %s
+  labels:
+    cnpg.io/cluster: %s
+spec:
+  type: LoadBalancer
+  selector:
+    cnpg.io/cluster: %s
+    cnpg.io/instanceRole: primary
+  ports:
+  - name: postgres
+    port: %d
+    targetPort: %d
+`, cnpgPrimaryServiceName(cluster), ns, cluster, cluster, cnpgPostgresPort, cnpgPostgresPort))
+}
+
+func cnpgPrimaryServiceName(cluster string) string { return cluster + "-rw-lb" }
+
+// waitForLoadBalancerIP polls a Service for the address its LoadBalancer implementation
+// assigned. An empty return is not an error: MetalLB may have no free address, or the pool may
+// never have been installed, and a cluster that is otherwise fine should not fail to deploy
+// over an unassigned address — the caller records "pending" and says so.
+func (a *App) waitForLoadBalancerIP(ctx context.Context, serverID, ns, svc string, timeout time.Duration) string {
+	deadline := time.Now().Add(timeout)
+	for {
+		// Some implementations report a hostname rather than an IP; take whichever is set.
+		out, err := a.kubectl(ctx, serverID, "-n", ns, "get", "svc", svc, "-o",
+			"jsonpath={.status.loadBalancer.ingress[0].ip}{.status.loadBalancer.ingress[0].hostname}")
+		if err == nil {
+			if addr := strings.TrimSpace(out); addr != "" {
+				return addr
+			}
+		}
+		if time.Now().After(deadline) {
+			return ""
+		}
+		select {
+		case <-ctx.Done():
+			return ""
+		case <-time.After(5 * time.Second):
+		}
+	}
+}
+
+// waitForCNPGCluster blocks until the Cluster reports itself healthy, returning the last status
+// seen either way so the caller can record it. A cluster that is still converging is not a
+// failure — the pods may simply still be pulling Postgres — so the timeout is not fatal.
+func (a *App) waitForCNPGCluster(ctx context.Context, serverID, ns, name string, timeout time.Duration) string {
+	deadline := time.Now().Add(timeout)
+	last := "pending"
+	for {
+		last = a.cnpgStatus(ctx, serverID, ns, name)
+		if strings.HasPrefix(last, cnpgHealthyPhase) {
+			return last
+		}
+		if time.Now().After(deadline) {
+			return last
+		}
+		select {
+		case <-ctx.Done():
+			return last
+		case <-time.After(5 * time.Second):
+		}
+	}
+}
+
 // waitForCRD blocks until a CRD is established, so a CR that depends on it is not applied
 // into a cluster that would reject it. Helm-controller runs the install as a Job, so the
 // CRDs appear a little after the HelmChart is accepted.
@@ -239,13 +345,28 @@ func (a *App) installCNPGOperator(ctx context.Context, st Stack, frame designFra
 		}
 		pr.logln("kube-prometheus-stack installing into " + promNamespace + " (Grafana admin password from GRAFANA_PASSWORD)")
 		if err := a.waitForCRD(ctx, serverID, "podmonitors.monitoring.coreos.com", deployTimeout()); err != nil {
-			// Not fatal: the database cluster is still worth having. But the Cluster must
-			// then not ask for a PodMonitor, so record that monitoring did not land.
+			// Not fatal: the database cluster is still worth having. But the PodMonitor must
+			// then not be applied, so record that monitoring did not land.
 			pr.logln("Prometheus CRDs did not appear, continuing without monitoring: " + err.Error())
 			monitoring = false
 		} else {
 			cfg.MonitoredBy = "Prometheus/Grafana (" + promNamespace + ")"
-			pr.logln("PodMonitor CRD established; the operator will register the cluster for scraping")
+			pr.logln("PodMonitor CRD established")
+			// Grafana is a LoadBalancer, so MetalLB gives it an address on the stack network.
+			// The address is what makes the dashboards reachable at all, so it is worth
+			// waiting for — but an unassigned address (no pool, or an exhausted one) must not
+			// fail the deploy.
+			if addr := a.waitForLoadBalancerIP(ctx, serverID, promNamespace, grafanaService, deployTimeout()); addr != "" {
+				cfg.GrafanaURL = fmt.Sprintf("http://%s", addr)
+				if grafanaPort != 80 {
+					cfg.GrafanaURL = fmt.Sprintf("http://%s:%d", addr, grafanaPort)
+				}
+				pr.logln("Grafana at " + cfg.GrafanaURL + " (admin / GRAFANA_PASSWORD)")
+			} else {
+				cfg.GrafanaURL = "pending"
+				pr.logln("Grafana has no LoadBalancer address yet — check the MetalLB pool; the Service is " +
+					promNamespace + "/" + grafanaService)
+			}
 		}
 	}
 
@@ -259,7 +380,13 @@ func (a *App) installCNPGOperator(ctx context.Context, st Stack, frame designFra
 	if err := a.waitForCRD(ctx, serverID, "clusters.postgresql.cnpg.io", deployTimeout()); err != nil {
 		return fmt.Errorf("CloudNativePG CRDs never became established: %w", err)
 	}
-	pr.logln("Cluster CRD established")
+	// The CRD is not enough. The operator serves the mutating webhook every Cluster create is
+	// admitted through, so without waiting for its Deployment the apply below races it and
+	// fails with "no endpoints available for service cnpg-webhook-service".
+	if err := a.waitForDeployment(ctx, serverID, cnpgNamespace, cnpgOperatorDeployment, deployTimeout()); err != nil {
+		return fmt.Errorf("CloudNativePG operator never became ready: %w", err)
+	}
+	pr.logln("Cluster CRD established and the operator's admission webhook is serving")
 
 	// ---- the namespace the database cluster goes into ----
 	if ns != "" && ns != "default" {
@@ -300,12 +427,48 @@ func (a *App) installCNPGOperator(ctx context.Context, st Stack, frame designFra
 	pr.logln(fmt.Sprintf("Cluster %s applied: %d instance(s), %dGi storage%s",
 		cfg.ClusterName, cnpgInstances(frame), cnpgStorageGB(frame), cnpgPGLabel(frame.K3DCNPGVersion)))
 
+	cfg.CNPGInstances = cnpgInstances(frame)
+	cfg.CNPGStorageGB = cnpgStorageGB(frame)
+	cfg.CNPGPGVersion = strings.TrimSpace(frame.K3DCNPGVersion)
+
 	if objectStore != "" {
 		if err := a.kubectlApply(ctx, serverID, ns, cnpgScheduledBackupManifest(cfg.ClusterName, ns)); err != nil {
 			pr.logln("nightly ScheduledBackup skipped: " + err.Error())
 		} else {
 			pr.logln("nightly ScheduledBackup via barman-cloud (WAL archiving continuous)")
 		}
+	}
+
+	// ---- wait for the cluster, then record how to reach it ----
+	pr.phase("Waiting for the Postgres cluster", 92)
+	cfg.CNPGStatus = a.waitForCNPGCluster(ctx, serverID, ns, cfg.ClusterName, deployTimeout())
+	pr.logln("Cluster status: " + cfg.CNPGStatus)
+
+	// CNPG generates the application role's password itself and puts it, with the database
+	// name and host, in <cluster>-app. Only the non-secret parts are recorded here — the
+	// password stays in the Secret, which the panel points at.
+	cfg.CNPGAppSecret = cfg.ClusterName + "-app"
+	cfg.CNPGAppUser = a.cnpgSecretValue(ctx, serverID, ns, cfg.CNPGAppSecret, "username")
+	cfg.CNPGAppDB = a.cnpgSecretValue(ctx, serverID, ns, cfg.CNPGAppSecret, "dbname")
+
+	// All three services CNPG creates (-rw, -ro, -r) are ClusterIP, so without this the
+	// cluster is unreachable from outside Kubernetes.
+	if cnpgExposeLoadBalancer(frame) {
+		pr.phase("Exposing Postgres", 95)
+		cfg.CNPGExpose = "LoadBalancer"
+		if err := a.kubectlApply(ctx, serverID, ns, cnpgPrimaryServiceManifest(cfg.ClusterName, ns)); err != nil {
+			pr.logln("LoadBalancer Service skipped: " + err.Error())
+			cfg.CNPGExpose = "ClusterIP"
+		} else if addr := a.waitForLoadBalancerIP(ctx, serverID, ns, cnpgPrimaryServiceName(cfg.ClusterName), deployTimeout()); addr != "" {
+			cfg.CNPGEndpoint = fmt.Sprintf("%s:%d", addr, cnpgPostgresPort)
+			pr.logln("Postgres primary at " + cfg.CNPGEndpoint + " (follows failover — the Service selects the primary role)")
+		} else {
+			cfg.CNPGEndpoint = "pending"
+			pr.logln("Postgres LoadBalancer has no address yet — check the MetalLB pool")
+		}
+	} else {
+		cfg.CNPGExpose = "ClusterIP"
+		cfg.CNPGEndpoint = fmt.Sprintf("%s-rw.%s.svc:%d", cfg.ClusterName, ns, cnpgPostgresPort)
 	}
 
 	// ---- monitoring resources, now that the cluster exists to be selected ----

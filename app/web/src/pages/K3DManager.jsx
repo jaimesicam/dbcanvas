@@ -167,6 +167,9 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
   const isMongo = cfg.operator === 'psmdb'
   const isPG = cfg.operator === 'pg'
   const isPS = cfg.operator === 'ps'
+  // CloudNativePG has no proxy tier and its own expose/status shape, so the Percona-shaped
+  // front-end and expose rows below do not apply to it.
+  const isCNPG = cfg.operator === 'cnpg'
   // The four operators name the same ideas differently: PXC and PS put a proxy in front of the
   // database, PSMDB has routers (and only when sharded), PostgreSQL has a pgBouncer pool.
   const kind = isMongo ? 'psmdb' : isPG ? 'pg' : isPS ? 'ps' : 'pxc'
@@ -214,15 +217,27 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
           <KV k="Operator" v={cfg.operator ? `${cfg.operator.toUpperCase()} ${cfg.operatorVer}` : 'none'} />
           {cfg.operator && <KV k="Namespace" v={ns} mono />}
           {cfg.operator && <KV k="Database cluster" v={cr} mono />}
+          {cfg.operator && isCNPG && <KV k="Status" v={cfg.cnpgStatus || 'unknown'} />}
+          {cfg.operator && isCNPG && <KV k="Instances" v={`${cfg.cnpgInstances} · ${cfg.cnpgStorageGb} GiB each`} />}
+          {cfg.operator && isCNPG && <KV k="PostgreSQL" v={cfg.cnpgPgVersion || "operator default"} />}
+          {cfg.operator && isCNPG && <KV k="Expose · Postgres" v={cfg.cnpgExpose || 'ClusterIP'} />}
+          {cfg.operator && isCNPG && <KV k="Endpoint" v={cfg.cnpgEndpoint || '—'} mono />}
+          {cfg.operator && isCNPG && <KV k="App role / database" v={`${cfg.cnpgAppUser || '—'} / ${cfg.cnpgAppDb || '—'}`} mono />}
+          {cfg.operator && isCNPG && <KV k="Password in Secret" v={cfg.cnpgAppSecret || '—'} mono />}
           {cfg.operator && isPS && <KV k="Replication" v={cfg.clusterType === 'async' ? 'Async (Orchestrator)' : 'Group Replication'} />}
-          {cfg.operator && <KV k={isMongo ? 'Topology' : 'Front end'} v={isMongo ? (cfg.sharding ? 'Sharded (rs0 + config servers + mongos)' : 'Replica set (rs0)') : frontEnd} />}
-          {cfg.operator && <KV k={isMongo ? 'Expose · replica set' : 'Expose · database'} v={exposeDb} />}
-          {cfg.operator && (!isMongo || cfg.sharding) && (
+          {cfg.operator && !isCNPG && <KV k={isMongo ? 'Topology' : 'Front end'} v={isMongo ? (cfg.sharding ? 'Sharded (rs0 + config servers + mongos)' : 'Replica set (rs0)') : frontEnd} />}
+          {cfg.operator && !isCNPG && <KV k={isMongo ? 'Expose · replica set' : 'Expose · database'} v={exposeDb} />}
+          {cfg.operator && !isCNPG && (!isMongo || cfg.sharding) && (
             <KV k={isMongo ? 'Expose · mongos' : isPG ? 'Expose · pgBouncer' : 'Expose · proxy'} v={exposeFront} />
           )}
           <KV k="Backups" v={cfg.backupRepo || 'none'} />
           <KV k="Monitored by" v={cfg.monitoredBy} mono />
-          {cfg.monitoredBy && <KV k="PMM service token" v={cfg.pmmToken || 'not created'} />}
+          {cfg.monitoredBy && !isCNPG && <KV k="PMM service token" v={cfg.pmmToken || 'not created'} />}
+          {cfg.grafanaUrl && (
+            <KV k="Grafana" v={cfg.grafanaUrl === 'pending' ? 'awaiting a LoadBalancer address' : (
+              <a className="text-accent underline" href={cfg.grafanaUrl} target="_blank" rel="noreferrer">{cfg.grafanaUrl}</a>
+            )} />
+          )}
           <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
           <Button variant="outline" size="sm" className="mt-2 w-full"
             onClick={() => openTerminal({ stackId, nodeId, title: `${cfg.hostname} · root` })}>

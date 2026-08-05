@@ -312,9 +312,9 @@ type designFrame struct {
 	// The Kubernetes the cluster runs: a rancher/k3s tag from the catalog ("" / "latest" = the
 	// catalog's newest). k3d's own default trails the releases, and an API server too old for an
 	// operator's CRDs makes that operator uninstallable — so the version is ours to choose.
-	K3DK3SVersion  string `json:"k3dK3sVersion"`
-	K3DCPUs        int    `json:"k3dCpus"`        // total CPUs for the cluster
-	K3DMemoryGB    int    `json:"k3dMemoryGb"`    // total memory (GiB) for the cluster
+	K3DK3SVersion string `json:"k3dK3sVersion"`
+	K3DCPUs       int    `json:"k3dCpus"`     // total CPUs for the cluster
+	K3DMemoryGB   int    `json:"k3dMemoryGb"` // total memory (GiB) for the cluster
 	// Disk rate limits imposed on each k3s node container, in MB/s (0 = unlimited). Unlike
 	// CPUs/memory these are per node, not a cluster total divided up: blk-throttle is
 	// per-cgroup, so a shared cluster-wide ceiling is not something the kernel can enforce.
@@ -328,9 +328,10 @@ type designFrame struct {
 	K3DCNPGVersion     string `json:"k3dCnpgVersion"`     // PostgreSQL major ("17"); "" → chart default
 	K3DCNPGMonitoring  bool   `json:"k3dCnpgMonitoring"`  // install kube-prometheus-stack + PodMonitor
 	K3DCNPGPromVersion string `json:"k3dCnpgPromVersion"` // kube-prometheus-stack chart version; "" → latest
-	K3DOperator    string `json:"k3dOperator"`    // "" | "pxc" | "ps" | "psmdb" | "pg"
-	K3DOperatorVer string `json:"k3dOperatorVer"` // "" = the catalog's latest
-	K3DNamespace   string `json:"k3dNamespace"`   // namespace the operator + CR are installed into
+	K3DCNPGExpose      string `json:"k3dCnpgExpose"`      // "clusterip" (default) | "loadbalancer" for the primary
+	K3DOperator        string `json:"k3dOperator"`        // "" | "pxc" | "ps" | "psmdb" | "pg"
+	K3DOperatorVer     string `json:"k3dOperatorVer"`     // "" = the catalog's latest
+	K3DNamespace       string `json:"k3dNamespace"`       // namespace the operator + CR are installed into
 	// The proxy in front of the database. cr.yaml ships HAProxy enabled and the alternative disabled;
 	// they are mutually exclusive, so choosing one disables the other. PXC: haproxy | proxysql.
 	// PS: haproxy | router (MySQL Router understands group replication only).

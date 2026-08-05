@@ -103,10 +103,23 @@ type k3dConfig struct {
 	// PG: the primary Postgres Service and the pgBouncer pool in front of it.
 	ExposePG        string `json:"exposePg"`
 	ExposePGBouncer string `json:"exposePgbouncer"`
-	MonitoredBy     string `json:"monitoredBy"` // PMM FQDN ("" = none)
-	PMMToken        string `json:"pmmToken"`    // "" | "expires <when>" — the service token's lifetime
-	BackupRepo      string `json:"backupRepo"`  // SeaweedFS S3 target ("" = none)
-	Image           string `json:"image"`       // the k3s image k3d used
+	// CloudNativePG (Operator=="cnpg"): the cluster's shape, how to reach it, and where the
+	// generated application password lives. The password itself is deliberately not here —
+	// k3dConfig is the non-secret profile.
+	CNPGInstances int    `json:"cnpgInstances"`
+	CNPGStorageGB int    `json:"cnpgStorageGb"`
+	CNPGPGVersion string `json:"cnpgPgVersion"` // "" = the operator's default
+	CNPGStatus    string `json:"cnpgStatus"`    // the Cluster's phase + ready/desired
+	CNPGExpose    string `json:"cnpgExpose"`    // ClusterIP | LoadBalancer
+	CNPGEndpoint  string `json:"cnpgEndpoint"`  // host:port to reach the primary
+	CNPGAppSecret string `json:"cnpgAppSecret"` // Secret holding the app role's password
+	CNPGAppUser   string `json:"cnpgAppUser"`
+	CNPGAppDB     string `json:"cnpgAppDb"`
+	GrafanaURL    string `json:"grafanaUrl"`  // Grafana's LoadBalancer URL ("" = not installed)
+	MonitoredBy   string `json:"monitoredBy"` // PMM FQDN, or Prometheus/Grafana ("" = none)
+	PMMToken      string `json:"pmmToken"`    // "" | "expires <when>" — the service token's lifetime
+	BackupRepo    string `json:"backupRepo"`  // SeaweedFS S3 target ("" = none)
+	Image         string `json:"image"`       // the k3s image k3d used
 }
 
 // ---------------------------------------------------------------- the k3d binary

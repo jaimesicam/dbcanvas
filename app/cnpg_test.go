@@ -123,3 +123,38 @@ func TestPromStackValuesScrapeAllNamespaces(t *testing.T) {
 		}
 	}
 }
+
+func TestCNPGPrimaryServiceManifest(t *testing.T) {
+	got := string(cnpgPrimaryServiceManifest("pg", "ns"))
+	for _, want := range []string{
+		"kind: Service",
+		"  name: pg-rw-lb",
+		"  type: LoadBalancer",
+		"    cnpg.io/cluster: pg",
+		// Selecting the primary *role* rather than an instance name is what makes the
+		// address follow a failover instead of pinning to pg-1.
+		"    cnpg.io/instanceRole: primary",
+		"    port: 5432",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("primary service manifest missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "cnpg.io/instanceName") {
+		t.Errorf("must not pin to one instance:\n%s", got)
+	}
+}
+
+func TestCNPGExposeDefaultsToClusterIP(t *testing.T) {
+	// Unset must not hand out a MetalLB address: they are a finite pool, and the other
+	// operators' expose settings default in-cluster too.
+	if cnpgExposeLoadBalancer(designFrame{}) {
+		t.Error("unset expose should not be LoadBalancer")
+	}
+	if cnpgExposeLoadBalancer(designFrame{K3DCNPGExpose: "clusterip"}) {
+		t.Error("clusterip should not be LoadBalancer")
+	}
+	if !cnpgExposeLoadBalancer(designFrame{K3DCNPGExpose: "loadbalancer"}) {
+		t.Error("loadbalancer should be LoadBalancer")
+	}
+}

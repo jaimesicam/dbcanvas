@@ -5356,6 +5356,13 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
                   onChange={(e) => patchFrame(f.id, { k3dCnpgVersion: e.target.value })} />
               )}
             </Field>
+            <Field label="Expose · Postgres primary" hint="CloudNativePG's own services are all ClusterIP. A LoadBalancer address makes the primary reachable from outside the cluster, and follows failover.">
+              <select className={`${inputCls} ${lock}`} value={f.k3dCnpgExpose || 'clusterip'} disabled={deployed}
+                onChange={(e) => patchFrame(f.id, { k3dCnpgExpose: e.target.value })}>
+                <option value="clusterip">ClusterIP (in-cluster only)</option>
+                <option value="loadbalancer">LoadBalancer (MetalLB address)</option>
+              </select>
+            </Field>
             <label className="flex items-start gap-2 text-sm">
               <input type="checkbox" className="mt-1" disabled={deployed}
                 checked={!!f.k3dCnpgMonitoring}

@@ -11785,3 +11785,65 @@ latest and fails loudly on a bad pin. An absent catalog should not be what stops
 deploying, matching the pmm/k3s fallbacks. `ok=false` therefore means specifically "the catalog
 knows this chart, and that is not one of its versions". The UI mirrors it: a dropdown when the
 catalog has versions, a free-text box with a "run `make versions`" hint when it does not.
+
+## 224. CloudNativePG, finished: reachable Postgres, reachable Grafana, recorded state — `app/cnpg.go`, `app/k3d.go`, `app/intranet.go`, `app/web/src/pages/{StackDesigner,K3DManager}.jsx`
+
+§222 installed CloudNativePG and §223 gave it a version picker, but the result was not yet
+*usable*: the cluster's status was never read back, its credentials and endpoint were nowhere,
+Grafana had a `LoadBalancer` Service whose address nothing ever looked up, and all three
+services CNPG creates are ClusterIP — so the database was unreachable from outside Kubernetes.
+This closes that.
+
+**A race that only a fast machine finds.** Applying the Cluster CR straight after the CRD
+became established fails:
+
+    failed calling webhook "mcluster.cnpg.io": failed to call webhook: Post
+    "https://cnpg-webhook-service.cnpg-system.svc:443/mutate-postgresql-cnpg-io-v1-cluster":
+    no endpoints available for service "cnpg-webhook-service"
+
+The CRD is registered by the chart, but the *mutating webhook* every Cluster create is admitted
+through is served by the operator's own Deployment. §222 passed its live test only because
+several other steps happened to take a few seconds in between. `installCNPGOperator` now waits
+for the `cloudnative-pg` Deployment as well — the same lesson cert-manager's webhook already
+taught in §222, in a second place.
+
+**Reaching Postgres.** CNPG's `-rw`/`-ro`/`-r` services are all ClusterIP, so a new expose
+option creates a `<cluster>-rw-lb` LoadBalancer Service. Its selector is the *role* pair
+(`cnpg.io/cluster` + `cnpg.io/instanceRole: primary`), not an instance name, so the address
+follows a failover instead of pinning to `-1`. It defaults to ClusterIP: MetalLB addresses come
+from a finite pool, and the other operators' expose settings default in-cluster too.
+
+**Reaching Grafana.** `grafana.service.type: LoadBalancer` was already in the chart values;
+what was missing was looking the address up and recording it. `waitForLoadBalancerIP` polls
+`status.loadBalancer.ingress[0]`, taking `ip` or `hostname` — and returns empty rather than
+erroring, because an unassigned address must not fail a cluster that is otherwise fine. Both
+call sites record `"pending"` and say where to look.
+
+    Why an address can legitimately never arrive: on a stock k3d cluster (klipper servicelb,
+    traefik enabled) a second LoadBalancer stays <pending> forever, because klipper binds
+    hostPort 80 on the node and traefik already holds it. dbcanvas does not hit this — it
+    disables servicelb and traefik and installs MetalLB, which hands out pool addresses
+    instead of host ports — but the code must not assume an address is coming.
+
+**Recorded state, so the panel has something true to show.** `k3dConfig` gained the cluster's
+shape (instances, storage, PostgreSQL version), its status (`waitForCNPGCluster`, the phase
+plus ready/desired), its endpoint and expose type, Grafana's URL, and the app role and database
+name read out of the `<cluster>-app` Secret that CNPG generates. **The password is deliberately
+not recorded** — `k3dConfig` is the non-secret profile, so the panel names the Secret and stops
+there. `cnpgSecretValue` returns empty on any failure, including a missing key, so a blank row
+never becomes a leaked kubectl error string.
+
+The manager panel's Percona-shaped rows (front end, expose·database, expose·proxy, PMM service
+token) are gated off for CNPG, which has no proxy tier and no PMM.
+
+**Verified against a live k3d cluster with MetalLB**, through the app's own helpers:
+
+    waitForCNPGCluster       Cluster in healthy state (1/1 ready)
+    cnpgSecretValue          app / app  (and "" for a missing key, not an error string)
+    waitForLoadBalancerIP    Grafana  172.28.0.201  → serves <title>Grafana</title>
+    primary Service          172.28.0.202, endpoints → pg-min-1 (the primary pod)
+    psql over that address   connected as app to app
+
+**Still not exercised end to end:** a barman-cloud backup actually landing in a SeaweedFS
+bucket. Every manifest and the plugin install are verified, but no WAL or base backup has been
+round-tripped against a live SeaweedFS node.
