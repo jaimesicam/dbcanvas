@@ -24,6 +24,7 @@ import (
 type Docker struct {
 	http *http.Client
 	sock string
+	throttleCache // resolved host block device for --device-read-bps/--device-write-bps
 }
 
 // NewDocker returns a client bound to the given unix socket path.
@@ -418,6 +419,14 @@ type ContainerSpec struct {
 	// Set from the design node via applyVMSize.
 	CPUs     int
 	MemoryMB int
+	// Per-node disk throttling → `docker run --device-read-bps/--device-write-bps`,
+	// in bytes/sec. 0 = no limit. DevicePath is the host block device the limits
+	// apply to; empty means "the device backing the Docker root", resolved at create
+	// time (see blkio.go). Docker-only — the Vagrant engine has no blk-throttle
+	// equivalent and ignores these. Set from the design node via applyVMSize.
+	DeviceReadBPS  int64
+	DeviceWriteBPS int64
+	DevicePath     string
 }
 
 // PortMap publishes a container TCP port to a specific host port (HostPort 0
@@ -494,6 +503,21 @@ func (d *Docker) ContainerCreate(ctx context.Context, spec ContainerSpec) (strin
 		memBytes := int64(spec.MemoryMB) * (1 << 20)
 		host["Memory"] = memBytes
 		host["MemorySwap"] = memBytes // no swap headroom: the limit means what it says
+	}
+	// Disk throttling. Both limits target the same device, so resolve it once. A
+	// failure here fails the create rather than silently leaving the node unthrottled:
+	// a node whose disk limit wasn't applied is not the node the design asked for.
+	if spec.DeviceReadBPS > 0 || spec.DeviceWriteBPS > 0 {
+		dev, err := d.throttleDeviceFor(ctx, spec.DevicePath)
+		if err != nil {
+			return "", fmt.Errorf("container %s: disk rate limit: %w", spec.Name, err)
+		}
+		if spec.DeviceReadBPS > 0 {
+			host["BlkioDeviceReadBps"] = []map[string]any{{"Path": dev.Path, "Rate": spec.DeviceReadBPS}}
+		}
+		if spec.DeviceWriteBPS > 0 {
+			host["BlkioDeviceWriteBps"] = []map[string]any{{"Path": dev.Path, "Rate": spec.DeviceWriteBPS}}
+		}
 	}
 	ports := spec.PublishPorts
 	if spec.PublishPort > 0 {

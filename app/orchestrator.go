@@ -140,7 +140,7 @@ func (a *App) provisionOrchestrator(st Stack, n designNode, doc designDoc) {
 			Network: networkName(st.ID), Aliases: []string{host},
 			DNS: []string{intranetIP}, DNSSearch: []string{domain},
 		}
-		applyVMSize(&spec, n.CPUs, n.MemoryGB)
+		applyVMSize(&spec, n.limits())
 		spec.PublishMap = []PortMap{{ContainerPort: orchestratorPort, HostPort: webPort}}
 		id, err := a.engCtx(ctx).ContainerCreate(ctx, spec)
 		if err != nil {

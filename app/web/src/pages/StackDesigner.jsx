@@ -3583,12 +3583,19 @@ function KeycloakOidcFields({ node: n, nodes, patchNode, deployed, label, pg18, 
 // the 2/2 engine defaults (DBCANVAS_VM_CPUS/MEMORY), while on Docker a blank field means no limit
 // — which is what every stack designed before these fields existed keeps getting. Locked once the
 // node is deployed, matching the OS/version fields.
+//
+// The disk rate limits (--device-read-bps/--device-write-bps) are Docker-only, so they appear
+// only on that backend. They need a host block device, which the server auto-detects from
+// Docker's data root; the override field is revealed once a limit is set, for hosts where that
+// detection picks the wrong disk.
 function VMSizeFields({ node: n, patchNode, deployed }) {
   const { settings } = useSettings()
   const docker = settings.deploymentBackend !== 'vagrant'
   const lock = deployed ? 'opacity-70' : ''
   // Blank clears the limit (0), so Docker users can go back to unlimited after typing a value.
   const size = (v) => (v === '' ? 0 : Number(v))
+  // The device override only matters once a disk limit is actually set.
+  const throttled = !!(n.deviceReadMbps || n.deviceWriteMbps)
   return (
     <div className="grid grid-cols-2 gap-2">
       <Field label="CPUs" hint={docker ? 'Container --cpus limit; blank = unlimited.' : 'VirtualBox VM CPUs.'}>
@@ -3601,6 +3608,32 @@ function VMSizeFields({ node: n, patchNode, deployed }) {
           placeholder={docker ? 'unlimited' : undefined}
           value={docker ? (n.memoryGb || '') : (n.memoryGb || 2)} onChange={(e) => patchNode(n.id, { memoryGb: size(e.target.value) })} />
       </Field>
+      {docker && (
+        <>
+          <Field label="Disk read (MB/s)" hint="Container --device-read-bps; blank = unlimited.">
+            <input type="number" min="1" max="16384" className={`${inputCls} ${lock}`} disabled={deployed}
+              placeholder="unlimited"
+              value={n.deviceReadMbps || ''} onChange={(e) => patchNode(n.id, { deviceReadMbps: size(e.target.value) })} />
+          </Field>
+          <Field label="Disk write (MB/s)" hint="Container --device-write-bps; blank = unlimited.">
+            <input type="number" min="1" max="16384" className={`${inputCls} ${lock}`} disabled={deployed}
+              placeholder="unlimited"
+              value={n.deviceWriteMbps || ''} onChange={(e) => patchNode(n.id, { deviceWriteMbps: size(e.target.value) })} />
+          </Field>
+          {throttled && (
+            <div className="col-span-2 space-y-1">
+              <Field label="Block device" hint="Host device the disk limits apply to. Blank = auto-detect the disk backing Docker's data root.">
+                <input className={`${inputCls} ${lock}`} disabled={deployed} placeholder="auto-detect (e.g. /dev/sda)"
+                  value={n.devicePath ?? ''} onChange={(e) => patchNode(n.id, { devicePath: e.target.value })} />
+              </Field>
+              <p className="text-xs text-muted">
+                Read limits apply only to reads that reach the disk — cached reads are unaffected.
+                Write limits also cover buffered writes, but bite at flush, so a workload that never syncs won’t feel them.
+              </p>
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }

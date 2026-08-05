@@ -195,7 +195,7 @@ func TestContainerCreateSizing(t *testing.T) {
 
 	create := func(name string, cpus, memGB int) (int64, int64) {
 		spec := ContainerSpec{Name: name, Image: ref, Cmd: []string{"true"}}
-		applyVMSize(&spec, cpus, memGB)
+		applyVMSize(&spec, nodeLimits{CPUs: cpus, MemoryGB: memGB})
 		id, err := d.ContainerCreate(ctx, spec)
 		if err != nil {
 			t.Fatalf("ContainerCreate(%s, cpus=%d mem=%dGiB): %v", name, cpus, memGB, err)
@@ -222,5 +222,89 @@ func TestContainerCreateSizing(t *testing.T) {
 	}
 	if nano, mem := create("dbcanvas-sizing-it-unset", 0, 0); nano != 0 || mem != 0 {
 		t.Fatalf("unsized node should stay unlimited, got NanoCpus=%d Memory=%d", nano, mem)
+	}
+}
+
+// TestContainerCreateDiskLimits verifies the per-node disk rate limits (applyVMSize →
+// ContainerSpec → HostConfig) reach the container as `docker run --device-read-bps` /
+// `--device-write-bps`, that the device path is auto-detected when the design leaves it
+// blank, and that an unthrottled node stays unthrottled.
+//
+// Opt-in (needs the daemon socket and network): DOCKER_IT=1 go test -run ContainerCreateDiskLimits
+func TestContainerCreateDiskLimits(t *testing.T) {
+	if os.Getenv("DOCKER_IT") == "" {
+		t.Skip("integration test; set DOCKER_IT=1 to run against /var/run/docker.sock")
+	}
+	const (
+		repo = "alpine"
+		tag  = "3.19"
+		ref  = repo + ":" + tag
+	)
+	d := NewDocker("/var/run/docker.sock")
+	ctx := context.Background()
+	if err := d.ImagePull(ctx, repo, tag, ""); err != nil {
+		t.Fatalf("pull %s: %v", ref, err)
+	}
+
+	// The device the limits should land on when the design supplies no override.
+	auto, err := d.resolveThrottleDevice(ctx)
+	if err != nil {
+		t.Fatalf("resolveThrottleDevice: %v", err)
+	}
+	t.Logf("auto-detected throttle device: %s", auto)
+
+	type throttle struct {
+		Path string
+		Rate int64
+	}
+	create := func(name string, lim nodeLimits) ([]throttle, []throttle) {
+		spec := ContainerSpec{Name: name, Image: ref, Cmd: []string{"true"}}
+		applyVMSize(&spec, lim)
+		id, err := d.ContainerCreate(ctx, spec)
+		if err != nil {
+			t.Fatalf("ContainerCreate(%s, %+v): %v", name, lim, err)
+		}
+		defer d.ContainerRemove(ctx, id)
+		resp, err := d.do(ctx, "GET", "/containers/"+id+"/json", nil)
+		if err != nil {
+			t.Fatalf("inspect %s: %v", name, err)
+		}
+		var c struct {
+			HostConfig struct {
+				BlkioDeviceReadBps  []throttle
+				BlkioDeviceWriteBps []throttle
+			}
+		}
+		if err := json.Unmarshal(drain(resp), &c); err != nil {
+			t.Fatalf("decode container json: %v", err)
+		}
+		return c.HostConfig.BlkioDeviceReadBps, c.HostConfig.BlkioDeviceWriteBps
+	}
+
+	// Both limits set, device auto-detected.
+	rd, wr := create("dbcanvas-blkio-it-both", nodeLimits{DeviceReadMBps: 4, DeviceWriteMBps: 8})
+	if len(rd) != 1 || rd[0].Rate != 4<<20 || rd[0].Path != auto.Path {
+		t.Fatalf("read limit → %+v, want one entry %s @ %d", rd, auto.Path, int64(4)<<20)
+	}
+	if len(wr) != 1 || wr[0].Rate != 8<<20 || wr[0].Path != auto.Path {
+		t.Fatalf("write limit → %+v, want one entry %s @ %d", wr, auto.Path, int64(8)<<20)
+	}
+
+	// Write-only: the read limit must stay absent rather than default to something.
+	if rd, wr := create("dbcanvas-blkio-it-write", nodeLimits{DeviceWriteMBps: 4}); len(rd) != 0 || len(wr) != 1 {
+		t.Fatalf("write-only node → read=%+v write=%+v, want no read limit and one write limit", rd, wr)
+	}
+
+	// An unthrottled node must not acquire a device entry at all.
+	if rd, wr := create("dbcanvas-blkio-it-unset", nodeLimits{}); len(rd) != 0 || len(wr) != 0 {
+		t.Fatalf("unthrottled node → read=%+v write=%+v, want neither", rd, wr)
+	}
+
+	// A path that exists but is not a block device must be rejected before the daemon
+	// silently accepts it and throttles nothing.
+	spec := ContainerSpec{Name: "dbcanvas-blkio-it-bad", Image: ref, Cmd: []string{"true"},
+		DeviceWriteBPS: 4 << 20, DevicePath: "/dev/null"}
+	if _, err := d.ContainerCreate(ctx, spec); err == nil {
+		t.Fatal("ContainerCreate with DevicePath=/dev/null should fail, got nil error")
 	}
 }

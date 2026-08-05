@@ -283,7 +283,7 @@ func (a *App) spockPrepareNode(ctx context.Context, st Stack, frame designFrame,
 		Network: networkName(st.ID), Aliases: []string{host},
 		DNS: []string{intranetIP}, DNSSearch: []string{domain},
 	}
-	applyVMSize(&spec, n.CPUs, n.MemoryGB)
+	applyVMSize(&spec, n.limits())
 	if n.ExportEnabled {
 		spec.PublishMap = []PortMap{{ContainerPort: patroniPGPort, HostPort: n.ExportHostPort}}
 	}

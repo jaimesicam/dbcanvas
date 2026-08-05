@@ -11539,3 +11539,63 @@ is documented behaviour working as intended, and it is worth remembering when se
 demo — seed *after* the last restart, not before.
 
 `docs/screenshots/README.md` indexes the three new images alongside the existing fourteen.
+
+## 220. Per-node disk rate limits — `app/blkio.go`, `app/docker.go`, `app/vagrant.go`, `app/intranet.go`, `app/proxysql.go`, `app/web/src/pages/StackDesigner.jsx`
+
+Nodes can now be given a disk read and/or write ceiling, the API equivalents of
+`docker run --device-read-bps` / `--device-write-bps`. They sit beside CPUs and Memory in
+the Stack Designer's sizing panel, are Docker-only (VirtualBox has no blk-throttle
+equivalent, so the Vagrant engine ignores them), and default to unlimited — every stack
+designed before these fields existed keeps the behaviour it had.
+
+**The device path is the whole problem.** Both flags want a *host block device* plus a
+rate; the kernel applies the limit to that device's major:minor. Two live findings made
+auto-detection non-optional rather than a convenience:
+
+    /dev/nope    hard failure — the daemon refuses to create the container
+    /dev/null    accepted silently: "1:3 wbps=4194304" lands in io.max, throttles nothing
+
+A wrong-but-existing path therefore produces a node that looks configured and isn't. So
+`blkio.go` resolves the device from the daemon's own `DockerRootDir` (`GET /info`) rather
+than guessing: `stat()` → `st_dev` → `/sys/dev/block/<maj>:<min>/uevent` → `DEVNAME`. A
+partition is normalised to its parent disk (cgroup v1's blk-throttle only accepts
+whole-disk numbers). The result is cached — it cannot change for a given daemon. A
+user-supplied override goes through `validateThrottleDevice`, which insists on `S_IFBLK`
+precisely to turn the `/dev/null` case into a deploy-time error.
+
+**The app runs in a container, which breaks the obvious implementation.** With only
+`/var/run/docker.sock` bind-mounted, `DockerRootDir` does not exist in the app's mount
+namespace, so stat-ing `/var/lib/docker` fails. The fallback is the app's *own* SQLite
+volume: a named Docker volume lives under `DockerRootDir` by definition, so it reports the
+same `st_dev`. sysfs saves the second half — `/sys/dev/block` is not namespaced, so the
+maj:min → `/dev/sdd` lookup works from inside the container unchanged.
+
+**Reads and writes are not symmetric**, measured on cgroup v2 + ext4:
+
+    direct write, 4 MB/s limit        4.0 MB/s   throttled
+    buffered write + fsync            4.0 MB/s   throttled  (491 MB/s unthrottled)
+    buffered write, no sync           1.8 GB/s   fills page cache, pays at flush
+    buffered re-read                  unthrottled entirely
+
+Buffered writes *are* throttled, because writeback is attributed to the originating cgroup
+when the memory controller is enabled alongside io. But the limit governs writeback
+reaching the disk, not the `write()` syscall — a workload that never syncs sees full speed.
+Databases fsync on commit, so they feel it. Reads get no such help: anything served from
+page cache bypasses the limit, and the read ceiling is only observable with `O_DIRECT` or a
+cold cache. The UI says both of these out loud rather than letting a user conclude the
+feature is broken.
+
+**A refactor came with it.** `applyVMSize` took `(cpus, memGB int)` across 18 call sites;
+adding three more knobs by parameter would have been miserable. It now takes a `nodeLimits`
+struct, with `designNode.limits()` and `proxysqlPlan.limits()` supplying it — 17 of the 18
+sites became `applyVMSize(&spec, n.limits())`, and `proxysqlPlan` swapped its
+`CPUs, MemoryGB` pair for the struct so frame members carry the new fields for free.
+
+A create that cannot resolve its device fails the create rather than quietly deploying an
+unthrottled node — a node whose limit wasn't applied is not the node the design asked for.
+
+`TestContainerCreateDiskLimits` (opt-in, `DOCKER_IT=1`) covers auto-detection, both limits
+landing on the same device, write-only leaving the read limit absent, an unthrottled node
+acquiring no device entry, and `/dev/null` being rejected. End-to-end through the real
+`ContainerCreate` path, a 32 MiB buffered+fsync write took **447 ms unthrottled and 8.31 s
+at 4 MB/s**.

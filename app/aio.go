@@ -620,7 +620,7 @@ func (a *App) aioCreateContainer(ctx context.Context, st Stack, n designNode, me
 		DNS: []string{intranetIP}, DNSSearch: []string{domain},
 		PublishMap: pubs,
 	}
-	applyVMSize(&spec, n.CPUs, n.MemoryGB)
+	applyVMSize(&spec, n.limits())
 	id, err := a.engCtx(ctx).ContainerCreate(ctx, spec)
 	if err != nil {
 		return "", fmt.Errorf("create container: %w", err)

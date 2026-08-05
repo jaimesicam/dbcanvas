@@ -25,6 +25,13 @@ type designNode struct {
 	// (DBCANVAS_VM_CPUS / DBCANVAS_VM_MEMORY), or no limit on Docker. See applyVMSize.
 	CPUs     int `json:"cpus"`     // VirtualBox vCPUs / container --cpus
 	MemoryGB int `json:"memoryGb"` // VirtualBox VM memory / container --memory, in GiB
+	// Per-node disk throttling (Docker engine only — Vagrant has no equivalent and
+	// ignores these). 0 → no limit, which is what stacks designed before these fields
+	// existed keep getting. DevicePath overrides the auto-detected Docker-root block
+	// device; "" → auto-detect. See blkio.go.
+	DeviceReadMBps  int    `json:"deviceReadMbps"`  // container --device-read-bps, in MB/s
+	DeviceWriteMBps int    `json:"deviceWriteMbps"` // container --device-write-bps, in MB/s
+	DevicePath      string `json:"devicePath"`      // "" → auto-detect
 	// PMM node fields (ignored by other node types).
 	Version          string `json:"version"`          // PMM minor version tag ("" → catalog default)
 	AdminPassword    string `json:"adminPassword"`    // PMM admin password ("" → PMM_ADMIN_PASSWORD)
