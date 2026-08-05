@@ -11844,6 +11844,54 @@ token) are gated off for CNPG, which has no proxy tier and no PMM.
     primary Service          172.28.0.202, endpoints → pg-min-1 (the primary pod)
     psql over that address   connected as app to app
 
-**Still not exercised end to end:** a barman-cloud backup actually landing in a SeaweedFS
-bucket. Every manifest and the plugin install are verified, but no WAL or base backup has been
-round-tripped against a live SeaweedFS node.
+**Backups are verified end to end** — see §225.
+
+## 225. The barman-cloud → SeaweedFS round trip, verified — no code changes
+
+§222–224 left one claim untested: that a barman-cloud backup actually lands in a SeaweedFS
+bucket, and that what lands is restorable. Objects existing in a bucket is not a backup. This
+closes it against a live stack — a k3d cluster plus a SeaweedFS container configured the way
+`provisionSeaweedFS` does it (same image, same `s3.json` identity shape, S3 on 8333, plain
+HTTP), CNPG 1.30.0, cert-manager, and barman-cloud plugin v0.14.0.
+
+**The headline: plain HTTP works.** The worry was inherited from `k3dBackupIssues`, which warns
+that the Percona PostgreSQL operator cannot back up to a SeaweedFS node without S3 TLS, because
+pgBackRest speaks S3 only over TLS. barman-cloud goes through boto3 with an explicit
+`endpointURL` and has no such requirement, so a plain-HTTP node is a usable target. No
+path-style or addressing option was needed either — the generated `ObjectStore` worked as
+written.
+
+What the object store held, from a cluster that only ever knew the SeaweedFS endpoint:
+
+    ContinuousArchiving=True (ContinuousArchivingSuccess)
+    /buckets/cnpg-backups/pgbk/wals/0000000100000000/000000010000000000000001.gz   2415920 B
+    /buckets/cnpg-backups/pgbk/base/20260805T165355/backup.info                       1431 B
+    /buckets/cnpg-backups/pgbk/base/20260805T165355/data.tar                      33300480 B
+
+**Restore is the actual proof.** A row was written *after* the base backup was taken, then a WAL
+switch forced its segment to be archived. A second cluster was then bootstrapped with
+`bootstrap.recovery` pointing at the same `ObjectStore` and nothing else:
+
+    restored: id=1 note=written after the base backup
+
+That row could only have arrived by replaying archived WAL on top of the restored base backup,
+so both halves of the backup work, not just the base.
+
+**The `ScheduledBackup` this code actually applies drives the plugin.** The nightly one is
+accepted with `method: plugin`; a copy with a 20-second cron produced
+`pgbk-soon-20260805165920` and a second `base/` prefix in the bucket. Note
+`backupOwnerReference: self` makes the Backup objects owned by the schedule, so deleting a
+ScheduledBackup cascades and removes them — the S3 data stays.
+
+**Two ordering traps found, both races that pass on a slow run.** The webhook one was fixed in
+§224; this run is what exposed it, by being fast enough to lose. Recorded here together because
+they are the same shape:
+
+    CNPG            waiting for clusters.postgresql.cnpg.io to be Established is not enough —
+                    the mutating webhook is served by the operator's Deployment, so a fast
+                    apply gets "no endpoints available for service cnpg-webhook-service"
+    cert-manager    the plugin manifest carries Certificate objects, so cert-manager's webhook
+                    Deployment must be ready, not just its CRDs
+
+One incidental gotcha for anyone poking at a CNPG pod: `psql -U app` over the pod's local socket
+fails with peer authentication. Use `-U postgres -d app` on the socket, or connect over TCP.
