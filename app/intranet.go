@@ -321,6 +321,13 @@ type designFrame struct {
 	K3DDiskReadMBps  int    `json:"k3dDiskReadMbps"`
 	K3DDiskWriteMBps int    `json:"k3dDiskWriteMbps"`
 	K3DDevicePath    string `json:"k3dDevicePath"` // "" → auto-detect the Docker-root device
+	// CloudNativePG frame fields (K3DOperator=="cnpg"; ignored by the Percona operators).
+	// Backups reuse the frame's SeaweedFSNodeID/SeaweedFSBucket, like every other operator.
+	K3DCNPGInstances   int    `json:"k3dCnpgInstances"`   // Postgres instances (1..5); 0 → 3
+	K3DCNPGStorageGB   int    `json:"k3dCnpgStorageGb"`   // per-instance PVC size in GiB; 0 → 1
+	K3DCNPGVersion     string `json:"k3dCnpgVersion"`     // PostgreSQL major ("17"); "" → chart default
+	K3DCNPGMonitoring  bool   `json:"k3dCnpgMonitoring"`  // install kube-prometheus-stack + PodMonitor
+	K3DCNPGPromVersion string `json:"k3dCnpgPromVersion"` // kube-prometheus-stack chart version; "" → latest
 	K3DOperator    string `json:"k3dOperator"`    // "" | "pxc" | "ps" | "psmdb" | "pg"
 	K3DOperatorVer string `json:"k3dOperatorVer"` // "" = the catalog's latest
 	K3DNamespace   string `json:"k3dNamespace"`   // namespace the operator + CR are installed into

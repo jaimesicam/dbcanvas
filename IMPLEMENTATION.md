@@ -11649,3 +11649,80 @@ and the log says so rather than leaving the design's limit looking applied.
 Verified against a live k3d cluster through the app's own `ApplyDiskLimits`: a 32 MiB direct
 write inside the server node went from **3.5 GB/s to 4.2 MB/s** at a 4 MB/s ceiling, with
 the helper reporting `8:48 rbps=max wbps=4194304 riops=max wiops=max`.
+
+## 222. CloudNativePG on K3D, with barman-cloud backups and Prometheus/Grafana — `app/cnpg.go`, `app/k3d.go`, `app/intranet.go`, `app/web/src/pages/StackDesigner.jsx`
+
+A K3D frame can now run **CloudNativePG** instead of one of the four Percona operators, with
+optional barman-cloud backups to a SeaweedFS node and optional Prometheus + Grafana. It is
+the first operator here that is *Helm*-installed rather than tarball-installed.
+
+**Helm without a helm binary.** The app image bakes only `k3d`, and `kubectl` is run by
+exec'ing into the k3s node. Rather than add helm to the image, this uses what k3s already
+ships: the **helm-controller** and its `HelmChart` CRD (`helm.cattle.io/v1`). Applying a
+HelmChart manifest through the existing `kubectlApply` *is* a Helm install — `helmChartManifest`
+renders one, with optional `valuesContent`. Measured on a live cluster: the CNPG chart went
+from applied to CRDs-established in **6 seconds**. The same one function installs
+kube-prometheus-stack and cert-manager.
+
+**Two APIs the reference quickstart still uses are dead ends here**, and only the live
+operator said so — the docs page describes `barmanObjectStore` as merely deprecated. A
+server-side dry-run against CNPG 1.30 returns:
+
+    Native support for Barman Cloud backups and recovery is deprecated and will be
+    completely removed in CloudNativePG 1.31.0. Found usage in: spec.backup.barmanObjectStore
+
+    spec.monitoring.enablePodMonitor is deprecated ... Set this field to false and create
+    a PodMonitor resource for your cluster
+
+Removed in **1.31.0** — the next minor. Since a HelmChart with no pinned version installs the
+repo's latest, a design written against the in-tree field would break the moment 1.31 ships.
+So neither is used:
+
+- Backups go through the **Barman Cloud Plugin** (CNPG-I), which is the supported path and
+  runs the same barman-cloud underneath. The S3 configuration lives in its own
+  `ObjectStore` (`barmancloud.cnpg.io/v1`) whose `spec.configuration` has the same shape as
+  the retired in-tree block, and the Cluster attaches it via `spec.plugins` with
+  `isWALArchiver: true` — without which the cluster would take base backups with no WAL
+  stream, i.e. nothing restorable. The `ScheduledBackup` uses `method: plugin`.
+- The `PodMonitor` is written as its own resource, selecting `cnpg.io/cluster`.
+
+**The plugin's cost is cert-manager**, which it needs because it serves gRPC to the operator
+over TLS, and it must live in the operator's own namespace. `installBarmanPlugin` installs
+cert-manager by chart and then waits for the **webhook Deployment**, not just the CRDs — the
+plugin manifest contains `Certificate` objects that the webhook admits, so CRDs alone are not
+enough.
+
+**Ordering is load-bearing** and each step waits rather than sleeps:
+kube-prometheus-stack first (it brings the PodMonitor CRD, and applying the PodMonitor before
+it exists fails with `no matches for kind "PodMonitor"` — observed), then the operator, then
+the namespace, then the backup secret, then the ObjectStore, then the Cluster, then the
+ScheduledBackup and monitoring resources. `waitForCRD` polls for `Established`;
+`waitForDeployment` polls for a ready replica.
+
+**One inherited caveat does not apply.** `k3dBackupIssues` warns that the Percona PostgreSQL
+operator cannot back up to a plain-HTTP SeaweedFS node, because pgBackRest speaks S3 only
+over TLS. barman-cloud goes through boto3 and has no such requirement, so plain HTTP is a
+usable target — and that warning is already scoped to `K3DOperator == "pg"`, so CNPG is
+correctly exempt. CNPG is also exempt from the `make versions` operator-version check: its
+version is a *chart* version, resolved by helm against the chart repo.
+
+`promStackValues` disables Alertmanager, puts Grafana on a LoadBalancer for MetalLB, and sets
+`podMonitorSelectorNilUsesHelmValues: false` + `ruleSelectorNilUsesHelmValues: false` —
+without those two, Prometheus only looks at its own release's namespace and silently ignores
+the CNPG PodMonitor in the database namespace.
+
+Every failure past the operator itself degrades rather than aborts: no plugin, no ObjectStore,
+no Prometheus CRDs — each logs what was skipped and deploys the cluster anyway, because a
+Postgres cluster without backups is worth more than no cluster, and a Cluster referencing a
+plugin the operator has never heard of is worth less than either.
+
+**Verified against a live k3d cluster**: every generated manifest passes
+`kubectl apply --dry-run=server` with **no deprecation warnings**, and a real `Cluster`
+reached `Cluster in healthy state|1|1` in **~70 seconds** — the same jsonpath `cnpgStatus`
+parses, including the empty-phase case it reports as "pending". `cnpg_test.go` locks in the
+parts a dry-run cannot catch: that the removed and deprecated fields stay absent, and that an
+unconfigured option emits no stanza at all.
+
+**Not yet exercised end to end:** a real backup landing in a SeaweedFS bucket. The manifests
+and the plugin install are verified, but no WAL/base backup has been round-tripped against a
+live SeaweedFS node.

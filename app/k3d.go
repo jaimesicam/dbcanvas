@@ -60,7 +60,7 @@ var k3dOperatorRepos = map[string]string{
 }
 
 // k3dDeployableOperator is the subset DBCanvas can actually install — all four, now.
-var k3dDeployableOperator = map[string]bool{"pxc": true, "ps": true, "psmdb": true, "pg": true}
+var k3dDeployableOperator = map[string]bool{"pxc": true, "ps": true, "psmdb": true, "pg": true, "cnpg": true}
 
 // k3dExposeTypes are the Kubernetes Service types a cr.yaml `expose` section accepts.
 var k3dExposeTypes = map[string]string{
@@ -197,6 +197,10 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 	if op := strings.TrimSpace(f.K3DOperator); op != "" {
 		if !k3dDeployableOperator[op] {
 			out = append(out, issue{"error", "K3D cluster " + name + ": unknown operator " + op})
+		} else if op == "cnpg" {
+			// CloudNativePG is not in the Percona operator catalog `make versions` builds —
+			// its versions are chart versions, resolved by helm against the chart repo at
+			// install time. An empty version means the repo's latest, which is valid.
 		} else if _, ok := opCat.resolveOperatorVersion(op, f.K3DOperatorVer); !ok {
 			out = append(out, issue{"error", "K3D cluster " + name + " requests an unknown " + op + " operator version — pick one from the list, or run `make versions`"})
 		}
@@ -641,6 +645,12 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		case "pg":
 			if err := a.installPGOperator(ctx, st, frame, doc, serverID, &base, pr); err != nil {
 				failAll("install the PostgreSQL operator: %v", err)
+				return
+			}
+		case "cnpg":
+			// Helm-installed rather than bundle.yaml-installed — see cnpg.go.
+			if err := a.installCNPGOperator(ctx, st, frame, doc, serverID, &base, pr); err != nil {
+				failAll("install the CloudNativePG operator: %v", err)
 				return
 			}
 		}

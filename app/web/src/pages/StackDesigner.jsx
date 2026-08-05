@@ -684,7 +684,7 @@ function validBucketName(b) {
 
 // The Percona operators a K3D frame can install (PostgreSQL is discovered by `make versions` but
 // not deployable yet).
-const K3D_OPERATOR_LABEL = { pxc: 'PXC operator', ps: 'MySQL (PS) operator', psmdb: 'MongoDB operator', pg: 'PostgreSQL operator' }
+const K3D_OPERATOR_LABEL = { pxc: 'PXC operator', ps: 'MySQL (PS) operator', psmdb: 'MongoDB operator', pg: 'PostgreSQL operator', cnpg: 'CloudNativePG' }
 
 // typeColor maps a node/frame type to its canvas color so a toolbar "add" button can
 // be tinted to match the node/frame it creates. addBtnStyle turns that into inline
@@ -5189,6 +5189,8 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
     return () => { alive = false }
   }, [])
   const op = f.k3dOperator || ''
+  // CloudNativePG is Helm-installed, so its version is a chart version and it has its own knobs.
+  const cnpg = op === 'cnpg'
   const versions = ops?.[op]?.versions || []
   const latest = ops?.[op]?.latest || ''
   // A sharded MongoDB cluster is 9 pods (replica set + config servers + mongos), not 3 — and so is an
@@ -5274,7 +5276,7 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
       )}
 
       <div className="space-y-2 rounded-lg border border-dashed p-2">
-        <div className="text-xs font-medium text-muted">Percona operator</div>
+        <div className="text-xs font-medium text-muted">Database operator</div>
         <Field label="Operator">
           <select className={`${inputCls} ${lock}`} value={op} disabled={deployed}
             onChange={(e) => patchFrame(f.id, {
@@ -5286,21 +5288,71 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
             <option value="ps">Percona Operator for MySQL (Percona Server)</option>
             <option value="psmdb">Percona Operator for MongoDB (PSMDB)</option>
             <option value="pg">Percona Operator for PostgreSQL (PGO)</option>
+            <option value="cnpg">CloudNativePG (PostgreSQL)</option>
           </select>
         </Field>
         {op && (
           <>
-            <Field label="Operator version" hint="From `make versions`. The source is unpacked into /root on the first node.">
-              <select className={`${inputCls} ${lock}`} value={f.k3dOperatorVer || ''} disabled={deployed}
-                onChange={(e) => patchFrame(f.id, { k3dOperatorVer: e.target.value })}>
-                <option value="">latest{latest ? ` (${latest})` : ''}</option>
-                {versions.map((v) => <option key={v} value={v}>{v}</option>)}
-              </select>
-            </Field>
-            <Field label="Namespace" hint="The operator and its cr.yaml are installed here.">
+            {cnpg ? (
+              <Field label="Chart version" hint="CloudNativePG Helm chart version. Blank = whatever the chart repo's latest is.">
+                <input className={`${inputCls} ${lock}`} value={f.k3dOperatorVer || ''} disabled={deployed}
+                  placeholder="latest" onChange={(e) => patchFrame(f.id, { k3dOperatorVer: e.target.value })} />
+              </Field>
+            ) : (
+              <Field label="Operator version" hint="From `make versions`. The source is unpacked into /root on the first node.">
+                <select className={`${inputCls} ${lock}`} value={f.k3dOperatorVer || ''} disabled={deployed}
+                  onChange={(e) => patchFrame(f.id, { k3dOperatorVer: e.target.value })}>
+                  <option value="">latest{latest ? ` (${latest})` : ''}</option>
+                  {versions.map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </Field>
+            )}
+            <Field label="Namespace" hint={cnpg ? 'The Cluster CR is created here; the operator itself runs in cnpg-system.' : 'The operator and its cr.yaml are installed here.'}>
               <input className={`${inputCls} ${lock}`} value={f.k3dNamespace ?? op} disabled={deployed}
                 onChange={(e) => patchFrame(f.id, { k3dNamespace: e.target.value })} />
             </Field>
+          </>
+        )}
+        {cnpg && (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Instances" hint="Postgres pods (1 primary + replicas).">
+                <input type="number" min="1" max="5" className={`${inputCls} ${lock}`} disabled={deployed}
+                  value={f.k3dCnpgInstances || 3}
+                  onChange={(e) => patchFrame(f.id, { k3dCnpgInstances: Number(e.target.value) })} />
+              </Field>
+              <Field label="Storage (GiB per instance)">
+                <input type="number" min="1" max="512" className={`${inputCls} ${lock}`} disabled={deployed}
+                  value={f.k3dCnpgStorageGb || 1}
+                  onChange={(e) => patchFrame(f.id, { k3dCnpgStorageGb: Number(e.target.value) })} />
+              </Field>
+            </div>
+            <Field label="PostgreSQL major" hint="Blank = the operator's default. Pins imageName to ghcr.io/cloudnative-pg/postgresql:<major>.">
+              <input className={`${inputCls} ${lock}`} value={f.k3dCnpgVersion ?? ''} disabled={deployed}
+                placeholder="operator default (e.g. 17)"
+                onChange={(e) => patchFrame(f.id, { k3dCnpgVersion: e.target.value })} />
+            </Field>
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" className="mt-1" disabled={deployed}
+                checked={!!f.k3dCnpgMonitoring}
+                onChange={(e) => patchFrame(f.id, { k3dCnpgMonitoring: e.target.checked })} />
+              <span>
+                Monitor with Prometheus + Grafana
+                <span className="block text-xs text-muted">
+                  Installs kube-prometheus-stack via Helm into <span className="font-mono">monitoring</span>, then a
+                  PodMonitor for this cluster and CloudNativePG's alerting rules. Grafana gets a LoadBalancer
+                  address; its admin password comes from <span className="font-mono">GRAFANA_PASSWORD</span>.
+                </span>
+              </span>
+            </label>
+            {f.seaweedfsNodeId && (
+              <p className="text-xs text-muted">
+                Backups go to the selected SeaweedFS bucket with barman-cloud, via the CloudNativePG barman-cloud
+                plugin (an ObjectStore resource plus a nightly ScheduledBackup, WAL archiving continuous). That
+                plugin needs cert-manager, which is installed alongside it. Unlike the Percona PostgreSQL
+                operator, barman-cloud does not require S3 over TLS, so a plain-HTTP SeaweedFS node works.
+              </p>
+            )}
           </>
         )}
         {/* Expose is per cr.yaml section: the database tier and its front end are independent, so the
