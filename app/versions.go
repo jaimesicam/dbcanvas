@@ -213,10 +213,26 @@ type OperatorVersions struct {
 // OperatorCatalog maps a product ("pxc" | "psmdb" | "pg") to its releases.
 type OperatorCatalog map[string]OperatorVersions
 
-// loadOperatorCatalog reads the `operators:` section of versions.yaml. Like the pmm parser it
-// never errors — an empty catalog just means the K3D frame offers no operator versions (run
-// `make versions`), which validation reports rather than failing at deploy.
-func loadOperatorCatalog() OperatorCatalog {
+// loadOperatorCatalog reads the `operators:` section of versions.yaml — the Percona operators,
+// whose versions are image tags that double as git tags.
+func loadOperatorCatalog() OperatorCatalog { return loadVersionSection("operators") }
+
+// loadChartCatalog reads the `charts:` section: the Helm charts a K3D cluster installs through
+// k3s' helm-controller (CloudNativePG, kube-prometheus-stack, cert-manager). A chart version is
+// not an operator version — the CloudNativePG chart's 0.29.0 ships operator 1.30.x — which is
+// why these live in their own section rather than alongside the Percona operators.
+func loadChartCatalog() OperatorCatalog { return loadVersionSection("charts") }
+
+// loadChartImageCatalog reads the `chart_images:` section: container images a chart-installed
+// operator is pointed at, rather than the chart itself. Today that is the PostgreSQL series
+// CloudNativePG publishes, which a CNPG Cluster selects with spec.imageName.
+func loadChartImageCatalog() OperatorCatalog { return loadVersionSection("chart_images") }
+
+// loadVersionSection reads any top-level versions.yaml section whose entries carry
+// repository/latest/versions. Like the pmm parser it never errors — an empty catalog just means
+// the picker offers nothing (run `make versions`), which validation reports rather than failing
+// at deploy.
+func loadVersionSection(section string) OperatorCatalog {
 	cat := OperatorCatalog{}
 	path := versionsFilePath()
 	if path == "" {
@@ -228,9 +244,9 @@ func loadOperatorCatalog() OperatorCatalog {
 	}
 	defer f.Close()
 
-	inOperators := false // inside the top-level `operators:` block
-	product := ""        // the 2-space key currently being filled (pxc | psmdb | pg)
-	inVersions := false  // inside that product's `versions:` list
+	inSection := false  // inside the requested top-level block
+	product := ""       // the 2-space key currently being filled (e.g. pxc, cloudnative-pg)
+	inVersions := false // inside that entry's `versions:` list
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
@@ -239,16 +255,16 @@ func loadOperatorCatalog() OperatorCatalog {
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		// A top-level key ends the operators block.
+		// A top-level key ends the section.
 		if !strings.HasPrefix(line, " ") {
-			inOperators = trimmed == "operators:"
+			inSection = trimmed == section+":"
 			product, inVersions = "", false
 			continue
 		}
-		if !inOperators {
+		if !inSection {
 			continue
 		}
-		// Two-space key: a product ("pxc:").
+		// Two-space key: an entry ("pxc:", "cloudnative-pg:").
 		if strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "    ") {
 			product = strings.TrimSuffix(trimmed, ":")
 			inVersions = false
@@ -260,7 +276,7 @@ func loadOperatorCatalog() OperatorCatalog {
 		if product == "" {
 			continue
 		}
-		// Four-space keys: the product's fields.
+		// Four-space keys: the entry's fields.
 		if strings.HasPrefix(line, "    ") && !strings.HasPrefix(line, "      ") {
 			inVersions = false
 			key, val := splitYAMLKV(trimmed)
@@ -308,12 +324,40 @@ func (c OperatorCatalog) resolveOperatorVersion(product, want string) (string, b
 	return "", false
 }
 
+// resolveChartVersion resolves a Helm chart version the way resolveOperatorVersion resolves an
+// operator's, with one deliberate difference: when the catalog does not know the chart at all —
+// `make versions` was never run, or ran offline — the request is accepted rather than refused.
+// helm resolves an empty version to the repo's latest, and a pinned one fails loudly if it does
+// not exist, so an absent catalog should not be the thing that stops a cluster deploying. That
+// matches the pmm/k3s fallbacks elsewhere in this file.
+//
+// ok=false therefore means "the catalog knows this chart and that is not one of its versions".
+func (c OperatorCatalog) resolveChartVersion(chart, want string) (string, bool) {
+	ov, known := c[chart]
+	if !known || len(ov.Versions) == 0 {
+		return strings.TrimSpace(want), true
+	}
+	return c.resolveOperatorVersion(chart, want)
+}
+
 func (a *App) handleOperatorsCatalog(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.currentUser(r); !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	writeJSON(w, http.StatusOK, loadOperatorCatalog())
+	// The Percona operators keyed by product, plus the Helm charts and the images a
+	// chart-installed operator is pointed at, so one request fills every K3D version picker.
+	// Charts are namespaced under "chart:"/"image:" prefixes rather than merged flat, because
+	// a chart version and an operator version are different things that would otherwise
+	// collide (both a "pg" and a "cloudnative-pg" key, meaning different kinds of version).
+	cat := loadOperatorCatalog()
+	for name, v := range loadChartCatalog() {
+		cat["chart:"+name] = v
+	}
+	for name, v := range loadChartImageCatalog() {
+		cat["image:"+name] = v
+	}
+	writeJSON(w, http.StatusOK, cat)
 }
 
 func (a *App) handleK3SCatalog(w http.ResponseWriter, r *http.Request) {

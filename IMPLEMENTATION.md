@@ -11726,3 +11726,62 @@ unconfigured option emits no stanza at all.
 **Not yet exercised end to end:** a real backup landing in a SeaweedFS bucket. The manifests
 and the plugin install are verified, but no WAL/base backup has been round-tripped against a
 live SeaweedFS node.
+
+## 223. CloudNativePG versions come from `make versions` — `images/versions.sh`, `app/versions.go`, `app/k3d.go`, `app/web/src/pages/StackDesigner.jsx`
+
+§222 shipped CloudNativePG with its chart version as a free-text field, deliberately outside
+the catalog `make versions` builds. That was the wrong call: every other K3D version is a
+picker backed by discovery, and a hand-typed chart version is exactly what the operator
+catalog exists to prevent. Now CNPG is discovered too — but not by pretending it is a Percona
+operator, because three things genuinely differ.
+
+**It is not on Docker Hub.** `hub_tags` is the script's only fetcher and it speaks the Docker
+Hub API. CNPG's chart lives in a Helm repo index and its PostgreSQL images live on ghcr.io, so
+this adds two new discovery functions:
+
+- `chart_versions <repo-url> <chart>` reads the repo's `index.yaml`.
+- `ghcr_tags <repo> <regex>` gets an anonymous pull token, then pages the tag list.
+
+**A chart version is not an operator version.** The `operators:` section means "an image tag
+that is also the git tag carrying deploy/bundle.yaml". The CloudNativePG chart's 0.29.0 ships
+operator 1.30.x — different numbers, different meaning. So charts get their own `charts:`
+section (cloudnative-pg, kube-prometheus-stack, cert-manager) and the images a chart-installed
+operator is *pointed at* get `chart_images:` (the PostgreSQL series a CNPG `spec.imageName`
+selects). `loadOperatorCatalog` was generalised into `loadVersionSection(name)`, since all
+three sections share the repository/latest/versions shape.
+
+**Three things the live repos taught, none of which the shape suggests:**
+
+    cert-manager        publishes v-prefixed chart versions ("v1.21.1") and -alpha/-beta
+                        lines. A bare x.y.z filter found *zero* versions for it.
+    kube-prometheus-    contributes ~1200 releases. Unbounded, that alone would quadruple
+    stack               versions.yaml and make the picker unusable — hence
+                        CHART_VERSION_LIMIT (40).
+    ghcr.io             paginates through a Link header, and the first page is NOT ordered:
+                        one request returns 1000 tags ending at 13.16 and misses 17 and 18
+                        entirely. Following the header is not optional.
+
+The version string is recorded verbatim, `v` prefix and all, because it goes straight back into
+a HelmChart's `version:` field.
+
+**A dependency-version leak, caught before it shipped.** The first `index.yaml` extractor
+matched `version:` at any indentation. Chart releases sit at four spaces, but
+kube-prometheus-stack's entries also carry `dependencies:` with their own `version:` at six —
+mostly globs like `0.1.*` that the semver filter rejected, but also a bare **`0.0.0`**, which
+passed cleanly and would have appeared in the picker as a real chart release. The extractor now
+anchors to exactly four spaces.
+
+**And a bug in §222 this surfaced.** Deploy-time resolution ran
+`opCat.resolveOperatorVersion("cnpg", …)`, which cannot succeed — "cnpg" is not a key in the
+Percona catalog — so it fell into the `operator = ""` branch and **silently disabled
+CloudNativePG at deploy**. A frame configured for CNPG would have come up as a plain Kubernetes
+cluster with no operator and no explanation. Both the deploy path and `k3dFrameIssues` now
+resolve CNPG against the chart catalog.
+
+`resolveChartVersion` differs from `resolveOperatorVersion` in one deliberate way: when the
+catalog does not know the chart *at all* — `make versions` never run, or run offline — the
+request is accepted rather than refused, because helm resolves a blank version to the repo's
+latest and fails loudly on a bad pin. An absent catalog should not be what stops a cluster
+deploying, matching the pmm/k3s fallbacks. `ok=false` therefore means specifically "the catalog
+knows this chart, and that is not one of its versions". The UI mirrors it: a dropdown when the
+catalog has versions, a free-text box with a "run `make versions`" hint when it does not.

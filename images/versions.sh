@@ -430,6 +430,80 @@ operator_repo() {
 }
 operator_discover() { hub_tags "$(operator_repo "$1")" '^[0-9]+\.[0-9]+\.[0-9]+$'; }
 
+# ---- Helm charts (CloudNativePG and the pieces it can pull in) ----
+# A K3D cluster installs these through k3s' bundled helm-controller (a HelmChart object),
+# so what matters is the *chart* version, which lives in the repo's index.yaml rather than
+# in any image registry. A chart version is not the operator version it ships: the
+# CloudNativePG chart's 0.29.0 carries operator 1.30.x. Hence a section of its own.
+CHART_PRODUCTS="cloudnative-pg kube-prometheus-stack cert-manager"
+chart_repo_url() {
+  case "$1" in
+    cloudnative-pg)        echo "https://cloudnative-pg.github.io/charts" ;;
+    kube-prometheus-stack) echo "https://prometheus-community.github.io/helm-charts" ;;
+    cert-manager)          echo "https://charts.jetstack.io" ;;
+  esac
+}
+
+# chart_versions <repo-url> <chart> — the chart's versions from index.yaml, newest first.
+# index.yaml lists every chart the repo hosts under `entries:`, each a list of releases, so
+# the scan has to stay inside the requested chart's block: a 2-space key at the same level
+# starts the next chart.
+#
+# The version is kept verbatim, because it goes straight back into a HelmChart's `version:`
+# and repos differ: cloudnative-pg publishes "0.29.0", cert-manager publishes "v1.21.1". The
+# regex therefore allows an optional leading v, and rejects prereleases (cert-manager ships
+# -alpha/-beta lines a lab has no business installing).
+#
+# CHART_VERSION_LIMIT caps how many are recorded. Without it kube-prometheus-stack alone
+# contributes ~1200 entries, which bloats versions.yaml and makes the picker unusable.
+CHART_VERSION_LIMIT="${CHART_VERSION_LIMIT:-40}"
+chart_versions() {
+  local url="$1" chart="$2"
+  command -v curl >/dev/null 2>&1 || { echo "WARN: curl not found; skipping ${chart} chart discovery" >&2; return 0; }
+  curl -fsSL --max-time 60 "${url}/index.yaml" 2>/dev/null | awk -v want="$chart" '
+    /^  [a-zA-Z0-9_.-]+:[[:space:]]*$/ {
+      key = $0; sub(/^  /, "", key); sub(/:[[:space:]]*$/, "", key)
+      inchart = (key == want); next
+    }
+    # Exactly four spaces: that is a release-level key inside `- ` list items under the
+    # chart. Any deeper `version:` belongs to a dependency (kube-prometheus-stack lists
+    # plenty, including a bare 0.0.0 that would otherwise pass for a chart release).
+    inchart && /^    version:[[:space:]]/ {
+      v = $0; sub(/^    version:[[:space:]]*/, "", v); gsub(/["\047]/, "", v); print v
+    }
+  ' | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | sort -rV -u | head -n "$CHART_VERSION_LIMIT"
+}
+
+# ---- images a chart-installed operator is pointed at ----
+# CloudNativePG selects its PostgreSQL with spec.imageName, and those images are on ghcr.io,
+# not Docker Hub — so hub_tags cannot reach them. Only the bare major tags are recorded
+# (13, 14, …): that is what imageName wants, and the full matrix is ~10k tags of
+# minor/patch/distro variants.
+CNPG_PG_IMAGE="ghcr.io/cloudnative-pg/postgresql"
+
+# ghcr_tags <repo-path> <tag-regex> — list a ghcr.io repository's tags. ghcr needs an
+# anonymous pull token first, and paginates through a Link header rather than a body field
+# (and the first page is not ordered, so following it is not optional).
+ghcr_tags() {
+  local repo="$1" want="$2"
+  command -v curl >/dev/null 2>&1 || { echo "WARN: curl not found; skipping ${repo} discovery" >&2; return 0; }
+  local token
+  token="$(curl -fsSL --max-time 30 "https://ghcr.io/token?scope=repository:${repo}:pull&service=ghcr.io" 2>/dev/null \
+    | grep -oE '"token":"[^"]+"' | sed 's/.*:"//;s/"//')"
+  [ -n "$token" ] || { echo "WARN: no ghcr.io token for ${repo}; skipping" >&2; return 0; }
+  local path="/v2/${repo}/tags/list?n=1000" page=1 tmp hdr
+  tmp="$(mktemp)"; hdr="$(mktemp)"
+  while [ -n "$path" ] && [ "$page" -le 15 ]; do
+    curl -fsSL --max-time 60 -D "$hdr" -H "Authorization: Bearer ${token}" "https://ghcr.io${path}" 2>/dev/null \
+      | tr ',' '\n' | tr -d '"[]{}' | sed 's/.*: *//' >>"$tmp" || break
+    path="$(grep -i '^link:' "$hdr" | sed -E 's@.*<([^>]+)>.*@\1@' | head -1)"
+    page=$((page + 1))
+  done
+  grep -E "$want" "$tmp" 2>/dev/null | sort -rV -u
+  rm -f "$tmp" "$hdr"
+}
+cnpg_pg_discover() { ghcr_tags "${CNPG_PG_IMAGE#ghcr.io/}" '^[0-9]+$'; }
+
 # ---- k3s (the Kubernetes a K3D cluster runs) ----
 # k3d creates k3s containers from rancher/k3s:<tag>. The tag is what fixes the cluster's
 # Kubernetes version, so the K3D frame lets you pick it — and pinning matters: k3d's own
@@ -710,6 +784,59 @@ for op in $OPERATOR_PRODUCTS; do
   } >>"$TMP"
 done
 
+# ---- Helm chart versions (from each chart repo's index.yaml) ----
+echo "==> discovering Helm chart versions from the chart repositories" >&2
+{
+  echo "# Helm chart versions, discovered from each chart repository's index.yaml. A K3D"
+  echo "# cluster installs these through k3s' bundled helm-controller, so a HelmChart object"
+  echo "# pins the *chart* version — which is not the version of the operator it ships (the"
+  echo "# cloudnative-pg chart 0.29.0 carries operator 1.30.x). Re-run: make versions"
+  echo "charts:"
+} >>"$TMP"
+chart_total=0
+for ch in $CHART_PRODUCTS; do
+  ch_url="$(chart_repo_url "$ch")"
+  ch_versions="$(chart_versions "$ch_url" "$ch")"
+  ch_n=$(printf '%s' "$ch_versions" | grep -c . || true)
+  ch_latest="$(printf '%s\n' "$ch_versions" | head -1)"
+  chart_total=$((chart_total + ch_n))
+  echo "    ${ch}: ${ch_n} version(s)${ch_latest:+, latest ${ch_latest}}" >&2
+  {
+    echo "  ${ch}:"
+    echo "    repository: ${ch_url}"
+    echo "    latest: \"${ch_latest}\""
+    if [ -n "$ch_versions" ]; then
+      echo "    versions:"
+      while IFS= read -r v; do [ -n "$v" ] && echo "      - \"${v}\""; done <<<"$ch_versions"
+    else
+      echo "    versions: []"
+    fi
+  } >>"$TMP"
+done
+
+# ---- images a chart-installed operator is pointed at (ghcr.io, not Docker Hub) ----
+echo "==> discovering CloudNativePG PostgreSQL image majors from ghcr.io" >&2
+cnpg_pg_versions="$(cnpg_pg_discover)"
+cnpg_pg_n=$(printf '%s' "$cnpg_pg_versions" | grep -c . || true)
+cnpg_pg_latest="$(printf '%s\n' "$cnpg_pg_versions" | head -1)"
+echo "    cnpg-postgresql: ${cnpg_pg_n} major(s)${cnpg_pg_latest:+, latest ${cnpg_pg_latest}}" >&2
+{
+  echo "# Container images a chart-installed operator is pointed at, as opposed to the chart"
+  echo "# itself. A CloudNativePG Cluster picks its PostgreSQL with spec.imageName; only the"
+  echo "# bare major tags are listed, which is what imageName takes (the registry also carries"
+  echo "# ~10k minor/patch/distro variants). Re-run: make versions"
+  echo "chart_images:"
+  echo "  cnpg-postgresql:"
+  echo "    repository: ${CNPG_PG_IMAGE}"
+  echo "    latest: \"${cnpg_pg_latest}\""
+  if [ -n "$cnpg_pg_versions" ]; then
+    echo "    versions:"
+    while IFS= read -r v; do [ -n "$v" ] && echo "      - \"${v}\""; done <<<"$cnpg_pg_versions"
+  else
+    echo "    versions: []"
+  fi
+} >>"$TMP"
+
 # ---- k3s versions (the Kubernetes a K3D cluster runs) ----
 echo "==> discovering k3s versions from Docker Hub" >&2
 k3s_versions="$(k3s_discover)"
@@ -735,7 +862,7 @@ trap - EXIT
 
 echo "" >&2
 echo "==================================================================" >&2
-echo "Probed ${count} ${PLATFORM} image(s) + ${pmm_n} PMM3 version(s) + ${op_total} operator version(s) + ${k3s_n} k3s version(s) → ${OUT}" >&2
+echo "Probed ${count} ${PLATFORM} image(s) + ${pmm_n} PMM3 version(s) + ${op_total} operator version(s) + ${chart_total} chart version(s) + ${cnpg_pg_n} PostgreSQL major(s) + ${k3s_n} k3s version(s) → ${OUT}" >&2
 if [ "$skipped" -gt 0 ]; then
   echo "Skipped ${skipped} image(s) not on ${PLATFORM}" >&2
 fi

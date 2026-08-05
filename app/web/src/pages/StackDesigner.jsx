@@ -5191,8 +5191,14 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
   const op = f.k3dOperator || ''
   // CloudNativePG is Helm-installed, so its version is a chart version and it has its own knobs.
   const cnpg = op === 'cnpg'
-  const versions = ops?.[op]?.versions || []
-  const latest = ops?.[op]?.latest || ''
+  // The catalog namespaces charts and chart-selected images apart from the Percona operators,
+  // because a chart version and an operator version are different kinds of thing.
+  const chartKey = 'chart:cloudnative-pg'
+  const chartVersions = ops?.[chartKey]?.versions || []
+  const chartLatest = ops?.[chartKey]?.latest || ''
+  const pgMajors = ops?.['image:cnpg-postgresql']?.versions || []
+  const versions = cnpg ? chartVersions : (ops?.[op]?.versions || [])
+  const latest = cnpg ? chartLatest : (ops?.[op]?.latest || '')
   // A sharded MongoDB cluster is 9 pods (replica set + config servers + mongos), not 3 — and so is an
   // async Percona Server cluster (MySQL + Orchestrator + HAProxy).
   const psAsync = op === 'ps' && f.k3dClusterType === 'async'
@@ -5294,9 +5300,19 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
         {op && (
           <>
             {cnpg ? (
-              <Field label="Chart version" hint="CloudNativePG Helm chart version. Blank = whatever the chart repo's latest is.">
-                <input className={`${inputCls} ${lock}`} value={f.k3dOperatorVer || ''} disabled={deployed}
-                  placeholder="latest" onChange={(e) => patchFrame(f.id, { k3dOperatorVer: e.target.value })} />
+              <Field label="Chart version" hint="CloudNativePG Helm chart version, from `make versions`. Not the operator version it ships — chart 0.29.0 carries operator 1.30.x.">
+                {chartVersions.length ? (
+                  <select className={`${inputCls} ${lock}`} value={f.k3dOperatorVer || ''} disabled={deployed}
+                    onChange={(e) => patchFrame(f.id, { k3dOperatorVer: e.target.value })}>
+                    <option value="">latest{chartLatest ? ` (${chartLatest})` : ''}</option>
+                    {chartVersions.map((v) => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                ) : (
+                  /* No catalog yet (`make versions` never run): helm still resolves a blank to latest. */
+                  <input className={`${inputCls} ${lock}`} value={f.k3dOperatorVer || ''} disabled={deployed}
+                    placeholder="latest — run `make versions` to list them"
+                    onChange={(e) => patchFrame(f.id, { k3dOperatorVer: e.target.value })} />
+                )}
               </Field>
             ) : (
               <Field label="Operator version" hint="From `make versions`. The source is unpacked into /root on the first node.">
@@ -5328,9 +5344,17 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
               </Field>
             </div>
             <Field label="PostgreSQL major" hint="Blank = the operator's default. Pins imageName to ghcr.io/cloudnative-pg/postgresql:<major>.">
-              <input className={`${inputCls} ${lock}`} value={f.k3dCnpgVersion ?? ''} disabled={deployed}
-                placeholder="operator default (e.g. 17)"
-                onChange={(e) => patchFrame(f.id, { k3dCnpgVersion: e.target.value })} />
+              {pgMajors.length ? (
+                <select className={`${inputCls} ${lock}`} value={f.k3dCnpgVersion || ''} disabled={deployed}
+                  onChange={(e) => patchFrame(f.id, { k3dCnpgVersion: e.target.value })}>
+                  <option value="">operator default</option>
+                  {pgMajors.map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              ) : (
+                <input className={`${inputCls} ${lock}`} value={f.k3dCnpgVersion ?? ''} disabled={deployed}
+                  placeholder="operator default (e.g. 17)"
+                  onChange={(e) => patchFrame(f.id, { k3dCnpgVersion: e.target.value })} />
+              )}
             </Field>
             <label className="flex items-start gap-2 text-sm">
               <input type="checkbox" className="mt-1" disabled={deployed}

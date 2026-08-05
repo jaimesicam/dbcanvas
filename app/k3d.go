@@ -198,9 +198,13 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 		if !k3dDeployableOperator[op] {
 			out = append(out, issue{"error", "K3D cluster " + name + ": unknown operator " + op})
 		} else if op == "cnpg" {
-			// CloudNativePG is not in the Percona operator catalog `make versions` builds —
-			// its versions are chart versions, resolved by helm against the chart repo at
-			// install time. An empty version means the repo's latest, which is valid.
+			// CloudNativePG's version is a *chart* version, so it is checked against the
+			// chart catalog rather than the Percona operator one. An empty version means the
+			// chart repo's latest; a catalog with no charts (make versions never run) accepts
+			// anything, since helm is the one that ultimately resolves it.
+			if _, ok := loadChartCatalog().resolveChartVersion(cnpgChart, f.K3DOperatorVer); !ok {
+				out = append(out, issue{"error", "K3D cluster " + name + " requests an unknown CloudNativePG chart version — pick one from the list, or run `make versions`"})
+			}
 		} else if _, ok := opCat.resolveOperatorVersion(op, f.K3DOperatorVer); !ok {
 			out = append(out, issue{"error", "K3D cluster " + name + " requests an unknown " + op + " operator version — pick one from the list, or run `make versions`"})
 		}
@@ -393,7 +397,16 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 	opCat := loadOperatorCatalog()
 	operator := strings.TrimSpace(frame.K3DOperator)
 	operatorVer := ""
-	if operator != "" {
+	if operator == "cnpg" {
+		// CloudNativePG's version is a Helm chart version, so it resolves against the chart
+		// catalog, not the Percona operator one. Without this it would fall through to the
+		// branch below, find no "cnpg" product, and silently disable the operator.
+		if v, ok := loadChartCatalog().resolveChartVersion(cnpgChart, frame.K3DOperatorVer); ok {
+			operatorVer = v
+		} else {
+			operator = ""
+		}
+	} else if operator != "" {
 		if v, ok := opCat.resolveOperatorVersion(operator, frame.K3DOperatorVer); ok {
 			operatorVer = v
 		} else {
