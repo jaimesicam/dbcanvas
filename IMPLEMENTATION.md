@@ -11599,3 +11599,53 @@ landing on the same device, write-only leaving the read limit absent, an unthrot
 acquiring no device entry, and `/dev/null` being rejected. End-to-end through the real
 `ContainerCreate` path, a 32 MiB buffered+fsync write took **447 ms unthrottled and 8.31 s
 at 4 MB/s**.
+
+## 221. K3D per-node disk rate limits — `app/blkio.go`, `app/k3d.go`, `app/intranet.go`, `app/web/src/pages/{StackDesigner,K3DManager}.jsx`
+
+A K3D cluster frame can now cap each k3s node's disk read and write bandwidth, beside the
+existing whole-cluster CPU and memory budget. Getting there needed a different mechanism
+from §220, because **Docker only honours device rate limits at container create time** and
+k3d creates the node containers itself. Three dead ends, all confirmed live:
+
+    POST /containers/{id}/update    accepts BlkioDeviceReadBps and silently discards it —
+                                    HostConfig reads back [], io.max stays empty
+    docker update                   has no CLI flag for it at all (the honest signal)
+    k3d cluster create              passes through only --servers-memory, --agents-memory,
+                                    --gpus, --runtime-label, --runtime-ulimit
+
+The existing CPU/memory path uses `ContainerUpdate` after k3d finishes, and that works for
+`NanoCpus`/`Memory` — but it cannot carry blkio. So the limit is written to the kernel
+interface directly, and *where* it is written matters:
+
+    inside the node, /sys/fs/cgroup/io.max          EPERM — a cgroup cannot limit its own
+                                                    namespace root
+    inside the node, /sys/fs/cgroup/init/io.max     works, but /init is one subtree; pods
+                                                    live under /kubepods, so this misses them
+    host side, system.slice/docker-<id>.scope       works, and descendants inherit it —
+                                                    which is what "limit this node" means
+
+The app's own container mounts only the Docker socket, not a writable cgroup tree, so it
+cannot do the write itself. `ApplyDiskLimits` spawns a short-lived privileged helper with
+the host cgroup namespace and `/sys/fs/cgroup:rw` — the mount `ContainerCreate` already
+grants privileged specs. The helper runs from **the k3s image the cluster just pulled**, so
+this costs no extra pull, and it *reads io.max back* and returns it, so the deploy log shows
+the ceiling the kernel actually holds rather than the one that was requested.
+
+Two details the implementation is deliberate about. The helper idles on `sleep` and the
+script goes through `Exec`, because `ContainerCreate` applies
+`RestartPolicy=unless-stopped`, which would relaunch a one-shot container the moment it
+exited. And the script locates the scope rather than assuming it: the systemd and cgroupfs
+drivers put it in different places, so it tries both known layouts, falls back to a bounded
+`find`, and **fails loudly** on cgroup v1 (which has no `io.max`) instead of reporting
+success — the silent no-op being exactly what this feature exists to avoid.
+
+**These limits are per node, not a cluster total split up**, unlike CPUs and memory.
+blk-throttle is per-cgroup, so a shared cluster-wide ceiling is not something the kernel can
+enforce, and pretending otherwise would be a lie in the UI. Said so in the field hint.
+
+A failure to apply is logged, not fatal — the cluster is up and usable, just unthrottled,
+and the log says so rather than leaving the design's limit looking applied.
+
+Verified against a live k3d cluster through the app's own `ApplyDiskLimits`: a 32 MiB direct
+write inside the server node went from **3.5 GB/s to 4.2 MB/s** at a 4 MB/s ceiling, with
+the helper reporting `8:48 rbps=max wbps=4194304 riops=max wiops=max`.

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 )
 
 // Per-node disk throttling — the API equivalents of `docker run
@@ -234,6 +235,111 @@ func (d *Docker) throttleDeviceFor(ctx context.Context, override string) (thrott
 		return validateThrottleDevice(override)
 	}
 	return d.resolveThrottleDevice(ctx)
+}
+
+// ---------------------------------------------------------------- already-running containers
+
+// Docker honours device rate limits only at *create* time. The update endpoint accepts
+// BlkioDeviceReadBps/BlkioDeviceWriteBps and silently discards them — HostConfig reads back
+// empty and io.max never changes — and `docker update` has no CLI flag for them at all.
+// k3d, for its part, passes through only --servers-memory/--agents-memory/--gpus/ulimits.
+//
+// So a container DBCanvas did not create itself (every k3s node in a K3D frame) can only be
+// throttled by writing the kernel interface directly. Two constraints shape how:
+//
+//   - It must be written from the *host* side, at the container's own scope. A container
+//     cannot limit its own cgroup-namespace root: writing /sys/fs/cgroup/io.max inside a
+//     privileged k3s node fails with EPERM. Only a sub-cgroup (/init) is writable from
+//     inside, and that does not cover /kubepods — i.e. not the pods, which is the point.
+//   - The app's own container mounts only the Docker socket, not a writable cgroup tree,
+//     so it cannot do the write itself.
+//
+// Hence a short-lived privileged helper with the host cgroup namespace and a writable
+// /sys/fs/cgroup. It runs from an image the caller already has local, so this costs no pull.
+// Verified on a k3s node: 2.7 GB/s → 4.2 MB/s.
+
+// ioMaxLine renders an io.max value. "max" clears a direction, which is how a limit is
+// removed — writing nothing would leave a previous deploy's ceiling in place.
+func ioMaxLine(dev throttleDevice, readBPS, writeBPS int64) string {
+	rate := func(v int64) string {
+		if v <= 0 {
+			return "max"
+		}
+		return strconv.FormatInt(v, 10)
+	}
+	return fmt.Sprintf("%d:%d rbps=%s wbps=%s", dev.Major, dev.Minor, rate(readBPS), rate(writeBPS))
+}
+
+// cgroupIOMaxScript writes (and reads back) io.max for each container id it is given.
+// Both cgroup drivers put the scope in a different place and a cgroup v1 host has no
+// io.max at all, so the script locates the directory rather than assuming, and fails
+// loudly if it cannot — a limit that was silently not applied is the failure mode this
+// whole feature exists to avoid.
+const cgroupIOMaxScript = `set -e
+if [ ! -e /sys/fs/cgroup/cgroup.controllers ]; then
+  echo "host is on cgroup v1; per-node disk limits need cgroup v2" >&2
+  exit 1
+fi
+for id in $IDS; do
+  cg=""
+  for p in "/sys/fs/cgroup/system.slice/docker-$id.scope" "/sys/fs/cgroup/docker/$id"; do
+    [ -d "$p" ] && cg="$p" && break
+  done
+  if [ -z "$cg" ]; then
+    cg=$(find /sys/fs/cgroup -maxdepth 4 -type d -name "*$id*" 2>/dev/null | head -1)
+  fi
+  if [ -z "$cg" ] || [ ! -w "$cg/io.max" ]; then
+    echo "no writable io.max for container $id" >&2
+    exit 1
+  fi
+  echo "$LIMIT" > "$cg/io.max"
+  echo "$id $(cat "$cg/io.max" | head -1)"
+done
+`
+
+// ApplyDiskLimits imposes read/write rate limits on containers that already exist, by
+// writing io.max in each one's host-side cgroup. Returns the helper's output (one line
+// per container, echoing the io.max the kernel actually holds) so callers can log what
+// was really applied rather than what was requested.
+//
+// image must already be present locally. Zero for both rates clears any existing limit.
+func (d *Docker) ApplyDiskLimits(ctx context.Context, image string, ids []string, devPath string, readBPS, writeBPS int64) (string, error) {
+	if len(ids) == 0 {
+		return "", nil
+	}
+	dev, err := d.throttleDeviceFor(ctx, devPath)
+	if err != nil {
+		return "", err
+	}
+	// The helper idles rather than running the script as its command: ContainerCreate
+	// applies RestartPolicy=unless-stopped, which would relaunch a one-shot container the
+	// moment it exited. Exec gives the exit code and output directly, and the container is
+	// force-removed before its sleep ever elapses.
+	spec := ContainerSpec{
+		Name:       fmt.Sprintf("dbcanvas-iomax-%d", time.Now().UnixNano()),
+		Image:      image,
+		Privileged: true, // ContainerCreate then adds the host cgroupns + writable /sys/fs/cgroup
+		Cmd:        []string{"sleep", "300"},
+	}
+	cid, err := d.ContainerCreate(ctx, spec)
+	if err != nil {
+		return "", fmt.Errorf("create io.max helper: %w", err)
+	}
+	defer d.ContainerRemove(ctx, cid)
+	if err := d.ContainerStart(ctx, cid); err != nil {
+		return "", fmt.Errorf("start io.max helper: %w", err)
+	}
+	res, err := d.Exec(ctx, cid, []string{"sh", "-c", cgroupIOMaxScript}, []string{
+		"IDS=" + strings.Join(ids, " "),
+		"LIMIT=" + ioMaxLine(dev, readBPS, writeBPS),
+	})
+	if err != nil {
+		return "", fmt.Errorf("run io.max helper: %w", err)
+	}
+	if res.Code != 0 {
+		return "", fmt.Errorf("io.max helper exited %d: %s", res.Code, strings.TrimSpace(res.Stderr+res.Stdout))
+	}
+	return strings.TrimSpace(res.Stdout), nil
 }
 
 // throttleCache is embedded in Docker; the resolved device is daemon-lifetime

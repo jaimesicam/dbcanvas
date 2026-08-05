@@ -80,6 +80,7 @@ type k3dConfig struct {
 	K3SVersion   string `json:"k3sVersion"`   // the rancher/k3s tag the cluster runs
 	CPUs         int    `json:"cpus"`         // total CPUs for the cluster
 	MemoryGB     int    `json:"memoryGb"`     // total memory for the cluster
+	DiskLimit    string `json:"diskLimit"`    // per-node disk ceiling, e.g. "read 50 MB/s · write 20 MB/s" ("" = unlimited)
 	MetalLBRange string `json:"metallbRange"` // the LoadBalancer address pool
 	Operator     string `json:"operator"`     // "" | "pxc" | "ps" | "psmdb" | "pg"
 	OperatorVer  string `json:"operatorVer"`  //
@@ -284,6 +285,40 @@ func k3dMemoryGB(f designFrame) int {
 	}
 	return 8
 }
+
+// k3dDiskLimits returns the per-node disk rate limits in bytes/sec (0 = unlimited), clamped
+// the same way applyVMSize clamps a plain node's. No default: a K3D frame designed before
+// these fields existed stays unthrottled.
+func k3dDiskLimits(f designFrame) (readBPS, writeBPS int64) {
+	if f.K3DDiskReadMBps > 0 {
+		readBPS = int64(clampInt(f.K3DDiskReadMBps, 1, 16384)) * (1 << 20)
+	}
+	if f.K3DDiskWriteMBps > 0 {
+		writeBPS = int64(clampInt(f.K3DDiskWriteMBps, 1, 16384)) * (1 << 20)
+	}
+	return readBPS, writeBPS
+}
+
+// k3dDiskLimitLabel describes the per-node disk ceiling for the properties panel. Empty when
+// the frame is unthrottled, so the card shows nothing rather than "unlimited · unlimited".
+func k3dDiskLimitLabel(f designFrame) string {
+	var parts []string
+	if f.K3DDiskReadMBps > 0 {
+		parts = append(parts, fmt.Sprintf("read %d MB/s", clampInt(f.K3DDiskReadMBps, 1, 16384)))
+	}
+	if f.K3DDiskWriteMBps > 0 {
+		parts = append(parts, fmt.Sprintf("write %d MB/s", clampInt(f.K3DDiskWriteMBps, 1, 16384)))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	label := strings.Join(parts, " · ") + " per node"
+	if p := strings.TrimSpace(f.K3DDevicePath); p != "" {
+		label += " on " + p
+	}
+	return label
+}
+
 func k3dNamespace(f designFrame) string {
 	if ns := strings.TrimSpace(f.K3DNamespace); ns != "" {
 		return ns
@@ -382,6 +417,7 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		Proxy: proxy, Expose: exposePXC, ExposePXC: exposePXC, ExposeProxy: exposeProxy,
 		Sharding:    frame.K3DSharding,
 		MonitoredBy: monitoredBy, BackupRepo: backupRepo, ClusterName: k3dCRName(frame),
+		DiskLimit: k3dDiskLimitLabel(frame),
 	}
 	if operator == "psmdb" {
 		base.ExposeReplset = k3dExposeOf(frame.K3DExposeReplset, frame.K3DExpose)
@@ -509,6 +545,9 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		// The CPU/memory budget is for the whole cluster, so each node gets an equal share.
 		nanoCPUs := int64(float64(cpus) / float64(nodes) * 1e9)
 		memPerNode := int64(max(1, memGB/nodes)) << 30
+		// Disk limits are per node, not a divided total — see the designFrame comment.
+		diskReadBPS, diskWriteBPS := k3dDiskLimits(frame)
+		nodeCIDs := make([]string, 0, nodes)
 		serverID := ""
 		for i, n := range members {
 			cname := k3dNodeContainer(cluster, i)
@@ -535,7 +574,30 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 			cfgJSON, _ := json.Marshal(cfg)
 			a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: cid, State: DeployProvisioning, Config: cfgJSON})
 			progs[n.ID].phase("Node up", 40)
+			nodeCIDs = append(nodeCIDs, cid)
 		}
+
+		// ---- per-node disk rate limits ----
+		// These cannot take the ContainerUpdate route above: the update endpoint accepts
+		// BlkioDeviceRead/WriteBps and silently drops them, and k3d has no flag to pass them
+		// through at create time. They are written straight into each node's cgroup instead —
+		// see ApplyDiskLimits. The k3s image is reused for the helper, so nothing is pulled.
+		if diskReadBPS > 0 || diskWriteBPS > 0 {
+			pr.phase("Applying disk limits", 42)
+			out, err := a.docker.ApplyDiskLimits(ctx, k3sImage, nodeCIDs, frame.K3DDevicePath, diskReadBPS, diskWriteBPS)
+			if err != nil {
+				// Not fatal — the cluster is up and usable, just not throttled. Said loudly
+				// rather than leaving the design's limit looking as though it applied.
+				pr.logln("per-node disk limit NOT applied: " + err.Error())
+			} else {
+				for _, line := range strings.Split(out, "\n") {
+					if line = strings.TrimSpace(line); line != "" {
+						pr.logln("io.max " + line)
+					}
+				}
+			}
+		}
+
 		// The k3s nodes are on the stack network, so they get DNS names like every other node.
 		a.reconcileStackDNS(ctx, st.ID)
 

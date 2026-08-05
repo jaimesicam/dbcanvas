@@ -5175,6 +5175,8 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
   const pmmNodes = nodes.filter((x) => x.type === 'pmm')
   const swNodes = nodes.filter((x) => x.type === 'seaweedfs')
   const cpus = f.k3dCpus || 4
+  // The device override only matters once a disk limit is actually set.
+  const k3dThrottled = !!(f.k3dDiskReadMbps || f.k3dDiskWriteMbps)
   const memGb = f.k3dMemoryGb || 8
   const tooSmall = cpus < 4 || memGb < 6
 
@@ -5231,6 +5233,32 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
         </Field>
       </div>
       <p className="text-xs text-muted">Split evenly across the {count} node{count === 1 ? '' : 's'} ({Math.max(1, Math.floor(memGb / count))} GiB each).</p>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Disk read (MB/s, per node)" hint="Blank = unlimited.">
+          <input type="number" min="1" max="16384" className={`${inputCls} ${lock}`} disabled={deployed}
+            placeholder="unlimited" value={f.k3dDiskReadMbps || ''}
+            onChange={(e) => patchFrame(f.id, { k3dDiskReadMbps: e.target.value === '' ? 0 : Number(e.target.value) })} />
+        </Field>
+        <Field label="Disk write (MB/s, per node)" hint="Blank = unlimited.">
+          <input type="number" min="1" max="16384" className={`${inputCls} ${lock}`} disabled={deployed}
+            placeholder="unlimited" value={f.k3dDiskWriteMbps || ''}
+            onChange={(e) => patchFrame(f.id, { k3dDiskWriteMbps: e.target.value === '' ? 0 : Number(e.target.value) })} />
+        </Field>
+      </div>
+      {k3dThrottled && (
+        <>
+          <Field label="Block device" hint="Host device the disk limits apply to. Blank = auto-detect the disk backing Docker's data root.">
+            <input className={`${inputCls} ${lock}`} disabled={deployed} placeholder="auto-detect (e.g. /dev/sda)"
+              value={f.k3dDevicePath ?? ''} onChange={(e) => patchFrame(f.id, { k3dDevicePath: e.target.value })} />
+          </Field>
+          <p className="text-xs text-muted">
+            Unlike CPU and memory these are <em>per node</em>, not a cluster total split up — the kernel throttles
+            per cgroup, so a shared cluster-wide ceiling isn’t something it can enforce. Applied to each k3s node’s
+            cgroup after k3d creates it, which covers the pods running on it.
+          </p>
+        </>
+      )}
       {tooSmall && (
         <p className="text-xs text-amber-500">
           Below 4 CPU / 6 GiB a database cluster (3 pods plus a proxy or router) is unlikely to schedule. Validation

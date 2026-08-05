@@ -315,6 +315,12 @@ type designFrame struct {
 	K3DK3SVersion  string `json:"k3dK3sVersion"`
 	K3DCPUs        int    `json:"k3dCpus"`        // total CPUs for the cluster
 	K3DMemoryGB    int    `json:"k3dMemoryGb"`    // total memory (GiB) for the cluster
+	// Disk rate limits imposed on each k3s node container, in MB/s (0 = unlimited). Unlike
+	// CPUs/memory these are per node, not a cluster total divided up: blk-throttle is
+	// per-cgroup, so a shared cluster-wide ceiling is not something the kernel can enforce.
+	K3DDiskReadMBps  int    `json:"k3dDiskReadMbps"`
+	K3DDiskWriteMBps int    `json:"k3dDiskWriteMbps"`
+	K3DDevicePath    string `json:"k3dDevicePath"` // "" → auto-detect the Docker-root device
 	K3DOperator    string `json:"k3dOperator"`    // "" | "pxc" | "ps" | "psmdb" | "pg"
 	K3DOperatorVer string `json:"k3dOperatorVer"` // "" = the catalog's latest
 	K3DNamespace   string `json:"k3dNamespace"`   // namespace the operator + CR are installed into
