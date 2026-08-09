@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stock Market Sim</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>Stock Market Sim</h1>
+  <span class="badge"><span class="dot" id="conn-dot"></span><span id="conn-text">connecting</span></span>
+  <span class="badge">engine <strong id="hdr-engine">—</strong></span>
+  <span class="badge">target <strong id="hdr-target">—</strong></span>
+  <span class="badge">db <strong id="hdr-db">—</strong></span>
+  <span class="badge">session <strong id="hdr-clock">—</strong></span>
+  <span class="spacer"></span>
+  <div class="controls">
+    <button id="btn-pause">Pause</button>
+    <button data-level="low">Low</button>
+    <button data-level="medium">Medium</button>
+    <button data-level="high">High</button>
+    <a class="btn primary" href="/report" target="_blank" rel="noreferrer">Generate report</a>
+  </div>
+</header>
+
+<div id="banner-error" class="banner hidden"></div>
+<div id="banner-warn" class="banner warn hidden"></div>
+
+<main>
+  <section class="panel hidden" id="seed-panel">
+    <h2>Preparing database</h2>
+    <div class="progress-track"><div class="progress-fill" id="seed-fill" style="width:0%"></div></div>
+    <p class="hint" id="seed-step" style="margin:8px 0 0"></p>
+  </section>
+
+  <section class="panel">
+    <h2>Market summary</h2>
+    <div class="stat-grid" id="kpi-grid"></div>
+  </section>
+
+  <section class="panel">
+    <h2>
+      Ticker
+      <span class="spacer"></span>
+      <span class="hint" id="ticker-hint"></span>
+    </h2>
+    <div class="ticker-grid" id="ticker-grid"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Securities <span class="spacer"></span>
+      <button class="btn" id="btn-new-security">+ New security</button>
+    </h2>
+    <div class="toolbar">
+      <input type="text" id="sec-search" placeholder="Search symbol or name…">
+      <select id="sec-sector"><option value="">All sectors</option></select>
+    </div>
+    <div class="table-wrap"><table class="data-table" id="sec-table"></table></div>
+    <div class="pager">
+      <button class="btn" data-page="sec" data-dir="-1">Previous</button>
+      <button class="btn" data-page="sec" data-dir="1">Next</button>
+      <span id="sec-count"></span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Portfolios <span class="spacer"></span>
+      <button class="btn" id="btn-new-portfolio">+ New portfolio</button>
+    </h2>
+    <div class="toolbar">
+      <input type="text" id="pf-search" placeholder="Search name or owner…">
+    </div>
+    <div class="table-wrap"><table class="data-table" id="pf-table"></table></div>
+    <div class="pager">
+      <button class="btn" data-page="pf" data-dir="-1">Previous</button>
+      <button class="btn" data-page="pf" data-dir="1">Next</button>
+      <span id="pf-count"></span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Orders <span class="spacer"></span>
+      <button class="btn" id="btn-new-order">+ New order</button>
+    </h2>
+    <div class="toolbar">
+      <input type="text" id="ord-search" placeholder="Search symbol or owner…">
+      <select id="ord-status">
+        <option value="">All statuses</option>
+        <option value="open">Open</option>
+        <option value="filled">Filled</option>
+        <option value="cancelled">Cancelled</option>
+        <option value="rejected">Rejected</option>
+      </select>
+    </div>
+    <div class="table-wrap"><table class="data-table" id="ord-table"></table></div>
+    <div class="pager">
+      <button class="btn" data-page="ord" data-dir="-1">Previous</button>
+      <button class="btn" data-page="ord" data-dir="1">Next</button>
+      <span id="ord-count"></span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Database objects <span class="spacer"></span>
+      <span class="hint" id="schema-hint"></span>
+    </h2>
+    <div class="table-wrap"><table class="data-table" id="schema-table"></table></div>
+  </section>
+
+  <section class="panel">
+    <h2>Background agents</h2>
+    <div class="agent-list" id="agent-list"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Activity</h2>
+    <div class="event-list" id="event-list"></div>
+  </section>
+
+  <section class="panel danger-zone">
+    <h2>Danger zone</h2>
+    <p class="hint" style="margin-top:0">
+      These act on the database this application is connected to. Only objects this
+      application created are affected — nothing else in
+      <strong id="dz-db">the database</strong> is touched.
+    </p>
+    <div class="controls" style="margin-top:10px">
+      <button class="btn" id="btn-reset">Reset to seed data</button>
+      <button class="btn" id="btn-wipe">Wipe all rows</button>
+      <button class="btn danger" id="btn-drop">Drop every object…</button>
+    </div>
+  </section>
+</main>
+
+<div class="modal hidden" id="modal">
+  <div class="modal-content">
+    <button class="modal-close" id="modal-close">&times;</button>
+    <h3 id="modal-title"></h3>
+    <div id="modal-body"></div>
+    <div class="form-error hidden" id="modal-error"></div>
+    <div class="modal-actions">
+      <button class="btn" id="modal-cancel">Cancel</button>
+      <button class="btn primary" id="modal-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -48,6 +48,10 @@ export const stackApi = {
   destroy: (id) => request('POST', `/api/stacks/${id}/destroy`),
   getNode: (id, nid) => request('GET', `/api/stacks/${id}/nodes/${nid}`),
   nodeAction: (id, nid, action) => request('POST', `/api/stacks/${id}/nodes/${nid}/${action}`),
+  // Stock Market Sim: check a manually-entered database connection before
+  // deploying with it. Returns { ok, message } — message is the sim binary's
+  // own one-line verdict, shown to the user verbatim.
+  stocksimTest: (id, nid, conn) => request('POST', `/api/stacks/${id}/nodes/${nid}/stocksim/test`, conn),
   pmmCatalog: () => request('GET', '/api/catalog/pmm'),
   pxcCatalog: () => request('GET', '/api/catalog/pxc'),
   proxysqlCatalog: () => request('GET', '/api/catalog/proxysql'),

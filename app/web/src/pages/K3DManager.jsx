@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Button, Badge, Field, ConfirmButton, inputCls } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE, k3dApi } from '../lib/stackApi.js'
+import { SecretInline } from '../components/Secret.jsx'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 
 // K3DManager — a running k3s node of a K3D cluster frame.
@@ -21,11 +22,16 @@ function CopyButton({ text }) {
   )
 }
 
+// KV renders one label/value row. `v` may be a React node — a link, a masked secret — so only
+// primitives go through String(): an element would come out as "[object Object]".
 function KV({ k, v, mono }) {
+  const empty = v == null || v === ''
   return (
     <div className="flex justify-between gap-3">
       <span className="text-muted">{k}</span>
-      <span className={`truncate text-fg ${mono ? 'font-mono text-xs' : ''}`}>{(v ?? '') === '' ? '—' : String(v)}</span>
+      <span className={`truncate text-fg ${mono ? 'font-mono text-xs' : ''}`}>
+        {empty ? '—' : typeof v === 'object' ? v : String(v)}
+      </span>
     </div>
   )
 }
@@ -153,6 +159,7 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
   const [tab, setTab] = useState('overview')
   const { openTerminal } = useTerminals()
   const cfg = dep.config || {}
+  const sec = dep.secrets || {}
   const isServer = cfg.role === 'server'
   const [kubeconfig, setKubeconfig] = useState(null)
   const [kubeconfigErr, setKubeconfigErr] = useState(null)
@@ -238,6 +245,20 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
               <a className="text-accent underline" href={cfg.grafanaUrl} target="_blank" rel="noreferrer">{cfg.grafanaUrl}</a>
             )} />
           )}
+          {/* The address above is a MetalLB one, so the Service it came from is worth naming:
+              it is the single `kubectl get svc` that confirms it, and the only way to find the
+              address again if the pool ever reassigns it. */}
+          {cfg.grafanaService && <KV k="Grafana service" v={cfg.grafanaService} mono />}
+          {/* Credentials, so signing in does not mean going and reading $GRAFANA_PASSWORD.
+              The password is masked in place — same contract as every other secret row. */}
+          {cfg.grafanaUrl && <KV k="Grafana user" v={cfg.grafanaUser || 'admin'} mono />}
+          {cfg.grafanaUrl && sec.grafanaPassword && (
+            <KV k="Grafana password" v={<SecretInline value={sec.grafanaPassword} />} />
+          )}
+          {/* Whether a dashboard landed is worth stating: Grafana with Prometheus wired up
+              but nothing to look at is the state that reads as "monitoring doesn't work". */}
+          {cfg.grafanaUrl && <KV k="Grafana dashboard" v={cfg.grafanaDashboard || 'none installed'} />}
+          {cfg.manifestDir && <KV k="Manifests" v={cfg.manifestDir} mono />}
           <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
           <Button variant="outline" size="sm" className="mt-2 w-full"
             onClick={() => openTerminal({ stackId, nodeId, title: `${cfg.hostname} · root` })}>

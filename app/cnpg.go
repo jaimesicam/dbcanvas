@@ -70,6 +70,25 @@ const (
 	// Grafana's Service, named by helm-controller after the HelmChart release.
 	grafanaService = promChart + "-grafana"
 	grafanaPort    = 80
+	// The admin login promStackValues installs the chart with.
+	grafanaAdminUser = "admin"
+
+	// CNPG's published Grafana dashboard for the clusters it manages. Applied as a
+	// ConfigMap the kube-prometheus-stack Grafana sidecar picks up — see
+	// cnpgDashboardConfigMap. Without it the stack installs Grafana with Prometheus
+	// wired up but no PostgreSQL dashboard to look at, which is the state a user
+	// reasonably reports as "monitoring is not working".
+	cnpgGrafanaDashboardURL = "https://raw.githubusercontent.com/cloudnative-pg/grafana-dashboards/main/charts/cluster/grafana-dashboard.json"
+
+	// Where the manifests DBCanvas applies are archived on the first k3s node.
+	//
+	// The Percona operators leave their whole release tarball in /root (see
+	// k3dOperatorDir), so "what was actually deployed" is readable after the fact.
+	// CloudNativePG is installed from HelmChart CRDs and manifests generated in this
+	// file and piped to `kubectl apply -f -`, so nothing would otherwise touch disk
+	// and there would be nothing to review. Every manifest is therefore also written
+	// here, numbered in apply order, with a README explaining the sequence.
+	cnpgManifestDir = "/root/cnpg"
 )
 
 // Defaults for the CNPG knobs, so an older design (or a hand-written one) still deploys.
@@ -123,6 +142,152 @@ func helmChartManifest(name, repo, chart, version, targetNamespace, values strin
 			b.WriteString("    " + ln + "\n")
 		}
 	}
+	return []byte(b.String())
+}
+
+// cnpgArchive writes one file into cnpgManifestDir on the first k3s node. Best-effort:
+// failing to archive must never fail a deploy that otherwise worked, so the error is logged
+// and swallowed — but the caller is told, so it does not later claim an archive exists.
+//
+// The directory has to be created first. The k3s image is minimal and has no /root at all,
+// so Docker's copy-archive API answers 404 for a path whose parent is missing; the Percona
+// operator path hits the same thing and does the same mkdir (see k3dFetchOperator).
+func (a *App) cnpgArchive(ctx context.Context, serverID, file string, content []byte, pr *pxcProg) bool {
+	if _, err := a.engCtx(ctx).Exec(ctx, serverID, []string{"mkdir", "-p", cnpgManifestDir}, nil); err != nil {
+		pr.logln("could not create " + cnpgManifestDir + ": " + err.Error())
+		return false
+	}
+	if err := a.engCtx(ctx).CopyFile(ctx, serverID, cnpgManifestDir, file, 0o644, content); err != nil {
+		pr.logln("could not archive " + file + " to " + cnpgManifestDir + ": " + err.Error())
+		return false
+	}
+	return true
+}
+
+// cnpgArchiver applies manifests and keeps the archive in step with them. It exists so the
+// numbering and the README's file list come from the same place — a second counter threaded
+// through the installer separately would drift the first time a resource was added.
+type cnpgArchiver struct {
+	app      *App
+	serverID string
+	pr       *pxcProg
+	step     int
+	files    []string
+	// ok stays true only while every archive write has succeeded, so the final log line
+	// and the node panel do not point at a directory that was never written.
+	ok bool
+}
+
+// apply applies a manifest and archives a copy under cnpgManifestDir, numbered so a directory
+// listing reads in apply order. Every CNPG resource goes through this rather than kubectlApply
+// directly, so the directory is a complete and ordered record of what was deployed — which is
+// the whole point of having it.
+func (ar *cnpgArchiver) apply(ctx context.Context, ns, name string, manifest []byte) error {
+	ar.step++
+	file := fmt.Sprintf("%02d-%s.yaml", ar.step, name)
+	ar.files = append(ar.files, file)
+	if !ar.app.cnpgArchive(ctx, ar.serverID, file, manifest, ar.pr) {
+		ar.ok = false
+	}
+	return ar.app.kubectlApply(ctx, ar.serverID, ns, manifest)
+}
+
+// applyLarge is apply for a manifest too big for `kubectl apply`.
+//
+// kubectl's client-side apply records the entire manifest in the object's
+// kubectl.kubernetes.io/last-applied-configuration annotation, and annotations are capped at
+// 256KiB in total — so a 253KiB Grafana dashboard is rejected outright with
+// "metadata.annotations: Too long". Server-side apply tracks ownership in managedFields
+// instead and writes no such annotation, so it has no size ceiling of its own.
+func (ar *cnpgArchiver) applyLarge(ctx context.Context, ns, name string, manifest []byte) error {
+	ar.step++
+	file := fmt.Sprintf("%02d-%s.yaml", ar.step, name)
+	ar.files = append(ar.files, file)
+	if !ar.app.cnpgArchive(ctx, ar.serverID, file, manifest, ar.pr) {
+		ar.ok = false
+	}
+	return ar.app.kubectlApplyServerSide(ctx, ar.serverID, ns, manifest)
+}
+
+// cnpgArchiveReadme explains the directory to whoever opens it. It names the apply order, what
+// each file is, and how to re-apply — the questions someone reviewing a deployment actually
+// has. Written last so it can state what really happened rather than what was intended.
+func cnpgArchiveReadme(cfg *k3dConfig, ns string, files []string, monitoring bool, objectStore string) []byte {
+	var b strings.Builder
+	b.WriteString("# CloudNativePG deployment — the manifests DBCanvas applied\n\n")
+	b.WriteString("Every file here was applied to this cluster with `kubectl apply -f -`, in the\n")
+	b.WriteString("order the numeric prefixes give. They are a record, not live state: editing a\n")
+	b.WriteString("file changes nothing until you re-apply it.\n\n")
+
+	b.WriteString("## Why this directory exists\n\n")
+	b.WriteString("The Percona operators (PXC, PSMDB, PGO) are installed by unpacking their release\n")
+	b.WriteString("tarball into /root and applying `deploy/bundle.yaml` from it, so the source is\n")
+	b.WriteString("already on disk to read. CloudNativePG is installed differently — the operator,\n")
+	b.WriteString("cert-manager and kube-prometheus-stack are k3s `HelmChart` resources, and the rest\n")
+	b.WriteString("are manifests DBCanvas generates and pipes to kubectl over stdin. Nothing would\n")
+	b.WriteString("otherwise be written to disk, so copies are archived here instead.\n\n")
+
+	fmt.Fprintf(&b, "## What was deployed\n\n")
+	fmt.Fprintf(&b, "- Cluster:        %s (namespace `%s`)\n", cfg.ClusterName, ns)
+	fmt.Fprintf(&b, "- Instances:      %d\n", cfg.CNPGInstances)
+	fmt.Fprintf(&b, "- Storage:        %dGi per instance\n", cfg.CNPGStorageGB)
+	if cfg.CNPGPGVersion != "" {
+		fmt.Fprintf(&b, "- PostgreSQL:     %s\n", cfg.CNPGPGVersion)
+	} else {
+		b.WriteString("- PostgreSQL:     the chart's default major\n")
+	}
+	fmt.Fprintf(&b, "- Operator chart: %s %s (namespace `%s`)\n", cnpgChart, cnpgVerLabel(cfg.OperatorVer), cnpgNamespace)
+	fmt.Fprintf(&b, "- Exposure:       %s", cfg.CNPGExpose)
+	if cfg.CNPGEndpoint != "" {
+		fmt.Fprintf(&b, " — %s", cfg.CNPGEndpoint)
+	}
+	b.WriteString("\n")
+	if objectStore != "" {
+		fmt.Fprintf(&b, "- Backups:        barman-cloud plugin %s → ObjectStore `%s`\n", barmanPluginVersion, objectStore)
+	} else {
+		b.WriteString("- Backups:        none (no SeaweedFS node linked, or the plugin was unavailable)\n")
+	}
+	if monitoring {
+		fmt.Fprintf(&b, "- Monitoring:     kube-prometheus-stack in `%s`", promNamespace)
+		if cfg.GrafanaURL != "" && cfg.GrafanaURL != "pending" {
+			fmt.Fprintf(&b, " — Grafana at %s", cfg.GrafanaURL)
+		}
+		b.WriteString("\n")
+		fmt.Fprintf(&b, "                  (sign in as `%s`, password from $GRAFANA_PASSWORD — it is\n", grafanaAdminUser)
+		fmt.Fprintf(&b, "                  also on the node's panel in DBCanvas; the PostgreSQL dashboard\n")
+		b.WriteString("                  is loaded from the ConfigMap below by Grafana's sidecar)\n")
+		fmt.Fprintf(&b, "                  Service: `%s`\n", promNamespace+"/"+grafanaService)
+	} else {
+		b.WriteString("- Monitoring:     not enabled for this cluster\n")
+	}
+	b.WriteString("\nCloudNativePG has no PMM integration — it is not a Percona product and ships no\n")
+	b.WriteString("pmm-client sidecar — so Prometheus/Grafana above is the whole monitoring story.\n")
+
+	b.WriteString("\n## Files, in apply order\n\n")
+	for _, f := range files {
+		b.WriteString("- `" + f + "`\n")
+	}
+
+	b.WriteString("\n## Reviewing and re-applying\n\n")
+	b.WriteString("```sh\n")
+	b.WriteString("export KUBECONFIG=" + k3dKubeconfig + "\n")
+	b.WriteString("cd " + cnpgManifestDir + "\n\n")
+	b.WriteString("cat 0*.yaml                      # read what was applied, in order\n")
+	b.WriteString("kubectl apply -f 06-cluster.yaml # re-apply one resource after editing it\n\n")
+	if monitoring {
+		b.WriteString("# The Grafana dashboard is ~250KB, which does not fit in the annotation a\n")
+		b.WriteString("# client-side apply writes (annotations are capped at 256KiB in total), so it\n")
+		b.WriteString("# needs a server-side apply — which is how DBCanvas applied it too:\n")
+		b.WriteString("kubectl apply --server-side --force-conflicts -f 11-grafana-dashboard.yaml\n\n")
+	}
+	fmt.Fprintf(&b, "kubectl -n %s get cluster,pods,pvc\n", ns)
+	fmt.Fprintf(&b, "kubectl -n %s get objectstore,scheduledbackup,backup\n", ns)
+	fmt.Fprintf(&b, "kubectl -n %s get podmonitor,prometheusrule\n", ns)
+	fmt.Fprintf(&b, "kubectl -n %s get svc,configmap -l grafana_dashboard=1\n", promNamespace)
+	b.WriteString("```\n\n")
+	b.WriteString("The three HelmChart files are k3s `helm-controller` resources: applying one runs a\n")
+	b.WriteString("Helm install/upgrade. `kubectl -n kube-system get helmchart` shows their state, and\n")
+	b.WriteString("`kubectl -n kube-system logs job/helm-install-<name>` shows what a failed one did.\n")
 	return []byte(b.String())
 }
 
@@ -212,6 +377,11 @@ spec:
 // promStackValues keeps kube-prometheus-stack small enough for a lab cluster: no
 // Alertmanager, and Grafana on a LoadBalancer so MetalLB gives it an address on the stack
 // network (the same treatment the other exposed services get).
+// grafanaAdminPassword is the password promStackValues installs Grafana's admin with. It is the
+// single source for it: installCNPGOperator sets it on the chart and provisionK3DFrame records
+// the same value in the frame's k3dSecrets, and the two must not be able to disagree.
+func grafanaAdminPassword() string { return envOr("GRAFANA_PASSWORD", "grafana_password") }
+
 func promStackValues(grafanaPassword string) string {
 	return fmt.Sprintf(`alertmanager:
   enabled: false
@@ -220,6 +390,17 @@ grafana:
   adminPassword: %q
   service:
     type: LoadBalancer
+  sidecar:
+    dashboards:
+      # The sidecar is what turns a labelled ConfigMap into a Grafana dashboard.
+      # It is on by default, but its search namespace is not: left unset it looks
+      # only in its own, so being explicit is what lets the CNPG dashboard be
+      # applied from anywhere. See cnpgDashboardConfigMap.
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+      folder: /tmp/dashboards
 prometheus:
   prometheusSpec:
     # Watch every namespace, not just the chart's own release, so the CNPG
@@ -228,6 +409,25 @@ prometheus:
     ruleSelectorNilUsesHelmValues: false
     retention: 7d
 `, grafanaPassword)
+}
+
+// cnpgDashboardConfigMap wraps CNPG's published Grafana dashboard JSON in the ConfigMap shape
+// the kube-prometheus-stack Grafana sidecar watches for: any ConfigMap labelled
+// grafana_dashboard=1 has its data keys loaded as dashboards.
+//
+// The JSON is embedded as a block scalar rather than a quoted string so no escaping is needed;
+// every line is indented four spaces under the key, and a blank line inside a block scalar is
+// legal, so the JSON survives verbatim.
+func cnpgDashboardConfigMap(dashboard []byte) []byte {
+	var b strings.Builder
+	b.WriteString("apiVersion: v1\nkind: ConfigMap\nmetadata:\n")
+	fmt.Fprintf(&b, "  name: cnpg-grafana-dashboard\n  namespace: %s\n", promNamespace)
+	b.WriteString("  labels:\n    grafana_dashboard: \"1\"\ndata:\n")
+	b.WriteString("  cloudnative-pg.json: |-\n")
+	for _, ln := range strings.Split(strings.TrimRight(string(dashboard), "\n"), "\n") {
+		b.WriteString("    " + ln + "\n")
+	}
+	return []byte(b.String())
 }
 
 // cnpgPrimaryServiceManifest exposes the cluster's *primary* on a LoadBalancer address, which
@@ -331,6 +531,13 @@ func (a *App) waitForCRD(ctx context.Context, serverID, crd string, timeout time
 func (a *App) installCNPGOperator(ctx context.Context, st Stack, frame designFrame, doc designDoc, serverID string, cfg *k3dConfig, pr *pxcProg) error {
 	ns := cfg.Namespace
 
+	// Everything applied below is also archived to cnpgManifestDir, numbered in apply
+	// order. See cnpgArchiver.
+	ar := &cnpgArchiver{app: a, serverID: serverID, pr: pr, ok: true}
+	apply := func(name, applyNS string, manifest []byte) error {
+		return ar.apply(ctx, applyNS, name, manifest)
+	}
+
 	// ---- monitoring first ----
 	// kube-prometheus-stack brings the PodMonitor CRD, and the Cluster below asks the
 	// operator to create a PodMonitor. Applied the other way round the operator would log a
@@ -338,8 +545,8 @@ func (a *App) installCNPGOperator(ctx context.Context, st Stack, frame designFra
 	monitoring := frame.K3DCNPGMonitoring
 	if monitoring {
 		pr.phase("Installing Prometheus + Grafana", 70)
-		pw := envOr("GRAFANA_PASSWORD", "grafana_password")
-		if err := a.kubectlApply(ctx, serverID, "", helmChartManifest(
+		pw := grafanaAdminPassword()
+		if err := apply("kube-prometheus-stack", "", helmChartManifest(
 			promChart, promChartRepo, promChart, frame.K3DCNPGPromVersion, promNamespace, promStackValues(pw))); err != nil {
 			return fmt.Errorf("apply the kube-prometheus-stack HelmChart: %w", err)
 		}
@@ -351,6 +558,8 @@ func (a *App) installCNPGOperator(ctx context.Context, st Stack, frame designFra
 			monitoring = false
 		} else {
 			cfg.MonitoredBy = "Prometheus/Grafana (" + promNamespace + ")"
+			cfg.GrafanaUser = grafanaAdminUser
+			cfg.GrafanaService = promNamespace + "/" + grafanaService
 			pr.logln("PodMonitor CRD established")
 			// Grafana is a LoadBalancer, so MetalLB gives it an address on the stack network.
 			// The address is what makes the dashboards reachable at all, so it is worth
@@ -361,18 +570,19 @@ func (a *App) installCNPGOperator(ctx context.Context, st Stack, frame designFra
 				if grafanaPort != 80 {
 					cfg.GrafanaURL = fmt.Sprintf("http://%s:%d", addr, grafanaPort)
 				}
-				pr.logln("Grafana at " + cfg.GrafanaURL + " (admin / GRAFANA_PASSWORD)")
+				pr.logln("Grafana at " + cfg.GrafanaURL + " — sign in as " + grafanaAdminUser +
+					"; the password is on this node's panel")
 			} else {
 				cfg.GrafanaURL = "pending"
 				pr.logln("Grafana has no LoadBalancer address yet — check the MetalLB pool; the Service is " +
-					promNamespace + "/" + grafanaService)
+					cfg.GrafanaService)
 			}
 		}
 	}
 
 	// ---- the operator ----
 	pr.phase("Installing the CloudNativePG operator", 75)
-	if err := a.kubectlApply(ctx, serverID, "", helmChartManifest(
+	if err := apply("cloudnative-pg-operator", "", helmChartManifest(
 		cnpgChart, cnpgChartRepo, cnpgChart, cfg.OperatorVer, cnpgNamespace, "")); err != nil {
 		return fmt.Errorf("apply the CloudNativePG HelmChart: %w", err)
 	}
@@ -401,14 +611,14 @@ func (a *App) installCNPGOperator(ctx context.Context, st Stack, frame designFra
 	s3 := a.k3dBackupSecret(ctx, st, frame, serverID, cfg, pr)
 	objectStore := ""
 	if s3 != nil {
-		if err := a.installBarmanPlugin(ctx, serverID, pr); err != nil {
+		if err := a.installBarmanPlugin(ctx, ar, pr); err != nil {
 			// The cluster is still worth deploying without backups, and saying so beats a
 			// Cluster that references a plugin the operator has never heard of.
 			pr.logln("barman-cloud plugin unavailable, deploying without backups: " + err.Error())
 			cfg.BackupRepo = ""
 		} else {
 			objectStore = cfg.ClusterName + "-store"
-			if err := a.kubectlApply(ctx, serverID, ns, cnpgObjectStoreManifest(objectStore, ns, s3)); err != nil {
+			if err := apply("objectstore", ns, cnpgObjectStoreManifest(objectStore, ns, s3)); err != nil {
 				pr.logln("ObjectStore skipped, deploying without backups: " + err.Error())
 				objectStore, cfg.BackupRepo = "", ""
 			} else {
@@ -421,7 +631,7 @@ func (a *App) installCNPGOperator(ctx context.Context, st Stack, frame designFra
 	pr.phase("Applying the Cluster CR", 88)
 	manifest := cnpgClusterManifest(cfg.ClusterName, ns,
 		cnpgInstances(frame), cnpgStorageGB(frame), frame.K3DCNPGVersion, objectStore)
-	if err := a.kubectlApply(ctx, serverID, ns, manifest); err != nil {
+	if err := apply("cluster", ns, manifest); err != nil {
 		return fmt.Errorf("apply the CNPG Cluster: %w", err)
 	}
 	pr.logln(fmt.Sprintf("Cluster %s applied: %d instance(s), %dGi storage%s",
@@ -432,7 +642,7 @@ func (a *App) installCNPGOperator(ctx context.Context, st Stack, frame designFra
 	cfg.CNPGPGVersion = strings.TrimSpace(frame.K3DCNPGVersion)
 
 	if objectStore != "" {
-		if err := a.kubectlApply(ctx, serverID, ns, cnpgScheduledBackupManifest(cfg.ClusterName, ns)); err != nil {
+		if err := apply("scheduledbackup", ns, cnpgScheduledBackupManifest(cfg.ClusterName, ns)); err != nil {
 			pr.logln("nightly ScheduledBackup skipped: " + err.Error())
 		} else {
 			pr.logln("nightly ScheduledBackup via barman-cloud (WAL archiving continuous)")
@@ -456,7 +666,7 @@ func (a *App) installCNPGOperator(ctx context.Context, st Stack, frame designFra
 	if cnpgExposeLoadBalancer(frame) {
 		pr.phase("Exposing Postgres", 95)
 		cfg.CNPGExpose = "LoadBalancer"
-		if err := a.kubectlApply(ctx, serverID, ns, cnpgPrimaryServiceManifest(cfg.ClusterName, ns)); err != nil {
+		if err := apply("primary-service", ns, cnpgPrimaryServiceManifest(cfg.ClusterName, ns)); err != nil {
 			pr.logln("LoadBalancer Service skipped: " + err.Error())
 			cfg.CNPGExpose = "ClusterIP"
 		} else if addr := a.waitForLoadBalancerIP(ctx, serverID, ns, cnpgPrimaryServiceName(cfg.ClusterName), deployTimeout()); addr != "" {
@@ -473,18 +683,40 @@ func (a *App) installCNPGOperator(ctx context.Context, st Stack, frame designFra
 
 	// ---- monitoring resources, now that the cluster exists to be selected ----
 	if monitoring {
-		if err := a.kubectlApply(ctx, serverID, ns, cnpgPodMonitorManifest(cfg.ClusterName, ns)); err != nil {
+		if err := apply("podmonitor", ns, cnpgPodMonitorManifest(cfg.ClusterName, ns)); err != nil {
 			pr.logln("PodMonitor skipped: " + err.Error())
 		} else {
 			pr.logln("PodMonitor " + cfg.ClusterName + " registered for scraping")
 		}
 		if rules, err := httpGetBytes(ctx, cnpgPrometheusRuleURL); err != nil {
 			pr.logln("CNPG PrometheusRule skipped: " + err.Error())
-		} else if err := a.kubectlApply(ctx, serverID, ns, rules); err != nil {
+		} else if err := apply("prometheusrule", ns, rules); err != nil {
 			pr.logln("CNPG PrometheusRule skipped: " + err.Error())
 		} else {
 			pr.logln("CNPG alerting rules applied")
 		}
+		// The dashboard. Without it the stack gives you Grafana with Prometheus wired up
+		// and nothing to look at — metrics are being collected, but no PostgreSQL view
+		// exists to read them in. Non-fatal: a cluster with unviewed metrics still beats
+		// a failed deploy.
+		if dash, err := httpGetBytes(ctx, cnpgGrafanaDashboardURL); err != nil {
+			pr.logln("Grafana PostgreSQL dashboard skipped: " + err.Error())
+		} else if err := ar.applyLarge(ctx, promNamespace, "grafana-dashboard", cnpgDashboardConfigMap(dash)); err != nil {
+			pr.logln("Grafana PostgreSQL dashboard skipped: " + err.Error())
+		} else {
+			cfg.GrafanaDashboard = "CloudNativePG"
+			pr.logln("Grafana dashboard \"CloudNativePG\" loaded (sidecar picks up the ConfigMap; " +
+				"it appears within a minute or so of Grafana starting)")
+		}
+	}
+
+	// Written last, so it describes what actually happened rather than what was intended.
+	if ar.ok && a.cnpgArchive(ctx, serverID, "README.md",
+		cnpgArchiveReadme(cfg, ns, ar.files, monitoring, objectStore), pr) {
+		cfg.ManifestDir = cnpgManifestDir
+		pr.logln("manifests archived to " + cnpgManifestDir + " on the first k3s node (see its README)")
+	} else {
+		pr.logln("manifests could not be archived to " + cnpgManifestDir + " — the deployment itself is unaffected")
 	}
 	return nil
 }
@@ -492,9 +724,10 @@ func (a *App) installCNPGOperator(ctx context.Context, st Stack, frame designFra
 // installBarmanPlugin installs cert-manager (the plugin serves gRPC to the operator over TLS
 // and gets its certificates from it) and then the plugin itself, which must land in the
 // operator's own namespace.
-func (a *App) installBarmanPlugin(ctx context.Context, serverID string, pr *pxcProg) error {
+func (a *App) installBarmanPlugin(ctx context.Context, ar *cnpgArchiver, pr *pxcProg) error {
+	serverID := ar.serverID
 	pr.phase("Installing cert-manager", 84)
-	if err := a.kubectlApply(ctx, serverID, "", helmChartManifest(
+	if err := ar.apply(ctx, "", "cert-manager", helmChartManifest(
 		certManagerChart, certManagerChartRepo, certManagerChart, "", certManagerNamespace,
 		"crds:\n  enabled: true\n")); err != nil {
 		return fmt.Errorf("apply the cert-manager HelmChart: %w", err)
@@ -516,7 +749,7 @@ func (a *App) installBarmanPlugin(ctx context.Context, serverID string, pr *pxcP
 		return fmt.Errorf("fetch the barman-cloud plugin manifest: %w", err)
 	}
 	// The manifest carries its own namespace (cnpg-system) on every object.
-	if err := a.kubectlApply(ctx, serverID, "", manifest); err != nil {
+	if err := ar.apply(ctx, "", "barman-cloud-plugin", manifest); err != nil {
 		return fmt.Errorf("apply the barman-cloud plugin: %w", err)
 	}
 	if err := a.waitForCRD(ctx, serverID, "objectstores.barmancloud.cnpg.io", deployTimeout()); err != nil {

@@ -562,6 +562,27 @@ const NODE_TYPES = {
     osOptions: [{ id: 'marketchaos', label: 'dbcanvas-marketchaos' }],
     defaults: {},
   },
+  // Stock Market Sim — a stock-exchange app with full browser CRUD, a live
+  // dashboard and a printable report. Distinct from MarketChaos above, which is
+  // a MySQL performance-tuning *challenge* (deliberately bad indexes, no CRUD,
+  // no report); this one is a working application you operate. Runs dbcanvas's
+  // own first-party image, so no os/osVersion/arch fields. Two ways to reach a
+  // database: linked to a standalone node on the canvas via an association line
+  // (see endpointKind/tryConnect), or a manual connection typed into the form —
+  // which needs no line at all and can point at a database outside the stack.
+  // Its dashboard port is published to the host (like PMM), so no VNC desktop
+  // is needed to reach it.
+  stocksim: {
+    label: 'Stock Market Sim',
+    slug: 'stocksim',
+    sub: 'Stock exchange app on MySQL, PostgreSQL, MongoDB or Valkey',
+    color: '#14b8a6',
+    icon: 'Flask',
+    singleton: false,
+    ports: true,
+    osOptions: [{ id: 'stocksim', label: 'dbcanvas-stocksim' }],
+    defaults: { ssMode: 'linked', ssEngine: 'mysql', ssTLS: 'prefer', ssDatabase: 'stocksim' },
+  },
 }
 
 // ---------------------------------------------------------- PXC cluster frames
@@ -1063,6 +1084,7 @@ const PALETTE_ALIASES = {
   airlinesim: 'demo simulation airline flight reservation booking mysql pxc',
   carsim: 'demo simulation car rental booking postgres postgresql patroni repmgr spock',
   marketchaos: 'demo simulation stock market exchange trading mysql pxc performance tuning index challenge unoptimized',
+  stocksim: 'demo simulation stock market portfolio trading crud report dashboard external mysql postgres mongodb valkey',
 }
 function loadPalettePrefs() {
   try { return { collapsed: [], recent: [], ...JSON.parse(localStorage.getItem(PALETTE_KEY) || '{}') } }
@@ -1378,6 +1400,7 @@ function StackEditor({ stackId, onBack }) {
       if (n.type === 'airlinesim') return 'airlinesim'
       if (n.type === 'carsim') return 'carsim'
       if (n.type === 'marketchaos') return 'marketchaos'
+      if (n.type === 'stocksim') return 'stocksim'
       return null
     }
     const f = refs.current.frames.find((x) => x.id === id)
@@ -1494,6 +1517,19 @@ function StackEditor({ stackId, onBack }) {
     if (k2 === 'backend' && k1 === 'marketchaos') return createFlow(e2, e1, { singleOutgoing: true })
     if (k1 === 'haproxy' && k2 === 'marketchaos') return createFlow(e1, e2, { singleOutgoing: true })
     if (k2 === 'haproxy' && k1 === 'marketchaos') return createFlow(e2, e1, { singleOutgoing: true })
+    // Standalone Percona Server node → Stock Market Sim node. singleOutgoing is
+    // what enforces "one Stock Market Sim node drives exactly one database" —
+    // four separate applications means four nodes, each with its own line and
+    // its own dashboard. A node set to a manual connection needs no line at all
+    // and simply never uses this rule.
+    if (k1 === 'ps' && k2 === 'stocksim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'ps' && k1 === 'stocksim') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'pg' && k2 === 'stocksim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'pg' && k1 === 'stocksim') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'psm' && k2 === 'stocksim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'psm' && k1 === 'stocksim') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'valkey' && k2 === 'stocksim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'valkey' && k1 === 'stocksim') return createFlow(e2, e1, { singleOutgoing: true })
     // ProxySQL node ↔ ProxySQL node: ask which way the data flows.
     if (k1 === 'proxysql' && k2 === 'proxysql') { setLinkPrompt({ e1, e2 }); return }
     // Cluster member ↔ cluster member (PXC/Percona Server, different frames): a
@@ -2284,6 +2320,7 @@ function StackEditor({ stackId, onBack }) {
       { label: 'Airline Sim', type: 'airlinesim', onClick: () => addNode('airlinesim') },
       { label: 'Car Rental Sim', type: 'carsim', onClick: () => addNode('carsim') },
       { label: 'Unoptimized MySQL Challenge', type: 'marketchaos', onClick: () => addNode('marketchaos') },
+      { label: 'Stock Market Sim', type: 'stocksim', onClick: () => addNode('stocksim') },
     ] },
   ]
 
@@ -5005,6 +5042,283 @@ function MarketChaosManager({ node: n, dep, onDeleteNode }) {
   )
 }
 
+// SS_ENGINES mirrors stockSimImplementedEngines in app/stocksim.go, which in
+// turn mirrors store.Implemented() inside the sim image. Offering only what the
+// binary implements means a user can never configure a target that would be
+// refused at startup. `ready` flips as each engine's store lands.
+const SS_ENGINES = [
+  { id: 'mysql', label: 'MySQL / Percona Server', port: 3306, ready: true },
+  { id: 'postgres', label: 'PostgreSQL', port: 5432, ready: true },
+  { id: 'mongodb', label: 'MongoDB', port: 27017, ready: true },
+  { id: 'valkey', label: 'Valkey', port: 6379, ready: true },
+]
+// SS_LINK_TYPES mirrors stockSimTarget in app/stocksim.go: the standalone node
+// types a Stock Market Sim node can be linked to, and the engine each implies.
+const SS_LINK_TYPES = {
+  ps: 'Percona Server',
+  pg: 'PostgreSQL',
+  psm: 'PS MongoDB',
+  valkey: 'Valkey',
+}
+const SS_TARGET_KIND_LABEL = {
+  ps: 'Percona Server',
+  pg: 'PostgreSQL',
+  psm: 'PS MongoDB',
+  valkey: 'Valkey',
+  'external-mysql': 'External MySQL',
+  'external-postgres': 'External PostgreSQL',
+  'external-mongodb': 'External MongoDB',
+  'external-valkey': 'External Valkey',
+}
+
+// StockSimForm edits a (not-yet-running) Stock Market Sim node. It is the only
+// app-simulator form with two connection modes: linked to a database node on
+// the canvas (resolved from the drawn edge the way every sibling does), or a
+// manual connection typed in here — which needs no edge and can reach a
+// database outside the stack entirely.
+function StockSimForm({ node: n, nodes, edges, stackId, patchNode, deleteNode, dep, deployed }) {
+  const mode = n.ssMode === 'manual' ? 'manual' : 'linked'
+  const engine = n.ssEngine || 'mysql'
+  const engineDef = SS_ENGINES.find((e) => e.id === engine) || SS_ENGINES[0]
+  const [test, setTest] = useState(null)
+  const [testing, setTesting] = useState(false)
+
+  // Mirrors stockSimTarget's edge walk: standalone database nodes only, one
+  // per engine family.
+  const linkedTarget = (() => {
+    for (const e of edges) {
+      const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
+      if (!other) continue
+      const db = nodes.find((x) => x.id === other && SS_LINK_TYPES[x.type] && !x.frameId)
+      if (db) return { kind: db.type, label: db.label }
+    }
+    return null
+  })()
+
+  async function runTest() {
+    setTesting(true)
+    setTest(null)
+    try {
+      setTest(await stackApi.stocksimTest(stackId, n.id, {
+        engine, host: n.ssHost || '', port: Number(n.ssPort) || 0,
+        user: n.ssUser || '', password: n.ssPassword || '',
+        database: n.ssDatabase || 'stocksim', tls: n.ssTLS || 'prefer',
+        params: n.ssParams || '', dsn: n.ssDSN || '',
+      }))
+    } catch (err) {
+      setTest({ ok: false, message: err.message || String(err) })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Stock Market Sim</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <p className="text-xs text-muted">
+        A stock exchange application: background agents move prices, place orders and settle
+        trades, while you create, edit and delete securities, portfolios and orders from its own
+        web interface. It generates a printable report and CSV exports, and can drop everything
+        it created when you're done. A live dashboard is served from this node, published to the
+        host (like PMM) once deployed — no VNC desktop needed.
+      </p>
+
+      <Field label="Database connection" hint="Where this application keeps its data.">
+        <div className="flex gap-1.5">
+          {[['linked', 'Linked node'], ['manual', 'Manual connection']].map(([id, label]) => (
+            <button key={id} type="button"
+              onClick={() => patchNode(n.id, { ssMode: id })}
+              className={`flex-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${
+                mode === id ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted hover:border-primary/40'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </Field>
+
+      {mode === 'linked' ? (
+        linkedTarget ? (
+          <div className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
+            Linked to {SS_LINK_TYPES[linkedTarget.kind]} <span className="font-mono font-medium">{linkedTarget.label}</span>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+            Not linked. Draw an association line from a standalone Percona Server, PostgreSQL,
+            PS MongoDB or Valkey node to this node — or switch to a manual connection to use a
+            database outside this stack.
+          </div>
+        )
+      ) : (
+        <div className="space-y-2.5 rounded-lg border border-border bg-surface2 p-2.5">
+          <p className="text-xs text-muted">
+            Connects to any database this stack can reach — elsewhere on this host, on your network,
+            or a managed instance. Use <span className="font-mono">host.docker.internal</span> for a
+            database running on the Docker host itself. dbcanvas can't verify it before you deploy,
+            so test it here.
+          </p>
+          <Field label="Engine">
+            <select className={inputCls} value={engine}
+              onChange={(e) => patchNode(n.id, { ssEngine: e.target.value })}>
+              {SS_ENGINES.map((e) => (
+                <option key={e.id} value={e.id} disabled={!e.ready}>
+                  {e.label}{e.ready ? '' : ' — not in this build yet'}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="col-span-2">
+              <Field label="Host">
+                <input className={inputCls} value={n.ssHost || ''} placeholder="db.example.com"
+                  onChange={(e) => patchNode(n.id, { ssHost: e.target.value })} />
+              </Field>
+            </div>
+            <Field label="Port">
+              <input className={inputCls} type="number" value={n.ssPort || ''}
+                placeholder={String(engineDef.port)}
+                onChange={(e) => patchNode(n.id, { ssPort: Number(e.target.value) || 0 })} />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="User">
+              <input className={inputCls} value={n.ssUser || ''}
+                onChange={(e) => patchNode(n.id, { ssUser: e.target.value })} />
+            </Field>
+            <Field label="Password">
+              <input className={inputCls} type="password" value={n.ssPassword || ''}
+                onChange={(e) => patchNode(n.id, { ssPassword: e.target.value })} />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Database" hint="This app's own schema.">
+              <input className={inputCls} value={n.ssDatabase || ''} placeholder="stocksim"
+                onChange={(e) => patchNode(n.id, { ssDatabase: e.target.value })} />
+            </Field>
+            <Field label="TLS">
+              <select className={inputCls} value={n.ssTLS || 'prefer'}
+                onChange={(e) => patchNode(n.id, { ssTLS: e.target.value })}>
+                <option value="prefer">Prefer</option>
+                <option value="require">Require</option>
+                <option value="disable">Disable</option>
+              </select>
+            </Field>
+          </div>
+          <Field label="Display name" hint="Optional — shown on the dashboard and report.">
+            <input className={inputCls} value={n.ssLabel || ''} placeholder="Production replica"
+              onChange={(e) => patchNode(n.id, { ssLabel: e.target.value })} />
+          </Field>
+          <details className="text-xs">
+            <summary className="cursor-pointer text-muted hover:text-fg">Advanced</summary>
+            <div className="mt-2 space-y-2">
+              <Field label="Extra driver parameters">
+                <input className={inputCls} value={n.ssParams || ''} placeholder="readTimeout=30s"
+                  onChange={(e) => patchNode(n.id, { ssParams: e.target.value })} />
+              </Field>
+              <Field label="Full connection string"
+                hint="Overrides every field above. For a connection dbcanvas doesn't model.">
+                <input className={inputCls} type="password" value={n.ssDSN || ''}
+                  onChange={(e) => patchNode(n.id, { ssDSN: e.target.value })} />
+              </Field>
+            </div>
+          </details>
+
+          <Button variant="secondary" size="sm" className="w-full" onClick={runTest} disabled={testing}>
+            {testing ? 'Testing…' : 'Test connection'}
+          </Button>
+          {test && (
+            <div className={`rounded-lg border px-2.5 py-1.5 text-xs ${
+              test.ok ? 'border-primary/30 bg-primary/10 text-primary' : 'border-danger/30 bg-danger/15 text-danger'}`}>
+              {test.message}
+            </div>
+          )}
+        </div>
+      )}
+
+      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// StockSimManager shows a deployed Stock Market Sim node's dashboard URL and
+// what it is connected to — and is the one node manager that can delete the
+// node's *data* as well as the node. Dropping has to happen first: once the
+// container is gone its API is unreachable, and the data lives in a database
+// dbcanvas may not otherwise have credentials for.
+function StockSimManager({ dep, onDeleteNode }) {
+  const cfg = dep?.config || {}
+  const [dropping, setDropping] = useState(false)
+  const [alsoDrop, setAlsoDrop] = useState(false)
+  const [err, setErr] = useState('')
+  const db = cfg.database || 'stocksim'
+
+  async function deleteNodeAndMaybeData() {
+    setErr('')
+    if (alsoDrop) {
+      setDropping(true)
+      try {
+        const host = typeof location !== 'undefined' ? location.hostname : 'localhost'
+        const res = await fetch(`http://${host}:${cfg.httpPort}/api/control/drop`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ confirm: db }),
+        })
+        if (!res.ok) throw new Error((await res.text()).trim() || res.statusText)
+      } catch (e) {
+        setDropping(false)
+        setErr(`Could not drop the data: ${e.message}. The node has not been deleted.`)
+        return
+      }
+      setDropping(false)
+    }
+    onDeleteNode()
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Stock Market Sim</span>
+        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+      </div>
+      <SimDashboardLink port={cfg.httpPort} />
+      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
+        <div className="flex justify-between gap-3"><span className="text-muted">Internal URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8093</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Connected to</span><span className="font-mono text-xs">{cfg.targetName} ({SS_TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Database</span><span className="font-mono text-xs">{cfg.engine} / {db}</span></div>
+      </div>
+      {cfg.httpPort && (
+        <a href={`http://${typeof location !== 'undefined' ? location.hostname : 'localhost'}:${cfg.httpPort}/report`}
+          target="_blank" rel="noreferrer"
+          className="flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:border-primary/40">
+          <Icon.External size={15} /> Open report
+        </a>
+      )}
+
+      <label className="flex items-start gap-2 rounded-lg border border-danger/25 bg-danger/10 px-2.5 py-2 text-xs">
+        <input type="checkbox" className="mt-0.5" checked={alsoDrop}
+          onChange={(e) => setAlsoDrop(e.target.checked)} />
+        <span className="text-muted">
+          Also drop this application's tables from <span className="font-mono text-fg">{db}</span> on{' '}
+          <span className="font-mono text-fg">{cfg.targetName}</span>. The database itself and anything
+          else in it are left alone.
+        </span>
+      </label>
+      {err && <p className="text-xs text-danger">{err}</p>}
+      <Button variant="danger" size="sm" className="w-full" onClick={deleteNodeAndMaybeData} disabled={dropping}>
+        <Icon.Trash size={16} /> {dropping ? 'Dropping data…' : alsoDrop ? 'Delete node and its data' : 'Delete node'}
+      </Button>
+    </div>
+  )
+}
+
 // ValkeyForm edits a (not-yet-running) standalone Valkey node: password (requirepass),
 // optional LDAP auth against the Intranet OpenLDAP, PMM monitoring and host-port export.
 function ValkeyForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }) {
@@ -5523,31 +5837,46 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
       </Field>
       <SeaweedBucketField nodes={nodes} nodeId={f.seaweedfsNodeId} value={f.seaweedfsBucket} deployed={deployed}
         onChange={(v) => patchFrame(f.id, { seaweedfsBucket: v })} />
-      <Field label="Monitored by (PMM)" hint="Optional — sets spec.pmm.serverHost and wires a service token.">
-        <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed}
-          onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
-          <option value="">none</option>
-          {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-        </select>
-      </Field>
-      {f.pmmNodeId && (
+      {/* PMM monitors a Percona operator's cluster through a pmm-client sidecar that the
+          operator's own CR configures. CloudNativePG is not a Percona product and ships no
+          such sidecar, so the picker is hidden for it rather than offering monitoring that
+          would never arrive — CNPG's monitoring is the Prometheus/Grafana option above.
+          A design saved before this was hidden is caught by k3dFrameIssues. */}
+      {cnpg ? (
+        <p className="text-xs text-muted">
+          CloudNativePG has no PMM integration — it isn't a Percona product and ships no
+          pmm-client sidecar. Use the Prometheus + Grafana option above, which installs
+          kube-prometheus-stack with a PostgreSQL dashboard.
+        </p>
+      ) : (
         <>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted">Service token expires in</span>
-            <input type="number" min="1" className={`${inputCls} w-20`} value={f.k3dPmmTokenTtlValue || 365} disabled={deployed}
-              onChange={(e) => patchFrame(f.id, { k3dPmmTokenTtlValue: Number(e.target.value) })} />
-            <select className={`${inputCls} ${lock}`} value={f.k3dPmmTokenTtlUnit || 'days'} disabled={deployed}
-              onChange={(e) => patchFrame(f.id, { k3dPmmTokenTtlUnit: e.target.value })}>
-              <option value="minutes">minutes</option>
-              <option value="hours">hours</option>
-              <option value="days">days</option>
+          <Field label="Monitored by (PMM)" hint="Optional — sets spec.pmm.serverHost and wires a service token.">
+            <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed}
+              onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
+              <option value="">none</option>
+              {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
             </select>
-          </div>
-          <p className="text-xs text-muted">
-            PMM 3 authenticates the pmm-client sidecars with a <span className="font-medium">service token</span>, not a
-            password. One is minted on the PMM server at deploy and patched into the cluster's secret; when it expires
-            the pods stop reporting until a new one is patched in.
-          </p>
+          </Field>
+          {f.pmmNodeId && (
+            <>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted">Service token expires in</span>
+                <input type="number" min="1" className={`${inputCls} w-20`} value={f.k3dPmmTokenTtlValue || 365} disabled={deployed}
+                  onChange={(e) => patchFrame(f.id, { k3dPmmTokenTtlValue: Number(e.target.value) })} />
+                <select className={`${inputCls} ${lock}`} value={f.k3dPmmTokenTtlUnit || 'days'} disabled={deployed}
+                  onChange={(e) => patchFrame(f.id, { k3dPmmTokenTtlUnit: e.target.value })}>
+                  <option value="minutes">minutes</option>
+                  <option value="hours">hours</option>
+                  <option value="days">days</option>
+                </select>
+              </div>
+              <p className="text-xs text-muted">
+                PMM 3 authenticates the pmm-client sidecars with a <span className="font-medium">service token</span>, not a
+                password. One is minted on the PMM server at deploy and patched into the cluster's secret; when it expires
+                the pods stop reporting until a new one is patched in.
+              </p>
+            </>
+          )}
         </>
       )}
 
@@ -7960,6 +8289,15 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <MarketChaosManager node={n} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <MarketChaosForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+    // Stock Market Sim node — the CRUD + report stock-exchange app. Its form
+    // takes stackId because, uniquely, it can test a database connection before
+    // the node is deployed.
+    if (n.type === 'stocksim') {
+      if (dep && dep.state === 'running') {
+        return <StockSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <StockSimForm node={n} nodes={nodes} edges={edges} stackId={stackId} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
     return (
       <div className="space-y-3">

@@ -117,9 +117,34 @@ type k3dConfig struct {
 	CNPGAppDB     string `json:"cnpgAppDb"`
 	GrafanaURL    string `json:"grafanaUrl"`  // Grafana's LoadBalancer URL ("" = not installed)
 	MonitoredBy   string `json:"monitoredBy"` // PMM FQDN, or Prometheus/Grafana ("" = none)
-	PMMToken      string `json:"pmmToken"`    // "" | "expires <when>" — the service token's lifetime
-	BackupRepo    string `json:"backupRepo"`  // SeaweedFS S3 target ("" = none)
-	Image         string `json:"image"`       // the k3s image k3d used
+	// GrafanaUser is the admin login the chart was installed with; the password that goes
+	// with it lives in k3dSecrets, not here. GrafanaService is the Service the URL above
+	// resolves to ("<namespace>/<name>"), which is what makes the address checkable — it is
+	// the one `kubectl get svc` a user otherwise has to work out for themselves.
+	GrafanaUser    string `json:"grafanaUser"`
+	GrafanaService string `json:"grafanaService"`
+	PMMToken       string `json:"pmmToken"`   // "" | "expires <when>" — the service token's lifetime
+	BackupRepo     string `json:"backupRepo"` // SeaweedFS S3 target ("" = none)
+	Image          string `json:"image"`      // the k3s image k3d used
+	// GrafanaDashboard names the dashboard provisioned into Grafana ("" = none). Grafana
+	// with Prometheus wired up but no dashboard reads to a user as monitoring that does
+	// not work, so whether one landed is worth reporting rather than leaving to be
+	// discovered.
+	GrafanaDashboard string `json:"grafanaDashboard"`
+	// ManifestDir is where the applied manifests were archived on the first k3s node
+	// ("" = not archived). CNPG only: the Percona operators leave their release source in
+	// /root already.
+	ManifestDir string `json:"manifestDir"`
+}
+
+// k3dSecrets holds the credentials a K3D frame was provisioned with, kept out of k3dConfig
+// because that is the non-secret profile the node panel renders in full. Written only on the
+// final upsert, once provisioning knows what actually landed.
+type k3dSecrets struct {
+	// GrafanaPassword is the kube-prometheus-stack admin password (CNPG frames with
+	// monitoring enabled). It comes from $GRAFANA_PASSWORD, so it is not generated and not
+	// recoverable from the cluster in any friendlier form than reading the chart's Secret.
+	GrafanaPassword string `json:"grafanaPassword,omitempty"`
 }
 
 // ---------------------------------------------------------------- the k3d binary
@@ -221,6 +246,13 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 		} else if _, ok := opCat.resolveOperatorVersion(op, f.K3DOperatorVer); !ok {
 			out = append(out, issue{"error", "K3D cluster " + name + " requests an unknown " + op + " operator version — pick one from the list, or run `make versions`"})
 		}
+	}
+
+	// A design saved before the PMM picker was hidden for CloudNativePG can still carry a
+	// PMM node. It is ignored at deploy (see provisionK3DFrame), but silently ignoring it
+	// would leave the user expecting monitoring that will never appear.
+	if f.K3DOperator == "cnpg" && f.PMMNodeID != "" {
+		out = append(out, issue{"warning", "K3D cluster " + name + " has a PMM node selected, which CloudNativePG cannot use — it is not a Percona product and ships no pmm-client. Clear it; enable Prometheus/Grafana monitoring on the cluster instead"})
 	}
 
 	// The CPU/memory budget is for the whole cluster, split across its nodes.
@@ -427,8 +459,14 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		}
 	}
 
+	// PMM monitors the four Percona operators' clusters through a pmm-client sidecar the
+	// operator's own CR configures. CloudNativePG is not a Percona product, has no such
+	// sidecar, and nothing in installCNPGOperator consumes PMMNodeID — so a PMM node
+	// selected against a CNPG frame is ignored here rather than recorded as monitoring
+	// that does not exist. CNPG's monitoring is Prometheus/Grafana, which
+	// installCNPGOperator sets MonitoredBy to when it lands.
 	monitoredBy := ""
-	if frame.PMMNodeID != "" {
+	if frame.PMMNodeID != "" && operator != "cnpg" {
 		for _, m := range doc.Nodes {
 			if m.ID == frame.PMMNodeID && m.Type == "pmm" {
 				monitoredBy = fqdnOf(hosts[m.ID], domain)
@@ -682,6 +720,13 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		}
 
 		// ---- done: record the final config on every member ----
+		// Grafana's admin password is the one credential this frame hands out, so it goes to
+		// every member's Deployment alongside the config — the panel is opened on whichever
+		// node the user clicked, not necessarily the server.
+		var secJSON json.RawMessage
+		if base.GrafanaURL != "" {
+			secJSON, _ = json.Marshal(k3dSecrets{GrafanaPassword: grafanaAdminPassword()})
+		}
 		for i, n := range members {
 			dep, _ := a.store.GetDeployment(st.ID, n.ID)
 			cfg := base
@@ -693,7 +738,7 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 			cfg.FQDN = fqdnOf(hosts[n.ID], domain)
 			cfg.Image = k3dNodeImage(ctx, a, dep.ContainerID)
 			cfgJSON, _ := json.Marshal(cfg)
-			a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: dep.ContainerID, State: DeployRunning, Config: cfgJSON})
+			a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: dep.ContainerID, State: DeployRunning, Config: cfgJSON, Secrets: secJSON})
 			progs[n.ID].phase("Running", 100)
 			progs[n.ID].p.Message = "provisioned"
 			progs[n.ID].save()
@@ -759,6 +804,28 @@ func (a *App) kubectl(ctx context.Context, serverID string, args ...string) (str
 // namespace; pass "" for manifests that carry their own (MetalLB, the CoreDNS ConfigMap). The
 // custom resource MUST be applied into the operator's namespace — applied without one it lands in
 // `default`, where nothing watches it and the cluster is silently never created.
+// kubectlApplyServerSide is kubectlApply using server-side apply, for manifests too large for
+// the client-side kind. Client-side apply stores the whole manifest in the object's
+// last-applied-configuration annotation, and annotations are capped at 256KiB in total;
+// server-side apply records ownership in managedFields instead and has no such ceiling.
+// --force-conflicts takes ownership of fields a previous client-side apply already claimed,
+// which is what makes it idempotent across a redeploy.
+func (a *App) kubectlApplyServerSide(ctx context.Context, serverID, ns string, manifest []byte) error {
+	args := []string{"kubectl", "apply", "--server-side", "--force-conflicts", "-f", "-"}
+	if ns != "" {
+		args = append(args, "-n", ns)
+	}
+	res, err := a.engCtx(ctx).ExecInput(ctx, serverID, "", args,
+		[]string{"KUBECONFIG=" + k3dKubeconfig}, manifest)
+	if err != nil {
+		return err
+	}
+	if res.Code != 0 {
+		return fmt.Errorf("kubectl apply --server-side: %s", strings.TrimSpace(res.Stderr+res.Stdout))
+	}
+	return nil
+}
+
 func (a *App) kubectlApply(ctx context.Context, serverID, ns string, manifest []byte) error {
 	args := []string{"kubectl", "apply", "-f", "-"}
 	if ns != "" {

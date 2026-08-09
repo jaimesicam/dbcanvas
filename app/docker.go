@@ -22,8 +22,8 @@ import (
 // static distroless binary. Container paths are unversioned (the daemon uses its
 // default API version).
 type Docker struct {
-	http *http.Client
-	sock string
+	http          *http.Client
+	sock          string
 	throttleCache // resolved host block device for --device-read-bps/--device-write-bps
 }
 
@@ -407,8 +407,19 @@ type ContainerSpec struct {
 	PublishMap   []PortMap // explicit container→host TCP publishes (HostPort 0 = auto-assign)
 	DNS          []string  // resolv.conf nameservers (empty = Docker default embedded DNS)
 	DNSSearch    []string  // resolv.conf search domains
-	IPv4Address  string    // static IPv4 on Network (empty = auto-assign)
-	Binds        []string  // extra bind mounts ("src:dst[:mode]"), e.g. the docker socket
+	// ExtraHosts adds /etc/hosts entries ("name:ip", or "name:host-gateway" for
+	// the Docker host itself). Needed by node types that may be pointed at a
+	// database outside the stack — see provisionStockSim, which sets
+	// host.docker.internal so a database running on the host is reachable by
+	// name. Docker-only; the Vagrant engine ignores it.
+	ExtraHosts []string
+	// NoRestart drops the default "unless-stopped" restart policy. Set it for
+	// throwaway containers that are expected to exit — without it a container
+	// whose command fails restart-loops, and anything trying to Exec into it
+	// races the restart (found live via handleStockSimTest).
+	NoRestart   bool
+	IPv4Address string   // static IPv4 on Network (empty = auto-assign)
+	Binds       []string // extra bind mounts ("src:dst[:mode]"), e.g. the docker socket
 	// Platform selects the manifest-list entry when the image is a multi-arch
 	// index ("linux/amd64"). Empty = let the daemon use the image's own platform,
 	// which is right for the arch-tagged dbcanvas-systemd:* images we build
@@ -451,9 +462,13 @@ func freeHostPort() (int, error) {
 
 // ContainerCreate creates a container and returns its id.
 func (d *Docker) ContainerCreate(ctx context.Context, spec ContainerSpec) (string, error) {
+	restart := "unless-stopped"
+	if spec.NoRestart {
+		restart = "no"
+	}
 	host := map[string]any{
 		"Privileged":    spec.Privileged,
-		"RestartPolicy": map[string]any{"Name": "unless-stopped"},
+		"RestartPolicy": map[string]any{"Name": restart},
 	}
 	if spec.Privileged {
 		// systemd as PID 1 needs the host cgroup namespace, a writable cgroup
@@ -492,6 +507,9 @@ func (d *Docker) ContainerCreate(ctx context.Context, spec ContainerSpec) (strin
 	}
 	if len(spec.DNSSearch) > 0 {
 		host["DnsSearch"] = spec.DNSSearch
+	}
+	if len(spec.ExtraHosts) > 0 {
+		host["ExtraHosts"] = spec.ExtraHosts
 	}
 	// Per-node sizing (applyVMSize) → the API equivalents of `docker run --cpus/--memory`.
 	// Zero = unset, i.e. the daemon default of no limit, which is what stacks designed

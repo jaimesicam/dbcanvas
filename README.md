@@ -111,6 +111,20 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
   (baseline vs. validated measurements, a hard correctness gate, a 100-point score) rather than
   a checked SQL answer, for MarketChaos), with a live dashboard reachable from the stack's
   Ubuntu VNC desktop.
+- **Stock Market Sim** — the one app simulator you *operate* rather than just watch, and the one
+  that does not have to be linked to anything on the canvas. Background agents move prices, place
+  orders and settle trades continuously, while you create, edit and delete securities, portfolios
+  and orders from its own web interface; it generates a printable **report** (print to PDF) and
+  per-table **CSV exports**, shows the tables it created in the target database, and can drop them
+  again when you're done. The same application runs on **MySQL, PostgreSQL, MongoDB or Valkey** —
+  link it to a standalone Percona Server, PostgreSQL, PS MongoDB or Valkey node with a drawn
+  association line, *or* switch the node to a **manual connection** and give it a host, port,
+  user, password and database — reaching a database that is not part of the stack at all:
+  elsewhere on the Docker host (`host.docker.internal`), on your network, or a managed cloud
+  instance, with a **Test connection** button that checks it before you deploy. One node drives
+  exactly one database, so four nodes side by side give you four independent applications with
+  four dashboards, one per engine. Unlike **Unoptimized MySQL Challenge** above — also a stock
+  exchange, but a MySQL tuning puzzle with no CRUD and no report — this is a working application.
 - **All in One** — one container running **many** database instances side by side, instead of
   one product per node. Add features to it from a menu (Percona Server, PS replication, InnoDB
   Cluster / Group Replication, PXC, PostgreSQL, repmgr, Patroni, Spock, PSMDB standalone /
@@ -556,6 +570,7 @@ DBCanvas provisions sibling nodes, so it needs access to the Docker daemon and t
 | `make airlinesim-image` | Build the **Airline Sim** app-simulator image — required for every **MySQL family** Lab, which deploys one alongside the cluster |
 | `make carsim-image` | Build the **Car Rental Sim** app-simulator image (canvas-only — no Lab deploys one; needed only to place a Car Rental Sim node yourself) |
 | `make marketchaos-image` | Build the **Unoptimized MySQL Challenge (MarketChaos)** app-simulator image (canvas-only — no Lab deploys one; needed only to place a MarketChaos node yourself) |
+| `make stocksim-image` | Build the **Stock Market Sim** app-simulator image (canvas-only — no Lab deploys one; needed only to place a Stock Market Sim node yourself, including one using a manual connection to a database outside the stack) |
 
 ### Docker (default)
 
@@ -571,6 +586,7 @@ make hotelsim-image
 make airlinesim-image
 make carsim-image
 make marketchaos-image
+make stocksim-image
 ```
 
 Then open **http://localhost:8080**. The first visit asks you to create an administrator
@@ -668,6 +684,7 @@ apply to that engine only; the rest are shared where relevant.
 | `CLUSTERCHECK_PASSWORD` | `cluster_password` | `clustercheck@localhost`, backing the PXC `:9200` health endpoint an HAProxy polls. |
 | `PMM_PASSWORD` | `pmm_password` | The least-privilege `pmm` monitoring user, created only on nodes associated with a PMM server. |
 | `PMM_ADMIN_PASSWORD` | `admin_password` | The PMM server's Grafana `admin` user (the PMM web UI login). A per-node password set on the canvas overrides it. |
+| `GRAFANA_PASSWORD` | `grafana_password` | The `admin` user of the Grafana that kube-prometheus-stack installs alongside a CloudNativePG K3D frame. The address and this login appear on the k3s node's panel after deploy. |
 | `KEYCLOAK_PASSWORD` | `keycloak_password` | The Keycloak node's `admin` console user. |
 | `KEYCLOAK_USER_PASSWORD` | `keycloak_user_password` | The sample Keycloak users (`alice`, `bob`) created when a node enables Keycloak SSO. Demo identities — don't reuse this password for anything real. |
 | `SAMBA_PASSWORD` | `SambaPassword2026` | The Samba AD DC administrator, used to provision the domain and to bind for LDAP/Kerberos management. Must satisfy Active Directory complexity (at least three of: uppercase, lowercase, digit, symbol) or provisioning rejects it. |

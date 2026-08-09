@@ -34,6 +34,9 @@ services:
       PMM_PASSWORD: ${PMM_PASSWORD:-pmm_password}
       # PMM server's Grafana "admin" user.
       PMM_ADMIN_PASSWORD: ${PMM_ADMIN_PASSWORD:-admin_password}
+      # The "admin" user of the Grafana that kube-prometheus-stack installs into a
+      # CloudNativePG K3D frame. Surfaced on the k3s node's panel after deploy.
+      GRAFANA_PASSWORD: ${GRAFANA_PASSWORD:-grafana_password}
       # Keycloak's "admin" console user.
       KEYCLOAK_PASSWORD: ${KEYCLOAK_PASSWORD:-keycloak_password}
       # Ubuntu VNC desktop: the desktop login and the VNC access code. VncAuth

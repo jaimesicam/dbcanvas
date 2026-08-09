@@ -11895,3 +11895,362 @@ they are the same shape:
 
 One incidental gotcha for anyone poking at a CNPG pod: `psql -U app` over the pod's local socket
 fails with peer authentication. Use `-U postgres -d app` on the socket, or connect over TCP.
+
+## 226. Stock Market Sim (`stocksim`): a multi-engine CRUD + reporting app that can also drive a database outside the stack — `stocksim/` (new module), `app/stocksim.go`, `app/docker.go`, `app/intranet.go`, `app/main.go`, `Makefile`, `app/web/src/pages/StackDesigner.jsx`, `app/web/src/lib/stackApi.js`
+
+The ask was a stock-market simulator that generates its own tables, does real CRUD from the
+browser, shows progress on those stocks in a professional dashboard, and generates a report —
+with a node-based main menu so one application can be pointed at a MySQL instance, another at a
+Postgres instance, another at Valkey, another at MongoDB, each with its own dashboard, and each
+deletable along with its data. Scope was settled in plan mode with `AskUserQuestion`: standalone
+canvas targets only, live simulation *plus* CRUD, printable HTML + CSV rather than a server-side
+PDF library, and staged delivery with MySQL first. After the plan was approved the user added one
+requirement that reshaped it — *"be sure that I can manually also specify database connection
+options as I may need to connect this to external database"* — which is where the manual
+connection mode, `ContainerSpec.ExtraHosts` and the pre-deploy connection test come from.
+
+Three things here have no precedent in the five sibling sims, which are each hard-wired to one
+engine, read-only in the browser, and have no export of any kind (I grepped all five for
+`csv`/`pdf`/`export`/`Content-Disposition`/`@media print` — zero hits).
+
+**New `stocksim/` module.** Same layout as `carsim/`, distroless runtime, `//go:embed web/static`,
+`-healthcheck` as the readiness probe. Container port **8093** (8088–8092 taken).
+
+- `internal/store` is the load-bearing new idea: a `Store` **interface** with one implementation
+  per engine, so `internal/sim` and `internal/api` are written once, import no driver, and cannot
+  tell which backend they run on beyond the string `Engine()` returns. This build implements
+  MySQL; `store.Implemented()` is the single list the node form mirrors, so a user can never
+  configure a target the binary would then refuse.
+- The namespace-isolation rule every sibling carries is stricter here, because this app can be
+  pointed at a database dbcanvas neither created nor owns: everything lives under one
+  schema/database/key-prefix, `Open` hard-refuses reserved names (`mysql`, `postgres`, `admin`,
+  `local`, …), and Wipe/DropSchema are scoped to the app's own object list, never a wildcard.
+- `internal/api` adds the repo's first `PUT`/`DELETE` routes and its first
+  `Content-Disposition` responses. A small CORS middleware exists for exactly one caller —
+  the dbcanvas node panel's "delete node and its data" checkbox, served from another port.
+- `web/static` is vanilla JS with no charting library, per house rule. Sparklines are inline SVG
+  `<polyline>`s. `/report` is a separate print-first page (`@media print`, repeating `<thead>`,
+  `break-inside: avoid`) that the browser prints to PDF — verified as a 7-page Letter PDF.
+
+**Colour was computed, not chosen.** The `dataviz` skill's validator was run on the intended
+up/down pair: the conventional red/green ticker measures **deutan ΔE 4.1**, i.e. effectively one
+colour to a deuteranope. `#4ade80`/`#c0392b` on the dark surface measures **24.5**, and
+`#047857`/`#b91c1c` on the report's white surface passes every check at 8.4. The validator's
+"lightness band" FAIL on the dark pair is deliberate — that check exists so no categorical series
+dominates, whereas here the lightness difference *is* the CVD mitigation. Colour is never the sole
+signal regardless: every change carries a ▲/▼ glyph and a signed number, so the report is still
+correct printed in black and white.
+
+**Two connection modes** (`designNode.SS*`, `app/stocksim.go`). `linked` resolves a drawn
+association line to a standalone `ps` node the way `carSimTarget` does, reusing `waitPSNodeRunning`
+and connecting as `AppUser`, never root. `manual` takes host/port/user/password/database/TLS
+straight from the node form, waits for nothing, and needs no edge — with a raw-DSN escape hatch
+that beats every other field. The password lives in the design like the existing `RootPassword`
+field, and `provisionStockSim` moves it into `Deployment.Secrets`, deliberately out of the
+`Config` the node panel renders (verified: `"SECRET LEAK IN CONFIG: False"`).
+
+**`app/docker.go` gained two fields**, both driven by this node type:
+`ExtraHosts` (so `host.docker.internal` resolves and a database on the Docker host is reachable)
+and `NoRestart` (so a throwaway container that is expected to exit does not restart-loop).
+
+**Verified live.** Everything below ran against a *second, disposable* dbcanvas instance
+(`dbcanvas:stocksim-test` on port 8099, its own volume) so the primary instance and its live
+stack 54 were never touched. It was destroyed afterwards.
+
+Four bugs were found only by running the thing, not by reading it:
+
+1. **Drop then re-seed was broken.** `DropSchema` dropped the database itself when empty. Against
+   a scoped user — `GRANT ALL ON stocksim.*`, which can drop that database but cannot create one —
+   this destroyed our own access, and the next seed failed with `Error 1046: No database selected`.
+   Fixed by never dropping the database, only this app's tables. That is also the honest reading of
+   what the UI promises. `EnsureSchema` additionally now tolerates a user without `CREATE DATABASE`
+   when the database already exists, which is the normal shape of a managed external instance.
+2. **The report exposed nonsense accounting**: a holding with an average cost of **-160.42** and
+   cash of **-$1.5M**. The agents short-sold and overspent without limit, and a weighted average
+   cost is undefined once a position crosses zero. Fixed with `settlementBlock` at the single point
+   positions change — no naked shorts, no buying on credit — plus resetting the basis when a
+   position closes. After the fix: 0 negative quantities, 0 negative average costs, 0 negative cash,
+   and total portfolio value tracks starting cash (Alice 2.51M against 2.5M seeded).
+3. **Sparklines never drew.** `refreshSparks()` ran at boot alongside `fetchState()`, so `state`
+   was still null and it returned immediately, leaving 20 empty `<svg>`s for the first 15s.
+   Chained after the first fetch instead. (`polylineCount: 0` → `20`.)
+4. **The connection test could not run before a stack's first deploy** — its network does not exist
+   yet, and Docker accepts an unknown network at *create* but 404s at *start*. Since testing before
+   deploying is the entire point, it now falls back to the default bridge. A configuration the
+   binary rejects at startup (reserved database, unimplemented engine) is now answered in Go without
+   starting a container at all, because such a container exits and there is nothing left to exec.
+
+What was exercised, both modes:
+
+    linked   intranet + ps (Percona Server 8.0) + stocksim, one drawn edge
+             → all three running; dashboard reports target ps1 (ps), 20 securities, 5 agents ok
+             → witness: `information_schema` on the ps node itself shows all 10 stocksim tables
+               populated (orders 34, price_ticks 100, trades 9, holdings 8)
+
+    manual   intranet + stocksim → host.docker.internal:13306, a MySQL outside the stack
+             → running; ExtraHosts confirmed on the container; `/stocksim -testconn` from inside
+               the deployed container reports `ok: connected to mysql 8.4.9`
+
+    test     good → `ok: connected to mysql 8.4.9 — "stocksim" already has 10 objects (~180 rows)`
+             wrong password → the driver's own `Error 1045 … Access denied`, not a generic message
+             unreachable host → the resolver's own `no such host`
+             reserved db / unimplemented engine → refused without starting a container
+
+    CRUD     create/edit/delete a security, portfolio and order through the API, each independently
+             confirmed by querying MySQL directly — the UI was never its own witness.
+             Symbol uppercased, last price defaulted from open, duplicate symbol → 409,
+             missing symbol → 400, partial update preserved untouched fields, unknown id → 404.
+             Deleting a security removed it with its ticks, holdings and open orders while
+             **keeping its 35 executed trades** as the audit trail (an earlier run of this check
+             proved nothing — the security I picked had no trades yet).
+
+    danger   drop without/with a wrong confirmation → 400 and objects intact; with the right one →
+             10 objects → 0, while a neighbouring database on the same server kept its row.
+             Re-seed brings all 10 back and restarts the agents.
+
+    report   /report renders; 7-page Letter PDF via print emulation; all five CSV exports carry
+             `Content-Disposition` and parse; unknown `?table=` → 400.
+
+    misc     redeploy reuses the published host port (34405 → 34405) and seeding stays idempotent
+             (20 securities → 20). No console errors, no horizontal overflow at 1440px.
+
+`go build ./...`, `go vet ./...` and `gofmt -l` are clean in both `app/` and `stocksim/`;
+`npm run build` is clean in `app/web/`.
+
+**Not yet built.** The PostgreSQL, MongoDB and Valkey store implementations — the interface,
+the whole frontend, the report and every dbcanvas-side wiring point are already engine-agnostic,
+so stage S2 is three files in `stocksim/internal/store/` plus flipping `ready` in the form's
+`SS_ENGINES` list and `store.Implemented()`. Cluster and proxy targets in linked mode
+(`pxc`/`patroni`/`psmrs`/`valkeycluster`, HAProxy/ProxySQL) are also deferred; manual mode already
+covers reaching an HA setup through its load balancer. No Lab template ships with this node type.
+
+## 227. Stock Market Sim stage S2: PostgreSQL, MongoDB and Valkey behind the same interface — `stocksim/internal/store/{postgres,mongo,valkey,report,schema_postgres}.go`, `app/stocksim.go`, `app/intranet.go`, `app/web/src/pages/StackDesigner.jsx`
+
+Stage S1 (§226) shipped the `Store` interface with one implementation. This adds the other
+three, which is the whole point of the interface: `internal/sim` and `internal/api` are
+unchanged, the dashboard is unchanged, the report is unchanged, and nothing outside
+`internal/store` learned that three new engines exist. The dbcanvas side needed three cases in
+an edge walk, three in a resolver, and three connect-rule pairs.
+
+**`store/report.go` (new).** Extracted first, before writing anything else: `reportFrom`
+assembles a `Report` using nothing but the `Store` interface, so all four engines share one
+implementation and cannot drift into disagreeing about what a report contains. Each store's
+`ReportData` is now a one-line call to it. This needed one new interface method, `TradeTotals`
+— the all-time count and volume, which the capped `RecentTrades` cannot supply.
+
+**`store/postgres.go` + `schema_postgres.go`.** `pgx/v5` via the stdlib driver. The one real
+design decision: the app claims a **schema** inside the connected database, not a database of
+its own, with `search_path` pinned on the DSN. A managed PostgreSQL instance usually hands you
+one database and no right to create another, so a schema is the only thing that reliably works
+— and `EnsureSchema` tolerates a user who cannot even create that, provided it already exists,
+the same accommodation the MySQL store grew in §226. `Wipe` is one `TRUNCATE … RESTART IDENTITY
+CASCADE`; `DropSchema` drops this app's tables and leaves the schema.
+
+**`store/mongo.go`.** Collections named after the tables, the app's string ids as `_id`. Three
+things do not map cleanly and are handled explicitly rather than papered over:
+
+- *No joins.* `ListHoldings` denormalises owner and last price from two small whole-collection
+  reads, which beats an aggregation pipeline for both speed and legibility at this size.
+- *No multi-document transactions on a standalone mongod.* `RecordFill` is ordered so the
+  compare-and-set that prevents a double fill happens first and a crash mid-way leaves the
+  least damaging state — a filled order with no trade behind it is visible and harmless; the
+  reverse could pay out twice. The read-then-write average cost is called out in a comment
+  rather than hidden, since the match agent is the only writer in practice.
+- *No auto-increment.* The event feed is read by a monotonic cursor, which an ObjectId cannot
+  provide, so `AppendEvent` allocates its own sequence from a counter in `sim_state`.
+
+**`store/valkey.go`.** The genuinely different one — no tables, so the schema is a key layout,
+documented as a table in the file header. Hashes for entities, ZSETs as the secondary indexes,
+and **streams where a stream is actually the better fit**: price history is `XADD … MAXLEN ~ 500`,
+which bounds itself with no cleanup job, and the event feed's own stream ids *are* the cursor,
+so unlike MongoDB it needs no sequence counter at all. Uniqueness of a symbol is `HSETNX` on an
+index hash — it succeeds for exactly one writer, which is what makes a duplicate a 409 rather
+than a silent overwrite. `Wipe`/`DropSchema` are `SCAN` + `UNLINK` in batches, bounded strictly
+by the prefix: never `KEYS`, never `FLUSHDB`. `Config.Validate` already refuses an empty prefix,
+because that would turn the SCAN pattern into `*` — the entire keyspace of a server this app may
+not own.
+
+**dbcanvas side.** `stockSimTarget` matches `ps`/`pg`/`psm`/`valkey` standalone nodes;
+`waitStockSimTarget` gained three cases reusing what already existed — `waitPgNodeRunning`
+(`app/carsim.go`) with `pgSecrets`, `hotelSimCreds` (`app/hotelsim.go`) for the Mongo URI, and
+`valkeyPasswordFor` (`app/labs_valkey.go`). Neither MongoDB nor Valkey standalone nodes had a
+wait helper — their sibling sims poll inline — so `waitStockSimNode` is the shared one.
+`stockSimImplementedEngines`, `store.Implemented()` and the form's `SS_ENGINES` list all now
+carry four entries; they are three mirrors of one fact, and the comments say so.
+
+**Verified live.** Against a disposable second dbcanvas instance again, destroyed afterwards;
+the primary instance and stack 54 were never touched.
+
+One bug, found by running it: the MongoDB URI was built without a trailing slash, and the driver
+rejects `mongodb://host:port?query` with *"must have a / before the query ?"*. Two near-misses
+worth recording because both would have produced plausible-looking wrong numbers rather than an
+error:
+
+- `$min` on `dayLow` would have clamped every low to zero forever, since the seeded value *is*
+  zero. It is applied conditionally instead, and the check `db.securities.countDocuments({dayLow:0})`
+  returning 0 is what proves it.
+- The Valkey average-cost update had to reproduce the SQL `CASE` exactly, including resetting
+  the basis to zero when a position closes, or `stocksim:hold:*` would accumulate stale averages.
+
+Each engine was run standalone for ~30s and then put through the *same* CRUD script, so the four
+are directly comparable:
+
+    engine     create/409/400  update  404s  order  search/filter/paginate  report  drop/reseed
+    postgres        ok           ok     ok    ok            ok              10 obj      ok
+    mongodb         ok           ok     ok    ok            ok              10 obj      ok
+    valkey          ok           ok     ok    ok            ok              10 obj      ok
+
+Invariants queried on each database directly, never through the app's own API: 0 negative
+quantities, 0 negative average costs, 0 negative cash on all three. Assets under management
+tracked the 8.45M seeded in every case (postgres 8,498,390 · mongodb 8,476,222 · valkey
+8,536,781 — the spread is unrealised P/L, as it should be).
+
+Then one stack with **three linked pairs at once** — `pg1`→app-postgres, `mongo1`→app-mongo,
+`valkey1`→app-valkey, seven nodes — deployed together and all reaching running. Each application
+was confirmed against its own database node as witness:
+
+    pg1      10 tables in schema stocksim   securities=20 trades=156 neg_qty=0 neg_cash=0
+    mongo1   10 collections                 securities=20 trades=125 neg_qty=0 neg_cash=0
+    valkey1  879 keys                       sec:all=20    trade:all=298
+
+The Valkey dashboard was screenshotted to confirm the frontend is engine-agnostic in fact and
+not just in principle: identical layout, with the Schema panel reporting *keyspace* rather than
+*table*, and Size blank because per-key memory is not cheap to obtain. One behavioural
+difference is inherent and not a bug: on Valkey an object group only appears once it has keys,
+so a schema panel read within a few seconds of a reseed can show 9 of 10 groups, whereas a SQL
+table exists while empty. Confirmed by watching it become 10 once the first fill landed.
+
+`go build ./...`, `go vet ./...` and `gofmt -l` clean in `app/` and `stocksim/`; `npm run build`
+clean in `app/web/`.
+
+**Still deferred.** Cluster and proxy targets in linked mode (`pxc`/`patroni`/`psmrs`/
+`valkeycluster`, HAProxy/ProxySQL) — manual mode already reaches an HA setup through its load
+balancer, and the existing `waitPXCAllMembersRunning`/`waitPatroniRunning`/`haproxyBackend`
+helpers mean each is an added case rather than a rewrite. No Lab template ships with this node
+type. Valkey Cluster specifically would need the key layout revisited for hash-tag colocation,
+since `RecordFill`'s MULTI/EXEC spans several keys.
+
+## 228. CloudNativePG: the applied manifests archived to /root, a PostgreSQL Grafana dashboard, and no PMM option — `app/cnpg.go`, `app/k3d.go`, `app/web/src/pages/{StackDesigner,K3DManager}.jsx`
+
+Three findings from reviewing a deployed CNPG cluster, all of them accurate:
+
+**1. Nothing was written to /root, unlike the Percona operators.** Confirmed on the live stack:
+`ls /root` on the k3s node returned *"No such file or directory"* — the k3s image has no /root at
+all. That is structural, not an omission. The Percona operators unpack a release tarball into
+`/root/<repo>-<ver>` (`k3dOperatorDir`) because they deploy from `deploy/bundle.yaml` inside it;
+CNPG is HelmChart CRDs plus manifests generated in Go and piped to `kubectl apply -f -`, so
+nothing touches disk and there is nothing to read afterwards.
+
+Fixed by archiving every applied manifest to `/root/cnpg`, numbered in apply order, with a
+generated `README.md` naming what was deployed, listing the files, and giving the kubectl
+commands to review or re-apply them. `cnpgArchiver` owns both the numbering and the README's
+file list so the two cannot drift; a second counter threaded through `installBarmanPlugin`
+separately would have.
+
+**2. Grafana had no PostgreSQL dashboard.** Also accurate, and worth stating precisely: Grafana
+was *not* empty — kube-prometheus-stack ships 29 of its own Kubernetes dashboards — and
+Prometheus *was* scraping CNPG correctly (`cnpg_collector_up` returned 1 for every pod). The
+metrics were being collected with nothing to view them in. CNPG's published dashboard is now
+fetched and applied as a ConfigMap labelled `grafana_dashboard=1`, which Grafana's sidecar loads.
+
+**3. The PMM option applied to CNPG but did nothing.** The picker rendered for every K3D
+operator, `provisionK3DFrame` recorded `MonitoredBy` from it, and `installCNPGOperator` never
+consumed it — CNPG is not a Percona product and ships no pmm-client sidecar. The picker is now
+hidden for CNPG and replaced with a line saying why; `provisionK3DFrame` ignores `PMMNodeID` for
+cnpg; and `k3dFrameIssues` warns on a design saved before this, so an existing stack says so
+rather than silently dropping it.
+
+**Two bugs found only by deploying it.** Both would have shipped as silent no-ops:
+
+- `CopyFile` answers **404** when the destination's parent does not exist, and the k3s image has
+  no `/root`. The first run archived nothing and logged eleven identical failures. `cnpgArchive`
+  now does the same `mkdir -p` `k3dFetchOperator` already did, and the "manifests archived" log
+  line and the panel's Manifests row are now conditional on it having actually worked.
+- The dashboard ConfigMap was **rejected outright**:
+  `metadata.annotations: Too long: may not be more than 262144 bytes`. `kubectl apply` records
+  the entire manifest in the object's `last-applied-configuration` annotation, annotations are
+  capped at 256KiB in total, and the dashboard is 253KiB. Fixed with a new
+  `kubectlApplyServerSide` — server-side apply tracks ownership in managedFields and writes no
+  such annotation. Used only for this one manifest; every other apply is unchanged.
+
+A third trap cost a full verification cycle and is worth recording: **a redeploy does not re-run
+a frame's provisioner.** `reconcileStack` skips any frame whose members are all running
+(`intranet.go`), so two "redeploys" against an already-running cluster silently reused the old
+progress log and looked like the fix had not taken. Testing a change to `installCNPGOperator`
+requires destroying the stack first.
+
+**Verified live** on a disposable dbcanvas instance (port 8098, own volume), destroyed
+afterwards; the primary instance and its stack 54 were only ever read from.
+
+    /root/cnpg   12 files, 01-kube-prometheus-stack.yaml … 11-grafana-dashboard.yaml + README.md
+    Grafana      29 dashboards, including "CloudNativePG" (uid cloudnative-pg), found via
+                 /api/search — i.e. loaded by the sidecar, not merely present as a ConfigMap
+    Prometheus   cnpg_collector_up = 1 on both pods, so the dashboard has data
+    Cluster      2/2 instances, "Cluster in healthy state", backups via barman-cloud
+    PMM warning  a CNPG frame carrying a pmmNodeId validates with the new warning and no error
+
+`go build ./...`, `go vet ./...`, `gofmt -l` clean; `npm run build` clean, with the CNPG copy
+present in the bundle and the PMM picker still present for the Percona operators.
+
+## 229. The CNPG node panel's Grafana row: a rendering bug that ate the address, plus the sign-in and the Service behind it — `app/web/src/pages/K3DManager.jsx`, `app/cnpg.go`, `app/k3d.go`, `docker-compose.yml`, `.env.example`, `README.md`
+
+Reported as "Grafana says `[object Object]` in the k3d node properties", together with two asks:
+put the Grafana login on the panel, and put the address there too — the user had resorted to
+`kubectl get services -n monitoring` to find `172.29.255.204`.
+
+**The address was never missing.** Reading the live stack's stored deployment settled it before
+anything was changed:
+
+    grafanaUrl = 'http://172.29.255.204'   grafanaUser = None   secrets = None
+
+So §228 recorded the address correctly and the panel destroyed it on the way out. `KV` ended in
+`String(v)`, and the Grafana row is the one row that passes an element rather than a string — an
+`<a>` wrapping the URL. `String(<a…>)` is `"[object Object]"`. The fix is for `KV` to pass
+non-primitives through untouched and reserve `String()` for primitives; nothing about how the
+address is obtained needed to change. Worth noting the failure mode: every *other* row on that
+panel is a string, so the one row built to be more useful was the only one that broke, and it
+broke into a value that looks like a backend problem.
+
+**The sign-in.** `installCNPGOperator` had the password inline as
+`envOr("GRAFANA_PASSWORD", "grafana_password")`, used once to template the chart and then
+forgotten. It is now `grafanaAdminPassword()`, called from two places that must not disagree —
+the chart values, and the frame's stored secrets. The password goes to `Deployment.Secrets` via a
+new `k3dSecrets`, never to `k3dConfig`, which its own comment already declares the non-secret
+profile; the panel renders it through the existing `SecretInline`, so it is masked with a reveal
+toggle and copies while still masked, like every other credential in the app. The *user* (`admin`)
+is not a secret and goes in `k3dConfig` as `GrafanaUser`.
+
+**The Service.** `GrafanaService` records `monitoring/kube-prometheus-stack-grafana` — precisely
+the `kubectl get svc` the user had to work out. A MetalLB address is worth being able to re-derive.
+
+`GRAFANA_PASSWORD` turned out to be undeclared in `docker-compose.yml`, `.env.example` and the
+README table, although every sibling password is. It was reachable only as a code default, so the
+"configurable" half of `envOr` was not actually configurable through the documented path. Now
+declared in all three.
+
+**One limitation, stated because it is not obvious.** `k3dConfig` is written only by
+`provisionK3DFrame`; there is no refresh path (§228 recorded that a redeploy does not even re-run
+a frame's provisioner). So an *already-deployed* cluster gets the repaired address row from the
+frontend fix alone, but the credential and Service rows need a fresh deploy of the frame. The
+panel degrades honestly rather than guessing: the user row falls back to `admin`, and the password
+and Service rows are simply absent when unknown.
+
+**Verified live** on a disposable instance (port 8097, own volume), destroyed afterwards; stack 56
+was only ever read from. It was given `GRAFANA_PASSWORD=verify_grafana_pw` — deliberately *not*
+the default — so a hardcoded fallback could not pass as a working one.
+
+    recorded   grafanaUrl http://172.30.255.204 · grafanaUser admin
+               grafanaService monitoring/kube-prometheus-stack-grafana
+               secrets {"grafanaPassword":"verify_grafana_pw"} · SECRET IN CONFIG: False
+    true?      the Service's own LoadBalancer IP is 172.30.255.204 and the chart's Secret holds
+               admin / verify_grafana_pw — i.e. the panel's values, from the cluster itself
+    signs in   GET /api/user at the recorded URL with the recorded credentials → 200
+               the same request with the *default* password → 401, so 200 meant something
+    dashboard  /api/search finds "CloudNativePG" (uid cloudnative-pg)
+    rendered   headless Chromium, panel opened on the k3s node: Grafana http://172.30.255.204 ·
+               Grafana service monitoring/kube-prometheus-stack-grafana · Grafana user admin ·
+               Grafana password ••••••••••••••••• — no "[object Object]" anywhere on the page,
+               the password never in the DOM as plain text until the eye is clicked (then it is),
+               no console errors, no horizontal overflow at 1600px
+
+`go build ./...`, `go vet ./...`, `gofmt -l` and `go test ./...` clean; `npm run build` clean.

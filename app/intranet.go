@@ -141,6 +141,28 @@ type designNode struct {
 	MCOrders  int    `json:"mcOrders"`
 	MCTrades  int    `json:"mcTrades"`
 	MCTicks   int    `json:"mcTicks"`
+	// Stock Market Sim node fields (Type=="stocksim") — where its database is.
+	// Unlike every other app simulator, this one is not required to be linked
+	// to a node on the canvas: SSMode "" or "linked" resolves the target from a
+	// drawn association line the usual way, while "manual" uses the fields
+	// below and needs no edge at all, so the app can drive a database outside
+	// the stack entirely (elsewhere on the host, on the LAN, or a managed
+	// instance). SSDSN, when set, is handed to the driver verbatim and beats
+	// every other field — the escape hatch for a connection string dbcanvas
+	// does not model. SSPassword is stored the same way the RootPassword field
+	// above already is; provisionStockSim moves it into the deployment's
+	// secrets and keeps it out of the non-secret config the node panel renders.
+	SSMode     string `json:"ssMode"`   // "" | "linked" | "manual"
+	SSEngine   string `json:"ssEngine"` // "mysql" | "postgres" | "mongodb" | "valkey"
+	SSHost     string `json:"ssHost"`
+	SSPort     int    `json:"ssPort"` // 0 → the engine default (3306/5432/27017/6379)
+	SSUser     string `json:"ssUser"`
+	SSPassword string `json:"ssPassword"`
+	SSDatabase string `json:"ssDatabase"` // schema / database / key prefix; "" → "stocksim"
+	SSTLS      string `json:"ssTLS"`      // "disable" | "prefer" | "require"
+	SSParams   string `json:"ssParams"`   // extra driver params, appended verbatim
+	SSDSN      string `json:"ssDSN"`      // full raw DSN/URI override
+	SSLabel    string `json:"ssLabel"`    // display name for the dashboard/report header
 	// Percona Orchestrator node fields (Type=="orchestrator"). A standalone topology
 	// visualization/failure-detection node — not a cluster frame — that PXC and MySQL
 	// replication frames optionally point at (designFrame.OrchestratorNodeID), the same
@@ -906,6 +928,22 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			}
 			if _, _, ok := marketChaosTarget(doc, n.ID); !ok {
 				out = append(out, issue{"error", "MarketChaos node " + n.Label + " must be linked to a standalone Percona Server node, a direct PXC member node, a PXC cluster or MySQL replication frame, or an HAProxy node fronting one — draw an association line from one to it"})
+			}
+		case "stocksim":
+			others++
+			if !seenImg[stockSimImage] {
+				seenImg[stockSimImage] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, stockSimImage); !ok {
+					out = append(out, issue{"error", "Missing image " + stockSimImage + " — run `make stocksim-image` first"})
+				}
+			}
+			// Unlike every other app simulator this one has two valid shapes:
+			// linked to a database node on the canvas, or configured by hand to
+			// reach a database outside the stack. Only the first needs an edge.
+			if stockSimMode(n) == "manual" {
+				out = append(out, stockSimIssues(n)...)
+			} else if _, _, ok := stockSimTarget(doc, n.ID); !ok {
+				out = append(out, issue{"error", "Stock Market Sim node " + n.Label + " must be linked to a standalone Percona Server, PostgreSQL, PS MongoDB or Valkey node — draw an association line from one to it, or switch the node to a manual connection to use a database outside this stack"})
 			}
 		default:
 			others++
@@ -1677,6 +1715,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionCarSim(st, n, doc)
 		case "marketchaos":
 			a.provisionMarketChaos(st, n, doc)
+		case "stocksim":
+			a.provisionStockSim(st, n, doc)
 		case "aio":
 			a.provisionAIO(st, n, doc)
 		}

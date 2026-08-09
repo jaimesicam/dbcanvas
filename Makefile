@@ -3,7 +3,7 @@ SHELL := /bin/bash
 # Load APP_PORT for echoing the URL (falls back to 8080).
 APP_PORT ?= $(shell test -f .env && grep -E '^APP_PORT=' .env | cut -d= -f2 || echo 8080)
 
-.PHONY: compose env build up down logs restart clean images versions smoke trafficsim-image hotelsim-image airlinesim-image carsim-image marketchaos-image
+.PHONY: compose env build up down logs restart clean images versions smoke trafficsim-image hotelsim-image airlinesim-image carsim-image marketchaos-image stocksim-image
 
 ## compose: create .env if needed, then build and start the stack
 compose: env
@@ -81,3 +81,10 @@ carsim-image:
 ## Challenge node needs this.
 marketchaos-image:
 	docker build -t dbcanvas-marketchaos:latest marketchaos/
+
+## stocksim-image: build the Stock Market Sim demo app image (first-party Go
+## binary + embedded static frontend, no systemd) — a Stock Market Sim node
+## needs this. Unlike its sibling sims it speaks several database engines, and
+## can also be pointed at a database outside the stack entirely.
+stocksim-image:
+	docker build -t dbcanvas-stocksim:latest stocksim/

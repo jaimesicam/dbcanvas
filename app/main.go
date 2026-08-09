@@ -122,6 +122,10 @@ func main() {
 	// Visual Summary — parse a pt-stalk archive into timeline charts.
 	mux.HandleFunc("POST /api/visualsummary/upload", app.handleVisualUpload)
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/visualsummary", app.handleVisualNode)
+	// Stock Market Sim: check a manually-entered database connection before
+	// deploying with it. Node-scoped by URL for consistency, though the check
+	// itself only needs the stack's network — see handleStockSimTest.
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/stocksim/test", app.handleStockSimTest)
 
 	// Samba AD DC node management — LDAP users/groups, Kerberos principals/keytabs, TLS.
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/samba/users", app.handleSambaUsers)
