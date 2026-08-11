@@ -35,6 +35,14 @@
     <p class="hint" id="seed-step" style="margin:8px 0 0"></p>
   </section>
 
+  <!-- Only shown once a size target is actually in play; a deployment that is
+       not growing its dataset has nothing to say here. -->
+  <section class="panel hidden" id="backfill-panel">
+    <h2>Dataset growth</h2>
+    <div class="progress-track"><div class="progress-fill" id="backfill-fill" style="width:0%"></div></div>
+    <p class="hint" id="backfill-step" style="margin:8px 0 0"></p>
+  </section>
+
   <section class="panel">
     <h2>Market summary</h2>
     <div class="stat-grid" id="kpi-grid"></div>

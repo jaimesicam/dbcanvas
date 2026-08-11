@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
 import { Card, Button, Badge, Field, ConfirmButton, inputCls } from '../components/ui.jsx'
 import { stackApi, frameApi, TTL_OPTIONS, DEPLOY_TONE } from '../lib/stackApi.js'
+import { kindOf as aioKindOf, familyOf as aioFamilyOf } from '../lib/aioPorts.js'
 import IntranetManager from './IntranetManager.jsx'
 import SambaManager from './SambaManager.jsx'
 import PMMManager from './PMMManager.jsx'
@@ -43,7 +44,7 @@ const ARCH_OPTIONS = [
 ]
 
 // Node-type catalog.
-const NODE_TYPES = {
+export const NODE_TYPES = {
   intranet: {
     label: 'Intranet',
     sub: 'Squid Proxy · DNS · Mail · OpenLDAP · CA',
@@ -177,7 +178,7 @@ const NODE_TYPES = {
     color: '#2563eb',
     icon: 'Database',
     singleton: false,
-    ports: false,
+    ports: true, // connectable — Airline Sim, MarketChaos and Stock Market Sim link to it
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: {
       os: 'oraclelinux', osVersion: '9', arch: 'amd64', psMajor: '8.0', psVersion: '',
@@ -196,7 +197,7 @@ const NODE_TYPES = {
     color: '#c0765a',
     icon: 'Database',
     singleton: false,
-    ports: false,
+    ports: true, // connectable — a Stock Market Sim node links to it
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }],
     defaults: {
       os: 'oraclelinux', osVersion: '9', arch: 'amd64', mariadbMajor: '11.4', mariadbVersion: '',
@@ -235,7 +236,7 @@ const NODE_TYPES = {
     color: '#00758f',
     icon: 'Database',
     singleton: false,
-    ports: false,
+    ports: true, // connectable — a Stock Market Sim node links to it
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }],
     defaults: {
       os: 'oraclelinux', osVersion: '9', arch: 'amd64', mysqlceMajor: '8.4', mysqlceVersion: '',
@@ -274,7 +275,7 @@ const NODE_TYPES = {
     color: '#336791',
     icon: 'Database',
     singleton: false,
-    ports: false,
+    ports: true, // connectable — a Car Rental Sim or Stock Market Sim node links to it
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: {
       os: 'oraclelinux', osVersion: '9', arch: 'amd64', pgMajor: '16', pgVersion: '',
@@ -1220,7 +1221,8 @@ function StackEditor({ stackId, onBack }) {
   }, [])
 
   // Endpoints that expose connection ports: free nodes whose type opts in
-  // (def.ports), and PXC cluster frames. PXC member nodes connect via their frame.
+  // (def.ports), and the cluster frames in CONNECTABLE_FRAMES. Cluster member
+  // nodes connect via their frame, not individually.
   function hitPort(world, excludeId) {
     let best = null
     let bestD = SNAP
@@ -1242,7 +1244,7 @@ function StackEditor({ stackId, onBack }) {
       consider(n.id, { x: n.x, y: n.y, w: NODE_W, h: NODE_H })
     }
     for (const f of refs.current.frames) {
-      if (f.type === 'pxc' || f.type === 'proxysql' || f.type === 'mysql' || f.type === 'patroni' || f.type === 'repmgr' || f.type === 'spock' || f.type === 'valkeycluster' || f.type === 'psmrs' || f.type === 'psmdb') consider(f.id, { x: f.x, y: f.y, w: f.w, h: f.h })
+      if (CONNECTABLE_FRAMES.has(f.type)) consider(f.id, { x: f.x, y: f.y, w: f.w, h: f.h })
     }
     return best
   }
@@ -1397,6 +1399,10 @@ function StackEditor({ stackId, onBack }) {
       if (n.type === 'hotelsim') return 'hotelsim'
       if (n.type === 'ps' && !n.frameId) return 'ps'
       if (n.type === 'pg' && !n.frameId) return 'pg'
+      // Standalone MariaDB and MySQL CE had no kind at all until Stock Market
+      // Sim became able to drive them; nothing else links to them yet.
+      if (n.type === 'mariadb' && !n.frameId) return 'mariadb'
+      if (n.type === 'mysqlce' && !n.frameId) return 'mysqlce'
       if (n.type === 'airlinesim') return 'airlinesim'
       if (n.type === 'carsim') return 'carsim'
       if (n.type === 'marketchaos') return 'marketchaos'
@@ -1413,6 +1419,16 @@ function StackEditor({ stackId, onBack }) {
       if (f.type === 'valkeycluster') return 'valkeycluster'
       if (f.type === 'psmrs') return 'psmrs'
       if (f.type === 'psmdb') return 'psmdb'
+      // MySQL-family frames other than PXC/MySQL replication, and the
+      // Kubernetes frame. Each keeps its own kind rather than joining
+      // 'backend', because only Stock Market Sim accepts them and the rules
+      // below have to stay able to tell them apart.
+      if (f.type === 'innodb') return 'innodb'
+      if (f.type === 'mariadbrepl') return 'mariadbrepl'
+      if (f.type === 'mariadbgalera') return 'mariadbgalera'
+      if (f.type === 'mysqlcerepl') return 'mysqlcerepl'
+      if (f.type === 'mysqlceinnodb') return 'mysqlceinnodb'
+      if (f.type === 'k3d') return 'k3d'
       return null
     }
     return null
@@ -1517,19 +1533,16 @@ function StackEditor({ stackId, onBack }) {
     if (k2 === 'backend' && k1 === 'marketchaos') return createFlow(e2, e1, { singleOutgoing: true })
     if (k1 === 'haproxy' && k2 === 'marketchaos') return createFlow(e1, e2, { singleOutgoing: true })
     if (k2 === 'haproxy' && k1 === 'marketchaos') return createFlow(e2, e1, { singleOutgoing: true })
-    // Standalone Percona Server node → Stock Market Sim node. singleOutgoing is
-    // what enforces "one Stock Market Sim node drives exactly one database" —
-    // four separate applications means four nodes, each with its own line and
-    // its own dashboard. A node set to a manual connection needs no line at all
-    // and simply never uses this rule.
-    if (k1 === 'ps' && k2 === 'stocksim') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'ps' && k1 === 'stocksim') return createFlow(e2, e1, { singleOutgoing: true })
-    if (k1 === 'pg' && k2 === 'stocksim') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'pg' && k1 === 'stocksim') return createFlow(e2, e1, { singleOutgoing: true })
-    if (k1 === 'psm' && k2 === 'stocksim') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'psm' && k1 === 'stocksim') return createFlow(e2, e1, { singleOutgoing: true })
-    if (k1 === 'valkey' && k2 === 'stocksim') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'valkey' && k1 === 'stocksim') return createFlow(e2, e1, { singleOutgoing: true })
+    // Any database → Stock Market Sim node. This is the one sim that is not
+    // tied to an engine, so its rule is a table rather than a pair of lines per
+    // type; SS_LINKABLE_KINDS mirrors stockSimStandaloneTargets and
+    // stockSimFrameTargets in app/stocksim.go. singleOutgoing is what enforces
+    // "one Stock Market Sim node drives exactly one database" — four separate
+    // applications means four nodes, each with its own line and its own
+    // dashboard. A node set to a manual connection needs no line at all and
+    // simply never uses this rule.
+    if (SS_LINKABLE_KINDS.has(k1) && k2 === 'stocksim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (SS_LINKABLE_KINDS.has(k2) && k1 === 'stocksim') return createFlow(e2, e1, { singleOutgoing: true })
     // ProxySQL node ↔ ProxySQL node: ask which way the data flows.
     if (k1 === 'proxysql' && k2 === 'proxysql') { setLinkPrompt({ e1, e2 }); return }
     // Cluster member ↔ cluster member (PXC/Percona Server, different frames): a
@@ -2636,8 +2649,12 @@ function StackEditor({ stackId, onBack }) {
                       </div>
                     )
                   })}
-                  {/* Association endpoints — InnoDB/GR, repmgr + Valkey cluster have none. */}
-                  {f.type !== 'innodb' && f.type !== 'repmgr' && f.type !== 'valkeycluster' && f.type !== 'k3d' && (
+                  {/* Association endpoints. Driven by the same set hitPort uses:
+                      these two disagreed, so repmgr and Valkey cluster frames
+                      were droppable but drew no handles — you could finish a
+                      line onto them but never start one, and nothing on screen
+                      said they were connectable at all. */}
+                  {CONNECTABLE_FRAMES.has(f.type) && (
                     <PortHandles ownerId={f.id} connecting={!!connect} snapPort={connect?.targetId === f.id ? connect.targetPort : null} onStart={startConnect} />
                   )}
                 </div>
@@ -5052,19 +5069,112 @@ const SS_ENGINES = [
   { id: 'mongodb', label: 'MongoDB', port: 27017, ready: true },
   { id: 'valkey', label: 'Valkey', port: 6379, ready: true },
 ]
-// SS_LINK_TYPES mirrors stockSimTarget in app/stocksim.go: the standalone node
-// types a Stock Market Sim node can be linked to, and the engine each implies.
-const SS_LINK_TYPES = {
+// SS_LINK_TYPES mirrors stockSimTarget in app/stocksim.go: every canvas target
+// a Stock Market Sim node can be linked to, node or frame, with the label the
+// form shows for it. Keys are node/frame types — which for these are also the
+// coarse kinds the backend switches on.
+export const SS_LINK_TYPES = {
+  // Standalone database nodes.
   ps: 'Percona Server',
+  mariadb: 'MariaDB',
+  mysqlce: 'MySQL',
   pg: 'PostgreSQL',
   psm: 'PS MongoDB',
   valkey: 'Valkey',
+  // Cluster frames.
+  pxc: 'PXC cluster',
+  mysql: 'MySQL replication',
+  innodb: 'InnoDB Cluster / Group Replication',
+  mariadbrepl: 'MariaDB replication',
+  mariadbgalera: 'MariaDB Galera',
+  mysqlcerepl: 'MySQL replication (CE)',
+  mysqlceinnodb: 'MySQL InnoDB Cluster (CE)',
+  patroni: 'Patroni cluster',
+  repmgr: 'repmgr cluster',
+  spock: 'Spock cluster',
+  k3d: 'CloudNativePG (Kubernetes)',
+  psmrs: 'PSMDB replica set',
+  psmdb: 'PSMDB sharded cluster',
+  valkeycluster: 'Valkey cluster',
+  // Routers. Their engine depends on the backend, so SS_LINK_ENGINE leaves
+  // them out and the form reads the engine off the deployed node instead.
+  haproxy: 'HAProxy',
+  proxysql: 'ProxySQL',
 }
+
+// SS_LINKABLE_KINDS is the same set as endpointKind reports it, for the edge rule.
+const SS_LINKABLE_KINDS = new Set(Object.keys(SS_LINK_TYPES))
+
+// CONNECTABLE_FRAMES are the cluster frames that expose connection ports, so a
+// line can be drawn to or from the frame itself.
+//
+// A frame type missing from here has no grab handles at all, which looks
+// identical to a rule that refuses the link — the edge simply never starts.
+// That is what kept a Stock Market Sim node from reaching any of the MySQL
+// frames below: the backend accepted them and endpointKind named them, but
+// there was nothing on screen to drag from. The node-side equivalent is the
+// `ports` flag in NODE_TYPES, which has to be true for the same reason.
+export const CONNECTABLE_FRAMES = new Set([
+  'pxc', 'proxysql', 'mysql', 'innodb',
+  'mariadbrepl', 'mariadbgalera', 'mysqlcerepl', 'mysqlceinnodb',
+  'patroni', 'repmgr', 'spock', 'k3d',
+  'valkeycluster', 'psmrs', 'psmdb',
+])
+
+// SS_AIO_ENGINE mirrors aioEngineForKind in app/aio_target.go: which All in One
+// families are databases this application can drive. The absentees — Valkey,
+// the two proxies and Orchestrator — are the same ones every other tool in the
+// app declines to treat as a query target.
+const SS_AIO_ENGINE = { mysql: 'mysql', postgres: 'postgres', mongodb: 'mongodb' }
+// SS_LINK_ENGINE mirrors stockSimEngineForKind in app/stocksim.go. In linked
+// mode the engine comes from the target at the other end of the line, not from
+// the ssEngine field, which only manual mode fills in.
+//
+// The two routers are absent for the same reason they are absent there: their
+// engine is a property of what they front. ProxySQL is always MySQL-family, but
+// HAProxy fronts either family, and working out which from the canvas is the
+// backend's job — the form treats an unresolved engine as "unknown" and simply
+// keeps the size field, which is the harmless direction to be wrong in.
+export const SS_LINK_ENGINE = {
+  ps: 'mysql', mariadb: 'mysql', mysqlce: 'mysql',
+  pxc: 'mysql', mysql: 'mysql', innodb: 'mysql',
+  mariadbrepl: 'mysql', mariadbgalera: 'mysql',
+  mysqlcerepl: 'mysql', mysqlceinnodb: 'mysql',
+  proxysql: 'mysql',
+  pg: 'postgres', patroni: 'postgres', repmgr: 'postgres', spock: 'postgres', k3d: 'postgres',
+  psm: 'mongodb', psmrs: 'mongodb', psmdb: 'mongodb',
+  valkey: 'valkey', valkeycluster: 'valkey',
+}
+
+// SS_CAN_GROW mirrors stockSimGrowable / store.CanGrowToSize: Valkey's tick
+// history is a length-capped stream, so no amount of writing makes it bigger.
+const SS_CAN_GROW = (engine) => engine !== 'valkey'
+
+// fmtTargetBytes mirrors stockSimFormatSize, for the deployed node's panel.
+function fmtTargetBytes(n) {
+  if (!n) return "doesn't grow"
+  if (n >= 2 ** 40) return (n / 2 ** 40).toFixed(2) + ' TiB'
+  if (n >= 2 ** 30) return (n / 2 ** 30).toFixed(2) + ' GiB'
+  if (n >= 2 ** 20) return (n / 2 ** 20).toFixed(1) + ' MiB'
+  return (n / 2 ** 10).toFixed(0) + ' KiB'
+}
+
+// SS_TARGET_KIND_LABEL names the kind a *deployed* node resolved to. That is a
+// superset of SS_LINK_TYPES: waitStockSimTarget rewrites a router's kind to
+// name the backend it turned out to be fronting, because "HAProxy" alone does
+// not tell you what the application is actually talking to.
 const SS_TARGET_KIND_LABEL = {
-  ps: 'Percona Server',
-  pg: 'PostgreSQL',
-  psm: 'PS MongoDB',
-  valkey: 'Valkey',
+  ...SS_LINK_TYPES,
+  'haproxy-pxc': 'HAProxy → PXC cluster',
+  'haproxy-mysql': 'HAProxy → MySQL replication',
+  'haproxy-patroni': 'HAProxy → Patroni cluster',
+  'haproxy-repmgr': 'HAProxy → repmgr cluster',
+  'haproxy-spock': 'HAProxy → Spock cluster',
+  'proxysql-pxc': 'ProxySQL → PXC cluster',
+  'proxysql-mysql': 'ProxySQL → MySQL replication',
+  'aio-mysql': 'All in One (MySQL)',
+  'aio-postgres': 'All in One (PostgreSQL)',
+  'aio-mongodb': 'All in One (MongoDB)',
   'external-mysql': 'External MySQL',
   'external-postgres': 'External PostgreSQL',
   'external-mongodb': 'External MongoDB',
@@ -5076,24 +5186,54 @@ const SS_TARGET_KIND_LABEL = {
 // the canvas (resolved from the drawn edge the way every sibling does), or a
 // manual connection typed in here — which needs no edge and can reach a
 // database outside the stack entirely.
-function StockSimForm({ node: n, nodes, edges, stackId, patchNode, deleteNode, dep, deployed }) {
-  const mode = n.ssMode === 'manual' ? 'manual' : 'linked'
+function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, deleteNode, dep, deployed }) {
+  const mode = n.ssMode === 'manual' || n.ssMode === 'aio' ? n.ssMode : 'linked'
   const engine = n.ssEngine || 'mysql'
   const engineDef = SS_ENGINES.find((e) => e.id === engine) || SS_ENGINES[0]
   const [test, setTest] = useState(null)
   const [testing, setTesting] = useState(false)
 
-  // Mirrors stockSimTarget's edge walk: standalone database nodes only, one
-  // per engine family.
+  // Mirrors stockSimTarget's edge walk: a standalone database node, a router,
+  // or a cluster frame. Nodes are checked before frames, and a node inside a
+  // frame is skipped, exactly as the backend does it — otherwise a line drawn
+  // to a cluster member would read as a link to a database this app cannot
+  // address on its own.
   const linkedTarget = (() => {
     for (const e of edges) {
       const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
       if (!other) continue
       const db = nodes.find((x) => x.id === other && SS_LINK_TYPES[x.type] && !x.frameId)
       if (db) return { kind: db.type, label: db.label }
+      const fr = frames.find((x) => x.id === other && SS_LINK_TYPES[x.type])
+      if (fr) return { kind: fr.type, label: fr.label }
     }
     return null
   })()
+
+  // The All in One nodes in this stack, and the instances declared on the
+  // chosen one. Both come from the design rather than from a deployment, so
+  // the picker works before anything has been provisioned — which is the point,
+  // since this form is what gets filled in first. usable mirrors
+  // aioEngineForKind: only the three database families can be driven.
+  const aioNodes = nodes.filter((x) => x.type === 'aio')
+  const aioInstanceChoices = (() => {
+    const node = aioNodes.find((x) => x.id === n.ssAIONode)
+    return (node?.aioInstances || []).map((i) => ({
+      name: i.name,
+      kindLabel: aioKindOf(i.kind)?.label || i.kind,
+      engine: SS_AIO_ENGINE[aioFamilyOf(i.kind)] || '',
+      usable: !!SS_AIO_ENGINE[aioFamilyOf(i.kind)],
+    }))
+  })()
+
+  // Whichever of the three modes decided it — the engine the sim will actually
+  // run against, and so the one the size target has to make sense for. An
+  // unlinked node falls back to the manual field so the form does not flicker
+  // between states while a line is being drawn.
+  const effectiveEngine =
+    mode === 'manual' ? engine
+      : mode === 'aio' ? (aioInstanceChoices.find((i) => i.name === n.ssAIOInstance)?.engine || engine)
+        : (SS_LINK_ENGINE[linkedTarget?.kind] || engine)
 
   async function runTest() {
     setTesting(true)
@@ -5128,7 +5268,7 @@ function StockSimForm({ node: n, nodes, edges, stackId, patchNode, deleteNode, d
 
       <Field label="Database connection" hint="Where this application keeps its data.">
         <div className="flex gap-1.5">
-          {[['linked', 'Linked node'], ['manual', 'Manual connection']].map(([id, label]) => (
+          {[['linked', 'Linked node'], ['aio', 'All in One'], ['manual', 'Manual']].map(([id, label]) => (
             <button key={id} type="button"
               onClick={() => patchNode(n.id, { ssMode: id })}
               className={`flex-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${
@@ -5146,11 +5286,51 @@ function StockSimForm({ node: n, nodes, edges, stackId, patchNode, deleteNode, d
           </div>
         ) : (
           <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
-            Not linked. Draw an association line from a standalone Percona Server, PostgreSQL,
-            PS MongoDB or Valkey node to this node — or switch to a manual connection to use a
+            Not linked. Draw an association line to this node from any database in the stack — a
+            standalone Percona Server, MariaDB, MySQL, PostgreSQL, PS MongoDB or Valkey node, any
+            MySQL, PostgreSQL, MongoDB or Valkey cluster, a CloudNativePG Kubernetes frame, or a
+            ProxySQL/HAProxy node fronting one — or switch to a manual connection to use a
             database outside this stack.
           </div>
         )
+      ) : mode === 'aio' ? (
+        <div className="space-y-2.5 rounded-lg border border-border bg-surface2 p-2.5">
+          <p className="text-xs text-muted">
+            An All in One node holds many database instances in one container and draws no
+            association lines, so its instance is chosen here rather than with a line. The MySQL,
+            PostgreSQL and MongoDB instances can be driven; the proxies, Orchestrator and Valkey
+            cannot.
+          </p>
+          {aioNodes.length === 0 ? (
+            <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+              There is no All in One node in this stack to point at. Add one, or choose another
+              connection mode.
+            </div>
+          ) : (
+            <>
+              <Field label="All in One node">
+                <select className={inputCls} value={n.ssAIONode || ''}
+                  onChange={(e) => patchNode(n.id, { ssAIONode: e.target.value, ssAIOInstance: '' })}>
+                  <option value="">Choose a node…</option>
+                  {aioNodes.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+                </select>
+              </Field>
+              <Field label="Instance"
+                hint="Cluster instances resolve to their write endpoint — the primary, the bootstrap member or the mongos.">
+                <select className={inputCls} value={n.ssAIOInstance || ''}
+                  onChange={(e) => patchNode(n.id, { ssAIOInstance: e.target.value })}
+                  disabled={!n.ssAIONode}>
+                  <option value="">Choose an instance…</option>
+                  {aioInstanceChoices.map((i) => (
+                    <option key={i.name} value={i.name} disabled={!i.usable}>
+                      {i.name} — {i.kindLabel}{i.usable ? '' : ' (not a database this app can drive)'}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </>
+          )}
+        </div>
       ) : (
         <div className="space-y-2.5 rounded-lg border border-border bg-surface2 p-2.5">
           <p className="text-xs text-muted">
@@ -5237,6 +5417,20 @@ function StockSimForm({ node: n, nodes, edges, stackId, patchNode, deleteNode, d
         </div>
       )}
 
+      {SS_CAN_GROW(effectiveEngine) ? (
+        <Field label="Dataset size at High load"
+          hint="At the High load level the app writes bulk price history until it owns this much, then stops. Blank uses 5Gi; “off” never grows it.">
+          <input className={inputCls} value={n.ssTargetSize || ''} placeholder="5Gi"
+            onChange={(e) => patchNode(n.id, { ssTargetSize: e.target.value })} />
+        </Field>
+      ) : (
+        <p className="text-xs text-muted">
+          No dataset size target: Valkey keeps its tick history in a length-capped stream, so
+          writing harder rolls old entries off rather than growing it. Link this node to
+          MySQL, PostgreSQL or MongoDB to drive storage under load.
+        </p>
+      )}
+
       <Field label="Label" hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
@@ -5293,6 +5487,7 @@ function StockSimManager({ dep, onDeleteNode }) {
         <div className="flex justify-between gap-3"><span className="text-muted">Internal URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8093</span></div>
         <div className="flex justify-between gap-3"><span className="text-muted">Connected to</span><span className="font-mono text-xs">{cfg.targetName} ({SS_TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></div>
         <div className="flex justify-between gap-3"><span className="text-muted">Database</span><span className="font-mono text-xs">{cfg.engine} / {db}</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Dataset at High</span><span className="font-mono text-xs">{fmtTargetBytes(cfg.targetBytes)}</span></div>
       </div>
       {cfg.httpPort && (
         <a href={`http://${typeof location !== 'undefined' ? location.hostname : 'localhost'}:${cfg.httpPort}/report`}
@@ -8297,7 +8492,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       if (dep && dep.state === 'running') {
         return <StockSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
-      return <StockSimForm node={n} nodes={nodes} edges={edges} stackId={stackId} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+      return <StockSimForm node={n} nodes={nodes} frames={frames} edges={edges} stackId={stackId} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
     return (
       <div className="space-y-3">

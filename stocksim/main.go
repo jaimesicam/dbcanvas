@@ -56,6 +56,21 @@ func main() {
 	targetKind := envOr("TARGET_KIND", "")
 	targetLabel := envOr("TARGET_LABEL", "")
 
+	// TARGET_BYTES is how big the dataset should get at the High load level.
+	// Unset means the default; an explicit "0" or "off" means never grow it.
+	// A malformed value is a warning rather than a fatal, because refusing to
+	// start a whole simulation over a mistyped size would be a poor trade.
+	targetBytes := sim.DefaultTargetBytes
+	if v := strings.TrimSpace(os.Getenv("TARGET_BYTES")); v != "" {
+		if strings.EqualFold(v, "off") || strings.EqualFold(v, "none") {
+			targetBytes = 0
+		} else if n, err := sim.ParseSize(v); err != nil {
+			log.Printf("stocksim: ignoring TARGET_BYTES: %v", err)
+		} else {
+			targetBytes = n
+		}
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -76,6 +91,7 @@ func main() {
 	}
 
 	engine := sim.NewEngine(st, targetKind, targetLabel)
+	engine.TargetBytes = targetBytes
 	h := api.New(engine, st, webFS)
 	srv := &http.Server{Addr: ":" + port, Handler: h.Routes()}
 
@@ -104,8 +120,8 @@ func main() {
 		engine.StartAgents(ctx)
 	}()
 
-	log.Printf("stocksim: listening on :%s (engine=%s, database=%s, target=%s)",
-		port, cfg.Engine, cfg.Database, describeTarget(cfg, targetLabel))
+	log.Printf("stocksim: listening on :%s (engine=%s, objects in %s, target=%s)",
+		port, cfg.Engine, st.Location(), describeTarget(cfg, targetLabel))
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("stocksim: %v", err)
 	}
@@ -244,8 +260,8 @@ func testconn() {
 	// another deployment is using finds out now rather than after seeding.
 	objects, err := st.Objects(ctx)
 	if err != nil {
-		fmt.Printf("ok: connected to %s %s — database %q not readable yet (%v)\n",
-			cfg.Engine, version, cfg.Database, err)
+		fmt.Printf("ok: connected to %s %s — %s not readable yet (%v)\n",
+			cfg.Engine, version, st.Location(), err)
 		return
 	}
 	var rows int64
@@ -254,10 +270,10 @@ func testconn() {
 	}
 	switch len(objects) {
 	case 0:
-		fmt.Printf("ok: connected to %s %s — %q is empty, ready to be created\n",
-			cfg.Engine, version, cfg.Database)
+		fmt.Printf("ok: connected to %s %s — %s is empty, ready to be created\n",
+			cfg.Engine, version, st.Location())
 	default:
-		fmt.Printf("ok: connected to %s %s — %q already has %d of this app's objects (~%d rows)\n",
-			cfg.Engine, version, cfg.Database, len(objects), rows)
+		fmt.Printf("ok: connected to %s %s — %s already has %d of this app's objects (~%d rows)\n",
+			cfg.Engine, version, st.Location(), len(objects), rows)
 	}
 }

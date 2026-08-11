@@ -40,7 +40,11 @@ type counters struct {
 	ordersExpired  atomic.Int64
 	ordersRejected atomic.Int64
 	ticksWritten   atomic.Int64
-	errors         atomic.Int64
+	// ticksBackfilled is counted apart from ticksWritten because the two answer
+	// different questions: one is what the simulation is doing now, the other
+	// is how much history has been manufactured to make the database big.
+	ticksBackfilled atomic.Int64
+	errors          atomic.Int64
 }
 
 // Engine owns the background simulation and is the only thing that writes to
@@ -53,6 +57,9 @@ type Engine struct {
 	Clock       *SimClock
 	TargetKind  string
 	TargetLabel string
+	// TargetBytes is how large the dataset should be grown to at the High load
+	// level; 0 disables that entirely. See backfill.go.
+	TargetBytes int64
 
 	counters counters
 
@@ -64,6 +71,7 @@ type Engine struct {
 	seed     SeedProgress
 	lastErr  string
 	agentsUp bool
+	backfill BackfillStatus
 
 	// baseCtx is the process's long-lived context — Start/Reset always derive
 	// from this, never from a caller's request-scoped context. A Reset
@@ -101,6 +109,13 @@ func (e *Engine) SetLevel(l string) {
 	if ValidLevel(l) {
 		e.level.Store(l)
 	}
+}
+
+func sizeTargetWord(n int64) string {
+	if n <= 0 {
+		return "none"
+	}
+	return FormatBytes(n)
 }
 
 func (e *Engine) Running() bool { return e.running.Load() }
@@ -168,6 +183,7 @@ func (e *Engine) StartAgents(ctx context.Context) {
 		e.runMonitoringAgent,
 		e.runEventFeed,
 		e.runClockPersister,
+		e.runBackfillAgent,
 	}
 	for _, fn := range agents {
 		e.wg.Add(1)
@@ -176,8 +192,9 @@ func (e *Engine) StartAgents(ctx context.Context) {
 			f(e.ctx)
 		}(fn)
 	}
-	log.Printf("stocksim: engine started (engine=%s, kind=%s, target=%s, level=%s)",
-		e.Store.Engine(), e.TargetKind, e.TargetLabel, e.Level())
+	log.Printf("stocksim: engine started (engine=%s, kind=%s, target=%s, level=%s, in %s, size target=%s)",
+		e.Store.Engine(), e.TargetKind, e.TargetLabel, e.Level(),
+		e.Store.Location(), sizeTargetWord(e.TargetBytes))
 }
 
 // Stop cancels every agent and waits for them to finish.

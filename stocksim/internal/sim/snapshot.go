@@ -23,6 +23,7 @@ type Snapshot struct {
 	Agents    []store.AgentHeartbeat `json:"agents"`
 	Control   ControlInfo            `json:"control"`
 	Seed      SeedProgress           `json:"seed"`
+	Backfill  BackfillStatus         `json:"backfill"`
 	UptimeSec int64                  `json:"uptimeSeconds"`
 	Error     string                 `json:"error,omitempty"`
 	Warning   string                 `json:"warning,omitempty"`
@@ -52,6 +53,7 @@ type ControlInfo struct {
 	Level       string  `json:"level"`
 	Engine      string  `json:"engine"`
 	Database    string  `json:"database"`
+	Location    string  `json:"location"`
 	TargetKind  string  `json:"targetKind"`
 	TargetLabel string  `json:"targetLabel"`
 	SimNow      string  `json:"simNow"`
@@ -69,11 +71,13 @@ func (e *Engine) BuildSnapshot(ctx context.Context) Snapshot {
 			Level:       e.Level(),
 			Engine:      e.Store.Engine(),
 			Database:    e.Store.Database(),
+			Location:    e.Store.Location(),
 			TargetKind:  e.TargetKind,
 			TargetLabel: e.TargetLabel,
 			SimNow:      e.Clock.Now().UTC().Format(time.RFC3339),
 			SimRate:     e.Clock.Rate(),
 		},
+		Backfill:  e.Backfill(),
 		Seed:      e.Seed(),
 		UptimeSec: e.UptimeSeconds(),
 		Agents:    []store.AgentHeartbeat{},

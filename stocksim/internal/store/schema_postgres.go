@@ -6,9 +6,9 @@ package store
 // JSONB instead of JSON, BIGSERIAL for the one table that needs a monotonic
 // cursor, and indexes as separate CREATE INDEX statements.
 //
-// Everything lives in the schema named by Config.Database, created if absent —
-// a *schema*, not a database, so a user granted rights on one database can
-// still be given a private namespace inside it.
+// Everything lives in one schema, created if absent. Which schema, and in
+// which database, is decided at open time — see the pgStore doc comment for
+// the two possible placements and why there are two.
 
 var pgTables = []string{
 	"securities", "price_ticks", "portfolios", "orders", "trades", "holdings",

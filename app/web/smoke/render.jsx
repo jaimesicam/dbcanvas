@@ -24,7 +24,10 @@ import {
   MySQLCENodeForm, MySQLCEFrameForm, MySQLCEInnoDBFrameForm,
   UpstreamMemberForm,
 } from '../src/pages/UpstreamForms.jsx'
-import { frameMemberSub, REPL_FRAME_TYPES } from '../src/pages/StackDesigner.jsx'
+import {
+  frameMemberSub, REPL_FRAME_TYPES,
+  NODE_TYPES, CONNECTABLE_FRAMES, SS_LINK_TYPES, SS_LINK_ENGINE,
+} from '../src/pages/StackDesigner.jsx'
 import MySQLManager from '../src/pages/MySQLManager.jsx'
 import PacketInspector, {
   Timeline as PktTimeline, RangeControls as PktRangeControls, Filters as PktFilters,
@@ -1006,6 +1009,37 @@ check('packet inspector: server error log (window mismatch)', () => {
       entries: [], top: [] }} />)
   if (!html.includes('none of them fall in this capture')) throw new Error('mismatch warning not shown')
   return html
+})
+
+// --------------------------------------------------------------- canvas wiring
+//
+// A target the backend accepts is still unusable if nothing on the canvas can
+// start or finish a line to it. That is not a render failure — the page looks
+// fine — so nothing above would catch it, and it is exactly how Stock Market
+// Sim shipped able to drive a standalone Percona Server that no user could
+// draw a line to: NODE_TYPES.ps had ports:false, so the node drew no handles.
+//
+// Every kind SS_LINK_TYPES names must therefore be reachable: a node type needs
+// ports:true, a frame type needs to be in CONNECTABLE_FRAMES.
+check('every Stock Market Sim link target is reachable on the canvas', () => {
+  // Several names are both a frame type and the type of the member nodes
+  // inside it ('pxc', 'patroni', …). Reachable either way is reachable: a
+  // framed member is never the target, the frame around it is.
+  const unreachable = Object.keys(SS_LINK_TYPES).filter(
+    (kind) => !CONNECTABLE_FRAMES.has(kind) && !NODE_TYPES[kind]?.ports)
+  if (unreachable.length) {
+    throw new Error('no way to draw a line to: ' + unreachable.join(', '))
+  }
+  return 'ok'
+})
+
+// The engine map decides the driver and whether a size target is possible, so
+// every non-router target must be in it.
+check('every Stock Market Sim link target maps to an engine', () => {
+  const missing = Object.keys(SS_LINK_TYPES)
+    .filter((k) => k !== 'haproxy' && k !== 'proxysql' && !SS_LINK_ENGINE[k])
+  if (missing.length) throw new Error('no engine for: ' + missing.join(', '))
+  return 'ok'
 })
 
 if (failures > 0) {

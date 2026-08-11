@@ -40,7 +40,8 @@ logs:
 clean:
 	docker compose down --rmi local --remove-orphans
 
-## smoke: render the React components off-browser and fail on any render error
+## smoke: render the React components off-browser and fail on any render error,
+## and check the canvas can actually reach every link target the backend accepts
 smoke:
 	cd app/web && npm run smoke
 

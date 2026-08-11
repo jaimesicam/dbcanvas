@@ -62,6 +62,7 @@ async function fetchState() {
     renderHeader(state)
     renderBanners(state)
     renderSeed(state.seed)
+    renderBackfill(state.backfill)
     renderKPIs(state)
     renderTicker(state.ticker || [])
     renderAgents(state.agents || [])
@@ -150,6 +151,9 @@ function renderHeader(s) {
   $('#hdr-engine').textContent = c.engine || '—'
   $('#hdr-target').textContent = c.targetLabel || c.targetKind || '—'
   $('#hdr-db').textContent = c.database || '—'
+  // Where the objects really are, which on PostgreSQL is not always the same
+  // thing as the namespace name in the header.
+  $('#hdr-db').title = c.location || ''
   $('#dz-db').textContent = c.database || 'the database'
   $('#hdr-clock').textContent = c.simNow
     ? new Date(c.simNow).toISOString().replace('T', ' ').slice(0, 19) + ' UTC'
@@ -166,6 +170,21 @@ function renderSeed(seed) {
   panel.classList.remove('hidden')
   $('#seed-fill').style.width = (seed.percent || 0) + '%'
   $('#seed-step').textContent = seed.error ? 'Failed: ' + seed.error : (seed.step || '')
+}
+
+// renderBackfill shows how far the dataset has grown towards its size target.
+// The panel stays up once the target is reached rather than hiding itself the
+// way the seed panel does — "5.02 GiB of 5.00 GiB" is the answer to the
+// question the whole feature exists to answer, and it should still be on the
+// page when someone comes back to look.
+function renderBackfill(b) {
+  const panel = $('#backfill-panel')
+  if (!b || !b.supported || !b.targetBytes) { panel.classList.add('hidden'); return }
+  panel.classList.remove('hidden')
+  const pct = Math.min(100, (b.bytes / b.targetBytes) * 100)
+  $('#backfill-fill').style.width = pct.toFixed(1) + '%'
+  const rows = b.rowsWritten ? ` · ${nf0.format(b.rowsWritten)} rows of history written` : ''
+  $('#backfill-step').textContent = (b.note || '') + rows
 }
 
 function tile(value, label, cls) {
@@ -346,19 +365,33 @@ function pageLabel(d, page) {
   return `${from}–${to} of ${d.total}`
 }
 
+// fmtBytes mirrors sim.FormatBytes. Once a dataset is being grown to gigabytes
+// a column of six-digit KB figures is unreadable, so each row picks its own unit.
+function fmtBytes(n) {
+  if (!n) return '—'
+  if (n >= 2 ** 40) return (n / 2 ** 40).toFixed(2) + ' TiB'
+  if (n >= 2 ** 30) return (n / 2 ** 30).toFixed(2) + ' GiB'
+  if (n >= 2 ** 20) return (n / 2 ** 20).toFixed(1) + ' MiB'
+  if (n >= 2 ** 10) return (n / 2 ** 10).toFixed(0) + ' KiB'
+  return n + ' B'
+}
+
 function renderSchema(diag) {
   const objs = (diag && diag.objects) || []
   const rows = objs.map((o) => [
     { text: o.name }, { text: o.kind },
     { text: nf0.format(o.rows), cls: 'num' },
-    { text: o.bytes ? (o.bytes / 1024).toFixed(0) + ' KB' : '—', cls: 'num' },
+    { text: fmtBytes(o.bytes), cls: 'num' },
   ])
   buildTable($('#schema-table'), [
     { label: 'Object' }, { label: 'Kind' },
     { label: 'Rows (est.)', num: true }, { label: 'Size', num: true },
   ], rows)
+  // The location, not just the namespace name: on PostgreSQL those are two
+  // different facts and the difference is exactly what people want to check.
   $('#schema-hint').textContent = diag
-    ? `${diag.engine} ${diag.serverVersion || ''} · ${objs.length} objects in ${diag.database}`
+    ? `${diag.engine} ${diag.serverVersion || ''} · ${objs.length} objects in ` +
+      `${diag.location || diag.database} · ${fmtBytes(diag.totalBytes)} total`
     : ''
 }
 

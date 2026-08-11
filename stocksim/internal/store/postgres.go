@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/url"
 	"strconv"
 	"strings"
@@ -15,25 +16,39 @@ import (
 
 // pgStore implements Store against PostgreSQL.
 //
-// The app's objects live in a *schema* inside the connected database, not in a
-// database of their own. That is the difference from MySQL, where the two
-// concepts coincide, and it is deliberate: a managed PostgreSQL instance
-// usually hands you one database and no right to create another, so claiming a
-// schema inside it is the only thing that reliably works. search_path is
-// pinned to that schema on every connection.
+// Placement is decided once, at open, and there are two possible outcomes:
+//
+//   - A database of its own, named by Config.Database, with the tables in that
+//     database's public schema. This is the preferred layout and the one that
+//     matches every sibling engine — MySQL gets its own database, MongoDB gets
+//     its own database, so PostgreSQL should too. It needs CREATEDB.
+//   - Failing that, a *schema* named by Config.Database inside whatever
+//     database the DSN already points at. A managed PostgreSQL instance
+//     usually hands you one database and no right to create another, so this
+//     is the only thing that reliably works there.
+//
+// Either way search_path is pinned to the chosen schema on every connection,
+// so no query below has to know which of the two happened. Location() reports
+// the outcome in words, because "where did my data actually land" is not a
+// question a user should have to answer by hand.
 type pgStore struct {
-	db     *sql.DB
-	schema string
+	db       *sql.DB
+	name     string // the namespace the user asked for — what Database() reports
+	database string // the database actually connected to
+	schema   string // the schema the tables actually live in
+	owned    bool   // true when database == name, i.e. we got a database of our own
 }
 
 func openPostgres(ctx context.Context, c Config) (Store, error) {
-	dsn := c.DSN
-	if dsn == "" {
-		dsn = pgDSN(c)
+	base := c.DSN
+	if base == "" {
+		base = pgDSN(c)
 	}
+
+	dsn, database, schema, owned := pgResolvePlacement(ctx, base, c.Database)
 	// Pin search_path so unqualified table names in every query below resolve
 	// to our schema, without threading the name through each statement.
-	dsn = pgWithSearchPath(dsn, c.Database)
+	dsn = pgWithSearchPath(dsn, schema)
 
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
@@ -42,7 +57,110 @@ func openPostgres(ctx context.Context, c Config) (Store, error) {
 	db.SetConnMaxLifetime(5 * time.Minute)
 	db.SetMaxOpenConns(16)
 	db.SetMaxIdleConns(8)
-	return &pgStore{db: db, schema: c.Database}, nil
+	return &pgStore{
+		db: db, name: c.Database, database: database, schema: schema, owned: owned,
+	}, nil
+}
+
+// pgResolvePlacement decides between the two layouts described on pgStore and
+// returns the DSN to actually use.
+//
+// It has to connect to find out, and it is called before main's own
+// wait-for-database loop, so an unreachable server here means "not up yet"
+// rather than "cannot create". It retries for the same minute that loop would
+// have spent waiting. Only after that does it give up and take the schema
+// layout, which works on any server and so is the safe thing to be wrong
+// about — the alternative, connecting to a database we never confirmed
+// exists, fails permanently.
+func pgResolvePlacement(ctx context.Context, base, name string) (dsn, database, schema string, owned bool) {
+	deadline := time.Now().Add(time.Minute)
+	for {
+		ok, retryable := pgTryOwnDatabase(ctx, base, name)
+		switch {
+		case ok:
+			return pgWithDatabase(base, name), name, "public", true
+		case !retryable:
+			log.Printf("stocksim: no database of our own (%q): using a schema "+
+				"named %q inside the connected database instead", name, name)
+			return base, pgDatabaseOf(base), name, false
+		}
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			log.Printf("stocksim: postgres not reachable yet; falling back to a schema "+
+				"named %q inside the connected database", name)
+			return base, pgDatabaseOf(base), name, false
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
+// pgTryOwnDatabase reports whether this app can have the named database to
+// itself, creating it if it does not exist and the role is allowed to.
+//
+// Existence is not enough, and assuming it was is a mistake worth naming: every
+// role can see every row of pg_database, so a `stocksim` database belonging to
+// somebody else on a shared server reads as "already there". Connecting to it
+// would then fail on the first CREATE TABLE, having bypassed the schema
+// fallback that would have worked. So the answer is only yes once we have
+// connected to the database and confirmed we may create objects in it.
+//
+// retryable distinguishes "the server went away mid-check", worth another
+// attempt, from "the server answered and the answer was no", which will not
+// change however long we wait.
+func pgTryOwnDatabase(ctx context.Context, base, name string) (ok, retryable bool) {
+	cctx, cancel := context.WithTimeout(ctx, connectTimeout)
+	defer cancel()
+
+	admin, err := sql.Open("pgx", base)
+	if err != nil {
+		return false, false // a DSN the driver cannot parse will not start parsing
+	}
+	defer admin.Close()
+
+	var exists bool
+	if err := admin.QueryRowContext(cctx,
+		"SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", name).Scan(&exists); err != nil {
+		return false, true
+	}
+	if !exists {
+		// CREATE DATABASE cannot run inside a transaction and takes no
+		// parameters, hence the quoted identifier. A role without CREATEDB
+		// fails here, which is the expected outcome on a managed instance and
+		// not an error worth failing the deployment over.
+		if _, err := admin.ExecContext(cctx, "CREATE DATABASE "+pgQuoteIdent(name)); err != nil {
+			// Another replica of this app may have won the race with the check
+			// above, in which case the probe below still decides.
+			if err2 := admin.QueryRowContext(cctx,
+				"SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", name).Scan(&exists); err2 != nil || !exists {
+				log.Printf("stocksim: cannot create database %q: %v", name, err)
+				return false, false
+			}
+		} else {
+			log.Printf("stocksim: created database %q", name)
+		}
+	}
+
+	own, err := sql.Open("pgx", pgWithDatabase(base, name))
+	if err != nil {
+		return false, false
+	}
+	defer own.Close()
+	var mayCreate bool
+	if err := own.QueryRowContext(cctx,
+		"SELECT has_schema_privilege(current_user, 'public', 'CREATE')").Scan(&mayCreate); err != nil {
+		// Cannot connect to it, or cannot read the catalogue through it: either
+		// way this is not a database we can use. Not retryable — the admin
+		// connection above just worked, so the server itself is up.
+		log.Printf("stocksim: database %q is not usable by this role: %v", name, err)
+		return false, false
+	}
+	if !mayCreate {
+		log.Printf("stocksim: database %q exists but this role cannot create objects in it", name)
+		return false, false
+	}
+	return true, false
 }
 
 func pgDSN(c Config) string {
@@ -94,9 +212,49 @@ func pgWithSearchPath(dsn, schema string) string {
 	return dsn + " options='" + opt + "'"
 }
 
+// pgWithDatabase repoints a DSN at a different database. In keyword/value form
+// the appended dbname wins, because libpq — and pgx, which follows it — takes
+// the last occurrence of a repeated keyword.
+func pgWithDatabase(dsn, name string) string {
+	if u, err := url.Parse(dsn); err == nil && u.Scheme != "" {
+		u.Path = "/" + name
+		return u.String()
+	}
+	return dsn + " dbname='" + strings.ReplaceAll(name, `'`, `\'`) + "'"
+}
+
+// pgDatabaseOf reports which database a DSN names, for Location()'s benefit
+// only. An unparseable or database-less DSN yields "" rather than a guess.
+func pgDatabaseOf(dsn string) string {
+	if u, err := url.Parse(dsn); err == nil && u.Scheme != "" {
+		return strings.TrimPrefix(u.Path, "/")
+	}
+	for _, f := range strings.Fields(dsn) {
+		if v, ok := strings.CutPrefix(f, "dbname="); ok {
+			return strings.Trim(v, "'\"")
+		}
+	}
+	return ""
+}
+
 func (s *pgStore) Engine() string   { return EnginePostgres }
-func (s *pgStore) Database() string { return s.schema }
+func (s *pgStore) Database() string { return s.name }
 func (s *pgStore) Close() error     { return s.db.Close() }
+
+// Location spells out which of pgStore's two layouts is in effect. This is the
+// one engine where the answer is not obvious from the namespace name alone.
+func (s *pgStore) Location() string {
+	if s.owned {
+		return fmt.Sprintf("database %q (schema %s)", s.database, s.schema)
+	}
+	where := s.database
+	if where == "" {
+		where = "the connected database"
+	} else {
+		where = fmt.Sprintf("database %q", where)
+	}
+	return fmt.Sprintf("schema %q inside %s", s.schema, where)
+}
 
 func (s *pgStore) Ping(ctx context.Context) error {
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)

@@ -123,6 +123,12 @@ type Store interface {
 	Ping(ctx context.Context) error
 	ServerVersion(ctx context.Context) (string, error)
 	Database() string
+	// Location describes, in words, where on the server this app's objects
+	// actually are — "database x", "schema y inside database x", "keys under
+	// prefix z". Database() names the namespace the user asked for; this says
+	// what the server made of that request, which is not always the same thing
+	// and is otherwise only discoverable by going and looking.
+	Location() string
 	Close() error
 
 	// Namespace lifecycle. EnsureSchema is idempotent and safe to call on every
@@ -236,4 +242,19 @@ func Open(ctx context.Context, cfg Config) (Store, error) {
 // target the binary would then refuse at startup.
 func Implemented() []string {
 	return []string{EngineMySQL, EnginePostgres, EngineMongoDB, EngineValkey}
+}
+
+// CanGrowToSize reports whether an engine's dataset can be driven to an
+// arbitrary size by writing to it — which is what the backfill agent needs and
+// what makes a size target meaningful.
+//
+// It is false for exactly one engine, and for a reason worth stating: Valkey's
+// tick history is an XADD stream capped at MaxLen 500 per security (see
+// AppendTicks in valkey.go), so writing to it harder does not make it bigger,
+// it just rolls entries off the far end sooner. Uncapping it would not be a
+// disk test either — it would be a memory test, ending in the container being
+// OOM-killed somewhere short of the target. dbcanvas therefore offers no size
+// target for a Valkey-backed node rather than offering one that cannot be met.
+func CanGrowToSize(engine string) bool {
+	return engine != EngineValkey
 }

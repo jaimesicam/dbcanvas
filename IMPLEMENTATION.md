@@ -12254,3 +12254,199 @@ the default — so a hardcoded fallback could not pass as a working one.
                no console errors, no horizontal overflow at 1600px
 
 `go build ./...`, `go vet ./...`, `gofmt -l` and `go test ./...` clean; `npm run build` clean.
+
+## 230. Stock Market Sim: a database of its own on PostgreSQL, and a dataset that grows to a size you choose — `stocksim/internal/store/postgres.go`, `stocksim/internal/store/mysql.go`, `stocksim/internal/store/mongo.go`, `stocksim/internal/sim/backfill.go`, `app/stocksim.go`, `app/intranet.go`, `app/web/src/pages/StackDesigner.jsx`, `README.md`
+
+Two asks, one session: at the High load level the dataset should reach at least 5 GB so a disk
+can actually be tested, and — a question rather than a request — confirm that a node linked to
+PostgreSQL puts its objects in a database of its own rather than in `postgres`.
+
+**The answer to the question was no,** which is why it turned into work. §226 connected with
+`Path: "/postgres"` and created a *schema* named `stocksim` inside it, deliberately: a managed
+PostgreSQL instance usually hands you one database and no right to create another. But it made
+PostgreSQL the only engine that behaves that way — MySQL runs `CREATE DATABASE stocksim`, MongoDB
+gets a `stocksim` database — and `postgres` is on the app's own reserved-names list, the one it
+refuses for every *other* engine. `openPostgres` now tries for a database of its own and keeps
+the schema layout as the fallback, so the managed-instance case still works and the stack case
+gets what the user expected. `Location()` is new on the `Store` interface and reports which of
+the two happened, in words, on the dashboard header, the Schema panel and `-testconn` — "where
+did my data land" should not be a question answered by hand.
+
+**Existence is not permission, and assuming it was is the bug this feature nearly shipped with.**
+The first version checked `pg_database` for the name and connected if it was there. Every role can
+read every row of that catalogue, so a `stocksim` database belonging to somebody else reads as
+"already mine" — the container then failed on the first `CREATE TABLE` having skipped the fallback
+that would have worked. Found live, by pointing a `NOCREATEDB` role at a server where an earlier
+test had left a `stocksim` database behind. The check is now a probe:
+`has_schema_privilege(current_user, 'public', 'CREATE')` *through a connection to that database*.
+
+**The growth.** A new `runBackfillAgent`, active only at High, writes historical ticks in bulk
+until the app's own footprint reaches `TargetBytes`, then stops and lets the simulation carry on.
+Historical — walking backwards from an hour before it started — so the sparklines and the report,
+which read the newest rows, are untouched by it; four concurrent 1000-row writers, deliberately
+unthrottled, because the point is to find out what the storage does when written to as fast as it
+will accept. About two minutes to 5 GiB on a laptop.
+
+Valkey is excluded and says so on the node and on the dashboard rather than silently doing
+nothing: its tick history is an `XADD` stream capped at `MaxLen 500` per security, so writing
+harder rolls entries off the far end instead of growing, and uncapping it would fill memory rather
+than a disk and end in an OOM kill.
+
+**Three separate measurement bugs, all found live, none visible from the code.** The agent stops
+on measured size, so a measurement that lies is a target that is never met:
+
+- *MySQL, caching.* `information_schema_stats_expiry` defaults to **86400** — a day. The Schema
+  panel had been reading day-old sizes all along. `SET SESSION … = 0` per connection fixes that.
+- *MySQL, staleness underneath the cache.* Even uncached, `DATA_LENGTH` comes from InnoDB's
+  persistent statistics, recalculated lazily enough that a table under bulk load read back **half**
+  its real size; the agent blew through a 250 MiB target to 549 MiB. Sizes now come from
+  `INNODB_TABLESPACES.FILE_SIZE`, the `.ibd` file's own length — which is what a disk test should
+  be measuring anyway. That needs `PROCESS`; a stack's app user has `ALL PRIVILEGES` and so has it,
+  but an external connection may not, so there is a fallback, and the fallback runs
+  `ANALYZE NO_WRITE_TO_BINLOG TABLE` first (5× overshoot → 1.85×). The privilege error arrives
+  while the result set is *streaming*, not when the query is issued, so the first attempt at the
+  fallback never fired — it was checking only `QueryContext`'s error.
+- *MongoDB, compression.* `collStats.size` is uncompressed; WiredTiger had put 200 MiB of
+  "dataset" into 58 MB of disk. Now `storageSize + totalIndexSize`, which agrees with the other
+  two engines and with `du`.
+
+Overshoot is also bounded by measuring after every round once within 25% of the target, rather
+than on the fixed 5 s interval: a 300 MiB run overshot by 40% before that change and 0.3% after.
+
+**Verified live** against disposable PostgreSQL 16, MySQL 8.0, MongoDB 7 and Valkey 8 containers,
+destroyed afterwards.
+
+    pg own db     created database "stocksim", 10 tables in public; the postgres database keeps
+                  zero non-system relations (its 80 are all pg_toast)
+    pg fallback   NOCREATEDB role, foreign stocksim database present → schema "stocksim" inside
+                  database "tenantdb", 10 tables, -testconn says so in those words
+    5 GiB run     default target, level=high → 5.00 GiB / 19,336,000 rows in ~2m20s;
+                  pg_database_size says 5130 MB; all six agents ok, no error, no warning;
+                  GET /api/orders still 9 ms against the 19M-row table
+    sparklines    newest tick is the current second; backfill spans back ~17 h behind it
+    mysql         253.5 MiB against a 250 MiB target (was 549.6 before the FILE_SIZE fix)
+    mongodb       232 MiB against 200 MiB, now counting compressed bytes
+    valkey        reports "not available for Valkey — its tick history is a capped stream",
+                  target forced to 0, memory flat at 2.68M after 20 s at High
+
+`go build ./...`, `go vet ./...`, `gofmt -l` and `go test ./...` clean in both modules;
+`npm run build` clean.
+
+## 231. Stock Market Sim reaches every database in the stack — `app/stocksim.go`, `app/intranet.go`, `app/web/src/pages/StackDesigner.jsx`, `README.md`
+
+§226 shipped the node able to link to four standalone types: `ps`, `pg`, `psm`, `valkey`. Asked
+what connectors were missing, the honest answer turned out to be "no engine drivers, but 19 of
+the 23 database-bearing things you can put on this canvas". `store.Implemented()` already covers
+every wire protocol dbcanvas deploys; what was missing was entirely in what a line could be drawn
+from. Every sibling sim accepts more than stocksim did — marketchaos takes PXC frames and HAProxy,
+carsim takes Patroni/repmgr/Spock, hotelsim replica sets and sharded clusters, trafficsim a Valkey
+cluster — and the original comment said as much, calling manual mode the answer for clusters.
+
+**What now links.** Standalone `mariadb` and `mysqlce`; the frames `pxc`, `mysql`, `innodb`,
+`mariadbrepl`, `mariadbgalera`, `mysqlcerepl`, `mysqlceinnodb`, `patroni`, `repmgr`, `spock`,
+`k3d`, `psmrs`, `psmdb`, `valkeycluster`; and the `haproxy`/`proxysql` routers. Each resolves to
+the cluster's *write* endpoint, which is a different thing per cluster: the member marked primary
+for asynchronous replication, any member for Galera, any member's MySQL Router port (6446) for
+Group Replication — which follows a failover, so the sim never has to notice one — the Patroni
+leader, the sole mongos, the whole address list for a Valkey cluster.
+
+**waitStockSimTarget now dispatches on the engine, not the kind.** Everything before the endpoint
+is found is a property of the kind; everything after — DSN dialect, driver, which credentials even
+exist — is a property of the engine. Four family resolvers do the second half, and three of them
+reuse a sibling's work outright: hotelsim's resolver already returns exactly the MongoDB URI this
+app needs, and trafficsim's the Valkey address list. Only one new waiter was needed,
+`waitMySQLFamilyFrame`, generic because members of every MySQL-family frame are nodes whose own
+type equals the frame's.
+
+HAProxy is the one target neither airlinesim nor carsim could be copied for: they each front one
+family, and this app has to accept both, so the backend kind selects which cluster waiter runs and
+then names the resolved kind `haproxy-<backend>`.
+
+**All in One needed a different shape entirely, and the codebase already said so.** An AIO node
+sets `ports:false` in NODE_TYPES — it draws no association lines at all, so "linked" is not merely
+unsupported for it but structurally impossible; every AIO relationship in this app is a picker.
+So the node gains a *third* connection mode next to linked and manual, with `aio_target.go`'s
+existing helpers doing the work: `aioTargetableInstances`, `aioInstanceCreds`, `aioTargetLabel`,
+the same ones the Query Runner, Benchmark and Data Generator use, so an instance behaves
+identically wherever it is addressed from. The picker names an instance as the user declared it
+("pxc-cluster-01"); `stockSimAIOMember` maps that to a concrete deployed member through
+`aioInstanceRuntime.Group`, preferring the write endpoint. Valkey, the proxies and Orchestrator
+are excluded — the same set every other tool declines, via `aioEngineForKind`.
+
+**CloudNativePG is reachable, with one condition worth stating.** A K3D frame's members are k3s
+hosts, so there is no node to wait on; the endpoint comes from what §227 recorded on the server
+node's `k3dConfig`, and the password is read out of the `<cluster>-app` Secret at deploy time
+because CNPG generates it and keeps it nowhere else. It only works when the cluster was exposed as
+a LoadBalancer — the ClusterIP fallback is a `.svc` name meaning nothing outside Kubernetes — and
+the frame being created on the stack network (`--network dbcanvas-stack-<id>`, k3d.go:30) is what
+makes a MetalLB address routable from a sibling container. CNPG's application role is not a
+superuser, so the sim lands in §230's schema fallback rather than getting a database of its own,
+which is the shape that fallback exists for.
+
+**Validation collapsed into one function.** `stockSimEngineAndIssues` answers "which engine will
+this actually run" and "what is wrong with it" together for all three modes, because they are
+decided together: an engine that will not resolve is exactly the case where an issue was raised.
+The size target from §230 is judged against that engine, so a Valkey *cluster* now correctly
+declines a size target the same way a standalone Valkey node does.
+
+**Verified live** on a disposable dbcanvas instance (port 8099, own volume), destroyed afterwards
+along with its stacks; the primary instance was never touched.
+
+    validation   12 designs through POST /validate: 8 valid shapes clean (standalone MariaDB and
+                 MySQL CE, Galera, PXC, Patroni, PSMDB replica set, Valkey cluster, HAProxy→Patroni,
+                 All in One PostgreSQL instance); 4 correctly rejected — HAProxy fronting nothing,
+                 an All in One ProxySQL instance, an unlinked node, and a Valkey cluster carrying a
+                 size target (warning, not error: the node still works, it just will not grow)
+    mariadb      deployed: kind=mariadb, engine=mysql, targetBytes=125829120, 10 tables in
+                 database "stocksim" on MariaDB 11.4.12; backfill reached its 120 MiB target
+    mariadbrepl  deployed: kind=mariadbrepl, resolved to src1 — the member marked primary, not
+                 the replica — and both members then read 720 orders, so writes landed on the
+                 primary and replicated
+
+**A caveat measured rather than assumed.** MariaDB has no `INNODB_TABLESPACES` (it is
+`INNODB_SYS_TABLESPACES`), so §230's size measurement takes the `ANALYZE`-refreshed statistics
+fallback: the 120 MiB run finished at 202 MiB, a 68% overshoot against MySQL 8's 1.4%. Always over,
+never under, which is the safe direction for a "grow to at least" target — but worth knowing before
+using MariaDB to size a volume precisely.
+
+**Deliberately not built.** Nothing: all 19 are in. The one shape that remains impossible is
+linking to a *member node* inside a cluster frame, which is rejected on purpose — the frame is the
+addressable thing, and a single member is what manual mode's host field is for.
+
+`go build ./...`, `go vet ./...`, `gofmt -l` and `go test ./...` clean; `npm run build` clean.
+
+## 232. The connectors from §231 had no grab handles — `app/web/src/pages/StackDesigner.jsx`, `app/web/smoke/render.jsx`, `Makefile`
+
+Reported immediately after §231: "standalone nodes have no link points so i cannot connect stock
+market sim". Correct, and worse than it sounds — §231 was verified live through the *API*, which
+never touches the canvas, so every one of those connectors was reachable by a machine and by no
+user.
+
+**Two independent gates, both missed.** A node type draws connection handles only if its
+NODE_TYPES entry sets `ports: true`, and `hitPort` refuses to snap a line to it otherwise.
+`psm` and `valkey` were flipped to true when Hotel Sim and Traffic Sim landed, each with a comment
+saying why. `ps` and `pg` never were — so linking a Stock Market Sim node (or Airline Sim, or
+MarketChaos, or Car Rental Sim) to a standalone Percona Server or PostgreSQL node had never been
+possible by drawing a line, well before this work. `mariadb` and `mysqlce` arrived in §231 with the
+same `ports: false` they had always had. All four are now true.
+
+Frames have their own gate, and the two halves of it disagreed with each other: `hitPort` listed
+nine frame types, while the render gate excluded four by name. `repmgr` and `valkeycluster` were in
+the first and excluded from the second, so they were droppable but drew nothing — you could finish
+a line onto them if you happened to try, and never start one. Both now come from a single
+`CONNECTABLE_FRAMES` set, which also adds `innodb`, `mariadbrepl`, `mariadbgalera`, `mysqlcerepl`,
+`mysqlceinnodb` and `k3d`.
+
+**The lesson is about what "verified live" covered.** §231's evidence was real — a MariaDB
+replication frame resolved to its primary and replicated — but every design it validated was posted
+as JSON. A canvas affordance cannot be tested that way, and a missing one is invisible to every
+other check in the repo: `vite build` compiles it, Go never sees JSX, and the render smoke test
+passes because the page renders perfectly. It just cannot be used.
+
+So the invariant is now asserted where it can be: `npm run smoke` checks that every kind in
+SS_LINK_TYPES is reachable — a node type with `ports: true`, or a member of CONNECTABLE_FRAMES —
+and that every non-router kind maps to an engine. Confirmed to fail on the real bug by reverting
+each half and watching it name `ps` and `k3d`. The check has to allow either, because several
+names are both a frame type and the type of the member nodes inside it.
+
+`npm run build` and `npm run smoke` clean; Go unchanged and still clean.

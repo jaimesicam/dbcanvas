@@ -78,6 +78,12 @@ func (s *valkeyStore) Engine() string   { return EngineValkey }
 func (s *valkeyStore) Database() string { return s.prefix }
 func (s *valkeyStore) Close() error     { return s.c.Close() }
 
+// Location: Valkey has no databases to speak of in cluster mode, so the key
+// prefix is the whole of the namespace and worth naming as such.
+func (s *valkeyStore) Location() string {
+	return fmt.Sprintf("keys under prefix %q", s.prefix+":")
+}
+
 func (s *valkeyStore) Ping(ctx context.Context) error {
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

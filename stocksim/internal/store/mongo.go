@@ -91,6 +91,10 @@ func (s *mongoStore) Engine() string   { return EngineMongoDB }
 func (s *mongoStore) Database() string { return s.name }
 func (s *mongoStore) Close() error     { return s.client.Disconnect(context.Background()) }
 
+// Location: MongoDB creates a database on first write, so the one we asked for
+// is always the one we get.
+func (s *mongoStore) Location() string { return fmt.Sprintf("database %q", s.name) }
+
 func (s *mongoStore) Ping(ctx context.Context) error {
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -175,17 +179,28 @@ func (s *mongoStore) Objects(ctx context.Context) ([]ObjectInfo, error) {
 			continue
 		}
 		var stats struct {
-			Count      int64 `bson:"count"`
-			Size       int64 `bson:"size"`
-			TotalIndex int64 `bson:"totalIndexSize"`
+			Count       int64 `bson:"count"`
+			Size        int64 `bson:"size"`
+			StorageSize int64 `bson:"storageSize"`
+			TotalIndex  int64 `bson:"totalIndexSize"`
 		}
 		// collStats is deprecated in favour of $collStats but remains the only
 		// one-call way to get count and size together on every supported
 		// server; a failure here degrades to zeroes rather than losing the row.
 		s.db.RunCommand(ctx, bson.D{{Key: "collStats", Value: name}}).Decode(&stats)
+		// storageSize, not size: WiredTiger compresses, so the uncompressed
+		// figure runs three to four times the bytes actually on the volume.
+		// Every engine here reports what the storage is really holding —
+		// pg_total_relation_size, the .ibd file's own length — and a size
+		// target is a statement about a disk, so this one has to agree.
+		// Empty collections report storageSize 0, where falling back to size
+		// keeps the Schema panel from showing a row that looks unwritten.
+		bytes := stats.StorageSize + stats.TotalIndex
+		if stats.StorageSize == 0 {
+			bytes = stats.Size + stats.TotalIndex
+		}
 		out = append(out, ObjectInfo{
-			Name: name, Kind: "collection",
-			Rows: stats.Count, Bytes: stats.Size + stats.TotalIndex,
+			Name: name, Kind: "collection", Rows: stats.Count, Bytes: bytes,
 		})
 	}
 	return out, nil

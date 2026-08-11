@@ -503,6 +503,7 @@ type Diag struct {
 	Engine        string             `json:"engine"`
 	ServerVersion string             `json:"serverVersion"`
 	Database      string             `json:"database"`
+	Location      string             `json:"location"`
 	TargetKind    string             `json:"targetKind"`
 	TargetLabel   string             `json:"targetLabel"`
 	Objects       []store.ObjectInfo `json:"objects"`
@@ -515,6 +516,7 @@ func (e *Engine) runMonitoringAgent(ctx context.Context) {
 		d := Diag{
 			Engine:      e.Store.Engine(),
 			Database:    e.Store.Database(),
+			Location:    e.Store.Location(),
 			TargetKind:  e.TargetKind,
 			TargetLabel: e.TargetLabel,
 		}

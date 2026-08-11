@@ -86,6 +86,10 @@ func (s *mysqlStore) Engine() string   { return EngineMySQL }
 func (s *mysqlStore) Database() string { return s.schema }
 func (s *mysqlStore) Close() error     { return s.db.Close() }
 
+// Location: in MySQL a schema and a database are the same object, so there is
+// only ever one answer.
+func (s *mysqlStore) Location() string { return fmt.Sprintf("database %q", s.schema) }
+
 func (s *mysqlStore) Ping(ctx context.Context) error {
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -196,11 +200,81 @@ func (s *mysqlStore) DropSchema(ctx context.Context) error {
 // information_schema's row and size estimates. TABLE_ROWS is an InnoDB
 // estimate, not a count — accurate enough for a "what did this app create"
 // panel and far cheaper than COUNT(*) over every table every few seconds.
+// mysqlObjectsWithFileSize sizes each table from its tablespace file rather
+// than from InnoDB's row statistics.
+//
+// Getting this right took two goes. DATA_LENGTH+INDEX_LENGTH comes from
+// InnoDB's persistent statistics, and those are recalculated lazily — the
+// figure for a table being written to hard lags the truth by a factor of two,
+// long enough for the backfill agent to blow well past its size target before
+// the number it is watching catches up. (The session variable below is the
+// first half of the fix: MySQL 8 additionally *caches* what information_schema
+// reports for information_schema_stats_expiry seconds, a whole day by default.
+// It does not exist on MySQL 5.7 or MariaDB, so its failure is ignored.)
+//
+// FILE_SIZE is the .ibd file's own size. It moves the moment the file extends,
+// it needs no statistics to be up to date, and for a feature whose entire
+// purpose is to put bytes on a disk it is the more honest measure anyway.
+//
+// It also needs the PROCESS privilege, which a stack's application user has no
+// reason to hold, and reading INNODB_TABLESPACES without it is an error rather
+// than an empty result — hence the caller's fallback.
+const mysqlObjectsWithFileSize = `
+	SELECT t.TABLE_NAME, IFNULL(t.TABLE_ROWS,0),
+	       IFNULL(ts.FILE_SIZE, IFNULL(t.DATA_LENGTH,0)+IFNULL(t.INDEX_LENGTH,0))
+	FROM information_schema.TABLES t
+	LEFT JOIN information_schema.INNODB_TABLESPACES ts
+	       ON ts.NAME = CONCAT(t.TABLE_SCHEMA, '/', t.TABLE_NAME)
+	WHERE t.TABLE_SCHEMA = ? ORDER BY t.TABLE_NAME`
+
+const mysqlObjectsFromStats = `
+	SELECT TABLE_NAME, IFNULL(TABLE_ROWS,0), IFNULL(DATA_LENGTH,0)+IFNULL(INDEX_LENGTH,0)
+	FROM information_schema.TABLES
+	WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME`
+
+// Objects reports this app's tables with their row counts and sizes. See
+// mysqlObjectsWithFileSize for where the sizes come from and why there are two
+// queries rather than one.
 func (s *mysqlStore) Objects(ctx context.Context) ([]ObjectInfo, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT TABLE_NAME, IFNULL(TABLE_ROWS,0), IFNULL(DATA_LENGTH,0)+IFNULL(INDEX_LENGTH,0)
-		FROM information_schema.TABLES
-		WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME`, s.schema)
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	conn.ExecContext(ctx, "SET SESSION information_schema_stats_expiry = 0")
+
+	// The privilege error for INNODB_TABLESPACES arrives while the result set
+	// is being streamed, not when the query is issued, so the whole read has to
+	// be attempted before the fallback can be ruled in or out.
+	out, err := mysqlScanObjects(ctx, conn, mysqlObjectsWithFileSize, s.schema)
+	if err != nil {
+		// On the fallback the sizes come from InnoDB's persistent statistics,
+		// which are recalculated so lazily that a table being written to hard
+		// reads back five times smaller than it is. ANALYZE recomputes them
+		// from the actual index page count, which is cheap — it samples twenty
+		// pages — and needs only the SELECT and INSERT this app already holds
+		// on its own tables. NO_WRITE_TO_BINLOG keeps it off the replication
+		// stream, where it would be pure noise.
+		conn.ExecContext(ctx, "ANALYZE NO_WRITE_TO_BINLOG TABLE "+mysqlQualifiedTables(s.schema))
+		return mysqlScanObjects(ctx, conn, mysqlObjectsFromStats, s.schema)
+	}
+	return out, nil
+}
+
+// mysqlQualifiedTables lists this app's tables, schema-qualified and quoted,
+// for a statement that takes a table list.
+func mysqlQualifiedTables(schema string) string {
+	names := make([]string, 0, len(mysqlTables))
+	for _, t := range mysqlTables {
+		names = append(names, "`"+schema+"`.`"+t+"`")
+	}
+	return strings.Join(names, ", ")
+}
+
+// mysqlScanObjects runs one of the two object queries to completion, keeping
+// only the tables this app owns.
+func mysqlScanObjects(ctx context.Context, conn *sql.Conn, query, schema string) ([]ObjectInfo, error) {
+	rows, err := conn.QueryContext(ctx, query, schema)
 	if err != nil {
 		return nil, err
 	}

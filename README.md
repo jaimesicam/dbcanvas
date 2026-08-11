@@ -123,7 +123,20 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
   elsewhere on the Docker host (`host.docker.internal`), on your network, or a managed cloud
   instance, with a **Test connection** button that checks it before you deploy. One node drives
   exactly one database, so four nodes side by side give you four independent applications with
-  four dashboards, one per engine. Unlike **Unoptimized MySQL Challenge** above — also a stock
+  four dashboards, one per engine. It connects to **any database in the stack**: a standalone
+  Percona Server, MariaDB, MySQL, PostgreSQL, PS MongoDB or Valkey node; any cluster frame (PXC,
+  MySQL/MariaDB/MySQL CE replication, Galera, InnoDB Cluster and Group Replication, Patroni,
+  repmgr, Spock, PSMDB replica sets and sharded clusters, Valkey cluster); a **CloudNativePG**
+  cluster inside a Kubernetes frame; or a **ProxySQL/HAProxy** node fronting one — always
+  resolving to the cluster's write endpoint, be that the primary, the leader, the router or the
+  mongos. An **All in One** node draws no association lines, so its instance is chosen from a
+  picker on this node instead of with a line. Set the load level to **High** and it also grows the dataset:
+  bulk price history is written until the app owns a configurable **dataset size** (5 GiB by
+  default), so there is something real on the volume to measure a disk, a storage class or a
+  backup against — the simulation carries on at its normal rate once the target is met. On
+  MySQL, PostgreSQL and MongoDB it takes its own database or schema; on Valkey there is no size
+  target, because its tick history is a length-capped stream that writing to does not enlarge.
+  Unlike **Unoptimized MySQL Challenge** above — also a stock
   exchange, but a MySQL tuning puzzle with no CRUD and no report — this is a working application.
 - **All in One** — one container running **many** database instances side by side, instead of
   one product per node. Add features to it from a menu (Percona Server, PS replication, InnoDB
