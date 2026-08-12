@@ -39,11 +39,6 @@ const (
 	// is 10922; a thousand is comfortably under it and large enough that
 	// per-statement overhead stops mattering.
 	backfillBatchRows = 1000
-	// backfillWriters is how many of those statements are in flight at once.
-	// Enough concurrency to keep a disk busy, few enough to leave the seven
-	// other agents — and the operator's own CRUD — able to get a connection
-	// out of a pool capped at 16.
-	backfillWriters = 4
 	// backfillMeasureEvery is how often the footprint is re-measured. Sizes
 	// come from the same catalogue query the Schema panel uses, so this is a
 	// real measurement rather than a running estimate, and the target is met
@@ -137,9 +132,10 @@ func (e *Engine) runBackfillAgent(ctx context.Context) {
 			continue
 		}
 
-		// Four writers get through something like 200 MiB between measurements,
-		// so measuring on a fixed interval all the way to the target overshoots
-		// it by that much. Close to the line, measure after every round instead:
+		// Four writers get through something like 200 MiB between measurements
+		// — proportionally more with more threads — so measuring on a fixed
+		// interval all the way to the target overshoots it by that much. Close
+		// to the line, measure after every round instead:
 		// the query is cheap next to the writes, and it bounds the overshoot to
 		// one round rather than one interval.
 		measureEvery := backfillMeasureEvery
@@ -226,9 +222,14 @@ func (e *Engine) runBackfillAgent(ctx context.Context) {
 	}
 }
 
-// backfillRound writes backfillWriters batches concurrently and returns how
-// many rows actually landed. cursor is advanced backwards by the whole round
+// backfillRound writes one batch per configured thread concurrently and returns
+// how many rows actually landed. cursor is advanced backwards by the whole round
 // before any writer starts, so the writers cannot hand out the same timestamps.
+//
+// The writer count is Engine.Threads: enough concurrency to keep a disk busy,
+// and raising it is how a user asks a target that can take more to be given
+// more. The store's connection pool is sized from the same number, so the
+// writers never starve the seven other agents or the operator's own CRUD.
 func (e *Engine) backfillRound(ctx context.Context, secs []store.Security, cursor *time.Time, rnd *rand.Rand) int {
 	type slice struct {
 		start time.Time
@@ -238,7 +239,7 @@ func (e *Engine) backfillRound(ctx context.Context, secs []store.Security, curso
 	// live price agent writes at — so a batch of backfillBatchRows rows covers
 	// this many seconds, and that is how far back the next slice must start.
 	span := time.Duration(backfillBatchRows/len(secs)+1) * time.Second
-	slices := make([]slice, backfillWriters)
+	slices := make([]slice, store.ClampThreads(e.Threads))
 	for i := range slices {
 		slices[i] = slice{start: *cursor, seed: rnd.Int63()}
 		*cursor = cursor.Add(-span)

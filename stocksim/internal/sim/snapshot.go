@@ -17,16 +17,21 @@ import (
 // wrote them into). That is what makes a page refresh recover full state, and
 // what makes every connected browser see identical data.
 type Snapshot struct {
-	Ticker    []TickerRow            `json:"ticker"`
-	Summary   json.RawMessage        `json:"summary,omitempty"`
-	Diag      json.RawMessage        `json:"diag,omitempty"`
-	Agents    []store.AgentHeartbeat `json:"agents"`
-	Control   ControlInfo            `json:"control"`
-	Seed      SeedProgress           `json:"seed"`
-	Backfill  BackfillStatus         `json:"backfill"`
-	UptimeSec int64                  `json:"uptimeSeconds"`
-	Error     string                 `json:"error,omitempty"`
-	Warning   string                 `json:"warning,omitempty"`
+	Ticker   []TickerRow            `json:"ticker"`
+	Summary  json.RawMessage        `json:"summary,omitempty"`
+	Diag     json.RawMessage        `json:"diag,omitempty"`
+	Agents   []store.AgentHeartbeat `json:"agents"`
+	Control  ControlInfo            `json:"control"`
+	Seed     SeedProgress           `json:"seed"`
+	Backfill BackfillStatus         `json:"backfill"`
+	// WorkingSet is the read side of Backfill: how much of the data that was
+	// grown is actually being touched. The two belong together on the page —
+	// a size target without a working set explains why a small buffer pool
+	// changed nothing.
+	WorkingSet WorkingSetStatus `json:"workingSet"`
+	UptimeSec  int64            `json:"uptimeSeconds"`
+	Error      string           `json:"error,omitempty"`
+	Warning    string           `json:"warning,omitempty"`
 }
 
 // TickerRow is one security as the dashboard grid shows it — the derived
@@ -77,11 +82,12 @@ func (e *Engine) BuildSnapshot(ctx context.Context) Snapshot {
 			SimNow:      e.Clock.Now().UTC().Format(time.RFC3339),
 			SimRate:     e.Clock.Rate(),
 		},
-		Backfill:  e.Backfill(),
-		Seed:      e.Seed(),
-		UptimeSec: e.UptimeSeconds(),
-		Agents:    []store.AgentHeartbeat{},
-		Ticker:    []TickerRow{},
+		Backfill:   e.Backfill(),
+		WorkingSet: e.WorkingSetStatus(),
+		Seed:       e.Seed(),
+		UptimeSec:  e.UptimeSeconds(),
+		Agents:     []store.AgentHeartbeat{},
+		Ticker:     []TickerRow{},
 	}
 
 	if err := e.Store.Ping(ctx); err != nil {

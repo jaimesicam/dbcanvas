@@ -133,9 +133,17 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
   picker on this node instead of with a line. Set the load level to **High** and it also grows the dataset:
   bulk price history is written until the app owns a configurable **dataset size** (5 GiB by
   default), so there is something real on the volume to measure a disk, a storage class or a
-  backup against — the simulation carries on at its normal rate once the target is met. On
-  MySQL, PostgreSQL and MongoDB it takes its own database or schema; on Valkey there is no size
-  target, because its tick history is a length-capped stream that writing to does not enlarge.
+  backup against — the simulation carries on at its normal rate once the target is met. A
+  configurable **working set** (half the dataset by default) is then kept under continuous random
+  read, which is what makes cache size measurable: a dataset that is only ever written to is
+  served out of a few hundred kilobytes of hot rows, so a 128 MiB buffer pool reports a ~100% hit
+  rate and reading its size back tells you nothing. With a working set larger than the cache it
+  misses properly — the same 2 GiB dataset that showed 99.98% and 0.01 MiB/s off disk shows 92.8%
+  and 469 MiB/s, and raising the pool past the working set takes throughput up 6.6×. **Database
+  threads** (4 by default) sets how many workers write that history and read it back, and sizes
+  the connection pool with it. On MySQL, PostgreSQL and MongoDB it takes its own database or
+  schema; on Valkey there is no size target and no working set, because its tick history is a
+  length-capped stream that writing to does not enlarge and that holds no cold data to read.
   Unlike **Unoptimized MySQL Challenge** above — also a stock
   exchange, but a MySQL tuning puzzle with no CRUD and no report — this is a working application.
 - **All in One** — one container running **many** database instances side by side, instead of

@@ -719,9 +719,19 @@ func (s *valkeyStore) AppendTicks(ctx context.Context, ticks []Tick) error {
 	return err
 }
 
-func (s *valkeyStore) RecentTicks(ctx context.Context, securityID string, limit int) ([]Tick, error) {
+// TicksBefore reads back through the security's stream. at is a stream id
+// bound rather than a field comparison, which works because AppendTicks writes
+// in time order and lets Valkey do the seek — but note the stream is capped at
+// 500 entries per security (see AppendTicks), so "history" here is the last few
+// minutes and nothing more. That cap is why this engine has neither a size
+// target nor a working set; see CanGrowToSize.
+func (s *valkeyStore) TicksBefore(ctx context.Context, securityID string, at time.Time, limit int) ([]Tick, error) {
 	n := int64(clampLimit(limit, 60, 1000))
-	entries, err := s.c.XRevRangeN(ctx, s.k("tick", securityID), "+", "-", n).Result()
+	upper := "+"
+	if !at.IsZero() {
+		upper = strconv.FormatInt(at.UTC().UnixMilli(), 10)
+	}
+	entries, err := s.c.XRevRangeN(ctx, s.k("tick", securityID), upper, "-", n).Result()
 	if err != nil {
 		return nil, err
 	}
@@ -740,6 +750,32 @@ func (s *valkeyStore) RecentTicks(ctx context.Context, securityID string, limit 
 		})
 	}
 	return out, nil
+}
+
+// TickSpan reads the two ends of one security's stream. Both ends are O(1) for
+// a stream, and the answer only ever covers the capped window described on
+// TicksBefore.
+func (s *valkeyStore) TickSpan(ctx context.Context, securityID string) (time.Time, time.Time, error) {
+	key := s.k("tick", securityID)
+	first, err := s.c.XRangeN(ctx, key, "-", "+", 1).Result()
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	last, err := s.c.XRevRangeN(ctx, key, "+", "-", 1).Result()
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	if len(first) == 0 || len(last) == 0 {
+		return time.Time{}, time.Time{}, nil
+	}
+	entryTime := func(e redis.XMessage) time.Time {
+		vals := map[string]string{}
+		for k, v := range e.Values {
+			vals[k], _ = v.(string)
+		}
+		return vTime(vals, "ts")
+	}
+	return entryTime(first[0]), entryTime(last[0]), nil
 }
 
 func (s *valkeyStore) ApplyQuotes(ctx context.Context, quotes []Quote) error {

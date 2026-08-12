@@ -178,6 +178,19 @@ type designNode struct {
 	// disables growth. Only meaningful on an engine whose dataset can actually
 	// be grown — see stockSimGrowable.
 	SSTargetSize string `json:"ssTargetSize"`
+	// SSWorkingSet is how much of that dataset the sim keeps under continuous
+	// random read — "50%" (the default), "0.5", "2G", or "off". A dataset that
+	// is only ever written to sits cold, so the database serves every query out
+	// of a few hundred kilobytes of hot rows and its cache size stops mattering;
+	// the working set is what makes it matter. Same engine restriction as
+	// SSTargetSize.
+	SSWorkingSet string `json:"ssWorkingSet"`
+	// SSThreads is how many concurrent database workers the sim runs in each of
+	// its two heavy agents — the one writing history and the one reading the
+	// working set back. 0 takes the sim's own default of 4. It also decides the
+	// size of the connection pool, so this is the knob for how much concurrency
+	// the target database actually sees.
+	SSThreads int `json:"ssThreads"`
 	// Percona Orchestrator node fields (Type=="orchestrator"). A standalone topology
 	// visualization/failure-detection node — not a cluster frame — that PXC and MySQL
 	// replication frames optionally point at (designFrame.OrchestratorNodeID), the same
@@ -963,6 +976,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			out = append(out, issues...)
 			if engine != "" {
 				out = append(out, stockSimSizeIssues(n, engine)...)
+				out = append(out, stockSimLoadIssues(n, engine)...)
 			}
 		default:
 			others++

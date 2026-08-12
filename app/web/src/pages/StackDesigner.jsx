@@ -582,7 +582,10 @@ export const NODE_TYPES = {
     singleton: false,
     ports: true,
     osOptions: [{ id: 'stocksim', label: 'dbcanvas-stocksim' }],
-    defaults: { ssMode: 'linked', ssEngine: 'mysql', ssTLS: 'prefer', ssDatabase: 'stocksim' },
+    defaults: {
+      ssMode: 'linked', ssEngine: 'mysql', ssTLS: 'prefer', ssDatabase: 'stocksim',
+      ssWorkingSet: '', ssThreads: 0,
+    },
   },
 }
 
@@ -5418,18 +5421,40 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
       )}
 
       {SS_CAN_GROW(effectiveEngine) ? (
-        <Field label="Dataset size at High load"
-          hint="At the High load level the app writes bulk price history until it owns this much, then stops. Blank uses 5Gi; “off” never grows it.">
-          <input className={inputCls} value={n.ssTargetSize || ''} placeholder="5Gi"
-            onChange={(e) => patchNode(n.id, { ssTargetSize: e.target.value })} />
-        </Field>
+        <>
+          <Field label="Dataset size at High load"
+            hint="At the High load level the app writes bulk price history until it owns this much, then stops. Blank uses 5Gi; “off” never grows it.">
+            <input className={inputCls} value={n.ssTargetSize || ''} placeholder="5Gi"
+              onChange={(e) => patchNode(n.id, { ssTargetSize: e.target.value })} />
+          </Field>
+          {/* A dataset that is only written to is never read back, so the
+              database answers every query out of a few hundred kilobytes of hot
+              rows and its cache size makes no measurable difference however
+              small you set it. The working set is what makes it matter. */}
+          <Field label="Working set"
+            hint="How much of that dataset is kept under continuous random read. Blank uses 50%; write it as “50%”, “2.5G” or “off”. Set it larger than the target's cache to see cache size in the numbers."
+            >
+            <input className={inputCls} value={n.ssWorkingSet || ''} placeholder="50%"
+              onChange={(e) => patchNode(n.id, { ssWorkingSet: e.target.value })} />
+          </Field>
+        </>
       ) : (
         <p className="text-xs text-muted">
-          No dataset size target: Valkey keeps its tick history in a length-capped stream, so
-          writing harder rolls old entries off rather than growing it. Link this node to
-          MySQL, PostgreSQL or MongoDB to drive storage under load.
+          No dataset size target or working set: Valkey keeps its tick history in a
+          length-capped stream, so writing harder rolls old entries off rather than growing it,
+          and there is no cold data to read back. Link this node to MySQL, PostgreSQL or
+          MongoDB to drive storage under load.
         </p>
       )}
+
+      {/* Applies on every engine — even Valkey, where it is still what decides
+          how many connections the app opens. */}
+      <Field label="Database threads"
+        hint="Concurrent workers writing history and reading the working set back, and the size of the connection pool. Blank uses 4; raise it to put more concurrency on the target.">
+        <input className={inputCls} type="number" min="1" max="64"
+          value={n.ssThreads || ''} placeholder="4"
+          onChange={(e) => patchNode(n.id, { ssThreads: Number(e.target.value) || 0 })} />
+      </Field>
 
       <Field label="Label" hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
@@ -5488,6 +5513,8 @@ function StockSimManager({ dep, onDeleteNode }) {
         <div className="flex justify-between gap-3"><span className="text-muted">Connected to</span><span className="font-mono text-xs">{cfg.targetName} ({SS_TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></div>
         <div className="flex justify-between gap-3"><span className="text-muted">Database</span><span className="font-mono text-xs">{cfg.engine} / {db}</span></div>
         <div className="flex justify-between gap-3"><span className="text-muted">Dataset at High</span><span className="font-mono text-xs">{fmtTargetBytes(cfg.targetBytes)}</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Working set</span><span className="font-mono text-xs">{cfg.workingSet || '50%'}</span></div>
+        <div className="flex justify-between gap-3"><span className="text-muted">Threads</span><span className="font-mono text-xs">{cfg.threads || 4}</span></div>
       </div>
       {cfg.httpPort && (
         <a href={`http://${typeof location !== 'undefined' ? location.hostname : 'localhost'}:${cfg.httpPort}/report`}

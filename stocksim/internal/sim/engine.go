@@ -44,7 +44,12 @@ type counters struct {
 	// different questions: one is what the simulation is doing now, the other
 	// is how much history has been manufactured to make the database big.
 	ticksBackfilled atomic.Int64
-	errors          atomic.Int64
+	// wsReads/wsRows are the working-set agent's random history reads and the
+	// rows they returned — the read side of the same story ticksBackfilled
+	// tells about writes. See workingset.go.
+	wsReads atomic.Int64
+	wsRows  atomic.Int64
+	errors  atomic.Int64
 }
 
 // Engine owns the background simulation and is the only thing that writes to
@@ -60,6 +65,15 @@ type Engine struct {
 	// TargetBytes is how large the dataset should be grown to at the High load
 	// level; 0 disables that entirely. See backfill.go.
 	TargetBytes int64
+	// WorkingSet is how much of that dataset is kept under continuous random
+	// read, so a database can be made to miss its cache rather than merely to
+	// own a lot of data it never touches. See workingset.go.
+	WorkingSet WorkingSet
+	// Threads is how many concurrent database workers each of the two heavy
+	// agents runs — backfill writers, and working-set readers. It is the knob
+	// that decides how much concurrency the target sees, and the store's
+	// connection pool is sized from the same number (store.Config.PoolSize).
+	Threads int
 
 	counters counters
 
@@ -67,11 +81,12 @@ type Engine struct {
 	running   atomic.Bool
 	startedAt time.Time
 
-	mu       sync.RWMutex
-	seed     SeedProgress
-	lastErr  string
-	agentsUp bool
-	backfill BackfillStatus
+	mu         sync.RWMutex
+	seed       SeedProgress
+	lastErr    string
+	agentsUp   bool
+	backfill   BackfillStatus
+	workingSet WorkingSetStatus
 
 	// baseCtx is the process's long-lived context — Start/Reset always derive
 	// from this, never from a caller's request-scoped context. A Reset
@@ -91,6 +106,9 @@ func NewEngine(st store.Store, targetKind, targetLabel string) *Engine {
 		Clock:       NewSimClock(time.Now().UTC()),
 		TargetKind:  targetKind,
 		TargetLabel: targetLabel,
+		TargetBytes: DefaultTargetBytes,
+		WorkingSet:  DefaultWorkingSet(),
+		Threads:     store.DefaultThreads,
 		startedAt:   time.Now(),
 	}
 	e.level.Store(LevelMedium)
@@ -184,6 +202,7 @@ func (e *Engine) StartAgents(ctx context.Context) {
 		e.runEventFeed,
 		e.runClockPersister,
 		e.runBackfillAgent,
+		e.runWorkingSetAgent,
 	}
 	for _, fn := range agents {
 		e.wg.Add(1)
@@ -192,9 +211,11 @@ func (e *Engine) StartAgents(ctx context.Context) {
 			f(e.ctx)
 		}(fn)
 	}
-	log.Printf("stocksim: engine started (engine=%s, kind=%s, target=%s, level=%s, in %s, size target=%s)",
+	log.Printf("stocksim: engine started (engine=%s, kind=%s, target=%s, level=%s, in %s, "+
+		"size target=%s, working set=%s, threads=%d)",
 		e.Store.Engine(), e.TargetKind, e.TargetLabel, e.Level(),
-		e.Store.Location(), sizeTargetWord(e.TargetBytes))
+		e.Store.Location(), sizeTargetWord(e.TargetBytes),
+		e.WorkingSet, store.ClampThreads(e.Threads))
 }
 
 // Stop cancels every agent and waits for them to finish.

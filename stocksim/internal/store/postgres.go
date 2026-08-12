@@ -54,9 +54,13 @@ func openPostgres(ctx context.Context, c Config) (Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open postgres: %w", err)
 	}
+	pool := c.PoolSize()
 	db.SetConnMaxLifetime(5 * time.Minute)
-	db.SetMaxOpenConns(16)
-	db.SetMaxIdleConns(8)
+	db.SetMaxOpenConns(pool)
+	// Idle ceiling equal to the open ceiling: see the same line in mysql.go.
+	// It matters more here — a PostgreSQL backend is a process, so churning
+	// connections under load is fork() traffic, not just a handshake.
+	db.SetMaxIdleConns(pool)
 	return &pgStore{
 		db: db, name: c.Database, database: database, schema: schema, owned: owned,
 	}, nil
@@ -682,11 +686,21 @@ func (s *pgStore) AppendTicks(ctx context.Context, ticks []Tick) error {
 	return err
 }
 
-func (s *pgStore) RecentTicks(ctx context.Context, securityID string, limit int) ([]Tick, error) {
+// TicksBefore walks back from at through ix_ticks_security_ts, then visits the
+// heap once per row at a random ctid. See the MySQL implementation for why that
+// scatter is the point rather than a cost to be optimised away.
+func (s *pgStore) TicksBefore(ctx context.Context, securityID string, at time.Time, limit int) ([]Tick, error) {
 	limit = clampLimit(limit, 60, 1000)
-	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, security_id, symbol, ts, price, volume FROM price_ticks "+
-			"WHERE security_id = $1 ORDER BY ts DESC LIMIT $2", securityID, limit)
+	q := "SELECT id, security_id, symbol, ts, price, volume FROM price_ticks WHERE security_id = $1"
+	args := []any{securityID}
+	if !at.IsZero() {
+		q += " AND ts <= $2"
+		args = append(args, at.UTC())
+	}
+	q += fmt.Sprintf(" ORDER BY ts DESC LIMIT $%d", len(args)+1)
+	args = append(args, limit)
+
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -703,6 +717,21 @@ func (s *pgStore) RecentTicks(ctx context.Context, securityID string, limit int)
 		out[i], out[j] = out[j], out[i]
 	}
 	return out, rows.Err()
+}
+
+// TickSpan reads the two ends of one security's history. Two ORDER BY … LIMIT 1
+// subqueries rather than MIN()/MAX(): the planner turns both into a one-row
+// index scan without having to prove anything about the aggregate.
+const pgTickSpan = `SELECT
+	(SELECT ts FROM price_ticks WHERE security_id = $1 ORDER BY ts ASC LIMIT 1),
+	(SELECT ts FROM price_ticks WHERE security_id = $1 ORDER BY ts DESC LIMIT 1)`
+
+func (s *pgStore) TickSpan(ctx context.Context, securityID string) (time.Time, time.Time, error) {
+	var oldest, newest sql.NullTime
+	if err := s.db.QueryRowContext(ctx, pgTickSpan, securityID).Scan(&oldest, &newest); err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	return oldest.Time.UTC(), newest.Time.UTC(), nil
 }
 
 func (s *pgStore) ApplyQuotes(ctx context.Context, quotes []Quote) error {

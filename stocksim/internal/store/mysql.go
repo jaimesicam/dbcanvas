@@ -25,6 +25,7 @@ type mysqlStore struct {
 	db     *sql.DB
 	cfg    *mysqldriver.Config
 	schema string
+	pool   int // connection ceiling, kept so EnsureSchema's reopen matches
 }
 
 // openMySQL builds the DSN (or uses the supplied one verbatim), opens a lazy
@@ -50,10 +51,14 @@ func openMySQL(ctx context.Context, c Config) (Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open mysql: %w", err)
 	}
+	pool := c.PoolSize()
 	db.SetConnMaxLifetime(5 * time.Minute)
-	db.SetMaxOpenConns(16)
-	db.SetMaxIdleConns(8)
-	return &mysqlStore{db: db, cfg: cfg, schema: c.Database}, nil
+	db.SetMaxOpenConns(pool)
+	// Every connection is idle between one agent tick and the next, so an idle
+	// ceiling below the open ceiling would have the pool closing and reopening
+	// connections continuously under exactly the load it was raised for.
+	db.SetMaxIdleConns(pool)
+	return &mysqlStore{db: db, cfg: cfg, schema: c.Database, pool: pool}, nil
 }
 
 // mysqlDSN assembles a go-sql-driver DSN from discrete fields. TLS maps onto
@@ -137,8 +142,8 @@ func (s *mysqlStore) EnsureSchema(ctx context.Context) error {
 			return fmt.Errorf("reopen with schema: %w", err)
 		}
 		newDB.SetConnMaxLifetime(5 * time.Minute)
-		newDB.SetMaxOpenConns(16)
-		newDB.SetMaxIdleConns(8)
+		newDB.SetMaxOpenConns(s.pool)
+		newDB.SetMaxIdleConns(s.pool)
 		if err := newDB.PingContext(cctx); err != nil {
 			newDB.Close()
 			return fmt.Errorf("ping schema %s: %w", s.schema, err)

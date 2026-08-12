@@ -89,6 +89,16 @@ func stockSimGrowable(engine string) bool { return engine != "valkey" }
 // stockSimDefaultTargetBytes mirrors sim.DefaultTargetBytes.
 const stockSimDefaultTargetBytes int64 = 5 << 30
 
+// Thread-count bounds, mirroring store.DefaultThreads/MaxThreads in the image.
+const (
+	stockSimDefaultThreads = 4
+	stockSimMaxThreads     = 64
+)
+
+// stockSimDefaultWorkingSetPct mirrors sim.DefaultWorkingSetPct: half the
+// dataset kept hot when the node says nothing.
+const stockSimDefaultWorkingSetPct = 0.5
+
 // stockSimConfig is the non-secret profile shown for a deployed Stock Market
 // Sim node. Credentials never appear here — see stockSimSecrets.
 type stockSimConfig struct {
@@ -105,6 +115,12 @@ type stockSimConfig struct {
 	// 0 when it will not grow at all. Resolved here rather than left as the
 	// user's string so the node panel shows the size that is actually in force.
 	TargetBytes int64 `json:"targetBytes"`
+	// WorkingSet is how much of that dataset is kept under continuous random
+	// read, as the sim was told it ("50%", "2.5 GiB", "off"), and Threads how
+	// many concurrent database workers it runs. Both resolved here for the same
+	// reason TargetBytes is.
+	WorkingSet string `json:"workingSet"`
+	Threads    int    `json:"threads"`
 }
 
 // stockSimSecrets holds the credentials a manual-mode node was configured with,
@@ -237,6 +253,82 @@ func stockSimTargetBytes(n designNode, engine string) int64 {
 	return size
 }
 
+// stockSimWorkingSet is the resolved WORKING_SET value for a node, on an
+// already-resolved engine. It mirrors sim.ParseWorkingSet closely enough to
+// reject what that would reject, but returns the string to pass through rather
+// than a parsed shape — the sim is the one that has to act on it, and a share
+// of a dataset whose size is not known until deploy cannot be resolved here.
+//
+// "off" on an engine that cannot grow, because reading a capped stream in a
+// loop is not a working set; see stockSimGrowable.
+func stockSimWorkingSet(n designNode, engine string) string {
+	if !stockSimGrowable(engine) {
+		return "off"
+	}
+	raw := strings.TrimSpace(n.SSWorkingSet)
+	if raw == "" {
+		return stockSimFormatWorkingSet(stockSimDefaultWorkingSetPct)
+	}
+	if _, err := stockSimParseWorkingSet(raw); err != nil {
+		// A typo is blocked by stockSimWorkingSetIssues; until it is, the
+		// default stands rather than something the user did not ask for.
+		return stockSimFormatWorkingSet(stockSimDefaultWorkingSetPct)
+	}
+	return raw
+}
+
+// stockSimParseWorkingSet mirrors sim.ParseWorkingSet: "50%", a bare share of
+// one or less, a size like "2G", or "off". It returns the share when one was
+// given and 0 for an absolute size — the caller only needs to know whether the
+// value is usable, not what it resolves to.
+func stockSimParseWorkingSet(s string) (float64, error) {
+	s = strings.TrimSpace(s)
+	switch {
+	case s == "":
+		return stockSimDefaultWorkingSetPct, nil
+	case strings.EqualFold(s, "off"), strings.EqualFold(s, "none"):
+		return 0, nil
+	}
+	invalid := fmt.Errorf("%q is not a working set — write it like 50%%, 0.5 or 2G", s)
+	if pct, ok := strings.CutSuffix(s, "%"); ok {
+		n, err := strconv.ParseFloat(strings.TrimSpace(pct), 64)
+		if err != nil || n < 0 || n > 100 {
+			return 0, invalid
+		}
+		return n / 100, nil
+	}
+	if n, err := strconv.ParseFloat(s, 64); err == nil {
+		switch {
+		case n < 0:
+			return 0, fmt.Errorf("%q is negative", s)
+		case n <= 1:
+			return n, nil
+		}
+	}
+	if _, err := stockSimParseSize(s); err != nil {
+		return 0, invalid
+	}
+	return 0, nil
+}
+
+// stockSimFormatWorkingSet renders a share the way the node panel and the sim's
+// own environment both want it.
+func stockSimFormatWorkingSet(share float64) string {
+	return fmt.Sprintf("%.0f%%", share*100)
+}
+
+// stockSimThreads resolves how many concurrent database workers the sim runs,
+// mirroring store.ClampThreads.
+func stockSimThreads(n designNode) int {
+	switch {
+	case n.SSThreads <= 0:
+		return stockSimDefaultThreads
+	case n.SSThreads > stockSimMaxThreads:
+		return stockSimMaxThreads
+	}
+	return n.SSThreads
+}
+
 // stockSimEngineAndIssues resolves which engine a Stock Market Sim node will
 // actually run against, and reports every reason it might not resolve at all.
 // One function for all three connection modes because the caller needs both
@@ -305,6 +397,49 @@ func stockSimSizeIssues(n designNode, engine string) []issue {
 			n.Label, stockSimFormatSize(size))}}
 	}
 	return nil
+}
+
+// stockSimLoadIssues validates the two knobs that decide how hard the sim works
+// its target: how much of the dataset it keeps hot, and how many workers it
+// uses to do it. Both are checked against the resolved engine, because on an
+// engine that cannot grow a dataset neither one does anything.
+func stockSimLoadIssues(n designNode, engine string) []issue {
+	var out []issue
+	raw := strings.TrimSpace(n.SSWorkingSet)
+	growable := stockSimGrowable(engine)
+
+	if raw != "" && growable {
+		share, err := stockSimParseWorkingSet(raw)
+		switch {
+		case err != nil:
+			out = append(out, issue{"error", fmt.Sprintf(
+				"Stock Market Sim node %s has an invalid working set: %v", n.Label, err)})
+		case share == 0 && (strings.EqualFold(raw, "off") || strings.EqualFold(raw, "none") || raw == "0"):
+			// Worth saying plainly, because a dataset nothing reads back is the
+			// exact configuration in which buffer pool size appears not to
+			// matter — the question this option exists to answer.
+			out = append(out, issue{"info", fmt.Sprintf(
+				"Stock Market Sim node %s will write its dataset but never read it back, so the target's cache will show a near-perfect hit rate whatever it is sized at — set a working set to make cache size measurable",
+				n.Label)})
+		}
+	}
+	if raw != "" && !growable {
+		out = append(out, issue{"warning", fmt.Sprintf(
+			"Stock Market Sim node %s has a working set of %s, which will be ignored: %s keeps its tick history in a length-capped stream, so there is no cold data to read back.",
+			n.Label, raw, engineDisplayLabel(engine))})
+	}
+
+	switch {
+	case n.SSThreads < 0:
+		out = append(out, issue{"error", fmt.Sprintf(
+			"Stock Market Sim node %s has a negative thread count — leave it blank for the default of %d",
+			n.Label, stockSimDefaultThreads)})
+	case n.SSThreads > stockSimMaxThreads:
+		out = append(out, issue{"warning", fmt.Sprintf(
+			"Stock Market Sim node %s asks for %d database threads; it will be capped at %d",
+			n.Label, n.SSThreads, stockSimMaxThreads)})
+	}
+	return out
 }
 
 // engineDisplayLabel mirrors engineDisplayName in the sim image.
@@ -564,16 +699,21 @@ func (a *App) provisionStockSim(st Stack, n designNode, doc designDoc) {
 		// node's type rather than anything set on this node, and whether a
 		// dataset can be grown at all depends on which engine it turned out to be.
 		cfg.TargetBytes = stockSimTargetBytes(n, cfg.Engine)
+		cfg.WorkingSet = stockSimWorkingSet(n, cfg.Engine)
+		cfg.Threads = stockSimThreads(n)
 		env = append(env,
 			"DB_NAME="+cfg.Database,
 			"TARGET_KIND="+cfg.TargetKind,
 			"TARGET_LABEL="+cfg.TargetName,
 			fmt.Sprintf("TARGET_BYTES=%d", cfg.TargetBytes),
+			"WORKING_SET="+cfg.WorkingSet,
+			fmt.Sprintf("DB_THREADS=%d", cfg.Threads),
 			fmt.Sprintf("PORT=%d", stockSimPort),
 		)
 		if cfg.TargetBytes > 0 {
-			pr.logln(fmt.Sprintf("dataset grows to %s at the High load level",
-				stockSimFormatSize(cfg.TargetBytes)))
+			pr.logln(fmt.Sprintf("dataset grows to %s at the High load level, "+
+				"working set %s, %d database threads",
+				stockSimFormatSize(cfg.TargetBytes), cfg.WorkingSet, cfg.Threads))
 		}
 
 		pr.phase("Creating container", 45)

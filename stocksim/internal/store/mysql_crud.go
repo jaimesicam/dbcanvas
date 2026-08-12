@@ -393,11 +393,23 @@ func (s *mysqlStore) AppendTicks(ctx context.Context, ticks []Tick) error {
 	return err
 }
 
-func (s *mysqlStore) RecentTicks(ctx context.Context, securityID string, limit int) ([]Tick, error) {
+// TicksBefore walks back from at through ix_ticks_security_ts. Each row it
+// returns costs a lookup in the clustered index by a primary key that is
+// effectively random — which is exactly why the working-set agent uses this
+// call to make a buffer pool work: one query of a few hundred rows is a few
+// hundred scattered page reads, not one sequential run.
+func (s *mysqlStore) TicksBefore(ctx context.Context, securityID string, at time.Time, limit int) ([]Tick, error) {
 	limit = clampLimit(limit, 60, 1000)
-	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, security_id, symbol, ts, price, volume FROM price_ticks "+
-			"WHERE security_id = ? ORDER BY ts DESC LIMIT ?", securityID, limit)
+	q := "SELECT id, security_id, symbol, ts, price, volume FROM price_ticks WHERE security_id = ?"
+	args := []any{securityID}
+	if !at.IsZero() {
+		q += " AND ts <= ?"
+		args = append(args, at.UTC())
+	}
+	q += " ORDER BY ts DESC LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -415,6 +427,25 @@ func (s *mysqlStore) RecentTicks(ctx context.Context, securityID string, limit i
 		out[i], out[j] = out[j], out[i]
 	}
 	return out, rows.Err()
+}
+
+// TickSpan reads the two ends of one security's history. Written as two
+// single-row subqueries rather than MIN()/MAX() so it is unambiguously an index
+// range scan for one row at each end of ix_ticks_security_ts — this runs
+// against a table with tens of millions of rows in it, where the difference
+// between a seek and a scan is the difference between a millisecond and a
+// minute.
+const mysqlTickSpan = `SELECT
+	(SELECT ts FROM price_ticks WHERE security_id = ? ORDER BY ts ASC LIMIT 1),
+	(SELECT ts FROM price_ticks WHERE security_id = ? ORDER BY ts DESC LIMIT 1)`
+
+func (s *mysqlStore) TickSpan(ctx context.Context, securityID string) (time.Time, time.Time, error) {
+	var oldest, newest sql.NullTime
+	if err := s.db.QueryRowContext(ctx, mysqlTickSpan, securityID, securityID).
+		Scan(&oldest, &newest); err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	return oldest.Time.UTC(), newest.Time.UTC(), nil
 }
 
 // ApplyQuotes writes the price agent's new prices onto the securities rows,

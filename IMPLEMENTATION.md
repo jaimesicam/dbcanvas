@@ -12450,3 +12450,79 @@ each half and watching it name `ps` and `k3d`. The check has to allow either, be
 names are both a frame type and the type of the member nodes inside it.
 
 `npm run build` and `npm run smoke` clean; Go unchanged and still clean.
+
+## 233. The 5 GiB dataset nobody read: a working set, and a thread count — `stocksim/internal/sim/workingset.go`, `stocksim/internal/store/*.go`, `stocksim/main.go`, `app/stocksim.go`, `app/intranet.go`, `app/web/src/pages/StackDesigner.jsx`
+
+Two asks: an option to raise the number of database threads, and — the substantive one — the
+observation that growing the dataset to 5 GiB against a small buffer pool changed nothing. Buffer
+pool efficiency stayed at 100%.
+
+**The observation was right, and the diagnosis is one sentence: §230 built a write-only dataset.**
+The backfill agent puts five gigabytes of price history on disk and then nothing ever reads it.
+Every other agent works out of the seed universe — twenty securities, four portfolios, a few
+hundred open orders — which is a few hundred kilobytes and lives in any buffer pool permanently.
+So the app owned 5 GiB and had a working set of ~1 MiB. A 128 MiB pool serves that perfectly, and
+so would a 16 MiB one; the size of the cache genuinely did not matter, because the workload was
+never asking it for anything it did not already have.
+
+Reproduced before fixing anything, on a 2 GiB dataset against `innodb_buffer_pool_size=128M`:
+**99.982% hit rate, 0.01 MiB/s off disk.** That is the number the user was looking at.
+
+**`runWorkingSetAgent`** is the fix. `Threads` goroutines continuously read a *working set* —
+by default half the dataset — as random price-history queries: pick a security, pick a moment
+inside the hot window, read the 200 ticks before it. On every engine that is an index seek
+followed by 200 row lookups at effectively random primary keys, so one query is a couple of
+hundred scattered page reads rather than one sequential run. The window is the newest share of
+the tick history, sized by *time*: ticks dominate the dataset and are written at a fixed cadence
+by both the live agent and the backfill, so half the time span really is about half the bytes —
+and recent-history-is-hot is the access pattern a market application actually has.
+
+It is not more data and not more reads that make a cache miss. It is reads spread over more data
+than the cache can hold, which is exactly what this now generates and what the old shape never did.
+
+Rates are per level, and High is deliberately unthrottled for the same reason the backfill is:
+a rate limit at the level that means "work this database" would be measuring the rate limit. Low
+and Medium get a paced trickle (2/s, 20/s) so the panel is honest and a baseline exists.
+
+**The thread count** is one knob for both heavy agents: `DB_THREADS` (node field "Database
+threads", default 4, capped at 64) sets the backfill's writer count — previously the hard-coded
+`backfillWriters = 4` — and the working-set agent's reader count. The connection pool is sized
+from the same number, `2×threads + 12` with a floor of 16, because both agents can be running at
+once and a pool that starved either would quietly cap the load the user asked for. `MaxIdleConns`
+now equals `MaxOpenConns`: every connection here is idle between agent ticks, so the old 16/8
+split had the pool closing and reopening connections continuously under exactly the load it
+existed to carry.
+
+`RecentTicks` is gone from the `Store` interface, replaced by `TicksBefore(…, at, limit)` — a
+zero `at` means "the newest there are", which is the sparkline, and any other value is the random
+dive. `TickSpan` is new, and is written as two `ORDER BY … LIMIT 1` subqueries rather than
+`MIN()/MAX()` so it is unambiguously an index seek at each end against a table with tens of
+millions of rows.
+
+Valkey is excluded exactly as it is from the size target, and for the same reason stated in the
+same words: a stream capped at 500 entries has no cold data to pull in.
+
+**Verified live** on disposable Percona Server 8.0, PostgreSQL 17, PSMDB 8.0 and Valkey 8
+containers, destroyed afterwards. The three configurations that make the case, same 2 GiB dataset
+each time, 60 s samples of `SHOW GLOBAL STATUS`:
+
+    pool    working set   hit rate    disk read     what it shows
+    128M    off           99.982%     0.01 MiB/s    the reported symptom, reproduced
+    128M    50% (1 GiB)   92.82%      469 MiB/s     1.8M buffer pool reads in 60 s
+    3G      50% (1 GiB)   100.000%    0.02 MiB/s    the pool now large enough to hold it
+
+Throughput moved with it: 470 reads/s at 128M against 3,121 reads/s at 3G — the same workload,
+6.6× faster because it fits. That difference is the lesson the feature exists to teach, and it
+was not observable before.
+
+    postgres    400 MiB target reached, 200 MiB hot, 4,500 reads/s; pg_stat_database blks_read
+                climbing ~4,600 blocks/s, hit rate 99.01% and falling
+    mongodb     400 MiB reached, 200 MiB hot, 1,480 reads/s against a 0.25 GB WiredTiger cache
+    valkey      "not available for Valkey — its tick history is a capped stream", no reads, no error
+    sparkline   the zero-time TicksBefore returns 60 newest ticks oldest-first on all four
+    pacing      Medium measured 18.6 reads/s against its 20/s target across 8 threads
+
+All seven agents `ok` on all four engines, no error and no warning on any dashboard.
+
+`go build ./...`, `go vet ./...`, `gofmt -l` and `go test ./...` clean in both modules;
+`npm run build` and `npm run smoke` clean.

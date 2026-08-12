@@ -71,6 +71,15 @@ func main() {
 		}
 	}
 
+	// WORKING_SET is how much of that dataset is kept under continuous random
+	// read — "50%", "0.5", "2G", or "off". Same malformed-value policy as above.
+	workingSet := sim.DefaultWorkingSet()
+	if ws, err := sim.ParseWorkingSet(os.Getenv("WORKING_SET")); err != nil {
+		log.Printf("stocksim: ignoring WORKING_SET: %v", err)
+	} else {
+		workingSet = ws
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -92,6 +101,8 @@ func main() {
 
 	engine := sim.NewEngine(st, targetKind, targetLabel)
 	engine.TargetBytes = targetBytes
+	engine.WorkingSet = workingSet
+	engine.Threads = cfg.Threads
 	h := api.New(engine, st, webFS)
 	srv := &http.Server{Addr: ":" + port, Handler: h.Routes()}
 
@@ -120,8 +131,8 @@ func main() {
 		engine.StartAgents(ctx)
 	}()
 
-	log.Printf("stocksim: listening on :%s (engine=%s, objects in %s, target=%s)",
-		port, cfg.Engine, st.Location(), describeTarget(cfg, targetLabel))
+	log.Printf("stocksim: listening on :%s (engine=%s, objects in %s, target=%s, threads=%d)",
+		port, cfg.Engine, st.Location(), describeTarget(cfg, targetLabel), cfg.Threads)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("stocksim: %v", err)
 	}
@@ -141,6 +152,11 @@ func configFromEnv() store.Config {
 		Database: envOr("DB_NAME", store.DefaultDatabase),
 		TLS:      envOr("DB_TLS", "prefer"),
 		Params:   os.Getenv("DB_PARAMS"),
+		// DB_THREADS is the concurrency knob: how many workers each heavy agent
+		// runs, and — through Config.PoolSize — how many connections the pool
+		// may open. Read here rather than in the engine because the pool is
+		// built at Open, before the engine exists.
+		Threads: store.ClampThreads(envInt("DB_THREADS", store.DefaultThreads)),
 	}
 	// Per-engine aliases, so a linked node's environment reads naturally and
 	// matches what the sibling sims already set.

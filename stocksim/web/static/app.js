@@ -63,6 +63,7 @@ async function fetchState() {
     renderBanners(state)
     renderSeed(state.seed)
     renderBackfill(state.backfill)
+    renderWorkingSet(state.workingSet)
     renderKPIs(state)
     renderTicker(state.ticker || [])
     renderAgents(state.agents || [])
@@ -185,6 +186,25 @@ function renderBackfill(b) {
   $('#backfill-fill').style.width = pct.toFixed(1) + '%'
   const rows = b.rowsWritten ? ` · ${nf0.format(b.rowsWritten)} rows of history written` : ''
   $('#backfill-step').textContent = (b.note || '') + rows
+}
+
+// renderWorkingSet shows how much of the dataset is under continuous read. The
+// bar is the hot share of the whole, which is the figure to hold next to the
+// server's cache size: a bar well past what the cache can hold is the condition
+// under which buffer pool size starts to show up in the numbers at all.
+function renderWorkingSet(w) {
+  const panel = $('#ws-panel')
+  if (!w || !w.supported) { panel.classList.add('hidden'); return }
+  panel.classList.remove('hidden')
+  const pct = w.datasetBytes ? Math.min(100, (w.bytes / w.datasetBytes) * 100) : 0
+  $('#ws-fill').style.width = pct.toFixed(1) + '%'
+  $('#ws-rate').textContent = w.active
+    ? `${nf0.format(w.readsPerSec || 0)} reads/s · ${nf0.format(w.rowsPerSec || 0)} rows/s · ${w.threads} threads`
+    : ''
+  const totals = w.reads
+    ? ` · ${nf0.format(w.reads)} reads, ${nf0.format(w.rowsRead)} rows read so far`
+    : ''
+  $('#ws-note').textContent = (w.note || '') + totals
 }
 
 function tile(value, label, cls) {

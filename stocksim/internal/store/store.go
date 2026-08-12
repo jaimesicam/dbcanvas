@@ -81,6 +81,48 @@ type Config struct {
 	Database string // schema / database / key prefix — the namespace we own
 	TLS      string // "disable" | "prefer" | "require"
 	Params   string // extra driver params, appended verbatim
+	// Threads is how many concurrent workers each of the simulation's two heavy
+	// agents runs — see PoolSize for what that means for the connection pool,
+	// and sim.Engine.Threads for what the agents do with it. 0 takes
+	// DefaultThreads.
+	Threads int
+}
+
+// Thread-count bounds. DefaultThreads is what the sim ran at before the count
+// was configurable, so an untouched deployment behaves exactly as it did.
+// MaxThreads is not a limit anyone should reach; it exists so a mistyped
+// "1000" opens a thousand connections to nobody's database.
+const (
+	DefaultThreads = 4
+	MaxThreads     = 64
+)
+
+// ClampThreads normalises a requested thread count.
+func ClampThreads(n int) int {
+	switch {
+	case n <= 0:
+		return DefaultThreads
+	case n > MaxThreads:
+		return MaxThreads
+	}
+	return n
+}
+
+// PoolSize is how many connections a pool may open for a given thread count.
+//
+// Both heavy agents can be running at once — the backfill writing history while
+// the working-set agent reads it — so the two together want 2×Threads
+// connections, and starving either of them would quietly cap the load the user
+// asked for. The constant on top is headroom for everything else: the seven
+// light agents, the dashboard's own reads, and whatever CRUD a person is doing
+// by hand while all this is going on. The floor is for the other direction: at
+// one or two threads the headroom alone would be most of the pool, and 16 is
+// what this app ran on before any of it was configurable.
+func (c Config) PoolSize() int {
+	if n := 2*ClampThreads(c.Threads) + 12; n > 16 {
+		return n
+	}
+	return 16
 }
 
 // Validate rejects a configuration that cannot safely be used, before any
@@ -162,7 +204,17 @@ type Store interface {
 
 	// Simulation writes.
 	AppendTicks(ctx context.Context, ticks []Tick) error
-	RecentTicks(ctx context.Context, securityID string, limit int) ([]Tick, error)
+	// TicksBefore reads one security's price history at or before at,
+	// oldest-first so a sparkline can be drawn straight through it. A zero at
+	// means "the newest there are", which is what the dashboard asks for; any
+	// other value is a random dive into history, which is what the working-set
+	// agent asks for (see sim/workingset.go).
+	TicksBefore(ctx context.Context, securityID string, at time.Time, limit int) ([]Tick, error)
+	// TickSpan reports the oldest and newest tick timestamps held for one
+	// security. Both are zero when it has no history yet. This is how the
+	// working-set agent sizes the slice of the dataset it keeps hot, so it must
+	// stay an indexed lookup rather than a scan — see each implementation.
+	TickSpan(ctx context.Context, securityID string) (oldest, newest time.Time, err error)
 	OpenOrders(ctx context.Context, limit int) ([]Order, error)
 	// RecordFill settles one order atomically where the engine supports it:
 	// the order moves to filled, the trade is written, the holding is upserted

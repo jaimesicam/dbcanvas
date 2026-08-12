@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"stocksim/internal/store"
 )
@@ -172,7 +173,10 @@ func (h *Handler) deleteSecurity(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) securityTicks(w http.ResponseWriter, r *http.Request) {
-	ticks, err := h.Store.RecentTicks(r.Context(), r.PathValue("id"), intParam(r, "limit", 60))
+	// A zero time asks for the newest ticks there are, which is what a sparkline
+	// wants; the working-set agent is the only caller that passes a real one.
+	ticks, err := h.Store.TicksBefore(r.Context(), r.PathValue("id"),
+		time.Time{}, intParam(r, "limit", 60))
 	if err != nil {
 		writeStoreErr(w, err)
 		return

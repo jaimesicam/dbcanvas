@@ -48,7 +48,11 @@ func openMongo(ctx context.Context, c Config) (Store, error) {
 	}
 	cctx, cancel := context.WithTimeout(ctx, connectTimeout)
 	defer cancel()
-	client, err := mongo.Connect(cctx, options.Client().ApplyURI(uri))
+	// The pool ceiling is raised the same way the SQL stores raise theirs (see
+	// Config.PoolSize). ApplyURI first, so a maxPoolSize written into a DSN by
+	// hand still wins — that DSN is the documented escape hatch.
+	opts := options.Client().SetMaxPoolSize(uint64(c.PoolSize())).ApplyURI(uri)
+	client, err := mongo.Connect(cctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("open mongodb: %w", err)
 	}
@@ -575,11 +579,19 @@ func (s *mongoStore) AppendTicks(ctx context.Context, ticks []Tick) error {
 	return err
 }
 
-func (s *mongoStore) RecentTicks(ctx context.Context, securityID string, limit int) ([]Tick, error) {
+// TicksBefore reads back through the {securityId, ts} index. The random dives
+// the working-set agent makes with it land on documents scattered through the
+// collection, which is what makes the WiredTiger cache do any work — see the
+// MySQL implementation for the same argument in its own vocabulary.
+func (s *mongoStore) TicksBefore(ctx context.Context, securityID string, at time.Time, limit int) ([]Tick, error) {
+	filter := bson.M{"securityId": securityID}
+	if !at.IsZero() {
+		filter["ts"] = bson.M{"$lte": at.UTC()}
+	}
 	opts := options.Find().
 		SetSort(bson.D{{Key: "ts", Value: -1}}).
 		SetLimit(int64(clampLimit(limit, 60, 1000)))
-	cur, err := s.db.Collection("price_ticks").Find(ctx, bson.M{"securityId": securityID}, opts)
+	cur, err := s.db.Collection("price_ticks").Find(ctx, filter, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -604,6 +616,32 @@ func (s *mongoStore) RecentTicks(ctx context.Context, securityID string, limit i
 		out[i], out[j] = out[j], out[i]
 	}
 	return out, cur.Err()
+}
+
+// TickSpan reads the first and last document of one security's history. Both
+// are a one-document find served entirely from the {securityId, ts} index.
+func (s *mongoStore) TickSpan(ctx context.Context, securityID string) (time.Time, time.Time, error) {
+	end := func(dir int) (time.Time, error) {
+		var doc struct {
+			TS time.Time `bson:"ts"`
+		}
+		err := s.db.Collection("price_ticks").FindOne(ctx, bson.M{"securityId": securityID},
+			options.FindOne().SetSort(bson.D{{Key: "ts", Value: dir}}).
+				SetProjection(bson.M{"ts": 1})).Decode(&doc)
+		if err == mongo.ErrNoDocuments {
+			return time.Time{}, nil
+		}
+		return doc.TS.UTC(), err
+	}
+	oldest, err := end(1)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	newest, err := end(-1)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	return oldest, newest, nil
 }
 
 // ApplyQuotes uses $max/$min for the session high and low so concurrent

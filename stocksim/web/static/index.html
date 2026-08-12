@@ -43,6 +43,20 @@
     <p class="hint" id="backfill-step" style="margin:8px 0 0"></p>
   </section>
 
+  <!-- The read side of the panel above: how much of the data that was grown is
+       actually being touched. Shown whenever the engine supports one, including
+       when it is switched off — "off" is the explanation for a small buffer
+       pool making no measurable difference. -->
+  <section class="panel hidden" id="ws-panel">
+    <h2>
+      Working set
+      <span class="spacer"></span>
+      <span class="hint" id="ws-rate"></span>
+    </h2>
+    <div class="progress-track"><div class="progress-fill" id="ws-fill" style="width:0%"></div></div>
+    <p class="hint" id="ws-note" style="margin:8px 0 0"></p>
+  </section>
+
   <section class="panel">
     <h2>Market summary</h2>
     <div class="stat-grid" id="kpi-grid"></div>
