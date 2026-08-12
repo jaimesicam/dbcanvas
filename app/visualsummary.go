@@ -68,6 +68,11 @@ type vsModel struct {
 		Host       string `json:"host"`
 		Engine     string `json:"engine"` // mysql | pxc
 		CapturedAt string `json:"capturedAt,omitempty"`
+		// ArchiveID and Note identify a *kept* capture. Two captures of one host
+		// minutes apart are otherwise indistinguishable, which makes them
+		// impossible to tell apart in a comparison.
+		ArchiveID int64  `json:"archiveId,omitempty"`
+		Note      string `json:"note,omitempty"`
 	} `json:"source"`
 	Summary struct {
 		Facts    map[string]string  `json:"facts"`    // static: cpus, ram, version…

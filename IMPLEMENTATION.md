@@ -12751,3 +12751,61 @@ Eight new unit tests, including the invariant that matters most — every rule
 stays silent when its series is absent, so a capture missing a file gets no
 advice rather than advice built on zeroes. `go build/vet/test` and `gofmt -l`
 clean; `npm run build` and `npm run smoke` clean.
+
+## 238. Captures kept by timestamp, and an N-way head-to-head — `app/ptstalkarchive.go`, `app/visualsummary_compare.go`, `app/store.go`, `app/diag.go`, `app/web/src/pages/VisualSummary.jsx`
+
+Asked to keep pt-stalk captures by the time they were taken so a particular one
+can be chosen, and to compare two or more head to head with advisors.
+
+**Every capture used to destroy the last one.** `ptStalkFile` was one fixed path
+inside the node, `/tmp/ptstalk.tar.gz`, overwritten by each run and lost with the
+container. That makes the single most useful thing pt-stalk can do impossible:
+take one before a change, take one after, compare. Every "before" in this
+session's own work survived only because it happened to be sitting in a scratch
+directory.
+
+Finished captures are now copied into dbcanvas's own data directory under their
+capture time and indexed in a new `ptstalk_archives` table. The tarball goes on
+disk rather than into SQLite — a couple of megabytes each, and a blob column
+would put every one of them into every backup of that database. The row is
+deliberately not keyed to the deployment: a node can be recreated, and comparing
+across the change that recreated it is exactly the point, so archives outlive
+their container and their node. Copying happens *before* the status flips to
+"done", because a user who sees "done" may immediately start the next capture,
+which would overwrite the file being read.
+
+**The comparison carries its own advisors, reading deltas rather than captures.**
+That lets it say things no single-capture rule can: that the miss ratio collapsed
+and throughput rose together, which is cause and effect rather than coincidence;
+or that a move is inside the noise band and is not evidence of anything. The band
+is 10%, and the number is not arbitrary — §234's matrix measured a bit-for-bit
+repeat of one configuration 2.9x different an hour later purely because the OS
+page cache had warmed. Metrics carry a direction that counts as better, and CPU
+busy deliberately has none, so the faster server is never painted as a
+regression. A `compareRegressions` rule names anything that moved the wrong way
+while something else improved, because a trade should be a deliberate one.
+
+**Live testing caught a silent blank.** `handleVisualArchives` built node labels
+from `Store.ListStacks`, which does not select the `design` column — it is a
+large blob the stack list has no use for — so every capture in the picker showed
+a blank node. Now the design is fetched per stack, and only for stacks that
+actually have captures, with the hostname as a fallback.
+
+**Verified end to end on the live stack**, two captures five minutes apart with
+only the buffer pool changed between them:
+
+    settings   innodb_buffer_pool_size: 134217728 -> 4294967296
+    throughput      1,406 -> 4,457 /s   +217%  better
+    read-miss         8.1 -> 0.0 %      -100%  better
+    free pages      327.5 -> 104,691   +31867% moved
+    fsyncs            395 -> 95          -76%  moved
+    CPU busy         38.1 -> 72.0        +89%  moved   (not flagged a regression)
+    checkpoint age   10.4 -> 11.0         +6%  (inside the noise band, unflagged)
+    verdict    "The miss ratio collapsed and throughput rose +217% with it. That is
+                cause and effect rather than coincidence: the working set now fits
+                where it did not before, and the buffer pool was the constraint."
+
+Six comparison unit tests including the noise band, the durability trade that
+bought nothing, regressions, and an N-way run where a finding is missing from the
+middle capture. Six new render checks. `go build/vet/test` and `gofmt -l` clean;
+`npm run build` and `npm run smoke` clean.

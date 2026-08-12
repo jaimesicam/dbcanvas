@@ -25,4 +25,26 @@ export const visualApi = {
   },
   fromNode: async (stackId, nodeId) =>
     toJSON(await fetch(`/api/stacks/${stackId}/nodes/${nodeId}/visualsummary`, { method: 'POST', credentials: 'same-origin' })),
+
+  // Kept captures. Each finished pt-stalk run is copied into dbcanvas's own
+  // storage under its capture time, so a node has a history to compare across
+  // rather than only its most recent run.
+  archives: async () =>
+    (await toJSON(await fetch('/api/ptstalk/archives', { credentials: 'same-origin' })))?.archives || [],
+  fromArchive: async (id) =>
+    toJSON(await fetch(`/api/visualsummary/archive/${id}`, { method: 'POST', credentials: 'same-origin' })),
+  compare: async (archiveIds) =>
+    toJSON(await fetch('/api/visualsummary/compare', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ archiveIds }),
+    })),
+  setNote: async (id, note) =>
+    toJSON(await fetch(`/api/ptstalk/archives/${id}/note`, {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note }),
+    })),
+  removeArchive: async (id) =>
+    toJSON(await fetch(`/api/ptstalk/archives/${id}`, { method: 'DELETE', credentials: 'same-origin' })),
 }

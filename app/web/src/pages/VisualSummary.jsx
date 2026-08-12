@@ -21,10 +21,18 @@ export default function VisualSummary() {
   // holding the numbers in your head is how a page-cache artefact gets mistaken
   // for saturated storage.
   const [baseline, setBaseline] = useState(null)
+  // Kept captures, and the ones ticked for a head-to-head.
+  const [archives, setArchives] = useState([])
+  const [picked, setPicked] = useState([])
+  const [cmp, setCmp] = useState(null)
   const fileRef = useRef(null)
+
+  const reloadArchives = () =>
+    visualApi.archives().then((a) => setArchives(a || [])).catch(() => {})
 
   useEffect(() => {
     visualApi.nodes().then((n) => setNodes(n || [])).catch(() => {})
+    reloadArchives()
     const raw = sessionStorage.getItem('vs.target')
     if (raw) {
       sessionStorage.removeItem('vs.target')
@@ -39,6 +47,27 @@ export default function VisualSummary() {
   }
   const loadUpload = (file) => file && run(() => visualApi.upload(file))
   const loadNode = (stackId, nodeId) => run(() => visualApi.fromNode(stackId, nodeId))
+  const loadArchive = (id) => { setCmp(null); return run(() => visualApi.fromArchive(id)) }
+
+  // Ticking captures compares them; the order ticked is the order compared, so
+  // the first is the baseline and "did this change help" reads left to right.
+  const togglePick = (id) =>
+    setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
+
+  async function runCompare() {
+    setError(null); setLoading(true); setModel(null); setCmp(null)
+    try { setCmp(await visualApi.compare(picked)) }
+    catch (e) { setError(e.message || 'Comparison failed') }
+    finally { setLoading(false) }
+  }
+
+  async function dropArchive(id) {
+    try {
+      await visualApi.removeArchive(id)
+      setPicked((p) => p.filter((x) => x !== id))
+      reloadArchives()
+    } catch (e) { setError(e.message) }
+  }
 
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-4">
@@ -77,6 +106,11 @@ export default function VisualSummary() {
         </div>
       </Card>
 
+      <KeptCaptures
+        archives={archives} picked={picked}
+        onAnalyze={loadArchive} onToggle={togglePick} onCompare={runCompare}
+        onDelete={dropArchive} onClear={() => setPicked([])} />
+
       {loading && <div className="rounded-xl border bg-surface px-4 py-8 text-center text-sm text-muted">Parsing archive…</div>}
       {error && <div className="rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">{error}</div>}
       {model && (
@@ -97,9 +131,160 @@ export default function VisualSummary() {
           )}
         </div>
       )}
+      {cmp && <HeadToHead cmp={cmp} />}
       {model && baseline && !sameCapture(baseline, model) && <Comparison a={baseline} b={model} />}
       {model && <Report model={model} />}
     </div>
+  )
+}
+
+// ---- kept captures ----
+
+const capTime = (iso) => (iso ? new Date(iso).toLocaleString() : 'unknown time')
+
+// KeptCaptures lists every pt-stalk run dbcanvas has kept, newest first. Each
+// finished capture is copied into dbcanvas's own storage under its capture time,
+// so a node has a history instead of only its most recent run — which is what
+// makes "take one before the change, take one after" possible at all.
+export function KeptCaptures({ archives, picked, onAnalyze, onToggle, onCompare, onDelete, onClear }) {
+  if (!archives?.length) return null
+  return (
+    <Card title="Kept pt-stalk captures"
+      subtitle="Every capture is stored under the time it was taken. Open one, or tick two or more to compare them head to head — the first ticked is the baseline.">
+      <div className="space-y-1 p-3">
+        {archives.map((a) => {
+          const idx = picked.indexOf(a.id)
+          return (
+            <div key={a.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 px-2.5 py-1.5 text-xs">
+              <label className="flex items-center gap-1.5">
+                <input type="checkbox" checked={idx >= 0} onChange={() => onToggle(a.id)} />
+                {idx >= 0 && <span className="font-mono text-[10px] text-primary">#{idx + 1}</span>}
+              </label>
+              <span className="font-mono text-fg">{capTime(a.capturedAt)}</span>
+              <span className="text-muted">{a.nodeLabel || a.host}</span>
+              {a.stackName && <span className="text-muted">· {a.stackName}</span>}
+              {a.note && <span className="italic text-muted">— {a.note}</span>}
+              <span className="ml-auto text-muted">{humanBytes(a.sizeBytes)}</span>
+              <button className="rounded border border-border px-2 py-0.5 hover:border-primary/60"
+                onClick={() => onAnalyze(a.id)}>Open</button>
+              <a className="rounded border border-border px-2 py-0.5 hover:border-primary/60"
+                href={`/api/ptstalk/archives/${a.id}/download`}>Download</a>
+              <button className="rounded border border-border px-2 py-0.5 text-muted hover:border-danger/60 hover:text-danger"
+                onClick={() => onDelete(a.id)}>Delete</button>
+            </div>
+          )
+        })}
+        {picked.length > 0 && (
+          <div className="flex items-center gap-2 pt-1">
+            <Button size="sm" disabled={picked.length < 2} onClick={onCompare}>
+              Compare {picked.length} capture{picked.length === 1 ? '' : 's'}
+            </Button>
+            <button className="text-xs text-muted hover:text-fg" onClick={onClear}>clear selection</button>
+            {picked.length < 2 && <span className="text-xs text-muted">tick at least two</span>}
+          </div>
+        )}
+      </div>
+    </Card>
+  )
+}
+
+// HeadToHead renders the server-built comparison: which settings differ, every
+// measurement side by side, and advisors that read the *deltas* — the part that
+// answers "did that change help" rather than leaving it to be inferred.
+export function HeadToHead({ cmp }) {
+  if (!cmp?.captures?.length) return null
+  const n = cmp.captures.length
+  return (
+    <Card title={`Head to head — ${n} captures`}
+      subtitle="The first capture is the baseline; the change column is the newest against it.">
+      <div className="space-y-4 p-4">
+        {cmp.verdicts?.length > 0 && (
+          <div className="space-y-2">
+            {cmp.verdicts.map((v) => (
+              <div key={v.id} className={`rounded-lg border px-3 py-2 ${VERDICT_TONE[v.level] || VERDICT_TONE.info}`}>
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <span className={`text-xs font-semibold uppercase tracking-wide ${VERDICT_TEXT[v.level] || ''}`}>
+                    {VERDICT_LABEL[v.level] || v.level}
+                  </span>
+                  <span className="text-sm font-semibold text-fg">{v.title}</span>
+                  <span className="font-mono text-xs text-muted">{v.headline}</span>
+                </div>
+                <p className="mt-1 text-xs leading-relaxed text-muted">{v.detail}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {cmp.settings?.length > 0 && (
+          <div>
+            <div className="mb-1 text-xs font-semibold text-fg">Settings that differ</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <tbody className="font-mono">
+                  {cmp.settings.map((s) => (
+                    <tr key={s.key} className="border-t border-border/50">
+                      <td className="py-1 pr-3 font-sans text-muted">{s.label}</td>
+                      {s.values.map((v, i) => (
+                        <td key={i} className="py-1 pr-3 text-fg">
+                          {v ? (s.bytes ? humanBytes(Number(v)) : v) : '—'}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="text-muted">
+              <tr>
+                <th className="py-1 text-left font-medium">Measurement</th>
+                {cmp.captures.map((c, i) => (
+                  <th key={i} className="py-1 text-right font-medium">
+                    {i === 0 ? 'baseline' : `#${i + 1}`}
+                    <div className="font-normal text-[10px]">{c.note || capTime(c.capturedAt)}</div>
+                  </th>
+                ))}
+                <th className="py-1 text-right font-medium">Change</th>
+              </tr>
+            </thead>
+            <tbody className="font-mono">
+              {cmp.metrics.map((m) => {
+                // Colour only when the metric has a better direction AND moved
+                // more than noise — CPU busy rises on a server that got faster.
+                let tone = 'text-muted'
+                if (m.meaningful && m.improved !== undefined && m.improved !== null) {
+                  tone = m.improved ? 'text-primary' : 'text-danger'
+                }
+                return (
+                  <tr key={m.key} className="border-t border-border/50">
+                    <td className="py-1 pr-2 font-sans text-muted">{m.label}</td>
+                    {m.values.map((v, i) => (
+                      <td key={i} className="py-1 text-right text-fg">
+                        {m.have[i] ? fmtCompare(v, m.unit) : '—'}
+                      </td>
+                    ))}
+                    <td className={`py-1 text-right ${tone}`}>
+                      {m.changePct === undefined || m.changePct === null
+                        ? '—'
+                        : `${m.changePct > 0 ? '+' : ''}${Math.round(m.changePct)}%`}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-[11px] text-muted">
+          Changes smaller than 10% are left uncoloured: a bit-for-bit repeat of one configuration
+          measured almost three times different on this project's own hardware once the OS page
+          cache had warmed, so small moves are not evidence of anything.
+        </p>
+      </div>
+    </Card>
   )
 }
 

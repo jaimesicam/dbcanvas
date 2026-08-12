@@ -118,6 +118,15 @@ func main() {
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/ptstalk", app.handlePTStalkStatus)
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/ptstalk", app.handlePTStalkStart)
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/ptstalk/download", app.handlePTStalkDownload)
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/ptstalk/archives", app.handlePTStalkArchives)
+	// Kept captures, addressed by their own id rather than by node: an archive
+	// outlives the node it came from, which is the point of keeping it.
+	mux.HandleFunc("GET /api/ptstalk/archives", app.handleVisualArchives)
+	mux.HandleFunc("GET /api/ptstalk/archives/{aid}/download", app.handleArchiveDownload)
+	mux.HandleFunc("POST /api/ptstalk/archives/{aid}/note", app.handleArchiveNote)
+	mux.HandleFunc("DELETE /api/ptstalk/archives/{aid}", app.handleArchiveDelete)
+	mux.HandleFunc("POST /api/visualsummary/archive/{aid}", app.handleVisualFromArchive)
+	mux.HandleFunc("POST /api/visualsummary/compare", app.handleVisualCompare)
 
 	// Visual Summary — parse a pt-stalk archive into timeline charts.
 	mux.HandleFunc("POST /api/visualsummary/upload", app.handleVisualUpload)

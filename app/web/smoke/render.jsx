@@ -24,7 +24,7 @@ import {
   MySQLCENodeForm, MySQLCEFrameForm, MySQLCEInnoDBFrameForm,
   UpstreamMemberForm,
 } from '../src/pages/UpstreamForms.jsx'
-import { Comparison, Verdicts, Advisor, ChartCard } from '../src/pages/VisualSummary.jsx'
+import { Comparison, Verdicts, Advisor, ChartCard, KeptCaptures, HeadToHead } from '../src/pages/VisualSummary.jsx'
 import {
   frameMemberSub, REPL_FRAME_TYPES,
   NODE_TYPES, CONNECTABLE_FRAMES, SS_LINK_TYPES, SS_LINK_ENGINE,
@@ -1093,6 +1093,36 @@ check('visual summary: chart card carrying an advisor', () =>
   renderToString(<ChartCard title="Buffer pool reads" subtitle="/s" advisor={anAdvisor}><div /></ChartCard>))
 check('visual summary: chart card without one', () =>
   renderToString(<ChartCard title="Memory" subtitle="MB"><div /></ChartCard>))
+
+// Kept captures + the N-way head-to-head. The comparison payload is built by
+// the backend, so these render exactly what buildComparison emits.
+const keptArchives = [
+  { id: 3, capturedAt: '2026-08-12T15:34:04Z', host: 'ps-01', nodeLabel: 'ps-01', stackName: 'stack', sizeBytes: 1866761, note: 'after 4G pool' },
+  { id: 2, capturedAt: '2026-08-12T13:47:00Z', host: 'ps-01', nodeLabel: 'ps-01', stackName: 'stack', sizeBytes: 1820176, note: '' },
+]
+check('visual summary: kept captures list', () =>
+  renderToString(<KeptCaptures archives={keptArchives} picked={[2]} onAnalyze={noop} onToggle={noop} onCompare={noop} onDelete={noop} onClear={noop} />))
+check('visual summary: kept captures, none kept yet', () =>
+  renderToString(<div><KeptCaptures archives={[]} picked={[]} onAnalyze={noop} onToggle={noop} onCompare={noop} onDelete={noop} onClear={noop} /></div>))
+
+const headToHead = {
+  captures: [
+    { archiveId: 2, host: 'ps-01', capturedAt: '2026-08-12T13:47:00Z', note: '' },
+    { archiveId: 3, host: 'ps-01', capturedAt: '2026-08-12T15:34:04Z', note: 'after 4G pool' },
+  ],
+  settings: [{ key: 'bufferPoolSize', label: 'innodb_buffer_pool_size', values: ['134217728', '4294967296'], bytes: true }],
+  metrics: [
+    { key: 'qps', label: 'Throughput', unit: '/s', values: [1514, 4583], have: [true, true], changePct: 202.7, better: 'up', improved: true, meaningful: true },
+    { key: 'cpuBusyPct', label: 'CPU busy', unit: '%', values: [38.9, 72.4], have: [true, true], changePct: 86.1, better: '', meaningful: true },
+    { key: 'bpMissRatioPct', label: 'Buffer pool read-miss', unit: '%', values: [8.3, 0], have: [true, false], changePct: -100, better: 'down', improved: true, meaningful: true },
+  ],
+  verdicts: [{ id: 'comparePool', title: 'Did the buffer pool change help?', level: 'ok', headline: 'read-miss 8.30% -> 0.00% (-100%)', detail: 'cause and effect' }],
+}
+check('visual summary: head to head', () => renderToString(<HeadToHead cmp={headToHead} />))
+check('visual summary: head to head with no verdicts or settings', () =>
+  renderToString(<HeadToHead cmp={{ ...headToHead, verdicts: [], settings: [] }} />))
+check('visual summary: head to head with nothing', () =>
+  renderToString(<div><HeadToHead cmp={null} /></div>))
 
 if (failures > 0) {
   console.error(`\n${failures} render failure(s)`)

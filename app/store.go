@@ -128,7 +128,25 @@ CREATE TABLE IF NOT EXISTS lab_step_results (
   checked_at TEXT NOT NULL,
   PRIMARY KEY (lab_run_id, step_id)
 );
-CREATE INDEX IF NOT EXISTS idx_lab_runs_user ON lab_runs(user_id, id DESC);`
+CREATE INDEX IF NOT EXISTS idx_lab_runs_user ON lab_runs(user_id, id DESC);
+-- pt-stalk archives kept by capture time. The tarball itself lives on disk under
+-- the data directory (they are megabytes each, and a blob column would bloat
+-- every backup of this database); this table is the index over them.
+--
+-- Deliberately NOT keyed to the deployment: a node can be recreated, and the
+-- whole point of keeping captures is to compare across the change that recreated
+-- it. Rows outlive the container they came from, and survive the node entirely.
+CREATE TABLE IF NOT EXISTS ptstalk_archives (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  stack_id    INTEGER NOT NULL,
+  node_id     TEXT NOT NULL,
+  host        TEXT NOT NULL DEFAULT '',
+  captured_at TEXT NOT NULL,
+  size_bytes  INTEGER NOT NULL DEFAULT 0,
+  note        TEXT NOT NULL DEFAULT '',
+  path        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ptstalk_node ON ptstalk_archives(stack_id, node_id, captured_at DESC);`
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, err

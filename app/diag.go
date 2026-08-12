@@ -95,7 +95,7 @@ func (a *App) captureStatusFor(ctx context.Context, stackID int64, nodeID, kind,
 // startCapture launches a capture in the background, tracking its status in a.captures.
 // eng is the node's engine (from the request context) — the goroutine outlives the
 // request, so it carries the engine explicitly onto a background context.
-func (a *App) startCapture(eng Engine, stackID int64, nodeID, kind, containerID, script string, env []string, database, name string) {
+func (a *App) startCapture(eng Engine, stackID int64, nodeID, kind, containerID, script string, env []string, database, name string, onDone ...func(context.Context)) {
 	key := captureKey(stackID, nodeID, kind)
 	if v, ok := a.captures.Load(key); ok && v.(*captureState).Status == captureRunning {
 		return // already running
@@ -113,6 +113,12 @@ func (a *App) startCapture(eng Engine, stackID int64, nodeID, kind, containerID,
 		} else {
 			st.Status = captureDone
 			st.Message = strings.TrimSpace(out)
+			// Keep the result before publishing "done": the next capture on this
+			// node overwrites the file this reads, and a user who sees "done" may
+			// start one immediately.
+			for _, fn := range onDone {
+				fn(withEngine(context.Background(), eng))
+			}
 		}
 		a.captures.Store(key, st)
 	}()
@@ -202,7 +208,9 @@ func (a *App) handlePTStalkStart(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	a.startCapture(a.engCtx(r.Context()), dep.StackID, r.PathValue("nid"), "ptstalk", dep.ContainerID, ptStalkScript, nil, "", ptStalkName(dep))
+	nid, cid, host := r.PathValue("nid"), dep.ContainerID, hostnameOf(dep)
+	a.startCapture(a.engCtx(r.Context()), dep.StackID, nid, "ptstalk", cid, ptStalkScript, nil, "", ptStalkName(dep),
+		func(ctx context.Context) { a.keepPTStalkCapture(ctx, dep.StackID, nid, cid, host) })
 	writeJSON(w, http.StatusAccepted, map[string]any{"status": captureRunning})
 }
 
