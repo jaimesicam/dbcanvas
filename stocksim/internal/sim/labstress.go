@@ -42,10 +42,21 @@ var (
 		LevelMedium: 400,
 		LevelHigh:   1200,
 	}
+	// Rows rewritten per transaction, so the byte rate is this times
+	// LabBulkPayload per second: 2 MiB, 8 MiB, 32 MiB. n may exceed LabBulkRows
+	// — the id cycles, so a row simply gets rewritten more than once in the same
+	// transaction, which generates the redo without needing a bigger table.
+	//
+	// These were an order of magnitude smaller until a live capture showed why
+	// that was useless. Checkpoint age is a race between redo being written and
+	// the page cleaner flushing it away, and the advisor that reads it only has
+	// something to say at 50% of the redo log. At 1 MiB/s against a 1 GiB log
+	// the cleaner wins every time and the metric never moves — the knob could
+	// not produce the condition it exists for.
 	redoBatch = map[string]int{
-		LevelLow:    64,
-		LevelMedium: 256,
-		LevelHigh:   768,
+		LevelLow:    512,
+		LevelMedium: 2048,
+		LevelHigh:   8192,
 	}
 )
 

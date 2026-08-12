@@ -442,24 +442,23 @@ func (s *pgStore) RunWritePressure(ctx context.Context, mode string, n int, budg
 	res := WriteResult{Mode: mode}
 	switch mode {
 	case WritePressureCommits:
-		now := time.Now().UTC()
-		deadline := writeDeadline(start, budget)
-		for i := 0; i < n; i++ {
-			if !deadline.IsZero() && time.Now().After(deadline) {
-				res.Capped = true
-				break
-			}
-			// Autocommit, one commit per statement — see the MySQL note.
-			if _, err := conn.ExecContext(ctx,
-				`UPDATE lab_hotrows SET counter = counter + 1, updated_at = $1 WHERE id = $2`,
-				now, commitRowID(i)); err != nil {
-				return WriteResult{}, err
-			}
-			res.Commits++
-			if ctx.Err() != nil {
-				break
-			}
+		// Fanned out across connections — see the MySQL version and WriteFanout.
+		done, capped, err := runCommitFanout(ctx, start, budget, n,
+			func(ctx context.Context, i int) error {
+				c, err := s.db.Conn(ctx)
+				if err != nil {
+					return err
+				}
+				defer c.Close()
+				_, err = c.ExecContext(ctx,
+					`UPDATE lab_hotrows SET counter = counter + 1, updated_at = $1 WHERE id = $2`,
+					time.Now().UTC(), commitRowID(i))
+				return err
+			})
+		if err != nil {
+			return WriteResult{}, err
 		}
+		res.Commits, res.Capped = done, capped
 		res.Description = writeCommitsDescription(res.Commits, n, res.Capped)
 	case WritePressureRedo:
 		tx, err := conn.BeginTx(ctx, nil)

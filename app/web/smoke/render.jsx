@@ -24,7 +24,7 @@ import {
   MySQLCENodeForm, MySQLCEFrameForm, MySQLCEInnoDBFrameForm,
   UpstreamMemberForm,
 } from '../src/pages/UpstreamForms.jsx'
-import { Comparison, Verdicts, Advisor, ChartCard, KeptCaptures, HeadToHead } from '../src/pages/VisualSummary.jsx'
+import { Comparison, Verdicts, Advisor, ChartCard, KeptCaptures, HeadToHead, VerdictBody, VerdictMark } from '../src/pages/VisualSummary.jsx'
 import {
   frameMemberSub, REPL_FRAME_TYPES,
   NODE_TYPES, CONNECTABLE_FRAMES, SS_LINK_TYPES, SS_LINK_ENGINE,
@@ -1088,6 +1088,33 @@ check('visual summary: advisor with no data', () => renderToString(<div><Advisor
 for (const level of ['ok', 'info', 'warn', 'crit']) {
   check(`visual summary: advisor level ${level}`, () =>
     renderToString(<Advisor a={{ ...anAdvisor, level }} />))
+}
+// The split explanation. Verdicts built by advice() carry means/action; the few
+// assembled field-by-field carry only detail, and both paths have to render —
+// an advisor that shows nothing at all is the same class of bug as one that
+// blanks the page.
+const aSplitAdvisor = {
+  ...anAdvisor,
+  means: 'Logical reads against the pool, and how many did not find their page in it.',
+  action: 'Raise innodb_buffer_pool_size, or reduce what the workload touches.',
+}
+check('visual summary: advisor with means and action', () =>
+  renderToString(<Advisor a={aSplitAdvisor} />))
+check('visual summary: advisor with means but no action', () =>
+  renderToString(<Advisor a={{ ...aSplitAdvisor, action: '' }} />))
+check('visual summary: advisor with neither, only detail', () =>
+  renderToString(<Advisor a={{ ...anAdvisor, means: '', action: '' }} />))
+check('visual summary: advisor with no text at all', () =>
+  renderToString(<Advisor a={{ id: 'x', level: 'ok', headline: '0/s' }} />))
+check('visual summary: verdict body standalone', () =>
+  renderToString(<VerdictBody v={aSplitAdvisor} />))
+check('visual summary: verdict body with nothing', () =>
+  renderToString(<div><VerdictBody v={null} /></div>))
+// Every level has to resolve to a real icon. An unknown level must fall back
+// rather than render <undefined /> — the bug this file exists for.
+for (const level of ['ok', 'info', 'warn', 'crit', 'banana', undefined]) {
+  check(`visual summary: verdict mark ${level}`, () =>
+    renderToString(<VerdictMark level={level} />))
 }
 check('visual summary: chart card carrying an advisor', () =>
   renderToString(<ChartCard title="Buffer pool reads" subtitle="/s" advisor={anAdvisor}><div /></ChartCard>))

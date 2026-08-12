@@ -64,7 +64,7 @@ func computeAdvisors(m *vsModel) {
 // before it says anything about this capture, because the explanation is half
 // the point.
 func advice(level, means, found, todo string) *vsVerdict {
-	v := &vsVerdict{Level: level, Headline: found, Detail: means}
+	v := &vsVerdict{Level: level, Headline: found, Detail: means, Means: means, Action: todo}
 	if todo != "" {
 		v.Detail += " " + todo
 	}

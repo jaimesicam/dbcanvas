@@ -346,3 +346,25 @@ func TestPGScanPlanStatsRejectsGarbage(t *testing.T) {
 		}
 	}
 }
+
+// TestWriteFanoutCannotSelfContend guards the commits knob's premise. The batch
+// is handed out as consecutive indices, so the in-flight set is at most
+// WriteFanout consecutive rows; as long as there are more commit rows than
+// concurrent writers, two writers can never be on the same row. If that ever
+// stops holding, the knob starts generating the lock waits it was specifically
+// designed not to, and an fsync measurement silently becomes a contention one.
+func TestWriteFanoutCannotSelfContend(t *testing.T) {
+	if WriteFanout >= labCommitRows {
+		t.Fatalf("WriteFanout %d >= %d commit rows: concurrent writers can collide, "+
+			"which would pollute an fsync measurement with lock waits",
+			WriteFanout, labCommitRows)
+	}
+	seen := map[int]bool{}
+	for i := 0; i < WriteFanout; i++ {
+		id := commitRowID(i)
+		if seen[id] {
+			t.Fatalf("two of the %d in-flight writers land on row %d", WriteFanout, id)
+		}
+		seen[id] = true
+	}
+}

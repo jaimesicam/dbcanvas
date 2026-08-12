@@ -202,14 +202,12 @@ export function HeadToHead({ cmp }) {
           <div className="space-y-2">
             {cmp.verdicts.map((v) => (
               <div key={v.id} className={`rounded-lg border px-3 py-2 ${VERDICT_TONE[v.level] || VERDICT_TONE.info}`}>
-                <div className="flex flex-wrap items-baseline gap-x-2">
-                  <span className={`text-xs font-semibold uppercase tracking-wide ${VERDICT_TEXT[v.level] || ''}`}>
-                    {VERDICT_LABEL[v.level] || v.level}
-                  </span>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <VerdictMark level={v.level} />
                   <span className="text-sm font-semibold text-fg">{v.title}</span>
                   <span className="font-mono text-xs text-muted">{v.headline}</span>
                 </div>
-                <p className="mt-1 text-xs leading-relaxed text-muted">{v.detail}</p>
+                <VerdictBody v={v} />
               </div>
             ))}
           </div>
@@ -444,10 +442,13 @@ export function Comparison({ a, b }) {
               {verdictRows.map((r) => (
                 <div key={r.title} className="flex flex-wrap items-baseline gap-2 text-xs">
                   <span className="text-muted">{r.title}</span>
-                  <span className="font-mono">
-                    <span className={VERDICT_TEXT[r.from] || 'text-muted'}>{VERDICT_LABEL[r.from] || r.from}</span>
-                    <span className="text-muted"> → </span>
-                    <span className={VERDICT_TEXT[r.to] || 'text-muted'}>{VERDICT_LABEL[r.to] || r.to}</span>
+                  {/* Both ends carry their icon: a verdict that moved from
+                      healthy to critical should be legible as a direction, not
+                      only as two words that happen to be different colours. */}
+                  <span className="flex items-center gap-1.5">
+                    <VerdictMark level={r.from} />
+                    <span className="text-muted">→</span>
+                    <VerdictMark level={r.to} />
                   </span>
                 </div>
               ))}
@@ -459,16 +460,78 @@ export function Comparison({ a, b }) {
   )
 }
 
+// The verdict palette. Green means good, yellow means look, red means act — and
+// the three are reserved for exactly that, never reused as a series colour.
+//
+// They come from the --status-* tokens rather than from --success/--warning/
+// --danger, which are UI chrome tuned per theme for looks. See the block comment
+// in index.css for the two triads, the surfaces they were validated against, and
+// what was wrong with the themed colours they replace.
+//
+// "ok" used to be --primary, the brand indigo, which meant a healthy server and a
+// button looked the same and nothing on the page read as *good*. A left border
+// three times the width of the others is what makes crit carry across a scrolled
+// page without turning the whole card red.
 const VERDICT_TONE = {
-  crit: 'border-danger/40 bg-danger/10',
-  warn: 'border-warning/40 bg-warning/10',
-  info: 'border-border bg-surface2',
-  ok: 'border-primary/30 bg-primary/5',
+  crit: 'border-status-crit/45 border-l-4 border-l-status-crit bg-status-crit/10',
+  warn: 'border-status-warn/45 border-l-4 border-l-status-warn bg-status-warn/10',
+  info: 'border-border border-l-4 border-l-muted bg-surface2',
+  ok: 'border-status-ok/35 border-l-4 border-l-status-ok bg-status-ok/10',
 }
 const VERDICT_TEXT = {
-  crit: 'text-danger', warn: 'text-warning', info: 'text-fg', ok: 'text-primary',
+  crit: 'text-status-crit', warn: 'text-status-warn', info: 'text-muted', ok: 'text-status-ok',
 }
-const VERDICT_LABEL = { crit: 'critical', warn: 'warning', info: 'info', ok: 'ok' }
+const VERDICT_LABEL = { crit: 'critical', warn: 'warning', info: 'info', ok: 'healthy' }
+// The second and third signals, so the reading never rests on hue alone.
+const VERDICT_ICON = {
+  crit: Icon.StatusCrit, warn: Icon.StatusWarn, info: Icon.StatusInfo, ok: Icon.StatusOk,
+}
+
+// VerdictBody prints the two halves of a verdict under their own labels.
+//
+// The backend keeps them apart because they answer different questions: "What
+// this measures" explains what the series on the chart actually is, and "What to
+// do" is the recommendation. A reader who already knows what
+// Handler_read_rnd_next counts wants only the second, and running the two
+// together as one paragraph — which is what this page did before — made them
+// skip both. Verdicts assembled field-by-field carry only `detail`, so that is
+// the fallback.
+export function VerdictBody({ v, className = '' }) {
+  if (!v) return null
+  if (!v.means && !v.action) {
+    return v.detail
+      ? <p className={`mt-1 text-xs leading-relaxed text-muted ${className}`}>{v.detail}</p>
+      : null
+  }
+  return (
+    <div className={`mt-1.5 space-y-1.5 ${className}`}>
+      {v.means && <VerdictPart label="What this measures" text={v.means} />}
+      {v.action && <VerdictPart label="What to do" text={v.action} />}
+    </div>
+  )
+}
+
+function VerdictPart({ label, text }) {
+  return (
+    <div>
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted/80">{label}</div>
+      <p className="text-xs leading-relaxed text-muted">{text}</p>
+    </div>
+  )
+}
+
+// VerdictMark is the icon+word pair every verdict and advisor leads with.
+export function VerdictMark({ level, className = '' }) {
+  const Glyph = VERDICT_ICON[level] || Icon.StatusInfo
+  return (
+    <span className={`inline-flex items-center gap-1.5 ${VERDICT_TEXT[level] || 'text-muted'} ${className}`}>
+      <Glyph size={13} className="shrink-0" />
+      <span className="text-xs font-semibold uppercase tracking-wide">
+        {VERDICT_LABEL[level] || level}
+      </span>
+    </span>
+  )
+}
 
 // Verdicts sit above the numbers because a wall of correct measurements is not
 // an answer. Each one states the figure it turns on and what to do about it;
@@ -852,24 +915,35 @@ export function ChartCard({ title, subtitle, span, advisor, children }) {
   )
 }
 
-const ADVISOR_DOT = {
-  crit: 'bg-danger', warn: 'bg-warning', info: 'bg-muted', ok: 'bg-primary',
+// The advisor's own tint, so a chart that has found something reads as found
+// from across the page rather than only once its paragraph is opened. Same three
+// reserved colours as the verdicts above.
+const ADVISOR_TONE = {
+  crit: 'border-l-2 border-l-status-crit bg-status-crit/[0.07]',
+  warn: 'border-l-2 border-l-status-warn bg-status-warn/[0.07]',
+  info: 'border-l-2 border-l-transparent',
+  ok: 'border-l-2 border-l-status-ok bg-status-ok/[0.05]',
 }
 
 // Advisor renders one chart's explanation. Collapsed to its headline by default
 // — a reader scanning twenty charts wants the numbers and a colour, not twenty
 // paragraphs — and expandable for the reasoning and the recommendation.
 export function Advisor({ a }) {
-  const [open, setOpen] = useState(false)
+  // A finding opens by default. The collapse exists so twenty healthy charts do
+  // not bury the page in prose, and a chart that has actually found something is
+  // the opposite case — hiding that behind a click is how it gets missed.
+  const alarming = a && (a.level === 'crit' || a.level === 'warn')
+  const [open, setOpen] = useState(alarming)
   if (!a) return null
+  const Glyph = VERDICT_ICON[a.level] || Icon.StatusInfo
   return (
-    <div className="border-t border-border/60 px-3 py-2">
+    <div className={`border-t border-border/60 px-3 py-2 ${ADVISOR_TONE[a.level] || ''}`}>
       <button className="flex w-full items-start gap-2 text-left" onClick={() => setOpen(!open)}>
-        <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${ADVISOR_DOT[a.level] || 'bg-muted'}`} />
+        <Glyph size={13} className={`mt-0.5 shrink-0 ${VERDICT_TEXT[a.level] || 'text-muted'}`} />
         <span className="flex-1 font-mono text-[11px] leading-relaxed text-fg">{a.headline}</span>
         <Icon.Chevron size={13} className={`mt-0.5 shrink-0 text-muted transition ${open ? 'rotate-180' : ''}`} />
       </button>
-      {open && <p className="mt-1.5 pl-3.5 text-[11px] leading-relaxed text-muted">{a.detail}</p>}
+      {open && <VerdictBody v={a} className="pl-[21px]" />}
     </div>
   )
 }

@@ -60,7 +60,15 @@ type vsVerdict struct {
 	Title    string `json:"title"`
 	Level    string `json:"level"`    // "ok" | "info" | "warn" | "crit"
 	Headline string `json:"headline"` // the number this turns on
-	Detail   string `json:"detail"`   // one sentence: why, and what to do about it
+	Detail   string `json:"detail"`   // why, and what to do — the two below, joined
+	// Means and Action are Detail's two halves kept apart, because they answer
+	// different questions and a reader looking at a chart usually wants only one
+	// of them: Means explains what the series on the chart *is*, Action says what
+	// to do about the value it reached. Verdicts assembled by advice() set both;
+	// the handful built field-by-field set only Detail, and the UI falls back to
+	// it. Detail stays populated either way so nothing downstream has to care.
+	Means  string `json:"means,omitempty"`
+	Action string `json:"action,omitempty"`
 }
 
 type vsModel struct {

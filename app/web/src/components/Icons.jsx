@@ -202,6 +202,37 @@ export const Icon = {
       <polyline points="6 9 12 15 18 9" />
     </Svg>
   ),
+  // The four verdict glyphs. A status is never colour alone — these ship beside
+  // the colour and the word, so the reading survives a greyscale print and a
+  // colour-blind reader. Their silhouettes are deliberately different at small
+  // sizes: a circle, a triangle, an octagon, a bare dot.
+  StatusOk: (p) => (
+    <Svg {...p}>
+      <circle cx="12" cy="12" r="9" />
+      <polyline points="8 12 11 15 16 9" />
+    </Svg>
+  ),
+  StatusWarn: (p) => (
+    <Svg {...p}>
+      <path d="M12 3.5 21 19H3z" />
+      <line x1="12" y1="9.5" x2="12" y2="14" />
+      <line x1="12" y1="16.5" x2="12" y2="16.5" />
+    </Svg>
+  ),
+  StatusCrit: (p) => (
+    <Svg {...p}>
+      <path d="M8.4 3h7.2L21 8.4v7.2L15.6 21H8.4L3 15.6V8.4z" />
+      <line x1="12" y1="8" x2="12" y2="12.5" />
+      <line x1="12" y1="16" x2="12" y2="16" />
+    </Svg>
+  ),
+  StatusInfo: (p) => (
+    <Svg {...p}>
+      <circle cx="12" cy="12" r="9" />
+      <line x1="12" y1="11" x2="12" y2="16.5" />
+      <line x1="12" y1="7.8" x2="12" y2="7.8" />
+    </Svg>
+  ),
   Drag: (p) => (
     <Svg {...p}>
       <circle cx="9" cy="6" r="1.3" fill="currentColor" stroke="none" />

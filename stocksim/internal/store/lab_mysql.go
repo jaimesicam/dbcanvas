@@ -468,30 +468,29 @@ func (s *mysqlStore) RunWritePressure(ctx context.Context, mode string, n int, b
 	res := WriteResult{Mode: mode}
 	switch mode {
 	case WritePressureCommits:
-		now := time.Now().UTC()
-		deadline := writeDeadline(start, budget)
-		for i := 0; i < n; i++ {
-			// Checked before the statement rather than after, and against a
-			// deadline rather than a cancelled context: cancelling mid-statement
-			// would surface as an error, and this is a clean stop rather than a
-			// failure.
-			if !deadline.IsZero() && time.Now().After(deadline) {
-				res.Capped = true
-				break
-			}
-			// Autocommit: each statement is its own transaction and its own
-			// commit. No explicit BEGIN, because wrapping them would be one
-			// commit for the batch and would measure the opposite of the point.
-			if _, err := conn.ExecContext(ctx,
-				"UPDATE lab_hotrows SET counter = counter + 1, updated_at = ? WHERE id = ?",
-				now, commitRowID(i)); err != nil {
-				return WriteResult{}, err
-			}
-			res.Commits++
-			if ctx.Err() != nil {
-				break
-			}
+		// Spread over WriteFanout connections — see that constant for why one is
+		// not enough. The counters are still read once, on this connection,
+		// around the whole batch, so the measurement stays single-sourced no
+		// matter how many writers produced the work.
+		done, capped, err := runCommitFanout(ctx, start, budget, n,
+			func(ctx context.Context, i int) error {
+				c, err := s.db.Conn(ctx)
+				if err != nil {
+					return err
+				}
+				defer c.Close()
+				// Autocommit: each statement is its own transaction and its own
+				// commit. No explicit BEGIN, because wrapping them would be one
+				// commit for the batch and would measure the opposite of the point.
+				_, err = c.ExecContext(ctx,
+					"UPDATE lab_hotrows SET counter = counter + 1, updated_at = ? WHERE id = ?",
+					time.Now().UTC(), commitRowID(i))
+				return err
+			})
+		if err != nil {
+			return WriteResult{}, err
 		}
+		res.Commits, res.Capped = done, capped
 		res.Description = writeCommitsDescription(res.Commits, n, res.Capped)
 	case WritePressureRedo:
 		tx, err := conn.BeginTx(ctx, nil)

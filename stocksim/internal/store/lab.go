@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -127,6 +128,17 @@ const LabBulkPayload = 4096
 // this application can ask for, and the knob is meant to degrade a server
 // visibly, not to wedge it beyond the point where anything else can be observed.
 const MaxScanRate = 120
+
+// WriteFanout is how many connections the commits mode spreads its batch over.
+//
+// One connection cannot produce a commit storm. Each tiny transaction is a round
+// trip and a durable flush, so a single connection's rate is capped by latency
+// no matter what is asked of it — a live run against a 4 GB-pool server managed
+// 230 fsyncs/s combined, under the 300 at which the fsync advisor has anything
+// to say. A real commit storm is many clients committing at once, which is both
+// the honest shape of the problem and the only way to reach a rate worth
+// measuring. Kept modest so the knob does not become a connection-count test.
+const WriteFanout = 4
 
 // MaxCommitRate bounds tiny commits per second. Beyond a few thousand the
 // bottleneck stops being the server and starts being this application's own
@@ -370,6 +382,72 @@ func writeDeadline(start time.Time, budget time.Duration) time.Time {
 		return time.Time{}
 	}
 	return start.Add(budget)
+}
+
+// runCommitFanout drives one commits-mode batch across WriteFanout goroutines,
+// stopping every one of them when the budget runs out, and reports how many
+// commits actually landed.
+//
+// commit does one tiny transaction; the engine supplies it because the SQL and
+// the connection handling differ, and everything else about running a batch does
+// not. The first error from any worker wins and the rest wind down — a batch
+// that half-failed is not a measurement.
+func runCommitFanout(ctx context.Context, start time.Time, budget time.Duration, n int,
+	commit func(ctx context.Context, i int) error) (done int, capped bool, err error) {
+	deadline := writeDeadline(start, budget)
+	// Checked against a deadline rather than a cancelled context: cancelling
+	// mid-statement would surface as an error, and running out of budget is a
+	// clean stop rather than a failure.
+	expired := func() bool { return !deadline.IsZero() && time.Now().After(deadline) }
+
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	next := 0
+	take := func() (int, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		if next >= n || err != nil {
+			return 0, false
+		}
+		i := next
+		next++
+		return i, true
+	}
+
+	for w := 0; w < WriteFanout; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				if ctx.Err() != nil {
+					return
+				}
+				if expired() {
+					mu.Lock()
+					capped = true
+					mu.Unlock()
+					return
+				}
+				i, ok := take()
+				if !ok {
+					return
+				}
+				if e := commit(ctx, i); e != nil {
+					mu.Lock()
+					if err == nil {
+						err = e
+					}
+					mu.Unlock()
+					return
+				}
+				mu.Lock()
+				done++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	return done, capped, err
 }
 
 func writeCommitsDescription(done, want int, capped bool) string {

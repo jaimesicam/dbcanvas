@@ -13002,3 +13002,89 @@ pair, that the contended and commit row ranges never overlap, and that an
 unreadable query plan is an error rather than a reading of zero rows.
 `go build/vet/test` and `gofmt -l` clean in both modules; `npm run build` and
 `npm run smoke` clean.
+
+## 241. Visual Summary: verdicts that read as verdicts, and the advisors tested against a server whose condition was known — `app/visualsummary{,_advice}.go`, `app/web/src/{index.css,pages/VisualSummary.jsx,components/Icons.jsx}`
+
+§240 gave four orphaned advisors a producer. This session ran them against a real
+capture to find out whether they were *right*, and rebuilt how a verdict looks so
+that a finding is visible without reading it.
+
+**Colour, computed rather than chosen.** The page used `--primary` for "ok",
+which is the brand indigo — so a healthy server and a button looked the same and
+nothing on the page read as *good*. The obvious fix, using the themed
+`--success`/`--warning`/`--danger`, is wrong for a different reason, and the
+`dataviz` skill's validator says so numerically: on the light theme that triad
+scores amber↔red **ΔE 14.4 to normal vision**, below the 15 floor, and on dark
+green↔amber scores **5.7 protan**. Two states a reader cannot separate are worse
+than one state, because they look like information.
+
+Three new tokens, `--status-ok/warn/crit`, reserved for verdicts and never reused
+as a series colour, validated against every surface they render on:
+
+    light surfaces   #047857 #ca8a04 #b91c1c   worst pair deutan ΔE 8.4, normal 22.6
+    dark surfaces    #34d399 #fde047 #f43f5e   worst pair deutan ΔE 12.0, normal 21.7
+
+They are the same two triads across all six themes, so "green means good" does
+not shift meaning when somebody switches theme. The lightness-band FAIL on the
+dark triad is expected and ignored for the documented reason: that check exists
+so no categorical *series* dominates, and a status colour is not a series — the
+validator's own scope note says as much. Colour is never the only signal. Every
+verdict carries an icon whose silhouette differs at 13px (circle, triangle,
+octagon, dot) and the word beside it, so the reading survives greyscale and
+colour-blind readers; the light amber sits just under 3:1, which obliges exactly
+that visible label.
+
+**More text, in two halves instead of one paragraph.** `advice()` was joining
+what a metric *is* and what to do about it into a single `Detail` blob. They
+answer different questions — a reader who already knows what
+`Handler_read_rnd_next` counts wants only the second — and run together, readers
+skip both. `vsVerdict` now carries `Means` and `Action` separately, rendered
+under their own labels; `Detail` stays populated so the handful of verdicts built
+field-by-field still render, and nothing downstream had to change. Advisors at
+warn or crit now open by default: the collapse exists so twenty healthy charts do
+not bury the page in prose, and a chart that has found something is the opposite
+case.
+
+**The advisors, against a server whose condition was known.** A stocksim node was
+pointed at a live stack's MySQL with §240's contention, scan and write knobs on,
+and a real pt-stalk archive was captured and parsed through `parsePtStalk`:
+
+    rowLockWaits         warn   32 waits/s              ✓ fired
+    handlerReadRndNext   warn   12.1k rows/s            ✓ fired, plus a top-level verdict
+    fsyncs               ok     118 data + 112 log/s    did not fire
+    checkpointAge        ok     8.7% of 1.00 GiB        did not fire
+
+The first two are confirmed end to end — knob to counter to advisor to verdict.
+The other two are the interesting half.
+
+**Why the fsync advisor stayed quiet, and what that turned out to mean.** The
+knob committed on one connection, and a single connection's rate is capped by
+round-trip latency however much is asked of it. Fanning the commits mode across
+four connections — which is the honest shape of a commit storm anyway — barely
+moved it: 134 commits a batch against 145 before. The reason is in the numbers
+the run produced: **99 log syncs for 134 commits**. InnoDB's group commit was
+already coalescing them, and fsync is serialised at the device, so more clients
+cannot beat the disk. The fanout is kept because it is the right model and will
+matter on faster storage, but it is recorded here that it bought nothing on this
+host. The advisor is not miscalibrated — 230 fsyncs/s genuinely is not much.
+
+**Why the checkpoint advisor stayed quiet, and the one thing that was actually
+wrong.** Checkpoint age is a race between redo being written and the page cleaner
+flushing it away, and the advisor only speaks at 50% of the redo log. The redo
+knob was writing 1 MiB/s against a 1 GiB log: the cleaner won every time and the
+metric never moved. That is a knob that cannot produce the condition it exists
+for, so the batch sizes were raised eight-fold to 2/8/32 MiB per second. Checkpoint
+age then went from 8.7% to **32%** and plateaued there — visible, and still short
+of the 50% warn. That last part is the advisor being correct rather than deaf: a
+1 GiB redo log with a page cleaner that keeps up genuinely does have headroom. To
+see that advisor warn, shrink `innodb_redo_log_capacity` — which is the advice it
+gives, in reverse.
+
+Nine new render checks covering both text paths (means+action, means only, detail
+only, neither) and every verdict level including an unknown one, since an advisor
+reaching for a missing icon renders `<undefined />` and blanks the page — the bug
+the smoke file was written for. One new store test pins that the commits fanout
+cannot self-contend: it hands out consecutive rows, so as long as there are more
+commit rows than concurrent writers two writers can never collide, and an fsync
+measurement can never quietly become a contention one. `go build/vet/test` and
+`gofmt -l` clean in both modules; `npm run build` and `npm run smoke` clean.
