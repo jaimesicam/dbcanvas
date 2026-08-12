@@ -95,14 +95,18 @@ func main() {
 		}
 	}
 
-	// The three lab knobs, all off unless asked for. Each exists to make the
-	// target exhibit one measurable pathology; see internal/sim/lab.go.
+	// The lab knobs, all off unless asked for. Each exists to make the target
+	// exhibit one measurable pathology; see internal/sim/lab.go and
+	// internal/sim/labstress.go.
 	//
 	// IDLE_TXN holds a transaction open with a read snapshot ("30m", "2h", max
 	// 24h) so purge cannot advance and the history list grows. EXTRA_TABLES
 	// creates that many synthetic tables and reads them in rotation, for table
 	// cache pressure. TEMP_TABLES is off | memory | disk, for a query shaped to
-	// build a large intermediate result.
+	// build a large intermediate result. LOCK_CONTENTION is off | light | heavy,
+	// for writers competing over a few rows. SCAN_QUERIES is how many index-less
+	// reads to run per minute. WRITE_PRESSURE is off | commits | redo, for the
+	// two distinct shapes of write cost.
 	idleTxn := time.Duration(0)
 	if v := strings.TrimSpace(os.Getenv("IDLE_TXN")); v != "" && !strings.EqualFold(v, "off") {
 		if d, err := time.ParseDuration(v); err != nil {
@@ -116,6 +120,17 @@ func main() {
 	if !store.ValidTempMode(tempTables) {
 		log.Printf("stocksim: ignoring TEMP_TABLES=%q (want off, memory or disk)", tempTables)
 		tempTables = store.TempOff
+	}
+	lockContention := strings.ToLower(strings.TrimSpace(envOr("LOCK_CONTENTION", store.ContentionOff)))
+	if !store.ValidContentionMode(lockContention) {
+		log.Printf("stocksim: ignoring LOCK_CONTENTION=%q (want off, light or heavy)", lockContention)
+		lockContention = store.ContentionOff
+	}
+	scanRate := store.ClampScanRate(envInt("SCAN_QUERIES", 0))
+	writePressure := strings.ToLower(strings.TrimSpace(envOr("WRITE_PRESSURE", store.WritePressureOff)))
+	if !store.ValidWritePressureMode(writePressure) {
+		log.Printf("stocksim: ignoring WRITE_PRESSURE=%q (want off, commits or redo)", writePressure)
+		writePressure = store.WritePressureOff
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -145,6 +160,9 @@ func main() {
 	engine.IdleTxn = idleTxn
 	engine.ExtraTables = extraTables
 	engine.TempTables = tempTables
+	engine.LockContention = lockContention
+	engine.ScanRate = scanRate
+	engine.WritePressure = writePressure
 	h := api.New(engine, st, webFS)
 	srv := &http.Server{Addr: ":" + port, Handler: h.Routes()}
 
@@ -174,9 +192,10 @@ func main() {
 	}()
 
 	log.Printf("stocksim: listening on :%s (engine=%s, objects in %s, target=%s, threads=%d, "+
-		"idle txn=%s, extra tables=%d, temp tables=%s)",
+		"idle txn=%s, extra tables=%d, temp tables=%s, lock contention=%s, scans/min=%d, "+
+		"write pressure=%s)",
 		port, cfg.Engine, st.Location(), describeTarget(cfg, targetLabel), cfg.Threads,
-		durationWord(idleTxn), extraTables, tempTables)
+		durationWord(idleTxn), extraTables, tempTables, lockContention, scanRate, writePressure)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("stocksim: %v", err)
 	}

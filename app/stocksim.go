@@ -122,9 +122,12 @@ type stockSimConfig struct {
 	WorkingSet string `json:"workingSet"`
 	Threads    int    `json:"threads"`
 	// The lab knobs actually in force, resolved against the engine.
-	IdleTxn     string `json:"idleTxn,omitempty"`
-	ExtraTables int    `json:"extraTables,omitempty"`
-	TempTables  string `json:"tempTables,omitempty"`
+	IdleTxn        string `json:"idleTxn,omitempty"`
+	ExtraTables    int    `json:"extraTables,omitempty"`
+	TempTables     string `json:"tempTables,omitempty"`
+	LockContention string `json:"lockContention,omitempty"`
+	ScanQueries    int    `json:"scanQueries,omitempty"`
+	WritePressure  string `json:"writePressure,omitempty"`
 }
 
 // stockSimSecrets holds the credentials a manual-mode node was configured with,
@@ -712,6 +715,9 @@ func (a *App) provisionStockSim(st Stack, n designNode, doc designDoc) {
 		}
 		cfg.ExtraTables = stockSimExtraTables(n, cfg.Engine)
 		cfg.TempTables = stockSimTempTables(n, cfg.Engine)
+		cfg.LockContention = stockSimLockContention(n, cfg.Engine)
+		cfg.ScanQueries = stockSimScanQueries(n, cfg.Engine)
+		cfg.WritePressure = stockSimWritePressure(n, cfg.Engine)
 		env = append(env,
 			"DB_NAME="+cfg.Database,
 			"TARGET_KIND="+cfg.TargetKind,
@@ -722,6 +728,9 @@ func (a *App) provisionStockSim(st Stack, n designNode, doc designDoc) {
 			"IDLE_TXN="+cfg.IdleTxn,
 			fmt.Sprintf("EXTRA_TABLES=%d", cfg.ExtraTables),
 			"TEMP_TABLES="+cfg.TempTables,
+			"LOCK_CONTENTION="+cfg.LockContention,
+			fmt.Sprintf("SCAN_QUERIES=%d", cfg.ScanQueries),
+			"WRITE_PRESSURE="+cfg.WritePressure,
 			fmt.Sprintf("PORT=%d", stockSimPort),
 		)
 		if cfg.TargetBytes > 0 {
@@ -1549,36 +1558,53 @@ func (a *App) waitStockSimHealthy(ctx context.Context, containerID string, timeo
 
 // ---------------------------------------------------------------- lab knobs
 
-// The three deliberately-pathological options, mirrored from the sim image so a
-// bad value is caught on the canvas rather than inside a container.
+// The deliberately-pathological options, mirrored from the sim image so a bad
+// value is caught on the canvas rather than inside a container.
 const (
 	stockSimMaxIdleTxn     = 24 * time.Hour // mirrors store.MaxIdleTransaction
 	stockSimMaxExtraTables = 5000           // mirrors store.MaxExtraTables
+	stockSimMaxScanRate    = 120            // mirrors store.MaxScanRate
 )
 
 // stockSimTempModes mirrors store.TempOff/TempMemory/TempDisk.
 var stockSimTempModes = map[string]bool{"off": true, "memory": true, "disk": true}
 
+// stockSimContentionModes mirrors store.ContentionOff/Light/Heavy, and
+// stockSimWriteModes store.WritePressureOff/Commits/Redo.
+var (
+	stockSimContentionModes = map[string]bool{"off": true, "light": true, "heavy": true}
+	stockSimWriteModes      = map[string]bool{"off": true, "commits": true, "redo": true}
+)
+
 // stockSimLabSupport mirrors each store's Capabilities(). Which knobs do
 // anything depends on the engine, and the form uses this to hide the ones that
 // would silently do nothing rather than offering a dead control.
 type stockSimLabSupport struct {
-	IdleTxn     bool
-	ExtraTables bool
-	TempTables  bool
+	IdleTxn        bool
+	ExtraTables    bool
+	TempTables     bool
+	LockContention bool
+	ScanQueries    bool
+	WritePressure  bool
 }
 
 func stockSimLabFor(engine string) stockSimLabSupport {
 	switch engine {
 	case "mysql", "postgres":
-		return stockSimLabSupport{IdleTxn: true, ExtraTables: true, TempTables: true}
+		return stockSimLabSupport{
+			IdleTxn: true, ExtraTables: true, TempTables: true,
+			LockContention: true, ScanQueries: true, WritePressure: true,
+		}
 	case "mongodb":
-		// Collections are the table-handle analogue; transactions need a replica
-		// set this node may not be pointed at, and a spilling aggregation is a
-		// flag rather than a memory limit. See store/lab_other.go.
-		return stockSimLabSupport{ExtraTables: true}
+		// Collections are the table-handle analogue and a collection scan is a
+		// table scan; transactions need a replica set this node may not be
+		// pointed at, a spilling aggregation is a flag rather than a memory
+		// limit, WiredTiger's write conflicts are retries rather than lock
+		// waits, and a standalone mongod's journal flushes on an interval rather
+		// than per commit. See store/lab_other.go.
+		return stockSimLabSupport{ExtraTables: true, ScanQueries: true}
 	}
-	return stockSimLabSupport{} // valkey: none of the three exist there
+	return stockSimLabSupport{} // valkey: none of them exist there
 }
 
 // stockSimIdleTxn resolves the hold duration, clamped. Empty or "off" is zero.
@@ -1618,7 +1644,33 @@ func stockSimTempTables(n designNode, engine string) string {
 	return mode
 }
 
-// stockSimLabIssues validates all three against the resolved engine.
+func stockSimLockContention(n designNode, engine string) string {
+	mode := strings.ToLower(strings.TrimSpace(n.SSLockContention))
+	if !stockSimLabFor(engine).LockContention || mode == "" || !stockSimContentionModes[mode] {
+		return "off"
+	}
+	return mode
+}
+
+func stockSimScanQueries(n designNode, engine string) int {
+	if !stockSimLabFor(engine).ScanQueries || n.SSScanQueries <= 0 {
+		return 0
+	}
+	if n.SSScanQueries > stockSimMaxScanRate {
+		return stockSimMaxScanRate
+	}
+	return n.SSScanQueries
+}
+
+func stockSimWritePressure(n designNode, engine string) string {
+	mode := strings.ToLower(strings.TrimSpace(n.SSWritePressure))
+	if !stockSimLabFor(engine).WritePressure || mode == "" || !stockSimWriteModes[mode] {
+		return "off"
+	}
+	return mode
+}
+
+// stockSimLabIssues validates all six against the resolved engine.
 func stockSimLabIssues(n designNode, engine string) []issue {
 	var out []issue
 	caps := stockSimLabFor(engine)
@@ -1673,6 +1725,58 @@ func stockSimLabIssues(n designNode, engine string) []issue {
 		case !caps.TempTables:
 			out = append(out, issue{"warning", fmt.Sprintf(
 				"Stock Market Sim node %s asks for %s temporary tables, which will be ignored: %s has no query planner that materialises intermediate results.",
+				n.Label, mode, label)})
+		}
+	}
+
+	if mode := strings.ToLower(strings.TrimSpace(n.SSLockContention)); mode != "" && mode != "off" {
+		switch {
+		case !stockSimContentionModes[mode]:
+			out = append(out, issue{"error", fmt.Sprintf(
+				"Stock Market Sim node %s has an invalid lock-contention mode %q — choose off, light or heavy",
+				n.Label, mode)})
+		case !caps.LockContention:
+			out = append(out, issue{"warning", fmt.Sprintf(
+				"Stock Market Sim node %s asks for %s lock contention, which will be ignored: %s has no row lock a writer can take and hold.",
+				n.Label, mode, label)})
+		case mode == "heavy":
+			// Heavy does not merely slow things down — it makes the server kill
+			// transactions. Worth saying before it happens rather than after.
+			out = append(out, issue{"info", fmt.Sprintf(
+				"Stock Market Sim node %s will run heavy lock contention: writers take the same rows in opposite orders, so the server will detect real deadlocks and roll transactions back. The rollbacks are the sim's own and reach no trading data, but the deadlock counter on %s is going to climb.",
+				n.Label, label)})
+		}
+	}
+
+	if n.SSScanQueries > 0 {
+		switch {
+		case !caps.ScanQueries:
+			out = append(out, issue{"warning", fmt.Sprintf(
+				"Stock Market Sim node %s asks for %d scan queries a minute, which will be ignored: %s has no planner that can be made to read every row.",
+				n.Label, n.SSScanQueries, label)})
+		case n.SSScanQueries > stockSimMaxScanRate:
+			out = append(out, issue{"warning", fmt.Sprintf(
+				"Stock Market Sim node %s asks for %d scan queries a minute; it will be capped at %d",
+				n.Label, n.SSScanQueries, stockSimMaxScanRate)})
+		default:
+			// A full scan of the tick history is the single most expensive thing
+			// this app can ask for, and it scales with the dataset — so the same
+			// number that is harmless at 100 MB is not at 5 GB.
+			out = append(out, issue{"info", fmt.Sprintf(
+				"Stock Market Sim node %s will run %d full scans of the tick history a minute. Each one reads the whole table, so the cost grows with the size target — expect it to dominate the node's I/O once the dataset is large.",
+				n.Label, n.SSScanQueries)})
+		}
+	}
+
+	if mode := strings.ToLower(strings.TrimSpace(n.SSWritePressure)); mode != "" && mode != "off" {
+		switch {
+		case !stockSimWriteModes[mode]:
+			out = append(out, issue{"error", fmt.Sprintf(
+				"Stock Market Sim node %s has an invalid write-pressure mode %q — choose off, commits or redo",
+				n.Label, mode)})
+		case !caps.WritePressure:
+			out = append(out, issue{"warning", fmt.Sprintf(
+				"Stock Market Sim node %s asks for %s write pressure, which will be ignored: %s has no per-commit durable flush for it to cost anything.",
 				n.Label, mode, label)})
 		}
 	}

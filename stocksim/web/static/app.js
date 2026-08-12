@@ -221,9 +221,9 @@ function renderRetention(r) {
   $('#ret-note').textContent = r.note || ''
 }
 
-// renderLab shows the three knobs whose job is to degrade the target on
-// purpose. Each row says what it is doing right now, so a history list climbing
-// on a monitoring dashboard can be tied back to the thing causing it.
+// renderLab shows the knobs whose job is to degrade the target on purpose. Each
+// row says what it is doing right now, so a history list climbing on a
+// monitoring dashboard can be tied back to the thing causing it.
 function renderLab(l) {
   const panel = $('#lab-panel')
   if (!l) { panel.classList.add('hidden'); return }
@@ -241,6 +241,27 @@ function renderLab(l) {
     const spill = l.tempRuns ? ` · ${nf0.format(l.tempSpills)} of ${nf0.format(l.tempRuns)} spilled to disk` : ''
     rows.push([`Temp tables (${l.tempMode})`, l.tempRuns ? 'active' : 'starting',
       `${l.tempNote || ''}${spill}`])
+  }
+  if (l.contentionMode && l.contentionMode !== 'off') {
+    // Deadlocks lead, because a deadlock is the finding — a wait is a
+    // measurement, but a deadlock is a transaction the server had to kill.
+    const dl = l.contentionDeadlocks
+      ? ` · ${nf0.format(l.contentionDeadlocks)} deadlocks`
+      : ''
+    rows.push([`Lock contention (${l.contentionMode})`, l.contentionRuns ? 'active' : 'starting',
+      `${l.contentionNote || ''}${dl}`])
+  }
+  if (l.scanRate > 0) {
+    const ratio = l.scanRowsReturned
+      ? ` · ${nf0.format(Math.round(l.scanRowsRead / l.scanRowsReturned))} rows read per row returned`
+      : ''
+    rows.push(['Scan queries', l.scanRuns ? 'active' : 'starting',
+      `${l.scanNote || ''}${ratio}`])
+  }
+  if (l.writeMode && l.writeMode !== 'off') {
+    const syncs = l.writeMeasured ? ` · ${nf0.format(l.writeSyncs || 0)} log syncs` : ''
+    rows.push([`Write pressure (${l.writeMode})`, l.writeBatches ? 'active' : 'starting',
+      `${l.writeNote || ''}${syncs}`])
   }
   if (rows.length === 0) { panel.classList.add('hidden'); return }
   panel.classList.remove('hidden')

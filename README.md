@@ -145,16 +145,27 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
   default) so the order book stays bounded — without it the dashboard's own two-second order
   count grows linearly more expensive for the life of the deployment, and cumulative figures
   stay correct across the sweep because what was removed is tallied durably.
-  Three **deliberate problems** can also be switched on, each reproducing a condition that is
+  Six **deliberate problems** can also be switched on, each reproducing a condition that is
   hard to cause on purpose and easy to hit by accident: an **idle transaction** held open with
   a read snapshot (up to 24h) so purge cannot advance and the InnoDB history list — or
   PostgreSQL's xmin horizon and the bloat behind it — grows for as long as it sits there;
   **extra tables** (up to 5000, read in rotation) so `table_open_cache` stops holding the
-  working set and every query pays to reopen one; and **temporary-table queries** shaped to
-  build a large intermediate result either in memory or forced to spill to disk. Measured on a
-  lab server: history list 6,496 and climbing, 15,896 `Table_open_cache_overflows` against
-  1,200 tables and a 400-entry cache, and the same rollup taking 1,961 ms spilled versus
-  429 ms in memory. Each knob is offered only on an engine that can actually do it. On MySQL, PostgreSQL and MongoDB it takes its own database or
+  working set and every query pays to reopen one; **temporary-table queries** shaped to
+  build a large intermediate result either in memory or forced to spill to disk;
+  **lock contention**, where concurrent writers compete for a handful of rows — queueing on
+  *light*, and on *heavy* taking the same two rows in opposite orders so the server has to
+  detect and break real deadlocks; **scan queries** against the tick history with a predicate
+  no index can serve, so the server reads every row to return a handful; and **write
+  pressure** in either of its two distinct shapes — *commits*, many tiny transactions that
+  each pay for their own log flush, or *redo*, bulk rewrites that fill the write-ahead log and
+  eat checkpoint headroom. Measured on a lab server: history list 6,496 and climbing, 15,896
+  `Table_open_cache_overflows` against 1,200 tables and a 400-entry cache, the same rollup
+  taking 1,961 ms spilled versus 429 ms in memory, 364 deadlocks a minute on *heavy* against
+  none on *light*, 11.0M rows read to return 122,949 (about 90 read per row returned), and one
+  second of *commits* costing 142 log syncs for 176 KiB against *redo*'s 18 syncs for 2.2 MiB —
+  the same knob, opposite costs. Nothing grows: the contended and committed writes go to rows
+  this app owns, and the bulk rewrites overwrite a fixed 256 rows in place.
+  Each knob is offered only on an engine that can actually do it. On MySQL, PostgreSQL and MongoDB it takes its own database or
   schema; on Valkey there is no size target and no working set, because its tick history is a
   length-capped stream that writing to does not enlarge and that holds no cold data to read.
   Unlike **Unoptimized MySQL Challenge** above — also a stock

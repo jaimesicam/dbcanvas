@@ -3,16 +3,39 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	mysqldriver "github.com/go-sql-driver/mysql"
 )
+
+// safeStatusName is the guard that keeps an interpolated status-variable name
+// safe. The name has to be interpolated rather than bound — a placeholder is a
+// syntax error in SHOW … LIKE, which is the bug §239 shipped and then found —
+// so every name that reaches the SQL passes through here first. Names come only
+// from constants in this package; this exists so that stays true.
+func safeStatusName(name string) error {
+	if name == "" {
+		return fmt.Errorf("refusing to read an unnamed status variable")
+	}
+	for _, r := range name {
+		if !(r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')) {
+			return fmt.Errorf("refusing to read status variable %q", name)
+		}
+	}
+	return nil
+}
 
 // MySQL's lab knobs. It can do all three, and is the engine every one of them
 // was designed against.
 
 func (s *mysqlStore) Capabilities() LabSupport {
-	return LabSupport{IdleTransaction: true, ExtraTables: true, TempTables: true}
+	return LabSupport{
+		IdleTransaction: true, ExtraTables: true, TempTables: true,
+		LockContention: true, ScanQueries: true, WritePressure: true,
+	}
 }
 
 // HoldIdleTransaction is the history-list-length generator.
@@ -230,6 +253,314 @@ func (s *mysqlStore) RunTempTableQuery(ctx context.Context, mode string) (TempQu
 	}, nil
 }
 
+// EnsureLabTables seeds the two fixed-size tables the contention, commit and
+// redo knobs write to. Idempotent: INSERT IGNORE leaves an existing row alone,
+// so a redeploy reuses what is already there.
+func (s *mysqlStore) EnsureLabTables(ctx context.Context) error {
+	now := time.Now().UTC()
+	for i := 0; i < LabHotRows; i++ {
+		if _, err := s.db.ExecContext(ctx,
+			"INSERT IGNORE INTO lab_hotrows (id, counter, updated_at) VALUES (?, 0, ?)",
+			hotRowID(i), now); err != nil {
+			return err
+		}
+	}
+	for i := 0; i < labCommitRows; i++ {
+		if _, err := s.db.ExecContext(ctx,
+			"INSERT IGNORE INTO lab_hotrows (id, counter, updated_at) VALUES (?, 0, ?)",
+			commitRowID(i), now); err != nil {
+			return err
+		}
+	}
+	for i := 1; i <= LabBulkRows; i++ {
+		if _, err := s.db.ExecContext(ctx,
+			"INSERT IGNORE INTO lab_bulk (id, payload, updated_at) VALUES (?, ?, ?)",
+			i, labPayload(int64(i)), now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RunContendedUpdate is the row-lock-wait generator.
+//
+// It takes an explicit row lock with SELECT … FOR UPDATE, holds it briefly, then
+// writes under it. Several of these running at once over a smaller set of rows
+// is all row lock contention is; what varies between the modes is the order the
+// rows are taken in, which is what turns waiting into deadlocking. See
+// contentionPlan.
+//
+// A deadlock (1213) and a lock wait timeout (1205) are returned as results, not
+// errors. They are the condition this exists to produce — reporting a
+// successfully-provoked deadlock as a failure would put it in the error banner
+// instead of on the chart where it belongs.
+func (s *mysqlStore) RunContendedUpdate(ctx context.Context, mode string, worker int) (ContentionResult, error) {
+	if mode == ContentionOff {
+		return ContentionResult{}, nil
+	}
+	ids, hold, err := contentionPlan(mode, worker)
+	if err != nil {
+		return ContentionResult{}, err
+	}
+
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return ContentionResult{}, err
+	}
+	defer conn.Close()
+	// Shorter than the server default of 50s. A worker parked for most of a
+	// minute stops producing the churn the knob exists for, and a timeout is
+	// itself a result worth reporting quickly.
+	conn.ExecContext(ctx, "SET SESSION innodb_lock_wait_timeout = 10")
+
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return ContentionResult{}, err
+	}
+	defer tx.Rollback()
+
+	start := time.Now()
+	var waited time.Duration
+	for _, id := range ids {
+		lockStart := time.Now()
+		var c int64
+		if err := tx.QueryRowContext(ctx,
+			"SELECT counter FROM lab_hotrows WHERE id = ? FOR UPDATE", id).Scan(&c); err != nil {
+			if res, ok := mysqlContentionOutcome(err, waited+time.Since(lockStart), mode, ids); ok {
+				return res, nil
+			}
+			return ContentionResult{}, err
+		}
+		// Time spent inside the lock request is time blocked behind somebody
+		// else — the wait itself, kept apart from the hold below so the two are
+		// never confused for each other.
+		waited += time.Since(lockStart)
+
+		// Hold after *each* acquisition, not only after the last. This is what
+		// makes Heavy work: with the hold at the end, the gap between taking the
+		// first row and asking for the second is one round trip, and two workers
+		// approaching the same pair from opposite ends almost never interleave
+		// inside it — the first one through takes both locks and the second
+		// simply queues. Holding between the two acquisitions widens that gap to
+		// the hold, so the cycle forms every time. Live testing found this: the
+		// first version produced thousands of lock waits and not one deadlock.
+		//
+		// For Light, which takes a single row, this is the same hold in the same
+		// place it always was.
+		select {
+		case <-ctx.Done():
+			return ContentionResult{}, ctx.Err()
+		case <-time.After(hold):
+		}
+	}
+
+	for _, id := range ids {
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE lab_hotrows SET counter = counter + 1, updated_at = ? WHERE id = ?",
+			time.Now().UTC(), id); err != nil {
+			if res, ok := mysqlContentionOutcome(err, waited, mode, ids); ok {
+				return res, nil
+			}
+			return ContentionResult{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		if res, ok := mysqlContentionOutcome(err, waited, mode, ids); ok {
+			return res, nil
+		}
+		return ContentionResult{}, err
+	}
+	return ContentionResult{
+		Waited: waited, Duration: time.Since(start),
+		Description: contentionDescription(mode, ids),
+	}, nil
+}
+
+// mysqlContentionOutcome recognises the two errors that are actually results.
+// Anything else is a genuine failure and is passed back to the caller.
+func mysqlContentionOutcome(err error, waited time.Duration, mode string, ids []int) (ContentionResult, bool) {
+	var me *mysqldriver.MySQLError
+	if !errors.As(err, &me) {
+		return ContentionResult{}, false
+	}
+	switch me.Number {
+	case 1213: // ER_LOCK_DEADLOCK
+		return ContentionResult{
+			Waited: waited, Duration: waited, Deadlock: true,
+			Description: contentionDescription(mode, ids) + " — deadlock, this transaction was rolled back",
+		}, true
+	case 1205: // ER_LOCK_WAIT_TIMEOUT
+		return ContentionResult{
+			Waited: waited, Duration: waited, Timeout: true,
+			Description: contentionDescription(mode, ids) + " — lock wait timed out",
+		}, true
+	}
+	return ContentionResult{}, false
+}
+
+// mysqlScanQuery has a predicate on a column with no index on it, so there is no
+// access path but reading every row. It deliberately does no grouping and no
+// sorting: this knob is about the scan, and a GROUP BY would drag the
+// temporary-table pathology in and make the two impossible to tell apart on a
+// chart.
+const mysqlScanQuery = `
+	SELECT COUNT(*), COALESCE(SUM(volume), 0)
+	FROM price_ticks
+	WHERE volume BETWEEN ? AND ?`
+
+// RunScanQuery runs that, and confirms from Handler_read_rnd_next — the
+// server's count of rows read from a full scan, session-scoped — that it really
+// did read the table rather than finding an index to use.
+func (s *mysqlStore) RunScanQuery(ctx context.Context) (ScanResult, error) {
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return ScanResult{}, err
+	}
+	defer conn.Close()
+
+	before, err := mysqlSessionCounter(ctx, conn, "Handler_read_rnd_next")
+	if err != nil {
+		return ScanResult{}, err
+	}
+	lo, hi := scanRange()
+	start := time.Now()
+	var matched, total int64
+	if err := conn.QueryRowContext(ctx, mysqlScanQuery, lo, hi).Scan(&matched, &total); err != nil {
+		return ScanResult{}, err
+	}
+	took := time.Since(start)
+	after, err := mysqlSessionCounter(ctx, conn, "Handler_read_rnd_next")
+	if err != nil {
+		return ScanResult{}, err
+	}
+
+	read := after - before
+	return ScanResult{
+		Rows: int(matched), RowsRead: read, Scanned: read > 0, Duration: took,
+		Description: scanDescription(lo, hi),
+	}, nil
+}
+
+// RunWritePressure does one batch in the shape asked for.
+//
+// Commits is n separate autocommitted single-row updates — one transaction, one
+// log flush each — which is what makes the cost fsyncs rather than throughput.
+// Redo is one transaction rewriting n wide rows, which dirties pages and fills
+// the log without committing often.
+//
+// Both are measured from the server's own log counters across the batch. Those
+// are global rather than session-scoped, so a busy neighbour can move them; the
+// batch sizes are large enough that the signal dominates, and the note on the
+// panel says which mode produced it.
+func (s *mysqlStore) RunWritePressure(ctx context.Context, mode string, n int, budget time.Duration) (WriteResult, error) {
+	if mode == WritePressureOff || n <= 0 {
+		return WriteResult{Mode: WritePressureOff}, nil
+	}
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return WriteResult{}, err
+	}
+	defer conn.Close()
+
+	syncsBefore, bytesBefore, known := mysqlLogCounters(ctx, conn)
+	start := time.Now()
+
+	res := WriteResult{Mode: mode}
+	switch mode {
+	case WritePressureCommits:
+		now := time.Now().UTC()
+		deadline := writeDeadline(start, budget)
+		for i := 0; i < n; i++ {
+			// Checked before the statement rather than after, and against a
+			// deadline rather than a cancelled context: cancelling mid-statement
+			// would surface as an error, and this is a clean stop rather than a
+			// failure.
+			if !deadline.IsZero() && time.Now().After(deadline) {
+				res.Capped = true
+				break
+			}
+			// Autocommit: each statement is its own transaction and its own
+			// commit. No explicit BEGIN, because wrapping them would be one
+			// commit for the batch and would measure the opposite of the point.
+			if _, err := conn.ExecContext(ctx,
+				"UPDATE lab_hotrows SET counter = counter + 1, updated_at = ? WHERE id = ?",
+				now, commitRowID(i)); err != nil {
+				return WriteResult{}, err
+			}
+			res.Commits++
+			if ctx.Err() != nil {
+				break
+			}
+		}
+		res.Description = writeCommitsDescription(res.Commits, n, res.Capped)
+	case WritePressureRedo:
+		tx, err := conn.BeginTx(ctx, nil)
+		if err != nil {
+			return WriteResult{}, err
+		}
+		defer tx.Rollback()
+		now := time.Now().UTC()
+		for i := 0; i < n; i++ {
+			id := 1 + i%LabBulkRows
+			if _, err := tx.ExecContext(ctx,
+				"UPDATE lab_bulk SET payload = ?, updated_at = ? WHERE id = ?",
+				labPayload(now.UnixNano()+int64(i)), now, id); err != nil {
+				return WriteResult{}, err
+			}
+			res.Bytes += LabBulkPayload
+		}
+		if err := tx.Commit(); err != nil {
+			return WriteResult{}, err
+		}
+		res.Commits = 1
+		res.Description = fmt.Sprintf("one transaction rewriting %d rows of %s",
+			n, byteWord(int64(LabBulkPayload)))
+	default:
+		return WriteResult{}, fmt.Errorf("unknown write pressure mode %q", mode)
+	}
+	res.Duration = time.Since(start)
+
+	if known {
+		if syncsAfter, bytesAfter, ok := mysqlLogCounters(ctx, conn); ok {
+			res.Syncs = syncsAfter - syncsBefore
+			res.Bytes = bytesAfter - bytesBefore
+			res.SyncsKnown = true
+		}
+	}
+	return res, nil
+}
+
+// mysqlLogCounters reads the redo log's fsync count and bytes written. Both are
+// global status variables — InnoDB has no session-scoped equivalent — so the
+// third return value says whether they could be read at all rather than letting
+// an unreadable counter pass as a zero.
+func mysqlLogCounters(ctx context.Context, conn *sql.Conn) (syncs, bytes int64, ok bool) {
+	syncs, err := mysqlGlobalCounter(ctx, conn, "Innodb_os_log_fsyncs")
+	if err != nil {
+		return 0, 0, false
+	}
+	bytes, err = mysqlGlobalCounter(ctx, conn, "Innodb_os_log_written")
+	if err != nil {
+		return 0, 0, false
+	}
+	return syncs, bytes, true
+}
+
+// mysqlGlobalCounter is mysqlSessionCounter's server-wide sibling, with the same
+// interpolation guard and the same refusal to absorb an error.
+func mysqlGlobalCounter(ctx context.Context, conn *sql.Conn, name string) (int64, error) {
+	if err := safeStatusName(name); err != nil {
+		return 0, err
+	}
+	var k string
+	var v int64
+	if err := conn.QueryRowContext(ctx,
+		"SHOW GLOBAL STATUS LIKE '"+name+"'").Scan(&k, &v); err != nil {
+		return 0, fmt.Errorf("read %s: %w", name, err)
+	}
+	return v, nil
+}
+
 // mysqlSessionCounter reads one SHOW SESSION STATUS counter, session-scoped so
 // concurrent work on other connections cannot be mistaken for this query's.
 //
@@ -242,10 +573,8 @@ func (s *mysqlStore) RunTempTableQuery(ctx context.Context, mode string) (TempQu
 // The error is returned rather than absorbed: a measurement that cannot be taken
 // must not read as a measurement of nothing happening.
 func mysqlSessionCounter(ctx context.Context, conn *sql.Conn, name string) (int64, error) {
-	for _, r := range name {
-		if !(r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')) {
-			return 0, fmt.Errorf("refusing to read status variable %q", name)
-		}
+	if err := safeStatusName(name); err != nil {
+		return 0, err
 	}
 	var k string
 	var v int64

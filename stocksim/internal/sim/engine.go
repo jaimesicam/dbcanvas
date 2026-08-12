@@ -73,8 +73,8 @@ type Engine struct {
 	// agent sweeps it; 0 disables the sweep. See retention.go.
 	OrderRetention time.Duration
 	// The lab knobs — features that exist to make the target exhibit one
-	// specific, measurable pathology. All three are off by default; see
-	// internal/sim/lab.go and internal/store/lab.go.
+	// specific, measurable pathology. All six are off by default; see
+	// internal/sim/lab.go, internal/sim/labstress.go and internal/store/lab.go.
 	//
 	// IdleTxn is how long a transaction is held open with a read snapshot, which
 	// is what stops purge advancing and makes the history list grow. ExtraTables
@@ -84,6 +84,14 @@ type Engine struct {
 	IdleTxn     time.Duration
 	ExtraTables int
 	TempTables  string
+	// LockContention is "off" | "light" | "heavy": concurrent writers competing
+	// for a handful of rows, queueing in Light and deadlocking in Heavy.
+	// ScanRate is how many index-less reads of the tick history to run per
+	// minute. WritePressure is "off" | "commits" | "redo", the two distinct
+	// shapes of write cost — fsyncs and checkpoint headroom.
+	LockContention string
+	ScanRate       int
+	WritePressure  string
 	// Threads is how many concurrent database workers each of the two heavy
 	// agents runs — backfill writers, and working-set readers. It is the knob
 	// that decides how much concurrency the target sees, and the store's
@@ -104,6 +112,7 @@ type Engine struct {
 	workingSet WorkingSetStatus
 	retention  RetentionStatus
 	lab        LabStatus
+	totals     labTotals
 
 	// baseCtx is the process's long-lived context — Start/Reset always derive
 	// from this, never from a caller's request-scoped context. A Reset
@@ -128,6 +137,8 @@ func NewEngine(st store.Store, targetKind, targetLabel string) *Engine {
 		Threads:        store.DefaultThreads,
 		OrderRetention: DefaultOrderRetention,
 		TempTables:     store.TempOff,
+		LockContention: store.ContentionOff,
+		WritePressure:  store.WritePressureOff,
 		startedAt:      time.Now(),
 	}
 	e.level.Store(LevelMedium)
@@ -226,6 +237,9 @@ func (e *Engine) StartAgents(ctx context.Context) {
 		e.runIdleTxnAgent,
 		e.runTableCacheAgent,
 		e.runTempTableAgent,
+		e.runContentionAgent,
+		e.runScanAgent,
+		e.runWritePressureAgent,
 	}
 	for _, fn := range agents {
 		e.wg.Add(1)

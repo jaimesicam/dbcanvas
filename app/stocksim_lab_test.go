@@ -10,13 +10,19 @@ import (
 // silently does nothing is worse than one that is absent.
 
 func TestStockSimLabPerEngine(t *testing.T) {
+	all := stockSimLabSupport{
+		IdleTxn: true, ExtraTables: true, TempTables: true,
+		LockContention: true, ScanQueries: true, WritePressure: true,
+	}
 	for engine, want := range map[string]stockSimLabSupport{
-		"mysql":    {IdleTxn: true, ExtraTables: true, TempTables: true},
-		"postgres": {IdleTxn: true, ExtraTables: true, TempTables: true},
-		// Collections are the table-handle analogue; the other two need a replica
-		// set and a memory-limited planner respectively.
-		"mongodb": {ExtraTables: true},
-		// No snapshot, no table handles, no planner.
+		"mysql":    all,
+		"postgres": all,
+		// Collections are the table-handle analogue and a collection scan is a
+		// table scan. The rest need a replica set, a memory-limited planner,
+		// real row locks, and a per-commit durable flush respectively.
+		"mongodb": {ExtraTables: true, ScanQueries: true},
+		// No snapshot, no table handles, no planner, no row locks, no per-write
+		// flush.
 		"valkey": {},
 	} {
 		if got := stockSimLabFor(engine); got != want {
@@ -111,9 +117,98 @@ func TestStockSimLabIssues(t *testing.T) {
 	for _, quiet := range []designNode{
 		{Label: "s"}, {Label: "s", SSTempTables: "off"},
 		{Label: "s", SSExtraTables: 500, SSTempTables: "disk"},
+		{Label: "s", SSLockContention: "light", SSWritePressure: "commits"},
 	} {
 		if got := stockSimLabIssues(quiet, "mysql"); len(got) != 0 {
 			t.Errorf("%+v on mysql: got %+v, want no issues", quiet, got)
 		}
+	}
+}
+
+func TestStockSimLockContention(t *testing.T) {
+	for _, c := range []struct{ mode, engine, want string }{
+		{"", "mysql", "off"},
+		{"off", "mysql", "off"},
+		{"light", "mysql", "light"},
+		{"HEAVY", "postgres", "heavy"},
+		{" light ", "postgres", "light"},
+		{"banana", "mysql", "off"},
+		// WiredTiger's write conflicts are retries, not lock waits — offering
+		// this on MongoDB would label a different phenomenon with the same word.
+		{"heavy", "mongodb", "off"},
+		{"light", "valkey", "off"},
+	} {
+		if got := stockSimLockContention(designNode{SSLockContention: c.mode}, c.engine); got != c.want {
+			t.Errorf("stockSimLockContention(%q, %s) = %q, want %q", c.mode, c.engine, got, c.want)
+		}
+	}
+}
+
+func TestStockSimScanQueries(t *testing.T) {
+	for _, c := range []struct {
+		n      int
+		engine string
+		want   int
+	}{
+		{0, "mysql", 0},
+		{-5, "mysql", 0},
+		{30, "mysql", 30},
+		{30, "postgres", 30},
+		// MongoDB gets this one: a collection scan is the same pathology.
+		{30, "mongodb", 30},
+		{30, "valkey", 0},
+		{stockSimMaxScanRate + 1, "mysql", stockSimMaxScanRate},
+		{100000, "mysql", stockSimMaxScanRate},
+	} {
+		if got := stockSimScanQueries(designNode{SSScanQueries: c.n}, c.engine); got != c.want {
+			t.Errorf("stockSimScanQueries(%d, %s) = %d, want %d", c.n, c.engine, got, c.want)
+		}
+	}
+}
+
+func TestStockSimWritePressure(t *testing.T) {
+	for _, c := range []struct{ mode, engine, want string }{
+		{"", "mysql", "off"},
+		{"commits", "mysql", "commits"},
+		{"REDO", "postgres", "redo"},
+		{"storm", "mysql", "off"},
+		{"commits", "mongodb", "off"},
+		{"redo", "valkey", "off"},
+	} {
+		if got := stockSimWritePressure(designNode{SSWritePressure: c.mode}, c.engine); got != c.want {
+			t.Errorf("stockSimWritePressure(%q, %s) = %q, want %q", c.mode, c.engine, got, c.want)
+		}
+	}
+}
+
+// TestStockSimStressIssues covers the three added later: an invalid mode is an
+// error, a knob the engine cannot turn is a warning rather than a silent
+// no-op, and heavy contention is called out because it makes the server kill
+// transactions rather than merely slowing them down.
+func TestStockSimStressIssues(t *testing.T) {
+	badMode := stockSimLabIssues(designNode{Label: "s", SSLockContention: "extreme"}, "mysql")
+	if len(badMode) != 1 || badMode[0].Level != "error" {
+		t.Fatalf("bad contention mode: got %+v, want one error", badMode)
+	}
+	badWrite := stockSimLabIssues(designNode{Label: "s", SSWritePressure: "storm"}, "mysql")
+	if len(badWrite) != 1 || badWrite[0].Level != "error" {
+		t.Fatalf("bad write mode: got %+v, want one error", badWrite)
+	}
+	heavy := stockSimLabIssues(designNode{Label: "s", SSLockContention: "heavy"}, "mysql")
+	if len(heavy) != 1 || heavy[0].Level != "info" {
+		t.Fatalf("heavy contention: got %+v, want one info", heavy)
+	}
+	onValkey := stockSimLabIssues(designNode{Label: "s", SSLockContention: "light"}, "valkey")
+	if len(onValkey) != 1 || onValkey[0].Level != "warning" {
+		t.Fatalf("contention on valkey: got %+v, want one warning", onValkey)
+	}
+	// Scans are supported on MongoDB, so this is the info, not the warning.
+	scans := stockSimLabIssues(designNode{Label: "s", SSScanQueries: 20}, "mongodb")
+	if len(scans) != 1 || scans[0].Level != "info" {
+		t.Fatalf("scans on mongodb: got %+v, want one info", scans)
+	}
+	capped := stockSimLabIssues(designNode{Label: "s", SSScanQueries: 5000}, "mysql")
+	if len(capped) != 1 || capped[0].Level != "warning" {
+		t.Fatalf("scan rate over the cap: got %+v, want one warning", capped)
 	}
 }

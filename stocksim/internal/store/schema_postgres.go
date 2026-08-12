@@ -12,7 +12,8 @@ package store
 
 var pgTables = []string{
 	"securities", "price_ticks", "portfolios", "orders", "trades", "holdings",
-	"metrics", "sim_state", "agents", "events", "lab_parking",
+	"metrics", "sim_state", "agents", "events",
+	"lab_parking", "lab_hotrows", "lab_bulk",
 }
 
 var pgCreateStmts = []string{
@@ -124,6 +125,47 @@ var pgCreateStmts = []string{
 	)`,
 	`INSERT INTO lab_parking (id, holds, touched_at) VALUES (1, 0, NOW())
 	 ON CONFLICT (id) DO NOTHING`,
+
+	// See the MySQL schema for both of these. Rows are seeded by EnsureLabTables
+	// so their counts follow the LabHotRows/LabBulkRows constants.
+	`CREATE TABLE IF NOT EXISTS lab_hotrows (
+		id INT PRIMARY KEY,
+		counter BIGINT NOT NULL DEFAULT 0,
+		updated_at TIMESTAMPTZ NOT NULL
+	)`,
+	// The redo knob's target needs autovacuum tuned for it, or the promise that
+	// it does not grow is false on PostgreSQL.
+	//
+	// Every rewrite of a row is a new version under MVCC, and a 4 KiB payload is
+	// past the TOAST threshold so the bulk of each version lands in this table's
+	// TOAST relation rather than its heap. With stock settings autovacuum did not
+	// touch either one during a live run: 256 rows, unchanged, occupying 77 MB
+	// after 56 batches and still climbing. The dead space is reusable only once
+	// something reclaims it.
+	//
+	// A scale factor of zero with a flat threshold makes autovacuum fire on a
+	// fixed number of dead tuples rather than on a fraction of a table that never
+	// gets any bigger — which is the standard treatment for a small, extremely
+	// high-churn table, and has to be set on the TOAST relation separately.
+	`CREATE TABLE IF NOT EXISTS lab_bulk (
+		id INT PRIMARY KEY,
+		payload BYTEA NOT NULL,
+		updated_at TIMESTAMPTZ NOT NULL
+	) WITH (
+		autovacuum_vacuum_scale_factor = 0,
+		autovacuum_vacuum_threshold = 500,
+		toast.autovacuum_vacuum_scale_factor = 0,
+		toast.autovacuum_vacuum_threshold = 500
+	)`,
+	// Applied separately as well, so a table left over from a deployment made
+	// before these settings existed picks them up on the next start rather than
+	// keeping the stock behaviour forever.
+	`ALTER TABLE lab_bulk SET (
+		autovacuum_vacuum_scale_factor = 0,
+		autovacuum_vacuum_threshold = 500,
+		toast.autovacuum_vacuum_scale_factor = 0,
+		toast.autovacuum_vacuum_threshold = 500
+	)`,
 
 	`CREATE TABLE IF NOT EXISTS events (
 		id BIGSERIAL PRIMARY KEY,

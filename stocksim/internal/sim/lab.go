@@ -9,17 +9,22 @@ import (
 	"stocksim/internal/store"
 )
 
-// Three agents whose only job is to make the database exhibit a condition worth
+// The agents whose only job is to make the database exhibit a condition worth
 // measuring. Each pairs with something a monitoring tool already reports and
 // that is otherwise hard to produce on demand:
 //
 //	idle transaction -> InnoDB history list length / PostgreSQL xmin horizon
 //	extra tables     -> table_open_cache misses, Opened_tables
 //	temp tables      -> Created_tmp_disk_tables, PostgreSQL temp_files
+//	lock contention  -> Innodb_row_lock_waits, deadlocks, pg_locks
+//	scan queries     -> Handler_read_rnd_next, seq_tup_read, slow queries
+//	write pressure   -> Innodb_os_log_fsyncs, checkpoint age, WAL bytes
 //
-// They are off unless configured. None of them touches the trading data: the
-// idle transaction parks on its own row, the synthetic tables are separate
-// objects, and the rollup query only reads.
+// The first three are here; the last three are in labstress.go. All are off
+// unless configured, and none of them touches the trading data: the idle
+// transaction parks on its own row, the synthetic tables are separate objects,
+// the contended and committed writes go to lab_hotrows, the bulk rewrites go to
+// lab_bulk, and both query knobs only read.
 
 const (
 	// labIdleGap is the pause between one idle transaction ending and the next
@@ -64,6 +69,38 @@ type LabStatus struct {
 	TempLastMs  int64  `json:"tempLastMs"`
 	TempLastRow int    `json:"tempLastRows"`
 	TempNote    string `json:"tempNote"`
+	// Lock contention
+	ContentionMode    string `json:"contentionMode"`
+	ContentionWorkers int    `json:"contentionWorkers"`
+	ContentionRuns    int64  `json:"contentionRuns"`
+	ContentionWaits   int64  `json:"contentionWaits"`
+	ContentionDeadlks int64  `json:"contentionDeadlocks"`
+	ContentionTimeout int64  `json:"contentionTimeouts"`
+	ContentionMaxMs   int64  `json:"contentionMaxWaitMs"`
+	ContentionAvgMs   int64  `json:"contentionAvgWaitMs"`
+	ContentionNote    string `json:"contentionNote"`
+	// Scan queries
+	ScanRate     int    `json:"scanRate"`
+	ScanRuns     int64  `json:"scanRuns"`
+	ScanRowsRead int64  `json:"scanRowsRead"`
+	ScanRowsRet  int64  `json:"scanRowsReturned"`
+	ScanLastMs   int64  `json:"scanLastMs"`
+	ScanNote     string `json:"scanNote"`
+	// Write pressure
+	WriteMode    string `json:"writeMode"`
+	WriteBatches int64  `json:"writeBatches"`
+	WriteCommits int64  `json:"writeCommits"`
+	WriteSyncs   int64  `json:"writeSyncs"`
+	WriteBytes   int64  `json:"writeBytes"`
+	WriteMeasurd bool   `json:"writeMeasured"`
+	WriteNote    string `json:"writeNote"`
+}
+
+// contentionWaitTotal accumulates wait time so the average on the panel is a
+// real mean rather than a decaying guess. Kept out of LabStatus because it is
+// bookkeeping, not something the dashboard should show.
+type labTotals struct {
+	contentionWaitMs int64
 }
 
 func (e *Engine) setLab(mutate func(*LabStatus)) {

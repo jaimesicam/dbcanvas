@@ -586,6 +586,7 @@ export const NODE_TYPES = {
       ssMode: 'linked', ssEngine: 'mysql', ssTLS: 'prefer', ssDatabase: 'stocksim',
       ssWorkingSet: '', ssThreads: 0,
       ssIdleTxn: '', ssExtraTables: 0, ssTempTables: 'off',
+      ssLockContention: 'off', ssScanQueries: 0, ssWritePressure: 'off',
     },
   },
 }
@@ -5159,11 +5160,23 @@ const SS_CAN_GROW = (engine) => engine !== 'valkey'
 // the collection-count one — its transactions need a replica set this node may
 // not be pointed at, and a spilling aggregation is a flag rather than a memory
 // limit. Valkey gets none: no snapshot, no table handles, no query planner.
-const SS_LAB = (engine) => ({
-  idleTxn: engine === 'mysql' || engine === 'postgres',
-  extraTables: engine === 'mysql' || engine === 'postgres' || engine === 'mongodb',
-  tempTables: engine === 'mysql' || engine === 'postgres',
-})
+const SS_LAB = (engine) => {
+  const sql = engine === 'mysql' || engine === 'postgres'
+  return {
+    idleTxn: sql,
+    extraTables: sql || engine === 'mongodb',
+    tempTables: sql,
+    lockContention: sql,
+    // A collection scan is the same pathology as a table scan, and MongoDB
+    // reports it honestly in explain's totalDocsExamined.
+    scanQueries: sql || engine === 'mongodb',
+    writePressure: sql,
+  }
+}
+
+// SS_LAB_ANY says whether the lab section has anything to show at all, so an
+// engine that supports none of it gets no empty disclosure to open.
+const SS_LAB_ANY = (engine) => Object.values(SS_LAB(engine)).some(Boolean)
 
 // fmtTargetBytes mirrors stockSimFormatSize, for the deployed node's panel.
 function fmtTargetBytes(n) {
@@ -5459,10 +5472,10 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
         </p>
       )}
 
-      {/* The three lab knobs. Each is shown only on an engine that can actually
-          do it — SS_LAB mirrors each store's Capabilities() — because a control
-          that silently does nothing is worse than one that is absent. */}
-      {(SS_LAB(effectiveEngine).idleTxn || SS_LAB(effectiveEngine).extraTables || SS_LAB(effectiveEngine).tempTables) && (
+      {/* The lab knobs. Each is shown only on an engine that can actually do it
+          — SS_LAB mirrors each store's Capabilities() — because a control that
+          silently does nothing is worse than one that is absent. */}
+      {SS_LAB_ANY(effectiveEngine) && (
         <details className="rounded-lg border border-border/60 p-2 text-xs">
           <summary className="cursor-pointer text-muted hover:text-fg">Deliberate problems (lab)</summary>
           <div className="mt-2 space-y-2">
@@ -5494,6 +5507,36 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
                   <option value="off">Off</option>
                   <option value="memory">In memory</option>
                   <option value="disk">Spilled to disk</option>
+                </select>
+              </Field>
+            )}
+            {SS_LAB(effectiveEngine).lockContention && (
+              <Field label="Lock contention"
+                hint="Concurrent writers competing for a handful of rows this app owns. Light makes them queue, so row lock waits appear. Heavy has them take the same rows in opposite orders, so the server detects and breaks real deadlocks.">
+                <select className={inputCls} value={n.ssLockContention || 'off'}
+                  onChange={(e) => patchNode(n.id, { ssLockContention: e.target.value })}>
+                  <option value="off">Off</option>
+                  <option value="light">Light — writers queue</option>
+                  <option value="heavy">Heavy — real deadlocks</option>
+                </select>
+              </Field>
+            )}
+            {SS_LAB(effectiveEngine).scanQueries && (
+              <Field label="Scan queries per minute"
+                hint="Reads the tick history with a predicate no index can serve, so the server reads every row to return a handful. Cost grows with the size target. 0 is off; max 120.">
+                <input className={inputCls} type="number" min="0" max="120"
+                  value={n.ssScanQueries || ''} placeholder="0"
+                  onChange={(e) => patchNode(n.id, { ssScanQueries: Number(e.target.value) || 0 })} />
+              </Field>
+            )}
+            {SS_LAB(effectiveEngine).writePressure && (
+              <Field label="Write pressure"
+                hint="Two different write costs. Commits runs many tiny transactions, so every one pays for its own log flush — the cost is fsyncs. Redo rewrites wide rows in bulk, filling the write-ahead log — the cost is checkpoint headroom. Neither grows the dataset.">
+                <select className={inputCls} value={n.ssWritePressure || 'off'}
+                  onChange={(e) => patchNode(n.id, { ssWritePressure: e.target.value })}>
+                  <option value="off">Off</option>
+                  <option value="commits">Commits — many tiny transactions</option>
+                  <option value="redo">Redo — bulk rewrites</option>
                 </select>
               </Field>
             )}

@@ -12875,3 +12875,130 @@ Eleven unit tests across both modules covering the clamps, prefix-stable naming,
 per-engine capability, and the validation that refuses a knob an engine cannot
 turn. `go build/vet/test` and `gofmt -l` clean in both modules; `npm run build`
 and `npm run smoke` clean.
+
+## 240. Three more deliberate problems: contention, scans, and write pressure — `stocksim/internal/store/lab*.go`, `stocksim/internal/sim/labstress.go`, `app/stocksim.go`, `app/web/src/pages/StackDesigner.jsx`
+
+§239 added three knobs by working backwards from the advisors written in §237
+that had never seen real data. Mapping the remaining 22 advisors the same way
+left eight with no producer at all, and this session closes four of them.
+
+**What was missing, and why these three.** `adviseRowLockWaits` had nothing to
+fire on — there was no `FOR UPDATE` anywhere in the application and no
+contention of any kind. `adviseScans` had nothing either, because every query in
+the schema is deliberately index-served. `adviseFsyncs` and
+`adviseCheckpointAge` were both incidental: commits happened, but no lever made
+them the cost being measured. Lock contention is also the single most commonly
+diagnosed production pathology of the four, which made it the obvious first one.
+
+**Lock contention** (`LOCK_CONTENTION=off|light|heavy`) runs several writers over
+a small set of rows on `lab_hotrows`. The difference between the modes is not
+intensity but lock *order*: Light gives every worker one row from a set smaller
+than the worker count, so they queue; Heavy pairs workers off and has each pair
+take the same two rows in opposite orders, which is a cycle the server has to
+detect and break. A deadlock and a lock-wait timeout are returned as *results*
+rather than errors — reporting a successfully-provoked deadlock as a failure
+would put it in the error banner instead of on the chart where it belongs.
+
+**Scan queries** (`SCAN_QUERIES=<n per minute>`) read the tick history filtered
+on `volume`, which has no index, and no grouping or sorting — a `GROUP BY` would
+drag §239's temporary-table pathology in and make the two impossible to separate
+on a chart. The band is narrow (100 wide out of 100..9099) so that few rows match
+while the whole table still has to be read, because the gap between rows read and
+rows returned is the entire point.
+
+**Write pressure** (`WRITE_PRESSURE=off|commits|redo`) is one knob with two modes
+because the two cost different resources: `commits` runs many tiny transactions
+so every one pays for its own log flush, and `redo` rewrites wide rows in bulk so
+the log fills without committing often. Collapsing them into one "write harder"
+control would make an fsync-bound server and a checkpoint-bound one look
+identical, which is exactly the distinction worth teaching.
+
+**Isolation, and why nothing grows.** `lab_hotrows` carries two disjoint id
+ranges — the contended rows and the commit knob's rows — so an fsync-bound
+measurement is never polluted by lock waits and the two knobs can run together.
+Neither range is `lab_parking`, which §239's idle transaction holds an
+uncommitted lock on for up to a day; a commit storm aimed at that row would block
+on it forever rather than commit anything. `lab_bulk` is a fixed 256 rows
+overwritten in place, so redo volume is unbounded while the table is not — §236's
+lesson applied before it could be relearned.
+
+**Four things live testing caught**, three of which were wrong in ways the unit
+tests could not see:
+
+*Heavy deadlocked nothing.* The first version held its lock after acquiring
+*both* rows, which leaves one round trip of window for two workers to interleave.
+Ten thousand lock waits, zero deadlocks. The hold has to sit *between* the two
+acquisitions; with that, the cycle forms every time. A unit test now pins the
+property the mode depends on — that some pair of workers takes the same rows in
+opposite orders — and it caught a second, earlier version of the plan that gave
+every worker its own pair and could never have deadlocked at all.
+
+*The commit batch overran its own tick.* 400 commits a second was asked for; the
+server could do 96, so a batch took 4.2s against a 1s interval, batches queued
+behind each other, and every load level would have collapsed onto the same
+saturated rate. Batches now carry a time budget and report what they actually
+achieved, which turns a broken rate into a measurement: "82 single-row
+transactions — 400 asked for, so this is the server's durable commit rate".
+
+*PostgreSQL's scan counter lied in the worst direction.* `seq_tup_read` looked
+like the obvious cross-check but PostgreSQL throttles a backend's statistics
+reports to one a second, so at 60 scans a minute most runs flush nothing and the
+delta reads as zero — 22 scans accounted for as 960 rows against the server's own
+5,060. Worse than imprecise: a scan whose stats had not flushed reported "no scan
+was recorded". Replaced with `EXPLAIN (ANALYZE, FORMAT JSON)`, which executes the
+query for real and reports the scan's own actual rows plus the rows its filter
+discarded — no lag, scoped to this query, and unmovable by a concurrent reader.
+Scan runs and the server's `seq_scan` then matched exactly, 20 against 20. MySQL
+keeps `Handler_read_rnd_next`, which is session-scoped and needs no such help;
+it agreed to within 1% (11.05M against 11.16M) over a longer run.
+
+*"Nothing grows" was false on PostgreSQL.* A 4 KiB payload is past the TOAST
+threshold, so most of every new row version lands in the TOAST relation, and
+under stock settings autovacuum touched neither: 256 unchanged rows occupying
+77 MB after 56 batches and still climbing. `lab_bulk` now carries a zero scale
+factor and a flat threshold on both the heap and its TOAST table — the standard
+treatment for a small, extremely high-churn table, and it has to be set on the
+TOAST relation separately because a scale factor computed against a table that
+never gets bigger never triggers anything. With that, the table reaches a steady
+state instead of a slope: 82 MB at 87 batches, 83 MB at 133, 83 MB at 158, while
+roughly 96 MB of new row versions were written across that span. Still exactly
+256 rows. InnoDB never had the problem; its `lab_bulk` sat at exactly 1024 KiB
+throughout.
+
+Worth stating plainly, because it is a real difference between the two engines
+rather than a defect: PostgreSQL's steady state is ~83 MB of mostly-dead space
+for 1 MB of live rows, and MySQL's is 1 MB. That is MVCC doing what MVCC does
+under sustained overwrite, and a Stock Market Sim node pointed at PostgreSQL with
+`redo` on will show it.
+
+**Verified live** on a disposable Percona Server 8.0 and PostgreSQL 16, both
+destroyed afterwards:
+
+    contention heavy   364 deadlocks/min; SHOW ENGINE INNODB STATUS shows the
+    (MySQL)            cycle — holds row 4, waits for row 3
+    contention light   4,657 server-side lock waits, 0 deadlocks
+    contention heavy   3 deadlocks confirmed in pg_stat_database.deadlocks,
+    (PostgreSQL)       matching the app exactly; waits sit at deadlock_timeout
+    scans              11.0M rows read to return 122,949 (~90:1), EXPLAIN shows
+                       type=ALL with possible_keys=NULL; 203 ms at 400 MB
+    write commits      82 commits in 900ms -> 142 log syncs, 176 KiB
+    write redo         1 commit -> 18 log syncs, 2.2 MiB, checkpoint age 29 MiB
+
+The two write modes are the clearest result of the session: the same knob, one
+sync-heavy and one byte-heavy, differing by roughly an order of magnitude in
+each direction.
+
+Per-engine capability follows the same rule as §239 — a control that silently
+does nothing is worse than one that is absent. MySQL and PostgreSQL get all
+three; MongoDB gets the scan only, because a collection scan is genuinely the
+same pathology and `totalDocsExamined` reports it honestly, while WiredTiger's
+write conflicts are retries rather than lock waits and a standalone mongod's
+journal flushes on an interval rather than per commit; Valkey gets none, having
+no lock to contend for, no index to be missing, and no per-write flush.
+
+Twenty-one unit tests across both modules, including three that pin properties
+live testing proved were not automatic: that Heavy's plans contain an opposed
+pair, that the contended and commit row ranges never overlap, and that an
+unreadable query plan is an error rather than a reading of zero rows.
+`go build/vet/test` and `gofmt -l` clean in both modules; `npm run build` and
+`npm run smoke` clean.

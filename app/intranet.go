@@ -185,7 +185,7 @@ type designNode struct {
 	// the working set is what makes it matter. Same engine restriction as
 	// SSTargetSize.
 	SSWorkingSet string `json:"ssWorkingSet"`
-	// The three lab knobs (Type=="stocksim"), all off unless set. Each makes the
+	// The lab knobs (Type=="stocksim"), all off unless set. Each makes the
 	// target exhibit one pathology that is otherwise hard to produce on demand
 	// and easy to meet by accident in production.
 	//
@@ -199,6 +199,17 @@ type designNode struct {
 	SSIdleTxn     string `json:"ssIdleTxn"`
 	SSExtraTables int    `json:"ssExtraTables"`
 	SSTempTables  string `json:"ssTempTables"`
+	// SSLockContention is "off" | "light" | "heavy": concurrent writers competing
+	// for a handful of rows this app owns. Light makes them queue, so row lock
+	// waits appear; Heavy has them take the same two rows in opposite orders, so
+	// the server has to detect and break real deadlocks. SSScanQueries is how
+	// many reads per minute to run against the tick history with a predicate no
+	// index can serve, so the server reads every row to return a handful.
+	// SSWritePressure is "off" | "commits" | "redo" — the two distinct shapes of
+	// write cost, one paid in fsyncs and the other in checkpoint headroom.
+	SSLockContention string `json:"ssLockContention"`
+	SSScanQueries    int    `json:"ssScanQueries"`
+	SSWritePressure  string `json:"ssWritePressure"`
 	// SSThreads is how many concurrent database workers the sim runs in each of
 	// its two heavy agents — the one writing history and the one reading the
 	// working set back. 0 takes the sim's own default of 4. It also decides the

@@ -16,7 +16,8 @@ package store
 // below must appear here too.
 var mysqlTables = []string{
 	"securities", "price_ticks", "portfolios", "orders", "trades", "holdings",
-	"metrics", "sim_state", "agents", "events", "lab_parking",
+	"metrics", "sim_state", "agents", "events",
+	"lab_parking", "lab_hotrows", "lab_bulk",
 }
 
 var mysqlCreateStmts = []string{
@@ -135,6 +136,25 @@ var mysqlCreateStmts = []string{
 		touched_at DATETIME(3) NOT NULL
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 	`INSERT IGNORE INTO lab_parking (id, holds, touched_at) VALUES (1, 0, NOW(3))`,
+
+	// The hot set the contention knob fights over: a few rows, nothing else
+	// writes them, so writers can be made to queue and deadlock without any of
+	// that reaching a trade. Rows are seeded by EnsureLabTables rather than here,
+	// so the count follows the LabHotRows constant instead of drifting from it.
+	`CREATE TABLE IF NOT EXISTS lab_hotrows (
+		id INT NOT NULL PRIMARY KEY,
+		counter BIGINT NOT NULL DEFAULT 0,
+		updated_at DATETIME(3) NOT NULL
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+	// The redo knob's target: a fixed number of wide rows, rewritten in place.
+	// Overwriting rather than appending is what keeps redo volume unbounded while
+	// the table stays exactly LabBulkRows rows forever.
+	`CREATE TABLE IF NOT EXISTS lab_bulk (
+		id INT NOT NULL PRIMARY KEY,
+		payload VARBINARY(4096) NOT NULL,
+		updated_at DATETIME(3) NOT NULL
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 
 	// The event feed. AUTO_INCREMENT here (and only here) because the feed is
 	// read by a monotonic cursor, which a random id could not provide.
