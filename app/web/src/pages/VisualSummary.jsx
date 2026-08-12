@@ -314,6 +314,8 @@ function Report({ model }) {
   const f = model.summary?.findings || {}
   const facts = model.summary?.facts || {}
   const has = (k) => model.available?.[k]
+  // Per-chart advisor, if the backend produced one for that chart.
+  const adv = (k) => model.advisors?.[k]
 
   return (
     <div className="space-y-4">
@@ -347,43 +349,43 @@ function Report({ model }) {
       <div className="grid gap-4 lg:grid-cols-2">
         <SectionHead>Operating system</SectionHead>
         {model.cpu?.overall && (
-          <ChartCard title="CPU busy" subtitle="% by mode (excl. idle) · Overall + per-CPU" span>
+          <ChartCard advisor={adv('cpu')} title="CPU busy" subtitle="% by mode (excl. idle) · Overall + per-CPU" span>
             <TabbedChart data={model.cpu} labelFor={(k) => 'CPU ' + k} kind="stacked" unit="%"
               lines={[cl('usr', 'user', 0), cl('sys', 'system', 5), cl('iowait', 'iowait', 2), cl('steal', 'steal', 7)]} />
           </ChartCard>
         )}
         {has('memory') && (
-          <ChartCard title="Memory" subtitle="MB">
+          <ChartCard advisor={adv('memory')} title="Memory" subtitle="MB">
             <TimeChart points={model.series.memory.points} kind="stacked" unit="MB"
               lines={[cl('used', 'used', 0), cl('cache', 'cache', 1), cl('buff', 'buffers', 2), cl('free', 'free', 3)]} />
           </ChartCard>
         )}
         {has('swap') && (
-          <ChartCard title="Swap used" subtitle="MB">
+          <ChartCard advisor={adv('swap')} title="Swap used" subtitle="MB">
             <TimeChart points={model.series.swap.points} unit="MB" lines={[cl('used', 'swap used', 0)]} />
           </ChartCard>
         )}
         {model.disk?.overall && <SectionHead>Disk</SectionHead>}
         {model.disk?.overall && (
-          <ChartCard title="Disk utilization" subtitle="% busy · Overall + per-device" span>
+          <ChartCard advisor={adv('disk')} title="Disk utilization" subtitle="% busy · Overall + per-device" span>
             <TabbedChart data={model.disk} labelFor={(k) => k} unit="%"
               linesOverall={[cl('util', 'avg %util', 0)]} lines={[cl('util', '%util', 0)]} />
           </ChartCard>
         )}
         {model.disk?.overall && (
-          <ChartCard title="Disk throughput" subtitle="KB/s · Overall + per-device" span>
+          <ChartCard advisor={adv('disk')} title="Disk throughput" subtitle="KB/s · Overall + per-device" span>
             <TabbedChart data={model.disk} labelFor={(k) => k} unit="KB/s"
               lines={[cl('rKBs', 'read', 0), cl('wKBs', 'write', 5)]} />
           </ChartCard>
         )}
         {model.disk?.overall && (
-          <ChartCard title="Disk IOPS" subtitle="operations/s · Overall + per-device" span>
+          <ChartCard advisor={adv('disk')} title="Disk IOPS" subtitle="operations/s · Overall + per-device" span>
             <TabbedChart data={model.disk} labelFor={(k) => k} unit="/s"
               lines={[cl('rs', 'read', 0), cl('ws', 'write', 5), cl('iops', 'total (r+w)', 4)]} />
           </ChartCard>
         )}
         {model.disk?.overall && (
-          <ChartCard title="Disk latency (await)" subtitle="ms · Overall + per-device" span>
+          <ChartCard advisor={adv('disk')} title="Disk latency (await)" subtitle="ms · Overall + per-device" span>
             <TabbedChart data={model.disk} labelFor={(k) => k} unit="ms"
               lines={[cl('rAwait', 'read await', 0), cl('wAwait', 'write await', 5)]} />
           </ChartCard>
@@ -391,7 +393,7 @@ function Report({ model }) {
 
         {(has('networkThroughput') || has('netStates') || has('sockQueues')) && <SectionHead>Network</SectionHead>}
         {has('networkThroughput') && (
-          <ChartCard title="MySQL network throughput" subtitle="bytes in/out per second (human-readable)">
+          <ChartCard advisor={adv('networkThroughput')} title="MySQL network throughput" subtitle="bytes in/out per second (human-readable)">
             <TimeChart points={model.series.networkThroughput.points} unit="B/s" lines={[cl('received', 'received', 0), cl('sent', 'sent', 5)]} />
           </ChartCard>
         )}
@@ -401,20 +403,20 @@ function Report({ model }) {
           </ChartCard>
         )}
         {has('sockQueues') && (
-          <ChartCard title="Socket send/receive backlog" subtitle="count of sockets with non-zero Recv-Q / Send-Q">
+          <ChartCard advisor={adv('sockQueues')} title="Socket send/receive backlog" subtitle="count of sockets with non-zero Recv-Q / Send-Q">
             <TimeChart points={model.series.sockQueues.points} lines={[cl('recvBacklog', 'recv-Q backlog', 6), cl('sendBacklog', 'send-Q backlog', 7)]} />
           </ChartCard>
         )}
 
         <SectionHead>MySQL / InnoDB</SectionHead>
         {has('bufferPool') && (
-          <ChartCard title="InnoDB buffer pool pages" subtitle="pages">
+          <ChartCard advisor={adv('bufferPoolPages')} title="InnoDB buffer pool pages" subtitle="pages">
             <TimeChart points={model.series.bufferPool.points}
               lines={[cl('dataPages', 'data', 0), cl('dirtyPages', 'dirty', 5), cl('freePages', 'free', 3)]} />
           </ChartCard>
         )}
         {has('bufferPool') && (
-          <ChartCard title="Buffer pool reads" subtitle="logical read requests vs pool misses (/s)">
+          <ChartCard advisor={adv('bufferPoolReads')} title="Buffer pool reads" subtitle="logical read requests vs pool misses (/s)">
             <div className="grid grid-cols-2 gap-2">
               <TimeChart points={model.series.bufferPool.points} unit="/s" lines={[cl('readReqPerSec', 'read requests', 0)]} height={148} />
               <TimeChart points={model.series.bufferPool.points} unit="/s" lines={[cl('diskReadPerSec', 'pool misses', 6)]} height={148} />
@@ -426,7 +428,7 @@ function Report({ model }) {
             innodb_flush_method=fsync these routinely differ by orders of
             magnitude, because the OS page cache is answering the misses. */}
         {has('innodbIO') && (
-          <ChartCard title="InnoDB I/O vs real device I/O" subtitle="InnoDB's own counters, and what the disks served">
+          <ChartCard advisor={adv('innodbIO')} title="InnoDB I/O vs real device I/O" subtitle="InnoDB's own counters, and what the disks served">
             <div className="grid grid-cols-2 gap-2">
               <TimeChart points={model.series.innodbIO.points} unit="B/s" lines={[cl('read', 'InnoDB read', 0), cl('written', 'InnoDB written', 5)]} height={148} />
               {model.disk?.overall
@@ -436,32 +438,32 @@ function Report({ model }) {
           </ChartCard>
         )}
         {has('fsyncs') && (
-          <ChartCard title="Durability cost" subtitle="fsyncs per second — what sync_binlog and innodb_flush_log_at_trx_commit buy and cost">
+          <ChartCard advisor={adv('fsyncs')} title="Durability cost" subtitle="fsyncs per second — what sync_binlog and innodb_flush_log_at_trx_commit buy and cost">
             <TimeChart points={model.series.fsyncs.points} unit="/s" lines={[cl('data', 'data fsyncs', 0), cl('log', 'log fsyncs', 5)]} />
           </ChartCard>
         )}
         {has('handlerReadRndNext') && (
-          <ChartCard title="Rows scanned without index" subtitle="Handler_read_rnd_next /s">
+          <ChartCard advisor={adv('handlerReadRndNext')} title="Rows scanned without index" subtitle="Handler_read_rnd_next /s">
             <TimeChart points={model.series.handlerReadRndNext.points} unit="/s" lines={[cl('perSec', 'rows/s', 7)]} />
           </ChartCard>
         )}
         {has('historyList') && (
-          <ChartCard title="InnoDB history list length" subtitle="undo records pending purge (sparse)">
+          <ChartCard advisor={adv('historyList')} title="InnoDB history list length" subtitle="undo records pending purge (sparse)">
             <TimeChart points={model.series.historyList.points} lines={[cl('value', 'history list', 4)]} />
           </ChartCard>
         )}
         {has('checkpointAge') && (
-          <ChartCard title="InnoDB checkpoint age" subtitle="redo since last checkpoint (sparse)">
+          <ChartCard advisor={adv('checkpointAge')} title="InnoDB checkpoint age" subtitle="redo since last checkpoint (sparse)">
             <TimeChart points={model.series.checkpointAge.points} unit="B" lines={[cl('age', 'checkpoint age', 5)]} />
           </ChartCard>
         )}
         {has('replicationLag') && (
-          <ChartCard title="Replication lag" subtitle="seconds behind source">
+          <ChartCard advisor={adv('replicationLag')} title="Replication lag" subtitle="seconds behind source">
             <TimeChart points={model.series.replicationLag.points} unit="s" lines={[cl('seconds', 'lag', 6)]} />
           </ChartCard>
         )}
         {has('galera') && (
-          <ChartCard title="Galera flow control & recv queue" subtitle="PXC cluster replication health" span>
+          <ChartCard advisor={adv('galera')} title="Galera flow control & recv queue" subtitle="PXC cluster replication health" span>
             <div className="grid grid-cols-2 gap-2">
               <TimeChart points={model.series.galera.points} unit="%" lines={[cl('flowControlPausedPct', 'flow-control paused %', 6)]} height={148} />
               <TimeChart points={model.series.galera.points} lines={[cl('recvQueue', 'recv queue', 0), cl('certDepsDistance', 'cert deps dist', 4)]} height={148} />
@@ -469,39 +471,39 @@ function Report({ model }) {
           </ChartCard>
         )}
         {has('rowLockWaits') && (
-          <ChartCard title="InnoDB row-lock waits" subtitle="lock contention (deadlock precursor) /s">
+          <ChartCard advisor={adv('rowLockWaits')} title="InnoDB row-lock waits" subtitle="lock contention (deadlock precursor) /s">
             <TimeChart points={model.series.rowLockWaits.points} unit="/s" lines={[cl('perSec', 'lock waits', 5)]} />
           </ChartCard>
         )}
         {has('threads') && (
-          <ChartCard title="Threads" subtitle="running vs connected">
+          <ChartCard advisor={adv('threads')} title="Threads" subtitle="running vs connected">
             <TimeChart points={model.series.threads.points} lines={[cl('running', 'running', 0), cl('connected', 'connected', 1)]} />
           </ChartCard>
         )}
         {has('qps') && (
-          <ChartCard title="Query throughput" subtitle="questions + statement mix /s">
+          <ChartCard advisor={adv('qps')} title="Query throughput" subtitle="questions + statement mix /s">
             <TimeChart points={model.series.qps.points} unit="/s"
               lines={[cl('questions', 'questions', 0), cl('select', 'select', 1), cl('insert', 'insert', 3), cl('update', 'update', 2), cl('delete', 'delete', 6)]} />
           </ChartCard>
         )}
         {has('innodbRowOps') && (
-          <ChartCard title="InnoDB row operations" subtitle="/s">
+          <ChartCard advisor={adv('innodbRowOps')} title="InnoDB row operations" subtitle="/s">
             <TimeChart points={model.series.innodbRowOps.points} unit="/s"
               lines={[cl('read', 'read', 0), cl('inserted', 'inserted', 3), cl('updated', 'updated', 2), cl('deleted', 'deleted', 6)]} />
           </ChartCard>
         )}
         {has('tmpDiskTables') && (
-          <ChartCard title="Temp tables on disk" subtitle="Created_tmp_disk_tables /s">
+          <ChartCard advisor={adv('tmpDiskTables')} title="Temp tables on disk" subtitle="Created_tmp_disk_tables /s">
             <TimeChart points={model.series.tmpDiskTables.points} unit="/s" lines={[cl('perSec', 'tmp disk tables', 2)]} />
           </ChartCard>
         )}
         {has('slowQueries') && (
-          <ChartCard title="Slow queries" subtitle="/s">
+          <ChartCard advisor={adv('slowQueries')} title="Slow queries" subtitle="/s">
             <TimeChart points={model.series.slowQueries.points} unit="/s" lines={[cl('perSec', 'slow queries', 7)]} />
           </ChartCard>
         )}
         {has('abortedConns') && (
-          <ChartCard title="Aborted connections" subtitle="/s">
+          <ChartCard advisor={adv('abortedConns')} title="Aborted connections" subtitle="/s">
             <TimeChart points={model.series.abortedConns.points} unit="/s" lines={[cl('clients', 'clients', 6), cl('connects', 'connects', 7)]} />
           </ChartCard>
         )}
@@ -653,11 +655,37 @@ function StatTile({ tile, value }) {
   )
 }
 
-function ChartCard({ title, subtitle, span, children }) {
+// ChartCard takes an optional advisor — the per-chart explanation of what the
+// graph above it measures, what this capture's numbers say, and what to change.
+// It sits under the chart rather than above it so the picture still leads.
+export function ChartCard({ title, subtitle, span, advisor, children }) {
   return (
     <Card title={title} subtitle={subtitle} className={span ? 'lg:col-span-2' : ''}>
       <div className="p-3 pt-2">{children}</div>
+      {advisor && <Advisor a={advisor} />}
     </Card>
+  )
+}
+
+const ADVISOR_DOT = {
+  crit: 'bg-danger', warn: 'bg-warning', info: 'bg-muted', ok: 'bg-primary',
+}
+
+// Advisor renders one chart's explanation. Collapsed to its headline by default
+// — a reader scanning twenty charts wants the numbers and a colour, not twenty
+// paragraphs — and expandable for the reasoning and the recommendation.
+export function Advisor({ a }) {
+  const [open, setOpen] = useState(false)
+  if (!a) return null
+  return (
+    <div className="border-t border-border/60 px-3 py-2">
+      <button className="flex w-full items-start gap-2 text-left" onClick={() => setOpen(!open)}>
+        <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${ADVISOR_DOT[a.level] || 'bg-muted'}`} />
+        <span className="flex-1 font-mono text-[11px] leading-relaxed text-fg">{a.headline}</span>
+        <Icon.Chevron size={13} className={`mt-0.5 shrink-0 text-muted transition ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && <p className="mt-1.5 pl-3.5 text-[11px] leading-relaxed text-muted">{a.detail}</p>}
+    </div>
   )
 }
 

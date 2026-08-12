@@ -12700,3 +12700,54 @@ All eight agents ok, no error and no warning. Five new unit tests cover the
 tally (including a garbage state row and an empty delta) and the invariant that
 open orders are never in the terminal list. `go build/vet/test` and `gofmt -l`
 clean in both modules.
+
+## 237. Per-chart advisors — `app/visualsummary_advice.go`, `app/web/src/pages/VisualSummary.jsx`
+
+Asked, after actually looking at the page, for advisors on each graph that
+explain the numbers and say what could be done about them.
+
+The Verdicts card from §234 answers "what is wrong with this server". It cannot
+answer the question a reader has while looking at any *individual* chart, which
+is "what am I looking at, is this number good, and what would I change". A
+correct line on a graph is not self-explanatory: nobody arrives already knowing
+that a full buffer pool is the normal steady state, that a checkpoint age of
+11 MB is either fine or nearly fatal depending on a setting three panels away,
+or that "disk reads" from InnoDB may never have touched a disk.
+
+Twenty-two advisor rules, one per chart, sharing the `vsVerdict` shape and levels
+with the top-level verdicts and reading the same already-parsed series — an
+advisor never re-derives anything. Each says the same three things in order:
+what the chart measures, what *this* capture's numbers are, and what to change if
+they are bad. They render collapsed to a coloured dot and the headline (a reader
+scanning twenty charts wants numbers, not twenty paragraphs) and expand to the
+reasoning.
+
+The advice is specific where it can be and honest where it cannot. CPU steal is
+reported ahead of every other CPU conclusion because nothing tuned inside the
+database will fix it. The fsync advisor will not recommend weakening durability
+unconditionally — it says what `sync_binlog=0` and
+`innodb_flush_log_at_trx_commit=2` are worth *and* that they belong on a rebuildable
+dataset, and points at commit batching as the version that costs nothing. The
+checkpoint-age advisor declines to judge at all when the capture has no redo
+capacity in it, rather than guessing. `Handler_read_rnd_next` says out loud that
+it counts full table scans only and sends the reader to the statement table for
+index scans, which is the trap §235 fell into.
+
+**`Icon.ChevronDown` does not exist in this codebase.** The advisor's expand
+control reached for it, which renders `<undefined />` and blanks the entire page
+— the exact bug `npm run smoke` was written for in the first place, reintroduced
+in the first component to need a chevron since. Caught before it shipped by
+checking the icon existed rather than assuming; the smoke test now renders an
+advisor at all four levels, expanded and collapsed, and a ChartCard with and
+without one.
+
+**Verified against the real 128 MiB capture:** 20 advisors produced, correctly
+graded — `bufferPoolReads` crit at 8.30%, `innodbIO` warn at 1,842 MiB/s against
+0 from the devices, `checkpointAge` ok at 10.3% of 100 MiB, `swap` ok at none.
+One of them found something nobody had looked for: `tmpDiskTables` warning at
+2/s, queries spilling to disk.
+
+Eight new unit tests, including the invariant that matters most — every rule
+stays silent when its series is absent, so a capture missing a file gets no
+advice rather than advice built on zeroes. `go build/vet/test` and `gofmt -l`
+clean; `npm run build` and `npm run smoke` clean.

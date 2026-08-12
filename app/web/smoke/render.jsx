@@ -24,7 +24,7 @@ import {
   MySQLCENodeForm, MySQLCEFrameForm, MySQLCEInnoDBFrameForm,
   UpstreamMemberForm,
 } from '../src/pages/UpstreamForms.jsx'
-import { Comparison, Verdicts } from '../src/pages/VisualSummary.jsx'
+import { Comparison, Verdicts, Advisor, ChartCard } from '../src/pages/VisualSummary.jsx'
 import {
   frameMemberSub, REPL_FRAME_TYPES,
   NODE_TYPES, CONNECTABLE_FRAMES, SS_LINK_TYPES, SS_LINK_ENGINE,
@@ -1073,6 +1073,26 @@ check('visual summary: comparison of two captures', () => renderToString(<Compar
 check('visual summary: comparison when nothing differs', () => renderToString(<Comparison a={vs128} b={vs128} />))
 check('visual summary: comparison with a missing finding on one side', () =>
   renderToString(<Comparison a={vs128} b={vsCapture('ps-01', '2026-08-12T16:00:00Z', {}, { qps: 900 }, [])} />))
+
+// Per-chart advisors. The collapsed state is what everyone sees, but the
+// expanded one is the whole point, so render both. Icon.ChevronDown does not
+// exist in this codebase — an advisor reaching for it renders <undefined /> and
+// blanks the page, which is the bug this whole file was written for.
+const anAdvisor = {
+  id: 'bufferPoolReads', level: 'crit',
+  headline: '408.9k requests/s, 34.2k misses/s (8.30%)',
+  detail: 'Logical reads against the pool, and how many did not find their page in it. The working set is much larger than the pool.',
+}
+check('visual summary: advisor (collapsed)', () => renderToString(<Advisor a={anAdvisor} />))
+check('visual summary: advisor with no data', () => renderToString(<div><Advisor a={null} /></div>))
+for (const level of ['ok', 'info', 'warn', 'crit']) {
+  check(`visual summary: advisor level ${level}`, () =>
+    renderToString(<Advisor a={{ ...anAdvisor, level }} />))
+}
+check('visual summary: chart card carrying an advisor', () =>
+  renderToString(<ChartCard title="Buffer pool reads" subtitle="/s" advisor={anAdvisor}><div /></ChartCard>))
+check('visual summary: chart card without one', () =>
+  renderToString(<ChartCard title="Memory" subtitle="MB"><div /></ChartCard>))
 
 if (failures > 0) {
   console.error(`\n${failures} render failure(s)`)

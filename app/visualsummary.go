@@ -82,8 +82,11 @@ type vsModel struct {
 	NetQueues   []map[string]string  `json:"netQueues,omitempty"`   // sockets with sustained Recv-Q/Send-Q
 	Deadlock    *vsDeadlock          `json:"deadlock,omitempty"`
 	Verdicts    []vsVerdict          `json:"verdicts,omitempty"`
-	Available   map[string]bool      `json:"available"`
-	Notes       []string             `json:"notes,omitempty"`
+	// Advisors explain one chart each — what it measures, what this capture's
+	// numbers say, and what to change. Keyed by chart. See visualsummary_advice.go.
+	Advisors  map[string]vsVerdict `json:"advisors,omitempty"`
+	Available map[string]bool      `json:"available"`
+	Notes     []string             `json:"notes,omitempty"`
 
 	// vars is SHOW GLOBAL VARIABLES from the capture. Not serialized — it is
 	// several hundred entries and the page needs a handful — but the verdicts
@@ -203,6 +206,7 @@ func parsePtStalk(gzData []byte) (*vsModel, error) {
 
 	computeFindings(m)
 	computeVerdicts(m)
+	computeAdvisors(m)
 	if t := earliestTS(bySuffix); !t.IsZero() {
 		m.Source.CapturedAt = t.UTC().Format(time.RFC3339)
 	}
