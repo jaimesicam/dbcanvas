@@ -12809,3 +12809,69 @@ Six comparison unit tests including the noise band, the durability trade that
 bought nothing, regressions, and an N-way run where a finding is missing from the
 middle capture. Six new render checks. `go build/vet/test` and `gofmt -l` clean;
 `npm run build` and `npm run smoke` clean.
+
+## 239. Three deliberate problems: idle transactions, table-cache pressure, temporary tables — `stocksim/internal/store/lab*.go`, `stocksim/internal/sim/lab.go`, `app/stocksim.go`
+
+Asked for an option to hold sleeping uncommitted transactions (configurable, max
+24h) to simulate a large history list, a way to specify a number of tables so
+table cache performance can be measured, and queries that build large temporary
+tables in memory or on disk.
+
+All three are the same shape as the working set from §233: a lever that makes the
+database exhibit one specific, measurable pathology on demand. And all three pair
+with an advisor written in §237 that had never seen real data —
+`adviseHistoryList` and `adviseTmpDiskTables` existed with nothing to fire on,
+and table cache had no advisor because nothing could produce the condition.
+
+**Idle transaction.** `HoldIdleTransaction` opens REPEATABLE READ, takes a read
+snapshot, makes one uncommitted change, and sits there. The snapshot is the part
+that matters: InnoDB cannot purge any row version newer than the oldest open
+read view, and the simulation keeps writing throughout. On PostgreSQL the same
+thing holds back the xmin horizon so autovacuum cannot collect, which leaves
+bloat that does not go away when the transaction ends. It takes a connection of
+its own — a transaction held for hours on a pooled connection would take that
+connection out of circulation without the pool knowing why. The uncommitted write
+lands on `lab_parking`, a one-row table nothing else in the application touches,
+so a hold of hours cannot block the simulation it exists to be observed
+alongside. Capped at 24h.
+
+**Extra tables.** Up to 5,000 synthetic tables, named `eod_summary_YYYYMMDD`
+because table-per-period is a real anti-pattern and a plausible schema reads
+better than `table_0001`. The agent walks the whole set in batches rather than
+picking at random — random picking keeps re-opening a hot subset the cache simply
+holds. Names are generated from a fixed epoch so a redeploy reuses the tables it
+already made. MongoDB gets this one (collections are the handle analogue);
+Valkey gets none of the three.
+
+**Temporary tables.** An intraday rollup — one row per minute per symbol, ordered
+by something that is not the grouping — which cannot be answered from an index,
+so the server must materialise every group before sorting. `disk` and `memory`
+are made deterministic by sizing `tmp_table_size`/`work_mem` on that session
+rather than hoping the query is big enough, and whether it *actually* spilled is
+read from the server's own counters before and after.
+
+**A bug that live testing caught, and the reason the counter is read the way it
+is.** The first version bound the status variable name as a placeholder —
+`SHOW SESSION STATUS LIKE ?` — which is a syntax error in MySQL, and the helper
+swallowed the error and returned zero. The result reported "did not spill" on
+every run against a server whose `Created_tmp_disk_tables` was climbing the whole
+time. The name is now interpolated behind a character guard, and both engines'
+counter readers return their error instead of absorbing it: a measurement that
+cannot be taken must not read as a measurement of nothing happening.
+
+**Verified live** on a disposable Percona Server 8.0 with `table_open_cache=400`,
+destroyed afterwards:
+
+    idle transaction   History list length 6,496; innodb_trx shows a transaction
+                       RUNNING for 182s, 1 row modified, no query — the exact
+                       "idle in transaction" signature
+    extra tables       1,200 created, 9,400 opens; Opened_tables 16,390,
+                       Table_open_cache_misses 16,390, overflows 15,896
+    temp disk          30 of 30 runs spilled, 1,961 ms each
+    temp memory        0 of 29 runs spilled, 429 ms each — the same query 4.6x
+                       faster, which is what the spill costs
+
+Eleven unit tests across both modules covering the clamps, prefix-stable naming,
+per-engine capability, and the validation that refuses a knob an engine cannot
+turn. `go build/vet/test` and `gofmt -l` clean in both modules; `npm run build`
+and `npm run smoke` clean.

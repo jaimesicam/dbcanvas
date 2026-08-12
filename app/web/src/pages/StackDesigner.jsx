@@ -585,6 +585,7 @@ export const NODE_TYPES = {
     defaults: {
       ssMode: 'linked', ssEngine: 'mysql', ssTLS: 'prefer', ssDatabase: 'stocksim',
       ssWorkingSet: '', ssThreads: 0,
+      ssIdleTxn: '', ssExtraTables: 0, ssTempTables: 'off',
     },
   },
 }
@@ -5153,6 +5154,17 @@ export const SS_LINK_ENGINE = {
 // history is a length-capped stream, so no amount of writing makes it bigger.
 const SS_CAN_GROW = (engine) => engine !== 'valkey'
 
+// SS_LAB mirrors each store's Capabilities() in the sim image: which of the
+// three deliberate-problem knobs an engine can actually turn. MongoDB gets only
+// the collection-count one — its transactions need a replica set this node may
+// not be pointed at, and a spilling aggregation is a flag rather than a memory
+// limit. Valkey gets none: no snapshot, no table handles, no query planner.
+const SS_LAB = (engine) => ({
+  idleTxn: engine === 'mysql' || engine === 'postgres',
+  extraTables: engine === 'mysql' || engine === 'postgres' || engine === 'mongodb',
+  tempTables: engine === 'mysql' || engine === 'postgres',
+})
+
 // fmtTargetBytes mirrors stockSimFormatSize, for the deployed node's panel.
 function fmtTargetBytes(n) {
   if (!n) return "doesn't grow"
@@ -5445,6 +5457,48 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
           and there is no cold data to read back. Link this node to MySQL, PostgreSQL or
           MongoDB to drive storage under load.
         </p>
+      )}
+
+      {/* The three lab knobs. Each is shown only on an engine that can actually
+          do it — SS_LAB mirrors each store's Capabilities() — because a control
+          that silently does nothing is worse than one that is absent. */}
+      {(SS_LAB(effectiveEngine).idleTxn || SS_LAB(effectiveEngine).extraTables || SS_LAB(effectiveEngine).tempTables) && (
+        <details className="rounded-lg border border-border/60 p-2 text-xs">
+          <summary className="cursor-pointer text-muted hover:text-fg">Deliberate problems (lab)</summary>
+          <div className="mt-2 space-y-2">
+            <p className="text-[11px] leading-relaxed text-muted">
+              Each of these makes the target exhibit one condition that is hard to reproduce on
+              purpose and easy to hit by accident. They degrade the database they point at —
+              which is the point. Leave them off for anything you care about.
+            </p>
+            {SS_LAB(effectiveEngine).idleTxn && (
+              <Field label="Hold an idle transaction"
+                hint="Keeps a transaction open with a read snapshot, so purge can't advance and the history list grows. Write it like 30m or 2h; max 24h. Blank is off.">
+                <input className={inputCls} value={n.ssIdleTxn || ''} placeholder="off"
+                  onChange={(e) => patchNode(n.id, { ssIdleTxn: e.target.value })} />
+              </Field>
+            )}
+            {SS_LAB(effectiveEngine).extraTables && (
+              <Field label="Extra tables"
+                hint="Creates this many small tables and reads them in rotation, so table_open_cache stops holding the working set. 0 is off; max 5000.">
+                <input className={inputCls} type="number" min="0" max="5000"
+                  value={n.ssExtraTables || ''} placeholder="0"
+                  onChange={(e) => patchNode(n.id, { ssExtraTables: Number(e.target.value) || 0 })} />
+              </Field>
+            )}
+            {SS_LAB(effectiveEngine).tempTables && (
+              <Field label="Temporary-table queries"
+                hint="Runs an intraday rollup shaped to build a large intermediate result — in memory, or forced to spill to disk.">
+                <select className={inputCls} value={n.ssTempTables || 'off'}
+                  onChange={(e) => patchNode(n.id, { ssTempTables: e.target.value })}>
+                  <option value="off">Off</option>
+                  <option value="memory">In memory</option>
+                  <option value="disk">Spilled to disk</option>
+                </select>
+              </Field>
+            )}
+          </div>
+        </details>
       )}
 
       {/* Applies on every engine — even Valkey, where it is still what decides

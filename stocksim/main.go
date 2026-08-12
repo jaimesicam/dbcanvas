@@ -95,6 +95,29 @@ func main() {
 		}
 	}
 
+	// The three lab knobs, all off unless asked for. Each exists to make the
+	// target exhibit one measurable pathology; see internal/sim/lab.go.
+	//
+	// IDLE_TXN holds a transaction open with a read snapshot ("30m", "2h", max
+	// 24h) so purge cannot advance and the history list grows. EXTRA_TABLES
+	// creates that many synthetic tables and reads them in rotation, for table
+	// cache pressure. TEMP_TABLES is off | memory | disk, for a query shaped to
+	// build a large intermediate result.
+	idleTxn := time.Duration(0)
+	if v := strings.TrimSpace(os.Getenv("IDLE_TXN")); v != "" && !strings.EqualFold(v, "off") {
+		if d, err := time.ParseDuration(v); err != nil {
+			log.Printf("stocksim: ignoring IDLE_TXN: %v", err)
+		} else {
+			idleTxn = store.ClampIdleTransaction(d)
+		}
+	}
+	extraTables := store.ClampExtraTables(envInt("EXTRA_TABLES", 0))
+	tempTables := strings.ToLower(strings.TrimSpace(envOr("TEMP_TABLES", store.TempOff)))
+	if !store.ValidTempMode(tempTables) {
+		log.Printf("stocksim: ignoring TEMP_TABLES=%q (want off, memory or disk)", tempTables)
+		tempTables = store.TempOff
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -119,6 +142,9 @@ func main() {
 	engine.WorkingSet = workingSet
 	engine.Threads = cfg.Threads
 	engine.OrderRetention = retention
+	engine.IdleTxn = idleTxn
+	engine.ExtraTables = extraTables
+	engine.TempTables = tempTables
 	h := api.New(engine, st, webFS)
 	srv := &http.Server{Addr: ":" + port, Handler: h.Routes()}
 
@@ -147,8 +173,10 @@ func main() {
 		engine.StartAgents(ctx)
 	}()
 
-	log.Printf("stocksim: listening on :%s (engine=%s, objects in %s, target=%s, threads=%d)",
-		port, cfg.Engine, st.Location(), describeTarget(cfg, targetLabel), cfg.Threads)
+	log.Printf("stocksim: listening on :%s (engine=%s, objects in %s, target=%s, threads=%d, "+
+		"idle txn=%s, extra tables=%d, temp tables=%s)",
+		port, cfg.Engine, st.Location(), describeTarget(cfg, targetLabel), cfg.Threads,
+		durationWord(idleTxn), extraTables, tempTables)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("stocksim: %v", err)
 	}
@@ -219,6 +247,14 @@ func describeTarget(c store.Config, label string) string {
 		return fmt.Sprintf("%s:%d", c.Host, c.Port)
 	}
 	return "(dsn)"
+}
+
+// durationWord renders a lab duration for the startup line.
+func durationWord(d time.Duration) string {
+	if d <= 0 {
+		return "off"
+	}
+	return d.String()
 }
 
 func envOr(key, def string) string {

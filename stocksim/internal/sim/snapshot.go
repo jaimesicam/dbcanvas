@@ -32,9 +32,11 @@ type Snapshot struct {
 	// Retention is what keeps the order book bounded, and is reported so a user
 	// can see why the orders table is not growing.
 	Retention RetentionStatus `json:"retention"`
-	UptimeSec int64           `json:"uptimeSeconds"`
-	Error     string          `json:"error,omitempty"`
-	Warning   string          `json:"warning,omitempty"`
+	// Lab is the state of the three deliberately-pathological knobs.
+	Lab       LabStatus `json:"lab"`
+	UptimeSec int64     `json:"uptimeSeconds"`
+	Error     string    `json:"error,omitempty"`
+	Warning   string    `json:"warning,omitempty"`
 }
 
 // TickerRow is one security as the dashboard grid shows it — the derived
@@ -88,6 +90,7 @@ func (e *Engine) BuildSnapshot(ctx context.Context) Snapshot {
 		Backfill:   e.Backfill(),
 		WorkingSet: e.WorkingSetStatus(),
 		Retention:  e.Retention(),
+		Lab:        e.Lab(),
 		Seed:       e.Seed(),
 		UptimeSec:  e.UptimeSeconds(),
 		Agents:     []store.AgentHeartbeat{},

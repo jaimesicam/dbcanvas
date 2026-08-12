@@ -185,6 +185,20 @@ type designNode struct {
 	// the working set is what makes it matter. Same engine restriction as
 	// SSTargetSize.
 	SSWorkingSet string `json:"ssWorkingSet"`
+	// The three lab knobs (Type=="stocksim"), all off unless set. Each makes the
+	// target exhibit one pathology that is otherwise hard to produce on demand
+	// and easy to meet by accident in production.
+	//
+	// SSIdleTxn holds a transaction open with a read snapshot — "30m", "2h",
+	// capped at 24h — so purge cannot advance and the InnoDB history list (or
+	// PostgreSQL's xmin horizon, and the bloat behind it) grows for as long as
+	// it sits there. SSExtraTables creates that many synthetic tables and reads
+	// them in rotation, which is what makes table_open_cache misses measurable.
+	// SSTempTables is "off" | "memory" | "disk" and runs an intraday rollup
+	// shaped to build a large intermediate result, forced either way.
+	SSIdleTxn     string `json:"ssIdleTxn"`
+	SSExtraTables int    `json:"ssExtraTables"`
+	SSTempTables  string `json:"ssTempTables"`
 	// SSThreads is how many concurrent database workers the sim runs in each of
 	// its two heavy agents — the one writing history and the one reading the
 	// working set back. 0 takes the sim's own default of 4. It also decides the
@@ -977,6 +991,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			if engine != "" {
 				out = append(out, stockSimSizeIssues(n, engine)...)
 				out = append(out, stockSimLoadIssues(n, engine)...)
+				out = append(out, stockSimLabIssues(n, engine)...)
 			}
 		default:
 			others++

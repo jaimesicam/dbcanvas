@@ -121,6 +121,10 @@ type stockSimConfig struct {
 	// reason TargetBytes is.
 	WorkingSet string `json:"workingSet"`
 	Threads    int    `json:"threads"`
+	// The lab knobs actually in force, resolved against the engine.
+	IdleTxn     string `json:"idleTxn,omitempty"`
+	ExtraTables int    `json:"extraTables,omitempty"`
+	TempTables  string `json:"tempTables,omitempty"`
 }
 
 // stockSimSecrets holds the credentials a manual-mode node was configured with,
@@ -701,6 +705,13 @@ func (a *App) provisionStockSim(st Stack, n designNode, doc designDoc) {
 		cfg.TargetBytes = stockSimTargetBytes(n, cfg.Engine)
 		cfg.WorkingSet = stockSimWorkingSet(n, cfg.Engine)
 		cfg.Threads = stockSimThreads(n)
+		if d := stockSimIdleTxn(n, cfg.Engine); d > 0 {
+			cfg.IdleTxn = d.String()
+		} else {
+			cfg.IdleTxn = "off"
+		}
+		cfg.ExtraTables = stockSimExtraTables(n, cfg.Engine)
+		cfg.TempTables = stockSimTempTables(n, cfg.Engine)
 		env = append(env,
 			"DB_NAME="+cfg.Database,
 			"TARGET_KIND="+cfg.TargetKind,
@@ -708,6 +719,9 @@ func (a *App) provisionStockSim(st Stack, n designNode, doc designDoc) {
 			fmt.Sprintf("TARGET_BYTES=%d", cfg.TargetBytes),
 			"WORKING_SET="+cfg.WorkingSet,
 			fmt.Sprintf("DB_THREADS=%d", cfg.Threads),
+			"IDLE_TXN="+cfg.IdleTxn,
+			fmt.Sprintf("EXTRA_TABLES=%d", cfg.ExtraTables),
+			"TEMP_TABLES="+cfg.TempTables,
 			fmt.Sprintf("PORT=%d", stockSimPort),
 		)
 		if cfg.TargetBytes > 0 {
@@ -1531,4 +1545,136 @@ func (a *App) waitStockSimHealthy(ctx context.Context, containerID string, timeo
 		time.Sleep(2 * time.Second)
 	}
 	return fmt.Errorf("healthz not ready within %s", timeout)
+}
+
+// ---------------------------------------------------------------- lab knobs
+
+// The three deliberately-pathological options, mirrored from the sim image so a
+// bad value is caught on the canvas rather than inside a container.
+const (
+	stockSimMaxIdleTxn     = 24 * time.Hour // mirrors store.MaxIdleTransaction
+	stockSimMaxExtraTables = 5000           // mirrors store.MaxExtraTables
+)
+
+// stockSimTempModes mirrors store.TempOff/TempMemory/TempDisk.
+var stockSimTempModes = map[string]bool{"off": true, "memory": true, "disk": true}
+
+// stockSimLabSupport mirrors each store's Capabilities(). Which knobs do
+// anything depends on the engine, and the form uses this to hide the ones that
+// would silently do nothing rather than offering a dead control.
+type stockSimLabSupport struct {
+	IdleTxn     bool
+	ExtraTables bool
+	TempTables  bool
+}
+
+func stockSimLabFor(engine string) stockSimLabSupport {
+	switch engine {
+	case "mysql", "postgres":
+		return stockSimLabSupport{IdleTxn: true, ExtraTables: true, TempTables: true}
+	case "mongodb":
+		// Collections are the table-handle analogue; transactions need a replica
+		// set this node may not be pointed at, and a spilling aggregation is a
+		// flag rather than a memory limit. See store/lab_other.go.
+		return stockSimLabSupport{ExtraTables: true}
+	}
+	return stockSimLabSupport{} // valkey: none of the three exist there
+}
+
+// stockSimIdleTxn resolves the hold duration, clamped. Empty or "off" is zero.
+func stockSimIdleTxn(n designNode, engine string) time.Duration {
+	if !stockSimLabFor(engine).IdleTxn {
+		return 0
+	}
+	raw := strings.TrimSpace(n.SSIdleTxn)
+	if raw == "" || strings.EqualFold(raw, "off") || strings.EqualFold(raw, "none") {
+		return 0
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return 0
+	}
+	if d > stockSimMaxIdleTxn {
+		return stockSimMaxIdleTxn
+	}
+	return d
+}
+
+func stockSimExtraTables(n designNode, engine string) int {
+	if !stockSimLabFor(engine).ExtraTables || n.SSExtraTables <= 0 {
+		return 0
+	}
+	if n.SSExtraTables > stockSimMaxExtraTables {
+		return stockSimMaxExtraTables
+	}
+	return n.SSExtraTables
+}
+
+func stockSimTempTables(n designNode, engine string) string {
+	mode := strings.ToLower(strings.TrimSpace(n.SSTempTables))
+	if !stockSimLabFor(engine).TempTables || mode == "" || !stockSimTempModes[mode] {
+		return "off"
+	}
+	return mode
+}
+
+// stockSimLabIssues validates all three against the resolved engine.
+func stockSimLabIssues(n designNode, engine string) []issue {
+	var out []issue
+	caps := stockSimLabFor(engine)
+	label := engineDisplayLabel(engine)
+
+	if raw := strings.TrimSpace(n.SSIdleTxn); raw != "" && !strings.EqualFold(raw, "off") {
+		switch d, err := time.ParseDuration(raw); {
+		case err != nil:
+			out = append(out, issue{"error", fmt.Sprintf(
+				"Stock Market Sim node %s has an invalid idle-transaction duration %q — write it like 30m, 2h or 90s",
+				n.Label, raw)})
+		case d <= 0:
+			out = append(out, issue{"error", fmt.Sprintf(
+				"Stock Market Sim node %s has a non-positive idle-transaction duration — leave it blank to switch it off",
+				n.Label)})
+		case !caps.IdleTxn:
+			out = append(out, issue{"warning", fmt.Sprintf(
+				"Stock Market Sim node %s asks to hold an idle transaction, which will be ignored: %s has no transaction that holds a read snapshot open.",
+				n.Label, label)})
+		case d > stockSimMaxIdleTxn:
+			out = append(out, issue{"warning", fmt.Sprintf(
+				"Stock Market Sim node %s asks to hold a transaction for %s; it will be capped at 24h",
+				n.Label, raw)})
+		default:
+			// Worth saying out loud, because this is a knob whose whole purpose
+			// is to degrade the server it is pointed at.
+			out = append(out, issue{"info", fmt.Sprintf(
+				"Stock Market Sim node %s will hold a transaction open for %s at a time. Purge cannot advance past it, so the history list — and on PostgreSQL the table bloat — will grow for as long as it is held. That is the point, but do not point it at anything you care about.",
+				n.Label, raw)})
+		}
+	}
+
+	if n.SSExtraTables > 0 {
+		switch {
+		case !caps.ExtraTables:
+			out = append(out, issue{"warning", fmt.Sprintf(
+				"Stock Market Sim node %s asks for %d extra tables, which will be ignored: %s has no per-table handle to cache.",
+				n.Label, n.SSExtraTables, label)})
+		case n.SSExtraTables > stockSimMaxExtraTables:
+			out = append(out, issue{"warning", fmt.Sprintf(
+				"Stock Market Sim node %s asks for %d extra tables; it will be capped at %d",
+				n.Label, n.SSExtraTables, stockSimMaxExtraTables)})
+		}
+	}
+
+	if mode := strings.ToLower(strings.TrimSpace(n.SSTempTables)); mode != "" && mode != "off" {
+		switch {
+		case !stockSimTempModes[mode]:
+			out = append(out, issue{"error", fmt.Sprintf(
+				"Stock Market Sim node %s has an invalid temporary-table mode %q — choose off, memory or disk",
+				n.Label, mode)})
+		case !caps.TempTables:
+			out = append(out, issue{"warning", fmt.Sprintf(
+				"Stock Market Sim node %s asks for %s temporary tables, which will be ignored: %s has no query planner that materialises intermediate results.",
+				n.Label, mode, label)})
+		}
+	}
+	return out
 }

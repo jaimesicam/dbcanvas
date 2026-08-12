@@ -12,7 +12,7 @@ package store
 
 var pgTables = []string{
 	"securities", "price_ticks", "portfolios", "orders", "trades", "holdings",
-	"metrics", "sim_state", "agents", "events",
+	"metrics", "sim_state", "agents", "events", "lab_parking",
 }
 
 var pgCreateStmts = []string{
@@ -115,6 +115,16 @@ var pgCreateStmts = []string{
 		detail VARCHAR(255) NOT NULL DEFAULT '',
 		updated_at TIMESTAMPTZ NOT NULL
 	)`,
+	// See the MySQL schema: one row for an idle transaction to hold, on a table
+	// nothing else writes.
+	`CREATE TABLE IF NOT EXISTS lab_parking (
+		id INT PRIMARY KEY,
+		holds BIGINT NOT NULL DEFAULT 0,
+		touched_at TIMESTAMPTZ NOT NULL
+	)`,
+	`INSERT INTO lab_parking (id, holds, touched_at) VALUES (1, 0, NOW())
+	 ON CONFLICT (id) DO NOTHING`,
+
 	`CREATE TABLE IF NOT EXISTS events (
 		id BIGSERIAL PRIMARY KEY,
 		ts TIMESTAMPTZ NOT NULL,

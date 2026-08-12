@@ -65,6 +65,7 @@ async function fetchState() {
     renderBackfill(state.backfill)
     renderWorkingSet(state.workingSet)
     renderRetention(state.retention)
+    renderLab(state.lab)
     renderKPIs(state)
     renderTicker(state.ticker || [])
     renderAgents(state.agents || [])
@@ -218,6 +219,41 @@ function renderRetention(r) {
     ? `${nf0.format(r.lastSweepDeleted)} removed in the last sweep`
     : ''
   $('#ret-note').textContent = r.note || ''
+}
+
+// renderLab shows the three knobs whose job is to degrade the target on
+// purpose. Each row says what it is doing right now, so a history list climbing
+// on a monitoring dashboard can be tied back to the thing causing it.
+function renderLab(l) {
+  const panel = $('#lab-panel')
+  if (!l) { panel.classList.add('hidden'); return }
+  const rows = []
+  if (l.idleTxnEnabled) {
+    const held = l.idleTxnHolding ? ` · held ${l.idleTxnHeldForSeconds}s` : ''
+    rows.push(['Idle transaction', l.idleTxnHolding ? 'holding' : 'between holds',
+      `${l.idleTxnNote || ''}${held} · ${nf0.format(l.idleTxnHolds || 0)} completed`])
+  }
+  if (l.tablesWanted > 0) {
+    rows.push(['Table cache', l.tablesHave ? 'active' : 'starting',
+      `${l.tablesNote || ''} · ${nf0.format(l.tablesTouched || 0)} opens`])
+  }
+  if (l.tempMode && l.tempMode !== 'off') {
+    const spill = l.tempRuns ? ` · ${nf0.format(l.tempSpills)} of ${nf0.format(l.tempRuns)} spilled to disk` : ''
+    rows.push([`Temp tables (${l.tempMode})`, l.tempRuns ? 'active' : 'starting',
+      `${l.tempNote || ''}${spill}`])
+  }
+  if (rows.length === 0) { panel.classList.add('hidden'); return }
+  panel.classList.remove('hidden')
+  $('#lab-hint').textContent = 'these degrade the database on purpose'
+  const list = $('#lab-list')
+  list.innerHTML = ''
+  rows.forEach(([name, status, detail]) => {
+    const row = el('div', 'agent')
+    row.append(el('span', 'agent-name', name))
+    row.append(el('span', 'badge', status))
+    row.append(el('span', 'hint', detail))
+    list.append(row)
+  })
 }
 
 function tile(value, label, cls) {

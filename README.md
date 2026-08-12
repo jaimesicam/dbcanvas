@@ -144,7 +144,17 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
   the connection pool with it. Settled orders are swept after a retention window (15 minutes by
   default) so the order book stays bounded — without it the dashboard's own two-second order
   count grows linearly more expensive for the life of the deployment, and cumulative figures
-  stay correct across the sweep because what was removed is tallied durably. On MySQL, PostgreSQL and MongoDB it takes its own database or
+  stay correct across the sweep because what was removed is tallied durably.
+  Three **deliberate problems** can also be switched on, each reproducing a condition that is
+  hard to cause on purpose and easy to hit by accident: an **idle transaction** held open with
+  a read snapshot (up to 24h) so purge cannot advance and the InnoDB history list — or
+  PostgreSQL's xmin horizon and the bloat behind it — grows for as long as it sits there;
+  **extra tables** (up to 5000, read in rotation) so `table_open_cache` stops holding the
+  working set and every query pays to reopen one; and **temporary-table queries** shaped to
+  build a large intermediate result either in memory or forced to spill to disk. Measured on a
+  lab server: history list 6,496 and climbing, 15,896 `Table_open_cache_overflows` against
+  1,200 tables and a 400-entry cache, and the same rollup taking 1,961 ms spilled versus
+  429 ms in memory. Each knob is offered only on an engine that can actually do it. On MySQL, PostgreSQL and MongoDB it takes its own database or
   schema; on Valkey there is no size target and no working set, because its tick history is a
   length-capped stream that writing to does not enlarge and that holds no cold data to read.
   Unlike **Unoptimized MySQL Challenge** above — also a stock

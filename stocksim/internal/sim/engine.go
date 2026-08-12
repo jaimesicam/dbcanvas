@@ -72,6 +72,18 @@ type Engine struct {
 	// OrderRetention is how long a settled order is kept before the retention
 	// agent sweeps it; 0 disables the sweep. See retention.go.
 	OrderRetention time.Duration
+	// The lab knobs — features that exist to make the target exhibit one
+	// specific, measurable pathology. All three are off by default; see
+	// internal/sim/lab.go and internal/store/lab.go.
+	//
+	// IdleTxn is how long a transaction is held open with a read snapshot, which
+	// is what stops purge advancing and makes the history list grow. ExtraTables
+	// is how many synthetic tables to create and read in rotation, for table
+	// cache pressure. TempTables is "off" | "memory" | "disk" for a query shaped
+	// to build a large intermediate result.
+	IdleTxn     time.Duration
+	ExtraTables int
+	TempTables  string
 	// Threads is how many concurrent database workers each of the two heavy
 	// agents runs — backfill writers, and working-set readers. It is the knob
 	// that decides how much concurrency the target sees, and the store's
@@ -91,6 +103,7 @@ type Engine struct {
 	backfill   BackfillStatus
 	workingSet WorkingSetStatus
 	retention  RetentionStatus
+	lab        LabStatus
 
 	// baseCtx is the process's long-lived context — Start/Reset always derive
 	// from this, never from a caller's request-scoped context. A Reset
@@ -114,6 +127,7 @@ func NewEngine(st store.Store, targetKind, targetLabel string) *Engine {
 		WorkingSet:     DefaultWorkingSet(),
 		Threads:        store.DefaultThreads,
 		OrderRetention: DefaultOrderRetention,
+		TempTables:     store.TempOff,
 		startedAt:      time.Now(),
 	}
 	e.level.Store(LevelMedium)
@@ -209,6 +223,9 @@ func (e *Engine) StartAgents(ctx context.Context) {
 		e.runBackfillAgent,
 		e.runWorkingSetAgent,
 		e.runRetentionAgent,
+		e.runIdleTxnAgent,
+		e.runTableCacheAgent,
+		e.runTempTableAgent,
 	}
 	for _, fn := range agents {
 		e.wg.Add(1)

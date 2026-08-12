@@ -16,7 +16,7 @@ package store
 // below must appear here too.
 var mysqlTables = []string{
 	"securities", "price_ticks", "portfolios", "orders", "trades", "holdings",
-	"metrics", "sim_state", "agents", "events",
+	"metrics", "sim_state", "agents", "events", "lab_parking",
 }
 
 var mysqlCreateStmts = []string{
@@ -124,6 +124,17 @@ var mysqlCreateStmts = []string{
 		detail VARCHAR(255) NOT NULL DEFAULT '',
 		updated_at DATETIME(3) NOT NULL
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+	// One row, existing only so an idle transaction has something of its own to
+	// hold a lock on. Deliberately a table nothing else in the application ever
+	// writes: a transaction parked for hours must not block the simulation it
+	// exists to be observed alongside.
+	`CREATE TABLE IF NOT EXISTS lab_parking (
+		id INT NOT NULL PRIMARY KEY,
+		holds BIGINT NOT NULL DEFAULT 0,
+		touched_at DATETIME(3) NOT NULL
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+	`INSERT IGNORE INTO lab_parking (id, holds, touched_at) VALUES (1, 0, NOW(3))`,
 
 	// The event feed. AUTO_INCREMENT here (and only here) because the feed is
 	// read by a monotonic cursor, which a random id could not provide.
