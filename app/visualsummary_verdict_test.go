@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // The verdict rules turn measurements into conclusions, so a wrong rule is worse
 // than no rule — it tells an operator to leave a starved server alone, or to
@@ -151,6 +154,123 @@ func TestVerdictRedoHeadroom(t *testing.T) {
 	m := mdl(nil, map[string]*vsSeries{"checkpointAge": ckpt(11 << 20)})
 	if v := verdictRedoHeadroom(m); v != nil {
 		t.Errorf("no redo capacity should produce no verdict, got %+v", v)
+	}
+}
+
+// TestVerdictScans pins the signal choice. The worst statement on the server
+// this was built against is an *index* scan, which Handler_read_rnd_next never
+// counts — so a rule built on that counter stayed silent through 615 million
+// rows examined and 32 minutes of CPU. Rows examined per row returned catches
+// both kinds.
+func TestVerdictScans(t *testing.T) {
+	digest := func(examined, sent, count string) []map[string]string {
+		return []map[string]string{{
+			"digest":       "SELECT STATUS , COUNT ( * ) FROM `orders` GROUP BY STATUS",
+			"rowsExamined": examined, "rowsSent": sent, "count": count, "totalSec": "1937.750",
+		}}
+	}
+	// The real one: 615.6M examined to return 8,576.
+	m := mdl(nil, map[string]*vsSeries{})
+	m.Digests = digest("615612572", "8576", "2144")
+	v := verdictScans(m)
+	if v == nil || v.Level != vsWarn {
+		t.Fatalf("a statement examining 71,783 rows per row returned should warn, got %+v", v)
+	}
+	if !strings.Contains(v.Detail, "orders") {
+		t.Errorf("the verdict must name the statement, got %q", v.Detail)
+	}
+
+	// An efficient statement, however many times it runs.
+	m = mdl(nil, map[string]*vsSeries{})
+	m.Digests = digest("2000000", "1900000", "50000")
+	if v := verdictScans(m); v != nil {
+		t.Errorf("a statement returning most of what it examines is not a finding, got %+v", v)
+	}
+	// A wasteful ratio on a trivial number of rows is a rounding error.
+	m = mdl(nil, map[string]*vsSeries{})
+	m.Digests = digest("20000", "1", "20000")
+	if v := verdictScans(m); v != nil {
+		t.Errorf("below the floor there is nothing worth saying, got %+v", v)
+	}
+
+	// No digests: fall back to the full-table-scan counter, and say plainly
+	// that the statement cannot be named.
+	s := &vsSeries{Metrics: []string{"perSec"}}
+	for i := 0; i < 3; i++ {
+		s.Points = append(s.Points, vsPoint{T: int64(i), V: map[string]float64{"perSec": 125958}})
+	}
+	m = mdl(nil, map[string]*vsSeries{"handlerReadRndNext": s})
+	v = verdictScans(m)
+	if v == nil || v.Level != vsWarn {
+		t.Fatalf("sustained scanning without digests should still warn, got %+v", v)
+	}
+	if !strings.Contains(v.Detail, "cannot be named") {
+		t.Errorf("the fallback must admit what it cannot say, got %q", v.Detail)
+	}
+}
+
+// TestVerdictSaturation pins the fix for a tile that painted the better server
+// in warning colours: 77.7% busy with no iowait was the configuration running
+// three times faster than the 49.3% one beside it.
+func TestVerdictSaturation(t *testing.T) {
+	cpu := func(idle, iowait float64) *vsTabbed {
+		s := &vsSeries{Metrics: []string{"idle", "iowait"}}
+		for i := 0; i < 3; i++ {
+			s.Points = append(s.Points, vsPoint{T: int64(i),
+				V: map[string]float64{"idle": idle, "iowait": iowait}})
+		}
+		return &vsTabbed{Overall: s}
+	}
+	for _, c := range []struct {
+		name         string
+		idle, iowait float64
+		wantLevel    string
+		wantInDetail string
+	}{
+		{"busy with no waiting is the good outcome", 22.3, 0.5, vsOK, "good outcome"},
+		{"waiting on storage is I/O-bound", 80, 30, vsWarn, "I/O-bound"},
+		{"nearly all busy is at the ceiling", 5, 1, vsWarn, "CPU-bound"},
+		{"idle is neither", 90, 1, vsOK, "not saturation"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := mdl(nil, map[string]*vsSeries{})
+			m.CPU = cpu(c.idle, c.iowait)
+			v := verdictSaturation(m)
+			if v == nil {
+				t.Fatal("expected a verdict")
+			}
+			if v.Level != c.wantLevel {
+				t.Errorf("level = %q, want %q (%s)", v.Level, c.wantLevel, v.Headline)
+			}
+			if !strings.Contains(v.Detail, c.wantInDetail) {
+				t.Errorf("detail %q should mention %q", v.Detail, c.wantInDetail)
+			}
+		})
+	}
+}
+
+func TestParseDigests(t *testing.T) {
+	m := mdl(nil, map[string]*vsSeries{})
+	parseDigests(m, []namedFile{{data: []byte(
+		"SCHEMA_NAME\tDIGEST_TEXT\tCOUNT_STAR\tSUM_ROWS_EXAMINED\tSUM_ROWS_SENT\tSUM_NO_INDEX_USED\tSUM_CREATED_TMP_DISK_TABLES\tTOTAL_SEC\tAVG_MS\n" +
+			"stocksim\tSELECT STATUS , COUNT ( * ) FROM `orders` GROUP BY STATUS\t2144\t615612572\t8576\t0\t0\t1937.750\t903.801\n" +
+			"stocksim\tSELECT `VERSION` ( )\t858\t858\t858\t0\t0\t0.075\t0.087\n" +
+			"stocksim\tSELECT never_run\t0\t0\t0\t0\t0\t0\t0\n" +
+			"a short line\n")}})
+	if len(m.Digests) != 2 {
+		t.Fatalf("got %d digests, want 2 (the header, the never-run row and the short line dropped)", len(m.Digests))
+	}
+	if m.Digests[0]["rowsExamined"] != "615612572" || m.Digests[0]["count"] != "2144" {
+		t.Errorf("first row parsed wrong: %+v", m.Digests[0])
+	}
+	if !m.Available["digests"] {
+		t.Error("digests should be marked available")
+	}
+	// An archive from a server with performance_schema off has no such file.
+	m2 := mdl(nil, map[string]*vsSeries{})
+	parseDigests(m2, nil)
+	if m2.Available["digests"] {
+		t.Error("no digest file should leave the panel unavailable, not empty-but-present")
 	}
 }
 

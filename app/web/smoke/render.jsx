@@ -24,6 +24,7 @@ import {
   MySQLCENodeForm, MySQLCEFrameForm, MySQLCEInnoDBFrameForm,
   UpstreamMemberForm,
 } from '../src/pages/UpstreamForms.jsx'
+import { Comparison, Verdicts } from '../src/pages/VisualSummary.jsx'
 import {
   frameMemberSub, REPL_FRAME_TYPES,
   NODE_TYPES, CONNECTABLE_FRAMES, SS_LINK_TYPES, SS_LINK_ENGINE,
@@ -1041,6 +1042,37 @@ check('every Stock Market Sim link target maps to an engine', () => {
   if (missing.length) throw new Error('no engine for: ' + missing.join(', '))
   return 'ok'
 })
+
+// ---- Visual Summary: verdicts and the two-archive comparison ----
+//
+// The numbers below are the two real captures this feature was built against:
+// one server at innodb_buffer_pool_size=128M and the same server at 4G.
+
+const vsCapture = (host, at, facts, findings, verdicts) => ({
+  source: { host, engine: 'mysql', capturedAt: at },
+  summary: { facts, findings },
+  verdicts,
+  series: {},
+  available: {},
+})
+
+const vs128 = vsCapture('ps-01', '2026-08-12T15:34:04Z',
+  { bufferPoolSize: '134217728', flushMethod: 'fsync', redoLogCapacity: '104857600', syncBinlog: '1', flushLogAtTrxCommit: '1' },
+  { qps: 1514, bpMissRatioPct: 8.3, bpFreePages: 342, innodbReadMiBs: 1841.9, deviceReadMiBs: 0, fsyncsPerSec: 381, cpuBusyPct: 49.3, cpuIowaitPct: 5, diskUtilPct: 23.5, maxCheckpointAgePctOfRedo: 10.3 },
+  [{ id: 'bufferPool', title: 'Buffer pool sizing', level: 'crit', headline: '8.30% of reads miss the pool (117.7k/s)', detail: 'x' },
+   { id: 'pageCache', title: 'Do buffer pool misses reach a disk?', level: 'warn', headline: 'InnoDB reads 1842 MiB/s · devices serve 0 MiB/s', detail: 'x' }])
+
+const vs4G = vsCapture('ps-01', '2026-08-12T13:47:00Z',
+  { bufferPoolSize: '4294967296', flushMethod: 'fsync', redoLogCapacity: '104857600', syncBinlog: '1', flushLogAtTrxCommit: '1' },
+  { qps: 4583, bpMissRatioPct: 0, bpFreePages: 105660, innodbReadMiBs: 0, deviceReadMiBs: 0, fsyncsPerSec: 108, cpuBusyPct: 77.7, cpuIowaitPct: 0.4, diskUtilPct: 11.3, maxCheckpointAgePctOfRedo: 11.3 },
+  [{ id: 'bufferPool', title: 'Buffer pool sizing', level: 'ok', headline: '105660 of 262144 pages still free', detail: 'x' }])
+
+check('visual summary: verdicts card', () => renderToString(<Verdicts verdicts={vs128.verdicts} />))
+check('visual summary: verdicts card with none', () => renderToString(<div><Verdicts verdicts={[]} /></div>))
+check('visual summary: comparison of two captures', () => renderToString(<Comparison a={vs128} b={vs4G} />))
+check('visual summary: comparison when nothing differs', () => renderToString(<Comparison a={vs128} b={vs128} />))
+check('visual summary: comparison with a missing finding on one side', () =>
+  renderToString(<Comparison a={vs128} b={vsCapture('ps-01', '2026-08-12T16:00:00Z', {}, { qps: 900 }, [])} />))
 
 if (failures > 0) {
   console.error(`\n${failures} render failure(s)`)

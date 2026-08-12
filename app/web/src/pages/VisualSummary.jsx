@@ -15,6 +15,12 @@ export default function VisualSummary() {
   const [nodes, setNodes] = useState([])
   const [sel, setSel] = useState('')
   const [drag, setDrag] = useState(false)
+  // A pinned earlier capture to compare the current one against. "What changed
+  // between these two configurations" is the question almost every capture is
+  // taken to answer, and answering it by opening one archive at a time and
+  // holding the numbers in your head is how a page-cache artefact gets mistaken
+  // for saturated storage.
+  const [baseline, setBaseline] = useState(null)
   const fileRef = useRef(null)
 
   useEffect(() => {
@@ -73,6 +79,25 @@ export default function VisualSummary() {
 
       {loading && <div className="rounded-xl border bg-surface px-4 py-8 text-center text-sm text-muted">Parsing archive…</div>}
       {error && <div className="rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">{error}</div>}
+      {model && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <button
+            className="rounded-lg border border-border px-2.5 py-1 hover:border-primary/60"
+            onClick={() => setBaseline(baseline && sameCapture(baseline, model) ? null : model)}>
+            {baseline && sameCapture(baseline, model) ? 'Unpin baseline' : 'Pin as baseline to compare'}
+          </button>
+          {baseline && !sameCapture(baseline, model) && (
+            <>
+              <span className="text-muted">
+                comparing against <span className="font-mono text-fg">{captureLabel(baseline)}</span>
+              </span>
+              <button className="rounded-lg border border-border px-2.5 py-1 hover:border-danger/60"
+                onClick={() => setBaseline(null)}>Clear</button>
+            </>
+          )}
+        </div>
+      )}
+      {model && baseline && !sameCapture(baseline, model) && <Comparison a={baseline} b={model} />}
       {model && <Report model={model} />}
     </div>
   )
@@ -85,7 +110,17 @@ const FINDING_TILES = [
   // doing more or less work than another capture of it, which is the first
   // question anyone comparing two of them has.
   { key: 'qps', label: 'Throughput', unit: '/s', warn: Infinity, crit: Infinity },
-  { key: 'peakCpuBusyPct', label: 'Peak CPU busy', unit: '%', warn: 70, crit: 90 },
+  // CPU busy is deliberately NOT colour-coded any more. A capture measured 77.7%
+  // busy on the configuration that was three times faster than the 49.3% one
+  // beside it, because its buffer pool held the working set and it did no I/O at
+  // all — so the tile was painting the better server in warning colours. Busy is
+  // what a server getting work done looks like; iowait next to it is what says
+  // whether the time went on work or on waiting, and the "What is the limit
+  // here?" verdict reads them together.
+  { key: 'cpuBusyPct', label: 'CPU busy', unit: '%', warn: Infinity, crit: Infinity },
+  { key: 'cpuIowaitPct', label: 'CPU iowait', unit: '%', warn: 20, crit: 40 },
+  { key: 'peakCpuBusyPct', label: 'Peak CPU busy', unit: '%', warn: Infinity, crit: Infinity },
+  { key: 'diskUtilPct', label: 'Disk util', unit: '%', warn: 70, crit: 90 },
   { key: 'peakDiskUtilPct', label: 'Peak disk util', unit: '%', warn: 70, crit: 90 },
   { key: 'peakSwapUsedMB', label: 'Peak swap used', unit: ' MB', warn: 1, crit: 512 },
   // Sustained before peak — one bad second should not be the headline, though
@@ -100,9 +135,144 @@ const FINDING_TILES = [
   { key: 'maxHistoryListLength', label: 'Max history list', unit: '', warn: 1e6, crit: 1e7 },
   { key: 'maxCheckpointAgeBytes', label: 'Max checkpoint age', unit: ' B', warn: 1e9, crit: 4e9, bytes: true },
   { key: 'maxReplicationLagSec', label: 'Max repl lag', unit: ' s', warn: 1, crit: 30 },
+  { key: 'handlerReadRndNextPerSec', label: 'Rows/s (no index)', unit: '/s', warn: 1e5, crit: 1e7 },
   { key: 'peakHandlerReadRndNextPerSec', label: 'Peak rows/s (no index)', unit: '/s', warn: 1e5, crit: 1e7 },
   { key: 'maxLongQuerySec', label: 'Longest query', unit: ' s', warn: 5, crit: 60 },
 ]
+
+// The settings a comparison is almost always about, in the order they matter.
+const COMPARE_SETTINGS = [
+  ['bufferPoolSize', 'innodb_buffer_pool_size', true],
+  ['flushMethod', 'innodb_flush_method', false],
+  ['redoLogCapacity', 'innodb_redo_log_capacity', true],
+  ['syncBinlog', 'sync_binlog', false],
+  ['flushLogAtTrxCommit', 'innodb_flush_log_at_trx_commit', false],
+]
+
+// Findings worth putting side by side. Throughput first — it is the one that
+// says which capture was the better server.
+const COMPARE_FINDINGS = [
+  ['qps', 'Throughput', '/s', true],
+  ['bpMissRatioPct', 'BP read-miss (sustained)', '%', false],
+  ['bpFreePages', 'BP free pages', '', true],
+  ['innodbReadMiBs', 'InnoDB read', ' MiB/s', false],
+  ['deviceReadMiBs', 'Device read', ' MiB/s', false],
+  ['fsyncsPerSec', 'fsyncs', '/s', false],
+  ['cpuBusyPct', 'CPU busy', '%', false],
+  ['cpuIowaitPct', 'CPU iowait', '%', false],
+  ['diskUtilPct', 'Disk util', '%', false],
+  ['maxCheckpointAgePctOfRedo', 'Checkpoint age of redo', '%', false],
+]
+
+const captureLabel = (m) =>
+  `${m.source?.host || 'host'}${m.source?.capturedAt ? ' · ' + new Date(m.source.capturedAt).toLocaleTimeString() : ''}`
+const sameCapture = (a, b) =>
+  a?.source?.host === b?.source?.host && a?.source?.capturedAt === b?.source?.capturedAt
+
+const fmtCompare = (v, unit) =>
+  v === undefined || v === null ? '—'
+    : (v >= 1000 ? Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(v)
+      : Math.round(v * 100) / 100) + unit
+
+// Comparison answers "what changed between these two captures" directly, rather
+// than leaving it to be reconstructed from two separate readings of the page.
+export function Comparison({ a, b }) {
+  const fa = a.summary?.findings || {}
+  const fb = b.summary?.findings || {}
+  const sa = a.summary?.facts || {}
+  const sb = b.summary?.facts || {}
+  const settingRows = COMPARE_SETTINGS
+    .filter(([k]) => (sa[k] ?? '') !== (sb[k] ?? ''))
+    .map(([k, label, bytes]) => ({
+      label,
+      from: sa[k] === undefined ? '—' : bytes ? humanBytes(Number(sa[k])) : sa[k],
+      to: sb[k] === undefined ? '—' : bytes ? humanBytes(Number(sb[k])) : sb[k],
+    }))
+  const findingRows = COMPARE_FINDINGS
+    .filter(([k]) => fa[k] !== undefined || fb[k] !== undefined)
+    .map(([k, label, unit, higherIsBetter]) => {
+      const from = fa[k], to = fb[k]
+      let pct = null
+      if (typeof from === 'number' && typeof to === 'number' && from !== 0) pct = (to - from) / Math.abs(from) * 100
+      // Colour by whether the change is an improvement, which depends on the
+      // metric: more queries per second is good, more misses is not.
+      let tone = 'text-muted'
+      if (pct !== null && Math.abs(pct) >= 10) {
+        const better = higherIsBetter ? pct > 0 : pct < 0
+        tone = better ? 'text-primary' : 'text-danger'
+      }
+      return { label, from: fmtCompare(from, unit), to: fmtCompare(to, unit), pct, tone }
+    })
+  const verdictsOf = (m) => Object.fromEntries((m.verdicts || []).map((v) => [v.id, v]))
+  const va = verdictsOf(a), vb = verdictsOf(b)
+  const verdictRows = [...new Set([...Object.keys(va), ...Object.keys(vb)])]
+    .filter((id) => (va[id]?.level ?? '') !== (vb[id]?.level ?? ''))
+    .map((id) => ({ title: (vb[id] || va[id]).title, from: va[id]?.level || '—', to: vb[id]?.level || '—' }))
+
+  return (
+    <Card title="Comparison" subtitle={`${captureLabel(a)}  →  ${captureLabel(b)}`}>
+      <div className="space-y-4 p-4">
+        <div>
+          <div className="mb-1 text-xs font-semibold text-fg">Settings that differ</div>
+          {settingRows.length === 0
+            ? <div className="text-xs text-muted">None of the tracked settings changed between these captures.</div>
+            : (
+              <div className="space-y-1">
+                {settingRows.map((r) => (
+                  <div key={r.label} className="flex flex-wrap items-baseline gap-2 text-xs">
+                    <span className="font-mono text-muted">{r.label}</span>
+                    <span className="font-mono text-fg">{r.from} → {r.to}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+        </div>
+        <div>
+          <div className="mb-1 text-xs font-semibold text-fg">Measurements</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="text-muted">
+                <tr><th className="py-1 text-left font-medium">Metric</th>
+                  <th className="py-1 text-right font-medium">Baseline</th>
+                  <th className="py-1 text-right font-medium">Current</th>
+                  <th className="py-1 text-right font-medium">Change</th></tr>
+              </thead>
+              <tbody className="font-mono">
+                {findingRows.map((r) => (
+                  <tr key={r.label} className="border-t border-border/50">
+                    <td className="py-1 pr-2 font-sans text-muted">{r.label}</td>
+                    <td className="py-1 text-right text-fg">{r.from}</td>
+                    <td className="py-1 text-right text-fg">{r.to}</td>
+                    <td className={`py-1 text-right ${r.tone}`}>
+                      {r.pct === null ? '—' : `${r.pct > 0 ? '+' : ''}${Math.round(r.pct)}%`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {verdictRows.length > 0 && (
+          <div>
+            <div className="mb-1 text-xs font-semibold text-fg">Verdicts that changed</div>
+            <div className="space-y-1">
+              {verdictRows.map((r) => (
+                <div key={r.title} className="flex flex-wrap items-baseline gap-2 text-xs">
+                  <span className="text-muted">{r.title}</span>
+                  <span className="font-mono">
+                    <span className={VERDICT_TEXT[r.from] || 'text-muted'}>{VERDICT_LABEL[r.from] || r.from}</span>
+                    <span className="text-muted"> → </span>
+                    <span className={VERDICT_TEXT[r.to] || 'text-muted'}>{VERDICT_LABEL[r.to] || r.to}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </Card>
+  )
+}
 
 const VERDICT_TONE = {
   crit: 'border-danger/40 bg-danger/10',
@@ -118,7 +288,7 @@ const VERDICT_LABEL = { crit: 'critical', warn: 'warning', info: 'info', ok: 'ok
 // Verdicts sit above the numbers because a wall of correct measurements is not
 // an answer. Each one states the figure it turns on and what to do about it;
 // the charts below are the evidence.
-function Verdicts({ verdicts }) {
+export function Verdicts({ verdicts }) {
   if (!verdicts?.length) return null
   return (
     <Card title="Verdicts" subtitle="What these measurements add up to">
@@ -244,11 +414,30 @@ function Report({ model }) {
           </ChartCard>
         )}
         {has('bufferPool') && (
-          <ChartCard title="Buffer pool reads" subtitle="logical read requests vs physical disk reads (/s)">
+          <ChartCard title="Buffer pool reads" subtitle="logical read requests vs pool misses (/s)">
             <div className="grid grid-cols-2 gap-2">
               <TimeChart points={model.series.bufferPool.points} unit="/s" lines={[cl('readReqPerSec', 'read requests', 0)]} height={148} />
-              <TimeChart points={model.series.bufferPool.points} unit="/s" lines={[cl('diskReadPerSec', 'disk reads', 6)]} height={148} />
+              <TimeChart points={model.series.bufferPool.points} unit="/s" lines={[cl('diskReadPerSec', 'pool misses', 6)]} height={148} />
             </div>
+          </ChartCard>
+        )}
+        {/* The pair that has to be read together: what InnoDB believes it read
+            against what the block devices actually served. Under
+            innodb_flush_method=fsync these routinely differ by orders of
+            magnitude, because the OS page cache is answering the misses. */}
+        {has('innodbIO') && (
+          <ChartCard title="InnoDB I/O vs real device I/O" subtitle="InnoDB's own counters, and what the disks served">
+            <div className="grid grid-cols-2 gap-2">
+              <TimeChart points={model.series.innodbIO.points} unit="B/s" lines={[cl('read', 'InnoDB read', 0), cl('written', 'InnoDB written', 5)]} height={148} />
+              {model.disk?.overall
+                ? <TimeChart points={model.disk.overall.points} unit="KB/s" lines={[cl('rKBs', 'device read', 6), cl('wKBs', 'device write', 3)]} height={148} />
+                : <div className="flex items-center justify-center text-xs text-muted">no iostat in this capture</div>}
+            </div>
+          </ChartCard>
+        )}
+        {has('fsyncs') && (
+          <ChartCard title="Durability cost" subtitle="fsyncs per second — what sync_binlog and innodb_flush_log_at_trx_commit buy and cost">
+            <TimeChart points={model.series.fsyncs.points} unit="/s" lines={[cl('data', 'data fsyncs', 0), cl('log', 'log fsyncs', 5)]} />
           </ChartCard>
         )}
         {has('handlerReadRndNext') && (
@@ -323,6 +512,14 @@ function Report({ model }) {
         )}
       </div>
 
+      {/* Which statements did the work. The counters above name a symptom —
+          "126k rows/s scanned" — and this is the only thing in the archive that
+          can say by what. */}
+      {has('digests') && (
+        <Card title="Statements by rows examined" subtitle="performance_schema digest summary, cumulative since the server started. Rows examined is what decides how much of the dataset has to be in cache. Click a column to sort.">
+          <div className="p-3"><SortableTable columns={DIGEST_COLS} rows={model.digests} initial={{ key: 'rowsExamined', dir: 'desc' }} /></div>
+        </Card>
+      )}
       {has('processlist') && (
         <Card title="MySQL processlist" subtitle="consolidated per thread + query — a query recurring across captures is one row (Time = longest observed, Seen = captures). Click a column to sort.">
           <div className="p-3"><SortableTable columns={PL_COLS} rows={model.processlist} initial={{ key: 'time', dir: 'desc' }} /></div>
@@ -394,6 +591,17 @@ function SortableTable({ columns, rows, initial }) {
     </div>
   )
 }
+
+const DIGEST_COLS = [
+  { key: 'schema', label: 'Schema', muted: true },
+  { key: 'count', label: 'Execs', numeric: true, mono: true },
+  { key: 'rowsExamined', label: 'Rows examined', numeric: true, mono: true },
+  { key: 'rowsSent', label: 'Rows sent', numeric: true, mono: true },
+  { key: 'noIndexUsed', label: 'No index', numeric: true, mono: true },
+  { key: 'totalSec', label: 'Total (s)', numeric: true, mono: true },
+  { key: 'avgMs', label: 'Avg (ms)', numeric: true, mono: true },
+  { key: 'digest', label: 'Statement', mono: true, wide: true },
+]
 
 const PL_COLS = [
   { key: 'id', label: 'Id', numeric: true, mono: true },

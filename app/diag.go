@@ -216,6 +216,28 @@ func (a *App) handlePTStalkDownload(w http.ResponseWriter, r *http.Request) {
 
 func ptStalkName(dep Deployment) string { return "ptstalk-" + hostnameOf(dep) + ".tar.gz" }
 
+// ptDigestSnippet adds the one thing pt-stalk does not collect and the Visual
+// Summary most needs: which statements did the work.
+//
+// pt-stalk's counters name a symptom perfectly — "126,000 rows/s are being read
+// without an index" — and cannot say which query is doing it, so the reader is
+// left to guess or to go back to the server, by which time the moment has
+// passed. events_statements_summary_by_digest answers it directly, is a single
+// cheap read of an in-memory table, and is the natural companion to a capture
+// that already includes the processlist.
+//
+// Ordered by total rows examined rather than by time: the statement that reads
+// the most is the one that decides how much of the dataset has to be in cache,
+// which is the question the rest of this report is about. Failure is ignored
+// throughout — performance_schema can be compiled out or disabled, and a missing
+// file just omits the panel.
+const ptDigestSnippet = `mysql -e "SELECT SCHEMA_NAME, DIGEST_TEXT, COUNT_STAR, SUM_ROWS_EXAMINED, SUM_ROWS_SENT,
+  SUM_NO_INDEX_USED, SUM_CREATED_TMP_DISK_TABLES, ROUND(SUM_TIMER_WAIT/1000000000000,3) AS TOTAL_SEC,
+  ROUND(AVG_TIMER_WAIT/1000000000,3) AS AVG_MS
+  FROM performance_schema.events_statements_summary_by_digest
+  WHERE DIGEST_TEXT IS NOT NULL AND SCHEMA_NAME IS NOT NULL
+  ORDER BY SUM_ROWS_EXAMINED DESC LIMIT 30" > "$PTDEST/$(date +%Y_%m_%d_%H_%M_%S)-digests" 2>>"$PTDEST/capture-errors.log" || true`
+
 // ------------------------------------------------------------------ scripts
 
 // pgGatherScript clones jobinau/pg_gather and runs its three-step capture: gather.sql
@@ -248,6 +270,7 @@ mkdir -p "$PTDEST/samples"
 pt-summary > "$PTDEST/pt-summary.out" 2>>"$PTDEST/capture-errors.log" || true
 pt-mysql-summary --save-samples="$PTDEST/samples" > "$PTDEST/pt-mysql-summary.out" 2>>"$PTDEST/capture-errors.log" || true
 pt-stalk --no-stalk --iterations=2 --sleep=30 --dest="$PTDEST" >>"$PTDEST/capture-errors.log" 2>&1 || true
+` + ptDigestSnippet + `
 tar czf /tmp/ptstalk.tar.gz -C /tmp "$(basename "$PTDEST")"
 test -s /tmp/ptstalk.tar.gz || { echo "pt-stalk archive was not produced"; exit 1; }
 echo "pt-stalk archive ready ($(du -h /tmp/ptstalk.tar.gz | cut -f1))"`

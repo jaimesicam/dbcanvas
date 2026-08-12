@@ -77,6 +77,7 @@ type vsModel struct {
 	Disk        *vsTabbed            `json:"disk,omitempty"`
 	Series      map[string]*vsSeries `json:"series"`                // memory, swap, bufferPool, …
 	Processlist []map[string]string  `json:"processlist,omitempty"` // consolidated processlist (per thread+query)
+	Digests     []map[string]string  `json:"digests,omitempty"`     // statements by rows examined
 	InnodbTrx   []map[string]string  `json:"innodbTrx,omitempty"`   // per-session InnoDB transactions
 	NetQueues   []map[string]string  `json:"netQueues,omitempty"`   // sockets with sustained Recv-Q/Send-Q
 	Deadlock    *vsDeadlock          `json:"deadlock,omitempty"`
@@ -191,6 +192,9 @@ func parsePtStalk(gzData []byte) (*vsModel, error) {
 
 	// netstat: connection-state timeline + sockets with sustained Recv-Q/Send-Q.
 	parseNetstat(m, bySuffix["netstat"])
+
+	// Which statements did the work — the cause behind the counters above.
+	parseDigests(m, bySuffix["digests"])
 
 	// Static facts for the text summary.
 	parsePtSummary(m, flatOf(bySuffix, "pt-summary.out"))
@@ -1269,6 +1273,55 @@ func parsePtMysqlSummary(m *vsModel, data []byte) {
 	}
 }
 
+// digestCols are the columns ptDigestSnippet selects, in order. mysql's default
+// batch output is tab-separated with a header row, so the header is what is
+// matched against rather than trusting column positions blindly.
+var digestCols = []string{
+	"schema", "digest", "count", "rowsExamined", "rowsSent",
+	"noIndexUsed", "tmpDiskTables", "totalSec", "avgMs",
+}
+
+// parseDigests reads the performance_schema statement summary into rows the page
+// renders as a table. Newest capture wins: the digest table is cumulative since
+// the server started, so the last snapshot is the most complete one.
+func parseDigests(m *vsModel, files []namedFile) {
+	if len(files) == 0 {
+		return
+	}
+	f := files[len(files)-1]
+	sc := bufio.NewScanner(bytes.NewReader(f.data))
+	sc.Buffer(make([]byte, 1<<20), 1<<20)
+	first := true
+	var out []map[string]string
+	for sc.Scan() {
+		line := sc.Text()
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if first { // the header row mysql prints in batch mode
+			first = false
+			continue
+		}
+		cells := strings.Split(line, "\t")
+		if len(cells) < len(digestCols) {
+			continue
+		}
+		row := map[string]string{}
+		for i, name := range digestCols {
+			row[name] = strings.TrimSpace(cells[i])
+		}
+		// A statement nothing ran is noise in a table sorted by cost.
+		if row["count"] == "0" || row["digest"] == "" {
+			continue
+		}
+		out = append(out, row)
+	}
+	if len(out) > 0 {
+		m.Digests = out
+		m.Available["digests"] = true
+	}
+}
+
 // parseVariables reads the SHOW GLOBAL VARIABLES dump pt-stalk takes on every
 // trigger. Tab-separated name/value, one per line, with a couple of header
 // lines that simply do not match and are skipped.
@@ -1343,12 +1396,17 @@ func computeFindings(m *vsModel) {
 			}
 		}
 		f["peakCpuBusyPct"] = round1(max)
+		f["cpuBusyPct"] = round1(100 - seriesMedian(m.CPU.Overall, "idle"))
+		// iowait is what separates a server working from a server waiting, and
+		// is the number that makes the two CPU figures above interpretable.
+		f["cpuIowaitPct"] = round1(seriesMedian(m.CPU.Overall, "iowait"))
 	}
 	if s := m.Series["swap"]; s != nil {
 		f["peakSwapUsedMB"] = round1(seriesMax(s, "used"))
 	}
 	if m.Disk != nil && m.Disk.Overall != nil {
 		f["peakDiskUtilPct"] = round1(seriesMax(m.Disk.Overall, "util"))
+		f["diskUtilPct"] = round1(seriesMedianSkipFirst(m.Disk.Overall, "util"))
 	}
 	if s := m.Series["bufferPool"]; s != nil {
 		f["peakBpMissRatioPct"] = round1(seriesMax(s, "missRatioPct"))
@@ -1394,6 +1452,7 @@ func computeFindings(m *vsModel) {
 	}
 	if s := m.Series["handlerReadRndNext"]; s != nil {
 		f["peakHandlerReadRndNextPerSec"] = round1(seriesMax(s, "perSec"))
+		f["handlerReadRndNextPerSec"] = round1(seriesMedian(s, "perSec"))
 	}
 	if m.Deadlock != nil && m.Deadlock.Detected {
 		f["deadlockDetected"] = 1
@@ -1427,6 +1486,8 @@ func computeVerdicts(m *vsModel) {
 		verdictBufferPool,
 		verdictPageCache,
 		verdictRedoHeadroom,
+		verdictScans,
+		verdictSaturation,
 		verdictThroughput,
 	} {
 		if v := rule(m); v != nil {
@@ -1585,6 +1646,122 @@ func verdictRedoHeadroom(m *vsModel) *vsVerdict {
 	default:
 		v.Level = vsOK
 		v.Detail = "Plenty of redo headroom for this write rate; the redo log is not limiting anything."
+	}
+	return v
+}
+
+// Thresholds for calling a statement wasteful. The ratio is what matters — a
+// statement that examines a hundred rows to return one is doing ninety-nine
+// rows of work nobody asked for — but it needs a floor underneath it, because
+// examining 200 rows to return one is a rounding error, not a problem.
+const (
+	scanExaminedPerSentWarn = 100
+	scanExaminedFloor       = 1e6
+	scanRowsPerSecWarn      = 10000
+)
+
+// verdictScans names the statement doing the most reading, and says how much of
+// that reading was wasted.
+//
+// Rows examined per row sent is the signal, not Handler_read_rnd_next. That
+// counter only counts full *table* scans, and the worst statement found on a
+// real server here — 615 million rows examined across 2,144 executions, 32
+// minutes of CPU — is an *index* scan, which never touches it. The ratio
+// catches both, and it is the number that decides how much of the dataset has
+// to be in cache at all.
+//
+// This is the gap that made the counters frustrating: pt-stalk could say
+// "126,000 rows/s are being read" and never say by what, so a reader had to go
+// back to a server whose interesting moment had passed. With ptDigestSnippet in
+// the capture the answer travels with the archive.
+func verdictScans(m *vsModel) *vsVerdict {
+	if len(m.Digests) > 0 {
+		d := m.Digests[0] // ordered by rows examined; see ptDigestSnippet
+		examined, sent := num(d["rowsExamined"]), num(d["rowsSent"])
+		ratio := examined
+		if sent > 0 {
+			ratio = examined / sent
+		}
+		if examined < scanExaminedFloor || ratio < scanExaminedPerSentWarn {
+			return nil
+		}
+		stmt := d["digest"]
+		if len(stmt) > 160 {
+			stmt = stmt[:160] + "…"
+		}
+		v := &vsVerdict{ID: "scans", Title: "Rows read to answer a query", Level: vsWarn,
+			Headline: fmt.Sprintf("%.0f rows examined per row returned", ratio)}
+		v.Detail = fmt.Sprintf(
+			"%s examined %s rows across %s executions to return %s, costing %ss. Reading rows "+
+				"nobody asked for costs CPU rather than I/O once they are cached, so it hides "+
+				"behind a healthy buffer pool while still being the most expensive thing the "+
+				"server does — and it is what decides how much of the dataset has to be cached "+
+				"in the first place.",
+			stmt, compactNum(examined), d["count"], compactNum(sent), d["totalSec"])
+		return v
+	}
+
+	// No digests in this archive: fall back to the counter, which at least
+	// catches full table scans.
+	s := m.Series["handlerReadRndNext"]
+	if s == nil {
+		return nil
+	}
+	rows := seriesMedian(s, "perSec")
+	if rows < scanRowsPerSecWarn {
+		return nil
+	}
+	return &vsVerdict{ID: "scans", Title: "Rows read without an index", Level: vsWarn,
+		Headline: fmt.Sprintf("%s rows/s scanned", compactNum(rows)),
+		Detail: "Something is walking whole tables repeatedly. This capture has no statement " +
+			"digests, so which query is doing it cannot be named from the archive alone — " +
+			"re-capture with a build that collects performance_schema digests to find out.",
+	}
+}
+
+// verdictSaturation names what this server was limited by, which is the thing a
+// bare CPU percentage cannot say.
+//
+// A tile reading "peak CPU busy 77.7%" in warning colours was, in a real pair of
+// captures, describing the *better* configuration: the one whose buffer pool
+// held its working set, did no I/O at all, and delivered three times the
+// throughput of the 49.3% run next to it. Busy is what a server that is getting
+// work done looks like. What distinguishes healthy from sick is whether the time
+// goes on work or on waiting, so this reads user+system against iowait and disk
+// utilisation, and reports the constraint rather than the number.
+func verdictSaturation(m *vsModel) *vsVerdict {
+	if m.CPU == nil || m.CPU.Overall == nil {
+		return nil
+	}
+	busy := 100 - seriesMedian(m.CPU.Overall, "idle")
+	iowait := seriesMedian(m.CPU.Overall, "iowait")
+	util := 0.0
+	if m.Disk != nil && m.Disk.Overall != nil {
+		util = seriesMedianSkipFirst(m.Disk.Overall, "util")
+	}
+	v := &vsVerdict{ID: "saturation", Title: "What is the limit here?"}
+	v.Headline = fmt.Sprintf("CPU %.0f%% busy · %.0f%% iowait · disk %.0f%% util", busy, iowait, util)
+
+	switch {
+	case iowait >= 20 || util >= 80:
+		v.Level = vsWarn
+		v.Detail = "The processors are spending their time waiting for storage rather than " +
+			"working, so this server is I/O-bound: faster queries will come from asking the " +
+			"disks for less, not from more CPU."
+	case busy >= 85:
+		v.Level = vsWarn
+		v.Detail = "Almost all processor time is going on work rather than waiting, so this " +
+			"server is CPU-bound and close to its ceiling. Note that being busy is not by " +
+			"itself a fault — check throughput before treating it as one."
+	case busy >= 60:
+		v.Level = vsOK
+		v.Detail = "Working hard with little time spent waiting on storage, which is what a " +
+			"healthy, well-cached server under load looks like — high CPU here is the good " +
+			"outcome, not the problem."
+	default:
+		v.Level = vsOK
+		v.Detail = "Neither the processors nor the disks are close to their limits during this " +
+			"capture; whatever is limiting throughput is not saturation of either."
 	}
 	return v
 }

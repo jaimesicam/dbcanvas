@@ -12590,3 +12590,60 @@ Verified against both real archives:
 Five new unit tests pin the rules, including the free-list case that was wrong.
 `go build/vet/test` and `gofmt -l` clean; `npm run build` and `npm run smoke`
 clean.
+
+## 235. Visual Summary phases 2 and 3: saturation, statement digests, and comparing two captures — `app/visualsummary.go`, `app/diag.go`, `app/web/src/pages/VisualSummary.jsx`, `app/web/smoke/render.jsx`
+
+The rest of the plan from §234, and two of the three items changed shape once
+they met real captures.
+
+**Saturation replaces a CPU tile that graded the wrong way.** `peakCpuBusyPct`
+was coloured warn at 70 and crit at 90, and in the pair of captures §234 was
+built on it painted 77.7% in warning colours on the configuration that was
+*three times faster* than the 49.3% one beside it — the one whose buffer pool
+held its working set, did no I/O at all, and simply spent its time working.
+Busy is what a server getting work done looks like. `verdictSaturation` now
+reads user+system against iowait and disk utilisation and names the constraint
+("I/O-bound", "CPU-bound and close to its ceiling", "high CPU here is the good
+outcome"), the CPU tiles are no longer colour-graded, and iowait sits beside
+them as the number that makes them interpretable. Sustained medians were added
+next to the peaks for CPU, disk utilisation, miss ratio and scan rate, since
+every finding was previously `max()` and one bad second set the headline.
+
+**The statement digests changed the rule that was going to use them.**
+`ptStalkScript` now also dumps `events_statements_summary_by_digest` ordered by
+rows examined — the one thing pt-stalk never collected and the only thing in an
+archive that can turn "126,000 rows/s are being read" into "*this* statement is
+reading them". The verdict built on it was originally keyed to
+`Handler_read_rnd_next`, and on the first real capture it stayed **silent**: the
+worst statement on that server, `SELECT status, COUNT(*) FROM orders GROUP BY
+status` at 615,612,572 rows examined across 2,144 executions and 1,937 seconds
+of CPU, is an *index* scan, which that counter never counts. `verdictScans` now
+leads with rows examined per row returned — 71,783 to 1 there — which catches
+both kinds and is also the number that decides how much of the dataset has to be
+cached at all. The counter remains as the fallback for archives with no digests,
+and says plainly that it cannot name the query.
+
+**Comparison mode.** Pin a capture as a baseline and the next one is diffed
+against it: settings that differ, measurements side by side with a percentage
+coloured by whether the change is an improvement (more queries per second is
+good, more misses is not), and verdicts whose level moved. This is the feature
+that would have made §234's page-cache artefact obvious in seconds instead of an
+hour. Verified against the two real archives:
+
+    bufferPoolSize   134217728 -> 4294967296
+    Throughput            1514 -> 4583        +203%
+    BP read-miss           8.3 -> 0           -100%
+    BP free pages          342 -> 105660    +30795%
+    InnoDB read         1841.9 -> 0           -100%
+    fsyncs                 381 -> 108          -72%
+    CPU busy              38.9 -> 72.4         +86%   (the faster one, unflagged)
+    Disk util             17.7 -> 9.1          -49%
+    Buffer pool sizing:  crit -> ok
+    Misses reach a disk?: warn -> (gone)
+
+Four new unit tests (scans on both signal paths, saturation across all four
+shapes, digest parsing, and the header/short-line/never-run rows it must drop)
+and five render checks covering the verdicts card and the comparison — including
+the two degenerate cases, identical captures and a finding present on one side
+only. `go build/vet/test` and `gofmt -l` clean; `npm run build` and `npm run
+smoke` clean.
