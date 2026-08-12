@@ -1009,6 +1009,61 @@ func (s *valkeyStore) RecentTrades(ctx context.Context, limit int) ([]Trade, err
 	return s.tradesByIDs(ctx, ids), nil
 }
 
+// PruneOrders walks the ord:all sorted set, which is scored by creation time,
+// so everything old enough is one ZRANGEBYSCORE away and nothing newer is even
+// looked at. Only terminal orders are removed; an open one that happens to be
+// old stays in the book and simply stays in the set.
+//
+// This matters more here than on the SQL engines. Valkey holds all of this in
+// memory, and CountOrdersByStatus reads every order's status on every call — so
+// an unpruned deployment does not merely get slower, it grows until the server
+// is killed for it.
+func (s *valkeyStore) PruneOrders(ctx context.Context, before time.Time, limit int) (map[string]int64, error) {
+	out := map[string]int64{}
+	ids, err := s.c.ZRangeByScore(ctx, s.k("ord", "all"), &redis.ZRangeBy{
+		Min:   "-inf",
+		Max:   strconv.FormatInt(before.UTC().UnixNano(), 10),
+		Count: int64(limit),
+	}).Result()
+	if err != nil || len(ids) == 0 {
+		return out, err
+	}
+
+	// One pipelined read of every candidate's status, then delete only those in
+	// a terminal state.
+	pipe := s.c.Pipeline()
+	statuses := make([]*redis.StringCmd, len(ids))
+	for i, id := range ids {
+		statuses[i] = pipe.HGet(ctx, s.k("ord", id), "status")
+	}
+	pipe.Exec(ctx)
+
+	terminal := map[string]bool{}
+	for _, st := range TerminalOrderStatuses {
+		terminal[st] = true
+	}
+	del := s.c.TxPipeline()
+	var found int
+	for i, id := range ids {
+		status := statuses[i].Val()
+		if !terminal[status] {
+			continue
+		}
+		del.Del(ctx, s.k("ord", id))
+		del.ZRem(ctx, s.k("ord", "all"), id)
+		del.ZRem(ctx, s.k("ord", "open"), id)
+		out[status]++
+		found++
+	}
+	if found == 0 {
+		return out, nil
+	}
+	if _, err := del.Exec(ctx); err != nil {
+		return map[string]int64{}, err
+	}
+	return out, nil
+}
+
 func (s *valkeyStore) TradeTotals(ctx context.Context) (int64, int64, error) {
 	count, err := s.c.ZCard(ctx, s.k("trade", "all")).Result()
 	if err != nil {

@@ -35,7 +35,9 @@ func reportFrom(ctx context.Context, s Store, limitTrades int) (Report, error) {
 	if r.RecentTrades, err = s.RecentTrades(ctx, clampLimit(limitTrades, 50, 1000)); err != nil {
 		return r, err
 	}
-	if r.OrderCounts, err = s.CountOrdersByStatus(ctx); err != nil {
+	// Cumulative: the report is a statement about the whole session, so it has
+	// to include the settled orders retention has already swept away.
+	if r.OrderCounts, err = CumulativeOrderCounts(ctx, s); err != nil {
 		return r, err
 	}
 	if r.Objects, err = s.Objects(ctx); err != nil {

@@ -649,6 +649,26 @@ func (s *mysqlStore) RecentTrades(ctx context.Context, limit int) ([]Trade, erro
 	return out, rows.Err()
 }
 
+// PruneOrders deletes per status rather than with a single IN (...), because
+// that is what lets each statement be an index range scan on
+// ix_orders_status_created — an equality on the leading column and a range on
+// the second — instead of three scattered ranges under one plan.
+func (s *mysqlStore) PruneOrders(ctx context.Context, before time.Time, limit int) (map[string]int64, error) {
+	out := map[string]int64{}
+	for _, status := range TerminalOrderStatuses {
+		res, err := s.db.ExecContext(ctx,
+			"DELETE FROM orders WHERE status = ? AND created_at < ? LIMIT ?",
+			status, before.UTC(), limit)
+		if err != nil {
+			return out, err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			out[status] = n
+		}
+	}
+	return out, nil
+}
+
 func (s *mysqlStore) TradeTotals(ctx context.Context) (int64, int64, error) {
 	var count, volume int64
 	err := s.db.QueryRowContext(ctx,

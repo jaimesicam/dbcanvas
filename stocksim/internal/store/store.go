@@ -224,6 +224,14 @@ type Store interface {
 	ListHoldings(ctx context.Context, portfolioID string) ([]Holding, error)
 	ApplyQuotes(ctx context.Context, quotes []Quote) error
 	CountOrdersByStatus(ctx context.Context) (map[string]int64, error)
+	// PruneOrders deletes up to limit orders in a terminal state created before
+	// `before`, and reports how many went, by status. Bounded on purpose: a
+	// first sweep against a long-running deployment could otherwise delete
+	// millions of rows in one statement and hold locks for the duration.
+	//
+	// This is what keeps the orders table from growing without limit, which
+	// matters far more than it sounds — see sim/retention.go.
+	PruneOrders(ctx context.Context, before time.Time, limit int) (map[string]int64, error)
 	RecentTrades(ctx context.Context, limit int) ([]Trade, error)
 	// TradeTotals is the all-time trade count and share volume, which the
 	// report needs and RecentTrades (deliberately capped) cannot supply.
@@ -294,6 +302,72 @@ func Open(ctx context.Context, cfg Config) (Store, error) {
 // target the binary would then refuse at startup.
 func Implemented() []string {
 	return []string{EngineMySQL, EnginePostgres, EngineMongoDB, EngineValkey}
+}
+
+// prunedTallyKey is where the running total of pruned orders is kept, in the
+// same sim_state namespace everything else durable uses. Wipe truncates it with
+// the rest, which is correct: an emptied deployment has pruned nothing.
+const prunedTallyKey = "pruned"
+
+// CumulativeOrderCounts is CountOrdersByStatus plus everything retention has
+// already deleted, so a figure that means "since this deployment began" stays
+// true once rows start being removed underneath it.
+//
+// Both the dashboard and the printed report go through here. Without it the
+// filled-order count would quietly start *decreasing* on a long-running
+// deployment as the sweep caught up with it — a wrong number on a teaching tool,
+// and the kind that is believed because nothing about it looks broken.
+func CumulativeOrderCounts(ctx context.Context, s Store) (map[string]int64, error) {
+	counts, err := s.CountOrdersByStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if counts == nil {
+		counts = map[string]int64{}
+	}
+	raw, err := s.GetState(ctx, prunedTallyKey)
+	if err != nil || len(raw) == 0 {
+		// No tally yet, or it cannot be read: the live counts are still the
+		// best answer available and are exactly right until the first sweep.
+		return counts, nil
+	}
+	var pruned map[string]int64
+	if json.Unmarshal(raw, &pruned) != nil {
+		return counts, nil
+	}
+	for status, n := range pruned {
+		counts[status] += n
+	}
+	return counts, nil
+}
+
+// PrunedTally reads the running total of orders retention has deleted, by
+// status. Absent means none yet.
+func PrunedTally(ctx context.Context, s Store) (map[string]int64, error) {
+	raw, err := s.GetState(ctx, prunedTallyKey)
+	if err != nil || len(raw) == 0 {
+		return map[string]int64{}, err
+	}
+	var pruned map[string]int64
+	if err := json.Unmarshal(raw, &pruned); err != nil {
+		return map[string]int64{}, nil
+	}
+	if pruned == nil {
+		pruned = map[string]int64{}
+	}
+	return pruned, nil
+}
+
+// AddPrunedTally folds one sweep's deletions into the running total.
+func AddPrunedTally(ctx context.Context, s Store, delta map[string]int64) error {
+	if len(delta) == 0 {
+		return nil
+	}
+	pruned, _ := PrunedTally(ctx, s)
+	for status, n := range delta {
+		pruned[status] += n
+	}
+	return s.PutState(ctx, prunedTallyKey, pruned)
 }
 
 // CanGrowToSize reports whether an engine's dataset can be driven to an

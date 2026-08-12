@@ -69,6 +69,9 @@ type Engine struct {
 	// read, so a database can be made to miss its cache rather than merely to
 	// own a lot of data it never touches. See workingset.go.
 	WorkingSet WorkingSet
+	// OrderRetention is how long a settled order is kept before the retention
+	// agent sweeps it; 0 disables the sweep. See retention.go.
+	OrderRetention time.Duration
 	// Threads is how many concurrent database workers each of the two heavy
 	// agents runs — backfill writers, and working-set readers. It is the knob
 	// that decides how much concurrency the target sees, and the store's
@@ -87,6 +90,7 @@ type Engine struct {
 	agentsUp   bool
 	backfill   BackfillStatus
 	workingSet WorkingSetStatus
+	retention  RetentionStatus
 
 	// baseCtx is the process's long-lived context — Start/Reset always derive
 	// from this, never from a caller's request-scoped context. A Reset
@@ -101,15 +105,16 @@ type Engine struct {
 
 func NewEngine(st store.Store, targetKind, targetLabel string) *Engine {
 	e := &Engine{
-		Store:       st,
-		Bus:         NewEventBus(),
-		Clock:       NewSimClock(time.Now().UTC()),
-		TargetKind:  targetKind,
-		TargetLabel: targetLabel,
-		TargetBytes: DefaultTargetBytes,
-		WorkingSet:  DefaultWorkingSet(),
-		Threads:     store.DefaultThreads,
-		startedAt:   time.Now(),
+		Store:          st,
+		Bus:            NewEventBus(),
+		Clock:          NewSimClock(time.Now().UTC()),
+		TargetKind:     targetKind,
+		TargetLabel:    targetLabel,
+		TargetBytes:    DefaultTargetBytes,
+		WorkingSet:     DefaultWorkingSet(),
+		Threads:        store.DefaultThreads,
+		OrderRetention: DefaultOrderRetention,
+		startedAt:      time.Now(),
 	}
 	e.level.Store(LevelMedium)
 	e.running.Store(true)
@@ -203,6 +208,7 @@ func (e *Engine) StartAgents(ctx context.Context) {
 		e.runClockPersister,
 		e.runBackfillAgent,
 		e.runWorkingSetAgent,
+		e.runRetentionAgent,
 	}
 	for _, fn := range agents {
 		e.wg.Add(1)

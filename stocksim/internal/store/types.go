@@ -83,6 +83,12 @@ const (
 	TypeLimit  = "limit"
 )
 
+// TerminalOrderStatuses are the states an order never leaves. Only these are
+// ever pruned by retention: an open order is the live book and must survive
+// however old it is, and an order that has settled is history that the trades
+// table already records permanently.
+var TerminalOrderStatuses = []string{OrderFilled, OrderCancelled, OrderRejected}
+
 func ValidSide(s string) bool { return s == SideBuy || s == SideSell }
 func ValidType(s string) bool { return s == TypeMarket || s == TypeLimit }
 func ValidStatus(s string) bool {

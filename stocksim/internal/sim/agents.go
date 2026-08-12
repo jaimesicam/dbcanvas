@@ -429,7 +429,10 @@ func (e *Engine) runAnalyticsAgent(ctx context.Context) {
 			e.noteErr("analytics: list portfolios", err)
 			return
 		}
-		counts, err := e.Store.CountOrdersByStatus(ctx)
+		// Cumulative, not just what is still in the table: retention deletes
+		// settled orders, and a "filled orders" figure that went *down* over
+		// time would be a wrong number nothing about the page would flag.
+		counts, err := store.CumulativeOrderCounts(ctx, e.Store)
 		if err != nil {
 			e.noteErr("analytics: order counts", err)
 			return

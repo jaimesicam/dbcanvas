@@ -64,6 +64,7 @@ async function fetchState() {
     renderSeed(state.seed)
     renderBackfill(state.backfill)
     renderWorkingSet(state.workingSet)
+    renderRetention(state.retention)
     renderKPIs(state)
     renderTicker(state.ticker || [])
     renderAgents(state.agents || [])
@@ -205,6 +206,18 @@ function renderWorkingSet(w) {
     ? ` · ${nf0.format(w.reads)} reads, ${nf0.format(w.rowsRead)} rows read so far`
     : ''
   $('#ws-note').textContent = (w.note || '') + totals
+}
+
+// renderRetention explains why the orders table is not growing without limit.
+// Settled orders are swept after a window; open orders and trades never are.
+function renderRetention(r) {
+  const panel = $('#retention-panel')
+  if (!r || !r.enabled) { panel.classList.add('hidden'); return }
+  panel.classList.remove('hidden')
+  $('#ret-window').textContent = r.lastSweepDeleted
+    ? `${nf0.format(r.lastSweepDeleted)} removed in the last sweep`
+    : ''
+  $('#ret-note').textContent = r.note || ''
 }
 
 function tile(value, label, cls) {

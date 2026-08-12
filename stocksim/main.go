@@ -80,6 +80,21 @@ func main() {
 		workingSet = ws
 	}
 
+	// ORDER_RETENTION is how long a settled order is kept before the sweep
+	// removes it — "15m", "2h", or "off" to keep everything. Left alone it is
+	// DefaultOrderRetention, which is what stops the two-second order count
+	// from getting linearly more expensive for the life of the deployment.
+	retention := sim.DefaultOrderRetention
+	if v := strings.TrimSpace(os.Getenv("ORDER_RETENTION")); v != "" {
+		if strings.EqualFold(v, "off") || strings.EqualFold(v, "none") {
+			retention = 0
+		} else if d, err := time.ParseDuration(v); err != nil {
+			log.Printf("stocksim: ignoring ORDER_RETENTION: %v", err)
+		} else {
+			retention = d
+		}
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -103,6 +118,7 @@ func main() {
 	engine.TargetBytes = targetBytes
 	engine.WorkingSet = workingSet
 	engine.Threads = cfg.Threads
+	engine.OrderRetention = retention
 	h := api.New(engine, st, webFS)
 	srv := &http.Server{Addr: ":" + port, Handler: h.Routes()}
 

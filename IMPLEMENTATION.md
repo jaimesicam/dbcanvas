@@ -12647,3 +12647,56 @@ and five render checks covering the verdicts card and the comparison — includi
 the two degenerate cases, identical captures and a finding present on one side
 only. `go build/vet/test` and `gofmt -l` clean; `npm run build` and `npm run
 smoke` clean.
+
+## 236. The order book that grew forever — `stocksim/internal/sim/retention.go`, `stocksim/internal/store/*.go`
+
+The last item from §234's plan, and the one the statement digests added in §235
+found. Kept as a decision rather than a silent fix because it changes what the
+lab does; the answer was to bound it.
+
+**One query, getting linearly worse forever.** The analytics agent asks for the
+order book's state every two seconds — `SELECT status, COUNT(*) FROM orders
+GROUP BY status` on the SQL engines, and on Valkey a read of *every* order's
+status through a pipelined HGET per row. Nothing ever deleted an order. The
+order agent creates twenty-five a second at High and the match agent moves them
+to filled, cancelled or rejected, where they stayed for the life of the
+deployment. Measured on the live stack before the fix: **366,044 rows, 963
+million rows examined across 3,147 executions, 961 ms average** for a statement
+running every two seconds. It never appeared as disk I/O because the rows were
+all cached, so it hid behind a perfectly healthy buffer pool while being the
+most expensive thing the database did.
+
+A new retention agent sweeps terminal orders past a window (default 15 minutes,
+`ORDER_RETENTION`, "off" to disable). Open orders are never touched — they are
+the live book, and an old resting limit order is exactly what a user is looking
+at. Trades are never touched either: they are the permanent audit trail the
+report is built on, and unlike orders they are only read on demand. Deletes are
+batched at 5,000 with at most 8 batches a sweep, because the first sweep against
+a long-running deployment has a lot to get through and one statement would hold
+locks across all of it. `PruneOrders` is per status rather than one `IN (...)`,
+which is what makes each delete an index range scan on ix_orders_status_created;
+PostgreSQL bounds it through a `ctid` subquery (no LIMIT on DELETE), MongoDB
+finds ids then deletes exactly those, and Valkey walks the creation-scored sorted
+set.
+
+**Deleting rows must not make the numbers lie, so it doesn't.** Every sweep folds
+what it removed into a durable tally in `sim_state`, and both the dashboard and
+the report read through `store.CumulativeOrderCounts`. Without it the filled
+count would quietly start *decreasing* on a long-running deployment — a wrong
+number on a teaching tool, and the kind that gets believed because nothing about
+it looks broken.
+
+**Verified live** on the running stack, at High, against the real 366k-row table:
+
+    orders rows   366,044 -> 174,339 -> 57,415 -> 7,389 -> steady ~8-10k
+    pruned        120,000 then 74,208 in the catch-up sweeps, then ~550 each
+    rows/exec     287,132 (and climbing) -> 9,223
+    avg latency   961.87 ms -> 17.45 ms          (55x)
+    KPI filled    181,811 = 4,484 retained + 177,362 tallied as pruned
+    report        filled 182,024 against totalTrades 182,026 from the trades
+                  table — two independent records agreeing inside the read race
+
+All eight agents ok, no error and no warning. Five new unit tests cover the
+tally (including a garbage state row and an empty delta) and the invariant that
+open orders are never in the terminal list. `go build/vet/test` and `gofmt -l`
+clean in both modules.

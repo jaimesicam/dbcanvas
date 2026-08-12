@@ -872,6 +872,43 @@ func (s *mongoStore) RecentTrades(ctx context.Context, limit int) ([]Trade, erro
 	return out, cur.Err()
 }
 
+// PruneOrders finds the ids first and then deletes exactly those, because
+// DeleteMany takes no limit and an unbounded delete is the thing this is meant
+// to avoid. The find is served by the {status, createdAt} index.
+func (s *mongoStore) PruneOrders(ctx context.Context, before time.Time, limit int) (map[string]int64, error) {
+	out := map[string]int64{}
+	coll := s.db.Collection("orders")
+	for _, status := range TerminalOrderStatuses {
+		filter := bson.M{"status": status, "createdAt": bson.M{"$lt": before.UTC()}}
+		cur, err := coll.Find(ctx, filter,
+			options.Find().SetProjection(bson.M{"_id": 1}).SetLimit(int64(limit)))
+		if err != nil {
+			return out, err
+		}
+		var ids []string
+		for cur.Next(ctx) {
+			var doc struct {
+				ID string `bson:"_id"`
+			}
+			if cur.Decode(&doc) == nil {
+				ids = append(ids, doc.ID)
+			}
+		}
+		cur.Close(ctx)
+		if len(ids) == 0 {
+			continue
+		}
+		res, err := coll.DeleteMany(ctx, bson.M{"_id": bson.M{"$in": ids}})
+		if err != nil {
+			return out, err
+		}
+		if res.DeletedCount > 0 {
+			out[status] = res.DeletedCount
+		}
+	}
+	return out, nil
+}
+
 func (s *mongoStore) TradeTotals(ctx context.Context) (int64, int64, error) {
 	cur, err := s.db.Collection("trades").Aggregate(ctx, mongo.Pipeline{
 		{{Key: "$group", Value: bson.D{

@@ -1011,6 +1011,27 @@ func (s *pgStore) EventsSince(ctx context.Context, afterID string, limit int) ([
 	return out, rows.Err()
 }
 
+// PruneOrders bounds the delete through a ctid subquery, because PostgreSQL has
+// no LIMIT on DELETE. The inner SELECT is an index scan on
+// ix_orders_status_created and hands back at most limit row pointers, so the
+// delete stays as small as it was asked to be.
+func (s *pgStore) PruneOrders(ctx context.Context, before time.Time, limit int) (map[string]int64, error) {
+	out := map[string]int64{}
+	for _, status := range TerminalOrderStatuses {
+		res, err := s.db.ExecContext(ctx,
+			`DELETE FROM orders WHERE ctid IN (
+			   SELECT ctid FROM orders WHERE status = $1 AND created_at < $2 LIMIT $3)`,
+			status, before.UTC(), limit)
+		if err != nil {
+			return out, err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			out[status] = n
+		}
+	}
+	return out, nil
+}
+
 func (s *pgStore) TradeTotals(ctx context.Context) (int64, int64, error) {
 	var count, volume int64
 	err := s.db.QueryRowContext(ctx,

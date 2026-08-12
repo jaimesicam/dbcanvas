@@ -141,7 +141,10 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
   misses properly — the same 2 GiB dataset that showed 99.98% and 0.01 MiB/s off disk shows 92.8%
   and 469 MiB/s, and raising the pool past the working set takes throughput up 6.6×. **Database
   threads** (4 by default) sets how many workers write that history and read it back, and sizes
-  the connection pool with it. On MySQL, PostgreSQL and MongoDB it takes its own database or
+  the connection pool with it. Settled orders are swept after a retention window (15 minutes by
+  default) so the order book stays bounded — without it the dashboard's own two-second order
+  count grows linearly more expensive for the life of the deployment, and cumulative figures
+  stay correct across the sweep because what was removed is tallied durably. On MySQL, PostgreSQL and MongoDB it takes its own database or
   schema; on Valkey there is no size target and no working set, because its tick history is a
   length-capped stream that writing to does not enlarge and that holds no cold data to read.
   Unlike **Unoptimized MySQL Challenge** above — also a stock
