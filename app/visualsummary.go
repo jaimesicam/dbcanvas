@@ -47,6 +47,22 @@ type vsDeadlock struct {
 	Text     string `json:"text,omitempty"`
 }
 
+// vsVerdict is a conclusion rather than a measurement — the difference between
+// "8.5% of reads missed the buffer pool" and "the buffer pool is too small for
+// this workload, and here is what those misses actually cost".
+//
+// The charts below a verdict are the evidence for it and stay exactly as they
+// were; this exists because a wall of correct numbers is not the same thing as
+// an answer, and the questions these were built to answer ("do I need a bigger
+// buffer pool?") are answered by combining several of them.
+type vsVerdict struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Level    string `json:"level"`    // "ok" | "info" | "warn" | "crit"
+	Headline string `json:"headline"` // the number this turns on
+	Detail   string `json:"detail"`   // one sentence: why, and what to do about it
+}
+
 type vsModel struct {
 	Source struct {
 		Host       string `json:"host"`
@@ -64,8 +80,16 @@ type vsModel struct {
 	InnodbTrx   []map[string]string  `json:"innodbTrx,omitempty"`   // per-session InnoDB transactions
 	NetQueues   []map[string]string  `json:"netQueues,omitempty"`   // sockets with sustained Recv-Q/Send-Q
 	Deadlock    *vsDeadlock          `json:"deadlock,omitempty"`
+	Verdicts    []vsVerdict          `json:"verdicts,omitempty"`
 	Available   map[string]bool      `json:"available"`
 	Notes       []string             `json:"notes,omitempty"`
+
+	// vars is SHOW GLOBAL VARIABLES from the capture. Not serialized — it is
+	// several hundred entries and the page needs a handful — but the verdicts
+	// need it, because a counter without the setting it should be judged
+	// against is not interpretable: a checkpoint age of 11 MB is healthy under
+	// a 1 GiB redo log and nearly full under a 100 MiB one.
+	vars map[string]string
 }
 
 // namedFile is one tar member: its trigger timestamp (from the filename) + contents.
@@ -130,6 +154,7 @@ func parsePtStalk(gzData []byte) (*vsModel, error) {
 	m := &vsModel{Series: map[string]*vsSeries{}, Available: map[string]bool{}}
 	m.Summary.Facts = map[string]string{}
 	m.Summary.Findings = map[string]float64{}
+	m.vars = map[string]string{}
 	m.Source.Host = host
 	m.Source.Engine = "mysql"
 
@@ -170,8 +195,10 @@ func parsePtStalk(gzData []byte) (*vsModel, error) {
 	// Static facts for the text summary.
 	parsePtSummary(m, flatOf(bySuffix, "pt-summary.out"))
 	parsePtMysqlSummary(m, flatOf(bySuffix, "pt-mysql-summary.out"))
+	parseVariables(m, bySuffix["variables"])
 
 	computeFindings(m)
+	computeVerdicts(m)
 	if t := earliestTS(bySuffix); !t.IsZero() {
 		m.Source.CapturedAt = t.UTC().Format(time.RFC3339)
 	}
@@ -591,6 +618,14 @@ func deriveMysqlSeries(m *vsModel, snaps []statSnap) bool {
 	rate("innodbRowOps", "/s", []string{"read", "inserted", "updated", "deleted"}, map[string]string{
 		"read": "Innodb_rows_read", "inserted": "Innodb_rows_inserted", "updated": "Innodb_rows_updated", "deleted": "Innodb_rows_deleted"})
 	rate("handlerReadRndNext", "/s", []string{"perSec"}, map[string]string{"perSec": "Handler_read_rnd_next"})
+	// InnoDB's own view of its I/O. Worth its own series because it is the half
+	// of the page-cache check that comes from MySQL; the other half is iostat,
+	// and the whole point is that the two can disagree by three orders of
+	// magnitude. See the pageCache verdict.
+	rate("innodbIO", "B/s", []string{"read", "written"}, map[string]string{
+		"read": "Innodb_data_read", "written": "Innodb_data_written"})
+	rate("fsyncs", "/s", []string{"data", "log"}, map[string]string{
+		"data": "Innodb_data_fsyncs", "log": "Innodb_os_log_fsyncs"})
 	rate("networkThroughput", "B/s", []string{"received", "sent"}, map[string]string{"received": "Bytes_received", "sent": "Bytes_sent"})
 	rate("rowLockWaits", "/s", []string{"perSec"}, map[string]string{"perSec": "Innodb_row_lock_waits"})
 	rate("tmpDiskTables", "/s", []string{"perSec"}, map[string]string{"perSec": "Created_tmp_disk_tables"})
@@ -1234,6 +1269,68 @@ func parsePtMysqlSummary(m *vsModel, data []byte) {
 	}
 }
 
+// parseVariables reads the SHOW GLOBAL VARIABLES dump pt-stalk takes on every
+// trigger. Tab-separated name/value, one per line, with a couple of header
+// lines that simply do not match and are skipped.
+//
+// Only a handful reach the page as facts; the rest stay in m.vars for the
+// verdicts, which need settings and counters together to say anything.
+func parseVariables(m *vsModel, files []namedFile) {
+	if len(files) == 0 {
+		return
+	}
+	sc := bufio.NewScanner(bytes.NewReader(files[0].data))
+	sc.Buffer(make([]byte, 1<<20), 1<<20)
+	for sc.Scan() {
+		name, value, ok := strings.Cut(sc.Text(), "\t")
+		if !ok {
+			continue
+		}
+		m.vars[strings.TrimSpace(name)] = strings.TrimSpace(value)
+	}
+	// The settings a reader needs next to the charts to interpret them at all.
+	for _, v := range []struct{ key, fact string }{
+		{"innodb_buffer_pool_size", "bufferPoolSize"},
+		{"innodb_flush_method", "flushMethod"},
+		{"innodb_redo_log_capacity", "redoLogCapacity"},
+		{"sync_binlog", "syncBinlog"},
+		{"innodb_flush_log_at_trx_commit", "flushLogAtTrxCommit"},
+	} {
+		if s := m.vars[v.key]; s != "" {
+			m.Summary.Facts[v.fact] = s
+		}
+	}
+}
+
+// varNum reads one variable as a number, reporting whether it was there at all
+// — 0 and absent mean different things for every setting here.
+func (m *vsModel) varNum(key string) (float64, bool) {
+	s, ok := m.vars[key]
+	if !ok {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	return v, err == nil
+}
+
+// redoCapacityBytes is the size of the redo log, from whichever setting this
+// server expresses it with: innodb_redo_log_capacity on 8.0.30 and later, and
+// the file-size × file-count pair before that.
+func (m *vsModel) redoCapacityBytes() (float64, bool) {
+	if v, ok := m.varNum("innodb_redo_log_capacity"); ok && v > 0 {
+		return v, true
+	}
+	size, ok1 := m.varNum("innodb_log_file_size")
+	n, ok2 := m.varNum("innodb_log_files_in_group")
+	if ok1 && size > 0 {
+		if !ok2 || n <= 0 {
+			n = 2 // the historical default, and the common case
+		}
+		return size * n, true
+	}
+	return 0, false
+}
+
 // computeFindings derives the headline peaks shown as text tiles.
 func computeFindings(m *vsModel) {
 	f := m.Summary.Findings
@@ -1255,6 +1352,36 @@ func computeFindings(m *vsModel) {
 	}
 	if s := m.Series["bufferPool"]; s != nil {
 		f["peakBpMissRatioPct"] = round1(seriesMax(s, "missRatioPct"))
+		// The sustained figure alongside the peak. A miss ratio is noisy per
+		// second and one spike should not be what a reader takes away, but the
+		// peak still matters when it is the spike that hurt.
+		f["bpMissRatioPct"] = round1(seriesMedian(s, "missRatioPct"))
+		f["bpFreePages"] = seriesMedian(s, "freePages")
+		f["bpDiskReadPerSec"] = round1(seriesMedian(s, "diskReadPerSec"))
+	}
+	// Throughput. Without it there is no way to tell which of two captures is
+	// the faster server, which is the first thing anyone comparing two of them
+	// wants to know.
+	if s := m.Series["qps"]; s != nil {
+		f["qps"] = round1(seriesMedian(s, "questions"))
+	}
+	// The two halves of the page-cache check, as plain numbers, so the verdict
+	// that combines them can be checked by hand.
+	if s := m.Series["innodbIO"]; s != nil {
+		f["innodbReadMiBs"] = round1(seriesMedian(s, "read") / (1 << 20))
+	}
+	if m.Disk != nil && m.Disk.Overall != nil {
+		f["deviceReadMiBs"] = round1(seriesMedianSkipFirst(m.Disk.Overall, "rKBs") / 1024)
+	}
+	if s := m.Series["fsyncs"]; s != nil {
+		f["fsyncsPerSec"] = round1(seriesMedian(s, "data"))
+	}
+	// Checkpoint age means nothing as a byte count — it is only ever a fraction
+	// of the redo log it is measured against.
+	if s := m.Series["checkpointAge"]; s != nil {
+		if cap, ok := m.redoCapacityBytes(); ok && cap > 0 {
+			f["maxCheckpointAgePctOfRedo"] = round1(seriesMax(s, "age") / cap * 100)
+		}
 	}
 	if s := m.Series["historyList"]; s != nil {
 		f["maxHistoryListLength"] = seriesMax(s, "value")
@@ -1279,6 +1406,233 @@ func computeFindings(m *vsModel) {
 	}
 }
 
+// ---- verdicts ----
+
+// Verdict levels, worst first when the page sorts them.
+const (
+	vsOK   = "ok"
+	vsInfo = "info"
+	vsWarn = "warn"
+	vsCrit = "crit"
+)
+
+// computeVerdicts turns the parsed series into conclusions. Every rule follows
+// the same shape: say nothing at all unless the data it needs is present, then
+// state the number it turns on and one sentence of what to do about it.
+//
+// Each of these exists because the raw findings above led a reader — this one —
+// to the wrong conclusion at least once while analysing real captures.
+func computeVerdicts(m *vsModel) {
+	for _, rule := range []func(*vsModel) *vsVerdict{
+		verdictBufferPool,
+		verdictPageCache,
+		verdictRedoHeadroom,
+		verdictThroughput,
+	} {
+		if v := rule(m); v != nil {
+			m.Verdicts = append(m.Verdicts, *v)
+		}
+	}
+}
+
+// bufferPoolRoomyPct is the share of a pool that has to be sitting unallocated
+// before "it never filled" is a fair description of it.
+//
+// It is 10% and not something smaller because InnoDB's page cleaner deliberately
+// keeps a *small* free list on a busy server, so that a thread needing a page
+// does not have to evict one first. A thrashing pool therefore hovers at a low
+// but non-zero free count rather than at zero. Found by getting it wrong: a
+// 128 MiB pool measured at 342 free pages of 8192 — 4.2%, and missing 8.3% of
+// its reads at 150,000/s — which an earlier 1% threshold cheerfully called
+// "never filled, not the constraint" about a server that ran 3x faster the
+// moment the pool was raised.
+const bufferPoolRoomyPct = 10.0
+
+// verdictBufferPool answers "does this server need a bigger buffer pool?" from
+// the two signals that only mean something together.
+//
+// The sustained miss ratio leads, because a pool that is missing reads is under
+// pressure whatever its free list looks like. Free pages then separates the two
+// ways of not missing: a pool with a large unallocated share never filled and
+// cannot be too small, while a full pool that nonetheless almost never misses is
+// simply sized correctly.
+func verdictBufferPool(m *vsModel) *vsVerdict {
+	s := m.Series["bufferPool"]
+	if s == nil {
+		return nil
+	}
+	free := seriesMedian(s, "freePages")
+	total := seriesMedian(s, "totalPages")
+	miss := seriesMedian(s, "missRatioPct")
+	reads := seriesMedian(s, "diskReadPerSec")
+	roomy := total > 0 && free/total*100 >= bufferPoolRoomyPct
+	v := &vsVerdict{ID: "bufferPool", Title: "Buffer pool sizing"}
+
+	if miss >= 1 {
+		if miss >= 5 {
+			v.Level = vsCrit
+		} else {
+			v.Level = vsWarn
+		}
+		v.Headline = fmt.Sprintf("%.2f%% of reads miss the pool (%s/s)", miss, compactNum(reads))
+		v.Detail = "A sustained share of reads is not finding its page in the pool, so the " +
+			"working set is larger than the pool holds. This is the signature of an undersized " +
+			"buffer pool — but check what those misses actually cost before acting on it."
+		if size, ok := m.varNum("innodb_buffer_pool_size"); ok {
+			v.Detail += fmt.Sprintf(" Currently %s.", humanBytes(size))
+		}
+		if roomy {
+			// Missing while a tenth of the pool sits unallocated is not a
+			// sizing problem, and saying so prevents a pointless resize.
+			v.Detail += fmt.Sprintf(" Note that %.0f%% of the pool is still free, so this is not "+
+				"eviction pressure — a scan, or a pool that has not warmed up yet.", free/total*100)
+		}
+		return v
+	}
+
+	v.Level = vsOK
+	if roomy {
+		v.Headline = fmt.Sprintf("%.0f of %.0f pages still free", free, total)
+		v.Detail = "The pool never filled during this capture and almost nothing missed it, so " +
+			"it is not the constraint — a buffer pool with pages it has never had to allocate " +
+			"cannot be too small. Raising it will not change anything here."
+		return v
+	}
+	v.Headline = fmt.Sprintf("full, and only %.2f%% of reads miss it", miss)
+	v.Detail = "A full pool is the normal steady state of a busy server; what matters is that " +
+		"almost nothing is missing it. Sized correctly for this workload."
+	return v
+}
+
+// verdictPageCache is the one that stops a reader acting on the verdict above
+// without knowing what it is worth.
+//
+// InnoDB counts a buffer pool miss as a read whether or not that read reached a
+// device. Under innodb_flush_method=fsync every miss goes through the operating
+// system's page cache, and on a machine with spare memory most of them are
+// served from there — memcpy, not seek. A real capture measured 156,086
+// "disk reads/s" and 1,550 MiB/s of InnoDB reads while the block devices served
+// nothing at all; the same server under O_DIRECT reported 598.8 MiB/s against
+// 596.7 MiB/s of real device traffic, a 99.6% match.
+//
+// So: compare what InnoDB thinks it read against what the disks actually
+// served, and say which of the two worlds this capture is in.
+func verdictPageCache(m *vsModel) *vsVerdict {
+	io := m.Series["innodbIO"]
+	if io == nil || m.Disk == nil || m.Disk.Overall == nil {
+		return nil
+	}
+	innodb := seriesMedian(io, "read") / (1 << 20)
+	device := seriesMedianSkipFirst(m.Disk.Overall, "rKBs") / 1024
+	// Nothing is being read at all — no misses to attribute, nothing to say.
+	if innodb < 1 {
+		return nil
+	}
+	method := m.vars["innodb_flush_method"]
+	v := &vsVerdict{ID: "pageCache", Title: "Do buffer pool misses reach a disk?"}
+	v.Headline = fmt.Sprintf("InnoDB reads %.0f MiB/s · devices serve %.0f MiB/s", innodb, device)
+
+	if device >= innodb*0.75 {
+		v.Level = vsOK
+		v.Detail = "InnoDB's read counter and the block devices agree, so buffer pool misses are " +
+			"real disk I/O here and Innodb_buffer_pool_reads means what it appears to mean."
+		if method != "" {
+			v.Detail += fmt.Sprintf(" innodb_flush_method=%s.", method)
+		}
+		return v
+	}
+	v.Level = vsWarn
+	v.Detail = fmt.Sprintf(
+		"The devices served only %.0f%% of what InnoDB reported reading, so most buffer pool "+
+			"misses are being satisfied by the operating system's page cache rather than by "+
+			"storage. Innodb_buffer_pool_reads is a miss counter, not a disk counter: the miss "+
+			"ratio still correctly says the pool is too small, but it is not costing seek time, "+
+			"and the same ratio on a machine with less free memory would cost far more.",
+		device/innodb*100)
+	if method != "" && !strings.EqualFold(method, "O_DIRECT") {
+		v.Detail += fmt.Sprintf(" innodb_flush_method=%s is what puts the page cache in the path;"+
+			" under O_DIRECT these two numbers converge.", method)
+	}
+	return v
+}
+
+// verdictRedoHeadroom reports checkpoint age against the redo log it is measured
+// against, because the byte count alone is uninterpretable: 11 MB is 1% of a
+// 1 GiB log and 11% of a 100 MiB one, and a fixed byte threshold can never fire
+// on a small log however full it gets.
+func verdictRedoHeadroom(m *vsModel) *vsVerdict {
+	s := m.Series["checkpointAge"]
+	if s == nil {
+		return nil
+	}
+	capacity, ok := m.redoCapacityBytes()
+	if !ok || capacity <= 0 {
+		return nil
+	}
+	age := seriesMax(s, "age")
+	pct := age / capacity * 100
+	v := &vsVerdict{ID: "redo", Title: "Redo log headroom"}
+	v.Headline = fmt.Sprintf("checkpoint age peaked at %.1f%% of %s", pct, humanBytes(capacity))
+	switch {
+	case pct >= 75:
+		v.Level = vsCrit
+		v.Detail = "InnoDB is close to running out of redo space, where it must force " +
+			"synchronous flushing and write throughput collapses. Raise innodb_redo_log_capacity."
+	case pct >= 50:
+		v.Level = vsWarn
+		v.Detail = "Over half the redo log is in use at peak, which leaves little room for a " +
+			"write burst before InnoDB starts forcing checkpoints."
+	default:
+		v.Level = vsOK
+		v.Detail = "Plenty of redo headroom for this write rate; the redo log is not limiting anything."
+	}
+	return v
+}
+
+// verdictThroughput is context rather than a problem — but without it there is
+// no way to tell which of two captures is the faster server, which is the first
+// thing anybody comparing two of them wants to know.
+func verdictThroughput(m *vsModel) *vsVerdict {
+	s := m.Series["qps"]
+	if s == nil {
+		return nil
+	}
+	qps := seriesMedian(s, "questions")
+	if qps <= 0 {
+		return nil
+	}
+	v := &vsVerdict{ID: "throughput", Title: "Throughput", Level: vsInfo,
+		Headline: fmt.Sprintf("%s queries/s sustained", compactNum(qps))}
+	v.Detail = "What this server actually delivered while it was captured. Compare it against " +
+		"another capture before concluding that any setting helped."
+	if f := m.Series["fsyncs"]; f != nil {
+		v.Detail += fmt.Sprintf(" %s fsyncs/s.", compactNum(seriesMedian(f, "data")))
+	}
+	return v
+}
+
+func compactNum(v float64) string {
+	switch {
+	case v >= 1e6:
+		return fmt.Sprintf("%.1fM", v/1e6)
+	case v >= 1e3:
+		return fmt.Sprintf("%.1fk", v/1e3)
+	}
+	return fmt.Sprintf("%.0f", v)
+}
+
+func humanBytes(v float64) string {
+	switch {
+	case v >= 1<<30:
+		return fmt.Sprintf("%.2f GiB", v/(1<<30))
+	case v >= 1<<20:
+		return fmt.Sprintf("%.0f MiB", v/(1<<20))
+	case v >= 1<<10:
+		return fmt.Sprintf("%.0f KiB", v/(1<<10))
+	}
+	return fmt.Sprintf("%.0f B", v)
+}
+
 // ---- small helpers ----
 
 func num(s string) float64     { v, _ := strconv.ParseFloat(strings.TrimSpace(s), 64); return v }
@@ -1292,6 +1646,41 @@ func seriesMax(s *vsSeries, key string) float64 {
 		}
 	}
 	return max
+}
+
+// seriesMedian is the sustained value of a metric — what the server was doing
+// most of the time, as against seriesMax's worst single second.
+func seriesMedian(s *vsSeries, key string) float64 {
+	return medianOf(s.Points, key)
+}
+
+// seriesMedianSkipFirst drops the first point before taking the median. iostat's
+// first report is an average since boot rather than an interval, so for a disk
+// series that point is not a measurement of anything that happened during the
+// capture and would drag the median toward the machine's whole history.
+func seriesMedianSkipFirst(s *vsSeries, key string) float64 {
+	if len(s.Points) <= 1 {
+		return 0
+	}
+	return medianOf(s.Points[1:], key)
+}
+
+func medianOf(points []vsPoint, key string) float64 {
+	vals := make([]float64, 0, len(points))
+	for _, p := range points {
+		if v, ok := p.V[key]; ok {
+			vals = append(vals, v)
+		}
+	}
+	if len(vals) == 0 {
+		return 0
+	}
+	sort.Float64s(vals)
+	mid := len(vals) / 2
+	if len(vals)%2 == 1 {
+		return vals[mid]
+	}
+	return (vals[mid-1] + vals[mid]) / 2
 }
 
 func afterBar(line string) string {

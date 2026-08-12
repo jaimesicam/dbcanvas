@@ -81,16 +81,64 @@ export default function VisualSummary() {
 // ---- report ----
 
 const FINDING_TILES = [
+  // Throughput leads: it is the only tile that says whether this server was
+  // doing more or less work than another capture of it, which is the first
+  // question anyone comparing two of them has.
+  { key: 'qps', label: 'Throughput', unit: '/s', warn: Infinity, crit: Infinity },
   { key: 'peakCpuBusyPct', label: 'Peak CPU busy', unit: '%', warn: 70, crit: 90 },
   { key: 'peakDiskUtilPct', label: 'Peak disk util', unit: '%', warn: 70, crit: 90 },
   { key: 'peakSwapUsedMB', label: 'Peak swap used', unit: ' MB', warn: 1, crit: 512 },
-  { key: 'peakBpMissRatioPct', label: 'BP read-miss', unit: '%', warn: 1, crit: 5 },
+  // Sustained before peak — one bad second should not be the headline, though
+  // the peak is still carried below.
+  { key: 'bpMissRatioPct', label: 'BP read-miss (sustained)', unit: '%', warn: 1, crit: 5 },
+  { key: 'peakBpMissRatioPct', label: 'BP read-miss (peak)', unit: '%', warn: 1, crit: 5 },
+  { key: 'bpFreePages', label: 'BP free pages', unit: '', warn: Infinity, crit: Infinity },
+  // Against the redo log it is measured in, never as a bare byte count: 11 MB
+  // is 1% of a 1 GiB log and 11% of a 100 MiB one.
+  { key: 'maxCheckpointAgePctOfRedo', label: 'Checkpoint age of redo', unit: '%', warn: 50, crit: 75 },
+  { key: 'fsyncsPerSec', label: 'fsyncs', unit: '/s', warn: Infinity, crit: Infinity },
   { key: 'maxHistoryListLength', label: 'Max history list', unit: '', warn: 1e6, crit: 1e7 },
   { key: 'maxCheckpointAgeBytes', label: 'Max checkpoint age', unit: ' B', warn: 1e9, crit: 4e9, bytes: true },
   { key: 'maxReplicationLagSec', label: 'Max repl lag', unit: ' s', warn: 1, crit: 30 },
   { key: 'peakHandlerReadRndNextPerSec', label: 'Peak rows/s (no index)', unit: '/s', warn: 1e5, crit: 1e7 },
   { key: 'maxLongQuerySec', label: 'Longest query', unit: ' s', warn: 5, crit: 60 },
 ]
+
+const VERDICT_TONE = {
+  crit: 'border-danger/40 bg-danger/10',
+  warn: 'border-warning/40 bg-warning/10',
+  info: 'border-border bg-surface2',
+  ok: 'border-primary/30 bg-primary/5',
+}
+const VERDICT_TEXT = {
+  crit: 'text-danger', warn: 'text-warning', info: 'text-fg', ok: 'text-primary',
+}
+const VERDICT_LABEL = { crit: 'critical', warn: 'warning', info: 'info', ok: 'ok' }
+
+// Verdicts sit above the numbers because a wall of correct measurements is not
+// an answer. Each one states the figure it turns on and what to do about it;
+// the charts below are the evidence.
+function Verdicts({ verdicts }) {
+  if (!verdicts?.length) return null
+  return (
+    <Card title="Verdicts" subtitle="What these measurements add up to">
+      <div className="space-y-2 p-4">
+        {verdicts.map((v) => (
+          <div key={v.id} className={`rounded-lg border px-3 py-2 ${VERDICT_TONE[v.level] || VERDICT_TONE.info}`}>
+            <div className="flex flex-wrap items-baseline gap-x-2">
+              <span className={`text-xs font-semibold uppercase tracking-wide ${VERDICT_TEXT[v.level] || ''}`}>
+                {VERDICT_LABEL[v.level] || v.level}
+              </span>
+              <span className="text-sm font-semibold text-fg">{v.title}</span>
+              <span className="font-mono text-xs text-muted">{v.headline}</span>
+            </div>
+            <p className="mt-1 text-xs leading-relaxed text-muted">{v.detail}</p>
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
+}
 
 function Report({ model }) {
   const f = model.summary?.findings || {}
@@ -99,6 +147,8 @@ function Report({ model }) {
 
   return (
     <div className="space-y-4">
+      <Verdicts verdicts={model.verdicts} />
+
       {/* 10% text: source facts + headline findings */}
       <Card title="Summary" subtitle={`${model.source?.host || 'host'} · ${model.source?.engine === 'pxc' ? 'Percona XtraDB Cluster' : 'MySQL / Percona Server'}${model.source?.capturedAt ? ' · captured ' + new Date(model.source.capturedAt).toLocaleString() : ''}`}>
         <div className="space-y-3 p-4">
@@ -108,6 +158,13 @@ function Report({ model }) {
             {facts.mysqlVersion && <span>Version: <span className="text-fg">{facts.mysqlVersion}</span></span>}
             {facts.uptime && <span>Uptime: <span className="text-fg">{facts.uptime}</span></span>}
             {facts.kernel && <span>Kernel: <span className="text-fg">{facts.kernel}</span></span>}
+            {/* The settings the charts have to be read against. Without the
+                flush method in particular, InnoDB's read counter is ambiguous. */}
+            {facts.bufferPoolSize && <span>Buffer pool: <span className="text-fg">{humanBytes(Number(facts.bufferPoolSize))}</span></span>}
+            {facts.flushMethod && <span>flush_method: <span className="text-fg">{facts.flushMethod}</span></span>}
+            {facts.redoLogCapacity && <span>Redo: <span className="text-fg">{humanBytes(Number(facts.redoLogCapacity))}</span></span>}
+            {facts.syncBinlog !== undefined && facts.syncBinlog !== '' && <span>sync_binlog: <span className="text-fg">{facts.syncBinlog}</span></span>}
+            {facts.flushLogAtTrxCommit !== undefined && facts.flushLogAtTrxCommit !== '' && <span>flush_log_at_trx_commit: <span className="text-fg">{facts.flushLogAtTrxCommit}</span></span>}
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {FINDING_TILES.filter((t) => f[t.key] !== undefined).map((t) => <StatTile key={t.key} tile={t} value={f[t.key]} />)}

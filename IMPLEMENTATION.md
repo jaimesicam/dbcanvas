@@ -12526,3 +12526,67 @@ All seven agents `ok` on all four engines, no error and no warning on any dashbo
 
 `go build ./...`, `go vet ./...`, `gofmt -l` and `go test ./...` clean in both modules;
 `npm run build` and `npm run smoke` clean.
+
+## 234. Visual Summary states conclusions, not just measurements — `app/visualsummary.go`, `app/web/src/pages/VisualSummary.jsx`
+
+Asked how PMM would show that a buffer pool needs raising, and to test it across
+16 combinations of `innodb_buffer_pool_size`, `innodb_redo_log_capacity`,
+`sync_binlog` and `innodb_flush_log_at_trx_commit`. The tuning answer was
+straightforward — the pool is worth ×3.13 median (all 8 paired runs positive)
+and the other three are worth almost nothing next to it. What the exercise
+actually produced was four ways the Visual Summary had led *this* reader to the
+wrong conclusion, which is what this session fixes.
+
+**The measurements were all correct and the conclusions were not available.**
+Comparing two real captures of the same server at 128 MiB and 4 GiB, the summary
+reported `peakBpMissRatioPct` 8.5 → 0 and nothing else that mattered: no
+throughput (QPS tripled, 1,514 → 4,583, and appeared in no finding, so there was
+no way to tell which capture was the *faster* server); free pages parsed,
+charted and never promoted (398 vs 105,660 — the best sizing discriminator
+there is); checkpoint age in absolute bytes against fixed 1e9/4e9 thresholds
+that can never fire on a 100 MiB redo log however full it gets.
+
+**The fourth is the one that matters.** The 128 MiB capture reports 1,842 MiB/s
+of InnoDB reads and 117,700 buffer pool misses/s. The block devices served
+**nothing** — verified against /proc/diskstats live, then confirmed by restarting
+the same server under `innodb_flush_method=O_DIRECT`, where InnoDB's 598.8 MiB/s
+matched the devices' 596.7 MiB/s to 99.6%. Under the default `fsync` every miss
+goes through the OS page cache, and on a machine with spare memory it is memcpy,
+not seek. `Innodb_buffer_pool_reads` is a *miss* counter, not a disk counter. It
+still correctly says the pool is too small; it says nothing about the cost, and
+the cost here was near zero. The same run drifted ×2.9 in throughput under
+bit-for-bit identical settings purely as the page cache warmed — which is also
+why the three lesser factors' effects are reported as paired medians against
+run-order distance rather than as means.
+
+A `Verdicts` card now sits above the charts: four rules over series already
+parsed, each stating the figure it turns on and one sentence of what to do.
+`parseVariables` reads the `-variables` file pt-stalk has always captured and
+never used, so a counter can be judged against the setting that gives it
+meaning. New findings: sustained (median) miss ratio beside the peak, free
+pages, QPS, fsyncs, checkpoint age as a percentage of redo capacity, and the two
+halves of the device cross-check as plain numbers so the verdict can be checked
+by hand.
+
+**The buffer pool rule shipped wrong once and live testing caught it.** The
+first version short-circuited on "more than 1% of the pool is free ⇒ it never
+filled ⇒ not the constraint", and duly told the 128 MiB capture — 342 free pages
+of 8,192, missing 8.3% of reads at 117,700/s — that its pool was fine, about a
+server measured 3× faster the moment the pool was raised. InnoDB's page cleaner
+*always* keeps a small free list so a thread never has to evict before it can
+read, so a thrashing pool sits at a low non-zero free count, not zero. The rule
+now leads with the sustained miss ratio and uses free pages only to separate
+"never filled" from "full and correctly sized", at a 10% threshold.
+
+Verified against both real archives:
+
+    capture   verdicts
+    128M      CRIT buffer pool 8.30% miss (117.7k/s) · WARN misses served by page
+              cache, InnoDB 1842 MiB/s vs devices 0 MiB/s · OK redo 10.3% of 100 MiB
+              · INFO 1.5k queries/s
+    4G        OK buffer pool, 105,660 of 262,144 pages free · OK redo 11.3%
+              · INFO 4.6k queries/s
+
+Five new unit tests pin the rules, including the free-list case that was wrong.
+`go build/vet/test` and `gofmt -l` clean; `npm run build` and `npm run smoke`
+clean.
