@@ -21,12 +21,28 @@ import (
 // # Why latency and loss rather than bandwidth
 //
 // Bandwidth is the least interesting of the four for a replicated database. A
-// bandwidth cap mostly slows a state transfer down. What actually breaks Galera
-// is delay and loss: replication falls behind, flow control pauses the whole
-// cluster to let the slowest member catch up, and past evs.suspect_timeout the
-// group evicts the member and partitions. That is the incident people have to
-// diagnose, and netem reproduces it exactly. Bandwidth is offered too, because
-// a saturated link is real, but it is the third knob rather than the first.
+// bandwidth cap mostly slows a state transfer down. What breaks Galera is delay
+// and loss, and measuring it on a real three-node cluster showed the mechanism
+// is not quite the one usually described:
+//
+//   - A degraded link (200ms ±40ms, 10% loss, 1 Mbit on the cluster ports)
+//     backs up the *sender*: wsrep_local_send_queue on the writer rises and a
+//     bulk insert that took 22ms unimpaired ran for minutes. Receiver-side flow
+//     control did not fire — wsrep_flow_control_paused/sent stayed at zero and
+//     the impaired node's recv queue stayed empty. That is consistent rather
+//     than surprising: flow control is a receiver telling the group it cannot
+//     *apply* fast enough, so it is provoked by a slow node (CPU, disk), while
+//     a slow *link* starves the receiver instead of flooding it. Both are worth
+//     reproducing; they are not the same experiment.
+//   - Severing the link (100% loss) evicts the member. Measured: 8 seconds from
+//     applying the loss to the majority side reporting cluster_size 2 / Primary
+//     while the isolated node reported cluster_size 1 / non-Primary and stopped
+//     accepting writes. Clearing the shaping rejoined it inside 11 seconds.
+//
+// So the honest summary is that this knob reliably produces a partition and a
+// sender-side stall, and that receiver-side flow control needs a slow node
+// rather than a slow link. Bandwidth is offered too, because a saturated link is
+// real, but it is the third knob rather than the first.
 //
 // # Why tc rather than a container limit
 //

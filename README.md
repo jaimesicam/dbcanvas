@@ -183,9 +183,14 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
 - **Constrained nodes** — every node can be limited on all four resources it competes for:
   **CPU** and **memory** (container limits), **disk** (`--device-read-bps`/`--device-write-bps`),
   and the **network** — added latency, jitter, packet loss and a bandwidth cap, applied with
-  `tc`. The network one is what makes a synchronous cluster interesting: latency and loss between
-  members are what drive Galera flow control and, past `evs.suspect_timeout`, eviction and a
-  partitioned cluster, while a bandwidth cap mostly just slows a state transfer down. Shaping is
+  `tc`. The network one is what makes a synchronous cluster interesting. Measured on a live
+  three-node Galera cluster: a degraded link (200 ms ±40 ms, 10% loss, 1 Mbit) backs the *writer*
+  up — `wsrep_local_send_queue` rises and a bulk insert that took 22 ms unimpaired ran for
+  minutes — and severing it (100% loss) evicts the member in **8 seconds**, the majority side
+  holding `cluster_size 2 / Primary` while the isolated node drops to `1 / non-Primary` and stops
+  accepting writes; clearing the impairment rejoins it in **11 seconds**. Worth knowing: a slow
+  *link* stalls the sender, whereas receiver-side flow control needs a slow *node* — they are
+  different experiments. A bandwidth cap mostly just slows a state transfer down. Shaping is
   scoped to the node's own database and cluster ports (for PXC: 3306, 4444, 4567, 4568), so DNS,
   LDAP and health checks stay clean and the node degrades rather than looking broken — measured
   on a lab node, ping stayed at 0.09 ms while port 4567 went to 124 ms. It is applied *after* the

@@ -13182,7 +13182,44 @@ delay, that both directions are filtered, and that an unshaped default class
 exists. `go build/vet/test` and `gofmt -l` clean; `npm run build` and
 `npm run smoke` clean.
 
-**Not yet verified end to end**: the path through dbcanvas's own deploy — a real
-PXC cluster impaired by `reconcileNetem` and observed going into flow control and
-then eviction. The tc mechanism is proven and the images now carry tc, but the
-Galera behaviour itself is still an expectation rather than a measurement.
+**Verified on a live three-node Galera cluster**, and it corrected the claim this
+was built on.
+
+The intended target was PXC, but the stock `percona/percona-xtradb-cluster`
+images could not form a cluster here at all: 8.0.46's SST script fails with
+`save_exit: command not found`, 8.0.36's fails on both donor and joiner, PXC 8.0
+rejects rsync SST outright, and SST carries its own encryption layer that still
+demands certificates after `pxc_encrypt_cluster_traffic=OFF`. Rather than keep
+fighting the image, the verification ran on MariaDB Galera — the same Galera
+library, the same flow-control and eviction machinery, the same ports, and a
+first-class dbcanvas node type (`mariadbgalera`) covered by the same port set.
+
+First, direct evidence the shaping reaches cluster traffic: with 200ms ±40ms and
+10% loss on 3306/4444/4567/4568, the impaired class's own counters read
+`Sent 77952 bytes 636 pkt (dropped 78)` across 8 filter matches — the kernel
+dropping one Galera packet in ten, which is what was asked for.
+
+Then the behaviour, and the correction:
+
+    degraded link          writer's wsrep_local_send_queue rises; a bulk insert
+    (200ms/10%/1Mbit)      that took 22ms unimpaired ran for minutes.
+                           wsrep_flow_control_paused/sent stayed 0 and the
+                           impaired node's recv queue stayed empty.
+    severed link           8s to evict: majority side cluster_size 2 / Primary,
+    (100% loss)            isolated node cluster_size 1 / non-Primary, refusing
+                           writes. Stable across 80s of sampling.
+    cleared                rejoined in 11s, back to cluster_size 3 / Synced.
+
+The correction is worth stating plainly, because the original design note had it
+wrong: a degraded link does **not** produce receiver-side flow control. Flow
+control is a receiver telling the group it cannot *apply* fast enough, so it is
+provoked by a slow node — CPU or disk bound — while a slow *link* starves the
+receiver rather than flooding it, and shows up as a sender-side stall instead.
+Both are worth reproducing and this knob produces the second; the first needs the
+CPU or disk limits that already existed. `netem.go` and the README now say so.
+
+**Still not verified**: the path through dbcanvas's own deploy — `reconcileNetem`
+applying to nodes it provisioned itself. `applyNetem` is exercised (it is the same
+exec the reconcile calls, and the script run here was extracted from the Go
+constant rather than retyped), but the deploy-phase wiring has not run against a
+live stack.
