@@ -13508,3 +13508,59 @@ parser reading the absolute counter would report a healthy server's lifetime
 retransmits as this capture's) and one that pins repeat collapsing.
 `go build/vet/test` and `gofmt -l` clean; `npm run build` and `npm run smoke`
 clean.
+
+## 247. The table cache advisor that had no producer, and DDL blocking that had no panel — `app/visualsummary.go`, `app/visualsummary_advice.go`, `app/web/src/pages/VisualSummary.jsx`
+
+Two more from §245's audit, both chosen because something earlier in this run
+proved they were needed.
+
+**Table cache.** §239 built the extra-tables knob and noted that table cache "had
+no advisor because nothing could produce the condition". Something can now, and
+the counters turned out to need no new file at all — `Opened_tables`,
+`Table_open_cache_hits/misses/overflows` are in every `mysqladmin ext` sample and
+were simply never derived.
+
+The advisor is built around a distinction that decides the advice. `Opened_tables`
+is the counter people quote and the weakest one: cumulative since startup, so a
+server that opened ten thousand tables an hour ago reads identically to one
+thrashing now — hence rates over the capture rather than totals. `overflows` is
+the honest signal, because it counts a table evicted *because the cache was
+full*. A high open rate with zero overflows means the workload simply touches
+many tables and `table_open_cache` is already big enough; raising it would change
+nothing, and the advisor says so rather than reflexively recommending a bigger
+number.
+
+Verified on real captures, including the variable lookup:
+
+    [ok] 9 opens/s, 9 misses/s, 0 overflows/s · table_open_cache=4000
+
+**Metadata locks.** This one closes a failure no panel could show. A metadata
+lock is taken by *any* statement touching a table and held for the life of the
+transaction, so a session that ran one SELECT and never committed blocks an
+ALTER indefinitely — and the pending exclusive lock then queues ahead of new
+readers, so the whole table becomes unavailable. Meanwhile InnoDB is idle, row
+locks are zero, the transaction census shows one harmless-looking transaction,
+and every chart is green. Nothing in this report could see it.
+
+The parser reads the metadata_locks section of `-ps-locks-transactions`, using
+LOCK_STATUS as the discriminator since it is the only one of that file's four
+result sets to carry it. Only objects with something PENDING are kept: every
+server holds granted metadata locks constantly, and listing them would be pure
+noise.
+
+**How it was verified, and the limit of that.** The environment kept reaping
+long-lived `mysql` client sessions, so a genuine PENDING lock could not be held
+long enough to capture — three attempts ended with the holder dead and the ALTER
+completed. Instead the parser was run against a real capture's metadata_locks
+output (143 rows, 0 pending): it correctly reported nothing. The same real
+content with a single PENDING row spliced in produced the waiter *and the two
+genuine GRANTED holders on that table from thread 7139*, excluding the other 140
+rows on unrelated objects — so the filtering, the holder identification and the
+verdict are all exercised against real data, with only the pending row synthetic.
+
+    [crit] 1 pending on lab.t, 2 holder(s)
+
+Five unit tests, including one that pins that granted-only locks produce no panel
+at all, and one that pins the overflow-versus-opens distinction including the
+"raising it would not change anything" advice. `go build/vet/test` and `gofmt -l`
+clean; `npm run build` and `npm run smoke` clean.

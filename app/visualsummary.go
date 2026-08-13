@@ -108,9 +108,13 @@ type vsModel struct {
 	TCP            map[string]string   `json:"tcp,omitempty"`
 	ErrorLog       []map[string]string `json:"errorLog,omitempty"`
 	ErrorLogCounts map[string]string   `json:"errorLogCounts,omitempty"`
-	NetQueues      []map[string]string `json:"netQueues,omitempty"` // sockets with sustained Recv-Q/Send-Q
-	Deadlock       *vsDeadlock         `json:"deadlock,omitempty"`
-	Verdicts       []vsVerdict         `json:"verdicts,omitempty"`
+	// MetadataLocks is DDL blocking — an ALTER waiting behind a transaction that
+	// read the table, and everything queueing behind the ALTER. Invisible to every
+	// other panel; see parseMetadataLocks.
+	MetadataLocks []map[string]string `json:"metadataLocks,omitempty"`
+	NetQueues     []map[string]string `json:"netQueues,omitempty"` // sockets with sustained Recv-Q/Send-Q
+	Deadlock      *vsDeadlock         `json:"deadlock,omitempty"`
+	Verdicts      []vsVerdict         `json:"verdicts,omitempty"`
 	// Advisors explain one chart each — what it measures, what this capture's
 	// numbers say, and what to change. Keyed by chart. See visualsummary_advice.go.
 	Advisors  map[string]vsVerdict `json:"advisors,omitempty"`
@@ -225,6 +229,7 @@ func parsePtStalk(gzData []byte) (*vsModel, error) {
 	parseTrxCensus(m, bySuffix["transactions"])
 	parseNetstatS(m, bySuffix["netstat_s"])
 	parseErrorLog(m, bySuffix["log_error"])
+	parseMetadataLocks(m, bySuffix["ps-locks-transactions"])
 
 	// netstat: connection-state timeline + sockets with sustained Recv-Q/Send-Q.
 	parseNetstat(m, bySuffix["netstat"])
@@ -658,6 +663,15 @@ func deriveMysqlSeries(m *vsModel, snaps []statSnap) bool {
 		"questions": "Questions", "select": "Com_select", "insert": "Com_insert", "update": "Com_update", "delete": "Com_delete"})
 	rate("innodbRowOps", "/s", []string{"read", "inserted", "updated", "deleted"}, map[string]string{
 		"read": "Innodb_rows_read", "inserted": "Innodb_rows_inserted", "updated": "Innodb_rows_updated", "deleted": "Innodb_rows_deleted"})
+	// Table cache. Opened_tables is the classic signal and on its own it is a
+	// poor one — it counts every open since startup, so a server that opened a
+	// lot of tables an hour ago looks identical to one thrashing right now.
+	// These are rates over the capture, and overflows is the honest one:
+	// table_open_cache_overflows counts a table evicted *because the cache was
+	// full*, which is the condition rather than a proxy for it.
+	rate("tableCache", "/s", []string{"opened", "misses", "hits", "overflows"}, map[string]string{
+		"opened": "Opened_tables", "misses": "Table_open_cache_misses",
+		"hits": "Table_open_cache_hits", "overflows": "Table_open_cache_overflows"})
 	rate("handlerReadRndNext", "/s", []string{"perSec"}, map[string]string{"perSec": "Handler_read_rnd_next"})
 	// InnoDB's own view of its I/O. Worth its own series because it is the half
 	// of the page-cache check that comes from MySQL; the other half is iostat,
@@ -2458,4 +2472,94 @@ var logNumRe = regexp.MustCompile(`\d+`)
 func collapseLogLine(l string) string {
 	_, msg := splitLogLine(l)
 	return logNumRe.ReplaceAllString(msg, "#")
+}
+
+// parseMetadataLocks reads the metadata_locks section of pt-stalk's
+// `-ps-locks-transactions` file.
+//
+// This covers a failure nothing else in the report can see. Metadata locks are
+// not row locks and do not appear in InnoDB's status, the lock-waits join, or
+// the transaction census: they are the mechanism by which an ALTER TABLE waits
+// behind an open transaction that merely *read* the table, and by which every
+// subsequent query on that table then queues behind the ALTER. A server can be
+// completely stalled on one table with an idle InnoDB and nothing in any other
+// panel to show for it.
+//
+// The file contains four vertical result sets and only metadata_locks carries
+// LOCK_STATUS, so that key is the discriminator — no need to track which query
+// each block came from.
+//
+// LOCK_STATUS: PENDING is the finding. GRANTED rows are kept only when
+// something is pending on the same object, because they are the answer to "who
+// is it waiting for".
+func parseMetadataLocks(m *vsModel, files []namedFile) {
+	type row struct {
+		thread, object, lockType, status, duration string
+		seen                                       int
+	}
+	byKey := map[string]*row{}
+	var order []string
+	pendingObjects := map[string]bool{}
+
+	for _, f := range files {
+		for _, block := range strings.Split(string(f.data), "*************************** ") {
+			kv := map[string]string{}
+			for _, line := range strings.Split(block, "\n") {
+				i := strings.Index(line, ":")
+				if i <= 0 {
+					continue
+				}
+				kv[strings.TrimSpace(line[:i])] = strings.TrimSpace(line[i+1:])
+			}
+			if kv["LOCK_STATUS"] == "" || kv["OBJECT_TYPE"] == "" {
+				continue // not a metadata_locks row
+			}
+			obj := kv["OBJECT_SCHEMA"]
+			if n := kv["OBJECT_NAME"]; n != "" && n != "NULL" {
+				if obj != "" && obj != "NULL" {
+					obj += "." + n
+				} else {
+					obj = n
+				}
+			}
+			key := kv["processlist_id"] + "|" + obj + "|" + kv["LOCK_TYPE"] + "|" + kv["LOCK_STATUS"]
+			r := byKey[key]
+			if r == nil {
+				r = &row{
+					thread: kv["processlist_id"], object: obj,
+					lockType: kv["LOCK_TYPE"], status: kv["LOCK_STATUS"],
+					duration: kv["LOCK_DURATION"],
+				}
+				byKey[key] = r
+				order = append(order, key)
+			}
+			r.seen++
+			if r.status == "PENDING" {
+				pendingObjects[obj] = true
+			}
+		}
+	}
+	if len(pendingObjects) == 0 {
+		return // nothing was blocked; granted metadata locks alone are noise
+	}
+	var rows []map[string]string
+	for _, k := range order {
+		r := byKey[k]
+		if !pendingObjects[r.object] {
+			continue // only the objects something is actually waiting on
+		}
+		rows = append(rows, map[string]string{
+			"thread": r.thread, "object": r.object, "lockType": r.lockType,
+			"status": r.status, "duration": r.duration, "seen": strconv.Itoa(r.seen),
+		})
+	}
+	if len(rows) == 0 {
+		return
+	}
+	// Pending first — the waiter is the finding, the holders are the context.
+	sort.SliceStable(rows, func(i, j int) bool {
+		return rows[i]["status"] == "PENDING" && rows[j]["status"] != "PENDING"
+	})
+	m.MetadataLocks = rows
+	m.Available["metadataLocks"] = true
 }

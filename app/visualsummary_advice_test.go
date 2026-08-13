@@ -490,3 +490,105 @@ func TestParseErrorLogCrashAndCollapse(t *testing.T) {
 		t.Fatalf("a crash must be crit, got %+v", v)
 	}
 }
+
+// A metadata-lock block, in the shape performance_schema prints it: an
+// uncommitted reader holding SHARED_READ, an ALTER pending EXCLUSIVE behind it,
+// and a new reader pending behind the ALTER — which is the part that turns one
+// stuck DDL into a completely unavailable table.
+const mdlFixture = `*************************** 1. row ***************************
+       processlist_id: 7139
+          OBJECT_TYPE: TABLE
+        OBJECT_SCHEMA: lab
+          OBJECT_NAME: t
+            LOCK_TYPE: SHARED_READ
+        LOCK_DURATION: TRANSACTION
+          LOCK_STATUS: GRANTED
+*************************** 2. row ***************************
+       processlist_id: 7200
+          OBJECT_TYPE: TABLE
+        OBJECT_SCHEMA: lab
+          OBJECT_NAME: t
+            LOCK_TYPE: EXCLUSIVE
+        LOCK_DURATION: TRANSACTION
+          LOCK_STATUS: PENDING
+*************************** 3. row ***************************
+       processlist_id: 7300
+          OBJECT_TYPE: TABLE
+        OBJECT_SCHEMA: other
+          OBJECT_NAME: quiet
+            LOCK_TYPE: SHARED_READ
+        LOCK_DURATION: TRANSACTION
+          LOCK_STATUS: GRANTED
+`
+
+func TestParseMetadataLocks(t *testing.T) {
+	m := &vsModel{Available: map[string]bool{}}
+	parseMetadataLocks(m, []namedFile{{base: "x-ps-locks-transactions", data: []byte(mdlFixture)}})
+	if !m.Available["metadataLocks"] {
+		t.Fatal("a pending metadata lock should have been reported")
+	}
+	// other.quiet has nothing waiting on it, so it is context nobody needs.
+	for _, r := range m.MetadataLocks {
+		if r["object"] == "other.quiet" {
+			t.Error("objects with no waiter must be filtered out — otherwise every granted lock on the server is listed")
+		}
+	}
+	if len(m.MetadataLocks) != 2 {
+		t.Fatalf("got %d rows, want the waiter and its holder", len(m.MetadataLocks))
+	}
+	if m.MetadataLocks[0]["status"] != "PENDING" {
+		t.Error("the waiter should sort first — it is the finding")
+	}
+	v := adviseMetadataLocks(m)
+	if v == nil || v.Level != vsCrit {
+		t.Fatalf("a pending metadata lock is a frozen table; got %+v", v)
+	}
+	if !strings.Contains(v.Headline, "lab.t") {
+		t.Errorf("verdict should name the table, got %q", v.Headline)
+	}
+}
+
+// With nothing pending the panel must not appear at all: every server has
+// granted metadata locks all the time, and listing them is pure noise.
+func TestParseMetadataLocksQuiet(t *testing.T) {
+	quiet := `*************************** 1. row ***************************
+       processlist_id: 7139
+          OBJECT_TYPE: TABLE
+        OBJECT_SCHEMA: lab
+          OBJECT_NAME: t
+            LOCK_TYPE: SHARED_READ
+          LOCK_STATUS: GRANTED
+`
+	m := &vsModel{Available: map[string]bool{}}
+	parseMetadataLocks(m, []namedFile{{base: "x", data: []byte(quiet)}})
+	if m.Available["metadataLocks"] || len(m.MetadataLocks) != 0 {
+		t.Errorf("granted-only locks must produce nothing, got %d rows", len(m.MetadataLocks))
+	}
+}
+
+// Overflows are what distinguish "cache too small" from "workload touches many
+// tables", and the advice differs completely between the two.
+func TestAdviseTableCacheOverflowsVsOpens(t *testing.T) {
+	mk := func(opened, misses, hits, overflows float64) *vsModel {
+		s := &vsSeries{Metrics: []string{"opened", "misses", "hits", "overflows"}}
+		for i := 0; i < 10; i++ {
+			s.Points = append(s.Points, vsPoint{T: int64(i), V: map[string]float64{
+				"opened": opened, "misses": misses, "hits": hits, "overflows": overflows}})
+		}
+		return &vsModel{Series: map[string]*vsSeries{"tableCache": s}, Available: map[string]bool{}}
+	}
+	if v := mk(500, 500, 100, 400); adviseTableCache(v) == nil || adviseTableCache(v).Level != vsCrit {
+		t.Errorf("heavy overflows should be crit, got %+v", adviseTableCache(v))
+	}
+	// Many opens, no overflows: the cache is big enough and raising it is futile.
+	v := adviseTableCache(mk(200, 200, 9000, 0))
+	if v == nil || v.Level != vsInfo {
+		t.Fatalf("opens without overflows should be info, got %+v", v)
+	}
+	if !strings.Contains(v.Action, "would not change anything") {
+		t.Errorf("advice should say enlarging the cache is futile here, got %q", v.Action)
+	}
+	if q := adviseTableCache(mk(0, 0, 9000, 0)); q == nil || q.Level != vsOK {
+		t.Fatalf("a quiet cache should be ok, got %+v", q)
+	}
+}

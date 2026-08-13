@@ -1128,6 +1128,19 @@ check('visual summary: lock wait advisor', () => renderToString(<Advisor a={aLoc
 check('visual summary: transaction advisor with no lock wait', () =>
   renderToString(<Advisor a={{ id: 'innodbTrx', level: 'warn', headline: 'thread 7139 active 86s, 1 row locks', means: 'The longest-running transaction seen.', action: 'Long enough to hold back purge.' }} />))
 
+// The panels added for DDL blocking, the network, and the table cache. Each
+// advisor renders from a table rather than a chart, and each must survive the
+// level it reports at.
+for (const [id, level, headline] of [
+  ['metadataLocks', 'crit', '1 pending on lab.t, 1 holder(s)'],
+  ['tcp', 'crit', '77 of 989 segments retransmitted (7.786%)'],
+  ['errorLog', 'crit', '3 membership, 1 state transfer'],
+  ['tableCache', 'info', '200 opens/s, 200 misses/s, 0 overflows/s'],
+]) {
+  check(`visual summary: advisor ${id}`, () =>
+    renderToString(<Advisor a={{ id, level, headline, means: 'what it measures', action: 'what to do' }} />))
+}
+
 check('visual summary: chart card carrying an advisor', () =>
   renderToString(<ChartCard title="Buffer pool reads" subtitle="/s" advisor={anAdvisor}><div /></ChartCard>))
 check('visual summary: chart card without one', () =>

@@ -787,6 +787,17 @@ function Report({ model }) {
           <Advisor a={adv('innodbTrx')} />
         </Card>
       )}
+      {/* DDL blocking. Nothing else on this page can show it: a metadata lock is
+          held by any statement that touched the table, so an uncommitted SELECT
+          freezes an ALTER, and the pending exclusive lock then freezes every
+          reader behind it — with InnoDB idle and every other chart healthy. */}
+      {has('metadataLocks') && (
+        <Card title="Metadata locks — DDL blocking"
+          subtitle="from performance_schema.metadata_locks. Only objects something is waiting on are shown; PENDING rows are the waiters, GRANTED rows are who they are waiting for.">
+          <div className="p-3"><SortableTable columns={MDL_COLS} rows={model.metadataLocks} initial={{ key: 'status', dir: 'asc' }} /></div>
+          <Advisor a={adv('metadataLocks')} />
+        </Card>
+      )}
       {/* The two panels that can see a bad network. Everything else on this page
           is the database's own view, and §242 showed that view goes quiet when
           the link degrades — flow control stays at zero while the cluster
@@ -918,6 +929,14 @@ const TRX_COLS = [
   { key: 'lockWait', label: 'Lock wait', muted: true },
   { key: 'seen', label: 'Seen', numeric: true, mono: true },
   { key: 'query', label: 'Query', mono: true, wide: true },
+]
+const MDL_COLS = [
+  { key: 'status', label: 'Status' },
+  { key: 'thread', label: 'Thread', numeric: true, mono: true },
+  { key: 'object', label: 'Object', mono: true },
+  { key: 'lockType', label: 'Lock type', mono: true },
+  { key: 'duration', label: 'Duration', muted: true },
+  { key: 'seen', label: 'Seen', numeric: true, mono: true, muted: true },
 ]
 const ERRLOG_COLS = [
   { key: 'time', label: 'Time', mono: true, muted: true },

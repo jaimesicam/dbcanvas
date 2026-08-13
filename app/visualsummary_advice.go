@@ -51,6 +51,8 @@ var advisorRules = map[string]func(*vsModel) *vsVerdict{
 	"innodbTrx":          adviseOldestTransaction,
 	"tcp":                adviseTCPRetransmits,
 	"errorLog":           adviseErrorLog,
+	"tableCache":         adviseTableCache,
+	"metadataLocks":      adviseMetadataLocks,
 }
 
 func computeAdvisors(m *vsModel) {
@@ -821,4 +823,116 @@ func adviseErrorLog(m *vsModel) *vsVerdict {
 			"Errors were logged. The table below has them; anything repeating is worth chasing.")
 	}
 	return advice(vsOK, means, found, "Nothing alarming in the log for this window.")
+}
+
+// adviseTableCache reads the table-open cache, which §239 built a producer for
+// (the extra-tables knob) and which had no advisor at all — the condition could
+// not be created on demand, so nothing had ever been written to interpret it.
+//
+// Three counters matter and they are not equivalent. `Opened_tables` is the one
+// people quote and the weakest: it is cumulative since startup, so a server that
+// opened ten thousand tables an hour ago reads the same as one thrashing now —
+// which is why this works from rates over the capture instead. `misses` is a
+// table that had to be opened rather than reused. `overflows` is the honest
+// signal: a table evicted *because the cache was full*, which is the condition
+// itself rather than a proxy for it.
+//
+// The distinction that decides the advice: a server opening tables steadily with
+// no overflows is simply touching many tables, and enlarging the cache changes
+// nothing. Overflows mean the cache is too small for the working set of tables,
+// and that is the one case where table_open_cache is the fix.
+func adviseTableCache(m *vsModel) *vsVerdict {
+	s := m.Series["tableCache"]
+	if s == nil {
+		return nil
+	}
+	opened := seriesMedian(s, "opened")
+	misses := seriesMedian(s, "misses")
+	overflows := seriesMedian(s, "overflows")
+	hits := seriesMedian(s, "hits")
+	means := "Table handles being opened rather than reused. `overflows` is the one that " +
+		"decides whether the cache is too small: it counts tables evicted because the cache " +
+		"was full, as against simply being opened for the first time. A high open rate with no " +
+		"overflows means the workload touches many tables, which a bigger cache does not fix."
+	found := fmt.Sprintf("%s opens/s, %s misses/s, %s overflows/s",
+		compactNum(opened), compactNum(misses), compactNum(overflows))
+	if size, ok := m.varNum("table_open_cache"); ok {
+		found += fmt.Sprintf(" · table_open_cache=%.0f", size)
+	}
+	hitPct := 0.0
+	if hits+misses > 0 {
+		hitPct = hits / (hits + misses) * 100
+	}
+	switch {
+	case overflows >= 10:
+		return advice(vsCrit, means, found, fmt.Sprintf(
+			"Tables are being evicted from the cache and reopened continuously — the cache is "+
+				"far too small for the number of tables this workload touches (hit rate %.1f%%). "+
+				"Raise table_open_cache; each entry costs a file descriptor and a little memory, "+
+				"so also check open_files_limit. If the table count is itself the problem — a "+
+				"table per day or per customer — the schema is the real fix.", hitPct))
+	case overflows >= 1:
+		return advice(vsWarn, means, found,
+			"Some eviction under cache pressure. Raising table_open_cache is cheap and worth "+
+				"doing before it becomes the bottleneck.")
+	case misses >= 50:
+		return advice(vsInfo, means, found, fmt.Sprintf(
+			"Tables are being opened steadily but nothing is being evicted (hit rate %.1f%%), so "+
+				"the cache is large enough — this is a workload that touches many distinct "+
+				"tables. Enlarging table_open_cache would not change anything.", hitPct))
+	}
+	return advice(vsOK, means, found, "The table cache is holding the working set.")
+}
+
+// adviseMetadataLocks reports DDL blocking, which no other panel in this report
+// can see.
+//
+// The mechanism is worth stating because it surprises people: a metadata lock is
+// taken by *any* statement touching a table and held for the life of the
+// transaction, so a session that ran a single SELECT and then sat there without
+// committing will block an ALTER TABLE indefinitely. Worse, the pending
+// exclusive lock queues ahead of new readers, so every subsequent query on that
+// table stops too. The result is a table that is completely unavailable while
+// InnoDB is idle, row locks are zero, and every other chart looks healthy.
+func adviseMetadataLocks(m *vsModel) *vsVerdict {
+	if len(m.MetadataLocks) == 0 {
+		return nil
+	}
+	var pending, granted int
+	objects := map[string]bool{}
+	waiters := map[string]bool{}
+	holders := map[string]bool{}
+	for _, r := range m.MetadataLocks {
+		if r["status"] == "PENDING" {
+			pending++
+			objects[r["object"]] = true
+			waiters[r["thread"]] = true
+		} else {
+			granted++
+			holders[r["thread"]] = true
+		}
+	}
+	means := "Metadata locks are taken by any statement that touches a table and held until the " +
+		"transaction ends — not just by DDL. A session that ran one SELECT and never committed " +
+		"will block an ALTER TABLE forever, and the pending exclusive lock then queues ahead of " +
+		"new readers, so the whole table goes unavailable. None of it appears in row locks, " +
+		"InnoDB status, or the transaction census."
+	obj := ""
+	for o := range objects {
+		obj = o
+		break
+	}
+	found := fmt.Sprintf("%d pending on %s, %d holder(s)", pending, obj, granted)
+	if len(objects) > 1 {
+		found = fmt.Sprintf("%d pending across %d tables, %d holder(s)", pending, len(objects), granted)
+	}
+	if pending == 0 {
+		return advice(vsOK, means, found, "Nothing waiting on a metadata lock.")
+	}
+	return advice(vsCrit, means, found,
+		"Something is waiting for a metadata lock, which means that table is effectively "+
+			"frozen for everyone. The holders are in the table below — find the session that "+
+			"has the table open in an uncommitted transaction and end it, then retry the DDL. "+
+			"Use a short lock_wait_timeout on DDL so it fails fast instead of blocking the "+
+			"table behind it, and check the open-transactions panel for the session at fault.")
 }
