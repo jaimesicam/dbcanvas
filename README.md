@@ -180,6 +180,17 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
   the instance itself. See [All in One](#all-in-one) below.
 - **Operations** — cross-cluster replication links, per-node web terminals, certificate
   management, on-demand backups, and TTL-based auto-teardown.
+- **Constrained nodes** — every node can be limited on all four resources it competes for:
+  **CPU** and **memory** (container limits), **disk** (`--device-read-bps`/`--device-write-bps`),
+  and the **network** — added latency, jitter, packet loss and a bandwidth cap, applied with
+  `tc`. The network one is what makes a synchronous cluster interesting: latency and loss between
+  members are what drive Galera flow control and, past `evs.suspect_timeout`, eviction and a
+  partitioned cluster, while a bandwidth cap mostly just slows a state transfer down. Shaping is
+  scoped to the node's own database and cluster ports (for PXC: 3306, 4444, 4567, 4568), so DNS,
+  LDAP and health checks stay clean and the node degrades rather than looking broken — measured
+  on a lab node, ping stayed at 0.09 ms while port 4567 went to 124 ms. It is applied *after* the
+  cluster forms, because a lossy link fails state transfer, and it is a runtime change, so a
+  redeploy re-applies it without recreating anything.
 
 **Authentication.** Point a database at a directory and it is wired at deploy: **LDAP** against
 the Intranet OpenLDAP or the Samba AD DC (Percona Server, PostgreSQL, PSMDB), **Kerberos/GSSAPI**

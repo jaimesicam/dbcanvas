@@ -13088,3 +13088,101 @@ cannot self-contend: it hands out consecutive rows, so as long as there are more
 commit rows than concurrent writers two writers can never collide, and an fsync
 measurement can never quietly become a contention one. `go build/vet/test` and
 `gofmt -l` clean in both modules; `npm run build` and `npm run smoke` clean.
+
+## 242. Per-node network conditions: latency, jitter, loss and a bandwidth cap — `app/netem.go`, `app/intranet.go`, `images/{rhel,debian}.Dockerfile`, `app/web/src/pages/StackDesigner.jsx`
+
+Asked for deliberate resource constraints on nodes — network, CPU, disk, memory —
+because PXC is very sensitive to network problems.
+
+Three of the four already existed: CPU and memory are container limits set at
+create time (`ContainerSpec.CPUs`/`MemoryMB`), and disk is blk-throttle from
+§220/§221. The network had nothing at all, which is the one that mattered.
+
+**Why latency and loss rather than bandwidth.** The request said "capped
+bandwidth", but bandwidth is the least interesting of the four for a replicated
+database — a cap mostly slows a state transfer down. What breaks Galera is delay
+and loss: replication falls behind, flow control pauses the whole cluster to let
+the slowest member catch up, and past `evs.suspect_timeout` the group evicts the
+member and partitions. Bandwidth is offered too, because a saturated link is
+real, but it is the third knob rather than the first.
+
+**Why tc rather than a container limit.** Docker has no bandwidth or latency
+setting — there is no `--net-bps` the way there is `--device-read-bps`. Shaping
+has to happen inside the container's network namespace, which needs NET_ADMIN;
+stack nodes already run privileged, so tc is simply exec'd into the node.
+
+That turned out to be an advantage rather than a compromise. blk-throttle values
+are create-time only and the update API silently drops them, so changing a disk
+limit means recreating the node. A tc qdisc is applied, changed and removed on a
+live node, and the result reads back out of the kernel with `tc -s qdisc show` —
+so "did this actually apply" is a measurement. A redeploy re-applies conditions
+without recreating anything, which is what makes "break the cluster, watch it,
+repair it" a thing you can do to a running stack.
+
+**The two design decisions that make it usable rather than just possible.**
+
+*Scoped to ports.* `tc qdisc add dev eth0 root netem delay 200ms loss 10%` shapes
+everything the container sends — DNS to the intranet node, LDAP, the package
+mirror, health checks. A node given a realistic WAN impairment on all traffic
+looks broken rather than slow, and can fail its own provisioning. So the qdisc is
+an htb tree with an unshaped default class and u32 filters steering only the
+node's database and cluster ports into the impaired class. Both `sport` and
+`dport` are matched: a reply leaves with the cluster port as its *source*, and
+filtering one direction would impair a request but not its response. The port set
+comes from the node type — for Galera that is 3306/4444/4567/4568, because
+impairing 3306 alone models a bad link to the application and impairing 4567
+models a bad link between members, and those are different experiments. Patroni
+gets 8008 as well, since that is where members agree who is primary.
+
+*Applied last.* `reconcileNetem` runs as the deploy's final phase, after the
+clusters are formed and replication is wired. Shaping applied during provisioning
+would be in force during SST, and a lossy link fails SST — so the stack would
+break rather than degrade. Form the cluster, then break the network under it,
+which is also the order of the real incident.
+
+**Clearing works because every supported node is visited**, not only the ones
+asking for impairment. A node whose conditions were removed on a redeploy has to
+lose its qdisc, and applying an empty spec is what does that. The script is
+idempotent and tearing down an unshaped interface is a no-op.
+
+**Verified live** against a two-container network, running the exact script the
+Go constant ships (extracted from `netem.go` rather than retyped):
+
+    baseline                        ping 0.35 ms
+    120ms ±20ms + 5% loss on
+      ports 3306/4567               ping 0.09 ms   ← unshaped, as designed
+                                    port 4567 124 ms
+                                    port 9999   3 ms
+    re-applied identically          port 4567  96 ms, one netem qdisc — no stacking
+    cleared (SPEC empty)            port 4567   3 ms, qdisc back to noqueue
+    5 Mbit cap                      class 1:20 rate 5Mbit, default 1:10 10Gbit
+    all-traffic mode                ping 80.4 ms — the catch-all filter works
+
+The port scoping is the result worth keeping: ping at 0.09 ms while the Galera
+port sat at 124 ms is the difference between a degraded node and a broken one.
+
+**Two things live testing corrected.** `iproute` is installed on the RHEL image
+already and provides `ip` — but *not* `tc`, which is a separate `iproute-tc`
+package; installing iproute and expecting tc is the trap, and Debian differs
+again by shipping tc inside `iproute2`. And htb printed
+`quantum of class ... is big. Consider r2q change.` to stderr for every class near
+10gbit — harmless, but it would land in the deploy log on every node and read
+like a fault, so quantum is now set explicitly at htb's maximum of 200000.
+
+Jitter is clamped to the latency, and that clamp is about correctness rather than
+sanity: netem draws each packet's delay from latency ± jitter, so a larger jitter
+yields negative delays that reorder packets, and TCP reads reordering as loss —
+the link stops modelling what was asked for. The canvas says so rather than
+silently fixing it.
+
+Nine unit tests covering the clamps, the netem argument string, the port sets,
+the teardown path, and three properties of the script itself: that the delete
+precedes the add so applying twice cannot stack two netem qdiscs and double the
+delay, that both directions are filtered, and that an unshaped default class
+exists. `go build/vet/test` and `gofmt -l` clean; `npm run build` and
+`npm run smoke` clean.
+
+**Not yet verified end to end**: the path through dbcanvas's own deploy — a real
+PXC cluster impaired by `reconcileNetem` and observed going into flow control and
+then eviction. The tc mechanism is proven and the images now carry tc, but the
+Galera behaviour itself is still an expectation rather than a measurement.

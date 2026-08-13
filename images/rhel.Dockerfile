@@ -28,8 +28,13 @@ RUN grep -q '^ip_resolve=' /etc/dnf/dnf.conf 2>/dev/null || echo 'ip_resolve=4' 
 #   - percona-release     → Percona repository manager
 #   - percona-toolkit     → pt-* DBA tools
 #   - git                 → clone diagnostic tooling (e.g. pg_gather) on DB nodes
+#   - iproute-tc          → tc, for the per-node network conditions (see netem.go)
+#
+# iproute-tc is its own package on RHEL: `iproute` is installed already as a
+# dependency and provides `ip`, but *not* `tc`, which is what the network
+# shaping needs. Installing iproute and expecting tc is the trap here.
 RUN set -eux; \
-    yum -y install systemd net-tools openldap-clients sysstat git; \
+    yum -y install systemd net-tools openldap-clients sysstat git iproute-tc; \
     yum -y install https://repo.percona.com/yum/percona-release-latest.noarch.rpm; \
     percona-release setup pt; \
     yum -y install percona-toolkit; \

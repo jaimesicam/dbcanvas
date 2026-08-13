@@ -23,8 +23,25 @@ type designNode struct {
 	Arch      string `json:"arch"`
 	// Per-node sizing (VM-capable node types only). 0 → the Vagrant engine default
 	// (DBCANVAS_VM_CPUS / DBCANVAS_VM_MEMORY), or no limit on Docker. See applyVMSize.
-	CPUs     int `json:"cpus"`     // VirtualBox vCPUs / container --cpus
-	MemoryGB int `json:"memoryGb"` // VirtualBox VM memory / container --memory, in GiB
+	// Network conditions applied to this node with tc once it is running —
+	// latency, jitter, packet loss and a bandwidth cap. All zero means the node
+	// is left alone. The fourth constrainable resource alongside CPUs, MemoryGB
+	// and the disk limits; see netem.go for why it is tc rather than a container
+	// limit, and why it is scoped to the node's own ports by default.
+	//
+	// NetLatencyMS and NetLossPct are the two that matter for a synchronous
+	// cluster: they are what produce Galera flow control and, past
+	// evs.suspect_timeout, eviction. NetAllTraffic widens the shaping from the
+	// node's database/cluster ports to every packet it sends, which models a bad
+	// NIC rather than a bad link between members — and can make the node fail
+	// its own provisioning, so it is off by default.
+	NetLatencyMS  int     `json:"netLatencyMs"`
+	NetJitterMS   int     `json:"netJitterMs"`
+	NetLossPct    float64 `json:"netLossPct"`
+	NetRateMbit   int     `json:"netRateMbit"`
+	NetAllTraffic bool    `json:"netAllTraffic"`
+	CPUs          int     `json:"cpus"`     // VirtualBox vCPUs / container --cpus
+	MemoryGB      int     `json:"memoryGb"` // VirtualBox VM memory / container --memory, in GiB
 	// Per-node disk throttling (Docker engine only — Vagrant has no equivalent and
 	// ignores these). 0 → no limit, which is what stacks designed before these fields
 	// existed keep getting. DevicePath overrides the auto-detected Docker-root block
@@ -720,6 +737,9 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	}
 	for _, n := range doc.Nodes {
 		labels[strings.TrimSpace(n.Label)]++
+		// Network conditions apply to any node type that has them, so they are
+		// checked before the per-type switch rather than inside it.
+		out = append(out, netemIssues(n)...)
 		switch n.Type {
 		case "intranet":
 			intranet++
@@ -1900,6 +1920,17 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer endRepl()
 		a.reconcileReplication(replCtx, st, doc)
+	}()
+
+	// Last of all: impair the links that were asked to be impaired. This runs
+	// after the clusters are formed and after replication is wired, because
+	// shaping applied earlier would be in force during state transfer — and a
+	// lossy link fails SST, which would break the stack rather than degrade it.
+	// See reconcileNetem.
+	netCtx, endNet := a.deployScope(st.ID, a.eng(st))
+	go func() {
+		defer endNet()
+		a.reconcileNetem(netCtx, st, doc)
 	}()
 
 	// Every provisioner has registered with the run by now; release it once they

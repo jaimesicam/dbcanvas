@@ -3691,9 +3691,81 @@ function VMSizeFields({ node: n, patchNode, deployed }) {
               </p>
             </div>
           )}
+          <NetworkConditionFields node={n} patchNode={patchNode} />
         </>
       )}
     </div>
+  )
+}
+
+// NET_SHAPEABLE mirrors netemSupported() in netem.go: the node types that run an
+// image carrying tc and have cluster traffic worth impairing. A control that
+// silently does nothing is worse than one that is absent, so the section does
+// not render for anything else.
+const NET_SHAPEABLE = new Set([
+  'pxc', 'mariadbgalera', 'ps', 'mysql', 'innodb', 'mysqlce', 'mysqlcerepl',
+  'mysqlceinnodb', 'mariadb', 'mariadbrepl', 'patroni', 'pg', 'repmgr', 'spock',
+  'psm', 'psmdb', 'psmrs', 'valkey', 'valkeycluster', 'proxysql', 'haproxy',
+])
+
+// NetworkConditionFields edits the per-node network impairment: latency, jitter,
+// loss and a bandwidth cap, applied with tc after the cluster forms.
+//
+// Unlike the CPU/memory/disk limits above these are NOT locked once deployed. A
+// tc qdisc is a runtime change on a live node, so redeploying a stack re-applies
+// them without recreating anything — which is the whole point for a cluster you
+// want to break and then repair while watching it.
+function NetworkConditionFields({ node: n, patchNode }) {
+  const [open, setOpen] = useState(false)
+  if (!NET_SHAPEABLE.has(n.type)) return null
+  const size = (v) => (v === '' ? 0 : Number(v))
+  const on = !!(n.netLatencyMs || n.netJitterMs || n.netLossPct || n.netRateMbit)
+  return (
+    <details className="col-span-2 rounded-lg border border-border/60 p-2 text-xs" open={open || on}
+      onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary className="cursor-pointer text-muted hover:text-fg">
+        Network conditions (lab){on && <span className="ml-2 text-status-warn">● impaired</span>}
+      </summary>
+      <div className="mt-2 space-y-2">
+        <p className="text-[11px] leading-relaxed text-muted">
+          Degrades this node’s link on purpose, with tc. Applied <em>after</em> the cluster
+          forms — a lossy link fails state transfer, so shaping during provisioning would
+          break the stack instead of degrading it. Only the node’s database and cluster
+          ports are shaped, so DNS and health checks stay clean.
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Latency (ms)"
+            hint="One-way delay added to cluster traffic. This is what drives Galera flow control and, past evs.suspect_timeout, eviction. Max 1000.">
+            <input type="number" min="0" max="1000" className={inputCls} placeholder="none"
+              value={n.netLatencyMs || ''} onChange={(e) => patchNode(n.id, { netLatencyMs: size(e.target.value) })} />
+          </Field>
+          <Field label="Jitter (±ms)"
+            hint="Spread around that delay, normally distributed. Capped at the latency: a larger jitter reorders packets instead of delaying them, and TCP reads reordering as loss.">
+            <input type="number" min="0" max="500" className={inputCls} placeholder="none"
+              value={n.netJitterMs || ''} onChange={(e) => patchNode(n.id, { netJitterMs: size(e.target.value) })} />
+          </Field>
+          <Field label="Packet loss (%)"
+            hint="Dropped outbound packets. A few percent is enough to make a synchronous cluster stall; 100% severs the link while leaving the node up, which models a partition rather than a crash.">
+            <input type="number" min="0" max="100" step="0.1" className={inputCls} placeholder="none"
+              value={n.netLossPct || ''} onChange={(e) => patchNode(n.id, { netLossPct: size(e.target.value) })} />
+          </Field>
+          <Field label="Bandwidth (Mbit/s)"
+            hint="Cap on outbound cluster traffic. Mostly slows state transfer — latency and loss are what actually break a cluster.">
+            <input type="number" min="1" max="10000" className={inputCls} placeholder="unlimited"
+              value={n.netRateMbit || ''} onChange={(e) => patchNode(n.id, { netRateMbit: size(e.target.value) })} />
+          </Field>
+        </div>
+        <label className="flex items-start gap-2">
+          <input type="checkbox" className="mt-0.5" checked={!!n.netAllTraffic}
+            onChange={(e) => patchNode(n.id, { netAllTraffic: e.target.checked })} />
+          <span className="text-[11px] leading-relaxed text-muted">
+            Shape <strong>all</strong> traffic, not just database and cluster ports — models a bad
+            NIC rather than a bad link between members. DNS, LDAP and health checks are impaired
+            too, so the node may look broken rather than slow.
+          </span>
+        </label>
+      </div>
+    </details>
   )
 }
 
