@@ -534,7 +534,11 @@ func adviseSlowQueries(m *vsModel) *vsVerdict {
 	n := seriesMedian(s, "perSec")
 	threshold := ""
 	if v, ok := m.varNum("long_query_time"); ok {
-		threshold = fmt.Sprintf(" (long_query_time=%.0fs)", v)
+		// %g, not %.0f: long_query_time is a float and sub-second values are
+		// common. Rounding 0.05 to "0" reads as "everything is logged", which is
+		// a different server from the one being described. Caught on a live capture
+		// running long_query_time=0.05.
+		threshold = fmt.Sprintf(" (long_query_time=%gs)", v)
 	}
 	means := "Statements that ran longer than long_query_time. The threshold is a setting, so " +
 		"zero here can mean a fast server or simply a generous limit."

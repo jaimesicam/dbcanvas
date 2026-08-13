@@ -592,3 +592,76 @@ func TestAdviseTableCacheOverflowsVsOpens(t *testing.T) {
 		t.Fatalf("a quiet cache should be ok, got %+v", q)
 	}
 }
+
+// mkSeries builds a flat series for threshold testing.
+func mkSeries(key string, val float64, n int) *vsSeries {
+	s := &vsSeries{Metrics: []string{key}}
+	for i := 0; i < n; i++ {
+		s.Points = append(s.Points, vsPoint{T: int64(i), V: map[string]float64{key: val}})
+	}
+	return s
+}
+
+// TestAdviseHistoryListBranches covers the two branches live testing could not
+// reach. History list length counts *unpurged transactions*, not row versions —
+// a full-table UPDATE of 262,144 rows adds one entry, the same as a single-row
+// UPDATE. So the warn threshold of 1e6 needs a million commits held behind an
+// open snapshot; sustained churn on a lab node reached about 3,000 in several
+// minutes, three orders of magnitude short. The threshold is right for
+// production and simply not reachable in a short capture, which makes these
+// branches unit-test territory rather than live-capture territory.
+func TestAdviseHistoryListBranches(t *testing.T) {
+	for _, c := range []struct {
+		val   float64
+		level string
+	}{
+		{3_000, vsOK},        // what a lab run actually produces
+		{999_999, vsOK},      // just under warn
+		{1_000_000, vsWarn},  // purge falling behind
+		{9_999_999, vsWarn},  // just under crit
+		{10_000_000, vsCrit}, // purge badly behind
+	} {
+		m := &vsModel{Series: map[string]*vsSeries{"historyList": mkSeries("value", c.val, 5)}}
+		v := adviseHistoryList(m)
+		if v == nil || v.Level != c.level {
+			t.Errorf("history list %.0f → %v, want %s", c.val, v, c.level)
+		}
+	}
+	// The crit advice must name the cause, since the whole point is that a long
+	// transaction is holding the snapshot open.
+	m := &vsModel{Series: map[string]*vsSeries{"historyList": mkSeries("value", 2e7, 5)}}
+	if v := adviseHistoryList(m); !strings.Contains(v.Action, "long-running transaction") {
+		t.Errorf("crit advice should name the cause, got %q", v.Action)
+	}
+}
+
+// adviseSlowQueries and adviseAbortedConns had no producer until this session;
+// these pin the levels the live captures then confirmed.
+func TestAdviseSlowAndAbortedBranches(t *testing.T) {
+	for _, c := range []struct {
+		val   float64
+		level string
+	}{{0, vsOK}, {0.5, vsWarn}, {50, vsWarn}} {
+		m := &vsModel{Series: map[string]*vsSeries{"slowQueries": mkSeries("perSec", c.val, 5)}}
+		if v := adviseSlowQueries(m); v == nil || v.Level != c.level {
+			t.Errorf("slow queries %.1f/s → %v, want %s", c.val, v, c.level)
+		}
+	}
+	// Failed authentication outranks clients vanishing: one is a broken client,
+	// the other is usually credentials or max_connections.
+	s := &vsSeries{Metrics: []string{"clients", "connects"}}
+	for i := 0; i < 5; i++ {
+		s.Points = append(s.Points, vsPoint{T: int64(i), V: map[string]float64{"clients": 2, "connects": 5}})
+	}
+	v := adviseAbortedConns(&vsModel{Series: map[string]*vsSeries{"abortedConns": s}})
+	if v == nil || v.Level != vsWarn || !strings.Contains(v.Action, "authenticate") {
+		t.Fatalf("failed connects should warn about authentication, got %+v", v)
+	}
+	s2 := &vsSeries{Metrics: []string{"clients", "connects"}}
+	for i := 0; i < 5; i++ {
+		s2.Points = append(s2.Points, vsPoint{T: int64(i), V: map[string]float64{"clients": 3, "connects": 0}})
+	}
+	if v := adviseAbortedConns(&vsModel{Series: map[string]*vsSeries{"abortedConns": s2}}); v == nil || v.Level != vsInfo {
+		t.Fatalf("clients vanishing without failed connects should be info, got %+v", v)
+	}
+}

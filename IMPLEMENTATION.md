@@ -13672,3 +13672,54 @@ undo records against a 1e6 threshold), Galera eviction reaching the error-log
 advisor in the same capture, `abortedConns`/`sockQueues`/`slowQueries`/`swap`
 (no producer built), every threshold's calibration, and PostgreSQL, MongoDB and
 Valkey through Visual Summary at all.
+
+## 250. Slow queries, aborted connections, and the history list that cannot be reached — `app/visualsummary_advice.go`
+
+Three more advisors that had never seen data, and one that turns out not to be
+reachable in a lab at all.
+
+**Slow queries and aborted connections, verified.** Both had existed since §234
+with no producer. On the standalone node, with `long_query_time=0.05` and
+unindexed scans, and separately with continuous failed-authentication loops:
+
+    [warn] slowQueries   5/s (long_query_time=0.05s)
+    [warn] abortedConns  0 clients/s, 785 connects/s
+
+The aborted-connections figure needed a second attempt worth recording as method
+rather than mishap. The first run drove `Aborted_connects` from 301 to 701 and
+the advisor still read `0 connects/s` — correctly, because the generator finished
+before pt-stalk began sampling and the *rate during the capture window* really
+was zero. A counter that moved before the capture is not a counter the capture
+can see. The second run held the load continuously through the window
+(8,683 → 56,563) and the advisor read 785/s.
+
+**A display bug the live run exposed.** `adviseSlowQueries` printed
+`long_query_time=0s` against a server actually running `0.05`, because the value
+was formatted with `%.0f`. "0s" reads as "everything is being logged", which
+describes a different server than the one in front of you — precisely the kind of
+detail that sends someone the wrong way. Now `%g`, confirmed on the next capture
+as `long_query_time=0.05s`.
+
+**The history list cannot be exercised live, and the reason is the useful part.**
+History list length counts *unpurged transactions*, not row versions. A full-table
+UPDATE of 262,144 rows adds one entry — the same as a single-row UPDATE. That was
+measured directly: growing the table 64x and updating all of it moved the history
+list from 2,028 to 3,063. The ceiling reached with sustained churn behind a held
+snapshot was **3,079**, against a warn threshold of 1,000,000 — three orders of
+magnitude, needing a million commits held open.
+
+That threshold is right for production and stays as it is. Retuning a correct
+number so a test can pass is the failure this session has repeatedly flagged, and
+there is no calibration data to justify a different one. The warn and crit
+branches are covered by unit tests instead, which is the appropriate tool for
+pure threshold logic, and the empirical ceiling is recorded here so the attempt
+is not repeated expecting a different result.
+
+**Scope correction.** PostgreSQL, MongoDB and Valkey were listed in §248 as
+untested through Visual Summary. They are not a gap: Visual Summary parses
+pt-stalk archives, and pt-stalk is MySQL-only. There is nothing to test.
+
+Remaining genuinely unverified: Galera eviction reaching the error-log advisor in
+the same capture; `sockQueues` and `swap`, which have no producer that is safe to
+build on a shared host; and the calibration of every threshold, which is
+judgement rather than measurement throughout.
