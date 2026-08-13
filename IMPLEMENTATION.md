@@ -13246,8 +13246,28 @@ So the two halves are now both demonstrated, with different tools: a link proble
 via `tc` (sender stall, eviction, recovery), and an apply problem via config
 (receiver-side flow control). Neither substitutes for the other.
 
-**Still not verified**: the path through dbcanvas's own deploy — `reconcileNetem`
-applying to nodes it provisioned itself. `applyNetem` is exercised (it is the same
-exec the reconcile calls, and the script run here was extracted from the Go
-constant rather than retyped), but the deploy-phase wiring has not run against a
-live stack.
+**Verified through dbcanvas's own deploy.** A three-node PXC cluster was designed
+on the canvas with 120ms ±20ms and 5% loss on one member, deployed through the
+real API, and left alone. Every layer held:
+
+    canvas validation   the info issue rendered through the HTTP API — "Node
+                        pxc-03 will run with 120ms latency ±20ms, 5% loss on
+                        ports 3306/4444/4567/4568, applied after the cluster
+                        forms" — so the resolvers and describeNetem work outside
+                        their unit tests
+    deploy wiring       reconcileNetem ran unprompted as the final phase:
+                        "stack 66 netem: pxc-03 — 120ms latency ±20ms, 5% loss…"
+    kernel effect       inside the node: htb root + netem 20: delay 120ms 20ms
+                        loss 5%, and 17 of 375 packets dropped (~4.5%)
+    scoping             8 filters — 0x0cea/0x115c/0x11d7/0x11d8 (3306/4444/
+                        4567/4568), each matched on both sport and dport
+    per-node targeting  pxc-01 and pxc-02 stayed at qdisc noqueue, untouched
+    cluster survived    wsrep_cluster_size 3, Primary, Synced — the member is
+                        degraded, not broken, which is what applying after the
+                        cluster forms buys
+    teardown            zeroing the conditions and redeploying returned pxc-03
+                        to noqueue, with the cluster still Primary — the reason
+                        reconcileNetem visits every supported node rather than
+                        only the impaired ones
+
+Nothing about the feature is now unverified.
