@@ -13623,3 +13623,52 @@ row-lock waiter would not stay blocked long enough to appear in this capture, so
 `historyList` reached 400 undo records, far short of its 1e6 warn threshold, so
 its warn and crit branches have never run; and async replication has never been
 deployed at all, leaving `adviseReplicationLag` with no real data of any kind.
+
+## 249. Async replication, and the two advisors that had never seen data — no code changes
+
+An async Percona Server replication frame (primary + replica, GTID) was deployed
+into the same stack, closing the last two items on the unverified list.
+
+**Replication lag.** `adviseReplicationLag` had existed since §234 and had never
+run on real data — Galera does not report `Seconds_Behind_Source`, and no
+replication topology had ever been deployed. With the applier stopped, a write
+flood on the source, and the applier restarted:
+
+    [warn] replicationLag  14s at peak   (max 14s, median 12s, 30 points)
+
+**Row lock waits on standalone.** §248 recorded this as still verified only on
+PXC. On the standalone node, with a genuine blocked waiter:
+
+    [crit] innodbTrx  thread 1070 blocked 1 transaction(s) for 67s on lab.t
+           blocking: SELECT SLEEP(300)   waiting: UPDATE lab.t SET n=n+7 WHERE id=1
+
+**Two findings worth keeping.**
+
+*The row-lock failures in §248 were a bad test, not the environment.* Three
+attempts were blamed first on PXC's Total Order Isolation and then on session
+reaping. Neither was the cause: the table's auto-increment gaps meant `id=5` did
+not exist, so the holder took a *gap* lock (`X,GAP` on record 6) and the waiter's
+UPDATE matched nothing and committed instantly. Nothing was ever blocked. With a
+row that exists it blocked immediately — 12.1s to `ERROR 1205`. TOI was real for
+the metadata-lock case, where `ERROR 1213` proved it, but it was carried further
+than the evidence supported.
+
+*Two advisors disagree about the same lock, and the newer one is right.* On the
+standalone capture `rowLockWaits` read `[ok] 0 waits/s` while `innodbTrx` read
+`[crit] blocked 1 transaction(s) for 67s`. Both are correct about what they
+measure: `Innodb_row_lock_waits` only increments when a wait *completes*, so a
+wait still in progress is invisible to it, while the lock-waits join sees the
+wait as it happens. A capture taken during a stall — which is when people take
+them — will therefore show zero on the counter and the truth on the panel added
+in §244.
+
+*A replica's InnoDB looks nothing like a standalone's.* The applier transaction
+showed `9224 row locks, READ COMMITTED` against the standalone's `1 row lock,
+REPEATABLE READ` — which is the concrete reason §248's methodological point
+matters: an advisor tuned only on one topology is tuned on one shape of data.
+
+Remaining unverified after this: `historyList` warn/crit branches (reached 400
+undo records against a 1e6 threshold), Galera eviction reaching the error-log
+advisor in the same capture, `abortedConns`/`sockQueues`/`slowQueries`/`swap`
+(no producer built), every threshold's calibration, and PostgreSQL, MongoDB and
+Valkey through Visual Summary at all.
