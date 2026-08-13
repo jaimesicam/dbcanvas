@@ -13548,17 +13548,32 @@ result sets to carry it. Only objects with something PENDING are kept: every
 server holds granted metadata locks constantly, and listing them would be pure
 noise.
 
-**How it was verified, and the limit of that.** The environment kept reaping
-long-lived `mysql` client sessions, so a genuine PENDING lock could not be held
-long enough to capture — three attempts ended with the holder dead and the ALTER
-completed. Instead the parser was run against a real capture's metadata_locks
-output (143 rows, 0 pending): it correctly reported nothing. The same real
-content with a single PENDING row spliced in produced the waiter *and the two
-genuine GRANTED holders on that table from thread 7139*, excluding the other 140
-rows on unrelated objects — so the filtering, the holder identification and the
-verdict are all exercised against real data, with only the pending row synthetic.
+**Verified against a genuine pending lock, after the first attempts failed for a
+reason worth recording.** Holding a transaction and running `ALTER TABLE ... FORCE`
+behind it is the textbook way to produce a pending metadata lock, and on this PXC
+cluster it did not work: the holder was killed every time with
+`ERROR 1213 (40001) Deadlock found`. Isolating it settled the cause — the holder
+survives 60s+ untouched with no ALTER running, and dies within ten seconds
+whenever one starts. That is Galera's Total Order Isolation: a DDL is applied
+cluster-wide in total order and *aborts* conflicting local transactions rather
+than queueing behind their metadata lock. Setting `wsrep_OSU_method=RSU` did not
+change it here either.
+
+So the scenario is correct for stock MySQL and Percona Server and is *not* how
+PXC behaves — which also means this panel will rarely fire on a Galera cluster,
+the thing dbcanvas most often deploys. Verification therefore moved to a
+standalone Percona Server, where it worked immediately:
+
+    PENDING  thr=12  lab.t  EXCLUSIVE          TRANSACTION
+    GRANTED  thr=11  lab.t  SHARED_READ        TRANSACTION
+    GRANTED  thr=12  lab.t  SHARED_UPGRADABLE  TRANSACTION
 
     [crit] 1 pending on lab.t, 2 holder(s)
+
+Parsed from the real `performance_schema.metadata_locks` output, with nothing
+synthetic. The parser correctly dropped the two rows it should: the intermediate
+`#sql-1_c` table the ALTER creates, and the schema-level INTENTION_EXCLUSIVE
+lock, neither of which is the object anyone is waiting on.
 
 Five unit tests, including one that pins that granted-only locks produce no panel
 at all, and one that pins the overflow-versus-opens distinction including the
