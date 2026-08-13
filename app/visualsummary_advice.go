@@ -49,6 +49,8 @@ var advisorRules = map[string]func(*vsModel) *vsVerdict{
 	"replicationLag":     adviseReplicationLag,
 	"galera":             adviseGalera,
 	"innodbTrx":          adviseOldestTransaction,
+	"tcp":                adviseTCPRetransmits,
+	"errorLog":           adviseErrorLog,
 }
 
 func computeAdvisors(m *vsModel) {
@@ -724,4 +726,99 @@ func adviseOldestTransaction(m *vsModel) *vsVerdict {
 			"Long enough to hold back purge. Statement: %s", q))
 	}
 	return advice(vsOK, means, found, "No long-running transaction in this capture.")
+}
+
+// adviseTCPRetransmits reads the kernel's TCP counters, which is the only place
+// in a capture that can see a bad network link.
+//
+// This exists because of a specific gap. §242 degraded a Galera member's link
+// with tc and found that Galera reported nothing: flow control stayed at zero,
+// because a slow link starves the receiver rather than flooding it, and the
+// stall showed up as a sender-side queue instead. The database's own counters
+// genuinely cannot distinguish "the network is dropping packets" from "the
+// server is busy". Retransmits can, because the kernel counts them directly.
+//
+// Thresholds are set against what a healthy datacentre link looks like rather
+// than the internet: well under 0.1% on a LAN, and anything approaching a
+// percent is a fault somebody should be paged about.
+func adviseTCPRetransmits(m *vsModel) *vsVerdict {
+	if m.TCP == nil {
+		return nil
+	}
+	sent, retrans := num(m.TCP["segmentsSent"]), num(m.TCP["segmentsRetransmitted"])
+	pct := num(m.TCP["retransmitPct"])
+	means := "TCP segments the kernel had to send again because they were not acknowledged — " +
+		"packet loss, measured by the operating system rather than inferred. This is the one " +
+		"signal that separates a bad network from a busy server: a database's own counters " +
+		"cannot tell the two apart, and on a replicated cluster a lossy link shows up here " +
+		"long before it shows up as replication lag."
+	found := fmt.Sprintf("%s of %s segments retransmitted (%.3f%%)",
+		compactNum(retrans), compactNum(sent), pct)
+	if rst := num(m.TCP["resetsReceived"]); rst > 0 {
+		found += fmt.Sprintf(", %.0f resets received", rst)
+	}
+	if sent == 0 {
+		return advice(vsOK, means, "no TCP traffic recorded", "Nothing was sent during the capture.")
+	}
+	switch {
+	case pct >= 1:
+		return advice(vsCrit, means, found,
+			"This is a faulty link, not a busy one. On a local network anything above a "+
+				"fraction of a percent is a hardware, driver or saturation problem — check the "+
+				"switch port, the NIC, and whether something else is filling the pipe. Cluster "+
+				"members on a link this lossy will eventually be evicted; check the error log "+
+				"panel for membership changes.")
+	case pct >= 0.1:
+		return advice(vsWarn, means, found,
+			"Measurable loss for a local network. Worth investigating before it becomes a "+
+				"replication problem — retransmits cost latency on every affected statement.")
+	}
+	return advice(vsOK, means, found, "Negligible loss; the network is not a factor here.")
+}
+
+// adviseErrorLog surfaces what the server itself said during the capture.
+//
+// The error log is the only source that reports cluster membership in words —
+// a node being suspected, declared inactive, or evicted. Everything else in this
+// report is a counter, and a counter cannot say "this member left".
+func adviseErrorLog(m *vsModel) *vsVerdict {
+	if len(m.ErrorLog) == 0 {
+		return nil
+	}
+	c := func(k string) float64 { return num(m.ErrorLogCounts[k]) }
+	means := "Lines the server wrote to its error log during the capture, filtered to the ones " +
+		"that mean something — crashes, cluster membership changes, state transfers, aborted " +
+		"connections and errors. Membership lines are the important ones on a cluster: they are " +
+		"the only place an eviction is reported in words rather than as a counter that moved."
+	var parts []string
+	for _, k := range []string{"crash", "membership", "state transfer", "error", "connections", "locking"} {
+		if n := c(k); n > 0 {
+			parts = append(parts, fmt.Sprintf("%.0f %s", n, k))
+		}
+	}
+	found := strings.Join(parts, ", ")
+	if found == "" {
+		found = fmt.Sprintf("%d notable lines", len(m.ErrorLog))
+	}
+	switch {
+	case c("crash") > 0:
+		return advice(vsCrit, means, found,
+			"The server logged a crash or an assertion failure. Everything else in this report "+
+				"is secondary to that — read the lines below and the full error log before "+
+				"drawing any conclusion from the graphs.")
+	case c("membership") > 0:
+		return advice(vsCrit, means, found,
+			"Cluster membership changed during the capture: a member was suspected, evicted, or "+
+				"the view was reformed. Check the TCP retransmit panel — a lossy link is the "+
+				"usual cause, and it is invisible to the database's own replication counters.")
+	case c("state transfer") > 0:
+		return advice(vsWarn, means, found,
+			"A state transfer ran during the capture. An SST is a full copy and is expensive "+
+				"for both donor and joiner; frequent ones mean members keep falling too far "+
+				"behind to catch up incrementally.")
+	case c("error") > 0 || c("connections") > 0:
+		return advice(vsWarn, means, found,
+			"Errors were logged. The table below has them; anything repeating is worth chasing.")
+	}
+	return advice(vsOK, means, found, "Nothing alarming in the log for this window.")
 }

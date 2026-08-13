@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -397,5 +398,95 @@ func TestAdviseOldestTransactionPrefersCensus(t *testing.T) {
 	}
 	if !strings.Contains(v.Headline, "2h") {
 		t.Errorf("headline should render the real age in hours, got %q", v.Headline)
+	}
+}
+
+// netstat -s output, in the shape the kernel prints it. The counters are
+// cumulative, so the parser must difference first against last.
+func netstatSample(sent, retrans int) string {
+	return fmt.Sprintf(`TS 1786597608.0 2026-08-13 05:06:48
+Tcp:
+    %d segments sent out
+    %d segments retransmitted
+    3 fast retransmits
+    1 connection resets received
+`, sent, retrans)
+}
+
+func TestParseNetstatSDifferences(t *testing.T) {
+	m := &vsModel{Available: map[string]bool{}}
+	data := netstatSample(1000000, 100) + netstatSample(1100000, 1100)
+	parseNetstatS(m, []namedFile{{base: "x-netstat_s", data: []byte(data)}})
+	if m.TCP == nil {
+		t.Fatal("no TCP data")
+	}
+	// 1000 retransmits out of 100000 sent during the window = 1%.
+	if got := m.TCP["segmentsRetransmitted"]; got != "1000" {
+		t.Errorf("retransmitted = %s, want 1000 (the delta, not the total)", got)
+	}
+	if got := num(m.TCP["retransmitPct"]); got < 0.99 || got > 1.01 {
+		t.Errorf("retransmitPct = %v, want ~1", got)
+	}
+	v := adviseTCPRetransmits(m)
+	if v == nil || v.Level != vsCrit {
+		t.Fatalf("1%% loss on a LAN should be crit, got %+v", v)
+	}
+}
+
+func TestAdviseTCPRetransmitsQuiet(t *testing.T) {
+	m := &vsModel{Available: map[string]bool{}}
+	parseNetstatS(m, []namedFile{{base: "x", data: []byte(netstatSample(1000000, 10) + netstatSample(2000000, 12))}})
+	if v := adviseTCPRetransmits(m); v == nil || v.Level != vsOK {
+		t.Fatalf("a near-clean link should be ok, got %+v", v)
+	}
+}
+
+// Membership lines are the reason this parser exists: an eviction is reported
+// in words and nowhere else.
+func TestParseErrorLogMembership(t *testing.T) {
+	log := `2026-08-13T05:10:01.000000Z 0 [Note] [MY-000000] [Galera] declaring 0.0 at tcp://172.27.0.4:4567 inactive
+2026-08-13T05:10:02.000000Z 0 [Warning] [MY-000000] [Galera] suspecting node: 0.0
+2026-08-13T05:10:03.000000Z 0 [Note] [MY-000000] [Galera] Some non-primary component
+2026-08-13T05:10:04.000000Z 0 [Note] [MY-000000] [Server] nothing interesting here at all
+`
+	m := &vsModel{Available: map[string]bool{}}
+	parseErrorLog(m, []namedFile{{base: "x-log_error", data: []byte(log)}})
+	if !m.Available["errorLog"] {
+		t.Fatal("membership lines should have been kept")
+	}
+	if n := num(m.ErrorLogCounts["membership"]); n < 3 {
+		t.Errorf("membership count = %v, want 3", n)
+	}
+	for _, r := range m.ErrorLog {
+		if strings.Contains(r["message"], "nothing interesting") {
+			t.Error("uninteresting lines must be filtered out, or the table shows the whole log")
+		}
+	}
+	v := adviseErrorLog(m)
+	if v == nil || v.Level != vsCrit {
+		t.Fatalf("membership change should be crit, got %+v", v)
+	}
+}
+
+// A crash outranks everything else, and repeats collapse to one row.
+func TestParseErrorLogCrashAndCollapse(t *testing.T) {
+	log := "2026-08-13T05:10:01.000000Z 0 [ERROR] [MY-000000] [Server] mysqld got signal 11\n" +
+		strings.Repeat("2026-08-13T05:10:02.000000Z 5 [Warning] [MY-000000] [Server] Aborted connection 7 to db: 'x'\n", 50)
+	m := &vsModel{Available: map[string]bool{}}
+	parseErrorLog(m, []namedFile{{base: "x-log_error", data: []byte(log)}})
+	if n := num(m.ErrorLogCounts["connections"]); n != 50 {
+		t.Errorf("count should still be 50, got %v", n)
+	}
+	rows := 0
+	for _, r := range m.ErrorLog {
+		if r["category"] == "connections" {
+			rows++
+		}
+	}
+	if rows != 1 {
+		t.Errorf("50 identical lines should collapse to 1 row, got %d", rows)
+	}
+	if v := adviseErrorLog(m); v == nil || v.Level != vsCrit {
+		t.Fatalf("a crash must be crit, got %+v", v)
 	}
 }

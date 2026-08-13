@@ -787,6 +787,29 @@ function Report({ model }) {
           <Advisor a={adv('innodbTrx')} />
         </Card>
       )}
+      {/* The two panels that can see a bad network. Everything else on this page
+          is the database's own view, and §242 showed that view goes quiet when
+          the link degrades — flow control stays at zero while the cluster
+          crawls. Retransmits and the error log are what fill that in. */}
+      {has('tcp') && (
+        <Card title="TCP retransmits" subtitle="from netstat -s, differenced across the capture. Packet loss as the kernel counted it, rather than inferred from database behaviour.">
+          <div className="p-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Stat label="Retransmitted" value={`${model.tcp.retransmitPct}%`} />
+              <Stat label="Segments sent" value={model.tcp.segmentsSent} />
+              <Stat label="Fast retransmits" value={model.tcp.fastRetransmits} />
+              <Stat label="Resets received" value={model.tcp.resetsReceived} />
+            </div>
+          </div>
+          <Advisor a={adv('tcp')} />
+        </Card>
+      )}
+      {has('errorLog') && (
+        <Card title="Error log — notable lines" subtitle="filtered to crashes, cluster membership changes, state transfers, errors and aborted connections. Repeats are collapsed. Click a column to sort.">
+          <div className="p-3"><SortableTable columns={ERRLOG_COLS} rows={model.errorLog} initial={{ key: 'time', dir: 'desc' }} /></div>
+          <Advisor a={adv('errorLog')} />
+        </Card>
+      )}
       {/* The census, when the capture has it: every open transaction with a real
           start time, so an age larger than the capture reads correctly. The
           InnoDB-status table below is the fallback for captures without it. */}
@@ -896,6 +919,12 @@ const TRX_COLS = [
   { key: 'seen', label: 'Seen', numeric: true, mono: true },
   { key: 'query', label: 'Query', mono: true, wide: true },
 ]
+const ERRLOG_COLS = [
+  { key: 'time', label: 'Time', mono: true, muted: true },
+  { key: 'category', label: 'Category' },
+  { key: 'severity', label: 'Severity', muted: true },
+  { key: 'message', label: 'Message', mono: true, wide: true },
+]
 const TRXCENSUS_COLS = [
   { key: 'thread', label: 'Thread', numeric: true, mono: true },
   { key: 'state', label: 'State' },
@@ -933,6 +962,18 @@ function humanBytes(v) {
   do { n /= 1024; i++ } while (n >= 1024 && i < u.length - 1)
   return n.toFixed(1) + ' ' + u[i]
 }
+// Stat is the plain label/value tile, for figures that are already formatted
+// and carry no threshold of their own — the verdict beneath the card is what
+// says whether the number is bad.
+function Stat({ label, value }) {
+  return (
+    <div className="rounded-lg border bg-surface2 px-3 py-2">
+      <div className="text-[11px] text-muted">{label}</div>
+      <div className="font-mono text-sm font-semibold text-fg">{value}</div>
+    </div>
+  )
+}
+
 function StatTile({ tile, value }) {
   const tone = value >= tile.crit ? 'text-danger' : value >= tile.warn ? 'text-warning' : 'text-fg'
   let disp

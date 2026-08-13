@@ -102,9 +102,15 @@ type vsModel struct {
 	// anybody to be blocked, and unlike InnodbTrx its age comes from an absolute
 	// trx_started rather than a counter bounded by the capture. See parseTrxCensus.
 	TrxCensus []map[string]string `json:"trxCensus,omitempty"`
-	NetQueues []map[string]string `json:"netQueues,omitempty"` // sockets with sustained Recv-Q/Send-Q
-	Deadlock  *vsDeadlock         `json:"deadlock,omitempty"`
-	Verdicts  []vsVerdict         `json:"verdicts,omitempty"`
+	// TCP is the kernel's own view of the network during the capture, and
+	// ErrorLog the notable lines from the server's error log — the two sources
+	// that can see a degraded link, which the database's own counters cannot.
+	TCP            map[string]string   `json:"tcp,omitempty"`
+	ErrorLog       []map[string]string `json:"errorLog,omitempty"`
+	ErrorLogCounts map[string]string   `json:"errorLogCounts,omitempty"`
+	NetQueues      []map[string]string `json:"netQueues,omitempty"` // sockets with sustained Recv-Q/Send-Q
+	Deadlock       *vsDeadlock         `json:"deadlock,omitempty"`
+	Verdicts       []vsVerdict         `json:"verdicts,omitempty"`
 	// Advisors explain one chart each — what it measures, what this capture's
 	// numbers say, and what to change. Keyed by chart. See visualsummary_advice.go.
 	Advisors  map[string]vsVerdict `json:"advisors,omitempty"`
@@ -217,6 +223,8 @@ func parsePtStalk(gzData []byte) (*vsModel, error) {
 	parseProcesslist(m, bySuffix["processlist"])
 	parseLockWaits(m, bySuffix["lock-waits"])
 	parseTrxCensus(m, bySuffix["transactions"])
+	parseNetstatS(m, bySuffix["netstat_s"])
+	parseErrorLog(m, bySuffix["log_error"])
 
 	// netstat: connection-state timeline + sockets with sustained Recv-Q/Send-Q.
 	parseNetstat(m, bySuffix["netstat"])
@@ -2274,4 +2282,180 @@ func compactDurationSec(sec float64) string {
 		return fmt.Sprintf("%dm %ds", int(sec)/60, int(sec)%60)
 	}
 	return fmt.Sprintf("%.0fs", sec)
+}
+
+// ------------------------------------------------------- TCP + error log
+
+// parseNetstatS reads pt-stalk's `-netstat_s` file: `netstat -s` sampled once a
+// loop. The counters are cumulative since boot, so what matters is the
+// difference across the capture, not the absolute values.
+//
+// This exists to answer a question nothing else in a capture can. §242
+// established that a degraded network link produces no Galera verdict at all —
+// flow control stays at zero because a slow link starves the receiver rather
+// than flooding it. Retransmits are the direct signature of the loss itself,
+// measured by the kernel rather than inferred from the database's behaviour.
+func parseNetstatS(m *vsModel, files []namedFile) {
+	// Labels as `netstat -s` prints them, all under Tcp:.
+	want := map[string]string{
+		"segments sent out":                             "segmentsSent",
+		"segments retransmitted":                        "segmentsRetransmitted",
+		"fast retransmits":                              "fastRetransmits",
+		"failed connection attempts":                    "failedConnects",
+		"connection resets received":                    "resetsReceived",
+		"resets sent":                                   "resetsSent",
+		"times the listen queue of a socket overflowed": "listenOverflows",
+	}
+	first, last := map[string]float64{}, map[string]float64{}
+	haveFirst := false
+	for _, f := range files {
+		for _, sample := range strings.Split(string(f.data), "TS ") {
+			cur := map[string]float64{}
+			for _, line := range strings.Split(sample, "\n") {
+				l := strings.TrimSpace(line)
+				for label, key := range want {
+					if strings.HasSuffix(l, label) {
+						cur[key] = num(strings.Fields(l)[0])
+					}
+				}
+			}
+			if len(cur) == 0 {
+				continue
+			}
+			if !haveFirst {
+				first, haveFirst = cur, true
+			}
+			last = cur
+		}
+	}
+	if !haveFirst {
+		return
+	}
+	delta := map[string]float64{}
+	for k, v := range last {
+		// Counters reset if the machine rebooted mid-capture; a negative delta
+		// is not a measurement, so fall back to the absolute value.
+		if d := v - first[k]; d >= 0 {
+			delta[k] = d
+		} else {
+			delta[k] = v
+		}
+	}
+	sent, retrans := delta["segmentsSent"], delta["segmentsRetransmitted"]
+	pct := 0.0
+	if sent > 0 {
+		pct = retrans / sent * 100
+	}
+	m.TCP = map[string]string{
+		"segmentsSent":          strconv.FormatFloat(sent, 'f', 0, 64),
+		"segmentsRetransmitted": strconv.FormatFloat(retrans, 'f', 0, 64),
+		"retransmitPct":         strconv.FormatFloat(math.Round(pct*1000)/1000, 'f', -1, 64),
+		"fastRetransmits":       strconv.FormatFloat(delta["fastRetransmits"], 'f', 0, 64),
+		"failedConnects":        strconv.FormatFloat(delta["failedConnects"], 'f', 0, 64),
+		"resetsReceived":        strconv.FormatFloat(delta["resetsReceived"], 'f', 0, 64),
+		"resetsSent":            strconv.FormatFloat(delta["resetsSent"], 'f', 0, 64),
+		"listenOverflows":       strconv.FormatFloat(delta["listenOverflows"], 'f', 0, 64),
+	}
+	m.Available["tcp"] = true
+}
+
+// errorLogPatterns are the lines worth pulling out of a MySQL error log, with
+// the category each belongs to. Ordered: the first match wins, so the more
+// specific patterns come first.
+//
+// Cluster membership is at the top because it is the failure §242 could produce
+// and this report could not see. When a link degrades badly enough, Galera does
+// not report flow control — it reports an eviction, here, in words.
+var errorLogPatterns = []struct {
+	re  *regexp.Regexp
+	cat string
+}{
+	{regexp.MustCompile(`(?i)mysqld got signal|InnoDB: Assertion|Assertion failure|got exception|corrupt`), "crash"},
+	{regexp.MustCompile(`(?i)suspecting node|declaring .* inactive|forgetting|evicting|left the group|no longer in the group`), "membership"},
+	{regexp.MustCompile(`(?i)non-primary|Primary-Component|view\(.*memb|cluster view|partition`), "membership"},
+	{regexp.MustCompile(`(?i)state transfer|SST|IST .*(started|complete|fail)`), "state transfer"},
+	{regexp.MustCompile(`(?i)aborted connection|Got an error reading communication|Got timeout reading`), "connections"},
+	{regexp.MustCompile(`(?i)deadlock|lock wait timeout`), "locking"},
+	{regexp.MustCompile(`(?i)\[ERROR\]`), "error"},
+}
+
+// parseErrorLog reads the tail of the server's error log that pt-stalk captured
+// with `tail -f` for the duration of the run. Only lines matching a curated set
+// of patterns are kept: an error log is mostly startup noise, and a report that
+// showed all of it would be showing nothing.
+func parseErrorLog(m *vsModel, files []namedFile) {
+	counts := map[string]int{}
+	var rows []map[string]string
+	seen := map[string]bool{}
+	for _, f := range files {
+		for _, line := range strings.Split(string(f.data), "\n") {
+			l := strings.TrimSpace(line)
+			if l == "" {
+				continue
+			}
+			severity := ""
+			if i := strings.Index(l, "[Warning]"); i >= 0 {
+				severity = "warning"
+			}
+			if i := strings.Index(l, "[ERROR]"); i >= 0 {
+				severity = "error"
+				_ = i
+			}
+			cat := ""
+			for _, p := range errorLogPatterns {
+				if p.re.MatchString(l) {
+					cat = p.cat
+					break
+				}
+			}
+			if cat == "" {
+				continue
+			}
+			counts[cat]++
+			// Collapse repeats: an error log that says the same thing four
+			// hundred times is one finding, with a count.
+			key := cat + "|" + collapseLogLine(l)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			ts, msg := splitLogLine(l)
+			rows = append(rows, map[string]string{
+				"time": ts, "category": cat, "severity": severity,
+				"message": truncate(msg, 300),
+			})
+		}
+	}
+	if len(rows) == 0 {
+		return
+	}
+	if len(rows) > 60 {
+		rows = rows[:60]
+	}
+	m.ErrorLog = rows
+	m.ErrorLogCounts = map[string]string{}
+	for k, v := range counts {
+		m.ErrorLogCounts[k] = strconv.Itoa(v)
+	}
+	m.Available["errorLog"] = true
+}
+
+// splitLogLine separates the leading timestamp from the message, so the table
+// can show them in their own columns.
+func splitLogLine(l string) (ts, msg string) {
+	fields := strings.Fields(l)
+	if len(fields) > 0 && strings.Contains(fields[0], "T") && strings.Contains(fields[0], ":") {
+		return fields[0], strings.TrimSpace(strings.TrimPrefix(l, fields[0]))
+	}
+	return "", l
+}
+
+// collapseLogLine strips the parts that differ between otherwise identical
+// messages — the timestamp, the thread id, and any bare numbers — so repeats
+// collapse to one row.
+var logNumRe = regexp.MustCompile(`\d+`)
+
+func collapseLogLine(l string) string {
+	_, msg := splitLogLine(l)
+	return logNumRe.ReplaceAllString(msg, "#")
 }

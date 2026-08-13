@@ -13460,3 +13460,51 @@ roughly 38 file types pt-stalk produces. Ranked by what they could answer:
 Two unit tests, including a census fixture whose sample is two hours older than
 its capture so the age claim is actually exercised. `go build/vet/test` and
 `gofmt -l` clean; `npm run build` and `npm run smoke` clean.
+
+## 246. The two panels that can see a bad network — `app/visualsummary.go`, `app/visualsummary_advice.go`, `app/web/src/pages/VisualSummary.jsx`
+
+§242 measured a degraded Galera link and found the database had nothing to say
+about it: flow control stayed at zero, because a slow link starves the receiver
+rather than flooding it, and the stall appeared as a sender-side queue instead.
+That was documented as an honest gap. §245's audit of pt-stalk's collectors found
+both halves of the missing evidence already in every capture, unparsed.
+
+**TCP retransmits** (`-netstat_s`, sampled once a loop). The counters are
+cumulative since boot, so the parser differences first against last, and falls
+back to the absolute value when a delta comes out negative — a machine that
+rebooted mid-capture has not sent minus four hundred segments. Retransmits are
+packet loss counted by the kernel rather than inferred from database behaviour,
+which is the only thing in a capture that can separate "the network is dropping
+packets" from "the server is busy". Thresholds are set for a datacentre link, not
+the internet: crit at 1%, warn at 0.1%, where a clean LAN sits below 0.01%.
+
+**The error log** (`-log_error`, a `tail -f` for the duration). Filtered to seven
+categories by ordered patterns, most specific first — crash, membership, state
+transfer, connections, locking, error — because an error log is mostly startup
+noise and a panel showing all of it would show nothing. Repeats collapse to a
+single row with a count, so fifty identical aborted-connection lines are one
+finding. Membership is the category that matters on a cluster: an eviction is
+reported there in words, and nowhere else as anything at all.
+
+**Measured, and the result is the point.** A PXC member was given 200ms ±40ms and
+30% loss on its cluster ports with the cluster under write load, and a capture
+taken *on that member*:
+
+    [crit] tcp      77 of 989 segments retransmitted (7.786%)
+    [ok]   galera   0.0% paused, peak recv queue 0
+
+The same capture, two panels, opposite conclusions — and the new one is correct.
+Galera reported perfect health while the link was losing nearly one packet in
+twelve. That is §242's finding reproduced and then answered.
+
+A first attempt captured from a *different* member and read 0.07%: elevated for a
+LAN but under the warn line, because tc shapes egress, so loss applied to one
+node's outbound path only reaches its peers as dropped ACKs. Worth recording,
+because it is also advice for using the feature — capture on the node you
+impaired, not on its neighbour.
+
+Six unit tests, including one that pins differencing rather than totals (a
+parser reading the absolute counter would report a healthy server's lifetime
+retransmits as this capture's) and one that pins repeat collapsing.
+`go build/vet/test` and `gofmt -l` clean; `npm run build` and `npm run smoke`
+clean.
