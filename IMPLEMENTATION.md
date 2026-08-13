@@ -13579,3 +13579,47 @@ Five unit tests, including one that pins that granted-only locks produce no pane
 at all, and one that pins the overflow-versus-opens distinction including the
 "raising it would not change anything" advice. `go build/vet/test` and `gofmt -l`
 clean; `npm run build` and `npm run smoke` clean.
+
+## 248. Re-verifying the InnoDB advisors somewhere InnoDB is not wrapped in Galera — no code changes
+
+Pulled up on a methodological error: the InnoDB advisors from §244–§247 were
+verified on a PXC cluster. PXC changes InnoDB's behaviour — DDL runs in Total
+Order Isolation and aborts conflicting transactions, certification failures
+surface as ER_LOCK_DEADLOCK, and flow control sits in the write path — so those
+results measured a cluster where they claimed to measure a storage engine. The
+metadata-lock failure in §247 was that error announcing itself; the same
+interference could have distorted the lock-wait and census numbers without
+failing loudly, which would have been worse.
+
+A standalone Percona Server 8.0.46-37 node was added to the deployed stack, all
+four conditions created at once, and one pt-stalk capture taken with them live.
+
+    [warn] innodbTrx       thread 36 open 1m 48s, 1 row locks, REPEATABLE READ
+    [crit] metadataLocks   1 pending on lab.m, 2 holder(s)
+    [crit] tableCache      14 opens/s, 14 misses/s, 14 overflows/s · table_open_cache=64
+    [ok  ] historyList     peaked at 400 undo records
+    [ok  ] rowLockWaits    0 waits/s
+    galera                 absent, as it should be
+
+**What the re-run actually changed.** Not the numbers — nothing contradicted the
+PXC results for advisors that ran on both. What PXC had done was prevent
+conditions from existing at all, so two paths had never executed:
+
+  - `tableCache` had only ever produced `[ok] … 0 overflows/s`. With
+    `table_open_cache=64` against 1200 tables the crit branch ran for the first
+    time, at 14 overflows/s — the branch whose entire purpose is to distinguish
+    "cache too small" from "workload touches many tables".
+  - `metadataLocks` reached crit through a real pt-stalk capture rather than a
+    hand-run query, with the parser picking the pending EXCLUSIVE and its two
+    genuine holders out of the full file.
+
+So the lesson is narrower and more useful than "PXC gave wrong answers": PXC
+gave *fewer* answers, silently, by making some conditions unreachable. An advisor
+that has only ever returned ok is not a tested advisor.
+
+**Still not verified**, and worth stating rather than leaving implied: the
+row-lock waiter would not stay blocked long enough to appear in this capture, so
+`lockWaits` remains verified only on PXC and against real-format fixtures;
+`historyList` reached 400 undo records, far short of its 1e6 warn threshold, so
+its warn and crit branches have never run; and async replication has never been
+deployed at all, leaving `adviseReplicationLag` with no real data of any kind.
