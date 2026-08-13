@@ -13723,3 +13723,55 @@ Remaining genuinely unverified: Galera eviction reaching the error-log advisor i
 the same capture; `sockQueues` and `swap`, which have no producer that is safe to
 build on a shared host; and the calibration of every threshold, which is
 judgement rather than measurement throughout.
+
+## 251. Galera eviction, caught in the same capture that says the cluster is fine — no code changes
+
+The last reachable item on the unverified list. §246 built the error-log and TCP
+advisors to close §242's blind spot — a degraded link that Galera's own counters
+cannot see — but the two halves had never been demonstrated in one capture.
+
+The ordering was the experiment. `log_error` is a `tail -f` running for the
+duration of the capture, so an eviction that happens *before* pt-stalk starts is
+invisible to it — the same mistake that made `abortedConns` read zero in §250. So
+the capture was started first, and a member partitioned eight seconds in with
+100% loss on its cluster ports, putting the eviction inside the window.
+
+One capture, taken on the majority side:
+
+    [crit] errorLog  5 membership
+    [crit] tcp       8 of 224 segments retransmitted (3.571%)
+    [ok  ] galera    0.0% paused, peak recv queue 0
+
+The membership lines are real Galera output, and they are the specific risk §246
+flagged — the patterns were written from knowledge of what Galera prints, never
+matched against it:
+
+    declaring node with index 0 inactive (evs.inactive_timeout)
+    forgetting 069a8ebd-8c58 (tcp://172.27.0.3:4567)
+    Save the discovered primary-component to disk
+    evs::proto(... GATHER, view_id(REG, ...))
+
+Four of the five ordered patterns fired on genuine text. The `clusterSize` series
+also recorded the drop, median 2.
+
+**The third line of that verdict is the point of the whole exercise.** `galera`
+read `0.0% paused` — correctly, because the member did not fall behind, it
+vanished — while the two advisors added in §246 both reported critical. A capture
+that would have shown a healthy cluster now names the partition and the packet
+loss behind it.
+
+The TCP figure was also higher than predicted. §246 recorded that capturing on a
+node's *neighbour* reads low, because tc shapes egress and the loss reaches peers
+only as missing ACKs; 0.07% was measured that way. Here the majority side read
+3.571%, because a member that disappears entirely leaves its peers retransmitting
+to an address that answers nothing. So the earlier advice — capture on the node
+you impaired — holds for a *degraded* link but not for a severed one, where both
+sides see it.
+
+Clearing the impairment returned the cluster to size 3 / Primary.
+
+**One parser imperfection, recorded rather than hidden.** One of the five kept
+rows is `partitioned {` — a fragment of a multi-line Galera view block, matched
+because the parser evaluates each line independently. It is not wrong, but it is
+not a useful sentence either. Multi-line log blocks would need a continuation
+rule to render well.
