@@ -48,6 +48,7 @@ var advisorRules = map[string]func(*vsModel) *vsVerdict{
 	"sockQueues":         adviseSockQueues,
 	"replicationLag":     adviseReplicationLag,
 	"galera":             adviseGalera,
+	"innodbTrx":          adviseOldestTransaction,
 }
 
 func computeAdvisors(m *vsModel) {
@@ -614,4 +615,92 @@ func adviseGalera(m *vsModel) *vsVerdict {
 			"Some flow control. Worth watching if writes grow.")
 	}
 	return advice(vsOK, means, found, "The node is keeping up with cluster writes.")
+}
+
+// adviseOldestTransaction names the transaction that is holding things up.
+//
+// This is the advisor adviseHistoryList used to substitute for by telling the
+// reader to "find it in the transaction table below" — an instruction to do by
+// hand what the capture already contains. It reads two sources, in order of how
+// much they can prove:
+//
+//   - LockWaits, from pt-stalk's INNODB_TRX join, when a lock wait was in
+//     progress. This is the strong case: the blocker's thread, its statement,
+//     how many transactions it is holding up, and idle_in_trx — seconds the
+//     blocking session has been idle *inside* its transaction, which is the
+//     "idle in transaction" signal by name.
+//   - InnodbTrx otherwise, from SHOW ENGINE INNODB STATUS, which gives an age
+//     and a query but cannot say whether anyone is blocked or whether the
+//     session is idle or working.
+//
+// The distinction matters for what to tell someone. A transaction blocking
+// others is an outage in progress; a long transaction blocking nobody is a purge
+// problem that will surface later as history list growth.
+func adviseOldestTransaction(m *vsModel) *vsVerdict {
+	if len(m.LockWaits) > 0 {
+		w := m.LockWaits[0]
+		wait, idle, waiters := num(w["waitSeconds"]), num(w["idleInTrx"]), num(w["waiters"])
+		means := "The transaction other transactions are waiting behind. `idle in trx` is how " +
+			"long the blocking session sat idle *inside* its transaction — a session that ran " +
+			"a statement, never committed, and went quiet."
+		where := ""
+		if t := w["table"]; t != "" {
+			where = " on " + t
+		}
+		found := fmt.Sprintf("thread %s blocked %.0f transaction(s) for %.0fs%s",
+			w["blockingThread"], waiters, wait, where)
+		if idle > 0 {
+			found += fmt.Sprintf(", idle in trx %.0fs", idle)
+		}
+		blocking := w["blockingQuery"]
+		if blocking == "" {
+			blocking = "(no statement — the session is idle, holding locks it already took)"
+		}
+		switch {
+		case idle >= 60:
+			return advice(vsCrit, means, found, fmt.Sprintf(
+				"A session has been idle inside a transaction for %.0fs while holding locks. "+
+					"This is almost always an application that opened a transaction and then "+
+					"did something slow — or nothing — without committing. Find thread %s and "+
+					"end it, then look for the missing COMMIT. Blocking statement: %s",
+				idle, w["blockingThread"], blocking))
+		case wait >= 30 || waiters >= 5:
+			return advice(vsCrit, means, found, fmt.Sprintf(
+				"Transactions have been queued behind this one long enough for users to notice. "+
+					"Blocking statement: %s. Shorten it, or take its locks in the same order "+
+					"everywhere so waiters do not pile up.", blocking))
+		case wait >= 5:
+			return advice(vsWarn, means, found, fmt.Sprintf(
+				"Measurable lock waiting. Blocking statement: %s", blocking))
+		}
+		return advice(vsOK, means, found, "Brief waits only — normal for a busy server.")
+	}
+
+	if len(m.InnodbTrx) == 0 {
+		return nil
+	}
+	t := m.InnodbTrx[0]
+	age := num(t["active"])
+	means := "The longest-running transaction seen during the capture. Its age is bounded by " +
+		"the capture window, so this says it ran for at least this long, not that it started " +
+		"here. Nothing was waiting on it — that would appear as a lock wait instead."
+	found := fmt.Sprintf("thread %s active %.0fs", t["thread"], age)
+	if l := num(t["rowLocks"]); l > 0 {
+		found += fmt.Sprintf(", %.0f row locks", l)
+	}
+	q := t["query"]
+	if q == "" {
+		q = "(no statement — idle inside the transaction)"
+	}
+	switch {
+	case age >= 300:
+		return advice(vsCrit, means, found, fmt.Sprintf(
+			"Open for the whole capture and then some. Purge cannot remove any row version "+
+				"newer than this transaction's snapshot, so undo keeps growing for as long as "+
+				"it lives — check the history list above. Statement: %s", q))
+	case age >= 60:
+		return advice(vsWarn, means, found, fmt.Sprintf(
+			"Long enough to hold back purge. Statement: %s", q))
+	}
+	return advice(vsOK, means, found, "No long-running transaction in this capture.")
 }

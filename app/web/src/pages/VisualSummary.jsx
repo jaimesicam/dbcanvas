@@ -775,9 +775,22 @@ function Report({ model }) {
           <div className="p-3"><SortableTable columns={PL_COLS} rows={model.processlist} initial={{ key: 'time', dir: 'desc' }} /></div>
         </Card>
       )}
+      {/* Lock waits come first: a transaction blocking others is an outage in
+          progress, while the transaction table below it is a list of what was
+          open. This card only appears when a wait was actually caught — the
+          query behind it inner-joins data_lock_waits, so a long transaction
+          blocking nobody is absent here and shows up below instead. */}
+      {has('lockWaits') && (
+        <Card title="Lock waits — who is blocking whom"
+          subtitle="from pt-stalk's INFORMATION_SCHEMA.INNODB_TRX join, consolidated per blocking thread (worst value seen). “Idle in trx” is seconds the blocker sat idle inside its transaction — the “idle in transaction” signal. Click a column to sort.">
+          <div className="p-3"><SortableTable columns={LOCKWAIT_COLS} rows={model.lockWaits} initial={{ key: 'waitSeconds', dir: 'desc' }} /></div>
+          <Advisor a={adv('innodbTrx')} />
+        </Card>
+      )}
       {has('innodbTrx') && (
-        <Card title="InnoDB transactions per session" subtitle="from SHOW ENGINE INNODB STATUS, consolidated per session (Active = longest observed). Click a column to sort.">
+        <Card title="InnoDB transactions per session" subtitle="from SHOW ENGINE INNODB STATUS, consolidated per session (Active = longest observed). Sessions holding no transaction are omitted. Click a column to sort.">
           <div className="p-3"><SortableTable columns={TRX_COLS} rows={model.innodbTrx} initial={{ key: 'active', dir: 'desc' }} /></div>
+          {!has('lockWaits') && <Advisor a={adv('innodbTrx')} />}
         </Card>
       )}
       {model.netQueues && model.netQueues.length > 0 && (
@@ -872,6 +885,16 @@ const TRX_COLS = [
   { key: 'lockWait', label: 'Lock wait', muted: true },
   { key: 'seen', label: 'Seen', numeric: true, mono: true },
   { key: 'query', label: 'Query', mono: true, wide: true },
+]
+const LOCKWAIT_COLS = [
+  { key: 'blockingThread', label: 'Blocker', numeric: true, mono: true },
+  { key: 'waiters', label: 'Waiters', numeric: true, mono: true },
+  { key: 'waitSeconds', label: 'Waited (s)', numeric: true, mono: true },
+  { key: 'idleInTrx', label: 'Idle in trx (s)', numeric: true, mono: true },
+  { key: 'table', label: 'Table', mono: true },
+  { key: 'blockingQuery', label: 'Blocking query', mono: true, wide: true },
+  { key: 'waitingQuery', label: 'Waiting query', mono: true, wide: true, muted: true },
+  { key: 'seen', label: 'Seen', numeric: true, mono: true, muted: true },
 ]
 const NETQ_COLS = [
   { key: 'local', label: 'Local', mono: true },

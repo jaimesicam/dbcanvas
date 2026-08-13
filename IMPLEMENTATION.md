@@ -13330,3 +13330,62 @@ asserted to be zero, so the test fails if anyone reverts to it), a quiet cluster
 must stay ok so the fix cannot become a false positive, and `seriesMean` itself.
 `go build/vet/test` and `gofmt -l` clean; `npm run build` and `npm run smoke`
 clean.
+
+## 244. The oldest transaction, named rather than pointed at — `app/visualsummary.go`, `app/visualsummary_advice.go`, `app/web/src/pages/VisualSummary.jsx`
+
+Asked whether Visual Summary can detect the oldest running transaction. It
+collected them and rendered them, and nothing evaluated them — `adviseHistoryList`
+told the reader to "find it in the transaction table below and end it", which is
+an instruction to do by hand what the capture already contains.
+
+**A correction that changed the design.** The first answer given was that
+pt-stalk does not collect `information_schema.innodb_trx`. That was wrong, and
+being corrected on it made the feature better. pt-stalk 3.7.1 queries
+`INFORMATION_SCHEMA.INNODB_TRX` in four places, joined against
+`performance_schema.data_lock_waits`, and writes the result to a `-lock-waits`
+file the parser had never opened. It carries things `SHOW ENGINE INNODB STATUS`
+cannot express:
+
+    who_blocks / blocking_thread   which session is holding everyone up
+    num_waiters                    how many transactions are queued behind it
+    wait_time                      how long the longest waiter has waited
+    idle_in_trx                    seconds the blocker sat idle *inside* its
+                                   transaction — the "idle in transaction"
+                                   signal by name
+    blocking_query, waiting_query, waiting_table_lock
+
+The join is the catch, and it is why both sources are needed: it is an INNER
+JOIN on `data_lock_waits`, so the file only ever describes transactions in an
+active lock wait. A transaction blocking nobody — a forgotten session quietly
+holding back purge — never appears there. Confirmed by experiment: a held
+transaction with one row lock and no waiter produced no `innodb_trx` output
+anywhere in the capture, while the same transaction with a waiter produced a full
+lock-waits report a second apart.
+
+So `adviseOldestTransaction` reads both, in order of what they can prove. With a
+lock wait it names the blocker, the waiter count, the table and the statement,
+and escalates on `idle_in_trx` because a session idle inside a transaction is a
+missing COMMIT rather than a slow query. Without one it falls back to the InnoDB
+status table and says plainly that the age is bounded by the capture window and
+that nothing was waiting.
+
+Both paths measured on real captures from the deployed PXC cluster:
+
+    lock contention   [crit] thread 8214 blocked 1 transaction(s) for 43s on lab.t
+    idle transaction  [warn] thread 7139 active 86s, 1 row locks
+
+**A second defect found while testing.** The transaction table was padded with
+`not started` rows — sessions holding no transaction at all, with no thread, no
+query and no age. One real long transaction produced five rows, four of them
+this. They are now dropped: on a busy server they would bury the row worth
+reading.
+
+Worth stating because it shapes what the advisor can honestly claim: a capture
+proves a transaction was open *for at least* the capture window, never that it is
+three hours old, and `SHOW ENGINE INNODB STATUS` truncates its transaction list
+on busy servers. The lock-waits path has neither limitation for the case it
+covers, which is the argument for preferring it.
+
+Four unit tests, including a parser fixture taken verbatim from a real blocked
+UPDATE rather than invented, and two render checks. `go build/vet/test` and
+`gofmt -l` clean; `npm run build` and `npm run smoke` clean.

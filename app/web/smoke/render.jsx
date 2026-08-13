@@ -1116,6 +1116,18 @@ for (const level of ['ok', 'info', 'warn', 'crit', 'banana', undefined]) {
   check(`visual summary: verdict mark ${level}`, () =>
     renderToString(<VerdictMark level={level} />))
 }
+// The lock-waits table and the transaction advisor that sits under it. An
+// advisor whose data comes from a table rather than a chart still has to render.
+const aLockWaitAdvisor = {
+  id: 'innodbTrx', level: 'crit',
+  headline: 'thread 8214 blocked 3 transaction(s) for 43s on lab.t, idle in trx 90s',
+  means: 'The transaction other transactions are waiting behind.',
+  action: 'Find thread 8214 and end it, then look for the missing COMMIT.',
+}
+check('visual summary: lock wait advisor', () => renderToString(<Advisor a={aLockWaitAdvisor} />))
+check('visual summary: transaction advisor with no lock wait', () =>
+  renderToString(<Advisor a={{ id: 'innodbTrx', level: 'warn', headline: 'thread 7139 active 86s, 1 row locks', means: 'The longest-running transaction seen.', action: 'Long enough to hold back purge.' }} />))
+
 check('visual summary: chart card carrying an advisor', () =>
   renderToString(<ChartCard title="Buffer pool reads" subtitle="/s" advisor={anAdvisor}><div /></ChartCard>))
 check('visual summary: chart card without one', () =>

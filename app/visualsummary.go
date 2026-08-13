@@ -92,9 +92,14 @@ type vsModel struct {
 	Processlist []map[string]string  `json:"processlist,omitempty"` // consolidated processlist (per thread+query)
 	Digests     []map[string]string  `json:"digests,omitempty"`     // statements by rows examined
 	InnodbTrx   []map[string]string  `json:"innodbTrx,omitempty"`   // per-session InnoDB transactions
-	NetQueues   []map[string]string  `json:"netQueues,omitempty"`   // sockets with sustained Recv-Q/Send-Q
-	Deadlock    *vsDeadlock          `json:"deadlock,omitempty"`
-	Verdicts    []vsVerdict          `json:"verdicts,omitempty"`
+	// LockWaits is pt-stalk's lock-wait report: who is blocking whom, for how
+	// long, and — uniquely in a capture — how long the blocker has been idle
+	// inside its transaction. Only ever populated when a lock wait was actually
+	// in progress; see parseLockWaits.
+	LockWaits []map[string]string `json:"lockWaits,omitempty"`
+	NetQueues []map[string]string `json:"netQueues,omitempty"` // sockets with sustained Recv-Q/Send-Q
+	Deadlock  *vsDeadlock         `json:"deadlock,omitempty"`
+	Verdicts  []vsVerdict         `json:"verdicts,omitempty"`
 	// Advisors explain one chart each — what it measures, what this capture's
 	// numbers say, and what to change. Keyed by chart. See visualsummary_advice.go.
 	Advisors  map[string]vsVerdict `json:"advisors,omitempty"`
@@ -205,6 +210,7 @@ func parsePtStalk(gzData []byte) (*vsModel, error) {
 
 	// Processlist: long-running queries + collapsed thread-state timeline.
 	parseProcesslist(m, bySuffix["processlist"])
+	parseLockWaits(m, bySuffix["lock-waits"])
 
 	// netstat: connection-state timeline + sockets with sustained Recv-Q/Send-Q.
 	parseNetstat(m, bySuffix["netstat"])
@@ -790,6 +796,14 @@ func parseInnodbStatus(m *vsModel, groups ...[]namedFile) {
 			}
 		}
 		for _, t := range parseInnodbTrxBlock(b.text) {
+			// "not started" is a session holding no transaction at all. InnoDB
+			// lists them, and carrying them through fills the table with rows
+			// that have no thread, no query and no age — a live capture with one
+			// real long transaction produced five rows, four of them this. On a
+			// busy server they would bury the row worth reading.
+			if t.status == "not started" || (t.threadId == "" && t.activeSec == 0 && t.query == "") {
+				continue
+			}
 			key := t.threadId
 			if key == "" {
 				key = "trx:" + t.trxId
@@ -1983,4 +1997,145 @@ func (a *App) handleVisualNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, model)
+}
+
+// ---------------------------------------------------------------- lock waits
+
+// parseLockWaits reads pt-stalk's `-lock-waits` file, which is the one place a
+// capture carries authoritative transaction ages.
+//
+// pt-stalk runs two queries once a second, joining
+// performance_schema.data_lock_waits against INFORMATION_SCHEMA.INNODB_TRX, and
+// what comes back is better than anything in SHOW ENGINE INNODB STATUS: the
+// blocker's thread, how many transactions it is holding up, how long the longest
+// waiter has waited, both statements, the table — and idle_in_trx, which is
+// seconds the blocking session has been *idle inside its transaction*. That last
+// one is the "idle in transaction" signal by name, and InnoDB's status text has
+// no equivalent.
+//
+// The join is an INNER JOIN on data_lock_waits, so this file only ever describes
+// transactions in an active lock wait. A long transaction blocking nobody does
+// not appear here at all — that case falls back to InnodbTrx, which is why
+// adviseOldestTransaction reads both.
+//
+// Format, sampled once per second, two vertical (\G) result blocks per sample:
+//
+//	TS 1786597608.002923390 2026-08-13 05:06:48
+//	*************************** 1. row ***************************
+//	   who_blocks: thread 8214 from localhost
+//	  idle_in_trx: 0
+//	max_wait_time: 14
+//	  num_waiters: 1
+//	*************************** 1. row ***************************
+//	    waiting_trx_id: 13213
+//	    ...
+//	   blocking_trx_id: 13212
+//	      idle_in_trx: 0
+//	   blocking_query: SELECT SLEEP(300)
+//
+// Rows are consolidated per blocking thread across the whole capture, keeping
+// the worst value seen for each number — a wait that grows to 40s and then
+// clears is a 40s wait, not an average.
+func parseLockWaits(m *vsModel, files []namedFile) {
+	type agg struct {
+		blockingThread, blockingTrx, blockingQuery string
+		waitingThread, waitingTrx, waitingQuery    string
+		table                                      string
+		maxWait, maxIdle, maxWaiters               float64
+		seen                                       int
+	}
+	byBlocker := map[string]*agg{}
+	var order []string
+
+	for _, f := range files {
+		// Each TS line starts a fresh sample; rows before the first are noise.
+		for _, sample := range strings.Split(string(f.data), "\nTS ") {
+			// Split the two \G blocks apart and read each as key: value pairs.
+			for _, block := range strings.Split(sample, "*************************** 1. row ***************************") {
+				kv := map[string]string{}
+				for _, line := range strings.Split(block, "\n") {
+					i := strings.Index(line, ":")
+					if i <= 0 {
+						continue
+					}
+					k := strings.TrimSpace(line[:i])
+					if strings.Contains(k, " ") && !strings.Contains(k, "_") {
+						continue // "TS 1786… 2026-08-13 05:06:48" and friends
+					}
+					kv[k] = strings.TrimSpace(line[i+1:])
+				}
+				bt := kv["blocking_thread"]
+				if bt == "" {
+					// The summary block names the blocker inside a sentence:
+					// "thread 8214 from localhost".
+					if w := kv["who_blocks"]; w != "" {
+						fields := strings.Fields(w)
+						if len(fields) >= 2 && fields[0] == "thread" {
+							bt = fields[1]
+						}
+					}
+				}
+				if bt == "" {
+					continue
+				}
+				a := byBlocker[bt]
+				if a == nil {
+					a = &agg{blockingThread: bt}
+					byBlocker[bt] = a
+					order = append(order, bt)
+				}
+				a.seen++
+				setIfEmpty(&a.blockingTrx, kv["blocking_trx_id"])
+				setIfEmpty(&a.blockingQuery, kv["blocking_query"])
+				setIfEmpty(&a.waitingThread, kv["waiting_thread"])
+				setIfEmpty(&a.waitingTrx, kv["waiting_trx_id"])
+				setIfEmpty(&a.waitingQuery, kv["waiting_query"])
+				// The value arrives as `schema`.`table`; trimming the ends would leave
+				// the middle pair, so strip them all.
+				setIfEmpty(&a.table, strings.ReplaceAll(kv["waiting_table_lock"], "`", ""))
+				a.maxWait = maxF(a.maxWait, num(kv["wait_time"]), num(kv["max_wait_time"]))
+				a.maxIdle = maxF(a.maxIdle, num(kv["idle_in_trx"]))
+				a.maxWaiters = maxF(a.maxWaiters, num(kv["num_waiters"]))
+			}
+		}
+	}
+	if len(order) == 0 {
+		return
+	}
+	var rows []map[string]string
+	for _, k := range order {
+		a := byBlocker[k]
+		rows = append(rows, map[string]string{
+			"blockingThread": a.blockingThread, "blockingTrx": a.blockingTrx,
+			"blockingQuery": truncate(a.blockingQuery, 300),
+			"waitingThread": a.waitingThread, "waitingTrx": a.waitingTrx,
+			"waitingQuery": truncate(a.waitingQuery, 300),
+			"table":        a.table,
+			"waitSeconds":  strconv.FormatFloat(a.maxWait, 'f', 0, 64),
+			"idleInTrx":    strconv.FormatFloat(a.maxIdle, 'f', 0, 64),
+			"waiters":      strconv.FormatFloat(a.maxWaiters, 'f', 0, 64),
+			"seen":         strconv.Itoa(a.seen),
+		})
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		return num(rows[i]["waitSeconds"]) > num(rows[j]["waitSeconds"])
+	})
+	m.LockWaits = rows
+	m.Available["lockWaits"] = true
+}
+
+func setIfEmpty(dst *string, v string) {
+	if *dst == "" && v != "" {
+		*dst = v
+	}
+}
+
+func maxF(vals ...float64) float64 {
+	out := 0.0
+	for _, v := range vals {
+		if v > out {
+			out = v
+		}
+	}
+	return out
 }

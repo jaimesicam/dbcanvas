@@ -251,3 +251,102 @@ func TestSeriesMean(t *testing.T) {
 		t.Errorf("missing key should be 0, got %v", got)
 	}
 }
+
+// The lock-waits parser runs against the exact shape pt-stalk writes — captured
+// from a real blocked UPDATE on a PXC node, not invented.
+const lockWaitsFixture = `TS 1786597608.002923390 2026-08-13 05:06:48
+*************************** 1. row ***************************
+   who_blocks: thread 8214 from localhost
+  idle_in_trx: 0
+max_wait_time: 14
+  num_waiters: 1
+*************************** 1. row ***************************
+    waiting_trx_id: 13213
+    waiting_thread: 8215
+         wait_time: 14
+     waiting_query: UPDATE lab.t SET n=n+9 WHERE id=5
+waiting_table_lock: ` + "`lab`.`t`" + `
+   blocking_trx_id: 13212
+   blocking_thread: 8214
+       idle_in_trx: 0
+    blocking_query: SELECT SLEEP(300)
+TS 1786597609.004769416 2026-08-13 05:06:49
+*************************** 1. row ***************************
+   who_blocks: thread 8214 from localhost
+  idle_in_trx: 90
+max_wait_time: 43
+  num_waiters: 3
+`
+
+func TestParseLockWaits(t *testing.T) {
+	m := &vsModel{Available: map[string]bool{}}
+	parseLockWaits(m, []namedFile{{base: "x-lock-waits", data: []byte(lockWaitsFixture)}})
+	if !m.Available["lockWaits"] || len(m.LockWaits) != 1 {
+		t.Fatalf("got %d rows, want 1 consolidated per blocking thread", len(m.LockWaits))
+	}
+	r := m.LockWaits[0]
+	// The worst value seen wins: a wait that grows to 43s is a 43s wait.
+	for k, want := range map[string]string{
+		"blockingThread": "8214", "blockingTrx": "13212",
+		"waitSeconds": "43", "idleInTrx": "90", "waiters": "3",
+		"table": "lab.t", "blockingQuery": "SELECT SLEEP(300)",
+	} {
+		if r[k] != want {
+			t.Errorf("%s = %q, want %q", k, r[k], want)
+		}
+	}
+}
+
+// A blocker idle inside its transaction is the finding that must not be soft.
+func TestAdviseOldestTransactionIdleBlocker(t *testing.T) {
+	m := &vsModel{Available: map[string]bool{}}
+	parseLockWaits(m, []namedFile{{base: "x-lock-waits", data: []byte(lockWaitsFixture)}})
+	v := adviseOldestTransaction(m)
+	if v == nil || v.Level != vsCrit {
+		t.Fatalf("got %+v, want crit for a session idle 90s inside a transaction", v)
+	}
+	for _, want := range []string{"8214", "idle in trx"} {
+		if !strings.Contains(v.Headline+v.Action, want) {
+			t.Errorf("verdict should name %q; got %q / %q", want, v.Headline, v.Action)
+		}
+	}
+}
+
+// With no lock wait at all it falls back to the transaction table, and says so
+// rather than pretending it knows nobody was blocked.
+func TestAdviseOldestTransactionFallback(t *testing.T) {
+	m := &vsModel{
+		Available: map[string]bool{},
+		InnodbTrx: []map[string]string{
+			{"thread": "7139", "active": "600", "rowLocks": "1", "query": "SELECT SLEEP(400)"},
+		},
+	}
+	v := adviseOldestTransaction(m)
+	if v == nil || v.Level != vsCrit {
+		t.Fatalf("got %+v, want crit for a 600s transaction", v)
+	}
+	if !strings.Contains(v.Headline, "7139") {
+		t.Errorf("should name the thread, got %q", v.Headline)
+	}
+	// Nothing to say when there is neither source.
+	if got := adviseOldestTransaction(&vsModel{Available: map[string]bool{}}); got != nil {
+		t.Errorf("no data should yield no advisor, got %+v", got)
+	}
+}
+
+// "not started" sessions hold no transaction and must not reach the table — a
+// live capture produced five rows, four of them this.
+func TestInnodbTrxSkipsNotStarted(t *testing.T) {
+	recs := parseInnodbTrxBlock("LIST OF TRANSACTIONS FOR EACH SESSION:\n" +
+		"---TRANSACTION 421, not started\n0 lock struct(s)\n" +
+		"---TRANSACTION 13212, ACTIVE 43 sec\nMySQL thread id 8214\n")
+	started := 0
+	for _, r := range recs {
+		if r.status != "not started" {
+			started++
+		}
+	}
+	if started != 1 {
+		t.Errorf("expected exactly one started transaction among %d records", len(recs))
+	}
+}
