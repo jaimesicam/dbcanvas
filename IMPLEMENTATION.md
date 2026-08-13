@@ -13389,3 +13389,74 @@ covers, which is the argument for preferring it.
 Four unit tests, including a parser fixture taken verbatim from a real blocked
 UPDATE rather than invented, and two render checks. `go build/vet/test` and
 `gofmt -l` clean; `npm run build` and `npm run smoke` clean.
+
+## 245. Reading pt-stalk's source, and the census it was already collecting — `app/visualsummary.go`, `app/visualsummary_advice.go`, `app/web/src/pages/VisualSummary.jsx`
+
+Asked to read pt-stalk's source, work out why its queries are shaped the way
+they are, and see what else could become an advisor. Doing so found a file every
+capture already contained and this report had never opened.
+
+**Why the queries look like that.** pt-stalk's collector is built around
+capability probing, because the tables it wants moved between MySQL versions:
+
+  - `have_lock_waits_table` probes `I_S.INNODB_LOCK_WAITS` first and falls back
+    to `performance_schema.data_lock_waits`. MySQL 8.0 *removed* the
+    INFORMATION_SCHEMA lock tables, so every lock query exists in two dialects
+    and `lock_table_p_s` selects between them. That is the whole reason the
+    lock-waits SQL appears four times in the script.
+  - `mysql_version` picks `SHOW ENGINE INNODB MUTEX` over `SHOW MUTEX STATUS`.
+  - `ps_instrumentation_enabled` gates the performance_schema collectors on the
+    `transaction` instrument actually being enabled.
+  - `open_tables()` refuses to run `SHOW OPEN TABLES` above 1000 open tables,
+    because the statement is expensive exactly when the server is in trouble.
+  - `lock_waits()` guards itself with a flag file so a slow iteration cannot
+    overlap the next one.
+
+The structure is once / loop / once: `collect_mysql_data_one` before,
+`collect_mysql_data_loop` every interval, `collect_mysql_data_two` after — which
+is why innodbstatus, mutex-status and opentables all come in numbered pairs. They
+are meant to be differenced across the window.
+
+**The find.** `transactions()` runs
+`SELECT SQL_NO_CACHE * FROM INFORMATION_SCHEMA.INNODB_TRX ORDER BY trx_id\G`
+once a second — unfiltered, every open transaction, every column. This is a
+different thing from the `-lock-waits` file added in §244, which is a *join*
+against data_lock_waits and therefore only ever shows transactions somebody is
+queued behind. And it carries the column both previous sources lacked:
+
+    trx_started: 2026-08-13 05:06:29
+
+An absolute start time. §244 twice had to state that a transaction's age was
+bounded by the capture window; with this file that limitation is gone — a
+transaction open for two hours reads as two hours old in a ninety-second
+capture. `adviseOldestTransaction` now prefers the census, falls back to the
+InnoDB status text only where it is absent, and says which of the two it used,
+because "at least this long" and "this long" are different claims.
+
+Measured on the same two captures:
+
+    contention   census: trx 13212 RUNNING age 48s, trx 13213 LOCK WAIT age 43s,
+                 both REPEATABLE READ, waited flag set on the second
+    idle         [warn] thread 7139 open 1m 26s, 1 row locks, REPEATABLE READ
+
+**What else is being collected and thrown away.** Visual Summary parses 14 of
+roughly 38 file types pt-stalk produces. Ranked by what they could answer:
+
+    log_error        the error log tail — crashes, aborted connections, and
+                     Galera state changes. §242 established that a degraded
+                     *link* produces no Galera verdict; node eviction is logged
+                     here, so this is where that blind spot closes.
+    netstat_s        TCP counters including retransmits — the direct signature of
+                     the packet loss the netem knob injects, and the other half
+                     of the same blind spot.
+    opentables1/2    SHOW OPEN TABLES before and after, which pairs with §239's
+                     extra-tables knob and the table_open_cache advisor that has
+                     no producer of its own.
+    mutex-status1/2  InnoDB mutex/rwlock contention across the window.
+    ps-locks-transactions  metadata_locks — the source of DDL blocking, which no
+                     current advisor can see at all.
+    threads, ps, top, slabinfo, numastat, interrupts, procstat, diskstats
+
+Two unit tests, including a census fixture whose sample is two hours older than
+its capture so the age claim is actually exercised. `go build/vet/test` and
+`gofmt -l` clean; `npm run build` and `npm run smoke` clean.

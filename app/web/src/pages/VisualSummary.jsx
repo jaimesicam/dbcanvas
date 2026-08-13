@@ -787,7 +787,17 @@ function Report({ model }) {
           <Advisor a={adv('innodbTrx')} />
         </Card>
       )}
-      {has('innodbTrx') && (
+      {/* The census, when the capture has it: every open transaction with a real
+          start time, so an age larger than the capture reads correctly. The
+          InnoDB-status table below is the fallback for captures without it. */}
+      {has('trxCensus') && (
+        <Card title="Open transactions"
+          subtitle="from pt-stalk's unfiltered INFORMATION_SCHEMA.INNODB_TRX dump, consolidated per transaction. Age is measured from the transaction's own start time, so it is not capped by the capture window. Click a column to sort.">
+          <div className="p-3"><SortableTable columns={TRXCENSUS_COLS} rows={model.trxCensus} initial={{ key: 'ageSec', dir: 'desc' }} /></div>
+          {!has('lockWaits') && <Advisor a={adv('innodbTrx')} />}
+        </Card>
+      )}
+      {has('innodbTrx') && !has('trxCensus') && (
         <Card title="InnoDB transactions per session" subtitle="from SHOW ENGINE INNODB STATUS, consolidated per session (Active = longest observed). Sessions holding no transaction are omitted. Click a column to sort.">
           <div className="p-3"><SortableTable columns={TRX_COLS} rows={model.innodbTrx} initial={{ key: 'active', dir: 'desc' }} /></div>
           {!has('lockWaits') && <Advisor a={adv('innodbTrx')} />}
@@ -884,6 +894,17 @@ const TRX_COLS = [
   { key: 'rowLocks', label: 'Row locks', numeric: true, mono: true },
   { key: 'lockWait', label: 'Lock wait', muted: true },
   { key: 'seen', label: 'Seen', numeric: true, mono: true },
+  { key: 'query', label: 'Query', mono: true, wide: true },
+]
+const TRXCENSUS_COLS = [
+  { key: 'thread', label: 'Thread', numeric: true, mono: true },
+  { key: 'state', label: 'State' },
+  { key: 'ageSec', label: 'Age (s)', numeric: true, mono: true },
+  { key: 'startedAt', label: 'Started', mono: true, muted: true },
+  { key: 'rowsLocked', label: 'Rows locked', numeric: true, mono: true },
+  { key: 'rowsModified', label: 'Rows modified', numeric: true, mono: true },
+  { key: 'isolation', label: 'Isolation', muted: true },
+  { key: 'waited', label: 'Waited', muted: true },
   { key: 'query', label: 'Query', mono: true, wide: true },
 ]
 const LOCKWAIT_COLS = [

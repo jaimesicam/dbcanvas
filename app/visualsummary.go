@@ -97,6 +97,11 @@ type vsModel struct {
 	// inside its transaction. Only ever populated when a lock wait was actually
 	// in progress; see parseLockWaits.
 	LockWaits []map[string]string `json:"lockWaits,omitempty"`
+	// TrxCensus is every open transaction, from pt-stalk's unfiltered
+	// INFORMATION_SCHEMA.INNODB_TRX dump. Unlike LockWaits it does not require
+	// anybody to be blocked, and unlike InnodbTrx its age comes from an absolute
+	// trx_started rather than a counter bounded by the capture. See parseTrxCensus.
+	TrxCensus []map[string]string `json:"trxCensus,omitempty"`
 	NetQueues []map[string]string `json:"netQueues,omitempty"` // sockets with sustained Recv-Q/Send-Q
 	Deadlock  *vsDeadlock         `json:"deadlock,omitempty"`
 	Verdicts  []vsVerdict         `json:"verdicts,omitempty"`
@@ -211,6 +216,7 @@ func parsePtStalk(gzData []byte) (*vsModel, error) {
 	// Processlist: long-running queries + collapsed thread-state timeline.
 	parseProcesslist(m, bySuffix["processlist"])
 	parseLockWaits(m, bySuffix["lock-waits"])
+	parseTrxCensus(m, bySuffix["transactions"])
 
 	// netstat: connection-state timeline + sockets with sustained Recv-Q/Send-Q.
 	parseNetstat(m, bySuffix["netstat"])
@@ -2138,4 +2144,134 @@ func maxF(vals ...float64) float64 {
 		}
 	}
 	return out
+}
+
+// parseTrxCensus reads pt-stalk's `-transactions` file: an unfiltered
+// `SELECT * FROM INFORMATION_SCHEMA.INNODB_TRX ORDER BY trx_id\G` run once a
+// second. It is the authoritative view of what was open, and it is strictly
+// better than the two sources this report used before it.
+//
+// The `-lock-waits` file is a *join* against data_lock_waits, so it only
+// describes transactions someone is queued behind. SHOW ENGINE INNODB STATUS
+// gives an "ACTIVE n sec" string whose n is only as old as the capture. This
+// file has neither limitation, and one column is the reason:
+//
+//	trx_started: 2026-08-13 05:06:29
+//
+// An absolute start time. A transaction open for three hours reads as three
+// hours old in a ninety-second capture, which is the thing the other two sources
+// genuinely cannot tell you.
+//
+// pt-stalk gates this collector on have_lock_waits_table — it probes for
+// I_S.INNODB_LOCK_WAITS (MySQL 5.x) and falls back to
+// performance_schema.data_lock_waits (8.0, where the I_S tables were removed).
+// So the file is present on both, and absent only where InnoDB introspection is.
+func parseTrxCensus(m *vsModel, files []namedFile) {
+	type agg struct {
+		id, state, thread, query, isolation string
+		startedAt                           time.Time
+		maxAgeSec                           float64
+		maxRowsLocked, maxRowsModified      float64
+		waited                              bool
+		seen                                int
+	}
+	byTrx := map[string]*agg{}
+	var order []string
+
+	for _, f := range files {
+		for _, sample := range strings.Split(string(f.data), "TS ") {
+			// The TS line carries the wall clock this sample was taken at; the
+			// age of a transaction is that minus its trx_started.
+			sampleAt := time.Time{}
+			if nl := strings.IndexByte(sample, '\n'); nl > 0 {
+				fields := strings.Fields(sample[:nl])
+				if len(fields) >= 3 {
+					if t, err := time.Parse("2006-01-02 15:04:05", fields[1]+" "+fields[2]); err == nil {
+						sampleAt = t
+					}
+				}
+			}
+			for _, row := range strings.Split(sample, "*************************** ") {
+				kv := map[string]string{}
+				for _, line := range strings.Split(row, "\n") {
+					i := strings.Index(line, ":")
+					if i <= 0 {
+						continue
+					}
+					k := strings.TrimSpace(line[:i])
+					if !strings.HasPrefix(k, "trx_") {
+						continue
+					}
+					kv[k] = strings.TrimSpace(line[i+1:])
+				}
+				id := kv["trx_id"]
+				if id == "" {
+					continue
+				}
+				a := byTrx[id]
+				if a == nil {
+					a = &agg{id: id}
+					byTrx[id] = a
+					order = append(order, id)
+				}
+				a.seen++
+				a.state = kv["trx_state"]
+				setIfEmpty(&a.thread, kv["trx_mysql_thread_id"])
+				setIfEmpty(&a.isolation, kv["trx_isolation_level"])
+				if q := kv["trx_query"]; q != "" && q != "NULL" {
+					a.query = q
+				}
+				if kv["trx_wait_started"] != "" && kv["trx_wait_started"] != "NULL" {
+					a.waited = true
+				}
+				a.maxRowsLocked = maxF(a.maxRowsLocked, num(kv["trx_rows_locked"]))
+				a.maxRowsModified = maxF(a.maxRowsModified, num(kv["trx_rows_modified"]))
+				if st, err := time.Parse("2006-01-02 15:04:05", kv["trx_started"]); err == nil {
+					a.startedAt = st
+					if !sampleAt.IsZero() {
+						a.maxAgeSec = maxF(a.maxAgeSec, sampleAt.Sub(st).Seconds())
+					}
+				}
+			}
+		}
+	}
+	if len(order) == 0 {
+		return
+	}
+	var rows []map[string]string
+	for _, k := range order {
+		a := byTrx[k]
+		started := ""
+		if !a.startedAt.IsZero() {
+			started = a.startedAt.UTC().Format("2006-01-02 15:04:05")
+		}
+		rows = append(rows, map[string]string{
+			"trx": a.id, "state": a.state, "thread": a.thread,
+			"startedAt":    started,
+			"ageSec":       strconv.FormatFloat(a.maxAgeSec, 'f', 0, 64),
+			"rowsLocked":   strconv.FormatFloat(a.maxRowsLocked, 'f', 0, 64),
+			"rowsModified": strconv.FormatFloat(a.maxRowsModified, 'f', 0, 64),
+			"isolation":    a.isolation, "waited": boolStr(a.waited),
+			"seen":  strconv.Itoa(a.seen),
+			"query": truncate(a.query, 300),
+		})
+	}
+	sort.Slice(rows, func(i, j int) bool { return num(rows[i]["ageSec"]) > num(rows[j]["ageSec"]) })
+	m.TrxCensus = rows
+	m.Available["trxCensus"] = true
+}
+
+// compactDurationSec renders a transaction age the way a person would say it.
+// "open 7h 12m" is a different sentence from "open 25920s", and this advisor's
+// whole point is that the age can now be much larger than the capture.
+func compactDurationSec(sec float64) string {
+	switch {
+	case sec >= 3600:
+		h := int(sec) / 3600
+		mn := (int(sec) % 3600) / 60
+		return fmt.Sprintf("%dh %dm", h, mn)
+	case sec >= 60:
+		return fmt.Sprintf("%dm %ds", int(sec)/60, int(sec)%60)
+	}
+	return fmt.Sprintf("%.0fs", sec)
 }

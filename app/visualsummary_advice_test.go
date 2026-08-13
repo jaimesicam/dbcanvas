@@ -350,3 +350,52 @@ func TestInnodbTrxSkipsNotStarted(t *testing.T) {
 		t.Errorf("expected exactly one started transaction among %d records", len(recs))
 	}
 }
+
+// The census fixture is a verbatim sample from pt-stalk's -transactions file,
+// which is the only source in a capture carrying an absolute trx_started.
+const trxCensusFixture = `TS 1786597608.002923390 2026-08-13 05:06:48
+*************************** 1. row ***************************
+                    trx_id: 13212
+                 trx_state: RUNNING
+               trx_started: 2026-08-13 03:06:29
+          trx_wait_started: NULL
+       trx_mysql_thread_id: 8214
+                 trx_query: SELECT SLEEP(300)
+           trx_rows_locked: 1
+         trx_rows_modified: 1
+       trx_isolation_level: REPEATABLE READ
+`
+
+// The point of this source: an age far larger than the capture window, taken
+// from the transaction's own start time. Two hours here, in a one-second file.
+func TestParseTrxCensusTrueAge(t *testing.T) {
+	m := &vsModel{Available: map[string]bool{}}
+	parseTrxCensus(m, []namedFile{{base: "x-transactions", data: []byte(trxCensusFixture)}})
+	if len(m.TrxCensus) != 1 {
+		t.Fatalf("got %d rows, want 1", len(m.TrxCensus))
+	}
+	r := m.TrxCensus[0]
+	if got := num(r["ageSec"]); got < 7000 || got > 7400 {
+		t.Errorf("age = %v, want ~7200 — the transaction started two hours before the sample", got)
+	}
+	if r["state"] != "RUNNING" || r["isolation"] != "REPEATABLE READ" || r["thread"] != "8214" {
+		t.Errorf("unexpected row: %+v", r)
+	}
+}
+
+// With a census present the advisor must use it, and must escalate on the true
+// age rather than on how long the capture happened to run.
+func TestAdviseOldestTransactionPrefersCensus(t *testing.T) {
+	m := &vsModel{Available: map[string]bool{}}
+	parseTrxCensus(m, []namedFile{{base: "x-transactions", data: []byte(trxCensusFixture)}})
+	// A short "active" reading from InnoDB status must not win over a two-hour
+	// census age.
+	m.InnodbTrx = []map[string]string{{"thread": "8214", "active": "20", "query": "x"}}
+	v := adviseOldestTransaction(m)
+	if v == nil || v.Level != vsCrit {
+		t.Fatalf("got %+v, want crit from the census age", v)
+	}
+	if !strings.Contains(v.Headline, "2h") {
+		t.Errorf("headline should render the real age in hours, got %q", v.Headline)
+	}
+}

@@ -676,19 +676,40 @@ func adviseOldestTransaction(m *vsModel) *vsVerdict {
 		return advice(vsOK, means, found, "Brief waits only — normal for a busy server.")
 	}
 
-	if len(m.InnodbTrx) == 0 {
+	// No lock wait. Prefer the INNODB_TRX census, whose age comes from an
+	// absolute trx_started and so is not capped by the capture window; fall back
+	// to the InnoDB status text only where the census is absent.
+	var thread, q, isolation string
+	var age, locks float64
+	var trueAge bool
+	switch {
+	case len(m.TrxCensus) > 0:
+		t := m.TrxCensus[0]
+		thread, q, isolation = t["thread"], t["query"], t["isolation"]
+		age, locks, trueAge = num(t["ageSec"]), num(t["rowsLocked"]), true
+	case len(m.InnodbTrx) > 0:
+		t := m.InnodbTrx[0]
+		thread, q = t["thread"], t["query"]
+		age, locks = num(t["active"]), num(t["rowLocks"])
+	default:
 		return nil
 	}
-	t := m.InnodbTrx[0]
-	age := num(t["active"])
-	means := "The longest-running transaction seen during the capture. Its age is bounded by " +
-		"the capture window, so this says it ran for at least this long, not that it started " +
-		"here. Nothing was waiting on it — that would appear as a lock wait instead."
-	found := fmt.Sprintf("thread %s active %.0fs", t["thread"], age)
-	if l := num(t["rowLocks"]); l > 0 {
-		found += fmt.Sprintf(", %.0f row locks", l)
+	means := "The longest-running transaction open during the capture. Nothing was waiting on " +
+		"it — that would appear as a lock wait instead."
+	if trueAge {
+		means += " The age is real: it comes from the transaction's own start time, so a " +
+			"transaction older than the capture still reads its true age."
+	} else {
+		means += " The age is bounded by the capture window, so this says it ran for at least " +
+			"this long, not that it started here."
 	}
-	q := t["query"]
+	found := fmt.Sprintf("thread %s open %s", thread, compactDurationSec(age))
+	if locks > 0 {
+		found += fmt.Sprintf(", %.0f row locks", locks)
+	}
+	if isolation != "" {
+		found += ", " + isolation
+	}
 	if q == "" {
 		q = "(no statement — idle inside the transaction)"
 	}
