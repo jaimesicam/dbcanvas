@@ -186,3 +186,68 @@ func TestComputeAdvisorsKeyed(t *testing.T) {
 		t.Error("an advisor appeared for a series that is not in this capture")
 	}
 }
+
+// TestAdviseGaleraBurstyFlowControl pins the two bugs a live PXC capture
+// exposed, both of which made this advisor report health during a real stall.
+//
+// Flow control arrives in bursts: a node paused a third of a capture is paused
+// ~100% of a few seconds and 0% of the rest. Taking the median of that reads
+// zero, so the advisor said "keeping up with cluster writes" for a node that was
+// paused 32.5% of the time and had sent 613 flow-control messages. The mean is
+// the statistic that describes what the cluster actually experienced.
+func TestAdviseGaleraBurstyFlowControl(t *testing.T) {
+	// 30 samples: 10 fully paused, 20 clear — a third of the window.
+	s := &vsSeries{Metrics: []string{"flowControlPausedPct", "recvQueue"}}
+	for i := 0; i < 30; i++ {
+		p := 0.0
+		if i%3 == 0 {
+			p = 100
+		}
+		s.Points = append(s.Points, vsPoint{T: int64(i), V: map[string]float64{
+			"flowControlPausedPct": p, "recvQueue": 0,
+		}})
+	}
+	m := &vsModel{Series: map[string]*vsSeries{"galera": s}}
+	v := adviseGalera(m)
+	if v == nil {
+		t.Fatal("no verdict")
+	}
+	if v.Level != vsCrit {
+		t.Errorf("level = %q, want crit: a node paused a third of the capture is holding "+
+			"the cluster back, and the median of a bursty signal hides exactly that", v.Level)
+	}
+	if got := seriesMedian(s, "flowControlPausedPct"); got != 0 {
+		t.Errorf("precondition: median should be 0 for this shape, got %v", got)
+	}
+	if got := seriesMean(s, "flowControlPausedPct"); got < 30 || got > 37 {
+		t.Errorf("mean = %v, want ~33 — the share of the capture spent paused", got)
+	}
+}
+
+// A genuinely healthy node must still read ok, or the fix above would just move
+// the false negative to a false positive.
+func TestAdviseGaleraQuietStaysOK(t *testing.T) {
+	s := &vsSeries{Metrics: []string{"flowControlPausedPct", "recvQueue"}}
+	for i := 0; i < 30; i++ {
+		s.Points = append(s.Points, vsPoint{T: int64(i), V: map[string]float64{
+			"flowControlPausedPct": 0, "recvQueue": 1,
+		}})
+	}
+	v := adviseGalera(&vsModel{Series: map[string]*vsSeries{"galera": s}})
+	if v == nil || v.Level != vsOK {
+		t.Fatalf("quiet cluster: got %+v, want ok", v)
+	}
+}
+
+func TestSeriesMean(t *testing.T) {
+	s := &vsSeries{Points: []vsPoint{
+		{V: map[string]float64{"x": 0}}, {V: map[string]float64{"x": 0}},
+		{V: map[string]float64{"x": 90}}, {V: map[string]float64{"x": 10}},
+	}}
+	if got := seriesMean(s, "x"); got != 25 {
+		t.Errorf("seriesMean = %v, want 25", got)
+	}
+	if got := seriesMean(s, "absent"); got != 0 {
+		t.Errorf("missing key should be 0, got %v", got)
+	}
+}

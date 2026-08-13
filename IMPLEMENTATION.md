@@ -13271,3 +13271,62 @@ real API, and left alone. Every layer held:
                         only the impaired ones
 
 Nothing about the feature is now unverified.
+
+## 243. The Galera advisor was blind to the condition it exists for — `app/visualsummary.go`, `app/visualsummary_advice.go`
+
+Asked whether Visual Summary can detect the problems §240–§242 can now create.
+For the Galera case the answer was no, and finding out why took two fixes.
+
+§242's asymmetric-config experiment was rerun on the dbcanvas-deployed PXC
+cluster from that session — two members set to
+`innodb_flush_log_at_trx_commit=2`/`sync_binlog=0`, the third left stock — and a
+real pt-stalk capture taken from the writer *while* the cluster was stalling. The
+server's own counters at capture time: `wsrep_flow_control_paused` 0.325,
+`wsrep_flow_control_recv` 613, and the stock member's queue averaging 170.
+
+Visual Summary read that capture and said:
+
+    [ok] galera   0.0% paused, recv queue 0
+
+"The node is keeping up with cluster writes." A false negative on the single
+advisor whose entire purpose is to catch this — the worst failure mode an
+advisor has, because it actively tells you to look elsewhere.
+
+**Bug one: the wrong variable.** `flowControlPausedPct` was derived by
+differencing `wsrep_flow_control_paused`. That reads like a counter and is not:
+it is the *fraction of time paused since the last status reset*, so as the window
+lengthens it decays. Consecutive samples in the capture read 0.778, 0.763,
+0.748 — a falling series, whose delta is negative, clamped to zero by the
+`math.Max(d, 0)` guard. The metric was pinned at 0 by construction.
+`wsrep_flow_control_paused_ns` is the monotonic nanosecond counter and is now the
+source; peak went from 0.300 to 98.5.
+
+**Bug two: the wrong statistic.** With the right variable the advisor still said
+ok, because it took the *median* and flow control is bursty — a node paused a
+third of the capture is paused ~100% of a few seconds and 0% of the rest, whose
+median is zero. The mean is what describes what the cluster experienced, and the
+advisor's own thresholds (1% warn, 10% crit) are plainly written for a share of
+time. `seriesMean` was added for this; the recv queue moved to max for the same
+reason, since a queue that spikes and drains has a median of nothing.
+
+Verdict on the same capture, unchanged otherwise:
+
+    [crit] galera   35.1% paused, peak recv queue 0
+
+35.1% against the server's own 32.5% — the small gap is expected, since the
+derived figure covers the capture window and the server's covers everything since
+its last status reset.
+
+Two notes worth keeping. The peak recv queue is legitimately 0 here because the
+capture is from the *writer*: flow control is reported per node, a paused writer
+means somebody else is slow, and the queue is deep on that member instead. The
+advisor's text now says so, because "35.1% paused, queue 0" otherwise reads like
+a contradiction. And a *link* problem still produces no Galera verdict at all —
+§242 measured `flow_control_paused` at zero throughout a degraded-link stall, so
+that failure remains invisible here and is the honest gap.
+
+Three tests pin the shape: a bursty series must come out crit (with the median
+asserted to be zero, so the test fails if anyone reverts to it), a quiet cluster
+must stay ok so the fix cannot become a false positive, and `seriesMean` itself.
+`go build/vet/test` and `gofmt -l` clean; `npm run build` and `npm run smoke`
+clean.

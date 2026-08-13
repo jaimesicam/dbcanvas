@@ -591,12 +591,18 @@ func adviseGalera(m *vsModel) *vsVerdict {
 	if s == nil {
 		return nil
 	}
-	paused := seriesMedian(s, "flowControlPausedPct")
-	recv := seriesMedian(s, "recvQueue")
+	// The mean, not the median: flow control arrives in bursts, so a node paused
+	// a third of the capture shows ~100% on a few samples and 0% on the rest.
+	// The median of that is zero — which is how this advisor once reported
+	// "keeping up with cluster writes" for a node paused 32.5% of the time.
+	paused := seriesMean(s, "flowControlPausedPct")
+	recv := seriesMax(s, "recvQueue")
 	means := "Cluster replication health. `flow control paused` is the share of time this node " +
 		"told the cluster to stop sending because it could not keep up — while paused, the " +
-		"whole cluster's write throughput is limited by this node."
-	found := fmt.Sprintf("%.1f%% paused, recv queue %.0f", paused, recv)
+		"whole cluster's write throughput is limited by this node. Note it is reported per " +
+		"node: a *writer* being paused means some other member is the slow one, and the queue " +
+		"below will be flat here and deep on that member."
+	found := fmt.Sprintf("%.1f%% paused, peak recv queue %.0f", paused, recv)
 	switch {
 	case paused >= 10:
 		return advice(vsCrit, means, found,

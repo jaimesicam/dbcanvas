@@ -664,9 +664,22 @@ func deriveMysqlSeries(m *vsModel, snaps []statSnap) bool {
 			if i > 0 {
 				dt := float64(sn.t - snaps[i-1].t)
 				if dt > 0 && dt <= 5 {
-					// wsrep_flow_control_paused is a 0..1 ratio since last status; delta≈per-interval.
-					d := sn.v["wsrep_flow_control_paused"] - snaps[i-1].v["wsrep_flow_control_paused"]
-					v["flowControlPausedPct"] = math.Round(math.Max(d, 0)/dt*1000) / 10
+					// Derived from wsrep_flow_control_paused_ns, a monotonic
+					// nanosecond counter, NOT from wsrep_flow_control_paused.
+					//
+					// The latter looks like the obvious source and is not: it is
+					// the *fraction of time paused since the last status reset*,
+					// so as the window lengthens it DECAYS — a live capture of a
+					// node being paused a third of the time read 0.778, 0.763,
+					// 0.748 on consecutive samples. Differencing that gives a
+					// negative number, which clamped to zero, so the metric was
+					// pinned at 0 and adviseGalera reported "keeping up with
+					// cluster writes" for a node that was paused 32.5% of the
+					// time and had received 613 flow-control messages. A false
+					// negative on the one advisor that exists to catch this.
+					d := sn.v["wsrep_flow_control_paused_ns"] - snaps[i-1].v["wsrep_flow_control_paused_ns"]
+					// ns paused over ns elapsed, as a percentage.
+					v["flowControlPausedPct"] = math.Round(math.Max(d, 0)/1e9/dt*1000) / 10
 				}
 			}
 			g.Points = append(g.Points, vsPoint{T: sn.t, V: v})
@@ -1846,6 +1859,26 @@ func seriesMax(s *vsSeries, key string) float64 {
 // most of the time, as against seriesMax's worst single second.
 func seriesMedian(s *vsSeries, key string) float64 {
 	return medianOf(s.Points, key)
+}
+
+// seriesMean is the arithmetic mean across the capture. Use it for a metric
+// whose *total* is what matters and whose occurrence is bursty, where a median
+// is actively misleading: flow control is the case this exists for. A node
+// paused a third of the whole capture is usually paused ~100% of a few seconds
+// and 0% of the rest, so the median reads zero while the mean reads a third —
+// and a third is the number that describes what the cluster experienced.
+func seriesMean(s *vsSeries, key string) float64 {
+	sum, n := 0.0, 0
+	for _, p := range s.Points {
+		if v, ok := p.V[key]; ok {
+			sum += v
+			n++
+		}
+	}
+	if n == 0 {
+		return 0
+	}
+	return sum / float64(n)
 }
 
 // seriesMedianSkipFirst drops the first point before taking the median. iostat's
