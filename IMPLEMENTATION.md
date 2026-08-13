@@ -13218,6 +13218,34 @@ receiver rather than flooding it, and shows up as a sender-side stall instead.
 Both are worth reproducing and this knob produces the second; the first needs the
 CPU or disk limits that already existed. `netem.go` and the README now say so.
 
+**Receiver-side flow control, produced the other way.** The correction above said
+flow control needs a slow *node* rather than a slow link, and that half was
+untested until it was pointed out that asymmetric configuration is how you build
+one. It is, and PXC 8.0.36 does form a cluster if each joiner is allowed to reach
+Synced before the next one starts — the earlier failures were joins racing each
+other, plus `[sst] encrypt=0`, which SST needs separately from
+`pxc_encrypt_cluster_traffic=OFF`.
+
+Three nodes, two tuned (`innodb_buffer_pool_size=2G`,
+`innodb_redo_log_capacity=2G`, `innodb_flush_log_at_trx_commit=2`,
+`sync_binlog=0`) and one left at stock (128M, 100M, 1, 1). Twelve concurrent
+update writers against a tuned member:
+
+    pxc2 (tuned)     recv queue avg   1.10     flow control sent   0
+    pxc3 (stock)     recv queue avg 168.56     flow control sent 500
+    pxc1 (writer)    flow_control_paused peaked at 0.44 — 44% of the time
+                     paused; flow_control_recv 500, matching pxc3's sends
+
+The controlled comparison is the point: pxc2 and pxc3 receive the same writesets
+over the same network on the same host, so the 153x difference in queue depth and
+the fact that only one of them throttles the cluster isolate the cause to
+configuration. `innodb_flush_log_at_trx_commit=1` with `sync_binlog=1` makes the
+stock node fsync twice per applied transaction, and that is the whole bottleneck.
+
+So the two halves are now both demonstrated, with different tools: a link problem
+via `tc` (sender stall, eviction, recovery), and an apply problem via config
+(receiver-side flow control). Neither substitutes for the other.
+
 **Still not verified**: the path through dbcanvas's own deploy — `reconcileNetem`
 applying to nodes it provisioned itself. `applyNetem` is exercised (it is the same
 exec the reconcile calls, and the script run here was extracted from the Go

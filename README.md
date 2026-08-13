@@ -190,7 +190,13 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
   holding `cluster_size 2 / Primary` while the isolated node drops to `1 / non-Primary` and stops
   accepting writes; clearing the impairment rejoins it in **11 seconds**. Worth knowing: a slow
   *link* stalls the sender, whereas receiver-side flow control needs a slow *node* — they are
-  different experiments. A bandwidth cap mostly just slows a state transfer down. Shaping is
+  different experiments, and the second one is produced with the CPU/memory limits or plain
+  configuration rather than with `tc`. Measured on the same rig, with two PXC members tuned
+  (`innodb_flush_log_at_trx_commit=2`, `sync_binlog=0`, 2 GiB pool and redo) and one left at
+  stock (`1`, `1`, 128 MiB): driving updates at a tuned member left the stock member's receive
+  queue averaging **168 writesets against the tuned member's 1.1** on the identical stream,
+  sending **500 flow-control pauses** while the tuned member sent none, and pausing the writer
+  **44%** of the time. A bandwidth cap mostly just slows a state transfer down. Shaping is
   scoped to the node's own database and cluster ports (for PXC: 3306, 4444, 4567, 4568), so DNS,
   LDAP and health checks stay clean and the node degrades rather than looking broken — measured
   on a lab node, ping stayed at 0.09 ms while port 4567 went to 124 ms. It is applied *after* the

@@ -33,7 +33,15 @@ import (
 //     than surprising: flow control is a receiver telling the group it cannot
 //     *apply* fast enough, so it is provoked by a slow node (CPU, disk), while
 //     a slow *link* starves the receiver instead of flooding it. Both are worth
-//     reproducing; they are not the same experiment.
+//     reproducing; they are not the same experiment. The way to provoke the
+//     other one is asymmetric *configuration* rather than a network condition —
+//     on a three-node PXC cluster with two members at
+//     innodb_flush_log_at_trx_commit=2/sync_binlog=0/2G pool and one left at
+//     1/1/128M, driving updates at a tuned member had the default member's
+//     receive queue average 168 writesets against the other tuned member's 1.1
+//     on the identical stream, sending 500 flow-control pauses while the tuned
+//     member sent none, and pausing the writer 44% of the time. Same network,
+//     same load: the config is the whole difference.
 //   - Severing the link (100% loss) evicts the member. Measured: 8 seconds from
 //     applying the loss to the majority side reporting cluster_size 2 / Primary
 //     while the isolated node reported cluster_size 1 / non-Primary and stopped
