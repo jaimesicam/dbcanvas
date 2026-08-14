@@ -548,6 +548,96 @@ to both.
 
 ---
 
+## MongoDB replica sets: the log that repeats itself
+
+The fourth cluster vocabulary, and structurally the easiest: since 4.4 `mongod` writes one
+JSON object per line, and every message carries a numeric `id` that is stable across
+releases even when the English changes. A rule keyed on `21358` keeps working through an
+upgrade that rewords the message — the opposite of MySQL's guarantee, and much the more
+useful one.
+
+The whole state machine is one record:
+
+```json
+{"t":{"$date":"…"},"s":"I","c":"REPL","id":21358,"ctx":"conn301",
+ "msg":"Replica set state transition","attr":{"newState":"SECONDARY","oldState":"PRIMARY"}}
+```
+
+`newState` **and** `oldState`, which is what makes a fragment readable — a member already
+PRIMARY when the excerpt begins never logs a transition into it. Its companion `21215`
+reports the same about a *peer* (`{"hostAndPort":…,"newState":…}`), so one member's file
+describes the whole set.
+
+Members are parsed here rather than by the shared MongoDB classifier the Packet Inspector
+uses, because the facts that matter live in `attr` and the shared entry type does not carry
+it. A standalone `mongod` keeps the shared path: it has no member states, no elections and
+no rollbacks, and giving it a swimlane of replica-set states would invent a topology.
+
+Every rule was written against a live three-node Percona Server for MongoDB 8.0.28-12
+replica set, driven through `rs.stepDown()`, a SIGKILL on the primary under write load, a
+member cut off port 27017 with tc/netem, a **partitioned primary written to and then
+healed**, and a wiped data directory resynced from scratch. The fixtures are `m*` under
+`app/testdata/logsummary/`.
+
+### 1. A rollback is silent data loss, with a receipt
+
+The one incident in this whole package where committed, acknowledged data is deliberately
+discarded. A primary on the wrong side of a partition accepts writes, the majority elects
+somebody else, and when the old primary rejoins it throws its writes away. The client was
+told they succeeded and is never told otherwise.
+
+The log says exactly how much went and where it was put:
+
+```
+6984700  Operations reverted by rollback     {"insert": 43, "update": 0, "delete": 0}
+21609    Preparing to write deleted documents to a rollback file
+         {"namespace":"lab.t","file":"/var/lib/mongo/rollback/…/removed.…bson"}
+```
+
+In the capture, 40 documents acknowledged with `w:1` were reverted. The finding leads with
+the count, and its advice carries the file paths — that file is the only copy left, nothing
+deletes it for you and nothing replays it for you.
+
+### 2. It repeats itself, endlessly
+
+A dead peer produces `Heartbeat failed after max retries` **every two seconds for as long as
+it is dead** — 1,234 log lines in the forty seconds after one SIGKILL. MySQL and Galera
+write a failure once and go quiet. Record collapsing is not a nicety here; without it one
+member's outage buries every other record in the file. It is also an asset: the span of the
+collapsed row *is* the length of the outage, as the survivors experienced it.
+
+### 3. A cut-off secondary does nothing, and says almost nothing
+
+Galera's minority node refuses queries with 1047 and Group Replication's blocks every write.
+A MongoDB secondary that cannot see the primary just keeps serving reads of whatever it has,
+falling further behind, logging only heartbeat failures. There is no state change to find.
+
+### 4. Severity comes from the id, because the level is useless
+
+A rollback — the one event here that loses data — is logged entirely at `"s":"I"`. So is an
+election, an initial sync, and a member going DOWN.
+
+### And three rules that were wrong
+
+Written from memory rather than from the corpus, and all three caught by it: `22322` is
+*"Shutting down checkpoint thread"*, not a fatal assertion; `21444` is a dry-run election
+**succeeding**, not failing; `20698` is a restart marker, not a shutdown. Four further rules
+have never matched a real record and are fenced off in the catalogue under a heading that
+says so — an unexercised rule is a guess until a real log matches it.
+
+### The verdicts it adds
+
+| | |
+| --- | --- |
+| **Acknowledged writes were rolled back and lost** | how many operations, and the rollback files that hold the only copy |
+| **The set had no primary for …** | measured from the peer reports, so one file is enough. A killed primary costs about `electionTimeoutMillis`; the fixture measures 9.6s against a 10s default |
+| **A member could not be reached by the rest of the set** | measured from the heartbeat-failure span |
+| **The set elected a primary** | and whether it was a requested step-up or a failure |
+| **A member rebuilt itself from another member's data** | an initial sync, with how long it took |
+| **Replication lag is not in this log** | the honest note — and it points at `diagnostic.data`, which is already on the machine. See [`FTDC_SUMMARY.md`](FTDC_SUMMARY.md) |
+
+---
+
 ## The verdict
 
 Everything in the verdict is a statement that could not be made from one node's log alone,

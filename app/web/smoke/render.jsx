@@ -48,6 +48,10 @@ import {
   SEVS, SEV_TEXT, SEV_FILL, STATE_SEV, STATE_TEXT, CLASS_LABEL, logDur,
   NODE_SLOTS, nodeFill, nodeTint, nodeEdge, nodeEdgeSoft,
 } from '../src/lib/logApi.js'
+import FTDCSummary, {
+  Summary as FtdcSummary, ChartCard as FtdcChart, Advice as FtdcAdvice,
+} from '../src/pages/FTDCSummary.jsx'
+import { chartPoints, chartLines, fmtSpan, fmtNum, ADVICE_TEXT, ADVICE_FILL, ADVICE_TONE } from '../src/lib/ftdcApi.js'
 import realDeps from './real-deps.json' with { type: 'json' }
 
 const noop = () => {}
@@ -1385,6 +1389,69 @@ check('log summary: every severity is styled', () => {
     if (!CLASS_LABEL[cls]) throw new Error(`class ${cls} has no label`)
   }
   if (logDur(0) !== '0s') throw new Error('logDur(0) should be 0s')
+  return 'ok'
+})
+
+// ---- FTDC Summary: the charts and the advisor ----
+//
+// The fixture is the shape ftdcSummarise actually emits — one timestamp column and one
+// array per series, which is how FTDC itself is laid out — so a change to that contract
+// breaks here rather than in front of somebody holding a diagnostic.data directory.
+const ftdcModel = {
+  host: 'mongo03', version: '8.0.28-12', replSet: 'rs0',
+  from: 1786730000, to: 1786730013, samples: 14, chunks: 3, metrics: 3954,
+  ts: [1786730000, 1786730001, 1786730002, 1786730003],
+  charts: [
+    {
+      id: 'memberState', title: 'Replica-set member state', unit: 'state',
+      why: '1 PRIMARY · 2 SECONDARY · 9 ROLLBACK.',
+      series: [
+        { name: 'member 0', points: [1, 1, 2, 2] },
+        { name: 'member 1 (this one)', points: [2, 2, 1, 1] },
+      ],
+      advice: { level: 'warn', headline: '2 member state change(s) in this window', detail: 'A failover.', action: 'Line it up against Log Summary.' },
+    },
+    {
+      id: 'replLag', title: 'Replication lag', unit: 's', why: 'Not in the log at all.',
+      series: [{ name: 'member 0', points: [0, 0, 61, 12] }],
+      advice: { level: 'crit', headline: 'A member was 61.0s behind at its worst' },
+    },
+    {
+      id: 'ops', title: 'Operations', unit: 'ops/s', stack: true, why: 'The operation mix.',
+      series: [{ name: 'insert', points: [1, 2, 3, 4] }, { name: 'query', points: [0, 1, 0, 1] }],
+      advice: { level: 'info', headline: 'Peak roughly 5 operations/s' },
+    },
+  ],
+  notes: ['1 chunk(s) would not decode and were skipped.'],
+}
+
+check('ftdc summary: page shell', () => renderToString(<FTDCSummary />))
+check('ftdc summary: file summary', () => renderToString(<FtdcSummary model={ftdcModel} />))
+check('ftdc summary: file summary with nothing', () => renderToString(<div><FtdcSummary model={null} /></div>))
+for (const c of ftdcModel.charts) {
+  check(`ftdc summary: chart ${c.id}`, () => renderToString(<FtdcChart chart={c} ts={ftdcModel.ts} />))
+}
+check('ftdc summary: chart with no advice', () =>
+  renderToString(<FtdcChart chart={{ ...ftdcModel.charts[0], advice: null }} ts={ftdcModel.ts} />))
+check('ftdc summary: chart with nothing', () => renderToString(<div><FtdcChart chart={null} ts={[]} /></div>))
+for (const level of ['ok', 'warn', 'crit', 'info', 'banana', undefined]) {
+  check(`ftdc summary: advice level ${level}`, () =>
+    renderToString(<FtdcAdvice a={{ level, headline: 'h', detail: 'd', action: 'a' }} />))
+}
+check('ftdc summary: every advice level is styled', () => {
+  for (const lvl of ['ok', 'warn', 'crit', 'info']) {
+    if (!ADVICE_TEXT[lvl] || !ADVICE_FILL[lvl] || !ADVICE_TONE[lvl]) throw new Error(`advice ${lvl} unstyled`)
+  }
+  // The shaping helpers are the join between the backend's column layout and TimeChart's
+  // row layout, and getting it wrong draws a chart that is silently all zeroes.
+  const pts = chartPoints(ftdcModel.ts, ftdcModel.charts[0].series)
+  if (pts.length !== 4) throw new Error(`want 4 points, got ${pts.length}`)
+  if (pts[2].v.s0 !== 2 || pts[2].v.s1 !== 1) throw new Error('series values did not line up with their samples')
+  const ln = chartLines(ftdcModel.charts[0].series)
+  if (ln.length !== 2 || ln[0].key !== 's0') throw new Error('lines do not match series')
+  if (chartPoints([], []).length !== 0) throw new Error('empty input should give no points')
+  if (fmtSpan(0, 120) !== '2.0 min') throw new Error(`fmtSpan: ${fmtSpan(0, 120)}`)
+  if (fmtNum(1500) !== '1.5k') throw new Error(`fmtNum: ${fmtNum(1500)}`)
   return 'ok'
 })
 

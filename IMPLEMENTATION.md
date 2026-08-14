@@ -14278,3 +14278,103 @@ green. The frontend gained the GR and standalone states it was missing from `STA
 `STATE_SEV` — the swimlane was painting anything it did not know as `info`, so a member at
 `BLOCKED` or `OFFLINE` read as a state nobody had an opinion about — and now prefers the
 severity the server already computed, so the two can no longer drift.
+
+## 258. MongoDB replica sets, and the black box nobody reads — `app/logsummary_mongo*.go`, `app/ftdc*.go`, `app/web/src/pages/FTDCSummary.jsx`, `docs/FTDC_SUMMARY.md`
+
+Two features that belong together: the Log Summary learns MongoDB replica sets, and
+`diagnostic.data` — the per-second capture every `mongod` writes and almost nobody opens —
+gets a page of its own. The first ends with a note saying replication lag is not in the log;
+the second is where it actually is.
+
+### The testbed
+
+A three-node Percona Server for MongoDB 8.0.28-12 replica set, deployed by DBCanvas
+(`psmrs` frame), driven through six scenarios: `rs.initiate` and two members joining,
+`rs.stepDown()`, SIGKILL on the primary under write load, a member cut off port 27017 with
+tc/netem for 60s, a **partitioned primary written to with `w:1` and then healed**, and a
+wiped data directory resynced from scratch. Fixtures at `app/testdata/logsummary/m*`.
+
+One trim, stated in the test file because everything else in this package's corpora is
+verbatim: MongoDB writes a heartbeat-failure record every two seconds for as long as a
+member is unreachable — 1,234 lines in the forty seconds of m03 alone — so the fixtures keep
+the components that carry replica-set meaning and cap a run of one id at six. Subset, never
+rewritten.
+
+### What the capture taught
+
+**1. A rollback is silent data loss with a receipt.** The one incident in this package where
+committed, acknowledged data is deliberately discarded. Forty documents written to a
+partitioned primary with `w:1` were reverted when it rejoined; the log states the count
+(`6984700`, `{"insert": 43}`) and the rollback file paths (`21609`). The client was told the
+writes succeeded and is never told otherwise. `lsFindingMongoRollback` leads with the count
+and carries the paths into its advice, because that file is the only copy left.
+
+**2. It repeats itself endlessly, unlike anything else here.** Record collapsing stops being
+a nicety: without it one dead member buries the file. It is also an asset — the collapsed
+row's span IS the outage length as the survivors saw it, which is what
+`lsFindingMongoMemberDown` measures.
+
+**3. A cut-off secondary does nothing and says almost nothing.** No 1047, no blocked writes
+— it keeps serving stale reads and logs only heartbeat failures.
+
+**4. Severity comes from the id.** A rollback is logged at `"s":"I"`, as is an election, an
+initial sync and a member going DOWN.
+
+**Three rules were written from memory and all three were wrong**, caught by checking every
+claimed id against the corpus: `22322` is "Shutting down checkpoint thread" not a fatal
+assertion, `21444` is a dry-run election *succeeding* not failing, `20698` is a restart
+marker not a shutdown. Four rules that never matched a real record are fenced off under a
+heading that says so, and a test asserts the three corrections cannot come back.
+
+### A collision worth recording
+
+Galera's `PRIMARY` (the primary *component*) and MongoDB's `PRIMARY` (the member accepting
+writes) are different ideas sharing a word, and one bundle can hold both. Galera's constant
+is now `PRIMARY-COMP`; the swimlane legend cannot explain one word two ways.
+
+### FTDC
+
+The format is undocumented and was established by decoding a real file: a bare sequence of
+BSON documents, each `{_id, type, data}`; type 1's data is `[uint32 length][zlib]`; inflated
+it is a reference sample, a metric count, a delta count, then a **column-major** varint
+stream where **a zero is a run length, not a value**.
+
+Three details make a plausible decoder silently wrong — the zero runs, the column order, and
+a BSON timestamp counting as TWO metrics. All three produce output that looks like numbers.
+The guard is `mongod`'s own metric count in each chunk header: if the reference-document walk
+does not yield exactly that many, the chunk is refused rather than half-read, so drift shows
+up as skipped chunks instead of wrong values. It decoded the live file at the first attempt —
+16 chunks, 2,185 samples, 5,673 metrics, zero skipped — and was cross-checked against the
+running server rather than against itself (`uptime` 507 vs 514 seven seconds later,
+`cursors.open` exact, `opcounters.query` 40 against 41 after the check's own call).
+
+Nine charts, chosen not enumerated. Two details decide whether they work at all: **8.0 moved
+the tickets** from `wiredTiger.concurrentTransactions` to `queues.execution` (a chart on the
+documented-in-2019 name is silently always empty), and **member names are not in FTDC** —
+strings are not metrics — so the member chart says "member 0" and marks `self` rather than
+inventing a name. Downsampling takes every nth point and never averages, because an averaged
+spike is a spike that did not happen; rates use the real sample spacing, because FTDC slows
+its own sampling under load.
+
+### What live verification changed
+
+The MongoDB verdict reported "no primary for 21.5 min" against a set that had one throughout.
+A member's own transition is keyed by the source name and a peer's by the host out of the
+record, and those two spellings were not normalised — so the election that ended a gap was
+filed against a different member than the one that lost the role, and the gap ran to the end
+of the window. Normalising fixed it, and the fixture's measured gap fell from 39.6s to
+**9.6s** — which is `electionTimeoutMillis` at its 10s default, i.e. the physically correct
+answer. A gap still open where the log ends is now bounded by the last record that could have
+closed it, and says so.
+
+Final live readings. Log Summary on the replica set: the rollback with "43 insert reverted",
+1.5 min total without a primary, the unreachable members with their real spans, and the
+initial syncs. FTDC Summary on the same nodes over the same window: 2,185 samples, 5,673
+metrics, and `[crit] A member was 61.0s behind at its worst` — the lag the log does not
+record, from the artefact that does.
+
+Also fixed on the way past: `lsLoadScenario` now reads `.log` as well as `.err`, since
+mongod's log is neither an error log nor named like one.
+
+22 new Go tests (12 MongoDB, 10 FTDC), 18 new render
+checks, `go vet`, `gofmt` and the smoke suite green.

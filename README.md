@@ -548,7 +548,7 @@ on a palette deliberately kept clear of the red/amber/green the status colours u
 colour-vision validator rather than picked by eye, and the node's name always sits beside
 its chip.
 
-**PXC, Group Replication and asynchronous replication all have full catalogues** — one
+**PXC, Group Replication, asynchronous replication and MongoDB replica sets all have full catalogues** — one
 written against a live Galera cluster, one against a live GTID source/replica topology, and
 one against a live three-node Group Replication group in both of its modes (raw, and
 MySQL-Shell-managed InnoDB Cluster) — so a 1062 applier stop names the row, the table and
@@ -573,9 +573,36 @@ so silence there is never reported as health.
 
 ![Log Summary — three PXC members on one timeline, the good, the warning and the bad](docs/screenshots/log-summary.png)
 
-See [`docs/LOG_SUMMARY.md`](docs/LOG_SUMMARY.md) for the Galera and Group Replication event catalogues, how the
+A MongoDB replica set adds the one incident nothing else here reports: a **rollback**, where
+writes that were acknowledged to a client are deliberately discarded when a partitioned
+primary rejoins. The verdict says how many operations went and names the rollback files that
+hold the only remaining copy.
+
+See [`docs/LOG_SUMMARY.md`](docs/LOG_SUMMARY.md) for the Galera, Group Replication and MongoDB event catalogues, how the
 cluster-state track is reconstructed, and the real-cluster captures the rules were written
 against.
+
+### FTDC Summary
+Decode MongoDB's **`diagnostic.data`** — the per-second black box every `mongod` writes with
+no configuration and almost no cost — and chart it. Read the directory straight off a running
+node, or upload the `metrics.*` files or a `.tar.gz` of them.
+
+Nine charts, chosen rather than enumerated: a decoded file holds about **four thousand**
+metrics, and a browser of all four thousand helps somebody who already knows what they are
+looking for. **Member state** (who was primary, and when that changed), **replication lag**
+(which the server log does not record in any form), **oplog size**, **execution tickets**,
+**queued operations**, **connections**, **WiredTiger cache**, **operations** and **CPU** —
+each with a plain-English note on what it is for and an advisor on what this capture's
+numbers actually say.
+
+The format is undocumented, so it was established by decoding a real file: BSON envelope,
+zlib chunk, a reference sample that defines the metric order, then column-major varint deltas
+with run-length-encoded zeros. Three details make a plausible decoder silently wrong, and the
+guard against all of them is `mongod`'s own metric count written into every chunk — a walk
+that drifts out of step shows up as skipped chunks rather than as wrong numbers.
+
+See [`docs/FTDC_SUMMARY.md`](docs/FTDC_SUMMARY.md) for the format, the charts and why each one
+is there.
 
 ### Labs (experimental)
 A catalog of **95 hands-on scenarios** — 27 for **Patroni** (PostgreSQL HA), 30 for **PS MongoDB**

@@ -15,6 +15,7 @@ import Benchmark from './pages/Benchmark.jsx'
 import PacketInspector from './pages/PacketInspector.jsx'
 import StalkSummary from './pages/StalkSummary.jsx'
 import LogSummary from './pages/LogSummary.jsx'
+import FTDCSummary from './pages/FTDCSummary.jsx'
 import ManageUsers from './pages/ManageUsers.jsx'
 import Settings from './pages/Settings.jsx'
 import Labs from './pages/Labs.jsx'
@@ -28,6 +29,7 @@ const NAV = [
   { id: 'packet-inspector', label: 'Packet Inspector', icon: 'Packet', page: PacketInspector, hint: 'tcpdump on a database node, decoded packet by packet — MySQL, PostgreSQL, MongoDB, Valkey' },
   { id: 'stalk-summary', label: 'Stalk Summary', icon: 'Monitor', page: StalkSummary, hint: 'Charts from a pt-stalk archive' },
   { id: 'log-summary', label: 'Log Summary', icon: 'Line', page: LogSummary, hint: "Several nodes' logs on one timeline — the good, the warning and the bad" },
+  { id: 'ftdc-summary', label: 'FTDC Summary', icon: 'Monitor', page: FTDCSummary, hint: "MongoDB's diagnostic.data — the black box every mongod already writes" },
   { id: 'labs', label: 'Labs (experimental)', icon: 'Flask', page: Labs, hint: 'Hands-on scenarios with real check-work verification' },
   { id: 'settings', label: 'Settings', icon: 'Settings', page: Settings, hint: 'Terminal & theme preferences' },
 ]

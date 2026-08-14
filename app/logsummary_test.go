@@ -36,7 +36,9 @@ func lsLoadScenario(t *testing.T, name string) *lsBundle {
 	}
 	var names []string
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".err") {
+		// .err is MySQL's error log, .log is mongod's. Both are "the server's own log",
+		// which is the only thing this loader cares about.
+		if !e.IsDir() && (strings.HasSuffix(e.Name(), ".err") || strings.HasSuffix(e.Name(), ".log")) {
 			names = append(names, e.Name())
 		}
 	}

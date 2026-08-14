@@ -237,7 +237,7 @@ func lsFindingReplicationBroken(b *lsBundle) []lsFinding {
 	// two verdict lines for one event, the vaguer of which said "replication is still
 	// broken" about a channel the operator never configured.
 	broken := lsPick(b, func(e lsEvent) bool {
-		return !lsSrcIs(b, e.Src, lsFlavourGroupRepl) &&
+		return !lsSrcIs(b, e.Src, lsFlavourGroupRepl) && !lsSrcIs(b, e.Src, lsFlavourMongoRS) &&
 			(e.Class == lsClassReplica || e.Class == lsClassConflict) && e.Sev == lsSevBad
 	})
 	if len(broken) == 0 {
@@ -365,7 +365,7 @@ func lsFindingReplicaLag(b *lsBundle) []lsFinding {
 	// true sentence about a topology they do not have.
 	repl := false
 	for _, e := range b.Events {
-		if e.Class == lsClassReplica && !lsSrcIs(b, e.Src, lsFlavourGroupRepl) {
+		if e.Class == lsClassReplica && !lsSrcIs(b, e.Src, lsFlavourGroupRepl) && !lsSrcIs(b, e.Src, lsFlavourMongoRS) {
 			repl = true
 		}
 	}

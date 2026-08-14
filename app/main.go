@@ -201,6 +201,13 @@ func main() {
 	mux.HandleFunc("GET /api/logsummary/bundles/{id}/sources/{src}/raw", app.handleLogRaw)
 	mux.HandleFunc("POST /api/logsummary/bundles/{id}/offset", app.handleLogOffset)
 
+	// FTDC Summary: MongoDB's diagnostic.data — the per-second black box every mongod
+	// writes with no configuration — read straight off a node or uploaded, and turned into
+	// the handful of charts that answer something (see ftdcsummary.go).
+	mux.HandleFunc("GET /api/ftdc/targets", app.handleFTDCTargets)
+	mux.HandleFunc("POST /api/ftdc/upload", app.handleFTDCUpload)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/ftdc", app.handleFTDCNode)
+
 	mux.HandleFunc("GET /api/benchmark/targets", app.handleBenchTargets)
 	mux.HandleFunc("POST /api/benchmark/runs", app.handleBenchStart)
 	mux.HandleFunc("GET /api/benchmark/runs/{id}", app.handleBenchStatus)

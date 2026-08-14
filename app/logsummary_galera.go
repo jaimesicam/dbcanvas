@@ -91,7 +91,11 @@ const (
 	lsStateJoined = "JOINED"
 	lsStateJoiner = "JOINER"
 	lsStateDonor  = "DONOR"
-	lsStatePrim   = "PRIMARY"
+	// Spelled PRIMARY-COMP, not PRIMARY. Galera's is the primary COMPONENT — the side of
+	// a split that kept quorum — while MongoDB's PRIMARY is the one member accepting
+	// writes. They are different ideas and a bundle can hold both, so the swimlane legend
+	// cannot explain one word two ways.
+	lsStatePrim   = "PRIMARY-COMP"
 	lsStateOpen   = "OPEN"
 	lsStateClosed = "CLOSED"
 	lsStateDown   = "DOWN"
@@ -109,11 +113,13 @@ const (
 // amber means "it is up but not serving", red means "it is not part of a working cluster".
 func lsStateSev(state string) string {
 	switch state {
-	case lsStateSynced, lsStateUp, lsStateOnline:
+	case lsStateSynced, lsStateUp, lsStateOnline, lsStatePrimaryM, lsStateSecondary:
 		return lsSevOK
-	case lsStateJoined, lsStateJoiner, lsStateDonor, lsStatePrim, lsStateStarting, lsStateRecovering:
+	case lsStateJoined, lsStateJoiner, lsStateDonor, lsStatePrim, lsStateStarting, lsStateRecovering,
+		lsStateStartup2, lsStateArbiter:
 		return lsSevWarn
-	case lsStateOpen, lsStateClosed, lsStateDown, lsStateBlocked, lsStateGRError, lsStateOffline:
+	case lsStateOpen, lsStateClosed, lsStateDown, lsStateBlocked, lsStateGRError, lsStateOffline,
+		lsStateRollback, lsStateRemoved:
 		return lsSevBad
 	}
 	return lsSevInfo
@@ -133,7 +139,8 @@ func lsStateSev(state string) string {
 // write; counting that as availability would report a cluster that cannot accept a single
 // transaction as fully available, which is the opposite of what the page is for.
 func lsStateServes(state string) bool {
-	return state == lsStateSynced || state == lsStateUp || state == lsStateOnline
+	return state == lsStateSynced || state == lsStateUp || state == lsStateOnline ||
+		state == lsStatePrimaryM || state == lsStateSecondary
 }
 
 // lsStateMeaning explains a state once, for the timeline legend and the tooltip.
@@ -142,7 +149,7 @@ var lsStateMeaning = map[string]string{
 	lsStateJoined:   "has the data but is still applying the backlog — flow control is holding the cluster back for it, and it is not in the read pool",
 	lsStateJoiner:   "receiving a state transfer; it cannot answer queries at all",
 	lsStateDonor:    "serving a state transfer to another member, and desynced from the group while it does",
-	lsStatePrim:     "part of the primary component but not yet joined — the state a node passes through on its way in",
+	lsStatePrim:     "part of the primary component but not yet joined — the state a Galera node passes through on its way in",
 	lsStateOpen:     "connected to no primary component: it will refuse queries with 1047 until it rejoins",
 	lsStateClosed:   "the provider is shut down — the node is not in the cluster",
 	lsStateDown:     "the server is not running",
@@ -158,6 +165,14 @@ var lsStateMeaning = map[string]string{
 	lsStateGRError:    lsGRStateMeaning[lsStateGRError],
 	lsStateOffline:    lsGRStateMeaning[lsStateOffline],
 	lsStateBlocked:    lsGRStateMeaning[lsStateBlocked],
+
+	// MongoDB's replica-set states, spelled as rs.status() spells them.
+	lsStatePrimaryM:  lsMongoStateMeaning[lsStatePrimaryM],
+	lsStateSecondary: lsMongoStateMeaning[lsStateSecondary],
+	lsStateStartup2:  lsMongoStateMeaning[lsStateStartup2],
+	lsStateRollback:  lsMongoStateMeaning[lsStateRollback],
+	lsStateArbiter:   lsMongoStateMeaning[lsStateArbiter],
+	lsStateRemoved:   lsMongoStateMeaning[lsStateRemoved],
 }
 
 // lsNullUUID is what Galera writes when there is no state at all — a first start on an
@@ -900,7 +915,7 @@ func lsNormaliseState(s string) string {
 	switch s {
 	case "DONOR/DESYNCED", "DONOR", "DESYNCED":
 		return lsStateDonor
-	case "SYNCED", "JOINED", "JOINER", "PRIMARY", "OPEN", "CLOSED":
+	case "SYNCED", "JOINED", "JOINER", "PRIMARY", "PRIMARY-COMP", "OPEN", "CLOSED":
 		return s
 	}
 	return s

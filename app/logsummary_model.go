@@ -248,6 +248,27 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 			e.Src = idx
 			events = append(events, e)
 		}
+	case pktEngineMongoDB:
+		// A replica-set member is parsed here rather than by the shared classifier. The
+		// facts that matter — newState/oldState, hostAndPort, the rollback counts — live
+		// in the record's `attr` object, and pktLogEntry does not carry it. A standalone
+		// mongod has none of them and keeps the shared path below.
+		recs := lsFoldMongo(in.Data)
+		if lsSniffMongoRS(recs) {
+			src.Records = len(recs)
+			src.Flavour = lsFlavourMongoRS
+			src.Node = lsMongoNodeName(recs)
+			for _, r := range recs {
+				e, keep := lsClassifyMongo(r)
+				if !keep {
+					continue
+				}
+				e.Src = idx
+				events = append(events, e)
+			}
+			break
+		}
+		fallthrough
 	default:
 		// The other engines already have line classifiers, written for the Packet
 		// Inspector's correlation pane. They are reused verbatim rather than reimplemented:
@@ -269,6 +290,8 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 		// Galera's own records carry the state; nothing to resolve.
 	case lsFlavourGroupRepl:
 		lsResolveGroupRepl(events)
+	case lsFlavourMongoRS:
+		lsResolveMongo(src.Node, events)
 	default:
 		lsResolveStandalone(events)
 	}
