@@ -1,0 +1,7 @@
+2026-08-14T01:45:30.197858Z 0 [Note] [MY-000000] [Galera] Member 2.0 (pxc03) desyncs itself from group
+2026-08-14T01:45:49.572615Z 2 [Warning] [MY-014084] [InnoDB] Threads are unable to reserve space in redo log which can't be reclaimed due to the 'log_checkpointer' consumer still lagging behind at LSN = 890242138. Consider increasing innodb_redo_log_capacity.
+2026-08-14T01:45:57.160624Z 0 [Note] [MY-000000] [Galera] Created page /var/lib/mysql/gcache.page.000000 of size 134217728 bytes
+2026-08-14T01:46:00.102580Z 2 [Warning] [MY-014084] [InnoDB] Threads are unable to reserve space in redo log which can't be reclaimed due to the 'log_checkpointer' consumer still lagging behind at LSN = 966689546. Consider increasing innodb_redo_log_capacity.
+2026-08-14T01:46:14.987591Z 2 [Warning] [MY-014084] [InnoDB] Threads are unable to reserve space in redo log which can't be reclaimed due to the 'log_checkpointer' consumer still lagging behind at LSN = 1074155336. Consider increasing innodb_redo_log_capacity.
+2026-08-14T01:46:20.213156Z 0 [Note] [MY-000000] [Galera] Member 2.0 (pxc03) resyncs itself to group.
+2026-08-14T01:46:46.981588Z 0 [Note] [MY-000000] [Galera] Member 2.0 (pxc03) synced with group.

@@ -449,13 +449,23 @@ export default function PacketInspector() {
 // `htmlFor` is what makes clicking anywhere in the box open the dialog, and the input's
 // focus ring is mirrored onto the box with `peer-focus-visible` so tabbing to it is still
 // visible.
-export function FilePick({ id, accept, file, onPick, placeholder }) {
+//
+// `multiple` + `onPickMany` are for the Log Summary, which takes one file per node in a
+// single pick: choosing three members' logs one dialog at a time would make the comparison
+// the user's chore. Single-file callers are untouched — they pass neither, and get the same
+// behaviour as before.
+export function FilePick({ id, accept, file, onPick, onPickMany, placeholder, multiple = false }) {
   const [over, setOver] = useState(false)
+  const take = (list) => {
+    const files = [...(list || [])]
+    if (multiple && onPickMany) onPickMany(files)
+    else onPick(files[0] || null)
+  }
   return (
     <div>
       <input
-        id={id} type="file" accept={accept} className="peer sr-only"
-        onChange={(e) => onPick(e.target.files?.[0] || null)}
+        id={id} type="file" accept={accept} multiple={multiple} className="peer sr-only"
+        onChange={(e) => take(e.target.files)}
       />
       <label
         htmlFor={id}
@@ -464,8 +474,7 @@ export function FilePick({ id, accept, file, onPick, placeholder }) {
         onDrop={(e) => {
           e.preventDefault()
           setOver(false)
-          const f = e.dataTransfer?.files?.[0]
-          if (f) onPick(f)
+          if (e.dataTransfer?.files?.length) take(e.dataTransfer.files)
         }}
         className={'flex cursor-pointer items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-xs transition ' +
           'hover:border-primary hover:bg-primary/5 peer-focus-visible:ring-2 peer-focus-visible:ring-primary ' +
@@ -482,7 +491,7 @@ export function FilePick({ id, accept, file, onPick, placeholder }) {
         )}
       </label>
       {file && (
-        <button type="button" onClick={() => onPick(null)}
+        <button type="button" onClick={() => (multiple && onPickMany ? onPickMany([]) : onPick(null))}
           className="mt-1 text-[10px] text-muted underline hover:text-danger">
           remove
         </button>

@@ -13793,3 +13793,365 @@ the same either way.
 
 Verified by `go build`, `go vet`, the Go suite, and `npm run smoke`, which renders
 every Stalk Summary component and would have caught a broken import.
+
+## 253. Log Summary — `app/logsummary*.go`, `app/web/src/pages/LogSummary.jsx`, `app/web/src/lib/logApi.js`, `docs/LOG_SUMMARY.md`
+
+The other half of the Packet Inspector. That one answers "what crossed the wire";
+this reads what the servers said about themselves — several nodes' logs at once,
+on one timeline, split into the good, the warning and the bad.
+
+§251 ended by recording a defect it could not fix from inside the Stalk Summary:
+a Galera view block is multi-line, the advisor's parser evaluates lines
+independently, and so the kept evidence included the fragment `partitioned {` —
+"not wrong, but not a useful sentence either". That fragment is the single most
+valuable thing in a Galera log, and getting at it is the reason this feature
+folds records instead of reading lines.
+
+### The testbed came first
+
+Every rule here was written against logs from a live three-node PXC 8.0.46
+cluster, captured while doing the thing that produces them. The corpus is
+committed at `app/testdata/logsummary/` (3,033 lines, 19 files) and the tests read
+it:
+
+| fixture | what was done |
+| --- | --- |
+| `s01-bootstrap` | a cluster created from nothing, then joined by two members |
+| `s03-crash-kill9` | `kill -9` on pxc02 under write load |
+| `s04-graceful-restart` | `systemctl restart mysql` on pxc03 |
+| `s05a-ftwrl-desync` | `FLUSH TABLES WITH READ LOCK` held 50 s |
+| `s05b-flow-control` | a write flood against a member slowed with tc/netem and `gcs.fc_limit=1` |
+| `s06-network-partition` | pxc03 cut off ports 4567/4568/4444 with 100% loss for 52 s |
+| `s07-sst-rejoin` | the aborted node started again, rejoining by full SST |
+
+Writing the rules first and capturing afterwards would have produced a classifier
+for imagined log lines. Three of the design's load-bearing decisions were made *by*
+the capture, and two of them corrected a first guess that was wrong.
+
+### What the capture taught
+
+**1. The level field is not the severity.** The crash scenario — a member
+SIGKILLed under load, evicted, auto-restarted and rejoined by IST — contains 314
+`[Note]` records, 8 `[System]`, 5 `[Warning]` and **zero** `[ERROR]`. `declaring
+node with index 1 suspected`, `suspected node without join message, declaring
+inactive` and `Shifting SYNCED -> OPEN` are the entire story of the outage and
+every one is a `[Note]`. So severity is derived from what a record means, with the
+level kept only as a floor — an unrecognised `[ERROR]` is never filed as
+information.
+
+**2. `left {}` does not mean "shut down cleanly" — corrected.** The first design
+read Galera's `left` and `partitioned` view sections as clean-versus-unclean
+departure, and a test asserted it. The graceful-restart fixture failed that test,
+and inspection showed why: across *every* capture, including a plain `systemctl
+restart mysql`, `left` is empty and the departing member appears under
+`partitioned`, because the EVS layer sees a closed socket either way.
+
+What actually separates them is what the survivors logged *before* the view
+changed:
+
+    systemctl restart   nothing — the view changes ~1 ms after the socket closes
+    kill -9             ~5 s of "reconnecting to … attempt 0" and "Connection
+                        refused", then "declaring node with index 1 suspected,
+                        timeout PT5S (evs.suspect_timeout)" and "declaring inactive"
+
+So the verdict decides on that evidence instead, and the two fixtures are now a
+matched pair of tests: the same shape of outage must read as an incident in one
+and as maintenance in the other. A later wrinkle from the partition fixture: a
+process that *aborts* also closes its sockets, so a crash looks identical to a
+clean stop from the survivors' side — the clean-departure verdict is withheld
+whenever the bundle holds a crash nearby.
+
+**3. Flow control is very nearly invisible — measured, not assumed.** Driving the
+cluster hard enough to register ten received flow-control messages and 91,676,189
+ns of measured pause (`wsrep_flow_control_recv`, `wsrep_flow_control_paused_ns`)
+produced **one line** in the error log, and it was the threshold rather than a
+pause. `gcs.fc_debug=1` does add `FC: queue size: … % of soft limit` records, at
+the cost of volume.
+
+The feature therefore never reports "no flow control" from silence. It states that
+the log cannot tell you and names the status variables that can — and promotes the
+one thing the log *does* carry, the interval, to a warning when it is far below the
+default (`gcs.fc_limit` × member count: 141 for two members, 173 for three, against
+the `[2, 2]` the flood fixture produced).
+
+A fourth measurement shaped the "healthy" verdict: thirty seconds of continuous
+inserts across all three nodes wrote **nothing** to any error log. An empty bundle
+therefore means either "nothing went wrong" or "wrong file", and the finding says
+both.
+
+### What it builds
+
+`logsummary_parse.go` folds a log into records — a header plus its continuation
+lines — which is what makes a view's membership, a quorum result's `members = 2/3`
+and the `View:` block's UUID-to-name pairs readable at all. Repeats collapse into
+one row with a count and a span (the partition fixture's 24 peer-timeout retries
+become two rows, one per peer), but never state transitions, membership changes or
+transfers: an earlier version folded those and reported a node that spent five
+seconds catching up as having spent a minute and a half.
+
+`logsummary_galera.go` is the catalogue: ~70 ordered rules, each with a severity, a
+plain-English meaning and an extractor. `logsummary_model.go` merges the sources
+into one numbered stream and reconstructs a continuous **state track** per node, so
+"what was pxc02 doing at 01:49:35" is a lookup rather than a reconstruction by eye.
+`logsummary_verdict.go` holds the thirteen cross-node findings.
+
+Two subtleties in the state track, both found by running it:
+
+- **A log is a fragment.** A node already SYNCED when the excerpt begins never logs
+  a transition *into* SYNCED. The left-hand side of its first transition *out* is
+  stated evidence and is used as the seed; a node with no transitions at all that
+  reports itself in a primary component is seeded SYNCED and marked **inferred**,
+  drawn at reduced opacity and labelled as deduced. Anything else stays UNKNOWN.
+- **Transitions are not states.** Galera walks several states in the same
+  microsecond: cutting a member off produced, within 370 µs, a view saying "1
+  member, non-primary" while the node was still nominally SYNCED, then
+  NON-PRIMARY, then `Shifting SYNCED -> OPEN`. The first live run landed a readout
+  in the first of those and reported "SYNCED, 1 member, non-primary" — three facts
+  briefly all true that together describe nothing. State lookups now skip phases
+  shorter than 50 ms; the timeline still draws them. `TestLogSummarySettledState`
+  covers it.
+
+### Verified live, not only against fixtures
+
+The whole path was exercised against the running cluster through the HTTP API, in
+an isolated app instance on a copy of the database so the user's own was untouched.
+Reading all three nodes' full logs (941 + 935 + 1,172 lines → 783 events) produced,
+unprompted, an accurate account of every scenario that had been performed on that
+cluster, in order: the bootstrap at 09:32:43, the SST to pxc02 at 09:32:55, the
+unclean restart, the member lost at 09:42:31, the clean departure at 09:43:54, the
+50-second desync at 09:45:30, the low flow-control threshold at 09:47:02, the split
+at 09:49:35 and the abort at 09:50:25.
+
+Two real bugs surfaced only there, and neither would have from the fixtures:
+
+- `mysqld: Terminated.` set no state, so a node that aborted mid-join read as
+  JOINER for the eleven minutes it was switched off. It now sets DOWN.
+- Every occurrence of a member UUID in a message was being expanded to
+  `name (uuid)`, which turned `evs::proto(<uuid>, OPERATIONAL, view_id(REG,<uuid>,3))`
+  into something unreadable. Only the first occurrence is expanded now.
+
+A third was found by driving the page in a browser: the swimlane read its drag
+state from React state in the mouseup handler, so a click delivered faster than a
+re-render did nothing. It works when a human clicks slowly and fails under a
+synthetic click, which is the kind of bug that reaches users; the drag now lives in
+a ref.
+
+The UI was confirmed by screenshot at 1440×900 with no console errors, and the
+"what was every node doing at this instant" readout — two members SYNCED with two
+members in the primary component, the third OPEN with one and outside it — is
+`docs/screenshots/log-summary.png`.
+
+### Scope
+
+PXC is where the depth is. PostgreSQL, MongoDB and Valkey come through the Packet
+Inspector's existing line classifiers, adapted onto the same timeline, severity
+split and multi-source comparison — a catalogue of their own, with the same
+evidence standard, is the obvious next step and has not been done.
+
+Coverage: 20 Go tests over the real corpus, and 33 render checks including one that
+asserts every severity, state and class the backend can emit has a colour, a word
+and a glyph.
+
+## 254. A colour per node, on an axis the status colours do not use — `app/web/src/index.css`, `app/web/src/lib/logApi.js`, `app/web/src/pages/LogSummary.jsx`
+
+§253's timeline fills each lane with a *status* colour — is this node serving? — and
+named the node in plain text beside it. Two channels were doing one job's worth
+of work: "which node" had no colour at all, so following pxc03 through an
+interleaved event list meant reading every badge.
+
+The constraint is the interesting part. The node colours must not be red, amber
+or green, because those three are the status triad and a reader must never have
+to work out whether magenta means "pxc03" or "bad". That leaves the cool arc —
+roughly OKLCH hue 190–340 — and inside it protanopia and deuteranopia collapse
+almost everything toward one blue, so hue alone separates very little and
+lightness has to do the rest.
+
+**Searched, not picked.** A dense pool was generated across the arc (in-gamut
+OKLCH steps, ~1,400 candidates light / ~800 dark), filtered to those in the
+mode's lightness band, above the chroma floor, at least 3:1 against **every**
+surface this app renders on, and individually unmistakable for a status colour;
+then a max-min search over hue families picked five. Every result was re-checked
+with the dataviz skill's `validate_palette.js`, which is what decides:
+
+    light  #0e97b4 #03539e #8273ff #8708d9 #910574
+    dark   #26a2bf #0f6ac3 #887efb #9f13fd #c4039e
+
+    within the set   light CVD ΔE 9.6 / normal 16.6   dark 8.8 / 16.3
+    vs the status triad  light CVD ΔE 9.1 / normal 15.1   dark 15.5 / 17.0
+
+ALL CHECKS PASS in both modes on all six themes' surfaces (`#ffffff`, `#fbf1d3`,
+`#161b24`, `#0e1530`, `#241546`, `#122019`), under `--pairs all` — all-pairs
+rather than adjacent because any two nodes can end up next to each other in the
+event list, and the default adjacent check would not see that collapse.
+
+**Three things the procedure forced, each correcting a first attempt.**
+
+*Feeding the node colours and the status triad to one `validate()` call rejected
+everything in dark mode* — zero candidates. The band check was the cause: dark
+`--status-warn` is `#fde047` at OKLCH L 0.92, far outside the categorical band
+0.48–0.67, because a status palette is deliberately not a categorical one. The
+two questions are separate and are now asked separately: is the node palette a
+legal categorical palette, and is each node colour unmistakable for a status
+colour (the CVD and normal-vision checks only).
+
+*Searching the two modes independently produced two good palettes made of
+different hues* — light landed on `#0c8ced,#802073,#224fa7,#df46be,#8001ea`,
+dark on `#14a5b3,#a70dff,#937def,#bd2a9f,#0871c1`. Both validated; together they
+would have meant pxc01 is blue in one theme and teal in the other. A node's
+colour is its identity, so the search now picks **hue families** and steps each
+family per mode, exactly as the reference palette does.
+
+*`${nodeEdge(i)}/40` produced a class Tailwind had never emitted.* The literal in
+the source is `border-node-1`; the composed string is `border-node-1/40`, which
+the scanner never sees, so the border silently fell back to the default. Both
+strengths are now written out, and a render check asserts every slot resolves to
+its own slot and that the slot past the end does not quietly reuse a colour.
+
+**Where the colour is, and is not.** A `NodeChip` — a dot in the node's colour
+and the name in ordinary ink — appears on the timeline lane, in the sources
+table, on every event row, in the node filter and on each instant-readout card.
+The lane also takes a left rule in its colour. The lane *fill* stays status, so
+the two channels never touch. The label is never coloured: a hue validated to
+3:1 against the surface is a legal mark, not legal type.
+
+**It stops at five,** and says so. A sixth hue in that arc cannot be separated
+from the first five by a colour-blind reader, and cycling would put two nodes on
+screen wearing the same colour; so a sixth source gets a neutral chip and the
+Sources card explains why. That is only defensible because the name is printed
+beside every chip — the colour is an accelerant, never the signal.
+
+Verified by screenshot against the live three-node cluster with no console
+errors, and by five new render checks (39 total for this page).
+
+## 255. `kill -9` is not a crash — `app/logsummary_parse.go`, `app/logsummary_galera.go`
+
+Reported from the running cluster: pxc01 had crashed and the page did not say so.
+
+It had. At 07:51:05 mysqld took a SIGSEGV and wrote its crash block — signal,
+build id, server version, thread pointer, backtrace. The Log Summary showed
+nothing, and the reason was worse than an omission. MySQL's crash handler runs
+inside a signal handler and cannot call the normal logging path, so it writes a
+format nothing else uses:
+
+    2026-08-14T07:51:05Z UTC - mysqld got signal 11 ;
+
+No thread column, no `[Level]`, no `[MY-nnnnnn]`, no subsystem. `lsMySQLHeader`
+did not match it, so by the folding rule the line and the twenty after it became
+the **body of the record above** — which was `Member synced with group`,
+severity **ok**. The crash was rendered as good news, in green. And where the
+block began an excerpt with no record above to absorb it, it was dropped
+entirely: the fixture captured for this section produced, before the fix, no
+event at all.
+
+**The corpus is why it shipped.** §253's crash scenario was `kill -9`. SIGKILL
+cannot be caught, no handler runs, and nothing of this kind is ever written — the
+only trace is what the survivors logged, which the tool did read correctly. A
+process vanishing and a process crashing are different events and the fixtures
+only had the first. `s08-crash-signal11` is the second: `kill -11` to mysqld on
+pxc02 under write load, the survivors' view of it, and the rejoin.
+
+**The fix.** `lsCrashHeader` recognises the handler's line as a header in its own
+right, in both timestamp layouts MySQL uses (RFC3339 with a Z; the older
+`YYMMDD HH:MM:SS`), with or without the ` UTC `. The block then folds into that
+record instead of the innocent one before it, and `lsEnrichCrash` reads out what
+a reader needs first: the signal and what it means, the build, the statement that
+was running when the handler printed one, and whether the backtrace resolved —
+a package build with no debug symbols prints every frame as `<unknown>`, and
+saying so saves the reader wondering whether the tool lost it. The record also
+sets state DOWN, without which the phase track keeps whatever the node was doing
+when it died.
+
+**The test that generalises it.** `TestLogSummaryCrashEvidenceIsNeverLost` is
+asserted against the RAW fixture text, not the parsed events, because folding
+loses a record two different quiet ways and only that catches both: if a line in
+any fixture says the server crashed, an event must say the server crashed, at
+that line. It fails on the s08 fixture with the fix disabled, which is the check
+that matters. Folding is what makes this feature work and also what makes it
+dangerous; that test is the guard on it.
+
+Verified live: reading all three nodes now reports "A server stopped abnormally —
+pxc01: Server crashed — signal 11 · pxc02: Server crashed — signal 11 · pxc03:
+Aborting: will never receive state; mysqld terminated", with the backtrace under
+the record's *Continuation lines (20)* and `Show this in the file` beside it.
+
+## 256. Asynchronous replication — `app/logsummary_mysqlrepl.go`, `app/logsummary_galera.go`, `app/logsummary_model.go`
+
+§253 read a synchronous cluster. Asked to point the same tool at asynchronous
+replication and bombard it the same way, the answer was mostly "it captures the
+records but has nothing to say about them" — every replication failure came
+through as an unrecognised `[ERROR]` with the raw line as its title.
+
+A three-node Percona Server 8.0.46-37 GTID topology was deployed through the
+app's own API (a `mysql`/psrepl frame: one source, two replicas) and taken apart
+the same way the PXC cluster was. The fixtures are the `r0*` directories:
+
+| fixture | what was done |
+| --- | --- |
+| `r02-dupkey-conflict` | a row written straight onto a replica, then the same key from the source → 1062 |
+| `r03-repl-auth-fail` | the replication user's password rotated under a running replica → 1045 |
+| `r04-binlog-purged` | `PURGE BINARY LOGS` while a replica was stopped and behind → 1236 |
+| `r05-replica-lag` | a replica held 61 s behind by a table lock |
+| `r06-stop-start-replica` | a clean `STOP REPLICA` / `START REPLICA` |
+| `r07-source-crash` | SIGSEGV to the source with both replicas connected |
+| `r08-replica-crash` | SIGSEGV to a replica mid-apply, and its XA crash recovery |
+| `r09-source-unreachable` | 100% packet loss on 3306 from a replica for 80 s |
+
+Unlike Galera, the level field IS usable here — failures are real `[ERROR]`s with
+MY- codes and the good news is `[System]`. What it cannot tell you is which of
+them stopped replication and which the server will retry out of, so severity
+still comes from meaning.
+
+**Four things the capture taught.**
+
+*A replica can stop and keep looking healthy.* The rotated password produced ONE
+record and then nothing: `attempt 1/86400, with a delay of 60 seconds between
+attempts` — sixty days of silent retrying. The rule spells the retry policy out
+in words, because it is the difference between "it will fix itself" and "it will
+sit there until somebody looks". (`lsDur` grew a days tier for it; `1440.0 h` is
+not a number anybody reads as two months.)
+
+*Lag is invisible.* A replica held 61 seconds behind, with the source writing
+continuously, wrote nothing at all — the same blindness as Galera's flow control,
+and `lsFindingReplicaLag` is its twin: state that the log cannot tell you, and
+name `Seconds_Behind_Source` and
+`performance_schema.replication_applier_status_by_worker`.
+
+*A network outage can leave no trace but the recovery.* 100% packet loss on 3306
+produced NO "lost connection" and NO "error reconnecting": the I/O thread blocked
+until `slave_net_timeout` rather than erroring, and the sole record of an
+80-second outage was the line saying it had connected.
+`lsFindingSilentReconnect` is built on that absence — a "connected to source"
+with no failure and no restart in front of it is the evidence. It names the other
+thing that looks identical (somebody running `START REPLICA`), because the log
+genuinely cannot separate them and claiming otherwise would be a fabrication.
+
+*A server that is not a cluster member has no wsrep state.* The first run of the
+new catalogue reported the live, entirely healthy topology as three servers that
+had not served a query in thirteen minutes — because the shared phase builder put
+every MySQL node into `CLOSED` at its first start-up record and nothing ever moved
+it out. `lsResolveStandalone` gives non-cluster servers the only states they have
+(`RUNNING`, `STARTING`, `DOWN`), and `lsStateServes` replaced the bare
+`state == SYNCED` test that the unavailability finding rested on.
+
+**And one thing that was not about replication.** Percona Server writes the crash
+block TWICE — once raw, and once again line by line through the error log as
+MY-013951. §255 taught the parser the raw form; this build showed the other one,
+and left alone a single crash became twenty-odd separate "Server crashed" rows
+with the bug-report URL among them. The re-emitted block now folds into the raw
+record, so a crash is one record whichever way the build writes it. The rule that
+recognises it matches on TEXT rather than on the code, because a code match wins
+on its own and MY-013951 is carried by every line of the block.
+
+Structurally: `lsReplRules` is a second ordered catalogue concatenated ahead of
+the Galera one into `lsMySQLRules`, not a separate dispatch — a PXC member can
+also be an asynchronous replica of another cluster, so the two vocabularies
+genuinely appear in one file. `lsClassifyGalera` was renamed `lsClassifyMySQL` to
+match what it now does.
+
+Verified live through the HTTP API against the running topology: the verdict
+reports the crash on two nodes, "Replication is still broken at the end of the
+log — not recovered: mysql01 (The source purged binary logs this replica still
+needed), mysql03 (Replica cannot connect to its source) · recovered: mysql02
+(Replication stopped applying an event, back after 60.0s)", and 15.4s / 13.4s /
+9.4s of real downtime over a 13.1-minute window. 12 new Go tests (33 for this
+feature), all green with `go vet` and the render smoke suite.

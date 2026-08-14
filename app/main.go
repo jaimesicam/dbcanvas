@@ -186,6 +186,21 @@ func main() {
 	// (aborted connections, DNS, TLS, listener), narrowed to the capture's window.
 	mux.HandleFunc("GET /api/pktinspect/captures/{id}/serverlog", app.handlePktServerLog)
 
+	// Log Summary: several nodes' server logs read as one timeline, classified into
+	// the good, the warning and the bad. Uploaded, or tailed from a stack's nodes in
+	// one request — the comparison across members is the point (see logsummary.go).
+	mux.HandleFunc("GET /api/logsummary/targets", app.handleLogTargets)
+	mux.HandleFunc("GET /api/logsummary/bundles", app.handleLogList)
+	mux.HandleFunc("POST /api/logsummary/collect", app.handleLogCollect)
+	mux.HandleFunc("POST /api/logsummary/upload", app.handleLogUpload)
+	mux.HandleFunc("GET /api/logsummary/bundles/{id}", app.handleLogGet)
+	mux.HandleFunc("DELETE /api/logsummary/bundles/{id}", app.handleLogDelete)
+	mux.HandleFunc("GET /api/logsummary/bundles/{id}/events", app.handleLogEvents)
+	mux.HandleFunc("GET /api/logsummary/bundles/{id}/timeline", app.handleLogTimeline)
+	mux.HandleFunc("GET /api/logsummary/bundles/{id}/at", app.handleLogAt)
+	mux.HandleFunc("GET /api/logsummary/bundles/{id}/sources/{src}/raw", app.handleLogRaw)
+	mux.HandleFunc("POST /api/logsummary/bundles/{id}/offset", app.handleLogOffset)
+
 	mux.HandleFunc("GET /api/benchmark/targets", app.handleBenchTargets)
 	mux.HandleFunc("POST /api/benchmark/runs", app.handleBenchStart)
 	mux.HandleFunc("GET /api/benchmark/runs/{id}", app.handleBenchStatus)

@@ -10,7 +10,9 @@ driven by Vagrant for the OS/database nodes. It then gives you tools to *use* an
 those databases: a **Data Generator** for realistic test data, a **Query Runner** and
 **Benchmark** for workloads, a **Packet Inspector** that decodes MySQL, PostgreSQL,
 MongoDB and Valkey traffic off the wire, a
-**Stalk Summary** that turns pt-stalk captures into charts, an
+**Stalk Summary** that turns pt-stalk captures into charts, a
+**Log Summary** that reads several nodes' logs on one timeline and splits them into the good,
+the warning and the bad, an
 **experimental Labs** catalog of 95 AI-generated hands-on scenarios (see
 [below](#labs-experimental) — verify before relying on them), a live **Dashboard**, and a
 **notification** center for what's happening across your stacks.
@@ -528,6 +530,43 @@ age, replication lag, deadlocks, rows-scanned-without-index, and more). It's ~90
 and stays resilient when files are missing from the archive.
 
 ![Stalk Summary — timeline charts from a pt-stalk archive](docs/screenshots/stalk-summary.png)
+
+### Log Summary
+Read several nodes' **server logs together**, on one timeline, split into **the good, the
+warning and the bad**. Read them straight off a stack's nodes in one click, or upload one file
+per node — MySQL/PXC, PostgreSQL, MongoDB or Valkey, with the format detected from the bytes.
+
+The point is the comparison. Each lane is one node, **filled with the state it was in** —
+green while it was `SYNCED` and serving, amber while it was joining, donating or applying a
+backlog, red while it had no primary component or was not running. Click any instant and every
+node's state at that moment is printed side by side, which is the question three log files are
+opened to answer and the tedious part of answering it by hand.
+
+Each node also carries **a colour of its own** — cyan, blue, periwinkle, violet, magenta —
+on a palette deliberately kept clear of the red/amber/green the status colours use, so
+"which node" and "how is it doing" never share a channel. Both palettes were checked with a
+colour-vision validator rather than picked by eye, and the node's name always sits beside
+its chip.
+
+**PXC and asynchronous replication both have full catalogues** — one written against a live
+Galera cluster, the other against a live GTID source/replica topology — so a 1062 applier
+stop names the row, the table and the transaction, and a 1236 names the GTIDs the source
+threw away.
+
+Severity comes from what a record **means**, not from its level: a capture containing a
+complete crash, an eviction, a state transfer and a rejoin held 314 `[Note]` records and **no**
+`[ERROR]` at all. Multi-line Galera records are folded and parsed whole (a view's membership,
+a quorum result's `members = 2/3`), repeats collapse into one row with a count, and the
+**verdict** says what it all adds up to — a member lost versus one shut down cleanly, a split
+with one side still serving, time spent not answering queries, an SST that should have been an
+IST. It also says what the log *cannot* tell you: flow-control pauses leave almost no trace,
+so silence there is never reported as health.
+
+![Log Summary — three PXC members on one timeline, the good, the warning and the bad](docs/screenshots/log-summary.png)
+
+See [`docs/LOG_SUMMARY.md`](docs/LOG_SUMMARY.md) for the Galera event catalogue, how the
+cluster-state track is reconstructed, and the real-cluster captures the rules were written
+against.
 
 ### Labs (experimental)
 A catalog of **95 hands-on scenarios** — 27 for **Patroni** (PostgreSQL HA), 30 for **PS MongoDB**

@@ -1,0 +1,63 @@
+2026-08-14T09:24:00Z UTC - mysqld got signal 11 ;
+Most likely, you have hit a bug, but this error can also be caused by malfunctioning hardware.
+BuildID[sha1]=adfceb7b3acc5cc1126c37d071f78f559e630655
+Server Version: 8.0.46-37 Percona Server (GPL), Release 37, Revision 39e2b60e
+
+Thread pointer: 0x0
+Attempting backtrace. You can use the following information to find out
+where mysqld died. If you see no messages after this, something went
+terribly wrong...
+stack_bottom = 0 thread_stack 0x100000
+ #0 0x7eb28615ec2f <unknown>
+ #1 0x7eb28622214f <unknown>
+ #2 0xdff632 <unknown>
+ #3 0xba2547 <unknown>
+ #4 0x7eb28614960f <unknown>
+ #5 0x7eb2861496bf <unknown>
+ #6 0x9b4104 <unknown>
+ #7 0xffffffffffffffff <unknown>
+Please help us make Percona Server better by reporting any
+bugs at https://bugs.percona.com/
+
+You may download the Percona Server operations manual by visiting
+http://www.percona.com/software/percona-server/. You may find information
+in the manual which will help you identify the cause of the crash.
+2026-08-14T09:24:00.000000Z 0 [System] [MY-013951] [Server] 2026-08-14T09:24:00Z UTC - mysqld got signal 11 ;
+2026-08-14T09:24:00.000001Z 0 [System] [MY-013951] [Server] Most likely, you have hit a bug, but this error can also be caused by malfunctioning hardware.
+2026-08-14T09:24:00.000002Z 0 [System] [MY-013951] [Server] BuildID[sha1]=adfceb7b3acc5cc1126c37d071f78f559e630655
+2026-08-14T09:24:00.000003Z 0 [System] [MY-013951] [Server] Server Version: 8.0.46-37 Percona Server (GPL), Release 37, Revision 39e2b60e
+2026-08-14T09:24:00.000004Z 0 [System] [MY-013951] [Server] Thread pointer: 0x0
+2026-08-14T09:24:00.000005Z 0 [System] [MY-013951] [Server] Attempting backtrace. You can use the following information to find out
+2026-08-14T09:24:00.000006Z 0 [System] [MY-013951] [Server] where mysqld died. If you see no messages after this, something went
+2026-08-14T09:24:00.000007Z 0 [System] [MY-013951] [Server] terribly wrong...
+2026-08-14T09:24:00.000008Z 0 [System] [MY-013951] [Server] stack_bottom = 0 thread_stack 0x100000
+2026-08-14T09:24:00.000009Z 0 [System] [MY-013951] [Server]  #0 0x7eb28615ec2f <unknown>
+2026-08-14T09:24:00.000010Z 0 [System] [MY-013951] [Server]  #1 0x7eb28622214f <unknown>
+2026-08-14T09:24:00.000011Z 0 [System] [MY-013951] [Server]  #2 0xdff632 <unknown>
+2026-08-14T09:24:00.000012Z 0 [System] [MY-013951] [Server]  #3 0xba2547 <unknown>
+2026-08-14T09:24:00.000013Z 0 [System] [MY-013951] [Server]  #4 0x7eb28614960f <unknown>
+2026-08-14T09:24:00.000014Z 0 [System] [MY-013951] [Server]  #5 0x7eb2861496bf <unknown>
+2026-08-14T09:24:00.000015Z 0 [System] [MY-013951] [Server]  #6 0x9b4104 <unknown>
+2026-08-14T09:24:00.000016Z 0 [System] [MY-013951] [Server]  #7 0xffffffffffffffff <unknown>
+2026-08-14T09:24:00.000017Z 0 [System] [MY-013951] [Server] Please help us make Percona Server better by reporting any
+2026-08-14T09:24:00.000018Z 0 [System] [MY-013951] [Server] bugs at https://bugs.percona.com/
+2026-08-14T09:24:00.000019Z 0 [System] [MY-013951] [Server] You may download the Percona Server operations manual by visiting
+2026-08-14T09:24:00.000020Z 0 [System] [MY-013951] [Server] http://www.percona.com/software/percona-server/. You may find information
+2026-08-14T09:24:00.000021Z 0 [System] [MY-013951] [Server] in the manual which will help you identify the cause of the crash.
+2026-08-14T09:24:00.971128Z 0 [Warning] [MY-011070] [Server] 'binlog_format' is deprecated and will be removed in a future release.
+2026-08-14T09:24:00.972637Z 0 [Warning] [MY-010097] [Server] Insecure configuration for --secure-log-path: Current value does not restrict location of generated files. Consider setting it to a valid, non-empty path.
+2026-08-14T09:24:00.972686Z 0 [System] [MY-010116] [Server] /usr/sbin/mysqld (mysqld 8.0.46-37) starting as process 5332
+2026-08-14T09:24:00.974513Z 0 [System] [MY-013951] [Server] A backtrace was processed and added to the main error-log in the appropriate format.
+2026-08-14T09:24:00.977776Z 1 [System] [MY-013576] [InnoDB] InnoDB initialization has started.
+2026-08-14T09:24:04.880101Z 1 [System] [MY-013577] [InnoDB] InnoDB initialization has ended.
+2026-08-14T09:24:05.402442Z 0 [System] [MY-010229] [Server] Starting XA crash recovery...
+2026-08-14T09:24:05.412341Z 0 [System] [MY-010232] [Server] XA crash recovery finished.
+2026-08-14T09:24:05.849579Z 0 [Warning] [MY-010068] [Server] CA certificate ca.pem is self signed.
+2026-08-14T09:24:05.849608Z 0 [System] [MY-013602] [Server] Channel mysql_main configured to support TLS. Encrypted connections are now supported for this channel.
+2026-08-14T09:24:05.864557Z 0 [Warning] [MY-010604] [Repl] Neither --relay-log nor --relay-log-index were used; so replication may break when this MySQL server acts as a replica and has his hostname changed!! Please use '--relay-log=mysql02-relay-bin' to avoid this problem.
+2026-08-14T09:24:06.029985Z 6 [Warning] [MY-010897] [Repl] Storing MySQL user name or password information in the connection metadata repository is not secure and is therefore not recommended. Please consider using the USER and PASSWORD connection options for START REPLICA; see the 'START REPLICA Syntax' in the MySQL Manual for more information.
+2026-08-14T09:24:06.031803Z 6 [System] [MY-014002] [Repl] Replica receiver thread for channel '': connected to source 'repl@mysql01.example.net:3306' with server_uuid=9350192d-97c0-11f1-b78b-fa9050a09d8b, server_id=221100480. Starting GTID-based replication.
+2026-08-14T09:24:06.032180Z 0 [System] [MY-011323] [Server] X Plugin ready for connections. Bind-address: '::' port: 33060, socket: /var/lib/mysql/mysqlx.sock
+2026-08-14T09:24:06.032283Z 0 [System] [MY-010931] [Server] /usr/sbin/mysqld: ready for connections. Version: '8.0.46-37'  socket: '/var/lib/mysql/mysql.sock'  port: 3306  Percona Server (GPL), Release 37, Revision 39e2b60e.
+2026-08-14T09:24:15.827030Z 11 [Warning] [MY-014084] [InnoDB] Threads are unable to reserve space in redo log which can't be reclaimed due to the 'log_checkpointer' consumer still lagging behind at LSN = 1310675980. Consider increasing innodb_redo_log_capacity.
+2026-08-14T09:24:28.356278Z 11 [Warning] [MY-014084] [InnoDB] Threads are unable to reserve space in redo log which can't be reclaimed due to the 'log_checkpointer' consumer still lagging behind at LSN = 1423309681. Consider increasing innodb_redo_log_capacity.

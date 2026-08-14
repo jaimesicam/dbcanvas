@@ -1,0 +1,223 @@
+2026-08-14T01:49:32.822783Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 0bc20092-ac42 with addr tcp://172.27.0.3:4567 timed out, no messages seen in PT3S, socket stats: rtt: 4306 rttvar: 7760 rto: 1664000 lost: 1 last_data_recv: 3044 cwnd: 1 last_queued_since: 500079272 last_delivered_since: 3046963732 send_queue_length: 0 send_queue_bytes: 0 segment: 0 messages: 0 (gmcast.peer_timeout)
+2026-08-14T01:49:32.822847Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 119e686d-8943 with addr tcp://172.27.0.5:4567 timed out, no messages seen in PT3S, socket stats: rtt: 904 rttvar: 1611 rto: 1632000 lost: 1 last_data_recv: 3044 cwnd: 1 last_queued_since: 4076 last_delivered_since: 3046861531 send_queue_length: 1 send_queue_bytes: 212 segment: 0 messages: 1 (gmcast.peer_timeout)
+2026-08-14T01:49:32.822883Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') turning message relay requesting on, nonlive peers: tcp://172.27.0.3:4567 tcp://172.27.0.5:4567 
+2026-08-14T01:49:33.822869Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') reconnecting to 0bc20092-ac42 (tcp://172.27.0.3:4567), attempt 0
+2026-08-14T01:49:34.322951Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') reconnecting to 119e686d-8943 (tcp://172.27.0.5:4567), attempt 0
+2026-08-14T01:49:34.823256Z 0 [Note] [MY-000000] [Galera] declaring node with index 0 suspected, timeout PT5S (evs.suspect_timeout)
+2026-08-14T01:49:34.823283Z 0 [Note] [MY-000000] [Galera] declaring node with index 1 suspected, timeout PT5S (evs.suspect_timeout)
+2026-08-14T01:49:34.823290Z 0 [Note] [MY-000000] [Galera] evs::proto(a6a6b630-bd03, OPERATIONAL, view_id(REG,0bc20092-ac42,7)) suspecting node: 0bc20092-ac42
+2026-08-14T01:49:34.823294Z 0 [Note] [MY-000000] [Galera] evs::proto(a6a6b630-bd03, OPERATIONAL, view_id(REG,0bc20092-ac42,7)) suspected node without join message, declaring inactive
+2026-08-14T01:49:34.823297Z 0 [Note] [MY-000000] [Galera] evs::proto(a6a6b630-bd03, OPERATIONAL, view_id(REG,0bc20092-ac42,7)) suspecting node: 119e686d-8943
+2026-08-14T01:49:34.823300Z 0 [Note] [MY-000000] [Galera] evs::proto(a6a6b630-bd03, OPERATIONAL, view_id(REG,0bc20092-ac42,7)) suspected node without join message, declaring inactive
+2026-08-14T01:49:35.323486Z 0 [Note] [MY-000000] [Galera] declaring node with index 0 inactive (evs.inactive_timeout) 
+2026-08-14T01:49:35.323516Z 0 [Note] [MY-000000] [Galera] declaring node with index 1 inactive (evs.inactive_timeout) 
+2026-08-14T01:49:35.823537Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view (view_id(NON_PRIM,0bc20092-ac42,7)
+memb {
+	a6a6b630-bd03,0
+	}
+joined {
+	}
+left {
+	}
+partitioned {
+	0bc20092-ac42,0
+	119e686d-8943,0
+	}
+)
+2026-08-14T01:49:35.823630Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view (view_id(NON_PRIM,a6a6b630-bd03,8)
+memb {
+	a6a6b630-bd03,0
+	}
+joined {
+	}
+left {
+	}
+partitioned {
+	0bc20092-ac42,0
+	119e686d-8943,0
+	}
+)
+2026-08-14T01:49:35.823644Z 0 [Note] [MY-000000] [Galera] New COMPONENT: primary = no, bootstrap = no, my_idx = 0, memb_num = 1
+2026-08-14T01:49:35.823895Z 0 [Note] [MY-000000] [Galera] Flow-control interval: [100, 100]
+2026-08-14T01:49:35.823903Z 0 [Note] [MY-000000] [Galera] Received NON-PRIMARY.
+2026-08-14T01:49:35.823906Z 0 [Note] [MY-000000] [Galera] Shifting SYNCED -> OPEN (TO: 16867)
+2026-08-14T01:49:35.824017Z 0 [Note] [MY-000000] [Galera] New COMPONENT: primary = no, bootstrap = no, my_idx = 0, memb_num = 1
+2026-08-14T01:49:35.824023Z 1 [Note] [MY-000000] [Galera] Maybe drain monitors from 16867 upto current CC event 16867 upto:16867
+2026-08-14T01:49:35.824029Z 0 [Note] [MY-000000] [Galera] Flow-control interval: [100, 100]
+2026-08-14T01:49:35.824055Z 1 [Note] [MY-000000] [Galera] Drain monitors from 16867 up to 16867
+2026-08-14T01:49:35.824069Z 1 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 0bc30087-9780-11f1-99de-a792441874f1:16867
+  status: non-primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: 0
+  members(1):
+	0: a6a6b630-9781-11f1-bd03-8b43952dd972, pxc03
+=================================================
+2026-08-14T01:49:35.824073Z 1 [Note] [MY-000000] [Galera] Non-primary view
+2026-08-14T01:49:35.824077Z 1 [Note] [MY-000000] [WSREP] Server status change synced -> connected
+2026-08-14T01:49:35.824095Z 0 [Note] [MY-000000] [Galera] Received NON-PRIMARY.
+2026-08-14T01:49:35.824107Z 1 [Note] [MY-000000] [WSREP] wsrep_notify_cmd is not defined, skipping notification.
+2026-08-14T01:49:35.824123Z 1 [Note] [MY-000000] [WSREP] wsrep_notify_cmd is not defined, skipping notification.
+2026-08-14T01:49:35.824136Z 1 [Note] [MY-000000] [Galera] Maybe drain monitors from 16867 upto current CC event 16867 upto:16867
+2026-08-14T01:49:35.824139Z 1 [Note] [MY-000000] [Galera] Drain monitors from 16867 up to 16867
+2026-08-14T01:49:35.824145Z 1 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 0bc30087-9780-11f1-99de-a792441874f1:16867
+  status: non-primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: 0
+  members(1):
+	0: a6a6b630-9781-11f1-bd03-8b43952dd972, pxc03
+=================================================
+2026-08-14T01:49:35.824148Z 1 [Note] [MY-000000] [Galera] Non-primary view
+2026-08-14T01:49:35.824150Z 1 [Note] [MY-000000] [WSREP] Server status change connected -> connected
+2026-08-14T01:49:35.824153Z 1 [Note] [MY-000000] [WSREP] wsrep_notify_cmd is not defined, skipping notification.
+2026-08-14T01:49:36.824031Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.3:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9218088 cwnd: 1 last_queued_since: 9518168813932 last_delivered_since: 9518168813932 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:49:36.824097Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:49:37.324067Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.5:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9218588 cwnd: 1 last_queued_since: 9518668854383 last_delivered_since: 9518668854383 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:49:37.324133Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:49:40.824507Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.3:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9222088 cwnd: 1 last_queued_since: 9522169292580 last_delivered_since: 9522169292580 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:49:40.824582Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:49:41.324644Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.5:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9222588 cwnd: 1 last_queued_since: 9522669433116 last_delivered_since: 9522669433116 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:49:41.324719Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:49:44.825671Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.3:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9226088 cwnd: 1 last_queued_since: 9526170455764 last_delivered_since: 9526170455764 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:49:44.825747Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:49:45.325706Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.5:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9226588 cwnd: 1 last_queued_since: 9526670493596 last_delivered_since: 9526670493596 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:49:45.325831Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:49:48.826119Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.3:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9230088 cwnd: 1 last_queued_since: 9530170904867 last_delivered_since: 9530170904867 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:49:48.826212Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:49:49.326166Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.5:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9230588 cwnd: 1 last_queued_since: 9530670953781 last_delivered_since: 9530670953781 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:49:49.326229Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:49:53.326608Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.5:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9234588 cwnd: 1 last_queued_since: 9534671395912 last_delivered_since: 9534671395912 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:49:53.326687Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.3:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9234588 cwnd: 1 last_queued_since: 9534671492518 last_delivered_since: 9534671492518 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:49:53.326709Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:49:53.326714Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:49:57.326999Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.5:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9238588 cwnd: 1 last_queued_since: 9538671787430 last_delivered_since: 9538671787430 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:49:57.327080Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.3:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9238588 cwnd: 1 last_queued_since: 9538671884831 last_delivered_since: 9538671884831 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:49:57.327106Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:49:57.327112Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:50:01.327414Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.5:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9242592 cwnd: 1 last_queued_since: 9542672201614 last_delivered_since: 9542672201614 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:50:01.327479Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:50:01.827452Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.3:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9243092 cwnd: 1 last_queued_since: 9543172240190 last_delivered_since: 9543172240190 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:50:01.827519Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:50:05.327757Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.5:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9246592 cwnd: 1 last_queued_since: 9546672544282 last_delivered_since: 9546672544282 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:50:05.327822Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:50:05.827783Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.3:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9247092 cwnd: 1 last_queued_since: 9547172571857 last_delivered_since: 9547172571857 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:50:05.827843Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:50:09.328132Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.5:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9250592 cwnd: 1 last_queued_since: 9550672920019 last_delivered_since: 9550672920019 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:50:09.328203Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:50:09.828175Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.3:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9251092 cwnd: 1 last_queued_since: 9551172963691 last_delivered_since: 9551172963691 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:50:09.828243Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:50:13.328461Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.5:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9254592 cwnd: 1 last_queued_since: 9554673249417 last_delivered_since: 9554673249417 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:50:13.328536Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:50:13.828510Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.3:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9255092 cwnd: 1 last_queued_since: 9555173296281 last_delivered_since: 9555173296281 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:50:13.828577Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:50:17.328937Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.5:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9258592 cwnd: 1 last_queued_since: 9558673724316 last_delivered_since: 9558673724316 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:50:17.329007Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:50:17.828968Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.3:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9259092 cwnd: 1 last_queued_since: 9559173757067 last_delivered_since: 9559173757067 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:50:17.829067Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:50:21.329398Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.5:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9262592 cwnd: 1 last_queued_since: 9562674174516 last_delivered_since: 9562674174516 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:50:21.329468Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:50:22.329473Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection to peer 00000000-0000 with addr tcp://172.27.0.3:4567 timed out, no messages seen in PT3S, socket stats: rtt: 0 rttvar: 250000 rto: 1000000 lost: 1 last_data_recv: 9263592 cwnd: 1 last_queued_since: 9563674261073 last_delivered_since: 9563674261073 send_queue_length: 0 send_queue_bytes: 0 (gmcast.peer_timeout)
+2026-08-14T01:50:22.329699Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-14T01:50:22.330004Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection established to 119e686d-8943 tcp://172.27.0.5:4567
+2026-08-14T01:50:22.615272Z 0 [Note] [MY-000000] [Galera] (a6a6b630-bd03, 'tcp://0.0.0.0:4567') connection established to 0bc20092-ac42 tcp://172.27.0.3:4567
+2026-08-14T01:50:24.335096Z 0 [Note] [MY-000000] [Galera] declaring 0bc20092-ac42 at tcp://172.27.0.3:4567 stable
+2026-08-14T01:50:24.335119Z 0 [Note] [MY-000000] [Galera] declaring 119e686d-8943 at tcp://172.27.0.5:4567 stable
+2026-08-14T01:50:25.336175Z 0 [Note] [MY-000000] [Galera] Node 0bc20092-ac42 state primary
+2026-08-14T01:50:25.343282Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view (view_id(PRIM,0bc20092-ac42,9)
+memb {
+	0bc20092-ac42,0
+	119e686d-8943,0
+	a6a6b630-bd03,0
+	}
+joined {
+	}
+left {
+	}
+partitioned {
+	}
+)
+2026-08-14T01:50:25.343304Z 0 [Note] [MY-000000] [Galera] Save the discovered primary-component to disk
+2026-08-14T01:50:25.350380Z 0 [Note] [MY-000000] [Galera] New COMPONENT: primary = yes, bootstrap = no, my_idx = 2, memb_num = 3
+2026-08-14T01:50:25.350398Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: Waiting for state UUID.
+2026-08-14T01:50:25.350645Z 0 [Note] [MY-000000] [Galera] Action message in non-primary configuration from member 1
+2026-08-14T01:50:25.350666Z 0 [Note] [MY-000000] [Galera] Action message in non-primary configuration from member 0
+2026-08-14T01:50:25.350669Z 0 [Note] [MY-000000] [Galera] Action message in non-primary configuration from member 1
+2026-08-14T01:50:25.350842Z 0 [Note] [MY-000000] [Galera] Action message in non-primary configuration from member 0
+2026-08-14T01:50:25.350851Z 0 [Note] [MY-000000] [Galera] Action message in non-primary configuration from member 0
+2026-08-14T01:50:25.350870Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: sent state msg: 84b9c0ba-9782-11f1-a2c3-a65624d7b6cb
+2026-08-14T01:50:25.351152Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 84b9c0ba-9782-11f1-a2c3-a65624d7b6cb from 0 (pxc01)
+2026-08-14T01:50:25.351166Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 84b9c0ba-9782-11f1-a2c3-a65624d7b6cb from 1 (pxc02)
+2026-08-14T01:50:25.351179Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 84b9c0ba-9782-11f1-a2c3-a65624d7b6cb from 2 (pxc03)
+2026-08-14T01:50:25.351183Z 0 [Note] [MY-000000] [Galera] Quorum results:
+	version    = 6,
+	component  = PRIMARY,
+	conf_id    = 8,
+	members    = 2/3 (primary/total),
+	act_id     = 19716,
+	last_appl. = 19701,
+	protocols  = 6/11/4 (gcs/repl/appl),
+	vote policy= 0,
+	group UUID = 0bc30087-9780-11f1-99de-a792441874f1
+2026-08-14T01:50:25.351281Z 0 [Note] [MY-000000] [Galera] Flow-control interval: [173, 173]
+2026-08-14T01:50:25.351287Z 0 [Note] [MY-000000] [Galera] Shifting OPEN -> PRIMARY (TO: 19717)
+2026-08-14T01:50:25.351375Z 1 [Note] [MY-000000] [Galera] ####### processing CC 19717, local, ordered
+2026-08-14T01:50:25.351391Z 1 [Note] [MY-000000] [Galera] Maybe drain monitors from 16867 upto current CC event 19717 upto:16867
+2026-08-14T01:50:25.351395Z 1 [Note] [MY-000000] [Galera] Drain monitors from 16867 up to 16867
+2026-08-14T01:50:25.351399Z 1 [Note] [MY-000000] [Galera] ####### My UUID: a6a6b630-9781-11f1-bd03-8b43952dd972
+2026-08-14T01:50:25.351403Z 1 [Note] [MY-000000] [Galera] Cert index reset to 00000000-0000-0000-0000-000000000000:-1 (proto: 11), state transfer needed: yes
+2026-08-14T01:50:25.352412Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-14T01:50:25.352511Z 1 [Note] [MY-000000] [Galera] ####### Assign initial position for certification: 00000000-0000-0000-0000-000000000000:-1, protocol version: -1
+2026-08-14T01:50:25.352522Z 1 [Note] [MY-000000] [Galera] State transfer required: 
+	Group state: 0bc30087-9780-11f1-99de-a792441874f1:19717
+	Local state: 0bc30087-9780-11f1-99de-a792441874f1:16867
+2026-08-14T01:50:25.352528Z 1 [Note] [MY-000000] [WSREP] Server status change connected -> joiner
+2026-08-14T01:50:25.352531Z 1 [Note] [MY-000000] [WSREP] wsrep_notify_cmd is not defined, skipping notification.
+2026-08-14T01:50:25.352536Z 1 [Note] [MY-000000] [WSREP] WSREP: You have configured 'xtrabackup-v2' state snapshot transfer method which cannot be performed on a running server. Wsrep provider won't be able to fall back to it if other means of state transfer are unavailable. In that case you will need to restart the server.
+2026-08-14T01:50:25.352574Z 1 [Note] [MY-000000] [Galera] Check if state gap can be serviced using IST
+2026-08-14T01:50:25.352580Z 1 [Note] [MY-000000] [Galera] ####### IST uuid:0bc30087-9780-11f1-99de-a792441874f1 f: 16868, l: 19717, STRv: 3
+2026-08-14T01:50:25.352696Z 1 [Note] [MY-000000] [Galera] IST receiver addr using tcp://pxc03.example.net:4568
+2026-08-14T01:50:25.353190Z 1 [Note] [MY-000000] [Galera] Prepared IST receiver for 16868-19717, listening at: tcp://172.27.0.4:4568, waiting for connection to: tcp://pxc03.example.net:4568
+2026-08-14T01:50:25.353490Z 0 [Note] [MY-000000] [Galera] Member 2.0 (pxc03) requested state transfer from '*any*'. Selected 0.0 (pxc01)(SYNCED) as donor.
+2026-08-14T01:50:25.353505Z 0 [Note] [MY-000000] [Galera] Shifting PRIMARY -> JOINER (TO: 19718)
+2026-08-14T01:50:25.353537Z 1 [Note] [MY-000000] [Galera] Requesting state transfer: success, donor: 0
+2026-08-14T01:50:25.353548Z 1 [Note] [MY-000000] [Galera] Receiving IST: 2850 writesets, seqnos 16868-19717
+2026-08-14T01:50:25.353927Z 0 [Note] [MY-000000] [Galera] FC: queue size: 76240b ( 0.0% of soft limit)
+2026-08-14T01:50:25.353938Z 0 [Note] [MY-000000] [Galera] FC: queue size: 78416b ( 0.0% of soft limit)
+2026-08-14T01:50:25.353941Z 0 [Note] [MY-000000] [Galera] FC: queue size: 78872b ( 0.0% of soft limit)
+2026-08-14T01:50:25.354113Z 0 [Note] [MY-000000] [Galera] FC: queue size: 79480b ( 0.0% of soft limit)
+2026-08-14T01:50:25.354127Z 0 [Note] [MY-000000] [Galera] FC: queue size: 79984b ( 0.0% of soft limit)
+2026-08-14T01:50:25.354130Z 0 [Note] [MY-000000] [Galera] FC: queue size: 80592b ( 0.0% of soft limit)
+2026-08-14T01:50:25.381372Z 0 [Warning] [MY-000000] [Galera] 0.0 (pxc01): State transfer to 2.0 (pxc03) failed: Operation canceled
+2026-08-14T01:50:25.381396Z 0 [ERROR] [MY-000000] [Galera] ../../../../percona-xtradb-cluster-galera/gcs/src/gcs_group.cpp:gcs_group_handle_join_msg():1379: Will never receive state. Need to abort.
+2026-08-14T01:50:25.381401Z 0 [Note] [MY-000000] [Galera] gcomm: terminating thread
+2026-08-14T01:50:25.381418Z 0 [Note] [MY-000000] [Galera] gcomm: joining thread
+2026-08-14T01:50:25.381520Z 0 [Note] [MY-000000] [Galera] gcomm: closing backend
+2026-08-14T01:50:25.381809Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view (view_id(NON_PRIM,0bc20092-ac42,9)
+memb {
+	a6a6b630-bd03,0
+	}
+joined {
+	}
+left {
+	}
+partitioned {
+	0bc20092-ac42,0
+	119e686d-8943,0
+	}
+)
+2026-08-14T01:50:25.381858Z 0 [Note] [MY-000000] [Galera] PC protocol downgrade 1 -> 0
+2026-08-14T01:50:25.381865Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view ((empty))
+2026-08-14T01:50:25.411805Z 0 [Note] [MY-000000] [Galera] gcomm: closed
+2026-08-14T01:50:25.411829Z 0 [Note] [MY-000000] [Galera] /usr/sbin/mysqld: Terminated.

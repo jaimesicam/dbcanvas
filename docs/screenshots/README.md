@@ -19,5 +19,6 @@ Images embedded in the top-level [`README.md`](../../README.md).
 | `packet-inspector-detail.png` | A prepared-statement round trip selected, with the sticky inspection panel (SQL, timing, TCP state, hex) |
 | `packet-inspector-serverlog.png` | The server log read from the node and narrowed to the capture's own window, each record classified |
 | `stalk-summary.png` | Stalk Summary — timeline charts from a pt-stalk archive |
+| `log-summary.png` | Log Summary — three PXC members on one timeline, with the cluster's state at a chosen instant |
 | `labs.png` | The Labs (experimental) catalog, grouped by database/technology/category |
 | `dashboard.png` | The live Dashboard |

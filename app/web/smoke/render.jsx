@@ -37,6 +37,17 @@ import PacketInspector, {
   FilePick as PktFilePick,
 } from '../src/pages/PacketInspector.jsx'
 import { PORT_ROLE_TEXT, MONGO_KIND_TEXT, isSevereIssue } from '../src/lib/pktApi.js'
+import LogSummary, {
+  Verdict as LogVerdict, Swimlane as LogSwimlane, Snapshot as LogSnapshot,
+  SourcesCard as LogSources, EventList as LogEvents, EventDetail as LogDetail,
+  Filters as LogFilters, TopStrip as LogTop, Legend as LogLegend,
+  RangeControls as LogRange, UploadPanel as LogUpload, Pager as LogPager,
+  NodeChip as LogNodeChip,
+} from '../src/pages/LogSummary.jsx'
+import {
+  SEVS, SEV_TEXT, SEV_FILL, STATE_SEV, STATE_TEXT, CLASS_LABEL, logDur,
+  NODE_SLOTS, nodeFill, nodeTint, nodeEdge, nodeEdgeSoft,
+} from '../src/lib/logApi.js'
 import realDeps from './real-deps.json' with { type: 'json' }
 
 const noop = () => {}
@@ -1175,6 +1186,197 @@ check('stalk summary: head to head with no verdicts or settings', () =>
   renderToString(<HeadToHead cmp={{ ...headToHead, verdicts: [], settings: [] }} />))
 check('stalk summary: head to head with nothing', () =>
   renderToString(<div><HeadToHead cmp={null} /></div>))
+
+// ---- Log Summary: the swimlane, the verdict and the event list ----
+//
+// The fixture is a scaled-down version of the network-partition capture the Go rules were
+// written against (app/testdata/logsummary/s06-network-partition): two members keep quorum
+// while a third is cut off, goes non-primary and aborts.
+
+const logSources = [
+  { idx: 0, name: 'pxc01.err', node: 'pxc01', engine: 'mysql', flavour: 'galera', origin: 'upload',
+    bytes: 40000, lines: 207, records: 190, events: 44, firstTs: 1000, lastTs: 1058,
+    counts: { ok: 9, warn: 30, bad: 3, info: 2 } },
+  { idx: 1, name: 'pxc02.err', node: 'pxc02', engine: 'mysql', flavour: 'galera', origin: 'upload',
+    bytes: 38000, lines: 197, records: 180, events: 41, firstTs: 1000, lastTs: 1058,
+    counts: { ok: 8, warn: 29, bad: 2, info: 2 } },
+  { idx: 2, name: 'pxc03.err', node: 'pxc03', engine: 'mysql', flavour: 'galera', origin: 'upload',
+    bytes: 45000, lines: 223, records: 210, events: 45, firstTs: 1000, lastTs: 1058,
+    counts: { ok: 6, warn: 17, bad: 22, info: 0 } },
+]
+const logSummary = {
+  sources: 3, events: 130, firstTs: 1000, lastTs: 1058, overlap: 58, disjoint: false,
+  counts: { ok: 23, warn: 96, bad: 27, info: 54 },
+  classes: { membership: 30, network: 40, state: 20, quorum: 12, transfer: 18, crash: 2, other: 8 },
+  top: [
+    { label: 'Peer declared inactive', class: 'membership', sev: 'bad', count: 8 },
+    { label: 'Lost the primary component', class: 'quorum', sev: 'bad', count: 4 },
+    { label: 'Peer went quiet', class: 'network', sev: 'warn', count: 24 },
+    { label: 'Member synced with group', class: 'state', sev: 'ok', count: 6 },
+  ],
+}
+const logBundle = {
+  id: 'log-1', label: 'pxc-cluster · 3 node(s)', origin: 'node', created: '2026-08-14T01:49:00Z',
+  sources: logSources, summary: logSummary,
+}
+const logFindings = [
+  { id: 'crash', sev: 'bad', title: 'A server stopped abnormally',
+    detail: 'pxc03: Aborting: will never receive state; mysqld terminated',
+    advice: 'Read the records just before each of these.', at: 1052, sources: [2], events: [90] },
+  { id: 'quorum', sev: 'bad', title: 'The cluster split — one side kept quorum, the other did not',
+    detail: 'pxc03 could not see a majority of the cluster.', at: 1003, until: 1052, sources: [2] },
+  { id: 'flow-control', sev: 'info', title: 'Flow-control pauses are not recorded in this log',
+    detail: 'Galera writes the interval, never the pause.',
+    advice: 'Watch wsrep_flow_control_paused instead.' },
+  { id: 'healthy', sev: 'ok', title: 'No problems found in this window', detail: 'all routine.' },
+]
+const logPhases = [
+  { src: 0, from: 1000, to: 1058, state: 'SYNCED', sev: 'ok', members: 2, primary: 'yes' },
+  { src: 1, from: 1000, to: 1058, state: 'SYNCED', sev: 'ok', members: 2, primary: 'yes', inferred: true },
+  { src: 2, from: 1000, to: 1003, state: 'SYNCED', sev: 'ok', members: 3, primary: 'yes' },
+  { src: 2, from: 1003, to: 1052, state: 'OPEN', sev: 'bad', members: 1, primary: 'no' },
+  { src: 2, from: 1052, to: 1058, state: 'DOWN', sev: 'bad' },
+]
+const logTimeline = {
+  fromTs: 1000, toTs: 1058, matched: 130,
+  buckets: [
+    { src: 0, i: 0, ts: 1000, ok: 1, warn: 2, bad: 0, info: 1, count: 4 },
+    { src: 0, i: 1, ts: 1029, ok: 0, warn: 3, bad: 0, info: 0, count: 3 },
+    { src: 1, i: 0, ts: 1000, ok: 0, warn: 1, bad: 0, info: 0, count: 1 },
+    { src: 1, i: 1, ts: 1029, ok: 2, warn: 0, bad: 0, info: 1, count: 3 },
+    { src: 2, i: 0, ts: 1000, ok: 0, warn: 4, bad: 6, info: 0, count: 10 },
+    { src: 2, i: 1, ts: 1029, ok: 0, warn: 0, bad: 2, info: 0, count: 2 },
+  ],
+  phases: logPhases,
+}
+const logEventsFixture = [
+  { no: 1, src: 2, ts: 1003.001, line: 42, time: '2026-08-14T01:49:35.823Z', level: 'Note',
+    subsystem: 'Galera', class: 'quorum', sev: 'bad', label: 'Lost the primary component',
+    meaning: 'This node can no longer see a majority of the cluster.',
+    message: 'Received NON-PRIMARY.', primary: 'no', members: 1 },
+  { no: 2, src: 0, ts: 1003.5, line: 61, level: 'Note', subsystem: 'Galera',
+    class: 'network', sev: 'warn', label: 'Peer went quiet', message: 'no messages seen in PT3S',
+    peer: '172.27.0.4', repeat: 24, endTs: 1050.2 },
+  { no: 3, src: 1, ts: 1052.1, line: 130, level: 'Note', subsystem: 'Galera',
+    class: 'membership', sev: 'ok', label: 'Member synced with group',
+    message: '3 member(s)', detail: 'view (view_id(PRIM,0bc20092-ac42,9)\nmemb {\n\t0bc20092-ac42,0\n\t}' },
+  { no: 4, src: 2, ts: 1052.4, line: 200, level: 'ERROR', subsystem: 'Galera', code: 'MY-000000',
+    class: 'crash', sev: 'bad', label: 'Aborting: will never receive state',
+    meaning: 'The node asked for a state transfer and the donor went away.',
+    message: 'Will never receive state. Need to abort.', approx: false },
+]
+const logSnapshot = {
+  at: 1003.5, agree: false,
+  nodes: [
+    { src: 0, node: 'pxc01', state: 'SYNCED', sev: 'ok', members: 2, primary: 'yes',
+      meaning: STATE_TEXT.SYNCED, since: 1000, until: 1058, covered: true },
+    { src: 1, node: 'pxc02', state: 'SYNCED', sev: 'ok', members: 2, primary: 'yes', covered: true },
+    { src: 2, node: 'pxc03', state: 'OPEN', sev: 'bad', members: 1, primary: 'no',
+      meaning: STATE_TEXT.OPEN, covered: false },
+  ],
+  before: logEventsFixture[0],
+  after: logEventsFixture[3],
+}
+const logRange = { fromTs: '', toTs: '', src: -1, class: '', q: '', sev: [] }
+
+check('log summary: page shell', () => renderToString(<LogSummary />))
+check('log summary: legend', () => renderToString(<LogLegend />))
+check('log summary: sources card', () =>
+  renderToString(<LogSources bundle={logBundle} id="log-1" />))
+check('log summary: sources card with a disjoint bundle', () =>
+  renderToString(<LogSources bundle={{ ...logBundle, note: 'could not read: pxc04', summary: { ...logSummary, disjoint: true } }} id="log-1" />))
+check('log summary: verdict', () => renderToString(<LogVerdict findings={logFindings} onGo={noop} />))
+check('log summary: verdict with nothing', () =>
+  renderToString(<div><LogVerdict findings={[]} onGo={noop} /></div>))
+for (const sev of ['bad', 'warn', 'ok', 'info', 'banana', undefined]) {
+  check(`log summary: verdict severity ${sev}`, () =>
+    renderToString(<LogVerdict findings={[{ id: 'x', sev, title: 't', detail: 'd' }]} onGo={noop} />))
+}
+check('log summary: swimlane', () =>
+  renderToString(<LogSwimlane timeline={logTimeline} sources={logSources} first={1000} onSelect={noop} onPick={noop} />))
+check('log summary: swimlane before the timeline loads', () =>
+  renderToString(<div><LogSwimlane timeline={null} sources={logSources} first={0} onSelect={noop} onPick={noop} /></div>))
+check('log summary: swimlane with no buckets or phases', () =>
+  renderToString(<LogSwimlane timeline={{ fromTs: 1000, toTs: 1058, buckets: [], phases: [], matched: 0 }}
+    sources={logSources} first={1000} onSelect={noop} onPick={noop} />))
+check('log summary: instant readout', () =>
+  renderToString(<LogSnapshot snap={logSnapshot} sources={logSources} onClose={noop} />))
+check('log summary: instant readout when the nodes agree', () =>
+  renderToString(<LogSnapshot snap={{ ...logSnapshot, agree: true, before: null, after: null }}
+    sources={logSources} onClose={noop} />))
+check('log summary: event list', () =>
+  renderToString(<LogEvents events={logEventsFixture} sources={logSources} first={1000} selectedNo={2} onSelect={noop} />))
+check('log summary: event list with nothing matching', () =>
+  renderToString(<LogEvents events={[]} sources={logSources} first={1000} onSelect={noop} />))
+for (const e of logEventsFixture) {
+  check(`log summary: event detail #${e.no}`, () =>
+    renderToString(<LogDetail e={e} bundle={logBundle} id="log-1" first={1000} />))
+}
+check('log summary: filters', () =>
+  renderToString(<LogFilters range={logRange} setRange={noop} summary={logSummary} sources={logSources} />))
+check('log summary: filters with a severity picked', () =>
+  renderToString(<LogFilters range={{ ...logRange, sev: ['bad'] }} setRange={noop} summary={logSummary} sources={logSources} />))
+check('log summary: what happened most', () =>
+  renderToString(<LogTop summary={logSummary} range={logRange} setRange={noop} />))
+check('log summary: what happened most, with nothing', () =>
+  renderToString(<div><LogTop summary={{ ...logSummary, top: [] }} range={logRange} setRange={noop} /></div>))
+check('log summary: range controls', () =>
+  renderToString(<LogRange range={logRange} setRange={noop} buckets={180} setBuckets={noop} summary={logSummary} span={58} />))
+check('log summary: upload panel', () =>
+  renderToString(<LogUpload files={[]} setFiles={noop} busy={false} onUpload={noop} onCancel={noop} />))
+check('log summary: upload panel with several files', () =>
+  renderToString(<LogUpload files={[{ name: 'pxc01.err', size: 40000 }, { name: 'pxc02.err', size: 38000 }]}
+    setFiles={noop} busy={false} onUpload={noop} onCancel={noop} />))
+check('log summary: pager', () =>
+  renderToString(<LogPager page={{ matched: 900, offset: 200, limit: 200 }} onPage={noop} />))
+
+for (const size of ['sm', 'lg']) {
+  check(`log summary: node chip (${size})`, () =>
+    renderToString(<LogNodeChip src={0} name="pxc01" size={size} />))
+}
+check('log summary: node chip past the palette', () =>
+  renderToString(<LogNodeChip src={NODE_SLOTS + 3} name="pxc09" />))
+check('log summary: sources card beyond the node palette', () => {
+  const many = Array.from({ length: NODE_SLOTS + 2 }, (_, i) => ({
+    ...logSources[0], idx: i, name: `pxc0${i + 1}.err`, node: `pxc0${i + 1}`,
+  }))
+  return renderToString(<LogSources bundle={{ ...logBundle, sources: many }} id="log-1" />)
+})
+
+// The node palette is a fixed set of literal class names, because Tailwind only emits the
+// strings it can see in the source — a class composed at runtime silently renders as
+// nothing at all. Every slot must resolve to its own slot, and the slot past the end must
+// fall back rather than quietly reuse a colour.
+check('log summary: every node slot has real classes', () => {
+  for (let i = 0; i < NODE_SLOTS; i++) {
+    for (const [what, cls] of [['fill', nodeFill(i)], ['tint', nodeTint(i)],
+      ['edge', nodeEdge(i)], ['edge-soft', nodeEdgeSoft(i)]]) {
+      if (!cls || cls.includes('undefined')) throw new Error(`node slot ${i} ${what}: ${cls}`)
+      if (!cls.includes(`node-${i + 1}`)) throw new Error(`node slot ${i} ${what} is not slot ${i + 1}: ${cls}`)
+    }
+  }
+  for (const f of [nodeFill, nodeTint, nodeEdge, nodeEdgeSoft]) {
+    const cls = f(NODE_SLOTS)
+    if (!cls || cls.includes('node-')) throw new Error(`slot past the end reused a node colour: ${cls}`)
+  }
+  return 'ok'
+})
+
+// Every severity and state the backend can emit must have a colour, a word and a glyph —
+// colour is never the only signal, so a missing entry is a rendering bug waiting to happen.
+check('log summary: every severity is styled', () => {
+  for (const sev of SEVS) {
+    if (!SEV_TEXT[sev] || !SEV_FILL[sev]) throw new Error(`severity ${sev} has no style`)
+  }
+  for (const st of Object.keys(STATE_TEXT)) {
+    if (!STATE_SEV[st]) throw new Error(`state ${st} has no severity`)
+  }
+  for (const cls of Object.keys(logSummary.classes)) {
+    if (!CLASS_LABEL[cls]) throw new Error(`class ${cls} has no label`)
+  }
+  if (logDur(0) !== '0s') throw new Error('logDur(0) should be 0s')
+  return 'ok'
+})
 
 if (failures > 0) {
   console.error(`\n${failures} render failure(s)`)

@@ -1,0 +1,2 @@
+2026-08-14T09:24:07.431081Z 2902 [Warning] [MY-014084] [InnoDB] Threads are unable to reserve space in redo log which can't be reclaimed due to the 'log_checkpointer' consumer still lagging behind at LSN = 1268284909. Consider increasing innodb_redo_log_capacity.
+2026-08-14T09:24:21.526825Z 3670 [Warning] [MY-014084] [InnoDB] Threads are unable to reserve space in redo log which can't be reclaimed due to the 'log_checkpointer' consumer still lagging behind at LSN = 1367871053. Consider increasing innodb_redo_log_capacity.
