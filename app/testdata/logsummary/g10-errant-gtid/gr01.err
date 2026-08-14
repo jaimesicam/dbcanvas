@@ -1,0 +1,12 @@
+2026-08-14T16:41:47.950629Z 2787 [System] [MY-013587] [Repl] Plugin group_replication reported: 'Plugin 'group_replication' is starting.'
+2026-08-14T16:41:47.951003Z 2787 [System] [MY-011565] [Repl] Plugin group_replication reported: 'Setting super_read_only=ON.'
+2026-08-14T16:41:47.954020Z 2789 [System] [MY-010597] [Repl] 'CHANGE REPLICATION SOURCE TO FOR CHANNEL 'group_replication_applier' executed'. Previous state source_host='<NULL>', source_port= 0, source_log_file='', source_log_pos= 4, source_bind=''. New state source_host='<NULL>', source_port= 0, source_log_file='', source_log_pos= 4, source_bind=''.
+2026-08-14T16:41:47.969620Z 2790 [System] [MY-014081] [Repl] Plugin group_replication reported: 'The Group Replication certifier broadcast thread (THD_certifier_broadcast) started.'
+2026-08-14T16:41:51.138365Z 0 [ERROR] [MY-011526] [Repl] Plugin group_replication reported: 'This member has more executed transactions than those present in the group. Local transactions: 0f509b30-97fc-11f1-b261-fabc5fe87f63:1-128, 4c67caf1-5ff1-4c69-bf5b-14a38ad422f7:1-18 > Group transactions: 4c67caf1-5ff1-4c69-bf5b-14a38ad422f7:1-1548:1000836-1000858'
+2026-08-14T16:41:51.138415Z 0 [ERROR] [MY-011522] [Repl] Plugin group_replication reported: 'The member contains transactions not present in the group. The member will now exit the group.'
+2026-08-14T16:41:51.138447Z 0 [System] [MY-011503] [Repl] Plugin group_replication reported: 'Group membership changed to gr02:3306, gr03:3306, gr01:3306 on view 17867254175423045:9.'
+2026-08-14T16:41:51.138493Z 0 [ERROR] [MY-011486] [Repl] Plugin group_replication reported: 'Message received while the plugin is not ready, message discarded.'
+2026-08-14T16:41:52.036509Z 0 [Warning] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Shutting down an outgoing connection. This happens because something might be wrong on a bi-directional connection to node gr02.example.net:33061. Please check the connection status to this member'
+2026-08-14T16:41:54.181282Z 0 [System] [MY-011504] [Repl] Plugin group_replication reported: 'Group membership changed: This member has left the group.'
+2026-08-14T16:41:54.183333Z 0 [System] [MY-014082] [Repl] Plugin group_replication reported: 'The Group Replication certifier broadcast thread (THD_certifier_broadcast) stopped.'
+2026-08-14T16:41:54.183455Z 2787 [System] [MY-011566] [Repl] Plugin group_replication reported: 'Setting super_read_only=OFF.'

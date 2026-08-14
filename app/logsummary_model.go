@@ -159,6 +159,7 @@ func lsBuild(inputs []lsInput) *lsBundle {
 		return b.Events[i].Line < b.Events[j].Line
 	})
 	lsApplyNames(b)
+	lsGRPromoteMembers(b)
 	b.Events = lsCollapse(b.Events)
 	if len(b.Events) > lsMaxEvents {
 		b.Events = b.Events[:lsMaxEvents]
@@ -235,6 +236,9 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 		src.Records = len(recs)
 		src.Flavour = lsSniffFlavour(recs)
 		src.Node = lsNodeName(recs)
+		if src.Node == "" && src.Flavour == lsFlavourGroupRepl {
+			src.Node = lsGRNodeName(recs)
+		}
 		names = lsUUIDNames(recs)
 		for _, r := range recs {
 			e, keep := lsClassifyMySQL(r)
@@ -260,7 +264,12 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 	}
 
 	lsResolveSelf(src.Node, events)
-	if src.Flavour != lsFlavourGalera {
+	switch src.Flavour {
+	case lsFlavourGalera:
+		// Galera's own records carry the state; nothing to resolve.
+	case lsFlavourGroupRepl:
+		lsResolveGroupRepl(events)
+	default:
 		lsResolveStandalone(events)
 	}
 	for i := range events {
@@ -345,6 +354,43 @@ func lsResolveStandalone(events []lsEvent) {
 			e.State = lsStateDown
 		case e.Label == "Shutdown requested":
 			e.State = lsStateStarting // stopping: up, but on its way out of service
+		}
+	}
+}
+
+// lsResolveGroupRepl is lsResolveStandalone's Group Replication counterpart, and differs
+// from it in exactly one place that matters.
+//
+// A standalone server that reaches `ready for connections` is RUNNING — up and serving,
+// which is the whole of what is being asked of it. A Group Replication member that reaches
+// the same line is OFFLINE: mysqld is up, but the plugin is not, and nothing in the
+// cluster's data will reach it. The corpus contains the case that makes this worth
+// separating (g04-crash-kill9): systemd restarted a SIGKILLed member, mysqld came back and
+// logged `ready for connections`, group_replication_start_on_boot was OFF so nothing
+// rejoined, and the log said nothing further. Measured at that moment the server was
+// writable and 666 transactions behind the group. Calling that RUNNING would have painted
+// the lane green for the rest of the window.
+//
+// The plugin's own records move it on from there — MY-013587 to RECOVERING, MY-011490 to
+// ONLINE — so a healthy start shows a brief OFFLINE stripe before it joins, which is
+// exactly what was true.
+func lsResolveGroupRepl(events []lsEvent) {
+	for i := range events {
+		e := &events[i]
+		if e.State != "" {
+			continue // a plugin record already said what state this is
+		}
+		switch {
+		case e.Class == lsClassCrash && e.Sev == lsSevBad:
+			e.State = lsStateDown
+		case strings.HasPrefix(e.Label, "Server ready for connections"):
+			e.State = lsStateOffline
+		case strings.HasPrefix(e.Label, "Server starting"):
+			e.State = lsStateStarting
+		case e.Label == "Shutdown complete":
+			e.State = lsStateDown
+		case e.Label == "Shutdown requested":
+			e.State = lsStateStarting
 		}
 	}
 }

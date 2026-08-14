@@ -1,0 +1,25 @@
+2026-08-14T16:29:08.523257Z 0 [Warning] [MY-011070] [Server] 'binlog_format' is deprecated and will be removed in a future release.
+2026-08-14T16:29:08.524451Z 0 [Warning] [MY-010097] [Server] Insecure configuration for --secure-log-path: Current value does not restrict location of generated files. Consider setting it to a valid, non-empty path.
+2026-08-14T16:29:08.524498Z 0 [System] [MY-010116] [Server] /usr/sbin/mysqld (mysqld 8.0.46-37) starting as process 731
+2026-08-14T16:29:08.529337Z 1 [System] [MY-013576] [InnoDB] InnoDB initialization has started.
+2026-08-14T16:29:08.727889Z 1 [System] [MY-013577] [InnoDB] InnoDB initialization has ended.
+2026-08-14T16:29:08.896030Z 0 [Warning] [MY-010068] [Server] CA certificate ca.pem is self signed.
+2026-08-14T16:29:08.896063Z 0 [System] [MY-013602] [Server] Channel mysql_main configured to support TLS. Encrypted connections are now supported for this channel.
+2026-08-14T16:29:08.916813Z 0 [Warning] [MY-010604] [Repl] Neither --relay-log nor --relay-log-index were used; so replication may break when this MySQL server acts as a replica and has his hostname changed!! Please use '--relay-log=gr03-relay-bin' to avoid this problem.
+2026-08-14T16:29:08.950424Z 0 [System] [MY-011323] [Server] X Plugin ready for connections. Bind-address: '::' port: 33060, socket: /var/lib/mysql/mysqlx.sock
+2026-08-14T16:29:08.950494Z 0 [System] [MY-010931] [Server] /usr/sbin/mysqld: ready for connections. Version: '8.0.46-37'  socket: '/var/lib/mysql/mysql.sock'  port: 3306  Percona Server (GPL), Release 37, Revision 39e2b60e.
+2026-08-14T16:29:15.145333Z 11 [System] [MY-013587] [Repl] Plugin group_replication reported: 'Plugin 'group_replication' is starting.'
+2026-08-14T16:29:15.145750Z 11 [System] [MY-011565] [Repl] Plugin group_replication reported: 'Setting super_read_only=ON.'
+2026-08-14T16:29:15.149346Z 13 [System] [MY-010597] [Repl] 'CHANGE REPLICATION SOURCE TO FOR CHANNEL 'group_replication_applier' executed'. Previous state source_host='<NULL>', source_port= 0, source_log_file='', source_log_pos= 4, source_bind=''. New state source_host='<NULL>', source_port= 0, source_log_file='', source_log_pos= 4, source_bind=''.
+2026-08-14T16:29:15.168510Z 14 [System] [MY-014081] [Repl] Plugin group_replication reported: 'The Group Replication certifier broadcast thread (THD_certifier_broadcast) started.'
+2026-08-14T16:29:21.619530Z 0 [Warning] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Shutting down an outgoing connection. This happens because something might be wrong on a bi-directional connection to node gr01.example.net:33061. Please check the connection status to this member'
+2026-08-14T16:29:21.731462Z 11 [System] [MY-011511] [Repl] Plugin group_replication reported: 'This server is working as secondary member with primary member address gr01:3306.'
+2026-08-14T16:29:21.731489Z 0 [System] [MY-011565] [Repl] Plugin group_replication reported: 'Setting super_read_only=ON.'
+2026-08-14T16:29:21.731536Z 0 [System] [MY-013471] [Repl] Plugin group_replication reported: 'Distributed recovery will transfer data using: Incremental recovery from a group donor'
+2026-08-14T16:29:21.731719Z 0 [System] [MY-011503] [Repl] Plugin group_replication reported: 'Group membership changed to gr02:3306, gr03:3306, gr01:3306 on view 17867244343071219:5.'
+2026-08-14T16:29:21.772355Z 25 [System] [MY-010597] [Repl] 'CHANGE REPLICATION SOURCE TO FOR CHANNEL 'group_replication_recovery' executed'. Previous state source_host='<NULL>', source_port= 0, source_log_file='', source_log_pos= 4, source_bind=''. New state source_host='gr02', source_port= 3306, source_log_file='', source_log_pos= 4, source_bind=''.
+2026-08-14T16:29:21.799685Z 26 [Warning] [MY-010897] [Repl] Storing MySQL user name or password information in the connection metadata repository is not secure and is therefore not recommended. Please consider using the USER and PASSWORD connection options for START REPLICA; see the 'START REPLICA Syntax' in the MySQL Manual for more information.
+2026-08-14T16:29:21.818597Z 26 [System] [MY-014002] [Repl] Replica receiver thread for channel 'group_replication_recovery': connected to source 'repl@gr02:3306' with server_uuid=085fb6d6-97fc-11f1-bbbc-96d033749e4e, server_id=248665425. Starting GTID-based replication.
+2026-08-14T16:29:22.731597Z 11 [System] [MY-014010] [Repl] Plugin group_replication reported: 'Plugin 'group_replication' has been started.'
+2026-08-14T16:29:23.369545Z 25 [System] [MY-010597] [Repl] 'CHANGE REPLICATION SOURCE TO FOR CHANNEL 'group_replication_recovery' executed'. Previous state source_host='gr02', source_port= 3306, source_log_file='', source_log_pos= 4, source_bind=''. New state source_host='<NULL>', source_port= 0, source_log_file='', source_log_pos= 4, source_bind=''.
+2026-08-14T16:29:23.778918Z 0 [System] [MY-011490] [Repl] Plugin group_replication reported: 'This server was declared online within the replication group.'

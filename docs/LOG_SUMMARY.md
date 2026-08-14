@@ -416,6 +416,138 @@ is one record whichever way the build writes it.
 
 ---
 
+## Group Replication and InnoDB Cluster: the log that says what it means
+
+The third cluster vocabulary, and the one that reads most easily. Where a Galera node
+narrates an outage in `[Note]` records and multi-line view blocks, the Group Replication
+plugin writes one coded, complete, single-line record per event and says what it is doing
+in plain English:
+
+    Plugin group_replication reported: 'Member with address gr03:3306 has become unreachable.'
+    Plugin group_replication reported: 'Primary server with address gr01:3306 left the group. Electing new Primary.'
+    Plugin group_replication reported: 'This server is not able to reach a majority of members
+                                        in the group. This server will now block all updates.'
+
+Every rule was written against a live three-node Percona Server 8.0.46-37 single-primary
+group, deployed by DBCanvas in **both** of its modes — raw `groupreplication` and
+MySQL-Shell-managed `innodbcluster` — and driven through fifteen scenarios. The fixtures
+are the `g*` directories under `app/testdata/logsummary/`.
+
+Member states are GR's own, spelled as `performance_schema.replication_group_members`
+spells them, plus one the plugin describes but the table does not name:
+
+| state | |
+| --- | --- |
+| `ONLINE` | in the group, caught up, serving |
+| `RECOVERING` | in the group, still applying the backlog — it has the data, it is not usable |
+| `BLOCKED` | cannot see a majority: every write refused, reads still served, **stale** |
+| `ERROR` | the plugin stopped on an error and the member removed itself |
+| `OFFLINE` | mysqld is up, Group Replication is not — the server is not in its cluster |
+
+They are deliberately not folded into Galera's `SYNCED`/`JOINER`/`DONOR`. The two machines
+answer the same question, but `RECOVERING` is not `JOINER` — a joiner has no data, a
+recovering member has data and is catching up — and somebody reading a GR member wants the
+word that appears in the table they are about to query.
+
+### 1. A clean stop and a death *are* distinguishable here
+
+This is the thing Galera cannot do (see `left {}` above), and GR settles it with one
+record. A `systemctl stop` produces `Members removed from the group` with **nothing** in
+front of it, because the leaving member announces itself. A `kill -9` produces
+`Member with address … has become unreachable` **first**, and the removal follows one
+expel timeout later — 16.0 s in the captures, twice, to the tenth of a second.
+
+### 2. The two ways of leaving the group have opposite read-only outcomes
+
+The single most dangerous thing in the file, and the reason the catalogue was worth
+writing:
+
+| exit | what the plugin does | left |
+| --- | --- | --- |
+| applier failure (`MY-011451`/`MY-011452`) | `MY-011712` — "set into read only mode" | **safe** |
+| refused at join (`MY-011526`/`MY-011522`) | `Setting super_read_only=OFF` | **writable** |
+
+Both read as "the member left the group" if you only match the leave record. A member out
+of the second exit is up, accepting writes, and holding data the cluster does not have —
+and the corpus caught it happening: the load generator running during the capture did what
+any connection pool does, reconnected to the first member that answered, and wrote 1,263
+rows into a server that was no longer part of the cluster.
+
+### 3. A split does not heal itself, and the log does not say so
+
+Cutting one of two remaining members off port 33061 produced `MY-011495` on **both** sides:
+neither had a majority, both blocked every write, and every member was up and answering
+reads perfectly happily throughout.
+
+Restoring the link changed nothing. For the two and a half minutes until an operator
+intervened, neither side logged another word. The plugin does own the vocabulary for
+recovery — `MY-011494` *is reachable again*, `MY-011498` *has resumed contact with a
+majority* — and it appeared only once somebody acted. So a block with no matching
+`MY-011498` after it is reported as **still in force at the end of the window**, rather
+than as something that presumably sorted itself out.
+
+### 4. A member can be up, writable, and not in the group — silently
+
+`kill -9` left systemd to restart mysqld, which came back, logged `ready for connections`,
+and stopped there: `group_replication_start_on_boot` is OFF in raw GR mode, so nothing
+rejoined. Measured at that moment: `super_read_only=0`, one row in
+`replication_group_members` (itself), and 666 transactions behind the group. Its own log
+never mentions any of it — a monitor that checks whether mysqld is up sees a healthy
+server.
+
+That is why `ready for connections` on a group member resolves to `OFFLINE` and not
+`RUNNING`, and why a member whose own fragment contains no plugin records at all is still
+recognised as one when **another** source names it as a member.
+
+### 5. Flow control is invisible — more absolutely than in Galera
+
+Measured, and pushed as far as the settings allow: `flow_control_mode=QUOTA`, both
+thresholds at 1 (the most eager configuration there is), a member slowed to 120 ms RTT with
+netem, and **1,364 transactions certified** through the flood. All three members wrote
+**zero** lines. Galera at least writes its interval once when membership changes; GR does
+not write even that. The numbers live in
+`performance_schema.replication_group_member_stats`, and the finding says so instead of
+letting silence read as health.
+
+### 6. A healthy InnoDB Cluster is *full* of errors
+
+Deploying a perfectly good three-node cluster through MySQL Shell wrote **26 `[ERROR]`
+records** across the three members. Every one was Shell checking the instance: it opens a
+throwaway replication channel called `mysqlsh.test` and deliberately fails to start it, to
+learn whether the instance can replicate and whether its server id collides — and it asks
+the server to start Group Replication before configuring it, so *"the
+group_replication_group_name option is mandatory"* and *"Group Replication plugin is not
+installed"* are answers to Shell's questions, not faults.
+
+This is the exact mirror of the PXC lesson at the top of this document. There the level
+**under**-reports the severity; here it wildly **over**-reports it. Trusting it would
+report every InnoDB Cluster as broken on the day it was built, so those records are kept —
+deleted evidence is not evidence — and filed as information with the explanation attached.
+The one rule in the package that may overrule a record's own level is used here and
+nowhere else.
+
+The two modes differ in one more way worth knowing, and it is the difference between an
+outage that ends by itself and one that does not: Shell sets
+`group_replication_start_on_boot=ON`. The same `kill -9` that strands a raw GR member
+outside its group leaves a Shell-managed one to rejoin on its own — verified by doing it
+to both.
+
+### The verdicts it adds
+
+| | |
+| --- | --- |
+| **Every member lost its majority — the cluster stopped accepting writes** | who blocked, when, and whether anything ever recorded them recovering |
+| **A member left the group and went back to accepting writes** | the split-brain check: a leave followed by `super_read_only=OFF` that was not an election |
+| **A member has transactions the group does not, and was refused** | with the offending GTID ranges, and why raising the clone threshold cannot fix it |
+| **A server restarted and never rejoined its group** | built on the absence of a plugin start after the last start-up |
+| **The group elected a new primary** | with the write outage measured from the earliest notice that the old primary had gone quiet |
+| **A member rebuilt itself from a clone** | including the two surprises: the recipient's data is erased first, and mysqld restarts itself at the end |
+| **A member is stuck recovering and is not serving** | the donor-cycling loop, which never reports a final failure |
+| **Some of these errors are MySQL Shell testing the instance, not failures** | see above |
+| **Flow control leaves no trace in this log at all** | the honest note |
+
+---
+
 ## The verdict
 
 Everything in the verdict is a statement that could not be made from one node's log alone,

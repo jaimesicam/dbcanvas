@@ -548,14 +548,23 @@ on a palette deliberately kept clear of the red/amber/green the status colours u
 colour-vision validator rather than picked by eye, and the node's name always sits beside
 its chip.
 
-**PXC and asynchronous replication both have full catalogues** — one written against a live
-Galera cluster, the other against a live GTID source/replica topology — so a 1062 applier
-stop names the row, the table and the transaction, and a 1236 names the GTIDs the source
-threw away.
+**PXC, Group Replication and asynchronous replication all have full catalogues** — one
+written against a live Galera cluster, one against a live GTID source/replica topology, and
+one against a live three-node Group Replication group in both of its modes (raw, and
+MySQL-Shell-managed InnoDB Cluster) — so a 1062 applier stop names the row, the table and
+the transaction, a 1236 names the GTIDs the source threw away, and a member refused by its
+group is reported with the transactions it holds that the group has never seen.
 
-Severity comes from what a record **means**, not from its level: a capture containing a
-complete crash, an eviction, a state transfer and a rejoin held 314 `[Note]` records and **no**
-`[ERROR]` at all. Multi-line Galera records are folded and parsed whole (a view's membership,
+Two things the Group Replication captures settled are worth the page on their own. A member
+can leave the group and be left **writable** — the corpus caught a load generator
+reconnecting to exactly such a server and writing 1,263 rows into a database that was no
+longer part of the cluster — and a healthy, freshly deployed InnoDB Cluster contains **26
+`[ERROR]` records** that are MySQL Shell testing the instance rather than anything failing.
+
+Severity comes from what a record **means**, not from its level, and the level misleads in
+both directions: a PXC capture containing a complete crash, an eviction, a state transfer and
+a rejoin held 314 `[Note]` records and **no** `[ERROR]` at all, while an InnoDB Cluster that
+was working perfectly held twenty-six. Multi-line Galera records are folded and parsed whole (a view's membership,
 a quorum result's `members = 2/3`), repeats collapse into one row with a count, and the
 **verdict** says what it all adds up to — a member lost versus one shut down cleanly, a split
 with one side still serving, time spent not answering queries, an SST that should have been an
@@ -564,7 +573,7 @@ so silence there is never reported as health.
 
 ![Log Summary — three PXC members on one timeline, the good, the warning and the bad](docs/screenshots/log-summary.png)
 
-See [`docs/LOG_SUMMARY.md`](docs/LOG_SUMMARY.md) for the Galera event catalogue, how the
+See [`docs/LOG_SUMMARY.md`](docs/LOG_SUMMARY.md) for the Galera and Group Replication event catalogues, how the
 cluster-state track is reconstructed, and the real-cluster captures the rules were written
 against.
 

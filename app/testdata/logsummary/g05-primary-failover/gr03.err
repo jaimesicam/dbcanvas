@@ -1,0 +1,7 @@
+2026-08-14T16:31:41.275338Z 0 [Warning] [MY-011493] [Repl] Plugin group_replication reported: 'Member with address gr01:3306 has become unreachable.'
+2026-08-14T16:31:56.271428Z 0 [Warning] [MY-011499] [Repl] Plugin group_replication reported: 'Members removed from the group: gr01:3306'
+2026-08-14T16:31:56.271459Z 0 [System] [MY-011500] [Repl] Plugin group_replication reported: 'Primary server with address gr01:3306 left the group. Electing new Primary.'
+2026-08-14T16:31:56.271503Z 0 [System] [MY-011507] [Repl] Plugin group_replication reported: 'A new primary with address gr02:3306 was elected. The new primary will execute all previous group transactions before allowing writes.'
+2026-08-14T16:31:56.271691Z 0 [System] [MY-011503] [Repl] Plugin group_replication reported: 'Group membership changed to gr02:3306, gr03:3306 on view 17867244343071219:8.'
+2026-08-14T16:31:56.272068Z 40 [System] [MY-011565] [Repl] Plugin group_replication reported: 'Setting super_read_only=ON.'
+2026-08-14T16:31:56.272108Z 40 [System] [MY-011511] [Repl] Plugin group_replication reported: 'This server is working as secondary member with primary member address gr02:3306.'

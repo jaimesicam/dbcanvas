@@ -1,0 +1,12 @@
+2026-08-14T16:29:55.518909Z 0 [Warning] [MY-011070] [Server] 'binlog_format' is deprecated and will be removed in a future release.
+2026-08-14T16:29:55.519937Z 0 [Warning] [MY-010097] [Server] Insecure configuration for --secure-log-path: Current value does not restrict location of generated files. Consider setting it to a valid, non-empty path.
+2026-08-14T16:29:55.519984Z 0 [System] [MY-010116] [Server] /usr/sbin/mysqld (mysqld 8.0.46-37) starting as process 861
+2026-08-14T16:29:55.525492Z 1 [System] [MY-013576] [InnoDB] InnoDB initialization has started.
+2026-08-14T16:29:56.909735Z 1 [System] [MY-013577] [InnoDB] InnoDB initialization has ended.
+2026-08-14T16:29:56.992087Z 0 [System] [MY-010229] [Server] Starting XA crash recovery...
+2026-08-14T16:29:56.998951Z 0 [System] [MY-010232] [Server] XA crash recovery finished.
+2026-08-14T16:29:57.025445Z 0 [Warning] [MY-010068] [Server] CA certificate ca.pem is self signed.
+2026-08-14T16:29:57.025477Z 0 [System] [MY-013602] [Server] Channel mysql_main configured to support TLS. Encrypted connections are now supported for this channel.
+2026-08-14T16:29:57.038606Z 0 [Warning] [MY-010604] [Repl] Neither --relay-log nor --relay-log-index were used; so replication may break when this MySQL server acts as a replica and has his hostname changed!! Please use '--relay-log=gr03-relay-bin' to avoid this problem.
+2026-08-14T16:29:57.065138Z 0 [System] [MY-011323] [Server] X Plugin ready for connections. Bind-address: '::' port: 33060, socket: /var/lib/mysql/mysqlx.sock
+2026-08-14T16:29:57.065203Z 0 [System] [MY-010931] [Server] /usr/sbin/mysqld: ready for connections. Version: '8.0.46-37'  socket: '/var/lib/mysql/mysql.sock'  port: 3306  Percona Server (GPL), Release 37, Revision 39e2b60e.

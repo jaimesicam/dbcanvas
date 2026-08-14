@@ -1,0 +1,38 @@
+2026-08-14T17:07:32.271778Z 0 [Warning] [MY-011070] [Server] 'binlog_format' is deprecated and will be removed in a future release.
+2026-08-14T17:07:32.272898Z 0 [Warning] [MY-010097] [Server] Insecure configuration for --secure-log-path: Current value does not restrict location of generated files. Consider setting it to a valid, non-empty path.
+2026-08-14T17:07:32.272945Z 0 [System] [MY-010116] [Server] /usr/sbin/mysqld (mysqld 8.0.46-37) starting as process 806
+2026-08-14T17:07:32.282090Z 1 [System] [MY-013576] [InnoDB] InnoDB initialization has started.
+2026-08-14T17:07:33.060754Z 1 [System] [MY-013577] [InnoDB] InnoDB initialization has ended.
+2026-08-14T17:07:33.119012Z 0 [System] [MY-013587] [Repl] Plugin group_replication reported: 'Plugin 'group_replication' is starting.'
+2026-08-14T17:07:33.119039Z 0 [Warning] [MY-011069] [Server] The syntax 'group_replication_view_change_uuid' is deprecated and will be removed in a future release.
+2026-08-14T17:07:33.119167Z 0 [System] [MY-014010] [Repl] Plugin group_replication reported: 'Plugin 'group_replication' has been started.'
+2026-08-14T17:07:33.138526Z 0 [System] [MY-010229] [Server] Starting XA crash recovery...
+2026-08-14T17:07:33.145164Z 0 [System] [MY-010232] [Server] XA crash recovery finished.
+2026-08-14T17:07:33.172130Z 0 [Warning] [MY-010068] [Server] CA certificate ca.pem is self signed.
+2026-08-14T17:07:33.172152Z 0 [System] [MY-013602] [Server] Channel mysql_main configured to support TLS. Encrypted connections are now supported for this channel.
+2026-08-14T17:07:33.185845Z 0 [Warning] [MY-010604] [Repl] Neither --relay-log nor --relay-log-index were used; so replication may break when this MySQL server acts as a replica and has his hostname changed!! Please use '--relay-log=idc01-relay-bin' to avoid this problem.
+2026-08-14T17:07:33.209605Z 10 [Warning] [MY-013360] [Server] '@@binlog_transaction_dependency_tracking' is deprecated and will be removed in a future release.
+2026-08-14T17:07:33.210629Z 0 [System] [MY-011323] [Server] X Plugin ready for connections. Bind-address: '::' port: 33060, socket: /var/lib/mysql/mysqlx.sock
+2026-08-14T17:07:33.210702Z 0 [System] [MY-010931] [Server] /usr/sbin/mysqld: ready for connections. Version: '8.0.46-37'  socket: '/var/lib/mysql/mysql.sock'  port: 3306  Percona Server (GPL), Release 37, Revision 39e2b60e.
+2026-08-14T17:07:33.211230Z 4 [System] [MY-011565] [Repl] Plugin group_replication reported: 'Setting super_read_only=ON.'
+2026-08-14T17:07:33.213835Z 13 [System] [MY-010597] [Repl] 'CHANGE REPLICATION SOURCE TO FOR CHANNEL 'group_replication_applier' executed'. Previous state source_host='<NULL>', source_port= 0, source_log_file='', source_log_pos= 4, source_bind=''. New state source_host='<NULL>', source_port= 0, source_log_file='', source_log_pos= 4, source_bind=''.
+2026-08-14T17:07:33.236567Z 15 [System] [MY-014081] [Repl] Plugin group_replication reported: 'The Group Replication certifier broadcast thread (THD_certifier_broadcast) started.'
+2026-08-14T17:07:34.359476Z 0 [ERROR] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Error connecting to all peers. Member join failed. Local port: 3306'
+2026-08-14T17:07:34.391817Z 0 [ERROR] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] The member was unable to join the group. Local port: 3306'
+2026-08-14T17:07:40.442344Z 0 [ERROR] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Error connecting to all peers. Member join failed. Local port: 3306'
+2026-08-14T17:07:40.477912Z 0 [ERROR] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] The member was unable to join the group. Local port: 3306'
+2026-08-14T17:07:46.515472Z 0 [ERROR] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Error connecting to all peers. Member join failed. Local port: 3306'
+2026-08-14T17:07:46.542645Z 0 [ERROR] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] The member was unable to join the group. Local port: 3306'
+2026-08-14T17:08:00.562887Z 0 [Warning] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Shutting down an outgoing connection. This happens because something might be wrong on a bi-directional connection to node idc03:3306. Please check the connection status to this member'
+2026-08-14T17:08:00.666313Z 0 [System] [MY-011565] [Repl] Plugin group_replication reported: 'Setting super_read_only=ON.'
+2026-08-14T17:08:00.666368Z 0 [System] [MY-013471] [Repl] Plugin group_replication reported: 'Distributed recovery will transfer data using: Incremental recovery from a group donor'
+2026-08-14T17:08:00.666536Z 0 [System] [MY-011507] [Repl] Plugin group_replication reported: 'A new primary with address idc02:3306 was elected. The new primary will execute all previous group transactions before allowing writes.'
+2026-08-14T17:08:00.666720Z 0 [System] [MY-011503] [Repl] Plugin group_replication reported: 'Group membership changed to idc01:3306, idc02:3306, idc03:3306 on view 17867271548802119:8.'
+2026-08-14T17:08:00.709972Z 352 [System] [MY-010597] [Repl] 'CHANGE REPLICATION SOURCE TO FOR CHANNEL 'group_replication_recovery' executed'. Previous state source_host='', source_port= 3306, source_log_file='', source_log_pos= 4, source_bind=''. New state source_host='idc02', source_port= 3306, source_log_file='', source_log_pos= 4, source_bind=''.
+2026-08-14T17:08:00.734328Z 354 [Warning] [MY-010897] [Repl] Storing MySQL user name or password information in the connection metadata repository is not secure and is therefore not recommended. Please consider using the USER and PASSWORD connection options for START REPLICA; see the 'START REPLICA Syntax' in the MySQL Manual for more information.
+2026-08-14T17:08:00.780091Z 354 [System] [MY-014002] [Repl] Replica receiver thread for channel 'group_replication_recovery': connected to source 'mysql_innodb_cluster_171687676@idc02:3306' with server_uuid=561e12bf-9802-11f1-bf17-0663d63a3f35, server_id=154910057. Starting GTID-based replication.
+2026-08-14T17:08:00.800257Z 355 [Warning] [MY-010584] [Repl] Replica SQL for channel 'group_replication_recovery': Coordinator thread of multi-threaded replica is being stopped in the middle of assigning a group of events; deferring to exit until the group completion ... , Error_code: MY-000000
+2026-08-14T17:08:00.856259Z 352 [System] [MY-010597] [Repl] 'CHANGE REPLICATION SOURCE TO FOR CHANNEL 'group_replication_recovery' executed'. Previous state source_host='idc02', source_port= 3306, source_log_file='', source_log_pos= 4, source_bind=''. New state source_host='<NULL>', source_port= 0, source_log_file='', source_log_pos= 4, source_bind=''.
+2026-08-14T17:08:00.884329Z 0 [System] [MY-011490] [Repl] Plugin group_replication reported: 'This server was declared online within the replication group.'
+2026-08-14T17:08:00.960172Z 353 [System] [MY-011565] [Repl] Plugin group_replication reported: 'Setting super_read_only=ON.'
+2026-08-14T17:08:00.960310Z 353 [System] [MY-011511] [Repl] Plugin group_replication reported: 'This server is working as secondary member with primary member address idc02:3306.'

@@ -14155,3 +14155,126 @@ needed), mysql03 (Replica cannot connect to its source) · recovered: mysql02
 (Replication stopped applying an event, back after 60.0s)", and 15.4s / 13.4s /
 9.4s of real downtime over a 13.1-minute window. 12 new Go tests (33 for this
 feature), all green with `go vet` and the render smoke suite.
+
+## 257. Group Replication and InnoDB Cluster — `app/logsummary_grouprepl.go`, `app/logsummary_grouprepl_verdict.go`, `app/innodb.go`
+
+The third clustering technology the Log Summary can read, and the first one whose log is
+pleasant. Galera narrates an outage in `[Note]` records and multi-line view blocks;
+asynchronous replication narrates it in coded errors on a channel; the Group Replication
+plugin writes one coded, complete, single-line record per event and says what it is doing
+in English. A view record carries its whole membership on one line, which is why this
+catalogue needs none of the continuation-line machinery §253 had to build for Galera.
+
+### A provisioner bug found by trying to use it
+
+The InnoDB/GR frame would not deploy at all. `innodbBaseScript` interpolates
+`mysqlSetRootPW`, which uses `$AUTH_PLUGIN` and `$VPRELAX`, and `innodbPrepareNode` was the
+one caller of that shared step that passed neither — so on a datadir with no temporary
+password it ran `ALTER USER 'root'@'localhost' IDENTIFIED WITH  BY '<pw>'` and the server
+rejected it as a syntax error near `BY`, ten times, then failed the deployment. Every other
+caller (`mysql.go`, `mysqlce.go`, `aio_mysql.go`) sets both. One line, and the frame had
+evidently never been deployed on this path.
+
+### The testbed, in both modes
+
+A three-node Percona Server 8.0.46-37 single-primary group, deployed by DBCanvas twice —
+once as raw `groupreplication`, once as MySQL-Shell-managed `innodbcluster` — and driven
+through fifteen scenarios: bootstrap, `systemctl stop`, `kill -9` on a secondary and on the
+primary, a member cut off port 33061 with tc/netem, incremental rejoin, clone rejoin, a
+planted row breaking the applier, a member offered to the group with transactions it had
+never seen, an operator unblocking a split, a `SIGSEGV`, and a flow-control flood. The
+corpus is committed at `app/testdata/logsummary/g*` (828 lines, 15 scenarios).
+
+### What the capture taught
+
+**1. A clean stop and a death ARE distinguishable — the thing Galera cannot do.** §253
+recorded that from the survivors' side Galera sees a closed socket either way. GR settles
+it with one record: a `systemctl stop` produces `Members removed from the group` with
+nothing in front of it, while a `kill -9` produces `Member with address … has become
+unreachable` first and the removal one expel timeout later. 16.0s in both captures that
+produced one, to the tenth of a second.
+
+**2. The two exits from the group have opposite read-only outcomes.** This is the finding
+the whole catalogue was worth writing for. A member whose applier fails is set read-only on
+the way out (`MY-011712`); a member REFUSED at join for holding transactions the group does
+not have (`MY-011526`/`MY-011522`) ends with `Setting super_read_only=OFF` — writable,
+outside the group, and stale. Both read as "the member left" if you match only the leave
+record.
+
+It is not hypothetical. The load generator running during the captures did what any
+connection pool does — reconnected to the first member that answered — and wrote 1,263 rows
+into a server that had been ejected. That is where `lsFindingGRSplitBrain` came from, and
+where the errant GTIDs in `g10` came from.
+
+**3. A split does not heal itself, and the log does not say so.** Cutting one of two
+remaining members off produced `MY-011495` on BOTH sides — neither had a majority, both
+blocked every write, and both went on answering reads. Restoring the link changed nothing:
+for the two and a half minutes until an operator intervened, neither side logged another
+word. The plugin does own the recovery vocabulary (`MY-011494`, `MY-011498`) and it appeared
+only once somebody acted. So a block with no matching `MY-011498` is reported as still in
+force at the end of the window.
+
+**4. A member can be up, writable, and not in the group, silently.** systemd restarted a
+SIGKILLed member; mysqld came back, logged `ready for connections`, and stopped there —
+`group_replication_start_on_boot` is OFF in raw GR mode. Measured at that instant:
+`super_read_only=0`, one row in `replication_group_members`, 666 transactions behind. Hence
+`lsResolveGroupRepl` resolving `ready for connections` to OFFLINE rather than RUNNING, and
+`lsGRPromoteMembers` recognising such a member from what the OTHER logs say about it — both
+fixtures where a member was killed contain a fragment with no plugin records at all.
+
+**5. Flow control is invisible, more absolutely than in Galera.** `flow_control_mode=QUOTA`,
+both thresholds at 1, a member slowed to 120 ms with netem, 1,364 transactions certified:
+zero lines on all three members. Galera at least logs its interval once.
+
+**6. A healthy InnoDB Cluster is full of errors.** Deploying a perfectly good cluster wrote
+**26 `[ERROR]` records**, every one MySQL Shell probing — it opens a throwaway channel
+called `mysqlsh.test` and deliberately fails to start it, and asks the server to start GR
+before configuring it. The exact mirror of §253's lesson: there the level under-reports the
+severity, here it wildly over-reports it. This is the only place in the package where a rule
+may overrule a record's own level (`lsRule.overLevel`), and the reason that field exists.
+
+**7. And the two modes differ where it counts.** Shell sets
+`group_replication_start_on_boot=ON`, so the same `kill -9` that strands a raw member leaves
+a Shell-managed one to rejoin by itself. Verified by doing it to both.
+
+### Two mechanisms the catalogue needed
+
+`lsRule.needSubstr` — a precondition on the header, the way `bodySubstr` already was on the
+body. GR reuses the ordinary replication codes on its own channels (`MY-010584` for an
+applier failure, `MY-014002` for a receiver connecting), so a rule saying "this code, and
+only on a `group_replication_` channel" could not be written: `codes` and `substr` are
+alternatives, and the code alone would have fired it. Without it, every asynchronous
+replica's 1062 was being reported as a Group Replication failure — caught by the test that
+asserts the `r0*` fixtures are untouched.
+
+`lsRule.overLevel`, above.
+
+### What live verification changed
+
+Collecting the two running clusters through the HTTP API produced 14 findings for the raw
+group, and four of them were wrong — Galera's and asynchronous replication's findings firing
+on GR events because they key on the shape of an event rather than on the technology. A GR
+outage was being explained in Galera's vocabulary ("refused every query with 1047", which a
+GR member never does — it goes on serving reads), the async catalogue was reporting
+"replication is still broken" about a channel nobody configured, and a pure GR bundle was
+being told that replica lag is not recorded in its log.
+
+`lsSrcIs`/`lsPickIn` gate those to their own flavours. Two bugs in the new findings turned
+up in the same pass: the election check attributed a failover to "gr02 took over from gr02"
+because it matched the nearest `unreachable` record rather than the departed primary's, and
+it took the *nearest* one where the outage began at the *earliest* — reporting 15.0s where
+the first member had seen the primary go quiet 16.0s before the election. Both fixed; the
+verdict went from 14 findings to 10, and the 16.0s now matches the figure measured by hand
+during the capture.
+
+Final live reading, raw group: the crash, the majority lost and never regained, the member
+left writable outside the group, the divergence with its GTID ranges, five elections with
+the 16.0s outage measured, and two clone rebuilds. InnoDB Cluster: six findings, no false
+alarm, the 30 Shell probe records explained, and the clone-based provisioning Shell does by
+default.
+
+23 new Go tests (59 for the feature), `go vet`, `gofmt` and the render smoke suite all
+green. The frontend gained the GR and standalone states it was missing from `STATE_TEXT`/
+`STATE_SEV` — the swimlane was painting anything it did not know as `info`, so a member at
+`BLOCKED` or `OFFLINE` read as a state nobody had an opinion about — and now prefers the
+severity the server already computed, so the two can no longer drift.

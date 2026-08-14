@@ -1,0 +1,33 @@
+2026-08-14T16:36:32.187896Z 0 [Warning] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Shutting down an outgoing connection. This happens because something might be wrong on a bi-directional connection to node gr02.example.net:33061. Please check the connection status to this member'
+2026-08-14T16:36:32.190035Z 0 [Warning] [MY-011494] [Repl] Plugin group_replication reported: 'Member with address gr02:3306 is reachable again.'
+2026-08-14T16:36:32.190069Z 0 [Warning] [MY-011498] [Repl] Plugin group_replication reported: 'The member has resumed contact with a majority of the members in the group. Regular operation is restored and transactions are unblocked.'
+2026-08-14T16:37:03.176020Z 0 [Warning] [MY-011499] [Repl] Plugin group_replication reported: 'Members removed from the group: gr02:3306'
+2026-08-14T16:37:03.176053Z 0 [System] [MY-011500] [Repl] Plugin group_replication reported: 'Primary server with address gr02:3306 left the group. Electing new Primary.'
+2026-08-14T16:37:03.176152Z 0 [System] [MY-011507] [Repl] Plugin group_replication reported: 'A new primary with address gr03:3306 was elected. The new primary will execute all previous group transactions before allowing writes.'
+2026-08-14T16:37:03.176426Z 0 [System] [MY-011503] [Repl] Plugin group_replication reported: 'Group membership changed to gr03:3306 on view 17867244343071219:11.'
+2026-08-14T16:37:03.176580Z 51 [System] [MY-011565] [Repl] Plugin group_replication reported: 'Setting super_read_only=ON.'
+2026-08-14T16:37:03.176820Z 22 [System] [MY-013731] [Repl] Plugin group_replication reported: 'The member action "mysql_disable_super_read_only_if_primary" for event "AFTER_PRIMARY_ELECTION" with priority "1" will be run.'
+2026-08-14T16:37:03.176837Z 22 [System] [MY-011566] [Repl] Plugin group_replication reported: 'Setting super_read_only=OFF.'
+2026-08-14T16:37:03.176909Z 22 [System] [MY-013731] [Repl] Plugin group_replication reported: 'The member action "mysql_start_failover_channels_if_primary" for event "AFTER_PRIMARY_ELECTION" with priority "10" will be run.'
+2026-08-14T16:37:03.177013Z 51 [System] [MY-011510] [Repl] Plugin group_replication reported: 'This server is working as primary member.'
+2026-08-14T16:37:08.738287Z 53 [System] [MY-011650] [Repl] Plugin group_replication reported: 'Plugin 'group_replication' is stopping.'
+2026-08-14T16:37:11.783093Z 0 [System] [MY-011504] [Repl] Plugin group_replication reported: 'Group membership changed: This member has left the group.'
+2026-08-14T16:37:11.785216Z 0 [System] [MY-014082] [Repl] Plugin group_replication reported: 'The Group Replication certifier broadcast thread (THD_certifier_broadcast) stopped.'
+2026-08-14T16:37:11.785389Z 53 [System] [MY-011565] [Repl] Plugin group_replication reported: 'Setting super_read_only=ON.'
+2026-08-14T16:37:11.785480Z 53 [System] [MY-011651] [Repl] Plugin group_replication reported: 'Plugin 'group_replication' has been stopped.'
+2026-08-14T16:37:11.785610Z 53 [System] [MY-013587] [Repl] Plugin group_replication reported: 'Plugin 'group_replication' is starting.'
+2026-08-14T16:37:11.786033Z 53 [System] [MY-011565] [Repl] Plugin group_replication reported: 'Setting super_read_only=ON.'
+2026-08-14T16:37:11.788584Z 55 [System] [MY-010597] [Repl] 'CHANGE REPLICATION SOURCE TO FOR CHANNEL 'group_replication_applier' executed'. Previous state source_host='<NULL>', source_port= 0, source_log_file='', source_log_pos= 50091, source_bind=''. New state source_host='<NULL>', source_port= 0, source_log_file='', source_log_pos= 4, source_bind=''.
+2026-08-14T16:37:11.804307Z 56 [System] [MY-014081] [Repl] Plugin group_replication reported: 'The Group Replication certifier broadcast thread (THD_certifier_broadcast) started.'
+2026-08-14T16:37:11.847464Z 0 [ERROR] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Error on opening a connection to peer node gr01.example.net:33061 when joining a group. My local port is: 33061.'
+2026-08-14T16:37:12.640297Z 53 [System] [MY-011511] [Repl] Plugin group_replication reported: 'This server is working as secondary member with primary member address gr02:3306.'
+2026-08-14T16:37:12.640368Z 0 [System] [MY-011565] [Repl] Plugin group_replication reported: 'Setting super_read_only=ON.'
+2026-08-14T16:37:12.640402Z 0 [System] [MY-013471] [Repl] Plugin group_replication reported: 'Distributed recovery will transfer data using: Incremental recovery from a group donor'
+2026-08-14T16:37:12.640644Z 0 [System] [MY-011503] [Repl] Plugin group_replication reported: 'Group membership changed to gr02:3306, gr03:3306 on view 17867254175423045:2.'
+2026-08-14T16:37:12.687327Z 67 [System] [MY-010597] [Repl] 'CHANGE REPLICATION SOURCE TO FOR CHANNEL 'group_replication_recovery' executed'. Previous state source_host='<NULL>', source_port= 0, source_log_file='', source_log_pos= 4, source_bind=''. New state source_host='gr02', source_port= 3306, source_log_file='', source_log_pos= 4, source_bind=''.
+2026-08-14T16:37:12.712434Z 68 [Warning] [MY-010897] [Repl] Storing MySQL user name or password information in the connection metadata repository is not secure and is therefore not recommended. Please consider using the USER and PASSWORD connection options for START REPLICA; see the 'START REPLICA Syntax' in the MySQL Manual for more information.
+2026-08-14T16:37:12.720354Z 68 [System] [MY-014002] [Repl] Replica receiver thread for channel 'group_replication_recovery': connected to source 'repl@gr02:3306' with server_uuid=085fb6d6-97fc-11f1-bbbc-96d033749e4e, server_id=248665425. Starting GTID-based replication.
+2026-08-14T16:37:12.739349Z 69 [Warning] [MY-010584] [Repl] Replica SQL for channel 'group_replication_recovery': Coordinator thread of multi-threaded replica is being stopped in the middle of assigning a group of events; deferring to exit until the group completion ... , Error_code: MY-000000
+2026-08-14T16:37:12.783719Z 67 [System] [MY-010597] [Repl] 'CHANGE REPLICATION SOURCE TO FOR CHANNEL 'group_replication_recovery' executed'. Previous state source_host='gr02', source_port= 3306, source_log_file='', source_log_pos= 4, source_bind=''. New state source_host='<NULL>', source_port= 0, source_log_file='', source_log_pos= 4, source_bind=''.
+2026-08-14T16:37:12.810224Z 0 [System] [MY-011490] [Repl] Plugin group_replication reported: 'This server was declared online within the replication group.'
+2026-08-14T16:37:13.640395Z 53 [System] [MY-014010] [Repl] Plugin group_replication reported: 'Plugin 'group_replication' has been started.'

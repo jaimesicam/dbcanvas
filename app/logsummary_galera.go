@@ -51,11 +51,33 @@ type lsRule struct {
 	bodySubstr []string
 	re         *regexp.Regexp
 	notSubstr  []string // a match here disqualifies the rule
+	// needSubstr is a precondition on the header, the way bodySubstr is on the body: the
+	// rule cannot match unless one of these is present, whatever else does match.
+	//
+	// It exists because Group Replication reuses the ordinary replication codes for its
+	// own channels. `codes` and `substr` are alternatives — either can carry a match on
+	// its own — so a rule saying "MY-010584, and only on a group_replication_ channel"
+	// cannot be written with them: the code alone would fire it, and every asynchronous
+	// replica's applier error would be reported as a Group Replication one.
+	needSubstr []string
 
 	class string
 	sev   string
 	label string
 	means string
+
+	// overLevel lets a rule keep its own severity when the record's level is HIGHER.
+	//
+	// Normally the level is a floor and nothing may sink below it: an unrecognised [ERROR]
+	// must never be filed as background. That rule is right in every case the corpus
+	// contains but one — MySQL Shell's instance checks, which are logged as [ERROR]
+	// because a deliberate probe genuinely failed. Twenty-six of them appear in the log of
+	// a healthy, brand-new InnoDB Cluster. Without this, every such cluster reports as
+	// broken on the day it is built.
+	//
+	// Set it only where the catalogue has better evidence than the level does, and say why
+	// at the rule.
+	overLevel bool
 
 	// enrich pulls structured facts out of a matched record.
 	enrich func(r lsRecord, e *lsEvent)
@@ -87,11 +109,11 @@ const (
 // amber means "it is up but not serving", red means "it is not part of a working cluster".
 func lsStateSev(state string) string {
 	switch state {
-	case lsStateSynced, lsStateUp:
+	case lsStateSynced, lsStateUp, lsStateOnline:
 		return lsSevOK
-	case lsStateJoined, lsStateJoiner, lsStateDonor, lsStatePrim, lsStateStarting:
+	case lsStateJoined, lsStateJoiner, lsStateDonor, lsStatePrim, lsStateStarting, lsStateRecovering:
 		return lsSevWarn
-	case lsStateOpen, lsStateClosed, lsStateDown:
+	case lsStateOpen, lsStateClosed, lsStateDown, lsStateBlocked, lsStateGRError, lsStateOffline:
 		return lsSevBad
 	}
 	return lsSevInfo
@@ -100,12 +122,18 @@ func lsStateSev(state string) string {
 // lsStateServes is the one question the unavailability finding asks of a state: was the
 // server answering queries in it?
 //
-// Two states qualify and they belong to different worlds — SYNCED for a cluster member,
-// RUNNING for a server that is not one. Treating "not SYNCED" as "not serving" is right
-// for Galera and completely wrong for a standalone or an asynchronous replica, which never
-// reaches SYNCED because it has no wsrep state machine at all.
+// Three states qualify and they belong to different worlds — SYNCED for a Galera member,
+// ONLINE for a Group Replication one, RUNNING for a server that is not in a cluster at
+// all. Treating "not SYNCED" as "not serving" is right for Galera and completely wrong for
+// a standalone or an asynchronous replica, which never reaches SYNCED because it has no
+// wsrep state machine at all.
+//
+// BLOCKED is deliberately not here even though a blocked member answers SELECTs. A member
+// that has lost its majority serves reads of whatever it last applied and refuses every
+// write; counting that as availability would report a cluster that cannot accept a single
+// transaction as fully available, which is the opposite of what the page is for.
 func lsStateServes(state string) bool {
-	return state == lsStateSynced || state == lsStateUp
+	return state == lsStateSynced || state == lsStateUp || state == lsStateOnline
 }
 
 // lsStateMeaning explains a state once, for the timeline legend and the tooltip.
@@ -120,6 +148,16 @@ var lsStateMeaning = map[string]string{
 	lsStateDown:     "the server is not running",
 	lsStateUp:       "up and accepting connections",
 	lsStateStarting: "starting up — not accepting connections yet",
+
+	// Group Replication's states, spelled as replication_group_members spells them. Kept
+	// in one map because the legend renders whatever states the bundle actually contains,
+	// and a bundle can hold both kinds at once — a PXC cluster and a GR cluster in the
+	// same incident is an ordinary thing to compare.
+	lsStateOnline:     lsGRStateMeaning[lsStateOnline],
+	lsStateRecovering: lsGRStateMeaning[lsStateRecovering],
+	lsStateGRError:    lsGRStateMeaning[lsStateGRError],
+	lsStateOffline:    lsGRStateMeaning[lsStateOffline],
+	lsStateBlocked:    lsGRStateMeaning[lsStateBlocked],
 }
 
 // lsNullUUID is what Galera writes when there is no state at all — a first start on an
@@ -1005,15 +1043,21 @@ func lsIsNoise(text string) bool {
 	return false
 }
 
-// lsMySQLRules is the whole MySQL-family catalogue: the asynchronous-replication rules
-// first, then Galera's.
+// lsMySQLRules is the whole MySQL-family catalogue: Group Replication's rules first, then
+// the asynchronous-replication ones, then Galera's.
 //
-// One ordered table rather than a per-flavour dispatch, because the two vocabularies
-// genuinely coexist. A PXC member can also be an asynchronous replica of another cluster —
-// that is what a cross-cluster channel is — so its log carries [Galera] and [Repl] records
-// together. Replication first because those rules are the specific ones, keyed on MY-
-// codes that mean one thing only.
-var lsMySQLRules = append(append([]lsRule{}, lsReplRules...), lsGaleraRules...)
+// One ordered table rather than a per-flavour dispatch, because the vocabularies genuinely
+// coexist. A PXC member can also be an asynchronous replica of another cluster — that is
+// what a cross-cluster channel is — so its log carries [Galera] and [Repl] records
+// together, and a Group Replication member can be an asynchronous replica too.
+//
+// The order is not cosmetic. Group Replication reuses the ordinary replication codes for
+// its own channels — MY-010584 for an applier failure, MY-014002 for a receiver connecting
+// — distinguished only by the channel name. Put the GR rules second and an applier
+// conflict inside a group would be reported as a broken asynchronous replica, naming a
+// channel nobody configured. The GR rules that claim a shared code all require
+// "group_replication_" in the record, so they never steal a genuine asynchronous one.
+var lsMySQLRules = append(append(append([]lsRule{}, lsGroupRules...), lsReplRules...), lsGaleraRules...)
 
 // lsClassifyMySQL turns one folded record into an event, or reports that it is noise.
 func lsClassifyMySQL(r lsRecord) (lsEvent, bool) {
@@ -1035,8 +1079,11 @@ func lsClassifyMySQL(r lsRecord) (lsEvent, bool) {
 			rule.enrich(r, &e)
 		}
 		// A record the catalogue calls background but the server itself called an error
-		// is an error: an unrecognised [ERROR] must never be filed as info.
-		e.Sev = lsWorse(e.Sev, lsLevelFloor(r.Level))
+		// is an error: an unrecognised [ERROR] must never be filed as info. The exception
+		// is a rule that knows better than the level — see lsRule.overLevel.
+		if !rule.overLevel {
+			e.Sev = lsWorse(e.Sev, lsLevelFloor(r.Level))
+		}
 		return e, true
 	}
 	// Unmatched. An ERROR or a Warning is still worth showing; the rest is noise.
@@ -1078,6 +1125,18 @@ func lsTruncateLabel(s string) string {
 func lsRuleMatches(rule lsRule, r lsRecord) bool {
 	for _, n := range rule.notSubstr {
 		if strings.Contains(r.Text, n) {
+			return false
+		}
+	}
+	if len(rule.needSubstr) > 0 {
+		found := false
+		for _, s := range rule.needSubstr {
+			if strings.Contains(r.Text, s) {
+				found = true
+				break
+			}
+		}
+		if !found {
 			return false
 		}
 	}

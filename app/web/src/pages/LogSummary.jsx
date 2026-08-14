@@ -582,7 +582,13 @@ export function Swimlane({ timeline, sources, first, onSelect, onPick }) {
                   <div key={i}
                     title={`${p.state}${p.inferred ? ' (deduced — the log does not state it)' : ''} · ${logTimeOfDay(p.from, 0)} → ${logTimeOfDay(p.to, 0)}` +
                       `${p.members ? ` · ${p.members} member(s)` : ''}${p.primary ? `, primary = ${p.primary}` : ''}\n${STATE_TEXT[p.state] || ''}`}
-                    className={`absolute inset-y-0 ${SEV_FILL[STATE_SEV[p.state] || 'info']} ${p.inferred ? 'opacity-45' : ''}`}
+                    // The server already decided this stripe's severity (lsStateSev) and
+                    // sends it; STATE_SEV is the fallback for a phase that predates the
+                    // field. Preferring p.sev keeps one source of truth — a state added to
+                    // the Go catalogue and not to the JS table used to paint as 'info',
+                    // which reads as a state nobody has an opinion about rather than a bad
+                    // one.
+                    className={`absolute inset-y-0 ${SEV_FILL[p.sev || STATE_SEV[p.state] || 'info']} ${p.inferred ? 'opacity-45' : ''}`}
                     style={{
                       left: `${((p.from - from) / width) * 100}%`,
                       width: `${Math.max(0.15, ((p.to - p.from) / width) * 100)}%`,

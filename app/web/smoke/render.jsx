@@ -1371,6 +1371,16 @@ check('log summary: every severity is styled', () => {
   for (const st of Object.keys(STATE_TEXT)) {
     if (!STATE_SEV[st]) throw new Error(`state ${st} has no severity`)
   }
+  // Three state machines share this vocabulary and a missing entry paints the lane 'info'
+  // — a state nobody has an opinion about — where a Group Replication member sitting at
+  // BLOCKED or OFFLINE has to read as bad. Named explicitly so adding a state to the Go
+  // catalogue and forgetting the JS side fails here rather than in front of somebody.
+  for (const st of ['SYNCED', 'JOINER', 'DONOR', 'OPEN', 'CLOSED',
+                    'ONLINE', 'RECOVERING', 'BLOCKED', 'ERROR', 'OFFLINE',
+                    'RUNNING', 'STARTING', 'DOWN', 'UNKNOWN']) {
+    if (!STATE_TEXT[st]) throw new Error(`state ${st} has no explanation`)
+    if (!SEV_FILL[STATE_SEV[st]]) throw new Error(`state ${st} has no fill`)
+  }
   for (const cls of Object.keys(logSummary.classes)) {
     if (!CLASS_LABEL[cls]) throw new Error(`class ${cls} has no label`)
   }

@@ -39,7 +39,7 @@ type lsFinding struct {
 // lsFindings runs every check over a built bundle, worst first.
 func lsFindings(b *lsBundle) []lsFinding {
 	out := []lsFinding{}
-	for _, check := range []func(*lsBundle) []lsFinding{
+	for _, check := range append([]func(*lsBundle) []lsFinding{
 		lsFindingCrash,
 		lsFindingUncleanRestart,
 		lsFindingPartition,
@@ -56,7 +56,7 @@ func lsFindings(b *lsBundle) []lsFinding {
 		lsFindingFlowControl,
 		lsFindingCoverage,
 		lsFindingHealthy,
-	} {
+	}, lsGRFindings...) {
 		out = append(out, check(b)...)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -98,6 +98,26 @@ func lsNames(b *lsBundle, uuids []string) []string {
 }
 
 // lsPick collects the events matching a predicate.
+// lsSrcIs reports whether a source has this flavour. Findings written for one clustering
+// technology need it: Galera and Group Replication both produce membership events, both
+// set lsEvent.Lost, and both can lose quorum — so a finding that picks on the shape of an
+// event alone will happily explain a Group Replication outage in Galera's vocabulary,
+// telling the reader about the primary component and error 1047 on a server that has
+// neither. Live verification against a running group is what surfaced that.
+func lsSrcIs(b *lsBundle, src int, flavour string) bool {
+	for _, s := range b.Sources {
+		if s.Idx == src {
+			return s.Flavour == flavour
+		}
+	}
+	return false
+}
+
+// lsPickIn is lsPick restricted to sources of one flavour.
+func lsPickIn(b *lsBundle, flavour string, pred func(lsEvent) bool) []lsEvent {
+	return lsPick(b, func(e lsEvent) bool { return lsSrcIs(b, e.Src, flavour) && pred(e) })
+}
+
 func lsPick(b *lsBundle, pred func(lsEvent) bool) []lsEvent {
 	var out []lsEvent
 	for _, e := range b.Events {
@@ -250,7 +270,7 @@ func lsDepartureWasUnclean(b *lsBundle, view lsEvent) bool {
 
 // lsFindingPartition — members that were lost rather than stopped.
 func lsFindingPartition(b *lsBundle) []lsFinding {
-	ev := lsPick(b, func(e lsEvent) bool { return len(e.Lost) > 0 && lsDepartureWasUnclean(b, e) })
+	ev := lsPickIn(b, lsFlavourGalera, func(e lsEvent) bool { return len(e.Lost) > 0 && lsDepartureWasUnclean(b, e) })
 	if len(ev) == 0 {
 		return nil
 	}
@@ -311,7 +331,11 @@ func lsIsShuttingDown(b *lsBundle, src int, t float64) bool {
 }
 
 func lsFindingQuorum(b *lsBundle) []lsFinding {
-	ev := lsPick(b, func(e lsEvent) bool {
+	// Galera only: Group Replication loses its majority in its own vocabulary and has its
+	// own finding for it (lsFindingGRSplit), which says "blocked all updates" rather than
+	// "refused every query with 1047" — the second of which is simply not true of a GR
+	// member, since it goes on answering reads.
+	ev := lsPickIn(b, lsFlavourGalera, func(e lsEvent) bool {
 		return e.Class == lsClassQuorum && e.Sev == lsSevBad && !lsIsShuttingDown(b, e.Src, e.TS)
 	})
 	if len(ev) == 0 {
@@ -672,7 +696,7 @@ func lsCrashNear(b *lsBundle, t float64) bool {
 // restart in the fleet reads as an incident.
 func lsFindingCleanStop(b *lsBundle) []lsFinding {
 	// Direct evidence, from the departing node's own log if it is in the bundle.
-	direct := lsPick(b, func(e lsEvent) bool {
+	direct := lsPickIn(b, lsFlavourGalera, func(e lsEvent) bool {
 		return e.Label == "Shutdown requested" || e.Label == "Left the cluster cleanly"
 	})
 	// Indirect evidence, from the survivors: a member left the view with no suspect
@@ -684,7 +708,7 @@ func lsFindingCleanStop(b *lsBundle) []lsFinding {
 	// contains exactly that: pxc03 aborted, its sockets closed, and the survivors dropped
 	// it from the view instantly. So this evidence is only trusted when the bundle holds
 	// no crash for anybody at around the same time.
-	quiet := lsPick(b, func(e lsEvent) bool {
+	quiet := lsPickIn(b, lsFlavourGalera, func(e lsEvent) bool {
 		return len(e.Lost) > 0 && !lsDepartureWasUnclean(b, e) && !lsCrashNear(b, e.TS)
 	})
 	if len(direct) == 0 && len(quiet) == 0 {

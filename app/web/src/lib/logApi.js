@@ -165,13 +165,26 @@ export const CLASS_LABEL = {
   other: 'Other',
 }
 
-// --- wsrep states -----------------------------------------------------------
+// --- member states ----------------------------------------------------------
 //
-// The vocabulary the swimlane is drawn in. Only SYNCED serves queries; everything else
-// either refuses them outright or is deliberately out of the read pool, which is exactly
-// the distinction the colours make.
+// The vocabulary the swimlane is drawn in. Three state machines share it, because three
+// kinds of server can appear in one bundle and the page's whole point is putting them on
+// one timeline:
+//
+//   Galera            SYNCED JOINED JOINER DONOR PRIMARY OPEN CLOSED
+//   Group Replication ONLINE RECOVERING BLOCKED ERROR OFFLINE
+//   not in a cluster  RUNNING STARTING
+//
+// The words are deliberately each technology's own. ONLINE and SYNCED mean the same thing
+// to a reader — caught up and serving — but somebody looking at a Group Replication member
+// wants the word that appears in replication_group_members, not Galera's.
+//
+// Only the serving states are ok: everything else either refuses queries outright, or is
+// deliberately out of the read pool, or (BLOCKED) answers reads while refusing every write,
+// which is the case most likely to be mistaken for health.
 
 export const STATE_TEXT = {
+  // Galera
   SYNCED: 'Serving queries — up to date with the group',
   JOINED: 'Has the data, still applying its backlog — not in the read pool, and holding flow control on everyone else',
   JOINER: 'Receiving a state transfer — answers nothing',
@@ -179,14 +192,26 @@ export const STATE_TEXT = {
   PRIMARY: 'In the primary component but not yet joined — a step on the way in',
   OPEN: 'No primary component: refuses every query with 1047',
   CLOSED: 'The provider is shut down — not in the cluster',
+  // Group Replication
+  ONLINE: 'Serving queries — in the group and caught up',
+  RECOVERING: 'In the group, still applying the backlog — it has the data, it is not yet usable',
+  BLOCKED: 'Cannot see a majority: every write is refused until contact returns. Reads still succeed, and return stale data',
+  ERROR: 'The plugin stopped on an error and the member removed itself from the group',
+  OFFLINE: 'mysqld is up but Group Replication is not running on it — the server is not in its cluster, and its own log will not say so',
+  // Not a cluster member at all
+  RUNNING: 'Up and accepting connections',
+  STARTING: 'Starting up — not accepting connections yet',
+  // Neither stated nor deducible
   DOWN: 'The server is not running',
   UNKNOWN: 'The log does not say — nothing in this window states or implies a state',
 }
 
 export const STATE_SEV = {
-  SYNCED: 'ok',
+  SYNCED: 'ok', ONLINE: 'ok', RUNNING: 'ok',
   JOINED: 'warn', JOINER: 'warn', DONOR: 'warn', PRIMARY: 'warn',
+  RECOVERING: 'warn', STARTING: 'warn',
   OPEN: 'bad', CLOSED: 'bad', DOWN: 'bad',
+  BLOCKED: 'bad', ERROR: 'bad', OFFLINE: 'bad',
   UNKNOWN: 'info',
 }
 

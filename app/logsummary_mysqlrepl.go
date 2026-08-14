@@ -230,8 +230,15 @@ func lsEnrichRepl(r lsRecord, e *lsEvent) {
 // source and reconnected ten seconds later is a blip, and the same records with no
 // reconnect after them are an outage still running when the log ends.
 func lsFindingReplicationBroken(b *lsBundle) []lsFinding {
+	// Not Group Replication's failures. A GR member's applier stop and its rejection for
+	// divergence are both lsClassReplica/lsClassConflict at bad severity, and both have
+	// their own findings next door that say what they actually mean — that the member left
+	// the group, and whether it was left writable. Reporting them here as well produced
+	// two verdict lines for one event, the vaguer of which said "replication is still
+	// broken" about a channel the operator never configured.
 	broken := lsPick(b, func(e lsEvent) bool {
-		return (e.Class == lsClassReplica || e.Class == lsClassConflict) && e.Sev == lsSevBad
+		return !lsSrcIs(b, e.Src, lsFlavourGroupRepl) &&
+			(e.Class == lsClassReplica || e.Class == lsClassConflict) && e.Sev == lsSevBad
 	})
 	if len(broken) == 0 {
 		return nil
@@ -351,9 +358,14 @@ func lsFindingSilentReconnect(b *lsBundle) []lsFinding {
 // note. A page that stayed quiet here would be read as "no lag", which the file does not
 // support.
 func lsFindingReplicaLag(b *lsBundle) []lsFinding {
+	// Asynchronous replication only. A Group Replication member has lsClassReplica events
+	// by the dozen — every recovery, every applier record — and none of them means the
+	// server is an asynchronous replica that might be lagging. Telling somebody looking at
+	// a healthy group that "a replica held 61 seconds behind wrote nothing about it" is a
+	// true sentence about a topology they do not have.
 	repl := false
 	for _, e := range b.Events {
-		if e.Class == lsClassReplica {
+		if e.Class == lsClassReplica && !lsSrcIs(b, e.Src, lsFlavourGroupRepl) {
 			repl = true
 		}
 	}

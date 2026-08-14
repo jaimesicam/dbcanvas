@@ -452,15 +452,23 @@ const (
 	lsFlavourMySQL  = "mysql"
 )
 
-// lsSniffFlavour answers "is this a cluster member's log?" The [Galera] and [WSREP]
-// subsystem tags are conclusive and appear within the first few lines of any wsrep-enabled
-// server's startup, so this needs no heuristics worth the name.
+// lsSniffFlavour answers "is this a cluster member's log, and whose kind of cluster?" The
+// [Galera] and [WSREP] subsystem tags are conclusive and appear within the first few lines
+// of any wsrep-enabled server's startup, so that half needs no heuristics worth the name.
+//
+// Group Replication has no subsystem tag of its own — its records are tagged [Repl], the
+// same as an asynchronous replica's — so it is sniffed from the plugin's own prefix and
+// its private code ranges instead. See lsGRSniff. Galera is checked first because the two
+// are mutually exclusive in practice and the tag is the stronger evidence.
 func lsSniffFlavour(recs []lsRecord) string {
 	for _, r := range recs {
 		switch r.Subsys {
 		case "Galera", "WSREP", "WSREP-SST":
 			return lsFlavourGalera
 		}
+	}
+	if lsGRSniff(recs) {
+		return lsFlavourGroupRepl
 	}
 	return lsFlavourMySQL
 }
