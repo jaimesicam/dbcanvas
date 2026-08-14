@@ -350,9 +350,14 @@ func (a *App) innodbPrepareNode(ctx context.Context, st Stack, frame designFrame
 	}
 
 	pr.phase("Starting mysqld + base setup", 55)
+	major := psMajorOfRepo(frame.PDPSRepo)
 	env := []string{
 		"UNIT=" + mysqlUnit(frame.OS), "LOGERR=" + pxcLogError(frame.OS),
-		"RESET_CMD=" + mysqlResetCmd(psMajorOfRepo(frame.PDPSRepo)),
+		"RESET_CMD=" + mysqlResetCmd(major),
+		// mysqlSetRootPW's no-temporary-password branch interpolates both of these.
+		// Without them it runs `ALTER USER ... IDENTIFIED WITH  BY '<pw>'` and the
+		// server rejects it as a syntax error near BY — see mysql.go:787.
+		"VPRELAX=" + validatePasswordRelax(major), "AUTH_PLUGIN=" + psAuthPlugin(major),
 		"ROOT_PW=" + sec.RootPassword,
 		"REPL_USER=" + sec.ReplUser, "REPL_PW=" + sec.ReplPassword,
 		"CLUSTER_USER=" + sec.ClusterUser, "CLUSTER_PW=" + sec.ClusterPassword,
