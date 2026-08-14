@@ -145,9 +145,9 @@ export function PTStalkCard({ stackId, nodeId }) {
           <div className="flex flex-wrap gap-2">
             <DownloadLink href={api.ptStalkDownloadURL()}>Download (.tar.gz)</DownloadLink>
             <button
-              onClick={() => { sessionStorage.setItem('vs.target', JSON.stringify({ stackId, nodeId })); location.hash = 'visual-summary' }}
+              onClick={() => { sessionStorage.setItem('vs.target', JSON.stringify({ stackId, nodeId })); location.hash = 'stalk-summary' }}
               className="inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium text-fg transition hover:bg-surface2">
-              <Icon.Monitor size={15} /> Visual Summary
+              <Icon.Monitor size={15} /> Stalk Summary
             </button>
           </div>
         </div>

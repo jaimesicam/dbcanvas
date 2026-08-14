@@ -22,7 +22,7 @@ What the four partial phases still owe, in priority order:
    InnoDB Cluster *mode* is likewise gated (needs MySQL Shell).
 2. **Phase 9** — assessed, and smaller than it looked. `dbcerts` (per-user client
    certificates) depends on the per-instance TLS that is still unverified, so it
-   waits on that. **Visual Summary is arguably not applicable**: it renders a
+   waits on that. **Stalk Summary is arguably not applicable**: it renders a
    pt-stalk archive, which captures HOST-level metrics plus one database — in a
    container where several servers share the host, "run pt-stalk on this node" has
    no single right answer, and the same is true of the Diagnostics tab that
@@ -581,7 +581,7 @@ verify-live rule) and an `IMPLEMENTATION.md` session entry.
 | **6** | ⏳ **partial** — `orchestrator`, `proxysql` and `haproxy` ✅, with `backendInstanceId` wiring verified live against a running cluster. The PDPS/PDPXC repo interaction is still unverified — only reachable once PXC lands. |
 | **7** | ✅ **done** — N clusters, one shared version, Galera pinned to slot ports, bootstrap via a generated start wrapper (no `mysql@bootstrap` unit) |
 | **8** | ⏳ **partial** — Orchestrator ✅, PMM ✅, per-instance TLS ✅ for MySQL/PostgreSQL/MongoDB (**unit-tested only — not yet verified live**, see session 204). LDAP, OpenBao, Keycloak OIDC and SeaweedFS backups remain gated: `aioUnimplementedOptions` rejects them by name so the form cannot promise what no provisioner reads. |
-| **9** | ⏳ **partial** — Query Runner, Benchmark and Data Generator ✅ via a composite `<nodeId>#<inst>` target id. `dbcerts` waits on TLS verification; `dbauth` waits on Phase 8's LDAP; **Visual Summary is likely not applicable** (pt-stalk captures host-level metrics, and the host is shared by every instance); **Labs** is the real remaining work and needs authoring support, not a resolution change. |
+| **9** | ⏳ **partial** — Query Runner, Benchmark and Data Generator ✅ via a composite `<nodeId>#<inst>` target id. `dbcerts` waits on TLS verification; `dbauth` waits on Phase 8's LDAP; **Stalk Summary is likely not applicable** (pt-stalk captures host-level metrics, and the host is shared by every instance); **Labs** is the real remaining work and needs authoring support, not a resolution change. |
 | **10** | ⏳ **partial** — README's *All in One* section ✅ and `docs/ALL_IN_ONE.md` ✅. Screenshots outstanding (they need a deployed stack). |
 
 Phases 2–7 are independent as *development* work and can be reordered or

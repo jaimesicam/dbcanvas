@@ -18,6 +18,6 @@ Images embedded in the top-level [`README.md`](../../README.md).
 | `packet-inspector.png` | The Packet Inspector — a live PXC capture, its Galera ports, and the summary's protocol mix and issue filters |
 | `packet-inspector-detail.png` | A prepared-statement round trip selected, with the sticky inspection panel (SQL, timing, TCP state, hex) |
 | `packet-inspector-serverlog.png` | The server log read from the node and narrowed to the capture's own window, each record classified |
-| `visual-summary.png` | Visual Summary — timeline charts from a pt-stalk archive |
+| `stalk-summary.png` | Stalk Summary — timeline charts from a pt-stalk archive |
 | `labs.png` | The Labs (experimental) catalog, grouped by database/technology/category |
 | `dashboard.png` | The live Dashboard |

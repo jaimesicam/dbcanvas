@@ -24,7 +24,7 @@ import {
   MySQLCENodeForm, MySQLCEFrameForm, MySQLCEInnoDBFrameForm,
   UpstreamMemberForm,
 } from '../src/pages/UpstreamForms.jsx'
-import { Comparison, Verdicts, Advisor, ChartCard, KeptCaptures, HeadToHead, VerdictBody, VerdictMark } from '../src/pages/VisualSummary.jsx'
+import { Comparison, Verdicts, Advisor, ChartCard, KeptCaptures, HeadToHead, VerdictBody, VerdictMark } from '../src/pages/StalkSummary.jsx'
 import {
   frameMemberSub, REPL_FRAME_TYPES,
   NODE_TYPES, CONNECTABLE_FRAMES, SS_LINK_TYPES, SS_LINK_ENGINE,
@@ -1043,7 +1043,7 @@ check('every Stock Market Sim link target maps to an engine', () => {
   return 'ok'
 })
 
-// ---- Visual Summary: verdicts and the two-archive comparison ----
+// ---- Stalk Summary: verdicts and the two-archive comparison ----
 //
 // The numbers below are the two real captures this feature was built against:
 // one server at innodb_buffer_pool_size=128M and the same server at 4G.
@@ -1067,11 +1067,11 @@ const vs4G = vsCapture('ps-01', '2026-08-12T13:47:00Z',
   { qps: 4583, bpMissRatioPct: 0, bpFreePages: 105660, innodbReadMiBs: 0, deviceReadMiBs: 0, fsyncsPerSec: 108, cpuBusyPct: 77.7, cpuIowaitPct: 0.4, diskUtilPct: 11.3, maxCheckpointAgePctOfRedo: 11.3 },
   [{ id: 'bufferPool', title: 'Buffer pool sizing', level: 'ok', headline: '105660 of 262144 pages still free', detail: 'x' }])
 
-check('visual summary: verdicts card', () => renderToString(<Verdicts verdicts={vs128.verdicts} />))
-check('visual summary: verdicts card with none', () => renderToString(<div><Verdicts verdicts={[]} /></div>))
-check('visual summary: comparison of two captures', () => renderToString(<Comparison a={vs128} b={vs4G} />))
-check('visual summary: comparison when nothing differs', () => renderToString(<Comparison a={vs128} b={vs128} />))
-check('visual summary: comparison with a missing finding on one side', () =>
+check('stalk summary: verdicts card', () => renderToString(<Verdicts verdicts={vs128.verdicts} />))
+check('stalk summary: verdicts card with none', () => renderToString(<div><Verdicts verdicts={[]} /></div>))
+check('stalk summary: comparison of two captures', () => renderToString(<Comparison a={vs128} b={vs4G} />))
+check('stalk summary: comparison when nothing differs', () => renderToString(<Comparison a={vs128} b={vs128} />))
+check('stalk summary: comparison with a missing finding on one side', () =>
   renderToString(<Comparison a={vs128} b={vsCapture('ps-01', '2026-08-12T16:00:00Z', {}, { qps: 900 }, [])} />))
 
 // Per-chart advisors. The collapsed state is what everyone sees, but the
@@ -1083,10 +1083,10 @@ const anAdvisor = {
   headline: '408.9k requests/s, 34.2k misses/s (8.30%)',
   detail: 'Logical reads against the pool, and how many did not find their page in it. The working set is much larger than the pool.',
 }
-check('visual summary: advisor (collapsed)', () => renderToString(<Advisor a={anAdvisor} />))
-check('visual summary: advisor with no data', () => renderToString(<div><Advisor a={null} /></div>))
+check('stalk summary: advisor (collapsed)', () => renderToString(<Advisor a={anAdvisor} />))
+check('stalk summary: advisor with no data', () => renderToString(<div><Advisor a={null} /></div>))
 for (const level of ['ok', 'info', 'warn', 'crit']) {
-  check(`visual summary: advisor level ${level}`, () =>
+  check(`stalk summary: advisor level ${level}`, () =>
     renderToString(<Advisor a={{ ...anAdvisor, level }} />))
 }
 // The split explanation. Verdicts built by advice() carry means/action; the few
@@ -1098,22 +1098,22 @@ const aSplitAdvisor = {
   means: 'Logical reads against the pool, and how many did not find their page in it.',
   action: 'Raise innodb_buffer_pool_size, or reduce what the workload touches.',
 }
-check('visual summary: advisor with means and action', () =>
+check('stalk summary: advisor with means and action', () =>
   renderToString(<Advisor a={aSplitAdvisor} />))
-check('visual summary: advisor with means but no action', () =>
+check('stalk summary: advisor with means but no action', () =>
   renderToString(<Advisor a={{ ...aSplitAdvisor, action: '' }} />))
-check('visual summary: advisor with neither, only detail', () =>
+check('stalk summary: advisor with neither, only detail', () =>
   renderToString(<Advisor a={{ ...anAdvisor, means: '', action: '' }} />))
-check('visual summary: advisor with no text at all', () =>
+check('stalk summary: advisor with no text at all', () =>
   renderToString(<Advisor a={{ id: 'x', level: 'ok', headline: '0/s' }} />))
-check('visual summary: verdict body standalone', () =>
+check('stalk summary: verdict body standalone', () =>
   renderToString(<VerdictBody v={aSplitAdvisor} />))
-check('visual summary: verdict body with nothing', () =>
+check('stalk summary: verdict body with nothing', () =>
   renderToString(<div><VerdictBody v={null} /></div>))
 // Every level has to resolve to a real icon. An unknown level must fall back
 // rather than render <undefined /> — the bug this file exists for.
 for (const level of ['ok', 'info', 'warn', 'crit', 'banana', undefined]) {
-  check(`visual summary: verdict mark ${level}`, () =>
+  check(`stalk summary: verdict mark ${level}`, () =>
     renderToString(<VerdictMark level={level} />))
 }
 // The lock-waits table and the transaction advisor that sits under it. An
@@ -1124,8 +1124,8 @@ const aLockWaitAdvisor = {
   means: 'The transaction other transactions are waiting behind.',
   action: 'Find thread 8214 and end it, then look for the missing COMMIT.',
 }
-check('visual summary: lock wait advisor', () => renderToString(<Advisor a={aLockWaitAdvisor} />))
-check('visual summary: transaction advisor with no lock wait', () =>
+check('stalk summary: lock wait advisor', () => renderToString(<Advisor a={aLockWaitAdvisor} />))
+check('stalk summary: transaction advisor with no lock wait', () =>
   renderToString(<Advisor a={{ id: 'innodbTrx', level: 'warn', headline: 'thread 7139 active 86s, 1 row locks', means: 'The longest-running transaction seen.', action: 'Long enough to hold back purge.' }} />))
 
 // The panels added for DDL blocking, the network, and the table cache. Each
@@ -1137,13 +1137,13 @@ for (const [id, level, headline] of [
   ['errorLog', 'crit', '3 membership, 1 state transfer'],
   ['tableCache', 'info', '200 opens/s, 200 misses/s, 0 overflows/s'],
 ]) {
-  check(`visual summary: advisor ${id}`, () =>
+  check(`stalk summary: advisor ${id}`, () =>
     renderToString(<Advisor a={{ id, level, headline, means: 'what it measures', action: 'what to do' }} />))
 }
 
-check('visual summary: chart card carrying an advisor', () =>
+check('stalk summary: chart card carrying an advisor', () =>
   renderToString(<ChartCard title="Buffer pool reads" subtitle="/s" advisor={anAdvisor}><div /></ChartCard>))
-check('visual summary: chart card without one', () =>
+check('stalk summary: chart card without one', () =>
   renderToString(<ChartCard title="Memory" subtitle="MB"><div /></ChartCard>))
 
 // Kept captures + the N-way head-to-head. The comparison payload is built by
@@ -1152,9 +1152,9 @@ const keptArchives = [
   { id: 3, capturedAt: '2026-08-12T15:34:04Z', host: 'ps-01', nodeLabel: 'ps-01', stackName: 'stack', sizeBytes: 1866761, note: 'after 4G pool' },
   { id: 2, capturedAt: '2026-08-12T13:47:00Z', host: 'ps-01', nodeLabel: 'ps-01', stackName: 'stack', sizeBytes: 1820176, note: '' },
 ]
-check('visual summary: kept captures list', () =>
+check('stalk summary: kept captures list', () =>
   renderToString(<KeptCaptures archives={keptArchives} picked={[2]} onAnalyze={noop} onToggle={noop} onCompare={noop} onDelete={noop} onClear={noop} />))
-check('visual summary: kept captures, none kept yet', () =>
+check('stalk summary: kept captures, none kept yet', () =>
   renderToString(<div><KeptCaptures archives={[]} picked={[]} onAnalyze={noop} onToggle={noop} onCompare={noop} onDelete={noop} onClear={noop} /></div>))
 
 const headToHead = {
@@ -1170,10 +1170,10 @@ const headToHead = {
   ],
   verdicts: [{ id: 'comparePool', title: 'Did the buffer pool change help?', level: 'ok', headline: 'read-miss 8.30% -> 0.00% (-100%)', detail: 'cause and effect' }],
 }
-check('visual summary: head to head', () => renderToString(<HeadToHead cmp={headToHead} />))
-check('visual summary: head to head with no verdicts or settings', () =>
+check('stalk summary: head to head', () => renderToString(<HeadToHead cmp={headToHead} />))
+check('stalk summary: head to head with no verdicts or settings', () =>
   renderToString(<HeadToHead cmp={{ ...headToHead, verdicts: [], settings: [] }} />))
-check('visual summary: head to head with nothing', () =>
+check('stalk summary: head to head with nothing', () =>
   renderToString(<div><HeadToHead cmp={null} /></div>))
 
 if (failures > 0) {

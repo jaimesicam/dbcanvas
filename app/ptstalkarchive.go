@@ -82,7 +82,7 @@ func scanPTStalkArchives(rows *sql.Rows) ([]ptStalkArchive, error) {
 }
 
 // ListPTStalkArchives returns kept captures newest first. A zero stackID lists
-// every stack's, which is what the Visual Summary picker wants — comparing a
+// every stack's, which is what the Stalk Summary picker wants — comparing a
 // capture against one from a stack that has since been destroyed is a normal
 // thing to want.
 func (s *Store) ListPTStalkArchives(stackID int64, nodeID string) ([]ptStalkArchive, error) {
@@ -177,10 +177,10 @@ func (a *App) handlePTStalkArchives(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"archives": list})
 }
 
-// handleVisualArchives lists every kept capture the user owns, for the Visual
+// handleStalkArchives lists every kept capture the user owns, for the Stalk
 // Summary picker. Enriched with stack and node names, because "ps-01 at 14:32"
 // is what a person recognises and a node id is not.
-func (a *App) handleVisualArchives(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleStalkArchives(w http.ResponseWriter, r *http.Request) {
 	u, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
@@ -230,8 +230,8 @@ func nodeLabels(st Stack) map[string]string {
 	return out
 }
 
-// handleVisualFromArchive parses a kept capture by id.
-func (a *App) handleVisualFromArchive(w http.ResponseWriter, r *http.Request) {
+// handleStalkFromArchive parses a kept capture by id.
+func (a *App) handleStalkFromArchive(w http.ResponseWriter, r *http.Request) {
 	arch, ok := a.loadOwnedArchive(w, r)
 	if !ok {
 		return

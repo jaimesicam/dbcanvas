@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 
-// TimeChart — a dependency-free SVG timeline chart (line or stacked-area) for the Visual
+// TimeChart — a dependency-free SVG timeline chart (line or stacked-area) for the Stalk
 // Summary. One y-axis only. Grid/axis/text use the app's theme CSS vars; the categorical
 // series palette is the validated dataviz reference palette, picked light/dark by surface
 // luminance so it adapts to any theme. Legend + hover tooltip carry series identity (never

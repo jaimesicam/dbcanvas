@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// Visual Summary — turn a pt-stalk/pt-summary/pt-mysql-summary archive into a normalized
+// Stalk Summary — turn a pt-stalk/pt-summary/pt-mysql-summary archive into a normalized
 // JSON model of timeline series (CPU, memory, swap, disk, InnoDB/MySQL metrics) that the
 // frontend renders as charts. Every parser is tolerant: a missing or malformed file just
 // omits its series (flagged in Available), never fails the whole parse.
@@ -116,7 +116,7 @@ type vsModel struct {
 	Deadlock      *vsDeadlock         `json:"deadlock,omitempty"`
 	Verdicts      []vsVerdict         `json:"verdicts,omitempty"`
 	// Advisors explain one chart each — what it measures, what this capture's
-	// numbers say, and what to change. Keyed by chart. See visualsummary_advice.go.
+	// numbers say, and what to change. Keyed by chart. See stalksummary_advice.go.
 	Advisors  map[string]vsVerdict `json:"advisors,omitempty"`
 	Available map[string]bool      `json:"available"`
 	Notes     []string             `json:"notes,omitempty"`
@@ -138,7 +138,7 @@ type namedFile struct {
 
 var tsPrefixRe = regexp.MustCompile(`(\d{4})_(\d{2})_(\d{2})_(\d{2})_(\d{2})_(\d{2})-`)
 
-// parsePtStalk unpacks a .tar.gz and builds the visual model. Resilient throughout.
+// parsePtStalk unpacks a .tar.gz and builds the chart model. Resilient throughout.
 func parsePtStalk(gzData []byte) (*vsModel, error) {
 	gz, err := gzip.NewReader(bytes.NewReader(gzData))
 	if err != nil {
@@ -1977,7 +1977,7 @@ func truncate(s string, n int) string {
 
 // ---- HTTP ----
 
-func (a *App) handleVisualUpload(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleStalkUpload(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.currentUser(r); !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -2005,7 +2005,7 @@ func (a *App) handleVisualUpload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, model)
 }
 
-func (a *App) handleVisualNode(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleStalkNode(w http.ResponseWriter, r *http.Request) {
 	dep, _, ok := a.loadRunningDBNode(w, r, "mysql")
 	if !ok {
 		return

@@ -44,7 +44,7 @@
  *
  * The light amber sits just under 3:1 against its surface, which obliges the
  * visible text label that ships beside it — see VERDICT_LABEL in
- * VisualSummary.jsx. Colour is never the only signal: every verdict carries an
+ * StalkSummary.jsx. Colour is never the only signal: every verdict carries an
  * icon and a word as well, so it survives greyscale and colour-blind readers.
  */
 :root, [data-theme="light"] {

@@ -224,7 +224,7 @@ func (a *App) handlePTStalkDownload(w http.ResponseWriter, r *http.Request) {
 
 func ptStalkName(dep Deployment) string { return "ptstalk-" + hostnameOf(dep) + ".tar.gz" }
 
-// ptDigestSnippet adds the one thing pt-stalk does not collect and the Visual
+// ptDigestSnippet adds the one thing pt-stalk does not collect and the Stalk
 // Summary most needs: which statements did the work.
 //
 // pt-stalk's counters name a symptom perfectly — "126,000 rows/s are being read

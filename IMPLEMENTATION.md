@@ -13775,3 +13775,21 @@ rows is `partitioned {` — a fragment of a multi-line Galera view block, matche
 because the parser evaluates each line independently. It is not wrong, but it is
 not a useful sentence either. Multi-line log blocks would need a continuation
 rule to render well.
+
+## 252. Visual Summary becomes Stalk Summary — `app/stalksummary*.go`, `app/web/src/pages/StalkSummary.jsx`, `app/web/src/lib/stalkApi.js`
+
+A rename, and the name is the point: the feature does one thing, which is read a
+pt-stalk archive, and "Visual" described the output rather than the input. With a
+second summary feature arriving in §253 that reads a different artefact entirely,
+two features called "Visual" and "Log" would have divided badly — one by how it
+looks, one by what it reads.
+
+Renamed throughout rather than aliased: the Go files, the `handleVisual*`
+handlers, the `/api/visualsummary/*` routes, the React page and its API module,
+the nav id, the docs and the screenshot. The frontend and backend ship together,
+so there is nothing to keep compatible. The `vs*` model prefix inside
+`stalksummary.go` is untouched — it never stood for "visual", and `vsModel` reads
+the same either way.
+
+Verified by `go build`, `go vet`, the Go suite, and `npm run smoke`, which renders
+every Stalk Summary component and would have caught a broken import.

@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { Card, Button, Badge, inputCls } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import TimeChart from '../components/TimeChart.jsx'
-import { visualApi } from '../lib/visualApi.js'
+import { stalkApi } from '../lib/stalkApi.js'
 
-// Visual Summary — upload (or pull from a node) a pt-stalk archive and render it as
+// Stalk Summary — upload (or pull from a node) a pt-stalk archive and render it as
 // professional timeline charts. ~90% charts, ~10% text. Every card renders only if its
 // series is present in the parsed model (resilient to missing files in the archive).
 
-export default function VisualSummary() {
+export default function StalkSummary() {
   const [model, setModel] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -28,10 +28,10 @@ export default function VisualSummary() {
   const fileRef = useRef(null)
 
   const reloadArchives = () =>
-    visualApi.archives().then((a) => setArchives(a || [])).catch(() => {})
+    stalkApi.archives().then((a) => setArchives(a || [])).catch(() => {})
 
   useEffect(() => {
-    visualApi.nodes().then((n) => setNodes(n || [])).catch(() => {})
+    stalkApi.nodes().then((n) => setNodes(n || [])).catch(() => {})
     reloadArchives()
     const raw = sessionStorage.getItem('vs.target')
     if (raw) {
@@ -45,9 +45,9 @@ export default function VisualSummary() {
     setError(null); setLoading(true); setModel(null)
     try { setModel(await fn()) } catch (e) { setError(e.message || 'Failed to parse archive') } finally { setLoading(false) }
   }
-  const loadUpload = (file) => file && run(() => visualApi.upload(file))
-  const loadNode = (stackId, nodeId) => run(() => visualApi.fromNode(stackId, nodeId))
-  const loadArchive = (id) => { setCmp(null); return run(() => visualApi.fromArchive(id)) }
+  const loadUpload = (file) => file && run(() => stalkApi.upload(file))
+  const loadNode = (stackId, nodeId) => run(() => stalkApi.fromNode(stackId, nodeId))
+  const loadArchive = (id) => { setCmp(null); return run(() => stalkApi.fromArchive(id)) }
 
   // Ticking captures compares them; the order ticked is the order compared, so
   // the first is the baseline and "did this change help" reads left to right.
@@ -56,14 +56,14 @@ export default function VisualSummary() {
 
   async function runCompare() {
     setError(null); setLoading(true); setModel(null); setCmp(null)
-    try { setCmp(await visualApi.compare(picked)) }
+    try { setCmp(await stalkApi.compare(picked)) }
     catch (e) { setError(e.message || 'Comparison failed') }
     finally { setLoading(false) }
   }
 
   async function dropArchive(id) {
     try {
-      await visualApi.removeArchive(id)
+      await stalkApi.removeArchive(id)
       setPicked((p) => p.filter((x) => x !== id))
       reloadArchives()
     } catch (e) { setError(e.message) }
@@ -72,7 +72,7 @@ export default function VisualSummary() {
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-4">
       <header>
-        <h1 className="text-lg font-semibold text-fg">Visual Summary</h1>
+        <h1 className="text-lg font-semibold text-fg">Stalk Summary</h1>
         <p className="text-sm text-muted">Turn a pt-stalk archive into timeline charts — CPU, memory, swap, disk, and MySQL/InnoDB internals at a glance.</p>
       </header>
 

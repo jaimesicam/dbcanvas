@@ -121,16 +121,16 @@ func main() {
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/ptstalk/archives", app.handlePTStalkArchives)
 	// Kept captures, addressed by their own id rather than by node: an archive
 	// outlives the node it came from, which is the point of keeping it.
-	mux.HandleFunc("GET /api/ptstalk/archives", app.handleVisualArchives)
+	mux.HandleFunc("GET /api/ptstalk/archives", app.handleStalkArchives)
 	mux.HandleFunc("GET /api/ptstalk/archives/{aid}/download", app.handleArchiveDownload)
 	mux.HandleFunc("POST /api/ptstalk/archives/{aid}/note", app.handleArchiveNote)
 	mux.HandleFunc("DELETE /api/ptstalk/archives/{aid}", app.handleArchiveDelete)
-	mux.HandleFunc("POST /api/visualsummary/archive/{aid}", app.handleVisualFromArchive)
-	mux.HandleFunc("POST /api/visualsummary/compare", app.handleVisualCompare)
+	mux.HandleFunc("POST /api/stalksummary/archive/{aid}", app.handleStalkFromArchive)
+	mux.HandleFunc("POST /api/stalksummary/compare", app.handleStalkCompare)
 
-	// Visual Summary — parse a pt-stalk archive into timeline charts.
-	mux.HandleFunc("POST /api/visualsummary/upload", app.handleVisualUpload)
-	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/visualsummary", app.handleVisualNode)
+	// Stalk Summary — parse a pt-stalk archive into timeline charts.
+	mux.HandleFunc("POST /api/stalksummary/upload", app.handleStalkUpload)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/stalksummary", app.handleStalkNode)
 	// Stock Market Sim: check a manually-entered database connection before
 	// deploying with it. Node-scoped by URL for consistency, though the check
 	// itself only needs the stack's network — see handleStockSimTest.

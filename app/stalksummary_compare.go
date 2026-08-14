@@ -322,11 +322,11 @@ func joinComma(items []string) string {
 
 // ---- handler ----
 
-// handleVisualCompare parses two or more kept captures and returns the
+// handleStalkCompare parses two or more kept captures and returns the
 // head-to-head. Ids are given in order and the first is the baseline; a caller
 // listing them oldest-first gets "what did this change do", which is the
 // question they were kept to answer.
-func (a *App) handleVisualCompare(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleStalkCompare(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ArchiveIDs []int64 `json:"archiveIds"`
 	}

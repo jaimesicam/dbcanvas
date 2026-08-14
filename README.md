@@ -10,7 +10,7 @@ driven by Vagrant for the OS/database nodes. It then gives you tools to *use* an
 those databases: a **Data Generator** for realistic test data, a **Query Runner** and
 **Benchmark** for workloads, a **Packet Inspector** that decodes MySQL, PostgreSQL,
 MongoDB and Valkey traffic off the wire, a
-**Visual Summary** that turns pt-stalk captures into charts, an
+**Stalk Summary** that turns pt-stalk captures into charts, an
 **experimental Labs** catalog of 95 AI-generated hands-on scenarios (see
 [below](#labs-experimental) — verify before relying on them), a live **Dashboard**, and a
 **notification** center for what's happening across your stacks.
@@ -301,7 +301,7 @@ reachable over a browser-based VNC client — handy for GUI database tools insid
 **Diagnostics captures.** From a running node's panel, capture a diagnostic bundle and
 download it: **pg_gather** (a single `GatherReport.html`) on PostgreSQL nodes, or
 **pt-stalk** + `pt-summary` + `pt-mysql-summary` (a tarball) on MySQL/PXC nodes. Feed a
-pt-stalk archive straight into **Visual Summary** (below) to chart it.
+pt-stalk archive straight into **Stalk Summary** (below) to chart it.
 
 ### All in One
 
@@ -518,7 +518,7 @@ memory and die with the process.
 See [`docs/PACKET_INSPECTOR.md`](docs/PACKET_INSPECTOR.md) for the full protocol-by-protocol
 detail, the error catalogues, and how to generate sample captures to try it on.
 
-### Visual Summary
+### Stalk Summary
 Turn a **pt-stalk** archive — collected from a MySQL/PXC node's **Diagnostics** tab or uploaded
 as a `.tar.gz` — into professional **timeline charts**: CPU / memory / swap, disk
 (utilization, throughput, IOPS, latency, overall + per-device), network throughput and
@@ -527,7 +527,7 @@ age, replication lag, deadlocks, rows-scanned-without-index, and more). It's ~90
 ~10% text — with a consolidated, **sortable** processlist and per-session InnoDB transactions —
 and stays resilient when files are missing from the archive.
 
-![Visual Summary — timeline charts from a pt-stalk archive](docs/screenshots/visual-summary.png)
+![Stalk Summary — timeline charts from a pt-stalk archive](docs/screenshots/stalk-summary.png)
 
 ### Labs (experimental)
 A catalog of **95 hands-on scenarios** — 27 for **Patroni** (PostgreSQL HA), 30 for **PS MongoDB**
