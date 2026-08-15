@@ -57,6 +57,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -118,6 +119,20 @@ func (r lsMongoRecord) num(key string) (int64, bool) {
 		return 0, false
 	}
 	return int64(f), true
+}
+
+// strs reads an array-of-strings attribute — affectedNamespaces on a rollback summary is
+// the one that matters, because it says which collections lost writes.
+func (r lsMongoRecord) strs(key string) []string {
+	raw, ok := r.Attr[key]
+	if !ok {
+		return nil
+	}
+	var out []string
+	if json.Unmarshal(raw, &out) != nil {
+		return nil
+	}
+	return out
 }
 
 // host reads a `hostAndPort`-shaped attribute and returns the short name, which is what
@@ -318,8 +333,47 @@ var lsMongoRules = []lsMongoRule{
 		}},
 	{ids: []int{21607}, class: lsClassConflict, sev: lsSevWarn, label: "Rollback common point found",
 		means: "The last point at which this member and the set still agreed. Everything this member did after it is being undone."},
-	{ids: []int{21592, 21612}, class: lsClassConflict, sev: lsSevWarn, label: "Rollback complete",
+	{ids: []int{21592}, class: lsClassConflict, sev: lsSevWarn, label: "Rollback complete",
 		means: "The member has finished discarding and will now catch up from the current primary normally."},
+	// The rollback summary, and the only record that carries the count on EVERY version.
+	// 6984700 says the same thing more directly but does not exist before 7.0, so a 6.0
+	// rollback read through 6984700 alone reports that data was lost without saying how
+	// much — which is the one number the person reading it needs. Verified identical on
+	// 6.0.29-23, 7.0.39-21 and 8.0.28-12.
+	{ids: []int{21612}, class: lsClassConflict, sev: lsSevBad, label: "Rollback summary",
+		means: "What the rollback actually removed, and where the discarded documents were put. This is the record to read first: it is the only one that survives on every server version and it carries both the count and the path.",
+		enrich: func(r lsMongoRecord, e *lsEvent) {
+			var parts []string
+			if raw, ok := r.Attr["rollbackCommandCounts"]; ok {
+				var counts map[string]int64
+				if json.Unmarshal(raw, &counts) == nil {
+					var kinds []string
+					for k := range counts {
+						kinds = append(kinds, k)
+					}
+					sort.Strings(kinds)
+					for _, k := range kinds {
+						if counts[k] > 0 {
+							parts = append(parts, fmt.Sprintf("%d %s", counts[k], k))
+						}
+					}
+				}
+			}
+			total, hasTotal := r.num("totalEntriesRolledBackIncludingNoops")
+			switch {
+			case len(parts) > 0:
+				e.Message = strings.Join(parts, ", ") + " reverted"
+				e.Label = "Rollback reverted " + strings.Join(parts, ", ")
+			case hasTotal:
+				e.Message = fmt.Sprintf("%d oplog entries reverted", total)
+			}
+			if ns := r.strs("affectedNamespaces"); len(ns) > 0 {
+				e.Message += " in " + strings.Join(ns, ", ")
+			}
+			if dir := r.str("rollbackDataFileDirectory"); dir != "" {
+				e.Message += " — discarded documents under " + dir
+			}
+		}},
 	{ids: []int{21611}, class: lsClassState, sev: lsSevOK, label: "Back to SECONDARY after rollback",
 		means:  "The member is serving again, without the writes it lost.",
 		enrich: func(_ lsMongoRecord, e *lsEvent) { e.State = lsStateSecondary }},
@@ -368,6 +422,15 @@ var lsMongoRules = []lsMongoRule{
 	// fatal assertion; 21444 is a dry-run election SUCCEEDING, not failing; 20698 is a
 	// restart marker, not a shutdown. The corpus caught all three. Nothing below it has
 	// been caught by anything.
+	//
+	// The 6.0/7.0 sweep shrank this block from four rules to two and confirmed why it is
+	// fenced. 20557 was moved out of it — not because it was verified, but because SIGKILL
+	// on all three versions never produced it, and 22271/501401/20631 did. The two left are
+	// still guesses, and a deliberate attempt was made on both: rolling a 6.0 member off the
+	// end of a 990 MiB oplog — first by stopping it, then by SIGSTOPping it so its optime
+	// froze while the process stayed alive — produced an ordinary catch-up and an ordinary
+	// initial sync, never 5579600. So even the scenario that is supposed to produce it does
+	// not, reliably, and the rule stays here until a real log says otherwise.
 	{ids: []int{4280510}, class: lsClassTransfer, sev: lsSevBad, label: "Initial sync failed",
 		means: "The whole-dataset copy did not complete. MongoDB retries, and a member that keeps failing here never becomes usable — check whether the donor is healthy and whether the member has room for the data."},
 	{ids: []int{5579600}, class: lsClassReplica, sev: lsSevBad, label: "Too stale to catch up",
@@ -375,9 +438,32 @@ var lsMongoRules = []lsMongoRule{
 		enrich: func(_ lsMongoRecord, e *lsEvent) { e.State = lsStateRecovering }},
 	{ids: []int{23015}, class: lsClassStartup, sev: lsSevOK, label: "Ready for connections",
 		means: "mongod is accepting connections. For a replica-set member this is not the same as being usable: it says nothing about whether the member has joined the set or has current data."},
-	{ids: []int{20557}, class: lsClassCrash, sev: lsSevBad, label: "Unclean shutdown detected",
-		means:  "The previous mongod did not stop cleanly — it was killed, or the host went away. WiredTiger recovers from its journal on the next start, which is why this usually costs time rather than data.",
+
+	// ---- an unclean stop, and what it costs ------------------------------------------
+	//
+	// 20557 used to sit in the fenced-off block below as "Unclean shutdown detected". It was
+	// a guess, and SIGKILLing a mongod on 6.0, 7.0 and 8.0 never produced it once. These
+	// three did, on all three versions — mongod says it three times, from three different
+	// subsystems, which is why they share a rule and collapse into one row.
+	{ids: []int{22271, 501401, 20631}, class: lsClassCrash, sev: lsSevBad, label: "Previous shutdown was not clean",
+		means:  "The last mongod on this data directory did not stop on request — it was killed, OOM-killed, or the host went away. Nothing is lost: WiredTiger replays its journal on the way up. What it costs is time, and the fact that it happened at all is not otherwise recorded anywhere the application can see.",
 		enrich: func(_ lsMongoRecord, e *lsEvent) { e.State = lsStateStarting }},
+	{ids: []int{22302}, class: lsClassCrash, sev: lsSevInfo, label: "Recovering from the last checkpoint",
+		means: "The recovery half of an unclean start: WiredTiger is replaying from its most recent checkpoint. On a large busy dataset this is where the start-up time goes, and until it finishes the member is not in the set at all."},
+
+	// ---- replication breaking rather than lagging ------------------------------------
+	{ids: []int{21122}, class: lsClassReplica, sev: lsSevWarn, label: "Oplog fetcher stopped with an error",
+		means: "The member's oplog fetcher gave up on its sync source. It retries, so one of these is unremarkable; a run of them is a member that is not receiving the oplog at all, which looks like lag from the outside and is not lag.",
+		enrich: func(r lsMongoRecord, e *lsEvent) {
+			if m := r.str("error"); m != "" {
+				e.Message = m
+			}
+			if p := lsMongoShortHost(r.str("lastOpTimeFetched")); p == "" {
+				if p := lsMongoShortHost(r.str("syncSource")); p != "" {
+					e.Peer = p
+				}
+			}
+		}},
 
 	// ---- configuration ---------------------------------------------------------------
 	{ids: []int{21392}, class: lsClassConfig, sev: lsSevInfo, label: "New replica set config in use",
@@ -465,6 +551,18 @@ func lsSniffMongoRS(recs []lsMongoRecord) bool {
 	for _, r := range recs {
 		switch r.Comp {
 		case "REPL", "ELECTION", "ROLLBACK", "REPL_HB", "INITSYNC":
+			return true
+		}
+		// The components above are the obvious evidence and they are not always there. A
+		// twenty-thousand-line tail from a real member turned out to be entirely NETWORK
+		// and CONNPOOL — the replica-set monitor complaining about an unreachable peer,
+		// several thousand times, and not one REPL record among them. That member was
+		// filed as a standalone mongod, which then dragged it through the MySQL findings.
+		//
+		// `attr.replicaSet` is the durable signal: every record the replica-set monitor
+		// writes carries the set's name, on every version, and a standalone mongod has
+		// nothing to put in it.
+		if _, ok := r.Attr["replicaSet"]; ok {
 			return true
 		}
 	}

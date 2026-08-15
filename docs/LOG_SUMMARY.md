@@ -568,16 +568,51 @@ PRIMARY when the excerpt begins never logs a transition into it. Its companion `
 reports the same about a *peer* (`{"hostAndPort":…,"newState":…}`), so one member's file
 describes the whole set.
 
-Members are parsed here rather than by the shared MongoDB classifier the Packet Inspector
-uses, because the facts that matter live in `attr` and the shared entry type does not carry
-it. A standalone `mongod` keeps the shared path: it has no member states, no elections and
-no rollbacks, and giving it a swimlane of replica-set states would invent a topology.
+Every `mongod` log is parsed here rather than by the shared MongoDB classifier the Packet
+Inspector uses, because the facts that matter live in `attr` and the shared entry type does
+not carry it. The replica-set sniff decides only the **flavour** — which findings may speak
+about this source — and a standalone `mongod` gets no swimlane of replica-set states,
+because it has no member states, no elections and no rollbacks and inventing a topology for
+it would be worse than saying nothing.
 
-Every rule was written against a live three-node Percona Server for MongoDB 8.0.28-12
-replica set, driven through `rs.stepDown()`, a SIGKILL on the primary under write load, a
-member cut off port 27017 with tc/netem, a **partitioned primary written to and then
-healed**, and a wiped data directory resynced from scratch. The fixtures are `m*` under
-`app/testdata/logsummary/`.
+Every rule was written against live three-node Percona Server for MongoDB replica sets,
+driven through `rs.stepDown()`, a SIGKILL on the primary under write load, a member cut off
+port 27017, a **partitioned primary written to and then healed**, and a wiped data directory
+resynced from scratch. The fixtures are `m*` under `app/testdata/logsummary/`.
+
+### Across versions: 6.0, 7.0 and 8.0
+
+The design rests on one claim — that MongoDB's numeric ids are stable across releases even
+when the English changes — and that claim was worth checking rather than believing. The same
+incident was driven against **6.0.29-23** and **7.0.39-21** and the id namespaces diffed
+against 8.0.
+
+The claim holds. Every id in the catalogue that fires at all carries the **identical
+message** on all three releases; the same physical incident produces the same eight findings
+on each. What the sweep did find was three things wrong on this side of the line:
+
+**One record does not exist before 7.0.** `6984700` "Operations reverted by rollback" is the
+obvious source for how much a rollback threw away, and a 6.0 rollback read through it reports
+that data was lost without saying how much — the one number the reader actually needs.
+`21612` "Rollback summary" carries the same counts on every version *and* names the affected
+collections and the directory the discarded documents went to, so it is now preferred
+outright. 7.0 and 8.0 had been reporting **less** than 6.0 could.
+
+**One rule was a guess and the sweep disproved it.** `20557` sat in the catalogue as "Unclean
+shutdown detected". SIGKILLing a `mongod` on 6.0, 7.0 and 8.0 never produced it once.
+`22271` ("Detected unclean shutdown - Lock file is not empty"), `501401` and `20631` all did,
+on every version — `mongod` says it three times from three subsystems, which is why they
+share a rule and collapse into one row.
+
+**A twenty-thousand-line tail with no REPL records in it.** One member's excerpt turned out
+to be entirely the replica-set monitor complaining about an unreachable peer — `NETWORK` and
+`CONNPOOL`, several thousand records, not one `REPL` among them. The sniff filed it as a
+standalone `mongod`, which sent it through the shared classifier, which has no severity
+filter: twenty thousand records became twenty thousand events of class *other*, and the
+verdict layer read them as an asynchronous replica whose replication was broken. Two fixes:
+the sniff now also accepts `attr.replicaSet`, which every replica-set-monitor record carries
+on every version, and the MongoDB filter is applied to *every* `mongod` log rather than only
+to recognised members.
 
 ### 1. A rollback is silent data loss, with a receipt
 
@@ -589,14 +624,17 @@ told they succeeded and is never told otherwise.
 The log says exactly how much went and where it was put:
 
 ```
-6984700  Operations reverted by rollback     {"insert": 43, "update": 0, "delete": 0}
+21612    Rollback summary   {"rollbackCommandCounts":{"insert":300,"create":1},
+                             "affectedNamespaces":["ftdctest.doomed"],
+                             "rollbackDataFileDirectory":"/var/lib/mongo/rollback/4275fd4d-…"}
 21609    Preparing to write deleted documents to a rollback file
          {"namespace":"lab.t","file":"/var/lib/mongo/rollback/…/removed.…bson"}
 ```
 
-In the capture, 40 documents acknowledged with `w:1` were reverted. The finding leads with
-the count, and its advice carries the file paths — that file is the only copy left, nothing
-deletes it for you and nothing replays it for you.
+`21612` rather than the more obvious `6984700`, because `6984700` did not exist before 7.0 —
+see the version notes above. The finding leads with the count, names the collections, and its
+advice carries the file paths: that file is the only copy left, nothing deletes it for you and
+nothing replays it for you.
 
 ### 2. It repeats itself, endlessly
 

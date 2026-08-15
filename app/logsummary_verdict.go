@@ -221,12 +221,36 @@ func lsFindingCrash(b *lsBundle) []lsFinding {
 		}
 		lines = append(lines, lsNode(b, src)+": "+strings.Join(labels, "; "))
 	}
+	// The advice has to follow the flavour, because the recovery does. A mysqld abort names
+	// its cause on the line above and does not come back by itself; a mongod replays its
+	// journal unattended and the bill is start-up time. Handing MongoDB the wsrep wording
+	// was how this finding first read on a 6.0 replica set, and advice that names the wrong
+	// technology is worse than no advice — the reader starts looking for something that does
+	// not exist in their log.
+	advice := "Read the records just before each of these: an abort names its cause on the line above, and a wsrep position recovery means the previous stop was unclean. A node that ends in an abort does not come back by itself."
+	if lsAllSrcAre(b, lsSrcSet(ev), lsFlavourMongoRS) {
+		advice = "mongod replays its journal from the last checkpoint on the way up, so this costs start-up time rather than data — on a large dataset, a great deal of it. What the log does not say is WHY the process went: an OOM kill is in dmesg and a killed container is in the orchestrator's records, and neither of those is in here."
+	}
 	return []lsFinding{{
 		ID: "crash", Sev: lsSevBad, Title: "A server stopped abnormally",
 		Detail: strings.Join(lines, " · "),
-		Advice: "Read the records just before each of these: an abort names its cause on the line above, and a wsrep position recovery means the previous stop was unclean. A node that ends in an abort does not come back by itself.",
+		Advice: advice,
 		At:     ev[0].TS, Sources: lsSrcSet(ev), Events: lsEventNos(ev, 8),
 	}}
+}
+
+// lsAllSrcAre reports whether every one of these sources is the same flavour — the test for
+// "this finding is entirely about one technology, so it may speak that technology".
+func lsAllSrcAre(b *lsBundle, srcs []int, flavour string) bool {
+	if len(srcs) == 0 {
+		return false
+	}
+	for _, s := range srcs {
+		if !lsSrcIs(b, s, flavour) {
+			return false
+		}
+	}
+	return true
 }
 
 // lsSuspectLead is how far back a view change is allowed to look for evidence that the

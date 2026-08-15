@@ -555,6 +555,18 @@ MySQL-Shell-managed InnoDB Cluster) — so a 1062 applier stop names the row, th
 the transaction, a 1236 names the GTIDs the source threw away, and a member refused by its
 group is reported with the transactions it holds that the group has never seen.
 
+The MongoDB catalogue is keyed on `mongod`'s **numeric message ids**, which are stable
+across releases even when the English changes — the opposite of MySQL's guarantee and much
+the more useful one. That claim was checked rather than believed: the same incident driven
+against **6.0, 7.0 and 8.0** produces the same eight findings, and every id that fires carries
+an identical message on all three. The sweep did catch three real bugs — `6984700` (how much
+a rollback threw away) does not exist before 7.0, so `21612` is used instead and 7.0/8.0 had
+been reporting *less* than 6.0 could; `20557` "unclean shutdown" was a guess that never once
+fired on any version, replaced by the three records that do; and a twenty-thousand-line tail
+containing no `REPL` records at all was filed as a standalone `mongod`, which turned 20,000
+lines of connection chatter into 20,000 events and had the verdict layer reporting a broken
+MySQL replica.
+
 Two things the Group Replication captures settled are worth the page on their own. A member
 can leave the group and be left **writable** — the corpus caught a load generator
 reconnecting to exactly such a server and writing 1,263 rows into a database that was no

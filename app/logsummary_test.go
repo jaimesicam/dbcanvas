@@ -578,8 +578,11 @@ func TestLogSummaryOtherEngines(t *testing.T) {
 		{"postgres", pktEnginePostgres,
 			"2026-08-14 01:42:31.123 UTC [123] FATAL:  the database system is starting up\n" +
 				"2026-08-14 01:42:32.500 UTC [124] LOG:  database system is ready to accept connections\n"},
+		// A standalone mongod: a start-up record the catalogue knows and a warning the
+		// server itself raised. Deliberately NOT connection chatter — see the test below.
 		{"mongodb", pktEngineMongoDB,
-			`{"t":{"$date":"2026-08-14T01:42:31.123+00:00"},"s":"I","c":"NETWORK","id":22943,"ctx":"listener","msg":"Connection accepted","attr":{"remote":"172.29.0.5:41234","connectionId":7}}` + "\n"},
+			`{"t":{"$date":"2026-08-14T01:42:31.123+00:00"},"s":"I","c":"CONTROL","id":4615611,"ctx":"initandlisten","msg":"MongoDB starting","attr":{"host":"mongo01","pid":1}}` + "\n" +
+				`{"t":{"$date":"2026-08-14T01:42:32.500+00:00"},"s":"W","c":"STORAGE","id":22271,"ctx":"initandlisten","msg":"Detected unclean shutdown - Lock file is not empty","attr":{"lockFile":"/var/lib/mongo/mongod.lock"}}` + "\n"},
 		{"valkey", pktEngineValkey,
 			"1:M 14 Aug 2026 01:42:31.123 * Ready to accept connections tcp\n"},
 	}
@@ -1162,5 +1165,50 @@ func TestLogSummaryServingStates(t *testing.T) {
 	b := lsLoadScenario(t, "r06-stop-start-replica")
 	if f := lsHasFinding(b, "unavailable"); f != nil {
 		t.Errorf("a healthy replica was reported as not serving: %q", f.Detail)
+	}
+}
+
+// A mongod log is filtered by the MongoDB catalogue whether or not it is a replica-set
+// member. It used to fall through to the shared classifier when the replica-set sniff
+// failed, and that classifier keeps every line: a twenty-thousand-line tail of connection
+// chatter became twenty thousand events of class "other", which the verdict layer then read
+// as an asynchronous replica whose replication was broken. Both halves are asserted here —
+// the noise is dropped, and what the server called a warning is not.
+func TestMongoNoiseIsDroppedEvenWithoutReplicaSetRecords(t *testing.T) {
+	const chatter = `{"t":{"$date":"2026-08-14T01:42:31.123+00:00"},"s":"I","c":"NETWORK","id":22943,"ctx":"listener","msg":"Connection accepted","attr":{"remote":"172.29.0.5:41234","connectionId":7}}`
+	const warning = `{"t":{"$date":"2026-08-14T01:42:33.000+00:00"},"s":"W","c":"STORAGE","id":22271,"ctx":"initandlisten","msg":"Detected unclean shutdown - Lock file is not empty"}`
+	var sb strings.Builder
+	for i := 0; i < 500; i++ {
+		sb.WriteString(chatter + "\n")
+	}
+	sb.WriteString(warning + "\n")
+	b := lsBuild([]lsInput{{Name: "mongod.log", Data: []byte(sb.String())}})
+	if b.Sources[0].Records != 501 {
+		t.Errorf("parsed %d records, want 501", b.Sources[0].Records)
+	}
+	if len(b.Events) != 1 {
+		t.Fatalf("501 records produced %d events — the noise filter is not being applied", len(b.Events))
+	}
+	if b.Sources[0].Flavour != pktEngineMongoDB {
+		t.Errorf("a log with no replica-set evidence should not be flavoured %q", b.Sources[0].Flavour)
+	}
+	// And the MySQL findings must not have anything to say about it.
+	for _, id := range []string{"replication-broken", "replica-lag"} {
+		if f := lsHasFinding(b, id); f != nil {
+			t.Errorf("MySQL finding %q fired on a mongod log: %s", id, f.Title)
+		}
+	}
+}
+
+// The replica-set sniff has to survive an excerpt that contains no REPL records at all.
+// A real twenty-thousand-line tail turned out to be entirely the replica-set monitor
+// complaining about an unreachable peer — NETWORK and CONNPOOL, nothing else — and every
+// one of those records carries the set's name in attr.replicaSet, which is the signal.
+func TestMongoReplicaSetSniffSurvivesNetworkOnlyExcerpts(t *testing.T) {
+	const rsm = `{"t":{"$date":"2026-08-14T01:42:31.123+00:00"},"s":"I","c":"NETWORK","id":4712102,"ctx":"ReplicaSetMonitor-TaskExecutor","msg":"Host failed in replica set","attr":{"replicaSet":"rs0","host":"mongo02.example.net:27017"}}`
+	b := lsBuild([]lsInput{{Name: "mongo03.log", Data: []byte(rsm + "\n")}})
+	if b.Sources[0].Flavour != lsFlavourMongoRS {
+		t.Errorf("flavour %q — a record carrying attr.replicaSet is a replica-set member",
+			b.Sources[0].Flavour)
 	}
 }

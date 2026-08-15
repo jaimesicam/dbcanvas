@@ -52,7 +52,16 @@ func lsFindingMongoRollback(b *lsBundle) []lsFinding {
 	if len(started) == 0 {
 		return nil
 	}
-	reverted := lsPick(b, func(e lsEvent) bool { return e.Code == "6984700" })
+	// Two records say what was thrown away, and the older one is the better one. 6984700
+	// arrived in 7.0 and gives the counts alone; 21612's rollback summary exists on 6.0 too
+	// AND carries the affected namespaces and the directory the discarded documents went to.
+	// Preferring it means a 6.0 capture reports how much was lost rather than only that
+	// something was — and that 7.0 and 8.0 stop reporting LESS than 6.0 did, which is how
+	// this read before the version sweep.
+	reverted := lsPick(b, func(e lsEvent) bool { return e.Code == "21612" && e.Message != "" })
+	if len(reverted) == 0 {
+		reverted = lsPick(b, func(e lsEvent) bool { return e.Code == "6984700" })
+	}
 	files := lsPick(b, func(e lsEvent) bool { return e.Code == "21609" })
 
 	var who []string

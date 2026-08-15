@@ -304,3 +304,123 @@ func TestMongoCorrectedMappings(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------- across versions
+//
+// m07 and m08 are the same incident as m05, driven against PSMDB 6.0.29-23 and 7.0.39-21:
+// the primary cut off the network, three hundred writes accepted on the wrong side of the
+// partition with w:1, a new primary elected by the other two, the link restored, and a
+// member SIGKILLed for good measure. They exist because a catalogue keyed on numeric ids is
+// only as good as the claim that those ids are stable, and that claim is worth checking
+// rather than believing.
+
+// lsMongoVersions is the same scenario on every supported release.
+var lsMongoVersions = []struct{ name, dir string }{
+	{"6.0", "m07-rollback-mongo60"},
+	{"7.0", "m08-rollback-mongo70"},
+	{"8.0", "m05-rollback"},
+}
+
+// The whole design rests on MongoDB's numeric ids being stable across releases — the docs
+// say the message text may change and the id may not. This is that promise, tested: the
+// same physical incident on three releases has to produce the same findings.
+func TestMongoSameIncidentOnEveryVersion(t *testing.T) {
+	want := []string{"mongo-rollback", "mongo-no-primary", "mongo-member-down", "mongo-election"}
+	for _, v := range lsMongoVersions {
+		t.Run(v.name, func(t *testing.T) {
+			b := lsLoadScenario(t, v.dir)
+			if len(b.Sources) != 3 {
+				t.Fatalf("want 3 sources, got %d", len(b.Sources))
+			}
+			for _, s := range b.Sources {
+				if s.Flavour != lsFlavourMongoRS {
+					t.Errorf("%s: flavour %q on %s", s.Name, s.Flavour, v.name)
+				}
+				if !strings.HasPrefix(s.Node, "mongo0") {
+					t.Errorf("%s: the member did not name itself on %s (got %q)", s.Name, v.name, s.Node)
+				}
+			}
+			for _, id := range want {
+				if lsHasFinding(b, id) == nil {
+					t.Errorf("finding %q did not fire on %s", id, v.name)
+				}
+			}
+		})
+	}
+}
+
+// What a rollback threw away has to survive the version change, and this is where it did
+// not. 6984700 "Operations reverted by rollback" arrived in 7.0, so a 6.0 rollback read
+// through it reports that data was lost without saying how much — the one number the reader
+// needs. 21612's rollback summary carries the same counts on every version AND names the
+// collections and the directory the discarded documents went to, so it is preferred outright.
+func TestMongoRollbackCountSurvivesEveryVersion(t *testing.T) {
+	for _, v := range lsMongoVersions {
+		t.Run(v.name, func(t *testing.T) {
+			b := lsLoadScenario(t, v.dir)
+			f := lsHasFinding(b, "mongo-rollback")
+			if f == nil {
+				t.Fatal("no rollback finding")
+			}
+			for _, want := range []string{"insert reverted", "discarded documents under"} {
+				if !strings.Contains(f.Detail, want) {
+					t.Errorf("%s: rollback detail does not say %q:\n  %s", v.name, want, f.Detail)
+				}
+			}
+			// The namespace is the difference between "something was lost" and "this
+			// collection lost writes", and it is only in 21612.
+			if !strings.Contains(f.Detail, " in ") {
+				t.Errorf("%s: rollback detail names no collection:\n  %s", v.name, f.Detail)
+			}
+		})
+	}
+}
+
+// 20557 sat in the catalogue as "Unclean shutdown detected" and was a guess. SIGKILLing a
+// mongod on 6.0, 7.0 and 8.0 never produced it; 22271, 501401 and 20631 all did, on every
+// version. This asserts the replacement, and that the finding it feeds speaks MongoDB
+// rather than Galera — the first version of this reported a killed mongod and then advised
+// the reader to go and look for a wsrep position recovery.
+func TestMongoUncleanShutdownIsRecognised(t *testing.T) {
+	for _, v := range []struct{ name, dir string }{
+		{"6.0", "m07-rollback-mongo60"}, {"7.0", "m08-rollback-mongo70"},
+	} {
+		t.Run(v.name, func(t *testing.T) {
+			b := lsLoadScenario(t, v.dir)
+			f := lsHasFinding(b, "crash")
+			if f == nil {
+				t.Fatal("a SIGKILLed mongod produced no crash finding")
+			}
+			if !strings.Contains(f.Detail, "not clean") {
+				t.Errorf("crash detail is unexpected: %q", f.Detail)
+			}
+			if strings.Contains(f.Advice, "wsrep") {
+				t.Errorf("a MongoDB-only bundle was given Galera advice: %q", f.Advice)
+			}
+			if !strings.Contains(f.Advice, "journal") {
+				t.Errorf("crash advice does not describe mongod recovery: %q", f.Advice)
+			}
+		})
+	}
+}
+
+// The ids that the version sweep proved absent, kept together so that the next person to
+// add one has to say which capture matched it. 20557 was removed from the catalogue for
+// exactly this reason.
+func TestMongoUnverifiedRulesStayFencedOff(t *testing.T) {
+	fenced := map[int]bool{4280510: true, 5579600: true, 23015: true}
+	for id := range fenced {
+		if lsMongoByID[id] == nil {
+			t.Errorf("id %d is documented as fenced-off but is not in the catalogue", id)
+		}
+	}
+	// And the ones that ARE verified must be there, because each replaced a guess.
+	for _, id := range []int{22271, 501401, 20631, 22302, 21122, 21612} {
+		if lsMongoByID[id] == nil {
+			t.Errorf("id %d was matched in a real capture on all three versions but is not in the catalogue", id)
+		}
+	}
+	if lsMongoByID[20557] != nil {
+		t.Error("20557 is back — it never fired on 6.0, 7.0 or 8.0 and 22271 is the record that does")
+	}
+}

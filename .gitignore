@@ -5,6 +5,11 @@
 node_modules/
 dist/
 *.log
+# …except the test corpus. Every MongoDB Log Summary fixture is a mongod log and mongod
+# names its log `.log`, so the blanket rule above silently kept all eight scenarios out of
+# the repo — the tests passed locally and would have failed on a fresh clone. The Galera and
+# Group Replication fixtures escaped only because MySQL calls its error log `.err`.
+!app/testdata/**/*.log
 
 # Screenshot-capture tooling — maintainer-only, kept out of the repo.
 # The generated screenshots (docs/screenshots/*.png) ARE committed; only the

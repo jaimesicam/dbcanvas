@@ -253,22 +253,31 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 		// facts that matter — newState/oldState, hostAndPort, the rollback counts — live
 		// in the record's `attr` object, and pktLogEntry does not carry it. A standalone
 		// mongod has none of them and keeps the shared path below.
+		// Every mongod log is parsed here, replica-set member or not. The sniff decides the
+		// FLAVOUR — which findings may speak about this source — and nothing else.
+		//
+		// It used to decide the parse as well, and a log that failed the sniff fell through
+		// to the shared classifier, which has no severity filter for MongoDB: twenty
+		// thousand records became twenty thousand events, all of class other, and the
+		// verdict layer read them as a broken asynchronous replica. lsClassifyMongo keeps
+		// what the catalogue recognises plus anything the server itself called a warning,
+		// which is the right filter for a standalone mongod too.
 		recs := lsFoldMongo(in.Data)
+		src.Records = len(recs)
+		src.Node = lsMongoNodeName(recs)
 		if lsSniffMongoRS(recs) {
-			src.Records = len(recs)
 			src.Flavour = lsFlavourMongoRS
-			src.Node = lsMongoNodeName(recs)
-			for _, r := range recs {
-				e, keep := lsClassifyMongo(r)
-				if !keep {
-					continue
-				}
-				e.Src = idx
-				events = append(events, e)
-			}
-			break
+		} else {
+			src.Flavour = src.Engine
 		}
-		fallthrough
+		for _, r := range recs {
+			e, keep := lsClassifyMongo(r)
+			if !keep {
+				continue
+			}
+			e.Src = idx
+			events = append(events, e)
+		}
 	default:
 		// The other engines already have line classifiers, written for the Packet
 		// Inspector's correlation pane. They are reused verbatim rather than reimplemented:

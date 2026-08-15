@@ -14529,3 +14529,96 @@ charts, 2,967 metrics; 8.0 — 33 charts, 5,673 metrics.**
 6 new Go tests (5 of them table-driven across all three versions), `gofmt`, `go vet`,
 `go test` and the smoke suite green.
 
+## 261. The same incident on 6.0, 7.0 and 8.0 — `app/logsummary_mongo*.go`, `app/logsummary_model.go`, `app/logsummary_verdict.go`
+
+The MongoDB catalogue is keyed on `mongod`'s numeric message ids on the strength of one
+claim: that the ids are stable across releases even when the English changes. Worth checking
+rather than believing.
+
+So the same incident was driven against **PSMDB 6.0.29-23 and 7.0.39-21** — a primary cut off
+the network with `docker network disconnect`, three hundred writes accepted on the wrong side
+with `w:1`, a new primary elected by the other two, the link healed, plus `rs.stepDown()` and
+a SIGKILLed member — and the id namespaces diffed against the 8.0 corpus.
+
+**The claim holds.** All 38 catalogue ids that fire at all carry the *identical* message on
+all three releases, and the same incident produces the same eight findings on each. What the
+sweep found was three bugs on this side of the line.
+
+### A record that does not exist before 7.0
+
+`6984700` "Operations reverted by rollback" is the obvious source for how much a rollback
+threw away, and it arrived in 7.0. A 6.0 rollback read through it reports that data was lost
+without saying how much — the one number the reader needs.
+
+`21612` "Rollback summary" carries the same counts on every version, and more:
+
+```
+rollbackCommandCounts        {"insert": 300, "create": 1}
+affectedNamespaces           ["ftdctest.doomed"]
+rollbackDataFileDirectory    /var/lib/mongo/rollback/4275fd4d-…
+totalEntriesRolledBackIncludingNoops  301
+```
+
+So it is preferred outright rather than used as a fallback — which also fixed something the
+sweep exposed by accident: **7.0 and 8.0 had been reporting less than 6.0 could.** All three
+now name the collections that lost writes and the directory the only surviving copy is in.
+
+### A rule that was a guess, and the corpus finally disproved it
+
+`20557` sat in the fenced-off block as "Unclean shutdown detected". SIGKILLing a `mongod` on
+6.0, 7.0 and 8.0 never produced it once. `22271` ("Detected unclean shutdown - Lock file is
+not empty"), `501401` and `20631` all did, on every version — `mongod` says it three times
+from three subsystems, so they share a rule and collapse into one row.
+
+That made a `bad` finding fire on a MongoDB bundle for the first time, which immediately
+exposed the next bug: the generic crash finding advised the reader to go and look for **a
+wsrep position recovery**. Advice that names the wrong technology is worse than no advice —
+the reader starts hunting for something that does not exist in their log — so it is now
+flavour-aware, via a new `lsAllSrcAre` helper.
+
+### Twenty thousand records, twenty thousand events
+
+One member's twenty-thousand-line tail turned out to be entirely the replica-set monitor
+complaining about an unreachable peer: `NETWORK` and `CONNPOOL`, 7,916 of one id and 7,915 of
+another, and not one `REPL` record among them. The sniff filed it as a standalone `mongod`,
+which sent it through the *shared* classifier — which has no severity filter. Twenty thousand
+records became twenty thousand events of class `other`, and the verdict layer read them as an
+asynchronous replica whose replication was broken and whose lag was unrecorded. Two findings
+about MySQL, on a MongoDB bundle, from a member that was fine.
+
+Both halves fixed. The sniff now also accepts **`attr.replicaSet`**, which every
+replica-set-monitor record carries on every version and which a standalone `mongod` has
+nothing to put in; and `lsClassifyMongo` is applied to *every* `mongod` log rather than only
+to recognised members, so a standalone gets the same noise filter. Live, the 8.0 bundle went
+from **21,710 events and two wrong findings to 1,881 events and none**.
+
+### What is still a guess
+
+`5579600` "too stale" and `4280510` "initial sync failed" are still unmatched, and the
+fenced-off block now says what was tried. Rolling a 6.0 member off the end of a 990 MiB oplog
+— first by stopping it, then by SIGSTOPping it so its optime froze while the process stayed
+alive, writing 3 GB past it either way — produced an ordinary catch-up and an ordinary initial
+sync, never `5579600`. Even the scenario that is supposed to produce it does not, reliably.
+The rules stay fenced.
+
+### Fixtures
+
+`m07-rollback-mongo60` and `m08-rollback-mongo70`, the same incident as `m05-rollback` on the
+two older releases. Each is a documented excerpt: every record whose id the catalogue knows
+plus every warning or worse, with the applied ops, WiredTiger chatter and connection churn
+dropped.
+
+Live re-verified through the API on all three: **6.0 — 633 events, 8 findings; 7.0 — 814
+events, 8 findings; 8.0 — 1,881 events, 7 findings**, every source flavoured `mongors`.
+
+### And the fixtures were never in the repo
+
+Adding the two new scenarios turned up that **none of the MongoDB fixtures were tracked**.
+`.gitignore` carries a blanket `*.log` for Node, and `mongod` names its log `.log` — so all
+six existing scenarios plus the two new ones were invisible to git. The tests passed locally
+and would have failed on a fresh clone the moment anybody ran them. The Galera and Group
+Replication corpora escaped only because MySQL calls its error log `.err`. Fixed with a
+negation scoped to `app/testdata/`, which brings 23 files into the repo.
+
+6 new Go tests, each verified to fail with its fix reverted. `gofmt`, `go vet`, `go test` and
+the smoke suite green.
