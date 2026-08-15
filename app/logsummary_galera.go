@@ -113,10 +113,11 @@ const (
 // amber means "it is up but not serving", red means "it is not part of a working cluster".
 func lsStateSev(state string) string {
 	switch state {
-	case lsStateSynced, lsStateUp, lsStateOnline, lsStatePrimaryM, lsStateSecondary, lsStateRouting:
+	case lsStateSynced, lsStateUp, lsStateOnline, lsStatePrimaryM, lsStateSecondary, lsStateRouting,
+		lsStateStandby:
 		return lsSevOK
 	case lsStateJoined, lsStateJoiner, lsStateDonor, lsStatePrim, lsStateStarting, lsStateRecovering,
-		lsStateStartup2, lsStateArbiter:
+		lsStateStartup2, lsStateArbiter, lsStatePromoting:
 		return lsSevWarn
 	case lsStateOpen, lsStateClosed, lsStateDown, lsStateBlocked, lsStateGRError, lsStateOffline,
 		lsStateRollback, lsStateRemoved:
@@ -142,23 +143,30 @@ func lsStateServes(state string) bool {
 	// ROUTING is a mongos: it has no data of its own, so "serving" means it was up and
 	// willing to route. Leaving it out would report every router in a healthy cluster as
 	// unavailable for the whole window, purely because it has no replica-set state.
+	// STANDBY is a PostgreSQL standby: up, answering reads, refusing every write. It counts
+	// as serving for the same reason SECONDARY does on a replica set — an application
+	// reading from it is being served — and the write side is what the no-primary findings
+	// are for.
 	return state == lsStateSynced || state == lsStateUp || state == lsStateOnline ||
-		state == lsStatePrimaryM || state == lsStateSecondary || state == lsStateRouting
+		state == lsStatePrimaryM || state == lsStateSecondary || state == lsStateRouting ||
+		state == lsStateStandby
 }
 
 // lsStateMeaning explains a state once, for the timeline legend and the tooltip.
 var lsStateMeaning = map[string]string{
-	lsStateSynced:   "up to date with the group and serving queries",
-	lsStateJoined:   "has the data but is still applying the backlog — flow control is holding the cluster back for it, and it is not in the read pool",
-	lsStateJoiner:   "receiving a state transfer; it cannot answer queries at all",
-	lsStateDonor:    "serving a state transfer to another member, and desynced from the group while it does",
-	lsStatePrim:     "part of the primary component but not yet joined — the state a Galera node passes through on its way in",
-	lsStateOpen:     "connected to no primary component: it will refuse queries with 1047 until it rejoins",
-	lsStateClosed:   "the provider is shut down — the node is not in the cluster",
-	lsStateDown:     "the server is not running",
-	lsStateUp:       "up and accepting connections",
-	lsStateStarting: "starting up — not accepting connections yet",
-	lsStateRouting:  "a mongos, up and routing — it holds no data of its own, so its lane says only that the router was running; the shards' health is in their own lanes",
+	lsStateSynced:    "up to date with the group and serving queries",
+	lsStateJoined:    "has the data but is still applying the backlog — flow control is holding the cluster back for it, and it is not in the read pool",
+	lsStateJoiner:    "receiving a state transfer; it cannot answer queries at all",
+	lsStateDonor:     "serving a state transfer to another member, and desynced from the group while it does",
+	lsStatePrim:      "part of the primary component but not yet joined — the state a Galera node passes through on its way in",
+	lsStateOpen:      "connected to no primary component: it will refuse queries with 1047 until it rejoins",
+	lsStateClosed:    "the provider is shut down — the node is not in the cluster",
+	lsStateDown:      "the server is not running",
+	lsStateUp:        "up and accepting connections",
+	lsStateStarting:  "starting up — not accepting connections yet",
+	lsStateStandby:   "a PostgreSQL standby: replaying the primary's WAL, answering reads, and refusing every write",
+	lsStatePromoting: "a promote was requested and has not finished — writes resume when it does",
+	lsStateRouting:   "a mongos, up and routing — it holds no data of its own, so its lane says only that the router was running; the shards' health is in their own lanes",
 
 	// Group Replication's states, spelled as replication_group_members spells them. Kept
 	// in one map because the legend renders whatever states the bundle actually contains,

@@ -236,8 +236,13 @@ func lsFindingReplicationBroken(b *lsBundle) []lsFinding {
 	// the group, and whether it was left writable. Reporting them here as well produced
 	// two verdict lines for one event, the vaguer of which said "replication is still
 	// broken" about a channel the operator never configured.
+	// Positively, on the flavours this finding is ABOUT, rather than by excluding the ones
+	// it is not. The exclusion list was right until it wasn't: it named Group Replication
+	// and MongoDB, and then a PostgreSQL standby with a missing replication slot arrived and
+	// was reported as an asynchronous MySQL replica whose channel had stopped. Every engine
+	// added from here would have had to remember to add itself to a list in another file.
 	broken := lsPick(b, func(e lsEvent) bool {
-		return !lsSrcIs(b, e.Src, lsFlavourGroupRepl) && !lsSrcIs(b, e.Src, lsFlavourMongoRS) &&
+		return lsSrcIsAsyncMySQL(b, e.Src) &&
 			(e.Class == lsClassReplica || e.Class == lsClassConflict) && e.Sev == lsSevBad
 	})
 	if len(broken) == 0 {
@@ -365,7 +370,7 @@ func lsFindingReplicaLag(b *lsBundle) []lsFinding {
 	// true sentence about a topology they do not have.
 	repl := false
 	for _, e := range b.Events {
-		if e.Class == lsClassReplica && !lsSrcIs(b, e.Src, lsFlavourGroupRepl) && !lsSrcIs(b, e.Src, lsFlavourMongoRS) {
+		if e.Class == lsClassReplica && lsSrcIsAsyncMySQL(b, e.Src) {
 			repl = true
 		}
 	}
@@ -378,4 +383,24 @@ func lsFindingReplicaLag(b *lsBundle) []lsFinding {
 		Detail: "MySQL writes nothing at all when a replica falls behind. A replica held 61 seconds behind its source, while the source wrote continuously, produced not one record about it. Absence of lag records here is not evidence that there was no lag.",
 		Advice: "Lag lives in the server: Seconds_Behind_Source from SHOW REPLICA STATUS, and more honestly performance_schema.replication_applier_status_by_worker together with replication_connection_status, which separate 'not received yet' from 'received but not applied'. Or the same series in PMM.",
 	}}
+}
+
+// lsSrcIsAsyncMySQL reports whether a source is a MySQL-family server that could be an
+// asynchronous replica — which is what the two findings above are about.
+//
+// A positive test rather than a list of exclusions. Every finding in this package speaks one
+// technology's vocabulary, and saying which one it speaks is both shorter and safe against
+// the next engine: a PostgreSQL standby, a mongos and a Group Replication member all have
+// replication events, and none of them has a source/replica channel.
+func lsSrcIsAsyncMySQL(b *lsBundle, src int) bool {
+	for _, s := range b.Sources {
+		if s.Idx != src {
+			continue
+		}
+		if s.Engine != pktEngineMySQL {
+			return false
+		}
+		return s.Flavour != lsFlavourGroupRepl
+	}
+	return false
 }

@@ -1,0 +1,34 @@
+2026-08-15 10:54:11.609 UTC [624] LOG:  starting PostgreSQL 16.15 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 11.5.0 20240719 (Red Hat 11.5.0-14), 64-bit
+2026-08-15 10:54:11.610 UTC [624] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-08-15 10:54:11.610 UTC [624] LOG:  listening on IPv6 address "::", port 5432
+2026-08-15 10:54:11.614 UTC [624] LOG:  listening on Unix socket "/run/postgresql/.s.PGSQL.5432"
+2026-08-15 10:54:11.622 UTC [624] LOG:  listening on Unix socket "/tmp/.s.PGSQL.5432"
+2026-08-15 10:54:11.628 UTC [628] LOG:  database system was shut down at 2026-08-15 10:54:08 UTC
+2026-08-15 10:54:11.632 UTC [624] LOG:  database system is ready to accept connections
+2026-08-15 10:54:14.000 UTC [626] LOG:  checkpoint starting: immediate force wait
+2026-08-15 10:54:14.986 UTC [626] LOG:  checkpoint complete: wrote 958 buffers (5.8%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.009 s, sync=0.933 s, total=0.987 s; sync files=321, longest=0.012 s, average=0.003 s; distance=9029 kB, estimate=9029 kB; lsn=0/2000060, redo lsn=0/2000028
+2026-08-15 10:54:20.949 UTC [626] LOG:  checkpoint starting: immediate force wait
+2026-08-15 10:54:20.997 UTC [626] LOG:  checkpoint complete: wrote 4 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.011 s, sync=0.006 s, total=0.048 s; sync files=4, longest=0.003 s, average=0.002 s; distance=32768 kB, estimate=32768 kB; lsn=0/4000060, redo lsn=0/4000028
+2026-08-15 10:59:21.030 UTC [626] LOG:  checkpoint starting: time
+2026-08-15 10:59:27.916 UTC [626] LOG:  checkpoint complete: wrote 69 buffers (0.4%); 0 WAL file(s) added, 0 removed, 0 recycled; write=6.833 s, sync=0.031 s, total=6.887 s; sync files=23, longest=0.004 s, average=0.002 s; distance=16868 kB, estimate=31178 kB; lsn=0/507D010, redo lsn=0/50790D8
+2026-08-15 11:04:22.012 UTC [626] LOG:  checkpoint starting: time
+2026-08-15 11:04:23.661 UTC [626] LOG:  checkpoint complete: wrote 17 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.610 s, sync=0.018 s, total=1.649 s; sync files=6, longest=0.009 s, average=0.003 s; distance=119 kB, estimate=28072 kB; lsn=0/5097ED0, redo lsn=0/50970D0
+2026-08-15 11:09:22.703 UTC [626] LOG:  checkpoint starting: time
+2026-08-15 11:09:24.141 UTC [626] LOG:  checkpoint complete: wrote 15 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.409 s, sync=0.009 s, total=1.439 s; sync files=5, longest=0.005 s, average=0.002 s; distance=112 kB, estimate=25276 kB; lsn=0/50B5FF8, redo lsn=0/50B3330
+2026-08-15 11:13:47.779 UTC [624] LOG:  received fast shutdown request
+2026-08-15 11:13:47.781 UTC [624] LOG:  aborting any active transactions
+2026-08-15 11:13:47.782 UTC [736] FATAL:  terminating connection due to administrator command
+2026-08-15 11:13:47.782 UTC [724] FATAL:  terminating connection due to administrator command
+2026-08-15 11:13:47.782 UTC [731] FATAL:  terminating connection due to administrator command
+2026-08-15 11:13:47.783 UTC [624] LOG:  background worker "logical replication launcher" (PID 631) exited with exit code 1
+2026-08-15 11:13:47.783 UTC [626] LOG:  shutting down
+2026-08-15 11:13:47.796 UTC [626] LOG:  checkpoint starting: shutdown immediate
+2026-08-15 11:13:47.881 UTC [626] LOG:  checkpoint complete: wrote 2981 buffers (18.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.009 s, sync=0.065 s, total=0.088 s; sync files=46, longest=0.007 s, average=0.002 s; distance=26810 kB, estimate=26810 kB; lsn=0/6AE1DF8, redo lsn=0/6AE1DF8
+2026-08-15 11:13:47.888 UTC [624] LOG:  database system is shut down
+2026-08-15 11:14:48.408 UTC [2872] LOG:  starting PostgreSQL 16.15 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 11.5.0 20240719 (Red Hat 11.5.0-14), 64-bit
+2026-08-15 11:14:48.408 UTC [2872] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-08-15 11:14:48.408 UTC [2872] LOG:  listening on IPv6 address "::", port 5432
+2026-08-15 11:14:48.411 UTC [2872] LOG:  listening on Unix socket "/run/postgresql/.s.PGSQL.5432"
+2026-08-15 11:14:48.415 UTC [2872] LOG:  listening on Unix socket "/tmp/.s.PGSQL.5432"
+2026-08-15 11:14:48.419 UTC [2876] LOG:  database system was shut down at 2026-08-15 11:13:47 UTC
+2026-08-15 11:14:48.423 UTC [2872] LOG:  database system is ready to accept connections

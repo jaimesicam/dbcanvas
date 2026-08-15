@@ -248,6 +248,23 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 			e.Src = idx
 			events = append(events, e)
 		}
+	case pktEnginePostgres:
+		// PostgreSQL and Patroni are parsed here rather than by the shared classifier for
+		// the same reason MongoDB is: a record is not a line. An ERROR is followed by its
+		// DETAIL, its HINT and the STATEMENT that caused it, and a Patroni member's file is
+		// two logs in two formats interleaved.
+		recs := lsFoldPostgres(in.Data)
+		src.Records = len(recs)
+		src.Flavour = lsSniffPGFlavour(recs)
+		src.Node = lsPGNodeName(recs)
+		for _, r := range recs {
+			e, keep := lsClassifyPG(r)
+			if !keep {
+				continue
+			}
+			e.Src = idx
+			events = append(events, e)
+		}
 	case pktEngineMongoDB:
 		// A replica-set member is parsed here rather than by the shared classifier. The
 		// facts that matter — newState/oldState, hostAndPort, the rollback counts — live
@@ -310,6 +327,8 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 		lsResolveMongo(src.Node, events)
 	case lsFlavourMongos:
 		lsResolveMongos(events)
+	case lsFlavourPostgres, lsFlavourPGStream, lsFlavourPatroni:
+		lsResolvePG(events)
 	default:
 		lsResolveStandalone(events)
 	}

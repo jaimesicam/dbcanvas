@@ -19,6 +19,7 @@ matter most are the ones the server never sends to anybody.
 | **MySQL asynchronous replication** | full — a replication catalogue and its own verdicts. See [async replication](#asynchronous-replication-a-different-vocabulary). |
 | **PostgreSQL** | the Packet Inspector's classifier, on the shared timeline |
 | **MongoDB** | the Packet Inspector's classifier, on the shared timeline |
+| **PostgreSQL** | full catalogue — standalone, streaming replication and Patroni |
 | **Valkey** | the Packet Inspector's classifier, on the shared timeline |
 
 ---
@@ -768,3 +769,123 @@ beside the name so a line can still be found in the raw file. The mapping is poo
 sources: one node's log usually names only some of the members, and the name for the UUID
 in front of you is very often in a different file. That is the whole reason to read three
 logs together rather than one at a time.
+
+
+---
+
+## PostgreSQL: the log that says the least
+
+The fifth cluster vocabulary, and the one with the weakest guarantee of the lot.
+
+MongoDB gives every message a numeric id and promises it is stable. MySQL gives most of them
+an `MY-nnnnnn` code. PostgreSQL gives **neither** — a server log line is a timestamp, a pid,
+a level and a sentence, and the sentence is the only thing to match on. It is also
+**translated**: a server running with `lc_messages` set to anything but English writes a log
+this catalogue cannot read at all. That is a limitation worth stating rather than
+discovering.
+
+There is one escape and the catalogue uses it wherever it can. **SQLSTATE** is five
+characters, defined by the standard, unchanged between releases and never translated — but it
+reaches the log only if the operator puts `%e` in `log_line_prefix`, which is not the default
+and which dbcanvas does not set either. So every rule that has one carries **both**, and a
+server configured with `%e` gets the robust match while a server without it falls back to the
+English:
+
+```
+2026-08-15 11:00:00.000 UTC [123] 53300 FATAL:  sorry, too many clients already
+                                   ^^^^^ matched on this when it is there, on the words when it is not
+```
+
+### FATAL does not mean what it means everywhere else
+
+The single most important thing about reading a PostgreSQL log, and the thing that made the
+first version of this page wrong in both directions.
+
+In MySQL and MongoDB the level is a reliable floor: an `[ERROR]` is a problem and nothing may
+be filed below it. PostgreSQL does not work that way.
+
+- **`FATAL` means THIS BACKEND is ending**, not that the server is failing. A client that
+  connects while the server is still starting gets a FATAL. So does every connection the
+  cluster manager terminates during a routine switchover, and so does a standby noticing that
+  its primary has gone. On the corpus, taking the level as a floor produced **twenty-seven
+  "bad" events for clients that arrived a second too early during an ordinary restart**.
+- **`LOG` is where the important records are.** Every promotion, every timeline switch, every
+  recovery, every checkpoint. A page that trusted the level would rank a failover below a
+  mistyped password.
+
+So rules that know better say so, and the ones that do not still take the floor.
+
+### Three flavours, because three things share a log
+
+| flavour | what it is | what may be said about it |
+| --- | --- | --- |
+| `postgres` | a server with no replication in evidence | nothing about clusters |
+| `pgstream` | streaming replication, with or without repmgr | replication, promotion, timelines |
+| `patroni` | a Patroni member | all of it, plus leader locks and the DCS |
+
+A Patroni member's PostgreSQL log is indistinguishable from a streaming standby's — because
+that is what it is. What separates them is the **second log**, and collecting it turned out
+to be the first bug: `/var/log/patroni/` exists on an ordinary Patroni node and is **empty**,
+because Patroni logs to the journal. The collector now reads the PostgreSQL file *and*
+appends `journalctl -o cat -u patroni`, which prints the message without the syslog prefix —
+exactly the shape Patroni's own format already has. Both halves are wanted, not one or the
+other: Patroni decides the failover and PostgreSQL carries it out, so the decision is in one
+file and its consequence in the other, seconds apart.
+
+That also produced the second bug. Two logs concatenated means the file is **not** in time
+order, and the state machine walked it as it arrived — carrying the state from the end of the
+PostgreSQL log onto the beginning of the Patroni journal. The corpus showed it immediately:
+records from the first seconds of a cluster were labelled `STANDBY`, a state that member did
+not reach for another minute.
+
+### The finding this catalogue exists for
+
+Stop etcd on every member of a healthy Patroni cluster. Patroni writes:
+
+```
+INFO: demoting self because DCS is not accessible and I was a leader
+```
+
+and PostgreSQL writes:
+
+```
+LOG:  received fast shutdown request
+```
+
+**and nothing else.** An operator reading only the database log sees a primary that stopped
+for no reason at all. Nothing was wrong with PostgreSQL — Patroni will not stay leader while
+it cannot renew its lock, because it cannot tell an unreachable DCS from one that has already
+given the lock to somebody else, so it steps down to guarantee there is never more than one
+primary. The cause is a network problem between the leader and etcd, and it is in a different
+file written by a different process.
+
+The verdict says that outright, and a test asserts the other half of it: that PostgreSQL's
+own records for the same window mention neither etcd nor the DCS.
+
+### The honest note, and PostgreSQL's is the worst of the three
+
+MySQL writes nothing when a replica falls behind. MongoDB writes nothing when a member does.
+A PostgreSQL standby is worse than silent — it writes
+
+```
+LOG:  waiting for WAL to become available at 0/6AE1E88
+```
+
+steadily, and that message means the same thing whether the standby is idle and up to date or
+**receiving nothing at all**. The corpus contains both cases and they are indistinguishable.
+The reader of such a file is not merely uninformed; they are actively reassured.
+
+The fixture proves it: `p02-streaming` contains that message interleaved with
+`could not connect to the primary server` while the primary was stopped outright, and a test
+asserts both halves are present so the claim stays supported by evidence.
+
+### Three fixtures
+
+`p01-patroni-cluster` is a live three-node Patroni cluster on PostgreSQL 16.14, driven
+through a planned switchover, an unplanned failover with the leader SIGKILLed, and a
+whole-DCS outage. `p02-streaming` is three nodes streaming with **no** cluster manager
+running — the primary stopped, nothing promoted anything, and a standby was promoted by hand.
+`p03-standalone` is one server on its own, and exists to prove the cluster findings stay
+quiet: telling somebody with a single server that their cluster has no leader is worse than
+saying nothing.
+

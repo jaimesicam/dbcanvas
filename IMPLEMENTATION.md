@@ -14766,3 +14766,101 @@ min` on 8.0 — the same shape as 6.0 and 7.0, and the same numbers the incident
 Fixtures added for 8.0: `m11-sharded-mongo80`, `metrics.mongos80`, `metrics.shard80`.
 13 new Go tests in total across the sharded work, every one verified to fail with its fix
 reverted.
+
+## 263. PostgreSQL, streaming replication and Patroni — `app/logsummary_postgres*.go`
+
+The fifth cluster vocabulary, built the same way as the other four: two live clusters, real
+incidents driven against them, and every rule written against the capture rather than from
+memory. A three-node **Patroni** cluster on PostgreSQL 16.14 (switchover, an unplanned
+failover with the leader SIGKILLed, a whole-DCS outage, a crash, a deadlock, a statement
+timeout, a constraint violation) and a three-node **repmgr** cluster used as the plain
+streaming case with no manager running at all (primary stopped, nothing promoted anything, a
+standby promoted by hand afterwards).
+
+### The weakest guarantee of the five
+
+MongoDB promises its numeric ids are stable. MySQL gives most records an `MY-` code.
+PostgreSQL gives neither — a line is a timestamp, a pid, a level and a sentence — and the
+sentence is **translated**, so a server with `lc_messages` set to anything but English writes
+a log this catalogue cannot read.
+
+The escape is SQLSTATE: five characters, standard, unchanged between releases, never
+translated. It reaches the log only with `%e` in `log_line_prefix`, which is not the default
+and which dbcanvas does not set, so every rule that has one carries **both** — `codes` for
+the SQLSTATE and `substr` for the English. `lsRule` already had that shape for MySQL's
+codes-or-text, so nothing new was needed to express it.
+
+### FATAL does not mean what it means everywhere else
+
+The most important thing about reading a PostgreSQL log, and what made the first pass wrong
+in both directions. `FATAL` means *this backend is ending*, not that the server is failing: a
+client connecting during startup gets one, so does every connection Patroni terminates during
+a routine switchover, so does a standby noticing its primary has gone. Taking the level as a
+floor — right for MySQL and MongoDB — produced **27 "bad" events for clients that arrived a
+second early during an ordinary restart**. Meanwhile `LOG` is where every promotion, timeline
+switch and recovery lives, so a page trusting the level ranks a failover below a mistyped
+password. Eleven rules now carry `overLevel`, and a test asserts the ones that must not read
+as bad still do not while the DCS finding still can.
+
+### Four bugs, three of them found by the corpus
+
+**Patroni's log is not where the app looked for it.** `/var/log/patroni/` exists on an
+ordinary Patroni node and is empty — Patroni logs to the journal. The collector now reads
+PostgreSQL's file *and appends* `journalctl -o cat -u patroni`, which prints the message
+without the syslog prefix, exactly the shape Patroni's own format has. Appended rather than
+chosen between: Patroni decides the failover and PostgreSQL carries it out, so the decision
+is in one file and its consequence in the other, seconds apart.
+
+**Two logs concatenated are not in time order.** The state machine walked the source as it
+arrived and carried the state from the end of the PostgreSQL log onto the start of the
+Patroni journal — records from a cluster's first seconds were labelled `STANDBY`, a state
+that member did not reach for another minute. Resolved in timestamp order now.
+
+**Building a cluster is not an incident.** Patroni creates every replica by copying the
+leader, so the first version reported a healthy new deployment as two members whose writes
+had been discarded. The obvious guard — had this member ever served? — does not work either,
+because Patroni initdbs a throwaway local instance first, so every replica IS briefly a
+primary of its own empty cluster. Asking whether the *cluster* already existed separates them.
+
+**An index mismatch labelled an unplanned failover "requested".** Promotions were
+deduplicated into one slice and classified by indexing it with the undeduplicated loop, so
+the labels landed on the wrong promotions. One loop now does both, and `Demoting for a
+switchover` was removed from the evidence for a planned handover — Patroni logs a graceful
+demotion during an unplanned failover too.
+
+### And one more flavour leak, fixed positively this time
+
+A PostgreSQL standby with a missing replication slot was reported by MySQL's
+`replication-broken` as an asynchronous replica whose channel had stopped. The gate was a
+list of exclusions — Group Replication, then MongoDB — which every new engine would have had
+to remember to add itself to. It is now `lsSrcIsAsyncMySQL`, a positive test for the thing
+the finding is actually about.
+
+### What it says
+
+Nine PostgreSQL findings. The one the catalogue exists for is `pg-dcs-lost`: stop etcd under
+a healthy cluster and Patroni writes *"demoting self because DCS is not accessible and I was
+a leader"* while PostgreSQL writes *"received fast shutdown request"* and **nothing else** —
+an operator reading only the database log sees a primary that stopped for no reason. A test
+asserts the other half: that PostgreSQL's records for that window mention neither etcd nor
+the DCS.
+
+The honest note is worse here than for MySQL or MongoDB. A standby writes *"waiting for WAL
+to become available"* steadily, and that message means the same thing whether it is idle and
+up to date or receiving nothing at all. The corpus contains both and they are
+indistinguishable — `p02-streaming` has it interleaved with `could not connect to the primary
+server` while the primary was stopped outright, and a test asserts both halves are present so
+the claim stays supported by its evidence.
+
+### Frontend
+
+The state maps were missing more than PostgreSQL: `SECONDARY`, `STARTUP2`, `ROLLBACK`,
+`ARBITER`, `REMOVED` and `ROUTING` had never been added when MongoDB landed, and `PRIMARY`
+still carried Galera's meaning of a primary *component*. All of them now have a colour and a
+sentence, a smoke check asserts every state the Go side emits has both, and each member kind
+is named beside its node chip rather than only Galera's.
+
+Fixtures `p01-patroni-cluster`, `p02-streaming`, `p03-standalone`. 10 new Go tests and 2 new
+render checks; each of the six fixes was reverted individually and the tests confirmed to
+catch it. `gofmt`, `go vet`, `go test` and the smoke suite green.
+

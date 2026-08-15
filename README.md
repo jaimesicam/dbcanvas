@@ -548,7 +548,7 @@ on a palette deliberately kept clear of the red/amber/green the status colours u
 colour-vision validator rather than picked by eye, and the node's name always sits beside
 its chip.
 
-**PXC, Group Replication, asynchronous replication and MongoDB replica sets all have full catalogues** — one
+**PXC, Group Replication, asynchronous replication, MongoDB replica sets and sharded clusters, and PostgreSQL — standalone, streaming and Patroni — all have full catalogues** — one
 written against a live Galera cluster, one against a live GTID source/replica topology, and
 one against a live three-node Group Replication group in both of its modes (raw, and
 MySQL-Shell-managed InnoDB Cluster) — so a 1062 applier stop names the row, the table and
@@ -574,6 +574,16 @@ entire shard under live traffic produced a failed read and a refused write, and 
 router's log recorded neither**. Every cluster topology change — shards added, collections
 sharded, chunks split and moved, balancer rounds — is read from one record, the config
 servers' changelog, which is the only place any of it exists.
+
+**PostgreSQL** is the hardest of the five to read and the catalogue says why: it has no stable
+message ids at all, only English sentences that a non-English server does not write — so every
+rule carries the **SQLSTATE** as well, for the servers whose `log_line_prefix` includes `%e`.
+Its `FATAL` also means *this session ended*, not *the server failed*, and reading the level as
+a floor the way MySQL and MongoDB allow reported twenty-seven "bad" events for clients that
+arrived a second early during an ordinary restart. The finding it exists for: stop etcd under
+a healthy Patroni cluster and the leader stands down with **nothing wrong with PostgreSQL** —
+Patroni says why, PostgreSQL's own log records only "received fast shutdown request", and
+`/var/log/patroni/` is empty because Patroni logs to the journal.
 
 Two things the Group Replication captures settled are worth the page on their own. A member
 can leave the group and be left **writable** — the corpus caught a load generator

@@ -45,7 +45,7 @@ import LogSummary, {
   NodeChip as LogNodeChip,
 } from '../src/pages/LogSummary.jsx'
 import {
-  SEVS, SEV_TEXT, SEV_FILL, STATE_SEV, STATE_TEXT, CLASS_LABEL, logDur,
+  SEVS, SEV_TEXT, SEV_FILL, STATE_SEV, STATE_TEXT, CLASS_LABEL, logDur, FLAVOUR_LABEL,
   NODE_SLOTS, nodeFill, nodeTint, nodeEdge, nodeEdgeSoft,
 } from '../src/lib/logApi.js'
 import FTDCSummary, {
@@ -1382,6 +1382,8 @@ check('log summary: every severity is styled', () => {
   // catalogue and forgetting the JS side fails here rather than in front of somebody.
   for (const st of ['SYNCED', 'JOINER', 'DONOR', 'OPEN', 'CLOSED',
                     'ONLINE', 'RECOVERING', 'BLOCKED', 'ERROR', 'OFFLINE',
+                    'PRIMARY', 'SECONDARY', 'STARTUP2', 'ROLLBACK', 'ARBITER', 'REMOVED', 'ROUTING',
+                    'STANDBY', 'PROMOTING',
                     'RUNNING', 'STARTING', 'DOWN', 'UNKNOWN']) {
     if (!STATE_TEXT[st]) throw new Error(`state ${st} has no explanation`)
     if (!SEV_FILL[STATE_SEV[st]]) throw new Error(`state ${st} has no fill`)
@@ -1392,6 +1394,7 @@ check('log summary: every severity is styled', () => {
   if (logDur(0) !== '0s') throw new Error('logDur(0) should be 0s')
   return 'ok'
 })
+
 
 // ---- FTDC Summary: the charts and the advisor ----
 //
@@ -1497,3 +1500,43 @@ if (failures > 0) {
   process.exit(1)
 }
 console.log('\nall render checks passed')
+
+// Every state the backend can put in a lane has to have a colour and a sentence here, or a
+// PostgreSQL cluster renders lanes the legend cannot explain. This is the check that the
+// two halves have not drifted: the list is the states the Go side emits.
+check('log summary: every state the backend emits is styled and explained', () => {
+  const emitted = [
+    // Galera
+    'SYNCED', 'JOINED', 'JOINER', 'DONOR', 'PRIMARY-COMP', 'OPEN', 'CLOSED',
+    // Group Replication
+    'ONLINE', 'RECOVERING', 'BLOCKED', 'ERROR', 'OFFLINE',
+    // MongoDB
+    'PRIMARY', 'SECONDARY', 'STARTUP2', 'ROLLBACK', 'ARBITER', 'REMOVED', 'ROUTING',
+    // PostgreSQL
+    'STANDBY', 'PROMOTING',
+    // neither
+    'RUNNING', 'STARTING', 'DOWN', 'UNKNOWN',
+  ]
+  for (const st of emitted) {
+    if (!STATE_TEXT[st]) throw new Error(`state ${st} has no explanation`)
+    if (!STATE_SEV[st]) throw new Error(`state ${st} has no severity`)
+  }
+  // PRIMARY is shared by MongoDB and PostgreSQL and must not carry Galera's meaning: a
+  // Galera primary COMPONENT is a different idea with its own spelling.
+  if (STATE_TEXT.PRIMARY.includes('component')) {
+    throw new Error("PRIMARY still explains Galera's primary component")
+  }
+  if (STATE_SEV.PRIMARY !== 'ok') throw new Error('PRIMARY should read as serving')
+  return 'ok'
+})
+
+check('log summary: each member kind is named beside its node', () => {
+  for (const f of ['galera', 'grouprepl', 'mongors', 'mongos', 'pgstream', 'patroni']) {
+    if (!FLAVOUR_LABEL[f]) throw new Error(`flavour ${f} has no label`)
+  }
+  // A plain server gets no badge — the engine name already said it.
+  if (FLAVOUR_LABEL.postgres || FLAVOUR_LABEL.mongodb) {
+    throw new Error('a standalone server should not be badged')
+  }
+  return 'ok'
+})

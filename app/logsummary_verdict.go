@@ -56,7 +56,7 @@ func lsFindings(b *lsBundle) []lsFinding {
 		lsFindingFlowControl,
 		lsFindingCoverage,
 		lsFindingHealthy,
-	}, append(lsGRFindings, lsMongoFindings...)...) {
+	}, append(append(lsGRFindings, lsMongoFindings...), lsPGFindings...)...) {
 		out = append(out, check(b)...)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -228,8 +228,11 @@ func lsFindingCrash(b *lsBundle) []lsFinding {
 	// technology is worse than no advice — the reader starts looking for something that does
 	// not exist in their log.
 	advice := "Read the records just before each of these: an abort names its cause on the line above, and a wsrep position recovery means the previous stop was unclean. A node that ends in an abort does not come back by itself."
-	if lsAllSrcAre(b, lsSrcSet(ev), lsFlavourMongoRS) {
+	switch {
+	case lsAllSrcAre(b, lsSrcSet(ev), lsFlavourMongoRS):
 		advice = "mongod replays its journal from the last checkpoint on the way up, so this costs start-up time rather than data — on a large dataset, a great deal of it. What the log does not say is WHY the process went: an OOM kill is in dmesg and a killed container is in the orchestrator's records, and neither of those is in here."
+	case lsAllSrcArePG(b, lsSrcSet(ev)):
+		advice = "PostgreSQL replays its WAL from the last checkpoint on the way up, so nothing committed is lost — the cost is the replay, and the 'redo done at' record says how long it took. Under a cluster manager, check whether the manager stopped it deliberately: Patroni restarting its own PostgreSQL looks exactly like a crash from the database log alone."
 	}
 	return []lsFinding{{
 		ID: "crash", Sev: lsSevBad, Title: "A server stopped abnormally",
@@ -237,6 +240,26 @@ func lsFindingCrash(b *lsBundle) []lsFinding {
 		Advice: advice,
 		At:     ev[0].TS, Sources: lsSrcSet(ev), Events: lsEventNos(ev, 8),
 	}}
+}
+
+// lsAllSrcArePG reports whether every one of these sources is a PostgreSQL server of any
+// of its three flavours — a standalone, a streaming member, or a Patroni member.
+func lsAllSrcArePG(b *lsBundle, srcs []int) bool {
+	if len(srcs) == 0 {
+		return false
+	}
+	for _, s := range srcs {
+		ok := false
+		for _, f := range []string{lsFlavourPostgres, lsFlavourPGStream, lsFlavourPatroni} {
+			if lsSrcIs(b, s, f) {
+				ok = true
+			}
+		}
+		if !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // lsAllSrcAre reports whether every one of these sources is the same flavour — the test for

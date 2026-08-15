@@ -4,7 +4,7 @@ import { Card, Button, Badge, Field, inputCls } from '../components/ui.jsx'
 import { FilePick } from './PacketInspector.jsx'
 import {
   logApi, SEVS, SEV_LABEL, SEV_TEXT, SEV_ROW, SEV_CARD, SEV_MARK, SEV_FILL,
-  CLASS_LABEL, STATE_TEXT, STATE_SEV, ENGINE_LABEL,
+  CLASS_LABEL, STATE_TEXT, STATE_SEV, ENGINE_LABEL, FLAVOUR_LABEL,
   nodeFill, nodeTint, nodeEdge, nodeEdgeSoft, NODE_SLOTS,
   logTimeOfDay, logDateTime, logISO, logDur, logBytes,
 } from '../lib/logApi.js'
@@ -394,7 +394,9 @@ export function SourcesCard({ bundle, id }) {
               <tr key={src.idx} className="border-b last:border-0">
                 <td className="py-1.5 pr-2">
                   <NodeChip src={src.idx} name={src.node} />
-                  {src.flavour === 'galera' && <span className="ml-1.5 text-[10px] text-muted">Galera member</span>}
+                  {FLAVOUR_LABEL[src.flavour] && (
+                    <span className="ml-1.5 text-[10px] text-muted">{FLAVOUR_LABEL[src.flavour]}</span>
+                  )}
                 </td>
                 <td className="py-1.5 pr-2 text-muted">
                   <span title={src.path || src.name}>{src.name}</span>

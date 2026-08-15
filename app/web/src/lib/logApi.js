@@ -189,7 +189,11 @@ export const STATE_TEXT = {
   JOINED: 'Has the data, still applying its backlog — not in the read pool, and holding flow control on everyone else',
   JOINER: 'Receiving a state transfer — answers nothing',
   DONOR: 'Feeding a state transfer to another member, desynced while it does',
-  PRIMARY: 'In the primary component but not yet joined — a step on the way in',
+  'PRIMARY-COMP': 'In the primary component but not yet joined — a step on the way in',
+  // PRIMARY is shared by MongoDB and PostgreSQL and means the same thing in both. Galera's
+  // primary COMPONENT is a different idea and has its own spelling above, which is why the
+  // backend renamed it rather than letting the two collide.
+  PRIMARY: 'The one member accepting writes',
   OPEN: 'No primary component: refuses every query with 1047',
   CLOSED: 'The provider is shut down — not in the cluster',
   // Group Replication
@@ -198,6 +202,16 @@ export const STATE_TEXT = {
   BLOCKED: 'Cannot see a majority: every write is refused until contact returns. Reads still succeed, and return stale data',
   ERROR: 'The plugin stopped on an error and the member removed itself from the group',
   OFFLINE: 'mysqld is up but Group Replication is not running on it — the server is not in its cluster, and its own log will not say so',
+  // MongoDB
+  SECONDARY: 'Applying the primary\'s oplog and serving reads',
+  STARTUP2: 'Copying the whole dataset from another member — it serves nothing until that finishes',
+  ROLLBACK: 'Discarding writes it had already accepted and acknowledged, because the rest of the set never agreed to them',
+  ARBITER: 'Votes in elections and holds no data',
+  REMOVED: 'Not in the replica-set configuration — running, and part of nothing',
+  ROUTING: 'A mongos, up and routing — it holds no data of its own, so its lane says only that the router was running',
+  // PostgreSQL
+  STANDBY: 'Replaying the primary\'s WAL, answering reads, and refusing every write',
+  PROMOTING: 'A promote was requested and has not finished — writes resume when it does',
   // Not a cluster member at all
   RUNNING: 'Up and accepting connections',
   STARTING: 'Starting up — not accepting connections yet',
@@ -208,10 +222,11 @@ export const STATE_TEXT = {
 
 export const STATE_SEV = {
   SYNCED: 'ok', ONLINE: 'ok', RUNNING: 'ok',
-  JOINED: 'warn', JOINER: 'warn', DONOR: 'warn', PRIMARY: 'warn',
-  RECOVERING: 'warn', STARTING: 'warn',
+  PRIMARY: 'ok', SECONDARY: 'ok', STANDBY: 'ok', ROUTING: 'ok',
+  JOINED: 'warn', JOINER: 'warn', DONOR: 'warn', 'PRIMARY-COMP': 'warn',
+  RECOVERING: 'warn', STARTING: 'warn', STARTUP2: 'warn', ARBITER: 'warn', PROMOTING: 'warn',
   OPEN: 'bad', CLOSED: 'bad', DOWN: 'bad',
-  BLOCKED: 'bad', ERROR: 'bad', OFFLINE: 'bad',
+  BLOCKED: 'bad', ERROR: 'bad', OFFLINE: 'bad', ROLLBACK: 'bad', REMOVED: 'bad',
   UNKNOWN: 'info',
 }
 
@@ -253,6 +268,22 @@ export function logBytes(n) {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// FLAVOUR_LABEL names what KIND of member a source is, beside its node chip.
+//
+// The engine is not enough: three PostgreSQL servers can be a standalone, a streaming
+// standby and a Patroni member, and which one decides what the page is entitled to say
+// about it. Only the flavours worth distinguishing from their engine are listed — a plain
+// mysqld or a standalone mongod gets no badge, because "MySQL" already said it.
+export const FLAVOUR_LABEL = {
+  galera: 'Galera member',
+  grouprepl: 'Group Replication member',
+  innodbcluster: 'InnoDB Cluster member',
+  mongors: 'replica-set member',
+  mongos: 'mongos router',
+  pgstream: 'streaming replication',
+  patroni: 'Patroni member',
 }
 
 export const ENGINE_LABEL = {

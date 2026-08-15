@@ -1,0 +1,86 @@
+2026-08-15 10:54:11.609 UTC [624] LOG:  starting PostgreSQL 16.15 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 11.5.0 20240719 (Red Hat 11.5.0-14), 64-bit
+2026-08-15 10:54:11.610 UTC [624] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-08-15 10:54:11.610 UTC [624] LOG:  listening on IPv6 address "::", port 5432
+2026-08-15 10:54:11.614 UTC [624] LOG:  listening on Unix socket "/run/postgresql/.s.PGSQL.5432"
+2026-08-15 10:54:11.622 UTC [624] LOG:  listening on Unix socket "/tmp/.s.PGSQL.5432"
+2026-08-15 10:54:11.628 UTC [628] LOG:  database system was shut down at 2026-08-15 10:54:08 UTC
+2026-08-15 10:54:11.632 UTC [624] LOG:  database system is ready to accept connections
+2026-08-15 10:54:14.000 UTC [626] LOG:  checkpoint starting: immediate force wait
+2026-08-15 10:54:14.986 UTC [626] LOG:  checkpoint complete: wrote 958 buffers (5.8%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.009 s, sync=0.933 s, total=0.987 s; sync files=321, longest=0.012 s, average=0.003 s; distance=9029 kB, estimate=9029 kB; lsn=0/2000060, redo lsn=0/2000028
+2026-08-15 10:54:20.949 UTC [626] LOG:  checkpoint starting: immediate force wait
+2026-08-15 10:54:20.997 UTC [626] LOG:  checkpoint complete: wrote 4 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.011 s, sync=0.006 s, total=0.048 s; sync files=4, longest=0.003 s, average=0.002 s; distance=32768 kB, estimate=32768 kB; lsn=0/4000060, redo lsn=0/4000028
+2026-08-15 10:54:23.579 UTC [604] LOG:  starting PostgreSQL 16.15 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 11.5.0 20240719 (Red Hat 11.5.0-14), 64-bit
+2026-08-15 10:54:23.579 UTC [604] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-08-15 10:54:23.579 UTC [604] LOG:  listening on IPv6 address "::", port 5432
+2026-08-15 10:54:23.581 UTC [604] LOG:  listening on Unix socket "/run/postgresql/.s.PGSQL.5432"
+2026-08-15 10:54:23.586 UTC [604] LOG:  listening on Unix socket "/tmp/.s.PGSQL.5432"
+2026-08-15 10:54:23.589 UTC [608] LOG:  database system was interrupted; last known up at 2026-08-15 10:54:20 UTC
+2026-08-15 10:54:24.625 UTC [608] LOG:  entering standby mode
+2026-08-15 10:54:24.625 UTC [608] LOG:  starting backup recovery with redo LSN 0/4000028, checkpoint LSN 0/4000060, on timeline ID 1
+2026-08-15 10:54:24.630 UTC [608] LOG:  redo starts at 0/4000028
+2026-08-15 10:54:24.632 UTC [608] LOG:  completed backup recovery with redo LSN 0/4000028 and end LSN 0/4000100
+2026-08-15 10:54:24.632 UTC [608] LOG:  consistent recovery state reached at 0/4000100
+2026-08-15 10:54:24.632 UTC [604] LOG:  database system is ready to accept read-only connections
+2026-08-15 10:54:24.641 UTC [609] LOG:  started streaming WAL from primary at 0/5000000 on timeline 1
+2026-08-15 10:59:38.661 UTC [606] LOG:  restartpoint starting: time
+2026-08-15 10:59:45.861 UTC [606] LOG:  restartpoint complete: wrote 73 buffers (0.4%); 0 WAL file(s) added, 0 removed, 0 recycled; write=7.155 s, sync=0.027 s, total=7.201 s; sync files=23, longest=0.003 s, average=0.002 s; distance=16868 kB, estimate=16868 kB; lsn=0/507D010, redo lsn=0/50790D8
+2026-08-15 10:59:45.861 UTC [606] LOG:  recovery restart point at 0/50790D8
+2026-08-15 10:59:45.861 UTC [606] DETAIL:  Last completed transaction was at log time 2026-08-15 10:59:45.356558+00.
+2026-08-15 11:04:38.961 UTC [606] LOG:  restartpoint starting: time
+2026-08-15 11:04:40.823 UTC [606] LOG:  restartpoint complete: wrote 19 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.818 s, sync=0.023 s, total=1.862 s; sync files=8, longest=0.007 s, average=0.003 s; distance=119 kB, estimate=15193 kB; lsn=0/5097ED0, redo lsn=0/50970D0
+2026-08-15 11:04:40.823 UTC [606] LOG:  recovery restart point at 0/50970D0
+2026-08-15 11:04:40.823 UTC [606] DETAIL:  Last completed transaction was at log time 2026-08-15 11:04:40.085389+00.
+2026-08-15 11:09:38.923 UTC [606] LOG:  restartpoint starting: time
+2026-08-15 11:09:40.277 UTC [606] LOG:  restartpoint complete: wrote 14 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.324 s, sync=0.012 s, total=1.355 s; sync files=6, longest=0.004 s, average=0.002 s; distance=112 kB, estimate=13685 kB; lsn=0/50B5FF8, redo lsn=0/50B3330
+2026-08-15 11:09:40.277 UTC [606] LOG:  recovery restart point at 0/50B3330
+2026-08-15 11:09:40.277 UTC [606] DETAIL:  Last completed transaction was at log time 2026-08-15 11:09:40.040975+00.
+2026-08-15 11:13:47.885 UTC [609] LOG:  replication terminated by primary server
+2026-08-15 11:13:47.885 UTC [609] DETAIL:  End of WAL reached on timeline 1 at 0/6AE1E70.
+2026-08-15 11:13:47.885 UTC [609] FATAL:  could not send end-of-streaming message to primary: server closed the connection unexpectedly
+		This probably means the server terminated abnormally
+		before or while processing the request.
+	no COPY in progress
+2026-08-15 11:13:47.885 UTC [608] LOG:  invalid record length at 0/6AE1E70: expected at least 24, got 0
+2026-08-15 11:13:47.888 UTC [1499] FATAL:  could not connect to the primary server: connection to server at "rep1.example.net" (172.27.0.3), port 5432 failed: server closed the connection unexpectedly
+		This probably means the server terminated abnormally
+		before or while processing the request.
+2026-08-15 11:13:47.888 UTC [608] LOG:  waiting for WAL to become available at 0/6AE1E88
+2026-08-15 11:13:52.892 UTC [1506] FATAL:  could not connect to the primary server: connection to server at "rep1.example.net" (172.27.0.3), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-08-15 11:13:52.892 UTC [608] LOG:  waiting for WAL to become available at 0/6AE1E88
+2026-08-15 11:13:57.898 UTC [1507] FATAL:  could not connect to the primary server: connection to server at "rep1.example.net" (172.27.0.3), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-08-15 11:13:57.898 UTC [608] LOG:  waiting for WAL to become available at 0/6AE1E88
+2026-08-15 11:14:02.900 UTC [1508] FATAL:  could not connect to the primary server: connection to server at "rep1.example.net" (172.27.0.3), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-08-15 11:14:02.900 UTC [608] LOG:  waiting for WAL to become available at 0/6AE1E88
+2026-08-15 11:14:07.905 UTC [1509] FATAL:  could not connect to the primary server: connection to server at "rep1.example.net" (172.27.0.3), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-08-15 11:14:07.905 UTC [608] LOG:  waiting for WAL to become available at 0/6AE1E88
+2026-08-15 11:14:12.909 UTC [1510] FATAL:  could not connect to the primary server: connection to server at "rep1.example.net" (172.27.0.3), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-08-15 11:14:12.910 UTC [608] LOG:  waiting for WAL to become available at 0/6AE1E88
+2026-08-15 11:14:17.913 UTC [1511] FATAL:  could not connect to the primary server: connection to server at "rep1.example.net" (172.27.0.3), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-08-15 11:14:17.913 UTC [608] LOG:  waiting for WAL to become available at 0/6AE1E88
+2026-08-15 11:14:22.914 UTC [1512] FATAL:  could not connect to the primary server: connection to server at "rep1.example.net" (172.27.0.3), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-08-15 11:14:22.914 UTC [608] LOG:  waiting for WAL to become available at 0/6AE1E88
+2026-08-15 11:14:27.918 UTC [1513] FATAL:  could not connect to the primary server: connection to server at "rep1.example.net" (172.27.0.3), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-08-15 11:14:27.918 UTC [608] LOG:  waiting for WAL to become available at 0/6AE1E88
+2026-08-15 11:14:32.924 UTC [1514] FATAL:  could not connect to the primary server: connection to server at "rep1.example.net" (172.27.0.3), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-08-15 11:14:32.924 UTC [608] LOG:  waiting for WAL to become available at 0/6AE1E88
+2026-08-15 11:14:37.927 UTC [1515] FATAL:  could not connect to the primary server: connection to server at "rep1.example.net" (172.27.0.3), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-08-15 11:14:37.927 UTC [608] LOG:  waiting for WAL to become available at 0/6AE1E88
+2026-08-15 11:14:38.310 UTC [606] LOG:  restartpoint starting: time
+2026-08-15 11:14:38.987 UTC [604] LOG:  received SIGHUP, reloading configuration files
+2026-08-15 11:14:38.988 UTC [604] LOG:  parameter "primary_conninfo" changed to "user=repmgr password=repl_password connect_timeout=2 host=rep2.example.net application_name=rep3"
+2026-08-15 11:14:38.995 UTC [1524] LOG:  fetching timeline history file for timeline 2 from primary server
+2026-08-15 11:14:39.000 UTC [1524] LOG:  started streaming WAL from primary at 0/6000000 on timeline 1
+2026-08-15 11:14:39.004 UTC [1524] LOG:  replication terminated by primary server
+2026-08-15 11:14:39.004 UTC [1524] DETAIL:  End of WAL reached on timeline 1 at 0/6AE1E70.
+2026-08-15 11:14:39.004 UTC [608] LOG:  new target timeline is 2
+2026-08-15 11:14:39.005 UTC [1524] LOG:  restarted WAL streaming at 0/6000000 on timeline 2

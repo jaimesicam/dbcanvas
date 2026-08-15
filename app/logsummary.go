@@ -261,7 +261,21 @@ func (a *App) lsTailRaw(ctx context.Context, containerID, engine string, lines i
 	var extra []string
 	switch engine {
 	case pktEnginePostgres:
+		// PostgreSQL's own log AND the cluster manager's, together, as one source.
+		//
+		// A Patroni member writes two logs and neither is the whole story: Patroni decides
+		// the failover and PostgreSQL carries it out, so the decision is in one file and
+		// its consequence in the other, seconds apart. Read separately they are two lanes
+		// for one server; read together they are the sentence somebody opened the logs for.
+		//
+		// And Patroni does not write a file at all in a systemd deployment — it logs to the
+		// journal, so /var/log/patroni exists and is empty. Looking only where
+		// pktPatroniLogPaths points finds nothing on a perfectly ordinary Patroni node.
+		// `journalctl -o cat` is what makes this work: it prints the message alone, without
+		// the syslog prefix, which is exactly the shape Patroni's own format already has.
 		paths = append(append([]string{}, pktPGLogPaths...), pktPatroniLogPaths...)
+		script = lsPGTailScript
+		extra = []string{"UNITS=" + strings.Join(lsPGManagerUnits, " ")}
 	case pktEngineMongoDB:
 		paths = pktMongoLogPaths
 	case pktEngineValkey:
@@ -291,6 +305,36 @@ func (a *App) lsTailRaw(ctx context.Context, containerID, engine string, lines i
 	}
 	return res.Stdout, path, nil
 }
+
+// lsPGManagerUnits are the cluster managers whose log is a journal rather than a file.
+// repmgrd is here for the same reason Patroni is: on a systemd deployment /var/log/repmgr
+// is a directory that stays empty.
+var lsPGManagerUnits = []string{"patroni", "repmgrd", "repmgr"}
+
+// lsPGTailScript reads PostgreSQL's log and appends the cluster manager's journal.
+//
+// Appended rather than chosen between, which is the difference from every other engine
+// here: both halves are wanted, and the parser folds the two formats into one stream
+// because lsFoldPostgres recognises each line by its own shape. The manager's records are
+// marked with a subsystem so a rule can still require one or the other.
+const lsPGTailScript = `set -e
+found=
+for f in $PATHS; do
+  if [ -r "$f" ]; then echo "#lsummary-path:$f" >&2; tail -n "$LINES" "$f"; found=$f; break; fi
+done
+for u in $UNITS; do
+  if systemctl is-enabled "$u" >/dev/null 2>&1 || systemctl is-active "$u" >/dev/null 2>&1; then
+    if journalctl -o cat -u "$u" -n "$LINES" --no-pager >/tmp/.lspg 2>/dev/null && [ -s /tmp/.lspg ]; then
+      echo "#lsummary-path:${found:-}+journal:$u" >&2; cat /tmp/.lspg; rm -f /tmp/.lspg
+    fi
+  fi
+done
+if [ -z "$found" ]; then
+  # No PostgreSQL log. The manager's journal alone is still worth having — it is where a
+  # failover decision lives — so this is only an error when neither was readable.
+  if [ ! -s /tmp/.lspg ]; then echo "no readable PostgreSQL log or manager journal found (tried: $PATHS)" >&2; exit 1; fi
+fi
+exit 0`
 
 // lsValkeyTailScript adds the journal fallback for the engine that has no log file.
 const lsValkeyTailScript = `set -e
