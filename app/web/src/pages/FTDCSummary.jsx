@@ -100,11 +100,79 @@ export default function FTDCSummary() {
       )}
 
       {model && <Summary model={model} />}
-      {model && (
-        <div className="space-y-3">
-          {model.charts?.map((c) => <ChartCard key={c.id} chart={c} ts={model.ts} />)}
-        </div>
+      {model && <Findings model={model} />}
+      {model && <Charts model={model} />}
+    </div>
+  )
+}
+
+// Findings — the shortlist, and the reason the rest of the page is allowed to be long.
+//
+// Thirty-odd charts is more than anybody reads in order. Every chart already carries an
+// advisor saying what its own numbers mean, so the ones that came back warn or crit are
+// exactly the shortlist, and they can be gathered here as jump links. Nothing is hidden —
+// the full page is still below, because "nothing flagged" is not the same as "nothing
+// happened" and the reader is often looking for something no threshold knows about.
+export function Findings({ model }) {
+  const hits = (model?.charts || []).filter((c) => c.advice?.level === 'crit' || c.advice?.level === 'warn')
+  const jump = (id) => document.getElementById(`ftdc-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  return (
+    <Card>
+      <div className="border-b px-3 py-2 text-sm font-semibold text-fg">
+        What stands out {hits.length > 0 && <span className="font-normal text-muted">({hits.length} of {model.charts.length} charts)</span>}
+      </div>
+      {hits.length === 0 ? (
+        <p className="px-3 py-2 text-sm text-muted">
+          Nothing on this page crossed a threshold. That is not the same as nothing having happened — read the
+          charts for the window you care about, because no advisor knows what you are looking for.
+        </p>
+      ) : (
+        <ul className="divide-y">
+          {hits.map((c) => (
+            <li key={c.id}>
+              <button
+                type="button" onClick={() => jump(c.id)}
+                className="flex w-full items-baseline gap-2 px-3 py-2 text-left hover:bg-surface2"
+              >
+                <span className={`mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full ${ADVICE_FILL[c.advice.level]}`} />
+                <span className={`shrink-0 text-[11px] font-medium uppercase tracking-wide ${ADVICE_TONE[c.advice.level]}`}>
+                  {ADVICE_TEXT[c.advice.level]}
+                </span>
+                <span className="shrink-0 text-sm font-medium text-fg">{c.title}</span>
+                <span className="text-sm text-muted">— {c.advice.headline}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
+    </Card>
+  )
+}
+
+// Charts — the chart list, broken by group heading.
+//
+// Thirty-odd charts in one flat column is a column nobody reads to the bottom of. The
+// backend already decides the order and the grouping; this only inserts a heading each time
+// the group changes, so adding a chart on the server needs no change here.
+export function Charts({ model }) {
+  if (!model?.charts?.length) return null
+  let last = null
+  return (
+    <div className="space-y-3">
+      {model.charts.map((c) => {
+        const head = c.group && c.group !== last ? c.group : null
+        last = c.group || last
+        return (
+          // scroll-mt keeps a jumped-to chart clear of the top of the viewport rather than
+          // flush against it, which reads as the chart above being the one you landed on.
+          <div key={c.id} id={`ftdc-${c.id}`} className="scroll-mt-4 space-y-3">
+            {head && (
+              <h2 className="pt-2 text-xs font-semibold uppercase tracking-wide text-muted">{head}</h2>
+            )}
+            <ChartCard chart={c} ts={model.ts} />
+          </div>
+        )
+      })}
     </div>
   )
 }

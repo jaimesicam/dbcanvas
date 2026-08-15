@@ -587,13 +587,40 @@ Decode MongoDB's **`diagnostic.data`** — the per-second black box every `mongo
 no configuration and almost no cost — and chart it. Read the directory straight off a running
 node, or upload the `metrics.*` files or a `.tar.gz` of them.
 
-Nine charts, chosen rather than enumerated: a decoded file holds about **four thousand**
-metrics, and a browser of all four thousand helps somebody who already knows what they are
-looking for. **Member state** (who was primary, and when that changed), **replication lag**
-(which the server log does not record in any form), **oplog size**, **execution tickets**,
-**queued operations**, **connections**, **WiredTiger cache**, **operations** and **CPU** —
-each with a plain-English note on what it is for and an advisor on what this capture's
-numbers actually say.
+**Thirty-odd charts** in four groups, chosen rather than enumerated: a decoded file holds
+**5,673** metrics on a live 8.0 member, and a browser of all of them helps only somebody who
+already knows what they are looking for. Every chart's advisor that comes back amber or red
+is gathered into a **shortlist at the top** of the page, so the length below it costs nothing.
+
+*Replication* — member state, **members able to acknowledge a write** (counted per sample from
+heartbeat health, not read from the config, which reads "3" right through an outage),
+**replication lag** (which the server log does not record in any form), **majority commit point
+lag**, **time spent waiting for write concern**, oplog application rate, oplog size, oplog
+fetched from the sync source, **sync source**, elections. *Work* — **average operation
+latency**, the operation mix, **commands by name**, **documents examined per document
+returned**, **write conflicts and lock waits**, **errors returned to clients**, connections,
+network. *Storage engine* — execution tickets, queued operations, WiredTiger cache, **cache
+pressure against WiredTiger's own thresholds**, **eviction, split by whether application
+threads were conscripted into doing it**, **journal sync latency** (the floor under every
+durable write), storage-engine I/O, checkpoint duration, **history store**, memory. *Host* —
+CPU, **Linux PSI pressure** (how much time work spent *stalled* rather than how busy a resource
+was), **host memory and swap**, **major faults**, and per-device **disk utilisation and service
+time**.
+
+Verified live against **MongoDB 6.0, 7.0 and 8.0**, which matters more than it sounds: the
+container format is unchanged across all three, but **five metric paths move** between them
+and every move fails silently. Checkpoint timing left `wiredTiger.transaction` in 7.1, oplog
+`collStats` moved under `storageStats` in 7.0, and PSI pressure lives under `systemMetrics` on
+6.0/7.0 while 8.0 also copies it to `serverStatus.extra_info`. The one that produced a *wrong*
+chart rather than a missing one was the CPU core count: 6.0 calls it `num_cpus`, and without
+it the divisor falls back to 1 and a twenty-core host reads `iowait peaked at 61% of the
+machine` when the truth is 3%.
+
+Several are ratios rather than metrics — `opLatencies` stores total microseconds and a total
+count, and neither is a latency; the average is the ratio of their deltas. Each chart carries
+a plain-English note on what it is for and an advisor on what this capture's numbers say. Holes
+in the capture are declared rather than drawn over: a straight line across a gap is the absence
+of data, not the absence of change.
 
 The format is undocumented, so it was established by decoding a real file: BSON envelope,
 zlib chunk, a reference sample that defines the metric order, then column-major varint deltas

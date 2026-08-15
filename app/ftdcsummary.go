@@ -1,31 +1,28 @@
 package main
 
-// ftdcsummary.go — turning diagnostic.data into the eight or nine charts that answer
-// something.
+// ftdcsummary.go — turning diagnostic.data into the twenty-odd charts that answer something.
 //
-// A decoded FTDC file holds about four thousand distinct metrics per sample. Almost none of
-// them are worth a chart, and a page that offered all four thousand would be a metric
-// browser — which is a thing an engineer uses when they already know what they are looking
-// for, and useless when they do not. The point of this page is the other case: something
-// happened, here is the file, what was the server doing.
+// A decoded FTDC file holds thousands of distinct metrics per sample — 5,673 on the live 8.0
+// member this was built against. Almost none of them are worth a chart, and a page that
+// offered all of them would be a metric browser, which is a thing an engineer uses when they
+// already know what they are looking for and useless when they do not. The point of this page
+// is the other case: something happened, here is the file, what was the server doing.
 //
-// So the charts are chosen, not enumerated, and each one is here because it answers a
-// question people actually ask of a MongoDB server:
+// So the charts are chosen, not enumerated, and grouped — Replication, Work, Storage engine,
+// Host — because twenty charts in one flat column is a column nobody reads to the bottom of.
+// Each is here because it answers a question people actually ask of a MongoDB server, and
+// the ones that matter most are the ones a first pass at this page missed entirely:
+// operation latency, the oplog APPLY rate that separates "cannot keep up" from "receiving
+// nothing", Linux PSI pressure, and per-device disk service time.
 //
-//	member state       who was primary, and when did that change
-//	replication lag    was a secondary behind, and by how much   ← not in the log at all
-//	oplog window       could a member that was away still catch up
-//	tickets            was the storage engine the bottleneck
-//	queue length       were operations waiting to get in
-//	connections        did the driver pool run away
-//	cache              was WiredTiger evicting under pressure
-//	operations         what the server was actually asked to do
-//	cpu                was any of this the machine rather than the database
+// Several of the best are not metrics at all but ratios of two cumulative counters — see
+// fdRatio. opLatencies stores total microseconds and a total operation count, and neither is
+// a latency; charting either draws a line going up and to the right for ever.
 //
-// Every key below was read out of a real file from a live PSMDB 8.0.28-12 member rather
-// than from documentation, which matters more here than it sounds: 8.0 moved the ticket
-// counters from `wiredTiger.concurrentTransactions` to `queues.execution`, and a chart
-// built on the documented-in-2019 name is a chart that is silently always empty.
+// Every key below was read out of a real file rather than from documentation, which matters
+// more here than it sounds: 8.0 moved the ticket counters from
+// `wiredTiger.concurrentTransactions` to `queues.execution`, and a chart built on the
+// documented-in-2019 name is a chart that is silently always empty.
 
 import (
 	"fmt"
@@ -43,8 +40,12 @@ type fdSeries struct {
 
 // fdChart is one chart: what it shows and why anybody should look at it.
 type fdChart struct {
-	ID     string     `json:"id"`
-	Title  string     `json:"title"`
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	// Group is the section heading a chart sits under. Nineteen charts in one flat list
+	// is a list nobody reads to the bottom of; four labelled groups is a page somebody
+	// can skip through to the part they care about.
+	Group  string     `json:"group"`
 	Unit   string     `json:"unit"`
 	Why    string     `json:"why"`
 	Series []fdSeries `json:"series"`
@@ -95,17 +96,48 @@ func ftdcSummarise(d *ftdcData) *fdModel {
 	if d.Skipped > 0 {
 		m.Notes = append(m.Notes, fmt.Sprintf("%d chunk(s) would not decode and were skipped. A truncated metrics.interim is normal — it is the file mongod is writing right now.", d.Skipped))
 	}
-	for _, build := range []func(*ftdcData) *fdChart{
+	m.Notes = append(m.Notes, fdGapNote(d)...)
+	// Ordered by group, and within a group by how often it is the answer.
+	builders := []func(*ftdcData) *fdChart{
+		// Replication — the questions only a replica set raises.
 		fdChartMemberState,
+		fdChartQuorum,
 		fdChartReplLag,
+		fdChartCommitLag,
+		fdChartWriteConcern,
+		fdChartOplogApply,
 		fdChartOplog,
+		fdChartReplNetwork,
+		fdChartSyncSource,
+		fdChartElections,
+		// Work — what the server was asked to do and how well it did it.
+		fdChartLatency,
+		fdChartOps,
+		fdChartCommandMix,
+		fdChartIndexEfficiency,
+		fdChartContention,
+		fdChartErrors,
+		fdChartConnections,
+		fdChartNetwork,
+		// Storage engine — where a MongoDB performance problem usually lives.
 		fdChartTickets,
 		fdChartQueues,
-		fdChartConnections,
 		fdChartCache,
-		fdChartOps,
+		fdChartCachePressure,
+		fdChartEviction,
+		fdChartJournal,
+		fdChartEngineIO,
+		fdChartCheckpoint,
+		fdChartHistoryStore,
+		fdChartMemory,
+		// Host — whether any of it was the machine rather than the database.
 		fdChartCPU,
-	} {
+		fdChartPressure,
+		fdChartHostMemory,
+		fdChartFaults,
+	}
+	builders = append(builders, fdDiskCharts(d)...)
+	for _, build := range builders {
 		if c := build(d); c != nil && len(c.Series) > 0 {
 			for i := range c.Series {
 				c.Series[i].Points = fdDownsample(c.Series[i].Points, fdMaxPoints)
@@ -246,7 +278,7 @@ func fdSelfIdx(d *ftdcData) int {
 // categories, not quantities — but it is the fastest way to see a failover in a day of
 // data, which is what the chart is for.
 func fdChartMemberState(d *ftdcData) *fdChart {
-	c := &fdChart{ID: "memberState", Title: "Replica-set member state", Unit: "state",
+	c := &fdChart{ID: "memberState", Group: "Replication", Title: "Replica-set member state", Unit: "state",
 		Why: "1 PRIMARY · 2 SECONDARY · 3 RECOVERING · 5 STARTUP2 · 8 DOWN · 9 ROLLBACK. A step from 1 to 2 on one line while another steps 2→1 is a failover. FTDC records the members by position and not by name — the names are strings, and FTDC stores only numbers — so these are the indices this member saw them in."}
 	self := fdSelfIdx(d)
 	for _, n := range fdMemberIdx(d) {
@@ -302,7 +334,7 @@ func fdChartReplLag(d *ftdcData) *fdChart {
 		return nil
 	}
 	n := len(d.TS)
-	c := &fdChart{ID: "replLag", Title: "Replication lag", Unit: "s",
+	c := &fdChart{ID: "replLag", Group: "Replication", Title: "Replication lag", Unit: "s",
 		Why: "How far behind the freshest member each member was, second by second. This is the number the server log never writes down — a member can be an hour behind through a whole window and leave no trace in mongod.log. Measured against the newest optime rather than against the primary's, so it keeps working across a failover when there is briefly no primary at all."}
 	self := fdSelfIdx(d)
 	worst := 0.0
@@ -352,21 +384,24 @@ func fdChartReplLag(d *ftdcData) *fdChart {
 // fdChartOplog — how much room the oplog has, which decides whether a member that goes away
 // can come back cheaply.
 func fdChartOplog(d *ftdcData) *fdChart {
-	size := fdFloats(d, "local.oplog.rs.stats.storageStats.size", 1.0/(1024*1024))
-	maxSize := fdFloats(d, "local.oplog.rs.stats.storageStats.maxSize", 1.0/(1024*1024))
+	// 7.0 moved FTDC's collStats sample under a storageStats sub-document; on 6.0 the
+	// fields sit directly on stats.
+	size := fdFloats(d, fdAnyKey(d,
+		"local.oplog.rs.stats.storageStats.size", "local.oplog.rs.stats.size"), 1.0/(1024*1024))
+	maxSize := fdFloats(d, fdAnyKey(d,
+		"local.oplog.rs.stats.storageStats.maxSize", "local.oplog.rs.stats.maxSize"), 1.0/(1024*1024))
 	if size == nil {
 		return nil
 	}
-	c := &fdChart{ID: "oplog", Title: "Oplog size", Unit: "MiB",
+	c := &fdChart{ID: "oplog", Group: "Replication", Title: "Oplog size", Unit: "MiB",
 		Why: "The oplog is a capped collection: once it is full, the oldest entries go, and a member that has been away longer than the oplog reaches back cannot catch up incrementally at all — it needs a full resync. The solid line is what is in it, the dashed line is the cap."}
 	c.Series = append(c.Series, fdSeries{Name: "oplog used", Points: size})
 	if maxSize != nil {
 		c.Series = append(c.Series, fdSeries{Name: "configured maximum", Points: maxSize, Dashed: true})
 		if mx := fdMax(maxSize); mx > 0 {
-			used := fdMax(size) / mx * 100
 			c.Advice = &fdAdvice{Level: "ok",
-				Headline: fmt.Sprintf("Oplog is %.0f%% of its %.0f MiB cap", used, mx)}
-			if used > 99 {
+				Headline: fmt.Sprintf("Oplog holds %s MiB, %s of its %.0f MiB cap", fdAmt(fdMax(size)), fdPct(fdMax(size), mx), mx)}
+			if fdMax(size)/mx*100 > 99 {
 				c.Advice = &fdAdvice{Level: "info",
 					Headline: fmt.Sprintf("Oplog is full and rolling, at its %.0f MiB cap", mx),
 					Detail:   "Full is the normal state for a healthy oplog — it fills once and then rolls. What matters is not the fullness but the WINDOW: how much wall-clock time those bytes cover, which shrinks as the write rate rises.",
@@ -383,7 +418,7 @@ func fdChartOplog(d *ftdcData) *fdChart {
 // Both are read here so the page works on either, which is the sort of thing that is
 // invisible until somebody opens a file from an older server and every chart is empty.
 func fdChartTickets(d *ftdcData) *fdChart {
-	c := &fdChart{ID: "tickets", Title: "Execution tickets available", Unit: "tickets",
+	c := &fdChart{ID: "tickets", Group: "Storage engine", Title: "Execution tickets available", Unit: "tickets",
 		Why: "WiredTiger admits only so many operations at once; the rest wait. Tickets falling to zero is the storage engine saying it is the bottleneck — everything above it queues, and latency rises with no single slow query to blame."}
 	for _, p := range []struct{ name, k80, kOld string }{
 		{"read", "serverStatus.queues.execution.read.available", "serverStatus.wiredTiger.concurrentTransactions.read.available"},
@@ -422,7 +457,7 @@ func fdChartTickets(d *ftdcData) *fdChart {
 
 // fdChartQueues — operations waiting, which is the symptom tickets running out produces.
 func fdChartQueues(d *ftdcData) *fdChart {
-	c := &fdChart{ID: "queues", Title: "Operations queued", Unit: "ops", Stack: true,
+	c := &fdChart{ID: "queues", Group: "Storage engine", Title: "Operations queued", Unit: "ops", Stack: true,
 		Why: "How many operations were waiting rather than running. A queue that is occasionally non-zero is a busy server; a queue that never empties is a server that is behind and will not catch up on its own."}
 	for _, p := range []struct{ name, k80, kOld string }{
 		{"readers", "serverStatus.queues.execution.read.normalPriority.queueLength", "serverStatus.globalLock.currentQueue.readers"},
@@ -464,7 +499,7 @@ func fdChartConnections(d *ftdcData) *fdChart {
 	if cur == nil {
 		return nil
 	}
-	c := &fdChart{ID: "connections", Title: "Connections", Unit: "conns",
+	c := &fdChart{ID: "connections", Group: "Work", Title: "Connections", Unit: "conns",
 		Why: "Client connections held open. Drivers pool, so this should be roughly flat at the sum of the pools; a line that climbs and never falls is a pool leak, and hitting the limit makes the server refuse new clients while looking perfectly healthy to the ones it has."}
 	c.Series = append(c.Series, fdSeries{Name: "current", Points: cur})
 	if av := fdFloats(d, "serverStatus.connections.available", 1); av != nil {
@@ -476,9 +511,8 @@ func fdChartConnections(d *ftdcData) *fdChart {
 		}
 		c.Series = append(c.Series, fdSeries{Name: "limit", Points: total, Dashed: true})
 		if mx := fdMax(total); mx > 0 {
-			pct := fdMax(cur) / mx * 100
-			c.Advice = &fdAdvice{Level: "ok", Headline: fmt.Sprintf("Peak %.0f of %.0f connections (%.0f%%)", fdMax(cur), mx, pct)}
-			if pct > 80 {
+			c.Advice = &fdAdvice{Level: "ok", Headline: fmt.Sprintf("Peak %.0f of %.0f connections (%s)", fdMax(cur), mx, fdPct(fdMax(cur), mx))}
+			if fdMax(cur)/mx*100 > 80 {
 				c.Advice.Level = "crit"
 				c.Advice.Detail = "Close enough to the limit that new clients were at risk of being refused."
 				c.Advice.Action = "Check the driver pool sizes across every application instance — maxPoolSize multiplied by instance count is the number that matters, and it is usually larger than anybody expects."
@@ -494,7 +528,7 @@ func fdChartCache(d *ftdcData) *fdChart {
 	if inCache == nil {
 		return nil
 	}
-	c := &fdChart{ID: "cache", Title: "WiredTiger cache", Unit: "MiB",
+	c := &fdChart{ID: "cache", Group: "Storage engine", Title: "WiredTiger cache", Unit: "MiB",
 		Why: "How much of the cache is in use and how much of that is dirty. Dirty pages above roughly 20% of the cache means eviction is struggling to keep up with writes, and application threads get pulled in to help — which shows up as everything becoming slow at once."}
 	c.Series = append(c.Series, fdSeries{Name: "in cache", Points: inCache})
 	if dirty := fdFloats(d, "serverStatus.wiredTiger.cache.tracked dirty bytes in the cache", 1.0/(1024*1024)); dirty != nil {
@@ -503,8 +537,7 @@ func fdChartCache(d *ftdcData) *fdChart {
 	if maxB := fdFloats(d, "serverStatus.wiredTiger.cache.maximum bytes configured", 1.0/(1024*1024)); maxB != nil {
 		c.Series = append(c.Series, fdSeries{Name: "configured", Points: maxB, Dashed: true})
 		if mx := fdMax(maxB); mx > 0 {
-			fill := fdMax(inCache) / mx * 100
-			c.Advice = &fdAdvice{Level: "ok", Headline: fmt.Sprintf("Cache peaked at %.0f%% of its %.0f MiB", fill, mx)}
+			c.Advice = &fdAdvice{Level: "ok", Headline: fmt.Sprintf("Cache peaked at %s MiB, %s of its %.0f MiB", fdAmt(fdMax(inCache)), fdPct(fdMax(inCache), mx), mx)}
 			if len(c.Series) > 2 {
 				if dirtyPct := fdMax(c.Series[1].Points) / mx * 100; dirtyPct > 20 {
 					c.Advice = &fdAdvice{Level: "crit",
@@ -520,7 +553,7 @@ func fdChartCache(d *ftdcData) *fdChart {
 
 // fdChartOps — what the server was actually asked to do.
 func fdChartOps(d *ftdcData) *fdChart {
-	c := &fdChart{ID: "ops", Title: "Operations", Unit: "ops/s", Stack: true,
+	c := &fdChart{ID: "ops", Group: "Work", Title: "Operations", Unit: "ops/s", Stack: true,
 		Why: "The operation mix, as rates. Worth reading first: a chart of a server doing nothing looks exactly like a chart of a server that is broken, and this is the one that tells them apart."}
 	for _, k := range []string{"insert", "query", "update", "delete", "getmore", "command"} {
 		if pts := fdRate(d, "serverStatus.opcounters."+k); pts != nil && fdMax(pts) > 0 {
@@ -540,11 +573,19 @@ func fdChartOps(d *ftdcData) *fdChart {
 
 // fdChartCPU — whether any of this was the machine rather than the database.
 func fdChartCPU(d *ftdcData) *fdChart {
-	c := &fdChart{ID: "cpu", Title: "CPU", Unit: "%", Stack: true,
+	c := &fdChart{ID: "cpu", Group: "Host", Title: "CPU", Unit: "%", Stack: true,
 		Why: "Host CPU, from /proc. iowait is the one to look at first on a database: high iowait with low user time means the disk is the problem and nothing about the query layer will fix it."}
+	// 6.0 calls this `num_cpus`; 7.0 renamed it and added a cgroup-aware variant. Getting
+	// this wrong is not a missing chart but a wrong one — the divisor falls back to 1 and a
+	// twenty-core box reads "Peak CPU 1400% of 1 core".
 	cores := 1.0
-	if v, ok := d.last("systemMetrics.cpu.num_cores_available_to_process"); ok && v > 0 {
-		cores = float64(v)
+	if k := fdAnyKey(d,
+		"systemMetrics.cpu.num_cores_available_to_process",
+		"systemMetrics.cpu.num_logical_cores",
+		"systemMetrics.cpu.num_cpus"); k != "" {
+		if v, ok := d.last(k); ok && v > 0 {
+			cores = float64(v)
+		}
 	}
 	for _, p := range []struct{ name, key string }{
 		{"user", "systemMetrics.cpu.user_ms"},
@@ -578,4 +619,1328 @@ func fdChartCPU(d *ftdcData) *fdChart {
 		c.Advice = &fdAdvice{Level: "ok", Headline: fmt.Sprintf("Peak CPU %.0f%% of %.0f core(s)", fdMax(c.Series[0].Points), cores)}
 	}
 	return c
+}
+
+// ---------------------------------------------------------------- derived helpers
+
+// fdRatio turns a pair of cumulative counters into a per-interval average — Δnumerator over
+// Δdenominator.
+//
+// This is how the most useful numbers in FTDC are stored, and it is why a naive reading of
+// them is wrong. `opLatencies.reads.latency` is total microseconds ever spent on reads and
+// `.ops` is the number of reads ever done; neither is a latency. Their DELTAS divided give
+// the average latency of the reads that happened in that interval, which is what somebody
+// wants when they ask how slow the server was at 04:12.
+//
+// Intervals with no operations produce no number rather than a zero: a zero would draw a
+// line to the floor and read as "instant", when the truth is that nothing was measured.
+func fdRatio(d *ftdcData, numKey, denKey string, scale float64) []float64 {
+	num, den := d.Series[numKey], d.Series[denKey]
+	if num == nil || den == nil || len(num.Values) < 2 {
+		return nil
+	}
+	out := make([]float64, len(num.Values))
+	last := 0.0
+	for i := 1; i < len(num.Values) && i < len(den.Values); i++ {
+		dn := num.Values[i] - num.Values[i-1]
+		dd := den.Values[i] - den.Values[i-1]
+		if dd > 0 && dn >= 0 {
+			last = float64(dn) / float64(dd) * scale
+		}
+		// Carry the previous value through idle intervals rather than dropping to zero.
+		out[i] = last
+	}
+	if len(out) > 1 {
+		out[0] = out[1]
+	}
+	return out
+}
+
+// fdAmt renders a magnitude without rounding a real quantity down to "0". An advisor
+// reporting "the history store peaked at 0.0 MiB" reads as a broken chart; "under 0.1 MiB"
+// reads as an idle server, which is what it is.
+func fdAmt(v float64) string {
+	switch {
+	case v >= 100:
+		return fmt.Sprintf("%.0f", v)
+	case v >= 10:
+		return fmt.Sprintf("%.1f", v)
+	case v >= 0.1:
+		return fmt.Sprintf("%.2f", v)
+	case v > 0:
+		return "under 0.1"
+	default:
+		return "0"
+	}
+}
+
+// fdPctV is fdPct for a value that is already a percentage.
+func fdPctV(p float64) string { return fdPct(p, 100) }
+
+// fdAnyKey returns the first of these metrics that exists, which is how a chart survives a
+// key being renamed between server versions.
+func fdAnyKey(d *ftdcData, keys ...string) string {
+	for _, k := range keys {
+		if d.Series[k] != nil {
+			return k
+		}
+	}
+	return ""
+}
+
+// fdPct renders a percentage that never reads as "0%" when it is merely small. An advisor
+// saying "the cache peaked at 0% of its 14527 MiB" looks like a broken chart rather than an
+// idle server, and the number that matters to the reader is usually the absolute one anyway.
+func fdPct(part, whole float64) string {
+	if whole <= 0 {
+		return "0%"
+	}
+	p := part / whole * 100
+	switch {
+	case p >= 10:
+		return fmt.Sprintf("%.0f%%", p)
+	case p >= 1:
+		return fmt.Sprintf("%.1f%%", p)
+	case p > 0:
+		return "under 1%"
+	}
+	return "0%"
+}
+
+// ---------------------------------------------------------------- work
+
+// fdChartLatency — how long operations actually took.
+//
+// The headline performance number, and the one the first version of this page missed
+// entirely. opLatencies holds cumulative microseconds and cumulative operation counts, so
+// neither series is a latency on its own; the ratio of their deltas is.
+func fdChartLatency(d *ftdcData) *fdChart {
+	c := &fdChart{ID: "latency", Group: "Work", Title: "Average operation latency", Unit: "ms",
+		Why: "How long the average operation took, per interval, split by kind. This is the number an application experiences. It is derived: FTDC stores total microseconds and a total count, and the average is the ratio of their deltas — so an idle interval carries the previous value forward rather than dropping to zero, which would read as 'instant' when nothing was measured at all."}
+	for _, p := range []struct{ name, kind string }{
+		{"reads", "reads"}, {"writes", "writes"}, {"commands", "commands"},
+	} {
+		pts := fdRatio(d, "serverStatus.opLatencies."+p.kind+".latency",
+			"serverStatus.opLatencies."+p.kind+".ops", 0.001)
+		if pts != nil && fdMax(pts) > 0 {
+			c.Series = append(c.Series, fdSeries{Name: p.name, Points: pts})
+		}
+	}
+	if len(c.Series) == 0 {
+		return nil
+	}
+	worst, which := 0.0, ""
+	for _, s := range c.Series {
+		if m := fdMax(s.Points); m > worst {
+			worst, which = m, s.Name
+		}
+	}
+	switch {
+	case worst >= 100:
+		c.Advice = &fdAdvice{Level: "crit",
+			Headline: fmt.Sprintf("%s averaged %.0f ms at their worst", which, worst),
+			Detail:   "An average — not a slow outlier. Half the operations in that interval were slower still.",
+			Action:   "Work down the page: tickets and queues say whether the storage engine was saturated, the index-efficiency chart says whether the work was avoidable, and the disk charts say whether it was the hardware."}
+	case worst >= 10:
+		c.Advice = &fdAdvice{Level: "warn", Headline: fmt.Sprintf("%s peaked at %.0f ms average", which, worst)}
+	default:
+		c.Advice = &fdAdvice{Level: "ok", Headline: fmt.Sprintf("Latency stayed under %.1f ms on average", worst)}
+	}
+	return c
+}
+
+// fdChartIndexEfficiency — how much work each returned document cost.
+//
+// The classic MongoDB diagnosis, and it needs two counters held together: documents examined
+// against documents returned. A ratio near 1 means the indexes are doing their job; a ratio
+// in the thousands means a query is reading the collection to find a handful of rows.
+func fdChartIndexEfficiency(d *ftdcData) *fdChart {
+	scanned := fdAnyKey(d, "serverStatus.metrics.queryExecutor.scannedObjects", "serverStatus.metrics.queryExecutor.scanned")
+	if scanned == "" || d.Series["serverStatus.metrics.document.returned"] == nil {
+		return nil
+	}
+	c := &fdChart{ID: "indexEfficiency", Group: "Work", Title: "Documents examined per document returned", Unit: "ratio",
+		Why: "Documents read to produce one document of answer. 1 is a perfectly indexed query. Hundreds or thousands means the server is scanning to find a few rows, and no amount of hardware fixes that — it is an index that does not exist."}
+	if pts := fdRatio(d, scanned, "serverStatus.metrics.document.returned", 1); pts != nil {
+		c.Series = append(c.Series, fdSeries{Name: "examined : returned", Points: pts})
+	}
+	if pts := fdRate(d, "serverStatus.metrics.queryExecutor.collectionScans.total"); pts != nil && fdMax(pts) > 0 {
+		c.Series = append(c.Series, fdSeries{Name: "collection scans/s", Points: pts})
+	}
+	if len(c.Series) == 0 {
+		return nil
+	}
+	worst := fdMax(c.Series[0].Points)
+	switch {
+	case worst >= 1000:
+		c.Advice = &fdAdvice{Level: "crit",
+			Headline: fmt.Sprintf("Up to %.0f documents examined per document returned", worst),
+			Detail:   "The server read that many documents to answer with one. This is the single most common cause of a MongoDB server that looks overloaded and is really just under-indexed.",
+			Action:   "Find the queries: db.setProfilingLevel or the slow-query log with planSummary: COLLSCAN. Every one of those is a missing index."}
+	case worst >= 100:
+		c.Advice = &fdAdvice{Level: "warn", Headline: fmt.Sprintf("Up to %.0f documents examined per one returned", worst)}
+	default:
+		c.Advice = &fdAdvice{Level: "ok", Headline: fmt.Sprintf("Peak %.0f documents examined per one returned", worst)}
+	}
+	return c
+}
+
+// fdChartNetwork — bytes on and off the wire.
+func fdChartNetwork(d *ftdcData) *fdChart {
+	c := &fdChart{ID: "network", Group: "Work", Title: "Client network throughput", Unit: "MiB/s",
+		Why: "Bytes to and from clients. Worth a glance when latency is high and the server looks idle: a query returning far more data than anybody needs shows up here and nowhere else."}
+	for _, p := range []struct{ name, key string }{
+		{"in", "serverStatus.network.bytesIn"}, {"out", "serverStatus.network.bytesOut"},
+	} {
+		if pts := fdRate(d, p.key); pts != nil && fdMax(pts) > 0 {
+			for i := range pts {
+				pts[i] /= 1024 * 1024
+			}
+			c.Series = append(c.Series, fdSeries{Name: p.name, Points: pts})
+		}
+	}
+	if len(c.Series) == 0 {
+		return nil
+	}
+	c.Advice = &fdAdvice{Level: "info", Headline: fmt.Sprintf("Peak %.1f MiB/s out to clients", fdMax(c.Series[len(c.Series)-1].Points))}
+	return c
+}
+
+// ---------------------------------------------------------------- replication
+
+// fdChartOplogApply — the secondary's side of replication lag.
+//
+// The lag chart says a member was behind; this says whether it was behind because it could
+// not apply fast enough, or because nothing was reaching it. Those have opposite fixes and
+// the two charts together separate them, which neither does alone.
+func fdChartOplogApply(d *ftdcData) *fdChart {
+	c := &fdChart{ID: "oplogApply", Group: "Replication", Title: "Oplog application", Unit: "ops/s · ms",
+		Why: "How fast this member applied the oplog, and how long each batch took. Read with the lag chart: lag with a high apply rate is a member that cannot keep up with the write volume, and lag with a near-zero apply rate is a member that is not receiving anything — a network problem, or a sync source that has gone away."}
+	if pts := fdRate(d, "serverStatus.metrics.repl.apply.ops"); pts != nil && fdMax(pts) > 0 {
+		c.Series = append(c.Series, fdSeries{Name: "ops applied/s", Points: pts})
+	}
+	if pts := fdRatio(d, "serverStatus.metrics.repl.apply.batches.totalMillis",
+		"serverStatus.metrics.repl.apply.batches.num", 1); pts != nil && fdMax(pts) > 0 {
+		c.Series = append(c.Series, fdSeries{Name: "ms per batch", Points: pts})
+	}
+	if len(c.Series) == 0 {
+		return nil
+	}
+	c.Advice = &fdAdvice{Level: "info", Headline: fmt.Sprintf("Peak %.0f oplog operations applied per second", fdMax(c.Series[0].Points))}
+	return c
+}
+
+// fdChartReplNetwork — what the member pulled from its sync source.
+func fdChartReplNetwork(d *ftdcData) *fdChart {
+	pts := fdRate(d, "serverStatus.metrics.repl.network.bytes")
+	if pts == nil || fdMax(pts) == 0 {
+		return nil
+	}
+	for i := range pts {
+		pts[i] /= 1024 * 1024
+	}
+	c := &fdChart{ID: "replNetwork", Group: "Replication", Title: "Oplog fetched from the sync source", Unit: "MiB/s",
+		Why: "Bytes this member pulled from whichever member it replicates from. A secondary with lag and a flat zero here is not receiving the oplog at all, which is a very different problem from one that is receiving it and cannot apply it fast enough."}
+	c.Series = append(c.Series, fdSeries{Name: "oplog fetched", Points: pts})
+	c.Advice = &fdAdvice{Level: "info", Headline: fmt.Sprintf("Peak %.2f MiB/s fetched", fdMax(pts))}
+	return c
+}
+
+// fdChartElections — how often the set went looking for a primary, and why.
+func fdChartElections(d *ftdcData) *fdChart {
+	c := &fdChart{ID: "elections", Group: "Replication", Title: "Elections called", Unit: "count",
+		Why: "Cumulative election counters. electionTimeout is the one that matters: it counts elections called because the primary stopped answering, which is an unplanned failover rather than a maintenance handover."}
+	for _, p := range []struct{ name, key string }{
+		{"called on timeout", "serverStatus.electionMetrics.electionTimeout.called"},
+		{"succeeded on timeout", "serverStatus.electionMetrics.electionTimeout.successful"},
+		{"step-up requests", "serverStatus.electionMetrics.stepUpCmd.called"},
+	} {
+		if pts := fdFloats(d, p.key, 1); pts != nil && fdMax(pts) > 0 {
+			c.Series = append(c.Series, fdSeries{Name: p.name, Points: pts})
+		}
+	}
+	if len(c.Series) == 0 {
+		return nil
+	}
+	called := fdMax(c.Series[0].Points)
+	lvl := "ok"
+	if called > 0 {
+		lvl = "warn"
+	}
+	c.Advice = &fdAdvice{Level: lvl,
+		Headline: fmt.Sprintf("%.0f election(s) called because the primary stopped answering", called),
+		Action:   "Each one is a window when the set took no writes. Line them up against the member-state chart above and the same period in Log Summary, which says what happened to the primary."}
+	// A step-down kills the operations that were running on the old primary. That is the
+	// half of a failover an application actually notices, and it is a separate counter.
+	// 8.0 renamed userOperationsKilled to totalOperationsKilled.
+	if k := fdFloats(d, fdAnyKey(d,
+		"serverStatus.metrics.repl.stateTransition.totalOperationsKilled",
+		"serverStatus.metrics.repl.stateTransition.userOperationsKilled"), 1); k != nil {
+		if n := fdMax(k) - fdMin(k); n > 0 {
+			c.Advice.Detail = fmt.Sprintf("%.0f in-progress operation(s) were killed by a state transition. That is what the application saw: not a slow request, but a connection whose work was terminated mid-flight.", n)
+		}
+	}
+	return c
+}
+
+// ---------------------------------------------------------------- storage engine
+
+// fdChartCheckpoint — how long WiredTiger's checkpoints took.
+func fdChartCheckpoint(d *ftdcData) *fdChart {
+	// WiredTiger grew a top-level `checkpoint` statistics category in WT 11.2 (WT-11171,
+	// MongoDB 7.1). Before that the same numbers lived under `transaction`, prefixed
+	// "transaction checkpoint" — so 6.0 and 7.0 need the old names or this chart is
+	// silently empty on both.
+	maxK := fdAnyKey(d,
+		"serverStatus.wiredTiger.checkpoint.max time (msecs)",
+		"serverStatus.wiredTiger.transaction.transaction checkpoint max time (msecs)")
+	if maxK == "" {
+		return nil
+	}
+	c := &fdChart{ID: "checkpoint", Group: "Storage engine", Title: "Checkpoint duration", Unit: "ms",
+		Why: "WiredTiger writes a checkpoint every 60 seconds by default. A checkpoint that takes longer than the interval between checkpoints means the storage engine never gets to rest, and the symptom is a server that stalls periodically for no reason visible in any query."}
+	if pts := fdFloats(d, maxK, 1); pts != nil {
+		c.Series = append(c.Series, fdSeries{Name: "longest so far", Points: pts})
+	}
+	if k := fdAnyKey(d,
+		"serverStatus.wiredTiger.checkpoint.min time (msecs)",
+		"serverStatus.wiredTiger.transaction.transaction checkpoint min time (msecs)"); k != "" {
+		if pts := fdFloats(d, k, 1); pts != nil {
+			c.Series = append(c.Series, fdSeries{Name: "shortest so far", Points: pts})
+		}
+	}
+	if len(c.Series) == 0 {
+		return nil
+	}
+	worst := fdMax(c.Series[0].Points)
+	lvl := "ok"
+	if worst > 60000 {
+		lvl = "crit"
+	} else if worst > 20000 {
+		lvl = "warn"
+	}
+	c.Advice = &fdAdvice{Level: lvl, Headline: fmt.Sprintf("Longest checkpoint %.1f s", worst/1000)}
+	if lvl != "ok" {
+		c.Advice.Detail = "Checkpoints run every 60 seconds. One taking a large fraction of that leaves the disk no idle time, and the server stalls in a way no slow-query log explains."
+		c.Advice.Action = "Usually the disk rather than the database: check the per-device latency charts below. A cache far larger than the disk can flush produces the same shape."
+	}
+	return c
+}
+
+// fdChartMemory — where the server's memory went.
+func fdChartMemory(d *ftdcData) *fdChart {
+	c := &fdChart{ID: "memory", Group: "Storage engine", Title: "Memory", Unit: "MiB",
+		Why: "Resident set against the WiredTiger cache and the allocator's heap. Resident far above the cache size is the rest of mongod — connections, aggregation buffers, the allocator holding freed memory — and it is what gets a server killed by the OOM killer on a box sized only for the cache."}
+	for _, p := range []struct {
+		name  string
+		key   string
+		scale float64
+	}{
+		{"resident", "serverStatus.mem.resident", 1},
+		{"WT cache in use", "serverStatus.wiredTiger.cache.bytes currently in the cache", 1.0 / (1024 * 1024)},
+		{"allocator heap", "serverStatus.tcmalloc.generic.heap_size", 1.0 / (1024 * 1024)},
+	} {
+		if pts := fdFloats(d, p.key, p.scale); pts != nil && fdMax(pts) > 0 {
+			c.Series = append(c.Series, fdSeries{Name: p.name, Points: pts})
+		}
+	}
+	if len(c.Series) == 0 {
+		return nil
+	}
+	c.Advice = &fdAdvice{Level: "info", Headline: fmt.Sprintf("Peak resident %.0f MiB", fdMax(c.Series[0].Points))}
+	return c
+}
+
+// ---------------------------------------------------------------- host
+
+// fdChartPressure — Linux pressure stall information, which is the best single answer to
+// "was this the machine".
+//
+// PSI measures the time tasks spent STALLED waiting for a resource, which is a different and
+// far more useful question than how busy the resource was. A disk can be 100% utilised and
+// nothing waiting; a disk at 40% with everything queued behind it is the problem. `some` is
+// the share of time at least one task was stalled, `full` the share when everything was.
+func fdChartPressure(d *ftdcData) *fdChart {
+	c := &fdChart{ID: "pressure", Group: "Host", Title: "Resource pressure (PSI)", Unit: "% of time stalled",
+		Why: "The share of time work was stalled waiting for a resource, straight from the kernel. This answers 'was this the machine' better than utilisation does — a disk can be fully utilised with nothing waiting on it, and busy is not the same as blocked. io.some rising with database latency is as close to proof as this page gets."}
+	// PSI lives under systemMetrics on every version that has it (6.0.8 and 7.0 onwards,
+	// SERVER-45255). 8.0 additionally copies it into serverStatus.extra_info, byte for
+	// byte identical — so systemMetrics is the one to read, and reading only extra_info
+	// left this chart silently empty on 6.0 and 7.0.
+	for _, p := range []struct{ name, key, alt string }{
+		{"cpu (some)", "systemMetrics.pressure.cpu.some.totalMicros", "serverStatus.extra_info.pressure.cpu.some.totalMicros"},
+		{"io (some)", "systemMetrics.pressure.io.some.totalMicros", "serverStatus.extra_info.pressure.io.some.totalMicros"},
+		{"io (full)", "systemMetrics.pressure.io.full.totalMicros", "serverStatus.extra_info.pressure.io.full.totalMicros"},
+		{"memory (some)", "systemMetrics.pressure.memory.some.totalMicros", "serverStatus.extra_info.pressure.memory.some.totalMicros"},
+	} {
+		if pts := fdRate(d, fdAnyKey(d, p.key, p.alt)); pts != nil && fdMax(pts) > 0 {
+			// A rate of stalled microseconds per second is a fraction of wall clock.
+			for i := range pts {
+				pts[i] = pts[i] / 10000
+			}
+			c.Series = append(c.Series, fdSeries{Name: p.name, Points: pts})
+		}
+	}
+	if len(c.Series) == 0 {
+		return nil
+	}
+	worst, which := 0.0, ""
+	for _, s := range c.Series {
+		if m := fdMax(s.Points); m > worst {
+			worst, which = m, s.Name
+		}
+	}
+	switch {
+	case worst >= 40:
+		c.Advice = &fdAdvice{Level: "crit",
+			Headline: fmt.Sprintf("%s stalled work %.0f%% of the time at its worst", which, worst),
+			Detail:   "Work on this machine spent that proportion of the interval waiting rather than running. Whatever the database looks like it is doing, this is the ceiling it is doing it under.",
+			Action:   "Match the resource to the fix: io pressure is the disk (see the per-device charts), memory pressure means the working set does not fit and the machine is reclaiming, cpu pressure means genuine contention — often with a neighbour on shared hardware."}
+	case worst >= 10:
+		c.Advice = &fdAdvice{Level: "warn", Headline: fmt.Sprintf("%s stalled work up to %.0f%% of the time", which, worst)}
+	default:
+		c.Advice = &fdAdvice{Level: "ok", Headline: fmt.Sprintf("Nothing stalled for more than %.1f%% of the time", worst)}
+	}
+	return c
+}
+
+// fdDiskCharts builds one utilisation chart and one latency chart per block device that
+// actually did something.
+//
+// Per device rather than aggregated, and discovered from the data rather than assumed: a
+// database host routinely has the data on one device and the journal or the OS on another,
+// and averaging them hides the one that is the problem. Devices with no I/O at all in the
+// window are skipped, which on a typical host removes most of them.
+func fdDiskCharts(d *ftdcData) []func(*ftdcData) *fdChart {
+	devs := map[string]bool{}
+	for k := range d.Series {
+		rest, ok := strings.CutPrefix(k, "systemMetrics.disks.")
+		if !ok {
+			continue
+		}
+		i := strings.Index(rest, ".")
+		if i <= 0 {
+			continue
+		}
+		dev := rest[:i]
+		// A device earns a chart by doing something IN THIS WINDOW, not by existing.
+		// has() is not enough: io_time_ms is cumulative, so a disk that was busy once at
+		// boot and has been idle ever since still has a non-zero value forever. A typical
+		// host has four or five block devices and the database is on one of them; charting
+		// the other four at a flat zero is four charts of nothing.
+		if r := fdRate(d, "systemMetrics.disks."+dev+".io_time_ms"); fdMax(r) > 0.5 {
+			devs[dev] = true
+		}
+	}
+	var names []string
+	for dev := range devs {
+		names = append(names, dev)
+	}
+	// Busiest first: on a host where several devices are active, the one the database is
+	// waiting on is the one worth seeing without scrolling.
+	sort.Slice(names, func(i, j int) bool {
+		bi := fdMax(fdRate(d, "systemMetrics.disks."+names[i]+".io_time_ms"))
+		bj := fdMax(fdRate(d, "systemMetrics.disks."+names[j]+".io_time_ms"))
+		if bi != bj {
+			return bi > bj
+		}
+		return names[i] < names[j]
+	})
+	// More than a handful of busy devices is a host doing something unusual, and a page of
+	// forty disk charts helps nobody.
+	if len(names) > 4 {
+		names = names[:4]
+	}
+	var out []func(*ftdcData) *fdChart
+	for _, dev := range names {
+		dev := dev
+		out = append(out, func(d *ftdcData) *fdChart { return fdChartDisk(d, dev) })
+	}
+	return out
+}
+
+// fdChartDisk — one device's utilisation, queue depth and average service time.
+//
+// Read from /proc/diskstats the way iostat reads it: io_time_ms is milliseconds the device
+// was busy, so its rate divided by ten is percent utilisation; read_time_ms over reads is
+// the average time a read took, including its wait.
+func fdChartDisk(d *ftdcData, dev string) *fdChart {
+	base := "systemMetrics.disks." + dev + "."
+	util := fdRate(d, base+"io_time_ms")
+	if util == nil {
+		return nil
+	}
+	for i := range util {
+		util[i] /= 10
+	}
+	c := &fdChart{ID: "disk-" + dev, Group: "Host", Title: "Disk " + dev, Unit: "% busy · ms",
+		Why: "Utilisation is the share of time the device had at least one request in flight — the same number iostat calls %util. The latencies are total service time divided by operation count, so they include queueing, which is what the database actually waits for. A device at 100% with low latency is working; a device at 100% with rising latency is the bottleneck. On a multi-queue or virtual device the kernel can report more busy time than wall clock and this reads above 100%, exactly as iostat does — past that point it means saturated and the number itself stops meaning anything."}
+	c.Series = append(c.Series, fdSeries{Name: "% busy", Points: util})
+	for _, p := range []struct{ name, num, den string }{
+		{"read ms", base + "read_time_ms", base + "reads"},
+		{"write ms", base + "write_time_ms", base + "writes"},
+	} {
+		if pts := fdRatio(d, p.num, p.den, 1); pts != nil && fdMax(pts) > 0 {
+			c.Series = append(c.Series, fdSeries{Name: p.name, Points: pts})
+		}
+	}
+	busy := fdMax(util)
+	slowest := 0.0
+	for _, s := range c.Series[1:] {
+		if m := fdMax(s.Points); m > slowest {
+			slowest = m
+		}
+	}
+	switch {
+	case slowest >= 50:
+		c.Advice = &fdAdvice{Level: "crit",
+			Headline: fmt.Sprintf("%s served requests in %.0f ms at its worst, %s", dev, slowest, fdBusy(busy)),
+			Detail:   "Service time that high is the storage, not the database. Every read that misses the WiredTiger cache waits this long.",
+			Action:   "Check what the device actually is and what else shares it. On a cloud volume this is usually an IOPS or throughput limit being hit; the burst-credit shape is a period of normal latency followed by a cliff."}
+	case busy >= 90:
+		c.Advice = &fdAdvice{Level: "warn",
+			Headline: fmt.Sprintf("%s was %s at peak, serving in %.1f ms", dev, fdBusy(busy), slowest),
+			Detail:   "Fully utilised but still fast. That is a device doing its job, with no headroom left for more."}
+	default:
+		c.Advice = &fdAdvice{Level: "ok", Headline: fmt.Sprintf("%s peaked at %s, %.1f ms", dev, fdBusy(busy), slowest)}
+	}
+	return c
+}
+
+// ------------------------------------------------- the second sweep of the namespace
+//
+// Everything below came from enumerating all 5,665 metrics in a real capture rather than
+// from picking the familiar ones. The first pass at this page charted the metrics anybody
+// would think of — lag, cache, tickets, CPU — and missed most of what FTDC actually knows.
+//
+// The recurring theme is that the important number is rarely a metric. Write-concern wait,
+// journal fsync latency, the majority commit point, the share of eviction being done by
+// application threads: all of them are two counters that have to be divided, and all of them
+// are invisible in the server log at any verbosity.
+
+// fdConst builds a flat reference line — a configured threshold, not a measurement.
+func fdConst(n int, v float64) []float64 {
+	out := make([]float64, n)
+	for i := range out {
+		out[i] = v
+	}
+	return out
+}
+
+// fdSumRates adds together the per-second rates of every metric whose key matches.
+//
+// Used where the interesting quantity is spread across a family of keys — one per command,
+// one per lock type — and the total is the thing worth a line. Rates are summed rather than
+// the raw counters, so a metric that appears part-way through the window does not contribute
+// its whole history as a single spike.
+func fdSumRates(d *ftdcData, match func(key string) bool) []float64 {
+	var out []float64
+	for k := range d.Series {
+		if !match(k) {
+			continue
+		}
+		r := fdRate(d, k)
+		if r == nil {
+			continue
+		}
+		if out == nil {
+			out = make([]float64, len(r))
+		}
+		for i := range r {
+			if i < len(out) {
+				out[i] += r[i]
+			}
+		}
+	}
+	return out
+}
+
+// fdSpanOf reports how much wall-clock time the samples where pick() is true add up to.
+// Used for "a member was unreachable for 45 s", which is the number somebody wants rather
+// than "17 samples had health 0".
+func fdSpanOf(d *ftdcData, pick func(i int) bool) float64 {
+	total := 0.0
+	for i := 1; i < len(d.TS); i++ {
+		if pick(i) {
+			total += d.TS[i] - d.TS[i-1]
+		}
+	}
+	return total
+}
+
+// ---------------------------------------------------------------- replication, deeper
+
+// fdChartQuorum — how many members could actually acknowledge a write.
+//
+// `writableVotingMembersCount` looks like this answer and is not: it comes from the replica
+// set CONFIG, so it reads 3 throughout an outage in which two members are unreachable. The
+// honest version has to be counted per sample from each member's health and state, which is
+// what this does — a member acknowledges a write only if this node can reach it and it is
+// carrying data.
+//
+// This is the chart for the failure everybody meets eventually and nobody recognises: the
+// primary is up, the server log says nothing much, and every write hangs, because w:majority
+// cannot be satisfied.
+func fdChartQuorum(d *ftdcData) *fdChart {
+	idx := fdMemberIdx(d)
+	if len(idx) == 0 {
+		return nil
+	}
+	need := fdFloats(d, "replSetGetStatus.writeMajorityCount", 1)
+	if need == nil {
+		return nil
+	}
+	n := len(d.TS)
+	avail := make([]float64, n)
+	for i := 0; i < n; i++ {
+		for _, m := range idx {
+			h, okH := d.at(fmt.Sprintf("replSetGetStatus.members.%d.health", m), i)
+			st, okS := d.at(fmt.Sprintf("replSetGetStatus.members.%d.state", m), i)
+			// 1 PRIMARY, 2 SECONDARY. A member in RECOVERING or ROLLBACK is up, is not
+			// refusing heartbeats, and still cannot acknowledge a write.
+			if okH && okS && h == 1 && (st == 1 || st == 2) {
+				avail[i]++
+			}
+		}
+	}
+	c := &fdChart{ID: "quorum", Group: "Replication", Title: "Members able to acknowledge a write", Unit: "members",
+		Why: "Counted per sample from each member's heartbeat health and state, not from the configuration. When the solid line drops below the dashed one, a w:majority write cannot be acknowledged and the application hangs — while the primary is up, serving reads, and logging nothing that explains it."}
+	c.Series = append(c.Series,
+		fdSeries{Name: "reachable and carrying data", Points: avail},
+		fdSeries{Name: "needed for a majority write", Points: need, Dashed: true})
+
+	short := fdSpanOf(d, func(i int) bool { return i < len(need) && avail[i] < need[i] })
+	// Which members went away, and for how long — the aggregate says a majority was lost,
+	// this says who to go and look at.
+	var gone []string
+	for _, m := range idx {
+		key := fmt.Sprintf("replSetGetStatus.members.%d.health", m)
+		down := fdSpanOf(d, func(i int) bool { v, ok := d.at(key, i); return ok && v == 0 })
+		if down > 0 {
+			gone = append(gone, fmt.Sprintf("member %d for %s", m, lsDur(down)))
+		}
+	}
+	switch {
+	case short > 0:
+		c.Advice = &fdAdvice{Level: "crit",
+			Headline: fmt.Sprintf("The set could not acknowledge a majority write for %s", lsDur(short)),
+			Detail:   "For that long, every w:majority write waited and then timed out, readConcern:majority stopped advancing, and the majority commit point froze. An application sees hung writes; the primary sees nothing wrong with itself.",
+			Action:   "Find out why the members went away — the member-state chart and the same window in Log Summary. A set that cannot form a write majority does not heal by restarting the primary."}
+		if len(gone) > 0 {
+			c.Advice.Detail += " Unreachable in this window: " + strings.Join(gone, ", ") + "."
+		}
+	case len(gone) > 0:
+		c.Advice = &fdAdvice{Level: "warn",
+			Headline: "A member was unreachable but the majority held — " + strings.Join(gone, ", "),
+			Detail:   "Writes carried on, with no redundancy left to lose. One more member away and the set stops accepting them."}
+	default:
+		c.Advice = &fdAdvice{Level: "ok",
+			Headline: fmt.Sprintf("%.0f members available throughout, %.0f needed", fdMin(avail), fdMax(need))}
+	}
+	return c
+}
+
+// fdChartCommitLag — how far the majority commit point trailed this member's own writes.
+//
+// The replication-lag chart is per member. This is the number the CLIENT waits on: a
+// w:majority write is acknowledged when the commit point passes it, and a readConcern
+// "majority" read cannot see anything past it. A set can have every member within a second
+// of the primary and still have a commit point that has stopped, which is what a lost
+// majority looks like from inside the primary.
+func fdChartCommitLag(d *ftdcData) *fdChart {
+	applied := d.Series["replSetGetStatus.optimes.appliedOpTime.ts"]
+	if applied == nil {
+		return nil
+	}
+	c := &fdChart{ID: "commitLag", Group: "Replication", Title: "Majority commit point lag", Unit: "s",
+		Why: "The gap between what this member has written and what the set has committed to a majority. Writes with w:majority wait for exactly this gap to close, and reads with readConcern majority cannot see past it. It is the only number that says whether the replica set is still functioning as one."}
+	for _, p := range []struct{ name, key string }{
+		{"behind the majority commit point", "replSetGetStatus.optimes.lastCommittedOpTime.ts"},
+		{"not yet journalled", "replSetGetStatus.optimes.durableOpTime.ts"},
+	} {
+		s := d.Series[p.key]
+		if s == nil {
+			continue
+		}
+		gap := make([]float64, len(applied.Values))
+		for i := range applied.Values {
+			if i < len(s.Values) {
+				// Both are the seconds half of a BSON timestamp, so the difference is
+				// already in seconds. It can go slightly negative between samples of a
+				// tree that is not captured atomically; clamp rather than draw it.
+				if g := applied.Values[i] - s.Values[i]; g > 0 {
+					gap[i] = float64(g)
+				}
+			}
+		}
+		if fdMax(gap) > 0 {
+			c.Series = append(c.Series, fdSeries{Name: p.name, Points: gap})
+		}
+	}
+	if len(c.Series) == 0 {
+		return nil
+	}
+	worst := fdMax(c.Series[0].Points)
+	switch {
+	case worst >= 10:
+		c.Advice = &fdAdvice{Level: "crit",
+			Headline: fmt.Sprintf("The commit point fell %s behind", lsDur(worst)),
+			Detail:   "Every majority write issued in that window waited at least that long before it was acknowledged, and majority reads were that far in the past. The cause is always a member: the commit point moves at the speed of the slowest member needed to make up a majority.",
+			Action:   "The quorum chart says whether a majority existed at all; the lag chart says which member was holding it up."}
+	case worst >= 2:
+		c.Advice = &fdAdvice{Level: "warn",
+			Headline: fmt.Sprintf("Commit point trailed by up to %s", lsDur(worst)),
+			Detail:   "Enough to be felt by anything writing with w:majority, which includes every transaction and every causally consistent session."}
+	default:
+		c.Advice = &fdAdvice{Level: "ok", Headline: fmt.Sprintf("Commit point stayed within %s", lsDur(worst))}
+	}
+	return c
+}
+
+// fdChartWriteConcern — what write concern cost the application, in milliseconds.
+//
+// mongod records the total time spent waiting for write concern and the number of writes
+// that waited. Neither is useful; divided, they are the average time a w>1 write spent
+// waiting for other members after the primary had already done its part. That is replication
+// lag expressed as something an application developer can recognise.
+func fdChartWriteConcern(d *ftdcData) *fdChart {
+	ms := fdRatio(d, "serverStatus.metrics.getLastError.wtime.totalMillis",
+		"serverStatus.metrics.getLastError.wtime.num", 1)
+	if ms == nil || fdMax(ms) == 0 {
+		return nil
+	}
+	c := &fdChart{ID: "writeConcern", Group: "Replication", Title: "Time spent waiting for write concern", Unit: "ms · writes/s",
+		Why: "The average time a write with w greater than 1 waited for other members to acknowledge it, after the primary had already done its work. An application that reports slow writes while every server-side latency looks fine is usually waiting here, and no slow-query log records it."}
+	c.Series = append(c.Series, fdSeries{Name: "ms waiting", Points: ms})
+	if n := fdRate(d, "serverStatus.metrics.getLastError.wtime.num"); n != nil && fdMax(n) > 0 {
+		c.Series = append(c.Series, fdSeries{Name: "writes that waited/s", Points: n})
+	}
+	timeouts := 0.0
+	if v, ok := d.last("serverStatus.metrics.getLastError.wtimeouts"); ok {
+		timeouts = float64(v)
+	}
+	worst := fdMax(ms)
+	switch {
+	case timeouts > 0:
+		c.Advice = &fdAdvice{Level: "crit",
+			Headline: fmt.Sprintf("%.0f write(s) gave up waiting for write concern", timeouts),
+			Detail:   "A wtimeout means the write was applied on the primary and then reported as failed to the application. It is not rolled back. Anything that retried has written twice.",
+			Action:   "Check the quorum chart for the same window — a write concern that cannot be satisfied is almost always a member that is unreachable rather than one that is slow."}
+	case worst >= 100:
+		c.Advice = &fdAdvice{Level: "crit",
+			Headline: fmt.Sprintf("Writes waited an average of %.0f ms for other members", worst),
+			Detail:   "This is added to every single write the application makes with w greater than 1, and it is paid on the client's clock.",
+			Action:   "It is the secondaries, not the primary: look at their apply rate and their disks. If one member is consistently the straggler, and it exists only for redundancy, its votes and its priority are worth reviewing."}
+	case worst >= 20:
+		c.Advice = &fdAdvice{Level: "warn", Headline: fmt.Sprintf("Writes waited up to %.0f ms for write concern", worst)}
+	default:
+		c.Advice = &fdAdvice{Level: "ok", Headline: fmt.Sprintf("Write concern cost at most %.1f ms per write", worst)}
+	}
+	return c
+}
+
+// fdChartSyncSource — who each member was replicating from, and whether it kept changing.
+//
+// Replication in MongoDB is a tree, not a star: a secondary may sync from another secondary,
+// and it chooses for itself. That choice is invisible in every other view, and two of the
+// more baffling failures are visible only here — a member that cannot find any sync source
+// at all, and a chain that has quietly re-rooted itself through a slow member so that
+// everything downstream of it lags for no reason that member's own charts explain.
+func fdChartSyncSource(d *ftdcData) *fdChart {
+	idx := fdMemberIdx(d)
+	if len(idx) == 0 {
+		return nil
+	}
+	self := fdSelfIdx(d)
+	c := &fdChart{ID: "syncSource", Group: "Replication", Title: "Sync source", Unit: "member index",
+		Why: "Which member each one was pulling the oplog from, by index; -1 means it had none. Replication is a tree and each member picks its own parent, so a slow member can end up with two others chained behind it. A line that keeps moving is a member that cannot settle on a source, which costs it a re-fetch every time."}
+	for _, m := range idx {
+		pts := fdFloats(d, fmt.Sprintf("replSetGetStatus.members.%d.syncSourceId", m), 1)
+		if pts == nil {
+			continue
+		}
+		name := fmt.Sprintf("member %d", m)
+		if m == self {
+			name += " (this one)"
+		}
+		c.Series = append(c.Series, fdSeries{Name: name, Points: pts})
+	}
+	if len(c.Series) == 0 {
+		return nil
+	}
+	// numTimesCouldNotFind is the count of sync-source selections that came back empty.
+	notFound, changed := 0.0, 0.0
+	if r := fdFloats(d, "serverStatus.metrics.repl.syncSource.numTimesCouldNotFind", 1); r != nil {
+		notFound = fdMax(r) - fdMin(r)
+	}
+	if r := fdFloats(d, "serverStatus.metrics.repl.syncSource.numTimesChoseDifferent", 1); r != nil {
+		changed = fdMax(r) - fdMin(r)
+	}
+	switch {
+	case notFound > 0:
+		c.Advice = &fdAdvice{Level: "warn",
+			Headline: fmt.Sprintf("This member failed to find a sync source %.0f time(s)", notFound),
+			Detail:   "Each failure is ten seconds in which the member fetched no oplog at all and fell further behind. A member with no eligible source is usually one whose candidates are all too far ahead, all unreachable, or all behind it.",
+			Action:   "Check the quorum and lag charts for the same window. If it persists, replSetSyncFrom names a source explicitly, but that is a diagnosis aid rather than a fix."}
+	case changed > 1:
+		c.Advice = &fdAdvice{Level: "info",
+			Headline: fmt.Sprintf("Sync source changed %.0f times", changed),
+			Detail:   "Some churn is normal after an election. Continuous churn means no candidate is comfortably better than the others, and every change costs a re-fetch."}
+	default:
+		c.Advice = &fdAdvice{Level: "ok", Headline: "Sync sources were stable across the window"}
+	}
+	return c
+}
+
+// ---------------------------------------------------------------- work, deeper
+
+// fdChartCommandMix — which commands the server actually spent its time on.
+//
+// opcounters lumps almost everything into "command". This breaks it out by name, which
+// answers a question the operation chart cannot: whether the server was doing the
+// application's work at all. A server whose busiest command is `hello` is being monitored,
+// not used; one whose busiest is `replSetHeartbeat` is talking to itself.
+func fdChartCommandMix(d *ftdcData) *fdChart {
+	const pre = "serverStatus.metrics.commands."
+	type cmd struct {
+		name string
+		pts  []float64
+		peak float64
+	}
+	var all []cmd
+	for k := range d.Series {
+		name, ok := strings.CutPrefix(k, pre)
+		if !ok || !strings.HasSuffix(name, ".total") {
+			continue
+		}
+		pts := fdRate(d, k)
+		if pts == nil || fdMax(pts) == 0 {
+			continue
+		}
+		all = append(all, cmd{strings.TrimSuffix(name, ".total"), pts, fdMax(pts)})
+	}
+	if len(all) == 0 {
+		return nil
+	}
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].peak != all[j].peak {
+			return all[i].peak > all[j].peak
+		}
+		return all[i].name < all[j].name
+	})
+	// Eight lines is the most a stacked chart stays readable with; the tail of a command
+	// distribution is always long and always uninteresting.
+	if len(all) > 8 {
+		all = all[:8]
+	}
+	c := &fdChart{ID: "commandMix", Group: "Work", Title: "Commands by name", Unit: "commands/s", Stack: true,
+		Why: "The busiest eight commands, as rates. opcounters calls nearly all of these 'command' and stops there. Worth knowing which of them are not the application: replSetHeartbeat is the set checking on itself, and hello is every driver in the estate monitoring its topology — both scale with the number of clients rather than with the work being done."}
+	for _, x := range all {
+		c.Series = append(c.Series, fdSeries{Name: x.name, Points: x.pts})
+	}
+	total := 0.0
+	for _, x := range all {
+		total += x.peak
+	}
+	c.Advice = &fdAdvice{Level: "info",
+		Headline: fmt.Sprintf("Busiest command was %s, peaking at %.1f/s", all[0].name, all[0].peak),
+		Detail:   fmt.Sprintf("Out of roughly %.1f commands/s across the eight shown.", total)}
+	if n := all[0].name; n == "hello" || n == "isMaster" || n == "replSetHeartbeat" || n == "ping" {
+		c.Advice.Level = "info"
+		c.Advice.Detail += " That command is monitoring rather than application work — this server was mostly being asked how it was."
+	}
+	return c
+}
+
+// fdChartErrors — errors the server returned to clients.
+//
+// asserts.user counts every error handed back to a client: duplicate keys, failed
+// validation, refused authentication, a query the server would not run. None of it reaches
+// the log at default verbosity, so an application failing every second can look, from the
+// server's side, exactly like an application working perfectly.
+func fdChartErrors(d *ftdcData) *fdChart {
+	c := &fdChart{ID: "errors", Group: "Work", Title: "Errors returned to clients", Unit: "errors/s",
+		Why: "Errors mongod handed back to a client, and internal assertions. The server log does not record these at default verbosity, which is why an application that is failing on every request can look completely healthy from the database side. A step change here that lines up with a deployment is usually the deployment."}
+	for _, p := range []struct{ name, key string }{
+		{"returned to clients", "serverStatus.asserts.user"},
+		{"internal assertions", "serverStatus.asserts.regular"},
+		{"warnings", "serverStatus.asserts.warning"},
+		{"messages", "serverStatus.asserts.msg"},
+	} {
+		if pts := fdRate(d, p.key); pts != nil && fdMax(pts) > 0 {
+			c.Series = append(c.Series, fdSeries{Name: p.name, Points: pts})
+		}
+	}
+	if failed := fdSumRates(d, func(k string) bool {
+		return strings.HasPrefix(k, "serverStatus.metrics.commands.") && strings.HasSuffix(k, ".failed")
+	}); fdMax(failed) > 0 {
+		c.Series = append(c.Series, fdSeries{Name: "commands that failed", Points: failed})
+	}
+	if len(c.Series) == 0 {
+		return nil
+	}
+	worst := fdMax(c.Series[0].Points)
+	switch {
+	case worst >= 10:
+		c.Advice = &fdAdvice{Level: "warn",
+			Headline: fmt.Sprintf("Peak %.0f errors/s returned to clients", worst),
+			Detail:   "An error rate this high is a client being told no, over and over. Duplicate keys from a retry loop, an expired credential, and a driver failing authentication all look like this.",
+			Action:   "The server will not say which without raising the log level. Start from the application's own error log for the same minute — it has the message, and this has the rate."}
+	case worst > 0:
+		c.Advice = &fdAdvice{Level: "info", Headline: fmt.Sprintf("Up to %.1f errors/s returned to clients", worst)}
+	default:
+		c.Advice = &fdAdvice{Level: "ok", Headline: "No errors returned to clients"}
+	}
+	return c
+}
+
+// fdChartContention — work the server did that it did not have to.
+//
+// Three counters that are each a different kind of waste, and none of which appear in a
+// slow-query log because none of them belongs to a single slow query:
+//
+//	writeConflicts — two updates hit the same document, WiredTiger rolled one back, and
+//	                 mongod retried it silently. The client pays in latency and sees nothing.
+//	scanAndOrder   — a sort with no index to support it, so the results were sorted in memory.
+//	lock waits     — an operation that had to queue for a lock before it could start.
+func fdChartContention(d *ftdcData) *fdChart {
+	c := &fdChart{ID: "contention", Group: "Work", Title: "Contention and avoidable work", Unit: "events/s",
+		Why: "Write conflicts are concurrent updates to the same document being retried invisibly — latency the client pays and nothing logs. In-memory sorts are a sort with no index behind it. Lock waits are operations queuing before they can even start. All three rise with concurrency rather than with any one query, which is why they are so hard to find from a slow-query log."}
+	for _, p := range []struct{ name, key string }{
+		{"write conflicts", "serverStatus.metrics.operation.writeConflicts"},
+		{"in-memory sorts", "serverStatus.metrics.operation.scanAndOrder"},
+	} {
+		if pts := fdRate(d, p.key); pts != nil && fdMax(pts) > 0 {
+			c.Series = append(c.Series, fdSeries{Name: p.name, Points: pts})
+		}
+	}
+	if waits := fdSumRates(d, func(k string) bool {
+		return strings.HasPrefix(k, "serverStatus.locks.") && strings.Contains(k, ".acquireWaitCount.")
+	}); fdMax(waits) > 0 {
+		c.Series = append(c.Series, fdSeries{Name: "lock waits", Points: waits})
+	}
+	if len(c.Series) == 0 {
+		return nil
+	}
+	// Time actually lost to lock waiting, which is the number worth quoting — a wait that
+	// resolves in microseconds is not a problem however often it happens.
+	lockMs := fdSumRates(d, func(k string) bool {
+		return strings.HasPrefix(k, "serverStatus.locks.") && strings.Contains(k, ".timeAcquiringMicros.")
+	})
+	worstLock := fdMax(lockMs) / 1000
+	conflicts := fdMax(fdRate(d, "serverStatus.metrics.operation.writeConflicts"))
+	switch {
+	case conflicts >= 10:
+		c.Advice = &fdAdvice{Level: "warn",
+			Headline: fmt.Sprintf("Peak %.0f write conflicts/s", conflicts),
+			Detail:   "Concurrent writers competing for the same documents. Each conflict is a retry, so the work is done more than once and the client waits for all of it.",
+			Action:   "Look for a hot document — a counter row, a job queue, a single-document lock. Spreading the write across more documents is the fix; more hardware is not."}
+	case worstLock >= 100:
+		c.Advice = &fdAdvice{Level: "warn",
+			Headline: fmt.Sprintf("Up to %.0f ms per second spent waiting for locks", worstLock),
+			Detail:   "That is time operations spent queued before they could start, which no per-operation timing attributes to anything."}
+	default:
+		c.Advice = &fdAdvice{Level: "ok",
+			Headline: fmt.Sprintf("Little contention — peak %.1f events/s, %.1f ms/s waiting for locks", fdMax(c.Series[0].Points), worstLock)}
+	}
+	return c
+}
+
+// ---------------------------------------------------------------- storage engine, deeper
+
+// fdChartJournal — how long a durable write actually took to reach the disk.
+//
+// Every write with j:true, and every majority write on a default deployment, waits for a
+// WiredTiger log fsync. The counters are cumulative total microseconds and a cumulative
+// count; divided, they are the average fsync latency, and that is the floor under every
+// durable write on this server. It appears nowhere else — not in opLatencies, not in the
+// slow-query log, not in the server log at any verbosity.
+func fdChartJournal(d *ftdcData) *fdChart {
+	ms := fdRatio(d, "serverStatus.wiredTiger.log.log sync time duration (usecs)",
+		"serverStatus.wiredTiger.log.log sync operations", 1.0/1000)
+	if ms == nil || fdMax(ms) == 0 {
+		return nil
+	}
+	c := &fdChart{ID: "journal", Group: "Storage engine", Title: "Journal sync latency", Unit: "ms · MiB/s",
+		Why: "The average time a WiredTiger journal fsync took. Every j:true write and every majority write waits for one of these, so this is the floor under durable write latency on this server — and it is a property of the disk, not of the query. A journal on the same device as the data competes with checkpoints for it."}
+	c.Series = append(c.Series, fdSeries{Name: "ms per sync", Points: ms})
+	if b := fdRate(d, "serverStatus.wiredTiger.log.log bytes written"); b != nil && fdMax(b) > 0 {
+		for i := range b {
+			b[i] /= 1024 * 1024
+		}
+		c.Series = append(c.Series, fdSeries{Name: "MiB/s to journal", Points: b})
+	}
+	worst := fdMax(ms)
+	switch {
+	case worst >= 20:
+		c.Advice = &fdAdvice{Level: "crit",
+			Headline: fmt.Sprintf("Journal syncs took up to %.0f ms", worst),
+			Detail:   "Every durable write on this server waited at least this long, on top of everything else it did. Nothing in the query layer moves this number.",
+			Action:   "This is the storage. Check the disk charts for the device the dbPath is on, and whether it is shared with the data files or with another workload. On a cloud volume it is usually an IOPS limit or a burst balance running out."}
+	case worst >= 5:
+		c.Advice = &fdAdvice{Level: "warn",
+			Headline: fmt.Sprintf("Journal syncs averaged up to %.1f ms", worst),
+			Detail:   "Slower than a local NVMe device should be. It is paid by every majority write."}
+	default:
+		c.Advice = &fdAdvice{Level: "ok", Headline: fmt.Sprintf("Journal syncs stayed under %.1f ms", worst)}
+	}
+	return c
+}
+
+// fdChartCachePressure — the cache as a percentage, against the thresholds that change
+// WiredTiger's behaviour.
+//
+// The MiB chart says how full the cache is; this says which side of the line it is on, and
+// the lines are what matter. WiredTiger changes behaviour at fixed percentages: it starts
+// evicting at 80% full or 5% dirty, and past 95% full or 20% dirty it stops being polite
+// about it and makes the threads running user operations do the eviction themselves.
+func fdChartCachePressure(d *ftdcData) *fdChart {
+	maxB := fdFloats(d, "serverStatus.wiredTiger.cache.maximum bytes configured", 1)
+	inCache := fdFloats(d, "serverStatus.wiredTiger.cache.bytes currently in the cache", 1)
+	if maxB == nil || inCache == nil || fdMax(maxB) == 0 {
+		return nil
+	}
+	pct := func(v []float64) []float64 {
+		out := make([]float64, len(v))
+		for i := range v {
+			if i < len(maxB) && maxB[i] > 0 {
+				out[i] = v[i] / maxB[i] * 100
+			}
+		}
+		return out
+	}
+	c := &fdChart{ID: "cachePressure", Group: "Storage engine", Title: "Cache pressure against WiredTiger's thresholds", Unit: "% of cache",
+		Why: "The same cache as the chart above, expressed the way WiredTiger reasons about it. Eviction begins at 80% full or 5% dirty; past 95% full or 20% dirty it becomes urgent and application threads are conscripted to do it, at which point every operation slows down together and none of them looks guilty."}
+	used := pct(inCache)
+	c.Series = append(c.Series, fdSeries{Name: "in cache", Points: used})
+	var dirtyPct []float64
+	if dirty := fdFloats(d, "serverStatus.wiredTiger.cache.tracked dirty bytes in the cache", 1); dirty != nil {
+		dirtyPct = pct(dirty)
+		c.Series = append(c.Series, fdSeries{Name: "dirty", Points: dirtyPct})
+	}
+	n := len(used)
+	c.Series = append(c.Series,
+		fdSeries{Name: "eviction urgent (95%)", Points: fdConst(n, 95), Dashed: true},
+		fdSeries{Name: "dirty urgent (20%)", Points: fdConst(n, 20), Dashed: true})
+
+	pk, pkDirty := fdMax(used), fdMax(dirtyPct)
+	switch {
+	case pk >= 95 || pkDirty >= 20:
+		c.Advice = &fdAdvice{Level: "crit",
+			Headline: fmt.Sprintf("Cache reached %.0f%% full and %.0f%% dirty", pk, pkDirty),
+			Detail:   "Past these points WiredTiger makes the threads running user operations evict pages before it will let them proceed. The signature is everything becoming slow at once, with no individual operation to blame.",
+			Action:   "Either the write rate is beyond what the disk can absorb — the journal and disk charts say so — or the working set has outgrown the cache. The eviction chart below says which of the two it is."}
+	case pk >= 80 || pkDirty >= 5:
+		c.Advice = &fdAdvice{Level: "warn",
+			Headline: fmt.Sprintf("Cache reached %.0f%% full and %.0f%% dirty — eviction was active", pk, pkDirty),
+			Detail:   "Normal for a busy server; this is the range WiredTiger is designed to sit in. Worth knowing that there is no headroom above it."}
+	default:
+		c.Advice = &fdAdvice{Level: "ok", Headline: fmt.Sprintf("Cache peaked at %s full, %s dirty — below every eviction threshold", fdPctV(pk), fdPctV(pkDirty))}
+	}
+	return c
+}
+
+// fdChartEviction — who was doing the eviction.
+//
+// WiredTiger has threads whose job is evicting pages. When they cannot keep up it conscripts
+// the threads that are running user operations, and those operations pay for the eviction
+// out of their own latency. The share of eviction being done by application threads is
+// therefore a direct measure of whether the cache is coping, and it is one of the few places
+// where a cause can be read off rather than inferred.
+func fdChartEviction(d *ftdcData) *fdChart {
+	const pre = "serverStatus.wiredTiger.cache."
+	app := fdRate(d, pre+"application threads page write from cache to disk count")
+	total := fdRate(d, pre+"pages written from cache")
+	if app == nil && total == nil {
+		return nil
+	}
+	c := &fdChart{ID: "eviction", Group: "Storage engine", Title: "Eviction", Unit: "pages/s",
+		Why: "Pages moving in and out of the cache, split by who moved them. WiredTiger has dedicated eviction threads; when they fall behind it makes the threads running user operations do the work instead, and that shows up to the client as latency with no slow operation behind it. Pages read into cache is the other direction — the working set not fitting."}
+	for _, p := range []struct {
+		name string
+		pts  []float64
+	}{
+		{"written by eviction, total", total},
+		{"written by application threads", app},
+		{"read into cache", fdRate(d, pre+"pages read into cache")},
+	} {
+		if p.pts != nil && fdMax(p.pts) > 0 {
+			c.Series = append(c.Series, fdSeries{Name: p.name, Points: p.pts})
+		}
+	}
+	if len(c.Series) == 0 {
+		return nil
+	}
+	// The share has to be taken over the WINDOW, not peak against peak: the two peaks are
+	// rarely the same interval, and dividing one by the other invents a ratio that never
+	// happened. Cumulative counters make the honest version easy — first sample to last.
+	span := 1.0
+	if s := d.span().Seconds(); s > 0 {
+		span = s
+	}
+	appPages := fdMax(fdFloats(d, pre+"application threads page write from cache to disk count", 1)) -
+		fdMin(fdFloats(d, pre+"application threads page write from cache to disk count", 1))
+	allPages := fdMax(fdFloats(d, pre+"pages written from cache", 1)) -
+		fdMin(fdFloats(d, pre+"pages written from cache", 1))
+	share := 0.0
+	if allPages > 0 {
+		share = appPages / allPages * 100
+	}
+	sustained := allPages / span
+	// Both halves of the test matter. On a near-idle server almost all of the little
+	// eviction there is gets done by application threads, simply because the eviction
+	// threads have nothing to wake up for — a 90% share of half a page a second is not a
+	// finding, and reporting it as one would make this chart noise.
+	switch {
+	case share >= 20 && sustained >= 20:
+		c.Advice = &fdAdvice{Level: "crit",
+			Headline: fmt.Sprintf("Application threads did %.0f%% of the eviction", share),
+			Detail:   "Operations were made to evict pages before they were allowed to proceed. Everything slows together and no single operation looks slow, which is what makes this so hard to find any other way.",
+			Action:   "Give eviction more room or less to do: a larger cache, a faster device under the dbPath, or a lower sustained write rate. Raising eviction thread counts helps only when the disk is not already the limit — the disk charts say whether it is."}
+	case fdMax(fdRate(d, pre+"pages read into cache")) >= 100:
+		c.Advice = &fdAdvice{Level: "warn",
+			Headline: fmt.Sprintf("Up to %.0f pages/s read from disk into the cache", fdMax(fdRate(d, pre+"pages read into cache"))),
+			Detail:   "Sustained reads into the cache mean the working set does not fit in it. Every one of those pages is a query waiting on the disk."}
+	default:
+		c.Advice = &fdAdvice{Level: "ok",
+			Headline: fmt.Sprintf("Eviction kept up — %s pages/s sustained, %s of it by application threads", fdAmt(sustained), fdPctV(share))}
+	}
+	return c
+}
+
+// fdChartEngineIO — what the storage engine itself read and wrote.
+//
+// Separate from the disk charts, which measure the whole machine. Reads here are cache
+// misses going to the device; writes are almost entirely checkpoints. A server with a
+// working set that fits reads nearly nothing after it has warmed up, so a steady read line
+// is the clearest statement this page makes that the cache is too small.
+func fdChartEngineIO(d *ftdcData) *fdChart {
+	c := &fdChart{ID: "engineIO", Group: "Storage engine", Title: "Storage engine I/O", Unit: "MiB/s",
+		Why: "Bytes WiredTiger itself moved to and from the disk, as opposed to the device counters further down which include everything else on the machine. Reads are cache misses; a server whose working set fits in the cache reads almost nothing once it is warm. Writes are dominated by checkpoints, which arrive every sixty seconds as a burst rather than a trickle."}
+	for _, p := range []struct{ name, key string }{
+		{"read", "serverStatus.wiredTiger.block-manager.bytes read"},
+		{"written", "serverStatus.wiredTiger.block-manager.bytes written"},
+		{"of which checkpoint", "serverStatus.wiredTiger.block-manager.bytes written for checkpoint"},
+	} {
+		pts := fdRate(d, p.key)
+		if pts == nil || fdMax(pts) == 0 {
+			continue
+		}
+		for i := range pts {
+			pts[i] /= 1024 * 1024
+		}
+		c.Series = append(c.Series, fdSeries{Name: p.name, Points: pts})
+	}
+	if len(c.Series) == 0 {
+		return nil
+	}
+	rd := fdMax(fdRate(d, "serverStatus.wiredTiger.block-manager.bytes read")) / (1024 * 1024)
+	if rd >= 5 {
+		c.Advice = &fdAdvice{Level: "warn",
+			Headline: fmt.Sprintf("Peak %.1f MiB/s read from disk into the engine", rd),
+			Detail:   "Sustained reading means the data being queried is not in the cache. Every one of those bytes is an operation blocked on the device.",
+			Action:   "Compare with the cache chart: a cache that is full and still reading is a cache too small for the working set."}
+	} else {
+		c.Advice = &fdAdvice{Level: "ok",
+			Headline: fmt.Sprintf("Engine read %s MiB/s at peak, wrote %s MiB/s", fdAmt(rd), fdAmt(fdMax(fdRate(d, "serverStatus.wiredTiger.block-manager.bytes written"))/(1024*1024)))}
+	}
+	return c
+}
+
+// fdChartHistoryStore — the cost of keeping old versions of documents readable.
+//
+// WiredTiger keeps superseded versions of a document in the history store so that snapshots
+// opened before the change can still see them. It is what makes readConcern:majority and
+// long-running transactions possible, and it is unbounded: one forgotten cursor or one
+// transaction nobody committed pins the snapshot, and the history store grows until the
+// cache is full of it. The incident reads as "the cache filled up and the server slowed
+// down, with no traffic", which is baffling from every other chart on this page.
+func fdChartHistoryStore(d *ftdcData) *fdChart {
+	const pre = "serverStatus.wiredTiger.cache."
+	inCache := fdFloats(d, pre+"bytes belonging to the history store table in the cache", 1.0/(1024*1024))
+	if inCache == nil {
+		return nil
+	}
+	c := &fdChart{ID: "historyStore", Group: "Storage engine", Title: "History store", Unit: "MiB",
+		Why: "Older versions of documents, kept so that snapshots opened before a change can still read them. It is what makes readConcern majority and long transactions work, and it has no ceiling: a cursor nobody closed or a transaction nobody committed pins the snapshot and this grows until it has eaten the cache. A cache that fills on a server with no traffic is usually this."}
+	c.Series = append(c.Series, fdSeries{Name: "in cache", Points: inCache})
+	if disk := fdFloats(d, pre+"history store table on-disk size", 1.0/(1024*1024)); disk != nil && fdMax(disk) > 0 {
+		c.Series = append(c.Series, fdSeries{Name: "on disk", Points: disk})
+	}
+	window := 0.0
+	if v, ok := d.last("serverStatus.wiredTiger.snapshot-window-settings.current available snapshot window size in seconds"); ok {
+		window = float64(v)
+	}
+	share := 0.0
+	if maxB := fdMax(fdFloats(d, pre+"maximum bytes configured", 1.0/(1024*1024))); maxB > 0 {
+		share = fdMax(inCache) / maxB * 100
+	}
+	switch {
+	case share >= 10:
+		c.Advice = &fdAdvice{Level: "warn",
+			Headline: fmt.Sprintf("History store held %.0f%% of the cache", share),
+			Detail:   "That much cache spent on old document versions is cache not spent on the data being queried, and it usually means something is holding a snapshot open far longer than it should.",
+			Action:   "Look for long-running transactions and idle cursors — currentOp with secs_running set is the direct answer. The majority commit point stalling does the same thing, so check the commit-lag chart too."}
+	case window > 0:
+		c.Advice = &fdAdvice{Level: "ok",
+			Headline: fmt.Sprintf("History store peaked at %s MiB, snapshot window %.0f s", fdAmt(fdMax(inCache)), window),
+			Detail:   "The snapshot window is how far back a reader may still look. It shrinks under cache pressure, which is WiredTiger protecting itself at the cost of long-running reads."}
+	default:
+		c.Advice = &fdAdvice{Level: "ok", Headline: fmt.Sprintf("History store peaked at %s MiB", fdAmt(fdMax(inCache)))}
+	}
+	return c
+}
+
+// ---------------------------------------------------------------- host, deeper
+
+// fdChartHostMemory — the machine's memory, not the process's.
+//
+// The memory chart above is mongod's own. This is what the kernel had left, and it is the
+// one that decides whether the OOM killer arrives — an event that appears in dmesg, does not
+// appear in the mongod log at all, and looks from the database's side like a clean restart
+// with nothing before it.
+func fdChartHostMemory(d *ftdcData) *fdChart {
+	avail := fdFloats(d, "systemMetrics.memory.MemAvailable_kb", 1.0/1024)
+	if avail == nil {
+		return nil
+	}
+	c := &fdChart{ID: "hostMemory", Group: "Host", Title: "Host memory", Unit: "MiB",
+		Why: "What the kernel had available, against what the machine has. MemAvailable falling towards zero is how a mongod gets OOM-killed, and that leaves nothing in the server log — the last line before the restart is whatever it happened to be doing. Swap in use on a database host is a machine already past the point of running well."}
+	c.Series = append(c.Series, fdSeries{Name: "available", Points: avail})
+	if cached := fdFloats(d, "systemMetrics.memory.Cached_kb", 1.0/1024); cached != nil {
+		c.Series = append(c.Series, fdSeries{Name: "page cache", Points: cached})
+	}
+	total := fdFloats(d, "systemMetrics.memory.MemTotal_kb", 1.0/1024)
+	swapUsed := []float64(nil)
+	st := fdFloats(d, "systemMetrics.memory.SwapTotal_kb", 1.0/1024)
+	sf := fdFloats(d, "systemMetrics.memory.SwapFree_kb", 1.0/1024)
+	if st != nil && sf != nil {
+		swapUsed = make([]float64, len(st))
+		for i := range st {
+			if i < len(sf) && st[i] > sf[i] {
+				swapUsed[i] = st[i] - sf[i]
+			}
+		}
+		if fdMax(swapUsed) > 0 {
+			c.Series = append(c.Series, fdSeries{Name: "swap in use", Points: swapUsed})
+		}
+	}
+	if total != nil {
+		c.Series = append(c.Series, fdSeries{Name: "installed", Points: total, Dashed: true})
+	}
+	tot, low := fdMax(total), fdMin(avail)
+	switch {
+	case tot > 0 && low/tot*100 < 5:
+		c.Advice = &fdAdvice{Level: "crit",
+			Headline: fmt.Sprintf("Only %.0f MiB of %.0f MiB was available at the worst point", low, tot),
+			Detail:   "At that margin the kernel is reclaiming continuously and the OOM killer is one allocation away. If this capture ends abruptly, that is very likely what happened.",
+			Action:   "Check dmesg for an oom-kill line at the end of the window. A WiredTiger cache sized at half of RAM leaves the other half for connections, aggregation buffers and the page cache, and that is often not enough."}
+	case fdMax(swapUsed) > 64:
+		c.Advice = &fdAdvice{Level: "warn",
+			Headline: fmt.Sprintf("%.0f MiB of swap in use", fdMax(swapUsed)),
+			Detail:   "Any part of a database's working memory that reaches swap is read back at disk speed. The symptom is latency with no corresponding work."}
+	default:
+		c.Advice = &fdAdvice{Level: "ok", Headline: fmt.Sprintf("At least %.0f MiB of %.0f MiB stayed available", low, tot)}
+	}
+	return c
+}
+
+// fdChartFaults — memory that had to come from the disk.
+//
+// A major fault is the process touching memory that is not resident, so the kernel fetches
+// it from the device while the thread waits. On a database that is the working set not
+// fitting, expressed in the most direct terms the kernel has. Swap in and out on the same
+// chart because they are the same failure one stage further along.
+func fdChartFaults(d *ftdcData) *fdChart {
+	c := &fdChart{ID: "faults", Group: "Host", Title: "Major faults and swapping", Unit: "pages/s",
+		Why: "A major fault is memory the process asked for that had to be fetched from disk while the thread waited. Minor faults are free and are not shown. Any sustained rate here on a database host means the working set does not fit in RAM; pages moving to or from swap means it already did not, some time ago."}
+	for _, p := range []struct{ name, key string }{
+		{"major faults", "systemMetrics.vmstat.pgmajfault"},
+		{"swapped in", "systemMetrics.vmstat.pswpin"},
+		{"swapped out", "systemMetrics.vmstat.pswpout"},
+	} {
+		if pts := fdRate(d, p.key); pts != nil && fdMax(pts) > 0 {
+			c.Series = append(c.Series, fdSeries{Name: p.name, Points: pts})
+		}
+	}
+	if len(c.Series) == 0 {
+		return nil
+	}
+	maj := fdMax(fdRate(d, "systemMetrics.vmstat.pgmajfault"))
+	swap := fdMax(fdRate(d, "systemMetrics.vmstat.pswpin")) + fdMax(fdRate(d, "systemMetrics.vmstat.pswpout"))
+	switch {
+	case swap > 0:
+		c.Advice = &fdAdvice{Level: "crit",
+			Headline: fmt.Sprintf("Pages moved to or from swap, peaking at %.0f/s", swap),
+			Detail:   "Swapping on a database host means memory pressure the kernel could not resolve any other way. Everything that touches a swapped page waits on the disk for it.",
+			Action:   "Size the WiredTiger cache so that it plus connections plus the page cache fits in RAM with room to spare. Turning swap off does not fix this — it converts it into an OOM kill."}
+	case maj >= 10:
+		c.Advice = &fdAdvice{Level: "warn",
+			Headline: fmt.Sprintf("Peak %.0f major faults/s", maj),
+			Detail:   "Each one is a thread stopped while the kernel fetched a page from the device."}
+	default:
+		c.Advice = &fdAdvice{Level: "ok", Headline: fmt.Sprintf("Almost no major faults — peak %.1f/s, no swapping", maj)}
+	}
+	return c
+}
+
+// fdBusy words a device utilisation instead of printing it, because past 100% the number is
+// no longer a percentage of anything.
+//
+// /proc/diskstats accumulates busy time per queue, so a multi-queue NVMe or a virtio device
+// under a hypervisor can report more busy milliseconds than the wall clock had. iostat shows
+// the same thing and it is not a decode error. "317% busy" reads as a broken chart; the
+// truthful reading is that the device was saturated, so that is what it says.
+func fdBusy(pct float64) string {
+	if pct >= 100 {
+		return "saturated"
+	}
+	return fmt.Sprintf("%.0f%% busy", pct)
+}
+
+// fdGapNote reports holes in the capture.
+//
+// This matters more than it sounds. A chart drawn across a gap joins the sample before it to
+// the sample after with a straight line, and a straight line reads as "nothing changed" when
+// what it actually means is "nothing was recorded". mongod writes FTDC only while it is
+// running, so a gap is almost always a period when the server was down — which is usually
+// the most interesting thing in the file.
+func fdGapNote(d *ftdcData) []string {
+	if len(d.TS) < 3 {
+		return nil
+	}
+	// The threshold is relative to how often this server actually samples: the default is
+	// once a second, but a tuned deployment can be far slower, and calling every ordinary
+	// interval a gap would be worse than saying nothing.
+	spacing := make([]float64, 0, len(d.TS)-1)
+	for i := 1; i < len(d.TS); i++ {
+		spacing = append(spacing, d.TS[i]-d.TS[i-1])
+	}
+	sort.Float64s(spacing)
+	median := spacing[len(spacing)/2]
+	if median <= 0 {
+		median = 1
+	}
+	threshold := median * 10
+	if threshold < 60 {
+		threshold = 60
+	}
+	n, total, longest := 0, 0.0, 0.0
+	for _, g := range spacing {
+		if g > threshold {
+			n++
+			total += g
+			if g > longest {
+				longest = g
+			}
+		}
+	}
+	if n == 0 {
+		return nil
+	}
+	return []string{fmt.Sprintf(
+		"The capture is not continuous: %d gap(s) with no samples, %s in total and %s at the longest. "+
+			"mongod writes diagnostic.data only while it is running, so a gap is usually a period when it was not. "+
+			"Every chart draws a straight line across one, which is the absence of data rather than the absence of change.",
+		n, lsDur(total), lsDur(longest))}
 }

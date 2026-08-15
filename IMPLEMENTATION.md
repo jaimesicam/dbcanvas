@@ -14378,3 +14378,154 @@ mongod's log is neither an error log nor named like one.
 
 22 new Go tests (12 MongoDB, 10 FTDC), 18 new render
 checks, `go vet`, `gofmt` and the smoke suite green.
+
+## 259. Reading the whole namespace — `app/ftdcsummary.go`, `app/web/src/pages/FTDCSummary.jsx`, `docs/FTDC_SUMMARY.md`
+
+*"Is that all you can obtain from `diagnostic.data`?"* — no, and the honest answer is that
+the first pass charted the metrics anybody would think of. Lag, cache, tickets, CPU. That is
+a thin slice of what FTDC actually knows, chosen before looking properly.
+
+So this time the file was enumerated rather than recalled: every one of the **5,665** metrics
+in a real capture, grouped by namespace, read by hand. The page went from nineteen charts to
+**thirty-three**, and the additions are better than most of what was already there.
+
+### The four best are not metrics at all
+
+Each is two counters that have to be divided, and each is invisible in the server log at any
+verbosity.
+
+**Members able to acknowledge a write.** `writableVotingMembersCount` looks like this answer
+and is not — it comes from the replica-set *config*, so it reads `3` right through an outage
+in which two members are unreachable. The honest version is counted per sample from each
+member's `health` and `state`: a member acknowledges a write only if this node can reach it
+and it is carrying data. It is the chart for the failure everybody meets and nobody
+recognises — primary up, log silent, every write hanging, because `w:majority` cannot be
+satisfied. On the live capture it reads *"could not acknowledge a majority write for 30.0s"*.
+
+**Time spent waiting for write concern.** `getLastError.wtime.totalMillis` over `.wtime.num`
+is replication lag priced in milliseconds on the client's clock. The live capture: **13,775
+ms per write**. `wtimeouts` alongside it is worse than slow — the write was applied on the
+primary and then reported to the application as failed, and it is not rolled back.
+
+**Journal sync latency.** `log sync time duration (usecs)` over `log sync operations`: the
+average WiredTiger journal `fsync`, which every `j:true` and every majority write waits for.
+It is the floor under durable write latency and it is a property of the storage. 17.6 ms here.
+
+**Eviction by application threads.** When WiredTiger's eviction threads fall behind it
+conscripts the threads running user operations, and they pay for it out of their own latency.
+`application threads page write from cache to disk count` against `pages written from cache`
+is that split — one of the very few places on this page where a cause can be read off rather
+than inferred.
+
+### What the enumeration turned up elsewhere
+
+Quorum, commit-point lag, write-concern wait, sync source; commands broken out by name, write
+conflicts and lock waits, errors returned to clients; cache pressure against WiredTiger's own
+thresholds, storage-engine I/O, the history store; host memory and swap, major faults. Also
+`stateTransition.totalOperationsKilled`, folded into the elections advisor, because that is
+the half of a failover an application actually notices: not a slow request, a connection whose
+work was terminated mid-flight.
+
+### Two ways to be wrong that the live run caught
+
+**A share taken peak against peak describes a moment that never happened.** The eviction
+advisor divided `max(app)` by `max(total)` — two different intervals — and then fired crit on
+an idle lab server that had evicted two hundred pages in five minutes. Both halves needed
+fixing: the share is now taken over the window from the cumulative counters, and the advisor
+refuses to fire unless the volume is real as well. 90% of half a page a second is not a
+finding.
+
+**"317% busy" reads as a broken chart.** `/proc/diskstats` accumulates busy time per queue, so
+a multi-queue or virtio device can report more busy milliseconds than the wall clock had —
+`iostat` does the same thing. Clamping would hide data, so past 100% the advisor says
+*saturated*, which is the only thing the number still means.
+
+Three smaller ones: advisors reading *"peaked at 0.0 MiB"* on real quantities (`fdAmt` and
+`fdPctV` now say "under 0.1" and "under 1%"), and a **9.7-hour hole** in the live capture that
+every chart was quietly drawing a straight line across. Gaps are now declared above the
+charts, with the threshold taken from the file's own median spacing so that a deployment
+sampling every thirty seconds is not accused of having 7,000 of them.
+
+### Thirty-three charts need a way in
+
+Every chart already carries an advisor, so the ones that came back amber or red *are* the
+shortlist: they are gathered at the top of the page as jump links. Nothing is hidden — the
+full page is still below, because "nothing flagged" is not "nothing happened", and when
+nothing is flagged the strip says so rather than rendering empty.
+
+### Live verification
+
+Stack 73, `mongo03`, read straight out of the container: **7,755 samples, 5,673 metrics, 33
+charts**, thirteen on the shortlist. Four of them are the same incident told four ways — the
+set lost its write majority, a member fell 61 s behind, writes waited 13.8 s each, and the
+member failed to find a sync source 47 times. None of the four is in the server log.
+
+9 new Go tests, 3 new render checks, `gofmt`, `go vet`, `go test` and the smoke suite green.
+
+## 260. Does any of this work on 6.0 and 7.0? — `app/ftdcsummary.go`, `app/testdata/ftdc/metrics.rs{60,70}-mongo01`
+
+The page was built entirely against an 8.0 member, which is the sort of thing that is fine
+until somebody opens a capture from the release they actually run. So: two more replica sets,
+**PSMDB 6.0.29-23** and **7.0.39-21**, real load driven through both, a deliberate loss of the
+write majority on each, and the namespaces diffed against 8.0.
+
+The container format is unchanged — all three decode with **zero skipped chunks**. But
+**five metric paths moved**, and every one of them fails *silently*: a chart built on a key
+that is not there is not an error, it is an empty chart, and an empty chart on somebody
+else's capture is indistinguishable from a server that was doing nothing.
+
+| what | 6.0 | 7.0 | 8.0 |
+| --- | --- | --- | --- |
+| checkpoint timing | `wiredTiger.transaction.transaction checkpoint max time (msecs)` | ← | `wiredTiger.checkpoint.max time (msecs)` |
+| oplog `collStats` | `local.oplog.rs.stats.size` | `…stats.storageStats.size` | ← |
+| step-down kills | `metrics.repl.stateTransition.userOperationsKilled` | ← | `…totalOperationsKilled` |
+| CPU core count | `systemMetrics.cpu.num_cpus` | `…num_cores_available_to_process` | ← |
+| PSI pressure | `systemMetrics.pressure.*` | ← | *also* `serverStatus.extra_info.pressure.*` |
+
+Before: **28 charts on 6.0, 29 on 7.0, 33 on 8.0**. After: **31, 31, 33** — and the remaining
+gap is the member's *role*, not its version. `oplogApply`, `replNetwork` and `writeConcern`
+correctly do not build on a primary, which applies no oplog, fetches nothing from a sync
+source and never served a majority write on these captures. Confirmed by pulling a secondary's
+capture from each set, where all three appear.
+
+### The one that was worse than a missing chart
+
+Four of the five produced an absent chart. The core count produced a **wrong** one. Without
+`num_cpus` the divisor falls back to 1, so on a twenty-core host the 6.0 CPU chart reported:
+
+```
+cpu  Host  [warn] iowait peaked at 61% of the machine
+```
+
+The correct reading is 3%. A missing chart is at least visibly missing; a warning generated
+entirely by arithmetic is worse than no chart, and it is the reason the version fixtures now
+exist rather than a note in the docs.
+
+### Two that the release notes do not mention
+
+The checkpoint move is a **WiredTiger** change, not a MongoDB one — WT-11171 added a
+top-level `checkpoint` statistics category in WT 11.2, shipped in MongoDB 7.1, so 6.0 *and*
+7.0 both keep the old names under `transaction`. And PSI moved the other way: it arrived
+under `systemMetrics.pressure` in 6.0.8 and 7.0 (SERVER-45255), and 8.0 merely *copies* it
+into `serverStatus.extra_info` — byte for byte identical, verified sample by sample. Reading
+only the newer location is what a page written against an 8.0 server naturally does, and it
+left the pressure chart silently empty on both older releases.
+
+Neither is in any release note. Both were found by decoding a real capture from each version
+and diffing the namespaces, which is the same method that built the page in the first place.
+
+### The fixtures
+
+`metrics.rs60-mongo01` (59 KB) and `metrics.rs70-mongo01` (71 KB), each the metadata document
+plus the last two chunks of a real capture. Together with the 8.0 fixture they carry both
+names for every move, which is what makes the fallbacks testable from both directions: each
+test asserts the *absence* of the other version's key as well as the presence of its own.
+Each test was then verified to fail with its fallback removed, because a cross-version test
+that cannot fail is worse than none.
+
+Live re-verified end to end through the API: **6.0 — 31 charts, 2,514 metrics; 7.0 — 31
+charts, 2,967 metrics; 8.0 — 33 charts, 5,673 metrics.**
+
+6 new Go tests (5 of them table-driven across all three versions), `gofmt`, `go vet`,
+`go test` and the smoke suite green.
+

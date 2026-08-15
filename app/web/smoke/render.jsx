@@ -49,7 +49,8 @@ import {
   NODE_SLOTS, nodeFill, nodeTint, nodeEdge, nodeEdgeSoft,
 } from '../src/lib/logApi.js'
 import FTDCSummary, {
-  Summary as FtdcSummary, ChartCard as FtdcChart, Advice as FtdcAdvice,
+  Summary as FtdcSummary, ChartCard as FtdcChart, Advice as FtdcAdvice, Charts as FtdcCharts,
+  Findings as FtdcFindings,
 } from '../src/pages/FTDCSummary.jsx'
 import { chartPoints, chartLines, fmtSpan, fmtNum, ADVICE_TEXT, ADVICE_FILL, ADVICE_TONE } from '../src/lib/ftdcApi.js'
 import realDeps from './real-deps.json' with { type: 'json' }
@@ -1403,7 +1404,7 @@ const ftdcModel = {
   ts: [1786730000, 1786730001, 1786730002, 1786730003],
   charts: [
     {
-      id: 'memberState', title: 'Replica-set member state', unit: 'state',
+      id: 'memberState', group: 'Replication', title: 'Replica-set member state', unit: 'state',
       why: '1 PRIMARY · 2 SECONDARY · 9 ROLLBACK.',
       series: [
         { name: 'member 0', points: [1, 1, 2, 2] },
@@ -1412,12 +1413,12 @@ const ftdcModel = {
       advice: { level: 'warn', headline: '2 member state change(s) in this window', detail: 'A failover.', action: 'Line it up against Log Summary.' },
     },
     {
-      id: 'replLag', title: 'Replication lag', unit: 's', why: 'Not in the log at all.',
+      id: 'replLag', group: 'Replication', title: 'Replication lag', unit: 's', why: 'Not in the log at all.',
       series: [{ name: 'member 0', points: [0, 0, 61, 12] }],
       advice: { level: 'crit', headline: 'A member was 61.0s behind at its worst' },
     },
     {
-      id: 'ops', title: 'Operations', unit: 'ops/s', stack: true, why: 'The operation mix.',
+      id: 'ops', group: 'Work', title: 'Operations', unit: 'ops/s', stack: true, why: 'The operation mix.',
       series: [{ name: 'insert', points: [1, 2, 3, 4] }, { name: 'query', points: [0, 1, 0, 1] }],
       advice: { level: 'info', headline: 'Peak roughly 5 operations/s' },
     },
@@ -1434,6 +1435,42 @@ for (const c of ftdcModel.charts) {
 check('ftdc summary: chart with no advice', () =>
   renderToString(<FtdcChart chart={{ ...ftdcModel.charts[0], advice: null }} ts={ftdcModel.ts} />))
 check('ftdc summary: chart with nothing', () => renderToString(<div><FtdcChart chart={null} ts={[]} /></div>))
+check('ftdc summary: grouped chart list', () => renderToString(<FtdcCharts model={ftdcModel} />))
+check('ftdc summary: grouped list with nothing', () => renderToString(<div><FtdcCharts model={{ charts: [] }} /></div>))
+check('ftdc summary: a group heading is printed once per group', () => {
+  const html = renderToString(<FtdcCharts model={ftdcModel} />)
+  // Count the heading ELEMENTS, not the words: "Replication" also appears inside the
+  // chart title "Replication lag", which is what made the first version of this check
+  // fail against correct output.
+  const heads = html.match(/<h2[^>]*>([^<]*)<\/h2>/g) || []
+  if (heads.length !== 2) throw new Error(`want 2 headings for 3 charts in 2 groups, got ${heads.length}`)
+  if (!heads[0].includes('Replication') || !heads[1].includes('Work')) {
+    throw new Error(`headings are wrong or out of order: ${heads.join(' | ')}`)
+  }
+  return 'ok'
+})
+check('ftdc summary: findings strip', () => renderToString(<FtdcFindings model={ftdcModel} />))
+check('ftdc summary: findings strip picks only warn and crit', () => {
+  const html = renderToString(<FtdcFindings model={ftdcModel} />)
+  // Thirty-odd charts is more than anybody reads in order, so the shortlist is the part of
+  // the page that has to be right: an "ok" chart appearing here would send the reader to a
+  // chart with nothing on it, and a crit missing from it is worse.
+  if (!html.includes('Replication lag')) throw new Error('the crit chart is missing from the shortlist')
+  if (!html.includes('Replica-set member state')) throw new Error('the warn chart is missing from the shortlist')
+  if (html.includes('Operations')) throw new Error('an info chart should not be in the shortlist')
+  // SSR splits adjacent text nodes with <!-- --> markers, so the count has to be read from
+  // the stripped string rather than the raw one.
+  const flat = html.replace(/<!--[^>]*-->/g, '')
+  if (!flat.includes('2 of 3 charts')) throw new Error(`the count is wrong: ${flat.slice(0, 200)}`)
+  return 'ok'
+})
+check('ftdc summary: findings strip says so when nothing is flagged', () => {
+  const quiet = { ...ftdcModel, charts: [{ ...ftdcModel.charts[2] }] }
+  const html = renderToString(<FtdcFindings model={quiet} />)
+  if (!html.includes('crossed a threshold')) throw new Error('a quiet capture should say so rather than render empty')
+  return 'ok'
+})
+
 for (const level of ['ok', 'warn', 'crit', 'info', 'banana', undefined]) {
   check(`ftdc summary: advice level ${level}`, () =>
     renderToString(<FtdcAdvice a={{ level, headline: 'h', detail: 'd', action: 'a' }} />))

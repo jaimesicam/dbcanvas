@@ -1,10 +1,19 @@
 package main
 
-// ftdc_test.go — the FTDC decoder against a real diagnostic.data file.
+// ftdc_test.go — the FTDC decoder against real diagnostic.data files.
 //
-// testdata/ftdc/metrics.rs-mongo03 is the first 119 KB of a metrics file written by a live
-// Percona Server for MongoDB 8.0.28-12 replica-set member, truncated at a BSON document
-// boundary so it is a valid, shorter file rather than a corrupt one.
+// Three fixtures, each the metadata document plus the last few chunks of a capture from a
+// live Percona Server for MongoDB replica-set member — trimmed at BSON document boundaries,
+// so each is a valid shorter file rather than a corrupt one:
+//
+//	metrics.rs60-mongo01   6.0.29-23
+//	metrics.rs70-mongo01   7.0.39-21
+//	metrics.rs-mongo03     8.0.28-12
+//
+// Three of them because five metric paths this page depends on MOVED between those
+// releases, and every such move fails silently: a chart built on a key that is not there is
+// not an error, it is an empty chart — or, in the case of the CPU core count, a chart that
+// is confidently wrong.
 //
 // A synthetic fixture would be worse than no fixture here. FTDC's encoding has three places
 // where a plausible-looking decoder is silently wrong — the zero run-length pairs, the
@@ -16,20 +25,35 @@ package main
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
-func ftdcFixture(t *testing.T) *ftdcData {
+func ftdcFixture(t *testing.T) *ftdcData { return ftdcFixtureNamed(t, "metrics.rs-mongo03") }
+
+// The 6.0 and 7.0 fixtures are the metadata document plus the last two chunks of a real
+// capture from a PSMDB 6.0.29-23 and 7.0.39-21 member. They exist because four metric paths
+// this page depends on MOVED between those releases, and every one of them fails silently:
+// a chart built on a key that is not there is not an error, it is an empty chart, and an
+// empty chart on somebody else's capture looks like a server that was doing nothing.
+func ftdcFixtureNamed(t *testing.T, name string) *ftdcData {
 	t.Helper()
-	raw, err := os.ReadFile("testdata/ftdc/metrics.rs-mongo03")
+	raw, err := os.ReadFile("testdata/ftdc/" + name)
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
 	d, err := ftdcParse([][]byte{raw})
 	if err != nil {
-		t.Fatalf("parse: %v", err)
+		t.Fatalf("parse %s: %v", name, err)
 	}
 	return d
+}
+
+// ftdcVersions is every fixture, oldest first.
+var ftdcVersions = []struct{ name, file, major string }{
+	{"6.0", "metrics.rs60-mongo01", "6.0."},
+	{"7.0", "metrics.rs70-mongo01", "7.0."},
+	{"8.0", "metrics.rs-mongo03", "8.0."},
 }
 
 func TestFTDCDecodesARealFile(t *testing.T) {
@@ -182,6 +206,19 @@ func TestFTDCSummaryBuildsRealCharts(t *testing.T) {
 	want := map[string]bool{
 		"memberState": false, "replLag": false, "oplog": false,
 		"tickets": false, "connections": false, "cache": false, "cpu": false,
+		// The second pass added these, and they are the ones worth guarding: each was
+		// missing from the first version of the page and each answers a question the
+		// original nine could not.
+		"latency": false, "oplogApply": false, "pressure": false, "memory": false,
+		// The third pass came from enumerating all 5,665 metrics in this very file rather
+		// than from picking familiar ones. Each of these answers something the page could
+		// not before, and each is a key that has to keep existing: quorum counted from
+		// per-member health, the commit point the client actually waits on, journal fsync
+		// latency, the eviction split, host memory and the command breakdown.
+		"quorum": false, "commitLag": false, "writeConcern": false, "syncSource": false,
+		"commandMix": false, "errors": false, "contention": false,
+		"cachePressure": false, "eviction": false, "journal": false, "engineIO": false,
+		"historyStore": false, "hostMemory": false,
 	}
 	for _, c := range m.Charts {
 		if _, ok := want[c.ID]; ok {
@@ -189,6 +226,9 @@ func TestFTDCSummaryBuildsRealCharts(t *testing.T) {
 		}
 		if c.Why == "" {
 			t.Errorf("chart %s has no explanation", c.ID)
+		}
+		if c.Group == "" {
+			t.Errorf("chart %s has no group heading", c.ID)
 		}
 		if len(c.Series) == 0 {
 			t.Errorf("chart %s has no series and should not have been emitted", c.ID)
@@ -265,5 +305,437 @@ func TestFTDCRateIgnoresCounterResets(t *testing.T) {
 	}
 	if r[2] != 0 {
 		t.Errorf("the reset should give 0, got %v", r[2])
+	}
+}
+
+// fdRatio is where the second pass could most easily be wrong: opLatencies stores total
+// microseconds and a total count, and neither is a latency. The average is the ratio of
+// their DELTAS, and an interval with no operations must carry the previous value rather
+// than dropping to zero — a zero would draw a line to the floor and read as "instant".
+func TestFTDCRatioIsPerInterval(t *testing.T) {
+	d := &ftdcData{
+		TS: []float64{100, 101, 102, 103},
+		Series: map[string]*ftdcSeries{
+			// 1000us over 10 ops, then nothing, then 6000us over 2 ops.
+			"lat": {Key: "lat", Values: []int64{0, 1000, 1000, 7000}},
+			"ops": {Key: "ops", Values: []int64{0, 10, 10, 12}},
+		},
+	}
+	got := fdRatio(d, "lat", "ops", 0.001) // to milliseconds
+	if got[1] != 0.1 {
+		t.Errorf("sample 1 = %v ms, want 0.1", got[1])
+	}
+	if got[2] != 0.1 {
+		t.Errorf("an idle interval should carry the last value, got %v", got[2])
+	}
+	if got[3] != 3 {
+		t.Errorf("sample 3 = %v ms, want 3 (6000us over 2 ops)", got[3])
+	}
+	if fdRatio(d, "lat", "missing", 1) != nil {
+		t.Error("a missing denominator should give no series, not a panic")
+	}
+}
+
+// Latency has to be derived from the pair, never read straight off either counter — a chart
+// of cumulative microseconds is a line going up and to the right for ever.
+func TestFTDCLatencyChartIsDerived(t *testing.T) {
+	d := ftdcFixture(t)
+	if d.Series["serverStatus.opLatencies.reads.latency"] == nil {
+		t.Skip("fixture has no opLatencies")
+	}
+	c := fdChartLatency(d)
+	if c == nil || len(c.Series) == 0 {
+		t.Fatal("no latency chart from a capture that has opLatencies")
+	}
+	raw := d.Series["serverStatus.opLatencies.reads.latency"]
+	for _, s := range c.Series {
+		if len(s.Points) == 0 {
+			continue
+		}
+		// The cumulative counter reaches tens of thousands of microseconds; a derived
+		// millisecond average must be nowhere near it.
+		if s.Points[len(s.Points)-1] == float64(raw.Values[len(raw.Values)-1]) {
+			t.Errorf("series %q is the raw cumulative counter, not an average", s.Name)
+		}
+	}
+}
+
+// A block device that did nothing in the window must not get a chart. io_time_ms is
+// cumulative, so a disk busy once at boot has a non-zero value for ever — filtering on
+// has() rather than on activity produced four charts of flat zero on a host with one
+// working disk.
+func TestFTDCSkipsIdleDisks(t *testing.T) {
+	d := ftdcFixture(t)
+	built := fdDiskCharts(d)
+	for _, b := range built {
+		c := b(d)
+		if c == nil {
+			continue
+		}
+		if fdMax(c.Series[0].Points) <= 0 {
+			t.Errorf("chart %s was built for a device with no I/O in the window", c.ID)
+		}
+	}
+}
+
+// The quorum chart is counted per sample from health and state rather than read from
+// writableVotingMembersCount, and this is why: that counter comes from the replica-set
+// CONFIG, so it reads 3 all the way through an outage in which two members are unreachable.
+// This fixture contains such an outage, so a regression to the config counter shows up as a
+// chart that never dips.
+func TestFTDCQuorumIsCountedNotConfigured(t *testing.T) {
+	d := ftdcFixture(t)
+	c := fdChartQuorum(d)
+	if c == nil || len(c.Series) < 2 {
+		t.Fatal("no quorum chart from a replica-set capture")
+	}
+	avail, need := c.Series[0].Points, c.Series[1].Points
+	if fdMin(avail) >= fdMax(need) {
+		t.Errorf("availability never dropped below the majority (%.0f vs %.0f) — this capture "+
+			"contains an outage, so the count is coming from the config rather than from health",
+			fdMin(avail), fdMax(need))
+	}
+	if fdMax(avail) < 2 {
+		t.Errorf("the set never had %.0f members available, which cannot be right", fdMax(avail))
+	}
+	if c.Advice == nil || c.Advice.Level != "crit" {
+		t.Errorf("a window in which the majority was lost should be crit, got %+v", c.Advice)
+	}
+}
+
+// Journal fsync latency is a ratio of two cumulative counters — total microseconds over a
+// count of syncs — and reading either one alone gives a number that only ever goes up.
+func TestFTDCJournalLatencyIsDerived(t *testing.T) {
+	d := ftdcFixture(t)
+	c := fdChartJournal(d)
+	if c == nil {
+		t.Skip("fixture has no WiredTiger log statistics")
+	}
+	ms := c.Series[0].Points
+	if fdMax(ms) <= 0 {
+		t.Fatal("journal latency is flat zero")
+	}
+	// The raw counter is hundreds of thousands of microseconds by the end of the window; a
+	// per-sync millisecond average has to be several orders of magnitude below it.
+	raw := d.Series["serverStatus.wiredTiger.log.log sync time duration (usecs)"]
+	if fdMax(ms) >= float64(raw.Values[len(raw.Values)-1]) {
+		t.Error("the journal chart is drawing the cumulative counter, not the average")
+	}
+	// A sync that takes longer than a minute is a decode error, not a slow disk.
+	if fdMax(ms) > 60000 {
+		t.Errorf("implausible journal latency %.0f ms", fdMax(ms))
+	}
+}
+
+// The eviction advisor divides one counter by another, and the tempting way to do it —
+// peak against peak — invents a ratio out of two intervals that were never the same one.
+// On this near-idle fixture almost all of the little eviction there is happens on
+// application threads, so a share-only test would fire crit on a server doing nothing.
+func TestFTDCEvictionAdviceNeedsVolumeNotJustShare(t *testing.T) {
+	d := ftdcFixture(t)
+	c := fdChartEviction(d)
+	if c == nil {
+		t.Skip("fixture has no WiredTiger cache statistics")
+	}
+	if c.Advice == nil {
+		t.Fatal("eviction chart with no advisor")
+	}
+	if c.Advice.Level == "crit" {
+		t.Errorf("a capture with under a page a second of eviction must not read as crit: %q", c.Advice.Headline)
+	}
+}
+
+// Commands are charted from a family of keys discovered at runtime, so the guard is that
+// the discovery finds real command names and orders them busiest-first.
+func TestFTDCCommandMixIsDiscoveredAndOrdered(t *testing.T) {
+	d := ftdcFixture(t)
+	c := fdChartCommandMix(d)
+	if c == nil {
+		t.Fatal("no command chart from a capture that has metrics.commands")
+	}
+	if len(c.Series) > 8 {
+		t.Errorf("%d command series — the tail of a command distribution is always long and never interesting", len(c.Series))
+	}
+	for i := 1; i < len(c.Series); i++ {
+		if fdMax(c.Series[i].Points) > fdMax(c.Series[i-1].Points) {
+			t.Errorf("commands are not busiest-first: %s peaks above %s", c.Series[i].Name, c.Series[i-1].Name)
+		}
+	}
+	for _, s := range c.Series {
+		if strings.Contains(s.Name, ".") || s.Name == "" {
+			t.Errorf("series %q is a key fragment rather than a command name", s.Name)
+		}
+	}
+}
+
+// fdSpanOf turns "which samples" into "how long", which is the number an advisor should
+// quote. It has to use the real sample spacing, because FTDC slows down under load.
+func TestFTDCSpanOfUsesRealSampleSpacing(t *testing.T) {
+	d := &ftdcData{TS: []float64{0, 1, 2, 12, 13}, Series: map[string]*ftdcSeries{}}
+	all := fdSpanOf(d, func(int) bool { return true })
+	if all != 13 {
+		t.Errorf("whole window should be 13s, got %v", all)
+	}
+	// Sample 3 sits ten seconds after sample 2 — counting samples would call this 1s.
+	gap := fdSpanOf(d, func(i int) bool { return i == 3 })
+	if gap != 10 {
+		t.Errorf("a 10s gap between samples should count as 10s, got %v", gap)
+	}
+	if fdSpanOf(d, func(int) bool { return false }) != 0 {
+		t.Error("nothing selected should be no time")
+	}
+}
+
+// An advisor that reports a real quantity as "0" reads as a broken chart rather than as an
+// idle server, which is the difference these two formatters exist to keep.
+func TestFTDCSmallNumbersDoNotReadAsZero(t *testing.T) {
+	for _, tc := range []struct {
+		in   float64
+		want string
+	}{
+		{0, "0"}, {0.04, "under 0.1"}, {0.25, "0.25"}, {17.6, "17.6"}, {305, "305"},
+	} {
+		if got := fdAmt(tc.in); got != tc.want {
+			t.Errorf("fdAmt(%v) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+	if got := fdPctV(0.007); got != "under 1%" {
+		t.Errorf("fdPctV(0.007) = %q", got)
+	}
+	if got := fdPct(1, 0); got != "0%" {
+		t.Errorf("fdPct with no denominator = %q", got)
+	}
+}
+
+// A hole in the capture has to be declared. Every chart draws a straight line across one,
+// and a straight line reads as "nothing changed" when it means "nothing was recorded" —
+// which, since mongod writes FTDC only while it is running, is usually the interesting part.
+func TestFTDCGapsAreDeclared(t *testing.T) {
+	// One-second samples with a ten-minute hole in the middle.
+	d := &ftdcData{Series: map[string]*ftdcSeries{}}
+	for i := 0; i < 20; i++ {
+		d.TS = append(d.TS, float64(i))
+	}
+	for i := 0; i < 20; i++ {
+		d.TS = append(d.TS, float64(620+i))
+	}
+	notes := fdGapNote(d)
+	if len(notes) != 1 {
+		t.Fatalf("a 10-minute hole in a one-second capture was not reported: %v", notes)
+	}
+	if !strings.Contains(notes[0], "1 gap") {
+		t.Errorf("gap note does not say how many: %q", notes[0])
+	}
+	// A capture that samples every 30 seconds by configuration has no gaps at all, and
+	// calling each ordinary interval one would be worse than saying nothing.
+	slow := &ftdcData{Series: map[string]*ftdcSeries{}}
+	for i := 0; i < 40; i++ {
+		slow.TS = append(slow.TS, float64(i*30))
+	}
+	if n := fdGapNote(slow); n != nil {
+		t.Errorf("a uniformly slow capture is not a gappy one: %v", n)
+	}
+}
+
+// A device utilisation above 100% is not a decode error: /proc/diskstats accumulates busy
+// time per queue, so multi-queue and virtio devices routinely exceed wall clock — iostat
+// shows the same. It must not be printed as a percentage, because it is not one.
+func TestFTDCDiskBusyAboveFullIsWorded(t *testing.T) {
+	if got := fdBusy(317); got != "saturated" {
+		t.Errorf("fdBusy(317) = %q — a figure over 100%% must not be printed as a percentage", got)
+	}
+	if got := fdBusy(100); got != "saturated" {
+		t.Errorf("fdBusy(100) = %q", got)
+	}
+	if got := fdBusy(34); got != "34% busy" {
+		t.Errorf("fdBusy(34) = %q", got)
+	}
+}
+
+// ---------------------------------------------------------------- across versions
+
+// The decoder itself has to work on all three, which is the easy half: the container format
+// has not changed. Zero skipped chunks is the assertion that matters — a chunk that will not
+// decode is counted rather than fatal, so a format drift would otherwise pass as "fewer
+// samples than expected" instead of failing.
+func TestFTDCDecodesSixSevenAndEight(t *testing.T) {
+	for _, v := range ftdcVersions {
+		t.Run(v.name, func(t *testing.T) {
+			d := ftdcFixtureNamed(t, v.file)
+			if !strings.HasPrefix(d.Meta["version"], v.major) {
+				t.Errorf("fixture %s reports version %q", v.file, d.Meta["version"])
+			}
+			if d.Skipped != 0 {
+				t.Errorf("%d chunk(s) would not decode on %s", d.Skipped, v.name)
+			}
+			if d.Samples < 50 || len(d.Series) < 1000 {
+				t.Errorf("%s decoded only %d samples of %d metrics", v.name, d.Samples, len(d.Series))
+			}
+			if d.Meta["replSet"] != "rs0" {
+				t.Errorf("%s lost the replica-set name: %q", v.name, d.Meta["replSet"])
+			}
+		})
+	}
+}
+
+// The four moves, asserted from both directions.
+//
+// Each row says: on this version the new key is genuinely ABSENT and the old one is present.
+// Asserting only that the chart builds would pass even if the fallback were removed and some
+// other version's key happened to exist, so the absence is half the test.
+func TestFTDCVersionKeyMoves(t *testing.T) {
+	for _, tc := range []struct {
+		what, older, newer string
+		absentBefore       string // the first version that has `newer`
+	}{
+		{
+			what:  "WiredTiger checkpoint statistics (WT-11171, a top-level category in 7.1)",
+			older: "serverStatus.wiredTiger.transaction.transaction checkpoint max time (msecs)",
+			newer: "serverStatus.wiredTiger.checkpoint.max time (msecs)",
+		},
+		{
+			what:  "collStats sample moved under storageStats in 7.0",
+			older: "local.oplog.rs.stats.maxSize",
+			newer: "local.oplog.rs.stats.storageStats.maxSize",
+		},
+		{
+			what:  "execution tickets renamed in 8.0",
+			older: "serverStatus.wiredTiger.concurrentTransactions.read.available",
+			newer: "serverStatus.queues.execution.read.available",
+		},
+		{
+			what:  "step-down kills renamed in 8.0",
+			older: "serverStatus.metrics.repl.stateTransition.userOperationsKilled",
+			newer: "serverStatus.metrics.repl.stateTransition.totalOperationsKilled",
+		},
+	} {
+		t.Run(tc.what, func(t *testing.T) {
+			sawOlder, sawNewer := false, false
+			for _, v := range ftdcVersions {
+				d := ftdcFixtureNamed(t, v.file)
+				o, n := d.Series[tc.older] != nil, d.Series[tc.newer] != nil
+				if o {
+					sawOlder = true
+				}
+				if n {
+					sawNewer = true
+				}
+				if !o && !n {
+					t.Errorf("%s has neither name for %s — the metric may have moved again", v.name, tc.what)
+				}
+			}
+			// If a fixture ever carried both names the fallback would be untestable, and if
+			// no fixture carried the old one there would be nothing to fall back to.
+			if !sawOlder || !sawNewer {
+				t.Errorf("both names must appear across the fixtures (older=%v newer=%v)", sawOlder, sawNewer)
+			}
+		})
+	}
+}
+
+// PSI is the one that moved the other way: 6.0.8 and 7.0 put it under systemMetrics
+// (SERVER-45255) and 8.0 additionally copies it into serverStatus.extra_info, byte for byte
+// the same. Reading only the 8.0 location left the chart silently empty on both older
+// releases — on a page that calls it the best single answer to "was this the machine".
+func TestFTDCPressureIsReadFromThePortableKey(t *testing.T) {
+	for _, v := range ftdcVersions {
+		t.Run(v.name, func(t *testing.T) {
+			d := ftdcFixtureNamed(t, v.file)
+			if d.Series["systemMetrics.pressure.cpu.some.totalMicros"] == nil {
+				t.Fatal("no systemMetrics PSI in this fixture — that is the portable location")
+			}
+			c := fdChartPressure(d)
+			if c == nil || len(c.Series) == 0 {
+				t.Fatal("no pressure chart, so it is being read from the 8.0-only location")
+			}
+			// Every resource individually, not just "the chart exists" — losing one key is
+			// a quiet hole rather than a missing chart. A resource whose counter never
+			// moved in the window is correctly left off the chart, so the requirement is
+			// that a resource which DID move gets a line.
+			for _, res := range []string{"cpu", "io", "memory"} {
+				key := "systemMetrics.pressure." + res + ".some.totalMicros"
+				if d.Series[key] == nil {
+					t.Errorf("%s has no %s — the portable PSI location is not what this reads", v.name, key)
+					continue
+				}
+				if fdMax(fdRate(d, key)) == 0 {
+					continue // nothing stalled on this resource; correctly not drawn
+				}
+				found := false
+				for _, se := range c.Series {
+					if strings.HasPrefix(se.Name, res+" ") {
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("%s pressure moved on %s but has no line", res, v.name)
+				}
+			}
+		})
+	}
+}
+
+// The core count is the one version difference that produces a WRONG chart rather than a
+// missing one. 6.0 calls it num_cpus; reading only the 7.0+ name falls back to a divisor of
+// 1, and the CPU chart on a twenty-core host then reported "iowait peaked at 61% of the
+// machine" — a warning generated entirely by arithmetic.
+func TestFTDCCPUIsDividedByTheRealCoreCount(t *testing.T) {
+	for _, v := range ftdcVersions {
+		t.Run(v.name, func(t *testing.T) {
+			d := ftdcFixtureNamed(t, v.file)
+			c := fdChartCPU(d)
+			if c == nil {
+				t.Fatal("no CPU chart")
+			}
+			total := 0.0
+			for _, s := range c.Series {
+				total += fdMax(s.Points)
+			}
+			// Every series is a percentage of the whole machine, so their peaks cannot
+			// sensibly sum past 100 by much. Dividing by 1 instead of 20 puts this in the
+			// hundreds.
+			if total > 150 {
+				t.Errorf("CPU series sum to %.0f%% of the machine — the core count is not being read", total)
+			}
+			if !strings.Contains(c.Advice.Headline, "core") && !strings.Contains(c.Advice.Headline, "machine") {
+				t.Errorf("unexpected CPU advice: %q", c.Advice.Headline)
+			}
+		})
+	}
+}
+
+// The charts that must build on every supported version. A chart missing here is a silent
+// hole in the page for anybody running that release, which is exactly the failure mode this
+// whole file exists to catch.
+func TestFTDCChartsBuildOnEveryVersion(t *testing.T) {
+	// Deliberately not the full list: oplogApply, replNetwork and writeConcern depend on
+	// the member's ROLE rather than on the version — a primary applies no oplog, fetches
+	// nothing, and on these captures never served a majority write.
+	want := []string{
+		"memberState", "quorum", "replLag", "commitLag", "oplog", "syncSource",
+		"latency", "ops", "commandMix", "indexEfficiency", "contention", "errors",
+		"connections", "network",
+		"tickets", "queues", "cache", "cachePressure", "eviction", "journal",
+		"engineIO", "checkpoint", "historyStore", "memory",
+		"cpu", "pressure", "hostMemory",
+	}
+	for _, v := range ftdcVersions {
+		t.Run(v.name, func(t *testing.T) {
+			built := map[string]bool{}
+			for _, c := range ftdcSummarise(ftdcFixtureNamed(t, v.file)).Charts {
+				built[c.ID] = true
+			}
+			for _, id := range want {
+				if !built[id] {
+					t.Errorf("chart %s does not build on %s", id, v.name)
+				}
+			}
+			// The oplog chart survives losing its cap key — it just quietly stops drawing
+			// the reference line and its advisor, which is the sort of degradation that
+			// passes an existence check. Assert the cap specifically.
+			if c := fdChartOplog(ftdcFixtureNamed(t, v.file)); c == nil || len(c.Series) < 2 {
+				t.Errorf("oplog chart on %s has no configured-maximum line", v.name)
+			}
+		})
 	}
 }
