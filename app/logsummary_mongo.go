@@ -494,6 +494,15 @@ var lsMongoRules = []lsMongoRule{
 // page that loads and one that does not.
 var lsMongoByID = func() map[int]*lsMongoRule {
 	m := map[int]*lsMongoRule{}
+	// The sharded catalogue is merged rather than kept separate: a shard member's log is
+	// both a replica-set log and a sharding one, and which rules apply is decided by which
+	// records are in the file rather than by anything declared up front.
+	for i := range lsShardRules {
+		r := &lsShardRules[i]
+		for _, id := range r.ids {
+			m[id] = r
+		}
+	}
 	for i := range lsMongoRules {
 		for _, id := range lsMongoRules[i].ids {
 			m[id] = &lsMongoRules[i]

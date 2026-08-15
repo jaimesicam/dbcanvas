@@ -567,6 +567,14 @@ containing no `REPL` records at all was filed as a standalone `mongod`, which tu
 lines of connection chatter into 20,000 events and had the verdict layer reporting a broken
 MySQL replica.
 
+**Sharded clusters** are covered on 6.0, 7.0 and 8.0, and have their own vocabulary and their own trap. A `mongos` is not a
+database — it stores nothing and replicates nothing — so it gets its own flavour, which keeps
+replica-set findings off it and lets the verdict say the thing that matters: stopping an
+entire shard under live traffic produced a failed read and a refused write, and **the
+router's log recorded neither**. Every cluster topology change — shards added, collections
+sharded, chunks split and moved, balancer rounds — is read from one record, the config
+servers' changelog, which is the only place any of it exists.
+
 Two things the Group Replication captures settled are worth the page on their own. A member
 can leave the group and be left **writable** — the corpus caught a load generator
 reconnecting to exactly such a server and writing 1,263 rows into a database that was no
@@ -619,9 +627,12 @@ CPU, **Linux PSI pressure** (how much time work spent *stalled* rather than how 
 was), **host memory and swap**, **major faults**, and per-device **disk utilisation and service
 time**.
 
-Verified live against **MongoDB 6.0, 7.0 and 8.0**, which matters more than it sounds: the
-container format is unchanged across all three, but **five metric paths move** between them
-and every move fails silently. Checkpoint timing left `wiredTiger.transaction` in 7.1, oplog
+Verified live against **MongoDB 6.0, 7.0 and 8.0**, as replica sets and as 13-node sharded
+clusters — which matters more than it sounds. The container format is unchanged across all
+three, but **five metric paths move** between them and every move fails silently, and 8.0
+nests a *sharded* deployment's entire capture by role (`common.`, `router.`, `shard.`), which
+matched none of this page's keys and produced **zero charts** from a file that decoded
+perfectly and reported 1,978 metrics. Checkpoint timing left `wiredTiger.transaction` in 7.1, oplog
 `collStats` moved under `storageStats` in 7.0, and PSI pressure lives under `systemMetrics` on
 6.0/7.0 while 8.0 also copies it to `serverStatus.extra_info`. The one that produced a *wrong*
 chart rather than a missing one was the CPU core count: 6.0 calls it `num_cpus`, and without

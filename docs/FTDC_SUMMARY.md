@@ -15,8 +15,16 @@ open their own. This page decodes it and draws the thirty-odd charts that answer
 
 **From a running node.** Pick a MongoDB node and the whole `diagnostic.data` directory is
 read out of the container and decoded. Nothing has to have been enabled beforehand — that
-is the point of FTDC. Verified live against **6.0, 7.0 and 8.0** replica sets; see
-[Across versions](#across-versions-60-70-and-80) for the metric paths that move between them.
+is the point of FTDC. Verified live against **6.0, 7.0 and 8.0** replica sets and **6.0, 7.0
+and 8.0** sharded clusters; see [Across versions](#across-versions-60-70-and-80) for
+the metric paths that move between releases and [Sharded clusters](#sharded-clusters) for
+the three different things the three kinds of process capture.
+
+**A mongos keeps its somewhere else.** A `mongod` puts `diagnostic.data` inside its dbPath.
+A `mongos` has no dbPath, so it derives the directory from its **log** path instead — the
+extension is stripped and `.diagnostic.data` appended, making `/var/log/mongo/mongos.log`
+into `/var/log/mongo/mongos.diagnostic.data`. Both are searched. Looking only in the mongod
+location finds nothing on a router, which is not the same as a router having nothing.
 
 **By upload.** The `metrics.*` files themselves (pick them all at once), or a `.tar.gz` of
 the directory. Files are ordered by name before decoding, which is chronological because
@@ -180,6 +188,78 @@ operations pay for it out of their own latency. `application threads page write 
 disk count` against `pages written from cache` is that split, and it is one of the few places
 on this page where a cause can be read off rather than inferred. The signature is everything
 slowing down together with no individual operation looking guilty.
+
+### Sharded clusters
+
+Three kinds of process, capturing three different things. A shard member and a
+config-server member are ordinary `mongod`s and every chart above works on them unchanged.
+A `mongos` is not a database at all: it has no storage engine and no replica set, so two
+thirds of this page is correctly empty on one — which is why the header states the **role**
+it inferred. "Eighteen charts" from a router is complete; eighteen from a shard member means
+something is wrong.
+
+Measured live: **mongos 18–19 charts, config server 36–38, shard member 38–40**, on all
+three versions.
+
+#### 8.0 nests the whole capture by role
+
+The single worst version change this page has met, and it applies to a sharded deployment
+only — an 8.0 *replica-set* member is unaffected. Up to and including 7.0 a sample is one
+flat tree. In 8.0 every process in a sharded cluster groups all of it by role:
+
+```
+7.0 and earlier                    8.0, sharded
+serverStatus.connections.current   common.serverStatus.connections.current
+systemMetrics.cpu.user_ms          common.systemMetrics.cpu.user_ms
+connPoolStats.totalInUse           router.connPoolStats.totalInUse
+replSetGetStatus.myState           shard.replSetGetStatus.myState
+```
+
+Every key this page reads is prefixed, so an 8.0 sharded capture matched **none** of them.
+Not one chart missing — **every** chart missing, on all three kinds of process, from a file
+that decoded perfectly and reported 1,978 metrics. The metadata document is grouped too, so
+the capture also arrived with no version, no host and no replica-set name.
+
+The wrapper is stripped in the decoder rather than worked around in eighty chart keys,
+because it is exactly a prefix and nothing else: the groups partition the tree, so removing
+them reproduces the pre-8.0 layout precisely. The only names appearing under more than one
+group are `start` and `end` — FTDC's own per-section collection timestamps, which nothing
+charts. After the fix: **0 charts → 18 on the router, 38 on a shard member, 37 on a config
+server.**
+
+8.0 also adds a document type this format did not previously have — `type: 2`, periodic
+router metadata, uncompressed. It is skipped rather than counted as a failed chunk, which is
+what a decoder that had not met it would have reported.
+
+| chart | where | the question it answers |
+| --- | --- | --- |
+| **Operations by how many shards they touched** | mongos | is the shard key being used? A query without it is broadcast to every shard and every shard runs it in full |
+| **Round-trip time to each shard member** | mongos | which shard is the slow one — **by name** |
+| **Routing table refreshes** | all | are chunks moving faster than the routers can keep up with |
+| **Router connections to the shards** | mongos | is the pool being rebuilt continuously rather than reused |
+| **Chunk migrations** | shard | is the balancer moving data, or starting migrations and aborting them |
+| **Writes blocked for migration commit** | shard | the part of a migration that is not online |
+| **Orphan cleanup after migrations** | shard | is the donor still holding data it has given away |
+
+Two are worth singling out.
+
+**The router is the only capture that names hosts.** Everywhere else on this page,
+"member names are not in FTDC" — strings are not metrics, so `replSetGetStatus.members.0`
+has a state, an optime and a ping and no name. A `mongos` keys `connPoolStats` **by
+hostname**, so one router capture names every member of every shard and the config set, and
+says how far away each one was. It is the fastest answer there is to "which shard is slow".
+
+**Scatter-gather is the sharded twin of documents-examined-per-returned.** An operation
+carrying the shard key is routed to one shard; one without it is broadcast to all of them
+and each runs the whole query. The cluster then costs more than the single server it
+replaced and gets *worse* as shards are added. Like its replica-set twin it is invisible in
+a slow-query log, because no individual operation is slow.
+
+And one thing that is not a chart: a migration's **critical section**. Copying a chunk is
+online, committing it is not — writes to that range block until the config servers confirm
+the new owner. Normally milliseconds; if the config replica set has no primary it is however
+long that lasts, and the symptom is writes to one range of one collection hanging while
+everything else is fine.
 
 ### Derived, not raw
 

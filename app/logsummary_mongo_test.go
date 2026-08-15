@@ -424,3 +424,156 @@ func TestMongoUnverifiedRulesStayFencedOff(t *testing.T) {
 		t.Error("20557 is back — it never fired on 6.0, 7.0 or 8.0 and 22271 is the record that does")
 	}
 }
+
+// ---------------------------------------------------------------- sharded clusters
+//
+// m09 and m10 are a whole 13-node sharded cluster on 6.0.29-23 and 7.0.39-21 — a mongos, a
+// config-server member and a shard member — driven through sharding a collection, a chunk
+// migration, an entire shard stopped under live traffic, and the config-server primary
+// stopped on top of that.
+
+var lsShardedVersions = []struct{ name, dir string }{
+	{"6.0", "m09-sharded-mongo60"},
+	{"7.0", "m10-sharded-mongo70"},
+	{"8.0", "m11-sharded-mongo80"},
+}
+
+// A mongos is not a replica-set member and must not be read as one. It monitors every shard
+// and logs a great deal about replica sets without being in one, so without a flavour of its
+// own a perfectly healthy router is reported as a member that never became primary.
+func TestMongosIsItsOwnFlavour(t *testing.T) {
+	for _, v := range lsShardedVersions {
+		t.Run(v.name, func(t *testing.T) {
+			b := lsLoadScenario(t, v.dir)
+			var router *lsSource
+			for i := range b.Sources {
+				if b.Sources[i].Name == "mongos.log" {
+					router = &b.Sources[i]
+				}
+			}
+			if router == nil {
+				t.Fatal("no mongos source")
+			}
+			if router.Flavour != lsFlavourMongos {
+				t.Errorf("the router is flavoured %q, want %q", router.Flavour, lsFlavourMongos)
+			}
+			// Its lane must read as serving. A router has no replica-set state, and leaving
+			// the lane empty reports every healthy router as unavailable for the window.
+			if !lsStateServes(lsStateRouting) {
+				t.Error("a running mongos should count as serving")
+			}
+			for _, e := range b.Events {
+				if e.Src == router.Idx && e.State != "" && e.State != lsStateRouting && e.State != lsStateStarting {
+					t.Errorf("router event %d carries replica-set state %q", e.No, e.State)
+				}
+			}
+		})
+	}
+}
+
+// The sniff rests on mongod and mongos using DIFFERENT IDS for the same message: 471691 on
+// a mongod, 471693 on a mongos. Both were confirmed present on 6.0 and 7.0 and neither
+// appears in the other's log.
+func TestMongosSniffUsesTheRouterOnlyId(t *testing.T) {
+	const router = `{"t":{"$date":"2026-08-15T07:39:00.000+00:00"},"s":"I","c":"SHARDING","id":471693,"ctx":"m","msg":"Updating the shard registry with confirmed replica set","attr":{"connectionString":"rs0/s0r1.example.net:27017"}}`
+	const member = `{"t":{"$date":"2026-08-15T07:39:00.000+00:00"},"s":"I","c":"SHARDING","id":471691,"ctx":"m","msg":"Updating the shard registry with confirmed replica set","attr":{"connectionString":"rs0/s0r1.example.net:27017"}}`
+	if b := lsBuild([]lsInput{{Name: "mongos.log", Data: []byte(router + "\n")}}); b.Sources[0].Flavour != lsFlavourMongos {
+		t.Errorf("471693 should identify a router, got flavour %q", b.Sources[0].Flavour)
+	}
+	// 471691 alone is a mongod, and with no replica-set evidence at all it is not a router
+	// either — it must not be promoted to one just because it mentions sharding.
+	if b := lsBuild([]lsInput{{Name: "mongod.log", Data: []byte(member + "\n")}}); b.Sources[0].Flavour == lsFlavourMongos {
+		t.Error("471691 is a mongod's id and must not identify a router")
+	}
+}
+
+// A replica set observed without a primary exactly once, while it was still being formed,
+// is not an outage. Measuring first-to-last NoPrimary record reported one as "for 0s" and
+// inflated a twelve-second config-server outage to 14.4 minutes, because the last such
+// record was fourteen minutes after the first with a healthy period in between. The span is
+// measured to the record that ENDS it instead.
+func TestShardNoPrimaryIsMeasuredToItsRecovery(t *testing.T) {
+	for _, v := range lsShardedVersions {
+		t.Run(v.name, func(t *testing.T) {
+			b := lsLoadScenario(t, v.dir)
+			f := lsHasFinding(b, "mongo-shard-no-primary")
+			if f == nil {
+				t.Fatal("a shard was stopped outright and no finding fired")
+			}
+			if strings.Contains(f.Detail, "for 0s") {
+				t.Errorf("a set observed once while forming is reported as an outage: %s", f.Detail)
+			}
+			if !strings.Contains(f.Detail, "rs2") {
+				t.Errorf("the shard that was actually stopped is not named: %s", f.Detail)
+			}
+		})
+	}
+}
+
+// One rule covers the whole sharding vocabulary because the config servers write every
+// topology change under one id with the operation in attr.event.what. This asserts the
+// enrichment reads it, rather than the rule merely matching.
+func TestShardChangelogNamesTheOperations(t *testing.T) {
+	for _, v := range lsShardedVersions {
+		t.Run(v.name, func(t *testing.T) {
+			b := lsLoadScenario(t, v.dir)
+			f := lsHasFinding(b, "mongo-shard-changes")
+			if f == nil {
+				t.Fatal("no changelog finding from a cluster that was built and then sharded")
+			}
+			if !strings.Contains(f.Detail, "addShard") {
+				t.Errorf("the changelog does not name addShard, so attr.event.what is not being read: %s", f.Detail)
+			}
+			// And the labels have to be readable rather than raw.
+			if lsShardEventLabel("moveChunk.commit") != "Chunk moved between shards (completed)" {
+				t.Errorf("moveChunk.commit reads as %q", lsShardEventLabel("moveChunk.commit"))
+			}
+			if lsShardEventLabel("shardCollection.error") != "Collection sharded — FAILED" {
+				t.Errorf("a failed phase is not marked: %q", lsShardEventLabel("shardCollection.error"))
+			}
+		})
+	}
+}
+
+// The same sharded incident on both releases has to produce the same findings — the point
+// of keying on ids rather than on messages, and the thing most likely to break quietly when
+// MongoDB changes something. 7.0 replaced 6.0's distributed lock manager with DDL
+// coordinators and stopped auto-splitting chunks; neither changed an id.
+func TestShardedFindingsMatchOnBothVersions(t *testing.T) {
+	want := []string{"mongo-shard-no-primary", "mongo-shard-changes", "mongo-routing-invisible"}
+	for _, v := range lsShardedVersions {
+		t.Run(v.name, func(t *testing.T) {
+			b := lsLoadScenario(t, v.dir)
+			for _, id := range want {
+				if lsHasFinding(b, id) == nil {
+					t.Errorf("finding %q did not fire on %s", id, v.name)
+				}
+			}
+			// And a sharded bundle still gets the replica-set findings for its mongods.
+			if lsHasFinding(b, "mongo-no-primary") == nil {
+				t.Errorf("the config and shard members' own replica-set findings are missing on %s", v.name)
+			}
+		})
+	}
+}
+
+// The changelog rule reads the operation out of attr.event.what rather than matching on it,
+// so an operation MongoDB adds later arrives without a code change. 8.0 added automatic
+// chunk merging and it appeared in the 8.0 capture as autoMerge.start/end — through a rule
+// written and tested entirely against 6.0 and 7.0, which is the property that makes keying
+// on 22080 worth doing.
+func TestShardChangelogAbsorbsNewOperations(t *testing.T) {
+	b := lsLoadScenario(t, "m11-sharded-mongo80")
+	f := lsHasFinding(b, "mongo-shard-changes")
+	if f == nil {
+		t.Fatal("no changelog finding on 8.0")
+	}
+	if !strings.Contains(f.Detail, "autoMerge") {
+		t.Errorf("8.0's autoMerge did not come through the changelog rule: %s", f.Detail)
+	}
+	// Every operation the fixture contains has to be labelled by something, and an
+	// unrecognised one must still read as a sentence rather than as a raw token.
+	if got := lsShardEventLabel("somethingNewIn9x.start"); !strings.HasPrefix(got, "Cluster metadata: ") {
+		t.Errorf("an unknown operation reads as %q", got)
+	}
+}

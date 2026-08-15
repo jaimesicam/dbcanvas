@@ -739,3 +739,217 @@ func TestFTDCChartsBuildOnEveryVersion(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------- sharded clusters
+//
+// metrics.mongos60 and metrics.mongos70 are captures from the query router of a 13-node
+// sharded cluster on 6.0.29-23 and 7.0.39-21. They exist because a mongos is the one
+// MongoDB process this page had never been given: it has no storage engine and no replica
+// set, so two thirds of the charts are correctly empty on one, and what it has instead —
+// the cluster seen from the outside — is not in any mongod's capture at all.
+
+var ftdcRouters = []struct{ name, file string }{
+	{"6.0", "metrics.mongos60"},
+	{"7.0", "metrics.mongos70"},
+	{"8.0", "metrics.mongos80"},
+}
+
+// The directory a mongos writes FTDC into is derived from its LOG path, not a dbPath it
+// does not have: /var/log/mongo/mongos.log becomes /var/log/mongo/mongos.diagnostic.data.
+// Reading only the mongod location found nothing and reported it to the user as "it exists
+// only on mongod, not mongos", which is simply untrue.
+func TestFTDCLooksWhereAMongosActuallyWrites(t *testing.T) {
+	want := "/var/log/mongo/mongos.diagnostic.data"
+	found := false
+	for _, d := range ftdcDiagDirs {
+		if d == want {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("%s is not searched — a mongos capture cannot be read without it", want)
+	}
+	if ftdcDiagDirs[0] != "/var/lib/mongo/diagnostic.data" {
+		t.Error("the mongod path should still be tried first: it is the common case")
+	}
+}
+
+// A router decodes, is recognised as a router, and gets the charts that make sense for one
+// — and none of the ones that do not.
+func TestFTDCRouterCaptureIsRecognised(t *testing.T) {
+	for _, v := range ftdcRouters {
+		t.Run(v.name, func(t *testing.T) {
+			d := ftdcFixtureNamed(t, v.file)
+			if d.Skipped != 0 {
+				t.Errorf("%d chunk(s) would not decode from a mongos capture", d.Skipped)
+			}
+			m := ftdcSummarise(d)
+			if m.Role != "mongos router" {
+				t.Errorf("role reads %q — the page will not say what kind of capture this is", m.Role)
+			}
+			built := map[string]bool{}
+			for _, c := range m.Charts {
+				built[c.ID] = true
+			}
+			// What a router HAS: the cluster as it sees it, and its own process.
+			// catalogCache is deliberately not in this list — it counts routing-table
+			// refreshes and stale-config errors, so a cluster whose chunks are not moving
+			// correctly produces no chart at all, and requiring one would make this test
+			// pass only on a capture taken during a rebalance.
+			for _, id := range []string{"targeting", "shardPing", "routerPool", "connections", "commandMix"} {
+				if !built[id] {
+					t.Errorf("chart %s does not build on a %s mongos capture", id, v.name)
+				}
+			}
+			// What a router does NOT have. A chart appearing here would mean it is being
+			// built from something that is not what its title claims.
+			for _, id := range []string{"cache", "tickets", "journal", "replLag", "memberState", "oplog", "quorum"} {
+				if built[id] {
+					t.Errorf("chart %s was built from a mongos, which has no storage engine and no replica set", id)
+				}
+			}
+		})
+	}
+}
+
+// The one thing a router capture can do that no mongod capture can. Member names are not in
+// a mongod's FTDC — strings are not metrics, so its members are "member 0" and "member 1" —
+// but a mongos keys its connection-pool statistics by hostname, so a router names every
+// member of every shard and says how far away each was.
+func TestFTDCRouterNamesEveryShardMember(t *testing.T) {
+	for _, v := range ftdcRouters {
+		t.Run(v.name, func(t *testing.T) {
+			c := fdChartShardPing(ftdcFixtureNamed(t, v.file))
+			if c == nil {
+				t.Fatal("no shard-ping chart from a router capture")
+			}
+			// Three shards of three, plus three config servers.
+			if len(c.Series) < 12 {
+				t.Errorf("only %d members named, want the whole cluster", len(c.Series))
+			}
+			sets := map[string]bool{}
+			for _, s := range c.Series {
+				parts := strings.SplitN(s.Name, " / ", 2)
+				if len(parts) != 2 || parts[1] == "" {
+					t.Errorf("series %q does not name a set and a host", s.Name)
+					continue
+				}
+				sets[parts[0]] = true
+			}
+			for _, want := range []string{"cfg", "rs0", "rs1", "rs2"} {
+				if !sets[want] {
+					t.Errorf("replica set %s is missing from the ping chart", want)
+				}
+			}
+		})
+	}
+}
+
+// Scatter-gather is the sharded twin of "documents examined per returned": work that did
+// not have to happen, invisible in a slow-query log because no single operation is slow.
+// The advisor must not read "peak 0.0 ops/s to a single shard" when the traffic was all
+// against unsharded collections — it names whichever kind actually carried the work.
+func TestFTDCTargetingNamesTheBusiestKind(t *testing.T) {
+	for _, v := range ftdcRouters {
+		t.Run(v.name, func(t *testing.T) {
+			c := fdChartTargeting(ftdcFixtureNamed(t, v.file))
+			if c == nil {
+				t.Fatal("no targeting chart from a router capture")
+			}
+			if c.Advice == nil || strings.Contains(c.Advice.Headline, "0.0 ops/s") {
+				t.Errorf("targeting advice reads as nothing happened: %+v", c.Advice)
+			}
+		})
+	}
+}
+
+// The sharding charts must stay off a plain replica-set capture entirely: a member that is
+// not in a sharded cluster has none of these metrics, and a chart of flat zeros is worse
+// than no chart.
+func TestFTDCShardingChartsAreAbsentOnAPlainReplicaSet(t *testing.T) {
+	for _, v := range ftdcVersions {
+		t.Run(v.name, func(t *testing.T) {
+			for _, c := range ftdcSummarise(ftdcFixtureNamed(t, v.file)).Charts {
+				if c.Group == "Sharding" {
+					t.Errorf("chart %s appeared on a non-sharded capture", c.ID)
+				}
+			}
+		})
+	}
+}
+
+// MongoDB 8.0 nests a SHARDED deployment's whole capture by role — common.serverStatus,
+// router.connPoolStats, shard.replSetGetStatus — where every earlier version has one flat
+// tree, and where an 8.0 plain replica-set member still has one.
+//
+// The failure it caused is the worst kind this page has: the file decoded perfectly and
+// reported 1,978 metrics, and produced ZERO charts, on all three kinds of process. Not one
+// chart missing — every chart missing, with nothing to suggest the data was not simply
+// absent. The wrapper is stripped in the decoder rather than worked around in eighty chart
+// keys, so these assert both halves: that a wrapped capture is unwrapped, and that an
+// unwrapped one is untouched.
+func TestFTDCUnwraps80SharedRoleGroups(t *testing.T) {
+	for _, f := range []string{"metrics.mongos80", "metrics.shard80"} {
+		t.Run(f, func(t *testing.T) {
+			d := ftdcFixtureNamed(t, f)
+			for k := range d.Series {
+				if _, wrapped := ftdcUnwrapRole(k); wrapped {
+					t.Fatalf("metric %q still carries its 8.0 role group", k)
+				}
+			}
+			// And the flat names every chart reads must now be there.
+			for _, want := range []string{"serverStatus.connections.current", "systemMetrics.cpu.user_ms"} {
+				if d.Series[want] == nil {
+					t.Errorf("%s is missing after unwrapping", want)
+				}
+			}
+			// The metadata document is grouped too — without reading through `common` an
+			// 8.0 sharded capture arrives with no version and no host at all.
+			if d.Meta["version"] == "" || d.Meta["host"] == "" {
+				t.Errorf("capture is anonymous: version=%q host=%q", d.Meta["version"], d.Meta["host"])
+			}
+			if ftdcSummarise(d).Role == "" {
+				t.Error("role could not be inferred")
+			}
+		})
+	}
+}
+
+// A shard member on 8.0 is still a replica-set member, so the whole replica-set half of the
+// page has to survive the unwrapping — this is what proves the strip put the tree back
+// exactly rather than merely producing some charts.
+func TestFTDC80ShardMemberKeepsItsReplicaSetCharts(t *testing.T) {
+	built := map[string]bool{}
+	for _, c := range ftdcSummarise(ftdcFixtureNamed(t, "metrics.shard80")).Charts {
+		built[c.ID] = true
+	}
+	for _, id := range []string{
+		"memberState", "replLag", "oplog", "quorum", "tickets", "cache", "journal",
+		"cpu", "pressure", "commitLag",
+	} {
+		if !built[id] {
+			t.Errorf("chart %s is missing from an 8.0 shard member", id)
+		}
+	}
+	// And it gains the sharded ones.
+	for _, id := range []string{"catalogCache", "criticalSection"} {
+		if !built[id] {
+			t.Errorf("sharding chart %s is missing from an 8.0 shard member", id)
+		}
+	}
+}
+
+// The unwrap must be a no-op on every capture that is not wrapped, which is all of them
+// before 8.0 and an 8.0 plain replica-set member too.
+func TestFTDCUnwrapIsANoOpOnFlatCaptures(t *testing.T) {
+	for _, f := range []string{"metrics.rs60-mongo01", "metrics.rs70-mongo01", "metrics.rs-mongo03", "metrics.mongos60"} {
+		t.Run(f, func(t *testing.T) {
+			d := ftdcFixtureNamed(t, f)
+			for _, k := range []string{"serverStatus.connections.current", "systemMetrics.cpu.user_ms"} {
+				if d.Series[k] == nil {
+					t.Errorf("%s went missing — the unwrap is rewriting a flat capture", k)
+				}
+			}
+		})
+	}
+}

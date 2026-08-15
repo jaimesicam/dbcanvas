@@ -265,9 +265,16 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 		recs := lsFoldMongo(in.Data)
 		src.Records = len(recs)
 		src.Node = lsMongoNodeName(recs)
-		if lsSniffMongoRS(recs) {
+		switch {
+		case lsSniffMongos(recs):
+			// Checked before the replica-set sniff, not after: a router logs plenty of
+			// records that mention replica sets — it monitors every shard — and would
+			// otherwise be filed as a member of one.
+			src.Flavour = lsFlavourMongos
+			src.Node = lsMongosNodeName(recs)
+		case lsSniffMongoRS(recs):
 			src.Flavour = lsFlavourMongoRS
-		} else {
+		default:
 			src.Flavour = src.Engine
 		}
 		for _, r := range recs {
@@ -301,6 +308,8 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 		lsResolveGroupRepl(events)
 	case lsFlavourMongoRS:
 		lsResolveMongo(src.Node, events)
+	case lsFlavourMongos:
+		lsResolveMongos(events)
 	default:
 		lsResolveStandalone(events)
 	}

@@ -24,15 +24,31 @@ import (
 // allows a week from several, and refuses somebody's backup.
 const ftdcMaxUpload = 256 << 20
 
-// ftdcDBPath is where mongod keeps diagnostic.data in every stack this app builds.
-const ftdcDiagDir = "/var/lib/mongo/diagnostic.data"
+// ftdcDiagDirs are the directories a MongoDB process writes FTDC into, most likely first.
+//
+// A mongod puts diagnostic.data inside its dbPath. A mongos has no dbPath at all, so it
+// derives the directory from its LOG path instead: the extension is stripped and
+// ".diagnostic.data" appended, which makes /var/log/mongo/mongos.log into
+// /var/log/mongo/mongos.diagnostic.data.
+//
+// This used to be one constant, the mongod one, and the failure was reported to the user as
+// "it exists only on mongod, not mongos" — which is simply not true. mongos captures FTDC
+// like everything else; it was being looked for in the one place it could never be.
+var ftdcDiagDirs = []string{
+	"/var/lib/mongo/diagnostic.data",          // mongod, as this app provisions it
+	"/var/log/mongo/mongos.diagnostic.data",   // mongos, derived from its log path
+	"/var/lib/mongodb/diagnostic.data",        // the upstream/Debian mongod layout
+	"/var/log/mongodb/mongos.diagnostic.data", //
+	"/data/db/diagnostic.data",                // a common container layout
+}
 
 // handleFTDCTargets lists the MongoDB nodes whose diagnostic.data can be read.
 //
-// It reuses the Packet Inspector's target walk and keeps the MongoDB ones: every mongod
-// has a diagnostic.data directory, and every node type this app deploys that speaks
-// MongoDB is a mongod except mongos, which has no storage engine and no replica-set status
-// and is filtered out at read time by the directory simply not being there.
+// It reuses the Packet Inspector's target walk and keeps the MongoDB ones. Every MongoDB
+// process captures FTDC, mongos included — see ftdcDiagDirs for where each one puts it.
+// A sharded cluster's targets carry their role in the label, because which member a capture
+// comes from decides what is in it: a mongos has no storage engine and no replica-set
+// status, and a config server's replica set is the cluster's metadata rather than its data.
 func (a *App) handleFTDCTargets(w http.ResponseWriter, r *http.Request) {
 	u, ok := a.currentUser(r)
 	if !ok {
@@ -60,15 +76,19 @@ func (a *App) handleFTDCNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID,
-		[]string{"bash", "-c", "tar czf - -C " + ftdcDiagDir + " . 2>/dev/null | base64 -w0"}, nil)
+	// One exec that tars whichever of the candidate directories exists, rather than one
+	// round trip per candidate: the directory that is there wins and the rest cost nothing.
+	script := "for d in " + strings.Join(ftdcDiagDirs, " ") +
+		"; do if [ -d \"$d\" ]; then tar czf - -C \"$d\" . 2>/dev/null | base64 -w0; exit 0; fi; done; exit 3"
+	res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", script}, nil)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "read diagnostic.data: "+err.Error())
 		return
 	}
 	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(res.Stdout))
 	if err != nil || len(raw) == 0 {
-		writeErr(w, http.StatusNotFound, "no diagnostic.data on this node — it exists only on mongod, not mongos")
+		writeErr(w, http.StatusNotFound,
+			"no diagnostic.data found on this node — looked in "+strings.Join(ftdcDiagDirs, ", "))
 		return
 	}
 	files, err := ftdcFromTarGz(raw)

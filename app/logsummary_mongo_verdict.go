@@ -16,6 +16,9 @@ import (
 
 // lsMongoFindings are the replica-set checks, appended to lsFindings' list.
 var lsMongoFindings = []func(*lsBundle) []lsFinding{
+	lsFindingShardNoPrimary,
+	lsFindingShardChanges,
+	lsFindingRoutingInvisible,
 	lsFindingMongoRollback,
 	lsFindingMongoNoPrimary,
 	lsFindingMongoElection,
@@ -26,6 +29,11 @@ var lsMongoFindings = []func(*lsBundle) []lsFinding{
 }
 
 // lsHasMongoRS reports whether any source is a replica-set member.
+//
+// Every replica-set finding is gated on this, which is also what keeps them off a router.
+// A mongos monitors every shard and logs a great deal about replica sets without being in
+// one; without the gate, a perfectly healthy router is reported as a member that never
+// became primary and never had an oplog.
 func lsHasMongoRS(b *lsBundle) bool {
 	for _, s := range b.Sources {
 		if s.Flavour == lsFlavourMongoRS {
@@ -399,5 +407,154 @@ func lsFindingMongoLagInvisible(b *lsBundle) []lsFinding {
 		Title:  "Replication lag is not in this log",
 		Detail: "A MongoDB secondary that falls behind its primary writes nothing about it — not a warning, not a periodic note, nothing. The log records that replication is running and says no more, so a member can be hours behind through a window like this one and leave no trace in it at all.",
 		Advice: "It is recorded somewhere else, and that somewhere is already on the machine: every mongod writes diagnostic.data in its dbPath, once a second, with no configuration — the replication lag, the oplog window, the queues and the cache are all in it. Feed that directory to FTDC Summary in this app, or read rs.printSecondaryReplicationInfo() for the position right now.",
+	}}
+}
+
+// ---------------------------------------------------------------- sharded clusters
+
+// lsHasMongos reports whether any source is a query router.
+func lsHasMongos(b *lsBundle) bool {
+	for _, s := range b.Sources {
+		if s.Flavour == lsFlavourMongos {
+			return true
+		}
+	}
+	return false
+}
+
+// lsFindingShardNoPrimary — a shard that could not take writes, read out of the router's log.
+//
+// The router is the only process that watches every shard, and a shard with no primary is
+// recorded there as a topology description inside an INFO record. That is the whole of the
+// evidence: nothing is logged as a warning, nothing names the operations that failed.
+func lsFindingShardNoPrimary(b *lsBundle) []lsFinding {
+	ev := lsPick(b, func(e lsEvent) bool {
+		return e.Code == "4333213" && strings.Contains(e.Message, "NoPrimary")
+	})
+	if len(ev) == 0 {
+		return nil
+	}
+	// Per replica set, because a shard losing its primary and the config servers losing
+	// theirs are different incidents with different blast radii.
+	//
+	// The span is measured to the record that ENDS it — the next topology description for
+	// the same set that has a primary again — rather than between the first and last
+	// NoPrimary record. Those give the same answer only when the outage is long: a set
+	// observed without a primary exactly once reads as "for 0s", which is how the first
+	// version of this reported a replica set that was still being formed.
+	type window struct{ from, to float64 }
+	open := map[string]float64{}
+	windows := map[string][]window{}
+	order := []string{}
+	for _, e := range lsPick(b, func(e lsEvent) bool { return e.Code == "4333213" }) {
+		set := e.Peer
+		if set == "" {
+			set = "a replica set"
+		}
+		lost := strings.Contains(e.Message, "NoPrimary")
+		start, isOpen := open[set]
+		switch {
+		case lost && !isOpen:
+			open[set] = e.TS
+			if _, seen := windows[set]; !seen {
+				order = append(order, set)
+				windows[set] = nil
+			}
+		case !lost && isOpen:
+			windows[set] = append(windows[set], window{start, e.TS})
+			delete(open, set)
+		}
+	}
+	// A window still open where the log ends is bounded by the last record in it, and
+	// said to be still open rather than silently closed at a time nothing happened.
+	stillOpen := map[string]bool{}
+	for set, start := range open {
+		windows[set] = append(windows[set], window{start, b.Summary.LastTS})
+		stillOpen[set] = true
+	}
+	var lines []string
+	config := false
+	for _, set := range order {
+		total, worst := 0.0, 0.0
+		for _, w := range windows[set] {
+			total += w.to - w.from
+			if d := w.to - w.from; d > worst {
+				worst = d
+			}
+		}
+		// Under two seconds is a set forming or an election finishing, not an outage.
+		// Reporting those alongside a fourteen-minute one buries it.
+		if total < 2 {
+			continue
+		}
+		line := fmt.Sprintf("%s from %s for %s", set, lsClock(windows[set][0].from), lsDur(total))
+		if stillOpen[set] {
+			line += " (still without one where this log ends)"
+		}
+		lines = append(lines, line)
+		if set == "cfg" || set == "config" || strings.HasPrefix(set, "config") {
+			config = true
+		}
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	f := lsFinding{
+		ID: "mongo-shard-no-primary", Sev: lsSevBad,
+		Title:  "A shard had no primary to route writes to",
+		Detail: strings.Join(lines, "; ") + ". A sharded cluster fails one shard at a time: writes whose shard key lands on the affected shard fail, everything else carries on, and the application sees a fraction of its traffic erroring for no reason it can see from the outside.",
+		Advice: "Read this together with that shard's own members' logs, which is where the election is. The router only records that the shape changed.",
+		At:     ev[0].TS, Sources: lsSrcSet(ev), Events: lsEventNos(ev, 8),
+	}
+	if config {
+		f.Detail += " One of these is the CONFIG servers, which is the more serious of the two: while they have no primary the cluster's metadata is read-only, no chunk can move, no collection can be sharded or dropped, and any migration already in its critical section holds writes to that range until it ends."
+	}
+	return []lsFinding{f}
+}
+
+// lsFindingShardChanges — what the cluster's shape actually did, from the config servers'
+// own changelog.
+//
+// Not an incident: a statement of what changed, which is the question asked of a sharded
+// cluster more often than any other and which no single shard's log can answer.
+func lsFindingShardChanges(b *lsBundle) []lsFinding {
+	parts := lsShardChangeSummary(b)
+	if len(parts) == 0 {
+		return nil
+	}
+	ev := lsPick(b, func(e lsEvent) bool { return e.Code == "22080" })
+	sev := lsSevInfo
+	for _, e := range ev {
+		if e.Sev == lsSevWarn {
+			sev = lsSevWarn
+		}
+	}
+	return []lsFinding{{
+		ID: "mongo-shard-changes", Sev: sev,
+		Title:  "The cluster's shape changed",
+		Detail: "From the config servers' changelog: " + strings.Join(parts, ", ") + ". This is the only place any of it is recorded, and only on whichever config server was primary at the time — a bundle that does not include that member contains none of this.",
+		Advice: "config.changelog holds the same events with their full details and outlives the log file. sh.status() shows where the chunks ended up.",
+		At:     ev[0].TS, Sources: lsSrcSet(ev), Events: lsEventNos(ev, 8),
+	}}
+}
+
+// lsFindingRoutingInvisible — the honest note, and the sharded twin of lsFindingMongoLagInvisible.
+//
+// Verified rather than assumed: a whole three-member shard was stopped under live traffic on
+// 6.0 and 7.0. The client got FailedToSatisfyReadPreference on a read and a refusal on a
+// write. The router's log recorded the shard's topology changing — at INFO — and nothing
+// else. Not a warning, not an error, no mention of an operation that failed.
+//
+// A page that stayed quiet about that would be read as "the router was fine", which is
+// exactly the wrong conclusion to draw from a file that cannot say otherwise.
+func lsFindingRoutingInvisible(b *lsBundle) []lsFinding {
+	if !lsHasMongos(b) {
+		return nil
+	}
+	return []lsFinding{{
+		ID: "mongo-routing-invisible", Sev: lsSevInfo,
+		Title:  "Failed routing is not in the router's log",
+		Detail: "A mongos does not record the operations it could not route. Taking an entire shard down under live traffic produces reads that fail with FailedToSatisfyReadPreference and writes that are refused outright, and the router's log for that window contains neither — only INFO records saying the shard's topology changed. Absence of errors here is not evidence that clients were served.",
+		Advice: "The router's side of it is in FTDC rather than the log: connPoolStats names every shard member and its round-trip time, and shardingStatistics counts how many shards each operation had to touch. The application's own error log has the failures themselves.",
 	}}
 }

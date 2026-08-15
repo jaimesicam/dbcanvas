@@ -98,6 +98,7 @@ func ftdcParse(files [][]byte) (*ftdcData, error) {
 	if len(d.TS) == 0 {
 		return nil, fmt.Errorf("no metric samples found — is this a diagnostic.data file?")
 	}
+	d.unwrapRoles()
 	// A metric that appeared late (a replica-set field that only exists once the member
 	// has joined, say) is short. Left-pad it so every series is the same length as the
 	// timestamp column and a chart can index them together without bounds checks.
@@ -150,10 +151,44 @@ func (d *ftdcData) readMetadata(doc bson.Raw) {
 			}
 		}
 	}
-	set("version", "buildInfo", "version")
-	set("host", "hostInfo", "system", "hostname")
-	set("replSet", "getCmdLineOpts", "parsed", "replication", "replSetName")
-	set("process", "getCmdLineOpts", "parsed", "processManagement", "pidFilePath")
+	// 8.0 groups a sharded deployment's capture by role, and the metadata document is
+	// grouped with it: buildInfo and hostInfo move from the top of `doc` to `doc.common`.
+	// Read both, so an 8.0 sharded capture still knows what version and host it came from
+	// rather than arriving anonymous.
+	for _, prefix := range [][]string{nil, {"common"}} {
+		set("version", append(append([]string{}, prefix...), "buildInfo", "version")...)
+		set("host", append(append([]string{}, prefix...), "hostInfo", "system", "hostname")...)
+		set("replSet", append(append([]string{}, prefix...), "getCmdLineOpts", "parsed", "replication", "replSetName")...)
+		set("process", append(append([]string{}, prefix...), "getCmdLineOpts", "parsed", "processManagement", "pidFilePath")...)
+	}
+}
+
+// ftdcRoleGroups are the wrappers MongoDB 8.0 puts around a sharded deployment's sample.
+//
+// Up to and including 7.0 a sample is one flat tree: serverStatus, systemMetrics,
+// replSetGetStatus, local, config, and on a router connPoolStats. In 8.0, every process in a
+// SHARDED cluster nests all of it by role — `common.serverStatus`, `router.connPoolStats`,
+// `shard.replSetGetStatus` — while a plain replica-set member is unchanged.
+//
+// Which means an 8.0 sharded capture matches none of the keys this page reads, on any of its
+// three kinds of process. Not a chart missing: every chart missing, on a file that decodes
+// perfectly and reports several thousand metrics.
+//
+// The wrapper is stripped here rather than fixed in eighty chart keys, because it is exactly
+// a prefix and nothing else: the groups partition the tree, so removing them reproduces the
+// pre-8.0 layout precisely. Verified against a live 8.0.28-12 sharded cluster — the only
+// names appearing under more than one group are `start` and `end`, which are FTDC's own
+// per-section collection timestamps and are not metrics anybody charts.
+var ftdcRoleGroups = []string{"common.", "router.", "shard."}
+
+// ftdcUnwrapRole strips an 8.0 role group from a metric path, and says whether it did.
+func ftdcUnwrapRole(key string) (string, bool) {
+	for _, g := range ftdcRoleGroups {
+		if rest, ok := strings.CutPrefix(key, g); ok {
+			return rest, true
+		}
+	}
+	return key, false
 }
 
 // readChunk decodes one type-1 document: the reference sample plus every delta after it.
@@ -444,4 +479,35 @@ func (d *ftdcData) window() (float64, float64) {
 func (d *ftdcData) span() time.Duration {
 	a, b := d.window()
 	return time.Duration((b - a) * float64(time.Second))
+}
+
+// unwrapRoles flattens 8.0's per-role grouping back to the layout every other version uses.
+//
+// Done once after decoding rather than in each accessor: the charts should not have to know
+// that a capture came from a sharded 8.0 cluster, and a fallback key per chart would be
+// eighty places to get it wrong instead of one.
+func (d *ftdcData) unwrapRoles() {
+	var wrapped []string
+	for k := range d.Series {
+		if _, ok := ftdcUnwrapRole(k); ok {
+			wrapped = append(wrapped, k)
+		}
+	}
+	if len(wrapped) == 0 {
+		return
+	}
+	for _, k := range wrapped {
+		flat, _ := ftdcUnwrapRole(k)
+		// `start` and `end` exist under every group. They are collection timestamps rather
+		// than metrics; keep the first and drop the rest instead of letting one group's
+		// clobber another's.
+		if _, clash := d.Series[flat]; clash {
+			delete(d.Series, k)
+			continue
+		}
+		s := d.Series[k]
+		s.Key = flat
+		d.Series[flat] = s
+		delete(d.Series, k)
+	}
 }

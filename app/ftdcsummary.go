@@ -74,6 +74,9 @@ type fdModel struct {
 	Samples int       `json:"samples"`
 	Chunks  int       `json:"chunks"`
 	Metrics int       `json:"metrics"`
+	// Role is what kind of process wrote this — a mongos, a config server, a shard member.
+	// Stated because "twelve charts" means something completely different depending on it.
+	Role    string    `json:"role,omitempty"`
 	Skipped int       `json:"skipped,omitempty"`
 	Charts  []fdChart `json:"charts"`
 	Notes   []string  `json:"notes,omitempty"`
@@ -90,7 +93,7 @@ func ftdcSummarise(d *ftdcData) *fdModel {
 	m := &fdModel{
 		Host: d.Meta["host"], Version: d.Meta["version"], ReplSet: d.Meta["replSet"],
 		From: from, To: to, Samples: d.Samples, Chunks: d.Chunks,
-		Metrics: len(d.Series), Skipped: d.Skipped,
+		Metrics: len(d.Series), Skipped: d.Skipped, Role: fdRole(d),
 		TS: fdDownsample(d.TS, fdMaxPoints),
 	}
 	if d.Skipped > 0 {
@@ -130,6 +133,14 @@ func ftdcSummarise(d *ftdcData) *fdModel {
 		fdChartCheckpoint,
 		fdChartHistoryStore,
 		fdChartMemory,
+		// Sharding — only on a sharded cluster, and different on each of its three roles.
+		fdChartTargeting,
+		fdChartShardPing,
+		fdChartCatalogCache,
+		fdChartMigrations,
+		fdChartCriticalSection,
+		fdChartRangeDeleter,
+		fdChartRouterPool,
 		// Host — whether any of it was the machine rather than the database.
 		fdChartCPU,
 		fdChartPressure,
@@ -146,7 +157,7 @@ func ftdcSummarise(d *ftdcData) *fdModel {
 		}
 	}
 	if len(m.Charts) == 0 {
-		m.Notes = append(m.Notes, "None of the metrics this page charts were present. That usually means the file is from a mongos (which has no storage engine and no replica-set status) rather than a mongod.")
+		m.Notes = append(m.Notes, "None of the metrics this page charts were present. Either this is not a MongoDB capture, or it is from a build whose metric names have moved further than the fallbacks here reach.")
 	}
 	return m
 }
@@ -1943,4 +1954,350 @@ func fdGapNote(d *ftdcData) []string {
 			"mongod writes diagnostic.data only while it is running, so a gap is usually a period when it was not. "+
 			"Every chart draws a straight line across one, which is the absence of data rather than the absence of change.",
 		n, lsDur(total), lsDur(longest))}
+}
+
+// ---------------------------------------------------------------- sharded clusters
+//
+// A sharded cluster has three kinds of process and they capture three different things.
+// A shard member and a config-server member are ordinary mongods: every chart above works
+// on them unchanged. A mongos is not — it has no storage engine and no replica set, so
+// two thirds of this page is correctly empty on one, and what it does have instead is the
+// only view of the cluster as a whole that exists anywhere.
+//
+// The charts below appear only when their metrics do, so a replica-set capture is
+// unaffected by any of it.
+//
+// One of them can do something no other chart on this page can. Member names are not in a
+// mongod's FTDC — strings are not metrics, so replSetGetStatus.members.0 has a state and a
+// ping and no name. A mongos keeps its connection-pool statistics keyed BY HOSTNAME, so a
+// capture from the router names every shard member in the cluster and says how far away
+// each one was.
+
+// fdRole guesses what kind of process this capture came from.
+//
+// Worth stating on the page rather than leaving the reader to infer it from which charts
+// are missing: "twelve charts" from a mongos is complete, and "twelve charts" from a shard
+// member means something is wrong.
+func fdRole(d *ftdcData) string {
+	switch {
+	case d.Series["connPoolStats.totalInUse"] != nil && d.Series["serverStatus.wiredTiger.cache.bytes currently in the cache"] == nil:
+		return "mongos router"
+	case d.Meta["replSet"] == "cfg" || d.Meta["replSet"] == "config":
+		return "config server"
+	case d.Series["serverStatus.shardingStatistics.countDonorMoveChunkStarted"] != nil:
+		return "shard member"
+	case d.Series["replSetGetStatus.myState"] != nil:
+		return "replica-set member"
+	}
+	return ""
+}
+
+// fdChartTargeting — how many shards each operation had to touch.
+//
+// The single most useful thing a mongos records. An operation that carries the shard key
+// goes to one shard; one that does not goes to EVERY shard, and every shard does the whole
+// query. The cluster then costs more than one server would and gets slower as it grows,
+// which is the opposite of the reason anybody shards.
+//
+// It is the sharded twin of "documents examined per document returned": both measure work
+// that did not have to happen, and neither appears in a slow-query log because no single
+// operation looks slow.
+func fdChartTargeting(d *ftdcData) *fdChart {
+	const pre = "serverStatus.shardingStatistics.numHostsTargeted."
+	c := &fdChart{ID: "targeting", Group: "Sharding", Title: "Operations by how many shards they touched", Unit: "ops/s", Stack: true,
+		Why: "An operation that carries the shard key is routed to one shard. One that does not is broadcast to every shard, and every shard runs the whole query — so the work multiplies by the shard count and gets worse as the cluster grows. A large 'all shards' share is a query missing its shard key, and it is the most common reason a sharded cluster is slower than the single server it replaced."}
+	for _, kind := range []string{"oneShard", "manyShards", "allShards", "unsharded"} {
+		var sum []float64
+		for _, op := range []string{"find", "insert", "update", "delete", "aggregate"} {
+			r := fdRate(d, pre+op+"."+kind)
+			if r == nil {
+				continue
+			}
+			if sum == nil {
+				sum = make([]float64, len(r))
+			}
+			for i := range r {
+				if i < len(sum) {
+					sum[i] += r[i]
+				}
+			}
+		}
+		if fdMax(sum) > 0 {
+			c.Series = append(c.Series, fdSeries{Name: kind, Points: sum})
+		}
+	}
+	if len(c.Series) == 0 {
+		return nil
+	}
+	one, all, busiest, busiestN := 0.0, 0.0, "", 0.0
+	for _, s := range c.Series {
+		if m := fdMax(s.Points); m > busiestN {
+			busiestN, busiest = m, s.Name
+		}
+		switch s.Name {
+		case "oneShard":
+			one = fdMax(s.Points)
+		case "allShards":
+			all = fdMax(s.Points)
+		}
+	}
+	switch {
+	case all > 0 && all >= one:
+		c.Advice = &fdAdvice{Level: "crit",
+			Headline: fmt.Sprintf("Broadcast to every shard peaked at %.1f ops/s, against %.1f routed to one", all, one),
+			Detail:   "More work was broadcast than routed. Each broadcast operation runs on every shard and the router merges the results, so the cluster is doing N times the work a single server would and adding shards makes it worse rather than better.",
+			Action:   "Find the queries with no shard key in them. explain() on a mongos names the shards it targeted, and the shard key is chosen once and cannot be changed cheaply — so this is worth resolving before the collection grows."}
+	case all > 0:
+		c.Advice = &fdAdvice{Level: "warn",
+			Headline: fmt.Sprintf("Some work was broadcast to every shard — peak %.1f ops/s", all),
+			Detail:   "Normal in small amounts: anything that genuinely spans the key range has to fan out. Worth knowing what proportion it is."}
+	default:
+		// Not "peak 0.0 ops/s to a single shard" on a cluster whose traffic was all
+		// against unsharded collections: name whichever kind actually carried the work.
+		c.Advice = &fdAdvice{Level: "ok",
+			Headline: fmt.Sprintf("Nothing was broadcast to every shard — busiest was %q at %s ops/s", busiest, fdAmt(busiestN))}
+	}
+	return c
+}
+
+// fdChartShardPing — the router's own round-trip time to every member of every shard.
+//
+// The one chart on this page that names hosts. A mongod's FTDC cannot: strings are not
+// metrics, so its members are "member 0" and "member 1". A mongos keeps these keyed by
+// replica set and hostname, which makes a router capture the fastest way there is to answer
+// "which shard is the slow one" — and it answers it for the config servers too.
+func fdChartShardPing(d *ftdcData) *fdChart {
+	const pre = "connPoolStats.replicaSetPingTimesMillis."
+	keys := d.keysWithPrefix(pre)
+	if len(keys) == 0 {
+		return nil
+	}
+	sort.Strings(keys)
+	c := &fdChart{ID: "shardPing", Group: "Sharding", Title: "Round-trip time to each shard member", Unit: "ms",
+		Why: "How far away the router found each member of each shard, measured by the router itself. This is the only chart here that can name a host — a mongod's own capture cannot, because names are strings and strings are not metrics. One member consistently slower than its peers is the one to go and look at; a whole replica set slower than the others is usually the network between them."}
+	worst, who := 0.0, ""
+	for _, k := range keys {
+		pts := fdFloats(d, k, 1)
+		if pts == nil {
+			continue
+		}
+		// "rs1.s1r2.example.net:27017" — the set, then the host. The set is worth keeping:
+		// it is what says whether the slow member is a shard or a config server.
+		name := strings.TrimPrefix(k, pre)
+		if i := strings.Index(name, "."); i > 0 {
+			name = name[:i] + " / " + lsMongoShortHost(name[i+1:])
+		}
+		c.Series = append(c.Series, fdSeries{Name: name, Points: pts})
+		if m := fdMax(pts); m > worst {
+			worst, who = m, name
+		}
+	}
+	if len(c.Series) == 0 {
+		return nil
+	}
+	switch {
+	case worst >= 50:
+		c.Advice = &fdAdvice{Level: "warn",
+			Headline: fmt.Sprintf("%s was %.0f ms away at its worst", who, worst),
+			Detail:   "Every operation the router sent there paid that on top of whatever the shard itself did. On a cluster inside one data centre this is a network or a saturated host rather than a distance."}
+	default:
+		c.Advice = &fdAdvice{Level: "ok",
+			Headline: fmt.Sprintf("Every member stayed within %.0f ms of the router (%d members across %d)", worst, len(c.Series), len(c.Series))}
+	}
+	return c
+}
+
+// fdChartCatalogCache — how often the routing table had to be fetched, and how often it was
+// found to be wrong.
+//
+// Every process in a sharded cluster caches where the chunks are. When a chunk moves, that
+// cache is stale, and the next operation to use it gets a StaleConfig error, refreshes and
+// retries. The client never sees the error — it sees the latency of all three steps.
+func fdChartCatalogCache(d *ftdcData) *fdChart {
+	const pre = "serverStatus.shardingStatistics.catalogCache."
+	c := &fdChart{ID: "catalogCache", Group: "Sharding", Title: "Routing table refreshes", Unit: "per second · ms",
+		Why: "Everything in a sharded cluster caches which shard holds which range. A chunk moving makes that cache wrong, and the next operation to use it fails with StaleConfig, refreshes, and runs again — the client sees none of that, only the time all three took. A steady stream of stale-config errors is a cluster whose chunks are moving faster than its routers can keep up with."}
+	for _, p := range []struct{ name, key string }{
+		{"stale-config errors", pre + "countStaleConfigErrors"},
+		{"full refreshes", pre + "countFullRefreshesStarted"},
+		{"incremental refreshes", pre + "countIncrementalRefreshesStarted"},
+		{"failed refreshes", pre + "countFailedRefreshes"},
+	} {
+		if pts := fdRate(d, p.key); pts != nil && fdMax(pts) > 0 {
+			c.Series = append(c.Series, fdSeries{Name: p.name, Points: pts})
+		}
+	}
+	// Time operations actually spent blocked waiting for routing information, which is the
+	// number that matters — a refresh nobody waited on cost nothing.
+	if ms := fdRatio(d, pre+"totalRefreshWaitTimeMicros", pre+"countIncrementalRefreshesStarted", 1.0/1000); ms != nil && fdMax(ms) > 0 {
+		c.Series = append(c.Series, fdSeries{Name: "ms waiting per refresh", Points: ms})
+	}
+	if len(c.Series) == 0 {
+		return nil
+	}
+	failed := fdMax(fdRate(d, pre+"countFailedRefreshes"))
+	stale := fdMax(fdRate(d, pre+"countStaleConfigErrors"))
+	switch {
+	case failed > 0:
+		c.Advice = &fdAdvice{Level: "crit",
+			Headline: fmt.Sprintf("Routing table refreshes FAILED, peaking at %.1f/s", failed),
+			Detail:   "A refresh that fails means this process could not read the chunk map from the config servers. Until it can, it cannot route anything it has not already cached, and operations fail rather than slow down.",
+			Action:   "The config servers are the first thing to check — their replica set having no primary stops the whole cluster's metadata, while every shard carries on looking perfectly healthy."}
+	case stale >= 1:
+		c.Advice = &fdAdvice{Level: "warn",
+			Headline: fmt.Sprintf("Peak %.1f stale-config errors/s", stale),
+			Detail:   "Chunks were moving while work was running. Each error is an operation that ran, was told its routing was out of date, refreshed and ran again."}
+	default:
+		c.Advice = &fdAdvice{Level: "ok", Headline: "The routing table was stable"}
+	}
+	return c
+}
+
+// fdChartMigrations — chunk migrations, from the shard's own side.
+func fdChartMigrations(d *ftdcData) *fdChart {
+	const pre = "serverStatus.shardingStatistics."
+	c := &fdChart{ID: "migrations", Group: "Sharding", Title: "Chunk migrations", Unit: "count",
+		Why: "Migrations this shard sent and received, cumulatively. Started against committed is the pair to read: a balancer that keeps starting migrations and aborting them is doing all of the work and none of the good, and it will keep trying. Aborts usually mean the migration collided with something — an index build, a long-running write, or a critical section it could not enter."}
+	for _, p := range []struct{ name, key string }{
+		{"sent (started)", pre + "countDonorMoveChunkStarted"},
+		{"sent (committed)", pre + "countDonorMoveChunkCommitted"},
+		{"sent (aborted)", pre + "countDonorMoveChunkAborted"},
+		{"received (started)", pre + "countRecipientMoveChunkStarted"},
+	} {
+		if pts := fdFloats(d, p.key, 1); pts != nil && fdMax(pts) > 0 {
+			c.Series = append(c.Series, fdSeries{Name: p.name, Points: pts})
+		}
+	}
+	if len(c.Series) == 0 {
+		return nil
+	}
+	started := fdMax(fdFloats(d, pre+"countDonorMoveChunkStarted", 1))
+	aborted := fdMax(fdFloats(d, pre+"countDonorMoveChunkAborted", 1))
+	switch {
+	case started > 0 && aborted >= started/2:
+		c.Advice = &fdAdvice{Level: "warn",
+			Headline: fmt.Sprintf("%.0f of %.0f migrations sent from this shard were aborted", aborted, started),
+			Detail:   "The balancer is spending its time on migrations that do not finish. The data does not move and the work is paid anyway.",
+			Action:   "Aborts collide with something holding the collection — an index build, a long transaction, or a write that would not yield. The balancer window exists for exactly this: run it when the collection is quiet."}
+	default:
+		c.Advice = &fdAdvice{Level: "info",
+			Headline: fmt.Sprintf("%.0f migration(s) sent, %.0f received", started, fdMax(fdFloats(d, pre+"countRecipientMoveChunkStarted", 1)))}
+	}
+	return c
+}
+
+// fdChartCriticalSection — how long writes were blocked so a migration could commit.
+//
+// The part of a chunk migration nobody expects. Copying the documents is online; committing
+// is not. At the end of every migration the donor takes a critical section on that chunk's
+// range and writes to it BLOCK until the config servers have acknowledged the new owner. It
+// is short when everything is healthy and unbounded when the config servers are not.
+func fdChartCriticalSection(d *ftdcData) *fdChart {
+	const pre = "serverStatus.shardingStatistics."
+	total := fdFloats(d, pre+"totalCriticalSectionTimeMillis", 1)
+	if total == nil {
+		return nil
+	}
+	c := &fdChart{ID: "criticalSection", Group: "Sharding", Title: "Writes blocked for migration commit", Unit: "ms",
+		Why: "Copying a chunk is online. Committing it is not: at the end of every migration, writes to that range block until the config servers confirm the new owner. Normally milliseconds. If the config replica set has no primary it is however long that lasts, and the symptom is writes to one range of one collection hanging while everything else is fine."}
+	c.Series = append(c.Series, fdSeries{Name: "total time in critical section", Points: total})
+	if commit := fdFloats(d, pre+"totalCriticalSectionCommitTimeMillis", 1); commit != nil && fdMax(commit) > 0 {
+		c.Series = append(c.Series, fdSeries{Name: "of which waiting for the commit", Points: commit})
+	}
+	// Per migration, which is what a write to that range actually waited.
+	per := 0.0
+	if n := fdMax(fdFloats(d, pre+"countDonorMoveChunkCommitted", 1)); n > 0 {
+		per = fdMax(total) / n
+	}
+	switch {
+	case per >= 1000:
+		c.Advice = &fdAdvice{Level: "crit",
+			Headline: fmt.Sprintf("Around %.0f ms of blocked writes per migration", per),
+			Detail:   "Every write to the range being moved waited that long, and the application has no way to tell that from the database being down.",
+			Action:   "A long critical section is nearly always the config servers being slow to acknowledge. Check their replica set — commit lag and write concern on the config members, not on the shard."}
+	case fdMax(total) > 0:
+		c.Advice = &fdAdvice{Level: "ok",
+			Headline: fmt.Sprintf("%.0f ms of blocked writes in total, about %.0f ms per migration", fdMax(total), per)}
+	default:
+		c.Advice = &fdAdvice{Level: "ok", Headline: "No migration blocked a write in this window"}
+	}
+	return c
+}
+
+// fdChartRangeDeleter — the orphans left behind after a migration.
+//
+// When a chunk moves, the donor's copy is not deleted with it: it is queued for the range
+// deleter and removed afterwards. Until then those documents are still on disk, and a
+// backlog that never drains is a shard whose disk usage does not fall after a rebalance and
+// whose queries pay for documents that belong to somebody else.
+func fdChartRangeDeleter(d *ftdcData) *fdChart {
+	const pre = "serverStatus.shardingStatistics."
+	c := &fdChart{ID: "rangeDeleter", Group: "Sharding", Title: "Orphan cleanup after migrations", Unit: "docs/s · tasks",
+		Why: "A migrated chunk's documents are not removed from the donor as it moves — they are queued and deleted afterwards. The queue is the number to watch: while it is not empty the donor still holds data it has given away, so its disk does not shrink and its queries still read past the leftovers."}
+	if pts := fdRate(d, pre+"countDocsDeletedByRangeDeleter"); pts != nil && fdMax(pts) > 0 {
+		c.Series = append(c.Series, fdSeries{Name: "documents deleted/s", Points: pts})
+	}
+	if pts := fdFloats(d, pre+"rangeDeleterTasks", 1); pts != nil && fdMax(pts) > 0 {
+		c.Series = append(c.Series, fdSeries{Name: "cleanup tasks queued", Points: pts})
+	}
+	for _, p := range []struct{ name, key string }{
+		{"documents cloned out/s", pre + "countDocsClonedOnDonor"},
+		{"documents cloned in/s", pre + "countDocsClonedOnRecipient"},
+	} {
+		if pts := fdRate(d, p.key); pts != nil && fdMax(pts) > 0 {
+			c.Series = append(c.Series, fdSeries{Name: p.name, Points: pts})
+		}
+	}
+	if len(c.Series) == 0 {
+		return nil
+	}
+	queued := fdMax(fdFloats(d, pre+"rangeDeleterTasks", 1))
+	if queued > 0 && fdMin(fdFloats(d, pre+"rangeDeleterTasks", 1)) > 0 {
+		c.Advice = &fdAdvice{Level: "warn",
+			Headline: fmt.Sprintf("Orphan cleanup never emptied — up to %.0f task(s) queued throughout", queued),
+			Detail:   "This shard held documents it had already given to another shard for the whole window. Disk usage does not fall until the queue drains, and until then a collection scan reads them.",
+			Action:   "Cleanup yields to live traffic by design, so a queue that never empties usually means the shard has no idle time. cleanupOrphaned reports what is left."}
+	} else {
+		c.Advice = &fdAdvice{Level: "ok", Headline: fmt.Sprintf("Orphan cleanup kept up (peak %.0f task(s) queued)", queued)}
+	}
+	return c
+}
+
+// fdChartRouterPool — the router's connections to the shards, which is a different pool from
+// the client connections on the Work chart.
+func fdChartRouterPool(d *ftdcData) *fdChart {
+	inUse := fdFloats(d, "connPoolStats.totalInUse", 1)
+	if inUse == nil {
+		return nil
+	}
+	c := &fdChart{ID: "routerPool", Group: "Sharding", Title: "Router connections to the shards", Unit: "conns · per second",
+		Why: "The pool the router keeps OUT to the shards, which is not the pool of clients coming in. Connections being created continuously rather than reused is the shape to look for: it means the pool is being torn down and rebuilt, usually because a shard keeps changing primary or dropping connections, and every rebuild costs a handshake and an authentication."}
+	c.Series = append(c.Series, fdSeries{Name: "in use", Points: inUse})
+	if pts := fdFloats(d, "connPoolStats.totalAvailable", 1); pts != nil {
+		c.Series = append(c.Series, fdSeries{Name: "available", Points: pts})
+	}
+	if pts := fdRate(d, "connPoolStats.totalCreated"); pts != nil && fdMax(pts) > 0 {
+		c.Series = append(c.Series, fdSeries{Name: "created/s", Points: pts})
+	}
+	if pts := fdFloats(d, "connPoolStats.totalRefreshing", 1); pts != nil && fdMax(pts) > 0 {
+		c.Series = append(c.Series, fdSeries{Name: "refreshing", Points: pts})
+	}
+	// Sustained rather than peak. A pool rebuilds in a burst after any shard changes
+	// primary, and calling that burst a leak would fire on every healthy failover; what is
+	// worth reporting is a pool that never stops rebuilding.
+	span := 1.0
+	if sp := d.span().Seconds(); sp > 0 {
+		span = sp
+	}
+	made := fdFloats(d, "connPoolStats.totalCreated", 1)
+	sustained := (fdMax(made) - fdMin(made)) / span
+	if sustained >= 2 {
+		c.Advice = &fdAdvice{Level: "warn",
+			Headline: fmt.Sprintf("%s connections/s to the shards, sustained across the window", fdAmt(sustained)),
+			Detail:   "A healthy pool creates its connections once and reuses them. This one kept rebuilding, and every rebuild is a TCP handshake plus an authentication before any work happens. A shard that keeps changing primary does this, and so does a pool sized below what the workload needs."}
+	} else {
+		c.Advice = &fdAdvice{Level: "ok",
+			Headline: fmt.Sprintf("Peak %.0f connections in use to the shards, %s/s created", fdMax(inUse), fdAmt(sustained))}
+	}
+	return c
 }

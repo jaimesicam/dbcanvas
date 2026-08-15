@@ -14622,3 +14622,147 @@ negation scoped to `app/testdata/`, which brings 23 files into the repo.
 
 6 new Go tests, each verified to fail with its fix reverted. `gofmt`, `go vet`, `go test` and
 the smoke suite green.
+
+## 262. Sharded clusters — `app/logsummary_mongo_shard.go`, `app/ftdcsummary.go`, `app/ftdcapi.go`
+
+Three 13-node Percona Server for MongoDB sharded clusters — 3 shards × 3 members, a 3-node
+config replica set and a mongos — on **6.0.29-23**, **7.0.39-21** and **8.0.28-12**. Driven
+through sharding a collection with a hashed key and a ranged one, chunk splits and a
+migration, an entire shard stopped under live traffic, and the config-server primary stopped
+on top of it.
+
+Both pages had never seen a mongos, and both were wrong about it.
+
+### The router's log records the outage as nothing at all
+
+Stopping all three members of shard `rs2` under live traffic produced two client-visible
+failures: a read that failed with `FailedToSatisfyReadPreference` and a write refused
+outright. The mongos log for that window contains **neither** — no warning, no error. What
+it contains is the shard's topology changing, at `INFO`, repeatedly. An operator handed that
+file sees a healthy router.
+
+So `mongos` becomes its own flavour. It keeps every replica-set finding off a router — one
+monitors every shard and logs plenty about replica sets without being in one, and the test
+that proves it confirms a router is otherwise flavoured `mongors` — and it earns the honest
+finding, the sharded twin of the replication-lag note: *failed routing is not in this log*.
+
+The sniff rests on something neat: `mongod` and `mongos` log the same message, "Updating the
+shard registry with confirmed replica set", under **different ids** — 471691 on a mongod,
+471693 on a mongos. One record is enough to tell them apart. The structural fallback (a
+mongos never logs a REPL, STORAGE or WiredTiger record) covers an excerpt without it, and
+the mongod-only ids are treated as *negative* evidence — which a test caught, because a shard
+member's log is full of SHARDING records and would otherwise be promoted to a router.
+
+### One record for the whole sharding vocabulary
+
+Every topology change a cluster makes is written by whichever config server is primary under
+id **22080**, with the operation in `attr.event.what` — `addShard`, `shardCollection`,
+`moveChunk.commit`, `multi-split`, `balancer.round`, `dropCollection`. One rule reads all of
+it and keeps reading it when MongoDB adds an operation, because the operation is data rather
+than a rule. It is also the only place any of it exists, which the finding says out loud.
+
+### A twelve-second outage reported as fourteen minutes
+
+`4333213` carries a topology description whose type is `ReplicaSetNoPrimary`, so a router's
+log says which shard could not take writes. Measuring the span from the first such record to
+the last was wrong twice over: a set merely still being formed was reported as an outage
+"for 0s", and a **twelve-second** config-server outage became **14.4 minutes**, because the
+last `NoPrimary` record was fourteen minutes after the first with a healthy period between
+them. Measured to the record that *ends* it, the same fixtures now read `cfg for 11.6s` and
+`rs2 for 2.1 min` — both correct.
+
+### FTDC was looking in the wrong place, and said so confidently
+
+`handleFTDCNode` hardcoded `/var/lib/mongo/diagnostic.data`, and reported the miss as *"no
+diagnostic.data on this node — it exists only on mongod, not mongos"*. That is simply untrue:
+a mongos captures FTDC like everything else, it just has no dbPath, so it derives the
+directory from its **log** path — `/var/log/mongo/mongos.log` becomes
+`/var/log/mongo/mongos.diagnostic.data`. Confirmed on both versions before a line was
+changed. Now a list of candidates, tried in one exec.
+
+### Seven sharding charts, and the one that names hosts
+
+A router capture decodes unchanged — 1,343 metrics on 6.0, 1,470 on 7.0 — and carries things
+no mongod has. `connPoolStats.replicaSetPingTimesMillis` is keyed **by hostname**, so one
+router names every member of every shard and the config set and says how far away each was.
+Everywhere else this page has to say "member 0", because strings are not metrics.
+
+`shardingStatistics.numHostsTargeted` is the sharded twin of documents-examined-per-returned:
+an operation carrying the shard key goes to one shard, one without it is broadcast to all of
+them and each runs the whole query. Both measure work that did not have to happen and
+neither is visible in a slow-query log.
+
+Also chunk migrations, the critical section (copying a chunk is online, committing it is not
+— writes to that range block until the config servers confirm), orphan cleanup, routing-table
+refreshes and the router's connection pool. Plus `fdRole`, so the page states what kind of
+process it is reading: eighteen charts from a router is complete, eighteen from a shard
+member is not.
+
+Two advisors repeated mistakes this page had already made once and were fixed the same way:
+the targeting headline read "peak 0.0 ops/s to a single shard" when the traffic was all
+against unsharded collections, and the pool advisor used a peak where it needed a sustained
+rate — a pool rebuilds in a burst after any failover, and calling that a leak fires on every
+healthy one.
+
+Live, all six role/version combinations: **mongos 18–19 charts, config server 36–38, shard
+member 38–40**, roles correctly identified.
+
+Fixtures `m09-sharded-mongo60` / `m10-sharded-mongo70` (mongos + config + shard member, per
+id capped at 40 records) and `metrics.mongos60` / `metrics.mongos70`. 10 new Go tests, every
+one verified to fail with its fix reverted. `gofmt`, `go vet`, `go test` and the smoke suite
+green.
+
+### 8.0 nests a sharded capture by role, and it emptied the whole page
+
+Found by deploying the 8.0 cluster last, after everything above was written and passing.
+
+Up to and including 7.0 an FTDC sample is one flat tree. In 8.0, every process in a
+**sharded** cluster groups all of it by role — a plain 8.0 replica-set member is unaffected,
+which is why none of the earlier version work caught it:
+
+```
+7.0 and earlier                    8.0, sharded
+serverStatus.connections.current   common.serverStatus.connections.current
+connPoolStats.totalInUse           router.connPoolStats.totalInUse
+replSetGetStatus.myState           shard.replSetGetStatus.myState
+```
+
+Every key this page reads is prefixed, so an 8.0 sharded capture matched none of them. The
+failure is the worst kind here: the file decoded perfectly, reported **1,978 metrics**, and
+produced **zero charts** — not one chart missing but every chart missing, with nothing to
+suggest the data was not simply absent. The grouping reaches the metadata document too, so
+the capture also arrived with no version, no host and no replica-set name.
+
+Stripped in the decoder rather than worked around in eighty chart keys, because it is exactly
+a prefix: the groups partition the tree, so removing them reproduces the pre-8.0 layout. The
+only names under more than one group are `start` and `end`, FTDC's own per-section collection
+timestamps, which nothing charts. **0 charts → 18 on the router, 38 on a shard member, 37 on
+a config server**, and the replica-set half of a shard member's page comes back intact —
+which is what proves the tree was put back rather than merely producing some charts.
+
+8.0 also introduced a document type this format did not previously have: `type: 2`, periodic
+router metadata, uncompressed. It is skipped rather than counted as a failed chunk.
+
+### The changelog rule absorbed an operation nobody wrote a rule for
+
+8.0 added automatic chunk merging, and `autoMerge.start` / `autoMerge.end` appeared in the
+8.0 verdict through a rule written and tested entirely against 6.0 and 7.0, with no code
+change — because the operation is *data* in `attr.event.what` rather than a rule. That is the
+whole argument for keying the sharding catalogue on one id, demonstrated rather than claimed.
+It has been named in the label map since, but it worked before that.
+
+### Live, all three versions
+
+| | mongos | config server | shard member |
+| --- | --- | --- | --- |
+| 6.0.29-23 | 18 charts | 36 | 38 |
+| 7.0.39-21 | 19 charts | 38 | 40 |
+| 8.0.28-12 | 18 charts | 37 | 38 |
+
+Log Summary produces the **same nine findings on all three**, with the router flavoured
+`mongos` and every mongod `mongors`. The no-primary spans read `cfg for 11.3s; rs2 for 2.0
+min` on 8.0 — the same shape as 6.0 and 7.0, and the same numbers the incident was driven to.
+
+Fixtures added for 8.0: `m11-sharded-mongo80`, `metrics.mongos80`, `metrics.shard80`.
+13 new Go tests in total across the sharded work, every one verified to fail with its fix
+reverted.

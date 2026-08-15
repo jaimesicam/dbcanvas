@@ -580,6 +580,63 @@ driven through `rs.stepDown()`, a SIGKILL on the primary under write load, a mem
 port 27017, a **partitioned primary written to and then healed**, and a wiped data directory
 resynced from scratch. The fixtures are `m*` under `app/testdata/logsummary/`.
 
+### Sharded clusters: the router that logs nothing
+
+A sharded cluster is three kinds of process and only one of them is a database. A shard
+member and a config-server member are ordinary `mongod`s, and everything above reads them
+unchanged. A **mongos** is not a `mongod` at all — it stores nothing, replicates nothing,
+and its log is about where things *are* rather than what they are doing.
+
+Which makes it the most misleading file in the set. Stopping an entire three-member shard
+under live traffic on 6.0 and 7.0 produced two client-visible failures — a read that failed
+with `FailedToSatisfyReadPreference` and a write refused outright — and the router's log
+recorded **neither**. Not a warning, not an error. What it recorded was the shard's topology
+changing, at `INFO`, over and over. An operator handed that log sees a healthy router for an
+outage the application saw plainly.
+
+So a router gets its own flavour, `mongos`, which does two things. It keeps every
+replica-set finding away from it — a router monitors every shard and logs a great deal about
+replica sets without being in one, and without the gate a perfectly healthy router is
+reported as a member that never became primary. And it lets the verdict end with the honest
+note, the sharded twin of the replication-lag one: **failed routing is not in this log.**
+
+**One record covers the whole sharding vocabulary.** Every topology change a cluster makes —
+a shard added or removed, a collection sharded, a chunk split or moved, every balancer round
+— is written by whichever config server is primary under id **22080**, with the operation in
+`attr.event.what`:
+
+```json
+{"id":22080,"msg":"About to log metadata event","attr":{"namespace":"changelog",
+ "event":{"what":"addShard","ns":"","server":"cfg1:27017",
+          "details":{"name":"rs0","host":"rs0/s0r1.example.net:27017,…"}}}}
+```
+
+One rule reads all of it, and keeps reading it when MongoDB adds an operation, because the
+operation is *data* rather than a rule. It is also the only place any of it is recorded — a
+bundle without that config server contains none of it, which the finding says out loud.
+
+**A shard with no primary is readable from the router.** `4333213` carries a topology
+description whose `topologyType` is `ReplicaSetNoPrimary`, so one router's log says which
+shard could not take writes and for how long — including the config servers, which is the
+worse case: while *they* have no primary the cluster's metadata is read-only, no chunk can
+move, and any migration already in its critical section holds writes to that range.
+
+Measuring that span is where the first version was wrong. Taking the first and last
+`NoPrimary` record for a set reported one that was merely still being formed as an outage
+"for 0s", and inflated a **twelve-second** config-server outage into **14.4 minutes**,
+because the last such record was fourteen minutes after the first with a healthy period in
+between. The span is now measured to the record that *ends* it.
+
+The version sweep applies here too, and holds across all three. Between 6.0 and 7.0 MongoDB
+replaced the distributed lock manager with DDL coordinators, reworded the shard-identity
+warning from "--shardsvr" to "ShardServer role", and stopped auto-splitting chunks; 8.0 added
+automatic chunk merging. Every one of those is a different message; **not one is a different
+id**. The same driven incident produces the same nine findings on 6.0, 7.0 and 8.0.
+
+8.0's `autoMerge` is the clearest evidence that keying the changelog on one id was right: it
+appeared in the 8.0 capture through a rule written and tested entirely against 6.0 and 7.0,
+with no code change, because the operation is *data* rather than a rule.
+
 ### Across versions: 6.0, 7.0 and 8.0
 
 The design rests on one claim — that MongoDB's numeric ids are stable across releases even

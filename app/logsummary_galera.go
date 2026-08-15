@@ -113,7 +113,7 @@ const (
 // amber means "it is up but not serving", red means "it is not part of a working cluster".
 func lsStateSev(state string) string {
 	switch state {
-	case lsStateSynced, lsStateUp, lsStateOnline, lsStatePrimaryM, lsStateSecondary:
+	case lsStateSynced, lsStateUp, lsStateOnline, lsStatePrimaryM, lsStateSecondary, lsStateRouting:
 		return lsSevOK
 	case lsStateJoined, lsStateJoiner, lsStateDonor, lsStatePrim, lsStateStarting, lsStateRecovering,
 		lsStateStartup2, lsStateArbiter:
@@ -139,8 +139,11 @@ func lsStateSev(state string) string {
 // write; counting that as availability would report a cluster that cannot accept a single
 // transaction as fully available, which is the opposite of what the page is for.
 func lsStateServes(state string) bool {
+	// ROUTING is a mongos: it has no data of its own, so "serving" means it was up and
+	// willing to route. Leaving it out would report every router in a healthy cluster as
+	// unavailable for the whole window, purely because it has no replica-set state.
 	return state == lsStateSynced || state == lsStateUp || state == lsStateOnline ||
-		state == lsStatePrimaryM || state == lsStateSecondary
+		state == lsStatePrimaryM || state == lsStateSecondary || state == lsStateRouting
 }
 
 // lsStateMeaning explains a state once, for the timeline legend and the tooltip.
@@ -155,6 +158,7 @@ var lsStateMeaning = map[string]string{
 	lsStateDown:     "the server is not running",
 	lsStateUp:       "up and accepting connections",
 	lsStateStarting: "starting up — not accepting connections yet",
+	lsStateRouting:  "a mongos, up and routing — it holds no data of its own, so its lane says only that the router was running; the shards' health is in their own lanes",
 
 	// Group Replication's states, spelled as replication_group_members spells them. Kept
 	// in one map because the legend renders whatever states the bundle actually contains,
