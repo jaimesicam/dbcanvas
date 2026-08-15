@@ -1,0 +1,94 @@
+Aug 15 23:03:53 vkc2 systemd[1]: Starting Valkey instance: dbcanvas...
+Aug 15 23:03:53 vkc2 valkey-server[254]: 254:M 15 Aug 2026 23:03:53.642 # WARNING Memory overcommit must be enabled! Without it, a background save or replication may fail under low memory condition. Being disabled, it can also cause failures without low memory condition, see https://github.com/jemalloc/jemalloc/issues/1328. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.
+Aug 15 23:03:53 vkc2 valkey-server[254]: 254:M 15 Aug 2026 23:03:53.642 * Supervised by systemd. Please make sure you set appropriate values for TimeoutStartSec and TimeoutStopSec in your service unit.
+Aug 15 23:03:53 vkc2 valkey-server[254]: 254:M 15 Aug 2026 23:03:53.642 * oO0OoO0OoO0Oo Valkey is starting oO0OoO0OoO0Oo
+Aug 15 23:03:53 vkc2 valkey-server[254]: 254:M 15 Aug 2026 23:03:53.642 * Valkey version=9.1.1, bits=64, commit=00000000, modified=1, pid=254, just started
+Aug 15 23:03:53 vkc2 valkey-server[254]: 254:M 15 Aug 2026 23:03:53.642 * Configuration loaded
+Aug 15 23:03:53 vkc2 valkey-server[254]: 254:M 15 Aug 2026 23:03:53.672 * monotonic clock: X86 TSC @ 2918.79 ticks/us
+Aug 15 23:03:53 vkc2 valkey-server[254]: 254:M 15 Aug 2026 23:03:53.672 * Running mode=cluster, port=6379.
+Aug 15 23:03:53 vkc2 valkey-server[254]: 254:M 15 Aug 2026 23:03:53.673 * No cluster configuration found, I'm 81ce2216adbcc1e6e9e781d0b280ae899f08b789
+Aug 15 23:03:53 vkc2 valkey-server[254]: 254:M 15 Aug 2026 23:03:53.678 * Static Module 'lua' successfully loaded
+Aug 15 23:03:53 vkc2 valkey-server[254]: 254:M 15 Aug 2026 23:03:53.678 * Server initialized
+Aug 15 23:03:53 vkc2 valkey-server[254]: 254:M 15 Aug 2026 23:03:53.681 * Creating AOF base file appendonly.aof.1.base.rdb on server start
+Aug 15 23:03:53 vkc2 valkey-server[254]: 254:M 15 Aug 2026 23:03:53.685 * Creating AOF incr file appendonly.aof.1.incr.aof on server start
+Aug 15 23:03:53 vkc2 valkey-server[254]: 254:M 15 Aug 2026 23:03:53.685 * Ready to accept connections tcp
+Aug 15 23:03:53 vkc2 systemd[1]: Started Valkey instance: dbcanvas.
+Aug 15 23:03:55 vkc2 valkey-server[254]: 254:M 15 Aug 2026 23:03:55.690 # Cluster is currently down: I am part of a minority partition.
+Aug 15 23:03:57 vkc2 valkey-server[254]: 254:M 15 Aug 2026 23:03:57.732 # Cluster is currently down: At least one hash slot is not served by any available node. Please check the 'cluster-require-full-coverage' configuration.
+Aug 15 23:03:57 vkc2 valkey-server[254]: 254:M 15 Aug 2026 23:03:57.733 * configEpoch set to 2 via CLUSTER SET-CONFIG-EPOCH
+Aug 15 23:03:57 vkc2 valkey-server[254]: 254:M 15 Aug 2026 23:03:57.734 * Cluster meet 172.19.0.7:6379 (user request from 'id=4 addr=172.19.0.7:49456 laddr=172.19.0.6:6379 fd=12 name=*redacted* user=*redacted* lib-name= lib-ver=').
+Aug 15 23:03:57 vkc2 valkey-server[254]: 254:M 15 Aug 2026 23:03:57.810 * IP address for this node updated to 172.19.0.6
+Aug 15 23:03:57 vkc2 valkey-server[254]: 254:M 15 Aug 2026 23:03:57.810 * Successfully completed handshake with 962f973edd1110ec353f7da7e0a35257bb69f0c2 (172.19.0.7:6379)
+Aug 15 23:03:57 vkc2 valkey-server[254]: 254:M 15 Aug 2026 23:03:57.810 * Mismatch in topology information for sender node 962f973edd1110ec353f7da7e0a35257bb69f0c2 (172.19.0.7:6379) in shard 418093cb0ea6a8b9eef89904b7603d27e9f025e6
+Aug 15 23:03:58 vkc2 valkey-server[254]: 254:M 15 Aug 2026 23:03:58.100 * Mismatch in topology information for sender node 3000d593b38fab14057b653c7ccb3b6fb472d70e (172.19.0.5:6379) in shard 36921f6e8a7fbfc5e0465641855a4050266196db
+Aug 15 23:04:02 vkc2 valkey-server[254]: 254:M 15 Aug 2026 23:04:02.722 * Cluster state changed: ok
+Aug 15 23:07:26 vkc2 systemd[1]: valkey@dbcanvas.service: Sent signal SIGKILL to main process 254 (valkey-server) on client request.
+Aug 15 23:07:26 vkc2 systemd[1]: valkey@dbcanvas.service: Sending signal SIGKILL to process 255 (bio_close_file) on client request.
+Aug 15 23:07:26 vkc2 systemd[1]: valkey@dbcanvas.service: Sending signal SIGKILL to process 256 (bio_aof) on client request.
+Aug 15 23:07:26 vkc2 systemd[1]: valkey@dbcanvas.service: Sending signal SIGKILL to process 257 (bio_lazy_free) on client request.
+Aug 15 23:07:26 vkc2 systemd[1]: valkey@dbcanvas.service: Sending signal SIGKILL to process 258 (n/a) on client request.
+Aug 15 23:07:26 vkc2 systemd[1]: valkey@dbcanvas.service: Sending signal SIGKILL to process 259 (n/a) on client request.
+Aug 15 23:07:26 vkc2 systemd[1]: valkey@dbcanvas.service: Sending signal SIGKILL to process 260 (jemalloc_bg_thd) on client request.
+Aug 15 23:07:26 vkc2 systemd[1]: valkey@dbcanvas.service: Main process exited, code=killed, status=9/KILL
+Aug 15 23:07:26 vkc2 systemd[1]: valkey@dbcanvas.service: Failed with result 'signal'.
+Aug 15 23:07:26 vkc2 systemd[1]: valkey@dbcanvas.service: Scheduled restart job, restart counter is at 1.
+Aug 15 23:07:26 vkc2 systemd[1]: Stopped Valkey instance: dbcanvas.
+Aug 15 23:07:26 vkc2 systemd[1]: Starting Valkey instance: dbcanvas...
+Aug 15 23:07:26 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:07:26.577 # WARNING Memory overcommit must be enabled! Without it, a background save or replication may fail under low memory condition. Being disabled, it can also cause failures without low memory condition, see https://github.com/jemalloc/jemalloc/issues/1328. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.
+Aug 15 23:07:26 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:07:26.578 * Supervised by systemd. Please make sure you set appropriate values for TimeoutStartSec and TimeoutStopSec in your service unit.
+Aug 15 23:07:26 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:07:26.578 * oO0OoO0OoO0Oo Valkey is starting oO0OoO0OoO0Oo
+Aug 15 23:07:26 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:07:26.578 * Valkey version=9.1.1, bits=64, commit=00000000, modified=1, pid=296, just started
+Aug 15 23:07:26 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:07:26.578 * Configuration loaded
+Aug 15 23:07:26 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:07:26.609 * monotonic clock: X86 TSC @ 2918.79 ticks/us
+Aug 15 23:07:26 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:07:26.609 * Running mode=cluster, port=6379.
+Aug 15 23:07:26 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:07:26.609 * Node configuration loaded, I'm 81ce2216adbcc1e6e9e781d0b280ae899f08b789
+Aug 15 23:07:26 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:07:26.610 * Static Module 'lua' successfully loaded
+Aug 15 23:07:26 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:07:26.610 * Server initialized
+Aug 15 23:07:26 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:07:26.610 * Cleaning slot migration log in anticipation of a load operation.
+Aug 15 23:07:26 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:07:26.611 * Reading RDB base file on AOF loading...
+Aug 15 23:07:26 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:07:26.611 * Loading RDB produced by Valkey version 9.1.1
+Aug 15 23:07:26 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:07:26.611 * RDB age 213 seconds
+Aug 15 23:07:26 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:07:26.611 * RDB memory usage when created 2.64 Mb
+Aug 15 23:07:26 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:07:26.611 * RDB is base AOF
+Aug 15 23:07:26 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:07:26.611 * Done loading RDB, keys loaded: 0, keys expired: 0, all fields expired hashes: 0.
+Aug 15 23:07:26 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:07:26.611 * DB loaded from base file appendonly.aof.1.base.rdb: 0.001 seconds
+Aug 15 23:07:26 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:07:26.611 * DB loaded from append only file: 0.001 seconds
+Aug 15 23:07:26 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:07:26.611 * Opening AOF incr file appendonly.aof.1.incr.aof on server start
+Aug 15 23:07:26 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:07:26.611 * Ready to accept connections tcp
+Aug 15 23:07:26 vkc2 systemd[1]: Started Valkey instance: dbcanvas.
+Aug 15 23:07:28 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:07:28.622 * Cluster state changed: ok
+Aug 15 23:08:42 vkc2 valkey-server[296]: 296:signal-handler (1786835322) Received SIGTERM scheduling shutdown...
+Aug 15 23:08:42 vkc2 systemd[1]: Stopping Valkey instance: dbcanvas...
+Aug 15 23:08:42 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:08:42.189 * User requested shutdown...
+Aug 15 23:08:42 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:08:42.189 * Calling fsync() on the AOF file.
+Aug 15 23:08:42 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:08:42.193 * Saving the final RDB snapshot before exiting.
+Aug 15 23:08:42 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:08:42.210 * DB saved on disk
+Aug 15 23:08:42 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:08:42.210 * Saving the cluster configuration file before exiting.
+Aug 15 23:08:42 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:08:42.224 * Module lua unloaded
+Aug 15 23:08:42 vkc2 valkey-server[296]: 296:M 15 Aug 2026 23:08:42.224 # Valkey is now ready to exit, bye bye...
+Aug 15 23:08:42 vkc2 systemd[1]: valkey@dbcanvas.service: Deactivated successfully.
+Aug 15 23:08:42 vkc2 systemd[1]: Stopped Valkey instance: dbcanvas.
+Aug 15 23:09:12 vkc2 systemd[1]: Starting Valkey instance: dbcanvas...
+Aug 15 23:09:12 vkc2 valkey-server[345]: 345:M 15 Aug 2026 23:09:12.950 # WARNING Memory overcommit must be enabled! Without it, a background save or replication may fail under low memory condition. Being disabled, it can also cause failures without low memory condition, see https://github.com/jemalloc/jemalloc/issues/1328. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.
+Aug 15 23:09:12 vkc2 valkey-server[345]: 345:M 15 Aug 2026 23:09:12.950 * Supervised by systemd. Please make sure you set appropriate values for TimeoutStartSec and TimeoutStopSec in your service unit.
+Aug 15 23:09:12 vkc2 valkey-server[345]: 345:M 15 Aug 2026 23:09:12.950 * oO0OoO0OoO0Oo Valkey is starting oO0OoO0OoO0Oo
+Aug 15 23:09:12 vkc2 valkey-server[345]: 345:M 15 Aug 2026 23:09:12.950 * Valkey version=9.1.1, bits=64, commit=00000000, modified=1, pid=345, just started
+Aug 15 23:09:12 vkc2 valkey-server[345]: 345:M 15 Aug 2026 23:09:12.950 * Configuration loaded
+Aug 15 23:09:12 vkc2 valkey-server[345]: 345:M 15 Aug 2026 23:09:12.981 * monotonic clock: X86 TSC @ 2918.28 ticks/us
+Aug 15 23:09:12 vkc2 valkey-server[345]: 345:M 15 Aug 2026 23:09:12.981 * Running mode=cluster, port=6379.
+Aug 15 23:09:12 vkc2 valkey-server[345]: 345:M 15 Aug 2026 23:09:12.982 * Node configuration loaded, I'm 81ce2216adbcc1e6e9e781d0b280ae899f08b789
+Aug 15 23:09:12 vkc2 valkey-server[345]: 345:M 15 Aug 2026 23:09:12.982 * Static Module 'lua' successfully loaded
+Aug 15 23:09:12 vkc2 valkey-server[345]: 345:M 15 Aug 2026 23:09:12.982 * Server initialized
+Aug 15 23:09:12 vkc2 valkey-server[345]: 345:M 15 Aug 2026 23:09:12.982 * Cleaning slot migration log in anticipation of a load operation.
+Aug 15 23:09:12 vkc2 valkey-server[345]: 345:M 15 Aug 2026 23:09:12.982 * Reading RDB base file on AOF loading...
+Aug 15 23:09:12 vkc2 valkey-server[345]: 345:M 15 Aug 2026 23:09:12.982 * Loading RDB produced by Valkey version 9.1.1
+Aug 15 23:09:12 vkc2 valkey-server[345]: 345:M 15 Aug 2026 23:09:12.982 * RDB age 319 seconds
+Aug 15 23:09:12 vkc2 valkey-server[345]: 345:M 15 Aug 2026 23:09:12.982 * RDB memory usage when created 2.64 Mb
+Aug 15 23:09:12 vkc2 valkey-server[345]: 345:M 15 Aug 2026 23:09:12.982 * RDB is base AOF
+Aug 15 23:09:12 vkc2 valkey-server[345]: 345:M 15 Aug 2026 23:09:12.982 * Done loading RDB, keys loaded: 0, keys expired: 0, all fields expired hashes: 0.
+Aug 15 23:09:12 vkc2 valkey-server[345]: 345:M 15 Aug 2026 23:09:12.982 * DB loaded from base file appendonly.aof.1.base.rdb: 0.000 seconds
+Aug 15 23:09:12 vkc2 valkey-server[345]: 345:M 15 Aug 2026 23:09:12.983 * DB loaded from append only file: 0.000 seconds
+Aug 15 23:09:12 vkc2 valkey-server[345]: 345:M 15 Aug 2026 23:09:12.983 * Opening AOF incr file appendonly.aof.1.incr.aof on server start
+Aug 15 23:09:12 vkc2 valkey-server[345]: 345:M 15 Aug 2026 23:09:12.983 * Ready to accept connections tcp
+Aug 15 23:09:12 vkc2 systemd[1]: Started Valkey instance: dbcanvas.
+Aug 15 23:09:14 vkc2 valkey-server[345]: 345:M 15 Aug 2026 23:09:14.991 * Cluster state changed: ok

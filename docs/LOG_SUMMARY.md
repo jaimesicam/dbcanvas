@@ -889,3 +889,161 @@ running — the primary stopped, nothing promoted anything, and a standby was pr
 quiet: telling somebody with a single server that their cluster has no leader is worse than
 saying nothing.
 
+## Valkey and Valkey Cluster: the log with no level worth reading
+
+The sixth cluster vocabulary, and the one whose log is least like the other five. Every other
+engine here writes a structured header — a level, usually a code, a subsystem. Valkey writes
+a pid, a **role letter**, a date with the day first and the month as a name, and one of four
+punctuation marks:
+
+```
+253:M 15 Aug 2026 23:03:55.100 * Ready to accept connections tcp
+  ^  ^ ^                       ^ ^
+  |  | |                       | the message
+  |  | |                       level: . debug  - verbose  * notice  # warning
+  |  | the timestamp — no zone, no year on the journald prefix, no ISO anything
+  |  the role this process thought it had when it wrote the line
+  the pid
+```
+
+### The role letter is the state track
+
+This is the one thing Valkey's log does better than any other engine's here. Everywhere else,
+working out what state a node was in means pairing transitions that may be hundreds of lines
+apart, and a fragment containing no transition leaves the lane blank — which is why
+`lsSeedState` exists and why it has to mark its answers as deduced. Valkey stamps the role on
+**every line**. A file whose letters run `M M M S S S` is a demotion with a timestamp on it.
+
+Two things outrank the role, and both are cases where it is true and irrelevant. A server
+**LOADING** its dataset off disk reports `M`, is listening, and refuses every command with
+`-LOADING`. And a cluster member whose cluster has uncovered slots reports `M` or `S`, is
+completely healthy, and refuses every command with `CLUSTERDOWN`.
+
+### The level is worth less than nothing
+
+Across the whole corpus, the entire story of an automatic failover — the failure detection,
+the election, the vote, the promotion — is written at `*`, notice. What is written at `#`,
+the top of Valkey's scale, is this, on every start of every healthy node:
+
+```
+# WARNING Memory overcommit must be enabled! Without it, a background save or replication
+  may fail under low memory condition...
+```
+
+Taking the level as a floor painted **17 healthy starts** in the corpus amber and would file
+a promotion below a host-tuning hint. So the floor applies only to records the catalogue does
+*not* recognise, where the server's own opinion is the only one available. The overcommit and
+THP warnings are filed as background deliberately — with a `means` that says they matter
+exactly once, on the day a fork fails, and that a failed background save elsewhere in the
+same log is that day.
+
+### The kill that writes nothing
+
+dbcanvas sets no `logfile`, so Valkey writes to stdout and systemd keeps it: the collector
+reads the **journal**, and the journal holds systemd's records beside Valkey's. That is not
+noise to filter out. A SIGKILLed `valkey-server` writes **nothing whatsoever** — no crash
+report, no last line — so the Valkey half of the file is simply a log that stops and starts
+again. systemd's half of the same file is the entire evidence:
+
+```
+Aug 15 23:07:26 vkc2 systemd[1]: valkey@dbcanvas.service: Main process exited, code=killed, status=9/KILL
+```
+
+Both halves are parsed, marked with different subsystems and given separate catalogues — the
+same shape as the PostgreSQL/Patroni pair, and for the same reason: running one rule list over
+both matches the wrong things.
+
+It also explains a restart that leaves no trace anywhere else. `Restart=on-failure` brought a
+SIGKILLed node back **inside the same second**, so no peer ever noticed and the Valkey log
+shows one ordinary start. `Scheduled restart job, restart counter is at 1` is the only record
+that it was not one.
+
+### A clean stop and a crash look identical to every other node
+
+Galera can tell a member that left cleanly from one that was lost, and the Log Summary makes a
+finding of each. Valkey Cluster cannot. Stopping a node with `systemctl stop` produced on its
+peers *exactly* the record a `kill -9` produces, 6.3 seconds later:
+
+```
+* Marking node 81ce2216adbcc1e6e9e781d0b280ae899f08b789 (172.19.0.6:6379) as failing (quorum reached).
+```
+
+There is no goodbye message in the protocol. The answer is only ever in the departed node's
+**own** log — `Received SIGTERM scheduling shutdown` for a stop, systemd's `status=9/KILL` for
+a kill — and only if it is in the bundle. So the page says that out loud rather than staying
+quiet, because silence here reads as "it was a crash". When the departing node's log *is*
+present, the finding gives the answer instead of the caveat — looking only near the departure,
+because a node can be killed early in a window, restarted within the second, and stopped
+cleanly a minute later, which is exactly what the `v02` corpus contains and what an
+unrestricted search got wrong.
+
+### The finding this catalogue exists for
+
+A Valkey Cluster refuses **every** client when any shard's slots are uncovered — and the nodes
+doing the refusing are not the node that failed. Measured: one shard of three stopped for
+thirty seconds left the other two logging
+
+```
+# Cluster state changed: fail
+# Cluster is currently down: At least one hash slot is not served by any available node.
+```
+
+and nothing else, while every client of every node got `CLUSTERDOWN`. Asked what each node was
+doing in the middle of it, the page now answers:
+
+```
+vkc1   CLUSTERDOWN  bad   up, healthy, and refusing every command because some other shard's slots are uncovered
+vkc2   DOWN         bad   the server is not running
+vkc3   CLUSTERDOWN  bad   up, healthy, and refusing every command because some other shard's slots are uncovered
+```
+
+That is the sentence three logs are opened to find, and no single one of them contains it.
+
+`cluster-require-full-coverage` decides the blast radius and defaults to `yes`, which is why
+one shard's outage is the whole keyspace's. dbcanvas's own Valkey Cluster frame is
+**all-primary** (`--cluster-replicas 0`), so there is nothing to promote and a single node
+stopping is a cluster-wide outage until it comes back — a separate finding, because the advice
+is different: a three-node all-primary cluster is a third of the availability of one server,
+not three times it.
+
+### Building a cluster is not an outage
+
+Every node writes `Cluster is currently down: At least one hash slot is not served` while the
+cluster is being *created*, before anybody has met anybody. Treating that as an incident would
+report every healthy deployment as broken on the day it was built. What is **never** written
+during formation is `Cluster state changed: fail` — a cluster that has never been ok cannot
+change to fail — and that is the discriminator, verified across both cluster fixtures.
+
+### The honest note, and Valkey's is the largest of the six
+
+Three things a Valkey server does are entirely absent from its log, and each was measured
+rather than assumed:
+
+| what happened | what the log said |
+|---|---|
+| 40,000 writes against an 8 MB `maxmemory` evicted **19,156 keys** | nothing at all |
+| a real failed snapshot left the server refusing every write with `MISCONF` | `# Background saving error` — the word `MISCONF` appears nowhere |
+| three failed authentications | nothing at all |
+
+The MISCONF one is the worst, because the log does record the *cause* and never the
+*consequence*. `stop-writes-on-bgsave-error` defaults to `yes`, so from that line until a save
+succeeds the server answers every write with an error only the client ever sees. When a
+bundle contains a failed save the note stops being a caveat and becomes a warning about that
+server, and its severity rises to say so.
+
+### Three fixtures
+
+`v01-cluster-failover` is six nodes on Valkey 8 — three shards, one replica each — driven
+through an automatic failover with the primary SIGKILLed, the old primary rejoining as a
+replica, a manual failover handing the shard back, and a whole shard killed so its slots went
+uncovered. It is in the bare stdout shape a container or a `logfile`-configured node writes.
+`v02-cluster-nocover` is three all-primary nodes on Percona Valkey 9.1.1, read through
+`journalctl` exactly as the collector reads it, with one shard stopped for thirty seconds and
+no replica to take over. `v03-standalone-repl` is a primary and a replica wired by hand,
+driven through a full sync, a killed primary, a partial resync, a manual promotion, a real
+persistence failure and the 40,000 writes above.
+
+Both log shapes are in the corpus deliberately: the bare form and the journald-prefixed one
+have to parse to the *same instant*, and the inner stamp is the precise one — journald's
+prefix carries no milliseconds and no year, so a systemd record borrows its year from the
+Valkey records beside it or lands at the far left of every timeline it appears on.

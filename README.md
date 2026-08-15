@@ -548,7 +548,7 @@ on a palette deliberately kept clear of the red/amber/green the status colours u
 colour-vision validator rather than picked by eye, and the node's name always sits beside
 its chip.
 
-**PXC, Group Replication, asynchronous replication, MongoDB replica sets and sharded clusters, and PostgreSQL — standalone, streaming and Patroni — all have full catalogues** — one
+**PXC, Group Replication, asynchronous replication, MongoDB replica sets and sharded clusters, PostgreSQL — standalone, streaming and Patroni — and Valkey, standalone and clustered, all have full catalogues** — one
 written against a live Galera cluster, one against a live GTID source/replica topology, and
 one against a live three-node Group Replication group in both of its modes (raw, and
 MySQL-Shell-managed InnoDB Cluster) — so a 1062 applier stop names the row, the table and
@@ -584,6 +584,20 @@ arrived a second early during an ordinary restart. The finding it exists for: st
 a healthy Patroni cluster and the leader stands down with **nothing wrong with PostgreSQL** —
 Patroni says why, PostgreSQL's own log records only "received fast shutdown request", and
 `/var/log/patroni/` is empty because Patroni logs to the journal.
+
+**Valkey** is the sixth, and its log is the odd one: no codes, no subsystems, a level scale
+whose top is a boilerplate hint about `vm.overcommit_memory` printed on every healthy start —
+and a **role letter on every single line**, which is the one thing it does better than any of
+the others, because the state track can be read straight off the headers instead of
+reconstructed from transitions. The finding it exists for is the one no single log contains:
+a Valkey Cluster refuses **every** client when any shard's slots are uncovered, so stopping one
+shard of three left the other two *completely healthy and answering nothing* — asked what each
+node was doing mid-outage, the page answers `CLUSTERDOWN`, `DOWN`, `CLUSTERDOWN`. A SIGKILLed
+`valkey-server` writes nothing at all, so the collector reads systemd's half of the journal
+too: `Main process exited, code=killed, status=9/KILL` is the entire evidence a node was killed
+rather than stopped. And what the log will never tell you was measured rather than guessed —
+19,156 evicted keys, a `MISCONF` state refusing every write, and three failed logins, between
+them producing **zero** records.
 
 Two things the Group Replication captures settled are worth the page on their own. A member
 can leave the group and be left **writable** — the corpus caught a load generator

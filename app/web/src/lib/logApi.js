@@ -212,6 +212,13 @@ export const STATE_TEXT = {
   // PostgreSQL
   STANDBY: 'Replaying the primary\'s WAL, answering reads, and refusing every write',
   PROMOTING: 'A promote was requested and has not finished — writes resume when it does',
+  // Valkey. REPLICA is Valkey's own word for what MongoDB calls SECONDARY and PostgreSQL
+  // calls STANDBY; CLUSTERDOWN has no counterpart in any of the others, and it is the one
+  // worth reading the legend for — a node in it is completely healthy and answering nothing.
+  REPLICA: 'Following a primary and answering reads — with no way to know from the log how far behind it is',
+  SYNCING: 'Receiving a full copy of the primary\'s dataset — anything it answers meanwhile is stale by an unbounded amount',
+  LOADING: 'Up and listening, and refusing every command with -LOADING while it reads its dataset off disk. A health check that only opens a socket sees a healthy node',
+  CLUSTERDOWN: 'Up, healthy, and refusing every command because some OTHER shard\'s hash slots are uncovered. Nothing is wrong with this node',
   // Not a cluster member at all
   RUNNING: 'Up and accepting connections',
   STARTING: 'Starting up — not accepting connections yet',
@@ -222,11 +229,13 @@ export const STATE_TEXT = {
 
 export const STATE_SEV = {
   SYNCED: 'ok', ONLINE: 'ok', RUNNING: 'ok',
-  PRIMARY: 'ok', SECONDARY: 'ok', STANDBY: 'ok', ROUTING: 'ok',
+  PRIMARY: 'ok', SECONDARY: 'ok', STANDBY: 'ok', ROUTING: 'ok', REPLICA: 'ok',
   JOINED: 'warn', JOINER: 'warn', DONOR: 'warn', 'PRIMARY-COMP': 'warn',
   RECOVERING: 'warn', STARTING: 'warn', STARTUP2: 'warn', ARBITER: 'warn', PROMOTING: 'warn',
+  SYNCING: 'warn', LOADING: 'warn',
   OPEN: 'bad', CLOSED: 'bad', DOWN: 'bad',
   BLOCKED: 'bad', ERROR: 'bad', OFFLINE: 'bad', ROLLBACK: 'bad', REMOVED: 'bad',
+  CLUSTERDOWN: 'bad',
   UNKNOWN: 'info',
 }
 
@@ -284,6 +293,8 @@ export const FLAVOUR_LABEL = {
   mongos: 'mongos router',
   pgstream: 'streaming replication',
   patroni: 'Patroni member',
+  valkeyrepl: 'Valkey replication',
+  valkeycluster: 'Valkey Cluster member',
 }
 
 export const ENGINE_LABEL = {

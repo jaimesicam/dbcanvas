@@ -1,0 +1,99 @@
+Aug 15 23:03:45 vka systemd[1]: Starting Valkey instance: dbcanvas...
+Aug 15 23:03:45 vka valkey-server[254]: 254:M 15 Aug 2026 23:03:45.086 # WARNING Memory overcommit must be enabled! Without it, a background save or replication may fail under low memory condition. Being disabled, it can also cause failures without low memory condition, see https://github.com/jemalloc/jemalloc/issues/1328. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.
+Aug 15 23:03:45 vka valkey-server[254]: 254:M 15 Aug 2026 23:03:45.086 * Supervised by systemd. Please make sure you set appropriate values for TimeoutStartSec and TimeoutStopSec in your service unit.
+Aug 15 23:03:45 vka valkey-server[254]: 254:M 15 Aug 2026 23:03:45.086 * oO0OoO0OoO0Oo Valkey is starting oO0OoO0OoO0Oo
+Aug 15 23:03:45 vka valkey-server[254]: 254:M 15 Aug 2026 23:03:45.086 * Valkey version=9.1.1, bits=64, commit=00000000, modified=1, pid=254, just started
+Aug 15 23:03:45 vka valkey-server[254]: 254:M 15 Aug 2026 23:03:45.086 * Configuration loaded
+Aug 15 23:03:45 vka valkey-server[254]: 254:M 15 Aug 2026 23:03:45.117 * monotonic clock: X86 TSC @ 2918.79 ticks/us
+Aug 15 23:03:45 vka valkey-server[254]: 254:M 15 Aug 2026 23:03:45.117 * Running mode=standalone, port=6379.
+Aug 15 23:03:45 vka valkey-server[254]: 254:M 15 Aug 2026 23:03:45.118 * Static Module 'lua' successfully loaded
+Aug 15 23:03:45 vka valkey-server[254]: 254:M 15 Aug 2026 23:03:45.118 * Server initialized
+Aug 15 23:03:45 vka valkey-server[254]: 254:M 15 Aug 2026 23:03:45.122 * Creating AOF base file appendonly.aof.1.base.rdb on server start
+Aug 15 23:03:45 vka valkey-server[254]: 254:M 15 Aug 2026 23:03:45.129 * Creating AOF incr file appendonly.aof.1.incr.aof on server start
+Aug 15 23:03:45 vka valkey-server[254]: 254:M 15 Aug 2026 23:03:45.129 * Ready to accept connections tcp
+Aug 15 23:03:45 vka systemd[1]: Started Valkey instance: dbcanvas.
+Aug 15 23:04:51 vka valkey-server[254]: 254:M 15 Aug 2026 23:04:51.149 * Replica 172.19.0.4:6379 asks for synchronization
+Aug 15 23:04:51 vka valkey-server[254]: 254:M 15 Aug 2026 23:04:51.149 * Partial resynchronization not accepted: Replication ID mismatch (Replica asked for 'df0dc7aa216f3c9a33df8d04af50766e5a227f44', my replication IDs are 'd5f9222eb7d4c6d34f343a7df2861f4562e207b4' and '0000000000000000000000000000000000000000')
+Aug 15 23:04:51 vka valkey-server[254]: 254:M 15 Aug 2026 23:04:51.149 * Replication backlog created, my new replication IDs are '360aae0b893ffddb788b3a522b9f83f8594d75f6' and '0000000000000000000000000000000000000000'
+Aug 15 23:04:51 vka valkey-server[254]: 254:M 15 Aug 2026 23:04:51.149 * Delay next BGSAVE for diskless SYNC
+Aug 15 23:04:56 vka valkey-server[254]: 254:M 15 Aug 2026 23:04:56.385 * Starting BGSAVE for SYNC with target: replicas sockets using: normal sync
+Aug 15 23:04:56 vka valkey-server[254]: 254:M 15 Aug 2026 23:04:56.385 * Background RDB transfer started by pid 2308 to pipe through parent process
+Aug 15 23:04:56 vka valkey-server[2308]: 2308:C 15 Aug 2026 23:04:56.387 * Fork CoW for RDB: current 0 MB, peak 0 MB, average 0 MB
+Aug 15 23:04:56 vka valkey-server[254]: 254:M 15 Aug 2026 23:04:56.387 * Diskless rdb transfer, done reading from pipe, 1 replicas still up.
+Aug 15 23:04:56 vka valkey-server[254]: 254:M 15 Aug 2026 23:04:56.486 * Background RDB transfer terminated with success
+Aug 15 23:04:56 vka valkey-server[254]: 254:M 15 Aug 2026 23:04:56.486 * Streamed RDB transfer with replica 172.19.0.4:6379 succeeded (socket). Waiting for REPLCONF ACK from replica to enable streaming
+Aug 15 23:04:56 vka valkey-server[254]: 254:M 15 Aug 2026 23:04:56.486 * Synchronization with replica 172.19.0.4:6379 succeeded
+Aug 15 23:05:04 vka systemd[1]: valkey@dbcanvas.service: Sent signal SIGKILL to main process 254 (valkey-server) on client request.
+Aug 15 23:05:04 vka systemd[1]: valkey@dbcanvas.service: Sending signal SIGKILL to process 308 (jemalloc_bg_thd) on client request.
+Aug 15 23:05:04 vka systemd[1]: valkey@dbcanvas.service: Main process exited, code=killed, status=9/KILL
+Aug 15 23:05:04 vka systemd[1]: valkey@dbcanvas.service: Failed with result 'signal'.
+Aug 15 23:05:05 vka systemd[1]: valkey@dbcanvas.service: Scheduled restart job, restart counter is at 1.
+Aug 15 23:05:05 vka systemd[1]: Stopped Valkey instance: dbcanvas.
+Aug 15 23:05:05 vka systemd[1]: Starting Valkey instance: dbcanvas...
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.072 # WARNING Memory overcommit must be enabled! Without it, a background save or replication may fail under low memory condition. Being disabled, it can also cause failures without low memory condition, see https://github.com/jemalloc/jemalloc/issues/1328. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.072 * Supervised by systemd. Please make sure you set appropriate values for TimeoutStartSec and TimeoutStopSec in your service unit.
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.072 * oO0OoO0OoO0Oo Valkey is starting oO0OoO0OoO0Oo
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.072 * Valkey version=9.1.1, bits=64, commit=00000000, modified=1, pid=2317, just started
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.072 * Configuration loaded
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.103 * monotonic clock: X86 TSC @ 2918.79 ticks/us
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.103 * Running mode=standalone, port=6379.
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.103 * Static Module 'lua' successfully loaded
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.103 * Server initialized
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.103 * Cleaning slot migration log in anticipation of a load operation.
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.104 * Reading RDB base file on AOF loading...
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.104 * Loading RDB produced by Valkey version 9.1.1
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.104 * RDB age 80 seconds
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.104 * RDB memory usage when created 0.88 Mb
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.104 * RDB is base AOF
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.104 * Done loading RDB, keys loaded: 0, keys expired: 0, all fields expired hashes: 0.
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.104 * DB loaded from base file appendonly.aof.1.base.rdb: 0.001 seconds
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.106 * DB loaded from incr file appendonly.aof.1.incr.aof: 0.002 seconds
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.106 * DB loaded from append only file: 0.003 seconds
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.106 * Opening AOF incr file appendonly.aof.1.incr.aof on server start
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.106 * Ready to accept connections tcp
+Aug 15 23:05:05 vka systemd[1]: Started Valkey instance: dbcanvas.
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.407 * Replica 172.19.0.4:6379 asks for synchronization
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.407 * Partial resynchronization not accepted: Replication ID mismatch (Replica asked for '360aae0b893ffddb788b3a522b9f83f8594d75f6', my replication IDs are 'b0ae2f7cea3cd33ccc5eb7fb77a8311cd3a8aa2e' and '0000000000000000000000000000000000000000')
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.407 * Replication backlog created, my new replication IDs are '356e5e6589a40e1a6896816ab778235297e51ebe' and '0000000000000000000000000000000000000000'
+Aug 15 23:05:05 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:05.407 * Delay next BGSAVE for diskless SYNC
+Aug 15 23:05:10 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:10.023 * Starting BGSAVE for SYNC with target: replicas sockets using: normal sync
+Aug 15 23:05:10 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:10.024 * Background RDB transfer started by pid 2324 to pipe through parent process
+Aug 15 23:05:10 vka valkey-server[2324]: 2324:C 15 Aug 2026 23:05:10.025 * Fork CoW for RDB: current 0 MB, peak 0 MB, average 0 MB
+Aug 15 23:05:10 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:10.025 * Diskless rdb transfer, done reading from pipe, 1 replicas still up.
+Aug 15 23:05:10 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:10.125 * Background RDB transfer terminated with success
+Aug 15 23:05:10 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:10.125 * Streamed RDB transfer with replica 172.19.0.4:6379 succeeded (socket). Waiting for REPLCONF ACK from replica to enable streaming
+Aug 15 23:05:10 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:10.125 * Synchronization with replica 172.19.0.4:6379 succeeded
+Aug 15 23:05:29 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:05:29.459 * Connection with replica 172.19.0.4:6379 lost.
+Aug 15 23:09:51 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:09:51.424 * Replica 172.19.0.4:6379 asks for synchronization
+Aug 15 23:09:51 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:09:51.424 * Partial resynchronization not accepted: Replication ID mismatch (Replica asked for '1aa5bb55c86ad61f5b977bda9b59b73c6663876f', my replication IDs are '356e5e6589a40e1a6896816ab778235297e51ebe' and '0000000000000000000000000000000000000000')
+Aug 15 23:09:51 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:09:51.424 * Delay next BGSAVE for diskless SYNC
+Aug 15 23:09:57 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:09:57.000 * Starting BGSAVE for SYNC with target: replicas sockets using: normal sync
+Aug 15 23:09:57 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:09:57.001 * Background RDB transfer started by pid 2355 to pipe through parent process
+Aug 15 23:09:57 vka valkey-server[2355]: 2355:C 15 Aug 2026 23:09:57.002 * Fork CoW for RDB: current 0 MB, peak 0 MB, average 0 MB
+Aug 15 23:09:57 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:09:57.002 * Diskless rdb transfer, done reading from pipe, 1 replicas still up.
+Aug 15 23:09:57 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:09:57.102 * Background RDB transfer terminated with success
+Aug 15 23:09:57 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:09:57.102 * Streamed RDB transfer with replica 172.19.0.4:6379 succeeded (socket). Waiting for REPLCONF ACK from replica to enable streaming
+Aug 15 23:09:57 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:09:57.102 * Synchronization with replica 172.19.0.4:6379 succeeded
+Aug 15 23:09:57 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:09:57.580 * Connection with replica 172.19.0.4:6379 lost.
+Aug 15 23:10:03 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:10:03.030 * Replication backlog freed after 5 seconds without connected replicas.
+Aug 15 23:10:06 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:10:06.050 * 100 changes in 300 seconds. Saving...
+Aug 15 23:10:06 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:10:06.051 * Background saving started by pid 5614
+Aug 15 23:10:06 vka valkey-server[5614]: 5614:C 15 Aug 2026 23:10:06.058 * DB saved on disk
+Aug 15 23:10:06 vka valkey-server[5614]: 5614:C 15 Aug 2026 23:10:06.059 * Fork CoW for RDB: current 0 MB, peak 0 MB, average 0 MB
+Aug 15 23:10:06 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:10:06.152 * Background saving terminated with success
+Aug 15 23:10:38 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:10:38.704 * Replica 172.19.0.4:6379 asks for synchronization
+Aug 15 23:10:38 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:10:38.704 * Partial resynchronization not accepted: Replication ID mismatch (Replica asked for 'a53ab39d82c2aa68ec8935badd66edbba4a05416', my replication IDs are '8a1e36b0e0619b48df355cd2b0c5adcec4d159e2' and '0000000000000000000000000000000000000000')
+Aug 15 23:10:38 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:10:38.704 * Replication backlog created, my new replication IDs are '1c8d409a3cadd27c9e982eab0a7749093ac99a12' and '0000000000000000000000000000000000000000'
+Aug 15 23:10:38 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:10:38.704 * Delay next BGSAVE for diskless SYNC
+Aug 15 23:10:43 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:10:43.239 * Starting BGSAVE for SYNC with target: replicas sockets using: normal sync
+Aug 15 23:10:43 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:10:43.239 * Background RDB transfer started by pid 22365 to pipe through parent process
+Aug 15 23:10:43 vka valkey-server[22365]: 22365:C 15 Aug 2026 23:10:43.244 * Fork CoW for RDB: current 0 MB, peak 0 MB, average 0 MB
+Aug 15 23:10:43 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:10:43.244 * Diskless rdb transfer, done reading from pipe, 1 replicas still up.
+Aug 15 23:10:43 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:10:43.340 * Background RDB transfer terminated with success
+Aug 15 23:10:43 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:10:43.340 * Streamed RDB transfer with replica 172.19.0.4:6379 succeeded (socket). Waiting for REPLCONF ACK from replica to enable streaming
+Aug 15 23:10:43 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:10:43.340 * Synchronization with replica 172.19.0.4:6379 succeeded
+Aug 15 23:11:07 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:11:07.073 * 10000 changes in 60 seconds. Saving...
+Aug 15 23:11:07 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:11:07.074 * Background saving started by pid 22383
+Aug 15 23:11:07 vka valkey-server[22383]: 22383:C 15 Aug 2026 23:11:07.086 * DB saved on disk
+Aug 15 23:11:07 vka valkey-server[22383]: 22383:C 15 Aug 2026 23:11:07.087 * Fork CoW for RDB: current 0 MB, peak 0 MB, average 0 MB
+Aug 15 23:11:07 vka valkey-server[2317]: 2317:M 15 Aug 2026 23:11:07.175 * Background saving terminated with success

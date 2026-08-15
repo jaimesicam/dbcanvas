@@ -114,13 +114,13 @@ const (
 func lsStateSev(state string) string {
 	switch state {
 	case lsStateSynced, lsStateUp, lsStateOnline, lsStatePrimaryM, lsStateSecondary, lsStateRouting,
-		lsStateStandby:
+		lsStateStandby, lsStateVKReplica:
 		return lsSevOK
 	case lsStateJoined, lsStateJoiner, lsStateDonor, lsStatePrim, lsStateStarting, lsStateRecovering,
-		lsStateStartup2, lsStateArbiter, lsStatePromoting:
+		lsStateStartup2, lsStateArbiter, lsStatePromoting, lsStateVKSyncing, lsStateVKLoading:
 		return lsSevWarn
 	case lsStateOpen, lsStateClosed, lsStateDown, lsStateBlocked, lsStateGRError, lsStateOffline,
-		lsStateRollback, lsStateRemoved:
+		lsStateRollback, lsStateRemoved, lsStateVKDown:
 		return lsSevBad
 	}
 	return lsSevInfo
@@ -147,9 +147,15 @@ func lsStateServes(state string) bool {
 	// as serving for the same reason SECONDARY does on a replica set — an application
 	// reading from it is being served — and the write side is what the no-primary findings
 	// are for.
+	// REPLICA is a Valkey replica: up, following a primary, answering reads. It counts as
+	// serving for the same reason SECONDARY and STANDBY do. CLUSTERDOWN deliberately does
+	// not, and it is the interesting one — a Valkey Cluster node in that state is completely
+	// healthy and refusing every command, including reads, because some other shard's slots
+	// are uncovered. Counting a node that answers nothing as available would defeat the
+	// purpose of the measurement.
 	return state == lsStateSynced || state == lsStateUp || state == lsStateOnline ||
 		state == lsStatePrimaryM || state == lsStateSecondary || state == lsStateRouting ||
-		state == lsStateStandby
+		state == lsStateStandby || state == lsStateVKReplica
 }
 
 // lsStateMeaning explains a state once, for the timeline legend and the tooltip.
@@ -177,6 +183,14 @@ var lsStateMeaning = map[string]string{
 	lsStateGRError:    lsGRStateMeaning[lsStateGRError],
 	lsStateOffline:    lsGRStateMeaning[lsStateOffline],
 	lsStateBlocked:    lsGRStateMeaning[lsStateBlocked],
+
+	// Valkey's states. REPLICA is its own word for what MongoDB calls SECONDARY and
+	// PostgreSQL calls STANDBY, kept separate because a reader looking at a Valkey node wants
+	// the word `INFO replication` prints. CLUSTERDOWN has no counterpart anywhere else here.
+	lsStateVKReplica: "a Valkey replica: following a primary and answering reads, with no way to know from the log how far behind it is",
+	lsStateVKSyncing: "receiving a full copy of the primary's dataset — what it can answer while that runs is stale by an unbounded amount",
+	lsStateVKLoading: "up and listening, and refusing every command with -LOADING while it reads its dataset off disk. A health check that only opens a socket sees a healthy node",
+	lsStateVKDown:    "up, healthy, and refusing every command with CLUSTERDOWN because some other shard's hash slots are uncovered. Nothing is wrong with this node",
 
 	// MongoDB's replica-set states, spelled as rs.status() spells them.
 	lsStatePrimaryM:  lsMongoStateMeaning[lsStatePrimaryM],

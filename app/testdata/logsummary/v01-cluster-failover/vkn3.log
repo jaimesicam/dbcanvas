@@ -1,0 +1,95 @@
+1:M 15 Aug 2026 23:01:57.527 # WARNING: Changing databases number from 16 to 1 since we are in cluster mode
+1:M 15 Aug 2026 23:01:57.527 # WARNING Memory overcommit must be enabled! Without it, a background save or replication may fail under low memory condition. Being disabled, it can also cause failures without low memory condition, see https://github.com/jemalloc/jemalloc/issues/1328. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.
+1:M 15 Aug 2026 23:01:57.527 * oO0OoO0OoO0Oo Valkey is starting oO0OoO0OoO0Oo
+1:M 15 Aug 2026 23:01:57.527 * Valkey version=8.1.9, bits=64, commit=00000000, modified=0, pid=1, just started
+1:M 15 Aug 2026 23:01:57.527 * Configuration loaded
+1:M 15 Aug 2026 23:01:57.528 * Increased maximum number of open files to 10032 (it was originally set to 1024).
+1:M 15 Aug 2026 23:01:57.528 * monotonic clock: POSIX clock_gettime
+1:M 15 Aug 2026 23:01:57.528 * Running mode=cluster, port=6379.
+1:M 15 Aug 2026 23:01:57.528 * No cluster configuration found, I'm f19e0e03fe9cb97c3ed66ad772a89132d938ba3d
+1:M 15 Aug 2026 23:01:57.533 * Server initialized
+1:M 15 Aug 2026 23:01:57.535 * Creating AOF base file appendonly.aof.1.base.rdb on server start
+1:M 15 Aug 2026 23:01:57.539 * Creating AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 15 Aug 2026 23:01:57.539 * Ready to accept connections tcp
+1:M 15 Aug 2026 23:01:59.544 # Cluster is currently down: I am part of a minority partition.
+1:M 15 Aug 2026 23:02:05.664 # Cluster is currently down: At least one hash slot is not served by any available node. Please check the 'cluster-require-full-coverage' configuration.
+1:M 15 Aug 2026 23:02:05.666 * configEpoch set to 3 via CLUSTER SET-CONFIG-EPOCH
+1:M 15 Aug 2026 23:02:05.667 * Cluster meet 172.31.77.11:6379 (user request from 'id=2 addr=172.31.77.11:60274 laddr=172.31.77.13:6379 fd=14 name=*redacted* user=*redacted* lib-name= lib-ver=').
+1:M 15 Aug 2026 23:02:05.826 * Successfully completed handshake with 0385ab07758dd6e3252b4b556125a93a9c58f98c ()
+1:M 15 Aug 2026 23:02:06.670 * Node fa8b266dbbfdc8617cbdd66f7fbfa7c7a5e21a7e () is no longer primary of shard db449b31b119db719d8f1d57b46a65aa92e64dba; removed all 0 slot(s) it used to own
+1:M 15 Aug 2026 23:02:06.670 * Node fa8b266dbbfdc8617cbdd66f7fbfa7c7a5e21a7e () is now part of shard 423f5012a85f709bea1066fee34ed2c794e5bd06
+1:M 15 Aug 2026 23:02:06.670 * Node fa8b266dbbfdc8617cbdd66f7fbfa7c7a5e21a7e () is now a replica of node f19e0e03fe9cb97c3ed66ad772a89132d938ba3d () in shard 423f5012a85f709bea1066fee34ed2c794e5bd06
+1:M 15 Aug 2026 23:02:06.670 * Node e5a31ee3f6c5115dd337ce5e375717f8772762fb () is no longer primary of shard 91c0b3a4533c70600a6dfb1b68f711c93e64464d; removed all 0 slot(s) it used to own
+1:M 15 Aug 2026 23:02:06.670 * Node e5a31ee3f6c5115dd337ce5e375717f8772762fb () is now part of shard 41dc86175bf5ec9bfdf89ed0ca6968bb4ac54e08
+1:M 15 Aug 2026 23:02:06.670 * Node e5a31ee3f6c5115dd337ce5e375717f8772762fb () is now a replica of node 0385ab07758dd6e3252b4b556125a93a9c58f98c () in shard 41dc86175bf5ec9bfdf89ed0ca6968bb4ac54e08
+1:M 15 Aug 2026 23:02:06.670 * Replica 172.31.77.14:6379 asks for synchronization
+1:M 15 Aug 2026 23:02:06.670 * Full resync requested by replica 172.31.77.14:6379
+1:M 15 Aug 2026 23:02:06.670 * Replication backlog created, my new replication IDs are '92afb0809746be7acf424f09525c16fa4885da11' and '0000000000000000000000000000000000000000'
+1:M 15 Aug 2026 23:02:06.670 * Delay next BGSAVE for diskless SYNC
+1:M 15 Aug 2026 23:02:06.671 * Node 59d18ca6bd555978d93dc4e91777803031067085 () is no longer primary of shard 375db7510747d11ffefbc6ff90d29c95d07871c1; removed all 0 slot(s) it used to own
+1:M 15 Aug 2026 23:02:06.671 * Node 59d18ca6bd555978d93dc4e91777803031067085 () is now part of shard f04dcb5166a3a42b64feea43d123321a9064bfa2
+1:M 15 Aug 2026 23:02:06.671 * Node 59d18ca6bd555978d93dc4e91777803031067085 () is now a replica of node 986792e9431559c15ecdd7a52ce378e435b4b1e1 () in shard f04dcb5166a3a42b64feea43d123321a9064bfa2
+1:M 15 Aug 2026 23:02:10.682 * Cluster state changed: ok
+1:M 15 Aug 2026 23:02:11.585 * Starting BGSAVE for SYNC with target: replicas sockets using: normal sync
+1:M 15 Aug 2026 23:02:11.585 * Background RDB transfer started by pid 15 to pipe through parent process
+15:C 15 Aug 2026 23:02:11.586 * Fork CoW for RDB: current 0 MB, peak 0 MB, average 0 MB
+1:M 15 Aug 2026 23:02:11.586 * Diskless rdb transfer, done reading from pipe, 1 replicas still up.
+1:M 15 Aug 2026 23:02:11.591 * Background RDB transfer terminated with success
+1:M 15 Aug 2026 23:02:11.592 * Streamed RDB transfer with replica 172.31.77.14:6379 succeeded (socket). Waiting for REPLCONF ACK from replica to enable streaming
+1:M 15 Aug 2026 23:02:11.592 * Synchronization with replica 172.31.77.14:6379 succeeded
+1:M 15 Aug 2026 23:02:18.316 * Sending MEET packet to node 0385ab07758dd6e3252b4b556125a93a9c58f98c () because there is no inbound link for it
+1:M 15 Aug 2026 23:02:21.531 * Node 986792e9431559c15ecdd7a52ce378e435b4b1e1 () reported node 0385ab07758dd6e3252b4b556125a93a9c58f98c () as not reachable.
+1:M 15 Aug 2026 23:02:21.531 * Marking node 0385ab07758dd6e3252b4b556125a93a9c58f98c () as failing (quorum reached).
+1:M 15 Aug 2026 23:02:21.531 # Cluster state changed: fail
+1:M 15 Aug 2026 23:02:21.531 # Cluster is currently down: At least one hash slot is not served by any available node. Please check the 'cluster-require-full-coverage' configuration.
+1:M 15 Aug 2026 23:02:22.529 * Failover auth granted to e5a31ee3f6c5115dd337ce5e375717f8772762fb () for epoch 7
+1:M 15 Aug 2026 23:02:22.614 * Node e5a31ee3f6c5115dd337ce5e375717f8772762fb () reported node 0385ab07758dd6e3252b4b556125a93a9c58f98c () as not reachable.
+1:M 15 Aug 2026 23:02:22.614 * Cluster state changed: ok
+1:M 15 Aug 2026 23:02:54.850 * Successfully completed handshake with 0385ab07758dd6e3252b4b556125a93a9c58f98c ()
+1:M 15 Aug 2026 23:02:54.856 * Node 0385ab07758dd6e3252b4b556125a93a9c58f98c () is now a replica of node e5a31ee3f6c5115dd337ce5e375717f8772762fb () in shard 41dc86175bf5ec9bfdf89ed0ca6968bb4ac54e08
+1:M 15 Aug 2026 23:02:54.883 * Clear FAIL state for node 0385ab07758dd6e3252b4b556125a93a9c58f98c (): replica is reachable again.
+1:M 15 Aug 2026 23:02:55.674 * Node e5a31ee3f6c5115dd337ce5e375717f8772762fb () reported node 0385ab07758dd6e3252b4b556125a93a9c58f98c () is back online.
+1:M 15 Aug 2026 23:02:56.564 * Node 986792e9431559c15ecdd7a52ce378e435b4b1e1 () reported node 0385ab07758dd6e3252b4b556125a93a9c58f98c () is back online.
+1:M 15 Aug 2026 23:03:07.266 * Failover auth granted to 0385ab07758dd6e3252b4b556125a93a9c58f98c () for epoch 8
+1:M 15 Aug 2026 23:03:07.289 * Node e5a31ee3f6c5115dd337ce5e375717f8772762fb () is now a replica of node 0385ab07758dd6e3252b4b556125a93a9c58f98c () in shard 41dc86175bf5ec9bfdf89ed0ca6968bb4ac54e08
+1:M 15 Aug 2026 23:03:24.802 * Connection with replica 172.31.77.14:6379 lost.
+1:M 15 Aug 2026 23:03:55.811 # WARNING: Changing databases number from 16 to 1 since we are in cluster mode
+1:M 15 Aug 2026 23:03:55.811 # WARNING Memory overcommit must be enabled! Without it, a background save or replication may fail under low memory condition. Being disabled, it can also cause failures without low memory condition, see https://github.com/jemalloc/jemalloc/issues/1328. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.
+1:M 15 Aug 2026 23:03:55.811 * oO0OoO0OoO0Oo Valkey is starting oO0OoO0OoO0Oo
+1:M 15 Aug 2026 23:03:55.811 * Valkey version=8.1.9, bits=64, commit=00000000, modified=0, pid=1, just started
+1:M 15 Aug 2026 23:03:55.811 * Configuration loaded
+1:M 15 Aug 2026 23:03:55.811 * Increased maximum number of open files to 10032 (it was originally set to 1024).
+1:M 15 Aug 2026 23:03:55.811 * monotonic clock: POSIX clock_gettime
+1:M 15 Aug 2026 23:03:55.812 * Running mode=cluster, port=6379.
+1:M 15 Aug 2026 23:03:55.812 * Node configuration loaded, I'm f19e0e03fe9cb97c3ed66ad772a89132d938ba3d
+1:M 15 Aug 2026 23:03:55.812 * Server initialized
+1:M 15 Aug 2026 23:03:55.812 * Reading RDB base file on AOF loading...
+1:M 15 Aug 2026 23:03:55.812 * Loading RDB produced by Valkey version 8.1.9
+1:M 15 Aug 2026 23:03:55.812 * RDB age 118 seconds
+1:M 15 Aug 2026 23:03:55.812 * RDB memory usage when created 2.55 Mb
+1:M 15 Aug 2026 23:03:55.812 * RDB is base AOF
+1:M 15 Aug 2026 23:03:55.812 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 15 Aug 2026 23:03:55.812 * DB loaded from base file appendonly.aof.1.base.rdb: 0.000 seconds
+1:M 15 Aug 2026 23:03:55.813 * DB loaded from incr file appendonly.aof.1.incr.aof: 0.000 seconds
+1:M 15 Aug 2026 23:03:55.813 * DB loaded from append only file: 0.001 seconds
+1:M 15 Aug 2026 23:03:55.813 * Opening AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 15 Aug 2026 23:03:55.813 * Ready to accept connections tcp
+1:M 15 Aug 2026 23:03:55.814 * Node 986792e9431559c15ecdd7a52ce378e435b4b1e1 () reported node fa8b266dbbfdc8617cbdd66f7fbfa7c7a5e21a7e () as not reachable.
+1:M 15 Aug 2026 23:03:55.936 * Replica 172.31.77.14:6379 asks for synchronization
+1:M 15 Aug 2026 23:03:55.936 * Partial resynchronization not accepted: Replication ID mismatch (Replica asked for 'd998b2f944fd79ef5eedc8d0e951e10d38d5303c', my replication IDs are 'd975fbcf3e96480e489890918f3e133fb7aa678c' and '0000000000000000000000000000000000000000')
+1:M 15 Aug 2026 23:03:55.936 * Replication backlog created, my new replication IDs are 'c2cc394fbc6fcc8510bfa2ade0225a420ae365ef' and '0000000000000000000000000000000000000000'
+1:M 15 Aug 2026 23:03:55.936 * Delay next BGSAVE for diskless SYNC
+1:M 15 Aug 2026 23:03:57.821 * Cluster state changed: ok
+1:M 15 Aug 2026 23:03:58.403 * Node 986792e9431559c15ecdd7a52ce378e435b4b1e1 () reported node fa8b266dbbfdc8617cbdd66f7fbfa7c7a5e21a7e () is back online.
+1:M 15 Aug 2026 23:04:00.734 * Starting BGSAVE for SYNC with target: replicas sockets using: normal sync
+1:M 15 Aug 2026 23:04:00.734 * Background RDB transfer started by pid 15 to pipe through parent process
+15:C 15 Aug 2026 23:04:00.735 * Fork CoW for RDB: current 0 MB, peak 0 MB, average 0 MB
+1:M 15 Aug 2026 23:04:00.735 * Diskless rdb transfer, done reading from pipe, 1 replicas still up.
+1:M 15 Aug 2026 23:04:00.743 * Background RDB transfer terminated with success
+1:M 15 Aug 2026 23:04:00.743 * Streamed RDB transfer with replica 172.31.77.14:6379 succeeded (socket). Waiting for REPLCONF ACK from replica to enable streaming
+1:M 15 Aug 2026 23:04:00.743 * Synchronization with replica 172.31.77.14:6379 succeeded
+1:M 15 Aug 2026 23:08:56.018 * 100 changes in 300 seconds. Saving...
+1:M 15 Aug 2026 23:08:56.019 * Background saving started by pid 16
+16:C 15 Aug 2026 23:08:56.030 * DB saved on disk
+16:C 15 Aug 2026 23:08:56.030 * Fork CoW for RDB: current 0 MB, peak 0 MB, average 0 MB
+1:M 15 Aug 2026 23:08:56.119 * Background saving terminated with success

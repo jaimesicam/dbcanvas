@@ -1,0 +1,29 @@
+Aug 15 23:03:55 vkc3 systemd[1]: Starting Valkey instance: dbcanvas...
+Aug 15 23:03:55 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:03:55.495 # WARNING Memory overcommit must be enabled! Without it, a background save or replication may fail under low memory condition. Being disabled, it can also cause failures without low memory condition, see https://github.com/jemalloc/jemalloc/issues/1328. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.
+Aug 15 23:03:55 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:03:55.495 * Supervised by systemd. Please make sure you set appropriate values for TimeoutStartSec and TimeoutStopSec in your service unit.
+Aug 15 23:03:55 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:03:55.495 * oO0OoO0OoO0Oo Valkey is starting oO0OoO0OoO0Oo
+Aug 15 23:03:55 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:03:55.495 * Valkey version=9.1.1, bits=64, commit=00000000, modified=1, pid=254, just started
+Aug 15 23:03:55 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:03:55.495 * Configuration loaded
+Aug 15 23:03:55 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:03:55.526 * monotonic clock: X86 TSC @ 2918.28 ticks/us
+Aug 15 23:03:55 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:03:55.526 * Running mode=cluster, port=6379.
+Aug 15 23:03:55 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:03:55.527 * No cluster configuration found, I'm 3000d593b38fab14057b653c7ccb3b6fb472d70e
+Aug 15 23:03:55 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:03:55.532 * Static Module 'lua' successfully loaded
+Aug 15 23:03:55 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:03:55.532 * Server initialized
+Aug 15 23:03:55 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:03:55.534 * Creating AOF base file appendonly.aof.1.base.rdb on server start
+Aug 15 23:03:55 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:03:55.538 * Creating AOF incr file appendonly.aof.1.incr.aof on server start
+Aug 15 23:03:55 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:03:55.538 * Ready to accept connections tcp
+Aug 15 23:03:55 vkc3 systemd[1]: Started Valkey instance: dbcanvas.
+Aug 15 23:03:57 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:03:57.545 # Cluster is currently down: I am part of a minority partition.
+Aug 15 23:03:57 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:03:57.733 # Cluster is currently down: At least one hash slot is not served by any available node. Please check the 'cluster-require-full-coverage' configuration.
+Aug 15 23:03:57 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:03:57.734 * configEpoch set to 3 via CLUSTER SET-CONFIG-EPOCH
+Aug 15 23:03:57 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:03:57.734 * Cluster meet 172.19.0.7:6379 (user request from 'id=4 addr=172.19.0.7:35516 laddr=172.19.0.5:6379 fd=12 name=*redacted* user=*redacted* lib-name= lib-ver=').
+Aug 15 23:03:57 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:03:57.810 * IP address for this node updated to 172.19.0.5
+Aug 15 23:03:57 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:03:57.810 * Successfully completed handshake with 962f973edd1110ec353f7da7e0a35257bb69f0c2 (172.19.0.7:6379)
+Aug 15 23:03:57 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:03:57.810 * Mismatch in topology information for sender node 962f973edd1110ec353f7da7e0a35257bb69f0c2 (172.19.0.7:6379) in shard 4b087b17e4cfefa26bcf8eb12218077e0c2b873c
+Aug 15 23:03:58 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:03:58.551 * Mismatch in topology information for sender node 81ce2216adbcc1e6e9e781d0b280ae899f08b789 (172.19.0.6:6379) in shard 206883e1705d4e8d6e2b5ddbf10e8194f9e65b7f
+Aug 15 23:04:02 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:04:02.669 * Cluster state changed: ok
+Aug 15 23:08:48 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:08:48.477 * FAIL message received from 962f973edd1110ec353f7da7e0a35257bb69f0c2 (172.19.0.7:6379) about 81ce2216adbcc1e6e9e781d0b280ae899f08b789 (172.19.0.6:6379)
+Aug 15 23:08:48 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:08:48.477 # Cluster state changed: fail
+Aug 15 23:08:48 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:08:48.477 # Cluster is currently down: At least one hash slot is not served by any available node. Please check the 'cluster-require-full-coverage' configuration.
+Aug 15 23:09:13 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:09:13.020 * Clear FAIL state for node 81ce2216adbcc1e6e9e781d0b280ae899f08b789 (172.19.0.6:6379): is reachable again and nobody is serving its slots after some time.
+Aug 15 23:09:13 vkc3 valkey-server[254]: 254:M 15 Aug 2026 23:09:13.020 * Cluster state changed: ok

@@ -1,0 +1,129 @@
+1:M 15 Aug 2026 23:01:58.503 # WARNING: Changing databases number from 16 to 1 since we are in cluster mode
+1:M 15 Aug 2026 23:01:58.503 # WARNING Memory overcommit must be enabled! Without it, a background save or replication may fail under low memory condition. Being disabled, it can also cause failures without low memory condition, see https://github.com/jemalloc/jemalloc/issues/1328. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.
+1:M 15 Aug 2026 23:01:58.503 * oO0OoO0OoO0Oo Valkey is starting oO0OoO0OoO0Oo
+1:M 15 Aug 2026 23:01:58.503 * Valkey version=8.1.9, bits=64, commit=00000000, modified=0, pid=1, just started
+1:M 15 Aug 2026 23:01:58.503 * Configuration loaded
+1:M 15 Aug 2026 23:01:58.504 * Increased maximum number of open files to 10032 (it was originally set to 1024).
+1:M 15 Aug 2026 23:01:58.504 * monotonic clock: POSIX clock_gettime
+1:M 15 Aug 2026 23:01:58.504 * Running mode=cluster, port=6379.
+1:M 15 Aug 2026 23:01:58.504 * No cluster configuration found, I'm e5a31ee3f6c5115dd337ce5e375717f8772762fb
+1:M 15 Aug 2026 23:01:58.510 * Server initialized
+1:M 15 Aug 2026 23:01:58.512 * Creating AOF base file appendonly.aof.1.base.rdb on server start
+1:M 15 Aug 2026 23:01:58.517 * Creating AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 15 Aug 2026 23:01:58.517 * Ready to accept connections tcp
+1:M 15 Aug 2026 23:02:00.521 # Cluster is currently down: I am part of a minority partition.
+1:M 15 Aug 2026 23:02:05.666 * configEpoch set to 5 via CLUSTER SET-CONFIG-EPOCH
+1:M 15 Aug 2026 23:02:05.667 * Cluster meet 172.31.77.11:6379 (user request from 'id=2 addr=172.31.77.11:40322 laddr=172.31.77.15:6379 fd=14 name=*redacted* user=*redacted* lib-name= lib-ver=').
+1:M 15 Aug 2026 23:02:05.826 * Successfully completed handshake with 0385ab07758dd6e3252b4b556125a93a9c58f98c ()
+1:M 15 Aug 2026 23:02:05.826 # Cluster is currently down: At least one hash slot is not served by any available node. Please check the 'cluster-require-full-coverage' configuration.
+1:S 15 Aug 2026 23:02:06.669 * Connecting to PRIMARY 172.31.77.11:6379
+1:S 15 Aug 2026 23:02:06.670 * PRIMARY <-> REPLICA sync started
+1:S 15 Aug 2026 23:02:06.670 * Cluster state changed: ok
+1:S 15 Aug 2026 23:02:06.670 * Node fa8b266dbbfdc8617cbdd66f7fbfa7c7a5e21a7e () is no longer primary of shard db449b31b119db719d8f1d57b46a65aa92e64dba; removed all 0 slot(s) it used to own
+1:S 15 Aug 2026 23:02:06.670 * Node fa8b266dbbfdc8617cbdd66f7fbfa7c7a5e21a7e () is now part of shard 423f5012a85f709bea1066fee34ed2c794e5bd06
+1:S 15 Aug 2026 23:02:06.670 * Node fa8b266dbbfdc8617cbdd66f7fbfa7c7a5e21a7e () is now a replica of node f19e0e03fe9cb97c3ed66ad772a89132d938ba3d () in shard 423f5012a85f709bea1066fee34ed2c794e5bd06
+1:S 15 Aug 2026 23:02:06.670 * Non blocking connect for SYNC fired the event.
+1:S 15 Aug 2026 23:02:06.670 * Primary replied to PING, replication can continue...
+1:S 15 Aug 2026 23:02:06.671 * Partial resynchronization not possible (no cached primary)
+1:S 15 Aug 2026 23:02:07.063 * Node 59d18ca6bd555978d93dc4e91777803031067085 () is no longer primary of shard 1248a82745ed0b89f8d95289428bc81219e3c0b5; removed all 0 slot(s) it used to own
+1:S 15 Aug 2026 23:02:07.063 * Node 59d18ca6bd555978d93dc4e91777803031067085 () is now part of shard f04dcb5166a3a42b64feea43d123321a9064bfa2
+1:S 15 Aug 2026 23:02:07.063 * Node 59d18ca6bd555978d93dc4e91777803031067085 () is now a replica of node 986792e9431559c15ecdd7a52ce378e435b4b1e1 () in shard f04dcb5166a3a42b64feea43d123321a9064bfa2
+1:S 15 Aug 2026 23:02:11.652 * Full resync from primary: a195551857ffd8ab501229c935b0856a4d518594:0
+1:S 15 Aug 2026 23:02:11.653 * PRIMARY <-> REPLICA sync: receiving streamed RDB from primary with EOF to disk
+1:S 15 Aug 2026 23:02:11.658 * PRIMARY <-> REPLICA sync: Flushing old data
+1:S 15 Aug 2026 23:02:11.658 * PRIMARY <-> REPLICA sync: Loading DB in memory
+1:S 15 Aug 2026 23:02:11.658 * Loading RDB produced by Valkey version 8.1.9
+1:S 15 Aug 2026 23:02:11.658 * RDB age 0 seconds
+1:S 15 Aug 2026 23:02:11.658 * RDB memory usage when created 2.77 Mb
+1:S 15 Aug 2026 23:02:11.658 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:S 15 Aug 2026 23:02:11.658 * PRIMARY <-> REPLICA sync: Finished with success
+1:S 15 Aug 2026 23:02:11.658 * Creating AOF incr file temp-appendonly.aof.incr on background rewrite
+1:S 15 Aug 2026 23:02:11.659 * Background append only file rewriting started by pid 16
+16:C 15 Aug 2026 23:02:11.661 * Successfully created the temporary AOF base file temp-rewriteaof-bg-16.aof
+16:C 15 Aug 2026 23:02:11.661 * Fork CoW for AOF rewrite: current 0 MB, peak 0 MB, average 0 MB
+1:S 15 Aug 2026 23:02:11.663 * Background AOF rewrite terminated with success
+1:S 15 Aug 2026 23:02:11.663 * Successfully renamed the temporary AOF base file temp-rewriteaof-bg-16.aof into appendonly.aof.2.base.rdb
+1:S 15 Aug 2026 23:02:11.663 * Successfully renamed the temporary AOF incr file temp-appendonly.aof.incr into appendonly.aof.2.incr.aof
+1:S 15 Aug 2026 23:02:11.671 * Removing the history file appendonly.aof.1.incr.aof in the background
+1:S 15 Aug 2026 23:02:11.671 * Removing the history file appendonly.aof.1.base.rdb in the background
+1:S 15 Aug 2026 23:02:11.676 * Background AOF rewrite finished successfully
+1:S 15 Aug 2026 23:02:13.299 * Connection with primary lost.
+1:S 15 Aug 2026 23:02:13.299 * Caching the disconnected primary state.
+1:S 15 Aug 2026 23:02:13.300 * Reconnecting to PRIMARY 172.31.77.11:6379
+1:S 15 Aug 2026 23:02:13.300 * PRIMARY <-> REPLICA sync started
+1:S 15 Aug 2026 23:02:13.300 # Error condition on socket for SYNC: Connection refused
+1:S 15 Aug 2026 23:02:13.585 * Connecting to PRIMARY 172.31.77.11:6379
+1:S 15 Aug 2026 23:02:13.585 * PRIMARY <-> REPLICA sync started
+1:S 15 Aug 2026 23:02:18.305 * Sending MEET packet to node 0385ab07758dd6e3252b4b556125a93a9c58f98c () because there is no inbound link for it
+1:S 15 Aug 2026 23:02:18.506 * NODE 0385ab07758dd6e3252b4b556125a93a9c58f98c () possibly failing.
+1:S 15 Aug 2026 23:02:21.519 * Node 986792e9431559c15ecdd7a52ce378e435b4b1e1 () reported node 0385ab07758dd6e3252b4b556125a93a9c58f98c () as not reachable.
+1:S 15 Aug 2026 23:02:21.531 * FAIL message received from 986792e9431559c15ecdd7a52ce378e435b4b1e1 () about 0385ab07758dd6e3252b4b556125a93a9c58f98c ()
+1:S 15 Aug 2026 23:02:21.531 # Cluster state changed: fail
+1:S 15 Aug 2026 23:02:21.531 # Cluster is currently down: At least one hash slot is not served by any available node. Please check the 'cluster-require-full-coverage' configuration.
+1:S 15 Aug 2026 23:02:21.620 * Start of election delayed for 884 milliseconds (rank #0, primary rank #0, offset 6453).
+1:S 15 Aug 2026 23:02:21.720 * Currently unable to failover: Waiting the delay before I can start a new failover.
+1:S 15 Aug 2026 23:02:22.021 * Currently unable to failover: Waiting the delay before I can start a new failover.
+1:S 15 Aug 2026 23:02:22.523 * Starting a failover election for epoch 7, node config epoch is 1
+1:S 15 Aug 2026 23:02:22.534 * Node f19e0e03fe9cb97c3ed66ad772a89132d938ba3d () reported node 0385ab07758dd6e3252b4b556125a93a9c58f98c () as not reachable.
+1:S 15 Aug 2026 23:02:22.534 * Currently unable to failover: Waiting for votes, but majority still not reached.
+1:S 15 Aug 2026 23:02:22.534 * Needed quorum: 2. Number of votes received so far: 1
+1:S 15 Aug 2026 23:02:22.534 * Failover election won: I'm the new primary.
+1:S 15 Aug 2026 23:02:22.534 * configEpoch set to 7 after successful failover
+1:S 15 Aug 2026 23:02:22.534 * Setting myself to primary in shard 41dc86175bf5ec9bfdf89ed0ca6968bb4ac54e08 after failover; my old primary is 0385ab07758dd6e3252b4b556125a93a9c58f98c ()
+1:M 15 Aug 2026 23:02:22.534 * Discarding previously cached primary state.
+1:M 15 Aug 2026 23:02:22.534 * Setting secondary replication ID to a195551857ffd8ab501229c935b0856a4d518594, valid up to offset: 6454. New replication ID is 9b92f5ae9e63844e47f1262fff67de9853eb95b0
+1:M 15 Aug 2026 23:02:22.535 * Cluster state changed: ok
+1:M 15 Aug 2026 23:02:54.850 * Successfully completed handshake with 0385ab07758dd6e3252b4b556125a93a9c58f98c ()
+1:M 15 Aug 2026 23:02:54.856 * Node 0385ab07758dd6e3252b4b556125a93a9c58f98c () is now a replica of node e5a31ee3f6c5115dd337ce5e375717f8772762fb () in shard 41dc86175bf5ec9bfdf89ed0ca6968bb4ac54e08
+1:M 15 Aug 2026 23:02:54.857 * Replica 172.31.77.11:6379 asks for synchronization
+1:M 15 Aug 2026 23:02:54.857 * Partial resynchronization not accepted: Replication ID mismatch (Replica asked for 'd5a4c4957aa93df64237e198314b747b1442a1e9', my replication IDs are '9b92f5ae9e63844e47f1262fff67de9853eb95b0' and 'a195551857ffd8ab501229c935b0856a4d518594')
+1:M 15 Aug 2026 23:02:54.857 * Delay next BGSAVE for diskless SYNC
+1:M 15 Aug 2026 23:02:55.159 * Node 986792e9431559c15ecdd7a52ce378e435b4b1e1 () reported node 0385ab07758dd6e3252b4b556125a93a9c58f98c () is back online.
+1:M 15 Aug 2026 23:02:55.378 * Clear FAIL state for node 0385ab07758dd6e3252b4b556125a93a9c58f98c (): replica is reachable again.
+1:M 15 Aug 2026 23:02:55.687 * Node f19e0e03fe9cb97c3ed66ad772a89132d938ba3d () reported node 0385ab07758dd6e3252b4b556125a93a9c58f98c () is back online.
+1:M 15 Aug 2026 23:02:59.793 * Starting BGSAVE for SYNC with target: replicas sockets using: normal sync
+1:M 15 Aug 2026 23:02:59.793 * Background RDB transfer started by pid 19 to pipe through parent process
+19:C 15 Aug 2026 23:02:59.794 * Fork CoW for RDB: current 0 MB, peak 0 MB, average 0 MB
+1:M 15 Aug 2026 23:02:59.794 * Diskless rdb transfer, done reading from pipe, 1 replicas still up.
+1:M 15 Aug 2026 23:02:59.800 * Background RDB transfer terminated with success
+1:M 15 Aug 2026 23:02:59.800 * Streamed RDB transfer with replica 172.31.77.11:6379 succeeded (socket). Waiting for REPLCONF ACK from replica to enable streaming
+1:M 15 Aug 2026 23:02:59.800 * Synchronization with replica 172.31.77.11:6379 succeeded
+1:M 15 Aug 2026 23:03:07.266 * Manual failover requested by replica 0385ab07758dd6e3252b4b556125a93a9c58f98c ().
+1:M 15 Aug 2026 23:03:07.266 * Failover auth granted to 0385ab07758dd6e3252b4b556125a93a9c58f98c () for epoch 8
+1:M 15 Aug 2026 23:03:07.276 * Connection with replica 172.31.77.11:6379 lost.
+1:M 15 Aug 2026 23:03:07.281 * Configuration change detected. Reconfiguring myself as a replica of node 0385ab07758dd6e3252b4b556125a93a9c58f98c () in shard 41dc86175bf5ec9bfdf89ed0ca6968bb4ac54e08
+1:S 15 Aug 2026 23:03:07.281 * Before turning into a replica, using my own primary parameters to synthesize a cached primary: I may be able to synchronize with the new primary with just a partial transfer.
+1:S 15 Aug 2026 23:03:07.281 * Connecting to PRIMARY 172.31.77.11:6379
+1:S 15 Aug 2026 23:03:07.281 * PRIMARY <-> REPLICA sync started
+1:S 15 Aug 2026 23:03:07.289 * Non blocking connect for SYNC fired the event.
+1:S 15 Aug 2026 23:03:07.289 * Primary replied to PING, replication can continue...
+1:S 15 Aug 2026 23:03:07.289 * Trying a partial resynchronization (request 9b92f5ae9e63844e47f1262fff67de9853eb95b0:6468).
+1:S 15 Aug 2026 23:03:07.290 * Successful partial resynchronization with primary.
+1:S 15 Aug 2026 23:03:07.290 * Primary replication ID changed to 2b0b83f1a8e87aa68fe95058ca2dd1fa3e0669dd
+1:S 15 Aug 2026 23:03:07.290 * PRIMARY <-> REPLICA sync: Primary accepted a Partial Resynchronization.
+1:S 15 Aug 2026 23:03:29.835 * Sending MEET packet to node fa8b266dbbfdc8617cbdd66f7fbfa7c7a5e21a7e () because there is no inbound link for it
+1:S 15 Aug 2026 23:03:29.835 * Sending MEET packet to node f19e0e03fe9cb97c3ed66ad772a89132d938ba3d () because there is no inbound link for it
+1:S 15 Aug 2026 23:03:30.840 * NODE f19e0e03fe9cb97c3ed66ad772a89132d938ba3d () possibly failing.
+1:S 15 Aug 2026 23:03:30.840 * Node 986792e9431559c15ecdd7a52ce378e435b4b1e1 () reported node f19e0e03fe9cb97c3ed66ad772a89132d938ba3d () as not reachable.
+1:S 15 Aug 2026 23:03:30.935 * Node 0385ab07758dd6e3252b4b556125a93a9c58f98c () reported node f19e0e03fe9cb97c3ed66ad772a89132d938ba3d () as not reachable.
+1:S 15 Aug 2026 23:03:30.935 * Marking node f19e0e03fe9cb97c3ed66ad772a89132d938ba3d () as failing (quorum reached).
+1:S 15 Aug 2026 23:03:30.935 # Cluster state changed: fail
+1:S 15 Aug 2026 23:03:30.935 # Cluster is currently down: At least one hash slot is not served by any available node. Please check the 'cluster-require-full-coverage' configuration.
+1:S 15 Aug 2026 23:03:31.846 * Node 0385ab07758dd6e3252b4b556125a93a9c58f98c () reported node fa8b266dbbfdc8617cbdd66f7fbfa7c7a5e21a7e () as not reachable.
+1:S 15 Aug 2026 23:03:32.047 * NODE fa8b266dbbfdc8617cbdd66f7fbfa7c7a5e21a7e () possibly failing.
+1:S 15 Aug 2026 23:03:32.302 * FAIL message received from 59d18ca6bd555978d93dc4e91777803031067085 () about fa8b266dbbfdc8617cbdd66f7fbfa7c7a5e21a7e ()
+1:S 15 Aug 2026 23:03:40.890 * Node 986792e9431559c15ecdd7a52ce378e435b4b1e1 () reported node fa8b266dbbfdc8617cbdd66f7fbfa7c7a5e21a7e () as not reachable.
+1:S 15 Aug 2026 23:03:55.813 * Successfully completed handshake with f19e0e03fe9cb97c3ed66ad772a89132d938ba3d ()
+1:S 15 Aug 2026 23:03:55.935 * Successfully completed handshake with fa8b266dbbfdc8617cbdd66f7fbfa7c7a5e21a7e ()
+1:S 15 Aug 2026 23:03:56.396 * Node 986792e9431559c15ecdd7a52ce378e435b4b1e1 () reported node f19e0e03fe9cb97c3ed66ad772a89132d938ba3d () is back online.
+1:S 15 Aug 2026 23:03:56.691 * Clear FAIL state for node fa8b266dbbfdc8617cbdd66f7fbfa7c7a5e21a7e (): replica is reachable again.
+1:S 15 Aug 2026 23:03:56.691 * Clear FAIL state for node f19e0e03fe9cb97c3ed66ad772a89132d938ba3d (): is reachable again and nobody is serving its slots after some time.
+1:S 15 Aug 2026 23:03:56.691 * Cluster state changed: ok
+1:S 15 Aug 2026 23:03:57.977 * Node 0385ab07758dd6e3252b4b556125a93a9c58f98c () reported node f19e0e03fe9cb97c3ed66ad772a89132d938ba3d () is back online.
+1:S 15 Aug 2026 23:03:58.078 * Node 0385ab07758dd6e3252b4b556125a93a9c58f98c () reported node fa8b266dbbfdc8617cbdd66f7fbfa7c7a5e21a7e () is back online.
+1:S 15 Aug 2026 23:03:58.581 * Node 986792e9431559c15ecdd7a52ce378e435b4b1e1 () reported node fa8b266dbbfdc8617cbdd66f7fbfa7c7a5e21a7e () is back online.
+1:S 15 Aug 2026 23:06:59.047 * 100 changes in 300 seconds. Saving...
+1:S 15 Aug 2026 23:06:59.047 * Background saving started by pid 20
+20:C 15 Aug 2026 23:06:59.052 * DB saved on disk
+20:C 15 Aug 2026 23:06:59.053 * Fork CoW for RDB: current 0 MB, peak 0 MB, average 0 MB
+1:S 15 Aug 2026 23:06:59.148 * Background saving terminated with success

@@ -230,6 +230,7 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 
 	var events []lsEvent
 	names := map[string]string{}
+	valkeySelf := ""
 	switch src.Engine {
 	case pktEngineMySQL:
 		recs := lsFoldMySQL(data)
@@ -302,6 +303,28 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 			e.Src = idx
 			events = append(events, e)
 		}
+	case pktEngineValkey:
+		// Valkey is parsed here rather than by the shared classifier for a reason the other
+		// engines do not have: its source is two logs in one file. dbcanvas sets no
+		// `logfile`, so the collector reads the journal — and the journal holds systemd's
+		// records beside Valkey's. That is not noise to be dropped. A SIGKILLed
+		// valkey-server writes NOTHING, so systemd's "code=killed, status=9/KILL" is the
+		// only evidence in existence that the process was killed rather than stopped.
+		recs, host := lsFoldValkey(in.Data)
+		src.Records = len(recs)
+		src.Flavour = lsSniffValkeyFlavour(recs)
+		src.Node = lsValkeyNodeName(host)
+		// Held until the node's name is settled below, because the name may still come from
+		// the file name — a bare stdout log has no host in it to read.
+		valkeySelf = lsValkeySelfID(recs)
+		for _, r := range recs {
+			e, keep := lsClassifyValkey(r)
+			if !keep {
+				continue
+			}
+			e.Src = idx
+			events = append(events, e)
+		}
 	default:
 		// The other engines already have line classifiers, written for the Packet
 		// Inspector's correlation pane. They are reused verbatim rather than reimplemented:
@@ -329,6 +352,11 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 		lsResolveMongos(events)
 	case lsFlavourPostgres, lsFlavourPGStream, lsFlavourPatroni:
 		lsResolvePG(events)
+	case lsFlavourValkey, lsFlavourValkeyRepl, lsFlavourValkeyCluster:
+		// The flavour is passed in because it decides one word: a lone server with no
+		// replication anywhere in its file is RUNNING, not PRIMARY. There is nothing for it
+		// to be primary of, and the word would imply a topology it is not in.
+		lsResolveValkey(src.Flavour, events)
 	default:
 		lsResolveStandalone(events)
 	}
@@ -356,6 +384,12 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 	src.Events = len(events)
 	if src.Node == "" {
 		src.Node = lsNodeFromName(in.Name)
+	}
+	// A Valkey Cluster node's own id, paired with whatever name it ended up with. Registered
+	// here rather than in the switch because the name may have come from the file name a
+	// moment ago, and a name is the whole point of the pairing.
+	if valkeySelf != "" && src.Node != "" {
+		names[valkeySelf] = src.Node
 	}
 	return src, events, names
 }

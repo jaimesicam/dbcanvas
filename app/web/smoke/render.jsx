@@ -1384,10 +1384,16 @@ check('log summary: every severity is styled', () => {
                     'ONLINE', 'RECOVERING', 'BLOCKED', 'ERROR', 'OFFLINE',
                     'PRIMARY', 'SECONDARY', 'STARTUP2', 'ROLLBACK', 'ARBITER', 'REMOVED', 'ROUTING',
                     'STANDBY', 'PROMOTING',
+                    'REPLICA', 'SYNCING', 'LOADING', 'CLUSTERDOWN',
                     'RUNNING', 'STARTING', 'DOWN', 'UNKNOWN']) {
     if (!STATE_TEXT[st]) throw new Error(`state ${st} has no explanation`)
     if (!SEV_FILL[STATE_SEV[st]]) throw new Error(`state ${st} has no fill`)
   }
+  // CLUSTERDOWN is the one state in the vocabulary that means "healthy and answering
+  // nothing", and it has to read as bad. A Valkey Cluster node in it is not the node that
+  // failed — painting its lane anything but red is the specific way this page would mislead.
+  if (STATE_SEV.CLUSTERDOWN !== 'bad') throw new Error('CLUSTERDOWN must read as bad')
+  if (STATE_SEV.REPLICA !== 'ok') throw new Error('a Valkey replica answering reads must read as ok')
   for (const cls of Object.keys(logSummary.classes)) {
     if (!CLASS_LABEL[cls]) throw new Error(`class ${cls} has no label`)
   }
@@ -1395,6 +1401,51 @@ check('log summary: every severity is styled', () => {
   return 'ok'
 })
 
+// A Valkey bundle renders the same three panels as every other engine's, and the two things
+// worth asserting are the two that are new: the flavour badge beside the node chip, and a
+// CLUSTERDOWN lane painted as the outage it is. A node chip with no badge would read as a
+// standalone cache, which is the opposite of a cluster member whose cluster is down.
+const logValkeySources = [
+  { idx: 0, name: 'vkc1.log', node: 'vkc1', engine: 'valkey', flavour: 'valkeycluster', origin: 'node',
+    bytes: 9000, lines: 27, records: 27, events: 21, firstTs: 1000, lastTs: 1058,
+    counts: { ok: 6, warn: 9, bad: 4, info: 2 } },
+  { idx: 1, name: 'vkc2.log', node: 'vkc2', engine: 'valkey', flavour: 'valkeycluster', origin: 'node',
+    bytes: 26000, lines: 94, records: 94, events: 48, firstTs: 1000, lastTs: 1058,
+    counts: { ok: 9, warn: 20, bad: 5, info: 14 } },
+  { idx: 2, name: 'vkb.log', node: 'vkb', engine: 'valkey', flavour: 'valkeyrepl', origin: 'node',
+    bytes: 30000, lines: 128, records: 128, events: 60, firstTs: 1000, lastTs: 1058,
+    counts: { ok: 11, warn: 24, bad: 3, info: 22 } },
+]
+check('log summary: Valkey sources card names the member kind', () => {
+  const html = renderToString(<LogSources
+    bundle={{ ...logBundle, sources: logValkeySources }} id="log-vk" />)
+  for (const want of ['Valkey Cluster member', 'Valkey replication', 'vkc1', 'vkb']) {
+    if (!html.includes(want)) throw new Error(`the sources card does not mention ${want}`)
+  }
+  return html
+})
+check('log summary: Valkey swimlane with a CLUSTERDOWN stretch', () => {
+  const phases = [
+    { src: 0, from: 1000, to: 1020, state: 'PRIMARY', sev: 'ok' },
+    { src: 0, from: 1020, to: 1045, state: 'CLUSTERDOWN', sev: 'bad' },
+    { src: 0, from: 1045, to: 1058, state: 'PRIMARY', sev: 'ok' },
+    { src: 1, from: 1000, to: 1020, state: 'REPLICA', sev: 'ok' },
+    { src: 1, from: 1020, to: 1030, state: 'LOADING', sev: 'warn' },
+    { src: 1, from: 1030, to: 1058, state: 'DOWN', sev: 'bad' },
+    { src: 2, from: 1000, to: 1058, state: 'REPLICA', sev: 'ok' },
+  ]
+  return renderToString(<LogSwimlane
+    timeline={{ fromTs: 1000, toTs: 1058, buckets: [], phases, matched: 0 }}
+    sources={logValkeySources} first={1000} onSelect={noop} onPick={noop} />)
+})
+check('log summary: Valkey verdict', () => renderToString(<LogVerdict onGo={noop} findings={[
+  { id: 'vk-cluster-down', sev: 'bad', title: 'The cluster refused every client for 24.6s',
+    detail: 'from 23:08:48 for 24.6s, reported by vkc1, vkc3.', at: 1020, until: 1045, sources: [0, 1] },
+  { id: 'vk-killed', sev: 'bad', title: 'A server was killed, not stopped',
+    detail: 'vkb at 23:07:26 — systemd recorded the process being terminated by a signal.', at: 1030 },
+  { id: 'vk-invisible', sev: 'info', title: 'Evictions, MISCONF refusals and failed logins are not in this log',
+    detail: 'Three things a Valkey server does are entirely absent from its log.' },
+]} />))
 
 // ---- FTDC Summary: the charts and the advisor ----
 //

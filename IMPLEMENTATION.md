@@ -14864,3 +14864,92 @@ Fixtures `p01-patroni-cluster`, `p02-streaming`, `p03-standalone`. 10 new Go tes
 render checks; each of the six fixes was reverted individually and the tests confirmed to
 catch it. `gofmt`, `go vet`, `go test` and the smoke suite green.
 
+## 264. Valkey and Valkey Cluster — `app/logsummary_valkey*.go`
+
+The sixth cluster vocabulary, built to the same standard as the other five: live servers,
+real incidents driven against them, and every rule written against the capture rather than
+from memory. Two clusters this time, deliberately different — a six-node Valkey 8 cluster
+(three shards, one replica each) run under raw containers so it could produce a genuine
+automatic failover, and dbcanvas's own three-node **all-primary** Percona Valkey 9.1.1 frame
+read through the real collector, which cannot fail over at all and fails differently for it.
+
+### The role letter, which no other engine here gives
+
+Valkey stamps `M` or `S` on **every line**. Everywhere else in this package, working out a
+node's state means pairing transitions that may be hundreds of lines apart, and a fragment
+containing none leaves the lane blank — `lsSeedState` exists for that and has to mark its
+answers as deduced. Here the track is read straight off the headers. `lsResolveValkey` is
+consequently the shortest resolver in the package and the most reliable.
+
+Two things outrank the role, both cases where it is true and irrelevant: a server **LOADING**
+its dataset reports `M` while refusing every command, and a cluster member whose cluster has
+uncovered slots reports `M` or `S` while refusing every command. The second is `CLUSTERDOWN`,
+a state with no counterpart anywhere else in this package — a node that is completely healthy
+and answering nothing.
+
+### The level is worth less than nothing
+
+The entire story of an automatic failover — detection, election, vote, promotion — is written
+at `*`, notice. What is written at `#`, the top of Valkey's scale, is a hint about
+`vm.overcommit_memory`, on every start of every healthy node. Applying the level as a floor
+painted **17 healthy starts** amber. So the floor applies only to unrecognised records, and
+the boilerplate host warnings carry `overLevel` with a `means` saying they matter exactly
+once — on the day a fork fails, and that a failed background save in the same log is that day.
+
+### Two logs in one file, again
+
+dbcanvas sets no `logfile`, so the collector reads the journal and the journal holds systemd's
+records beside Valkey's. Not noise: a SIGKILLed `valkey-server` writes **nothing whatsoever**,
+so systemd's `Main process exited, code=killed, status=9/KILL` is the entire evidence the
+process was killed. Separate catalogue, separate subsystem, same shape as the Patroni pair.
+It also explains a restart that leaves no other trace — `Restart=on-failure` brought a killed
+node back inside the same second, no peer noticed, and only `Scheduled restart job, restart
+counter is at 1` says it happened.
+
+### Five things the corpus decided
+
+**A clean stop and a crash are indistinguishable to the peers.** `systemctl stop` produced on
+the survivors exactly the `Marking node ... as failing (quorum reached)` a `kill -9` produces.
+Valkey Cluster has no goodbye, so the answer is only in the departed node's own log — and the
+finding says so rather than staying quiet, because silence reads as "it was a crash".
+
+**Attributing that departure needs a window.** The first version searched the whole bundle and
+found a kill 82 seconds earlier, labelling a deliberate stop a kill. Now it looks 60 s back
+from the declared failure.
+
+**Building a cluster is not an outage.** Every node writes `Cluster is currently down: at
+least one hash slot is not served` during formation. `Cluster state changed: fail` is never
+written then — a cluster that has never been ok cannot change to fail — and that is the gate.
+
+**A hand promotion is not a shard failover.** `Promoted to primary by hand` was in the failover
+finding's event list, so a standalone pair with no cluster in it was told "a shard changed
+primary". Restricted to election wins; a *manual* cluster failover still logs one, verified.
+`lsFindingVKSplitPromotion` owns the standalone case and says something true about it — it
+also catches two nodes accepting writes at once, which only several logs read together can.
+
+**Node ids had to be pooled into names.** Findings read `81ce2216adbc… was declared failed`.
+Each node states its own id once on the way up, so pooling those across sources — Galera's
+`lsUUIDNames` trick on a different engine — turns it into `vkc2 was declared failed`.
+
+### The honest note, and Valkey's is the largest of the six
+
+Measured, not assumed: 40,000 writes against an 8 MB `maxmemory` evicted **19,156 keys** and
+wrote **nothing**; a real failed snapshot left the server refusing every write with `MISCONF`
+and the word appears **nowhere** in the log; three failed authentications wrote **nothing**.
+The MISCONF one is worst because the log records the cause and never the consequence, so when
+a bundle contains a failed save the note stops being a caveat and rises to a warning.
+
+### Verified live, not only against fixtures
+
+The whole path was exercised through the running app against the deployed stack — engine
+sniffed, flavour resolved, node names read from the journald prefix, and `…/at` asked what
+every node was doing mid-outage, which answered `CLUSTERDOWN / DOWN / CLUSTERDOWN`: two
+healthy nodes serving nothing and the one that had actually stopped. That readout is the
+sentence the page exists for and no single log contains it.
+
+Fixtures `v01-cluster-failover` (bare stdout shape), `v02-cluster-nocover` and
+`v03-standalone-repl` (journald shape, as collected). 26 new Go tests and 3 new render checks.
+Ten fixes were each reverted individually and the tests confirmed to catch nine of them; the
+tenth — the fork child not moving the lane — has two independent guards, so only removing both
+fails, and the test says so rather than implying more coverage than it has. `gofmt`, `go vet`,
+`go test ./...` and the smoke suite green.

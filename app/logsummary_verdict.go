@@ -56,7 +56,7 @@ func lsFindings(b *lsBundle) []lsFinding {
 		lsFindingFlowControl,
 		lsFindingCoverage,
 		lsFindingHealthy,
-	}, append(append(lsGRFindings, lsMongoFindings...), lsPGFindings...)...) {
+	}, append(append(append(lsGRFindings, lsMongoFindings...), lsPGFindings...), lsValkeyFindings...)...) {
 		out = append(out, check(b)...)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -231,6 +231,11 @@ func lsFindingCrash(b *lsBundle) []lsFinding {
 	switch {
 	case lsAllSrcAre(b, lsSrcSet(ev), lsFlavourMongoRS):
 		advice = "mongod replays its journal from the last checkpoint on the way up, so this costs start-up time rather than data — on a large dataset, a great deal of it. What the log does not say is WHY the process went: an OOM kill is in dmesg and a killed container is in the orchestrator's records, and neither of those is in here."
+	case lsAllSrcAreValkey(b, lsSrcSet(ev)):
+		// Valkey's recovery is not like any of the others', and neither is the risk. There is
+		// no WAL and no journal to replay: what comes back is whatever the last snapshot or
+		// AOF held, and everything written since then is simply gone.
+		advice = "A Valkey that was killed loses everything since its last save — there is no WAL to replay, so the dataset that comes back is the snapshot or the AOF, and how much that costs depends entirely on the `save` and `appendfsync` settings. Note also what is NOT in this log: valkey-server writes nothing when it is SIGKILLed, so if there is a kill record here it came from systemd's half of the journal, and if there is none, a log that simply stops and restarts is what a kill looks like."
 	case lsAllSrcArePG(b, lsSrcSet(ev)):
 		advice = "PostgreSQL replays its WAL from the last checkpoint on the way up, so nothing committed is lost — the cost is the replay, and the 'redo done at' record says how long it took. Under a cluster manager, check whether the manager stopped it deliberately: Patroni restarting its own PostgreSQL looks exactly like a crash from the database log alone."
 	}
@@ -251,6 +256,26 @@ func lsAllSrcArePG(b *lsBundle, srcs []int) bool {
 	for _, s := range srcs {
 		ok := false
 		for _, f := range []string{lsFlavourPostgres, lsFlavourPGStream, lsFlavourPatroni} {
+			if lsSrcIs(b, s, f) {
+				ok = true
+			}
+		}
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// lsAllSrcAreValkey reports whether every one of these sources is a Valkey server of any of
+// its three flavours — a lone node, a replication participant, or a cluster member.
+func lsAllSrcAreValkey(b *lsBundle, srcs []int) bool {
+	if len(srcs) == 0 {
+		return false
+	}
+	for _, s := range srcs {
+		ok := false
+		for _, f := range []string{lsFlavourValkey, lsFlavourValkeyRepl, lsFlavourValkeyCluster} {
 			if lsSrcIs(b, s, f) {
 				ok = true
 			}

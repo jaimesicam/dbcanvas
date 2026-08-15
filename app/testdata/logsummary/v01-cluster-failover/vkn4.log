@@ -1,0 +1,118 @@
+1:M 15 Aug 2026 23:01:57.996 # WARNING: Changing databases number from 16 to 1 since we are in cluster mode
+1:M 15 Aug 2026 23:01:57.996 # WARNING Memory overcommit must be enabled! Without it, a background save or replication may fail under low memory condition. Being disabled, it can also cause failures without low memory condition, see https://github.com/jemalloc/jemalloc/issues/1328. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.
+1:M 15 Aug 2026 23:01:57.996 * oO0OoO0OoO0Oo Valkey is starting oO0OoO0OoO0Oo
+1:M 15 Aug 2026 23:01:57.996 * Valkey version=8.1.9, bits=64, commit=00000000, modified=0, pid=1, just started
+1:M 15 Aug 2026 23:01:57.996 * Configuration loaded
+1:M 15 Aug 2026 23:01:57.996 * Increased maximum number of open files to 10032 (it was originally set to 1024).
+1:M 15 Aug 2026 23:01:57.996 * monotonic clock: POSIX clock_gettime
+1:M 15 Aug 2026 23:01:57.996 * Running mode=cluster, port=6379.
+1:M 15 Aug 2026 23:01:57.997 * No cluster configuration found, I'm fa8b266dbbfdc8617cbdd66f7fbfa7c7a5e21a7e
+1:M 15 Aug 2026 23:01:58.002 * Server initialized
+1:M 15 Aug 2026 23:01:58.005 * Creating AOF base file appendonly.aof.1.base.rdb on server start
+1:M 15 Aug 2026 23:01:58.009 * Creating AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 15 Aug 2026 23:01:58.009 * Ready to accept connections tcp
+1:M 15 Aug 2026 23:02:00.014 # Cluster is currently down: I am part of a minority partition.
+1:M 15 Aug 2026 23:02:05.666 * configEpoch set to 4 via CLUSTER SET-CONFIG-EPOCH
+1:M 15 Aug 2026 23:02:05.667 * Cluster meet 172.31.77.11:6379 (user request from 'id=2 addr=172.31.77.11:59606 laddr=172.31.77.14:6379 fd=14 name=*redacted* user=*redacted* lib-name= lib-ver=').
+1:M 15 Aug 2026 23:02:05.826 * Successfully completed handshake with 0385ab07758dd6e3252b4b556125a93a9c58f98c ()
+1:M 15 Aug 2026 23:02:05.826 # Cluster is currently down: At least one hash slot is not served by any available node. Please check the 'cluster-require-full-coverage' configuration.
+1:S 15 Aug 2026 23:02:06.669 * Connecting to PRIMARY 172.31.77.13:6379
+1:S 15 Aug 2026 23:02:06.669 * PRIMARY <-> REPLICA sync started
+1:S 15 Aug 2026 23:02:06.669 * Cluster state changed: ok
+1:S 15 Aug 2026 23:02:06.669 * Non blocking connect for SYNC fired the event.
+1:S 15 Aug 2026 23:02:06.670 * Primary replied to PING, replication can continue...
+1:S 15 Aug 2026 23:02:06.670 * Node e5a31ee3f6c5115dd337ce5e375717f8772762fb () is no longer primary of shard 91c0b3a4533c70600a6dfb1b68f711c93e64464d; removed all 0 slot(s) it used to own
+1:S 15 Aug 2026 23:02:06.670 * Node e5a31ee3f6c5115dd337ce5e375717f8772762fb () is now part of shard 41dc86175bf5ec9bfdf89ed0ca6968bb4ac54e08
+1:S 15 Aug 2026 23:02:06.670 * Node e5a31ee3f6c5115dd337ce5e375717f8772762fb () is now a replica of node 0385ab07758dd6e3252b4b556125a93a9c58f98c () in shard 41dc86175bf5ec9bfdf89ed0ca6968bb4ac54e08
+1:S 15 Aug 2026 23:02:06.670 * Partial resynchronization not possible (no cached primary)
+1:S 15 Aug 2026 23:02:06.671 * Node 59d18ca6bd555978d93dc4e91777803031067085 () is no longer primary of shard 375db7510747d11ffefbc6ff90d29c95d07871c1; removed all 0 slot(s) it used to own
+1:S 15 Aug 2026 23:02:06.671 * Node 59d18ca6bd555978d93dc4e91777803031067085 () is now part of shard f04dcb5166a3a42b64feea43d123321a9064bfa2
+1:S 15 Aug 2026 23:02:06.671 * Node 59d18ca6bd555978d93dc4e91777803031067085 () is now a replica of node 986792e9431559c15ecdd7a52ce378e435b4b1e1 () in shard f04dcb5166a3a42b64feea43d123321a9064bfa2
+1:S 15 Aug 2026 23:02:11.585 * Full resync from primary: 92afb0809746be7acf424f09525c16fa4885da11:14
+1:S 15 Aug 2026 23:02:11.586 * PRIMARY <-> REPLICA sync: receiving streamed RDB from primary with EOF to disk
+1:S 15 Aug 2026 23:02:11.591 * PRIMARY <-> REPLICA sync: Flushing old data
+1:S 15 Aug 2026 23:02:11.591 * PRIMARY <-> REPLICA sync: Loading DB in memory
+1:S 15 Aug 2026 23:02:11.591 * Loading RDB produced by Valkey version 8.1.9
+1:S 15 Aug 2026 23:02:11.591 * RDB age 0 seconds
+1:S 15 Aug 2026 23:02:11.591 * RDB memory usage when created 2.81 Mb
+1:S 15 Aug 2026 23:02:11.591 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:S 15 Aug 2026 23:02:11.591 * PRIMARY <-> REPLICA sync: Finished with success
+1:S 15 Aug 2026 23:02:11.591 * Creating AOF incr file temp-appendonly.aof.incr on background rewrite
+1:S 15 Aug 2026 23:02:11.591 * Background append only file rewriting started by pid 16
+16:C 15 Aug 2026 23:02:11.594 * Successfully created the temporary AOF base file temp-rewriteaof-bg-16.aof
+16:C 15 Aug 2026 23:02:11.594 * Fork CoW for AOF rewrite: current 0 MB, peak 0 MB, average 0 MB
+1:S 15 Aug 2026 23:02:11.659 * Background AOF rewrite terminated with success
+1:S 15 Aug 2026 23:02:11.659 * Successfully renamed the temporary AOF base file temp-rewriteaof-bg-16.aof into appendonly.aof.2.base.rdb
+1:S 15 Aug 2026 23:02:11.659 * Successfully renamed the temporary AOF incr file temp-appendonly.aof.incr into appendonly.aof.2.incr.aof
+1:S 15 Aug 2026 23:02:11.665 * Removing the history file appendonly.aof.1.incr.aof in the background
+1:S 15 Aug 2026 23:02:11.665 * Removing the history file appendonly.aof.1.base.rdb in the background
+1:S 15 Aug 2026 23:02:11.673 * Background AOF rewrite finished successfully
+1:S 15 Aug 2026 23:02:18.305 * Sending MEET packet to node 0385ab07758dd6e3252b4b556125a93a9c58f98c () because there is no inbound link for it
+1:S 15 Aug 2026 23:02:20.012 * NODE 0385ab07758dd6e3252b4b556125a93a9c58f98c () possibly failing.
+1:S 15 Aug 2026 23:02:21.017 * Node 986792e9431559c15ecdd7a52ce378e435b4b1e1 () reported node 0385ab07758dd6e3252b4b556125a93a9c58f98c () as not reachable.
+1:S 15 Aug 2026 23:02:21.531 * FAIL message received from 986792e9431559c15ecdd7a52ce378e435b4b1e1 () about 0385ab07758dd6e3252b4b556125a93a9c58f98c ()
+1:S 15 Aug 2026 23:02:21.531 # Cluster state changed: fail
+1:S 15 Aug 2026 23:02:21.531 # Cluster is currently down: At least one hash slot is not served by any available node. Please check the 'cluster-require-full-coverage' configuration.
+1:S 15 Aug 2026 23:02:22.525 * Node f19e0e03fe9cb97c3ed66ad772a89132d938ba3d () reported node 0385ab07758dd6e3252b4b556125a93a9c58f98c () as not reachable.
+1:S 15 Aug 2026 23:02:22.614 * Node e5a31ee3f6c5115dd337ce5e375717f8772762fb () reported node 0385ab07758dd6e3252b4b556125a93a9c58f98c () as not reachable.
+1:S 15 Aug 2026 23:02:22.614 * Cluster state changed: ok
+1:S 15 Aug 2026 23:02:54.850 * Successfully completed handshake with 0385ab07758dd6e3252b4b556125a93a9c58f98c ()
+1:S 15 Aug 2026 23:02:54.856 * Node 0385ab07758dd6e3252b4b556125a93a9c58f98c () is now a replica of node e5a31ee3f6c5115dd337ce5e375717f8772762fb () in shard 41dc86175bf5ec9bfdf89ed0ca6968bb4ac54e08
+1:S 15 Aug 2026 23:02:54.885 * Clear FAIL state for node 0385ab07758dd6e3252b4b556125a93a9c58f98c (): replica is reachable again.
+1:S 15 Aug 2026 23:02:55.186 * Node 986792e9431559c15ecdd7a52ce378e435b4b1e1 () reported node 0385ab07758dd6e3252b4b556125a93a9c58f98c () is back online.
+1:S 15 Aug 2026 23:02:56.190 * Node f19e0e03fe9cb97c3ed66ad772a89132d938ba3d () reported node 0385ab07758dd6e3252b4b556125a93a9c58f98c () is back online.
+1:S 15 Aug 2026 23:02:56.679 * Node e5a31ee3f6c5115dd337ce5e375717f8772762fb () reported node 0385ab07758dd6e3252b4b556125a93a9c58f98c () is back online.
+1:S 15 Aug 2026 23:03:07.289 * Node e5a31ee3f6c5115dd337ce5e375717f8772762fb () is now a replica of node 0385ab07758dd6e3252b4b556125a93a9c58f98c () in shard 41dc86175bf5ec9bfdf89ed0ca6968bb4ac54e08
+1:M 15 Aug 2026 23:03:55.932 # WARNING: Changing databases number from 16 to 1 since we are in cluster mode
+1:M 15 Aug 2026 23:03:55.932 # WARNING Memory overcommit must be enabled! Without it, a background save or replication may fail under low memory condition. Being disabled, it can also cause failures without low memory condition, see https://github.com/jemalloc/jemalloc/issues/1328. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.
+1:M 15 Aug 2026 23:03:55.932 * oO0OoO0OoO0Oo Valkey is starting oO0OoO0OoO0Oo
+1:M 15 Aug 2026 23:03:55.932 * Valkey version=8.1.9, bits=64, commit=00000000, modified=0, pid=1, just started
+1:M 15 Aug 2026 23:03:55.932 * Configuration loaded
+1:M 15 Aug 2026 23:03:55.933 * Increased maximum number of open files to 10032 (it was originally set to 1024).
+1:M 15 Aug 2026 23:03:55.933 * monotonic clock: POSIX clock_gettime
+1:M 15 Aug 2026 23:03:55.933 * Running mode=cluster, port=6379.
+1:M 15 Aug 2026 23:03:55.933 * Node configuration loaded, I'm fa8b266dbbfdc8617cbdd66f7fbfa7c7a5e21a7e
+1:M 15 Aug 2026 23:03:55.934 * Server initialized
+1:M 15 Aug 2026 23:03:55.934 * Reading RDB base file on AOF loading...
+1:M 15 Aug 2026 23:03:55.934 * Loading RDB produced by Valkey version 8.1.9
+1:M 15 Aug 2026 23:03:55.934 * RDB age 104 seconds
+1:M 15 Aug 2026 23:03:55.934 * RDB memory usage when created 2.74 Mb
+1:M 15 Aug 2026 23:03:55.934 * RDB is base AOF
+1:M 15 Aug 2026 23:03:55.934 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 15 Aug 2026 23:03:55.934 * DB loaded from base file appendonly.aof.2.base.rdb: 0.000 seconds
+1:M 15 Aug 2026 23:03:55.935 * DB loaded from incr file appendonly.aof.2.incr.aof: 0.000 seconds
+1:M 15 Aug 2026 23:03:55.935 * DB loaded from append only file: 0.001 seconds
+1:M 15 Aug 2026 23:03:55.935 * Opening AOF incr file appendonly.aof.2.incr.aof on server start
+1:M 15 Aug 2026 23:03:55.935 * Ready to accept connections tcp
+1:M 15 Aug 2026 23:03:55.935 * Cluster state changed: ok
+1:S 15 Aug 2026 23:03:55.935 * Before turning into a replica, using my own primary parameters to synthesize a cached primary: I may be able to synchronize with the new primary with just a partial transfer.
+1:S 15 Aug 2026 23:03:55.935 * Connecting to PRIMARY 172.31.77.13:6379
+1:S 15 Aug 2026 23:03:55.935 * PRIMARY <-> REPLICA sync started
+1:S 15 Aug 2026 23:03:55.935 * Non blocking connect for SYNC fired the event.
+1:S 15 Aug 2026 23:03:55.935 * Primary replied to PING, replication can continue...
+1:S 15 Aug 2026 23:03:55.936 * Trying a partial resynchronization (request d998b2f944fd79ef5eedc8d0e951e10d38d5303c:1).
+1:S 15 Aug 2026 23:04:00.734 * Full resync from primary: c2cc394fbc6fcc8510bfa2ade0225a420ae365ef:14
+1:S 15 Aug 2026 23:04:00.735 * PRIMARY <-> REPLICA sync: receiving streamed RDB from primary with EOF to disk
+1:S 15 Aug 2026 23:04:00.742 * Discarding previously cached primary state.
+1:S 15 Aug 2026 23:04:00.742 * PRIMARY <-> REPLICA sync: Flushing old data
+1:S 15 Aug 2026 23:04:00.743 * PRIMARY <-> REPLICA sync: Loading DB in memory
+1:S 15 Aug 2026 23:04:00.743 * Loading RDB produced by Valkey version 8.1.9
+1:S 15 Aug 2026 23:04:00.743 * RDB age 0 seconds
+1:S 15 Aug 2026 23:04:00.743 * RDB memory usage when created 2.70 Mb
+1:S 15 Aug 2026 23:04:00.743 * Done loading RDB, keys loaded: 170, keys expired: 0.
+1:S 15 Aug 2026 23:04:00.743 * PRIMARY <-> REPLICA sync: Finished with success
+1:S 15 Aug 2026 23:04:00.743 * Creating AOF incr file temp-appendonly.aof.incr on background rewrite
+1:S 15 Aug 2026 23:04:00.743 * Background append only file rewriting started by pid 17
+17:C 15 Aug 2026 23:04:00.747 * Successfully created the temporary AOF base file temp-rewriteaof-bg-17.aof
+17:C 15 Aug 2026 23:04:00.747 * Fork CoW for AOF rewrite: current 0 MB, peak 0 MB, average 0 MB
+1:S 15 Aug 2026 23:04:00.757 * Background AOF rewrite terminated with success
+1:S 15 Aug 2026 23:04:00.757 * Successfully renamed the temporary AOF base file temp-rewriteaof-bg-17.aof into appendonly.aof.3.base.rdb
+1:S 15 Aug 2026 23:04:00.757 * Successfully renamed the temporary AOF incr file temp-appendonly.aof.incr into appendonly.aof.3.incr.aof
+1:S 15 Aug 2026 23:04:00.762 * Removing the history file appendonly.aof.2.incr.aof in the background
+1:S 15 Aug 2026 23:04:00.762 * Removing the history file appendonly.aof.2.base.rdb in the background
+1:S 15 Aug 2026 23:04:00.766 * Background AOF rewrite finished successfully
+1:S 15 Aug 2026 23:08:56.018 * 100 changes in 300 seconds. Saving...
+1:S 15 Aug 2026 23:08:56.019 * Background saving started by pid 18
+18:C 15 Aug 2026 23:08:56.028 * DB saved on disk
+18:C 15 Aug 2026 23:08:56.028 * Fork CoW for RDB: current 0 MB, peak 0 MB, average 0 MB
+1:S 15 Aug 2026 23:08:56.120 * Background saving terminated with success

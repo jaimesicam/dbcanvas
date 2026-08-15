@@ -1,0 +1,128 @@
+Aug 15 23:03:48 vkb systemd[1]: Starting Valkey instance: dbcanvas...
+Aug 15 23:03:48 vkb valkey-server[252]: 252:M 15 Aug 2026 23:03:48.058 # WARNING Memory overcommit must be enabled! Without it, a background save or replication may fail under low memory condition. Being disabled, it can also cause failures without low memory condition, see https://github.com/jemalloc/jemalloc/issues/1328. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.
+Aug 15 23:03:48 vkb valkey-server[252]: 252:M 15 Aug 2026 23:03:48.058 * Supervised by systemd. Please make sure you set appropriate values for TimeoutStartSec and TimeoutStopSec in your service unit.
+Aug 15 23:03:48 vkb valkey-server[252]: 252:M 15 Aug 2026 23:03:48.058 * oO0OoO0OoO0Oo Valkey is starting oO0OoO0OoO0Oo
+Aug 15 23:03:48 vkb valkey-server[252]: 252:M 15 Aug 2026 23:03:48.058 * Valkey version=9.1.1, bits=64, commit=00000000, modified=1, pid=252, just started
+Aug 15 23:03:48 vkb valkey-server[252]: 252:M 15 Aug 2026 23:03:48.058 * Configuration loaded
+Aug 15 23:03:48 vkb valkey-server[252]: 252:M 15 Aug 2026 23:03:48.089 * monotonic clock: X86 TSC @ 2918.28 ticks/us
+Aug 15 23:03:48 vkb valkey-server[252]: 252:M 15 Aug 2026 23:03:48.089 * Running mode=standalone, port=6379.
+Aug 15 23:03:48 vkb valkey-server[252]: 252:M 15 Aug 2026 23:03:48.089 * Static Module 'lua' successfully loaded
+Aug 15 23:03:48 vkb valkey-server[252]: 252:M 15 Aug 2026 23:03:48.090 * Server initialized
+Aug 15 23:03:48 vkb valkey-server[252]: 252:M 15 Aug 2026 23:03:48.093 * Creating AOF base file appendonly.aof.1.base.rdb on server start
+Aug 15 23:03:48 vkb valkey-server[252]: 252:M 15 Aug 2026 23:03:48.098 * Creating AOF incr file appendonly.aof.1.incr.aof on server start
+Aug 15 23:03:48 vkb valkey-server[252]: 252:M 15 Aug 2026 23:03:48.098 * Ready to accept connections tcp
+Aug 15 23:03:48 vkb systemd[1]: Started Valkey instance: dbcanvas.
+Aug 15 23:04:51 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:51.148 * Before turning into a replica, using my own primary parameters to synthesize a cached primary: I may be able to synchronize with the new primary with just a partial transfer.
+Aug 15 23:04:51 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:51.148 * Connecting to PRIMARY 172.19.0.3:6379
+Aug 15 23:04:51 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:51.148 * PRIMARY <-> REPLICA sync started
+Aug 15 23:04:51 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:51.148 * REPLICAOF 172.19.0.3:6379 enabled (user request from 'id=4 addr=127.0.0.1:37476 laddr=127.0.0.1:6379 fd=10 name=*redacted* user=*redacted* lib-name= lib-ver=')
+Aug 15 23:04:51 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:51.148 * Non blocking connect for SYNC fired the event.
+Aug 15 23:04:51 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:51.148 * Primary replied to PING, replication can continue...
+Aug 15 23:04:51 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:51.148 * Trying a partial resynchronization (request df0dc7aa216f3c9a33df8d04af50766e5a227f44:1).
+Aug 15 23:04:56 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:56.385 * Full resync from primary: 360aae0b893ffddb788b3a522b9f83f8594d75f6:2014
+Aug 15 23:04:56 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:56.387 * Replica main thread creating Bio thread to save RDB to disk
+Aug 15 23:04:56 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:56.387 * Replica bio thread: PRIMARY <-> REPLICA sync: receiving streamed RDB from primary with EOF to disk
+Aug 15 23:04:56 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:56.387 * Replica bio thread: Done downloading RDB
+Aug 15 23:04:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:57.335 * Replica main thread detected RDB download completion in Bio thread
+Aug 15 23:04:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:57.335 * Loading the RDB and finalizing primary-replica sync...
+Aug 15 23:04:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:57.343 * Discarding previously cached primary state.
+Aug 15 23:04:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:57.343 * PRIMARY <-> REPLICA sync: Loading DB in memory
+Aug 15 23:04:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:57.343 * Cleaning slot migration log in anticipation of a load operation.
+Aug 15 23:04:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:57.343 * RDB signature and version check passed. Flushing old data
+Aug 15 23:04:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:57.344 * Loading RDB produced by Valkey version 9.1.1
+Aug 15 23:04:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:57.344 * RDB age 1 seconds
+Aug 15 23:04:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:57.344 * RDB memory usage when created 1.13 Mb
+Aug 15 23:04:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:57.344 * Done loading RDB, keys loaded: 2000, keys expired: 0, all fields expired hashes: 0.
+Aug 15 23:04:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:57.344 * PRIMARY <-> REPLICA sync: Finished with success
+Aug 15 23:04:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:57.350 * Removing the history file appendonly.aof.1.incr.aof in the background
+Aug 15 23:04:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:57.350 * Removing the history file appendonly.aof.1.base.rdb in the background
+Aug 15 23:04:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:04:57.355 * Reused RDB file from primary sync as AOF base file: appendonly.aof.2.base.rdb
+Aug 15 23:05:04 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:04.794 * Connection with primary lost.
+Aug 15 23:05:04 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:04.794 * Caching the disconnected primary state.
+Aug 15 23:05:04 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:04.794 * Reconnecting to PRIMARY 172.19.0.3:6379
+Aug 15 23:05:04 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:04.794 * PRIMARY <-> REPLICA sync started
+Aug 15 23:05:04 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:04.794 # Error condition on socket for SYNC: Connection refused
+Aug 15 23:05:05 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:05.406 * Connecting to PRIMARY 172.19.0.3:6379
+Aug 15 23:05:05 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:05.406 * PRIMARY <-> REPLICA sync started
+Aug 15 23:05:05 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:05.406 * Non blocking connect for SYNC fired the event.
+Aug 15 23:05:05 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:05.406 * Primary replied to PING, replication can continue...
+Aug 15 23:05:05 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:05.407 * Trying a partial resynchronization (request 360aae0b893ffddb788b3a522b9f83f8594d75f6:2015).
+Aug 15 23:05:10 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:10.024 * Full resync from primary: 356e5e6589a40e1a6896816ab778235297e51ebe:14
+Aug 15 23:05:10 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:10.025 * Replica main thread creating Bio thread to save RDB to disk
+Aug 15 23:05:10 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:10.025 * Replica bio thread: PRIMARY <-> REPLICA sync: receiving streamed RDB from primary with EOF to disk
+Aug 15 23:05:10 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:10.025 * Replica bio thread: Done downloading RDB
+Aug 15 23:05:10 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:10.437 * Replica main thread detected RDB download completion in Bio thread
+Aug 15 23:05:10 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:10.437 * Loading the RDB and finalizing primary-replica sync...
+Aug 15 23:05:10 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:10.443 * Discarding previously cached primary state.
+Aug 15 23:05:10 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:10.443 * PRIMARY <-> REPLICA sync: Loading DB in memory
+Aug 15 23:05:10 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:10.443 * Cleaning slot migration log in anticipation of a load operation.
+Aug 15 23:05:10 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:10.443 * RDB signature and version check passed. Flushing old data
+Aug 15 23:05:10 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:10.443 * Loading RDB produced by Valkey version 9.1.1
+Aug 15 23:05:10 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:10.443 * RDB age 0 seconds
+Aug 15 23:05:10 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:10.443 * RDB memory usage when created 1.06 Mb
+Aug 15 23:05:10 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:10.443 * Done loading RDB, keys loaded: 2000, keys expired: 0, all fields expired hashes: 0.
+Aug 15 23:05:10 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:10.444 * PRIMARY <-> REPLICA sync: Finished with success
+Aug 15 23:05:10 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:10.449 * Removing the history file appendonly.aof.2.incr.aof in the background
+Aug 15 23:05:10 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:10.449 * Removing the history file appendonly.aof.2.base.rdb in the background
+Aug 15 23:05:10 vkb valkey-server[252]: 252:S 15 Aug 2026 23:05:10.453 * Reused RDB file from primary sync as AOF base file: appendonly.aof.3.base.rdb
+Aug 15 23:05:29 vkb valkey-server[252]: 252:M 15 Aug 2026 23:05:29.459 * Connection with primary lost.
+Aug 15 23:05:29 vkb valkey-server[252]: 252:M 15 Aug 2026 23:05:29.459 * Caching the disconnected primary state.
+Aug 15 23:05:29 vkb valkey-server[252]: 252:M 15 Aug 2026 23:05:29.459 * Discarding previously cached primary state.
+Aug 15 23:05:29 vkb valkey-server[252]: 252:M 15 Aug 2026 23:05:29.459 * Setting secondary replication ID to 356e5e6589a40e1a6896816ab778235297e51ebe, valid up to offset: 43. New replication ID is 1aa5bb55c86ad61f5b977bda9b59b73c6663876f
+Aug 15 23:05:29 vkb valkey-server[252]: 252:M 15 Aug 2026 23:05:29.459 * PRIMARY MODE enabled (user request from 'id=11 addr=127.0.0.1:42186 laddr=127.0.0.1:6379 fd=10 name=*redacted* user=*redacted* lib-name= lib-ver=')
+Aug 15 23:05:38 vkb valkey-server[252]: 252:M 15 Aug 2026 23:05:38.465 * Background saving started by pid 363
+Aug 15 23:05:38 vkb valkey-server[363]: 363:C 15 Aug 2026 23:05:38.465 # Failed opening the temp RDB file temp-363.rdb (in server root dir /var/lib/valkey/data) for saving: Permission denied
+Aug 15 23:05:38 vkb valkey-server[252]: 252:M 15 Aug 2026 23:05:38.489 # Background saving error
+Aug 15 23:05:53 vkb valkey-server[252]: 252:M 15 Aug 2026 23:05:53.032 * Background saving started by pid 396
+Aug 15 23:05:53 vkb valkey-server[396]: 396:C 15 Aug 2026 23:05:53.038 * DB saved on disk
+Aug 15 23:05:53 vkb valkey-server[396]: 396:C 15 Aug 2026 23:05:53.038 * Fork CoW for RDB: current 0 MB, peak 0 MB, average 0 MB
+Aug 15 23:05:53 vkb valkey-server[252]: 252:M 15 Aug 2026 23:05:53.043 * Background saving terminated with success
+Aug 15 23:09:51 vkb valkey-server[252]: 252:S 15 Aug 2026 23:09:51.423 * Before turning into a replica, using my own primary parameters to synthesize a cached primary: I may be able to synchronize with the new primary with just a partial transfer.
+Aug 15 23:09:51 vkb valkey-server[252]: 252:S 15 Aug 2026 23:09:51.423 * Connecting to PRIMARY 172.19.0.3:6379
+Aug 15 23:09:51 vkb valkey-server[252]: 252:S 15 Aug 2026 23:09:51.424 * PRIMARY <-> REPLICA sync started
+Aug 15 23:09:51 vkb valkey-server[252]: 252:S 15 Aug 2026 23:09:51.424 * REPLICAOF 172.19.0.3:6379 enabled (user request from 'id=40025 addr=127.0.0.1:51154 laddr=127.0.0.1:6379 fd=9 name=*redacted* user=*redacted* lib-name= lib-ver=')
+Aug 15 23:09:51 vkb valkey-server[252]: 252:S 15 Aug 2026 23:09:51.424 * Non blocking connect for SYNC fired the event.
+Aug 15 23:09:51 vkb valkey-server[252]: 252:S 15 Aug 2026 23:09:51.424 * Primary replied to PING, replication can continue...
+Aug 15 23:09:51 vkb valkey-server[252]: 252:S 15 Aug 2026 23:09:51.424 * Trying a partial resynchronization (request 1aa5bb55c86ad61f5b977bda9b59b73c6663876f:4533759).
+Aug 15 23:09:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:09:57.001 * Full resync from primary: 356e5e6589a40e1a6896816ab778235297e51ebe:56
+Aug 15 23:09:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:09:57.002 * Replica main thread creating Bio thread to save RDB to disk
+Aug 15 23:09:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:09:57.002 * Replica bio thread: PRIMARY <-> REPLICA sync: receiving streamed RDB from primary with EOF to disk
+Aug 15 23:09:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:09:57.002 * Replica bio thread: Done downloading RDB
+Aug 15 23:09:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:09:57.131 * Replica main thread detected RDB download completion in Bio thread
+Aug 15 23:09:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:09:57.131 * Loading the RDB and finalizing primary-replica sync...
+Aug 15 23:09:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:09:57.138 * Discarding previously cached primary state.
+Aug 15 23:09:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:09:57.138 * PRIMARY <-> REPLICA sync: Loading DB in memory
+Aug 15 23:09:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:09:57.138 * Cleaning slot migration log in anticipation of a load operation.
+Aug 15 23:09:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:09:57.138 * RDB signature and version check passed. Flushing old data
+Aug 15 23:09:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:09:57.138 * Loading RDB produced by Valkey version 9.1.1
+Aug 15 23:09:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:09:57.138 * RDB age 1 seconds
+Aug 15 23:09:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:09:57.138 * RDB memory usage when created 1.09 Mb
+Aug 15 23:09:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:09:57.139 * Done loading RDB, keys loaded: 2000, keys expired: 0, all fields expired hashes: 0.
+Aug 15 23:09:57 vkb valkey-server[252]: 252:S 15 Aug 2026 23:09:57.139 * PRIMARY <-> REPLICA sync: Finished with success
+Aug 15 23:09:57 vkb valkey-server[252]: 252:M 15 Aug 2026 23:09:57.580 * Connection with primary lost.
+Aug 15 23:09:57 vkb valkey-server[252]: 252:M 15 Aug 2026 23:09:57.580 * Caching the disconnected primary state.
+Aug 15 23:09:57 vkb valkey-server[252]: 252:M 15 Aug 2026 23:09:57.580 * Discarding previously cached primary state.
+Aug 15 23:09:57 vkb valkey-server[252]: 252:M 15 Aug 2026 23:09:57.580 * Setting secondary replication ID to 356e5e6589a40e1a6896816ab778235297e51ebe, valid up to offset: 57. New replication ID is a53ab39d82c2aa68ec8935badd66edbba4a05416
+Aug 15 23:09:57 vkb valkey-server[252]: 252:M 15 Aug 2026 23:09:57.580 * PRIMARY MODE enabled (user request from 'id=40028 addr=127.0.0.1:36556 laddr=127.0.0.1:6379 fd=9 name=*redacted* user=*redacted* lib-name= lib-ver=')
+Aug 15 23:10:38 vkb valkey-server[252]: 252:S 15 Aug 2026 23:10:38.703 * Before turning into a replica, using my own primary parameters to synthesize a cached primary: I may be able to synchronize with the new primary with just a partial transfer.
+Aug 15 23:10:38 vkb valkey-server[252]: 252:S 15 Aug 2026 23:10:38.703 * Connecting to PRIMARY 172.19.0.3:6379
+Aug 15 23:10:38 vkb valkey-server[252]: 252:S 15 Aug 2026 23:10:38.703 * PRIMARY <-> REPLICA sync started
+Aug 15 23:10:38 vkb valkey-server[252]: 252:S 15 Aug 2026 23:10:38.703 * REPLICAOF 172.19.0.3:6379 enabled (user request from 'id=40029 addr=127.0.0.1:52794 laddr=127.0.0.1:6379 fd=9 name=*redacted* user=*redacted* lib-name= lib-ver=')
+Aug 15 23:10:38 vkb valkey-server[252]: 252:S 15 Aug 2026 23:10:38.703 * Non blocking connect for SYNC fired the event.
+Aug 15 23:10:38 vkb valkey-server[252]: 252:S 15 Aug 2026 23:10:38.704 * Primary replied to PING, replication can continue...
+Aug 15 23:10:38 vkb valkey-server[252]: 252:S 15 Aug 2026 23:10:38.704 * Trying a partial resynchronization (request a53ab39d82c2aa68ec8935badd66edbba4a05416:57).
+Aug 15 23:10:43 vkb valkey-server[252]: 252:S 15 Aug 2026 23:10:43.239 * Full resync from primary: 1c8d409a3cadd27c9e982eab0a7749093ac99a12:144969
+Aug 15 23:10:43 vkb valkey-server[252]: 252:S 15 Aug 2026 23:10:43.240 * Replica main thread creating Bio thread to save RDB to disk
+Aug 15 23:10:43 vkb valkey-server[252]: 252:S 15 Aug 2026 23:10:43.241 * Replica bio thread: PRIMARY <-> REPLICA sync: receiving streamed RDB from primary with EOF to disk
+Aug 15 23:10:43 vkb valkey-server[252]: 252:S 15 Aug 2026 23:10:43.244 * Replica bio thread: Done downloading RDB
+Aug 15 23:10:43 vkb valkey-server[252]: 252:S 15 Aug 2026 23:10:43.340 * Replica main thread detected RDB download completion in Bio thread
+Aug 15 23:10:43 vkb valkey-server[252]: 252:S 15 Aug 2026 23:10:43.340 * Loading the RDB and finalizing primary-replica sync...
+Aug 15 23:10:43 vkb valkey-server[252]: 252:S 15 Aug 2026 23:10:43.353 * Discarding previously cached primary state.
+Aug 15 23:10:43 vkb valkey-server[252]: 252:S 15 Aug 2026 23:10:43.353 * PRIMARY <-> REPLICA sync: Loading DB in memory
+Aug 15 23:10:43 vkb valkey-server[252]: 252:S 15 Aug 2026 23:10:43.353 * Cleaning slot migration log in anticipation of a load operation.
+Aug 15 23:10:43 vkb valkey-server[252]: 252:S 15 Aug 2026 23:10:43.353 * RDB signature and version check passed. Flushing old data
+Aug 15 23:10:43 vkb valkey-server[252]: 252:S 15 Aug 2026 23:10:43.353 * Loading RDB produced by Valkey version 9.1.1
+Aug 15 23:10:43 vkb valkey-server[252]: 252:S 15 Aug 2026 23:10:43.353 * RDB age 0 seconds
+Aug 15 23:10:43 vkb valkey-server[252]: 252:S 15 Aug 2026 23:10:43.353 * RDB memory usage when created 2.87 Mb
+Aug 15 23:10:43 vkb valkey-server[252]: 252:S 15 Aug 2026 23:10:43.360 * Done loading RDB, keys loaded: 22000, keys expired: 0, all fields expired hashes: 0.
+Aug 15 23:10:43 vkb valkey-server[252]: 252:S 15 Aug 2026 23:10:43.360 * PRIMARY <-> REPLICA sync: Finished with success
