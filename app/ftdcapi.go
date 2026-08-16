@@ -111,10 +111,18 @@ func (a *App) handleFTDCUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var named []ftdcNamed
+	// A whole diagnostic.data folder arrives as one file per metrics.<timestamp>, so the
+	// per-file limit alone bounds nothing: the total is what has to hold.
+	total := 0
 	for _, fhs := range r.MultipartForm.File {
 		for _, fh := range fhs {
 			if fh.Size > ftdcMaxUpload {
 				writeErr(w, http.StatusRequestEntityTooLarge, "file too large: "+fh.Filename)
+				return
+			}
+			if total += int(fh.Size); total > ftdcMaxUpload {
+				writeErr(w, http.StatusRequestEntityTooLarge,
+					fmt.Sprintf("upload holds more than %d MiB", ftdcMaxUpload>>20))
 				return
 			}
 			f, err := fh.Open()

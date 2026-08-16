@@ -26,10 +26,25 @@ extension is stripped and `.diagnostic.data` appended, making `/var/log/mongo/mo
 into `/var/log/mongo/mongos.diagnostic.data`. Both are searched. Looking only in the mongod
 location finds nothing on a router, which is not the same as a router having nothing.
 
-**By upload.** The `metrics.*` files themselves (pick them all at once), or a `.tar.gz` of
-the directory. Files are ordered by name before decoding, which is chronological because
-`mongod` names each file after its first sample; `metrics.interim` — the file currently
-being written — is always placed last. Several files decode into one continuous series.
+**By upload.** The `metrics.*` files themselves (pick them all at once), the whole
+`diagnostic.data` **folder**, or a `.tar.gz` of it. Files are ordered by name before
+decoding, which is chronological because `mongod` names each file after its first sample;
+`metrics.interim` — the file currently being written — is always placed last. Several files
+decode into one continuous series.
+
+**No extension filter, deliberately.** A metrics file is named
+`metrics.2026-08-16T05-21-36Z-00000`, so a browser reads its extension as
+`.2026-08-16T05-21-36Z-00000` and *any* `accept` list greys out exactly the files this page
+exists to read — which for a while it did, leaving `.tar.gz` as the only upload that worked.
+The picker filters nothing; an archive is recognised from its gzip magic rather than its
+name. A folder pick is filtered client-side to `metrics.*` and archives, because a reader
+who aims one directory too high otherwise sends the whole dbPath.
+
+**A young file can be empty of samples.** FTDC accumulates in `metrics.interim` and is
+flushed into the numbered file in batches, so on a `mongod` that started minutes ago the
+numbered file holds the metadata and nothing else — uploading it alone reports no samples,
+correctly. The interim file is where that server's data still is. This is not a
+truncation and not an error; it is why the whole directory is the unit worth uploading.
 
 A truncated final chunk is normal: `metrics.interim` is being written while it is copied.
 Those chunks are counted and skipped rather than failing the parse, and the count is shown.

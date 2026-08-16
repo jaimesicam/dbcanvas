@@ -439,6 +439,37 @@ export default function PacketInspector() {
   )
 }
 
+// dropEntries pulls the FileSystemEntry of each dropped item out of a DataTransfer.
+//
+// Synchronous on purpose, and it must stay that way: the DataTransfer is emptied as soon as
+// the drop handler yields, so an `await` before this line loses the drop.
+function dropEntries(dt) {
+  return [...(dt?.items || [])]
+    .map((i) => (i.webkitGetAsEntry ? i.webkitGetAsEntry() : null))
+    .filter((e) => e && e.isDirectory)
+}
+
+// walkEntries flattens dropped directories into their files.
+async function walkEntries(entries) {
+  const out = []
+  const walk = async (entry) => {
+    if (entry.isFile) {
+      out.push(await new Promise((res, rej) => entry.file(res, rej)))
+      return
+    }
+    // readEntries hands back at most a hundred at a time and signals the end with an empty
+    // batch — a single call would silently truncate a long-running node's directory.
+    const reader = entry.createReader()
+    for (;;) {
+      const batch = await new Promise((res, rej) => reader.readEntries(res, rej))
+      if (!batch.length) break
+      for (const e of batch) await walk(e)
+    }
+  }
+  for (const e of entries) await walk(e)
+  return out
+}
+
 // FilePick is a file input that looks like something you can click.
 //
 // A bare <input type="file"> renders as browser chrome — "Choose File / No file chosen" in
@@ -454,7 +485,12 @@ export default function PacketInspector() {
 // single pick: choosing three members' logs one dialog at a time would make the comparison
 // the user's chore. Single-file callers are untouched — they pass neither, and get the same
 // behaviour as before.
-export function FilePick({ id, accept, file, onPick, onPickMany, placeholder, multiple = false }) {
+//
+// `directory` is for the FTDC Summary, where the artefact IS a directory — diagnostic.data,
+// whose files are named metrics.<timestamp> and mean nothing one at a time. It puts the
+// input in directory mode and makes a dropped folder walk itself rather than arrive as one
+// zero-byte entry the reader can do nothing with.
+export function FilePick({ id, accept, file, onPick, onPickMany, placeholder, multiple = false, directory = false }) {
   const [over, setOver] = useState(false)
   const take = (list) => {
     const files = [...(list || [])]
@@ -464,7 +500,8 @@ export function FilePick({ id, accept, file, onPick, onPickMany, placeholder, mu
   return (
     <div>
       <input
-        id={id} type="file" accept={accept} multiple={multiple} className="peer sr-only"
+        id={id} type="file" accept={accept} multiple={multiple || directory} className="peer sr-only"
+        {...(directory ? { webkitdirectory: '', directory: '' } : {})}
         onChange={(e) => take(e.target.files)}
       />
       <label
@@ -474,6 +511,11 @@ export function FilePick({ id, accept, file, onPick, onPickMany, placeholder, mu
         onDrop={(e) => {
           e.preventDefault()
           setOver(false)
+          // A dropped folder is in `items` as an entry to walk; `files` holds only the
+          // folder itself, zero bytes and unreadable. Entries have to be taken out of the
+          // DataTransfer synchronously, before the first await, or the browser empties it.
+          const entries = directory ? dropEntries(e.dataTransfer) : []
+          if (entries.length) { walkEntries(entries).then((fs) => { if (fs.length) take(fs) }); return }
           if (e.dataTransfer?.files?.length) take(e.dataTransfer.files)
         }}
         className={'flex cursor-pointer items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-xs transition ' +

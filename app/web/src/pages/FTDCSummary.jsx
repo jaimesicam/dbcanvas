@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card, Button, Badge, inputCls } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import TimeChart from '../components/TimeChart.jsx'
@@ -26,7 +26,21 @@ export default function FTDCSummary() {
   const [nodes, setNodes] = useState([])
   const [picked, setPicked] = useState('')
   const [files, setFiles] = useState([])
-  const fileRef = useRef(null)
+  const [dropped, setDropped] = useState(0)
+
+  // takeFiles keeps what can be FTDC and counts the rest.
+  //
+  // A folder pick is the reason this exists: a reader who aims one directory too high sends
+  // the whole dbPath, and a 40 GB collection file is not something to put through an upload
+  // to find out. One deliberately chosen file is never filtered — the name is the reader's
+  // business, and an archive somebody renamed is still recognised from its bytes server-side.
+  function takeFiles(list) {
+    const all = [...(list || [])]
+    if (all.length <= 1) { setFiles(all); setDropped(0); return }
+    const keep = all.filter((f) => /^metrics\./.test(f.name) || /\.(gz|tgz|tar)$/i.test(f.name))
+    setFiles(keep)
+    setDropped(all.length - keep.length)
+  }
 
   useEffect(() => {
     ftdcApi.nodes().then((n) => setNodes(n || [])).catch(() => {})
@@ -76,20 +90,40 @@ export default function FTDCSummary() {
 
           <div className="border-t pt-3">
             <label className="mb-1 block text-xs font-medium text-muted" htmlFor="ftdc-file">
-              …or upload the directory's <code>metrics.*</code> files, or a <code>.tar.gz</code> of it
+              …or upload the directory's <code>metrics.*</code> files, a <code>.tar.gz</code> of it, or the whole
+              <code> diagnostic.data</code> folder
             </label>
-            <FilePick
-              id="ftdc-file" multiple accept=".gz,.tgz,.tar,metrics.*"
-              file={files.length ? { name: `${files.length} file(s) selected` } : null}
-              onPick={() => {}} onPickMany={setFiles}
-              placeholder="Choose metrics.* files or a diagnostic.data archive"
-            />
+            <div className="grid gap-2 sm:grid-cols-2">
+              {/* No `accept`. A metrics file is named metrics.2026-08-16T09-31-52Z-00000,
+                  so the browser reads its extension as ".2026-08-16T09-31-52Z-00000" and
+                  any extension list at all greys out exactly the files this page exists to
+                  read. The archive case is sniffed from the gzip magic server-side, so the
+                  filter was never load-bearing. */}
+              {/* Neither picker shows the selection itself: both feed the same list, and a
+                  count printed inside whichever box was clicked last reads as if only that
+                  box's pick counted. It is stated once, below, for both. */}
+              <FilePick
+                id="ftdc-file" multiple file={null}
+                onPick={() => {}} onPickMany={takeFiles}
+                placeholder="Choose metrics.* files or a .tar.gz"
+              />
+              <FilePick
+                id="ftdc-dir" directory file={null}
+                onPick={() => {}} onPickMany={takeFiles}
+                placeholder="…or choose a diagnostic.data folder"
+              />
+            </div>
+            {(files.length > 0 || dropped > 0) && (
+              <p className="mt-1 text-[11px] text-muted">
+                {files.length} file(s) selected
+                {dropped > 0 && <>, {dropped} ignored — not named <code>metrics.*</code> and not an archive</>}
+              </p>
+            )}
             {files.length > 0 && (
               <Button className="mt-2" onClick={() => run(() => ftdcApi.upload(files))} disabled={loading}>
                 <Icon.Monitor size={15} /> Chart {files.length} file(s)
               </Button>
             )}
-            <input ref={fileRef} type="file" className="hidden" />
           </div>
         </div>
       </Card>

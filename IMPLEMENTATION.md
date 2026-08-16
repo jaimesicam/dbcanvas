@@ -14953,3 +14953,64 @@ Ten fixes were each reverted individually and the tests confirmed to catch nine 
 tenth — the fork child not moving the lane — has two independent guards, so only removing both
 fails, and the test says so rather than implying more coverage than it has. `gofmt`, `go vet`,
 `go test ./...` and the smoke suite green.
+
+---
+
+## 265. The FTDC upload could only ever take a `.tar.gz` — `app/web/src/pages/{FTDCSummary,PacketInspector}.jsx`, `app/ftdcapi.go`, `docs/FTDC_SUMMARY.md`
+
+Reported as: FTDC accepts tar.gz files but not `metrics.<timestamp>` files or the
+`diagnostic.data` directory. Both halves were true, and neither was in the parser — a raw
+metrics file always decoded, as §259's fixtures show. The page simply could not offer one.
+
+**The `accept` list could not match the files the page exists for.** The picker carried
+`accept=".gz,.tgz,.tar,metrics.*"`. `metrics.*` is not a legal `accept` token at all — the
+attribute takes MIME types or extensions beginning with a dot, and everything else is
+ignored — so the effective list was three archive extensions. A metrics file is named
+`metrics.2026-08-16T05-21-36Z-00000`, which the browser reads as the extension
+`.2026-08-16T05-21-36Z-00000`; `metrics.interim` reads as `.interim`. Neither matches, so
+the dialog greyed out every file in a real `diagnostic.data` and left `.tar.gz` as the only
+thing that could be chosen. The fix is to filter nothing: an archive is already recognised
+from its gzip magic server-side, so the list was never load-bearing — it only excluded.
+
+**A directory is not a file.** `<input type="file">` cannot pick a folder, and a dropped
+folder arrives in `dataTransfer.files` as one zero-byte entry, so "choose the
+diagnostic.data directory" had no path through the UI either. `FilePick` grew a `directory`
+prop that sets `webkitdirectory`, and a drop handler that walks `webkitGetAsEntry()`
+instead. Two details that bite: the entries must come out of the `DataTransfer`
+**synchronously**, before the first `await`, or the browser has already emptied it; and
+`readEntries` returns at most a hundred at a time and signals the end with an empty batch,
+so the single call that looks right silently truncates a long-lived node's directory.
+
+**What a folder pick can now send.** A reader who aims one directory too high selects the
+whole dbPath, so the page keeps only `metrics.*` and archives and says how many it dropped —
+except for a single deliberately chosen file, which is never filtered because a renamed
+archive is still recognised from its bytes. The server grew the matching bound: the upload
+handler checked each part against the 256 MiB cap but never the **total**, which bounded
+nothing once one pick means fifty parts.
+
+### The thing found by testing it live, which is not a bug
+
+A probe `mongod` was run to get a genuinely-named directory to test with, and a single
+`metrics.2026-08-16T05-21-36Z-00000` posted on its own came back *no metric samples found*.
+That is FTDC being itself, not the parser failing: samples accumulate in `metrics.interim`
+and are flushed into the numbered file in batches of 300. Measured on the probe — at four
+minutes old the numbered file held 39,851 bytes of metadata and **zero** sample chunks while
+interim held 11 samples; five minutes in, the flush landed and the same file held **300
+samples** in one chunk. So the first minutes of any capture live only in interim, which is
+the strongest argument for the directory being the unit worth uploading.
+`TestFTDCUploadYoungNumberedFileHasNoSamples` pins it, against the young directory kept as a
+fixture, so that nobody meets this and concludes the parser is broken.
+
+### Verified
+
+`app/testdata/diagnostic.data/` is a real pre-flush directory copied off a running
+`mongo:8.0`. Four new Go tests drive the real `handleFTDCUpload` with a real session cookie:
+a whole directory posted one part per file the way a folder pick sends it, one raw metrics
+file alone, the young-numbered-file case above plus that same file decoding once paired with
+its interim, and the unauthenticated request. One new render check pins the picker itself —
+two file inputs, no `accept` on either, one of them `webkitdirectory` — which also confirms
+React emits the attribute rather than dropping it. `gofmt`, `go vet`, `go test ./...` and the
+226-check smoke suite green.
+
+The picker's own behaviour in a file dialog is the browser's and was not driven by a browser
+here; what is verified is the rendered markup and every path behind it.

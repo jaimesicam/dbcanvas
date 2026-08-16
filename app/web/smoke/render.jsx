@@ -1481,6 +1481,25 @@ const ftdcModel = {
 }
 
 check('ftdc summary: page shell', () => renderToString(<FTDCSummary />))
+// The upload box, pinned, because this is where the page was broken: an `accept` list can
+// only ever be extensions, a metrics file's "extension" is its timestamp, and the filter
+// therefore hid every file the page exists to read — leaving .tar.gz as the only upload
+// that worked. One input takes files, the other takes the directory.
+check('ftdc summary: the file picker filters nothing and offers a folder', () => {
+  const html = renderToString(<FTDCSummary />)
+  const inputs = html.match(/<input[^>]*type="file"[^>]*>/g) || []
+  if (inputs.length !== 2) throw new Error(`want a file picker and a folder picker, got ${inputs.length}`)
+  for (const i of inputs) {
+    if (i.includes('accept=')) throw new Error(`a metrics.<timestamp> file cannot survive an accept list: ${i}`)
+  }
+  if (!inputs.some((i) => i.includes('webkitdirectory'))) {
+    throw new Error('no directory picker — diagnostic.data is a folder')
+  }
+  if (!inputs.some((i) => i.includes('multiple') && !i.includes('webkitdirectory'))) {
+    throw new Error('the file picker takes one file at a time; a directory means nothing one file at a time')
+  }
+  return html
+})
 check('ftdc summary: file summary', () => renderToString(<FtdcSummary model={ftdcModel} />))
 check('ftdc summary: file summary with nothing', () => renderToString(<div><FtdcSummary model={null} /></div>))
 for (const c of ftdcModel.charts) {
