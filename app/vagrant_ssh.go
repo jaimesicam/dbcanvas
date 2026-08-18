@@ -101,6 +101,15 @@ func remoteCommand(user string, cmd, env []string) string {
 // and the guest exit code. A non-zero guest exit is reported in Code (err nil),
 // matching Docker.Exec; only a failure to launch/connect returns a non-nil error.
 func (v *Vagrant) runSSH(ctx context.Context, id, remote string, stdin []byte) (ExecResult, error) {
+	if stdin == nil {
+		return v.runSSHReader(ctx, id, remote, nil)
+	}
+	return v.runSSHReader(ctx, id, remote, bytes.NewReader(stdin))
+}
+
+// runSSHReader is runSSH with stdin streamed from a reader, so a caller feeding
+// gigabytes (PutArchiveStream) does not have to materialize them first.
+func (v *Vagrant) runSSHReader(ctx context.Context, id, remote string, stdin io.Reader) (ExecResult, error) {
 	info, err := v.sshInfoFor(ctx, id)
 	if err != nil {
 		return ExecResult{}, err
@@ -108,7 +117,7 @@ func (v *Vagrant) runSSH(ctx context.Context, id, remote string, stdin []byte) (
 	args := []string{"-F", info.cfgPath, "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", info.alias, remote}
 	cmd := exec.CommandContext(ctx, v.ssh, args...)
 	if stdin != nil {
-		cmd.Stdin = bytes.NewReader(stdin)
+		cmd.Stdin = stdin
 	}
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
@@ -156,9 +165,15 @@ func (v *Vagrant) CopyFile(ctx context.Context, id, dir, name string, mode int64
 
 // PutArchive extracts a tarball into dir on the guest.
 func (v *Vagrant) PutArchive(ctx context.Context, id, dir string, tarball []byte) error {
+	return v.PutArchiveStream(ctx, id, dir, bytes.NewReader(tarball))
+}
+
+// PutArchiveStream pipes the tar into the guest's `tar -x` over ssh, so the
+// archive is never held whole on either side.
+func (v *Vagrant) PutArchiveStream(ctx context.Context, id, dir string, r io.Reader) error {
 	script := fmt.Sprintf("mkdir -p %s && tar -x -C %s", shellQuote(dir), shellQuote(dir))
 	remote := remoteCommand("", []string{"sh", "-c", script}, nil)
-	res, err := v.runSSH(ctx, id, remote, tarball)
+	res, err := v.runSSHReader(ctx, id, remote, r)
 	if err != nil {
 		return err
 	}
@@ -166,6 +181,47 @@ func (v *Vagrant) PutArchive(ctx context.Context, id, dir string, tarball []byte
 		return fmt.Errorf("put archive %s: %s", dir, tail(res.Stderr, 200))
 	}
 	return nil
+}
+
+// GetArchiveStream tars path on the guest and streams the result back over ssh.
+// The reader is the ssh process's stdout; closing it reaps the process.
+func (v *Vagrant) GetArchiveStream(ctx context.Context, id, path string) (io.ReadCloser, error) {
+	dir, name := filepath.Split(strings.TrimRight(path, "/"))
+	if dir == "" {
+		dir = "/"
+	}
+	if name == "" {
+		dir, name = "/", "."
+	}
+	script := fmt.Sprintf("tar -c -C %s -- %s", shellQuote(dir), shellQuote(name))
+	info, err := v.sshInfoFor(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	args := []string{"-F", info.cfgPath, "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", info.alias,
+		remoteCommand("", []string{"sh", "-c", script}, nil)}
+	cmd := exec.CommandContext(ctx, v.ssh, args...)
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return &cmdReader{ReadCloser: out, cmd: cmd}, nil
+}
+
+// cmdReader closes the pipe and reaps the process, so a cancelled or completed
+// download does not leave an ssh child behind.
+type cmdReader struct {
+	io.ReadCloser
+	cmd *exec.Cmd
+}
+
+func (c *cmdReader) Close() error {
+	err := c.ReadCloser.Close()
+	c.cmd.Wait()
+	return err
 }
 
 // WaitSystemd blocks until the guest's systemd has finished booting (running or

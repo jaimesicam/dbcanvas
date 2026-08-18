@@ -348,4 +348,28 @@ export const Icon = {
       <ellipse cx="12" cy="7" rx="7" ry="2.4" />
     </Svg>
   ),
+  // File Manager: a directory entry, a plain file, a symlink, and the dialog's
+  // close affordance.
+  Folder: (p) => (
+    <Svg {...p}>
+      <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v7.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 3 17.5v-10Z" />
+    </Svg>
+  ),
+  File: (p) => (
+    <Svg {...p}>
+      <path d="M6 3.5h7L18.5 9v11.5a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-16a1 1 0 0 1 1-1Z" />
+      <path d="M13 3.5V9h5.5" />
+    </Svg>
+  ),
+  Link: (p) => (
+    <Svg {...p}>
+      <path d="M10 13.5a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-1.5 1.5" />
+      <path d="M14 10.5a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5L12.5 17" />
+    </Svg>
+  ),
+  Close: (p) => (
+    <Svg {...p}>
+      <path d="M6 6l12 12M18 6L6 18" />
+    </Svg>
+  ),
 }

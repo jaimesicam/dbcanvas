@@ -15014,3 +15014,377 @@ React emits the attribute rather than dropping it. `gofmt`, `go vet`, `go test .
 
 The picker's own behaviour in a file dialog is the browser's and was not driven by a browser
 here; what is verified is the rendered markup and every path behind it.
+
+---
+
+## 266. Drop host files onto a deployed node, and copy its `docker exec` line — `app/nodeupload.go`, `app/store.go`, `app/main.go`, `app/web/src/pages/StackDesigner.jsx`, `app/web/src/lib/stackApi.js`
+
+Two ways to stop leaving the designer for a terminal: drag files from the desktop
+straight onto a running node's card, and lift the `docker exec` line for a node's
+container off a right-click.
+
+**The upload.** `POST /api/stacks/{id}/nodes/{nid}/upload` takes a multipart body,
+builds a tar in memory and hands it to the node's engine — Docker's upload-to-container
+for a container, `tar -x` over ssh for a Vagrant VM, so both backends work through the
+same `PutArchive` the rest of the app already uses. `dest` is a **closed set** of `/`,
+`/home`, `/root`, `/tmp`, checked server-side: a free-form path would turn this into an
+arbitrary write into the container, and the UI's four-item menu is not a check.
+
+**Why the relative path rides in the field name.** Go's multipart reader runs
+`filepath.Base()` over the `filename` parameter — RFC 7578 §4.2 requires it — so a
+dropped folder would arrive flattened to its leaf names and collide. The path travels as
+the *field name* instead, which nothing rewrites, and `cleanUploadPath` rejects (rather
+than sanitizes) anything that could walk out of the destination: absolute paths, `..`
+segments, empty names. A rewritten path puts the file somewhere the user did not ask for,
+which is worse than a refusal.
+
+**Dropping a folder works.** `collectDroppedFiles` walks `webkitGetAsEntry()` recursively,
+with the same two traps §265 hit and for the same reasons: the entries must come off the
+`DataTransfer` synchronously before the first `await`, and `readEntries` caps each batch
+and signals the end with an empty one. Intermediate directories get their own tar entries
+so the extract does not invent their mode.
+
+**The card is the drop target, but the canvas has to claim the drag too.** Without a
+`dragover` that preventDefaults, a miss makes the browser navigate away from the designer
+to the dropped file. So the canvas swallows every file drag with `dropEffect: 'none'`,
+and only a **running** node's card upgrades that to `'copy'` — a stopped or undeployed
+node has nothing to copy into, and the cursor says so before the drop rather than after.
+
+**The exec line.** `Deployment` grew a derived `containerName` (never stored — filled on
+the store's two read paths from `containerName(stackID, nodeID)`) so the UI copies the
+real name instead of re-deriving the naming rule client-side and drifting from it. The
+copy falls back to the select-a-textarea trick when `navigator.clipboard` is missing:
+DBCanvas is routinely reached over plain http on a lab host's LAN address, where the
+async Clipboard API does not exist, and a menu item that silently does nothing is worse
+than one that says it could not.
+
+### Verified
+
+Live against a deployed OL9 Intranet node (stack 85), through the real HTTP API and then
+through the real UI in headless Chromium.
+
+- **API**: all four destinations land and are visible in the container; a 40 MB file
+  round-trips byte-identical (sha256 match), which is the path where multipart spills to
+  disk; a dropped folder keeps its tree and its intermediate directories; a zero-byte file
+  survives. Refused with no write: `/etc` as destination (400), `../etc/pwned` (400),
+  `/etc/pwned` (400), no files (400), no session (401), and a **stopped** node (409).
+- **UI** (22 checks, headless Chromium driving the deployed app): the context menu offers
+  *Copy docker exec command* and the clipboard afterwards holds exactly
+  `docker exec -it dbcanvas-85-intranet-msxhopkb-1 bash`; a synthesized file drag rings the
+  card, swaps the canvas legend to the drop hint, and restores both when the drag is
+  abandoned; the picker opens with all four destinations, reports the copy, and the files
+  are then in the container; a stray drop on empty canvas leaves the page where it was; a
+  stopped node shows the no-drop cursor, takes no ring and opens no picker; no page errors.
+
+Five new Go tests cover the tar the drop turns into — flat files, a folder's shape with
+each parent emitted once, six escape attempts, the empty form, and the destination
+whitelist. `go vet`, `go test ./...` and the smoke suite green.
+
+The one thing not driven here is a genuine OS-level file drag; the browser test
+synthesizes the `DataTransfer`, so everything from `dragover` inward is real and the
+desktop's hand-off to the browser is not.
+
+---
+
+## 267. The node-upload ceiling: 4 GiB by default, configurable, and streamed — `app/{syssettings,nodeupload,engine,docker,vagrant_ssh,store,main}.go`, `app/web/src/{pages/Settings,settings/SettingsProvider,pages/StackDesigner,lib/api}.jsx|js`
+
+§266 shipped the file drop with a hard 256 MiB cap. Raising it to 4 GiB is two
+changes, and the interesting one is not the number.
+
+**A 4 GiB cap on a buffered implementation is an OOM, not a feature.** §266 built
+the whole tar into a `bytes.Buffer` and handed the slice to `PutArchive`, so the
+cap *was* the peak allocation. The Engine grew `PutArchiveStream(ctx, id, dir, io.Reader)`
+— for Docker the reader is simply the request body (chunked, the length is
+unknown); for Vagrant `runSSH` was split so stdin can be a reader piped into the
+guest's `tar -x`. The handler now builds the tar into an `io.Pipe` on a goroutine
+while the engine drains the other end. Both sides `CloseWithError` on the other's
+failure, so neither blocks forever, and the builder's error is preferred over the
+engine's — a "broken pipe" from Docker is the symptom of a read failure, never
+the cause. Validation moved ahead of the stream (`planUpload` → `writeUploadTar`):
+once bytes are moving, a rejection means a half-extracted destination.
+
+**Where the bytes actually rest.** `ParseMultipartForm` spills parts past 8 MiB
+to `os.TempDir()`, which inside the distroless container is the writable overlay
+layer — not sized for gigabytes, not a volume, and discarded on the next
+`--build`. `useDataTempDir` points `TMPDIR` at `<dataDir>/tmp`, beside the SQLite
+file and the pt-stalk tarballs, and sweeps it at startup: the parser removes its
+own files, but a crash mid-upload strands gigabytes nothing else would collect.
+
+**Instance-wide, not per user.** A theme is yours; a ceiling on work the server
+does on everyone's behalf is the server's. So it is not in `users.settings_json`
+but in a new `app_settings` key/value table (one row per knob, no migration for
+the next one), behind `GET /api/system/settings` for anyone signed in and
+`PUT` behind `requireAdmin`. Everyone can read it because the designer needs the
+number to refuse an over-size drop *before* pushing it up the wire, and because
+you cannot work within a limit you cannot see — the Settings page shows the same
+control to a non-admin, disabled, with "Set by an administrator" instead of Save.
+Out-of-range values are clamped (1 MiB … 1 TiB) rather than rejected, and an
+unset or corrupt row degrades to 4 GiB.
+
+`humanLimit` is deliberately not `stalksummary.go`'s `humanBytes`: a *configured*
+limit should read "4 GiB", not "4.00 GiB". Fractional GiB is checked before exact
+MiB, because 3.5 GiB is also an exact MiB multiple and "3584 MiB" is the less
+useful way to say it.
+
+### Verified
+
+Live against the same deployed OL9 Intranet node, and in headless Chromium.
+
+- **Streaming, measured**: a **3 GiB** file uploaded in 7.9 s and came back out of
+  the container with a matching sha256. App memory peaked at **135 MiB** (26 MiB
+  idle) across the transfer — the buffered implementation would have needed 3 GiB+.
+  The spill directory was confirmed on the `app-data` volume and empty afterwards.
+- **The setting**: default 4 GiB out of the box; 8 GiB stored and read back;
+  99999999999999 clamped to 1 TiB, 5 clamped to 1 MiB, 0 back to the default. A
+  3 MB drop under a 1 MiB limit → 413 naming both sizes; the same drop under the
+  4 GiB limit → 200. Non-admin read 200, non-admin write **403** with the value
+  unchanged, anonymous read 401.
+- **UI** (20 checks): the admin sees 4 GiB in a number+unit control, edits it,
+  and the value survives a reload; a non-admin sees the same value disabled with
+  no Save; an over-size drop is refused **in the browser with no request sent**,
+  quoting "3 MiB … 1 MiB limit"; an under-limit drop still opens the picker,
+  which now names the drop size, and copies.
+- §266's 23-check suite still green (it now restores the node it stops, so the
+  two suites can run in any order). Five more Go tests: the limit is the
+  configured one and "at the limit" is allowed, the clamp table, a store
+  round-trip including a corrupt row, and `humanLimit`'s rendering. `gofmt`,
+  `go vet`, `go test ./...` and the smoke suite green.
+
+---
+
+## 268. A transfer dialog for the node file drop — `app/web/src/lib/stackApi.js`, `app/web/src/pages/StackDesigner.jsx`
+
+The drop reported itself in the little popup at the cursor: "Copying…", then
+"Copied N files". At 256 MiB that was adequate; at the 4 GiB of §267 it is a
+frozen menu with no percentage, no way out, and nothing to acknowledge. So the
+copy now gets a modal — progress bar, cancel, and an OK on the way out.
+
+**Progress means XHR, not fetch.** `fetch` reports nothing about the *request*
+body's progress (request streaming is not usable here), and a gigabyte-scale copy
+with no bar is indistinguishable from a hang. `uploadForm` is a small
+XMLHttpRequest wrapper keeping `request()`'s error contract, plus `.aborted` on
+the rejection when the caller cancelled. The denominator is `ev.total` — the
+whole multipart body, a little larger than the files themselves — because that is
+the honest answer to "how much is left to send".
+
+**The two live phases are different in kind, which is why there are two.**
+`xhr.upload.onprogress` covers bytes going out; `xhr.upload.onload` fires when
+the last one leaves and the server starts unpacking the tar into the container.
+The second half has no percentage to report and no safe cancel, so the dialog
+switches to an indeterminate bar labelled "Unpacking on the node…" and **withdraws
+Cancel** rather than offering one that would cut the extract halfway and leave a
+partial destination. It says so, instead of failing silently.
+
+**Cancel during upload is genuinely clean, and that is a server-side fact, not a
+hope.** Aborting mid-body means `ParseMultipartForm` never completes, so
+`planUpload` never runs and no byte reaches the engine — which is exactly why
+§267's ordering (validate fully, *then* stream) matters here. The dialog is
+allowed to claim "Nothing was written" because that was measured, below.
+
+The dialog is deliberately not dismissible by backdrop click or Escape: while it
+runs, closing it would orphan a copy the user can no longer see or cancel; once
+it has ended, the outcome — complete, cancelled, or failed — is the thing they
+have to acknowledge. Escape still closes the destination picker.
+
+### Verified
+
+Live, against the deployed node.
+
+- **The claim that cancelling writes nothing** — a 20 MB upload rate-limited and
+  cut at 3 s (6 MiB of body sent, `curl` exit 28): nothing appeared in the
+  container, and the spill directory on the data volume was left empty, so an
+  abort mid-parse strands no temp files either.
+- **UI, 19 checks across two suites.** A small copy: the modal reports *Transfer
+  complete*, names what went where, offers OK, survives a backdrop click and an
+  Escape, and closes on OK. A throttled 8 MiB copy (400 KB/s via CDP): a real
+  percentage (12%), "1.9 MiB of 8.0 MiB", a bar that measurably advances
+  (12% → 24%), Cancel offered, and cancelling reported as *Transfer cancelled*
+  at the percentage it stopped at — with the node confirming afterwards that the
+  completed file exists and the cancelled one does not. A 700 MB copy to make the
+  unpacking window real: both phases observed in order, Cancel absent during
+  unpacking, the explanation shown, and the transfer completing.
+- All four browser suites (§266, §267, and both of these) are now re-runnable in
+  any order — each seeds what it needs and restores what it changed. `go vet`,
+  `go test ./...` and the smoke suite green.
+
+---
+
+## 269. A File Manager for a deployed node — `app/nodefs.go`, `app/web/src/pages/FileManager.jsx`, `app/{engine,docker,vagrant_ssh}.go`
+
+Right-click a running node → **File manager**: a two-pane browser over its
+filesystem, with permissions and ownership as first-class columns, upload and
+download anywhere, and copy straight from one node's filesystem into another's.
+
+**The posture is different from §266's drop, deliberately.** That endpoint
+whitelists four destinations because it is a drag target. A file manager is
+arbitrary read/write by definition, and no whitelist survives contact with the
+feature. That is acceptable because the *same right-click menu* already offers
+"Enter root console", which is a root shell and therefore strictly more; the
+boundary that actually matters is unchanged, and it is the stack — every handler
+goes through `loadRunningNode`, so you reach only nodes on a stack you own.
+
+**Two mechanisms, picked per operation.** Metadata and mutation (list, chmod,
+chown, mkdir, rm, mv) exec a small `sh` script, because there is no way around
+a shell for those. Bulk bytes — download, upload, node→node copy — go through
+the engine's archive endpoints, which need no shell, no `tar` and no coreutils
+in the image, and stream rather than buffer. `GetArchiveStream` is the new half
+of that pair (Docker's download-from-container; `tar -c` over ssh for a VM).
+
+**Listing is `stat`, not `ls`, and NUL-separated.** `find … -exec stat --printf
+'%f;%s;%u;%g;%U;%G;%Y;%A;%N\0' {} +` in one batch: hex `st_mode` so setuid and
+sticky survive (`/tmp` is `1777`, `su` is `4755` — a three-digit mode loses
+both), `%N` for the quoted name and a symlink's target, and NUL terminators
+because a filename may legally contain a newline and one such file would
+desynchronise the whole listing. `--printf` is GNU; busybox takes only `-c`, so
+Alpine nodes fall back to newline records — the right way round, since a
+shell-less image cannot be browsed at all and newlines in filenames are rare
+where Alpine is common. A node with no shell says so plainly rather than
+returning an empty directory that looks like an answer.
+
+**Copying between nodes never touches this host.** The source's tar streams
+through a pipe straight into the destination's extract, so moving a directory
+between two containers needs no space on the DBCanvas host — and each side
+resolves its own engine, so a Docker node and a Vagrant VM in a hybrid stack
+can be the two ends.
+
+**Values that reach a shell are validated, not escaped.** Paths travel as `$@`
+positional arguments and the mode/owner as environment variables, so neither
+can become a second command however it is spelled; on top of that `chmod`'s
+mode must parse as octal or symbolic and an identity must look like a name or
+an id, because a typo that silently applies the wrong bits is its own damage.
+`/` is refused outright, and deleting a directory requires the recursive flag.
+
+The UI is two panes because "copy between nodes" is the feature that shapes the
+rest: with a node picker per pane a transfer is just "this selection, into the
+other pane's directory", and browsing one node is the degenerate case. The
+properties dialog edits the mode as a 3×3 grid *and* as octal, kept in sync,
+because "make it group-writable" and "make it 0644" are different moments.
+
+### Verified
+
+Live against two deployed nodes — an OL9 Intranet (GNU coreutils) and a
+SeaweedFS node (Alpine/busybox), which is what exercises both listing paths.
+
+- **API**: listing `/` renders modes, sticky/setuid bits, ownership and symlink
+  targets correctly on both nodes; mkdir, chmod (octal, symbolic, recursive),
+  chown (user, group, recursive) and rename all apply and read back; single-file
+  download comes back raw with its name, a directory and a multi-selection as a
+  `.tar.gz` with the right members; identities returns the node's 26 users and
+  46 groups; a node→node copy of a directory lands with modes and numeric
+  ownership intact. Refused with no side effect: `rm` of a directory without
+  recursive, `/` itself, `0644; rm -rf /` as a mode, an out-of-range octal,
+  `root; touch /pwned` as an owner (no `/pwned` afterwards), rename onto an
+  existing path, transfer to the same/unknown node or a missing directory,
+  listing a file or a missing path, and an unauthenticated request.
+- **UI, 24 checks in headless Chromium**: opening from the context menu;
+  browsing by double-click and by breadcrumb; New folder; the permissions dialog
+  seeding the current mode, the grid and the octal box staying in sync
+  (`755` → tick group-write → `775`), and applying `2750` + `apache:mail`
+  recursively — the listing afterwards reads `drwxr-s--- 2750 apache mail`, so
+  the setgid bit made the whole round trip; Download producing `inner.tar.gz`;
+  splitting to two panes, pointing the second at the SeaweedFS node, and copying
+  across (confirmed on the destination container); and deleting a directory
+  behind a warning that names what goes with it.
+- Twelve new Go tests over the parsing and the two validators, including a
+  record whose filename contains the field separator and one that is pure junk
+  (skipped without costing the directory). The hex modes in those fixtures are
+  real values read off a running node with `stat -c '%f'`, after hand-computed
+  ones turned out wrong.
+- All five browser suites (§266–§269) green back-to-back. §268's suite had an
+  observation-window race — with a warm cache the unpacking phase could close
+  inside a poll interval — now replaced by a MutationObserver that samples the
+  phase and its Cancel button at the same instant.
+
+Not covered: the Vagrant `GetArchiveStream` path has no VM to run against here,
+so it is written to the same contract as its Docker twin but unexercised.
+
+---
+
+## 270. Editing a file in place, and creating one — `app/nodefs.go`, `app/web/src/pages/FileManager.jsx`, `app/web/src/lib/stackApi.js`, `app/main.go`
+
+Right-click a file in the File Manager → **Edit…**, or double-click it: a
+notepad over the node's filesystem. Change the text, Save, and it goes back.
+**New file** on the toolbar opens the same notepad on an empty buffer.
+
+**Read through the archive endpoint, not `cat`.** The same reason §269 used it
+for bulk bytes applies here for a different payoff: the tar header carries the
+mode, uid/gid and size in the same round trip as the contents — which is
+precisely the metadata a save has to put back. `cat` would hand over the bytes
+and lose everything else, and then need a second shell call to recover it.
+
+**Saving preserves mode and ownership, because the alternative is a footgun.**
+The editor echoes back the mode/uid/gid it was given and they go into the tar
+header it writes. Without that, editing a config through this dialog would
+quietly turn it into a root-owned `0644` file — the classic way an in-place
+editor breaks the service whose config it just fixed. The footer names the three
+values and says *preserved on save*, so it is visible rather than promised.
+
+**A save refuses to clobber a file that moved underneath it.** `read` returns
+the mtime, `write` sends it back as `ifModTime`, and the handler re-stats before
+writing: if it no longer matches — someone else's root console, a daemon
+rewriting its own config — the save is refused with a 409 and the editor stays
+open, so the user's work is still in the textarea to copy out. `ifModTime: 0`
+skips the check, which is how writing a file that does not exist yet works.
+
+**What it declines to open.** Anything over 2 MiB (a textarea is not a pager,
+and pulling an arbitrary file into one is how you wedge a browser tab), anything
+that is not a regular file, and anything that fails a UTF-8 check or contains a
+NUL — the last because opening a binary in a textarea and saving it back is not
+an edit, it is corruption. Each refusal names the file and points at Download,
+which is unbounded and streams.
+
+**New file is the same dialog, from an empty buffer.** The toolbar gained it
+next to New folder: name it, and the editor opens on nothing — but the file is
+not created until Create, so Cancel means the directory is exactly as it was.
+That is why the button reads *Create* and the badge *not created yet* rather
+than *unsaved*: before the first save there is no file, and saying otherwise
+would misdescribe what Close throws away. Create stays enabled on an empty
+buffer, since an empty file is a legitimate thing to want, while Close only
+asks for confirmation once something has actually been typed.
+
+A name already in the directory is refused outright rather than opened. The
+editor starts empty, so letting it through would mean saving an empty buffer
+over a real file — a silent truncation dressed up as a new file. The message
+points at Edit… instead.
+
+Closing with unsaved changes asks first. Ctrl/Cmd-S saves and Escape closes,
+because those are what anyone will try without being told.
+
+### Verified
+
+Live against the deployed OL9 node, with a file seeded at `0640 apache:mail`
+(uid 48, gid 12) so "preserved" is a claim with a value behind it.
+
+- **UI, 25 checks in headless Chromium**: Edit… on the row menu and on
+  double-click; the editor opening with the file's text, its path, and the
+  mode/ownership line; Save disabled until something changes, then an *unsaved*
+  marker; saving reported, the editor closing, and the node afterwards holding
+  the new text **with `0640` and `48:12` intact**; closing dirty asking first,
+  Cancel keeping the editor open, Discard closing it and having written nothing;
+  and the stale case — a file changed on the node behind the editor's back —
+  refused with *changed on the node since you opened it*, the editor left open,
+  and the other edit confirmed unclobbered. A directory offers Open, not Edit.
+  No page errors.
+- **API refusals, each against a real file on the node**: `/bin/ls` (a genuine
+  ELF) and a `printf "abc\000def"` file both refused as binary, 400; a directory
+  refused as *only a regular file can be edited*, 400; a missing path 404; a
+  3 MiB text file refused with *is 3 MiB — too large to edit (limit 2 MiB)*,
+  413. A round trip of `café — 日本語 — ✓` comes back byte-identical, so the
+  UTF-8 guard rejects binaries without mangling text.
+- **New file, 23 further checks**: the toolbar action; the editor opening empty,
+  labelled *not created yet*, its button reading *Create*, enabled while empty,
+  and the footer saying `mode 0644 · uid 0 · gid 0 (on create)`; typing flipping
+  the badge to *unsaved*; Create reporting *Created*, closing, and the node
+  afterwards holding the typed text at `0644 0:0` with the file in the listing;
+  an untouched Create producing a genuinely empty (0-byte) file. Nothing written
+  on the way out: closing untouched does not even ask and creates nothing,
+  closing after typing asks with *has not been created yet* and Discard leaves
+  the directory unchanged — the listing checked by API both times. And a name
+  that already exists is refused with *already exists here*, no editor opens,
+  and the existing file still reads `do not lose me`.
+- `go build`, `go vet`, `go test ./...` green; §269's file-manager suite and the
+  226-check smoke suite both still green alongside these two.
+
+Not covered: no editing of a file the node's own user cannot write — the write
+lands as root through the archive endpoint, matching how the rest of the File
+Manager already behaves.

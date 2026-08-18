@@ -28,6 +28,60 @@ async function request(method, path, body) {
   return data
 }
 
+// uploadForm posts a multipart body with progress and cancellation. XHR rather
+// than fetch: fetch reports nothing about the *request* body's progress, and a
+// gigabyte-scale copy with no progress bar is indistinguishable from a hang.
+//
+// Two callbacks, because the wire has two phases the user experiences
+// differently. onProgress covers the upload itself, which is cancellable and
+// has a percentage. onSent fires when the last byte is away and the server
+// starts extracting the tar into the container — from here there is no
+// percentage to report and no safe way to cancel (see UploadDialog).
+//
+// Same error contract as request(): rejects with an Error carrying .status, and
+// .aborted set when the caller cancelled.
+function uploadForm(path, form, { onProgress, onSent, signal } = {}) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      const e = new Error('Cancelled'); e.aborted = true; return reject(e)
+    }
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', path)
+    xhr.withCredentials = true
+
+    xhr.upload.onprogress = (ev) => {
+      // ev.total is the whole multipart body, which is a little larger than the
+      // files themselves (part headers and boundaries) — that is the honest
+      // denominator for "how much is left to send".
+      if (onProgress && ev.lengthComputable) onProgress(ev.loaded, ev.total)
+    }
+    xhr.upload.onload = () => { if (onSent) onSent() }
+
+    const fail = (msg, status) => {
+      const e = new Error(msg)
+      if (status) e.status = status
+      reject(e)
+    }
+    xhr.onload = () => {
+      let data = null
+      try { data = JSON.parse(xhr.responseText) } catch { /* non-JSON body */ }
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(data)
+      fail((data && data.error) || `Request failed (${xhr.status})`, xhr.status)
+    }
+    xhr.onerror = () => fail('The connection to the server was lost.')
+    xhr.ontimeout = () => fail('The upload timed out.')
+    xhr.onabort = () => {
+      const e = new Error('Cancelled'); e.aborted = true; reject(e)
+    }
+    signal?.addEventListener('abort', () => xhr.abort(), { once: true })
+    xhr.send(form)
+  })
+}
+
+// The destinations a dropped file may be copied to. The server enforces the
+// same closed set (app/nodeupload.go) — this is only the menu.
+export const NODE_UPLOAD_DESTS = ['/', '/home', '/root', '/tmp']
+
 export const TTL_OPTIONS = [
   { id: '2h', label: '2 hours' },
   { id: '4h', label: '4 hours' },
@@ -48,6 +102,20 @@ export const stackApi = {
   destroy: (id) => request('POST', `/api/stacks/${id}/destroy`),
   getNode: (id, nid) => request('GET', `/api/stacks/${id}/nodes/${nid}`),
   nodeAction: (id, nid, action) => request('POST', `/api/stacks/${id}/nodes/${nid}/${action}`),
+  // Copy host files into a running node. `dest` is one of NODE_UPLOAD_DESTS;
+  // `files` is [{ path, file }] where path is relative to dest. The relative
+  // path travels as the multipart field name — Go strips directories from the
+  // filename parameter, which would flatten a dropped folder.
+  //
+  // opts.onProgress(sent, total) reports bytes on the wire, and opts.onSent()
+  // fires when the last one leaves — see uploadForm for why both matter.
+  // opts.signal aborts the transfer.
+  nodeUpload: (id, nid, dest, files, opts = {}) => {
+    const fd = new FormData()
+    fd.append('dest', dest)
+    for (const { path, file } of files) fd.append(path, file, path.split('/').pop())
+    return uploadForm(`/api/stacks/${id}/nodes/${nid}/upload`, fd, opts)
+  },
   // Stock Market Sim: check a manually-entered database connection before
   // deploying with it. Returns { ok, message } — message is the sim binary's
   // own one-line verdict, shown to the user verbatim.
@@ -68,6 +136,40 @@ export const stackApi = {
   operatorsCatalog: () => request('GET', '/api/catalog/operators'),
   k3sCatalog: () => request('GET', '/api/catalog/k3s'),
 }
+
+// Node File Manager (app/nodefs.go). `nid` is the design node id. Everything is
+// scoped to one node except transfer(), which names the other end, and the
+// stack-level node list the second pane picks from.
+export function fsApi(id, nid) {
+  const base = `/api/stacks/${id}/nodes/${nid}/fs`
+  return {
+    list: (path) => request('GET', `${base}/list?path=${encodeURIComponent(path)}`),
+    identities: () => request('GET', `${base}/identities`),
+    mkdir: (path) => request('POST', `${base}/mkdir`, { path }),
+    remove: (paths, recursive) => request('POST', `${base}/delete`, { paths, recursive }),
+    rename: (path, to) => request('POST', `${base}/rename`, { path, to }),
+    chmod: (paths, mode, recursive) => request('POST', `${base}/chmod`, { paths, mode, recursive }),
+    chown: (paths, owner, group, recursive) => request('POST', `${base}/chown`, { paths, owner, group, recursive }),
+    transfer: (paths, toNodeId, toPath) => request('POST', `${base}/transfer`, { paths, toNodeId, toPath }),
+    // Editing a text file in place. read() hands back the mode/uid/gid and the
+    // mtime; write() echoes them so a save preserves ownership and can refuse
+    // to clobber a file that changed underneath the editor.
+    read: (path) => request('GET', `${base}/read?path=${encodeURIComponent(path)}`),
+    write: (body) => request('POST', `${base}/write`, body),
+    upload: (dest, files, opts) => {
+      const fd = new FormData()
+      fd.append('dest', dest)
+      for (const { path, file } of files) fd.append(path, file, path.split('/').pop())
+      return uploadForm(`${base}/upload`, fd, opts || {})
+    },
+    // A plain href the browser GETs directly, so the session cookie rides along
+    // and the file streams to disk without passing through JS.
+    downloadURL: (paths) => `${base}/download?` + paths.map((p) => `path=${encodeURIComponent(p)}`).join('&'),
+  }
+}
+
+// The stack's running nodes, for the file manager's second pane.
+export const fsNodes = (id) => request('GET', `/api/stacks/${id}/fs/nodes`)
 
 // PMM node management. `nid` is the design node id.
 export function pmmApi(id, nid) {

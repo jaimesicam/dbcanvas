@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
 import { Card, Button, Badge, Field, ConfirmButton, inputCls } from '../components/ui.jsx'
-import { stackApi, frameApi, TTL_OPTIONS, DEPLOY_TONE } from '../lib/stackApi.js'
+import { stackApi, frameApi, TTL_OPTIONS, DEPLOY_TONE, NODE_UPLOAD_DESTS } from '../lib/stackApi.js'
 import { kindOf as aioKindOf, familyOf as aioFamilyOf } from '../lib/aioPorts.js'
 import IntranetManager from './IntranetManager.jsx'
 import SambaManager from './SambaManager.jsx'
@@ -27,6 +27,7 @@ import {
   UpstreamMemberForm,
 } from './UpstreamForms.jsx'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
+import FileManager from './FileManager.jsx'
 import { SecretInline, CopyButton as CopyBtn } from '../components/Secret.jsx'
 import {
   PORTS, dist, portPoint, edgePath, screenToWorld, zoomAt,
@@ -1123,7 +1124,15 @@ function StackEditor({ stackId, onBack }) {
   const [busy, setBusy] = useState('') // 'validate' | 'deploy' | ''
   const [configNode, setConfigNode] = useState(null) // node whose profile is shown
   const [deployPanel, setDeployPanel] = useState('hidden') // 'open' | 'min' | 'hidden'
+  const [fileDrag, setFileDrag] = useState(false) // host files are being dragged over the canvas
+  const [dropNode, setDropNode] = useState(null) // node id currently under a file drag
+  const [drop, setDrop] = useState(null) // dropped files awaiting a destination choice
+  const [xfer, setXfer] = useState(null) // the transfer dialog, once a destination is picked
+  const [fileMgr, setFileMgr] = useState(null) // { nodeId, label } while the file manager is open
+  const xferAbort = useRef(null)
+  const [flash, setFlash] = useState(null) // transient bottom toast ({ tone, text })
   const { openTerminal } = useTerminals()
+  const { system } = useSettings() // instance-wide: the node-upload ceiling
 
   const wrapRef = useRef(null)
   const dragRef = useRef(null)
@@ -1322,10 +1331,31 @@ function StackEditor({ stackId, onBack }) {
     // the listener would otherwise never attach (breaking wheel zoom).
   }, [stack])
 
+  useEffect(() => {
+    if (!flash) return
+    const t = setTimeout(() => setFlash(null), 4000)
+    return () => clearTimeout(t)
+  }, [flash])
+
+  // A drag abandoned outside the window (Escape, or released over another app)
+  // never reaches the canvas handlers, so clear the drop affordances globally.
+  useEffect(() => {
+    const end = () => { setFileDrag(false); setDropNode(null) }
+    addEventListener('dragend', end)
+    addEventListener('drop', end)
+    return () => { removeEventListener('dragend', end); removeEventListener('drop', end) }
+  }, [])
+
   // delete key
   useEffect(() => {
     function onKey(e) {
-      if (e.key === 'Escape') setMenu(null)
+      if (e.key === 'Escape') {
+        setMenu(null)
+        setDrop(null)
+        // The transfer dialog is not Escape-dismissible: while it runs, closing
+        // it would orphan a copy the user can no longer see or cancel; once it
+        // has finished, the outcome is the thing they have to acknowledge.
+      }
       if (e.key !== 'Delete') return
       const t = e.target
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
@@ -1379,6 +1409,117 @@ function StackEditor({ stackId, onBack }) {
     e.stopPropagation()
     setSelected({ kind: 'node', id })
     setMenu({ x: e.clientX, y: e.clientY, id })
+  }
+
+  // copyExecCommand puts `docker exec -it <container> bash` on the clipboard and
+  // flashes what happened — a menu item that copies silently gives the operator
+  // no way to tell a success from a browser that refused the clipboard.
+  async function copyExecCommand(name) {
+    const cmd = `docker exec -it ${name} bash`
+    setFlash(await copyText(cmd) ? { tone: 'ok', text: `Copied: ${cmd}` } : { tone: 'err', text: `Could not reach the clipboard. Command: ${cmd}` })
+  }
+
+  // --- drag files from the host onto a node -------------------------------
+  // Only a *running* node can take a drop: the copy goes through the engine's
+  // put-archive on a live container. Everything else (a stopped node, a node
+  // that was never deployed, empty canvas) refuses the drag so the cursor says
+  // "no" rather than the drop failing after the fact.
+  const canDrop = (id) => depByNode[id]?.state === 'running'
+
+  // isFileDrag distinguishes a drag from the desktop from the editor's own
+  // pointer drags — dataTransfer.types carries 'Files' only for the former.
+  const isFileDrag = (e) => Array.from(e.dataTransfer?.types || []).includes('Files')
+
+  function nodeDragOver(e, id) {
+    if (!isFileDrag(e)) return
+    if (!fileDrag) setFileDrag(true)
+    if (!canDrop(id)) return
+    // preventDefault on dragover is what marks an element as a drop target;
+    // without it the browser navigates to the file on drop.
+    e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'copy'
+    if (dropNode !== id) setDropNode(id)
+  }
+
+  function nodeDragLeave(e, id) {
+    // A drag moving over child elements fires leave/enter pairs; only clear when
+    // the pointer has actually left the card.
+    if (e.currentTarget.contains(e.relatedTarget)) return
+    setDropNode((cur) => (cur === id ? null : cur))
+  }
+
+  async function nodeDrop(e, id) {
+    if (!isFileDrag(e) || !canDrop(id)) return
+    e.preventDefault()
+    e.stopPropagation()
+    setFileDrag(false)
+    setDropNode(null)
+    const { x, y } = { x: e.clientX, y: e.clientY }
+    let files = []
+    try {
+      files = await collectDroppedFiles(e.dataTransfer)
+    } catch (err) {
+      setDrop({ id, x, y, phase: 'error', message: `Could not read the dropped items: ${err.message}` })
+      return
+    }
+    if (files.length === 0) {
+      setDrop({ id, x, y, phase: 'error', message: 'Nothing to copy — the drop held no files.' })
+      return
+    }
+    // Refuse an over-size drop here rather than after pushing it up the wire.
+    // The server enforces the same ceiling (app/nodeupload.go); this only saves
+    // the upload, so a stale limit costs a round trip, never correctness.
+    const total = files.reduce((n, f) => n + f.file.size, 0)
+    const max = system.maxUploadBytes
+    if (max > 0 && total > max) {
+      setDrop({
+        id, x, y, phase: 'error',
+        message: `That drop is ${fmtBytes(total)} — over this instance's ${fmtBytes(max)} limit for node uploads. An admin can raise it in Settings.`,
+      })
+      return
+    }
+    setDrop({ id, x, y, phase: 'choose', files, total })
+  }
+
+  // runUpload hands the drop off to the transfer dialog: the little picker
+  // closes, and everything from here is reported in a modal the user has to
+  // acknowledge. A copy that can run for minutes needs somewhere to live that
+  // an accidental click cannot dismiss.
+  async function runUpload(dest) {
+    const d = drop
+    if (!d?.files) return
+    setDrop(null)
+    const ctrl = new AbortController()
+    xferAbort.current = ctrl
+    const base = {
+      nodeId: d.id,
+      label: nodes.find((n) => n.id === d.id)?.label || 'node',
+      dest,
+      count: d.files.length,
+      total: d.total || 0,
+    }
+    setXfer({ ...base, phase: 'uploading', sent: 0, wire: 0 })
+    try {
+      const r = await stackApi.nodeUpload(stack.id, d.id, dest, d.files, {
+        signal: ctrl.signal,
+        onProgress: (sent, wire) => setXfer((x) => (x && x.phase === 'uploading' ? { ...x, sent, wire } : x)),
+        // The bytes are away; the server is now extracting the tar into the
+        // container. No percentage exists for that half, and cancelling it
+        // would leave the destination half-written — so the dialog switches to
+        // an indeterminate state with Cancel withdrawn.
+        onSent: () => setXfer((x) => (x && x.phase === 'uploading' ? { ...x, phase: 'extracting' } : x)),
+      })
+      setXfer((x) => (x ? { ...x, phase: 'done', count: r?.files?.length ?? x.count } : x))
+    } catch (err) {
+      setXfer((x) => (x ? { ...x, phase: err.aborted ? 'cancelled' : 'error', message: err.message } : x))
+    } finally {
+      xferAbort.current = null
+    }
+  }
+
+  function cancelUpload() {
+    xferAbort.current?.abort()
   }
 
   // --- association links (read refs.current so they're correct when called from
@@ -2247,6 +2388,12 @@ function StackEditor({ stackId, onBack }) {
         } else {
           actions.push({ label: 'Enter root console', fn: () => openTerminal({ stackId: stack.id, nodeId: id, title: `${node?.label || 'node'} · root` }) })
         }
+        actions.push({ label: 'File manager', fn: () => setFileMgr({ nodeId: id, label: node?.label || 'node' }) })
+        // The same shell, but from the operator's own terminal: hand them the
+        // exact `docker exec` line for this node's container.
+        if (dep.containerName) {
+          actions.push({ label: 'Copy docker exec command', fn: () => copyExecCommand(dep.containerName) })
+        }
         actions.push({ label: 'Stop', fn: () => nodeAction(id, 'stop') })
         actions.push({ label: 'Restart', fn: () => nodeAction(id, 'restart') })
       } else if (dep.state === 'stopped' || dep.state === 'error') {
@@ -2516,6 +2663,11 @@ function StackEditor({ stackId, onBack }) {
           ref={wrapRef}
           onPointerDown={startPan}
           onContextMenu={(e) => { e.preventDefault(); setMenu(null) }}
+          // Claim file drags for the canvas so a miss lands nowhere instead of
+          // making the browser navigate away from the designer to the file.
+          onDragOver={(e) => { if (isFileDrag(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'none'; if (!fileDrag) setFileDrag(true) } }}
+          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) { setFileDrag(false); setDropNode(null) } }}
+          onDrop={(e) => { if (isFileDrag(e)) { e.preventDefault(); setFileDrag(false); setDropNode(null) } }}
           className="relative flex-1 overflow-hidden rounded-xl border bg-bg"
           style={{ touchAction: 'none' }}
         >
@@ -2628,7 +2780,10 @@ function StackEditor({ stackId, onBack }) {
                         <div
                           onPointerDown={(e) => selectFrameNode(e, n.id)}
                           onContextMenu={(e) => openMenu(e, n.id)}
-                          className={`absolute inset-0 flex cursor-pointer flex-col overflow-hidden rounded-lg border bg-surface shadow-sm ${non ? 'ring-2 ring-primary' : ''}`}
+                          onDragOver={(e) => nodeDragOver(e, n.id)}
+                          onDragLeave={(e) => nodeDragLeave(e, n.id)}
+                          onDrop={(e) => nodeDrop(e, n.id)}
+                          className={`absolute inset-0 flex cursor-pointer flex-col overflow-hidden rounded-lg border bg-surface shadow-sm ${non ? 'ring-2 ring-primary' : ''} ${dropNode === n.id ? 'ring-2 ring-success' : ''}`}
                         >
                           <div className="h-1 w-full shrink-0" style={{ background: barCol }} />
                           <div className="flex flex-1 flex-col justify-center px-2 py-1">
@@ -2674,7 +2829,10 @@ function StackEditor({ stackId, onBack }) {
                   key={n.id}
                   onPointerDown={(e) => startNode(e, n.id)}
                   onContextMenu={(e) => openMenu(e, n.id)}
-                  className={`group absolute flex cursor-grab flex-col overflow-hidden rounded-xl border bg-surface shadow-sm active:cursor-grabbing ${on ? 'ring-2 ring-primary' : ''}`}
+                  onDragOver={(e) => nodeDragOver(e, n.id)}
+                  onDragLeave={(e) => nodeDragLeave(e, n.id)}
+                  onDrop={(e) => nodeDrop(e, n.id)}
+                  className={`group absolute flex cursor-grab flex-col overflow-hidden rounded-xl border bg-surface shadow-sm active:cursor-grabbing ${on ? 'ring-2 ring-primary' : ''} ${dropNode === n.id ? 'ring-2 ring-success' : ''}`}
                   style={{ left: n.x, top: n.y, width: NODE_W, height: NODE_H }}
                 >
                   <div className="h-1.5 w-full shrink-0" style={{ background: def.color }} />
@@ -2711,9 +2869,21 @@ function StackEditor({ stackId, onBack }) {
             })}
           </div>
 
+          {/* The legend swaps to the drop hint while files are being dragged over
+              the canvas — saying it permanently pushes the line under the minimap. */}
           <div className="pointer-events-none absolute bottom-3 left-3 rounded-lg border bg-surface/80 px-3 py-2 text-xs text-muted backdrop-blur">
-            Drag canvas to pan · scroll to zoom · drag a port to connect · right-click for actions
+            {fileDrag
+              ? 'Drop on a running node to copy the files into it'
+              : 'Drag canvas to pan · scroll to zoom · drag a port to connect · right-click for actions'}
           </div>
+
+          {/* Top-centre: the bottom of the canvas already holds the legend on
+              the left and the minimap on the right, and they collide there. */}
+          {flash && (
+            <div className={`pointer-events-none absolute top-3 left-1/2 max-w-[80%] -translate-x-1/2 rounded-lg border px-3 py-2 text-xs backdrop-blur ${flash.tone === 'err' ? 'border-danger/30 bg-danger/15 text-danger' : 'bg-surface/90 text-fg'}`}>
+              {flash.text}
+            </div>
+          )}
 
           <Minimap nodes={nodes} view={view} setView={setView} wrapRef={wrapRef} selectedId={selected?.kind === 'node' ? selected.id : null} />
         </div>
@@ -2741,6 +2911,26 @@ function StackEditor({ stackId, onBack }) {
 
       {menu && (
         <ContextMenu menu={menu} onClose={() => setMenu(null)} actions={nodeMenuActions(menu.id)} />
+      )}
+
+      {drop && (
+        <NodeDropMenu
+          drop={drop}
+          node={nodes.find((n) => n.id === drop.id)}
+          onPick={runUpload}
+          onClose={() => setDrop(null)}
+        />
+      )}
+
+      {xfer && <UploadDialog xfer={xfer} onCancel={cancelUpload} onClose={() => setXfer(null)} />}
+
+      {fileMgr && (
+        <FileManager
+          stackId={stack.id}
+          nodeId={fileMgr.nodeId}
+          nodeLabel={fileMgr.label}
+          onClose={() => setFileMgr(null)}
+        />
       )}
 
       {configNode && <ConfigModal dep={configNode} onClose={() => setConfigNode(null)} />}
@@ -8222,6 +8412,206 @@ function PortHandles({ ownerId, connecting, snapPort, onStart }) {
         )
       })}
     </>
+  )
+}
+
+// fmtBytes mirrors humanLimit() in app/syssettings.go: exact binary multiples
+// read as whole numbers ("4 GiB"), so the limit the settings page shows and the
+// limit a refusal quotes are written the same way.
+function fmtBytes(n) {
+  const U = [[1024 ** 4, 'TiB'], [1024 ** 3, 'GiB'], [1024 ** 2, 'MiB'], [1024, 'KiB']]
+  for (const [size, label] of U) {
+    if (n >= size) {
+      const v = n / size
+      return `${Number.isInteger(v) ? v : v.toFixed(1)} ${label}`
+    }
+  }
+  return `${n} bytes`
+}
+
+// copyText writes to the clipboard, returning whether it landed. The async
+// Clipboard API needs a secure context, and DBCanvas is routinely reached over
+// plain http on a lab host's LAN address — so fall back to the old
+// select-a-textarea trick there rather than failing.
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch { /* fall through */ }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.setAttribute('readonly', '')
+    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0'
+    document.body.appendChild(ta)
+    ta.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
+  } catch {
+    return false
+  }
+}
+
+// collectDroppedFiles flattens a drop into [{ path, file }], where path is
+// relative to the destination the user will pick. Dropping a folder is worth
+// supporting — people drag a whole config or dump directory — so the entries
+// API is walked recursively when the browser offers it, with dataTransfer.files
+// as the flat fallback. The entries must be taken *synchronously* off the
+// DataTransfer (they are invalidated once the drop event finishes), which is
+// why the sync sweep happens before the first await.
+async function collectDroppedFiles(dt) {
+  const entries = []
+  for (const item of Array.from(dt.items || [])) {
+    if (item.kind !== 'file') continue
+    const entry = item.webkitGetAsEntry?.()
+    if (entry) entries.push(entry)
+  }
+  if (entries.length === 0) {
+    return Array.from(dt.files || []).map((file) => ({ path: file.name, file }))
+  }
+  const out = []
+  const walk = async (entry, prefix) => {
+    const p = prefix ? `${prefix}/${entry.name}` : entry.name
+    if (entry.isFile) {
+      const file = await new Promise((res, rej) => entry.file(res, rej))
+      out.push({ path: p, file })
+      return
+    }
+    if (!entry.isDirectory) return
+    // readEntries returns at most ~100 per call and signals the end with an
+    // empty batch, so it has to be drained in a loop.
+    const reader = entry.createReader()
+    for (;;) {
+      const batch = await new Promise((res, rej) => reader.readEntries(res, rej))
+      if (batch.length === 0) break
+      for (const child of batch) await walk(child, p)
+    }
+  }
+  for (const entry of entries) await walk(entry, '')
+  // Empty directories carry nothing to copy and tar-ing them alone would be a
+  // surprise; the server only ever sees files.
+  return out
+}
+
+// NodeDropMenu is the destination picker that opens where the files landed, and
+// then reports the result in place.
+function NodeDropMenu({ drop, node, onPick, onClose }) {
+  const x = Math.max(8, Math.min(drop.x, window.innerWidth - 248))
+  const y = Math.max(8, Math.min(drop.y, window.innerHeight - 228))
+  const label = node?.label || 'node'
+  const n = drop.files?.length || 0
+  return createPortal(
+    <div className="fixed inset-0 z-50" onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose() }}>
+      <div className="absolute w-60 rounded-lg border bg-surface p-1 shadow-xl" style={{ left: x, top: y }} onClick={(e) => e.stopPropagation()}>
+        {drop.phase === 'choose' && (
+          <>
+            <div className="px-2.5 pb-1 pt-1.5 text-[11px] leading-snug text-muted">
+              Copy {n} file{n === 1 ? '' : 's'}{drop.total ? ` (${fmtBytes(drop.total)})` : ''} to{' '}
+              <span className="font-medium text-fg">{label}</span> at:
+            </div>
+            {NODE_UPLOAD_DESTS.map((d) => (
+              <button key={d} onClick={() => onPick(d)}
+                className="block w-full rounded-md px-2.5 py-1.5 text-left font-mono text-sm text-fg hover:bg-surface2">
+                {d}
+              </button>
+            ))}
+            <div className="my-1 h-px bg-border" />
+            <button onClick={onClose} className="block w-full rounded-md px-2.5 py-1.5 text-left text-sm text-muted hover:bg-surface2">Cancel</button>
+          </>
+        )}
+        {drop.phase === 'error' && (
+          <div className="px-2.5 py-2 text-sm text-danger">{drop.message}</div>
+        )}
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+// UploadDialog is the modal that owns a transfer once a destination is picked.
+//
+// It is deliberately not dismissible by clicking away or pressing Escape: a
+// copy that can run for minutes should not vanish because the pointer slipped,
+// and the outcome — however it ended — has to be acknowledged.
+//
+// The two live phases are different in kind, not just in degree:
+//   uploading  — bytes on the wire, a real percentage, safely cancellable
+//                (the server has not finished parsing the body, so nothing has
+//                been written into the container yet).
+//   extracting — the body is in; the server is streaming the tar into the
+//                container. No percentage to report, and cancelling now would
+//                cut the extract halfway and leave a partial destination, so
+//                Cancel is withdrawn rather than offered and quietly ignored.
+function UploadDialog({ xfer, onCancel, onClose }) {
+  const { phase, count, dest, label } = xfer
+  const files = `${count} file${count === 1 ? '' : 's'}`
+  const pct = xfer.wire > 0 ? Math.min(100, Math.round((xfer.sent / xfer.wire) * 100)) : 0
+  const live = phase === 'uploading' || phase === 'extracting'
+
+  const TITLE = {
+    uploading: `Copying to ${label}`,
+    extracting: `Copying to ${label}`,
+    done: 'Transfer complete',
+    cancelled: 'Transfer cancelled',
+    error: 'Transfer failed',
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-sm rounded-xl border bg-surface p-5 shadow-2xl">
+        <h3 className="mb-1 text-sm font-semibold">{TITLE[phase]}</h3>
+        <p className="mb-4 text-xs text-muted">
+          {files}{xfer.total ? ` · ${fmtBytes(xfer.total)}` : ''} → <span className="font-mono text-fg">{dest}</span>
+        </p>
+
+        {phase === 'uploading' && (
+          <>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-surface2">
+              <div className="h-full rounded-full bg-primary transition-[width] duration-150" style={{ width: `${pct}%` }} />
+            </div>
+            <div className="mt-1.5 flex justify-between text-[11px] text-muted">
+              <span>{fmtBytes(xfer.sent)} of {fmtBytes(xfer.wire)}</span>
+              <span>{pct}%</span>
+            </div>
+          </>
+        )}
+
+        {phase === 'extracting' && (
+          <>
+            {/* Indeterminate: the server is unpacking and reports no progress.
+                Saying "almost done" would be a guess; saying nothing reads as a
+                hang. A moving bar with an honest label is the middle. */}
+            <div className="h-2 w-full overflow-hidden rounded-full bg-surface2">
+              <div className="h-full w-1/3 animate-pulse rounded-full bg-primary" />
+            </div>
+            <div className="mt-1.5 text-[11px] text-muted">Unpacking on the node…</div>
+          </>
+        )}
+
+        {phase === 'done' && (
+          <div className="flex items-start gap-2 rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
+            <span className="mt-0.5 shrink-0"><Icon.Check size={16} /></span>
+            <span>Copied {files} to <span className="font-mono">{dest}</span> on {label}.</span>
+          </div>
+        )}
+        {phase === 'cancelled' && (
+          <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
+            Cancelled at {pct}%. Nothing was written to {label} — the server discards a transfer it never finished receiving.
+          </div>
+        )}
+        {phase === 'error' && (
+          <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-sm text-danger">{xfer.message}</div>
+        )}
+
+        <div className="mt-4 flex justify-end gap-2">
+          {phase === 'uploading' && <Button variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>}
+          {phase === 'extracting' && <span className="text-[11px] text-muted">Too late to cancel — this would leave a partial copy.</span>}
+          {!live && <Button size="sm" onClick={onClose}>OK</Button>}
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
 }
 

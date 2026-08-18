@@ -230,8 +230,16 @@ func (d *Docker) ImagePull(ctx context.Context, repo, tag, platform string) erro
 // PutArchive extracts a tar archive into dir inside a container (the Docker
 // "upload to container" endpoint). Used to place several files at once.
 func (d *Docker) PutArchive(ctx context.Context, id, dir string, tarball []byte) error {
+	return d.PutArchiveStream(ctx, id, dir, bytes.NewReader(tarball))
+}
+
+// PutArchiveStream is PutArchive reading the tar from r, so a multi-gigabyte
+// upload never has to exist in memory: the reader is the request body and Go's
+// http client pumps it straight to the daemon (chunked, since the length is
+// unknown).
+func (d *Docker) PutArchiveStream(ctx context.Context, id, dir string, r io.Reader) error {
 	req, err := http.NewRequestWithContext(ctx, "PUT",
-		"http://docker/containers/"+id+"/archive?path="+url.QueryEscape(dir), bytes.NewReader(tarball))
+		"http://docker/containers/"+id+"/archive?path="+url.QueryEscape(dir), r)
 	if err != nil {
 		return err
 	}
@@ -245,6 +253,25 @@ func (d *Docker) PutArchive(ctx context.Context, id, dir string, tarball []byte)
 		return errBody("put archive", resp)
 	}
 	return nil
+}
+
+// GetArchiveStream reads path out of a container as a tar stream (the Docker
+// "download from container" endpoint). The caller closes the reader; the body is
+// deliberately NOT drained here, since streaming it is the whole point.
+func (d *Docker) GetArchiveStream(ctx context.Context, id, path string) (io.ReadCloser, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET",
+		"http://docker/containers/"+id+"/archive?path="+url.QueryEscape(path), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := d.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != 200 {
+		return nil, errBody("get archive "+path, resp)
+	}
+	return resp.Body, nil
 }
 
 // NetworkEnsure creates a user-defined bridge network if it does not exist.

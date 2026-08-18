@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"time"
 )
 
@@ -64,6 +65,15 @@ type Engine interface {
 	ExecInput(ctx context.Context, id, user string, cmd, env []string, stdin []byte) (ExecResult, error)
 	CopyFile(ctx context.Context, id, dir, name string, mode int64, content []byte) error
 	PutArchive(ctx context.Context, id, dir string, tarball []byte) error
+	// PutArchiveStream is PutArchive without holding the archive in memory —
+	// for node file drops, which are bounded by the configured max upload size
+	// (gibibytes) rather than by anything that would fit in RAM.
+	PutArchiveStream(ctx context.Context, id, dir string, r io.Reader) error
+	// GetArchiveStream reads path out of a node as a tar stream. The caller
+	// closes it. This is the download/copy-between-nodes direction, and it is
+	// deliberately not exec-based: the archive endpoint needs no shell, no tar
+	// and no coreutils in the image (see nodefs.go).
+	GetArchiveStream(ctx context.Context, id, path string) (io.ReadCloser, error)
 
 	// Interactive console (web terminal).
 	HijackExec(ctx context.Context, containerID string, cmd, env []string, user string) (*ExecConn, error)

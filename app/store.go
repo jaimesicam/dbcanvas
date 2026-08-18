@@ -146,7 +146,14 @@ CREATE TABLE IF NOT EXISTS ptstalk_archives (
   note        TEXT NOT NULL DEFAULT '',
   path        TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_ptstalk_node ON ptstalk_archives(stack_id, node_id, captured_at DESC);`
+CREATE INDEX IF NOT EXISTS idx_ptstalk_node ON ptstalk_archives(stack_id, node_id, captured_at DESC);
+-- Instance-wide settings, as opposed to users.settings_json which is per account.
+-- One row per key so a new knob needs no migration; see syssettings.go for the
+-- typed view over it and who may change it.
+CREATE TABLE IF NOT EXISTS app_settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);`
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, err
@@ -298,6 +305,26 @@ func (s *Store) SetUserSettings(id int64, js string) error {
 	return err
 }
 
+// AppSetting returns one instance-wide setting, or "" when it has never been
+// set (the caller applies its own default — an absent row is not an error).
+func (s *Store) AppSetting(key string) (string, error) {
+	var v string
+	err := s.db.QueryRow("SELECT value FROM app_settings WHERE key = ?", key).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return v, err
+}
+
+// SetAppSetting writes one instance-wide setting.
+func (s *Store) SetAppSetting(key, value string) error {
+	_, err := s.db.Exec(
+		"INSERT INTO app_settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+		key, value,
+	)
+	return err
+}
+
 // CreateSession stores a session token for a user with an expiry.
 func (s *Store) CreateSession(token string, userID int64, expires time.Time) error {
 	_, err := s.db.Exec(
@@ -386,6 +413,10 @@ type Deployment struct {
 	Config      json.RawMessage `json:"config,omitempty"`
 	Secrets     json.RawMessage `json:"secrets,omitempty"`
 	Progress    json.RawMessage `json:"progress,omitempty"`
+	// ContainerName is derived, not stored: containerName(StackID, NodeID), filled
+	// on the read paths so the UI can show/copy the `docker exec` command without
+	// re-deriving the naming rule client-side. UpsertDeployment ignores it.
+	ContainerName string `json:"containerName,omitempty"`
 }
 
 // CreateStack inserts a new stack. expiresAt is nil for an infinite TTL.
@@ -587,6 +618,7 @@ func (s *Store) ListDeployments(stackID int64) ([]Deployment, error) {
 		if prog.Valid {
 			d.Progress = json.RawMessage(prog.String)
 		}
+		d.ContainerName = containerName(d.StackID, d.NodeID)
 		out = append(out, d)
 	}
 	return out, rows.Err()
@@ -613,6 +645,7 @@ func (s *Store) GetDeployment(stackID int64, nodeID string) (Deployment, error) 
 	if prog.Valid {
 		d.Progress = json.RawMessage(prog.String)
 	}
+	d.ContainerName = containerName(d.StackID, d.NodeID)
 	return d, nil
 }
 

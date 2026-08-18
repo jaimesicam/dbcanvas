@@ -39,6 +39,10 @@ export const api = {
   me: () => request('GET', '/api/me'),
   settings: () => request('GET', '/api/me/settings'),
   saveSettings: (s) => request('PUT', '/api/me/settings', s),
+  // Instance-wide settings (app/syssettings.go). Readable by anyone signed in;
+  // saving is admin-only and 403s otherwise.
+  systemSettings: () => request('GET', '/api/system/settings'),
+  saveSystemSettings: (s) => request('PUT', '/api/system/settings', s),
   listUsers: () => request('GET', '/api/users'),
   setUserStatus: (id, action) => request('POST', `/api/users/${id}/${action}`),
   deleteUser: (id) => request('DELETE', `/api/users/${id}`),

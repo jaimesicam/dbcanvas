@@ -11,11 +11,17 @@ import { useTheme } from '../theme/ThemeProvider.jsx'
 // what paints the login screen and avoids a flash before this fetch lands.
 
 const DEFAULTS = { terminalMode: 'docked', theme: 'dark', deploymentBackend: 'docker' }
+// Instance-wide, not per user (app/syssettings.go). Kept here so the one fetch
+// serves both the settings page and the designer, which needs the upload
+// ceiling to refuse an over-size drop before sending it. Mirror of
+// defaultSystemSettings() — the server's value wins as soon as it lands.
+const SYSTEM_DEFAULTS = { maxUploadBytes: 4 * 1024 * 1024 * 1024 }
 const SettingsCtx = createContext(null)
 
 export function SettingsProvider({ children }) {
   const { theme, setTheme } = useTheme()
   const [settings, setSettings] = useState(DEFAULTS)
+  const [system, setSystem] = useState(SYSTEM_DEFAULTS)
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
@@ -28,6 +34,9 @@ export function SettingsProvider({ children }) {
       })
       .catch(() => { /* keep defaults; the settings page will surface save errors */ })
       .finally(() => { if (!stale) setLoaded(true) })
+    api.systemSettings()
+      .then((s) => { if (!stale) setSystem(s) })
+      .catch(() => { /* keep the mirrored defaults */ })
     return () => { stale = true }
     // Runs once on mount: `theme` is only the pre-load fallback to compare against.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -49,8 +58,15 @@ export function SettingsProvider({ children }) {
     }
   }, [settings, setTheme])
 
+  // saveSystem persists an instance-wide patch. Unlike save() it is NOT optimistic:
+  // a non-admin's PUT is refused with 403, and briefly showing a limit that the
+  // server never accepted would be worse than a short wait.
+  const saveSystem = useCallback(async (patch) => {
+    setSystem(await api.saveSystemSettings({ ...system, ...patch }))
+  }, [system])
+
   return (
-    <SettingsCtx.Provider value={{ settings, save, loaded }}>
+    <SettingsCtx.Provider value={{ settings, save, system, saveSystem, loaded }}>
       {children}
     </SettingsCtx.Provider>
   )
@@ -59,5 +75,9 @@ export function SettingsProvider({ children }) {
 // useSettings is safe outside the provider (returns the defaults and a no-op save), so
 // components that may render before/without it don't need a guard.
 export function useSettings() {
-  return useContext(SettingsCtx) ?? { settings: DEFAULTS, save: async () => {}, loaded: false }
+  return useContext(SettingsCtx) ?? {
+    settings: DEFAULTS, save: async () => {},
+    system: SYSTEM_DEFAULTS, saveSystem: async () => {},
+    loaded: false,
+  }
 }

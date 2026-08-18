@@ -47,6 +47,7 @@ func main() {
 	}
 
 	dbPath := envOr("DB_PATH", "dbcanvas.db")
+	useDataTempDir(dbPath)
 	store, err := OpenStore(dbPath)
 	if err != nil {
 		log.Fatalf("failed to open database: %v", err)
@@ -69,6 +70,11 @@ func main() {
 	mux.HandleFunc("GET /api/me", app.handleMe)
 	mux.HandleFunc("GET /api/me/settings", app.handleGetSettings)
 	mux.HandleFunc("PUT /api/me/settings", app.handleUpdateSettings)
+	// Instance-wide settings: anyone signed in may read them (the designer needs
+	// the upload ceiling to refuse an over-size drop client-side); only an admin
+	// may change them.
+	mux.HandleFunc("GET /api/system/settings", app.handleGetSystemSettings)
+	mux.HandleFunc("PUT /api/system/settings", app.requireAdmin(app.handleUpdateSystemSettings))
 
 	mux.HandleFunc("GET /api/users", app.requireAdmin(app.handleListUsers))
 	mux.HandleFunc("POST /api/users/{id}/approve", app.requireAdmin(app.handleUserStatus(StatusApproved)))
@@ -110,6 +116,24 @@ func main() {
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/start", app.handleNodeAction("start"))
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/stop", app.handleNodeAction("stop"))
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/restart", app.handleNodeAction("restart"))
+	// Drag files from the host onto a node's card in the designer (see nodeupload.go).
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/upload", app.handleNodeUpload)
+
+	// Node File Manager (see nodefs.go). Arbitrary read/write inside a node's
+	// filesystem, scoped — like the web terminal — to a stack the caller owns.
+	mux.HandleFunc("GET /api/stacks/{id}/fs/nodes", app.handleFSNodes)
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/fs/list", app.handleFSList)
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/fs/identities", app.handleFSIdentities)
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/fs/download", app.handleFSDownload)
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/fs/read", app.handleFSRead)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/fs/write", app.handleFSWrite)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/fs/upload", app.handleFSUpload)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/fs/mkdir", app.handleFSMkdir)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/fs/delete", app.handleFSDelete)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/fs/rename", app.handleFSRename)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/fs/chmod", app.handleFSChmod)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/fs/chown", app.handleFSChown)
+	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/fs/transfer", app.handleFSTransfer)
 
 	// On-node diagnostic captures. pg_gather (PostgreSQL) + pt-stalk (MySQL family).
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/pggather", app.handlePGGatherStatus)
