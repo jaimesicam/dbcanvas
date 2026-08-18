@@ -348,7 +348,7 @@ const COMPARE_FINDINGS = [
 ]
 
 const captureLabel = (m) =>
-  `${m.source?.host || 'host'}${m.source?.capturedAt ? ' · ' + new Date(m.source.capturedAt).toLocaleTimeString() : ''}`
+  `${m.source?.host || 'host'}${m.source?.capturedAt ? ' · ' + new Date(m.source.capturedAt).toLocaleString() : ''}`
 const sameCapture = (a, b) =>
   a?.source?.host === b?.source?.host && a?.source?.capturedAt === b?.source?.capturedAt
 

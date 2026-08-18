@@ -42,6 +42,7 @@ import (
 	"io"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -136,19 +137,27 @@ func (d *ftdcData) readFile(raw []byte) error {
 	return nil
 }
 
-// readMetadata keeps the few identifying fields out of a type-0 document. They are the
-// only reason to look at one: it is otherwise a verbatim copy of getCmdLineOpts and
-// buildInfo, which is not what anybody opens a metrics file for.
+// readMetadata reads the type-0 document — the one written when a metrics file opens, and
+// never again.
+//
+// It used to keep four fields, on the grounds that the rest is a verbatim copy of buildInfo
+// and getCmdLineOpts. That was wrong in a specific way: it is the ONLY place a capture says
+// what the server was, and half of what looks like a mystery in the charts is a setting. A
+// cache sized from 30 GiB of host memory inside a 3 GiB container, transparent huge pages
+// left on, a file-descriptor ceiling of 1024, authorization disabled — none of those are
+// metrics, all of them are here, and all of them change what the charts mean.
+//
+// Every field below was read out of a real 8.0.28-12 capture rather than from documentation.
+// Values are stored as strings because that is what they are: this map is for display, and
+// anything that needed arithmetic would be a metric in a chunk instead.
 func (d *ftdcData) readMetadata(doc bson.Raw) {
 	inner, ok := doc.Lookup("doc").DocumentOK()
 	if !ok {
 		return
 	}
-	set := func(key string, path ...string) {
-		if v, err := inner.LookupErr(path...); err == nil {
-			if s, ok := v.StringValueOK(); ok && s != "" && d.Meta[key] == "" {
-				d.Meta[key] = s
-			}
+	put := func(key, val string) {
+		if val != "" && d.Meta[key] == "" {
+			d.Meta[key] = val
 		}
 	}
 	// 8.0 groups a sharded deployment's capture by role, and the metadata document is
@@ -156,11 +165,97 @@ func (d *ftdcData) readMetadata(doc bson.Raw) {
 	// Read both, so an 8.0 sharded capture still knows what version and host it came from
 	// rather than arriving anonymous.
 	for _, prefix := range [][]string{nil, {"common"}} {
-		set("version", append(append([]string{}, prefix...), "buildInfo", "version")...)
-		set("host", append(append([]string{}, prefix...), "hostInfo", "system", "hostname")...)
-		set("replSet", append(append([]string{}, prefix...), "getCmdLineOpts", "parsed", "replication", "replSetName")...)
-		set("process", append(append([]string{}, prefix...), "getCmdLineOpts", "parsed", "processManagement", "pidFilePath")...)
+		at := func(path ...string) bson.RawValue {
+			full := append(append([]string{}, prefix...), path...)
+			v, err := inner.LookupErr(full...)
+			if err != nil {
+				return bson.RawValue{}
+			}
+			return v
+		}
+		str := func(key string, path ...string) {
+			if s, ok := at(path...).StringValueOK(); ok {
+				put(key, s)
+			}
+		}
+		num := func(key, suffix string, path ...string) float64 {
+			v := at(path...)
+			f, ok := ftdcNumOf(v)
+			if !ok {
+				return 0
+			}
+			put(key, ftdcFmtNum(f)+suffix)
+			return f
+		}
+		boolean := func(key string, path ...string) {
+			if b, ok := at(path...).BooleanOK(); ok {
+				put(key, map[bool]string{true: "yes", false: "no"}[b])
+			}
+		}
+
+		str("version", "buildInfo", "version")
+		str("psmdbVersion", "buildInfo", "psmdbVersion")
+		str("gitVersion", "buildInfo", "gitVersion")
+		str("allocator", "buildInfo", "allocator")
+		str("openssl", "buildInfo", "openssl", "running")
+		str("host", "hostInfo", "system", "hostname")
+		str("os", "hostInfo", "os", "name")
+		str("kernel", "hostInfo", "extra", "kernelVersion")
+		str("cpu", "hostInfo", "extra", "cpuString")
+		str("thp", "hostInfo", "extra", "thp_enabled")
+		num("cores", "", "hostInfo", "system", "numCores")
+		num("coresAvailable", "", "hostInfo", "system", "numCoresAvailableToProcess")
+		memSize := num("memSizeMB", " MiB", "hostInfo", "system", "memSizeMB")
+		memLimit := num("memLimitMB", " MiB", "hostInfo", "system", "memLimitMB")
+		boolean("numa", "hostInfo", "system", "numaEnabled")
+		num("maxOpenFiles", "", "hostInfo", "extra", "maxOpenFiles")
+		num("fileDescriptors", "", "ulimits", "fileDescriptors", "soft")
+		str("replSet", "getCmdLineOpts", "parsed", "replication", "replSetName")
+		str("process", "getCmdLineOpts", "parsed", "processManagement", "pidFilePath")
+		str("dbPath", "getCmdLineOpts", "parsed", "storage", "dbPath")
+		str("logPath", "getCmdLineOpts", "parsed", "systemLog", "path")
+		str("authorization", "getCmdLineOpts", "parsed", "security", "authorization")
+		str("keyFile", "getCmdLineOpts", "parsed", "security", "keyFile")
+		str("clusterRole", "getCmdLineOpts", "parsed", "sharding", "clusterRole")
+		num("port", "", "getCmdLineOpts", "parsed", "net", "port")
+		num("cacheSizeGB", " GiB", "getCmdLineOpts", "parsed", "storage", "wiredTiger", "engineConfig", "cacheSizeGB")
+		str("defaultReadConcern", "getDefaultRWConcern", "defaultReadConcern", "level")
+		num("defaultWriteConcern", "", "getDefaultRWConcern", "defaultWriteConcern", "w")
+
+		// The trap this exists to surface: mongod sizes its cache from what it believes the
+		// machine has, and inside a container that is usually the HOST's memory. When the
+		// two agree and nothing pinned the cache, say so — a reader whose member was OOM
+		// killed with a "healthy" cache chart needs that sentence, and it cannot be
+		// inferred from any counter in the file.
+		if memSize > 0 && memLimit > 0 && memSize == memLimit && d.Meta["cacheSizeGB"] == "" {
+			put("memNote", "mongod sized its cache from "+ftdcFmtNum(memSize)+" MiB of visible memory; "+
+				"a smaller container or cgroup limit is invisible to it and to this file")
+		}
 	}
+}
+
+// ftdcNumOf reads a BSON number of any width, because the same field arrives as an int32 on
+// one build and a double on the next and a reader that only handles one silently drops it.
+func ftdcNumOf(v bson.RawValue) (float64, bool) {
+	switch v.Type {
+	case bson.TypeInt32:
+		return float64(v.Int32()), true
+	case bson.TypeInt64:
+		return float64(v.Int64()), true
+	case bson.TypeDouble:
+		return v.Double(), true
+	}
+	return 0, false
+}
+
+// ftdcFmtNum renders a metadata number the way a person writes it: no decimal point on a
+// whole number, no exponent, thousands left alone (these are core counts and megabytes,
+// not measurements).
+func ftdcFmtNum(f float64) string {
+	if f == math.Trunc(f) {
+		return strconv.FormatInt(int64(f), 10)
+	}
+	return strconv.FormatFloat(f, 'f', -1, 64)
 }
 
 // ftdcRoleGroups are the wrappers MongoDB 8.0 puts around a sharded deployment's sample.

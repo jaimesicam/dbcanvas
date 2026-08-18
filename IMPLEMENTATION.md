@@ -15492,3 +15492,241 @@ name, so `diagnostic.data.tar.gz.20260814` survives it.
   attribute**, and `mysqld_node1_2026-08-14`, `error.log-20260814` and `gr03.err.1`
   uploaded together were read as MySQL/PXC, 72 events across three sources, with a
   full verdict. No page errors and nothing in the app log throughout.
+
+## 272. What the anatomy pass found, built: five FTDC charts, the capture header, the slow-query pass, and dates on every timeline — `app/{ftdc,ftdcsummary,logsummary_model,logsummary_mongo,logsummary_mongo_verdict,logsummary_grouprepl_verdict}.go`, `app/logsummary_mongo_slow.go` (new), `app/web/src/{lib/logApi.js,components/TimeChart.jsx,pages/FTDCSummary.jsx,pages/LogSummary.jsx,pages/StalkSummary.jsx}`
+
+Session 271's report (`/home/builder/inside-diagnostic-data.html`) measured what an 86-minute
+PSMDB 8.0 capture contains — 5,676 metrics, 1,752 of which move, 182 of them charted — and
+what the mongod log says about the same seconds. This is the part of that worth building.
+
+### FTDC Summary
+
+**Five charts, each reading metrics that were in the file all along.**
+
+- **Oplog window** (`serverStatus.oplog.earliestOptime`/`latestOptime`, subtracted): the
+  recovery budget in *time*, which is the question people actually ask of an oplog. The size
+  chart beside it reads 47 GiB whatever happens. The warm-up ramp is excluded deliberately —
+  a fresh oplog grows from zero to its retention, and reporting that as "the window fell to
+  0 minutes" is a false alarm on every newly built member.
+- **Time operations spent waiting** (`opLatencies` − `opWorkingTime`, per operation): 8.0
+  records both totals; the gap between them is queueing. Charted as the gap rather than as
+  two lines, because the latency chart above already draws the whole cost and two charts of
+  the same line teach people to skip both.
+- **Time waiting for an execution ticket** (`queues.execution.*.totalTimeQueuedMicros` over
+  `finishedProcessing`): a ticket count of zero looks identical whether the wait was a
+  microsecond or a second. The advice also reports how many times 8.0 resized the pool —
+  6,789 times in the live capture, which is execution control failing to find a size that
+  works.
+- **TCP trouble** (`systemMetrics.netstat`): retransmits, failed connects, resets and listen
+  overflows. None of it appears in the mongod log at any verbosity — a heartbeat failure is
+  logged, its cause is not.
+- **Pressure on the mongod process** (`serverStatus.extra_info.pressure.*`): PSI for the
+  process's own cgroup rather than the machine's, which is what answers "was it us" on a
+  shared host.
+
+**A capture header.** `readMetadata` kept four fields out of the type-0 document; it now
+reads twenty-odd and `fdServerFacts` renders them above the charts — version, build, host,
+OS, kernel, cores (with a note when the process is restricted to fewer than the machine
+has), memory, transparent huge pages, NUMA, replica set, dbPath, log path, authorization,
+key file, file descriptors, default read/write concern. Three carry a sentence rather than
+just a value: THP left on, a file-descriptor ceiling below 64000, and the one that cost a
+session an hour — *mongod sized its cache from the memory it can see, and a container limit
+is invisible to it and to this file*.
+
+### Log Summary
+
+**The slow-query lines, added up** (`logsummary_mongo_slow.go`). id 51803 is the most common
+line in a busy mongod log and was dropped as noise, which it is one at a time — 6,334,432 of
+them on the primary in 86 minutes. A second pass over the same records accumulates what only
+they carry: per-collection and per-plan counts, documents examined against returned, bytes
+read off the device and time spent reading them, write-concern waiting, working time against
+total, and the debug-line count that explains why the file is 10 GiB. Operations over a
+second still get their own timeline row (capped at 12 per source); the rest are the summary.
+The totals reproduce FTDC's own counters for the same window to within 0.02%, which is what
+makes it safe to show them side by side.
+
+**Seventeen new catalogue entries**, all of them ids the classifier used to drop: the index
+build lifecycle (registering → drained side writes → commit quorum → done, plus *aborting
+all index builds*, which is what a stepdown does to them), sync-source churn, connection-pool
+drops and timeouts, assertions and executor errors returned to clients, collection drops and
+the readers that block them, TTL deletions, configuration warnings the server writes once at
+startup and nobody reads, and WiredTiger's own complaint about a long-lived snapshot.
+
+**Eight findings** read those: collection scans weighed by what they *cost* rather than
+counted (a COLLSCAN over twelve documents is the right plan), disk reads attributed to the
+collection that asked for them, time spent waiting rather than working, write-concern
+waiting, index builds as a span with their duration, sync-source churn, connection-pool
+churn as the earliest evidence of a peer failure, and what the log itself cost to write.
+
+**A work-cost card** on the page, one row per member, with the busiest collections and plans
+beside the numbers.
+
+### Dates on the timeline
+
+Every moment either page printed was a time of day. That is wrong for what these pages are
+for: a bundle is several logs read together and they routinely span days — the collect in
+this session's own verification produced one source covering 18 Aug 23:16 and another
+covering 19 Aug 06:24, and "23:16:03" beside "06:24:02" gives a reader no way to tell that
+those are seven hours apart rather than seventeen. A capture has the same problem for a
+different reason: mongod writes diagnostic.data continuously, so any capture older than a
+few hours crosses midnight.
+
+So `logStamp` (new, `logApi.js`) renders `18 Aug 23:20:04.961` and replaced every
+time-of-day rendering on the Log Summary — event rows, the sources table, finding links,
+swimlane and phase tooltips, the range endpoints, the snapshot readout. `lsClock`
+(`logsummary_grouprepl_verdict.go`), which every engine's findings use, now formats
+`02 Jan 15:04:05`. TimeChart's axis puts the date on the **first tick always**, and on any
+tick that starts a new day (`19 Aug 07:35 · 07:39:22 · 07:43:07 …`). The first cut only dated
+the axis when the window crossed midnight, which left a zoomed-in chart labelled `07:22:02`
+with nothing on it saying which day — and a chart gets screenshotted and pasted into a ticket
+without the header that sat above it, so the axis has to answer "when" on its own. Five copies
+of "18 Aug" is the other failure, which is why it is the first tick and the changes rather
+than every tick. The hover tooltip always carries the date, since that is the label people
+read a value off. The month is spelled rather than numbered throughout, because 08-09 is
+September to half the world and August to the other half.
+
+### An integration that was built and then removed
+
+A first pass at this also joined the two pages: a hash router that carried parameters, a
+"what the server was doing at this second" button on a log record, and a marker line drawn
+on every FTDC chart at the second the reader came from. It worked, and it was confusing —
+two pages that each answer a different question, wired together, read as one page that
+answers neither. It was removed in the same session. What survives is the part that made it
+worth trying: the slow-query numbers and the capture header, both of which say what the
+other record would have said, on the page the reader is already on.
+
+### Verified
+
+Against the live three-member PSMDB 8.0.28-12 stack from session 271, which is still running.
+
+- **FTDC**: `POST /api/stacks/91/nodes/rs-n1/ftdc` returns 41 charts including all five new
+  ones and 20 header facts from a 28,351-sample capture. Advice on the live data: *the oplog
+  window grew to 472 minutes and has not wrapped yet*; *up to 16.8 ms waiting for a ticket;
+  the pool was resized 6,789 times*; *3,233 retransmitted segments — under 1% of traffic*.
+- **Log Summary**: collected 40,000 lines from each member through the real endpoint. The
+  work card and every new finding rendered; two were wrong on first sight and were fixed
+  against that run — a disk-read share expressed as a percentage of the window read as
+  *1770%* (32 concurrent workers accumulate 32 seconds of reading per second of wall clock;
+  it is now a share of the operations' own time), and a 1%-debug tail was being reported as
+  "running at verbosity 1 or above" (the rate and the verbosity claim are now separate).
+- **In a browser** (headless Chromium against the deployed app): the bundle opens, the work
+  card shows 38,062 slow operations with its plans and collections, event rows read
+  `18 Aug 23:20:04.961`, the sources table shows one member covering 18 Aug and another 19
+  Aug, and an FTDC capture that crosses midnight labels its axes `18 Aug 22:23`,
+  `19 Aug 00:29`, `19 Aug 02:34`. No page errors.
+- **Fixtures added**: `app/testdata/ftdc-rs/` (385 KiB — two chunks and the metadata document
+  from the real capture, 374 samples of a replica-set primary, which is the smallest thing
+  that exercises all five charts) and `app/testdata/logsummary/m07-workload/` (1.6 MiB — the
+  three members' logs from the workload, every meaningful record capped at six repeats plus
+  300 slow-query lines including the scans and the ones over a second).
+- `go build`, `go vet`, `go test ./...` and the 226-check smoke suite green throughout.
+
+Not built from the report's list: reading more than one member's capture at once (the page
+still takes one file, and lag, elections and sync source are cross-member questions), and the
+sharded-router `connPoolStats` treatment. Both are larger than anything here.
+
+## 273. Nine more FTDC charts, a zoom that re-reads the source, and reading three members at once — `app/{ftdcsummary,ftdcapi,main}.go`, `app/web/src/{lib/ftdcApi.js,components/TimeChart.jsx,pages/FTDCSummary.jsx}`
+
+Session 272 built five of the twelve charts the anatomy report argued for. This is the other
+seven, two the implementation itself turned up, and the two things that turned out to matter
+more than any single chart.
+
+### Nine charts
+
+- **Index build: the external sort** — `indexBulkBuilder.bytesSpilled/memUsage/numSorted`.
+  The live capture's build spilled **600 MiB across 14 ranges** sorting 53,987,500 keys.
+- **The oplog's share of the cache** — `local.oplog.rs.stats.storageStats.wiredTiger.cache.*`
+  against the cache as a whole. The oplog held **58% of a 768 MiB cache** at its peak: cache
+  the working set did not get, and nothing on the page said so.
+- **Catch-up after an election** — `electionMetrics.numCatchUps*`. An election is over in a
+  second; the catch-up that follows is what the application experiences.
+- **Free space** — `systemMetrics.mounts.*.free`, with a straight-line projection stated as
+  a projection.
+- **Data handles and the catalogue** — 34 → **6,289 handles** as the sim created its 1,500
+  collections.
+- **Flow control** — the primary throttling its own writers so the majority can keep up.
+- **Session and retryable-write storage** — `config.transactions` and
+  `config.image_collection`, 407 moving metrics that nothing had ever charted.
+- **Reads by preference and where they ran** — whether "we moved reads to the secondaries"
+  actually happened. On this capture: 2,609 reads/s on the primary against 20/s on the
+  secondaries.
+- **Allocator heap against memory in use** — up to **70% of a 2.1 GiB heap** held but not in
+  use, which a container's memory limit counts in full.
+
+Four of the nine were wrong on first contact with real data and were fixed against it, which
+is the argument for building them against a capture rather than a document:
+`indexBuilds.phases.*` are cumulative counters and not gauges (read as gauges they reported
+"1.0 h scanning" for an 8-minute build); `indexBulkBuilder.numSorted` is published once per
+spilled range, so summing the samples it moved in reported "14 s of sorting" for six
+minutes; the WiredTiger cache can be **resized while the server runs**, so the oplog's share
+has to be taken per sample (peak against peak read 58% as 1.7%); and a container sees the
+same filesystem four times — `/` plus the `/etc` files bind-mounted onto it — which drew
+four copies of one line and named the coming outage after `/etc/hosts`.
+
+### Zoom, by re-reading rather than magnifying
+
+An eight-hour capture is 30,000 samples drawn as 1,200 points; a sixty-second event is two
+of them. Dragging across any chart now re-reads the SOURCE for that window
+(`?from=&to=` on both FTDC endpoints, `ftdcWindow` slicing every series by the same indices)
+so the window comes back at full resolution — 601 samples for a ten-minute zoom, where the
+whole capture returned 31,631. Back and Whole capture undo it, and uploads re-post the same
+files rather than needing anything kept server-side, because a decoded capture is over a
+gigabyte in memory and keeping one would be the wrong trade.
+
+The first cut of this shipped the drag and nothing else: the only affordance was the mouse
+cursor changing over a chart, which is a feature nobody finds. It now has a **window bar**
+above the charts that states the current window, says *drag across any chart to zoom*, and
+offers **last 15 min** and **last hour** for the reader who is not going to drag anything —
+plus a "drag across to zoom" hint that appears on a chart's header on hover. The drag was
+working the whole time; being undiscoverable made that irrelevant.
+
+The model also now says when it is thinning: *"Charts draw 1,200 of this capture's 7,428
+samples (every 6th). The advice under each chart was computed from all of them, so a peak it
+names can fall between two drawn points."* The advisors read every sample and always did;
+saying so is the honest half.
+
+### Three members, one question
+
+`POST /api/ftdc/compare` reads up to four members' captures in one request and returns a
+model each; the page overlays the nine charts where the comparison is the point (member
+state, lag, oplog window, tickets, apply rate, waiting, cache, I/O pressure, free space),
+one line per member. The members' captures do not share a clock — different sample counts,
+different start times, and a member that was down has no samples at all — so the timestamps
+are merged and each member's line carries its last value forward; a member with no sample
+yet draws nothing rather than a zero.
+
+### Two more, for the router
+
+A mongos capture has no replSetGetStatus, no WiredTiger and no oplog — it stores nothing —
+and two sections no other member writes. **Shard operations by how long they took** reads
+`networkInterfaceStats.*.runTime.<bucket>`, the router's own latency histogram of everything
+it sent to the shards, drawn as parts of a whole rather than averaged (a router whose work is
+99% under a millisecond and 1% over a second has one slow shard, and its mean looks fine).
+**Router connections in use, by shard member** reads `connPoolStats.pools.<pool>.<host>.inUse`
+and says where the work is actually going. Both were verified against a sharded cluster
+deployed for the purpose (one router, one config server, three shards, 2.2 M documents
+inserted through it) and then pointed at the repo's existing mongos 6.0/7.0/8.0 fixtures,
+which turned out to exercise them on all three versions — so no new fixture was kept. One bug
+the real capture caught: the pool key carries an FQDN, whose dots are not path separators, so
+splitting the whole key on "." named every shard member "net". The header also now names the
+capture's ROLE, which it had never shown — half the page is legitimately absent from a
+router's capture, and saying "mongos router" is the difference between that and a thin file.
+
+### Verified
+
+- Live, against the three-member stack from session 271: all nine charts draw with their
+  advice; `?from=&to=` returns 601 samples for a ten-minute window against 31,631 for the
+  whole capture; `POST /api/ftdc/compare` returns three models (50, 50 and 45 charts) and
+  all nine comparison charts are present on every member.
+- In a browser: dragging across a chart produced *Zoomed to 2026-08-18 17:44:15 →
+  2026-08-18 19:48:01 (2.1 h · re-read from the source at full resolution)*, Whole capture
+  restored it, and the comparison view drew three members' member-state lines showing the
+  handover — psmrs01 dropping to SECONDARY as psmrs02 rises. No page errors.
+- The router charts against a real sharded cluster (stack 92: `routerLatency` peaking at
+  2,851 ops/s all under a millisecond, `routerHosts` naming s0r1/s1r1/s2r1) and against the
+  existing mongos fixtures for 6.0, 7.0 and 8.0.
+- Tests: the second-pass charts against the replica-set fixture; the oplog share against a
+  synthetic capture whose cache is resized mid-window; bind-mount deduplication; window
+  slicing and the empty-window case; the thinning note; and the compare endpoint's two
+  guards plus its per-member error path. `go build`, `go vet`, `go test ./...` and the
+  226-check smoke suite green.

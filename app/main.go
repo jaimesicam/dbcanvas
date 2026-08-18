@@ -230,6 +230,7 @@ func main() {
 	// the handful of charts that answer something (see ftdcsummary.go).
 	mux.HandleFunc("GET /api/ftdc/targets", app.handleFTDCTargets)
 	mux.HandleFunc("POST /api/ftdc/upload", app.handleFTDCUpload)
+	mux.HandleFunc("POST /api/ftdc/compare", app.handleFTDCCompare)
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/ftdc", app.handleFTDCNode)
 
 	mux.HandleFunc("GET /api/benchmark/targets", app.handleBenchTargets)

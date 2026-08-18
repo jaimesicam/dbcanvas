@@ -18,9 +18,30 @@ function isDarkSurface() {
   return 0.299 * r + 0.587 * g + 0.114 * b < 128
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 function fmtTime(t) {
   const d = new Date(t * 1000)
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+}
+// fmtDay prefixes the date. A capture or a log excerpt routinely spans days — a mongod
+// writes diagnostic.data continuously and a 200,000-line tail reaches back as far as the
+// server was quiet — and an axis labelled 03:14:02 in that window names several different
+// moments without saying which.
+function fmtDay(t) {
+  const d = new Date(t * 1000)
+  return `${String(d.getDate()).padStart(2, '0')} ${MONTHS[d.getMonth()]}`
+}
+// fmtAxis labels one tick.
+//
+// The date is on the FIRST tick always, and on any tick that starts a new day. Not on every
+// tick — five copies of "18 Aug" is noise that squeezes out the times — and not only when
+// the window crosses midnight, which was the first attempt and left a zoomed-in chart
+// labelled 07:22:02 with nothing anywhere on it saying which day that was. An axis has to
+// answer "when" on its own, because a chart gets read, screenshotted and pasted into a
+// ticket without the header that sat above it.
+function fmtAxis(t, i, prev) {
+  const dated = i === 0 || (prev != null && new Date(t * 1000).toDateString() !== new Date(prev * 1000).toDateString())
+  return dated ? `${fmtDay(t)} ${fmtTime(t).slice(0, 5)}` : fmtTime(t)
 }
 function fmtNum(v) {
   if (v === null || v === undefined || Number.isNaN(v)) return '—'
@@ -47,10 +68,15 @@ const isBytes = (unit) => unit === 'B' || unit === 'B/s'
 
 // lines: [{ key, label, color }]  color = palette slot index (0..7).
 // kind: 'line' | 'stacked'. points: [{ t, v:{key:num} }].
-export default function TimeChart({ points, lines, unit = '', kind = 'line', height = 168 }) {
+// `onZoom(from, to)` makes the chart draggable: select a stretch of time and the caller
+// re-reads the source for exactly that window. Optional, and only the FTDC Summary passes
+// it — a chart that silently changes what it shows when you drag across it would be a
+// surprise everywhere else.
+export default function TimeChart({ points, lines, unit = '', kind = 'line', height = 168, onZoom = null }) {
   const wrapRef = useRef(null)
   const [w, setW] = useState(560)
   const [hover, setHover] = useState(null)
+  const [drag, setDrag] = useState(null) // { from, to } in timestamps, while dragging
 
   useLayoutEffect(() => {
     if (!wrapRef.current) return
@@ -147,13 +173,35 @@ export default function TimeChart({ points, lines, unit = '', kind = 'line', hei
   const xTicks = []
   for (let i = 0; i < xTickN; i++) xTicks.push(tMin + (tSpan * i) / (xTickN - 1 || 1))
 
-  function onMove(e) {
+  // Screen x → timestamp, clamped to the drawn range so a drag off the edge selects to
+  // the end rather than to nothing.
+  function tsAt(clientX) {
     const rect = wrapRef.current.getBoundingClientRect()
-    const px = ((e.clientX - rect.left) / rect.width) * w
-    const tt = tMin + ((px - pad.l) / iw) * tSpan
+    const px = ((clientX - rect.left) / rect.width) * w
+    return Math.min(tMax, Math.max(tMin, tMin + ((px - pad.l) / iw) * tSpan))
+  }
+
+  function onMove(e) {
+    const tt = tsAt(e.clientX)
     let best = 0, bd = Infinity
     for (let i = 0; i < points.length; i++) { const d = Math.abs(points[i].t - tt); if (d < bd) { bd = d; best = i } }
     setHover(best)
+    if (drag) setDrag({ ...drag, to: tt })
+  }
+
+  function onDown(e) {
+    if (!onZoom || e.button !== 0) return
+    setDrag({ from: tsAt(e.clientX), to: tsAt(e.clientX) })
+  }
+
+  function onUp() {
+    if (!drag) return
+    const a = Math.min(drag.from, drag.to)
+    const b = Math.max(drag.from, drag.to)
+    setDrag(null)
+    // A click is not a zoom. Ten seconds is the floor because FTDC samples once a second
+    // and a window narrower than that holds nothing to draw.
+    if (onZoom && b - a >= 10) onZoom(a, b)
   }
 
   const showLegend = lines.length >= 1
@@ -163,8 +211,10 @@ export default function TimeChart({ points, lines, unit = '', kind = 'line', hei
 
   return (
     <div ref={wrapRef} className="relative w-full">
-      <svg width={w} height={H} role="img" style={{ display: 'block', maxWidth: '100%' }}
-        onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
+      <svg width={w} height={H} role="img"
+        style={{ display: 'block', maxWidth: '100%', cursor: onZoom ? 'col-resize' : 'default' }}
+        onMouseMove={onMove} onMouseLeave={() => { setHover(null); setDrag(null) }}
+        onMouseDown={onDown} onMouseUp={onUp}>
         {/* gridlines + y labels */}
         {yTicks.map((t, i) => (
           <g key={i}>
@@ -172,10 +222,16 @@ export default function TimeChart({ points, lines, unit = '', kind = 'line', hei
             <text x={pad.l - 6} y={y(t) + 3} textAnchor="end" fontSize="10" fill="var(--muted)">{fmtV(t)}</text>
           </g>
         ))}
+        {/* the stretch being dragged out for a zoom */}
+        {drag && Math.abs(drag.to - drag.from) > 0 && (
+          <rect x={x(Math.min(drag.from, drag.to))} y={pad.t}
+            width={Math.max(1, Math.abs(x(drag.to) - x(drag.from)))} height={ih}
+            fill="var(--primary)" fillOpacity="0.18" stroke="var(--primary)" strokeWidth="1" />
+        )}
         {/* x labels */}
         {xTicks.map((t, i) => (
           <text key={i} x={x(t)} y={H - 6} textAnchor={i === 0 ? 'start' : i === xTicks.length - 1 ? 'end' : 'middle'}
-            fontSize="10" fill="var(--muted)">{fmtTime(t)}</text>
+            fontSize="10" fill="var(--muted)">{fmtAxis(t, i, i > 0 ? xTicks[i - 1] : null)}</text>
         ))}
         {/* areas (stacked) with a 2px surface gap between fills */}
         {areaPaths.map((p, i) => (
@@ -198,7 +254,7 @@ export default function TimeChart({ points, lines, unit = '', kind = 'line', hei
       {hv && (
         <div className="pointer-events-none absolute z-10 rounded-lg border bg-surface px-2 py-1.5 text-[11px] shadow-lg"
           style={{ left: Math.min(Math.max(x(hv.t) / w * 100, 4), 74) + '%', top: 4 }}>
-          <div className="mb-0.5 font-medium text-fg">{fmtTime(hv.t)}</div>
+          <div className="mb-0.5 font-medium text-fg">{`${fmtDay(hv.t)} ${fmtTime(hv.t)}`}</div>
           {lines.map((ln) => (
             <div key={ln.key} className="flex items-center gap-1.5 whitespace-nowrap">
               <span className="inline-block h-2 w-2 rounded-sm" style={{ background: colorOf(ln.color) }} />

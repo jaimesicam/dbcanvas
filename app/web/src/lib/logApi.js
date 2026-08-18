@@ -250,6 +250,21 @@ export function logTimeOfDay(ts, decimals = 3) {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}${decimals ? '.' + frac : ''}`
 }
 
+// logStamp is a moment on the timeline: the date AND the time.
+//
+// Time alone was the default here and it was wrong for the case this page is for. A bundle
+// is several nodes' logs read together, and those routinely span days — a collect of 200,000
+// lines from a quiet server reaches back a week, and an uploaded pair of files can be from
+// different days entirely. "15:20:06" in that bundle names three different moments and the
+// reader cannot tell which. The month is spelled rather than numbered because 08-09 is the
+// 8th of September to half the world and the 9th of August to the other half.
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+export function logStamp(ts, decimals = 3) {
+  if (!ts) return '—'
+  const d = new Date(ts * 1000)
+  return `${pad(d.getDate())} ${MONTHS[d.getMonth()]} ${logTimeOfDay(ts, decimals)}`
+}
+
 export function logDateTime(ts, decimals = 3) {
   if (!ts) return '—'
   const d = new Date(ts * 1000)

@@ -487,6 +487,147 @@ var lsMongoRules = []lsMongoRule{
 				}
 			}
 		}},
+
+	// ---- index builds ------------------------------------------------------------
+	// A build on a large collection is minutes of work with a beginning, an end and a
+	// commit that every member has to agree to, and until now every line of it was
+	// dropped as noise. It matters for two reasons: a foreground build blocks the
+	// collection it is on, and a build in progress is aborted when the member steps down
+	// (7738702), so a failover during one silently throws away however long it had run.
+	{ids: []int{20438, 20346, 20384}, class: lsClassStorage, sev: lsSevInfo, label: "Index build started",
+		means: "A new index is being built. On a large collection this is minutes to hours of scanning, sorting and spilling to disk, and it competes with everything else for the same cache and the same device.",
+		enrich: func(r lsMongoRecord, e *lsEvent) {
+			if ns := r.str("namespace"); ns != "" {
+				e.Message = ns
+				if props := r.str("properties"); props != "" {
+					e.Message += " " + props
+				}
+			}
+		}},
+	{ids: []int{20440}, class: lsClassStorage, sev: lsSevInfo, label: "Waiting for an index build",
+		means: "The command that asked for the index is waiting for the build to finish. On a foreground build this is the application's connection, held open for the whole build."},
+	{ids: []int{20689}, class: lsClassStorage, sev: lsSevInfo, label: "Index build: side writes drained",
+		means: "Writes that arrived during the build have been applied to the new index. This is the last phase before it can be committed, and it is where a build on a busy collection spends longer than the scan did."},
+	{ids: []int{7568000, 3856201}, class: lsClassStorage, sev: lsSevInfo, label: "Index build: commit quorum",
+		means: "The members are voting on committing the index. A build cannot finish until enough of them are ready, so an unreachable member holds every build in the set open."},
+	{ids: []int{20345, 20447, 20663}, class: lsClassStorage, sev: lsSevOK, label: "Index build finished",
+		means: "The index is built and usable. Pair this with the start record for how long it took — that duration is how long the collection was competing with a scan of itself.",
+		enrich: func(r lsMongoRecord, e *lsEvent) {
+			if ns := r.str("namespace"); ns != "" {
+				e.Message = ns
+			}
+			if ms, ok := r.num("durationMillis"); ok {
+				e.Message = strings.TrimSpace(e.Message + fmt.Sprintf(" in %s", lsMongoDur(float64(ms)/1000)))
+			}
+		}},
+	{ids: []int{7738702}, class: lsClassStorage, sev: lsSevWarn, label: "Aborting all index builds",
+		means: "Every index build on this member is being abandoned, which is what a stepdown does to them. Whatever they had scanned is discarded and the build has to start again on the new primary."},
+	{ids: []int{20657}, class: lsClassStorage, sev: lsSevInfo, label: "Index builds resumed on step-up",
+		means: "This member became primary and took over the index builds the old primary was running."},
+
+	// ---- who this member replicates from -----------------------------------------
+	// Replication is a tree and each secondary picks its own parent. The choice is
+	// invisible everywhere else, and a member that cannot find one — or that keeps
+	// changing its mind — lags for a reason none of its own metrics explain.
+	{ids: []int{21088, 21080, 4744901, 21834, 21150}, class: lsClassReplica, sev: lsSevInfo, label: "Changed sync source",
+		means: "This member started replicating from a different member. One change is routine; a stream of them means it cannot find a stable parent, and everything downstream of it inherits the interruption.",
+		enrich: func(r lsMongoRecord, e *lsEvent) {
+			from, to := r.host("oldSyncSource"), r.host("newSyncSource")
+			if to == "" {
+				to = r.host("syncSource")
+			}
+			switch {
+			case from != "" && to != "":
+				e.Peer, e.Message = to, from+" → "+to
+			case to != "":
+				e.Peer, e.Message = to, "now syncing from "+to
+			}
+		}},
+	{ids: []int{3873113, 3873106, 3873107, 21090, 8423402}, class: lsClassReplica, sev: lsSevWarn, label: "No usable sync source",
+		means: "This member could not find anyone to replicate from — every candidate was behind it, unreachable or not readable. While that lasts it is not applying anything, and its lag grows with no error of its own to explain it.",
+		enrich: func(r lsMongoRecord, e *lsEvent) {
+			if h := r.host("syncSourceCandidate"); h != "" {
+				e.Peer = h
+			}
+		}},
+
+	// ---- the connection pool this member keeps to the others ----------------------
+	// The cluster of records a peer failure produces on the OTHER members, minutes before
+	// anything says the peer is down. Individually they are chatter; together they are
+	// the earliest evidence in the file that something on the far end has stopped.
+	{ids: []int{22566, 22561, 22572}, class: lsClassNetwork, sev: lsSevWarn, label: "Dropped pooled connections",
+		means: "This member threw away its pooled connections to another host, which it does when they stop working. It is the first symptom of a peer that has died or been partitioned away — earlier than the heartbeat failures, and much earlier than any state change.",
+		enrich: func(r lsMongoRecord, e *lsEvent) {
+			if h := r.host("hostAndPort"); h != "" {
+				e.Peer = h
+			}
+		}},
+	{ids: []int{6496500}, class: lsClassNetwork, sev: lsSevWarn, label: "Timed out waiting for a connection",
+		means: "An operation gave up waiting for a connection from the pool. Either the pool is at its limit, or the far end is not answering fast enough to hand one back."},
+	{ids: []int{6496400}, class: lsClassNetwork, sev: lsSevInfo, label: "Slow connection establishment",
+		means: "Opening a connection to another host took long enough to be worth logging — DNS, TLS handshake or the network itself."},
+	{ids: []int{4712102}, class: lsClassMember, sev: lsSevWarn, label: "Host failed in the replica set",
+		means: "This member's own view of the set marked a host as failed. It is the client-side twin of a heartbeat failure and it fires on routers too, which have no heartbeats of their own.",
+		enrich: func(r lsMongoRecord, e *lsEvent) {
+			if h := r.host("host"); h != "" {
+				e.Peer = h
+			}
+		}},
+
+	// ---- errors the server returned to somebody ------------------------------------
+	{ids: []int{23074, 23077, 21962}, class: lsClassClient, sev: lsSevWarn, label: "Assertion returned to a client",
+		means: "The server refused an operation and told the client why. These are the errors an application sees, counted in serverStatus.asserts — a burst of them is worth pairing with what the application was doing.",
+		enrich: func(r lsMongoRecord, e *lsEvent) {
+			if err := r.str("error"); err != "" {
+				e.Message = lsTruncateLabel(err)
+			}
+		}},
+	{ids: []int{23799, 20478}, class: lsClassClient, sev: lsSevWarn, label: "Query executor error",
+		means: "An aggregation or a getMore failed part-way through. The client saw an error on a cursor it had already started reading, which is the shape of failure applications handle worst."},
+	{ids: []int{20482, 20884, 558700}, class: lsClassClient, sev: lsSevWarn, label: "Operation killed",
+		means: "Somebody ran killOp, or the server killed the operation itself. A killed operation has already done its work and thrown it away."},
+
+	// ---- storage housekeeping -------------------------------------------------------
+	{ids: []int{22214, 20318, 22260, 22237, 6776600}, class: lsClassStorage, sev: lsSevInfo, label: "Collection dropped",
+		means: "A collection or index was dropped and its storage is being released. MongoDB defers the actual file removal until no reader needs the old snapshot, which is why these arrive in bursts long after the drop."},
+	{ids: []int{6936300}, class: lsClassStorage, sev: lsSevWarn, label: "Drop is blocked by a reader",
+		means: "The storage for a dropped collection cannot be released because something is still using it. Long-running readers and long snapshots hold disk that the drop was supposed to give back."},
+	{ids: []int{5479200}, class: lsClassStorage, sev: lsSevInfo, label: "TTL deleted expired documents",
+		means: "The TTL monitor removed expired documents. It is a background writer nobody remembers is there: its deletes replicate, they hit the oplog, and they compete with the application for the same tickets.",
+		enrich: func(r lsMongoRecord, e *lsEvent) {
+			if n, ok := r.num("numDeleted"); ok {
+				e.Message = fmt.Sprintf("%d document(s) from %s", n, r.str("namespace"))
+			}
+		}},
+
+	// ---- the server telling you about your own configuration ------------------------
+	{ids: []int{8386700, 23803, 636300, 4648601, 20712}, class: lsClassConfig, sev: lsSevWarn, label: "Configuration warning",
+		means: "The server flagged something about how it was started or how the host is set up. These are written once at startup and never again, which is why nobody sees them.",
+		enrich: func(r lsMongoRecord, e *lsEvent) {
+			for _, k := range []string{"note", "message", "deprecatedParameter", "parameter"} {
+				if v := r.str(k); v != "" {
+					e.Message = lsTruncateLabel(v)
+					return
+				}
+			}
+		}},
+	{ids: []int{7024600}, class: lsClassConfig, sev: lsSevInfo, label: "Deprecated command used",
+		means: "Something still calls a command this server version has deprecated. It works today; it is a note for whoever owns the client."},
+
+	// ---- WiredTiger's own complaint about a long snapshot ---------------------------
+	// Only present at verbosity 1 or above, and worth keeping when it is: a snapshot held
+	// open for tens of seconds is what pins the history store and grows the cache pressure
+	// the storage charts show.
+	{ids: []int{22411}, class: lsClassStorage, sev: lsSevInfo, label: "Long-lived storage snapshot",
+		means: "A WiredTiger transaction stayed open long enough for the engine to complain. Every update to a document it read has to be kept somewhere until it closes, which is what fills the history store and squeezes the cache.",
+		enrich: func(r lsMongoRecord, e *lsEvent) {
+			if ms, ok := r.num("transactionTime"); ok {
+				e.Message = fmt.Sprintf("snapshot open for %s", lsMongoDur(float64(ms)/1000))
+				if ms >= 30000 {
+					e.Sev = lsSevWarn
+				}
+			}
+		}},
 }
 
 // lsMongoByID indexes the catalogue. Built once: a busy member's log is hundreds of
@@ -627,5 +768,20 @@ func lsResolveMongo(node string, events []lsEvent) {
 		if e.Peer != "" && e.Peer != node && (e.Code == "21215" || e.Code == "21216") {
 			e.State = ""
 		}
+	}
+}
+
+// lsMongoDur renders a duration the way an operator says one, so a build that took eight
+// and a half minutes does not read as "507000 ms".
+func lsMongoDur(sec float64) string {
+	switch {
+	case sec >= 3600:
+		return fmt.Sprintf("%.1f h", sec/3600)
+	case sec >= 90:
+		return fmt.Sprintf("%.0f min %02.0f s", sec/60, sec-60*float64(int(sec/60)))
+	case sec >= 1:
+		return fmt.Sprintf("%.1f s", sec)
+	default:
+		return fmt.Sprintf("%.0f ms", sec*1000)
 	}
 }

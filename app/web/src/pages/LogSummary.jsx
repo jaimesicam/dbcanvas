@@ -6,7 +6,7 @@ import {
   logApi, SEVS, SEV_LABEL, SEV_TEXT, SEV_ROW, SEV_CARD, SEV_MARK, SEV_FILL,
   CLASS_LABEL, STATE_TEXT, STATE_SEV, ENGINE_LABEL, FLAVOUR_LABEL,
   nodeFill, nodeTint, nodeEdge, nodeEdgeSoft, NODE_SLOTS,
-  logTimeOfDay, logDateTime, logISO, logDur, logBytes,
+  logTimeOfDay, logStamp, logDateTime, logISO, logDur, logBytes,
 } from '../lib/logApi.js'
 
 // Log Summary — read several database servers' logs as one classified timeline.
@@ -63,6 +63,7 @@ export default function LogSummary() {
   const [page, setPage] = useState({ events: [], matched: 0, offset: 0 })
   const [selected, setSelected] = useState(null)
   const [snapshot, setSnapshot] = useState(null) // the "at this instant" readout
+
   const [uploadOpen, setUploadOpen] = useState(false)
   const [files, setFiles] = useState([])
   const [err, setErr] = useState('')
@@ -264,6 +265,7 @@ export default function LogSummary() {
       {bundle && s && (
         <>
           <SourcesCard bundle={bundle} id={id} />
+          <MongoWork bundle={bundle} />
           <Verdict findings={findings} onGo={goToFinding} />
 
           <Card
@@ -369,7 +371,7 @@ export function SourcesCard({ bundle, id }) {
   return (
     <Card
       title="Sources"
-      subtitle={`${bundle.label} · ${logDateTime(s.firstTs, 0)} → ${logTimeOfDay(s.lastTs, 0)} · ${logDur(s.lastTs - s.firstTs)}`}
+      subtitle={`${bundle.label} · ${logDateTime(s.firstTs, 0)} → ${logDateTime(s.lastTs, 0)} · ${logDur(s.lastTs - s.firstTs)}`}
     >
       {bundle.note && (
         <div className="mb-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
@@ -408,7 +410,7 @@ export function SourcesCard({ bundle, id }) {
                   <span className="ml-1 text-[10px] opacity-70">{ENGINE_LABEL[src.engine] || src.engine}</span>
                 </td>
                 <td className="whitespace-nowrap py-1.5 pr-2 font-mono text-[10px] text-muted">
-                  {logTimeOfDay(src.firstTs, 0)} → {logTimeOfDay(src.lastTs, 0)}
+                  {logStamp(src.firstTs, 0)} → {logStamp(src.lastTs, 0)}
                 </td>
                 <td className="py-1.5 pr-2 text-muted">{src.lines.toLocaleString()}</td>
                 <td className="py-1.5 pr-2">{src.events.toLocaleString()}</td>
@@ -444,6 +446,91 @@ export function SourcesCard({ bundle, id }) {
   )
 }
 
+// ---------------------------------------------------------------- what the work cost
+
+// MongoWork — the slow-query lines, added up.
+//
+// A busy mongod writes millions of these and the timeline drops all but the worst, which is
+// the only sane thing to do with them one at a time. Summed they are the only per-collection
+// and per-plan evidence in the file: how much was read to answer how little, how much of it
+// came off the disk, and how much of the time the server was not working at all.
+export function MongoWork({ bundle }) {
+  const rows = (bundle.sources || []).filter((s) => s.mongo && s.mongo.ops > 0)
+  if (!rows.length) return null
+  return (
+    <Card title="What the work cost" subtitle="from the slow-query lines — one row per member">
+      <div className="space-y-3">
+        {rows.map((src) => {
+          const m = src.mongo
+          const waitPct = m.millis > 0 ? (m.waitedMs / m.millis) * 100 : 0
+          const ratio = m.returned > 0 ? m.docsExamined / m.returned : 0
+          return (
+            <div key={src.idx} className="rounded-lg border bg-bg p-2.5">
+              <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                <NodeChip src={src.idx} name={src.node} />
+                <span className="text-[11px] text-muted">{m.ops.toLocaleString()} slow operations logged</span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] sm:grid-cols-4">
+                <Stat k="examined → returned" v={`${logNum(m.docsExamined)} → ${logNum(m.returned)}`}
+                  hint={ratio >= 2 ? `${ratio.toFixed(ratio >= 10 ? 0 : 1)}× more reading than the answers needed` : ''} />
+                <Stat k="read from disk" v={logBytes(m.bytesRead)}
+                  hint={m.timeReadingMicros > 0 ? `${(m.timeReadingMicros / 1e6).toFixed(1)}s waiting for the device` : ''} />
+                <Stat k="collection scans" v={m.collscans.toLocaleString()}
+                  hint={m.collscanDocs > 0 ? `${logNum(m.collscanDocs)} documents examined by them` : ''} />
+                <Stat k="time not working" v={`${waitPct.toFixed(0)}%`}
+                  hint={m.waitedMs > 0 ? `${(m.waitedMs / 1000).toFixed(1)}s of ${(m.millis / 1000).toFixed(0)}s` : ''} />
+              </div>
+              {(m.namespaces?.length > 0 || m.plans?.length > 0) && (
+                <div className="mt-2 grid gap-x-6 gap-y-1 text-[11px] sm:grid-cols-2">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wide text-muted">busiest collections</div>
+                    {(m.namespaces || []).slice(0, 4).map((n) => (
+                      <div key={n.name} className="flex justify-between gap-2 font-mono text-[10.5px]">
+                        <span className="truncate">{n.name}</span>
+                        <span className="shrink-0 text-muted">{n.ops.toLocaleString()} ops</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wide text-muted">plans</div>
+                    {(m.plans || []).slice(0, 4).map((pl) => (
+                      <div key={pl.name} className="flex justify-between gap-2 font-mono text-[10.5px]">
+                        <span className="truncate">{pl.name}</span>
+                        <span className="shrink-0 text-muted">{pl.ops.toLocaleString()} ops</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {m.debugLines > 0 && (
+                <p className="mt-2 text-[10.5px] text-muted">
+                  {logNum(m.debugLines)} debug-level lines in this file — the member is running at verbosity 1
+                  or above, which is why the log is this large.
+                </p>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </Card>
+  )
+}
+
+function Stat({ k, v, hint }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[10px] uppercase tracking-wide text-muted">{k}</div>
+      <div className="font-medium text-fg">{v}</div>
+      {hint && <div className="text-[10px] leading-snug text-muted">{hint}</div>}
+    </div>
+  )
+}
+
+// logNum keeps six-figure counters readable in a narrow column.
+function logNum(n) {
+  return (n || 0).toLocaleString()
+}
+
 // ---------------------------------------------------------------- verdict
 
 export function Verdict({ findings, onGo }) {
@@ -461,7 +548,7 @@ export function Verdict({ findings, onGo }) {
               {f.at > 0 && (
                 <button className="ml-auto text-[11px] text-muted underline hover:text-fg"
                   onClick={() => onGo(f)}>
-                  {logTimeOfDay(f.at)} — show me
+                  {logStamp(f.at, 0)} — show me
                 </button>
               )}
             </div>
@@ -572,7 +659,7 @@ export function Swimlane({ timeline, sources, first, onSelect, onPick }) {
                   const sev = b.bad ? 'bad' : b.warn ? 'warn' : b.ok ? 'ok' : 'info'
                   return (
                     <div key={b.i}
-                      title={`${logTimeOfDay(b.ts)} · ${b.count} event(s): ${b.bad} bad, ${b.warn} warning, ${b.ok} good, ${b.info} background`}
+                      title={`${logStamp(b.ts)} · ${b.count} event(s): ${b.bad} bad, ${b.warn} warning, ${b.ok} good, ${b.info} background`}
                       className={`absolute bottom-0 ${SEV_FILL[sev]}`}
                       style={{
                         left: `${(b.i / nBuckets) * 100}%`,
@@ -587,7 +674,7 @@ export function Swimlane({ timeline, sources, first, onSelect, onPick }) {
               <div className="relative h-4 overflow-hidden rounded-sm bg-surface2">
                 {phases.map((p, i) => (
                   <div key={i}
-                    title={`${p.state}${p.inferred ? ' (deduced — the log does not state it)' : ''} · ${logTimeOfDay(p.from, 0)} → ${logTimeOfDay(p.to, 0)}` +
+                    title={`${p.state}${p.inferred ? ' (deduced — the log does not state it)' : ''} · ${logStamp(p.from, 0)} → ${logStamp(p.to, 0)}` +
                       `${p.members ? ` · ${p.members} member(s)` : ''}${p.primary ? `, primary = ${p.primary}` : ''}\n${STATE_TEXT[p.state] || ''}`}
                     // The server already decided this stripe's severity (lsStateSev) and
                     // sends it; STATE_SEV is the fallback for a phase that predates the
@@ -612,9 +699,9 @@ export function Swimlane({ timeline, sources, first, onSelect, onPick }) {
         )}
       </div>
       <div className="mt-1 flex justify-between font-mono text-[10px] text-muted">
-        <span title={logISO(from)}>{logTimeOfDay(from)} · +{(from - first).toFixed(3)}s</span>
+        <span title={logISO(from)}>{logStamp(from)} · +{(from - first).toFixed(3)}s</span>
         <span>{(timeline.matched || 0).toLocaleString()} events in window · click for a readout, drag to narrow</span>
-        <span title={logISO(to)}>+{(to - first).toFixed(3)}s · {logTimeOfDay(to)}</span>
+        <span title={logISO(to)}>+{(to - first).toFixed(3)}s · {logStamp(to)}</span>
       </div>
     </div>
   )
@@ -663,13 +750,13 @@ export function Snapshot({ snap, sources, onClose }) {
         <div className="mt-2 space-y-0.5 text-[11px] text-muted">
           {snap.before && (
             <div>
-              <span className="text-fg/70">before:</span> {logTimeOfDay(snap.before.ts)}{' '}
+              <span className="text-fg/70">before:</span> {logStamp(snap.before.ts)}{' '}
               <span className={SEV_TEXT[snap.before.sev]}>{snap.before.label}</span> — {name(snap.before.src)}
             </div>
           )}
           {snap.after && (
             <div>
-              <span className="text-fg/70">after:</span> {logTimeOfDay(snap.after.ts)}{' '}
+              <span className="text-fg/70">after:</span> {logStamp(snap.after.ts)}{' '}
               <span className={SEV_TEXT[snap.after.sev]}>{snap.after.label}</span> — {name(snap.after.src)}
             </div>
           )}
@@ -809,13 +896,13 @@ export function EventList({ events, sources, first, selectedNo, onSelect }) {
           className={`block w-full rounded-md px-2 py-1.5 text-left transition hover:bg-surface2 ${SEV_ROW[e.sev] || SEV_ROW.info} ${e.no === selectedNo ? 'ring-1 ring-primary' : ''}`}>
           <div className="flex flex-wrap items-baseline gap-2 text-[11px]">
             <span className={`w-3 shrink-0 font-bold ${SEV_TEXT[e.sev]}`}>{SEV_MARK[e.sev]}</span>
-            <span className="font-mono text-muted" title={logISO(e.ts)}>{logTimeOfDay(e.ts)}</span>
+            <span className="font-mono text-muted" title={logISO(e.ts)}>{logStamp(e.ts)}</span>
             <span className="font-mono text-[10px] text-muted opacity-60">+{(e.ts - first).toFixed(3)}s</span>
             <NodeChip src={e.src} name={name(e.src)} />
             <span className="font-medium text-fg">{e.label}</span>
             {e.repeat > 1 && (
               <span className="rounded bg-surface2 px-1 text-[10px] text-muted"
-                title={`repeated until ${logTimeOfDay(e.endTs)}`}>
+                title={`repeated until ${logStamp(e.endTs)}`}>
                 ×{e.repeat} over {logDur(e.endTs - e.ts)}
               </span>
             )}
@@ -864,6 +951,7 @@ export function EventDetail({ e, bundle, id, first }) {
     finally { setLoading(false) }
   }
 
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -881,7 +969,7 @@ export function EventDetail({ e, bundle, id, first }) {
         <Row k="at" v={logDateTime(e.ts)} />
         <Row k="utc" v={logISO(e.ts)} />
         <Row k="offset" v={`+${(e.ts - first).toFixed(3)} s into the window`} />
-        {e.repeat > 1 ? <Row k="repeated" v={`${e.repeat}× until ${logTimeOfDay(e.endTs)}`} /> : null}
+        {e.repeat > 1 ? <Row k="repeated" v={`${e.repeat}× until ${logStamp(e.endTs)}`} /> : null}
         {e.approx ? <Row k="note" v="this record carried no timestamp; it was placed from the record beside it" /> : null}
         <Row k="line" v={`${src?.name || 'source'}:${e.line}`} />
         {e.peer ? <Row k="peer" v={e.peer} /> : null}

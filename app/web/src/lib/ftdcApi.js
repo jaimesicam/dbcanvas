@@ -8,19 +8,41 @@ async function toJSON(res) {
   return data
 }
 
+// rangeQuery turns a zoom window into the query string both endpoints accept. A zoom is a
+// second read of the same source narrowed to a window — not a crop of what was drawn —
+// because the drawn line is thinned to 1,200 points and magnifying it adds nothing.
+function rangeQuery(range) {
+  if (!range || (!range.from && !range.to)) return ''
+  const q = new URLSearchParams()
+  if (range.from) q.set('from', Math.floor(range.from))
+  if (range.to) q.set('to', Math.ceil(range.to))
+  return `?${q}`
+}
+
 export const ftdcApi = {
   // Every running MongoDB node — each mongod keeps diagnostic.data with no configuration.
   nodes: async () => (await toJSON(await fetch('/api/ftdc/targets', { credentials: 'same-origin' }))) || [],
 
   // One or more metrics.* files, or a .tar.gz of a whole diagnostic.data directory.
-  upload: async (files) => {
+  upload: async (files, range = null) => {
     const fd = new FormData()
     for (const f of files) fd.append('files', f)
-    return toJSON(await fetch('/api/ftdc/upload', { method: 'POST', body: fd, credentials: 'same-origin' }))
+    return toJSON(await fetch(`/api/ftdc/upload${rangeQuery(range)}`,
+      { method: 'POST', body: fd, credentials: 'same-origin' }))
   },
 
-  fromNode: async (stackId, nodeId) =>
-    toJSON(await fetch(`/api/stacks/${stackId}/nodes/${nodeId}/ftdc`, { method: 'POST', credentials: 'same-origin' })),
+  // Several members at once. Each capture is summarised on its own and overlaid here —
+  // see compareCharts.
+  compare: async (targets, range = null) =>
+    toJSON(await fetch(`/api/ftdc/compare${rangeQuery(range)}`, {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targets }),
+    })),
+
+  fromNode: async (stackId, nodeId, range = null) =>
+    toJSON(await fetch(`/api/stacks/${stackId}/nodes/${nodeId}/ftdc${rangeQuery(range)}`,
+      { method: 'POST', credentials: 'same-origin' })),
 }
 
 // --- advisor severities ------------------------------------------------------
@@ -65,6 +87,65 @@ export function chartPoints(ts, series) {
     for (let s = 0; s < series.length; s++) v[`s${s}`] = series[s].points?.[i] ?? 0
     return { t, v }
   })
+}
+
+// COMPARE_CHARTS are the charts worth reading across members, and which series of each
+// carries the comparison. The rest of a chart's series stay on the single-member view: three
+// members' cache charts overlaid is nine lines and no answer.
+//
+// Every one of these is a question about the SET rather than about a server, which is the
+// whole reason to read three files at once — a member's own capture can only ever report
+// what that member believed.
+export const COMPARE_CHARTS = [
+  { id: 'memberState', series: 0, title: 'Member state', why: 'Each member\'s own state, from its own file. Where two members disagree about who was primary, this is where it shows.' },
+  { id: 'replLag', series: 0, title: 'Replication lag', why: 'Each member\'s view of how far behind the set it was.' },
+  { id: 'oplogWindow', series: 0, title: 'Oplog window', why: 'The recovery budget on each member. They differ: a member with a smaller oplog is the one that needs a resync first.' },
+  { id: 'tickets', series: 0, title: 'Read tickets available', why: 'Admission control on each member. A secondary out of tickets cannot apply the oplog either.' },
+  { id: 'oplogApply', series: 0, title: 'Oplog application', why: 'How fast each secondary applied what the primary sent.' },
+  { id: 'waiting', series: 0, title: 'Time operations spent waiting', why: 'Queueing on each member, side by side.' },
+  { id: 'cache', series: 0, title: 'Cache in use', why: 'The cache on each member. A secondary evicting harder than the primary is a secondary that will fall behind.' },
+  { id: 'processPressure', series: 0, title: 'I/O pressure', why: 'Which member was actually stalled on its disk.' },
+  { id: 'diskSpace', series: 0, title: 'Free space', why: 'The member that runs out first takes the majority with it.' },
+]
+
+// compareSeries builds one overlay chart: the same chart id from every member, each drawn
+// as one line named after the member.
+//
+// The members' captures do not share a clock — different sample counts, different start
+// times, and a member that was down for part of the window has no samples for it. So the
+// timestamps are merged and each member's value is carried forward from its last sample,
+// which is what a step function of a gauge means. A member with no sample yet contributes
+// nothing rather than a zero, because zero is a reading and "not running" is not.
+export function compareSeries(members, spec) {
+  const tracks = []
+  for (const m of members) {
+    const chart = m.model?.charts?.find((c) => c.id === spec.id)
+    const s = chart?.series?.[spec.series]
+    if (!chart || !s?.points?.length || !m.model.ts?.length) continue
+    tracks.push({ label: m.label, ts: m.model.ts, values: s.points, unit: chart.unit })
+  }
+  if (tracks.length < 2) return null
+  const all = new Set()
+  for (const t of tracks) for (const x of t.ts) all.add(Math.round(x))
+  const stamps = [...all].sort((a, b) => a - b)
+  const idx = tracks.map(() => 0)
+  const last = tracks.map(() => null)
+  const points = stamps.map((t) => {
+    const v = {}
+    tracks.forEach((tr, i) => {
+      while (idx[i] < tr.ts.length && Math.round(tr.ts[idx[i]]) <= t) {
+        last[i] = tr.values[idx[i]] ?? last[i]
+        idx[i]++
+      }
+      if (last[i] !== null) v[`s${i}`] = last[i]
+    })
+    return { t, v }
+  })
+  return {
+    points,
+    lines: tracks.map((t, i) => ({ key: `s${i}`, label: t.label, color: i })),
+    unit: tracks[0].unit,
+  }
 }
 
 export function chartLines(series) {

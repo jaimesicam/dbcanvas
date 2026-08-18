@@ -33,7 +33,8 @@ type lsSource struct {
 	Engine  string  `json:"engine"`  // mysql | postgres | mongodb | valkey
 	Flavour string  `json:"flavour"` // galera | mysql
 	Path    string  `json:"path,omitempty"`
-	Origin  string  `json:"origin"` // upload | node
+	Origin  string  `json:"origin"`           // upload | node
+	NodeID  string  `json:"nodeId,omitempty"` // canvas node id, when collected from one
 	Bytes   int     `json:"bytes"`
 	Lines   int     `json:"lines"`
 	Records int     `json:"records"` // folded records, before noise is dropped
@@ -48,6 +49,9 @@ type lsSource struct {
 	// the previous record's, which is close enough to place them but not to trust to the
 	// millisecond, and saying how many there were is more honest than silently placing them.
 	Untimed int `json:"untimed"`
+	// Mongo is the slow-query arithmetic for a mongod source: six million lines nobody
+	// reads, added up. Nil for every other engine. See logsummary_mongo_slow.go.
+	Mongo *lsMongoStats `json:"mongo,omitempty"`
 }
 
 // lsPhase is a stretch of time during which a source was in one state. Phases tile the
@@ -302,6 +306,16 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 			}
 			e.Src = idx
 			events = append(events, e)
+		}
+		// A second pass for the one record the classifier deliberately drops. Slow
+		// queries are the majority of a busy member's log and are noise one at a time;
+		// summed they are the only per-collection, per-plan evidence in the file.
+		if st, worst := lsMongoScanSlow(recs); st.Ops > 0 || st.Debug > 0 {
+			src.Mongo = &st
+			for _, e := range worst {
+				e.Src = idx
+				events = append(events, e)
+			}
 		}
 	case pktEngineValkey:
 		// Valkey is parsed here rather than by the shared classifier for a reason the other

@@ -11,6 +11,7 @@ package main
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -26,6 +27,16 @@ var lsMongoFindings = []func(*lsBundle) []lsFinding{
 	lsFindingMongoInitialSync,
 	lsFindingMongoTooStale,
 	lsFindingMongoLagInvisible,
+	// Added with the slow-query pass: what the workload itself cost, read out of the
+	// lines the catalogue drops.
+	lsFindingMongoCollscan,
+	lsFindingMongoDiskReads,
+	lsFindingMongoWaiting,
+	lsFindingMongoWriteConcern,
+	lsFindingMongoIndexBuild,
+	lsFindingMongoSyncChurn,
+	lsFindingMongoPoolChurn,
+	lsFindingMongoLogVolume,
 }
 
 // lsHasMongoRS reports whether any source is a replica-set member.
@@ -557,4 +568,401 @@ func lsFindingRoutingInvisible(b *lsBundle) []lsFinding {
 		Detail: "A mongos does not record the operations it could not route. Taking an entire shard down under live traffic produces reads that fail with FailedToSatisfyReadPreference and writes that are refused outright, and the router's log for that window contains neither — only INFO records saying the shard's topology changed. Absence of errors here is not evidence that clients were served.",
 		Advice: "The router's side of it is in FTDC rather than the log: connPoolStats names every shard member and its round-trip time, and shardingStatistics counts how many shards each operation had to touch. The application's own error log has the failures themselves.",
 	}}
+}
+
+// ---------------------------------------------------------------- what the work cost
+//
+// The findings below read the slow-query summary (logsummary_mongo_slow.go) rather than
+// individual events. They are the questions six million dropped lines can answer and no
+// single line can: which collection, which plan, how much of the time was the server
+// working, and how much came off the disk to answer.
+
+// lsFindingMongoCollscan — operations with no index to use.
+//
+// The ratio that matters is examined against returned. A query that reads 200,000
+// documents to return 100 is doing 2,000 times the work it needs to, and it is doing it
+// against the same cache and the same device as everything else on the server.
+func lsFindingMongoCollscan(b *lsBundle) []lsFinding {
+	var out []lsFinding
+	for _, s := range b.Sources {
+		st := s.Mongo
+		if st == nil || st.Ops == 0 || st.Collscans == 0 {
+			continue
+		}
+		// Scans are counted by what they COST, not by how many there were. A collection
+		// scan over a handful of documents is the right plan and the majority of the
+		// scans on any real member — reporting those as a finding is how a page teaches
+		// people to ignore it.
+		if st.CollDocs < 20000 {
+			continue
+		}
+		share := float64(st.Collscans) / float64(st.Ops) * 100
+		ratio := 0.0
+		if st.CollRet > 0 {
+			ratio = float64(st.CollDocs) / float64(st.CollRet)
+		}
+		waste := ""
+		if ratio >= 2 {
+			waste = fmt.Sprintf(" — %s× more reading than the answers needed", lsRatio(ratio))
+		}
+		worst := ""
+		if len(st.Namespaces) > 0 {
+			worst = fmt.Sprintf(" The busiest collection was %s (%s slow operations, %s documents examined).",
+				st.Namespaces[0].Name, lsNum(int64(st.Namespaces[0].Ops)), lsNum(st.Namespaces[0].Docs))
+		}
+		sev := lsSevWarn
+		if st.CollDocs >= 1000000 || ratio >= 100 {
+			sev = lsSevBad
+		}
+		out = append(out, lsFinding{
+			ID: "mongo-collscan-" + strconv.Itoa(s.Idx), Sev: sev, At: s.FirstTS, Until: s.LastTS,
+			Title: fmt.Sprintf("%s: %s collection scans examined %s documents", lsNode(b, s.Idx), lsNum(int64(st.Collscans)), lsNum(st.CollDocs)),
+			Detail: fmt.Sprintf("%.0f%% of the %s slow operations in this log had no index to use. Those scans read %s documents to return %s%s.%s",
+				share, lsNum(int64(st.Ops)), lsNum(st.CollDocs), lsNum(st.CollRet), waste, worst),
+			Advice:  "The plan summary on each slow-operation row names the shape with no index. Take its filter, and the examined-to-returned ratio is what an index on those fields would remove.",
+			Sources: []int{s.Idx},
+		})
+	}
+	return out
+}
+
+// lsRatio renders a multiple without pretending to precision it does not have.
+func lsRatio(r float64) string {
+	if r >= 10 {
+		return fmt.Sprintf("%.0f", r)
+	}
+	return fmt.Sprintf("%.1f", r)
+}
+
+// lsFindingMongoDiskReads — how much of the answer came off the disk.
+//
+// This is the one number in the log that FTDC cannot attribute. The capture's cache
+// counters say the server read 3.7 TiB into cache; only the log says which collection
+// asked for it.
+func lsFindingMongoDiskReads(b *lsBundle) []lsFinding {
+	var out []lsFinding
+	for _, s := range b.Sources {
+		st := s.Mongo
+		if st == nil || st.Bytes == 0 {
+			continue
+		}
+		span := s.LastTS - s.FirstTS
+		if span <= 0 {
+			span = 1
+		}
+		rate := float64(st.Bytes) / span
+		readSec := float64(st.ReadMicros) / 1e6
+		// The share is of OPERATION time, not of the window. Thirty-two concurrent workers
+		// accumulate thirty-two seconds of reading per second of wall clock, and a
+		// percentage of the window computed from that reads as 1770%, which is not a
+		// number anybody can act on. Against the time those same operations took, it is.
+		opSec := float64(st.Millis) / 1000
+		share := 0.0
+		if opSec > 0 {
+			share = readSec / opSec * 100
+		}
+		if share < 10 && rate < 1<<20 {
+			continue
+		}
+		ns := ""
+		if len(st.Namespaces) > 0 && st.Namespaces[0].Bytes > 0 {
+			ns = fmt.Sprintf(" Most of it for %s.", st.Namespaces[0].Name)
+		}
+		sev := lsSevWarn
+		if share >= 40 {
+			sev = lsSevBad
+		}
+		out = append(out, lsFinding{
+			ID: "mongo-disk-reads-" + strconv.Itoa(s.Idx), Sev: sev, At: s.FirstTS, Until: s.LastTS,
+			Title: fmt.Sprintf("%s: slow operations read %s from disk", lsNode(b, s.Idx), lsBytesShort(st.Bytes)),
+			Detail: fmt.Sprintf("%s/s across the window they cover, and %s of the %s those operations took was spent waiting for the device — %.0f%% of their own time. A working set that fitted in cache would read almost nothing.%s",
+				lsBytesShort(int64(rate)), lsDur(readSec), lsDur(opSec), share, ns),
+			Advice:  "Pair this with the FTDC capture for the same window: the cache chart says whether the cache was full, and the eviction chart says whether application threads were made to do the evicting. If both are healthy and this is still high, the working set is simply larger than the cache.",
+			Sources: []int{s.Idx},
+		})
+	}
+	return out
+}
+
+// lsFindingMongoWaiting — time the server had the operation and was not working on it.
+func lsFindingMongoWaiting(b *lsBundle) []lsFinding {
+	var out []lsFinding
+	for _, s := range b.Sources {
+		st := s.Mongo
+		if st == nil || st.Millis == 0 || st.WaitedMs == 0 {
+			continue
+		}
+		share := float64(st.WaitedMs) / float64(st.Millis) * 100
+		if share < 15 {
+			continue
+		}
+		sev := lsSevWarn
+		if share >= 40 {
+			sev = lsSevBad
+		}
+		out = append(out, lsFinding{
+			ID: "mongo-waiting-" + strconv.Itoa(s.Idx), Sev: sev, At: s.FirstTS, Until: s.LastTS,
+			Title: fmt.Sprintf("%s: %.0f%% of slow-operation time was spent waiting, not working", lsNode(b, s.Idx), share),
+			Detail: fmt.Sprintf("Across %s logged operations, %s of %s was time the server had the operation and was not working on it — queued for admission, or blocked behind something else.",
+				lsNum(int64(st.Ops)), lsDur(float64(st.WaitedMs)/1000), lsDur(float64(st.Millis)/1000)),
+			Advice:  "Tuning the queries will not move this. The FTDC tickets and admission charts for the same window say what they were queued behind.",
+			Sources: []int{s.Idx},
+		})
+	}
+	return out
+}
+
+// lsFindingMongoWriteConcern — writes that finished and then waited for other members.
+func lsFindingMongoWriteConcern(b *lsBundle) []lsFinding {
+	var out []lsFinding
+	for _, s := range b.Sources {
+		st := s.Mongo
+		if st == nil || st.WriteConOps == 0 {
+			continue
+		}
+		avg := float64(st.WriteConMs) / float64(st.WriteConOps)
+		if avg < 20 {
+			continue
+		}
+		sev := lsSevWarn
+		if avg >= 200 {
+			sev = lsSevBad
+		}
+		out = append(out, lsFinding{
+			ID: "mongo-write-concern-" + strconv.Itoa(s.Idx), Sev: sev, At: s.FirstTS, Until: s.LastTS,
+			Title: fmt.Sprintf("%s: writes waited an average of %.0f ms for other members", lsNode(b, s.Idx), avg),
+			Detail: fmt.Sprintf("%s logged write(s) spent %s in total waiting for write concern after the primary had already done the work. The application pays this on its own clock and nothing on the primary looks slow.",
+				lsNum(int64(st.WriteConOps)), lsDur(float64(st.WriteConMs)/1000)),
+			Advice:  "It is the secondaries: their apply rate and their disks. A member that is up but slow costs every majority write on the primary.",
+			Sources: []int{s.Idx},
+		})
+	}
+	return out
+}
+
+// lsFindingMongoIndexBuild — how long a build ran, and whether anything interrupted it.
+func lsFindingMongoIndexBuild(b *lsBundle) []lsFinding {
+	if !lsHasMongoRS(b) && !lsHasMongo(b) {
+		return nil
+	}
+	starts := lsPick(b, func(e lsEvent) bool { return e.Code == "20438" || e.Code == "20384" })
+	if len(starts) == 0 {
+		return nil
+	}
+	dones := lsPick(b, func(e lsEvent) bool { return e.Code == "20345" || e.Code == "20447" || e.Code == "20663" })
+	aborts := lsPick(b, func(e lsEvent) bool { return e.Code == "7738702" })
+	// One build per source: pair the first start with the first completion after it.
+	var lines []string
+	longest := 0.0
+	var at, until float64
+	for _, st := range starts {
+		var end float64
+		for _, d := range dones {
+			if d.Src == st.Src && d.TS >= st.TS {
+				end = d.TS
+				break
+			}
+		}
+		if end == 0 {
+			lines = append(lines, fmt.Sprintf("%s started a build at %s that never finished in this log", lsNode(b, st.Src), lsClock(st.TS)))
+			if at == 0 {
+				at = st.TS
+			}
+			continue
+		}
+		if d := end - st.TS; d > longest {
+			longest, at, until = d, st.TS, end
+		}
+		lines = append(lines, fmt.Sprintf("%s: %s (%s)", lsNode(b, st.Src), lsDur(end-st.TS), lsIndexName(st.Message)))
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	sev := lsSevInfo
+	detail := strings.Join(lines, "; ") + "."
+	if longest >= 60 {
+		sev = lsSevWarn
+		detail += " While a build runs it competes with the workload for the same cache and device, and the collection it is on is being scanned end to end."
+	}
+	if len(aborts) > 0 {
+		sev = lsSevBad
+		detail += fmt.Sprintf(" %s abandoned every running build (a stepdown does this) — whatever they had scanned was discarded.", lsNode(b, aborts[0].Src))
+	}
+	return []lsFinding{{
+		ID: "mongo-index-build", Sev: sev, At: at, Until: until,
+		Title:   fmt.Sprintf("Index build%s in this window", lsPluralS(len(lines))),
+		Detail:  detail,
+		Advice:  "An index build is a scheduled event even when nobody scheduled it. If one overlaps an incident, it is a candidate cause rather than a coincidence — and if a failover aborted one, it will start again from the beginning on the new primary.",
+		Sources: lsSrcSet(starts), Events: lsEventNos(starts, 4),
+	}}
+}
+
+// lsFindingMongoSyncChurn — a member that could not settle on a sync source.
+func lsFindingMongoSyncChurn(b *lsBundle) []lsFinding {
+	if !lsHasMongoRS(b) {
+		return nil
+	}
+	none := lsPick(b, func(e lsEvent) bool {
+		return e.Code == "3873113" || e.Code == "3873106" || e.Code == "3873107" || e.Code == "21090" || e.Code == "8423402"
+	})
+	changed := lsPick(b, func(e lsEvent) bool {
+		return e.Code == "21088" || e.Code == "21080" || e.Code == "4744901" || e.Code == "21834" || e.Code == "21150"
+	})
+	if len(none) == 0 && len(changed) < 3 {
+		return nil
+	}
+	byNode := map[string]int{}
+	for _, e := range append(append([]lsEvent{}, none...), changed...) {
+		byNode[lsNode(b, e.Src)]++
+	}
+	var parts []string
+	for n, c := range byNode {
+		parts = append(parts, fmt.Sprintf("%s (%d)", n, c))
+	}
+	sort.Strings(parts)
+	sev := lsSevWarn
+	if len(none) > 0 {
+		sev = lsSevBad
+	}
+	all := append(append([]lsEvent{}, none...), changed...)
+	return []lsFinding{{
+		ID: "mongo-sync-churn", Sev: sev, At: all[0].TS,
+		Title: "Members could not settle on a sync source",
+		Detail: fmt.Sprintf("%d record(s) about choosing where to replicate from: %s. %s",
+			len(all), strings.Join(parts, ", "),
+			map[bool]string{true: "At least one member found no usable source at all — while that lasts it applies nothing and its lag grows with no error of its own.",
+				false: "Repeated changes interrupt the oplog stream each time, and everything downstream of the member inherits the interruption."}[len(none) > 0]),
+		Advice:  "Replication is a tree: a secondary may sync from another secondary. Check whether the member they keep rejecting is behind them, unreachable, or simply not readable yet.",
+		Sources: lsSrcSet(all), Events: lsEventNos(all, 4),
+	}}
+}
+
+// lsFindingMongoPoolChurn — connection pools thrown away, which is a peer failing.
+func lsFindingMongoPoolChurn(b *lsBundle) []lsFinding {
+	drops := lsPick(b, func(e lsEvent) bool { return e.Code == "22572" || e.Code == "22566" || e.Code == "22561" })
+	timeouts := lsPick(b, func(e lsEvent) bool { return e.Code == "6496500" })
+	if len(drops) < 2 && len(timeouts) == 0 {
+		return nil
+	}
+	all := append(append([]lsEvent{}, drops...), timeouts...)
+	peers := map[string]bool{}
+	for _, e := range drops {
+		if e.Peer != "" {
+			peers[e.Peer] = true
+		}
+	}
+	var names []string
+	for p := range peers {
+		names = append(names, p)
+	}
+	sort.Strings(names)
+	who := "another host"
+	if len(names) > 0 {
+		who = strings.Join(names, ", ")
+	}
+	return []lsFinding{{
+		ID: "mongo-pool-churn", Sev: lsSevWarn, At: all[0].TS,
+		Title: fmt.Sprintf("Connections to %s were dropped and re-made", who),
+		Detail: fmt.Sprintf("%d pool drop(s) and %d operation(s) that timed out waiting for a connection. This is the earliest thing in the file that says a peer stopped answering — it precedes the heartbeat failures, which precede any state change.",
+			len(drops), len(timeouts)),
+		Advice:  "If the FTDC capture for the same window shows TCP retransmits or resets, the network dropped it; if it does not, the far end stopped answering while its network stayed up.",
+		Sources: lsSrcSet(all), Events: lsEventNos(all, 4),
+	}}
+}
+
+// lsFindingMongoLogVolume — what this log cost to write.
+//
+// Not a database problem, and worth saying anyway: the capture behind this feature produced
+// 10.5 GiB per member in 86 minutes at verbosity 1, on the same device the database was
+// struggling to read from. Anybody about to recommend raising verbosity on a busy system
+// should see the number first.
+func lsFindingMongoLogVolume(b *lsBundle) []lsFinding {
+	var out []lsFinding
+	for _, s := range b.Sources {
+		st := s.Mongo
+		if st == nil || st.Debug == 0 {
+			continue
+		}
+		span := s.LastTS - s.FirstTS
+		if span <= 0 {
+			continue
+		}
+		rate := float64(s.Bytes) / span
+		share := float64(st.Debug) / float64(max(s.Records, 1)) * 100
+		// Two different statements share this check, and conflating them was wrong: a high
+		// share of debug records says the member is running at raised verbosity, while a
+		// high byte rate says the log is expensive whatever its level. The tail of a log
+		// can easily be one without the other.
+		verbose := share >= 10
+		if rate < 256*1024 && !verbose {
+			continue
+		}
+		sev := lsSevInfo
+		if rate >= 512*1024 {
+			sev = lsSevWarn
+		}
+		why := fmt.Sprintf("At that rate it is %s an hour on the same filesystem the database is using.", lsBytesShort(int64(rate*3600)))
+		if verbose {
+			why = fmt.Sprintf("%.0f%% of its records are debug-level (%s lines), so this member is running at verbosity 1 or above — %s an hour on the same filesystem the database is using.",
+				share, lsNum(int64(st.Debug)), lsBytesShort(int64(rate*3600)))
+		}
+		out = append(out, lsFinding{
+			ID: "mongo-log-volume-" + strconv.Itoa(s.Idx), Sev: sev, At: s.FirstTS, Until: s.LastTS,
+			Title:   fmt.Sprintf("%s: %s of log over %s (%s/s)", lsNode(b, s.Idx), lsBytesShort(int64(s.Bytes)), lsDur(span), lsBytesShort(int64(rate))),
+			Detail:  why,
+			Advice:  "Raise verbosity to answer a specific question, for as short a window as possible. FTDC is already running, costs a few megabytes an hour, and answers most of what a verbosity bump is reached for.",
+			Sources: []int{s.Idx},
+		})
+	}
+	return out
+}
+
+// lsHasMongo reports whether any source is a mongod at all, replica-set member or not.
+func lsHasMongo(b *lsBundle) bool {
+	for _, s := range b.Sources {
+		if s.Engine == pktEngineMongoDB {
+			return true
+		}
+	}
+	return false
+}
+
+// lsNum renders a count with thousands separators, because these are large.
+func lsNum(n int64) string {
+	s := strconv.FormatInt(n, 10)
+	if len(s) <= 3 {
+		return s
+	}
+	var out []byte
+	for i, c := range []byte(s) {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			out = append(out, ',')
+		}
+		out = append(out, c)
+	}
+	return string(out)
+}
+
+// lsPluralS is "" or "s".
+func lsPluralS(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+// lsIndexName shortens an index-build message to the collection and the index name. The
+// record carries the whole index specification as JSON, which is precise and unreadable in
+// a sentence.
+func lsIndexName(msg string) string {
+	ns, rest, ok := strings.Cut(msg, " ")
+	if !ok {
+		return msg
+	}
+	if i := strings.Index(rest, `"name":"`); i >= 0 {
+		if name, _, ok := strings.Cut(rest[i+8:], `"`); ok {
+			return ns + " · " + name
+		}
+	}
+	return ns
 }

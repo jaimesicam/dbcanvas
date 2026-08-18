@@ -13,11 +13,14 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -76,28 +79,133 @@ func (a *App) handleFTDCNode(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	ctx := r.Context()
-	// One exec that tars whichever of the candidate directories exists, rather than one
-	// round trip per candidate: the directory that is there wins and the rest cost nothing.
+	files, err := a.ftdcReadNode(r.Context(), dep.ContainerID)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	a.ftdcRespond(w, r, files)
+}
+
+// ftdcReadNode pulls one running node's diagnostic.data out of its container.
+//
+// One exec that tars whichever of the candidate directories exists, rather than one round
+// trip per candidate: the directory that is there wins and the rest cost nothing.
+func (a *App) ftdcReadNode(ctx context.Context, containerID string) ([]ftdcNamed, error) {
 	script := "for d in " + strings.Join(ftdcDiagDirs, " ") +
 		"; do if [ -d \"$d\" ]; then tar czf - -C \"$d\" . 2>/dev/null | base64 -w0; exit 0; fi; done; exit 3"
-	res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", script}, nil)
+	res, err := a.engCtx(ctx).Exec(ctx, containerID, []string{"bash", "-c", script}, nil)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "read diagnostic.data: "+err.Error())
-		return
+		return nil, fmt.Errorf("read diagnostic.data: %w", err)
 	}
 	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(res.Stdout))
 	if err != nil || len(raw) == 0 {
-		writeErr(w, http.StatusNotFound,
-			"no diagnostic.data found on this node — looked in "+strings.Join(ftdcDiagDirs, ", "))
+		return nil, fmt.Errorf("no diagnostic.data found on this node — looked in %s", strings.Join(ftdcDiagDirs, ", "))
+	}
+	return ftdcFromTarGz(raw)
+}
+
+// handleFTDCCompare reads several members' captures in one request.
+//
+// Lag, elections, sync source and quorum are questions about a SET, and every chart on this
+// page until now answered them from one member's file — which is the member's own opinion of
+// the set. Three files answer them directly: the same second, read from three machines, is
+// the difference between "this member thought it was behind" and "it was".
+//
+// Each capture is summarised independently and the page overlays them, rather than the
+// server merging them: the merge needs the chart definitions, and duplicating those here
+// would be a second place for them to drift.
+func (a *App) handleFTDCCompare(w http.ResponseWriter, r *http.Request) {
+	u, ok := a.currentUser(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	files, err := ftdcFromTarGz(raw)
+	var body struct {
+		Targets []struct {
+			StackID int64  `json:"stackId"`
+			NodeID  string `json:"nodeId"`
+		} `json:"targets"`
+	}
+	if err := decode(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(body.Targets) < 2 {
+		writeErr(w, http.StatusBadRequest, "pick at least two members to compare")
+		return
+	}
+	if len(body.Targets) > ftdcMaxCompare {
+		writeErr(w, http.StatusBadRequest,
+			fmt.Sprintf("at most %d members at a time — beyond that the overlay stops being readable", ftdcMaxCompare))
+		return
+	}
+	from, to, windowed := ftdcRange(r)
+
+	type member struct {
+		Label   string   `json:"label"`
+		StackID int64    `json:"stackId"`
+		NodeID  string   `json:"nodeId"`
+		Model   *fdModel `json:"model,omitempty"`
+		Error   string   `json:"error,omitempty"`
+	}
+	out := make([]member, 0, len(body.Targets))
+	for _, t := range body.Targets {
+		m := member{StackID: t.StackID, NodeID: t.NodeID, Label: t.NodeID}
+		dep, label, err := a.ftdcTarget(u, t.StackID, t.NodeID)
+		if err != nil {
+			m.Error = err.Error()
+			out = append(out, m)
+			continue
+		}
+		m.Label = label
+		files, err := a.ftdcReadNode(r.Context(), dep.ContainerID)
+		if err != nil {
+			m.Error = err.Error()
+			out = append(out, m)
+			continue
+		}
+		raw := make([][]byte, 0, len(files))
+		ftdcSortFiles(files)
+		for _, f := range files {
+			raw = append(raw, f.Data)
+		}
+		d, err := ftdcParse(raw)
+		if err != nil {
+			m.Error = err.Error()
+			out = append(out, m)
+			continue
+		}
+		if windowed {
+			d = ftdcWindow(d, from, to)
+			if len(d.TS) == 0 {
+				m.Error = "no samples in that window"
+				out = append(out, m)
+				continue
+			}
+		}
+		m.Model = ftdcSummarise(d)
+		out = append(out, m)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"members": out})
+}
+
+// ftdcMaxCompare is how many members one comparison may hold. The categorical palette is
+// eight colours and a chart wants a line per member per series; past four the overlay is a
+// thicket whatever the colours do.
+const ftdcMaxCompare = 4
+
+// ftdcTarget resolves one node the way the single-node endpoint does, without the HTTP
+// plumbing: same ownership check, same "is it running" check, same engine check.
+func (a *App) ftdcTarget(u User, stackID int64, nodeID string) (Deployment, string, error) {
+	engine, containerID, label, _, _, _, err := a.pktResolveTarget(u, stackID, nodeID)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
+		return Deployment{}, "", err
 	}
-	a.ftdcRespond(w, files)
+	if engine != pktEngineMongoDB {
+		return Deployment{}, "", fmt.Errorf("%s is not a MongoDB node", label)
+	}
+	return Deployment{ContainerID: containerID}, label, nil
 }
 
 // handleFTDCUpload parses uploaded files: a whole diagnostic.data directory picked at once,
@@ -164,7 +272,22 @@ func (a *App) handleFTDCUpload(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "no files in the upload")
 		return
 	}
-	a.ftdcRespond(w, named)
+	a.ftdcRespond(w, r, named)
+}
+
+// ftdcSortFiles puts a capture's files in time order. mongod names each file after its
+// first sample, so name order IS time order — which is what lets several files concatenate
+// into one continuous series. metrics.interim is the file currently being written and
+// belongs last whatever its name sorts to.
+func ftdcSortFiles(files []ftdcNamed) {
+	sort.Slice(files, func(i, j int) bool {
+		ai := strings.Contains(files[i].Name, "interim")
+		aj := strings.Contains(files[j].Name, "interim")
+		if ai != aj {
+			return aj
+		}
+		return files[i].Name < files[j].Name
+	})
 }
 
 // ftdcNamed is one metrics file and the name it arrived under.
@@ -174,18 +297,8 @@ type ftdcNamed struct {
 }
 
 // ftdcRespond orders the files, parses them and writes the model.
-func (a *App) ftdcRespond(w http.ResponseWriter, files []ftdcNamed) {
-	// mongod names each file after its first sample, so name order IS time order — which
-	// is what lets several files concatenate into one continuous series. metrics.interim
-	// is the file currently being written and belongs last whatever its name sorts to.
-	sort.Slice(files, func(i, j int) bool {
-		ai := strings.Contains(files[i].Name, "interim")
-		aj := strings.Contains(files[j].Name, "interim")
-		if ai != aj {
-			return aj
-		}
-		return files[i].Name < files[j].Name
-	})
+func (a *App) ftdcRespond(w http.ResponseWriter, r *http.Request, files []ftdcNamed) {
+	ftdcSortFiles(files)
 	var raw [][]byte
 	for _, f := range files {
 		raw = append(raw, f.Data)
@@ -195,7 +308,74 @@ func (a *App) ftdcRespond(w http.ResponseWriter, files []ftdcNamed) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// A zoom is a second read of the same bytes, narrowed. Doing it this way rather than
+	// zooming the drawn points is the difference between magnifying a thinned line and
+	// seeing what was actually recorded: a capture is downsampled to fdMaxPoints for the
+	// page, so a sixty-second event in an eight-hour file is two points until it is the
+	// whole window.
+	if from, to, ok := ftdcRange(r); ok {
+		d = ftdcWindow(d, from, to)
+		if len(d.TS) == 0 {
+			writeErr(w, http.StatusBadRequest, "no samples in that window")
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, ftdcSummarise(d))
+}
+
+// ftdcRange reads the requested window off the query string. Both bounds are epoch seconds
+// and both are optional — a zoom that only sets one end is a zoom to the start or the end of
+// the capture, which is what dragging off the edge of a chart means.
+func ftdcRange(r *http.Request) (from, to float64, ok bool) {
+	q := r.URL.Query()
+	parse := func(k string) (float64, bool) {
+		v := strings.TrimSpace(q.Get(k))
+		if v == "" {
+			return 0, false
+		}
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil || f <= 0 {
+			return 0, false
+		}
+		return f, true
+	}
+	from, okF := parse("from")
+	to, okT := parse("to")
+	if !okF && !okT {
+		return 0, 0, false
+	}
+	if !okT {
+		to = math.MaxInt32 * 1.0
+	}
+	return from, to, true
+}
+
+// ftdcWindow returns the samples inside [from, to]. Every series is sliced by the same
+// indices, which is what keeps a chart's points and the timestamp column aligned.
+func ftdcWindow(d *ftdcData, from, to float64) *ftdcData {
+	lo, hi := -1, -1
+	for i, t := range d.TS {
+		if t >= from && lo < 0 {
+			lo = i
+		}
+		if t <= to {
+			hi = i
+		}
+	}
+	if lo < 0 || hi < lo {
+		return &ftdcData{Series: map[string]*ftdcSeries{}, Meta: d.Meta}
+	}
+	out := &ftdcData{
+		TS: d.TS[lo : hi+1], Series: make(map[string]*ftdcSeries, len(d.Series)),
+		Meta: d.Meta, Chunks: d.Chunks, Samples: hi - lo + 1, Skipped: d.Skipped,
+	}
+	for k, s := range d.Series {
+		if len(s.Values) <= hi {
+			continue
+		}
+		out.Series[k] = &ftdcSeries{Key: s.Key, Values: s.Values[lo : hi+1]}
+	}
+	return out
 }
 
 // ftdcFromTarGz unpacks a gzipped tar into its regular files.

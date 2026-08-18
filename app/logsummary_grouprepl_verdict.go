@@ -561,7 +561,13 @@ func lsClock(ts float64) string {
 	if ts <= 0 {
 		return "an unknown time"
 	}
-	return time.Unix(int64(ts), 0).UTC().Format("15:04:05")
+	// The date is part of the answer, not decoration. A bundle is several logs read
+	// together and they routinely span days — a 200,000-line tail off a quiet server
+	// reaches back a week, and two uploaded files can be from different days entirely.
+	// "15:04:05" in a finding about a bundle like that names several different moments
+	// and leaves the reader to guess which. The month is spelled rather than numbered
+	// because 08-09 is September to half the world and August to the other half.
+	return time.Unix(int64(ts), 0).UTC().Format("02 Jan 15:04:05")
 }
 
 // lsTimes renders a small count as words, because "elected a new primary 1 times" is the

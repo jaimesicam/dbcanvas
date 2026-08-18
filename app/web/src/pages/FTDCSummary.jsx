@@ -5,7 +5,7 @@ import TimeChart from '../components/TimeChart.jsx'
 import { FilePick } from './PacketInspector.jsx'
 import {
   ftdcApi, chartPoints, chartLines, fmtSpan, fmtClock, fmtNum,
-  ADVICE_TEXT, ADVICE_FILL, ADVICE_TONE,
+  ADVICE_TEXT, ADVICE_FILL, ADVICE_TONE, COMPARE_CHARTS, compareSeries,
 } from '../lib/ftdcApi.js'
 
 // FTDC Summary — MongoDB's diagnostic.data, charted.
@@ -19,6 +19,13 @@ import {
 // file holds about four thousand metrics; a browser of all four thousand helps somebody who
 // already knows what they are looking for, and this page is for the other case.
 
+// LAST_WINDOWS are the zooms people ask for by name rather than by dragging. The end of the
+// capture is "now" for a file read off a running node, which is the common case.
+const LAST_WINDOWS = [
+  { label: 'last 15 min', secs: 15 * 60 },
+  { label: 'last hour', secs: 3600 },
+]
+
 export default function FTDCSummary() {
   const [model, setModel] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -27,6 +34,14 @@ export default function FTDCSummary() {
   const [picked, setPicked] = useState('')
   const [files, setFiles] = useState([])
   const [dropped, setDropped] = useState(0)
+  // What produced the model on screen, so a zoom can re-read the same thing narrowed:
+  // { kind: 'node', stackId, nodeId, label } or { kind: 'upload', files }.
+  const [source, setSource] = useState(null)
+  const [zoom, setZoom] = useState(null)   // { from, to } epoch seconds, or null for all
+  const [zoomStack, setZoomStack] = useState([])
+  // Comparison mode: several members' captures, read at once and overlaid.
+  const [compare, setCompare] = useState([])       // picked "stackId:nodeId" keys
+  const [members, setMembers] = useState(null)     // what came back
 
   // takeFiles keeps what can be FTDC and counts the rest.
   //
@@ -50,6 +65,7 @@ export default function FTDCSummary() {
     ftdcApi.nodes().then((n) => setNodes(n || [])).catch(() => {})
   }, [])
 
+
   async function run(fn) {
     setError(null); setLoading(true); setModel(null)
     try { setModel(await fn()) }
@@ -57,9 +73,52 @@ export default function FTDCSummary() {
     finally { setLoading(false) }
   }
 
+  // A zoom re-reads the SOURCE for the chosen window rather than magnifying the drawn
+  // line: the page is sent 1,200 points however long the capture is, so a sixty-second
+  // event in an eight-hour file is two points until the window is the event.
+  function reread(range) {
+    if (!source) return
+    setZoom(range)
+    if (source.kind === 'node') run(() => ftdcApi.fromNode(source.stackId, source.nodeId, range))
+    else run(() => ftdcApi.upload(source.files, range))
+  }
+  function zoomTo(from, to) {
+    setZoomStack((st) => [...st, zoom])
+    reread({ from, to })
+  }
+  function zoomBack() {
+    const prev = zoomStack[zoomStack.length - 1] ?? null
+    setZoomStack((st) => st.slice(0, -1))
+    reread(prev)
+  }
+  function zoomAll() {
+    setZoomStack([])
+    reread(null)
+  }
+
+  // A comparison is its own read: several members, the same window, one request. It
+  // replaces the single-member model on screen rather than sitting beside it, because two
+  // sets of charts answering the same question differently is how a page gets misread.
+  async function loadCompare() {
+    const targets = compare.map((k) => {
+      const [stackId, nodeId] = k.split(':')
+      return { stackId: Number(stackId), nodeId }
+    })
+    if (targets.length < 2) return
+    setError(null); setLoading(true); setModel(null); setMembers(null)
+    try {
+      const r = await ftdcApi.compare(targets, zoom)
+      setMembers(r.members || [])
+    } catch (e) { setError(e.message || 'Failed to read the captures') }
+    finally { setLoading(false) }
+  }
+
   const loadNode = () => {
     const n = nodes.find((x) => `${x.stackId}:${x.nodeId}` === picked)
-    if (n) run(() => ftdcApi.fromNode(n.stackId, n.nodeId))
+    if (!n) return
+    setSource({ kind: 'node', stackId: n.stackId, nodeId: n.nodeId, label: n.label })
+    setZoom(null); setZoomStack([]); setMembers(null)
+    run(() => ftdcApi.fromNode(n.stackId, n.nodeId))
   }
 
   return (
@@ -91,6 +150,30 @@ export default function FTDCSummary() {
               <Icon.Server size={15} /> Read diagnostic.data
             </Button>
           </div>
+
+          {/* Comparison. Lag, elections, sync source and quorum are questions about a set,
+              and one member's file can only ever say what that member believed. */}
+          {nodes.length > 1 && (
+            <div className="border-t pt-3">
+              <div className="mb-1 text-xs font-medium text-muted">…or compare several members over the same window</div>
+              <div className="flex flex-wrap items-center gap-2">
+                {nodes.map((n) => {
+                  const key = `${n.stackId}:${n.nodeId}`
+                  const on = compare.includes(key)
+                  return (
+                    <button key={key} type="button"
+                      onClick={() => setCompare((c) => (on ? c.filter((x) => x !== key) : [...c, key]))}
+                      className={`rounded-md border px-2 py-1 text-xs transition ${on ? 'border-primary bg-primary/10 text-primary' : 'bg-bg text-muted hover:text-fg'}`}>
+                      {n.label}
+                    </button>
+                  )
+                })}
+                <Button size="sm" variant="outline" disabled={compare.length < 2 || loading} onClick={loadCompare}>
+                  <Icon.Monitor size={14} /> Compare {compare.length || ''} member{compare.length === 1 ? '' : 's'}
+                </Button>
+              </div>
+            </div>
+          )}
 
           <div className="border-t pt-3">
             <label className="mb-1 block text-xs font-medium text-muted" htmlFor="ftdc-file">
@@ -125,7 +208,8 @@ export default function FTDCSummary() {
               </p>
             )}
             {files.length > 0 && (
-              <Button className="mt-2" onClick={() => run(() => ftdcApi.upload(files))} disabled={loading}>
+              <Button className="mt-2" disabled={loading}
+                onClick={() => { setSource({ kind: 'upload', files }); setZoom(null); setZoomStack([]); run(() => ftdcApi.upload(files)) }}>
                 <Icon.Monitor size={15} /> Chart {files.length} file(s)
               </Button>
             )}
@@ -138,9 +222,48 @@ export default function FTDCSummary() {
         <Card><div className="p-4 text-sm text-status-crit">{error}</div></Card>
       )}
 
+      {/* The window control. Present whenever there is something to narrow, not only once
+          the reader has already found the drag — an 8-hour capture drawn as 1,200 points
+          hides a 60-second event, and the way to see it was undiscoverable when the only
+          affordance was a cursor change over a chart. */}
+      {model && source && (
+        <Card>
+          <div className="flex flex-wrap items-center gap-2 p-3 text-sm">
+            {zoom ? (
+              <>
+                <span className="text-muted">Zoomed to</span>
+                <span className="font-medium text-fg">{fmtClock(zoom.from)} → {fmtClock(zoom.to)}</span>
+                <span className="text-[11px] text-muted">
+                  ({fmtSpan(zoom.from, zoom.to)} · re-read from the source at full resolution)
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="text-muted">Window</span>
+                <span className="font-medium text-fg">whole capture</span>
+                <span className="text-[11px] text-muted">
+                  ({fmtSpan(model.from, model.to)} · <b>drag across any chart</b> to zoom into a window,
+                  which is re-read from the source at full resolution)
+                </span>
+              </>
+            )}
+            <div className="ml-auto flex flex-wrap gap-2">
+              {LAST_WINDOWS.map((wdw) => (
+                <Button key={wdw.label} size="sm" variant="subtle" disabled={loading || model.to - model.from <= wdw.secs}
+                  onClick={() => zoomTo(Math.max(model.from, model.to - wdw.secs), model.to)}>
+                  {wdw.label}
+                </Button>
+              ))}
+              {zoom && <Button size="sm" variant="subtle" onClick={zoomBack} disabled={loading}>Back</Button>}
+              {zoom && <Button size="sm" variant="subtle" onClick={zoomAll} disabled={loading}>Whole capture</Button>}
+            </div>
+          </div>
+        </Card>
+      )}
+      {members && <CompareView members={members} />}
       {model && <Summary model={model} />}
       {model && <Findings model={model} />}
-      {model && <Charts model={model} />}
+      {model && <Charts model={model} onZoom={source ? zoomTo : null} />}
     </div>
   )
 }
@@ -193,7 +316,7 @@ export function Findings({ model }) {
 // Thirty-odd charts in one flat column is a column nobody reads to the bottom of. The
 // backend already decides the order and the grouping; this only inserts a heading each time
 // the group changes, so adding a chart on the server needs no change here.
-export function Charts({ model }) {
+export function Charts({ model, onZoom = null }) {
   if (!model?.charts?.length) return null
   let last = null
   return (
@@ -208,7 +331,7 @@ export function Charts({ model }) {
             {head && (
               <h2 className="pt-2 text-xs font-semibold uppercase tracking-wide text-muted">{head}</h2>
             )}
-            <ChartCard chart={c} ts={model.ts} />
+            <ChartCard chart={c} ts={model.ts} onZoom={onZoom} />
           </div>
         )
       })}
@@ -216,21 +339,108 @@ export function Charts({ model }) {
   )
 }
 
+// CompareView — several members' captures, one chart per question.
+//
+// The single-member charts answer "what was this server doing". These answer "which member",
+// which is a different question and the one an incident on a replica set actually raises.
+// Only the series that carry a comparison are overlaid (see COMPARE_CHARTS); the rest stay
+// on the per-member view, because three members' cache charts drawn together is nine lines
+// and no answer.
+export function CompareView({ members }) {
+  const ok = (members || []).filter((m) => m.model)
+  const failed = (members || []).filter((m) => !m.model)
+  if (!ok.length) {
+    return (
+      <Card>
+        <div className="p-4 text-sm text-status-crit">
+          None of the selected members could be read.
+          {failed.map((m) => <div key={m.nodeId} className="mt-1 text-xs">{m.label}: {m.error}</div>)}
+        </div>
+      </Card>
+    )
+  }
+  const charts = COMPARE_CHARTS.map((spec) => ({ spec, data: compareSeries(ok, spec) })).filter((c) => c.data)
+  return (
+    <div className="space-y-3">
+      <Card>
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 p-3 text-sm">
+          <Field k="Comparing" v={ok.map((m) => m.label).join(' · ')} />
+          <Field k="Window" v={`${fmtClock(Math.min(...ok.map((m) => m.model.from)))} → ${fmtClock(Math.max(...ok.map((m) => m.model.to)))}`} />
+          <Field k="Charts" v={String(charts.length)} />
+        </div>
+        {failed.length > 0 && (
+          <div className="border-t px-3 py-2 text-xs text-status-warn">
+            {failed.map((m) => <div key={m.nodeId}>{m.label}: {m.error}</div>)}
+          </div>
+        )}
+        <div className="border-t px-3 py-2 text-xs text-muted">
+          Each member's capture is decoded on its own and the lines are merged on a shared clock —
+          a member with no sample for an instant (it was down, or its capture starts later) draws
+          nothing there rather than a zero.
+        </div>
+      </Card>
+      {charts.map(({ spec, data }) => (
+        <Card key={spec.id}>
+          <div className="flex flex-wrap items-baseline justify-between gap-2 border-b px-3 py-2">
+            <h3 className="text-sm font-semibold text-fg">{spec.title}</h3>
+            <span className="font-mono text-[10px] text-muted">{data.unit}</span>
+          </div>
+          <div className="px-2 pt-2">
+            <TimeChart points={data.points} lines={data.lines} unit={data.unit} />
+          </div>
+          <p className="px-3 pb-3 pt-1 text-xs text-muted">{spec.why}</p>
+        </Card>
+      ))}
+    </div>
+  )
+}
+
 // Summary — what the file is, before anything is read from it. Deliberately first: half of
 // "this chart looks wrong" is a file covering a different window than the reader assumed.
 export function Summary({ model }) {
+  const [open, setOpen] = useState(false)
   if (!model) return null
+  const facts = model.server || []
   return (
     <Card>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 p-3 text-sm">
         <Field k="Host" v={model.host || '—'} />
         <Field k="Version" v={model.version || '—'} />
+        {/* What KIND of process wrote this. A mongos has no storage engine, no oplog and no
+            replica-set status, so half the page is legitimately absent from its capture —
+            saying so is the difference between "this file is thin" and "this is a router". */}
+        {model.role && <Field k="Role" v={model.role} />}
         <Field k="Replica set" v={model.replSet || 'none'} />
         <Field k="Window" v={`${fmtClock(model.from)} → ${fmtClock(model.to)}`} />
         <Field k="Span" v={fmtSpan(model.from, model.to)} />
         <Field k="Samples" v={fmtNum(model.samples)} />
         <Field k="Metrics" v={fmtNum(model.metrics)} />
       </div>
+      {/* The type-0 document, which is the only place a capture says what the server WAS.
+          Collapsed by default because it is reference rather than reading — but the notes
+          inside it (huge pages left on, a cache sized from memory the container does not
+          have, a file-descriptor ceiling below 64000) explain more charts than any single
+          metric does. */}
+      {facts.length > 0 && (
+        <div className="border-t">
+          <button type="button" onClick={() => setOpen(!open)}
+            className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-medium text-muted hover:text-fg">
+            <span>Capture header — what this server was ({facts.length} facts)</span>
+            <span aria-hidden="true">{open ? '−' : '+'}</span>
+          </button>
+          {open && (
+            <dl className="grid gap-x-6 gap-y-2 border-t px-3 py-3 text-sm sm:grid-cols-2">
+              {facts.map((f) => (
+                <div key={f.label} className="min-w-0">
+                  <dt className="text-[11px] uppercase tracking-wide text-muted">{f.label}</dt>
+                  <dd className="break-words font-medium text-fg">{f.value}</dd>
+                  {f.note && <dd className="mt-0.5 text-[11px] leading-snug text-status-warn">{f.note}</dd>}
+                </div>
+              ))}
+            </dl>
+          )}
+        </div>
+      )}
       {model.notes?.length > 0 && (
         <div className="border-t px-3 py-2 text-xs text-muted">
           {model.notes.map((n, i) => <p key={i}>{n}</p>)}
@@ -254,18 +464,27 @@ function Field({ k, v }) {
 // The "why" line is not decoration. Somebody who knows what a WiredTiger ticket is does not
 // need it, and somebody who does not is exactly the person holding a diagnostic.data
 // directory they were sent and no idea what to do with it.
-export function ChartCard({ chart, ts }) {
+export function ChartCard({ chart, ts, onZoom = null }) {
   if (!chart) return null
   const points = chartPoints(ts, chart.series)
   const lines = chartLines(chart.series)
   return (
     <Card>
-      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b px-3 py-2">
+      <div className="group flex flex-wrap items-baseline justify-between gap-2 border-b px-3 py-2">
         <h3 className="text-sm font-semibold text-fg">{chart.title}</h3>
-        {chart.unit && <span className="text-[11px] text-muted">{chart.unit}</span>}
+        <span className="flex items-baseline gap-3">
+          {/* The affordance next to the hand. The window bar above says it once; this says
+              it where the reader's cursor already is, and only while it is there. */}
+          {onZoom && (
+            <span className="text-[10px] text-muted opacity-0 transition-opacity group-hover:opacity-100">
+              drag across to zoom
+            </span>
+          )}
+          {chart.unit && <span className="text-[11px] text-muted">{chart.unit}</span>}
+        </span>
       </div>
       <div className="px-3 pt-3">
-        <TimeChart points={points} lines={lines} unit={chart.unit} kind={chart.stack ? 'stacked' : 'line'} />
+        <TimeChart points={points} lines={lines} unit={chart.unit} kind={chart.stack ? 'stacked' : 'line'} onZoom={onZoom} />
       </div>
       <p className="px-3 pb-2 pt-1 text-xs text-muted">{chart.why}</p>
       {chart.advice && <Advice a={chart.advice} />}

@@ -302,3 +302,78 @@ func TestFTDCZipWithoutMetricsFilesSaysSo(t *testing.T) {
 		t.Fatalf("want an error naming metrics.<timestamp>, got %v", err)
 	}
 }
+
+// ---------------------------------------------------------------- compare
+
+// The comparison endpoint is the one that reads several members at once. Its two guards are
+// worth a test even though the read itself needs containers: fewer than two members is not
+// a comparison, and more than four is a thicket of lines whatever the palette does.
+func TestFTDCCompareGuards(t *testing.T) {
+	app, cookie := ftdcAuthed(t)
+	post := func(body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPost, "/api/ftdc/compare", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		app.handleFTDCCompare(rec, r)
+		return rec
+	}
+	if rec := post(`{"targets":[{"stackId":1,"nodeId":"a"}]}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("one member: %d %s", rec.Code, rec.Body.String())
+	}
+	many := `{"targets":[{"stackId":1,"nodeId":"a"},{"stackId":1,"nodeId":"b"},{"stackId":1,"nodeId":"c"},{"stackId":1,"nodeId":"d"},{"stackId":1,"nodeId":"e"}]}`
+	if rec := post(many); rec.Code != http.StatusBadRequest {
+		t.Errorf("five members: %d %s", rec.Code, rec.Body.String())
+	}
+	// Two members that do not resolve still answer 200 with a per-member error, because a
+	// comparison where one node is unreachable should show the ones that are.
+	rec := post(`{"targets":[{"stackId":9999,"nodeId":"a"},{"stackId":9999,"nodeId":"b"}]}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unresolvable members: %d %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Members []struct {
+			Error string `json:"error"`
+		} `json:"members"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Members) != 2 || got.Members[0].Error == "" {
+		t.Errorf("want a per-member error, got %+v", got.Members)
+	}
+}
+
+// A zoom window is read off the query string, and both ends are optional.
+func TestFTDCRangeParsing(t *testing.T) {
+	for _, tc := range []struct {
+		url        string
+		wantOK     bool
+		from, upTo float64
+	}{
+		{"/x", false, 0, 0},
+		{"/x?from=100&to=200", true, 100, 200},
+		{"/x?from=100", true, 100, 0}, // to the end of the capture
+		{"/x?to=200", true, 0, 200},   // from the beginning
+		{"/x?from=abc", false, 0, 0},  // nonsense is not a window
+	} {
+		r := httptest.NewRequest(http.MethodPost, tc.url, nil)
+		from, to, ok := ftdcRange(r)
+		if ok != tc.wantOK {
+			t.Errorf("%s: ok=%v", tc.url, ok)
+			continue
+		}
+		if !ok {
+			continue
+		}
+		if from != tc.from {
+			t.Errorf("%s: from=%v want %v", tc.url, from, tc.from)
+		}
+		if tc.upTo > 0 && to != tc.upTo {
+			t.Errorf("%s: to=%v want %v", tc.url, to, tc.upTo)
+		}
+		if tc.upTo == 0 && to < 1e9 {
+			t.Errorf("%s: an open end became %v", tc.url, to)
+		}
+	}
+}
