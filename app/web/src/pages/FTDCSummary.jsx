@@ -34,10 +34,14 @@ export default function FTDCSummary() {
   // the whole dbPath, and a 40 GB collection file is not something to put through an upload
   // to find out. One deliberately chosen file is never filtered — the name is the reader's
   // business, and an archive somebody renamed is still recognised from its bytes server-side.
+  //
+  // The archive test is deliberately not anchored to the end of the name: an archive off a
+  // ticket is as often "diagnostic.data.tar.gz.20260814" or "ftdc.zip.bak" as it is a clean
+  // .tar.gz, and greying those out is the same mistake an `accept` list would make.
   function takeFiles(list) {
     const all = [...(list || [])]
     if (all.length <= 1) { setFiles(all); setDropped(0); return }
-    const keep = all.filter((f) => /^metrics\./.test(f.name) || /\.(gz|tgz|tar)$/i.test(f.name))
+    const keep = all.filter((f) => /^metrics\./.test(f.name) || /\.(gz|tgz|tar|zip)\b/i.test(f.name))
     setFiles(keep)
     setDropped(all.length - keep.length)
   }
@@ -90,22 +94,23 @@ export default function FTDCSummary() {
 
           <div className="border-t pt-3">
             <label className="mb-1 block text-xs font-medium text-muted" htmlFor="ftdc-file">
-              …or upload the directory's <code>metrics.*</code> files, a <code>.tar.gz</code> of it, or the whole
-              <code> diagnostic.data</code> folder
+              …or upload the directory's <code>metrics.*</code> files, a <code>.tar.gz</code> or <code>.zip</code> of
+              it, or the whole <code> diagnostic.data</code> folder
             </label>
             <div className="grid gap-2 sm:grid-cols-2">
               {/* No `accept`. A metrics file is named metrics.2026-08-16T09-31-52Z-00000,
                   so the browser reads its extension as ".2026-08-16T09-31-52Z-00000" and
                   any extension list at all greys out exactly the files this page exists to
-                  read. The archive case is sniffed from the gzip magic server-side, so the
-                  filter was never load-bearing. */}
+                  read. The archive case is sniffed from the file's magic bytes server-side
+                  (gzip or zip), so the filter was never load-bearing — which is just as well,
+                  because an archive off a ticket is routinely renamed with a timestamp. */}
               {/* Neither picker shows the selection itself: both feed the same list, and a
                   count printed inside whichever box was clicked last reads as if only that
                   box's pick counted. It is stated once, below, for both. */}
               <FilePick
                 id="ftdc-file" multiple file={null}
                 onPick={() => {}} onPickMany={takeFiles}
-                placeholder="Choose metrics.* files or a .tar.gz"
+                placeholder="Choose metrics.* files, or a .tar.gz / .zip"
               />
               <FilePick
                 id="ftdc-dir" directory file={null}

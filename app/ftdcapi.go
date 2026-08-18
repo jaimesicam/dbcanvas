@@ -10,6 +10,7 @@ package main
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"encoding/base64"
@@ -100,7 +101,7 @@ func (a *App) handleFTDCNode(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleFTDCUpload parses uploaded files: a whole diagnostic.data directory picked at once,
-// or a .tar.gz of one.
+// or a .tar.gz / .zip of one.
 func (a *App) handleFTDCUpload(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.currentUser(r); !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
@@ -134,11 +135,21 @@ func (a *App) handleFTDCUpload(w http.ResponseWriter, r *http.Request) {
 			if err != nil || len(data) == 0 {
 				continue
 			}
-			// A .tar.gz of the directory is unpacked; anything else is taken as a raw
-			// metrics file. Sniffing the gzip magic rather than trusting the name, because
-			// people rename things.
-			if len(data) > 2 && data[0] == 0x1f && data[1] == 0x8b {
+			// An archive of the directory is unpacked; anything else is taken as a raw
+			// metrics file. Sniffing the magic bytes rather than trusting the name, because
+			// people rename things — a .tar.gz that came off a ticket often arrives as
+			// "diagnostic.data.tar.gz.20260814" or with no extension at all.
+			switch {
+			case len(data) > 2 && data[0] == 0x1f && data[1] == 0x8b:
 				inner, err := ftdcFromTarGz(data)
+				if err != nil {
+					writeErr(w, http.StatusBadRequest, err.Error())
+					return
+				}
+				named = append(named, inner...)
+				continue
+			case len(data) > 4 && data[0] == 'P' && data[1] == 'K' && data[2] == 0x03 && data[3] == 0x04:
+				inner, err := ftdcFromZip(data)
 				if err != nil {
 					writeErr(w, http.StatusBadRequest, err.Error())
 					return
@@ -208,17 +219,69 @@ func ftdcFromTarGz(raw []byte) ([]ftdcNamed, error) {
 		if h.Typeflag != tar.TypeReg {
 			continue
 		}
-		name := h.Name
-		if i := strings.LastIndexAny(name, "/\\"); i >= 0 {
-			name = name[i+1:]
-		}
-		// Only the metrics files. A diagnostic.data directory holds nothing else, but an
-		// archive somebody made by hand might hold the whole dbPath, and a 40 GB
-		// collection file is not something to read into memory by accident.
-		if !strings.HasPrefix(name, "metrics.") {
+		name, ok := ftdcArchiveName(h.Name)
+		if !ok {
 			continue
 		}
 		data, err := io.ReadAll(io.LimitReader(tr, ftdcMaxUpload))
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", name, err)
+		}
+		total += len(data)
+		if total > ftdcMaxUpload {
+			return nil, fmt.Errorf("archive holds more than %d MiB of metrics files", ftdcMaxUpload>>20)
+		}
+		out = append(out, ftdcNamed{Name: name, Data: data})
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no metrics.* files in the archive — a diagnostic.data directory holds files named metrics.<timestamp>")
+	}
+	return out, nil
+}
+
+// ftdcArchiveName reduces an archive member's path to its base name and says whether it is
+// a metrics file worth reading.
+//
+// Only the metrics files. A diagnostic.data directory holds nothing else, but an archive
+// somebody made by hand might hold the whole dbPath, and a 40 GB collection file is not
+// something to read into memory by accident. It also drops the "__MACOSX/._metrics.*"
+// resource forks a zip made on a Mac carries, which are not metrics files however much
+// their names look like it.
+func ftdcArchiveName(path string) (string, bool) {
+	name := path
+	if i := strings.LastIndexAny(name, "/\\"); i >= 0 {
+		name = name[i+1:]
+	}
+	return name, strings.HasPrefix(name, "metrics.")
+}
+
+// ftdcFromZip unpacks a zip into its metrics files — the same job as ftdcFromTarGz, for the
+// archive people actually make on Windows and on a Mac's right-click "Compress".
+//
+// A zip is read from a []byte rather than streamed because the format's index lives at the
+// END of the file: there is no way to walk one without having all of it, which the upload
+// path already does.
+func ftdcFromZip(raw []byte) ([]ftdcNamed, error) {
+	zr, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+	if err != nil {
+		return nil, fmt.Errorf("not a zip archive: %w", err)
+	}
+	var out []ftdcNamed
+	total := 0
+	for _, zf := range zr.File {
+		if zf.FileInfo().IsDir() {
+			continue
+		}
+		name, ok := ftdcArchiveName(zf.Name)
+		if !ok {
+			continue
+		}
+		f, err := zf.Open()
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", name, err)
+		}
+		data, err := io.ReadAll(io.LimitReader(f, ftdcMaxUpload))
+		f.Close()
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", name, err)
 		}

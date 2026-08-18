@@ -319,9 +319,10 @@ export const NODE_TYPES = {
       exportEnabled: false, exportHostPort: 0, pmmNodeId: '', useProxy: false,
     },
   },
-  // Percona Orchestrator — topology visualization / failure-detection for a PXC or
-  // MySQL replication cluster frame. Unlike HAProxy/ProxySQL it is NOT wired via a
-  // canvas association line: a PXC or MySQL replication frame optionally points at
+  // Percona Orchestrator — topology visualization / failure-detection for an async or
+  // semi-sync MySQL replication frame (not PXC, and not the Galera/GR types: their
+  // members elect their own primary). Unlike HAProxy/ProxySQL it is NOT wired via a
+  // canvas association line: a replication frame optionally points at
   // it through its own "Monitored by (Orchestrator)" picker (orchestratorNodeId),
   // the same optional relationship PMM already has (pmmNodeId) — so it carries no
   // connection endpoints of its own. Its web UI is always published to the host
@@ -3279,9 +3280,6 @@ function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, delete
   const [monBusy, setMonBusy] = useState(false)
   const [monMsg, setMonMsg] = useState('')
   const [monErr, setMonErr] = useState('')
-  const [orchBusy, setOrchBusy] = useState(false)
-  const [orchMsg, setOrchMsg] = useState('')
-  const [orchErr, setOrchErr] = useState('')
   useEffect(() => {
     let alive = true
     stackApi.pxcCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
@@ -3319,7 +3317,6 @@ function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, delete
   }, [imgs, f.id, f.os, f.osVersion, f.arch, f.pxcMajor, f.pxcVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const pmmNodes = nodes.filter((n) => n.type === 'pmm')
-  const orchestratorNodes = nodes.filter((n) => n.type === 'orchestrator')
   const regulars = frameNodes.filter((n) => n.role !== 'arbitrator').length
   const total = frameNodes.length
 
@@ -3388,29 +3385,10 @@ function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, delete
         </div>
       )}
 
-      <Field label="Monitored by (Orchestrator)" hint={running ? 'Pick an Orchestrator node (or none), then apply to the running cluster.' : 'Optional — seeds topology discovery on an Orchestrator node.'}>
-        <select className={inputCls} value={f.orchestratorNodeId || ''} onChange={(e) => { patchFrame(f.id, { orchestratorNodeId: e.target.value }); setOrchMsg(''); setOrchErr('') }}>
-          <option value="">none</option>
-          {orchestratorNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-        </select>
-      </Field>
-      {running && (
-        <div className="space-y-1.5 rounded-lg border border-dashed p-2">
-          <div className="text-xs text-muted">Seeds/refreshes topology discovery on the Orchestrator node now (clearing it just stops re-seeding — Orchestrator itself isn't asked to forget the cluster).</div>
-          {orchErr && <div className="rounded border border-danger/30 bg-danger/15 px-2 py-1 text-xs text-danger">{orchErr}</div>}
-          {orchMsg && <div className="rounded border border-success/30 bg-success/15 px-2 py-1 text-xs text-success">{orchMsg}</div>}
-          <Button size="sm" className="w-full" disabled={orchBusy}
-            onClick={async () => {
-              setOrchBusy(true); setOrchErr(''); setOrchMsg('')
-              try {
-                const r = await frameApi(stackId, f.id).setOrchestrator(f.orchestratorNodeId || '')
-                setOrchMsg(f.orchestratorNodeId ? `Discovery seeded (${r.updated} node${r.updated === 1 ? '' : 's'}).` : `Link cleared (${r.updated} node${r.updated === 1 ? '' : 's'}).`)
-              } catch (e) { setOrchErr(e.message) } finally { setOrchBusy(false) }
-            }}>
-            {orchBusy ? 'Applying…' : (f.orchestratorNodeId ? 'Apply Orchestrator discovery' : 'Clear Orchestrator link')}
-          </Button>
-        </div>
-      )}
+      {/* No "Monitored by (Orchestrator)" picker here, unlike the replication frames.
+          Orchestrator discovers a replication tree and fails it over; a PXC cluster
+          elects its own primary, so it had nothing to manage — see orchestratableFrame
+          in app/orchestrator.go, which no longer accepts this frame type. */}
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
@@ -8926,7 +8904,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     }
 
     // Percona Orchestrator node (topology visualization / failure detection). Not
-    // linked via a canvas edge — PXC/MySQL replication frames point at it through
+    // linked via a canvas edge — MySQL replication frames point at it through
     // their own "Monitored by (Orchestrator)" picker instead.
     if (n.type === 'orchestrator') {
       if (dep && dep.state === 'running') {

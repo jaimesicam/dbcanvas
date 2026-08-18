@@ -234,9 +234,9 @@ type designNode struct {
 	// the target database actually sees.
 	SSThreads int `json:"ssThreads"`
 	// Percona Orchestrator node fields (Type=="orchestrator"). A standalone topology
-	// visualization/failure-detection node — not a cluster frame — that PXC and MySQL
-	// replication frames optionally point at (designFrame.OrchestratorNodeID), the same
-	// way they point at a PMM node. Reuses OS/OSVersion/Arch, ExportEnabled/
+	// visualization/failure-detection node — not a cluster frame — that async and
+	// semi-sync MySQL replication frames optionally point at
+	// (designFrame.OrchestratorNodeID), the same way they point at a PMM node. Reuses OS/OSVersion/Arch, ExportEnabled/
 	// ExportHostPort (the web UI, default :3000) above. Installed via percona-release
 	// (any pdps/pdpxc repo — the percona-orchestrator package is identical across
 	// them), not a pulled image.
@@ -319,9 +319,11 @@ type designFrame struct {
 	CertTTLValue int    `json:"certTtlValue"`
 	CertTTLUnit  string `json:"certTtlUnit"`
 	// OrchestratorNodeID is a Percona Orchestrator node that discovers/monitors this
-	// cluster's topology (optional; "" → not monitored). Shared by "pxc" and "mysql"
-	// frames, the same way PMMNodeID is — one Orchestrator node can be pointed at by
-	// many frames. See app/orchestrator.go.
+	// cluster's topology (optional; "" → not monitored). Shared by the async/semi-sync
+	// replication frames ("mysql", "mariadbrepl", "mysqlcerepl" — see
+	// orchestratableFrame; NOT "pxc" or the other cluster types), the same way
+	// PMMNodeID is — one Orchestrator node can be pointed at by many frames. See
+	// app/orchestrator.go.
 	OrchestratorNodeID string `json:"orchestratorNodeId"`
 	// ProxySQL cluster frame config (Type=="proxysql"; reuses OS/OSVersion/Arch,
 	// PMMNodeID, UseProxy above).

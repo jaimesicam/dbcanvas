@@ -199,7 +199,9 @@ func aioIssues(n designNode, doc designDoc, exportReq map[int][]string, hostMemB
 		}
 		// Orchestrator may be a canvas node OR another instance in this node.
 		if ref := in.OrchestratorRef; ref != "" {
-			if local, isLocal := strings.CutPrefix(ref, "inst:"); isLocal {
+			if !aioOrchSupported(in.Kind) {
+				out = append(out, issue{"error", fmt.Sprintf("All-in-One instance %s (%s) cannot be monitored by Orchestrator — it manages async and semi-sync replication only", iname, k.Label)})
+			} else if local, isLocal := strings.CutPrefix(ref, "inst:"); isLocal {
 				if !instIDs[local] {
 					out = append(out, issue{"error", fmt.Sprintf("All-in-One instance %s is monitored by an Orchestrator instance that no longer exists on this node", iname)})
 				}

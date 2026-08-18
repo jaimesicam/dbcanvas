@@ -352,6 +352,16 @@ const PMM_KINDS = [
   'valkey', 'valkeycluster', 'proxysql', 'haproxy',
 ]
 
+// Kinds Orchestrator can monitor — MySQL-family, minus PXC. Orchestrator discovers a
+// replication tree and fails it over, and a Galera cluster elects its own primary, so
+// there is nothing there for it to do. Mirrors aioOrchSupported in app/aio_orch.go;
+// TestAIOOrchFormGateMatchesTheDiscoveryPath keeps the two in step.
+const ORCH_KINDS = [
+  'ps', 'psrepl', 'innodb',
+  'mysqlce', 'mysqlcerepl', 'mysqlceinnodb',
+  'mariadb', 'mariadbrepl', 'mariadbgalera',
+]
+
 // Kinds that serve an HTTP interface, and what to call it. Mirrors
 // aioWebEndpoints in app/aio_ports.go — the Go side decides which ports get
 // published; this only names them for the form. Keep the two in step.
@@ -599,7 +609,7 @@ function InstanceCard({ inst, node, nodes, instances, open, onToggle, patch, onR
             </div>
           ) : null}
 
-          {isMySQL && (
+          {ORCH_KINDS.includes(inst.kind) ? (
             <Field label="Monitored by (Orchestrator)">
               <select className={`${inputCls} ${lock}`} value={inst.orchestratorRef || ''} disabled={deployed}
                 onChange={(e) => patch({ orchestratorRef: e.target.value })}>
@@ -608,7 +618,16 @@ function InstanceCard({ inst, node, nodes, instances, open, onToggle, patch, onR
                 {orchNodes.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
               </select>
             </Field>
-          )}
+          ) : inst.orchestratorRef ? (
+            // A design saved while PXC was still offered the picker. Say why it is going
+            // away rather than dropping the value silently — validateStack rejects it.
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] leading-snug text-amber-700 dark:text-amber-400">
+              Orchestrator manages async and semi-sync replication, so it has nothing to do for
+              a {kindOf(inst.kind)?.label || inst.kind} instance — its members elect their own primary.
+              <button type="button" className="ml-1 underline" disabled={deployed}
+                onClick={() => patch({ orchestratorRef: '' })}>Clear the setting</button>
+            </div>
+          ) : null}
 
           {/* Directory auth, OpenBao encryption, SeaweedFS backups and per-instance
               TLS are deliberately NOT offered yet: no provisioner reads them, and a

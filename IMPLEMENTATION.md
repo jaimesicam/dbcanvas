@@ -15388,3 +15388,107 @@ Live against the deployed OL9 node, with a file seeded at `0640 apache:mail`
 Not covered: no editing of a file the node's own user cannot write — the write
 lands as root through the archive endpoint, matching how the rest of the File
 Manager already behaves.
+
+## 271. Orchestrator off PXC, zip into the FTDC Summary, and no `accept` list on either upload — `app/{orchestrator,pxc,intranet,aio_orch,aio_validate,ftdcapi}.go`, `app/web/src/pages/{StackDesigner,AllInOne,FTDCSummary,LogSummary}.jsx`
+
+Three changes from one report: Orchestrator was being offered for PXC, the FTDC
+Summary took a `.tar.gz` but not a `.zip`, and both upload pickers greyed out
+files whose names had a timestamp on the end.
+
+**PXC no longer links to Orchestrator.** Orchestrator discovers a replication
+tree and fails it over. A PXC cluster is Galera — every member is writable and
+the group elects its own primary — so a linked Orchestrator showed three
+unrelated servers next to a failover it must never perform. `orchestratableFrame`
+now lists the async/semi-sync frame types only (`mysql`, `mariadbrepl`,
+`mysqlcerepl`), which is what already excluded MariaDB Galera and the InnoDB/GR
+types; PXC was the one entry there for a different reason ("at least you can
+*observe* it"), and observing is what PMM is for. What went with it: the frame
+form's "Monitored by (Orchestrator)" picker and its live apply/clear button, the
+"Registering with Orchestrator" phase in `provisionPXCFrame`, `pxcConfig`'s
+`OrchestratedBy`, and the `pxc` case in `handleFrameOrchestrator` — the endpoint
+now answers 404 for a PXC frame, like any other frame type it does not manage.
+
+The PXC bootstrap also stops creating `orchestrator@'%'`. It was a `SUPER,
+PROCESS, REPLICATION SLAVE/CLIENT, RELOAD` account on `'%'` that nothing could
+use any more. The replication baselines (`mysqlBaselineScript`, MariaDB's, MySQL
+CE's, the All-in-One MySQL path) still create it unconditionally — this is a PXC
+change, not the removal of the feature, and `pxcSecrets` keeps the fields because
+the whole MySQL family shares that type. A cluster deployed before this keeps the
+user it already has; nothing goes and drops it.
+
+The All-in-One node had the same gap: its Orchestrator picker was gated on the
+MySQL *family*, so a `pxc` instance was offered it. `aioOrchSupported` is the
+counterpart of `orchestratableFrame`, and gates the picker, the discovery pass
+and `validateStack` alike. A design saved with the link already on a PXC instance
+gets the banner the PMM control uses for the same situation — what it means and a
+Clear button — rather than the setting vanishing silently under an error.
+
+**The FTDC Summary takes a zip.** `.tar.gz` is what somebody on Linux makes; a
+zip is what everyone else's file manager produces without installing anything,
+and it was rejected as a raw metrics file (so: "not a valid FTDC file"). The
+upload path sniffs `PK\x03\x04` next to the gzip magic and unpacks with
+`archive/zip`, which needs the whole blob because a zip's index lives at its end —
+the upload already has it. Member selection is shared with the tar path
+(`ftdcArchiveName`): base name only, `metrics.*` only, which also drops the
+`__MACOSX/._metrics.*` forks a Mac's zip carries and keeps a hand-made archive of
+a whole dbPath from pulling a 40 GB collection file into memory.
+
+**Neither picker filters on the extension any more.** The FTDC picker never did
+(a metrics file's "extension" is its timestamp). The Log Summary's
+`.log,.err,.txt` list is now gone for the same reason one step removed: the names
+logs actually arrive under are `mysqld.log.1`, `error.log-20260814`, or
+`mysqld_node2_2026-08-14` with no extension at all, and every one of those was
+greyed out in the dialog. Nothing downstream cared — the engine is detected from
+the bytes, never the name. The FTDC folder-pick filter (which exists to stop a
+dbPath being uploaded whole) stopped anchoring its archive test to the end of the
+name, so `diagnostic.data.tar.gz.20260814` survives it.
+
+### Verified
+
+- `go build`, `go vet`, `go test ./...` and the smoke suite green.
+- New tests: a real `diagnostic.data` zipped with its directory prefix decodes to
+  **byte-identical JSON** to the same files posted one by one; the same zip posted
+  as `ftdc.zip.20260814`, `case-00123-diagnostic-data` and `FTDC.ZIP` all decode,
+  which is the claim the missing `accept` list rests on; a zip carrying a
+  `collection-7-1234.wt` and a `__MACOSX` fork yields metrics files only; a zip of
+  a dbPath one directory too high fails with a message naming
+  `metrics.<timestamp>`. On the PXC side: `orchestratableFrame` rejects `pxc` and
+  still accepts the three replication types, `pxcBootstrapScript` no longer
+  mentions `ORCH_USER` while `mysqlBaselineScript` still does, `pxc.go` no longer
+  names `registerOrchestrator`/`OrchestratorNodeID`/`OrchestratedBy`, the PXC frame
+  form no longer wires the picker, and `ORCH_KINDS` in `AllInOne.jsx` is kept in
+  step with `aioOrchSupported` the way `PMM_KINDS` is with `aioPMMSupported`.
+
+**Live, against the running app** (rebuilt image, real stacks, destroyed after):
+
+- **A 2-node PXC cluster deployed from this code.** `mysql.user` on the bootstrap
+  node holds `admin/app/cluster/clustercheck/monitor/repl/root` and **no
+  `orchestrator@'%'`** — the removed statements are gone and the ones after them
+  still ran. `wsrep_cluster_size 2`, `Primary`, `Synced`, and the joiner carries
+  the same five `'%'` users, so the SST off the changed bootstrap is clean. The
+  member profile no longer carries `orchestratedBy`, the deploy log never mentions
+  Orchestrator, and `POST /frames/{fid}/orchestrator` on that frame answers **404
+  no Orchestrator-manageable cluster with that id**.
+- **The replication path, unchanged.** A PS replication pair plus an Orchestrator
+  node, deployed alongside: `orchestrator@'%'` present, the link endpoint returns
+  `{"orchestratedBy":"orchestrator.example.net","updated":2}`, and Orchestrator's
+  own client renders the tree — `mysql01:3306 [rw,GTID]` with `+ mysql02:3306
+  [ro,GTID]` under it.
+- **In a real browser** (headless Chromium, admin session): the deployed PXC
+  frame's panel shows Cluster name / OS / version / **Monitored by (PMM)** and no
+  Orchestrator control anywhere in the page; the PS Replication frame still shows
+  **Monitored by (Orchestrator)**. On an All-in-One node, the `pxc` instance card
+  offers *Members · Monitored by (PMM)* only while `psrepl01` offers *Members ·
+  Replication mode · Monitored by (PMM) · Monitored by (Orchestrator)*. A design
+  saved with the old PXC link shows the explain-and-clear banner, Clear removes
+  it, and `validateStack` rejects that design with *cannot be monitored by
+  Orchestrator — it manages async and semi-sync replication only*.
+- **Uploads, through the real pages.** A zip of `diagnostic.data` named
+  `ftdc.zip.20260814` picked in the browser charted 14 charts / 11 samples; via the
+  API a zip, a `.tar.gz` and the loose files produce **byte-identical** JSON, and a
+  zip carrying a 5 MB `collection-7-1234.wt` plus `__MACOSX/._metrics.*` forks
+  produces that same model (a dbPath zip with no metrics files gives the 400 that
+  names `metrics.<timestamp>`). The Log Summary picker renders with **no `accept`
+  attribute**, and `mysqld_node1_2026-08-14`, `error.log-20260814` and `gr03.err.1`
+  uploaded together were read as MySQL/PXC, 72 events across three sources, with a
+  full verdict. No page errors and nothing in the app log throughout.

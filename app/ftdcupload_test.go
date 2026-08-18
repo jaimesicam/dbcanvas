@@ -9,6 +9,7 @@ package main
 // under the names mongod actually writes.
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/json"
 	"mime/multipart"
@@ -152,5 +153,152 @@ func TestFTDCUploadNeedsAuth(t *testing.T) {
 	app.handleFTDCUpload(rec, r)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("want 401 without a session, got %d", rec.Code)
+	}
+}
+
+// ftdcPostBlob posts one in-memory file under the given name, the way a reader who picked
+// a single archive out of a ticket sends it.
+func ftdcPostBlob(t *testing.T, app *App, cookie *http.Cookie, name string, data []byte) *httptest.ResponseRecorder {
+	t.Helper()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	w, err := mw.CreateFormFile("files", name)
+	if err != nil {
+		t.Fatalf("form file: %v", err)
+	}
+	w.Write(data)
+	mw.Close()
+	r := httptest.NewRequest(http.MethodPost, "/api/ftdc/upload", &body)
+	r.Header.Set("Content-Type", mw.FormDataContentType())
+	r.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	app.handleFTDCUpload(rec, r)
+	return rec
+}
+
+// ftdcZipOf zips a directory's files under the given prefix, the way "Compress" on a Mac or
+// "Send to → Compressed folder" on Windows produces one: paths inside, not bare names.
+func ftdcZipOf(t *testing.T, dir, prefix string, extra map[string][]byte) []byte {
+	t.Helper()
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		t.Skipf("no %s: %v", dir, err)
+	}
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, e := range ents {
+		if e.IsDir() {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			t.Fatalf("read %s: %v", e.Name(), err)
+		}
+		w, err := zw.Create(prefix + e.Name())
+		if err != nil {
+			t.Fatalf("zip create: %v", err)
+		}
+		w.Write(data)
+	}
+	for name, data := range extra {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatalf("zip create: %v", err)
+		}
+		w.Write(data)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("zip close: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// TestFTDCUploadZip — a zip of diagnostic.data decodes like the tar.gz does. A zip is what
+// somebody on Windows or a Mac produces without installing anything, so refusing it meant
+// refusing the archive most readers can actually make.
+func TestFTDCUploadZip(t *testing.T) {
+	app, cookie := ftdcAuthed(t)
+	raw := ftdcZipOf(t, ftdcTestDir, "diagnostic.data/", nil)
+	rec := ftdcPostBlob(t, app, cookie, "diagnostic.data.zip", raw)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200 for a zip of diagnostic.data, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("response is not JSON: %v", err)
+	}
+	if n, _ := got["samples"].(float64); n <= 0 {
+		t.Fatalf("decoded model holds no samples: %s", rec.Body.String())
+	}
+	// The archive is only a container: the same directory posted file by file has to
+	// produce the same model, or unpacking lost or reordered something.
+	ents, err := os.ReadDir(ftdcTestDir)
+	if err != nil {
+		t.Skipf("no %s: %v", ftdcTestDir, err)
+	}
+	var names []string
+	for _, e := range ents {
+		names = append(names, e.Name())
+	}
+	loose := ftdcPost(t, app, cookie, ftdcTestDir, names)
+	if loose.Code != http.StatusOK {
+		t.Fatalf("the same files posted loose failed: %d %s", loose.Code, loose.Body.String())
+	}
+	if loose.Body.String() != rec.Body.String() {
+		t.Error("the zip decodes to a different model than the same files posted one by one")
+	}
+}
+
+// TestFTDCUploadArchiveNameIsIgnored — the archive is recognised from its bytes, so the
+// names archives actually arrive under work: a timestamp appended by whoever collected it,
+// or no extension at all. This is the whole reason the picker has no `accept` list.
+func TestFTDCUploadArchiveNameIsIgnored(t *testing.T) {
+	app, cookie := ftdcAuthed(t)
+	raw := ftdcZipOf(t, ftdcTestDir, "diagnostic.data/", nil)
+	for _, name := range []string{"ftdc.zip.20260814", "case-00123-diagnostic-data", "FTDC.ZIP"} {
+		rec := ftdcPostBlob(t, app, cookie, name, raw)
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s: want 200 whatever the file is called, got %d: %s", name, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// TestFTDCZipSkipsWhatIsNotAMetricsFile — a zip somebody made of the whole dbPath, plus the
+// resource forks a Mac's zip carries. Neither is a metrics file, and a collection file is
+// not something to read into memory to find that out.
+func TestFTDCZipSkipsWhatIsNotAMetricsFile(t *testing.T) {
+	raw := ftdcZipOf(t, ftdcTestDir, "diagnostic.data/", map[string][]byte{
+		"collection-7-1234.wt":                   bytes.Repeat([]byte("x"), 4096),
+		"__MACOSX/diagnostic.data/._metrics.foo": {0, 5, 22},
+		"diagnostic.data/":                       nil,
+	})
+	files, err := ftdcFromZip(raw)
+	if err != nil {
+		t.Fatalf("ftdcFromZip: %v", err)
+	}
+	for _, f := range files {
+		if !strings.HasPrefix(f.Name, "metrics.") {
+			t.Errorf("kept %q, which is not a metrics file", f.Name)
+		}
+		if strings.Contains(f.Name, "/") {
+			t.Errorf("kept the archive path %q instead of the base name", f.Name)
+		}
+	}
+	if len(files) == 0 {
+		t.Fatal("every metrics file was dropped")
+	}
+}
+
+// TestFTDCZipWithoutMetricsFilesSaysSo — one directory too high is the common mistake, and
+// the message has to name what a diagnostic.data directory looks like.
+func TestFTDCZipWithoutMetricsFilesSaysSo(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, _ := zw.Create("dbpath/mongod.lock")
+	w.Write([]byte("1234"))
+	zw.Close()
+	_, err := ftdcFromZip(buf.Bytes())
+	if err == nil || !strings.Contains(err.Error(), "metrics.") {
+		t.Fatalf("want an error naming metrics.<timestamp>, got %v", err)
 	}
 }

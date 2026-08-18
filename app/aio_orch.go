@@ -32,6 +32,18 @@ import (
 // combination is unreachable today (the PXC family is not implemented), so this
 // file simply enables PDPS; the interaction needs live verification when PXC lands.
 
+// aioOrchSupported reports whether an All-in-One instance kind can be monitored by an
+// Orchestrator instance — the All-in-One counterpart of orchestratableFrame.
+//
+// MySQL-family only, and not PXC: Orchestrator discovers a replication tree and fails
+// it over, and a Galera cluster elects its own primary, so pointing it at PXC produced
+// a topology view of three unrelated servers next to a failover it must never perform.
+// The picker must not offer what the discovery path will skip, the same rule
+// aioPMMSupported enforces for PMM.
+func aioOrchSupported(kind string) bool {
+	return aioFamilyOf(kind) == famMySQL && kind != "pxc"
+}
+
 // aioProvisionOrch installs percona-orchestrator once, then brings up every
 // Orchestrator instance the node declares.
 func (a *App) aioProvisionOrch(ctx context.Context, st Stack, n designNode, doc designDoc, id string, cfg aioConfig, fresh map[string]bool, sec pxcSecrets, pr *pxcProg, base, span int) error {
@@ -190,7 +202,7 @@ func (a *App) aioOrchDiscover(ctx context.Context, id string, n designNode, cfg 
 	watchers := map[string][]string{}
 	for _, in := range n.AIOInstances {
 		ref, isLocal := strings.CutPrefix(in.OrchestratorRef, "inst:")
-		if !isLocal || aioFamilyOf(in.Kind) != famMySQL {
+		if !isLocal || !aioOrchSupported(in.Kind) {
 			continue
 		}
 		if target := aioInstanceByID(n.AIOInstances, ref); target != nil {

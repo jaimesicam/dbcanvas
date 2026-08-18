@@ -321,9 +321,14 @@ export default function LogSummary() {
 export function UploadPanel({ files, setFiles, busy, onUpload, onCancel }) {
   return (
     <div className="mb-4 rounded-lg border bg-bg p-3">
-      <Field label="Log files" hint="one per node · MySQL/PXC, PostgreSQL, MongoDB or Valkey — the format is read from the bytes">
+      <Field label="Log files" hint="one per node · MySQL/PXC, PostgreSQL, MongoDB or Valkey — the format is read from the bytes, whatever the file is called">
+        {/* No `accept`. The engine is detected from the bytes, never from the name, and the
+            names logs actually arrive under defeat any extension list: a rotated log is
+            mysqld.log.1 or error.log-20260814, and a file off a ticket comes back as
+            "mysqld_node2_2026-08-14" with no extension at all. Every one of those was
+            greyed out in the picker while the list was here. */}
         <FilePick
-          id="log-upload" accept=".log,.err,.txt,text/plain" multiple
+          id="log-upload" multiple
           file={files.length === 1 ? files[0] : null}
           onPick={(f) => setFiles(f ? [f] : [])}
           onPickMany={setFiles}

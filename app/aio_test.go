@@ -2408,6 +2408,35 @@ func TestAIOMinorVersionsReachTheInstaller(t *testing.T) {
 	}
 }
 
+// The form and the discovery path must agree on which kinds are offered Orchestrator,
+// or the picker promises a link aioOrchDiscover will skip.
+func TestAIOOrchFormGateMatchesTheDiscoveryPath(t *testing.T) {
+	js, err := os.ReadFile("web/src/pages/AllInOne.jsx")
+	if err != nil {
+		t.Skip("AllInOne.jsx not readable")
+	}
+	i := strings.Index(string(js), "const ORCH_KINDS")
+	if i < 0 {
+		t.Fatal("ORCH_KINDS table not found — the form must gate the picker on a kind table")
+	}
+	block := string(js)[i:]
+	block = block[:strings.Index(block, "]")]
+	for _, k := range aioKinds {
+		inJS := strings.Contains(block, "'"+k.Kind+"'")
+		if inJS != aioOrchSupported(k.Kind) {
+			t.Errorf("%s: JS ORCH_KINDS=%v, aioOrchSupported=%v", k.Kind, inJS, aioOrchSupported(k.Kind))
+		}
+	}
+	// The point of the change: PXC is Galera, and Orchestrator manages async and
+	// semi-sync replication only.
+	if aioOrchSupported("pxc") {
+		t.Error("a PXC instance must not be offered Orchestrator")
+	}
+	if !aioOrchSupported("psrepl") {
+		t.Error("PS Replication must still be offered Orchestrator")
+	}
+}
+
 func readSrc(t *testing.T, name string) string {
 	t.Helper()
 	b, err := os.ReadFile(name)

@@ -12,20 +12,21 @@ import (
 )
 
 // Percona Orchestrator node (Type=="orchestrator"). A standalone topology
-// visualization / failure-detection service for PXC and MySQL-replication clusters,
-// installed from RPM/DEB (percona-orchestrator + percona-orchestrator-client) on a
-// systemd OS image — like standalone Percona Server (mysql.go), not a pulled image
-// (PMM). PXC and MySQL-replication frames optionally point at it via
-// designFrame.OrchestratorNodeID — the same optional 1:N relationship PMMNodeID
-// already has (see pmmServerFor) — rather than a canvas association edge.
+// visualization / failure-detection service for MySQL-replication clusters — async
+// and semi-sync only, see orchestratableFrame — installed from RPM/DEB
+// (percona-orchestrator + percona-orchestrator-client) on a systemd OS image — like
+// standalone Percona Server (mysql.go), not a pulled image (PMM). Replication frames
+// optionally point at it via designFrame.OrchestratorNodeID — the same optional 1:N
+// relationship PMMNodeID already has (see pmmServerFor) — rather than a canvas
+// association edge.
 //
 // Runs its own embedded SQLite backend (BackendDB: sqlite; no extra database to
 // provision) and serves its web UI on :3000, always published to the host — like
 // PMM and the app simulators, not an opt-in toggle (there's no cluster of these to
 // avoid host-port clashes between).
 //
-// The topology user every MySQL-family node already creates unconditionally
-// (orchestrator@'%', see mysqlFamilySecrets / pxcBootstrapScript / mysqlBaselineScript)
+// The topology user every MySQL replication baseline already creates unconditionally
+// (orchestrator@'%', see mysqlFamilySecrets / mysqlBaselineScript)
 // is configured here as Orchestrator's single, cluster-wide MySQLTopologyUser/
 // Password: every linked cluster shares the same credential (from .env's
 // ORCHESTRATOR_PASSWORD), so one Orchestrator config works for all of them.
@@ -37,8 +38,7 @@ import (
 //     any enabled PDPS repo ("Percona Distribution for MySQL" — percona-server
 //     based). PDPXC ("...- PXC", the Galera-based distribution) does NOT carry the
 //     package at all — confirmed live, despite both being plausible-sounding percona-
-//     release repo families — so PDPS is the only one this uses, regardless of
-//     which kind of cluster (PXC or plain replication) ends up linked to it.
+//     release repo families — so PDPS is the only one this uses.
 //   - The RHEL package ships /lib/systemd/system/orchestrator.service; the Debian
 //     package does NOT ship a unit at all, so one is written here for Debian/Ubuntu.
 //   - Config is auto-loaded from /etc/orchestrator.conf.json (no -config flag
@@ -273,11 +273,10 @@ func (a *App) orchestratorDiscover(ctx context.Context, orchestratorContainerID 
 }
 
 // registerFrameWithOrchestrator is the Orchestrator analog of pxcRegisterPMM: called
-// from the end of a PXC or MySQL-replication frame's own provisioning (Phase 3),
-// when the frame has an OrchestratorNodeID linked. Resolves the Orchestrator node's
-// container, gets the frame's already-running members via the given wait function
-// (waitPXCMembers / waitMySQLReplMembers — both return []pxcMember), and seeds
-// discovery. Best-effort — logged via pr, never fails the frame's deploy.
+// from the end of a MySQL-replication frame's own provisioning (Phase 3), when the
+// frame has an OrchestratorNodeID linked. Resolves the Orchestrator node's
+// container, takes the frame's already-running members (waitMySQLReplMembers and
+// its MariaDB/MySQL CE analogs all return []pxcMember), and seeds discovery. Best-effort — logged via pr, never fails the frame's deploy.
 func (a *App) registerOrchestrator(ctx context.Context, st Stack, orchestratorNodeID string, members []pxcMember, logln func(string)) {
 	if orchestratorNodeID == "" || len(members) == 0 {
 		return
@@ -292,19 +291,21 @@ func (a *App) registerOrchestrator(ctx context.Context, st Stack, orchestratorNo
 
 // orchestratableFrame reports whether a frame type is one Orchestrator can manage.
 //
-// Classic source/replica topologies only. Orchestrator's job is discovering a
+// Async and semi-sync replication only. Orchestrator's job is discovering a
 // replication tree and failing it over; in a Galera or Group Replication cluster
 // the members elect their own primary, so there is nothing for it to do — which is
-// why "mariadbgalera" and the InnoDB/GR types are absent even though they are
-// MySQL-family. PXC is the exception in the other direction: it is listed because
-// dbcanvas has always allowed pointing Orchestrator at one to *observe* it.
+// why "pxc", "mariadbgalera" and the InnoDB/GR types are absent even though they
+// are MySQL-family. PXC used to be listed here so an Orchestrator node could at
+// least *observe* one; that only ever produced a topology view of three servers
+// with no replication between them, next to a failover it must never perform, so
+// the link was removed rather than left as a trap.
 //
 // MariaDB needs no special casing. Orchestrator identifies the flavour from the
 // version banner and reads MariaDB's own GTID state, and the topology account is
-// the shared one every MySQL-family baseline creates.
+// the shared one every MySQL-family replication baseline creates.
 func orchestratableFrame(t string) bool {
 	switch t {
-	case "pxc", "mysql", "mariadbrepl", "mysqlcerepl":
+	case "mysql", "mariadbrepl", "mysqlcerepl":
 		return true
 	}
 	return false
@@ -323,10 +324,10 @@ func mysqlFamilyFrame(t string) bool {
 // ---------------------------------------------------------------- management
 
 // handleFrameOrchestrator turns Orchestrator monitoring on or off for an already
-// deployed PXC or MySQL-replication cluster — the Orchestrator analog of
-// handlePXCFrameMonitor (app/pxc_mgmt.go), covering both frame types with one
-// handler/route since the logic (resolve members, seed discovery, persist the
-// link) is otherwise identical. Body: {"orchestratorNodeId": "<id>"} to seed
+// deployed MySQL-replication cluster — the Orchestrator analog of
+// handlePXCFrameMonitor (app/pxc_mgmt.go), covering every replication frame type
+// with one handler/route since the logic (resolve members, seed discovery, persist
+// the link) is otherwise identical. Body: {"orchestratorNodeId": "<id>"} to seed
 // discovery against that Orchestrator node, or "" to just clear the link (nothing
 // is un-discovered on the Orchestrator side — that mirrors upstream Orchestrator's
 // own model, where forgetting an instance is a separate, explicit action).
@@ -381,7 +382,7 @@ func (a *App) handleFrameOrchestrator(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Every member of a pxc/mysql frame runs on the same engine (a VM in a hybrid stack).
+	// Every member of a replication frame runs on the same engine (a VM in a hybrid stack).
 	ctx := withEngine(r.Context(), a.nodeEngine(st, frame.Type))
 	hosts := stackHostnames(doc)
 	domain := envOr("DOMAIN", "example.net")
@@ -398,12 +399,6 @@ func (a *App) handleFrameOrchestrator(w http.ResponseWriter, r *http.Request) {
 		members = append(members, pxcMember{FQDN: fqdnOf(hosts[n.ID], domain), ContainerID: dep.ContainerID})
 
 		switch frame.Type {
-		case "pxc":
-			var cfg pxcConfig
-			json.Unmarshal(dep.Config, &cfg)
-			cfg.OrchestratedBy = orchestratedBy
-			cfgJSON, _ := json.Marshal(cfg)
-			a.store.UpsertDeployment(Deployment{StackID: dep.StackID, NodeID: dep.NodeID, ContainerID: dep.ContainerID, State: dep.State, Config: cfgJSON, Secrets: dep.Secrets})
 		case "mysql", "mysqlcerepl":
 			// MySQL Community records the same mysqlConfig as Percona Server — it is
 			// the same server, so the profile has the same shape.

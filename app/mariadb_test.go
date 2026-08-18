@@ -421,12 +421,14 @@ func TestMariaDBGrantsIncludeSlaveMonitor(t *testing.T) {
 // Orchestrator manages classic source/replica topologies. Galera and Group
 // Replication elect their own primary, so there is nothing for it to fail over.
 func TestOrchestratableFramesAreReplicationOnly(t *testing.T) {
-	for _, want := range []string{"mysql", "mariadbrepl", "mysqlcerepl", "pxc"} {
+	for _, want := range []string{"mysql", "mariadbrepl", "mysqlcerepl"} {
 		if !orchestratableFrame(want) {
 			t.Errorf("%s should be Orchestrator-manageable", want)
 		}
 	}
-	for _, no := range []string{"mariadbgalera", "mysqlceinnodb", "innodb", "psmdb", "patroni", ""} {
+	// PXC is Galera: its members elect their own primary, so it belongs with the
+	// other cluster types even though dbcanvas once offered it the picker.
+	for _, no := range []string{"pxc", "mariadbgalera", "mysqlceinnodb", "innodb", "psmdb", "patroni", ""} {
 		if orchestratableFrame(no) {
 			t.Errorf("%s should not be offered to Orchestrator", no)
 		}
