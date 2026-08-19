@@ -50,7 +50,7 @@ import {
 } from '../src/lib/logApi.js'
 import FTDCSummary, {
   Summary as FtdcSummary, ChartCard as FtdcChart, Advice as FtdcAdvice, Charts as FtdcCharts,
-  Findings as FtdcFindings,
+  Findings as FtdcFindings, ConfigAdvice as FtdcConfig,
 } from '../src/pages/FTDCSummary.jsx'
 import { chartPoints, chartLines, fmtSpan, fmtNum, ADVICE_TEXT, ADVICE_FILL, ADVICE_TONE } from '../src/lib/ftdcApi.js'
 import realDeps from './real-deps.json' with { type: 'json' }
@@ -1548,6 +1548,30 @@ for (const level of ['ok', 'warn', 'crit', 'info', 'banana', undefined]) {
   check(`ftdc summary: advice level ${level}`, () =>
     renderToString(<FtdcAdvice a={{ level, headline: 'h', detail: 'd', action: 'a' }} />))
 }
+// The configuration block is the one part of the page that tells somebody to change a
+// server setting, so an unrendered field there is a recommendation nobody acts on.
+check('ftdc summary: configuration advice renders every field', () => {
+  const model = { config: [
+    { level: 'crit', setting: 'storage.wiredTiger.engineConfig.cacheSizeGB', current: 'unset — mongod derived 14.2 GiB',
+      suggest: 'pin it, across every mongod on this host', why: 'The host had 473 MiB available.', effect: '111 TPS became 637 TPS.' },
+    { level: 'ok', setting: 'storageEngineConcurrentReadTransactions', suggest: 'leave them alone', why: 'Tickets ran out with no wait behind them.' },
+  ] }
+  const html = renderToString(<FtdcConfig model={model} />)
+  for (const want of ['cacheSizeGB', 'unset', 'pin it', '473 MiB', '637 TPS', 'leave them alone']) {
+    if (!html.includes(want)) throw new Error(`configuration advice dropped ${want}`)
+  }
+  // "Keep this as it is" is an answer, not a defect, and must not be counted as a change.
+  const flat = html.replace(/<!--[^>]*-->/g, '')
+  if (!flat.includes('1 setting worth changing')) throw new Error(`the count includes the keeps: ${flat.slice(0, 300)}`)
+  if (!html.includes('KEEP') && !html.includes('keep')) throw new Error('an ok recommendation should read as keep, not as a change')
+  return 'ok'
+})
+check('ftdc summary: configuration advice stays quiet when there is nothing to change', () => {
+  if (renderToString(<FtdcConfig model={{ config: [] }} />) !== '') throw new Error('an empty configuration block should render nothing at all')
+  const html = renderToString(<FtdcConfig model={{ config: [{ level: 'ok', setting: 'x', why: 'y' }] }} />)
+  if (!html.includes('Nothing here needs changing')) throw new Error('all-keep should say so')
+  return 'ok'
+})
 check('ftdc summary: every advice level is styled', () => {
   for (const lvl of ['ok', 'warn', 'crit', 'info']) {
     if (!ADVICE_TEXT[lvl] || !ADVICE_FILL[lvl] || !ADVICE_TONE[lvl]) throw new Error(`advice ${lvl} unstyled`)

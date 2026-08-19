@@ -369,6 +369,9 @@ func ftdcWindow(d *ftdcData, from, to float64) *ftdcData {
 		TS: d.TS[lo : hi+1], Series: make(map[string]*ftdcSeries, len(d.Series)),
 		Meta: d.Meta, Chunks: d.Chunks, Samples: hi - lo + 1, Skipped: d.Skipped,
 	}
+	if len(d.TSEnd) > hi {
+		out.TSEnd = d.TSEnd[lo : hi+1]
+	}
 	for k, s := range d.Series {
 		if len(s.Values) <= hi {
 			continue

@@ -15730,3 +15730,100 @@ router's capture, and saying "mongos router" is the difference between that and 
   slicing and the empty-window case; the thinning note; and the compare endpoint's two
   guards plus its per-member error path. `go build`, `go vet`, `go test ./...` and the
   226-check smoke suite green.
+
+## 274. Tuning MongoDB by measurement, and teaching both pages to give the advice — `app/ftdcconfig.go` (new), `app/logsummary_mongo_config.go` (new), `app/{ftdcsummary,logsummary_model,logsummary_mongo_verdict}.go`, `app/web/src/pages/FTDCSummary.jsx`
+
+Session 273 finished the charts. This session asked the question the charts imply: if the
+page can see what is wrong, can it say what to change — and can that be proved rather than
+recited from a tuning guide.
+
+So the work was a benchmark first and a feature second. Two stacks, one host (WSL2, 29.4 GiB,
+20 threads): a three-member PSMDB 8.0 replica set and a sharded cluster of one router, one
+config server and three shards. The load was identical every time — the app's own `rw`
+workload at scale 4, 32 threads, 30 s warmup, 180 s measured, seed 42, with the Stock Market
+Sim running at High against the same cluster as background pressure. Only the server
+configuration changed between runs.
+
+| topology | configuration | TPS | p50 | p95 | p99 |
+|---|---|---|---|---|---|
+| replica set | MongoDB defaults — cache 14.19 GiB × 3 | 111.4 | — | 710 ms | 1062 ms |
+| replica set | `cacheSizeGB` 6 / 6 / 6 | 377.1 | 59.9 ms | 167 ms | 275 ms |
+| replica set | `cacheSizeGB` 10 / 5 / 5, primary pinned | **636.7** | 46.3 ms | 70.9 ms | 120 ms |
+| replica set | 10 / 5 / 5 + zstd collections and journal | 622.9 | 50.5 ms | 69.9 ms | 81.5 ms |
+| sharded | MongoDB defaults — cache 14.19 GiB × 5 | 594.6 | 44.7 ms | 92.2 ms | 106 ms |
+| sharded | shards 6 GiB each, config server 1 GiB | 941.5 | 33.8 ms | 42.7 ms | 48.1 ms |
+| sharded | the same, with the data actually distributed 3 ways | **998.5** | 31.5 ms | 44.8 ms | 50.6 ms |
+
+The default is the finding. mongod sizes WiredTiger at half the machine's memory minus a
+gigabyte, computed as though it were the only process on the box; three members on one host
+therefore promise 42.6 GiB of a 29.4 GiB machine. The baseline run swapped 71,808 pages/s
+with 473 MiB free, spent 710 ms at p95, and ended with the primary aborting on a fatal
+assertion after a 30.4 s replication-lock timeout. Sizing the caches to the host was worth
+5.7×. Weighting them towards the member serving the workload (10/5/5 rather than 6/6/6) was
+worth another 69% on top of that. zstd, the change that sounds like it should have helped an
+I/O-bound box, moved throughput by less than the noise — it is in the table because "we
+measured it and it did nothing" is the part of a tuning story that usually goes missing.
+
+Two things the sharded phase taught, both of which cost a run to learn. Enabling sharding on
+a database shards nothing: `benchdb` sat entirely on one shard, so the first "sharded" result
+was a router in front of a single mongod. And the loader drops its collections unless the
+dataset matches, which unshards them again — the collections have to be sharded *after* the
+load, and the chunks split and moved explicitly, because the balancer will not split a single
+128 MiB chunk on its own. Once the data was genuinely three ways, sharding was worth 6% on
+one host: distribution buys capacity across machines, and this was never more than one.
+
+### What the pages learned
+
+**`app/ftdcconfig.go` — a configuration block on FTDC Summary.** Every other advisor reads one
+chart; this one reads the capture whole, because the useful recommendations are cross-cutting.
+The cache is oversized *because* the host is swapping. The tickets are exhausted *because* the
+disk is saturated. Each recommendation carries what the setting is now, what to change it to,
+the evidence from this capture's own numbers, and — kept visually separate — what the change
+was worth when it was measured here. "Keep this as it is" is a first-class verdict: tickets
+that ran out with no admission wait behind them get *leave them alone*, in as many words,
+because raising ticket counts to relieve a queue is the most common way to make this worse.
+
+**`app/logsummary_mongo_config.go` — the same question asked of the log.** A mongod prints its
+entire effective configuration on the way up, in two lines nobody reads: id 21951 with the
+options as JSON, and id 22315 with what WiredTiger actually opened (`cache_size=14527M,
+eviction=(threads_min=4,threads_max=4),…`). That is the only place in the bundle that says
+what a setting *was* rather than what its effects looked like. Because every member of a
+dbcanvas stack is a container on one host, the bundle can add them up: three members reporting
+14.19 GiB each is 42.6 GiB of intent on a 29.4 GiB machine, and the options line proves nobody
+chose it. That finding is `bad`; the same total, deliberately pinned, is `info`.
+
+### Bugs the live captures caught
+
+- The advisor read the cache as the window's **maximum**, so a capture spanning a retune told
+  somebody who had just fixed their configuration that they had not. It reads the last value
+  now, and says separately that the cache changed mid-capture.
+- Whether the cache was pinned came from the capture metadata, which carries only the LAST
+  startup's options — a window from before a restart was judged against the settings that came
+  after it. It is now decided from the number itself against the derived default.
+- A **mongos** was told its 0 GiB cache was fine. A process with no storage engine now gets
+  the one true sentence about a router and none of the storage rules.
+- "Application threads did 100% of the eviction" fired on a shard that had evicted 60 pages
+  between runs. The rule needs 5,000 pages behind the share before it means anything.
+- The Log Summary's first ticket rule read the deprecation warning for
+  `wiredTigerConcurrentReadTransactions` as evidence somebody had set it. That line is written
+  by the FTDC thread *enumerating* parameters — its context is `ftdc`, not `initandlisten` —
+  so it appears on every 8.0 member alive. It now reads `setParameter` from the options line.
+
+### Verified
+
+- Against real captures at both ends of the arc: the baseline window (`93-n1`, defaults) gets
+  the crit cache verdict quoting 473 MiB available and 71,808 pages/s, plus the oplog holding
+  42% of the cache; the tuned window on the same member drops both and correctly names the
+  disk as the remaining ceiling. The sharded captures were read the same way for a router, a
+  config server and a shard member.
+- Against real logs: three members' first 120 lines (nothing pinned, 14527M each) produce the
+  `bad` 42.6 GiB finding; the same member's later startup (`cacheSizeGB: 6`, 6144M) produces
+  the `info` one; neither invents a pinned ticket count.
+- In a browser, on the live sharded stack: the Configuration card renders on FTDC Summary
+  with its chips (KEEP / WORTH A LOOK), Now, Change to, the evidence and the measured effect.
+  No page errors.
+- Tests: seven for the FTDC advisor (derived cache, healthy cache, router, eviction against
+  the device, eviction with nothing behind it, tickets, the host budget, the mid-capture
+  resize) and five for the log pass, over four new fixtures cut from live members. `go build`,
+  `go vet`, `go test ./...` and the smoke suite green — the latter with two new checks that
+  the configuration card renders every field and does not count a "keep" as a change.

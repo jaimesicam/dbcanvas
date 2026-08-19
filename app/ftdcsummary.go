@@ -26,6 +26,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -86,6 +87,9 @@ type fdModel struct {
 	// it is a chart read without knowing how many cores, how much memory, which cache
 	// size or which file-descriptor ceiling produced it.
 	Server []fdFact `json:"server,omitempty"`
+	// Config is what to change, read from the whole capture rather than from one chart.
+	// See ftdcconfig.go for why it cannot be produced chart by chart.
+	Config []fdConfig `json:"config,omitempty"`
 }
 
 // fdFact is one line of the capture header.
@@ -183,6 +187,7 @@ func ftdcSummarise(d *ftdcData) *fdModel {
 		fdChartCPU,
 		fdChartPressure,
 		fdChartProcessPressure,
+		fdChartCollectorStall,
 		fdChartTCP,
 		fdChartHostMemory,
 		fdChartFaults,
@@ -197,6 +202,7 @@ func ftdcSummarise(d *ftdcData) *fdModel {
 			m.Charts = append(m.Charts, *c)
 		}
 	}
+	m.Config = fdConfigAdvice(d, m)
 	if len(m.Charts) == 0 {
 		m.Notes = append(m.Notes, "None of the metrics this page charts were present. Either this is not a MongoDB capture, or it is from a build whose metric names have moved further than the fallbacks here reach.")
 	}
@@ -242,7 +248,7 @@ func fdRate(d *ftdcData, key string) []float64 {
 	}
 	out := make([]float64, len(s.Values))
 	for i := 1; i < len(s.Values); i++ {
-		dt := d.TS[i] - d.TS[i-1]
+		dt := fdElapsed(d, i)
 		if dt <= 0 {
 			continue
 		}
@@ -256,6 +262,30 @@ func fdRate(d *ftdcData, key string) []float64 {
 		out[0] = out[1]
 	}
 	return out
+}
+
+// fdElapsed is how much time really passed between two samples.
+//
+// Not TS[i]-TS[i-1]. TS is the moment the collector STARTED gathering a sample, and a round
+// against a stalled server takes as long as the stall — one measured here started at
+// 00:51:31 and finished at 00:52:49 while the next started three seconds later. The counters
+// it read had advanced by the whole eighty seconds, so start-to-start spacing turns every
+// rate into nonsense precisely when the server is in trouble: memory pressure read as 2558%
+// of the time and CPU system time as 21 seconds per second.
+//
+// End-to-end is the honest interval, and on a healthy server it is identical to
+// start-to-start, because the round takes milliseconds.
+func fdElapsed(d *ftdcData, i int) float64 {
+	if i <= 0 || i >= len(d.TS) {
+		return 0
+	}
+	dt := d.TS[i] - d.TS[i-1]
+	if len(d.TSEnd) > i && d.TSEnd[i] > 0 && d.TSEnd[i-1] > 0 {
+		if e := d.TSEnd[i] - d.TSEnd[i-1]; e > dt {
+			dt = e
+		}
+	}
+	return dt
 }
 
 func fdMax(v []float64) float64 {
@@ -1028,7 +1058,8 @@ func fdChartPressure(d *ftdcData) *fdChart {
 		if pts := fdRate(d, fdAnyKey(d, p.key, p.alt)); pts != nil && fdMax(pts) > 0 {
 			// A rate of stalled microseconds per second is a fraction of wall clock.
 			for i := range pts {
-				pts[i] = pts[i] / 10000
+				// A share of wall time, capped at one: see fdChartProcessPressure.
+				pts[i] = math.Min(100, pts[i]/10000)
 			}
 			c.Series = append(c.Series, fdSeries{Name: p.name, Points: pts})
 		}
@@ -1320,14 +1351,23 @@ func fdChartCommitLag(d *ftdcData) *fdChart {
 				// Both are the seconds half of a BSON timestamp, so the difference is
 				// already in seconds. It can go slightly negative between samples of a
 				// tree that is not captured atomically; clamp rather than draw it.
+				//
+				// A ZERO on either side is not a lag of fifty-five years, which is what
+				// this drew before the guard: it is a member with no committed optime at
+				// all — one that has just restarted, or has not yet joined the set. There
+				// is no gap to report until both ends exist.
+				if applied.Values[i] <= 0 || s.Values[i] <= 0 {
+					continue
+				}
 				if g := applied.Values[i] - s.Values[i]; g > 0 {
 					gap[i] = float64(g)
 				}
 			}
 		}
-		if fdMax(gap) > 0 {
-			c.Series = append(c.Series, fdSeries{Name: p.name, Points: gap})
-		}
+		// Kept even when the gap is flat zero. A commit point that never trails is the
+		// healthy case and worth drawing as such — dropping the chart when there is
+		// nothing wrong is how a page teaches people that its absence means nothing.
+		c.Series = append(c.Series, fdSeries{Name: p.name, Points: gap})
 	}
 	if len(c.Series) == 0 {
 		return nil
@@ -2714,7 +2754,12 @@ func fdChartProcessPressure(d *ftdcData) *fdChart {
 		if r := fdRate(d, m.key); r != nil && fdMax(r) > 0 {
 			pct := make([]float64, len(r))
 			for i, v := range r {
-				pct[i] = v / 10000
+				// PSI counts microseconds of wall time in which something stalled, so the
+				// share of a second can never exceed one. A sample boundary can still put
+				// it a few per cent over — the counters are read at slightly different
+				// moments — and 103% on a chart reads as a broken chart rather than as a
+				// rounding edge.
+				pct[i] = math.Min(100, v/10000)
 			}
 			c.Series = append(c.Series, fdSeries{Name: m.name, Points: pct})
 		}
@@ -3405,6 +3450,59 @@ func fdChartRouterHosts(d *ftdcData) *fdChart {
 	default:
 		c.Advice = &fdAdvice{Level: "ok",
 			Headline: fmt.Sprintf("Work was spread across %d member(s), peak %s connections in use", len(c.Series), fdAmt(busiest))}
+	}
+	return c
+}
+
+// fdChartCollectorStall — how long FTDC itself took to gather each sample.
+//
+// Every sample carries the moment collection started and the moment it finished. On a
+// healthy server those are milliseconds apart. On a server that cannot answer serverStatus
+// they are not: one round in the capture this was built against started at 00:51:31 and
+// finished at 00:52:49, because the collector was queued behind the same stall as every
+// client. That makes this the most honest "is the server responsive at all" signal in the
+// file — it is measured by the server about itself, with no client involved, and it exists
+// even when nothing else does.
+func fdChartCollectorStall(d *ftdcData) *fdChart {
+	if len(d.TSEnd) != len(d.TS) || len(d.TS) < 2 {
+		return nil
+	}
+	took := make([]float64, len(d.TS))
+	for i := range d.TS {
+		if d.TSEnd[i] > d.TS[i] {
+			took[i] = (d.TSEnd[i] - d.TS[i]) * 1000
+		}
+	}
+	worst := fdMax(took)
+	if worst < 50 {
+		return nil // milliseconds, every round: there is nothing here to say
+	}
+	c := &fdChart{ID: "collectorStall", Group: "Host", Title: "How long FTDC took to collect a sample", Unit: "ms",
+		Why: "The diagnostic collector runs inside the server and reads serverStatus like any client. When it takes seconds, the server could not answer a trivial internal command for that long — which is a stall no query-level metric can show, because the queries were not being answered either."}
+	c.Series = append(c.Series, fdSeries{Name: "collection time", Points: took})
+	// How much of the window went into collecting, which is a floor on the stall.
+	total := 0.0
+	for _, v := range took {
+		total += v / 1000
+	}
+	span := d.span().Seconds()
+	share := 0.0
+	if span > 0 {
+		share = total / span * 100
+	}
+	switch {
+	case worst >= 10000:
+		c.Advice = &fdAdvice{Level: "crit",
+			Headline: fmt.Sprintf("One diagnostic collection took %s", fdDur(worst/1000)),
+			Detail:   fmt.Sprintf("Collecting the metrics took %s of this %s window — %s of it. A round that slow means the server was not answering anything, and every rate on this page is averaged across that dead time.", fdDur(total), fdDur(span), fdPctV(share)),
+			Action:   "Look at host memory and the disk charts first: a server this unresponsive is almost always swapping or waiting on a device, not busy with queries."}
+	case worst >= 1000:
+		c.Advice = &fdAdvice{Level: "warn",
+			Headline: fmt.Sprintf("Diagnostic collection took up to %s", fdDur(worst/1000)),
+			Detail:   "Seconds to answer serverStatus is not a healthy server, even if the client-visible latencies look survivable."}
+	default:
+		c.Advice = &fdAdvice{Level: "ok",
+			Headline: fmt.Sprintf("Collection never took longer than %.0f ms", worst)}
 	}
 	return c
 }

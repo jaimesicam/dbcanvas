@@ -263,8 +263,60 @@ export default function FTDCSummary() {
       {members && <CompareView members={members} />}
       {model && <Summary model={model} />}
       {model && <Findings model={model} />}
+      {model && <ConfigAdvice model={model} />}
       {model && <Charts model={model} onZoom={source ? zoomTo : null} />}
     </div>
+  )
+}
+
+// ConfigAdvice — what to CHANGE, as opposed to what happened.
+//
+// Every other block on this page reads one chart. This one reads the capture as a whole,
+// because the useful recommendations are cross-cutting: the cache is oversized because the
+// host is swapping, and the tickets are exhausted because the disk is saturated, and
+// neither sentence can be written from a single chart. It sits directly under the findings
+// for the same reason the findings sit above the charts — it is the part somebody arriving
+// with a capture and a slow server is actually looking for.
+//
+// "Keep this as it is" is a first-class answer here, deliberately. Half of tuning is being
+// told, with evidence, that the knob you were about to turn is not the problem.
+export function ConfigAdvice({ model }) {
+  const items = model.config || []
+  if (items.length === 0) return null
+  const changes = items.filter((c) => c.level !== 'ok').length
+  return (
+    <Card>
+      <div className="border-b px-3 py-2">
+        <h2 className="text-sm font-medium text-fg">Configuration</h2>
+        <p className="mt-0.5 text-xs text-muted">
+          {changes === 0
+            ? 'Nothing here needs changing — each line below says why, from this capture\u2019s own numbers.'
+            : `${changes} setting${changes === 1 ? '' : 's'} worth changing, and the rest confirmed as they are. Every line is argued from this capture, not from a general rule.`}
+        </p>
+      </div>
+      <ul className="divide-y">
+        {items.map((c, i) => (
+          <li key={i} className="px-3 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${ADVICE_FILL[c.level] || ADVICE_FILL.info}`} />
+              <span className={`text-[11px] font-medium uppercase tracking-wide ${ADVICE_TONE[c.level] || ADVICE_TONE.info}`}>
+                {c.level === 'ok' ? 'keep' : ADVICE_TEXT[c.level] || ADVICE_TEXT.info}
+              </span>
+              <code className="text-sm font-medium text-fg">{c.setting}</code>
+            </div>
+            <dl className="mt-1.5 grid gap-x-6 gap-y-1 text-xs sm:grid-cols-[auto_1fr]">
+              {c.current && (<><dt className="text-muted">Now</dt><dd className="text-fg">{c.current}</dd></>)}
+              {c.suggest && (<><dt className="text-muted">Change to</dt><dd className="text-fg">{c.suggest}</dd></>)}
+            </dl>
+            <p className="mt-1.5 text-xs leading-relaxed text-muted">{c.why}</p>
+            {/* What the change was worth when it was measured, on the hardware it was
+                measured on. Kept visually distinct from the evidence above it: one is
+                about this capture, the other is about somebody else's run. */}
+            {c.effect && <p className="mt-1 border-l-2 pl-2 text-xs leading-relaxed text-muted">{c.effect}</p>}
+          </li>
+        ))}
+      </ul>
+    </Card>
   )
 }
 

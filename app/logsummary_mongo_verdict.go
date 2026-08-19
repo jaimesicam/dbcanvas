@@ -27,6 +27,12 @@ var lsMongoFindings = []func(*lsBundle) []lsFinding{
 	lsFindingMongoInitialSync,
 	lsFindingMongoTooStale,
 	lsFindingMongoLagInvisible,
+	// Configuration, read from the server's own startup lines rather than inferred from
+	// its behaviour. See logsummary_mongo_config.go.
+	lsFindingMongoCacheBudget,
+	lsFindingMongoCacheChanged,
+	lsFindingMongoStartupWarnings,
+	lsFindingMongoTicketsSet,
 	// Added with the slow-query pass: what the workload itself cost, read out of the
 	// lines the catalogue drops.
 	lsFindingMongoCollscan,

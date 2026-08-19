@@ -62,8 +62,20 @@ type ftdcSeries struct {
 // ftdcData is a decoded diagnostic.data set: one timestamp column, and every metric that
 // appeared, aligned to it.
 type ftdcData struct {
-	// TS is the sample time in epoch seconds, one per sample, ascending.
+	// TS is the sample time in epoch seconds, one per sample, ascending. It is FTDC's own
+	// `start` field: the moment the collector BEGAN gathering that sample.
 	TS []float64 `json:"ts"`
+	// TSEnd is the `end` field of the same sample — when the collector finished. On a
+	// healthy server the two are milliseconds apart and the distinction does not matter.
+	// On a stalled one it matters enormously: a round that has to wait for a server which
+	// cannot answer serverStatus takes as long as the stall, and the counters it reads have
+	// advanced by that whole time. Rates are therefore computed from END to END, because
+	// start-to-start spacing understates the elapsed time exactly when the server is worst.
+	//
+	// Measured, not assumed: on a member being driven into a fatal RSTL timeout, one round
+	// started at 00:51:31 and ended at 00:52:49 while the next started at 00:51:34 — every
+	// per-second rate over that interval came out 26x too high before this existed.
+	TSEnd []float64 `json:"-"`
 	// Series is keyed by the dotted path, e.g. "serverStatus.connections.current".
 	Series map[string]*ftdcSeries `json:"series"`
 	// Meta holds the type-0 documents' useful fields — build version, host, replica-set
@@ -393,23 +405,32 @@ func (d *ftdcData) readChunk(doc bson.Raw) error {
 // version this has been run against, and it is what the whole series is indexed by.
 const ftdcTimeKey = "start"
 
+// ftdcEndKey is the same sample's completion time. See ftdcData.TSEnd.
+const ftdcEndKey = "end"
+
 // appendSample adds one sample: its timestamp, and every metric's value.
 func (d *ftdcData) appendSample(keys []string, values []int64) {
 	if len(d.TS) >= ftdcMaxSamples {
 		return
 	}
-	ts := 0.0
+	ts, end := 0.0, 0.0
 	for i, k := range keys {
-		if k == ftdcTimeKey {
+		switch k {
+		case ftdcTimeKey:
 			// `start` is a BSON date in milliseconds.
 			ts = float64(values[i]) / 1000
-			break
+		case ftdcEndKey:
+			end = float64(values[i]) / 1000
 		}
 	}
 	if ts <= 0 {
 		return // a sample with no clock cannot be put on a timeline
 	}
+	if end < ts {
+		end = ts // a build that does not write `end`, or a truncated sample
+	}
 	d.TS = append(d.TS, ts)
+	d.TSEnd = append(d.TSEnd, end)
 	d.Samples++
 	n := len(d.TS)
 	for i, k := range keys {
