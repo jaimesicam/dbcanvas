@@ -276,7 +276,9 @@ func (a *App) applyMySQLVault(ctx context.Context, st Stack, n designNode, doc d
 		Enabled: true, Addr: baoCfg.Addr, OpenBao: baoCfg.FQDN,
 		Mount: mount, KVVersion: kvVersion, CACert: caFile,
 	}
-	if major == "8.4" {
+	// 8.4 removed the keyring_vault PLUGIN in favour of the component, and 9.x has
+	// only the component too.
+	if mysqlModernMajor(major) {
 		info.Method = "component_keyring_vault"
 		info.ConfFile = "component_keyring_vault.cnf (in plugin_dir)"
 		conf := mysqlKeyringComponentConf(baoCfg.Addr, mount, token, caFile)

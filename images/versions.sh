@@ -140,6 +140,20 @@ echo '@@PS84@@';  elsearch percona-server-server   | grep -E '^8\.4\.' | sort -r
 # (Percona-Server-server-57), unlike the unsuffixed 8.0/8.4 server package.
 percona-release setup ps57     >/dev/null 2>&1
 echo '@@PS57@@';  elsearch Percona-Server-server-57 | grep -E '^5\.7\.' | sort -rV -u
+# Percona Server 9.7 LTS is written by hand, NOT through percona-release: version
+# 1.0-33 (the newest published) lists ps97lts among its products and then requests
+# repo.percona.com/ps-97lts/, which 404s, while the dashed spelling disables every
+# Percona repo and enables nothing while exiting 0. Verified against a live EL9 node.
+cat >/etc/yum.repos.d/dbc-ps-97.repo <<EOF
+[dbc-ps-97-lts]
+name=Percona Server 9.7 LTS
+baseurl=https://repo.percona.com/ps-97-lts/yum/release/\$releasever/RPMS/\$basearch/
+gpgkey=https://repo.percona.com/yum/PERCONA-PACKAGING-KEY
+gpgcheck=1
+enabled=1
+skip_if_unavailable=1
+EOF
+echo '@@PS97@@';  elsearch percona-server-server   | grep -E '^9\.7\.' | sort -rV -u
 percona-release setup pxc80    >/dev/null 2>&1
 echo '@@PXC80@@'; elsearch percona-xtradb-cluster  | grep -E '^8\.0\.' | sort -rV -u
 percona-release setup pxc84lts >/dev/null 2>&1
@@ -224,7 +238,7 @@ echo '@@MARIADB118@@';  elsearch MariaDB-server | grep -E '^11\.8\.'  | sort -rV
 # The signing key MUST be RPM-GPG-KEY-mysql-2025: the widely-cited -2023 file is the
 # same key ID (B7B3B788A8D3785C) but its published copy expired 2025-10-22, so
 # installs fail the signature check even though metadata downloads fine.
-for V in 8.0 8.4; do
+for V in 8.0 8.4 9.7; do
   cat >"/etc/yum.repos.d/dbc-mysqlce-$V.repo" <<EOF
 [dbc-mysqlce-$V]
 name=MySQL $V Community
@@ -237,6 +251,7 @@ EOF
 done
 echo '@@MYSQLCE80@@'; elsearch mysql-community-server | grep -E '^8\.0\.' | sort -rV -u
 echo '@@MYSQLCE84@@'; elsearch mysql-community-server | grep -E '^8\.4\.' | sort -rV -u
+echo '@@MYSQLCE97@@'; elsearch mysql-community-server | grep -E '^9\.7\.' | sort -rV -u
 EOS
   echo "echo '@@END@@'"
 }
@@ -263,6 +278,14 @@ echo '@@PS84@@';  madison percona-server-server   | grep -E '^8\.4\.' | sort -rV
 # Legacy Percona Server 5.7 (EOL) — on Debian the package is percona-server-server-5.7.
 percona-release setup ps57     >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@PS57@@';  madison percona-server-server-5.7 | grep -E '^5\.7\.' | sort -rV -u
+# Percona Server 9.7 LTS by hand — percona-release cannot enable it (see rhel_probe).
+apt-get install -y -qq curl gnupg ca-certificates >/dev/null 2>&1
+install -d /etc/apt/keyrings
+curl -fsSL https://repo.percona.com/yum/PERCONA-PACKAGING-KEY 2>/dev/null | gpg --batch --yes --dearmor -o /etc/apt/keyrings/dbc-percona.gpg 2>/dev/null
+echo "deb [signed-by=/etc/apt/keyrings/dbc-percona.gpg] https://repo.percona.com/ps-97-lts/apt $(. /etc/os-release; echo "$VERSION_CODENAME") main" \
+  >/etc/apt/sources.list.d/dbc-ps-97.list
+apt-get update >/dev/null 2>&1
+echo '@@PS97@@';  madison percona-server-server   | grep -E '^9\.7\.' | sort -rV -u
 percona-release setup pxc80    >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@PXC80@@'; madison percona-xtradb-cluster  | grep -E '^8\.0\.' | sort -rV -u
 percona-release setup pxc84lts >/dev/null 2>&1; apt-get update >/dev/null 2>&1
@@ -310,7 +333,7 @@ install -d /etc/apt/keyrings
 CODE="$(. /etc/os-release; echo "$VERSION_CODENAME")"
 curl -fsSL https://mariadb.org/mariadb_release_signing_key.pgp -o /etc/apt/keyrings/dbc-mariadb.pgp 2>/dev/null
 # RPM-GPG-KEY-mysql-2025, not -2023: same key, but the -2023 copy is expired.
-curl -fsSL https://repo.mysql.com/RPM-GPG-KEY-mysql-2025 2>/dev/null | gpg --dearmor -o /etc/apt/keyrings/dbc-mysql.gpg 2>/dev/null
+curl -fsSL https://repo.mysql.com/RPM-GPG-KEY-mysql-2025 2>/dev/null | gpg --batch --yes --dearmor -o /etc/apt/keyrings/dbc-mysql.gpg 2>/dev/null
 for V in 10.6 10.11 11.4 11.8; do
   echo "deb [signed-by=/etc/apt/keyrings/dbc-mariadb.pgp] https://mirror.mariadb.org/repo/$V/ubuntu $CODE main" \
     >"/etc/apt/sources.list.d/dbc-mariadb-$V.list"
@@ -319,6 +342,8 @@ echo "deb [signed-by=/etc/apt/keyrings/dbc-mysql.gpg] https://repo.mysql.com/apt
   >/etc/apt/sources.list.d/dbc-mysqlce-8.0.list
 echo "deb [signed-by=/etc/apt/keyrings/dbc-mysql.gpg] https://repo.mysql.com/apt/ubuntu $CODE mysql-8.4-lts" \
   >/etc/apt/sources.list.d/dbc-mysqlce-8.4.list
+echo "deb [signed-by=/etc/apt/keyrings/dbc-mysql.gpg] https://repo.mysql.com/apt/ubuntu $CODE mysql-9.7-lts" \
+  >/etc/apt/sources.list.d/dbc-mysqlce-9.7.list
 apt-get update >/dev/null 2>&1
 # Restrict to the upstream builds (+maria~): Ubuntu's own archive also carries a
 # mariadb-server, and offering its version here would advertise a build that the
@@ -329,6 +354,7 @@ echo '@@MARIADB114@@';  madison mariadb-server | grep -E '^11\.4\..*\+maria'  | 
 echo '@@MARIADB118@@';  madison mariadb-server | grep -E '^11\.8\..*\+maria'  | sort -rV -u
 echo '@@MYSQLCE80@@'; madison mysql-community-server | grep -E '^8\.0\.' | sort -rV -u
 echo '@@MYSQLCE84@@'; madison mysql-community-server | grep -E '^8\.4\.' | sort -rV -u
+echo '@@MYSQLCE97@@'; madison mysql-community-server | grep -E '^9\.7\.' | sort -rV -u
 EOS
   echo "echo '@@END@@'"
 }
@@ -558,18 +584,19 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
 
   echo "==> probing ${tag} (${platform}) for installable versions" >&2
 
-  ps80="" ; ps84="" ; ps57="" ; pxc80="" ; pxc84="" ; psql2="" ; psql3=""
+  ps80="" ; ps84="" ; ps97="" ; ps57="" ; pxc80="" ; pxc84="" ; psql2="" ; psql3=""
   mdb60="" ; mdb70="" ; mdb80=""
   pg13="" ; pg14="" ; pg15="" ; pg16="" ; pg17="" ; pg18=""
   vk91=""
   orch=""
   md106="" ; md1011="" ; md114="" ; md118=""
-  myc80="" ; myc84=""
+  myc80="" ; myc84="" ; myc97=""
   if [ -n "$probe" ]; then
     if out="$(docker run --rm "$tag" bash -lc "$probe" 2>/dev/null)"; then
       ps80="$(printf '%s\n' "$out" | section PS80)"
       ps84="$(printf '%s\n' "$out" | section PS84)"
       ps57="$(printf '%s\n' "$out" | section PS57)"
+      ps97="$(printf '%s\n' "$out" | section PS97)"
       pxc80="$(printf '%s\n' "$out" | section PXC80)"
       pxc84="$(printf '%s\n' "$out" | section PXC84)"
       psql2="$(printf '%s\n' "$out" | section PROXYSQL2)"
@@ -591,6 +618,7 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
       md118="$(printf '%s\n' "$out" | section MARIADB118)"
       myc80="$(printf '%s\n' "$out" | section MYSQLCE80)"
       myc84="$(printf '%s\n' "$out" | section MYSQLCE84)"
+      myc97="$(printf '%s\n' "$out" | section MYSQLCE97)"
     else
       echo "    FAIL  could not run ${tag} (recording empty version lists)" >&2
     fi
@@ -680,7 +708,7 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
     echo "    tag: ${tag}"
     echo "    base: ${base}"
     echo "    built_at: ${built}"
-    emit_group percona  percona_server         "8.0" "$ps80"  "8.4" "$ps84"  "5.7" "$ps57"
+    emit_group percona  percona_server         "8.0" "$ps80"  "8.4" "$ps84"  "9.7" "$ps97"  "5.7" "$ps57"
     emit_group percona  percona_xtradb_cluster "8.0" "$pxc80" "8.4" "$pxc84"
     emit_group percona  proxysql               "2"   "$psql2" "3"   "$psql3"
     emit_group percona  percona_server_mongodb "6.0" "$mdb60" "7.0" "$mdb70" "8.0" "$mdb80"
@@ -688,7 +716,7 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
     emit_group percona  percona_valkey         "9.1" "$vk91"
     emit_group percona  percona_orchestrator   "3"   "$orch"
     emit_group upstream mariadb                "10.6" "$md106" "10.11" "$md1011" "11.4" "$md114" "11.8" "$md118"
-    emit_group upstream mysql_community        "8.0" "$myc80" "8.4" "$myc84"
+    emit_group upstream mysql_community        "8.0" "$myc80" "8.4" "$myc84" "9.7" "$myc97"
     emit_spock
   } >>"$TMP"
 done < <(parse_entries)

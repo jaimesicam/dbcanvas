@@ -570,7 +570,7 @@ for i in $(seq 1 30); do
   [ "$S" = "ONLINE" ] && { OK=1; break; }
   sleep 2
 done
-[ "$OK" = 1 ] || { echo "group did not come ONLINE:"; mysql -e "SELECT * FROM performance_schema.replication_group_members\G" 2>/dev/null | head -20; exit 1; }
+[ "$OK" = 1 ] || { echo "group did not come ONLINE:"; mysql --vertical -e "SELECT * FROM performance_schema.replication_group_members" 2>/dev/null | head -20; exit 1; }
 mysql <<SQL
 ` + mysqlAdminUserSQL + `
 CREATE USER IF NOT EXISTS '$APP_USER'@'%' IDENTIFIED BY '$APP_PW';
@@ -594,7 +594,7 @@ for i in $(seq 1 60); do
   [ "$S" = "ONLINE" ] && { OK=1; break; }
   sleep 2
 done
-[ "$OK" = 1 ] || { echo "member did not reach ONLINE:"; mysql -e "SELECT * FROM performance_schema.replication_group_members\G" 2>/dev/null | head -20; exit 1; }`
+[ "$OK" = 1 ] || { echo "member did not reach ONLINE:"; mysql --vertical -e "SELECT * FROM performance_schema.replication_group_members" 2>/dev/null | head -20; exit 1; }`
 
 // innodbShellClusterScript creates an InnoDB Cluster with MySQL Shell on the primary
 // and adds the other members (clone recovery). Connects as the 'cluster' user.

@@ -120,6 +120,10 @@ func pxcProduct(major string) string {
 // (state transfer) that joins nodes to the cluster, so every data node needs it.
 func pxbProduct(major string) string {
 	switch major {
+	case "9.7":
+		// Same story as psClientProduct: the repository exists (pxb-97-lts) but
+		// percona-release cannot enable it, so the script writes it by hand.
+		return ""
 	case "8.4":
 		return "pxb84lts"
 	case "5.7":
@@ -129,8 +133,24 @@ func pxbProduct(major string) string {
 	return "pxb80"
 }
 
+// pxbRepoName is the repository directory for a XtraBackup series on the
+// hand-written path (see pxcInstallXtrabackupRHEL).
+func pxbRepoName(major string) string {
+	switch major {
+	case "9.7":
+		return "pxb-97-lts"
+	case "8.4":
+		return "pxb-84-lts"
+	case "5.7":
+		return "pxb-24"
+	}
+	return "pxb-80"
+}
+
 func pxbPackage(major string) string {
 	switch major {
+	case "9.7":
+		return "percona-xtrabackup-97"
 	case "8.4":
 		return "percona-xtrabackup-84"
 	case "5.7":
@@ -510,7 +530,7 @@ func (a *App) pxcPrepareNode(ctx context.Context, st Stack, frame designFrame, n
 	if !arbiter {
 		pr.phase("Installing Percona XtraBackup", 40)
 		xbpkg := pxbPackage(frame.PXCMajor)
-		xbEnv := []string{"PRODUCT=" + pxbProduct(frame.PXCMajor), "PKG=" + xbpkg}
+		xbEnv := []string{"PRODUCT=" + pxbProduct(frame.PXCMajor), "REPO=" + pxbRepoName(frame.PXCMajor), "PKG=" + xbpkg}
 		xbScript := pxcInstallXtrabackupRHEL
 		if isDebianOS(frame.OS) {
 			xbScript = pxcInstallXtrabackupDebian
@@ -823,13 +843,36 @@ pin_install "$PKG"`
 // pxcInstallXtrabackup{RHEL,Debian} enable the XtraBackup repo for the cluster's
 // PXC series (percona-release setup pxb80 | pxb84lts) and install the matching
 // percona-xtrabackup-80 | -84 package used for SST.
+// $PRODUCT empty takes the hand-written path, for the series percona-release cannot
+// enable — pxb-97-lts has the same problem as ps-97-lts. See psRepoRHEL in mysql.go.
 const pxcInstallXtrabackupRHEL = `set -e
-percona-release setup -y "$PRODUCT" >/dev/null 2>&1
+if [ -z "$PRODUCT" ]; then
+  cat >/etc/yum.repos.d/dbcanvas-pxb.repo <<EOF
+[dbcanvas-pxb]
+name=Percona XtraBackup $REPO
+baseurl=https://repo.percona.com/$REPO/yum/release/\$releasever/RPMS/\$basearch/
+gpgkey=https://repo.percona.com/yum/PERCONA-PACKAGING-KEY
+gpgcheck=1
+enabled=1
+skip_if_unavailable=1
+EOF
+else
+  percona-release setup -y "$PRODUCT" >/dev/null 2>&1
+fi
 dnf -y -q install "$PKG" >/dev/null`
 
 const pxcInstallXtrabackupDebian = `set -e
 export DEBIAN_FRONTEND=noninteractive
-percona-release setup -y "$PRODUCT" >/dev/null 2>&1
+if [ -z "$PRODUCT" ]; then
+  apt-get install -y -qq curl gnupg ca-certificates >/dev/null 2>&1 || true
+  install -d /etc/apt/keyrings
+  curl -fsSL https://repo.percona.com/yum/PERCONA-PACKAGING-KEY | gpg --batch --yes --dearmor -o /etc/apt/keyrings/dbcanvas-percona.gpg
+  CODE=$(. /etc/os-release; echo "$VERSION_CODENAME")
+  echo "deb [signed-by=/etc/apt/keyrings/dbcanvas-percona.gpg] https://repo.percona.com/$REPO/apt $CODE main" \
+    >/etc/apt/sources.list.d/dbcanvas-pxb.list
+else
+  percona-release setup -y "$PRODUCT" >/dev/null 2>&1
+fi
 apt-get update -qq >/dev/null
 apt-get install -y -qq "$PKG" >/dev/null`
 

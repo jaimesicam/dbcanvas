@@ -27,13 +27,19 @@ import (
 // Contrast mariadb.go, which cannot share those steps: MariaDB diverges in the
 // replication vocabulary itself.
 //
-// Only 8.0 and 8.4 are offered. Oracle publishes 5.7 for el7 only, which is not in
-// the image matrix, so a 5.7 picker would list versions that cannot be installed.
+// 8.0, 8.4 and 9.7 are offered — the two LTS series and the last 8.0. Oracle publishes
+// 5.7 for el7 only, which is not in the image matrix, so a 5.7 picker would list
+// versions that cannot be installed. The 9.x innovation releases (9.0-9.6) are left
+// out for the same reason they exist: they are superseded the quarter after they ship.
 
-// mysqlceMajorOf normalizes a MySQL Community major series.
+// mysqlceMajorOf normalizes a MySQL Community major series. 9.7 is the current LTS
+// (Oracle's apt component is literally mysql-9.7-lts); 8.4 is the previous one.
 func mysqlceMajorOf(major string) string {
-	if major == "8.0" {
+	switch major {
+	case "8.0":
 		return "8.0"
+	case "9.7":
+		return "9.7"
 	}
 	return "8.4"
 }
@@ -680,11 +686,12 @@ func (a *App) mysqlceInstall(ctx context.Context, frame designFrame, id string, 
 }
 
 // mysqlceToolsRepo names the yum repository carrying mysql-shell and
-// mysql-router-community for a series. 8.4 has its own tools repo; 8.0's tools live
-// in the unversioned mysql-tools-community.
+// mysql-router-community for a series. 8.4 and 9.7 each have their own tools repo;
+// 8.0's tools live in the unversioned mysql-tools-community.
 func mysqlceToolsRepo(major string) string {
-	if major == "8.4" {
-		return "mysql-tools-8.4-community"
+	switch major {
+	case "8.4", "9.7":
+		return "mysql-tools-" + major + "-community"
 	}
 	return "mysql-tools-community"
 }
@@ -728,11 +735,14 @@ const mysqlceInstallDebian = pinInstallDebian + `set -e
 export DEBIAN_FRONTEND=noninteractive
 apt-get install -y -qq curl gnupg ca-certificates >/dev/null 2>&1 || true
 install -d /etc/apt/keyrings
-curl -fsSL https://repo.mysql.com/RPM-GPG-KEY-mysql-2025 | gpg --dearmor -o /etc/apt/keyrings/dbcanvas-mysql.gpg
+curl -fsSL https://repo.mysql.com/RPM-GPG-KEY-mysql-2025 | gpg --batch --yes --dearmor -o /etc/apt/keyrings/dbcanvas-mysql.gpg
 CODE=$(. /etc/os-release; echo "$VERSION_CODENAME")
+# The apt component and the yum repo path are not spelled the same, and the suffix
+# marks the LTS series rather than the version: mysql-8.0, mysql-8.4-lts,
+# mysql-9.7-lts (yum: mysql-8.0-community, mysql-8.4-community, mysql-9.7-community).
 case "$MAJOR" in
-  8.4) COMP=mysql-8.4-lts ;;
-  *)   COMP=mysql-$MAJOR ;;
+  8.4|9.7) COMP=mysql-$MAJOR-lts ;;
+  *)       COMP=mysql-$MAJOR ;;
 esac
 {
   echo "deb [signed-by=/etc/apt/keyrings/dbcanvas-mysql.gpg] https://repo.mysql.com/apt/ubuntu $CODE $COMP"

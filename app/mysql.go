@@ -68,16 +68,16 @@ func mysqlReplMode(m string) string {
 // semisyncEnv returns the per-series plugin SONAME + enable variable for the
 // source (primary) and replica (secondary) semi-sync roles.
 //
-//	8.0 → rpl_semi_sync_master / _slave   (semisync_master.so / semisync_slave.so)
-//	8.4 → rpl_semi_sync_source / _replica (semisync_source.so / semisync_replica.so)
+//	8.0      → rpl_semi_sync_master / _slave   (semisync_master.so / semisync_slave.so)
+//	8.4, 9.7 → rpl_semi_sync_source / _replica (semisync_source.so / semisync_replica.so)
 func semisyncSource(major string) (plugin, soname, enableVar string) {
-	if major == "8.4" {
+	if mysqlModernMajor(major) {
 		return "rpl_semi_sync_source", "semisync_source.so", "rpl_semi_sync_source_enabled"
 	}
 	return "rpl_semi_sync_master", "semisync_master.so", "rpl_semi_sync_master_enabled"
 }
 func semisyncReplica(major string) (plugin, soname, enableVar string) {
-	if major == "8.4" {
+	if mysqlModernMajor(major) {
 		return "rpl_semi_sync_replica", "semisync_replica.so", "rpl_semi_sync_replica_enabled"
 	}
 	return "rpl_semi_sync_slave", "semisync_slave.so", "rpl_semi_sync_slave_enabled"
@@ -461,12 +461,43 @@ func (a *App) waitMySQLRunning(ctx context.Context, stackID int64, frame designF
 // psMajorOf normalizes a Percona Server major series (default "8.0").
 func psMajorOf(major string) string {
 	switch major {
+	case "9.7":
+		return "9.7"
 	case "8.4":
 		return "8.4"
 	case "5.7":
 		return "5.7"
 	}
 	return "8.0"
+}
+
+// mysqlModernMajor reports whether a MySQL-family series uses the vocabulary Oracle
+// introduced with 8.4 and kept in 9.x: source/replica semi-sync plugin names, RESET
+// BINARY LOGS AND GTIDS instead of RESET MASTER, and the removal of the pre-8.0.23
+// master/slave spellings. Every behavioural fork in this package hangs off this
+// predicate rather than off a literal "8.4", so a new LTS series is one entry in
+// psMajorOf away from working.
+func mysqlModernMajor(major string) bool {
+	switch major {
+	case "8.4", "9.7":
+		return true
+	}
+	return false
+}
+
+// psRepoName is the repository directory on repo.percona.com for a series, used only
+// on the hand-written path (see psRepoRHEL). Percona's own naming is inconsistent —
+// ps-80 has no suffix, ps-84-lts and ps-97-lts do — so this is a lookup, not a format.
+func psRepoName(major string) string {
+	switch major {
+	case "9.7":
+		return "ps-97-lts"
+	case "8.4":
+		return "ps-84-lts"
+	case "5.7":
+		return "ps-57"
+	}
+	return "ps-80"
 }
 
 // psServerPackage is the OS package that installs the Percona Server daemon for a
@@ -523,9 +554,10 @@ func monitorGrants(major string) string {
 }
 
 // mysqlResetCmd is the statement that clears a server's binary logs + GTID state so
-// replicas can connect with AUTO_POSITION cleanly. 8.4 renamed RESET MASTER.
+// replicas can connect with AUTO_POSITION cleanly. 8.4 renamed RESET MASTER, and 9.x
+// keeps the new spelling.
 func mysqlResetCmd(major string) string {
-	if major == "8.4" {
+	if mysqlModernMajor(major) {
 		return "RESET BINARY LOGS AND GTIDS"
 	}
 	return "RESET MASTER"
@@ -603,13 +635,17 @@ func (a *App) mysqlPrepareNode(ctx context.Context, st Stack, frame designFrame,
 		instScript, pmmScript = mysqlInstallDebian, pxcInstallPMMClientDebian
 	}
 	psPkg := psServerPackage(frame.OS, psMajorOf(frame.PSMajor))
-	if err := a.runStep(ctx, id, instScript, []string{"PRODUCT=" + psClientProduct(psMajorOf(frame.PSMajor)), "PKG=" + psPkg, "VER=" + frame.PSVersion}, pr.logln); err != nil {
+	psMajor := psMajorOf(frame.PSMajor)
+	if err := a.runStep(ctx, id, instScript, []string{
+		"PRODUCT=" + psClientProduct(psMajor), "REPO=" + psRepoName(psMajor),
+		"PKG=" + psPkg, "VER=" + frame.PSVersion}, pr.logln); err != nil {
 		return pr.fail("install %s: %v", psPkg, err)
 	}
 	pr.logln(psPkg + " installed")
 
 	// Install Percona XtraBackup matching the Percona Server series (8.0 → pxb80 /
-	// percona-xtrabackup-80, 8.4 → pxb84lts / percona-xtrabackup-84) so the node can
+	// percona-xtrabackup-80, 8.4 → pxb84lts / percona-xtrabackup-84, 9.7 → the
+	// hand-written pxb-97-lts repo / percona-xtrabackup-97) so the node can
 	// take physical backups (e.g. to a SeaweedFS S3 target via xbcloud).
 	pr.phase("Installing Percona XtraBackup", 45)
 	xbpkg := pxbPackage(frame.PSMajor)
@@ -617,7 +653,8 @@ func (a *App) mysqlPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	if debian {
 		xbScript = pxcInstallXtrabackupDebian
 	}
-	if err := a.runStep(ctx, id, xbScript, []string{"PRODUCT=" + pxbProduct(frame.PSMajor), "PKG=" + xbpkg}, pr.logln); err != nil {
+	if err := a.runStep(ctx, id, xbScript, []string{
+		"PRODUCT=" + pxbProduct(frame.PSMajor), "REPO=" + pxbRepoName(psMajor), "PKG=" + xbpkg}, pr.logln); err != nil {
 		return pr.fail("install %s: %v", xbpkg, err)
 	}
 	pr.logln(xbpkg + " installed")
@@ -758,15 +795,55 @@ func (a *App) mysqlAttachReplica(ctx context.Context, st Stack, frame designFram
 
 // ------------------------------------------------------------------ scripts
 
+// psRepoRHEL / psRepoDebian write a Percona repository by hand, for the series
+// percona-release cannot enable.
+//
+// This is not a preference. percona-release 1.0-33 — the newest published — lists
+// ps97lts among its products and then builds the URL http://repo.percona.com/ps-97lts/,
+// which 404s; spelled with dashes (ps-97-lts, the real path) it disables every Percona
+// repository, enables nothing, and exits 0 saying "All done!". Both were run against a
+// live Oracle Linux 9 node before this was written. The repository itself is fine:
+// percona-server-server 9.7.1-1.1.el9 installs from it.
+//
+// $PRODUCT empty is the signal to take this path; see psClientProduct.
+const psRepoRHEL = `if [ -z "$PRODUCT" ]; then
+  cat >/etc/yum.repos.d/dbcanvas-ps.repo <<EOF
+[dbcanvas-ps]
+name=Percona Server $REPO
+baseurl=https://repo.percona.com/$REPO/yum/release/\$releasever/RPMS/\$basearch/
+gpgkey=https://repo.percona.com/yum/PERCONA-PACKAGING-KEY
+gpgcheck=1
+enabled=1
+skip_if_unavailable=1
+EOF
+else
+  percona-release setup -y "$PRODUCT" >/dev/null 2>&1
+fi
+`
+
+const psRepoDebian = `if [ -z "$PRODUCT" ]; then
+  apt-get install -y -qq curl gnupg ca-certificates >/dev/null 2>&1 || true
+  install -d /etc/apt/keyrings
+  # --batch --yes is not optional: a provisioning step is retried, and on the second
+  # attempt the keyring file already exists, at which point gpg asks whether to
+  # overwrite it and dies with "cannot open '/dev/tty'" — which is what a failed
+  # Ubuntu deploy actually reported before this was added.
+  curl -fsSL https://repo.percona.com/yum/PERCONA-PACKAGING-KEY | gpg --batch --yes --dearmor -o /etc/apt/keyrings/dbcanvas-percona.gpg
+  CODE=$(. /etc/os-release; echo "$VERSION_CODENAME")
+  echo "deb [signed-by=/etc/apt/keyrings/dbcanvas-percona.gpg] https://repo.percona.com/$REPO/apt $CODE main" \
+    >/etc/apt/sources.list.d/dbcanvas-ps.list
+else
+  percona-release setup -y "$PRODUCT" >/dev/null 2>&1
+fi
+`
+
 const mysqlInstallRHEL = pinInstallRHEL + `set -e
 dnf -y -q module disable mysql >/dev/null 2>&1 || true
-percona-release setup -y "$PRODUCT" >/dev/null 2>&1
-pin_install "$PKG"`
+` + psRepoRHEL + `pin_install "$PKG"`
 
 const mysqlInstallDebian = pinInstallDebian + `set -e
 export DEBIAN_FRONTEND=noninteractive
-percona-release setup -y "$PRODUCT" >/dev/null 2>&1
-apt-get update -qq >/dev/null
+` + psRepoDebian + `apt-get update -qq >/dev/null
 pin_install "$PKG"`
 
 // mysqlSetRootPW is shared shell that sets root@localhost to $ROOT_PW regardless of
@@ -886,6 +963,11 @@ mysql -uroot -p"$ROOT_PW" -e "SET $SETVAR $ENABLEVAR=1;"`
 // rejected when gtid_mode=OFF). No server start / root set / RESET — the baseline step
 // already did those and left an empty baseline. GET_SOURCE_PUBLIC_KEY=1 is required for
 // the repl user's caching_sha2_password auth over a non-TLS link.
+// --vertical rather than the classic "SHOW REPLICA STATUS\G": the 9.x client rejects
+// the \G terminator in -e batch mode ("ERROR at line 1: Unknown command '\G'"), which
+// on a 9.7 replica made a perfectly healthy attach fail its own status poll ten times
+// and then report a password warning as the reason. --vertical produces the identical
+// output and has existed since 5.x, so it is used on every series rather than forked.
 const mysqlAttachScript = `set -e
 if [ "$AUTO" = 1 ]; then
   POS="SOURCE_AUTO_POSITION=1"
@@ -897,12 +979,12 @@ mysql -uroot -p"$ROOT_PW" -e "CHANGE REPLICATION SOURCE TO SOURCE_HOST='$SOURCE_
 mysql -uroot -p"$ROOT_PW" -e "START REPLICA;"
 OK=0
 for i in $(seq 1 30); do
-  S=$(mysql -uroot -p"$ROOT_PW" -e "SHOW REPLICA STATUS\G" 2>/dev/null)
+  S=$(mysql -uroot -p"$ROOT_PW" --vertical -e "SHOW REPLICA STATUS" 2>/dev/null)
   if echo "$S" | grep -q "Replica_IO_Running: Yes" && echo "$S" | grep -q "Replica_SQL_Running: Yes"; then OK=1; break; fi
   sleep 2
 done
 [ "$OK" = 1 ] || {
-  S=$(mysql -uroot -p"$ROOT_PW" -e "SHOW REPLICA STATUS\\G" 2>/dev/null)
+  S=$(mysql -uroot -p"$ROOT_PW" --vertical -e "SHOW REPLICA STATUS" 2>/dev/null)
   echo "replica threads not running:"
   echo "$S" | grep -iE 'Replica_(IO|SQL)_Running:' | head -4
   # The reason, last: runStep keeps only the final 160 characters of the output, so

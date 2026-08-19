@@ -185,8 +185,10 @@ func memberServerID(n designNode) int {
 	return pxcServerID(host)
 }
 
-// frameMajor returns a cluster frame's MySQL major series ("8.0" | "8.4"), used to
-// pick version-safe keywords.
+// frameMajor returns a cluster frame's MySQL major series ("8.0" | "8.4" | "9.7"),
+// used to pick version-safe keywords. Only the Percona Server frames reach 9.7 —
+// Percona publishes no PXC for that series (repo.percona.com has pxc-84-lts and
+// pxc-8x-innovation, no pxc-97-lts), which is why the PXC branch stops at 8.4.
 func frameMajor(f designFrame) string {
 	if f.Type == "mysql" {
 		return psMajorOf(f.PSMajor)
@@ -213,7 +215,7 @@ func memberReplMajor(doc designDoc, n designNode) string {
 // STATUS. The first two whitespace-separated fields are File and Position.
 func (a *App) sourceBinlogPos(ctx context.Context, containerID, rootPW, major string) (string, string, error) {
 	stmt := "SHOW MASTER STATUS"
-	if major == "8.4" {
+	if mysqlModernMajor(major) {
 		stmt = "SHOW BINARY LOG STATUS"
 	}
 	res, err := a.engCtx(ctx).Exec(ctx, containerID, []string{"bash", "-c", `mysql -uroot -p"$ROOT_PW" -N -e "$STMT"`}, []string{"ROOT_PW=" + rootPW, "STMT=" + stmt})
@@ -552,11 +554,11 @@ mysql -uroot -p"$ROOT_PW" -e "CHANGE REPLICATION SOURCE TO SOURCE_HOST='$SOURCE_
 mysql -uroot -p"$ROOT_PW" -e "START REPLICA FOR CHANNEL '$CHANNEL';"
 OK=0
 for i in $(seq 1 15); do
-  S=$(mysql -uroot -p"$ROOT_PW" -e "SHOW REPLICA STATUS FOR CHANNEL '$CHANNEL'\G" 2>/dev/null)
+  S=$(mysql -uroot -p"$ROOT_PW" --vertical -e "SHOW REPLICA STATUS FOR CHANNEL '$CHANNEL'" 2>/dev/null)
   if echo "$S" | grep -q "Replica_IO_Running: Yes" && echo "$S" | grep -q "Replica_SQL_Running: Yes"; then OK=1; break; fi
   sleep 2
 done
-[ "$OK" = 1 ] || { echo "channel $CHANNEL threads not running:"; mysql -uroot -p"$ROOT_PW" -e "SHOW REPLICA STATUS FOR CHANNEL '$CHANNEL'\G" 2>/dev/null | grep -iE 'Running|Last_(IO|SQL)_Error' | head -8; exit 1; }`
+[ "$OK" = 1 ] || { echo "channel $CHANNEL threads not running:"; mysql -uroot -p"$ROOT_PW" --vertical -e "SHOW REPLICA STATUS FOR CHANNEL '$CHANNEL'" 2>/dev/null | grep -iE 'Running|Last_(IO|SQL)_Error' | head -8; exit 1; }`
 
 // replChannelPrune stops and removes any DBCanvas cross-cluster channels (xrepl_*)
 // that are no longer wanted ($KEEP = space-separated channel names to keep).

@@ -110,7 +110,11 @@ func (a *App) aioMySQLInstallFor(ctx context.Context, id string, n designNode, f
 		if debian {
 			script = mysqlInstallDebian
 		}
-		env = []string{"PRODUCT=" + product, "PKG=" + pkg, "VER=" + version}
+		// REPO matters only when PRODUCT is empty — the series percona-release
+		// cannot enable, which the script installs from a hand-written repository
+		// (see psRepoRHEL in mysql.go). Passing it unconditionally keeps the two
+		// callers of this script identical.
+		env = []string{"PRODUCT=" + product, "REPO=" + psRepoName(psMajorOf(major)), "PKG=" + pkg, "VER=" + version}
 		what = pkg
 	}
 	if err := a.runStep(ctx, id, script, env, pr.logln); err != nil {
@@ -774,13 +778,13 @@ $M -e "CHANGE REPLICATION SOURCE TO SOURCE_HOST='$SOURCE_HOST', SOURCE_PORT=$SOU
 $M -e "START REPLICA;"
 OK=0
 for i in $(seq 1 30); do
-  S=$($M -e "SHOW REPLICA STATUS\G" 2>/dev/null)
+  S=$($M --vertical -e "SHOW REPLICA STATUS" 2>/dev/null)
   if echo "$S" | grep -q "Replica_IO_Running: Yes" && echo "$S" | grep -q "Replica_SQL_Running: Yes"; then OK=1; break; fi
   sleep 2
 done
 if [ "$OK" != 1 ]; then
   echo "replication did not start:"
-  S=$($M -e "SHOW REPLICA STATUS\G" 2>/dev/null)
+  S=$($M --vertical -e "SHOW REPLICA STATUS" 2>/dev/null)
   echo "$S" | grep -E 'Replica_(IO|SQL)_Running:' | head -2
   # The reason, last: runStep keeps only the final 160 characters, so anything after
   # this is what the user actually sees. Empty error fields are dropped — a blank
@@ -901,7 +905,7 @@ func (a *App) aioPXCInstall(ctx context.Context, id string, n designNode, pr *px
 		xbScript = pxcInstallXtrabackupDebian
 	}
 	if err := a.runStep(ctx, id, xbScript,
-		[]string{"PRODUCT=" + pxbProduct(major), "PKG=" + pxbPackage(major)}, pr.logln); err != nil {
+		[]string{"PRODUCT=" + pxbProduct(major), "REPO=" + pxbRepoName(major), "PKG=" + pxbPackage(major)}, pr.logln); err != nil {
 		return fmt.Errorf("install %s: %w", pxbPackage(major), err)
 	}
 	pr.logln(pxbPackage(major) + " installed (SST)")

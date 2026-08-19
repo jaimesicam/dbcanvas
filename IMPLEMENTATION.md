@@ -15926,3 +15926,65 @@ verdict in its own right, so a right-sized pool is stated as right rather than l
   on a paused cluster, the single applier, the O_DIRECT honesty, and the invents-nothing
   invariant), plus two smoke checks. `go build`, `go vet`, `go test ./...` and the smoke suite
   green.
+
+## 276. Percona Server 9.7 and MySQL Community 9.7 — `app/{mysql,mysqlce,pxc,proxysql,replication,dbvault,aio_mysql,innodb}.go`, `images/versions.sh`, `versions.yaml`
+
+Both 9.7 series are current LTS releases — Oracle's apt component is literally
+`mysql-9.7-lts`, and Percona ships `ps-97-lts` — so they belong in the pickers beside 8.0
+and 8.4. Everything below was established against live nodes rather than release notes,
+because three of the facts contradict what the documentation implies.
+
+**Percona Server 9.7 cannot be installed through `percona-release`.** Version 1.0-33, the
+newest published, lists `ps97lts` among its products and then requests
+`repo.percona.com/ps-97lts/`, which 404s; spelled `ps-97-lts` — the real directory — it
+disables every Percona repository, enables nothing, and exits 0 saying "All done!". Both
+were run against a live Oracle Linux 9 node. The repository itself is fine:
+`percona-server-server-9.7.1-1.1.el9` installs from a hand-written repo file. So
+`psClientProduct` returns the empty string for 9.7 and the install scripts branch on it,
+writing the repository themselves — the same treatment MySQL Community and MariaDB already
+get, for the same reason. `pxb-97-lts` needs it too.
+
+**The 9.x client rejects `\G` in `-e` batch mode.** `mysql -e "SHOW REPLICA STATUS\G"`
+returns `ERROR at line 1: Unknown command '\G'`, which made a perfectly healthy 9.7 replica
+fail its own status poll ten times and then report a password warning as the reason —
+replication was running the whole time. Every MySQL-family status poll now uses
+`--vertical`, which produces identical output and has existed since 5.x, so no fork was
+needed. A test walks the sources and fails on a reintroduced `\G`.
+
+**Everything 8.4 changed, 9.7 keeps.** Semi-sync is `rpl_semi_sync_source` /
+`semisync_source.so` (verified by installing the plugin on the live 9.7.1 node), `RESET
+MASTER` is gone, `SHOW BINARY LOG STATUS` replaces `SHOW MASTER STATUS`, and keyring is the
+component rather than the plugin. Those forks were spelled `major == "8.4"` in five files;
+they are now one predicate, `mysqlModernMajor`, so the next LTS is one line in `psMajorOf`.
+
+There is no PXC 9.7 — repo.percona.com has `pxc-84-lts` and `pxc-8x-innovation` and nothing
+else — so the PXC picker is unchanged, and `frameMajor` says why in a comment.
+
+`images/versions.sh` probes both new series (the Percona one through a hand-written repo on
+both RHEL and Debian, the Oracle one by adding 9.7 to the existing loops), and `make
+versions` found real packages on all five images: Percona Server 9.7.1-1.1 and MySQL
+Community 9.7.0/9.7.1/9.7.2.
+
+**`gpg --dearmor` prompts on a retry.** The Debian path writes a keyring file, and a
+provisioning step is retried up to ten times; on attempt two the file exists, gpg asks
+whether to overwrite it, and — with no terminal — dies with `cannot open '/dev/tty'`. That
+is exactly how the first Ubuntu 9.7 deploy failed, ten times in a row, reporting a gpg
+error for what looked like a repository problem. Every keyring import now passes
+`--batch --yes`, including the two that predate this session and had the same latent bug.
+
+### Verified
+
+- Deployed on Oracle Linux 9: a two-node Percona Server 9.7 asynchronous frame plus a
+  MySQL Community 9.7 node. And deployed again on Ubuntu 24.04 (the hand-written apt
+  path): `deb ... repo.percona.com/ps-97-lts/apt noble main`, both members 9.7.1-1,
+  replication running, a row written on the primary read back on the replica. `SELECT VERSION()` returns 9.7.1-1 on both frame members and 9.7.2 on the community
+  node; GTID replication attaches, `Replica_IO_Running`/`Replica_SQL_Running` are Yes, and a
+  row written on the primary reads back on the replica. XtraBackup came from the
+  hand-written repo: `percona-xtrabackup-97-9.7.1-1.rc1.el9`.
+- In a browser: the series picker lists `5.7, 8.0, 8.4, 9.7` and the minor picker offers
+  `latest (9.7.1-1.1)`.
+- Tests: six covering the series normalisers, the modern-vocabulary predicate, the
+  hand-written repository path, the Community repo spellings, the `\G` ban, that every
+  caller of the shared install scripts passes REPO alongside PRODUCT, and that no keyring
+  import is left interactive. `go build`, `go vet`,
+  `go test ./...` and the smoke suite green.

@@ -103,6 +103,11 @@ func proxysqlMySQLEnv(sec proxysqlSecrets, members []string, mode string) []stri
 // matching Percona Server client (ps84lts for 8.4, ps80 otherwise).
 func psClientProduct(pxcMajor string) string {
 	switch pxcMajor {
+	case "9.7":
+		// percona-release has no working alias for this series — see psRepoScript
+		// in mysql.go, which writes the repository by hand. Returning the empty
+		// string is how the install scripts know to take that path.
+		return ""
 	case "8.4":
 		return "ps84lts"
 	case "5.7":
