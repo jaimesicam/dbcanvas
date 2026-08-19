@@ -117,9 +117,12 @@ type vsModel struct {
 	Verdicts      []vsVerdict         `json:"verdicts,omitempty"`
 	// Advisors explain one chart each — what it measures, what this capture's
 	// numbers say, and what to change. Keyed by chart. See stalksummary_advice.go.
-	Advisors  map[string]vsVerdict `json:"advisors,omitempty"`
-	Available map[string]bool      `json:"available"`
-	Notes     []string             `json:"notes,omitempty"`
+	Advisors map[string]vsVerdict `json:"advisors,omitempty"`
+	// Config is the server variables worth changing, argued from this capture and from
+	// benchmark runs on known hardware. See stalksummary_config.go.
+	Config    []vsConfig      `json:"config,omitempty"`
+	Available map[string]bool `json:"available"`
+	Notes     []string        `json:"notes,omitempty"`
 
 	// vars is SHOW GLOBAL VARIABLES from the capture. Not serialized — it is
 	// several hundred entries and the page needs a handful — but the verdicts
@@ -245,6 +248,9 @@ func parsePtStalk(gzData []byte) (*vsModel, error) {
 	computeFindings(m)
 	computeVerdicts(m)
 	computeAdvisors(m)
+	// What to CHANGE, as opposed to what happened. Reads the whole capture rather than
+	// one chart; see stalksummary_config.go.
+	m.Config = vsConfigAdvice(m)
 	if t := earliestTS(bySuffix); !t.IsZero() {
 		m.Source.CapturedAt = t.UTC().Format(time.RFC3339)
 	}

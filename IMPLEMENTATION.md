@@ -15827,3 +15827,102 @@ chose it. That finding is `bad`; the same total, deliberately pinned, is `info`.
   resize) and five for the log pass, over four new fixtures cut from live members. `go build`,
   `go vet`, `go test ./...` and the smoke suite green — the latter with two new checks that
   the configuration card renders every field and does not count a "keep" as a change.
+
+## 275. The same treatment for MySQL and PXC: benchmark, tune, and put the variables on the page — `app/stalksummary_config.go` (new), `app/{stalksummary}.go`, `app/web/src/pages/StalkSummary.jsx`
+
+Session 274 did this for MongoDB. This is MySQL and Percona XtraDB Cluster, run the same way:
+measure at the shipped defaults, change one thing at a time, capture pt-stalk inside every
+measured window, and only then write advice — so every recommendation on the page is one
+somebody actually ran.
+
+Two stacks on one host (WSL2, 29.4 GiB, 20 threads): a three-node Percona Server 8.0.46
+asynchronous replication frame, and a three-node PXC 8.0.46 cluster. Identical workload each
+run — the app's own `rw` benchmark, scale 4 (1.44 M rows), 32 threads, 30 s warmup, 180 s
+measured, seed 42 — with the Stock Market Sim writing to the same servers throughout.
+
+### MySQL, asynchronous replication
+
+| # | change (cumulative) | TPS | p95 | p99 |
+|---|---|---|---|---|
+| baseline | shipped defaults: pool 128 MiB, redo 100 MiB, `sync_binlog=1`, `flush_log_at_trx_commit=1`, `fsync` | 19.8 | 4750 ms | 6106 ms |
+| t1 | `innodb_buffer_pool_size=8G`, `instances=8` (replicas 2G) | **726.8** | 105 ms | 185 ms |
+| t2 | + redo 4G, log buffer 64M, `io_capacity` 2000/8000 | 689.0 | 73.6 ms | 104 ms |
+| t3 | + `innodb_flush_method=O_DIRECT` | 553.2 | 81.9 ms | 108 ms |
+| t4 | (O_DIRECT reverted) + `sync_binlog=0`, `flush_log_at_trx_commit=2` | **2438.5** | 20.2 ms | 72.2 ms |
+| t5 | + `replica_parallel_workers=8`, WRITESET on the source | 2074.4 | 25.4 ms | 67.4 ms |
+| t6 | + adaptive hash off, `flush_neighbors=0`, `table_open_cache_instances=16` | 2105.3 | 25.0 ms | 41.6 ms |
+| t7 | + `performance_schema=OFF` | 2169.0 | 25.2 ms | 43.1 ms |
+| t8 | + O_DIRECT again, on the tuned server | 2125.6 | 24.5 ms | 37.6 ms |
+
+**106×** from t6, which is the configuration worth shipping: t7 buys 3% — inside the noise —
+by blinding every statement panel in this tool, and t8 is a wash.
+
+The two levers that mattered are the two the manual puts first, and they are not equal: the
+buffer pool was worth 37× on its own, and relaxing the durability pair another 3.5× on top.
+Everything else in the list bought tail latency rather than throughput — the 4 GiB redo log
+took p99 from 185 ms to 104 ms while leaving TPS alone, which is exactly what a redo log is
+for.
+
+O_DIRECT is the interesting negative. It is the standard recommendation and it *cost 20%*
+here while durability was still per-commit, because the host's page cache was absorbing
+writes for a dataset that fitted in it; on the fully tuned server it was neutral. It is in
+the advisor with that result attached rather than as a rule.
+
+And t5 is the one that is not about the primary at all. At t4 the replicas were **941 seconds
+behind and falling further behind by 43 seconds every minute** — they could not keep up with
+the background application, let alone the benchmark, because a single applier thread replays
+serially what 32 connections committed in parallel. Eight workers plus WRITESET dependency
+tracking cleared a 900-second backlog in under three minutes and finished the next run at
+zero lag. It costs the primary 15%. That is the honest price of a replica you can actually
+fail over to, and the page says so.
+
+### PXC
+
+| # | change (cumulative) | TPS | p95 | p99 | flow control paused |
+|---|---|---|---|---|---|
+| baseline | shipped defaults (as above, plus `wsrep_slave_threads=1`, gcache 128M) | 30.7 | 1570 ms | 1916 ms | **99.9%** |
+| p1 | pool 4G × 3, redo 2G, `io_capacity` 2000/8000 | 33.4 | 1421 ms | 1790 ms | — |
+| p2 | + `sync_binlog=0`, `flush_log_at_trx_commit=2` | 1914.3 | 28.9 ms | 86.6 ms | 18.8% |
+| p3 | + `wsrep_slave_threads=8`, gcache 2G, `gcs.fc_limit=500` | **2032.2** | 24.3 ms | 31.1 ms | **0.0%** |
+
+66×, and the ordering is the finding: on the cluster the buffer pool was worth 9% while on
+the asynchronous stack it was worth 37×. Not because the pool matters less, but because
+nothing downstream of the commit path can matter while the commit path is the ceiling — at
+the defaults this cluster spent 99.9% of the capture paused by flow control. The same
+misconfiguration reads completely differently depending on what else is limiting, which is
+the argument for an advisor that reads the whole capture rather than one chart.
+
+### What Stalk Summary learned
+
+`app/stalksummary_config.go` adds a Configuration block above the charts: the variables worth
+changing, what each is now, what to make it, the evidence from this capture, and what the
+change was worth when it was measured. Two things it does that a benchmark post does not.
+It prices the trade — every recommendation that gives up a guarantee carries a **Cost** line,
+so `sync_binlog=0` never appears without "a power cut loses up to a second of committed
+transactions, and the binary log can end up behind the data". And "keep this as it is" is a
+verdict in its own right, so a right-sized pool is stated as right rather than left silent.
+
+### Bugs the live captures caught
+
+- The buffer-pool suggestion read "16 GiB — about half of this machine", which is exactly the
+  mistake MongoDB's default makes and which session 274 exists to catch: three servers shared
+  this host and the configuration that won gave them 8/2/2. It now says to divide it.
+- On the PXC baseline the durability rule stayed silent, because it keyed on the fsync rate
+  and a cluster paused 99.9% of the time only managed 91 fsyncs/s. The low rate was the
+  symptom. It now fires on flow control too, and explains that inversion in its own words.
+- The replica rule wanted 30 s of lag; a replica measured live sat at 23–25 s behind with one
+  applier while the source ran at 2,238 TPS. Ten seconds is already a failover you cannot make.
+
+### Verified
+
+- Against real pt-stalk archives from both stacks: the MySQL baseline (128 MiB pool) gets the
+  crit pool verdict plus O_DIRECT, redo, io_capacity and the durability trade; the same node
+  after the pool fix reports it as healthy; the PXC baseline gets the crit pool, the crit
+  applier and the gcache warning with the flow-control evidence; a replica archive captured
+  with one applier gets the crit `replica_parallel_workers` with its ordering caveat.
+- In a browser against the live stacks: the Configuration card renders with its chips, Now,
+  Change to, the evidence and the Cost lines. No page errors.
+- Tests: seven for this advisor (default pool, healthy pool, the durability price, durability
+  on a paused cluster, the single applier, the O_DIRECT honesty, and the invents-nothing
+  invariant), plus two smoke checks. `go build`, `go vet`, `go test ./...` and the smoke suite
+  green.

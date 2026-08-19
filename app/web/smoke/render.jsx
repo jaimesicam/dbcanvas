@@ -24,7 +24,7 @@ import {
   MySQLCENodeForm, MySQLCEFrameForm, MySQLCEInnoDBFrameForm,
   UpstreamMemberForm,
 } from '../src/pages/UpstreamForms.jsx'
-import { Comparison, Verdicts, Advisor, ChartCard, KeptCaptures, HeadToHead, VerdictBody, VerdictMark } from '../src/pages/StalkSummary.jsx'
+import { Comparison, Verdicts, Advisor, ChartCard, KeptCaptures, HeadToHead, VerdictBody, VerdictMark, ConfigAdvice as StalkConfig } from '../src/pages/StalkSummary.jsx'
 import {
   frameMemberSub, REPL_FRAME_TYPES,
   NODE_TYPES, CONNECTABLE_FRAMES, SS_LINK_TYPES, SS_LINK_ENGINE,
@@ -1550,6 +1550,32 @@ for (const level of ['ok', 'warn', 'crit', 'info', 'banana', undefined]) {
 }
 // The configuration block is the one part of the page that tells somebody to change a
 // server setting, so an unrendered field there is a recommendation nobody acts on.
+// The variables block is the only part of this page that tells somebody to change a
+// server setting, and the Cost line is the half that must never be dropped: a page that
+// recommends sync_binlog=0 without saying what is lost is giving somebody else's benchmark.
+check('stalk summary: configuration advice renders every field, cost included', () => {
+  const config = [
+    { level: 'crit', variable: 'innodb_buffer_pool_size', current: '128 MiB',
+      suggest: '16 GiB to start', why: '29.4 GiB of RAM and InnoDB is allowed 128 MiB of it.',
+      effect: '119 TPS became 792 TPS.' },
+    { level: 'info', variable: 'sync_binlog, innodb_flush_log_at_trx_commit', current: '1, 1',
+      suggest: '0 and 2 if this data can be rebuilt', why: '607 fsyncs/s.',
+      risk: 'A power cut loses up to a second of committed transactions.' },
+    { level: 'ok', variable: 'innodb_buffer_pool_size', suggest: 'leave it', why: 'The working set fits.' },
+  ]
+  const html = renderToString(<StalkConfig config={config} />)
+  for (const want of ['innodb_buffer_pool_size', '128 MiB', '16 GiB to start', 'Cost:', 'power cut', '792 TPS']) {
+    if (!html.includes(want)) throw new Error(`configuration advice dropped ${want}`)
+  }
+  const flat = html.replace(/<!--[^>]*-->/g, '')
+  if (!flat.includes('2 variables worth changing')) throw new Error(`the count includes the keeps: ${flat.slice(0, 300)}`)
+  return 'ok'
+})
+check('stalk summary: configuration advice stays quiet with nothing to say', () => {
+  if (renderToString(<StalkConfig config={[]} />) !== '') throw new Error('an empty configuration block should render nothing')
+  if (renderToString(<StalkConfig config={undefined} />) !== '') throw new Error('a capture with no config block should render nothing')
+  return 'ok'
+})
 check('ftdc summary: configuration advice renders every field', () => {
   const model = { config: [
     { level: 'crit', setting: 'storage.wiredTiger.engineConfig.cacheSizeGB', current: 'unset — mongod derived 14.2 GiB',

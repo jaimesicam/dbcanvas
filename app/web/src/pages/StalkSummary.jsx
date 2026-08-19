@@ -558,6 +558,55 @@ export function Verdicts({ verdicts }) {
   )
 }
 
+// ConfigAdvice — the variables to change, as opposed to the measurements that say why.
+//
+// Every advisor on this page explains one chart. This block reads the capture as a whole,
+// because the recommendations that matter are cross-cutting: the buffer pool is too small
+// AND the flush method is hiding how badly, because InnoDB's read counter and the device's
+// read counter disagree by two orders of magnitude. Neither chart can say that alone.
+//
+// Two things it always shows and a benchmark blog never does: what a change costs (Risk),
+// stated for exactly the settings that trade a guarantee for speed, and "keep this as it
+// is" as a verdict in its own right.
+export function ConfigAdvice({ config }) {
+  if (!config?.length) return null
+  const changes = config.filter((c) => c.level !== 'ok').length
+  return (
+    <Card title="Configuration"
+      subtitle={changes === 0
+        ? 'Nothing here needs changing — each line says why, from this capture'
+        : `${changes} variable${changes === 1 ? '' : 's'} worth changing, argued from this capture`}>
+      <div className="space-y-2 p-4">
+        {config.map((c, i) => {
+          const Glyph = VERDICT_ICON[c.level] || Icon.StatusInfo
+          return (
+            <div key={i} className={`rounded-lg border px-3 py-2 ${VERDICT_TONE[c.level] || VERDICT_TONE.info}`}>
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <Glyph size={13} className={`shrink-0 ${VERDICT_TEXT[c.level] || 'text-muted'}`} />
+                <span className={`text-xs font-semibold uppercase tracking-wide ${VERDICT_TEXT[c.level] || ''}`}>
+                  {c.level === 'ok' ? 'keep' : VERDICT_LABEL[c.level] || c.level}
+                </span>
+                <code className="text-sm font-semibold text-fg">{c.variable}</code>
+              </div>
+              <dl className="mt-1.5 grid gap-x-4 gap-y-0.5 text-xs sm:grid-cols-[auto_1fr]">
+                {c.current && (<><dt className="text-muted">Now</dt><dd className="font-mono text-fg">{c.current}</dd></>)}
+                {c.suggest && (<><dt className="text-muted">Change to</dt><dd className="font-mono text-fg">{c.suggest}</dd></>)}
+              </dl>
+              <p className="mt-1.5 text-xs leading-relaxed text-muted">{c.why}</p>
+              {/* What it costs. Printed in the warning tone even on an otherwise calm
+                  recommendation, because this is the half people skip. */}
+              {c.risk && <p className="mt-1 text-xs leading-relaxed text-status-warn">Cost: {c.risk}</p>}
+              {/* What the change was worth where it was measured — somebody else's
+                  hardware, kept visually apart from this capture's own evidence. */}
+              {c.effect && <p className="mt-1 border-l-2 border-border pl-2 text-xs leading-relaxed text-muted">{c.effect}</p>}
+            </div>
+          )
+        })}
+      </div>
+    </Card>
+  )
+}
+
 function Report({ model }) {
   const f = model.summary?.findings || {}
   const facts = model.summary?.facts || {}
@@ -568,6 +617,7 @@ function Report({ model }) {
   return (
     <div className="space-y-4">
       <Verdicts verdicts={model.verdicts} />
+      <ConfigAdvice config={model.config} />
 
       {/* 10% text: source facts + headline findings */}
       <Card title="Summary" subtitle={`${model.source?.host || 'host'} · ${model.source?.engine === 'pxc' ? 'Percona XtraDB Cluster' : 'MySQL / Percona Server'}${model.source?.capturedAt ? ' · captured ' + new Date(model.source.capturedAt).toLocaleString() : ''}`}>
