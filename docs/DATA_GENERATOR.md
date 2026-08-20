@@ -4,7 +4,12 @@ An embedded feature under **Database Stacks** that generates realistic test data
 tables in databases provisioned by dbcanvas. It targets testing, demos, troubleshooting,
 benchmarking, performance validation, and app development.
 
-![The Data Generator — realistic rows into a chosen table](screenshots/data-generator.png)
+![The Data Generator with a table chosen and its column template ready](screenshots/data-generator.png)
+
+> *Pick a node, a database and a table, and the column template is built from the table itself:
+> each column with its type and flags, and a generator chosen to match — `Random text` for a
+> varchar, `Random decimal` for a decimal, `Timestamp` for a datetime, and the auto-increment
+> primary key left to the database. Anything can be overridden or skipped before generating.*
 
 Engines: **PostgreSQL** and **MySQL/PXC** (both implemented). This document describes the
 whole feature; sections tagged _(roadmap)_ are designed but not yet built. The core

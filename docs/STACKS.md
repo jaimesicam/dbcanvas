@@ -197,9 +197,10 @@ operator's own PVC backup repo and the bucket stays empty.)
 ![A K3D cluster node's panel — the operator, the cluster it built, and its MetalLB block](screenshots/k3d-cluster.png)
 
 > *A one-node K3D cluster on k3s v1.36.3 running **CloudNativePG 0.29.0**, which has built a
-> two-instance Postgres cluster and reports it healthy. The cluster's LoadBalancer addresses come
-> from this frame's own **MetalLB block** — several K3D frames can share a stack, so each gets
-> eight addresses of its own — and the manifests DBCanvas applied are archived on the node.*
+> two-instance Postgres cluster and reports it healthy. The panel is the whole cluster at a
+> glance: the operator and its namespace, the Postgres endpoint on a MetalLB address, the app
+> role and the Secret holding its password, and where the manifests DBCanvas applied were
+> archived. Its tabs carry `kubectl`, a copyable kubeconfig, and per-namespace Kubernetes users.*
 
 **Kubeconfig and RBAC users, for testing access control.** The K3D server node's panel has a
 **Kubeconfig** tab (a copyable admin kubeconfig, pointed at k3d's own load balancer so it works
@@ -259,7 +260,10 @@ actually want when a config is one line wrong.
 **Monitoring with PMM.** Add a PMM node and point databases at it; DB nodes register
 themselves, so Percona Monitoring & Management comes up already watching the stack:
 
-![A PMM node's panel — its address, its admin login, and what it is monitoring](screenshots/pmm-node.png)
+![A PMM node's panel — the server, its components, and two ways into it](screenshots/pmm-node.png)
+
+> *PMM is one node: Grafana, VictoriaMetrics, ClickHouse, PostgreSQL, QAN and nginx in a single
+> container. The panel names them, and gives a root console alongside a `pmm-admin` one.*
 
 ![Percona Monitoring & Management, already watching the services that registered with it](screenshots/pmm-web.png)
 
@@ -273,9 +277,11 @@ reachable over a browser-based VNC client — handy for GUI database tools insid
 
 ![The SeaweedFS node's Buckets tab — a read-only browser over what the databases wrote](screenshots/seaweedfs-buckets.png)
 
-> *The bucket browser on a freshly deployed target, before anything has backed up to it. Each
-> engine writes to its own prefix — PBM under `pbm/<cluster>`, pgBackRest under
-> `pgbackrest/<cluster>`, xtrabackup and the Percona operators at the top level.*
+> *Inside `mongo-backups/pbm/psmrs-00`, the snapshot a MongoDB replica set in the same stack
+> just wrote: `.pbm.init`, the timestamped snapshot directory and its `.pbm.json` metadata. The
+> replica set's frame has **Enable PBM** ticked with this node picked as its target, which is
+> all it takes. Each engine writes to its own prefix — PBM under `pbm/<cluster>`, pgBackRest
+> under `pgbackrest/<cluster>`, xtrabackup and the Percona operators at the top level.*
 
 **Diagnostics captures.** From a running node's panel, capture a diagnostic bundle and
 download it: **pg_gather** (a single `GatherReport.html`) on PostgreSQL nodes, or

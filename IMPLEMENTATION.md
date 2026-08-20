@@ -16740,3 +16740,37 @@ node with its node picker, split-pane transfer and in-place editing.
 - Both new screenshots are of the real features on the running demo stack — the drop dialog
   names `desktop01` and the file size it was given, and the file manager lists that node's
   filesystem with "10 running nodes in this stack" in its header.
+
+## 293. Screenshots that show the thing rather than the app — `docs/screenshots/*`, `docs/{STACKS,BENCHMARK,DATA_GENERATOR}.md`
+
+Six replaced, on feedback that they were showing the product rather than the feature.
+
+- **Data Generator** stopped at "here are your nodes". It now runs the flow through to the
+  **column template**: `shop.orders` picked on a Percona Server node, and each column with its
+  type, its flags (`PK`, `identity`, `NOT NULL`) and the generator chosen to match it —
+  `Random text` for the varchar, `Random decimal` for the decimal, `Timestamp` for the
+  datetime, the auto-increment key left to the database.
+- **Benchmark** was the empty form. It is now a run **in progress**: 516 TPS, 21 seconds in,
+  p50/p95/p99, and the per-statement table with counts and latencies for point selects, range
+  selects, updates, inserts and deletes.
+- **K3D, PMM and SeaweedFS** were shot on the ten-node demo stack, so behind each panel sat a
+  canvas full of unrelated nodes. Each now has **its own small stack** — `kubernetes`
+  (Intranet + a K3D frame), `monitoring` (Intranet + PMM + one monitored node), `backups`
+  (Intranet + SeaweedFS + a MongoDB replica set) — and the canvas behind the panel is the
+  thing the panel is about.
+- **SeaweedFS** was the weakest of all: an empty bucket. The `backups` stack has **Enable PBM**
+  ticked on the replica set with the SeaweedFS node as its target, so a backup was taken and
+  the screenshot is the browser inside `mongo-backups/pbm/psmrs-00` — `.pbm.init`, the
+  timestamped snapshot directory, and its `.pbm.json`. The node that wrote it is on the canvas
+  beside it.
+
+Captions were rewritten to match what each image now shows, including the two that had
+described the old picture.
+
+### Verified
+
+- All three stacks deployed clean and every screenshot is of a running system; the PBM backup
+  was triggered through the frame's own backup action and its output read back from the bucket
+  browser.
+- Links and screenshot references across `README.md` and `docs/*.md` all resolve, nothing
+  orphaned.

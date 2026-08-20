@@ -6,7 +6,11 @@ targets a **canvas-provisioned** MySQL/PXC or PostgreSQL node and reaches it the
 way the Query Runner does (native TCP over the stack's Docker network). Open it from
 the sidebar (**Benchmark**) or at `#benchmark`.
 
-![The Benchmark tool — OLTP, OLAP, read-write and read-only workloads](screenshots/benchmark.png)
+![An OLTP benchmark mid-run, with live throughput and per-statement latency](screenshots/benchmark.png)
+
+> *A run in progress against a Percona Server node: 516 TPS, 21 seconds in, with p50/p95/p99
+> transaction latency and every statement type broken out — point selects, range selects,
+> updates, inserts and deletes, each with its own count, error tally and latency.*
 
 ## Workload profiles
 
