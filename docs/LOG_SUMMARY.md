@@ -4,6 +4,8 @@ The **Log Summary** reads several database servers' logs **together**, on one ti
 and separates the good, the warning and the bad. It is for the question three log files
 are opened to answer and none of them answers alone:
 
+![Log Summary — several nodes' logs on one classified timeline](screenshots/log-summary.png)
+
 > *What state was the cluster in at 01:49:35, and which node is telling the truth about it?*
 
 Open it from the sidebar (**Log Summary**) or at `#log-summary`.

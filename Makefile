@@ -3,7 +3,12 @@ SHELL := /bin/bash
 # Load APP_PORT for echoing the URL (falls back to 8080).
 APP_PORT ?= $(shell test -f .env && grep -E '^APP_PORT=' .env | cut -d= -f2 || echo 8080)
 
-.PHONY: compose env build up down logs restart clean images versions smoke trafficsim-image hotelsim-image airlinesim-image carsim-image marketchaos-image stocksim-image intranet-image vnc-image
+.PHONY: install compose env build up down logs restart clean images versions smoke trafficsim-image hotelsim-image airlinesim-image carsim-image marketchaos-image stocksim-image intranet-image vnc-image
+
+## install: everything a first run needs — build the node images, discover the
+## versions they can install, then build and start DBCanvas itself. Safe to re-run;
+## `make compose` alone is enough once the images exist.
+install: images versions compose
 
 ## compose: create .env if needed, then build and start the stack
 compose: env

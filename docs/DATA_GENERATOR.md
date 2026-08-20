@@ -4,6 +4,8 @@ An embedded feature under **Database Stacks** that generates realistic test data
 tables in databases provisioned by dbcanvas. It targets testing, demos, troubleshooting,
 benchmarking, performance validation, and app development.
 
+![The Data Generator — realistic rows into a chosen table](screenshots/data-generator.png)
+
 Engines: **PostgreSQL** and **MySQL/PXC** (both implemented). This document describes the
 whole feature; sections tagged _(roadmap)_ are designed but not yet built. The core
 workflow works end-to-end for both engines.

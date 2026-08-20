@@ -1,9 +1,7 @@
 # All in One — operator guide
 
 One container running many database instances side by side, instead of one product
-per node. This is the reference; the [README section](../README.md#all-in-one) is the
-short version, and [ALL_IN_ONE_PLAN.md](ALL_IN_ONE_PLAN.md) is the design and phase
-tracker.
+per node. This is the reference for it.
 
 ---
 

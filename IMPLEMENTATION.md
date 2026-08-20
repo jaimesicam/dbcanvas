@@ -16585,3 +16585,57 @@ what makes them read as cylinders rather than as sticky notes at 96px.
   what caught both the palette's collapse and the face.
 - In the running app: the sidebar header and the sign-in card, plus the favicon, which carries
   the same geometry inline. No page errors; the smoke suite green.
+
+## 289. Documentation split: a product README, feature guides, and one architecture page — `README.md`, `docs/*`, `Makefile`
+
+`make install` now does what a first run needs — `images`, then `versions`, then `compose` —
+in that order, because `make images` rewrites `versions.yaml` and would discard the enrichment
+if it ran second.
+
+The README was 1,065 lines and mixed three audiences: someone deciding whether to try this,
+someone running it, and someone reading how it works. It is now 78 lines — what the product
+is, a quickstart that is `make install`, what you can build, what you can do with it, and
+where to read more.
+
+Everything else moved out rather than being deleted:
+
+- **`docs/ARCHITECTURE.md`** — how it is wired: the single Go binary serving the SPA and the
+  API, the Docker socket as the real trust boundary, the two engines behind one interface,
+  why node images are pre-built for exactly one platform, the design/deployment split, MetalLB
+  blocks, where state lives, and the security model. Named ARCHITECTURE rather than
+  TECHNICALSPECIFICATIONS: it describes how the thing is put together, not a contract it must
+  satisfy, and it is the filename people look for.
+- **`docs/CONFIGURATION.md`** — every `.env` variable (moved verbatim; they were already
+  right), every `make` target, recovering an admin password, and the troubleshooting that was
+  buried at the bottom of the README.
+- **`docs/STACKS.md`**, **`docs/LABS.md`**, **`docs/STALK_SUMMARY.md`** — the product sections
+  the README carried and no sub-document had.
+- **`docs/README.md`** — an index of the feature guides, grouped by what you are trying to do:
+  build databases, load and exercise them, find out what happened, learn on them.
+
+Three `*_PLAN.md` files went: phase trackers for work that shipped long ago, which is exactly
+what "stale" means. IMPLEMENTATION.md still references them by name in the sessions that
+created them — that is a log of what happened, not a set of live links.
+
+### Screenshots
+
+All eighteen were from July and August, taken before the current sidebar, the new logo, and
+several of the panels they showed. They were replaced by re-shooting a real deployment: an
+Intranet, a three-node PXC cluster and a Percona Server node, captured through a headless
+browser at 2× — the stack list, the canvas, a deployed node's panel, a live root console
+showing `wsrep_cluster_size = 3` and `Synced` from the cluster it is running on, the
+Dashboard, Data Generator, Query Runner, Benchmark, Packet Inspector, Log Summary and Labs.
+
+Eight could not be re-shot honestly, because nothing in this deployment produces them — the
+K3D cluster panel, PMM's node panel and web UI, SeaweedFS buckets, the VNC desktop, a
+pt-stalk archive, and two Packet Inspector detail views. They were deleted along with their
+references rather than left showing a year-old UI. Those docs read fine without them; the
+gaps are listed in the session notes for whoever deploys those nodes next.
+
+### Verified
+
+- Every relative link in `README.md` and all twelve `docs/*.md` resolves to a file that
+  exists, checked programmatically; every screenshot in `docs/screenshots/` is referenced by
+  at least one document, and no document references one that is missing.
+- `make -n install` runs `images`, `versions`, `compose` in that order.
+- `go build`, `go vet`, `go test ./...` and the smoke suite green.

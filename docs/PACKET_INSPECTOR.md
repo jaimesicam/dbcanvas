@@ -6,6 +6,8 @@ times, and the network problems underneath them — retransmissions, gaps, reset
 windows. It's for the question "what actually crossed the wire, and what did the
 server say back", which neither the slow log nor `SHOW PROCESSLIST` can answer.
 
+![The Packet Inspector — a capture decoded packet by packet](screenshots/packet-inspector.png)
+
 Open it from the sidebar (**Packet Inspector**) or at `#packet-inspector`.
 
 Four protocols are decoded:

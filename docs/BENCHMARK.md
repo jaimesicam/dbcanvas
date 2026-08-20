@@ -6,6 +6,8 @@ targets a **canvas-provisioned** MySQL/PXC or PostgreSQL node and reaches it the
 way the Query Runner does (native TCP over the stack's Docker network). Open it from
 the sidebar (**Benchmark**) or at `#benchmark`.
 
+![The Benchmark tool — OLTP, OLAP, read-write and read-only workloads](screenshots/benchmark.png)
+
 ## Workload profiles
 
 | Profile | What it runs | Primary metric |

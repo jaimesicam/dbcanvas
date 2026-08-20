@@ -6,6 +6,8 @@ The **Query Runner** runs one or more SQL queries **concurrently**, each against
 experiments — e.g. "hammer a table with SELECTs *only while* an `ALTER TABLE` is
 running" — not for browsing result sets and not as a benchmark.
 
+![The Query Runner — parallel SQL across a stack, gated on the processlist](screenshots/query-runner.png)
+
 Open it from the sidebar (**Query Runner**) or at `#queryrun`.
 
 ## What you can target
