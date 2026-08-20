@@ -754,6 +754,19 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		// Network conditions apply to any node type that has them, so they are
 		// checked before the per-type switch rather than inside it.
 		out = append(out, netemIssues(n)...)
+		// So is the base-image OS family: `make images` builds the Debian bases for
+		// the Linux Client (a jump box that installs nothing), so no product's
+		// install path is exercised on Debian and no other picker offers it — see
+		// productOSFamily in versions.go. A design that says otherwise came from the
+		// API or a hand-edited save, and would fail somewhere inside a package step.
+		if n.OS == "debian" && n.Type != "linuxclient" {
+			out = append(out, issue{"error", "Node " + n.Label + " is set to Debian — Debian base images are supported for Linux Client nodes only"})
+		}
+		// The Debian bases are Docker images; vagrantBoxes maps no box for Debian, so a
+		// Linux Client on a VM-backed stack would fail at box resolution instead.
+		if n.OS == "debian" && n.Type == "linuxclient" && st.Backend == BackendVagrant && a.vagrant != nil {
+			out = append(out, issue{"error", "Linux Client " + n.Label + " is set to Debian, which this stack would provision as a VM — Debian is available on the Docker backend only"})
+		}
 		switch n.Type {
 		case "intranet":
 			intranet++
@@ -1078,6 +1091,14 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	for l, c := range labels {
 		if c > 1 && l != "" {
 			out = append(out, issue{"error", "Duplicate node label: " + l + " — labels must be unique"})
+		}
+	}
+
+	// Frames carry the OS for every member they own, so the Debian rule above
+	// applies to them too — no cluster is a Linux Client.
+	for _, f := range doc.Frames {
+		if f.OS == "debian" {
+			out = append(out, issue{"error", "Cluster " + f.Label + " is set to Debian — Debian base images are supported for Linux Client nodes only"})
 		}
 	}
 

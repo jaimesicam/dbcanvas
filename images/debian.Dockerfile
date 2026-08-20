@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# systemd-enabled base image for the Debian family (Ubuntu 22.04/24.04).
+# systemd-enabled base image for the Debian family (Ubuntu 22.04/24.04, Debian 12/13).
 # Used by `make images` to produce selectable container-instance bases.
 # Run the resulting image with systemd as PID 1, e.g.:
 #   docker run -d --privileged \

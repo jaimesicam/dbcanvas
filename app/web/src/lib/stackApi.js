@@ -375,3 +375,11 @@ export const DEPLOY_TONE = {
   stopped: 'muted',
   error: 'danger',
 }
+
+// PRODUCT_OS_FAMILIES — the OS families DBCanvas installs database products on.
+// `make images` also builds Debian bases (see images/build.sh), but those exist for
+// the Linux Client jump box, where nothing is installed at all: no product's install
+// path is exercised on Debian. So the forms that pick an OS straight from the generic
+// images catalog (HAProxy, All in One) filter the catalog through this list, and
+// validateStack in app/intranet.go rejects the same combination server-side.
+export const PRODUCT_OS_FAMILIES = ['oraclelinux', 'ubuntu']

@@ -16186,3 +16186,87 @@ call a starting cluster ready.
   relabelings, the dashboard rewrite including that panels are left alone, its edge cases, and
   the ConfigMap shape), plus two more `pgoShort` cases for the unparseable count.
   `go build`, `go vet`, `go test ./...` and the smoke suite green.
+
+## 280. Debian on the Linux Client, and what pre-baking the Intranet and VNC images would save — `images/{build.sh,versions.sh,debian.Dockerfile}`, `app/{versions,intranet}.go`, `app/web/src/{lib/stackApi.js,pages/{StackDesigner,AllInOne}.jsx}`, `versions.yaml`, `README.md`
+
+The **Linux Client** is the one node type that installs nothing: it boots a base image, joins
+the Intranet's DNS and CA trust, and hands the operator a terminal. That makes it the one node
+type whose OS choice costs nothing to widen — every other type's package path would have to be
+proven on the new OS first. `make images` now builds `debian:12` and `debian:13` alongside
+Oracle Linux 8/9/10 and Ubuntu 22.04/24.04, from the same `images/debian.Dockerfile` the Ubuntu
+bases use; both boot systemd clean and carry the identical tooling (`tc`, `ldapsearch`,
+`ifconfig`, `sar`, `pt-query-digest`, `update-ca-certificates`, percona-toolkit from Percona's
+own trixie/bookworm repositories).
+
+**The image catalog is shared, so widening it widens every picker.** `versions.yaml` feeds the
+per-product catalogs (`percona_server`, `mariadb`, …) *and* the generic image list that the
+Linux Client, HAProxy and All-in-One forms read; the node-type `osOptions` those three forms
+declare are decorative. Adding an OS family to the matrix would therefore have offered Debian
+in every OS drop-down in the app. The rule is written down in three places instead, one per
+layer that could otherwise offer it: `productOSFamily` in `app/versions.go` drops Debian images
+from every per-product catalog (the generic one keeps them), `PRODUCT_OS_FAMILIES` in
+`web/src/lib/stackApi.js` filters the two product forms that read the generic list, and
+`validateStack` refuses a Debian node of any other type — or a Debian frame — before it can
+deploy.
+
+**MariaDB and MySQL split their apt trees by distribution, not just by codename.**
+`images/versions.sh` had `.../repo/$V/ubuntu $CODE main` and `repo.mysql.com/apt/ubuntu`
+hardcoded, which under a Debian codename resolves to nothing at all — the probe would have
+recorded "no MariaDB, no MySQL Community" as if that were a fact about Debian. Both paths now
+come from os-release's `ID`. Percona's repositories need no such split: `percona-release`
+writes them itself.
+
+**A Debian Linux Client is Docker-only.** `linuxclient` is in `vagrantVMNode`, and
+`vagrantBoxes` maps no box for Debian, so on a VM-backed stack the node would have failed at
+box resolution with `no vagrant box mapped for debian 13`. `validateStack` says so up front
+instead.
+
+### What pre-baking the Intranet and VNC images would save — measured, not implemented
+
+Both node types install their software at deploy time, the way the database nodes do — and
+unlike the database nodes, what they install never varies. Timed against the live app on this
+box, from the deploy click:
+
+| | Intranet | Ubuntu VNC |
+|---|---|---|
+| container create + systemd | 3 s | ~3 s |
+| package installs | **56 s** (repos 33 s, packages 23 s) | **120 s** (desktop 49 s, Firefox 20 s, Percona clients 51 s) |
+| everything else | 4 s | 2 s |
+| total | 63 s | 123 s |
+
+So 89% and 97% of those two deploys is package installation of a fixed package set — the exact
+thing an image is for, and the reason every stack pays it again. Both were verified as
+prototypes: an image built `FROM dbcanvas-systemd:oraclelinux-9-amd64` with the two package
+steps baked in, then the *remaining nine* Intranet steps run against it, brings up rsyslog,
+slapd, squid, named, postfix, dovecot and Roundcube (LDAP seeded, webmail HTTP 200) **in 4
+seconds**; the same treatment for the VNC node (desktop, Firefox, Percona clients baked) leaves
+the CA-trust, user-creation and service steps to run **in 2 seconds**, with Xvnc on 5901,
+websockify on 6080 and noVNC answering 200. Nothing in the baked steps reads a stack secret:
+the split falls exactly along "does this step use `$DOMAIN`/`$LDAP_*`/`$VNCPW`".
+
+The costs are disk and freshness: the prototypes measured 1.06 GB (base + 346 MB) and 2.41 GB
+(base + 1.94 GB), built once in 62 s and 4 m 46 s. Package versions would then be frozen at
+build time rather than resolved per deploy, and the VNC image would need one build per Ubuntu
+version its picker offers unless the node is pinned to 24.04 the way the Intranet is pinned to
+OL9.
+
+### Verified
+
+- `make images` builds all 7 bases, `dbcanvas-systemd:debian-{12,13}-amd64` included; both
+  reach `systemctl is-system-running` = running with no failed units and the same tool set as
+  the Ubuntu bases.
+- A live stack (Intranet + a Debian 13 and a Debian 12 Linux Client) deployed to `running` in
+  70 s. Each client resolves `intranet.example.net` through the stack's bind, carries the stack
+  CA both in `/usr/local/share/ca-certificates` and in the system bundle (the `/etc/ssl/certs`
+  hash link), and installed a package through the Intranet Squid proxy.
+- `make versions` probed both new images and recorded real catalogs for them — including
+  MariaDB and MySQL Community, which is what proves the `$DISTRO` path: under the Ubuntu tree a
+  Debian codename resolves to nothing, and both would have come back empty.
+- Against the running app with that enriched catalog: `/api/catalog/images` lists Debian 12 and
+  13, while `/api/catalog/{pxc,ps,mariadb}` do not — even though `versions.yaml` now carries
+  Percona Server, PXC and MariaDB versions for Debian.
+- In a browser: the Linux Client form offers `oraclelinux | ubuntu | debian` with versions
+  12/13 under Debian, the canvas card reads "Debian 13 · amd64", and the HAProxy form on the
+  same canvas offers `oraclelinux | ubuntu` only.
+- Tests: one — the generic catalog keeps a Debian image and every per-product catalog drops it.
+  `go build`, `go vet`, `go test ./...` and the smoke suite green.

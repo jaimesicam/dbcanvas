@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Icon } from '../components/Icons.jsx'
 import { Button, Badge, Field, inputCls } from '../components/ui.jsx'
-import { stackApi, aioApi, DEPLOY_TONE } from '../lib/stackApi.js'
+import { stackApi, aioApi, DEPLOY_TONE, PRODUCT_OS_FAMILIES } from '../lib/stackApi.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import SecretRow, { CopyButton as CopyBtn } from '../components/Secret.jsx'
 import {
@@ -85,7 +85,9 @@ export function AllInOneForm({ node: n, nodes, patchNode, deleteNode, dep, deplo
   const members = planMembers(instances)
   const est = estMemMB(instances)
 
-  const osFamilies = [...new Set(imgs.map((i) => i.os))]
+  // Every instance in the node is a product install, so the Debian bases the matrix
+  // builds for the Linux Client are filtered out (see PRODUCT_OS_FAMILIES).
+  const osFamilies = [...new Set(imgs.map((i) => i.os))].filter((o) => PRODUCT_OS_FAMILIES.includes(o))
   const osVersions = [...new Set(imgs.filter((i) => i.os === n.os).map((i) => i.osVersion))]
   const archs = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === n.osVersion).map((i) => i.arch))]
 

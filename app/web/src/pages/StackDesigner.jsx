@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
 import { Card, Button, Badge, Field, ConfirmButton, inputCls } from '../components/ui.jsx'
-import { stackApi, frameApi, TTL_OPTIONS, DEPLOY_TONE, NODE_UPLOAD_DESTS } from '../lib/stackApi.js'
+import { stackApi, frameApi, TTL_OPTIONS, DEPLOY_TONE, NODE_UPLOAD_DESTS, PRODUCT_OS_FAMILIES } from '../lib/stackApi.js'
 import { kindOf as aioKindOf, familyOf as aioFamilyOf } from '../lib/aioPorts.js'
 import IntranetManager from './IntranetManager.jsx'
 import SambaManager from './SambaManager.jsx'
@@ -447,7 +447,7 @@ export const NODE_TYPES = {
     singleton: false,
     ports: false,
     plainSequentialLabel: true,
-    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }, { id: 'debian', label: 'Debian' }],
     defaults: { os: 'oraclelinux', osVersion: '9', arch: 'amd64', useProxy: false },
   },
   // Traffic Sim — the "Valkey Traffic Lab" live demo app (background agents +
@@ -8014,7 +8014,9 @@ function HAProxyForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep
   const imgs = cat || []
   const lock = deployed ? 'opacity-70' : ''
 
-  const osFamilies = [...new Set(imgs.map((i) => i.os))]
+  // HAProxy is a product install, so the Debian bases the matrix builds for the Linux
+  // Client are filtered out (see PRODUCT_OS_FAMILIES).
+  const osFamilies = [...new Set(imgs.map((i) => i.os))].filter((o) => PRODUCT_OS_FAMILIES.includes(o))
   const osVersions = [...new Set(imgs.filter((i) => i.os === n.os).map((i) => i.osVersion))]
   const archs = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === n.osVersion).map((i) => i.arch))]
 

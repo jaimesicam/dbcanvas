@@ -420,6 +420,16 @@ func loadSpockCatalog() []PXCImage { return loadImageCatalog("spock") }
 // empty version map for that product.
 func loadImagesCatalog() []PXCImage { return loadImageCatalog("") }
 
+// productOSFamily reports whether DBCanvas installs database products on an OS
+// family. `make images` also builds Debian bases (see images/build.sh), but those
+// exist for the Linux Client — a jump box that installs nothing — so no product's
+// install path is exercised on Debian and none of the per-product catalogs offer
+// it. The generic catalog (wantSection "") keeps every image, which is what the
+// Linux Client picker reads; PRODUCT_OS_FAMILIES in web/src/lib/stackApi.js is the
+// same rule for the two forms that read that generic catalog, and validateStack
+// rejects the combination for every node type but the Linux Client.
+func productOSFamily(os string) bool { return os != "debian" }
+
 // loadImageCatalog parses the per-image `<wantSection>` major-series map of
 // versions.yaml (each image's installable versions keyed by series). It mirrors
 // the YAML the generator emits. Never errors — returns nil on any problem.
@@ -442,7 +452,9 @@ func loadImageCatalog(wantSection string) []PXCImage {
 
 	flush := func() {
 		if cur != nil {
-			out = append(out, *cur)
+			if wantSection == "" || productOSFamily(cur.OS) {
+				out = append(out, *cur)
+			}
 			cur = nil
 		}
 	}

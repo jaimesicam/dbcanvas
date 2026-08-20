@@ -92,7 +92,8 @@ panel (web terminal, certificates, users, on-demand backups). Supported nodes:
   proxy, and Roundcube/Dovecot webmail), a **Samba AD DC** (Active Directory, LDAP,
   Kerberos), **PMM** monitoring, **ProxySQL**, **HAProxy**, **SeaweedFS** (S3 for backups, up to 10
   buckets, browsable from its panel), **Keycloak** (OIDC), **OpenBao** (secrets manager), an
-  **Ubuntu VNC** desktop, a **Linux Client** jump box (a bare OS host with nothing installed —
+  **Ubuntu VNC** desktop, a **Linux Client** jump box (a bare OS host with nothing installed, on
+  any base image the matrix builds — Oracle Linux 8/9/10, Ubuntu 22.04/24.04 or Debian 12/13:
   join the stack's DNS/CA trust, then use its terminal to install and exercise whatever client
   tools a task needs), and **Watchtower**.
 - **App Simulators** — link **Traffic Sim** to a Valkey node/cluster, **Hotel Sim** to a PS
@@ -956,7 +957,9 @@ The version pickers don't guess — they read [`versions.yaml`](versions.yaml), 
 in two passes:
 
 - **`make images`** builds the `dbcanvas-systemd:*` base images (Oracle Linux 8/9/10, Ubuntu
-  22.04/24.04) and records the image matrix.
+  22.04/24.04, Debian 12/13) and records the image matrix. The Debian bases are offered on the
+  **Linux Client** only — it installs nothing, so no product's package path is exercised there;
+  every other node type picks from Oracle Linux and Ubuntu.
 - **`make versions`** starts a throwaway container per image and asks that OS's own package
   manager what it can actually install (`dnf search --showduplicates` / `apt-cache madison`),
   writing the result back per image, keyed by major series. It also refreshes the PMM, Percona

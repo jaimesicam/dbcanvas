@@ -3,7 +3,8 @@
 # Build systemd-enabled base images for selectable container instances.
 #
 # Matrix: {oraclelinux:8, oraclelinux:9, oraclelinux:10, ubuntu:22.04,
-#          ubuntu:24.04} × the single platform selected by DOCKER_PLATFORM
+#          ubuntu:24.04, debian:12, debian:13} × the single platform selected by
+# DOCKER_PLATFORM
 # (.env), which must be linux/amd64 or linux/arm64. Unset → linux/amd64.
 #
 # Each image installs systemd (PID 1) plus net-tools, the OpenLDAP client,
@@ -28,6 +29,8 @@ MATRIX=(
   "oraclelinux:10|oraclelinux|10|rhel.Dockerfile"
   "ubuntu:22.04|ubuntu|22.04|debian.Dockerfile"
   "ubuntu:24.04|ubuntu|24.04|debian.Dockerfile"
+  "debian:12|debian|12|debian.Dockerfile"
+  "debian:13|debian|13|debian.Dockerfile"
 )
 # The one platform this installation targets (see platform.sh). Capture into a
 # variable so a bad DOCKER_PLATFORM aborts the build instead of being ignored.

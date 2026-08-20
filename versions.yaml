@@ -4,8 +4,8 @@
 # major series, newest first; the trailing 'pmm' section lists the PMM3 server
 # image versions selectable for a PMM node.
 # Re-run image discovery: make images   Re-run version discovery: make versions
-generated_at: 2026-07-15T03:41:40Z
-versions_generated_at: 2026-08-19T10:22:35Z
+generated_at: 2026-08-20T09:33:01Z
+versions_generated_at: 2026-08-20T09:33:19Z
 image_prefix: dbcanvas-systemd
 images:
   - os: oraclelinux
@@ -14,7 +14,7 @@ images:
     arch: amd64
     tag: dbcanvas-systemd:oraclelinux-8-amd64
     base: oraclelinux:8
-    built_at: 2026-07-15T03:33:46Z
+    built_at: 2026-08-20T09:31:43Z
     percona_server:
       "8.0":
         - 8.0.46-37.1
@@ -178,6 +178,7 @@ images:
         - 6.0.3-2
         - 6.0.2-1
       "7.0":
+        - 7.0.40-22
         - 7.0.39-21
         - 7.0.37-20
         - 7.0.34-19
@@ -360,7 +361,7 @@ images:
     arch: amd64
     tag: dbcanvas-systemd:oraclelinux-9-amd64
     base: oraclelinux:9
-    built_at: 2026-07-15T03:35:42Z
+    built_at: 2026-08-20T09:33:00Z
     percona_server:
       "8.0":
         - 8.0.46-37.1
@@ -474,6 +475,7 @@ images:
         - 6.0.5-4
         - 6.0.4-3
       "7.0":
+        - 7.0.40-22
         - 7.0.39-21
         - 7.0.37-20
         - 7.0.34-19
@@ -590,6 +592,7 @@ images:
         - 17.2-1
         - 17.0-1
       "18":
+        - 18.6-1
         - 18.4-2
         - 18.4-1
         - 18.3-1
@@ -725,7 +728,7 @@ images:
     arch: amd64
     tag: dbcanvas-systemd:oraclelinux-10-amd64
     base: oraclelinux:10
-    built_at: 2026-07-15T03:36:58Z
+    built_at: 2026-08-20T09:33:00Z
     percona_server:
       "8.0":
         - 8.0.45-36.1
@@ -800,6 +803,7 @@ images:
         - 17.6-1
         - 17.5-3
       "18":
+        - 18.6-1
         - 18.4-2
         - 18.4-1
         - 18.3-2
@@ -910,7 +914,7 @@ images:
     arch: amd64
     tag: dbcanvas-systemd:ubuntu-22.04-amd64
     base: ubuntu:22.04
-    built_at: 2026-07-15T03:38:31Z
+    built_at: 2026-08-20T09:33:00Z
     percona_server:
       "8.0":
         - 8.0.46-37-1
@@ -1002,11 +1006,11 @@ images:
         - 6.0.25-20
         - 6.0.24-19
       "7.0":
+        - 7.0.40-22
         - 7.0.39-21
         - 7.0.37-20
         - 7.0.34-19
         - 7.0.32-18
-        - 7.0.31-17
       "8.0":
         - 8.0.28-12
         - 8.0.26-11
@@ -1076,6 +1080,7 @@ images:
         - 17.9-1
         - 17.6-1
       "18":
+        - 18.6-1
         - 18.4-2
         - 18.4-1
         - 18.3-1
@@ -1118,7 +1123,7 @@ images:
     arch: amd64
     tag: dbcanvas-systemd:ubuntu-24.04-amd64
     base: ubuntu:24.04
-    built_at: 2026-07-15T03:41:39Z
+    built_at: 2026-08-20T09:33:01Z
     percona_server:
       "8.0":
         - 8.0.46-37-1
@@ -1176,11 +1181,11 @@ images:
         - 6.0.25-20
         - 6.0.24-19
       "7.0":
+        - 7.0.40-22
         - 7.0.39-21
         - 7.0.37-20
         - 7.0.34-19
         - 7.0.32-18
-        - 7.0.31-17
       "8.0":
         - 8.0.28-12
         - 8.0.26-11
@@ -1226,6 +1231,7 @@ images:
         - 17.9-1
         - 17.6-1
       "18":
+        - 18.6-1
         - 18.4-2
         - 18.4-1
         - 18.3-1
@@ -1246,8 +1252,12 @@ images:
         - 10.11.18+maria~ubu2404
         - 10.11.17+maria~ubu2404
         - 10.11.16+maria~ubu2404
-      "11.4": []
-      "11.8": []
+      "11.4":
+        - 11.4.12+maria~ubu2404
+        - 11.4.11+maria~ubu2404
+      "11.8":
+        - 11.8.8+maria~ubu2404
+        - 11.8.7+maria~ubu2404
     mysql_community:
       "8.0":
         - 8.0.46-1ubuntu24.04
@@ -1256,14 +1266,262 @@ images:
       "9.7":
         - 9.7.2-1ubuntu24.04
     spock:
+  - os: debian
+    version: "12"
+    platform: linux/amd64
+    arch: amd64
+    tag: dbcanvas-systemd:debian-12-amd64
+    base: debian:12
+    built_at: 2026-08-20T09:33:01Z
+    percona_server:
+      "8.0":
+        - 8.0.46-37-1
+        - 8.0.45-36-1
+        - 8.0.44-35-1
+        - 8.0.43-34-1
+        - 8.0.42-33-1
+        - 8.0.41-32-1
+        - 8.0.40-31-1
+        - 8.0.39-30-1
+        - 8.0.37-29-1
+        - 8.0.36-28-1
+        - 8.0.35-27-1
+        - 8.0.34-26-1
+      "8.4":
+        - 8.4.10-10-1
+        - 8.4.8-8-1
+        - 8.4.7-7-1
+        - 8.4.6-6-1
+        - 8.4.5-5-1
+      "9.7":
+        - 9.7.1-1-1
+      "5.7":
+        - 5.7.44-48-1
+        - 5.7.43-47-1
+    percona_xtradb_cluster:
+      "8.0":
+        - 8.0.46-38-1
+        - 8.0.45-36-1
+        - 8.0.44-35-1
+        - 8.0.43-34-1
+        - 8.0.42-33-1
+        - 8.0.41-32-1
+        - 8.0.40-31-1
+        - 8.0.39-30-1
+        - 8.0.37-29-1
+        - 8.0.36-28-1
+        - 8.0.35-27-1
+        - 8.0.34-26-1
+        - 8.0.33-25-1
+      "8.4":
+        - 8.4.10-10-1
+        - 8.4.8-8-1
+        - 8.4.7-7-1
+        - 8.4.6-6-1
+        - 8.4.5-5-1
+    proxysql:
+      "2":
+        - 2.7.3-1.2
+        - 2.7.3-1.1
+        - 2.7.1-1.2
+        - 2.7.1-1.1
+        - 2.6.5-1.1
+        - 2.6.3-1.1
+        - 2.6.2-1.1
+        - 2.5.5-1.2
+        - 2.5.5-1.1
+        - 2.5.4-1.1
+        - 2.5.3-1.1
+      "3":
+        - 3.0.9-1.1
+        - 3.0.6-1.1
+        - 3.0.1-1.1
+    percona_server_mongodb:
+      "6.0": []
+      "7.0":
+        - 7.0.40-22
+        - 7.0.39-21
+        - 7.0.37-20
+        - 7.0.34-19
+        - 7.0.32-18
+      "8.0":
+        - 8.0.28-12
+        - 8.0.26-11
+        - 8.0.23-10
+        - 8.0.21-9
+        - 8.0.20-8
+    percona_postgresql:
+      "13":
+        - 13.23-2
+        - 13.22-1
+        - 13.20-1
+        - 13.18-1
+        - 13.16-1
+        - 13.15-1
+        - 13.14-1
+        - 13.12-1
+      "14":
+        - 14.24-1
+        - 14.23-1
+        - 14.22-1
+        - 14.15-1
+        - 14.13-1
+        - 14.12-1
+        - 14.11-1
+        - 14.9-1
+      "15":
+        - 15.19-1
+        - 15.18-1
+        - 15.17-1
+        - 15.15-1
+        - 15.14-1
+        - 15.10-1
+        - 15.8-1
+        - 15.7-1
+        - 15.6-1
+        - 15.4-1
+      "16":
+        - 16.15-1
+        - 16.14-1
+        - 16.13-1
+        - 16.10-1
+        - 16.6-1
+        - 16.4-1
+        - 16.3-1
+        - 16.2-1
+        - 16.0-1
+      "17":
+        - 17.11-1
+        - 17.10-2
+        - 17.10-1
+        - 17.9-1
+        - 17.6-1
+      "18":
+        - 18.6-1
+        - 18.4-2
+        - 18.4-1
+        - 18.3-1
+    percona_valkey:
+      "9.1":
+        - 9.1.1-2
+        - 9.1.0-1
+    percona_orchestrator:
+      "3":
+        - 3.2.6-22
+        - 3.2.6-20
+        - 3.2.6-19
+        - 3.2.6-18
+        - 3.2.6-17
+    mariadb:
+      "10.6": []
+      "10.11":
+        - 10.11.18+maria~deb12
+        - 10.11.17+maria~deb12
+        - 10.11.16+maria~deb12
+      "11.4":
+        - 11.4.12+maria~deb12
+        - 11.4.11+maria~deb12
+      "11.8":
+        - 11.8.8+maria~deb12
+        - 11.8.7+maria~deb12
+    mysql_community:
+      "8.0":
+        - 8.0.46-1debian12
+      "8.4":
+        - 8.4.11-1debian12
+      "9.7":
+        - 9.7.2-1debian12
+    spock:
+  - os: debian
+    version: "13"
+    platform: linux/amd64
+    arch: amd64
+    tag: dbcanvas-systemd:debian-13-amd64
+    base: debian:13
+    built_at: 2026-08-20T09:33:01Z
+    percona_server:
+      "8.0": []
+      "8.4":
+        - 8.4.10-10-1
+        - 8.4.8-8-1
+        - 8.4.7-7-1
+      "9.7":
+        - 9.7.1-1-1
+      "5.7": []
+    percona_xtradb_cluster:
+      "8.0": []
+      "8.4":
+        - 8.4.10-10-1
+        - 8.4.8-8-1
+        - 8.4.7-7-1
+    proxysql:
+      "2": []
+      "3":
+        - 3.0.9-1.1
+        - 3.0.6-1.1
+    percona_server_mongodb:
+      "6.0": []
+      "7.0": []
+      "8.0":
+        - 8.0.28-12
+    percona_postgresql:
+      "13":
+        - 13.23-2
+      "14":
+        - 14.24-1
+        - 14.23-1
+        - 14.22-1
+      "15":
+        - 15.19-1
+        - 15.18-1
+        - 15.17-1
+        - 15.15-1
+      "16":
+        - 16.15-1
+        - 16.14-1
+        - 16.13-1
+      "17":
+        - 17.11-1
+        - 17.10-2
+        - 17.10-1
+        - 17.9-1
+      "18":
+        - 18.6-1
+        - 18.4-2
+        - 18.4-1
+        - 18.3-1
+    percona_valkey:
+      "9.1":
+        - 9.1.1-2
+        - 9.1.0-1
+    percona_orchestrator:
+      "3":
+        - 3.2.6-22
+        - 3.2.6-20
+        - 3.2.6-19
+    mariadb:
+      "10.6": []
+      "10.11": []
+      "11.4": []
+      "11.8":
+        - 11.8.8+maria~deb13
+        - 11.8.7+maria~deb13
+    mysql_community:
+      "8.0": []
+      "8.4":
+        - 8.4.11-1debian13
+      "9.7":
+        - 9.7.2-1debian13
+    spock:
 # PMM3 (Percona Monitoring and Management) server image versions, discovered
 # from the percona/pmm-server registry. 'default_tag' is the rolling latest-3.x tag
 # used when no specific minor version is selected. Re-run: make versions
 pmm:
   repository: percona/pmm-server
   default_tag: "3"
-  latest: "3.9.0"
+  latest: "3.9.1"
   versions:
+    - "3.9.1"
     - "3.9.0"
     - "3.8.1"
     - "3.8.0"
@@ -1427,39 +1685,6 @@ operators:
 # pins the *chart* version — which is not the version of the operator it ships (the
 # cloudnative-pg chart 0.29.0 carries operator 1.30.x). Re-run: make versions
 charts:
-  pgo:
-    repository: oci://registry.developers.crunchydata.com/crunchydata/pgo
-    latest: "6.0.2"
-    versions:
-      - "6.0.2"
-      - "6.0.1"
-      - "6.0.0"
-      - "5.8.8"
-      - "5.8.7"
-      - "5.8.6"
-      - "5.8.5"
-      - "5.8.4"
-      - "5.8.3"
-      - "5.8.2"
-      - "5.8.1"
-      - "5.8.0"
-      - "5.7.4"
-      - "5.7.3"
-      - "5.7.2"
-      - "5.7.1"
-      - "5.7.0"
-      - "5.6.1"
-      - "5.6.0"
-      - "5.5.2"
-      - "5.5.1"
-      - "5.5.0"
-      - "5.4.3"
-      - "5.4.2"
-      - "5.4.1"
-      - "5.4.0"
-      - "5.3.2"
-      - "5.3.1"
-      - "5.3.0"
   cloudnative-pg:
     repository: https://cloudnative-pg.github.io/charts
     latest: "0.29.0"
@@ -1506,8 +1731,10 @@ charts:
       - "0.14.2"
   kube-prometheus-stack:
     repository: https://prometheus-community.github.io/helm-charts
-    latest: "88.5.0"
+    latest: "88.5.2"
     versions:
+      - "88.5.2"
+      - "88.5.1"
       - "88.5.0"
       - "88.4.0"
       - "88.3.0"
@@ -1546,8 +1773,6 @@ charts:
       - "87.10.1"
       - "87.10.0"
       - "87.9.0"
-      - "87.8.0"
-      - "87.7.0"
   cert-manager:
     repository: https://charts.jetstack.io
     latest: "v1.21.1"
@@ -1592,19 +1817,44 @@ charts:
       - "v1.14.7"
       - "v1.14.6"
       - "v1.14.5"
+  pgo:
+    repository: oci://registry.developers.crunchydata.com/crunchydata/pgo
+    latest: "6.0.2"
+    versions:
+      - "6.0.2"
+      - "6.0.1"
+      - "6.0.0"
+      - "5.8.8"
+      - "5.8.7"
+      - "5.8.6"
+      - "5.8.5"
+      - "5.8.4"
+      - "5.8.3"
+      - "5.8.2"
+      - "5.8.1"
+      - "5.8.0"
+      - "5.7.4"
+      - "5.7.3"
+      - "5.7.2"
+      - "5.7.1"
+      - "5.7.0"
+      - "5.6.1"
+      - "5.6.0"
+      - "5.5.2"
+      - "5.5.1"
+      - "5.5.0"
+      - "5.4.3"
+      - "5.4.2"
+      - "5.4.1"
+      - "5.4.0"
+      - "5.3.2"
+      - "5.3.1"
+      - "5.3.0"
 # Container images a chart-installed operator is pointed at, as opposed to the chart
 # itself. A CloudNativePG Cluster picks its PostgreSQL with spec.imageName; only the
 # bare major tags are listed, which is what imageName takes (the registry also carries
 # ~10k minor/patch/distro variants). Re-run: make versions
 chart_images:
-  crunchy-postgres:
-    repository: registry.developers.crunchydata.com/crunchydata/crunchy-postgres
-    latest: "18"
-    versions:
-      - "18"
-      - "17"
-      - "16"
-      - "15"
   cnpg-postgresql:
     repository: ghcr.io/cloudnative-pg/postgresql
     latest: "18"
@@ -1618,6 +1868,14 @@ chart_images:
       - "12"
       - "11"
       - "10"
+  crunchy-postgres:
+    repository: registry.developers.crunchydata.com/crunchydata/crunchy-postgres
+    latest: "18"
+    versions:
+      - "18"
+      - "17"
+      - "16"
+      - "15"
 # k3s image tags — the Kubernetes version a K3D cluster frame runs. The frame's
 # picker offers these; "latest" means the first entry. Re-run: make versions
 k3s:

@@ -320,29 +320,35 @@ echo '@@ORCH@@'; madison percona-orchestrator | sort -rV -u
 EOS
   want_probe upstream && cat <<'EOS'
 # ---- Non-Percona upstreams: MariaDB and MySQL Community ----
-# See the matching block in rhel_probe. Two Debian-specific differences:
+# See the matching block in rhel_probe. Three Debian-specific differences:
 #   * MariaDB's apt repo is per major AND per codename, and older series have no
 #     build for newer codenames (10.6 has no noble). A missing series makes
 #     `apt-get update` print an error for that one list file and carry on, so the
 #     other series still resolve — the missing one just yields an empty list.
 #   * MySQL's apt components are spelled differently from its yum repo paths:
 #     mysql-8.0 but mysql-8.4-lts (yum uses mysql-8.4-community).
+#   * Both upstreams split their apt trees by distribution, not just by codename
+#     (.../repo/11.4/ubuntu vs .../repo/11.4/debian), so the path comes from
+#     os-release's ID — Ubuntu codenames are not served under the Debian tree and
+#     vice versa. Percona's own repos need no such split: percona-release writes
+#     them itself.
 export DEBIAN_FRONTEND=noninteractive
 apt-get install -y -qq curl gnupg ca-certificates >/dev/null 2>&1
 install -d /etc/apt/keyrings
 CODE="$(. /etc/os-release; echo "$VERSION_CODENAME")"
+DISTRO="$(. /etc/os-release; echo "$ID")"
 curl -fsSL https://mariadb.org/mariadb_release_signing_key.pgp -o /etc/apt/keyrings/dbc-mariadb.pgp 2>/dev/null
 # RPM-GPG-KEY-mysql-2025, not -2023: same key, but the -2023 copy is expired.
 curl -fsSL https://repo.mysql.com/RPM-GPG-KEY-mysql-2025 2>/dev/null | gpg --batch --yes --dearmor -o /etc/apt/keyrings/dbc-mysql.gpg 2>/dev/null
 for V in 10.6 10.11 11.4 11.8; do
-  echo "deb [signed-by=/etc/apt/keyrings/dbc-mariadb.pgp] https://mirror.mariadb.org/repo/$V/ubuntu $CODE main" \
+  echo "deb [signed-by=/etc/apt/keyrings/dbc-mariadb.pgp] https://mirror.mariadb.org/repo/$V/$DISTRO $CODE main" \
     >"/etc/apt/sources.list.d/dbc-mariadb-$V.list"
 done
-echo "deb [signed-by=/etc/apt/keyrings/dbc-mysql.gpg] https://repo.mysql.com/apt/ubuntu $CODE mysql-8.0" \
+echo "deb [signed-by=/etc/apt/keyrings/dbc-mysql.gpg] https://repo.mysql.com/apt/$DISTRO $CODE mysql-8.0" \
   >/etc/apt/sources.list.d/dbc-mysqlce-8.0.list
-echo "deb [signed-by=/etc/apt/keyrings/dbc-mysql.gpg] https://repo.mysql.com/apt/ubuntu $CODE mysql-8.4-lts" \
+echo "deb [signed-by=/etc/apt/keyrings/dbc-mysql.gpg] https://repo.mysql.com/apt/$DISTRO $CODE mysql-8.4-lts" \
   >/etc/apt/sources.list.d/dbc-mysqlce-8.4.list
-echo "deb [signed-by=/etc/apt/keyrings/dbc-mysql.gpg] https://repo.mysql.com/apt/ubuntu $CODE mysql-9.7-lts" \
+echo "deb [signed-by=/etc/apt/keyrings/dbc-mysql.gpg] https://repo.mysql.com/apt/$DISTRO $CODE mysql-9.7-lts" \
   >/etc/apt/sources.list.d/dbc-mysqlce-9.7.list
 apt-get update >/dev/null 2>&1
 # Restrict to the upstream builds (+maria~): Ubuntu's own archive also carries a
