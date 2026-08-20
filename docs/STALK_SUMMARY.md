@@ -7,6 +7,8 @@ age, replication lag, deadlocks, rows-scanned-without-index, and more). It's ~90
 ~10% text — with a consolidated, **sortable** processlist and per-session InnoDB transactions —
 and stays resilient when files are missing from the archive.
 
+![Stalk Summary — verdicts and charts from a pt-stalk capture](screenshots/stalk-summary.png)
+
 ---
 
 See also: [Log Summary](LOG_SUMMARY.md) · [FTDC Summary](FTDC_SUMMARY.md)

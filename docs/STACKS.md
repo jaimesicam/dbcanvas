@@ -194,9 +194,12 @@ worth knowing: pgBackRest speaks S3 only over TLS, so its backups need a Seaweed
 on** — the designer warns you when it isn't, because without it the cluster silently keeps the
 operator's own PVC backup repo and the bucket stays empty.)
 
-> *A one-node K3D cluster running the **PXC operator 1.20.0** on k3s v1.36.2: the database is exposed
-> as ClusterIP while HAProxy takes a **MetalLB** address from the stack subnet, backups go to the
-> `pxc-backups` bucket on SeaweedFS, and PMM watches it through a service token DBCanvas minted.*
+![A K3D cluster node's panel — the operator, the cluster it built, and its MetalLB block](screenshots/k3d-cluster.png)
+
+> *A one-node K3D cluster on k3s v1.36.3 running **CloudNativePG 0.29.0**, which has built a
+> two-instance Postgres cluster and reports it healthy. The cluster's LoadBalancer addresses come
+> from this frame's own **MetalLB block** — several K3D frames can share a stack, so each gets
+> eight addresses of its own — and the manifests DBCanvas applied are archived on the node.*
 
 **Kubeconfig and RBAC users, for testing access control.** The K3D server node's panel has a
 **Kubeconfig** tab (a copyable admin kubeconfig, pointed at k3d's own load balancer so it works
@@ -236,8 +239,23 @@ sessions survive navigation and can be docked or floated (**Settings** picks whi
 **Monitoring with PMM.** Add a PMM node and point databases at it; DB nodes register
 themselves, so Percona Monitoring & Management comes up already watching the stack:
 
+![A PMM node's panel — its address, its admin login, and what it is monitoring](screenshots/pmm-node.png)
+
+![Percona Monitoring & Management, already watching the services that registered with it](screenshots/pmm-web.png)
+
 **Ubuntu VNC desktop.** An optional XFCE desktop jump-box (Firefox + Percona clients)
 reachable over a browser-based VNC client — handy for GUI database tools inside the stack network:
+
+![The Ubuntu VNC desktop, querying a cluster node by name with the pre-installed client](screenshots/vnc-desktop.png)
+
+> *The desktop is on the stack network, so `pxc01.example.net` resolves and the clients that
+> ship in the image reach it without any setup.*
+
+![The SeaweedFS node's Buckets tab — a read-only browser over what the databases wrote](screenshots/seaweedfs-buckets.png)
+
+> *The bucket browser on a freshly deployed target, before anything has backed up to it. Each
+> engine writes to its own prefix — PBM under `pbm/<cluster>`, pgBackRest under
+> `pgbackrest/<cluster>`, xtrabackup and the Percona operators at the top level.*
 
 **Diagnostics captures.** From a running node's panel, capture a diagnostic bundle and
 download it: **pg_gather** (a single `GatherReport.html`) on PostgreSQL nodes, or
