@@ -1981,6 +1981,7 @@ function StackEditor({ stackId, onBack }) {
       k3dPgoInstances: 2, k3dPgoStorageGb: 1, k3dPgoVersion: '',
       k3dClusterType: 'group-replication', k3dExposeMysql: 'clusterip', k3dExposeRouter: 'loadbalancer',
       k3dPmmTokenTtlValue: 365, k3dPmmTokenTtlUnit: 'days',
+      k3dDebug: false, k3dDebugPort: 40000,
       pmmNodeId: '', seaweedfsNodeId: '',
     }
     const r = relayout(fid, [...frames, frame], [...nodes, newK3DMember(fid)])
@@ -6409,6 +6410,46 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
           </p>
         )}
       </div>
+
+      {/* Debugging the operator is a deploy-time decision twice over: the debug binary is compiled
+          from the operator's own source tarball, and k3d fixes a cluster's published ports when it
+          creates it. Both are why this cannot be switched on after the fact. */}
+      {op === 'pxc' && (
+        <div className="space-y-2 rounded-lg bg-surface2 p-2">
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-1" disabled={deployed}
+              checked={!!f.k3dDebug}
+              onChange={(e) => patchFrame(f.id, { k3dDebug: e.target.checked })} />
+            <span>
+              Run the operator under Delve
+              <span className="block text-xs text-muted">
+                Compiles the operator from the tag's source with the optimiser off
+                (<span className="font-mono">-gcflags=all=-N -l</span>), runs that binary under
+                <span className="font-mono"> dlv</span>, and publishes the debugger's port to the host so an IDE
+                can attach — no <span className="font-mono">kubectl port-forward</span> to keep alive. The pod
+                keeps the released image; only its command changes. Adds a few minutes for the build.
+              </span>
+            </span>
+          </label>
+          {f.k3dDebug && (
+            <>
+              <Field label="Debugger port (host)"
+                hint="Fixed rather than auto-assigned — it goes in your IDE's launch.json, and k3d can only publish it while the cluster is being created.">
+                <input type="number" min="1024" max="65535" className={`${inputCls} w-28`} disabled={deployed}
+                  value={f.k3dDebugPort || 40000}
+                  onChange={(e) => patchFrame(f.id, { k3dDebugPort: Number(e.target.value) })} />
+              </Field>
+              <p className="text-xs text-muted">
+                Attach to <span className="font-mono">127.0.0.1:{f.k3dDebugPort || 40000}</span> once the cluster is
+                up — the server node's panel carries the <span className="font-mono">launch.json</span> and the
+                matching <span className="font-mono">git clone</span>. Delve starts with
+                <span className="font-mono"> --continue</span>, so the cluster deploys normally whether or not
+                anyone ever attaches.
+              </p>
+            </>
+          )}
+        </div>
+      )}
 
       <Field label="Backups (SeaweedFS)" hint="Optional — sets the operator's S3 backup storage.">
         <select className={`${inputCls} ${lock}`} value={f.seaweedfsNodeId || ''} disabled={deployed}

@@ -194,6 +194,18 @@ worth knowing: pgBackRest speaks S3 only over TLS, so its backups need a Seaweed
 on** — the designer warns you when it isn't, because without it the cluster silently keeps the
 operator's own PVC backup repo and the bucket stays empty.)
 
+**Step through the operator itself.** A PXC frame can be deployed with the operator running
+under **Delve**: tick *Run the operator under Delve*, and DBCanvas rebuilds the operator from
+that release's own source with the optimiser off, runs it under `dlv` in place of the released
+binary, and publishes the debugger on `127.0.0.1:40000`. Attach your IDE, put a breakpoint in
+`Reconcile`, annotate the custom resource, and watch the reconcile loop run against a real
+cluster — no `kubectl port-forward` to keep alive. The pod keeps the released image (only its
+command changes), the liveness probe and leader election are turned off so you can sit on a
+breakpoint, and Delve starts with `--continue` so the cluster still deploys whether or not you
+attach. The server node's **Operator** tab hands you the matching `git clone`, a ready
+`launch.json` (with the `substitutePath` that makes source line up), and the annotation that
+forces a reconcile. It costs a few minutes of build time on the first deploy.
+
 ![A K3D cluster node's panel beside a console listing the pods the operator built](screenshots/k3d-cluster.png)
 
 > *A one-node K3D cluster on k3s v1.36.3 running the **Percona Operator for MySQL (PXC)

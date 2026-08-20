@@ -466,6 +466,12 @@ type designFrame struct {
 	// its own expiry (default 365 days) — after that the pods stop reporting.
 	K3DPMMTokenTTLValue int    `json:"k3dPmmTokenTtlValue"` // 0 → 365
 	K3DPMMTokenTTLUnit  string `json:"k3dPmmTokenTtlUnit"`  // minutes | hours | days ("" → days)
+	// Run the operator under Delve, with the debugger's port published to the host so an IDE
+	// can attach to it. Both are deploy-time decisions: the debug binary is compiled from the
+	// operator's own source tarball, and the host port can only be published while the k3d
+	// cluster is being created. See k3ddebug.go.
+	K3DDebug     bool `json:"k3dDebug"`
+	K3DDebugPort int  `json:"k3dDebugPort"` // host port for Delve; 0 → 40000
 }
 
 type designDoc struct {

@@ -16795,3 +16795,103 @@ panel alone could not show.
 - Both are of the running systems: the PXC cluster reached three ready members before the shot,
   and the log verdict describes the restart this session caused.
 - Captions rewritten; every link and screenshot reference still resolves.
+
+## 295. Stepping through the operator: the K3D frame can run it under Delve — `app/k3ddebug.go` (new), `app/{k3d,intranet}.go`, `app/web/src/pages/{StackDesigner,K3DManager}.jsx`
+
+A K3D frame running the PXC operator can now be deployed with the operator **under a
+debugger**: a checkbox on the frame, and when the cluster comes up an IDE attaches to
+`127.0.0.1:40000` and steps through `Reconcile` against a real cluster. No
+`kubectl port-forward` to keep alive, and no hand-built image.
+
+Three things have to happen, and each one is why this is a deploy-time option rather than
+something to bolt on afterwards.
+
+**A debug build.** The release image's binary is compiled with the optimiser on and stripped;
+Delve attaches to it but shows inlined frames and "optimized out" locals. So the tag's
+source — the tarball the frame *already* downloads for bundle.yaml and cr.yaml — is compiled
+again with `-gcflags=all=-N -l` in a throwaway `golang:<go.mod's own version>` container, next
+to a `dlv` built by the same toolchain. The builder runs on the daemon's architecture and
+cross-compiles to `k3dPlatform()`'s, because a K3D frame targets linux/amd64 even on an arm64
+host and a Go cross-compile is free where qemu is not. The module and build caches live in
+named volumes, so the second debug deploy skips the operator's very large dependency tree.
+
+**Getting the binaries into the pod — without building an image.** DBCanvas has no image
+build (`docker.go` pulls; it does not build), and a locally built image then has to be
+imported into every k3s node and kept in step with the cluster's platform. Instead the two
+static binaries are dropped into `/opt/dbcanvas-debug` on every k3s node *container* and
+mounted into the operator pod as a `hostPath` — kubelet runs inside that container, so its
+idea of "the host" is the node container's filesystem. Every node, not just the one the
+operator lands on: a missing hostPath leaves the pod in ContainerCreating.
+
+Keeping the **stock image** on the pod is the part that pays for itself. The operator resolves
+the init-container image it gives every database pod from its own pod's image
+(`k8s.GetInitImage`), so an operator running from a locally built image needs
+`spec.initContainer.image` pinned in cr.yaml or every database pod fails to pull. Because only
+the *command* changes here, `crTransform` needed no change at all.
+
+**Publishing the port.** A NodePort Service in front of the operator pod, and
+`--port <bind>:<host>:30400@server:0` on `k3d cluster create` — which k3d accepts only at
+create time (a running cluster's ports cannot be changed except by `k3d cluster edit
+--port-add`, which only targets the load balancer). The host port is fixed rather than
+auto-assigned because it goes into an IDE's `launch.json`; a collision is checked before the
+cluster is created, *after* the pre-emptive `cluster delete`, so a redeploy does not collide
+with its own predecessor. Bound to `CONTAINER_BIND_IP` (loopback by default) like every other
+published port — a Delve listener is remote code execution by design.
+
+Four details in the patch are each load-bearing, and three of them are only visible once you
+try to sit on a breakpoint:
+
+- `livenessProbe: null` — the probe hits the operator's own endpoint, which stops answering at
+  a breakpoint; kubelet kills the pod within 30s otherwise.
+- `PXCO_LEADER_ELECTION_ENABLED=false` — the manager renews a lease every 10s and *exits* when
+  it cannot. A paused process cannot.
+- `--only-same-user=false` — **this is the one the usual recipe hides.** Delve refuses any
+  connection it cannot prove came from the user that started it, which it can only do for a
+  loopback peer. `kubectl port-forward` arrives from inside the pod's own netns and passes; a
+  NodePort arrives from the node's address and is silently refused.
+- `--continue` — the operator runs immediately instead of waiting for a client, so the cluster
+  is built whether or not anyone ever attaches.
+
+The debugger never fails the deploy: a failed rollout is `rollout undo`-ne back to the shipped
+spec and the reason is recorded in the config, because an operator that could not be debugged
+is still a working operator, and half an operator is not.
+
+The server node's Operator tab carries the three steps — the `git clone -b v<version>` that
+matches the deployed binary, the `launch.json`, and the annotation that forces a reconcile.
+The `launch.json` includes the `substitutePath` mapping `${workspaceFolder}` onto
+`/go/src/github.com/percona/percona-xtradb-cluster-operator`, which is the piece that is easy
+to miss: the binary was compiled inside a container, so its DWARF paths are that container's,
+and without the mapping the debugger stops at a breakpoint it cannot show source for.
+
+Only PXC for now (`k3dDebuggableOperator`); the other three are a map entry each, but each has
+to be tried on a live cluster before it is offered, and a frame asking for one it cannot have
+is told so rather than quietly deploying without.
+
+### Verified
+
+End to end on a live k3d cluster, running the exact commands the code emits:
+
+- The build: `dlv v1.27.1` and an 82 MiB unstripped operator binary out of `golang:1.26`,
+  cross-compiled, in one pass.
+- The drop and mount: the pod runs as `uid=2(daemon)` and executes root-owned 0755 binaries
+  off the hostPath. (`/root` does *not* exist in the k3s image and `/opt` does not either —
+  both are `mkdir -p`'d first, which is what `k3dFetchOperator` already does for `/root`.)
+- The attach: `dlv connect 127.0.0.1:40000` from the host, `break
+  pkg/controller/pxc/controller.go:258`, `kubectl apply -f cr.yaml` — breakpoint hit in
+  `Reconcile`, six full stack frames with no inlining, and `print
+  request.NamespacedName.Name` → `"cluster1"`. The operator survived the client disconnecting
+  and went on to reconcile the cluster.
+- The DWARF paths came back as
+  `/go/src/github.com/percona/percona-xtradb-cluster-operator/pkg/controller/pxc/controller.go`,
+  which is what the generated `substitutePath` targets.
+- That live run corrected the readiness check: `kubectl logs deployment/...` picks an
+  arbitrary pod from the selector and the one being replaced is still `Running` (Terminating
+  is not a phase) for seconds after `rollout status` returns, so the newest pod is named
+  explicitly; and Delve's "API server listening at" is the log's *first* line, under
+  everything the operator has said since, so it is read with `--limit-bytes` rather than a
+  `--tail`.
+- Tests: eleven, over the create flag and its loopback binding, the NodePort range, the
+  patch's shape and every flag in it, the Service's selector, the cross-compile target, and
+  that `go.mod` is read from the module root — a source tarball also carries
+  `.github/linters/go.mod`, which sorts first and which suffix matching would have found.
+  `go build`, `go vet`, `go test ./...` and the smoke suite green.

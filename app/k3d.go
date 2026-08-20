@@ -174,6 +174,13 @@ type k3dConfig struct {
 	// ("" = not archived). CNPG only: the Percona operators leave their release source in
 	// /root already.
 	ManifestDir string `json:"manifestDir"`
+	// The operator under Delve (frame.K3DDebug) — see k3ddebug.go. DebugStatus is "" when the
+	// frame did not ask for it, "listening" when it is up, and carries the reason otherwise:
+	// a debugger that could not be attached must not read as one that was.
+	DebugPort     int    `json:"debugPort"`     // host port Delve is published on
+	DebugNodePort int    `json:"debugNodePort"` // the NodePort behind it (in-stack access)
+	DebugBuildDir string `json:"debugBuildDir"` // where the binary was compiled (launch.json substitutePath)
+	DebugStatus   string `json:"debugStatus"`
 }
 
 // k3dSecrets holds the credentials a K3D frame was provisioned with, kept out of k3dConfig
@@ -284,6 +291,24 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 			}
 		} else if _, ok := opCat.resolveOperatorVersion(op, f.K3DOperatorVer); !ok {
 			out = append(out, issue{"error", "K3D cluster " + name + " requests an unknown " + op + " operator version — pick one from the list, or run `make versions`"})
+		}
+	}
+
+	// Debugging the operator is wired up per operator (k3dDebuggableOperator), and its host port
+	// is fixed rather than auto-assigned — both are things a design can ask for and not get, so
+	// both are said here rather than discovered in a deploy log.
+	if f.K3DDebug {
+		if op := strings.TrimSpace(f.K3DOperator); !k3dDebuggableOperator[op] {
+			out = append(out, issue{"warning", "K3D cluster " + name + " asks to run its operator under Delve, which " +
+				k3dOperatorLabel(op) + " does not support yet — the cluster deploys normally, without a debugger"})
+		} else if p := k3dDebugHostPort(f); p < 1024 {
+			out = append(out, issue{"error", "K3D cluster " + name + ": the debugger's host port " + strconv.Itoa(p) +
+				" is privileged — pick one above 1024"})
+		} else if used, err := a.engCtx(ctx).ListPublishedPorts(ctx); err == nil {
+			if owner, taken := used[p]; taken && !strings.HasPrefix(owner, k3dContainerPrefix+sanitizeName(f.Label)) {
+				out = append(out, issue{"warning", "K3D cluster " + name + ": host port " + strconv.Itoa(p) +
+					" (the debugger) is already published by " + owner + " — the deploy will fail unless it is gone by then"})
+			}
 		}
 	}
 
@@ -659,10 +684,27 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 			"--api-port", "0.0.0.0:0",
 			"--wait", "--timeout", "10m",
 		}
+		// The debugger's port is published here or not at all: k3d fixes a cluster's port
+		// mappings at create time. See k3ddebug.go.
+		if k3dDebugOn(frame) {
+			args = append(args, k3dDebugCreateArgs(frame)...)
+		}
 		// A previous run (or a failed one) may have left the cluster behind, and k3d refuses to
 		// create over it. Removing it first makes a redeploy idempotent — the same thing every
 		// other provisioner does with "remove the container of this name before creating it".
 		a.runK3D(ctx, nil, "cluster", "delete", cluster)
+		// The debugger's host port is fixed (it goes in an IDE's launch.json), so a collision is
+		// possible — and k3d's own failure for it lands halfway through creating the cluster.
+		// Checked after the delete above, or a redeploy would collide with its own predecessor.
+		if k3dDebugOn(frame) {
+			if used, err := a.engCtx(ctx).ListPublishedPorts(ctx); err == nil {
+				if owner, taken := used[k3dDebugHostPort(frame)]; taken {
+					failAll("host port %d (the debugger) is already published by %s — pick another on the frame",
+						k3dDebugHostPort(frame), owner)
+					return
+				}
+			}
+		}
 		if _, err := a.runK3D(ctx, pr.logln, args...); err != nil {
 			failAll("create k3d cluster: %v", err)
 			return
@@ -1315,6 +1357,11 @@ func (a *App) installPXCOperator(ctx context.Context, st Stack, frame designFram
 	}
 	if err := a.k3dApplyBundle(ctx, serverID, "percona-xtradb-cluster-operator", cfg, pr); err != nil {
 		return err
+	}
+	// The debugger goes on BEFORE cr.yaml: a breakpoint set while the deploy is still running
+	// then catches the cluster's very first reconcile. Never fatal — see k3dInstallDebugger.
+	if k3dDebugOn(frame) {
+		a.k3dInstallDebugger(ctx, st, frame, "percona-xtradb-cluster-operator", tarball, serverID, cfg, pr)
 	}
 	ns := cfg.Namespace
 
