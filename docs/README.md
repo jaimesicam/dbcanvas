@@ -8,7 +8,7 @@ How to use each part of DBCanvas. For installing and configuring it, see
 
 | Guide | What it covers |
 | --- | --- |
-| [Stacks](STACKS.md) | The canvas, every node and cluster type, deploying, TTLs, node panels, and the Docker/hybrid backends. |
+| [Stacks](STACKS.md) | The canvas, every node and cluster type, deploying, TTLs, node panels, web terminals, drag-and-drop file copy, the file manager, and the Docker/hybrid backends. |
 | [All in One](ALL_IN_ONE.md) | Many database instances inside a single node — versions and engines side by side. |
 
 ## Load and exercise them

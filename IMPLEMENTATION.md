@@ -16704,3 +16704,39 @@ be produced.
   `docs/screenshots/` is unreferenced.
 - Session 289's write-up was corrected in place: it claimed the eight could not be re-shot
   honestly, which was not true.
+
+## 292. The last two Packet Inspector screenshots, and the file manager nobody had written down — `docs/{STACKS,PACKET_INSPECTOR,README}.md`, `docs/screenshots/*`
+
+The two views session 291 left untaken are taken. Getting them needed three attempts, and the
+failures are the interesting part:
+
+- A capture started through the API does not appear on the page — it holds the current capture
+  in component state — so the capture has to be started from the UI it is being photographed
+  in.
+- Traffic generated *inside* the node being captured produces nothing: a client connecting to
+  its own hostname goes over loopback, and `tcpdump` is on `eth0`. The load has to come from
+  another container.
+- The load then has to outlast the capture window. A 500-iteration loop finished during the
+  browser's login, so the first correctly-aimed capture still recorded zero packets.
+
+With the traffic driven from `pxc01` at `ps01` for 200 seconds, the capture took 38,009 packets
+across 1,159 connections — **every one of them encrypted**, because MySQL 8 clients negotiate
+TLS by default. The summary says exactly that and explains how to capture statements anyway,
+which makes a better screenshot than a staged plaintext session would have: it is what a real
+capture against a modern client looks like. The detail view came out carrying the packet list,
+the inspection panel and the server error log in one frame, so it covers what was going to be
+two images. A third was kept from the run that captured `pxc01` by mistake — a Galera member on
+all four of its ports, which no other engine shows.
+
+**And the gap that was actually worth finding.** Drag-and-drop file copy and the file manager
+appeared in no document at all — not the README, not any guide — despite being how you get a
+config onto a node without a shell. They are now in the Stacks guide with both screenshots: a
+file dropped on a node offering `/`, `/home`, `/root`, `/tmp`, and the file manager browsing a
+node with its node picker, split-pane transfer and in-place editing.
+
+### Verified
+
+- Every link across `README.md` and `docs/*.md` resolves; no screenshot is unreferenced.
+- Both new screenshots are of the real features on the running demo stack — the drop dialog
+  names `desktop01` and the file size it was given, and the file manager lists that node's
+  filesystem with "10 running nodes in this stack" in its header.

@@ -236,6 +236,26 @@ sessions survive navigation and can be docked or floated (**Settings** picks whi
 
 ![A live per-node web terminal, querying the cluster it is running on](screenshots/terminal.png)
 
+**Getting files onto a node.** Drag a file — or a whole folder — from your desktop onto a node
+on the canvas. DBCanvas asks where to put it and copies it in; there is no scp, no bind mount
+and no shell involved:
+
+![Dropping a file on a node — DBCanvas asks which directory to copy it into](screenshots/file-drop.png)
+
+> *A dropped file offers the destinations worth having on that node (`/`, `/home`, `/root`,
+> `/tmp`), and the drop names the node so a mis-aimed drag is obvious before it happens.*
+
+**The file manager.** Right-click a running node and choose **File manager** for a full browser
+over its filesystem: navigate, upload and download, create files and folders, rename, change
+permissions and ownership, delete — and **edit a file in place**, which is usually what you
+actually want when a config is one line wrong.
+
+![The File Manager browsing a node's filesystem](screenshots/file-manager.png)
+
+> *Every running node in the stack is in the picker at the top left, so you can move between
+> them without closing the window. **Split** opens a second pane on another node and copies
+> between the two — the fastest way to put the same file on every member of a cluster.*
+
 **Monitoring with PMM.** Add a PMM node and point databases at it; DB nodes register
 themselves, so Percona Monitoring & Management comes up already watching the stack:
 

@@ -6,7 +6,22 @@ times, and the network problems underneath them — retransmissions, gaps, reset
 windows. It's for the question "what actually crossed the wire, and what did the
 server say back", which neither the slow log nor `SHOW PROCESSLIST` can answer.
 
-![The Packet Inspector — a capture decoded packet by packet](screenshots/packet-inspector.png)
+![A finished capture, summarised — and honest about what TLS hides](screenshots/packet-inspector.png)
+
+> *A 20-second capture on a Percona Server node: 38,009 packets, 1,159 connections, and every
+> one of them encrypted. The summary says so, and says what to do about it, rather than showing
+> an empty query list.*
+
+![The decoded packet list, the inspection panel, and the server's own error log](screenshots/packet-inspector-detail.png)
+
+> *Selecting a frame shows its timing, its TCP state, a payload summary and a hex dump. Below it
+> the node's own error log is read and narrowed to the capture's window — the place where the
+> things packets cannot show (aborted connections, DNS, TLS, the listener) are recorded.*
+
+![A PXC member captured on all four of its ports](screenshots/packet-inspector-galera.png)
+
+> *A Galera member speaks four protocols on four ports, and a capture on a PXC node takes all
+> four: 3306 for clients, 4444 for SST, 4567 for group communication, 4568 for IST.*
 
 Open it from the sidebar (**Packet Inspector**) or at `#packet-inspector`.
 
