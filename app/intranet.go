@@ -423,9 +423,21 @@ type designFrame struct {
 	K3DCNPGMonitoring  bool   `json:"k3dCnpgMonitoring"`  // install kube-prometheus-stack + PodMonitor
 	K3DCNPGPromVersion string `json:"k3dCnpgPromVersion"` // kube-prometheus-stack chart version; "" → latest
 	K3DCNPGExpose      string `json:"k3dCnpgExpose"`      // "clusterip" (default) | "loadbalancer" for the primary
-	K3DOperator        string `json:"k3dOperator"`        // "" | "pxc" | "ps" | "psmdb" | "pg"
-	K3DOperatorVer     string `json:"k3dOperatorVer"`     // "" = the catalog's latest
-	K3DNamespace       string `json:"k3dNamespace"`       // namespace the operator + CR are installed into
+	// Crunchy PGO frame fields (K3DOperator=="pgo"; ignored by every other operator).
+	// Backups reuse the frame's SeaweedFSNodeID/SeaweedFSBucket, and the Service types reuse
+	// K3DExposePG / K3DExposePGBouncer below — Crunchy's cluster has the same two tiers as
+	// Percona's, and a frame switched between the two operators means the same thing by them.
+	K3DPGOInstances int    `json:"k3dPgoInstances"` // Postgres instances (1..5); 0 → 2
+	K3DPGOStorageGB int    `json:"k3dPgoStorageGb"` // per-instance PVC size in GiB; 0 → 1
+	K3DPGOVersion   string `json:"k3dPgoVersion"`   // PostgreSQL major ("17"); "" → the catalog's newest
+	// Monitoring is the same kube-prometheus-stack CloudNativePG gets, but the exporter is the
+	// operator's own: spec.monitoring.pgmonitor.exporter adds a crunchy-postgres-exporter
+	// sidecar to every instance pod. Off by default — it is four more containers.
+	K3DPGOMonitoring  bool   `json:"k3dPgoMonitoring"`
+	K3DPGOPromVersion string `json:"k3dPgoPromVersion"` // kube-prometheus-stack chart version; "" → latest
+	K3DOperator     string `json:"k3dOperator"`     // "" | "pxc" | "ps" | "psmdb" | "pg" | "cnpg" | "pgo"
+	K3DOperatorVer  string `json:"k3dOperatorVer"`  // "" = the catalog's latest
+	K3DNamespace    string `json:"k3dNamespace"`    // namespace the operator + CR are installed into
 	// The proxy in front of the database. cr.yaml ships HAProxy enabled and the alternative disabled;
 	// they are mutually exclusive, so choosing one disables the other. PXC: haproxy | proxysql.
 	// PS: haproxy | router (MySQL Router understands group replication only).

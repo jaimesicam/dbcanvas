@@ -1427,6 +1427,39 @@ operators:
 # pins the *chart* version — which is not the version of the operator it ships (the
 # cloudnative-pg chart 0.29.0 carries operator 1.30.x). Re-run: make versions
 charts:
+  pgo:
+    repository: oci://registry.developers.crunchydata.com/crunchydata/pgo
+    latest: "6.0.2"
+    versions:
+      - "6.0.2"
+      - "6.0.1"
+      - "6.0.0"
+      - "5.8.8"
+      - "5.8.7"
+      - "5.8.6"
+      - "5.8.5"
+      - "5.8.4"
+      - "5.8.3"
+      - "5.8.2"
+      - "5.8.1"
+      - "5.8.0"
+      - "5.7.4"
+      - "5.7.3"
+      - "5.7.2"
+      - "5.7.1"
+      - "5.7.0"
+      - "5.6.1"
+      - "5.6.0"
+      - "5.5.2"
+      - "5.5.1"
+      - "5.5.0"
+      - "5.4.3"
+      - "5.4.2"
+      - "5.4.1"
+      - "5.4.0"
+      - "5.3.2"
+      - "5.3.1"
+      - "5.3.0"
   cloudnative-pg:
     repository: https://cloudnative-pg.github.io/charts
     latest: "0.29.0"
@@ -1564,6 +1597,14 @@ charts:
 # bare major tags are listed, which is what imageName takes (the registry also carries
 # ~10k minor/patch/distro variants). Re-run: make versions
 chart_images:
+  crunchy-postgres:
+    repository: registry.developers.crunchydata.com/crunchydata/crunchy-postgres
+    latest: "18"
+    versions:
+      - "18"
+      - "17"
+      - "16"
+      - "15"
   cnpg-postgresql:
     repository: ghcr.io/cloudnative-pg/postgresql
     latest: "18"

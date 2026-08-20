@@ -713,7 +713,7 @@ function validBucketName(b) {
 
 // The Percona operators a K3D frame can install (PostgreSQL is discovered by `make versions` but
 // not deployable yet).
-const K3D_OPERATOR_LABEL = { pxc: 'PXC operator', ps: 'MySQL (PS) operator', psmdb: 'MongoDB operator', pg: 'PostgreSQL operator', cnpg: 'CloudNativePG' }
+const K3D_OPERATOR_LABEL = { pxc: 'PXC operator', ps: 'MySQL (PS) operator', psmdb: 'MongoDB operator', pg: 'PostgreSQL operator', cnpg: 'CloudNativePG', pgo: 'Crunchy PGO' }
 
 // typeColor maps a node/frame type to its canvas color so a toolbar "add" button can
 // be tinted to match the node/frame it creates. addBtnStyle turns that into inline
@@ -1977,6 +1977,7 @@ function StackEditor({ stackId, onBack }) {
       k3dProxy: 'haproxy', k3dExposePxc: 'clusterip', k3dExposeHaproxy: 'loadbalancer', k3dExposeProxysql: 'loadbalancer',
       k3dSharding: false, k3dExposeReplset: 'clusterip', k3dExposeMongos: 'loadbalancer',
       k3dExposePg: 'clusterip', k3dExposePgbouncer: 'loadbalancer',
+      k3dPgoInstances: 2, k3dPgoStorageGb: 1, k3dPgoVersion: '',
       k3dClusterType: 'group-replication', k3dExposeMysql: 'clusterip', k3dExposeRouter: 'loadbalancer',
       k3dPmmTokenTtlValue: 365, k3dPmmTokenTtlUnit: 'days',
       pmmNodeId: '', seaweedfsNodeId: '',
@@ -6062,16 +6063,20 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
     return () => { alive = false }
   }, [])
   const op = f.k3dOperator || ''
-  // CloudNativePG is Helm-installed, so its version is a chart version and it has its own knobs.
+  // The two community PostgreSQL operators are Helm-installed, so their version is a *chart*
+  // version and each has its own knobs. Crunchy's chart lives in an OCI registry rather than on
+  // a Helm HTTP repo, but the catalog treats both the same way.
   const cnpg = op === 'cnpg'
+  const pgo = op === 'pgo'
+  const helmOp = cnpg || pgo
   // The catalog namespaces charts and chart-selected images apart from the Percona operators,
   // because a chart version and an operator version are different kinds of thing.
-  const chartKey = 'chart:cloudnative-pg'
+  const chartKey = pgo ? 'chart:pgo' : 'chart:cloudnative-pg'
   const chartVersions = ops?.[chartKey]?.versions || []
   const chartLatest = ops?.[chartKey]?.latest || ''
-  const pgMajors = ops?.['image:cnpg-postgresql']?.versions || []
-  const versions = cnpg ? chartVersions : (ops?.[op]?.versions || [])
-  const latest = cnpg ? chartLatest : (ops?.[op]?.latest || '')
+  const pgMajors = ops?.[pgo ? 'image:crunchy-postgres' : 'image:cnpg-postgresql']?.versions || []
+  const versions = helmOp ? chartVersions : (ops?.[op]?.versions || [])
+  const latest = helmOp ? chartLatest : (ops?.[op]?.latest || '')
   // A sharded MongoDB cluster is 9 pods (replica set + config servers + mongos), not 3 — and so is an
   // async Percona Server cluster (MySQL + Orchestrator + HAProxy).
   const psAsync = op === 'ps' && f.k3dClusterType === 'async'
@@ -6168,12 +6173,15 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
             <option value="psmdb">Percona Operator for MongoDB (PSMDB)</option>
             <option value="pg">Percona Operator for PostgreSQL (PGO)</option>
             <option value="cnpg">CloudNativePG (PostgreSQL)</option>
+            <option value="pgo">Crunchy Postgres for Kubernetes (PGO)</option>
           </select>
         </Field>
         {op && (
           <>
-            {cnpg ? (
-              <Field label="Chart version" hint="CloudNativePG Helm chart version, from `make versions`. Not the operator version it ships — chart 0.29.0 carries operator 1.30.x.">
+            {helmOp ? (
+              <Field label="Chart version" hint={pgo
+                ? 'PGO Helm chart version, from `make versions` — the tags Crunchy publishes to their OCI registry. Not the GitHub tags: some of those have no published image.'
+                : 'CloudNativePG Helm chart version, from `make versions`. Not the operator version it ships \u2014 chart 0.29.0 carries operator 1.30.x.'}>
                 {chartVersions.length ? (
                   <select className={`${inputCls} ${lock}`} value={f.k3dOperatorVer || ''} disabled={deployed}
                     onChange={(e) => patchFrame(f.id, { k3dOperatorVer: e.target.value })}>
@@ -6196,7 +6204,9 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
                 </select>
               </Field>
             )}
-            <Field label="Namespace" hint={cnpg ? 'The Cluster CR is created here; the operator itself runs in cnpg-system.' : 'The operator and its cr.yaml are installed here.'}>
+            <Field label="Namespace" hint={cnpg ? 'The Cluster CR is created here; the operator itself runs in cnpg-system.'
+              : pgo ? 'The operator and the PostgresCluster both run here.'
+                : 'The operator and its cr.yaml are installed here.'}>
               <input className={`${inputCls} ${lock}`} value={f.k3dNamespace ?? op} disabled={deployed}
                 onChange={(e) => patchFrame(f.id, { k3dNamespace: e.target.value })} />
             </Field>
@@ -6377,7 +6387,71 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
             </p>
           </>
         )}
-        {op && (
+        {pgo && (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Instances" hint="Postgres pods (1 primary + replicas). Each is a 4-container pod, on top of a pgBackRest repo host and pgBouncer.">
+                <input type="number" min="1" max="5" className={`${inputCls} ${lock}`} disabled={deployed}
+                  value={f.k3dPgoInstances || 2}
+                  onChange={(e) => patchFrame(f.id, { k3dPgoInstances: Number(e.target.value) })} />
+              </Field>
+              <Field label="Storage (GiB per instance)">
+                <input type="number" min="1" max="512" className={`${inputCls} ${lock}`} disabled={deployed}
+                  value={f.k3dPgoStorageGb || 1}
+                  onChange={(e) => patchFrame(f.id, { k3dPgoStorageGb: Number(e.target.value) })} />
+              </Field>
+            </div>
+            <Field label="PostgreSQL major" hint="spec.postgresVersion. Required by the CRD, so blank takes the newest the chart ships an image for.">
+              {pgMajors.length ? (
+                <select className={`${inputCls} ${lock}`} value={f.k3dPgoVersion || ''} disabled={deployed}
+                  onChange={(e) => patchFrame(f.id, { k3dPgoVersion: e.target.value })}>
+                  <option value="">newest{pgMajors[0] ? ` (${pgMajors[0]})` : ''}</option>
+                  {pgMajors.map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              ) : (
+                <input className={`${inputCls} ${lock}`} value={f.k3dPgoVersion ?? ''} disabled={deployed}
+                  placeholder="newest (e.g. 18)"
+                  onChange={(e) => patchFrame(f.id, { k3dPgoVersion: e.target.value })} />
+              )}
+            </Field>
+            <Field label="Expose · PostgreSQL" hint="The HA Service in front of the primary (the read/write endpoint).">
+              <select className={`${inputCls} ${lock}`} value={f.k3dExposePg || 'clusterip'} disabled={deployed}
+                onChange={(e) => patchFrame(f.id, { k3dExposePg: e.target.value })}>
+                {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Expose · pgBouncer" hint="The connection pooler — a PGO cluster's front door.">
+              <select className={`${inputCls} ${lock}`} value={f.k3dExposePgbouncer || 'loadbalancer'} disabled={deployed}
+                onChange={(e) => patchFrame(f.id, { k3dExposePgbouncer: e.target.value })}>
+                {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </Field>
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" className="mt-1" disabled={deployed}
+                checked={!!f.k3dPgoMonitoring}
+                onChange={(e) => patchFrame(f.id, { k3dPgoMonitoring: e.target.checked })} />
+              <span>
+                Monitor with Prometheus + Grafana
+                <span className="block text-xs text-muted">
+                  Sets <span className="font-mono">spec.monitoring.pgmonitor.exporter</span>, so the operator adds its
+                  own crunchy-postgres-exporter sidecar to every instance pod, and installs kube-prometheus-stack
+                  into <span className="font-mono">monitoring</span> with a PodMonitor and pgMonitor's PostgreSQL and
+                  pgBackRest dashboards. Grafana gets a LoadBalancer address; its admin password comes from{' '}
+                  <span className="font-mono">GRAFANA_PASSWORD</span>.
+                </span>
+              </span>
+            </label>
+            <p className="text-xs text-muted">
+              The cluster gets a <span className="font-mono">postgres</span> superuser and an application user named
+              after it, both with <span className="font-mono">POSTGRES_PASSWORD</span> from{' '}
+              <span className="font-mono">.env</span>. Connections need{' '}
+              <span className="font-mono">sslmode=require</span> — PGO's PostgreSQL and pgBouncer both refuse
+              plaintext. Backups use the same pgBackRest as the Percona operator, so S3 needs a SeaweedFS node with
+              TLS on; without one the cluster keeps a PVC repo.
+            </p>
+          </>
+        )}
+        {op && !pgo && (
           <p className="text-xs text-muted">
             Before <span className="font-mono">cr.yaml</span> is applied, every section's CPU/memory requests are
             commented out{op === 'pg'
@@ -6401,11 +6475,11 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
           such sidecar, so the picker is hidden for it rather than offering monitoring that
           would never arrive — CNPG's monitoring is the Prometheus/Grafana option above.
           A design saved before this was hidden is caught by k3dFrameIssues. */}
-      {cnpg ? (
+      {helmOp ? (
         <p className="text-xs text-muted">
-          CloudNativePG has no PMM integration — it isn't a Percona product and ships no
-          pmm-client sidecar. Use the Prometheus + Grafana option above, which installs
-          kube-prometheus-stack with a PostgreSQL dashboard.
+          {cnpg
+            ? "CloudNativePG has no PMM integration — it isn't a Percona product and ships no pmm-client sidecar. Use the Prometheus + Grafana option above, which installs kube-prometheus-stack with a PostgreSQL dashboard."
+            : "Crunchy PGO has no PMM integration — it isn't a Percona product and ships no pmm-client sidecar. Use the Prometheus + Grafana option above, which turns on the operator's own crunchy-postgres-exporter and loads pgMonitor's dashboards."}
         </p>
       ) : (
         <>

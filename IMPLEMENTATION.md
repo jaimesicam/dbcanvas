@@ -16039,3 +16039,150 @@ reason `pdps_enable` does.
   vocabulary), and that both install scripts resolve through `pdps_enable` and pass no `-y`.
   `go build`, `go vet`, `go test ./...` and the smoke suite green.
 
+## 278. Crunchy Postgres for Kubernetes on a K3D frame — `app/k3dpgo.go` (new), `app/{k3d,cnpg,intranet}.go`, `images/versions.sh`, `versions.yaml`, `app/web/src/pages/{StackDesigner,K3DManager}.jsx`
+
+The K3D frame could install the four Percona operators and CloudNativePG. Crunchy's PGO is the
+sixth, and the second community one — which matters because the community operators are the two
+that are Helm-installed, so much of this session's `k3d.go` diff is the generalisation the
+second one forced: `k3dChartOperator` names the operators whose version is a *chart* version,
+and every place that read `op == "cnpg"` now asks that map instead.
+
+**Crunchy publishes the installer chart as an OCI artifact in their own registry, not on a Helm
+HTTP repository.** There is no `index.yaml`, so the HelmChart object carries the whole
+`oci://registry.developers.crunchydata.com/crunchydata/pgo` reference as its `chart:` and sets
+no `repo:` at all — helm-controller looks for an index.yaml whenever a repo is set. k3s pulls it
+anonymously.
+
+**The GitHub tags are not the installable set.** v5.8.9 and v6.0.3 are tagged there and their
+images answer 404 — "This container version is no longer available from the Crunchy Data
+Developer Program" — while every tag the registry lists pulls without credentials. So
+`pgo_chart_discover` reads the registry's own `tags/list` behind an anonymous pull token, and
+the chart version doubles as the operator version because Crunchy sets appVersion to match. The
+PostgreSQL majors come from inside the chart rather than from a tag list: `spec.postgresVersion`
+accepts exactly the `relatedImages` keys in its `values.yaml` (postgres_15 … postgres_18), and
+the crunchy-postgres repository serves no usable tag list at all.
+
+Three facts decided how the cluster is created, and each was established on a live cluster
+rather than from the documentation.
+
+**The pguser Secret's labels are load-bearing.** PGO looks up existing
+`<cluster>-pguser-<user>` Secrets by label selector and re-derives the SCRAM verifier from
+whatever password it finds — but a Secret *without* the three
+`postgres-operator.crunchydata.com` labels is invisible to that lookup and is simply
+overwritten with a generated password. Unlabelled secrets came back random; labelled ones kept
+`POSTGRES_PASSWORD` from `.env`. They are applied before the PostgresCluster for the same
+reason.
+
+**The application role must not be a superuser.** PGO's pgBouncer authenticates through an
+auth_query whose function excludes superusers outright (`AND NOT pg_authid.rolsuper`), so a
+superuser application role reaches the primary happily and gets `no such user` through the
+pooler — a confusing way to lose the front door. Dropping the attribute fixed it and changed
+nothing else.
+
+**`v1beta1`, not `v1`.** PGO 5.x serves only v1beta1; 6.x serves both. v1beta1 is the one
+spelling that works across every version the picker offers, and a v1 CR would fail on all of
+5.x.
+
+Backups reuse the Percona PostgreSQL operator's pgBackRest helpers, because it is the same
+pgBackRest — including the constraint that it speaks S3 only over TLS, so a plaintext SeaweedFS
+node leaves the cluster on a PVC repo with the same warning rather than a bucket that never
+fills. The generated manifests are archived to the first k3s node the way CloudNativePG's are;
+`cnpgArchive` and `cnpgArchiver` took a directory so both can use them. The default is two
+instances rather than CloudNativePG's three: a PGO cluster is not only its Postgres pods —
+each instance is a four-container pod, and the cluster also runs a pgBackRest repo host and a
+pgBouncer, so two instances is already four pods on a k3d budget.
+
+### Verified
+
+- Deployed end to end on k3s v1.36.3: chart 6.0.2 into namespace `pgo`, two instances × 1 GiB,
+  PostgreSQL 17.10. The cluster came up as two four-container instance pods, a pgBouncer, a
+  pgBackRest repo host and a completed backup job; the card's status line reads
+  `instance1 2/2 ready · pgBouncer 1/1`. The manifest facts above were established on 5.8.8.
+- Password adoption: `pgo-00-pguser-pgo-00` holds the `.env` password and all three selector
+  labels — adopted, not regenerated.
+- Through the pgBouncer LoadBalancer (172.21.255.204:5432) as the non-superuser application
+  role with `sslmode=require`: `current_user`/`current_database()` are `pgo-00`/`pgo-00` on
+  PostgreSQL 17.10. The same connection with `sslmode=disable` is refused with
+  `FATAL: SSL required`.
+- Archived to `/root/pgo` on the server node: `01-pgo-helmchart.yaml`,
+  `02-pguser-postgres.yaml`, `03-pguser-pgo-00.yaml`, `04-postgrescluster.yaml`, `README.md`.
+- In a browser: the node panel's Overview shows the PGO rows (operator, status, instances,
+  PostgreSQL, endpoint, app role, secret) and the Operator tab renders the OCI-chart note, the
+  archive path and the not-a-superuser warning. No page errors.
+- Tests: six for this operator (the OCI HelmChart shape, the Secret's labels, the cluster
+  manifest including the S3 repo replacing the PVC one, the frame defaults, the status
+  shorthand, the chart-catalogue routing) plus the shared backup-warning check.
+  `go build`, `go vet`, `go test ./...` and the smoke suite green.
+
+## 279. Prometheus and Grafana for Crunchy PGO — `app/k3dpgo.go`, `app/{cnpg,intranet,k3d}.go`, `app/web/src/pages/StackDesigner.jsx`
+
+CloudNativePG's frame has had a monitoring checkbox since it landed. Crunchy's gets the same
+one, and the operator does more of the work: the exporter is its own.
+
+**One field turns it on, and nothing else needs configuring.**
+
+    spec:
+      monitoring:
+        pgmonitor:
+          exporter: {}
+
+The operator then adds a `crunchy-postgres-exporter` sidecar to every instance pod, takes the
+image from its own `RELATED_IMAGE_PGEXPORTER` (so it always matches the operator version),
+creates the monitoring role and its `<cluster>-monitoring` Secret, and serves plain HTTP on
+port 9187, named `exporter`. It also labels those pods
+`postgres-operator.crunchydata.com/crunchy-postgres-exporter=true`, which is the PodMonitor's
+whole selector — and a label that appears only once there is something to scrape.
+
+Everything downstream is the machinery CloudNativePG's option already built: kube-prometheus-
+stack from the same chart into the same `monitoring` namespace, Grafana on a LoadBalancer with
+its password from `GRAFANA_PASSWORD`, and dashboards delivered as ConfigMaps the Grafana
+sidecar picks up. `cnpgDashboardConfigMap` took a name and a key so both operators can use it.
+
+The two Crunchy-specific facts are both about the dashboards, and neither would have been
+found by a passing test — both came from looking at a rendered page.
+
+**A plain PodMonitor produces a perfect scrape and empty dashboards.** Every pgMonitor panel
+filters on `exp_type="pg"`, `cluster_name="<cluster>"` and a per-instance `job` — labels their
+old bundled Prometheus synthesised in its own scrape config, and that PGO 6 no longer ships
+anywhere (`postgres-operator-examples` dropped its `kustomize/monitoring` directory entirely).
+A PodMonitor sets `pod`, `namespace`, `container`, and a `job` naming the PodMonitor. So the
+PodMonitor carries three relabelings: a constant `exp_type`, `cluster_name` from the pod's
+cluster label, and `job` from the pod name — the last because one job per PodMonitor would
+leave the dashboards unable to tell the primary from its replicas.
+
+**pgMonitor's published dashboards are broken as published.** The panels reference the
+dashboard's own `${ccp_datasource}` variable, but every *template variable* carries a
+hardcoded datasource uid — Crunchy's, `PDC1078F23EBDF0E5` — which exists in no other Grafana.
+The variables error, the cluster and node selectors never resolve, and every panel reads "No
+data" while the identical query returns rows through the API. Their saved `current` values
+name Crunchy's own test cluster besides (`iota`, `iota_ip16_pg1`), and Grafana honours a saved
+selection over a refresh-on-load. `pgoDashboardJSON` repoints the variables at the datasource
+variable — not at a uid, so it works in any Grafana — and clears the saved selections. Two
+dashboards are loaded: PostgreSQL Details, and pgBackRest, which is the view CloudNativePG has
+no equivalent of because the exporter publishes `ccp_backrest_*` straight from the repo host.
+
+**A status race the first deploy hid.** `pgoStatus` rendered `status.instances[].replicas`
+unguarded, and the operator fills that array in stages: an entry with a name but no counts
+renders `instance1 0/<no value> ready`. `pgoShort` skipped a pair it could not parse, which
+read as "no tier is short" — so the deploy stopped waiting and reported a ready cluster whose
+pods were still initialising. Both halves are fixed: the template renders 0 for a missing
+count, and an unparseable count now counts as short, because the wrong way to be wrong is to
+call a starting cluster ready.
+
+### Verified
+
+- Deployed twice from the frame's checkbox on k3s v1.36.3, chart 6.0.2 / PostgreSQL 17: both
+  instance pods came up 5/5 with the exporter sidecar, and the archive holds the whole run in
+  order — `01-kube-prometheus-stack.yaml` through `08-grafana-pgo-pgbackrest.yaml`.
+- Prometheus scrapes both instances as `up{exp_type="pg"} = 1` with `cluster_name="pgo-00"`
+  and a per-pod `job`, through the PodMonitor as DBCanvas generated it.
+- In a browser against the deployed Grafana: **PostgreSQL Details** resolves PGCluster to
+  `pgo-00` and Node to an instance pod, with connections, cache-hit ratio, database size and
+  replication lag all drawing; **pgBackRest** resolves Stanza `db` / Repo `1` and shows the
+  recovery window and backup size from the completed backup. No page errors.
+- The status fix on a clean run: `instance1 2/2 ready · pgBouncer 1/1`, where the same deploy
+  before the fix recorded `instance1 0/<no value> ready` while its pods were initialising.
+- Tests: six more (the exporter is off unless asked for and correct when asked, the three
+  relabelings, the dashboard rewrite including that panels are left alone, its edge cases, and
+  the ConfigMap shape), plus two more `pgoShort` cases for the unparseable count.
+  `go build`, `go vet`, `go test ./...` and the smoke suite green.

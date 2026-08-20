@@ -152,13 +152,13 @@ func helmChartManifest(name, repo, chart, version, targetNamespace, values strin
 // The directory has to be created first. The k3s image is minimal and has no /root at all,
 // so Docker's copy-archive API answers 404 for a path whose parent is missing; the Percona
 // operator path hits the same thing and does the same mkdir (see k3dFetchOperator).
-func (a *App) cnpgArchive(ctx context.Context, serverID, file string, content []byte, pr *pxcProg) bool {
-	if _, err := a.engCtx(ctx).Exec(ctx, serverID, []string{"mkdir", "-p", cnpgManifestDir}, nil); err != nil {
-		pr.logln("could not create " + cnpgManifestDir + ": " + err.Error())
+func (a *App) cnpgArchive(ctx context.Context, serverID, dir, file string, content []byte, pr *pxcProg) bool {
+	if _, err := a.engCtx(ctx).Exec(ctx, serverID, []string{"mkdir", "-p", dir}, nil); err != nil {
+		pr.logln("could not create " + dir + ": " + err.Error())
 		return false
 	}
-	if err := a.engCtx(ctx).CopyFile(ctx, serverID, cnpgManifestDir, file, 0o644, content); err != nil {
-		pr.logln("could not archive " + file + " to " + cnpgManifestDir + ": " + err.Error())
+	if err := a.engCtx(ctx).CopyFile(ctx, serverID, dir, file, 0o644, content); err != nil {
+		pr.logln("could not archive " + file + " to " + dir + ": " + err.Error())
 		return false
 	}
 	return true
@@ -170,9 +170,13 @@ func (a *App) cnpgArchive(ctx context.Context, serverID, file string, content []
 type cnpgArchiver struct {
 	app      *App
 	serverID string
-	pr       *pxcProg
-	step     int
-	files    []string
+	// dir is where the copies land — cnpgManifestDir for CloudNativePG, pgoManifestDir for
+	// Crunchy PGO, which installs the same way (a HelmChart plus manifests generated here,
+	// none of which would otherwise touch disk).
+	dir   string
+	pr    *pxcProg
+	step  int
+	files []string
 	// ok stays true only while every archive write has succeeded, so the final log line
 	// and the node panel do not point at a directory that was never written.
 	ok bool
@@ -186,7 +190,7 @@ func (ar *cnpgArchiver) apply(ctx context.Context, ns, name string, manifest []b
 	ar.step++
 	file := fmt.Sprintf("%02d-%s.yaml", ar.step, name)
 	ar.files = append(ar.files, file)
-	if !ar.app.cnpgArchive(ctx, ar.serverID, file, manifest, ar.pr) {
+	if !ar.app.cnpgArchive(ctx, ar.serverID, ar.dir, file, manifest, ar.pr) {
 		ar.ok = false
 	}
 	return ar.app.kubectlApply(ctx, ar.serverID, ns, manifest)
@@ -203,7 +207,7 @@ func (ar *cnpgArchiver) applyLarge(ctx context.Context, ns, name string, manifes
 	ar.step++
 	file := fmt.Sprintf("%02d-%s.yaml", ar.step, name)
 	ar.files = append(ar.files, file)
-	if !ar.app.cnpgArchive(ctx, ar.serverID, file, manifest, ar.pr) {
+	if !ar.app.cnpgArchive(ctx, ar.serverID, ar.dir, file, manifest, ar.pr) {
 		ar.ok = false
 	}
 	return ar.app.kubectlApplyServerSide(ctx, ar.serverID, ns, manifest)
@@ -411,19 +415,19 @@ prometheus:
 `, grafanaPassword)
 }
 
-// cnpgDashboardConfigMap wraps CNPG's published Grafana dashboard JSON in the ConfigMap shape
+// cnpgDashboardConfigMap wraps a published Grafana dashboard JSON in the ConfigMap shape
 // the kube-prometheus-stack Grafana sidecar watches for: any ConfigMap labelled
 // grafana_dashboard=1 has its data keys loaded as dashboards.
 //
 // The JSON is embedded as a block scalar rather than a quoted string so no escaping is needed;
 // every line is indented four spaces under the key, and a blank line inside a block scalar is
 // legal, so the JSON survives verbatim.
-func cnpgDashboardConfigMap(dashboard []byte) []byte {
+func cnpgDashboardConfigMap(name, key string, dashboard []byte) []byte {
 	var b strings.Builder
 	b.WriteString("apiVersion: v1\nkind: ConfigMap\nmetadata:\n")
-	fmt.Fprintf(&b, "  name: cnpg-grafana-dashboard\n  namespace: %s\n", promNamespace)
+	fmt.Fprintf(&b, "  name: %s\n  namespace: %s\n", name, promNamespace)
 	b.WriteString("  labels:\n    grafana_dashboard: \"1\"\ndata:\n")
-	b.WriteString("  cloudnative-pg.json: |-\n")
+	fmt.Fprintf(&b, "  %s: |-\n", key)
 	for _, ln := range strings.Split(strings.TrimRight(string(dashboard), "\n"), "\n") {
 		b.WriteString("    " + ln + "\n")
 	}
@@ -533,7 +537,7 @@ func (a *App) installCNPGOperator(ctx context.Context, st Stack, frame designFra
 
 	// Everything applied below is also archived to cnpgManifestDir, numbered in apply
 	// order. See cnpgArchiver.
-	ar := &cnpgArchiver{app: a, serverID: serverID, pr: pr, ok: true}
+	ar := &cnpgArchiver{app: a, serverID: serverID, dir: cnpgManifestDir, pr: pr, ok: true}
 	apply := func(name, applyNS string, manifest []byte) error {
 		return ar.apply(ctx, applyNS, name, manifest)
 	}
@@ -701,7 +705,7 @@ func (a *App) installCNPGOperator(ctx context.Context, st Stack, frame designFra
 		// a failed deploy.
 		if dash, err := httpGetBytes(ctx, cnpgGrafanaDashboardURL); err != nil {
 			pr.logln("Grafana PostgreSQL dashboard skipped: " + err.Error())
-		} else if err := ar.applyLarge(ctx, promNamespace, "grafana-dashboard", cnpgDashboardConfigMap(dash)); err != nil {
+		} else if err := ar.applyLarge(ctx, promNamespace, "grafana-dashboard", cnpgDashboardConfigMap("cnpg-grafana-dashboard", "cloudnative-pg.json", dash)); err != nil {
 			pr.logln("Grafana PostgreSQL dashboard skipped: " + err.Error())
 		} else {
 			cfg.GrafanaDashboard = "CloudNativePG"
@@ -711,7 +715,7 @@ func (a *App) installCNPGOperator(ctx context.Context, st Stack, frame designFra
 	}
 
 	// Written last, so it describes what actually happened rather than what was intended.
-	if ar.ok && a.cnpgArchive(ctx, serverID, "README.md",
+	if ar.ok && a.cnpgArchive(ctx, serverID, ar.dir, "README.md",
 		cnpgArchiveReadme(cfg, ns, ar.files, monitoring, objectStore), pr) {
 		cfg.ManifestDir = cnpgManifestDir
 		pr.logln("manifests archived to " + cnpgManifestDir + " on the first k3s node (see its README)")

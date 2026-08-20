@@ -540,6 +540,53 @@ ghcr_tags() {
 }
 cnpg_pg_discover() { ghcr_tags "${CNPG_PG_IMAGE#ghcr.io/}" '^[0-9]+$'; }
 
+# ---- Crunchy Postgres for Kubernetes (PGO) ----
+# PGO is not on a Helm HTTP repository at all: Crunchy publishes the installer chart as an OCI
+# artifact in their own registry, so there is no index.yaml to read and chart_versions cannot
+# reach it. The registry's tags/list is the chart's version list, and it is the right list to
+# offer — the GitHub tags are NOT. v5.8.9 and v6.0.3 are tagged on GitHub but their images
+# return 404 ("no longer available from the Crunchy Data Developer Program"), while every tag
+# published here pulls anonymously. Chart version == appVersion == the operator image tag.
+CRUNCHY_REGISTRY="registry.developers.crunchydata.com"
+CRUNCHY_AUTH="https://registry-auth.developers.crunchydata.com/auth?service=docker-registry"
+PGO_CHART_REPO="crunchydata/pgo"
+
+# crunchy_token <repository> — an anonymous pull token for the Crunchy developer registry.
+crunchy_token() {
+  curl -fsSL --max-time 30 "${CRUNCHY_AUTH}&scope=repository:${1}:pull" 2>/dev/null \
+    | grep -oE '"token":"[^"]+"' | sed 's/.*:"//;s/"//'
+}
+
+pgo_chart_discover() {
+  command -v curl >/dev/null 2>&1 || { echo "WARN: curl not found; skipping PGO discovery" >&2; return 0; }
+  local token; token="$(crunchy_token "$PGO_CHART_REPO")"
+  [ -n "$token" ] || { echo "WARN: no ${CRUNCHY_REGISTRY} token; skipping PGO discovery" >&2; return 0; }
+  curl -fsSL --max-time 60 -H "Authorization: Bearer ${token}" \
+    "https://${CRUNCHY_REGISTRY}/v2/${PGO_CHART_REPO}/tags/list" 2>/dev/null \
+    | tr ',' '\n' | tr -d '"[]{}' | sed 's/.*: *//' \
+    | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -rV -u | head -n "$CHART_VERSION_LIMIT"
+}
+
+# The PostgreSQL majors a PGO release can run are the relatedImages keys in the chart's own
+# values.yaml (postgres_15 … postgres_18), which is also exactly what spec.postgresVersion
+# accepts. Read them out of the newest chart rather than hardcoding a list that ages.
+crunchy_pg_discover() {
+  local ver="$1" token digest
+  [ -n "$ver" ] || return 0
+  command -v curl >/dev/null 2>&1 || return 0
+  token="$(crunchy_token "$PGO_CHART_REPO")"
+  [ -n "$token" ] || return 0
+  digest="$(curl -fsSL --max-time 30 -H "Authorization: Bearer ${token}" \
+    -H "Accept: application/vnd.oci.image.manifest.v1+json" \
+    "https://${CRUNCHY_REGISTRY}/v2/${PGO_CHART_REPO}/manifests/${ver}" 2>/dev/null \
+    | tr ',' '\n' | grep -oE '"digest":"sha256:[a-f0-9]+"' | tail -1 | sed 's/.*:"//;s/"//')"
+  [ -n "$digest" ] || return 0
+  curl -fsSL --max-time 60 -H "Authorization: Bearer ${token}" \
+    "https://${CRUNCHY_REGISTRY}/v2/${PGO_CHART_REPO}/blobs/${digest}" 2>/dev/null \
+    | tar xzO --wildcards '*/values.yaml' 2>/dev/null \
+    | grep -oE '^  postgres_[0-9]+:' | grep -oE '[0-9]+' | sort -rn -u
+}
+
 # ---- k3s (the Kubernetes a K3D cluster runs) ----
 # k3d creates k3s containers from rancher/k3s:<tag>. The tag is what fixes the cluster's
 # Kubernetes version, so the K3D frame lets you pick it — and pinning matters: k3d's own
@@ -852,12 +899,41 @@ for ch in $CHART_PRODUCTS; do
   } >>"$TMP"
 done
 
+# PGO's chart is an OCI artifact in Crunchy's own registry, so it is discovered differently
+# (pgo_chart_discover) but belongs in the same section: it is still a chart version a HelmChart
+# object pins. `repository:` carries the oci:// reference the HelmChart uses as its `chart:`,
+# rather than a repo URL — there is no separate chart name to add to it.
+echo "==> discovering PGO chart versions from ${CRUNCHY_REGISTRY}" >&2
+pgo_versions="$(pgo_chart_discover)"
+pgo_n=$(printf '%s' "$pgo_versions" | grep -c . || true)
+pgo_latest="$(printf '%s\n' "$pgo_versions" | head -1)"
+chart_total=$((chart_total + pgo_n))
+echo "    pgo: ${pgo_n} version(s)${pgo_latest:+, latest ${pgo_latest}}" >&2
+{
+  echo "  pgo:"
+  echo "    repository: oci://${CRUNCHY_REGISTRY}/${PGO_CHART_REPO}"
+  echo "    latest: \"${pgo_latest}\""
+  if [ -n "$pgo_versions" ]; then
+    echo "    versions:"
+    while IFS= read -r v; do [ -n "$v" ] && echo "      - \"${v}\""; done <<<"$pgo_versions"
+  else
+    echo "    versions: []"
+  fi
+} >>"$TMP"
+
 # ---- images a chart-installed operator is pointed at (ghcr.io, not Docker Hub) ----
 echo "==> discovering CloudNativePG PostgreSQL image majors from ghcr.io" >&2
 cnpg_pg_versions="$(cnpg_pg_discover)"
 cnpg_pg_n=$(printf '%s' "$cnpg_pg_versions" | grep -c . || true)
 cnpg_pg_latest="$(printf '%s\n' "$cnpg_pg_versions" | head -1)"
 echo "    cnpg-postgresql: ${cnpg_pg_n} major(s)${cnpg_pg_latest:+, latest ${cnpg_pg_latest}}" >&2
+# The PostgreSQL majors PGO can run, read from the newest chart's own values.yaml. Its
+# registry publishes no usable tags/list for the crunchy-postgres image itself, so the chart
+# is the only place the supported set is stated — and it is the set spec.postgresVersion takes.
+crunchy_pg_versions="$(crunchy_pg_discover "$pgo_latest")"
+crunchy_pg_n=$(printf '%s' "$crunchy_pg_versions" | grep -c . || true)
+crunchy_pg_latest="$(printf '%s\n' "$crunchy_pg_versions" | head -1)"
+echo "    crunchy-postgres: ${crunchy_pg_n} major(s)${crunchy_pg_latest:+, latest ${crunchy_pg_latest}}" >&2
 {
   echo "# Container images a chart-installed operator is pointed at, as opposed to the chart"
   echo "# itself. A CloudNativePG Cluster picks its PostgreSQL with spec.imageName; only the"
@@ -870,6 +946,15 @@ echo "    cnpg-postgresql: ${cnpg_pg_n} major(s)${cnpg_pg_latest:+, latest ${cnp
   if [ -n "$cnpg_pg_versions" ]; then
     echo "    versions:"
     while IFS= read -r v; do [ -n "$v" ] && echo "      - \"${v}\""; done <<<"$cnpg_pg_versions"
+  else
+    echo "    versions: []"
+  fi
+  echo "  crunchy-postgres:"
+  echo "    repository: ${CRUNCHY_REGISTRY}/crunchydata/crunchy-postgres"
+  echo "    latest: \"${crunchy_pg_latest}\""
+  if [ -n "$crunchy_pg_versions" ]; then
+    echo "    versions:"
+    while IFS= read -r v; do [ -n "$v" ] && echo "      - \"${v}\""; done <<<"$crunchy_pg_versions"
   else
     echo "    versions: []"
   fi

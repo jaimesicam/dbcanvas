@@ -59,8 +59,37 @@ var k3dOperatorRepos = map[string]string{
 	"pg":    "percona-postgresql-operator",
 }
 
-// k3dDeployableOperator is the subset DBCanvas can actually install — all four, now.
-var k3dDeployableOperator = map[string]bool{"pxc": true, "ps": true, "psmdb": true, "pg": true, "cnpg": true}
+// k3dDeployableOperator is the subset DBCanvas can actually install — the four Percona
+// operators plus the two community PostgreSQL ones, which are Helm-installed (see cnpg.go
+// and k3dpgo.go) rather than unpacked from a release tarball.
+var k3dDeployableOperator = map[string]bool{
+	"pxc": true, "ps": true, "psmdb": true, "pg": true, "cnpg": true, "pgo": true,
+}
+
+// k3dChartOperator maps an operator installed from a Helm chart to its key in the `charts:`
+// catalog — which is where its version comes from, and is not the version of the operator the
+// chart ships (the cloudnative-pg chart 0.29.0 carries operator 1.30.x; the pgo chart's version
+// happens to equal its appVersion, but that is Crunchy's convention, not a rule).
+var k3dChartOperator = map[string]string{"cnpg": cnpgChart, "pgo": pgoChart}
+
+// k3dOperatorLabel names an operator the way its own project does, for messages a user reads.
+func k3dOperatorLabel(op string) string {
+	switch op {
+	case "pxc":
+		return "the Percona Operator for MySQL (PXC)"
+	case "ps":
+		return "the Percona Operator for MySQL (Percona Server)"
+	case "psmdb":
+		return "the Percona Operator for MongoDB"
+	case "pg":
+		return "the Percona Operator for PostgreSQL"
+	case "cnpg":
+		return "CloudNativePG"
+	case "pgo":
+		return "Crunchy Postgres for Kubernetes"
+	}
+	return op
+}
 
 // k3dExposeTypes are the Kubernetes Service types a cr.yaml `expose` section accepts.
 var k3dExposeTypes = map[string]string{
@@ -115,7 +144,17 @@ type k3dConfig struct {
 	CNPGAppSecret string `json:"cnpgAppSecret"` // Secret holding the app role's password
 	CNPGAppUser   string `json:"cnpgAppUser"`
 	CNPGAppDB     string `json:"cnpgAppDb"`
-	GrafanaURL    string `json:"grafanaUrl"`  // Grafana's LoadBalancer URL ("" = not installed)
+	// Crunchy PGO (Operator=="pgo"): the PostgresCluster's shape and how to reach it. The
+	// Service types are ExposePG / ExposePGBouncer above — the same two tiers as Percona's PGO.
+	PGOInstances int    `json:"pgoInstances"`
+	PGOStorageGB int    `json:"pgoStorageGb"`
+	PGOPGVersion string `json:"pgoPgVersion"` // the PostgreSQL major spec.postgresVersion pins
+	PGOStatus    string `json:"pgoStatus"`    // instances ready/desired, plus pgBouncer's
+	PGOEndpoint  string `json:"pgoEndpoint"`  // host:port for the primary ("" = in-cluster only)
+	PGOAppSecret string `json:"pgoAppSecret"` // Secret holding the app user's password
+	PGOAppUser   string `json:"pgoAppUser"`
+	PGOAppDB     string `json:"pgoAppDb"`
+	GrafanaURL   string `json:"grafanaUrl"` // Grafana's LoadBalancer URL ("" = not installed)
 	MonitoredBy   string `json:"monitoredBy"` // PMM FQDN, or Prometheus/Grafana ("" = none)
 	// GrafanaUser is the admin login the chart was installed with; the password that goes
 	// with it lives in k3dSecrets, not here. GrafanaService is the Service the URL above
@@ -235,24 +274,27 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 	if op := strings.TrimSpace(f.K3DOperator); op != "" {
 		if !k3dDeployableOperator[op] {
 			out = append(out, issue{"error", "K3D cluster " + name + ": unknown operator " + op})
-		} else if op == "cnpg" {
-			// CloudNativePG's version is a *chart* version, so it is checked against the
-			// chart catalog rather than the Percona operator one. An empty version means the
-			// chart repo's latest; a catalog with no charts (make versions never run) accepts
-			// anything, since helm is the one that ultimately resolves it.
-			if _, ok := loadChartCatalog().resolveChartVersion(cnpgChart, f.K3DOperatorVer); !ok {
-				out = append(out, issue{"error", "K3D cluster " + name + " requests an unknown CloudNativePG chart version — pick one from the list, or run `make versions`"})
+		} else if chart, helmInstalled := k3dChartOperator[op]; helmInstalled {
+			// A Helm-installed operator's version is a *chart* version, so it is checked
+			// against the chart catalog rather than the Percona operator one. An empty version
+			// means the chart repo's latest; a catalog with no charts (make versions never run)
+			// accepts anything, since helm is the one that ultimately resolves it.
+			if _, ok := loadChartCatalog().resolveChartVersion(chart, f.K3DOperatorVer); !ok {
+				out = append(out, issue{"error", "K3D cluster " + name + " requests an unknown " + chart + " chart version — pick one from the list, or run `make versions`"})
 			}
 		} else if _, ok := opCat.resolveOperatorVersion(op, f.K3DOperatorVer); !ok {
 			out = append(out, issue{"error", "K3D cluster " + name + " requests an unknown " + op + " operator version — pick one from the list, or run `make versions`"})
 		}
 	}
 
-	// A design saved before the PMM picker was hidden for CloudNativePG can still carry a
-	// PMM node. It is ignored at deploy (see provisionK3DFrame), but silently ignoring it
-	// would leave the user expecting monitoring that will never appear.
-	if f.K3DOperator == "cnpg" && f.PMMNodeID != "" {
-		out = append(out, issue{"warning", "K3D cluster " + name + " has a PMM node selected, which CloudNativePG cannot use — it is not a Percona product and ships no pmm-client. Clear it; enable Prometheus/Grafana monitoring on the cluster instead"})
+	// A design saved before the PMM picker was hidden for the community operators can still
+	// carry a PMM node. It is ignored at deploy (see provisionK3DFrame), but silently ignoring
+	// it would leave the user expecting monitoring that will never appear. Neither operator is
+	// a Percona product and neither has a pmm-client sidecar to configure.
+	if _, chartInstalled := k3dChartOperator[f.K3DOperator]; chartInstalled && f.PMMNodeID != "" {
+		out = append(out, issue{"warning", "K3D cluster " + name + " has a PMM node selected, which " +
+			k3dOperatorLabel(f.K3DOperator) + " cannot use — it is not a Percona product and ships no pmm-client. " +
+			"Clear it; enable Prometheus/Grafana monitoring on the cluster instead"})
 	}
 
 	// The CPU/memory budget is for the whole cluster, split across its nodes.
@@ -293,7 +335,9 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 // This lives outside k3dFrameIssues because it needs the design (to find the SeaweedFS node), which
 // that function does not take.
 func k3dBackupIssues(f designFrame, doc designDoc) []issue {
-	if f.K3DOperator != "pg" || f.SeaweedFSNodeID == "" {
+	// Crunchy's operator is where Percona's was forked from and runs the same pgBackRest, so
+	// the constraint and the fallback are identical — see installPGOOperator.
+	if (f.K3DOperator != "pg" && f.K3DOperator != "pgo") || f.SeaweedFSNodeID == "" {
 		return nil
 	}
 	for _, n := range doc.Nodes {
@@ -442,11 +486,11 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 	opCat := loadOperatorCatalog()
 	operator := strings.TrimSpace(frame.K3DOperator)
 	operatorVer := ""
-	if operator == "cnpg" {
-		// CloudNativePG's version is a Helm chart version, so it resolves against the chart
-		// catalog, not the Percona operator one. Without this it would fall through to the
-		// branch below, find no "cnpg" product, and silently disable the operator.
-		if v, ok := loadChartCatalog().resolveChartVersion(cnpgChart, frame.K3DOperatorVer); ok {
+	if chart, helmInstalled := k3dChartOperator[operator]; helmInstalled {
+		// A chart-installed operator's version is a *chart* version, so it resolves against the
+		// chart catalog, not the Percona operator one. Without this it would fall through to the
+		// branch below, find no such product, and silently disable the operator.
+		if v, ok := loadChartCatalog().resolveChartVersion(chart, frame.K3DOperatorVer); ok {
 			operatorVer = v
 		} else {
 			operator = ""
@@ -466,7 +510,7 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 	// that does not exist. CNPG's monitoring is Prometheus/Grafana, which
 	// installCNPGOperator sets MonitoredBy to when it lands.
 	monitoredBy := ""
-	if frame.PMMNodeID != "" && operator != "cnpg" {
+	if _, chartInstalled := k3dChartOperator[operator]; frame.PMMNodeID != "" && !chartInstalled {
 		for _, m := range doc.Nodes {
 			if m.ID == frame.PMMNodeID && m.Type == "pmm" {
 				monitoredBy = fqdnOf(hosts[m.ID], domain)
@@ -507,6 +551,14 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		base.ExposePG = k3dExposeOf(frame.K3DExposePG, frame.K3DExpose)
 		base.ExposePGBouncer = k3dExposeOf(frame.K3DExposePGBouncer, frame.K3DExpose)
 		base.Expose = base.ExposePG
+	}
+	if operator == "pgo" {
+		base.ExposePG = k3dExposeOf(frame.K3DExposePG, frame.K3DExpose)
+		base.ExposePGBouncer = k3dExposeOf(frame.K3DExposePGBouncer, frame.K3DExpose)
+		base.Expose = base.ExposePG
+		base.PGOInstances = pgoInstances(frame)
+		base.PGOStorageGB = pgoStorageGB(frame)
+		base.PGOPGVersion = pgoPGVersion(frame)
 	}
 	if repo, ok := k3dOperatorRepos[operator]; ok && operator != "" {
 		base.OperatorSrc = fmt.Sprintf("%s/%s-%s", k3dOperatorDir, repo, operatorVer)
@@ -715,6 +767,12 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 			// Helm-installed rather than bundle.yaml-installed — see cnpg.go.
 			if err := a.installCNPGOperator(ctx, st, frame, doc, serverID, &base, pr); err != nil {
 				failAll("install the CloudNativePG operator: %v", err)
+				return
+			}
+		case "pgo":
+			// Also Helm-installed, from an OCI chart in Crunchy's registry — see k3dpgo.go.
+			if err := a.installPGOOperator(ctx, st, frame, serverID, &base, pr); err != nil {
+				failAll("install the Crunchy Postgres operator: %v", err)
 				return
 			}
 		}

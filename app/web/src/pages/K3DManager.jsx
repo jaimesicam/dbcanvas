@@ -177,16 +177,20 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
   // CloudNativePG has no proxy tier and its own expose/status shape, so the Percona-shaped
   // front-end and expose rows below do not apply to it.
   const isCNPG = cfg.operator === 'cnpg'
+  // Crunchy PGO does have the Percona shape (a primary Service plus pgBouncer, and it reuses
+  // exposePg/exposePgbouncer), so it keeps those rows and only adds its own status block.
+  const isPGO = cfg.operator === 'pgo'
   // The four operators name the same ideas differently: PXC and PS put a proxy in front of the
   // database, PSMDB has routers (and only when sharded), PostgreSQL has a pgBouncer pool.
   const kind = isMongo ? 'psmdb' : isPG ? 'pg' : isPS ? 'ps' : 'pxc'
+  const anyPG = isPG || isPGO
   const frontEnd = isMongo
     ? (cfg.sharding ? 'mongos routers' : 'none (replica set)')
-    : isPG ? 'pgBouncer'
+    : anyPG ? 'pgBouncer'
       : isPS ? (cfg.proxy === 'router' ? 'MySQL Router' : 'HAProxy')
         : (cfg.proxy === 'proxysql' ? 'ProxySQL' : 'HAProxy')
-  const exposeDb = (isMongo ? cfg.exposeReplset : isPG ? cfg.exposePg : isPS ? cfg.exposeMysql : cfg.exposePxc) || cfg.expose
-  const exposeFront = (isMongo ? cfg.exposeMongos : isPG ? cfg.exposePgbouncer : cfg.exposeProxy) || cfg.expose
+  const exposeDb = (isMongo ? cfg.exposeReplset : anyPG ? cfg.exposePg : isPS ? cfg.exposeMysql : cfg.exposePxc) || cfg.expose
+  const exposeFront = (isMongo ? cfg.exposeMongos : anyPG ? cfg.exposePgbouncer : cfg.exposeProxy) || cfg.expose
 
   return (
     <div className="space-y-3">
@@ -231,6 +235,12 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
           {cfg.operator && isCNPG && <KV k="Endpoint" v={cfg.cnpgEndpoint || '—'} mono />}
           {cfg.operator && isCNPG && <KV k="App role / database" v={`${cfg.cnpgAppUser || '—'} / ${cfg.cnpgAppDb || '—'}`} mono />}
           {cfg.operator && isCNPG && <KV k="Password in Secret" v={cfg.cnpgAppSecret || '—'} mono />}
+          {cfg.operator && isPGO && <KV k="Status" v={cfg.pgoStatus || 'unknown'} />}
+          {cfg.operator && isPGO && <KV k="Instances" v={`${cfg.pgoInstances} · ${cfg.pgoStorageGb} GiB each`} />}
+          {cfg.operator && isPGO && <KV k="PostgreSQL" v={cfg.pgoPgVersion || '—'} />}
+          {cfg.operator && isPGO && <KV k="Endpoint" v={cfg.pgoEndpoint || '—'} mono />}
+          {cfg.operator && isPGO && <KV k="App role / database" v={`${cfg.pgoAppUser || '—'} / ${cfg.pgoAppDb || '—'}`} mono />}
+          {cfg.operator && isPGO && <KV k="Password in Secret" v={cfg.pgoAppSecret || '—'} mono />}
           {cfg.operator && isPS && <KV k="Replication" v={cfg.clusterType === 'async' ? 'Async (Orchestrator)' : 'Group Replication'} />}
           {cfg.operator && !isCNPG && <KV k={isMongo ? 'Topology' : 'Front end'} v={isMongo ? (cfg.sharding ? 'Sharded (rs0 + config servers + mongos)' : 'Replica set (rs0)') : frontEnd} />}
           {cfg.operator && !isCNPG && <KV k={isMongo ? 'Expose · replica set' : 'Expose · database'} v={exposeDb} />}
@@ -239,7 +249,7 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
           )}
           <KV k="Backups" v={cfg.backupRepo || 'none'} />
           <KV k="Monitored by" v={cfg.monitoredBy} mono />
-          {cfg.monitoredBy && !isCNPG && <KV k="PMM service token" v={cfg.pmmToken || 'not created'} />}
+          {cfg.monitoredBy && !isCNPG && !isPGO && <KV k="PMM service token" v={cfg.pmmToken || 'not created'} />}
           {cfg.grafanaUrl && (
             <KV k="Grafana" v={cfg.grafanaUrl === 'pending' ? 'awaiting a LoadBalancer address' : (
               <a className="text-accent underline" href={cfg.grafanaUrl} target="_blank" rel="noreferrer">{cfg.grafanaUrl}</a>
@@ -308,7 +318,43 @@ kubectl get svc -n ${ns}`} />
 
       {tab === 'users' && <UsersTab stackId={stackId} frame={frame} isServer={isServer} />}
 
-      {tab === 'operator' && cfg.operator && (
+      {/* Crunchy PGO is installed from a Helm chart, not from a release tarball, so there is no
+          bundle.yaml or cr.yaml to describe — what was applied is the archive on the server
+          node. Everything below this branch is about the Percona operators' source tree. */}
+      {tab === 'operator' && isPGO && (
+        <div className="space-y-3">
+          <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+            <span className="font-medium text-fg">Crunchy Postgres for Kubernetes {cfg.operatorVer}</span> is installed
+            in <span className="font-mono">{ns}</span> from Crunchy's OCI Helm chart, through k3s' bundled
+            helm-controller — so there is no release tarball on disk. The manifests DBCanvas generated and applied
+            are archived on the server node instead.
+          </div>
+          <KV k="Manifests" v={cfg.manifestDir || '—'} mono />
+          <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-snug text-muted">
+            <span className="font-medium text-fg">The application role is deliberately not a superuser.</span>{' '}
+            pgBouncer authenticates through an auth_query whose function excludes superusers, so a superuser
+            application role can reach the primary directly but gets <span className="font-mono">no such user</span>{' '}
+            from the pooler. Both tiers require TLS — connect with{' '}
+            <span className="font-mono">sslmode=require</span>.
+          </div>
+          <Code label="The cluster the operator built" text={`kubectl get postgrescluster -n ${ns}
+kubectl get pods -n ${ns}
+kubectl get svc -n ${ns}          # EXTERNAL-IP comes from the MetalLB pool`} />
+          <Code label={`Connect as ${cfg.pgoAppUser || cr}`} text={`kubectl -n ${ns} get secret ${cfg.pgoAppSecret || `${cr}-pguser-${cr}`} \\
+  -o jsonpath='{.data.password}' | base64 -d; echo
+# through the pgBouncer pool, from any node on the stack network:
+psql "postgres://${cfg.pgoAppUser || cr}:<password>@${cfg.pgoEndpoint || '<EXTERNAL-IP>:5432'}/${cfg.pgoAppDb || cr}?sslmode=require"
+# ...or straight from the primary pod:
+kubectl -n ${ns} exec -it statefulset/${cr}-instance1 -c database -- psql -U postgres`} />
+          <Code label="What was applied, in order" text={`ls ${cfg.manifestDir || '/root/pgo'}
+cat ${cfg.manifestDir || '/root/pgo'}/README.md
+# the user Secrets go on BEFORE the PostgresCluster: PGO adopts an existing
+# <cluster>-pguser-<user> Secret only when it carries the labels it selects by.
+cd ${cfg.manifestDir || '/root/pgo'} && for f in [0-9]*.yaml; do kubectl apply -f "$f"; done`} />
+        </div>
+      )}
+
+      {tab === 'operator' && cfg.operator && !isPGO && (
         <div className="space-y-3">
           <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
             The <span className="font-medium text-fg">{cfg.operator.toUpperCase()} operator {cfg.operatorVer}</span> is
