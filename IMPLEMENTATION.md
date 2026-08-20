@@ -15988,3 +15988,54 @@ error for what looked like a repository problem. Every keyring import now passes
   caller of the shared install scripts passes REPO alongside PRODUCT, and that no keyring
   import is left interactive. `go build`, `go vet`,
   `go test ./...` and the smoke suite green.
+
+## 277. InnoDB Cluster on Percona Server 9.7: the two spellings of a PDPS repository — `app/innodb.go`, `images/versions.sh`, `versions.yaml`
+
+Session 276 put the 9.7 series in every MySQL-family picker. The first 9.7 **InnoDB Cluster**
+frame deployed from it failed on all three members with `ERROR: Unknown repository:
+pdps9.7.1` — for a repository the picker itself had offered.
+
+**`percona-release` publishes the same repositories twice, under two headings in two
+spellings, and each verb rejects the other's.** Its bare output prints "Available setup
+products" — undashed: `pdps9.7.1`, `pdps97lts`, `pdps84lts` — and then "Available
+repositories" — dashed: `pdps-9.7.1`, `pdps-97-lts`, `pdps-84-lts`. `setup` takes the first
+list, `enable` takes the second, and `percona-release enable pdps9.7.1` exits 2. The catalogue
+behind the frame's repository picker was scraped from the whole output with a single
+`grep -oiE "pdps[a-z0-9._-]*"`, so it presented both lists as one and roughly half of what it
+offered could never be enabled. `pdps_discover` now reads only the repositories section, and
+`versions.yaml` lost the 44 product names it had been carrying.
+
+A catalogue fix does nothing for a design that was already saved, so the node resolves the
+name it is given rather than trusting it. `pdps_enable` matches the stored string against
+`percona-release`'s own repository list with the dashes removed — unambiguous in both
+directions — and falls back to passing it through unchanged. A frame saved with `pdps9.7.1`
+now installs from `pdps-9.7.1`.
+
+**`percona-release enable` has no `-y` flag**; that is `setup`'s. The install line read
+`percona-release enable -y "$PDPS_REPO" || percona-release enable "$PDPS_REPO"`, so `-y` was
+consumed as the repository argument, the first attempt always failed, and the fallback always
+did the work. Both were `>/dev/null 2>&1`, so a repository that genuinely could not be enabled
+printed nothing and surfaced one step later as an empty "install packages:" error with nothing
+to go on. `pdps_enable` reports what percona-release said.
+
+**`psMajorOfRepo` was matching digits, not the series.** It answered 8.4 for any name
+containing `84`, `8.4`, or — after 276 added 9.7 — a `9` anywhere at all, so `pdps-8.0.19`,
+`pdps-8.0.29` and every other 8.0 minor ending in 9 claimed to be a modern series and their
+members were sent `RESET BINARY LOGS AND GTIDS`, which 8.0 does not have. It now reads the
+leading digits of whatever follows the `pdps` prefix, and accepts both spellings for the same
+reason `pdps_enable` does.
+
+### Verified
+
+- A three-member InnoDB Cluster on Oracle Linux 9, deployed from a design saved with the
+  undashed `pdps9.7.1`: the nodes resolved it and wrote
+  `/etc/yum.repos.d/percona-pdps-9.7.1-release.repo`, then installed
+  `percona-server-server-9.7.1-1.1.el9` and `percona-mysql-router-9.7.1-1.1.el9`. All three
+  members report `ONLINE` at 9.7.1 with `innodb01` PRIMARY.
+- Through MySQL Router: a row written on the RW port 6446 landed on `innodb01`
+  (`super_read_only=0`) and read back through the RO port 6447 off `innodb02`.
+- Tests: three — that the catalogue offers only names `enable` accepts, that `psMajorOfRepo`
+  reads the series rather than any digit (including the 9.7 repo reaching the modern
+  vocabulary), and that both install scripts resolve through `pdps_enable` and pass no `-y`.
+  `go build`, `go vet`, `go test ./...` and the smoke suite green.
+

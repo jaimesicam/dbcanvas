@@ -363,12 +363,22 @@ EOS
 section() { awk -v s="$1" '$0=="@@"s"@@"{f=1;next} /^@@/{f=0} f' ; }
 
 # PDPS (Percona Distribution for MySQL using Percona Server) repositories are
-# enumerated from the percona-release manager itself (`percona-release | grep pdps`).
-# Each repo name (e.g. pdps-80-lts, pdps-84-lts, pdps-8x-innovation) is what you
-# pass to `percona-release enable <repo>`; the repo determines the Percona Server
-# major/minor series installed. Cross-OS, so discover once from any built image.
+# enumerated from the percona-release manager itself. Each repo name (e.g.
+# pdps-8.0, pdps-84-lts, pdps-9.7.1) is what you pass to `percona-release enable
+# <repo>`; the repo determines the Percona Server major/minor series installed.
+# Cross-OS, so discover once from any built image.
+#
+# Read ONLY the "Available repositories:" section. percona-release prints the same
+# set twice, under two headings and in two spellings: "Available setup products"
+# is undashed (pdps9.7.1, pdps97lts) and is what `setup` takes, "Available
+# repositories" is dashed (pdps-9.7.1, pdps-97-lts) and is what `enable` takes.
+# Scraping the whole output mixed both into the picker, and a frame that saved a
+# product name failed at deploy with "ERROR: Unknown repository: pdps9.7.1" —
+# which is how the 9.7 InnoDB Cluster frame broke (IMPLEMENTATION.md #277).
 pdps_discover() {
-  docker run --rm "$1" bash -lc 'percona-release 2>&1 | grep -oiE "pdps[a-z0-9._-]*" | sort -u' 2>/dev/null
+  docker run --rm "$1" bash -lc 'percona-release 2>&1 |
+    sed -n "/^Available repositories:/,/^Available components:/p" |
+    grep -oiE "pdps[a-z0-9._-]*" | sort -u' 2>/dev/null
 }
 
 # PMM3 (Percona Monitoring and Management) ships as the percona/pmm-server Docker

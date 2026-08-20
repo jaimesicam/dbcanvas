@@ -173,3 +173,91 @@ func TestKeyringImportsAreNonInteractive(t *testing.T) {
 		}
 	}
 }
+
+// ------------------------------------------------------- InnoDB Cluster on 9.7
+
+// percona-release prints the same repository under two spellings — "pdps9.7.1" in
+// "Available setup products" and "pdps-9.7.1" in "Available repositories" — and each
+// verb rejects the other's. The repository picker's catalogue was scraped from the
+// whole output, so it offered both, and an InnoDB Cluster frame that saved the
+// product name failed at install with "ERROR: Unknown repository: pdps9.7.1".
+// Only names `percona-release enable` accepts belong in the catalogue.
+func TestPDPSCatalogueOffersOnlyEnableableRepos(t *testing.T) {
+	raw, err := os.ReadFile("../versions.yaml")
+	if err != nil {
+		t.Skip("versions.yaml not readable")
+	}
+	inPDPS, seen97 := false, false
+	for _, line := range strings.Split(string(raw), "\n") {
+		if !strings.HasPrefix(line, " ") {
+			inPDPS = strings.TrimSpace(line) == "pdps:"
+			continue
+		}
+		if !inPDPS || !strings.HasPrefix(strings.TrimSpace(line), "- ") {
+			continue
+		}
+		repo := strings.Trim(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "-")), `"`)
+		if !strings.Contains(strings.TrimPrefix(repo, "pdps"), "-") {
+			t.Errorf("versions.yaml offers %q — a percona-release setup product, which `enable` rejects", repo)
+		}
+		if repo == "pdps-9.7.1" || repo == "pdps-97-lts" {
+			seen97 = true
+		}
+	}
+	if !seen97 {
+		t.Error("versions.yaml has no 9.7 PDPS repository — run `make versions`")
+	}
+}
+
+// The series a PDPS repo installs is the leading digits after the prefix, not any
+// digits anywhere in the name. Reading it as a substring search made pdps-8.0.19 —
+// and every other 8.0 minor ending in 9 — claim to be a modern series, so the node
+// was sent RESET BINARY LOGS AND GTIDS, which 8.0 does not have.
+func TestPSMajorOfRepoReadsTheSeriesNotAnyDigit(t *testing.T) {
+	for repo, want := range map[string]string{
+		"pdps-8.0":           "8.0",
+		"pdps-8.0.19":        "8.0",
+		"pdps-8.0.29":        "8.0",
+		"pdps-8.0.46":        "8.0",
+		"pdps-8.1.0":         "8.0",
+		"pdps-8x-innovation": "8.0",
+		"pdps-8.4.11":        "8.4",
+		"pdps-84-lts":        "8.4",
+		"pdps-9.7.1":         "9.7",
+		"pdps-97-lts":        "9.7",
+		"pdps9.7.1":          "9.7", // saved before the catalogue was fixed
+		"pdps84lts":          "8.4",
+	} {
+		if got := psMajorOfRepo(repo); got != want {
+			t.Errorf("psMajorOfRepo(%q) = %q, want %q", repo, got, want)
+		}
+	}
+	// The 9.7 repo must reach the modern vocabulary, or the base setup runs
+	// RESET MASTER against a server that removed it.
+	if !mysqlModernMajor(psMajorOfRepo("pdps-9.7.1")) {
+		t.Error("a 9.7 PDPS repo does not select the modern MySQL vocabulary")
+	}
+}
+
+// The InnoDB install script must resolve the stored repository name rather than pass
+// it straight to `enable`, and must not use -y (which `enable` has no flag for — it
+// consumed the repository argument, so the first of the two attempts always failed).
+func TestInnoDBInstallResolvesTheRepoName(t *testing.T) {
+	for _, script := range []string{innodbInstallRHEL, innodbInstallDebian} {
+		if !strings.Contains(script, `pdps_enable "$PDPS_REPO"`) {
+			t.Error("InnoDB install does not resolve $PDPS_REPO through pdps_enable")
+		}
+		if strings.Contains(script, "percona-release enable -y") {
+			t.Error("InnoDB install passes -y to `percona-release enable`, which has no such flag")
+		}
+	}
+	// Resolution reads percona-release's repositories section, not its whole output.
+	if !strings.Contains(pdpsEnable, "/^Available repositories:/,/^Available components:/p") {
+		t.Error("pdps_enable does not restrict itself to the repositories section")
+	}
+	// A repository that cannot be enabled must say so; it used to fail silently and
+	// surface as an empty "install packages:" error.
+	if !strings.Contains(pdpsEnable, "failed:") {
+		t.Error("pdps_enable swallows the percona-release error")
+	}
+}

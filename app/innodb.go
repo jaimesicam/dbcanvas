@@ -383,10 +383,21 @@ func (a *App) depSecrets(stackID int64, nodeID string) []byte {
 	return []byte("{}")
 }
 
-// psMajorOfRepo maps a PDPS repo name to a major series for RESET-keyword selection
-// (8.4 if the repo mentions 84/8.4, else 8.0).
+// psMajorOfRepo maps a PDPS repository name to the Percona Server major series it
+// installs, which selects the RESET keyword, the validate_password variables and the
+// default auth plugin (see mysqlResetCmd / validatePasswordRelax / psAuthPlugin).
+//
+// The series is the leading digits of whatever follows the pdps prefix, so this reads
+// them rather than searching for substrings anywhere in the name: pdps-8.0.19 is 8.0,
+// not 8.4 because "19" ends in a 9, and not 9.7 either. Both spellings are accepted
+// (pdps-9.7.1 and pdps9.7.1) because a design saved before the catalogue was fixed
+// can still carry the undashed one — see pdpsEnable.
 func psMajorOfRepo(repo string) string {
-	if strings.Contains(repo, "84") || strings.Contains(repo, "8.4") || strings.Contains(repo, "9") {
+	v := strings.TrimPrefix(strings.TrimPrefix(repo, "pdps"), "-")
+	switch {
+	case strings.HasPrefix(v, "9.7"), strings.HasPrefix(v, "97"):
+		return "9.7"
+	case strings.HasPrefix(v, "8.4"), strings.HasPrefix(v, "84"):
 		return "8.4"
 	}
 	return "8.0"
@@ -522,14 +533,49 @@ func memberNodes(st Stack, frame designFrame) []designNode {
 
 // ------------------------------------------------------------------ scripts
 
-const innodbInstallRHEL = pinInstallRHEL + `set -e
+// pdpsEnable defines pdps_enable, which turns on the frame's PDPS repository.
+//
+// It exists because percona-release publishes the same repository under two
+// spellings, in two separately-headed lists that its bare output prints one after
+// the other: "Available setup products" is undashed (pdps9.7.1, pdps97lts,
+// pdps84lts) and is what `setup` takes, while "Available repositories" is dashed
+// (pdps-9.7.1, pdps-97-lts, pdps-84-lts) and is what `enable` takes. Each verb
+// rejects the other's spelling outright — `percona-release enable pdps9.7.1` exits
+// 2 with "ERROR: Unknown repository". The catalogue behind the frame's repository
+// picker was scraped from the whole output, so it offered both, and picking a
+// product name made every member fail at install. That is exactly how the 9.7
+// InnoDB Cluster frame broke: pdps-9.7.1 works, pdps9.7.1 does not.
+//
+// images/versions.sh now reads only the repositories section, but designs saved
+// before that keep whichever name they were given, so resolve on the node against
+// percona-release's own list rather than trusting the stored string: match on the
+// name with its dashes removed, which is unambiguous in both directions.
+//
+// `enable` also has no -y flag (that is setup's); it was silently consuming the
+// repository argument, so every enable here used to run twice and the first run
+// always failed. And the failure is reported instead of being swallowed by
+// >/dev/null — a repository that cannot be enabled previously surfaced as an
+// empty "install packages:" error with nothing to go on.
+const pdpsEnable = `pdps_enable() {
+  local want="${1//-/}" c="" r
+  for r in $(percona-release 2>&1 | sed -n '/^Available repositories:/,/^Available components:/p' | grep -oE 'pdps[a-z0-9._-]*'); do
+    [ "${r//-/}" = "$want" ] && { c="$r"; break; }
+  done
+  [ -n "$c" ] || c="$1"
+  percona-release enable "$c" >/tmp/prel.log 2>&1 || {
+    echo "percona-release enable $c failed:"; tail -3 /tmp/prel.log; return 1
+  }
+}
+`
+
+const innodbInstallRHEL = pinInstallRHEL + pdpsEnable + `set -e
 dnf -y -q module disable mysql >/dev/null 2>&1 || true
-percona-release enable -y "$PDPS_REPO" >/dev/null 2>&1 || percona-release enable "$PDPS_REPO" >/dev/null 2>&1
+pdps_enable "$PDPS_REPO"
 pin_install $PKGS`
 
-const innodbInstallDebian = pinInstallDebian + `set -e
+const innodbInstallDebian = pinInstallDebian + pdpsEnable + `set -e
 export DEBIAN_FRONTEND=noninteractive
-percona-release enable -y "$PDPS_REPO" >/dev/null 2>&1 || percona-release enable "$PDPS_REPO" >/dev/null 2>&1
+pdps_enable "$PDPS_REPO"
 apt-get update -qq >/dev/null
 pin_install $PKGS`
 
