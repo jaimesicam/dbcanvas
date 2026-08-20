@@ -435,9 +435,9 @@ type designFrame struct {
 	// sidecar to every instance pod. Off by default — it is four more containers.
 	K3DPGOMonitoring  bool   `json:"k3dPgoMonitoring"`
 	K3DPGOPromVersion string `json:"k3dPgoPromVersion"` // kube-prometheus-stack chart version; "" → latest
-	K3DOperator     string `json:"k3dOperator"`     // "" | "pxc" | "ps" | "psmdb" | "pg" | "cnpg" | "pgo"
-	K3DOperatorVer  string `json:"k3dOperatorVer"`  // "" = the catalog's latest
-	K3DNamespace    string `json:"k3dNamespace"`    // namespace the operator + CR are installed into
+	K3DOperator       string `json:"k3dOperator"`       // "" | "pxc" | "ps" | "psmdb" | "pg" | "cnpg" | "pgo"
+	K3DOperatorVer    string `json:"k3dOperatorVer"`    // "" = the catalog's latest
+	K3DNamespace      string `json:"k3dNamespace"`      // namespace the operator + CR are installed into
 	// The proxy in front of the database. cr.yaml ships HAProxy enabled and the alternative disabled;
 	// they are mutually exclusive, so choosing one disables the other. PXC: haproxy | proxysql.
 	// PS: haproxy | router (MySQL Router understands group replication only).
@@ -697,8 +697,13 @@ func archOr(a string) string {
 	return hostArch()
 }
 
+// intranetImage is the pre-baked Intranet image (images/intranet.Dockerfile): the
+// systemd Oracle Linux 9 base with OpenLDAP, bind, Squid, postfix/dovecot and Roundcube
+// already installed. Built by `make images` / `make intranet-image`. The node is always
+// Oracle Linux 9 whatever the canvas says — its service config is written for it — so
+// the tag varies by architecture alone.
 func intranetImage(arch string) string {
-	return "dbcanvas-systemd:oraclelinux-9-" + archOr(arch)
+	return "dbcanvas-intranet:oraclelinux-9-" + archOr(arch)
 }
 
 // --- validation ---
@@ -774,7 +779,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			if !seenImg[img] {
 				seenImg[img] = true
 				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+					out = append(out, issue{"error", "Missing image " + img + " — run `make intranet-image` first"})
 				}
 			}
 		case "pmm":
@@ -822,11 +827,13 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		case "vnc":
 			vnc++
 			others++
-			img := pxcImage(n.OS, n.OSVersion, n.Arch)
+			// The pre-baked desktop image, pinned to one Ubuntu release — the node
+			// ignores the design's os/osVersion (see vncImage).
+			img := vncImage(n.Arch)
 			if !seenImg[img] {
 				seenImg[img] = true
 				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-					out = append(out, issue{"error", "Missing image " + img + " — run `make images` first"})
+					out = append(out, issue{"error", "Missing image " + img + " — run `make vnc-image` first"})
 				}
 			}
 		case "valkey":
@@ -2035,6 +2042,16 @@ func (a *App) provisionIntranet(st Stack, n designNode) {
 		}
 
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
+
+		// The Intranet runs the pre-baked image, not a base image: without it there is
+		// nothing to configure, so say which command builds it rather than letting the
+		// container create fail with "no such image".
+		img := intranetImage(n.Arch)
+		if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+			failNode("image %s not found — run `make intranet-image` first", img)
+			return
+		}
+
 		setPhase("Creating container", 3)
 
 		name := containerName(st.ID, n.ID)
@@ -2046,7 +2063,7 @@ func (a *App) provisionIntranet(st Stack, n designNode) {
 		// restarts. The FQDN alias also lets peers reach it as intranet.<domain>.
 		subnet, _ := a.engCtx(ctx).NetworkSubnet(ctx, networkName(st.ID))
 		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
-			Name: name, Image: intranetImage(n.Arch), Hostname: "intranet",
+			Name: name, Image: img, Hostname: "intranet",
 			Network: networkName(st.ID), Aliases: []string{"intranet", "intranet." + domain},
 			Privileged: true, PublishPort: 8080, IPv4Address: staticIntranetIP(subnet),
 		})
@@ -2142,15 +2159,14 @@ func (a *App) provisionIntranet(st Stack, n designNode) {
 
 // intranetSteps is the ordered, idempotent provisioning sequence. Each step is
 // run via `bash -c` inside the container and may be retried.
+//
+// Configuration only: every package these steps configure is already installed in the
+// image (images/intranet.Dockerfile). That is the whole reason the list starts here —
+// installing them at deploy time was 56 of the node's 63 seconds, and what gets
+// installed never varied. What is left does vary, per stack: the CA, the LDAP suffix
+// and credentials, the mail domain, and the DNS zones.
 func intranetSteps() []provStep {
 	return []provStep{
-		{"Enable repositories", `set -e
-dnf -y install oracle-epel-release-el9 >/dev/null 2>&1 || dnf -y install epel-release >/dev/null 2>&1 || true
-dnf config-manager --set-enabled ol9_codeready_builder >/dev/null 2>&1 || true`},
-
-		{"Install packages", `set -e
-dnf -y install rsyslog squid bind bind-utils postfix dovecot openldap-servers openldap-clients httpd php php-fpm roundcubemail mod_ssl openssl net-tools >/dev/null`},
-
 		// Under x86-64 emulation on an arm64 host (e.g. Rosetta on Apple Silicon via
 		// Rancher Desktop), the binary translator intermittently fails to obtain its
 		// code-cache mapping at process start and the daemon dies with "rosetta error:

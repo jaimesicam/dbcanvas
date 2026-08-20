@@ -774,7 +774,9 @@ DBCanvas provisions sibling nodes, so it needs access to the Docker daemon and t
 
 | Command | What it does |
 | --- | --- |
-| `make images` | Build the systemd base images the DB nodes run on |
+| `make images` | Build the systemd base images the DB nodes run on, then the two pre-baked service images below |
+| `make intranet-image` | Rebuild only `dbcanvas-intranet:oraclelinux-9-<arch>` — the **Intranet** node's image (OpenLDAP, bind, Squid, postfix/dovecot, Roundcube already installed) |
+| `make vnc-image` | Rebuild only `dbcanvas-vnc:ubuntu-24.04-<arch>` — the **Ubuntu VNC** node's image (XFCE, TigerVNC/noVNC, Firefox, Percona clients already installed) |
 | `make versions` | Probe the images for installable versions, and the registries for PMM + Percona operator versions → `versions.yaml` |
 | `make compose` | Create `.env` if needed, build the app image, and start the stack |
 | `make build` | Build the app image only |
@@ -792,7 +794,8 @@ DBCanvas provisions sibling nodes, so it needs access to the Docker daemon and t
 ### Docker (default)
 
 ```sh
-make images     # build the dbcanvas-systemd:* base images used by DB nodes (first time)
+make images     # build the dbcanvas-systemd:* base images used by DB nodes, plus the
+                # pre-baked dbcanvas-intranet and dbcanvas-vnc images (first time)
 make versions   # probe those images to populate versions.yaml (Percona versions catalog)
 make compose    # create .env if needed, build the app image, and start the container
 
@@ -959,7 +962,9 @@ in two passes:
 - **`make images`** builds the `dbcanvas-systemd:*` base images (Oracle Linux 8/9/10, Ubuntu
   22.04/24.04, Debian 12/13) and records the image matrix. The Debian bases are offered on the
   **Linux Client** only — it installs nothing, so no product's package path is exercised there;
-  every other node type picks from Oracle Linux and Ubuntu.
+  every other node type picks from Oracle Linux and Ubuntu. It then builds the two pre-baked
+  service images — `dbcanvas-intranet` and `dbcanvas-vnc` — from those bases; they are not
+  selectable instances, so they are not recorded in `versions.yaml`.
 - **`make versions`** starts a throwaway container per image and asks that OS's own package
   manager what it can actually install (`dnf search --showduplicates` / `apt-cache madison`),
   writing the result back per image, keyed by major series. It also refreshes the PMM, Percona

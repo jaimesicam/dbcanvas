@@ -10,6 +10,10 @@
 # Each image installs systemd (PID 1) plus net-tools, the OpenLDAP client,
 # sysstat, percona-release and percona-toolkit (see images/*.Dockerfile).
 #
+# After the matrix, images/service.sh builds the two pre-baked service images —
+# dbcanvas-intranet and dbcanvas-vnc — from the bases it just built. Those are not
+# selectable instances, so they are not recorded in versions.yaml.
+#
 # Successful builds are recorded in versions.yaml at the repo root; that file
 # drives an OS/version picker for creating container instances later. A build
 # may fail (e.g. the local Docker cannot emulate a non-native platform) — that
@@ -89,6 +93,15 @@ done
     done
   fi
 } >"$OUT"
+
+# ---- pre-baked service images ----
+# The Intranet and Ubuntu VNC nodes install a fixed package set, so it is baked into an
+# image instead of installed on every deploy. Built from the bases above, after
+# versions.yaml is written (they are not selectable instances, so they are not recorded
+# in it). A failure here is reported but does not lose the matrix that was just built.
+if ! bash "$IMAGES_DIR/service.sh" all; then
+  FAILED+=("service images (see above)")
+fi
 
 echo ""
 echo "=================================================================="

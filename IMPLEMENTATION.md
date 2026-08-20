@@ -16270,3 +16270,64 @@ OL9.
   same canvas offers `oraclelinux | ubuntu` only.
 - Tests: one — the generic catalog keeps a Debian image and every per-product catalog drops it.
   `go build`, `go vet`, `go test ./...` and the smoke suite green.
+
+## 281. The Intranet and the VNC desktop become images — `images/{intranet,vnc}.Dockerfile` (new), `images/{service.sh (new),build.sh}`, `Makefile`, `app/{vnc,intranet}.go`, `app/web/src/pages/StackDesigner.jsx`, `README.md`
+
+Session 280 measured what these two nodes spend their deploy on: 56 of the Intranet's 63
+seconds and 120 of the VNC node's 123 were installing a package set that never varies. Both
+now ship as pre-baked images built from the systemd bases — `dbcanvas-intranet:oraclelinux-9-
+<arch>` and `dbcanvas-vnc:ubuntu-24.04-<arch>` — and the deploy is configuration only.
+
+| | Intranet | Ubuntu VNC |
+|---|---|---|
+| before | 63 s | 123 s |
+| after | **7 s** | **4 s** |
+
+A two-node stack that took about three minutes (the VNC node waits for the Intranet, so the
+two package phases are serial) now reports both nodes `running` **11 seconds** after the deploy
+click, desktop included.
+
+**The split is "does this step read the stack".** `intranetSteps()` lost exactly two entries —
+"Enable repositories" and "Install packages" — and kept the nine that write the CA, the LDAP
+suffix and credentials, the mail domain, the webmail/Squid/named config and the systemd units,
+because every one of those depends on the stack being deployed. `app/vnc.go` lost three
+install scripts and kept the CA trust (system store + the Firefox enterprise policy, which
+Firefox needs because it does not read the OS store), the desktop user with its 8-byte VncAuth
+password, and the two units. The scripts' hard-won comments moved into the Dockerfiles with
+them: Ubuntu's `firefox` package is still a snap transitional that cannot run in a container,
+so the image still installs Mozilla's own build, pinned.
+
+**The VNC node's release is now pinned, like the Intranet's always was.** A pre-baked desktop
+costs 2.4 GB; one per Ubuntu release the OS picker happened to offer would cost twice that to
+say the same thing, and the release is the least interesting fact about a jump box. So
+`vncImage(arch)` ignores the design's `os`/`osVersion` the way `intranetImage(arch)` ignores
+them, the form asks for the architecture alone, and a design saved with 22.04 is snapped to
+24.04 when its form opens — otherwise the canvas card would keep claiming 22.04 while the node
+ran 24.04. `trustIntranetCA` now gets `vncOS` rather than `n.OS`, which also closes a latent
+bug: a node saved without an `os` would have been given the RHEL trust path on an Ubuntu image.
+
+**Building them.** `images/service.sh [intranet|vnc|all]` builds one or both from the matching
+base for the selected platform, skipping (with the reason) when the base is missing.
+`make images` calls it after the matrix, so the documented first-run flow still leaves a
+working stack; `make intranet-image` and `make vnc-image` rebuild one. They are not selectable
+instances, so they are deliberately absent from `versions.yaml` — the node asks Docker for them
+by name, and `validateStack` names the target to run when the answer is no.
+
+### Verified
+
+- `bash images/service.sh all` builds both in 3 m 38 s: 1.05 GB (base + 346 MB) and 2.41 GB
+  (base + 1.94 GB). The desktop image carries mysql, mongosh, psql, valkey-cli, ldapsearch,
+  kinit, pt-query-digest, firefox, Xtigervnc, websockify and startxfce4.
+- `make images` end to end with everything cached: 7 bases + both service images, 2.8 s.
+- A live stack (Intranet + VNC, the VNC node saved as 22.04): both `running` in 11 s — Intranet
+  at 7 s, VNC at 4 s more. On the Intranet, rsyslog/slapd/squid/named/postfix/dovecot/
+  dbcanvas-roundcube all active, `dc=example,dc=net` seeded, Roundcube HTTP 200, an IMAP
+  `LOGIN` + `SELECT INBOX` as admin@example.net returns OK OK, and the VNC node fetched a
+  Debian `Release` file through the Squid proxy (`TCP_MISS/200` in its access log).
+- The desktop, in a real browser through the published noVNC port: the XFCE session for
+  `dbadmin` renders (title `vnc:1 (dbadmin) - noVNC`), on Ubuntu 24.04 despite the saved 22.04,
+  with the Intranet CA in the system bundle and in `/etc/firefox/policies/policies.json`.
+- With both tags removed, validation says "Missing image
+  dbcanvas-intranet:oraclelinux-9-amd64 — run `make intranet-image` first", and the matching
+  line naming `make vnc-image` for the desktop.
+- `go build`, `go vet`, `go test ./...` and the smoke suite green.

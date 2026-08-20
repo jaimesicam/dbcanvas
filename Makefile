@@ -3,7 +3,7 @@ SHELL := /bin/bash
 # Load APP_PORT for echoing the URL (falls back to 8080).
 APP_PORT ?= $(shell test -f .env && grep -E '^APP_PORT=' .env | cut -d= -f2 || echo 8080)
 
-.PHONY: compose env build up down logs restart clean images versions smoke trafficsim-image hotelsim-image airlinesim-image carsim-image marketchaos-image stocksim-image
+.PHONY: compose env build up down logs restart clean images versions smoke trafficsim-image hotelsim-image airlinesim-image carsim-image marketchaos-image stocksim-image intranet-image vnc-image
 
 ## compose: create .env if needed, then build and start the stack
 compose: env
@@ -45,9 +45,24 @@ clean:
 smoke:
 	cd app/web && npm run smoke
 
-## images: build systemd base images (OS × platform matrix) → versions.yaml
+## images: build systemd base images (OS × platform matrix) → versions.yaml,
+## then the two pre-baked service images (Intranet, Ubuntu VNC) from them
 images:
 	bash images/build.sh
+
+## intranet-image: rebuild only the pre-baked Intranet image
+## (dbcanvas-intranet:oraclelinux-9-<arch>) — the systemd Oracle Linux 9 base plus
+## OpenLDAP, bind, Squid, postfix/dovecot and Roundcube, so deploying an Intranet
+## node is configuration only. `make images` builds this too.
+intranet-image:
+	bash images/service.sh intranet
+
+## vnc-image: rebuild only the pre-baked Ubuntu VNC image
+## (dbcanvas-vnc:ubuntu-24.04-<arch>) — the systemd Ubuntu 24.04 base plus the XFCE
+## desktop, TigerVNC/noVNC, Firefox and the Percona clients. `make images` builds
+## this too.
+vnc-image:
+	bash images/service.sh vnc
 
 ## versions: probe built images for installable Percona Server versions → versions.yaml
 versions:

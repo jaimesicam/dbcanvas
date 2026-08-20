@@ -9,9 +9,10 @@ import (
 	"time"
 )
 
-// Ubuntu VNC node (Type=="vnc"): a desktop "jump box" for troubleshooting. It runs on
-// the same systemd Ubuntu image as the database nodes (dbcanvas-systemd:ubuntu-<ver>-
-// <arch>), so the desktop stack runs as real systemd services that survive restarts.
+// Ubuntu VNC node (Type=="vnc"): a desktop "jump box" for troubleshooting. It runs the
+// pre-baked desktop image (images/vnc.Dockerfile) — the systemd Ubuntu 24.04 base with
+// the whole desktop already installed — so the stack runs as real systemd services that
+// survive restarts, and deploying the node is configuration only.
 //
 // It provides an XFCE desktop over a browser-based VNC client (TigerVNC + noVNC/
 // websockify), Firefox, the OpenSSH client, and percona-release with the Percona client
@@ -29,7 +30,20 @@ const (
 	vncRFBPort   = 5901 // Xvnc display :1
 	vncGeometry  = "1440x900"
 	vncDefedUser = "dbadmin"
+	// The one Ubuntu release the desktop image is built for. A second pre-baked
+	// desktop per OS version would cost 2.4 GB to say the same thing, so — like the
+	// Intranet, which is Oracle Linux 9 whatever the canvas says — the node pins its
+	// release and the form no longer asks. Designs saved with 22.04 deploy on this.
+	vncOS    = "ubuntu"
+	vncOSVer = "24.04"
 )
+
+// vncImage is the pre-baked Ubuntu VNC image (images/vnc.Dockerfile): XFCE, TigerVNC +
+// noVNC, Firefox and the Percona clients on the systemd Ubuntu 24.04 base. Built by
+// `make images` / `make vnc-image`.
+func vncImage(arch string) string {
+	return "dbcanvas-vnc:" + vncOS + "-" + vncOSVer + "-" + archOr(arch)
+}
 
 // vncConfig is the non-secret profile shown for a deployed VNC node.
 type vncConfig struct {
@@ -70,15 +84,7 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 	}
 	fqdn := fqdnOf(host, domain)
 
-	os := n.OS
-	if os == "" {
-		os = "ubuntu"
-	}
-	osVersion := n.OSVersion
-	if osVersion == "" {
-		osVersion = "24.04"
-	}
-	image := pxcImage(os, osVersion, n.Arch)
+	image := vncImage(n.Arch)
 
 	user := strings.TrimSpace(n.VNCUser)
 	if user == "" {
@@ -99,7 +105,7 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 	sec := vncSecrets{VNCPassword: pw}
 	secJSON, _ := json.Marshal(sec)
 
-	cfg := vncConfig{Image: image, OS: os, OSVersion: osVersion, Arch: archOr(n.Arch), Hostname: host, FQDN: fqdn, VNCUser: user, UseProxy: n.UseProxy}
+	cfg := vncConfig{Image: image, OS: vncOS, OSVersion: vncOSVer, Arch: archOr(n.Arch), Hostname: host, FQDN: fqdn, VNCUser: user, UseProxy: n.UseProxy}
 	cfgJSON, _ := json.Marshal(cfg)
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
 
@@ -110,7 +116,7 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 
 		if ok, _ := a.engCtx(ctx).ImageExists(ctx, image); !ok {
-			pr.fail("image %s not found — run `make images` first", image)
+			pr.fail("image %s not found — run `make vnc-image` first", image)
 			return
 		}
 
@@ -164,43 +170,26 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 			}
 		}
 
-		pr.phase("Installing desktop + VNC + SSH", 32)
-		if err := a.runStep(ctx, id, vncInstallDesktopScript, nil, pr.logln); err != nil {
-			pr.fail("install desktop/VNC: %v", err)
-			return
-		}
-		pr.logln("XFCE desktop + TigerVNC + noVNC + openssh-client installed")
-
+		pr.phase("Trusting the Intranet CA", 40)
 		// Trust the Intranet CA in the system store (CLI tools) + install it into Firefox
 		// via enterprise policy (the desktop browser has its own root store), so the node
 		// trusts stack TLS endpoints (Keycloak/PMM HTTPS, ...). The policy references the
 		// CA file trustIntranetCA stages, so it has to run after it.
-		a.trustIntranetCA(ctx, st, id, n.OS, pr.logln)
+		// vncOS, not n.OS: the image is Ubuntu whatever the design says, and the trust
+		// store path is chosen from the OS family (Debian's differs from RHEL's).
+		a.trustIntranetCA(ctx, st, id, vncOS, pr.logln)
 		if err := a.runStep(ctx, id, vncFirefoxCAScript, nil, pr.logln); err != nil {
 			pr.logln("Firefox CA trust setup skipped: " + err.Error())
 		}
 
-		pr.phase("Installing Firefox", 50)
-		if err := a.runStep(ctx, id, vncInstallFirefoxScript, nil, pr.logln); err != nil {
-			pr.logln("Firefox install had issues (continuing; install manually with sudo): " + err.Error())
-		}
-
-		pr.phase("Installing Percona clients", 65)
-		if err := a.runStep(ctx, id, vncInstallClientsScript, nil, pr.logln); err != nil {
-			// Best-effort: the desktop is still usable and the operator has sudo.
-			pr.logln("Percona client install had issues (continuing; install manually with sudo): " + err.Error())
-		} else {
-			pr.logln("percona-release + clients installed (ps/psmdb/valkey/ppg, percona-toolkit, ldap-utils)")
-		}
-
-		pr.phase("Creating desktop user", 82)
+		pr.phase("Creating desktop user", 60)
 		if err := a.runStep(ctx, id, vncSetupUserScript, []string{"VNCUSER=" + user, "VNCPW=" + pw, "GEOMETRY=" + vncGeometry}, pr.logln); err != nil {
 			pr.fail("create desktop user: %v", err)
 			return
 		}
 		pr.logln("user " + user + " created (sudo) + VNC password set")
 
-		pr.phase("Starting desktop services", 92)
+		pr.phase("Starting desktop services", 85)
 		if err := a.runStep(ctx, id, vncStartServicesScript,
 			[]string{"WEBPORT=" + strconv.Itoa(vncWebPort), "RFBPORT=" + strconv.Itoa(vncRFBPort)}, pr.logln); err != nil {
 			pr.fail("start desktop services: %v", err)
@@ -215,19 +204,6 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 		log.Printf("stack %d vnc %s: provisioned (noVNC host port %d)", st.ID, n.Label, cfg.WebPort)
 	}()
 }
-
-// vncInstallDesktopScript installs the XFCE desktop, TigerVNC, noVNC/websockify and the
-// OpenSSH client.
-const vncInstallDesktopScript = `set -e
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq --no-install-recommends \
-  xfce4 xfce4-goodies xfce4-terminal dbus-x11 xterm \
-  tigervnc-standalone-server tigervnc-common tigervnc-tools \
-  novnc websockify python3 openssh-client \
-  wget gnupg2 lsb-release curl ca-certificates sudo net-tools nano vim less procps >/dev/null
-# noVNC ships vnc.html under /usr/share/novnc; ensure an index points at it.
-[ -f /usr/share/novnc/index.html ] || ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html 2>/dev/null || true`
 
 // vncFirefoxCAScript makes Firefox trust the Intranet CA (e.g. for a Keycloak HTTPS
 // issuer at https://keycloak.<domain>:8443).
@@ -254,39 +230,6 @@ cat > /etc/firefox/policies/policies.json <<JSON
 JSON
 [ -f "$CA" ] || echo "WARN: ${CA} missing; Firefox will not trust the Intranet CA" >&2
 echo "firefox policy installs Intranet CA from ${CA}"`
-
-// vncInstallFirefoxScript installs Firefox from Mozilla's APT repository. (Ubuntu's own
-// "firefox" package is a snap transitional that does not run in a container.) Best-effort.
-const vncInstallFirefoxScript = `set -e
-export DEBIAN_FRONTEND=noninteractive
-install -d -m 0755 /etc/apt/keyrings
-wget -qO /etc/apt/keyrings/packages.mozilla.org.asc https://packages.mozilla.org/apt/repo-signing-key.gpg
-echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" > /etc/apt/sources.list.d/mozilla.list
-printf 'Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000\n' > /etc/apt/preferences.d/mozilla
-apt-get update -qq || true
-apt-get install -y -qq firefox >/dev/null 2>&1 || apt-get install -y -qq firefox-esr >/dev/null 2>&1 || true
-# Best-effort: report status but never fail the deploy (the operator has sudo).
-command -v firefox >/dev/null 2>&1 && echo "firefox: $(firefox --version 2>/dev/null | head -1)" || echo "firefox not installed (install manually with sudo)"`
-
-// vncInstallClientsScript installs percona-release and the Percona client tools, plus
-// percona-toolkit and ldap-utils. Each install is best-effort (|| true) so one bad
-// package name in a future repo refresh never blocks the others — the operator has sudo.
-const vncInstallClientsScript = `set -e
-export DEBIAN_FRONTEND=noninteractive
-wget -qO /tmp/percona-release.deb https://repo.percona.com/apt/percona-release_latest.generic_all.deb
-dpkg -i /tmp/percona-release.deb >/dev/null 2>&1 || { apt-get update -qq; apt-get -y -qq -f install >/dev/null; }
-for r in ps-80 psmdb-80 ppg-17 valkey-91 tools; do percona-release enable "$r" >/dev/null 2>&1 || true; done
-apt-get update -qq
-apt-get install -y -qq ldap-utils >/dev/null 2>&1 || true
-apt-get install -y -qq krb5-user >/dev/null 2>&1 || true                   # Kerberos client (kinit/klist) for GSSAPI logins
-apt-get install -y -qq percona-server-client >/dev/null 2>&1 || true       # Percona Server (MySQL) client
-apt-get install -y -qq percona-mongodb-mongosh >/dev/null 2>&1 || true      # PSMDB shell (mongosh)
-apt-get install -y -qq percona-postgresql-client-17 >/dev/null 2>&1 || true # Percona PostgreSQL client (psql)
-apt-get install -y -qq percona-valkey-tools >/dev/null 2>&1 || apt-get install -y -qq valkey-tools >/dev/null 2>&1 || true  # Valkey client (valkey-cli)
-apt-get install -y -qq percona-toolkit >/dev/null 2>&1 || true             # Percona Toolkit (pt-* utilities)
-# Report what landed so the deploy log shows which clients are present.
-echo "clients present:"
-for c in mysql mongosh psql valkey-cli ldapsearch kinit pt-query-digest; do command -v "$c" >/dev/null 2>&1 && echo "  $c: $(command -v $c)" || echo "  $c: MISSING (install with sudo)"; done`
 
 // vncSetupUserScript creates the sudo login user, sets its password + the VNC auth
 // password (TigerVNC, 8-char), writes the per-user ~/.vnc/config (key=value: xfce

@@ -401,7 +401,9 @@ export const NODE_TYPES = {
     },
   },
   // Ubuntu VNC — a desktop "jump box" (XFCE over web VNC) with the Percona client
-  // tools preinstalled, for ad-hoc troubleshooting. Runs ubuntu:24.04 (pulled at deploy).
+  // tools preinstalled, for ad-hoc troubleshooting. Runs the pre-baked desktop image
+  // dbcanvas-vnc:ubuntu-24.04-<arch> (`make vnc-image`), so the release is pinned and
+  // the form asks for the architecture only.
   vnc: {
     label: 'Ubuntu VNC',
     slug: 'vnc',
@@ -4624,6 +4626,14 @@ function KeycloakManager({ dep, onDeleteNode }) {
 // password and whether to route apt through the Intranet proxy.
 function VNCForm({ node: n, patchNode, deleteNode, dep, deployed }) {
   const lock = deployed ? 'opacity-70' : ''
+  // The desktop image is pinned to one Ubuntu release (vncImage in app/vnc.go), so a
+  // design saved when the node still had a version picker would deploy on 24.04 while
+  // its canvas card claimed 22.04. Snap it, the way the catalog-driven forms snap a
+  // version that is no longer offered.
+  useEffect(() => {
+    if (deployed) return
+    if (n.os !== 'ubuntu' || n.osVersion !== '24.04') patchNode(n.id, { os: 'ubuntu', osVersion: '24.04' })
+  }, [n.id, n.os, n.osVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -4631,29 +4641,22 @@ function VNCForm({ node: n, patchNode, deleteNode, dep, deployed }) {
         {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
       </div>
       <p className="text-xs text-muted">
-        XFCE desktop over a browser-based VNC client (on the systemd Ubuntu image), with Firefox, the OpenSSH
-        client, the Percona clients (MySQL/PSMDB/Valkey/PostgreSQL), percona-toolkit + ldap-utils preinstalled.
-        The login user has sudo for installing more tools.
+        XFCE desktop over a browser-based VNC client, with Firefox, the OpenSSH client, the Percona clients
+        (MySQL/PSMDB/Valkey/PostgreSQL), percona-toolkit + ldap-utils already in the image
+        (<code>dbcanvas-vnc:ubuntu-24.04</code>, built by <code>make vnc-image</code>). The login user has sudo
+        for installing more tools.
       </p>
 
       <Field label="Label" hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
-      <div className="grid grid-cols-2 gap-2">
-        <Field label="Ubuntu version" hint="Systemd image (make images).">
-          <select className={`${inputCls} ${lock}`} value={n.osVersion || '24.04'} disabled={deployed} onChange={(e) => patchNode(n.id, { osVersion: e.target.value })}>
-            <option value="24.04">24.04</option>
-            <option value="22.04">22.04</option>
-          </select>
-        </Field>
-        <Field label="Arch" hint="Image architecture.">
-          <select className={`${inputCls} ${lock}`} value={n.arch || 'amd64'} disabled={deployed} onChange={(e) => patchNode(n.id, { arch: e.target.value })}>
-            <option value="amd64">amd64</option>
-            <option value="arm64">arm64</option>
-          </select>
-        </Field>
-      </div>
+      <Field label="Arch" hint="Image architecture. Ubuntu 24.04 is pinned — one pre-baked desktop, not one per release.">
+        <select className={`${inputCls} ${lock}`} value={n.arch || 'amd64'} disabled={deployed} onChange={(e) => patchNode(n.id, { arch: e.target.value })}>
+          <option value="amd64">amd64</option>
+          <option value="arm64">arm64</option>
+        </select>
+      </Field>
 
       <Field label="Desktop user" hint="Linux login user (has passwordless sudo).">
         <input className={`${inputCls} ${lock}`} value={n.vncUser ?? 'dbadmin'} disabled={deployed} onChange={(e) => patchNode(n.id, { vncUser: e.target.value })} />
