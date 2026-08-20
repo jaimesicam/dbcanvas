@@ -10,7 +10,7 @@ often enough to be worth writing down. For what the product *does*, see the
 | --- | --- |
 | `make install` | The first run: `images`, then `versions`, then `compose`. Safe to re-run. |
 | `make compose` | Create `.env` if missing, build the app image and start it. Enough on its own once the node images exist. |
-| `make images` | Build the systemd base images (OS × the one platform this installation targets), plus the pre-baked Intranet and Ubuntu VNC images. Slow — this is the long part of `make install`. |
+| `make images` | Build everything a node can need: the systemd base images (OS × the one platform this installation targets), the pre-baked Intranet and Ubuntu VNC images built from them, and the six demo application images. Slow — this is the long part of `make install`. |
 | `make versions` | Run the built images and record what each can actually install into `versions.yaml`. This is what fills the designer's version pickers. |
 | `make up` / `make down` | Start / stop the app without rebuilding. |
 | `make restart` | `down`, then `compose`. |
@@ -21,7 +21,8 @@ often enough to be worth writing down. For what the product *does*, see the
 Single-image rebuilds, for when only one thing changed: `make intranet-image`,
 `make vnc-image`, and one per demo app (`make trafficsim-image`, `make hotelsim-image`,
 `make airlinesim-image`, `make carsim-image`, `make marketchaos-image`,
-`make stocksim-image`).
+`make stocksim-image`). `make images` builds all of them, so these are for iterating on
+one without waiting for the operating systems again.
 
 > **`make images` rewrites `versions.yaml`.** It discards the enrichment `make versions`
 > adds, which is why `make install` runs them in that order. If you run `make images` on its

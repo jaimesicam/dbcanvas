@@ -11,8 +11,9 @@
 # sysstat, percona-release and percona-toolkit (see images/*.Dockerfile).
 #
 # After the matrix, images/service.sh builds the two pre-baked service images —
-# dbcanvas-intranet and dbcanvas-vnc — from the bases it just built. Those are not
-# selectable instances, so they are not recorded in versions.yaml.
+# dbcanvas-intranet and dbcanvas-vnc — from the bases it just built, and images/apps.sh
+# builds the demo application images. None of them are selectable instances, so none are
+# recorded in versions.yaml.
 #
 # Successful builds are recorded in versions.yaml at the repo root; that file
 # drives an OS/version picker for creating container instances later. A build
@@ -101,6 +102,15 @@ done
 # in it). A failure here is reported but does not lose the matrix that was just built.
 if ! bash "$IMAGES_DIR/service.sh" all; then
   FAILED+=("service images (see above)")
+fi
+
+# ---- demo application images ----
+# The simulators a stack can run against its databases. They are Go binaries with no OS
+# matrix and no versions to record, but a node of one of those types will not deploy
+# without its image — so `make images` builds everything a node might need, not only the
+# operating systems.
+if ! bash "$IMAGES_DIR/apps.sh"; then
+  FAILED+=("application images (see above)")
 fi
 
 echo ""

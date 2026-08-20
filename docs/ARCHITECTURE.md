@@ -66,8 +66,11 @@ hybrid means running the binary on the host rather than in its container.
 
 Deployed nodes run systemd inside a container so that a database behaves the way it does on a
 real host — services, journald, unit files. Those base images are built ahead of time by
-`make images` (`images/build.sh`), one per OS × platform, and the pre-baked Intranet and
-Ubuntu VNC images by `images/service.sh`.
+`make images` (`images/build.sh`), one per OS × platform. It then builds everything else a
+node can need from them: the pre-baked Intranet and Ubuntu VNC images (`images/service.sh`),
+whose package set never varies so deploying one is configuration only, and the six demo
+application images (`images/apps.sh`), which are Go binaries with their frontends embedded —
+no OS matrix, one tag apiece, and nothing to record in the version catalogue.
 
 An installation targets **exactly one platform**. `DOCKER_PLATFORM` selects it,
 `make images` builds only that, and `make versions` only probes and records it. There is

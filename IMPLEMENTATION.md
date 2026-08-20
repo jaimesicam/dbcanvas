@@ -16639,3 +16639,31 @@ gaps are listed in the session notes for whoever deploys those nodes next.
   at least one document, and no document references one that is missing.
 - `make -n install` runs `images`, `versions`, `compose` in that order.
 - `go build`, `go vet`, `go test ./...` and the smoke suite green.
+
+## 290. `make images` builds everything a node needs — `images/apps.sh` (new), `images/build.sh`, `Makefile`, `docs/{CONFIGURATION,ARCHITECTURE}.md`
+
+The Intranet and Ubuntu VNC images were already in `make images` — `build.sh` has called
+`service.sh all` since they were pre-baked. The six demo application images were not: they had
+a target each and nothing built them together, so a stack with a Traffic Sim node in it failed
+at deploy with "image not found — run `make trafficsim-image` first" on a machine where
+`make install` had just finished.
+
+`images/apps.sh` builds them, mirroring `service.sh`: one script, a named subset or all of
+them, and a summary of what was built and what failed. `build.sh` calls it after the service
+images, and each `make <name>-image` target now goes through it rather than carrying its own
+`docker build` line — six copies of a command is six places to forget something, which is
+exactly what happened here.
+
+**They are built for `DOCKER_PLATFORM` now.** The old per-app targets were a plain
+`docker build` with no `--platform`, so they came out native. On a host whose stacks are
+emulated that made the simulator the one container in the stack with a different
+architecture — the same single-platform rule that governs the OS images, applied to the
+images that had quietly escaped it.
+
+### Verified
+
+- `bash images/apps.sh stocksim` builds one; `bash images/apps.sh` builds all six, each
+  reporting `platform=linux/amd64`, and the six tags exist afterwards.
+- `make -n images` runs `images/build.sh`, which now calls `service.sh` then `apps.sh`; both
+  scripts pass `bash -n`.
+- Docs say what the target now does, in both places that describe it.

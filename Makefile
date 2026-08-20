@@ -50,8 +50,10 @@ clean:
 smoke:
 	cd app/web && npm run smoke
 
-## images: build systemd base images (OS × platform matrix) → versions.yaml,
-## then the two pre-baked service images (Intranet, Ubuntu VNC) from them
+## images: everything a node can need — the systemd base images (OS × the one
+## platform this installation targets) → versions.yaml, then the pre-baked service
+## images (Intranet, Ubuntu VNC) built from them, then the demo application images
+## (Traffic/Hotel/Airline/Car Rental/MarketChaos/Stock Market Sim).
 images:
 	bash images/build.sh
 
@@ -76,36 +78,36 @@ versions:
 ## trafficsim-image: build the Valkey Traffic Lab demo app image (first-party Go
 ## binary + embedded static frontend, no systemd) — a Traffic Sim node needs this.
 trafficsim-image:
-	docker build -t dbcanvas-trafficsim:latest trafficsim/
+	bash images/apps.sh trafficsim
 
 ## hotelsim-image: build the MongoDB Hotel Reservation Lab demo app image
 ## (first-party Go binary + embedded static frontend, no systemd) — a Hotel Sim
 ## node needs this.
 hotelsim-image:
-	docker build -t dbcanvas-hotelsim:latest hotelsim/
+	bash images/apps.sh hotelsim
 
 ## airlinesim-image: build the MySQL Airline Reservation Lab demo app image
 ## (first-party Go binary + embedded static frontend, no systemd) — an Airline Sim
 ## node needs this.
 airlinesim-image:
-	docker build -t dbcanvas-airlinesim:latest airlinesim/
+	bash images/apps.sh airlinesim
 
 ## carsim-image: build the PostgreSQL Car Rental Lab demo app image (first-party
 ## Go binary + embedded static frontend, no systemd) — a Car Rental Sim node
 ## needs this.
 carsim-image:
-	docker build -t dbcanvas-carsim:latest carsim/
+	bash images/apps.sh carsim
 
 ## marketchaos-image: build the "Unoptimized MySQL Challenge" (MarketChaos)
 ## stock-exchange performance-troubleshooting demo app image (first-party Go
 ## binary + embedded static frontend, no systemd) — an Unoptimized MySQL
 ## Challenge node needs this.
 marketchaos-image:
-	docker build -t dbcanvas-marketchaos:latest marketchaos/
+	bash images/apps.sh marketchaos
 
 ## stocksim-image: build the Stock Market Sim demo app image (first-party Go
 ## binary + embedded static frontend, no systemd) — a Stock Market Sim node
 ## needs this. Unlike its sibling sims it speaks several database engines, and
 ## can also be pointed at a database outside the stack entirely.
 stocksim-image:
-	docker build -t dbcanvas-stocksim:latest stocksim/
+	bash images/apps.sh stocksim
