@@ -20,22 +20,26 @@ function Svg({ size = 18, children, fill = 'none', ...rest }) {
 }
 
 export const Icon = {
-  // The DBCanvas mark: a D whose counter is a database.
+  // The DBCanvas mark: a canvas on an easel, and what is painted on it is databases.
   //
-  // It keeps the letter the badge has always shown while making it mean something — the two
-  // bands are a cylinder's, and the top one curves like its lip, which is what separates the
-  // mark from a page of text (a reading the Logs icon deliberately owns). It is drawn on its
-  // own rather than through Svg because it sits on the filled primary badge and wants a
-  // slightly heavier stroke than the UI icons.
+  // The name is the brief — a canvas you arrange databases on — so the mark is a stretched
+  // canvas with two cylinders set on it like dabs of paint. Two, offset: a level pair reads
+  // as a pair of eyes above the easel legs, which at 96px is all anyone sees. Drawn on its
+  // own rather than through Svg because it sits on the filled primary badge.
   Brand: ({ size = 20, ...rest }) => (
     <svg
       width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
       role="img" aria-label="DBCanvas" {...rest}
     >
-      <path d="M6 4h5.5a8 8 0 0 1 0 16H6z" />
-      <path d="M6 9.5c3.2 1.5 8.4 1.5 11.6 0" />
-      <path d="M6 14.5h11.6" />
+      {/* the stretched canvas, and the easel it stands on */}
+      <rect x="3" y="3.2" width="18" height="13.6" rx="2.2" />
+      <path d="M8.4 20.8 12 17l3.6 3.8" />
+      {/* two databases set on it like dabs of paint */}
+      <ellipse cx="9.3" cy="7.4" rx="1.95" ry="0.82" />
+      <path d="M7.35 7.4v2.3c0 .63.87 1.15 1.95 1.15s1.95-.52 1.95-1.15V7.4" />
+      <ellipse cx="14.6" cy="11.3" rx="1.95" ry="0.82" />
+      <path d="M12.65 11.3v2.3c0 .63.87 1.15 1.95 1.15s1.95-.52 1.95-1.15V11.3" />
     </svg>
   ),
 

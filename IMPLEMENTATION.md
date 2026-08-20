@@ -16554,3 +16554,34 @@ browser tab's favicon, inlined as a data URI so no binary asset joins the build.
   produced, "attempt to write a readonly database", is what a wrong `-db` gets.)
 - The mark in the running app: sidebar header and sign-in card, no page errors; the smoke suite
   green. `go build`, `go vet` and `go test ./...` green.
+
+## 288. The logo again: a canvas whose paint is databases — `app/web/src/components/Icons.jsx`, `app/web/index.html`
+
+Session 287's mark was a D whose counter was a database. It said "database" twice and "canvas"
+not at all, which the name is half made of. The brief that replaced it: a painter's canvas,
+where what is painted on it is databases.
+
+So the mark is a stretched canvas on an easel with two database cylinders set on it like dabs
+of paint. Six directions were rendered on the badge at 14–96px first, and the two that lost are
+the interesting ones:
+
+- **A palette with database dabs** is the more obvious "paint" symbol and reads beautifully at
+  96px, but below about 20px it collapses into a blob with specks — the palette's silhouette
+  survives, its dabs do not, and the dabs are the whole point.
+- **Two dabs sitting level** on the canvas — which is what a tidy layout wants — turns the mark
+  into a **face**: two eyes on a head, with the easel legs as a neck. At 96px it is all anyone
+  sees. Offsetting them diagonally kills the reading completely, so they are offset, and that
+  irregularity happens to say the true thing about the product: things arranged on a canvas,
+  not centred in a frame.
+
+Two databases rather than one, because one database inside a rectangle is the generic
+storage-app icon, and because a canvas you arrange *stacks* on is what this is. The bottom of
+each cylinder is drawn a little deeper than a true half-ellipse: geometrically wrong, and it is
+what makes them read as cylinders rather than as sticky notes at 96px.
+
+### Verified
+
+- Rendered at 14, 16, 20, 28, 40 and 96px on the primary badge through every round, which is
+  what caught both the palette's collapse and the face.
+- In the running app: the sidebar header and the sign-in card, plus the favicon, which carries
+  the same geometry inline. No page errors; the smoke suite green.
