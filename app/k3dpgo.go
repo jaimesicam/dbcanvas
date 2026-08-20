@@ -104,17 +104,48 @@ func pgoStorageGB(f designFrame) int {
 	return 1
 }
 
+// pgoExporterMaxPG is the newest PostgreSQL major the pgMonitor exporter works on.
+//
+// PGO 6.0.2 refuses it above this and says so only in its own debug log — "postgres_exporter
+// not supported for pg18; use OTel for postgres 18 and later", reason
+// ExporterNotSupportedForPostgresVersion. What makes it worth a constant rather than a
+// release note is how it fails: the operator still adds the exporter sidecar, so the pod runs
+// 5/5 and Prometheus scrapes it as up, but it never installs the `monitor` schema or creates
+// the ccp_monitoring role ("ERROR: schema \"monitor\" does not exist"). The exporter then
+// authenticates against a role that does not exist, publishes nothing but Go runtime metrics,
+// and every pgMonitor dashboard reads "No data" with no error anywhere a user would look.
+const pgoExporterMaxPG = 17
+
 // pgoPGVersion is the PostgreSQL major spec.postgresVersion pins. Unlike CloudNativePG's
 // imageName this field is REQUIRED and has no operator-side default, so an unset frame gets the
 // catalogue's newest rather than an empty value that the CRD would reject.
+//
+// With monitoring on, "newest" means the newest the exporter actually works on: defaulting to
+// a version that silently disables the metrics the checkbox just asked for is the worse
+// surprise. An explicitly chosen version is left alone — k3dFrameIssues warns about it
+// instead, because overriding what someone typed is worse still.
 func pgoPGVersion(f designFrame) string {
 	if v := strings.TrimSpace(f.K3DPGOVersion); v != "" {
 		return v
 	}
+	newest := "17"
 	if ov, ok := loadChartImageCatalog()[pgoPGImageKey]; ok && ov.Latest != "" {
-		return ov.Latest
+		newest = ov.Latest
 	}
-	return "17"
+	if f.K3DPGOMonitoring && !pgoExporterSupports(newest) {
+		return strconv.Itoa(pgoExporterMaxPG)
+	}
+	return newest
+}
+
+// pgoExporterSupports reports whether the pgMonitor exporter works on a PostgreSQL major.
+// An unparseable version is taken as supported: it is not this function's job to reject one.
+func pgoExporterSupports(pgMajor string) bool {
+	n, err := strconv.Atoi(strings.TrimSpace(strings.SplitN(pgMajor, ".", 2)[0]))
+	if err != nil {
+		return true
+	}
+	return n <= pgoExporterMaxPG
 }
 
 // pgoPGImageKey is the `chart_images:` entry listing the PostgreSQL majors a PGO release can
@@ -585,4 +616,22 @@ func (a *App) installPGOOperator(ctx context.Context, st Stack, frame designFram
 		pr.logln("manifests could not be archived to " + pgoManifestDir + " — the deployment itself is unaffected")
 	}
 	return nil
+}
+
+// pgoExporterIssue flags a frame that asks for monitoring on a PostgreSQL the exporter does
+// not support. Only an explicitly chosen version reaches here — an unset one is defaulted to
+// a supported major by pgoPGVersion — so the wording is about a choice, not a default.
+func pgoExporterIssue(f designFrame, name string) (issue, bool) {
+	if f.K3DOperator != "pgo" || !f.K3DPGOMonitoring {
+		return issue{}, false
+	}
+	v := pgoPGVersion(f)
+	if pgoExporterSupports(v) {
+		return issue{}, false
+	}
+	max := strconv.Itoa(pgoExporterMaxPG)
+	return issue{"warning", "K3D cluster " + name + " monitors PostgreSQL " + v +
+		", which Crunchy's pgMonitor exporter does not support (" + max + " is the newest it works on). " +
+		"The exporter sidecar still runs and Prometheus still scrapes it, but the operator never creates its " +
+		"monitoring role, so every dashboard stays empty. Pick " + max + " or turn monitoring off"}, true
 }

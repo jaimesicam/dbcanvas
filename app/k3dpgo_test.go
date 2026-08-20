@@ -327,3 +327,59 @@ func TestPGODashboardConfigMaps(t *testing.T) {
 		}
 	}
 }
+
+// PGO 6.0.2 refuses the pgMonitor exporter above PostgreSQL 17 — and refuses it silently:
+// the sidecar runs, Prometheus scrapes it as up, and it publishes nothing but Go metrics
+// because the operator never creates the ccp_monitoring role. Observed on a live PG 18
+// cluster whose Grafana dashboards were all "No data".
+func TestPGOExporterVersionCeiling(t *testing.T) {
+	for v, want := range map[string]bool{
+		"15": true, "16": true, "17": true, "18": false, "19": false, "": true, "17.4": true,
+	} {
+		if got := pgoExporterSupports(v); got != want {
+			t.Errorf("pgoExporterSupports(%q) = %v, want %v", v, got, want)
+		}
+	}
+}
+
+// With monitoring on, an unset version must not default into the combination that produces
+// a dead exporter — the checkbox asked for metrics.
+func TestPGOVersionDefaultRespectsTheExporter(t *testing.T) {
+	newest := "17"
+	if ov, ok := loadChartImageCatalog()[pgoPGImageKey]; ok && ov.Latest != "" {
+		newest = ov.Latest
+	}
+	if got := pgoPGVersion(designFrame{}); got != newest {
+		t.Errorf("without monitoring the default is %q, want the catalogue's newest %q", got, newest)
+	}
+	got := pgoPGVersion(designFrame{K3DPGOMonitoring: true})
+	if !pgoExporterSupports(got) {
+		t.Errorf("with monitoring the default is %q, which the exporter does not support", got)
+	}
+	// An explicit choice is never overridden; it is warned about instead.
+	if got := pgoPGVersion(designFrame{K3DPGOMonitoring: true, K3DPGOVersion: "18"}); got != "18" {
+		t.Errorf("an explicitly chosen version was changed to %q", got)
+	}
+}
+
+// ...and that warning has to reach the user, since the operator's own refusal only appears
+// in its debug log.
+func TestPGOUnsupportedExporterVersionWarns(t *testing.T) {
+	f := designFrame{Label: "k3d-00", K3DOperator: "pgo", K3DPGOMonitoring: true, K3DPGOVersion: "18"}
+	is, ok := pgoExporterIssue(f, f.Label)
+	if !ok {
+		t.Fatal("a PG 18 frame with monitoring on produced no warning")
+	}
+	if is.Level != "warning" || !strings.Contains(is.Message, "pgMonitor exporter does not support") {
+		t.Errorf("unhelpful issue: %+v", is)
+	}
+	// The supported combination stays quiet, and so does a frame not asking for monitoring.
+	f.K3DPGOVersion = "17"
+	if _, ok := pgoExporterIssue(f, f.Label); ok {
+		t.Error("PostgreSQL 17 warned anyway")
+	}
+	f.K3DPGOVersion, f.K3DPGOMonitoring = "18", false
+	if _, ok := pgoExporterIssue(f, f.Label); ok {
+		t.Error("a frame with monitoring off warned about the exporter")
+	}
+}

@@ -228,7 +228,9 @@ and can replay the stored keys with one click.
 all four are supported: **PXC**, **MySQL (Percona Server)**, **MongoDB** and **PostgreSQL**. DBCanvas runs
 k3d against the same Docker daemon it already uses, creating the k3s nodes **on the stack network**
 — so pods resolve the Intranet DNS, reach PMM and SeaweedFS by name, and **MetalLB** hands out
-LoadBalancer addresses from the stack subnet that every other container can reach. You choose the
+LoadBalancer addresses from the stack subnet that every other container can reach. Several K3D
+frames can share one stack: each cluster gets its own block of 8 addresses from the top of the
+subnet, so two clusters on the same network never advertise the same address. You choose the
 cluster size, its **Kubernetes version** (any k3s release `make versions` discovered; the newest by
 default — k3d's own default trails the releases far enough to break some operators' CRDs), its
 CPU/memory budget (a total, split across the nodes — DBCanvas warns if it is too small to schedule the

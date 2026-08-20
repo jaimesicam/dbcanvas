@@ -6347,7 +6347,9 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
                   onChange={(e) => patchFrame(f.id, { k3dPgoStorageGb: Number(e.target.value) })} />
               </Field>
             </div>
-            <Field label="PostgreSQL major" hint="spec.postgresVersion. Required by the CRD, so blank takes the newest the chart ships an image for.">
+            <Field label="PostgreSQL major" hint={f.k3dPgoMonitoring
+              ? 'spec.postgresVersion. Crunchy\'s pgMonitor exporter stops at 17 — on 18 the sidecar runs but the operator never creates its monitoring role, so the dashboards stay empty. Blank takes the newest that still works.'
+              : 'spec.postgresVersion. Required by the CRD, so blank takes the newest the chart ships an image for.'}>
               {pgMajors.length ? (
                 <select className={`${inputCls} ${lock}`} value={f.k3dPgoVersion || ''} disabled={deployed}
                   onChange={(e) => patchFrame(f.id, { k3dPgoVersion: e.target.value })}>
@@ -6383,7 +6385,8 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
                   own crunchy-postgres-exporter sidecar to every instance pod, and installs kube-prometheus-stack
                   into <span className="font-mono">monitoring</span> with a PodMonitor and pgMonitor's PostgreSQL and
                   pgBackRest dashboards. Grafana gets a LoadBalancer address; its admin password comes from{' '}
-                  <span className="font-mono">GRAFANA_PASSWORD</span>.
+                  <span className="font-mono">GRAFANA_PASSWORD</span>. Needs PostgreSQL 17 or older — the exporter is
+                  not built for 18.
                 </span>
               </span>
             </label>

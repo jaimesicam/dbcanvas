@@ -297,6 +297,14 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 			"Clear it; enable Prometheus/Grafana monitoring on the cluster instead"})
 	}
 
+	// Crunchy's exporter is not built for every PostgreSQL major, and the operator's refusal
+	// is invisible: the sidecar still runs and still scrapes, it just has no role to log in
+	// as and publishes nothing. Only an explicitly chosen version can land here — an unset
+	// one is defaulted to a supported major (see pgoPGVersion).
+	if is, ok := pgoExporterIssue(f, name); ok {
+		out = append(out, is)
+	}
+
 	// The CPU/memory budget is for the whole cluster, split across its nodes.
 	cpus, memGB := k3dCPUs(f), k3dMemoryGB(f)
 	if cpus < 4 || memGB < 6 {
@@ -731,14 +739,15 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 
 		// ---- MetalLB, so LoadBalancer services get an address on the stack network ----
 		pr.phase("Installing MetalLB", 55)
-		pool, perr := a.metalLBPool(ctx, st.ID)
+		pool, perr := a.metalLBPool(ctx, st, doc, frame.ID)
 		if perr != nil {
 			pr.logln("MetalLB address pool skipped: " + perr.Error())
 		} else if err := a.installMetalLB(ctx, serverID, pool, pr.logln); err != nil {
 			pr.logln("MetalLB install failed (LoadBalancer services will stay pending): " + err.Error())
 		} else {
 			base.MetalLBRange = pool
-			pr.logln("MetalLB pool " + pool + " (from the stack subnet)")
+			pr.logln("MetalLB pool " + pool + " — this cluster's own block of " +
+				strconv.Itoa(k3dPoolSize) + " from the stack subnet")
 		}
 
 		// ---- the operator ----
@@ -920,14 +929,67 @@ data:
 `, domain, domain, intranetIP))
 }
 
-// metalLBPool carves a LoadBalancer address range out of the stack's Docker subnet. Docker's IPAM
-// hands out addresses from the bottom, so the pool is taken from the very top — the last usable
-// addresses below the broadcast.
-func (a *App) metalLBPool(ctx context.Context, stackID int64) (string, error) {
-	cidr, err := a.engCtx(ctx).NetworkSubnet(ctx, networkName(stackID))
+// k3dPoolSize is how many LoadBalancer addresses one K3D cluster gets.
+//
+// Every K3D cluster in a stack runs on the *same* Docker network — that is what lets a
+// cluster reach the Intranet and the PMM/SeaweedFS nodes — so their MetalLB pools have to
+// be disjoint. MetalLB here is L2: it answers ARP for the addresses it owns, and two
+// speakers on one network answering for the same address is a coin toss that changes on
+// every re-ARP. Before this, every cluster in a stack was handed the identical top-50
+// range, so a second cluster was a collision waiting for its first LoadBalancer service.
+//
+// Eight is enough for what a frame exposes: a Percona cluster's per-pod services plus its
+// proxy tier, or a PostgreSQL cluster's primary plus pgBouncer plus Grafana. A frame that
+// exposes every tier of a sharded MongoDB cluster can run a pool dry, and MetalLB then
+// leaves the extra services Pending — which is visible, unlike two clusters quietly
+// claiming one address.
+const k3dPoolSize = 8
+
+// metalLBPool carves this cluster's LoadBalancer range out of the stack's Docker subnet.
+// Docker's IPAM hands out addresses from the bottom, so the pools are taken from the top,
+// one k3dPoolSize block per cluster, working downwards.
+//
+// Blocks are claimed rather than computed from the frame's position: a cluster that is
+// already deployed has its range recorded on its members, and this skips any block that
+// overlaps one. That keeps a running cluster's addresses stable no matter what else is
+// added, removed or redeployed around it — including the wide 50-address ranges handed out
+// before there were blocks at all, which is why the check is overlap and not equality.
+func (a *App) metalLBPool(ctx context.Context, st Stack, doc designDoc, frameID string) (string, error) {
+	cidr, err := a.engCtx(ctx).NetworkSubnet(ctx, networkName(st.ID))
 	if err != nil || cidr == "" {
 		return "", fmt.Errorf("could not read the stack subnet: %v", err)
 	}
+	taken, mine := a.k3dPoolClaims(st.ID, doc, frameID)
+	return pickMetalLBBlock(cidr, taken, mine, k3dFrameIndex(doc, frameID))
+}
+
+// k3dFrameIndex is a frame's position among the stack's K3D frames, by sorted id.
+//
+// It is what keeps two clusters deploying *at the same time* apart. Frames provision
+// concurrently, so when both reach MetalLB neither has recorded a range yet and the
+// recorded claims below cannot separate them — a position each frame can compute for
+// itself, without looking at what anyone else has written, can. Sorting by id rather than
+// by canvas order or label makes it stable across edits to either.
+func k3dFrameIndex(doc designDoc, frameID string) int {
+	ids := []string{}
+	for _, f := range doc.Frames {
+		if f.Type == "k3d" {
+			ids = append(ids, f.ID)
+		}
+	}
+	sort.Strings(ids)
+	for i, id := range ids {
+		if id == frameID {
+			return i
+		}
+	}
+	return 0
+}
+
+// pickMetalLBBlock is metalLBPool without the Docker and database reads: given the stack
+// subnet, the ranges other clusters hold, this cluster's own previous range and its
+// position among the stack's K3D frames, it returns the range to advertise.
+func pickMetalLBBlock(cidr string, taken [][2]uint32, mine string, index int) (string, error) {
 	_, ipnet, err := net.ParseCIDR(cidr)
 	if err != nil {
 		return "", err
@@ -941,12 +1003,102 @@ func (a *App) metalLBPool(ctx context.Context, stackID int64) (string, error) {
 	for i := 0; i < 4; i++ {
 		bcast[i] = ip4[i] | ^ipnet.Mask[i]
 	}
-	last := ipToU32(bcast) - 2   // leave the broadcast and one address free
-	first := last - 49           // a 50-address pool
-	if first <= ipToU32(ip4)+1 { // a tiny subnet: fall back to whatever is above the network address
-		first = ipToU32(ip4) + 2
+	// A redeploy keeps the range it already had, so addresses that were written down — or
+	// that a kubeconfig, a bookmark or another node's config points at — do not move.
+	// This also carries a cluster deployed before blocks existed, whose recorded range is
+	// the old 50-address one: it is wider than it needs to be, but it is where that
+	// cluster's services already live.
+	if lo, hi, ok := parseRange(mine); ok && !overlapsAny(lo, hi, taken) {
+		return mine, nil
 	}
-	return fmt.Sprintf("%s-%s", u32ToIP(first), u32ToIP(last)), nil
+	top := ipToU32(bcast) - 2 // leave the broadcast and one address free
+	floor := ipToU32(ip4) + 1 // and the network address itself
+	// block n counts down from the top of the subnet: 0 is the highest.
+	block := func(n int) (uint32, uint32, bool) {
+		if n < 0 || uint32(n)*k3dPoolSize > top-floor {
+			return 0, 0, false
+		}
+		last := top - uint32(n)*k3dPoolSize
+		if last < floor+k3dPoolSize {
+			return 0, 0, false
+		}
+		return last - (k3dPoolSize - 1), last, true
+	}
+	pool := func(first, last uint32) string {
+		return fmt.Sprintf("%s-%s", u32ToIP(first), u32ToIP(last))
+	}
+	// The frame's own position first. Two clusters deploying together each land on their
+	// own block without either having to see the other's claim.
+	if first, last, ok := block(index); ok && !overlapsAny(first, last, taken) {
+		return pool(first, last), nil
+	}
+	// Otherwise the highest block nobody holds — a cluster added to a stack later, or one
+	// whose position now maps onto a range somebody else already has.
+	for n := 0; ; n++ {
+		first, last, ok := block(n)
+		if !ok {
+			break
+		}
+		if !overlapsAny(first, last, taken) {
+			return pool(first, last), nil
+		}
+	}
+	return "", fmt.Errorf("no free LoadBalancer block left in %s — every %d-address block is claimed by another cluster in this stack", cidr, k3dPoolSize)
+}
+
+// k3dPoolClaims returns the address ranges other K3D clusters in this stack have already
+// been given, and this frame's own range if it has one from an earlier deploy.
+func (a *App) k3dPoolClaims(stackID int64, doc designDoc, frameID string) (taken [][2]uint32, mine string) {
+	frameOf := map[string]string{}
+	for _, n := range doc.Nodes {
+		if n.Type == "k3d" {
+			frameOf[n.ID] = n.FrameID
+		}
+	}
+	deps, err := a.store.ListDeployments(stackID)
+	if err != nil {
+		return nil, ""
+	}
+	for _, d := range deps {
+		fid, ok := frameOf[d.NodeID]
+		if !ok || len(d.Config) == 0 {
+			continue
+		}
+		var cfg k3dConfig
+		if json.Unmarshal(d.Config, &cfg) != nil || cfg.MetalLBRange == "" {
+			continue
+		}
+		if fid == frameID {
+			mine = cfg.MetalLBRange
+			continue
+		}
+		if lo, hi, ok := parseRange(cfg.MetalLBRange); ok {
+			taken = append(taken, [2]uint32{lo, hi})
+		}
+	}
+	return taken, mine
+}
+
+// parseRange reads a "first-last" MetalLB pool back into a pair of addresses.
+func parseRange(pool string) (uint32, uint32, bool) {
+	first, last, ok := strings.Cut(pool, "-")
+	if !ok {
+		return 0, 0, false
+	}
+	a, b := net.ParseIP(strings.TrimSpace(first)), net.ParseIP(strings.TrimSpace(last))
+	if a.To4() == nil || b.To4() == nil {
+		return 0, 0, false
+	}
+	return ipToU32(a), ipToU32(b), true
+}
+
+func overlapsAny(first, last uint32, taken [][2]uint32) bool {
+	for _, t := range taken {
+		if first <= t[1] && t[0] <= last {
+			return true
+		}
+	}
+	return false
 }
 
 func ipToU32(ip net.IP) uint32 {

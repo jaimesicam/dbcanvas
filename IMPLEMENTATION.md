@@ -16429,3 +16429,79 @@ right, where its angular silhouette reads as something else entirely at a glance
   which is what caught the sliders collision — at 24px the first draft still looked fine.
 - In the running app: the nav row, the collapsed icon-only rail (where it is unmistakable
   beside Packet's lens) and the jump palette. No page errors; the smoke suite green.
+
+## 285. One MetalLB block per K3D cluster — `app/k3d.go`, `README.md`
+
+Every K3D cluster in a stack runs on the same Docker network — that is what lets its pods
+resolve the Intranet and reach the PMM and SeaweedFS nodes — and `metalLBPool` keyed only on
+the stack, so every cluster in it was handed the identical top-50 addresses. MetalLB here is
+L2: it answers ARP for what it owns, and two speakers on one network answering for one address
+is a coin toss that re-rolls on every re-ARP.
+
+Reproduced before fixing it: a stack with two K3D frames, both advertising
+`172.23.255.246-172.23.255.253`.
+
+Each cluster now gets its own block of **8** addresses, taken from the top of the subnet
+downwards. Eight covers what a frame exposes — a Percona cluster's per-pod services plus its
+proxy tier, or a PostgreSQL cluster's primary, pgBouncer and Grafana; a frame that exposes
+every tier of a sharded MongoDB cluster can still run its block dry, and MetalLB then leaves
+the extra services `Pending`, which is visible in a way that two clusters sharing an address
+is not.
+
+**Which block is decided by the frame's position, not by what is already recorded**, and that
+is the part the first implementation got wrong. Claim-based allocation alone — read what other
+clusters hold, take the highest free block — reproduced the collision exactly, because frames
+provision *concurrently*: when both clusters reached MetalLB neither had written a range for
+the other to see. A position each frame computes for itself, from the sorted ids of the
+stack's K3D frames, needs no shared state and cannot race.
+
+Recorded claims still matter for the cases a position cannot cover: a cluster added to a stack
+later, or one whose position now maps onto a range somebody else already holds, steps down to
+the first free block. Claims are compared by **overlap**, not equality, so the wide 50-address
+ranges on clusters deployed before this are stepped around rather than overlapped, and a
+redeploy keeps the range it already had so addresses that were written down do not move.
+Running out of blocks is an error the deploy reports rather than a silent overlap.
+
+### Verified
+
+- The collision reproduced live on two K3D frames in one stack, which is where the concurrency
+  came from — both were at "Installing MetalLB" in the same second.
+- Tests: eight, including the two-frames-at-once case carrying the exact addresses from that
+  run, that a redeploy keeps its block, that a legacy wide range is honoured and stepped
+  around, that exhaustion errors, and that an unparseable recorded range is ignored rather
+  than read as "everything is free". `go build`, `go vet`, `go test ./...` and the smoke suite
+  green.
+
+## 286. Why Crunchy PGO's Grafana had no metrics — `app/{k3dpgo,k3d}.go`, `app/web/src/pages/StackDesigner.jsx`
+
+Reported as "Grafana has no metrics" on a deployed PGO frame with monitoring on. Everything
+§279 built was working: three exporter targets `up`, the relabelled `cluster_name`/`exp_type`/
+`job` labels present, both dashboards loaded, the datasource resolving, the variables resolving
+to the cluster. Every panel still read "No data".
+
+The exporter was publishing **nothing but Go runtime metrics**. Its log: `pq: password
+authentication failed for user "ccp_monitoring"`. That role did not exist in the database. And
+the operator's own debug log said why:
+
+    postgres_exporter not supported for pg18; use OTel for postgres 18 and later
+    reason=ExporterNotSupportedForPostgresVersion
+    applied pgMonitor objects ... stderr="ERROR:  schema \"monitor\" does not exist"
+
+**PGO 6.0.2 refuses the pgMonitor exporter above PostgreSQL 17, and refuses it invisibly.** It
+still adds the exporter sidecar, so the pod runs 5/5 and Prometheus scrapes it as `up`; it just
+never installs the `monitor` schema or creates the role the exporter logs in as. Nothing
+anywhere a user looks reports a problem.
+
+It was our default that walked into it. The frame's PostgreSQL major was left blank, and blank
+meant "the catalogue's newest" — 18. Session 279's verification passed because it pinned 17.
+With monitoring on, blank now means the newest major the exporter actually works on. An
+explicitly chosen 18 is left alone and warned about instead, in the frame's own words: the
+sidecar will run and Prometheus will scrape it, and the dashboards will stay empty.
+
+### Verified
+
+- The diagnosis is the operator's and the exporter's own logs on the live cluster, plus the
+  absent `ccp_monitoring` role and a series count of zero for `ccp_*`.
+- Tests: the version ceiling, that the default respects it only when monitoring is on, that an
+  explicit choice is never overridden, and that the warning fires for 18 and stays quiet for 17
+  and for monitoring-off. `go build`, `go vet`, `go test ./...` and the smoke suite green.
