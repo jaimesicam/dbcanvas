@@ -16774,3 +16774,24 @@ described the old picture.
   browser.
 - Links and screenshot references across `README.md` and `docs/*.md` all resolve, nothing
   orphaned.
+
+## 294. Two screenshots that needed the feature actually running — `docs/screenshots/{log-summary,k3d-cluster}.png`, `docs/{LOG_SUMMARY,STACKS}.md`
+
+**Log Summary** was the picker with nothing read. Reading a freshly deployed node's log gives a
+timeline of a clean startup and little else, so the node was given something to say first: the
+slow query log turned on, a rejected login, and a service restart. The screenshot is now the
+processed result — 32 lines classified into 23 events over 16 minutes, the verdict that names
+what they add up to ("6.6s not serving — 1.5s STARTING, 5.1s DOWN"), the state lane under it,
+and the event list.
+
+**K3D** ran CloudNativePG because that is what deploys fastest. It now runs the **Percona
+Operator for MySQL (PXC) 1.20.0**, and the shot has a console open on the same node running
+`kubectl get pods -A` beside the panel: three `k3d-00-pxc` members, three `k3d-00-haproxy`
+pods, MetalLB and the operator. The panel and the pods it produced are in one frame, which the
+panel alone could not show.
+
+### Verified
+
+- Both are of the running systems: the PXC cluster reached three ready members before the shot,
+  and the log verdict describes the restart this session caused.
+- Captions rewritten; every link and screenshot reference still resolves.

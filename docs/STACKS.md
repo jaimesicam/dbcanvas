@@ -194,13 +194,15 @@ worth knowing: pgBackRest speaks S3 only over TLS, so its backups need a Seaweed
 on** — the designer warns you when it isn't, because without it the cluster silently keeps the
 operator's own PVC backup repo and the bucket stays empty.)
 
-![A K3D cluster node's panel — the operator, the cluster it built, and its MetalLB block](screenshots/k3d-cluster.png)
+![A K3D cluster node's panel beside a console listing the pods the operator built](screenshots/k3d-cluster.png)
 
-> *A one-node K3D cluster on k3s v1.36.3 running **CloudNativePG 0.29.0**, which has built a
-> two-instance Postgres cluster and reports it healthy. The panel is the whole cluster at a
-> glance: the operator and its namespace, the Postgres endpoint on a MetalLB address, the app
-> role and the Secret holding its password, and where the manifests DBCanvas applied were
-> archived. Its tabs carry `kubectl`, a copyable kubeconfig, and per-namespace Kubernetes users.*
+> *A one-node K3D cluster on k3s v1.36.3 running the **Percona Operator for MySQL (PXC)
+> 1.20.0**, with a console open on the same node: `kubectl get pods -A` shows the three
+> `k3d-00-pxc` members and three `k3d-00-haproxy` pods the operator built, alongside MetalLB
+> and the operator itself. The panel is the cluster at a glance — the operator and its
+> namespace, HAProxy in front, the database kept ClusterIP while the proxy takes a MetalLB
+> address — and its tabs carry `kubectl`, a copyable kubeconfig and per-namespace Kubernetes
+> users.*
 
 **Kubeconfig and RBAC users, for testing access control.** The K3D server node's panel has a
 **Kubeconfig** tab (a copyable admin kubeconfig, pointed at k3d's own load balancer so it works

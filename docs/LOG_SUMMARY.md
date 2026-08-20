@@ -4,9 +4,13 @@ The **Log Summary** reads several database servers' logs **together**, on one ti
 and separates the good, the warning and the bad. It is for the question three log files
 are opened to answer and none of them answers alone:
 
-![Log Summary — several nodes' logs on one classified timeline](screenshots/log-summary.png)
+![A node's log read and classified — verdict, state timeline and events](screenshots/log-summary.png)
 
-> *What state was the cluster in at 01:49:35, and which node is telling the truth about it?*
+> *A Percona Server node's log, read and classified: 32 lines became 23 events over a 16-minute
+> window, and the verdict names what they add up to — 6.6 seconds not answering queries, split
+> into the 1.5s it spent starting and the 5.1s it was down. The lane below is the state the node
+> was actually in, minute by minute; pick several nodes and each gets a lane on the same
+> timeline.*
 
 Open it from the sidebar (**Log Summary**) or at `#log-summary`.
 
