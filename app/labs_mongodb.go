@@ -28,9 +28,9 @@ import (
 // auth, backup/restore) that need no replication or sharding at all.
 var labPSMDesign = json.RawMessage(`{
   "nodes": [
-    {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
-    {"id":"lab-psm","type":"psm","label":"psm-1","os":"oraclelinux","osVersion":"9","arch":"amd64","psmdbMajor":"8.0","psmdbVersion":"","x":300,"y":40},
-    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
+    {"id":"lab-psm","type":"psm","label":"psm-1","os":"oraclelinux","osVersion":"9","psmdbMajor":"8.0","psmdbVersion":"","x":300,"y":40},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220},
     {"id":"lab-hotelsim","type":"hotelsim","label":"hotelsim-01","x":300,"y":220}
   ],
   "frames": [],
@@ -44,16 +44,16 @@ var labPSMDesign = json.RawMessage(`{
 // labs about replication mechanics, elections, read preference and write concern.
 var labPSMRSDesign = json.RawMessage(`{
   "nodes": [
-    {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
+    {"id":"lab-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
     {"id":"lab-rs-1","type":"psmrs","label":"rs-1","frameId":"lab-psmrs","exportEnabled":false,"exportHostPort":0,"x":574,"y":66},
     {"id":"lab-rs-2","type":"psmrs","label":"rs-2","frameId":"lab-psmrs","exportEnabled":false,"exportHostPort":0,"x":702,"y":66},
     {"id":"lab-rs-3","type":"psmrs","label":"rs-3","frameId":"lab-psmrs","exportEnabled":false,"exportHostPort":0,"x":830,"y":66},
-    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220},
     {"id":"lab-hotelsim","type":"hotelsim","label":"hotelsim-01","x":560,"y":220}
   ],
   "frames": [
     {"id":"lab-psmrs","type":"psmrs","label":"lab-psmrs","x":560,"y":20,"w":400,"h":138,
-     "os":"oraclelinux","osVersion":"9","arch":"amd64","psmdbMajor":"8.0","psmdbVersion":"",
+     "os":"oraclelinux","osVersion":"9","psmdbMajor":"8.0","psmdbVersion":"",
      "rootPassword":"","pmmNodeId":"","useProxy":false,"enablePBM":false,"seaweedfsNodeId":"",
      "generateCert":false,"certTtlValue":365,"certTtlUnit":"days"}
   ],
@@ -70,18 +70,18 @@ var labPSMRSDesign = json.RawMessage(`{
 // first batch of sharded labs shares one fast-deploying template.
 var labPSMDBShardedDesign = json.RawMessage(`{
   "nodes": [
-    {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
+    {"id":"lab-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
     {"id":"lab-mongos","type":"psmdb","label":"mongos","frameId":"lab-psmdb","role":"mongos","exportEnabled":false,"exportHostPort":0,"x":560,"y":20},
     {"id":"lab-cfg1","type":"psmdb","label":"cfg1","frameId":"lab-psmdb","role":"config","exportEnabled":false,"exportHostPort":0,"x":680,"y":20},
     {"id":"lab-s0r1","type":"psmdb","label":"s0r1","frameId":"lab-psmdb","role":"shard","shard":0,"exportEnabled":false,"exportHostPort":0,"x":560,"y":110},
     {"id":"lab-s1r1","type":"psmdb","label":"s1r1","frameId":"lab-psmdb","role":"shard","shard":1,"exportEnabled":false,"exportHostPort":0,"x":680,"y":110},
     {"id":"lab-s2r1","type":"psmdb","label":"s2r1","frameId":"lab-psmdb","role":"shard","shard":2,"exportEnabled":false,"exportHostPort":0,"x":800,"y":110},
-    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220},
     {"id":"lab-hotelsim","type":"hotelsim","label":"hotelsim-01","x":560,"y":220}
   ],
   "frames": [
     {"id":"lab-psmdb","type":"psmdb","label":"lab-psmdb","x":540,"y":0,"w":300,"h":150,
-     "os":"oraclelinux","osVersion":"9","arch":"amd64","psmdbMajor":"8.0","psmdbVersion":"",
+     "os":"oraclelinux","osVersion":"9","psmdbMajor":"8.0","psmdbVersion":"",
      "psmdbSetup":"minimum","rootPassword":"","pmmNodeId":"","useProxy":false,
      "enablePBM":false,"seaweedfsNodeId":"",
      "generateCert":false,"certTtlValue":365,"certTtlUnit":"days"}

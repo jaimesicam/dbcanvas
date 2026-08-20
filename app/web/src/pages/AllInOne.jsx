@@ -89,7 +89,6 @@ export function AllInOneForm({ node: n, nodes, patchNode, deleteNode, dep, deplo
   // builds for the Linux Client are filtered out (see PRODUCT_OS_FAMILIES).
   const osFamilies = [...new Set(imgs.map((i) => i.os))].filter((o) => PRODUCT_OS_FAMILIES.includes(o))
   const osVersions = [...new Set(imgs.filter((i) => i.os === n.os).map((i) => i.osVersion))]
-  const archs = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === n.osVersion).map((i) => i.arch))]
 
   // Snap dependent selects once the catalog loads (same pattern as LinuxClientForm).
   useEffect(() => {
@@ -97,11 +96,8 @@ export function AllInOneForm({ node: n, nodes, patchNode, deleteNode, dep, deplo
     const patch = {}
     const osVer = osVersions.includes(n.osVersion) ? n.osVersion : (osVersions[0] ?? n.osVersion)
     if (osVer !== n.osVersion) patch.osVersion = osVer
-    const archList = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === osVer).map((i) => i.arch))]
-    const arch = archList.includes(n.arch) ? n.arch : (archList[0] ?? n.arch)
-    if (arch !== n.arch) patch.arch = arch
     if (Object.keys(patch).length) patchNode(n.id, patch)
-  }, [imgs, n.id, n.os, n.osVersion, n.arch, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [imgs, n.id, n.os, n.osVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const familiesUsed = [...new Set(instances.map((i) => familyOf(i.kind)))].filter(Boolean)
 
@@ -133,11 +129,6 @@ export function AllInOneForm({ node: n, nodes, patchNode, deleteNode, dep, deplo
           </select>
         </Field>
       </div>
-      <Field label="Platform / arch">
-        <select className={`${inputCls} ${lock}`} value={n.arch} disabled={deployed} onChange={(e) => patchNode(n.id, { arch: e.target.value })}>
-          {archs.map((o) => <option key={o} value={o}>{o}</option>)}
-        </select>
-      </Field>
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
@@ -285,7 +276,7 @@ function VersionPicker({ label, catalog, node: n, patchNode, deployed, majorKey,
 
   const imgs = cat || []
   const lock = deployed ? 'opacity-70' : ''
-  const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion && i.arch === n.arch)
+  const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion)
   const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
   const major = majorKey ? (n[majorKey] || majors[0] || '') : ''
   const minors = majorKey
@@ -303,7 +294,7 @@ function VersionPicker({ label, catalog, node: n, patchNode, deployed, majorKey,
       : Object.values(entry?.versions || {}).flat()
     if (n[minorKey] && !list.includes(n[minorKey])) patch[minorKey] = ''
     if (Object.keys(patch).length) patchNode(n.id, patch)
-  }, [imgs, n.id, n.os, n.osVersion, n.arch, n[majorKey], n[minorKey], deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [imgs, n.id, n.os, n.osVersion, n[majorKey], n[minorKey], deployed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const unavailable = imgs.length > 0 && majors.length === 0 && minors.length === 0
 
@@ -330,7 +321,7 @@ function VersionPicker({ label, catalog, node: n, patchNode, deployed, majorKey,
       {hint && <div className="text-[10px] leading-snug text-muted">{hint}</div>}
       {unavailable && (
         <div className="text-[10px] leading-snug text-warning">
-          No {label} versions catalogued for {n.os} {n.osVersion} {n.arch} — run <code className="font-mono">make versions</code>.
+          No {label} versions catalogued for {n.os} {n.osVersion} — run <code className="font-mono">make versions</code>.
         </div>
       )}
     </div>
@@ -391,7 +382,7 @@ function PGVersionPicker({ inst, node: n, patch, deployed }) {
   }, [inst.kind]) // eslint-disable-line react-hooks/exhaustive-deps
   const imgs = cat || []
   const lock = deployed ? 'opacity-70' : ''
-  const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion && i.arch === n.arch)
+  const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion)
   const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
   const major = inst.pgMajor || majors[0] || '16'
   const minors = entry?.versions?.[major] || []
@@ -400,7 +391,7 @@ function PGVersionPicker({ inst, node: n, patch, deployed }) {
     if (deployed || !imgs.length) return
     if (majors.length && !majors.includes(inst.pgMajor)) patch({ pgMajor: majors[0], pgVersion: '' })
     else if (inst.pgVersion && !minors.includes(inst.pgVersion)) patch({ pgVersion: '' })
-  }, [imgs, inst.pgMajor, inst.pgVersion, n.os, n.osVersion, n.arch, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [imgs, inst.pgMajor, inst.pgVersion, n.os, n.osVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="grid grid-cols-2 gap-2">

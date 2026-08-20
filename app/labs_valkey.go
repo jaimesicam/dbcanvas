@@ -20,11 +20,11 @@ import (
 // gossip-based failure detection).
 var labValkeyClusterDesign = json.RawMessage(`{
   "nodes": [
-    {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
+    {"id":"lab-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
     {"id":"lab-vk-1","type":"valkeycluster","label":"valkey-1","frameId":"lab-valkey-cluster","x":574,"y":66},
     {"id":"lab-vk-2","type":"valkeycluster","label":"valkey-2","frameId":"lab-valkey-cluster","x":702,"y":66},
     {"id":"lab-vk-3","type":"valkeycluster","label":"valkey-3","frameId":"lab-valkey-cluster","x":830,"y":66},
-    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220},
     {"id":"lab-trafficsim","type":"trafficsim","label":"trafficsim-01","x":300,"y":220}
   ],
   "frames": [
@@ -42,12 +42,12 @@ var labValkeyClusterDesign = json.RawMessage(`{
 // Cluster's own minimum for gossip-based quorum).
 var labValkeyCluster4Design = json.RawMessage(`{
   "nodes": [
-    {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
+    {"id":"lab-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
     {"id":"lab-vk-1","type":"valkeycluster","label":"valkey-1","frameId":"lab-valkey-cluster","x":574,"y":66},
     {"id":"lab-vk-2","type":"valkeycluster","label":"valkey-2","frameId":"lab-valkey-cluster","x":702,"y":66},
     {"id":"lab-vk-3","type":"valkeycluster","label":"valkey-3","frameId":"lab-valkey-cluster","x":830,"y":66},
     {"id":"lab-vk-4","type":"valkeycluster","label":"valkey-4","frameId":"lab-valkey-cluster","x":958,"y":66},
-    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220},
     {"id":"lab-trafficsim","type":"trafficsim","label":"trafficsim-01","x":300,"y":220}
   ],
   "frames": [
@@ -65,9 +65,9 @@ var labValkeyCluster4Design = json.RawMessage(`{
 // to a lone instance as to any cluster member.
 var labValkeyStandaloneDesign = json.RawMessage(`{
   "nodes": [
-    {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
+    {"id":"lab-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
     {"id":"lab-valkey","type":"valkey","label":"valkey-1","x":300,"y":40},
-    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220},
     {"id":"lab-trafficsim","type":"trafficsim","label":"trafficsim-01","x":300,"y":220}
   ],
   "frames": [],
@@ -85,10 +85,10 @@ var labValkeyStandaloneDesign = json.RawMessage(`{
 // from each node's own terminal — no backend plumbing needed for either lab.
 var labValkeyReplicationDesign = json.RawMessage(`{
   "nodes": [
-    {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
+    {"id":"lab-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
     {"id":"lab-valkey-a","type":"valkey","label":"valkey-a","x":300,"y":40},
     {"id":"lab-valkey-b","type":"valkey","label":"valkey-b","x":460,"y":40},
-    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220},
     {"id":"lab-trafficsim","type":"trafficsim","label":"trafficsim-01","x":300,"y":220}
   ],
   "frames": [],

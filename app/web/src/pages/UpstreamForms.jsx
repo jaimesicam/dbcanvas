@@ -34,8 +34,7 @@ export function useUpstreamCatalog({ fetchCatalog, obj, majorKey, versionKey, pa
   const hasAny = (i) => Object.values(i.versions || {}).some((a) => a.length)
   const osFamilies = [...new Set(imgs.filter(hasAny).map((i) => i.os))]
   const osVersions = [...new Set(imgs.filter((i) => i.os === obj.os).map((i) => i.osVersion))]
-  const archs = [...new Set(imgs.filter((i) => i.os === obj.os && i.osVersion === obj.osVersion).map((i) => i.arch))]
-  const entry = imgs.find((i) => i.os === obj.os && i.osVersion === obj.osVersion && i.arch === obj.arch)
+  const entry = imgs.find((i) => i.os === obj.os && i.osVersion === obj.osVersion)
   const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
   const minors = (entry?.versions?.[obj[majorKey]]) || []
 
@@ -44,25 +43,22 @@ export function useUpstreamCatalog({ fetchCatalog, obj, majorKey, versionKey, pa
     const p = {}
     const osVer = osVersions.includes(obj.osVersion) ? obj.osVersion : (osVersions[0] ?? obj.osVersion)
     if (osVer !== obj.osVersion) p.osVersion = osVer
-    const archList = [...new Set(imgs.filter((i) => i.os === obj.os && i.osVersion === osVer).map((i) => i.arch))]
-    const arch = archList.includes(obj.arch) ? obj.arch : (archList[0] ?? obj.arch)
-    if (arch !== obj.arch) p.arch = arch
-    const e2 = imgs.find((i) => i.os === obj.os && i.osVersion === osVer && i.arch === arch)
+    const e2 = imgs.find((i) => i.os === obj.os && i.osVersion === osVer)
     const majorList = e2 ? Object.keys(e2.versions || {}).filter((m) => (e2.versions[m] || []).length) : []
     const major = majorList.includes(obj[majorKey]) ? obj[majorKey] : (majorList[0] ?? obj[majorKey])
     if (major !== obj[majorKey]) p[majorKey] = major
     const minorList = (e2?.versions?.[major]) || []
     if (obj[versionKey] && !minorList.includes(obj[versionKey])) p[versionKey] = ''
     if (Object.keys(p).length) patch(p)
-  }, [imgs, obj.id, obj.os, obj.osVersion, obj.arch, obj[majorKey], obj[versionKey], deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [imgs, obj.id, obj.os, obj.osVersion, obj[majorKey], obj[versionKey], deployed]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { imgs, osFamilies, osVersions, archs, majors, minors, loading: cat === null }
+  return { imgs, osFamilies, osVersions, majors, minors, loading: cat === null }
 }
 
 // VersionPickers renders the five linked selects every one of these forms needs.
 function VersionPickers({ obj, patch, deployed, majorKey, versionKey, majorLabel, cat }) {
   const lock = deployed ? 'opacity-70' : ''
-  const { osFamilies, osVersions, archs, majors, minors, loading } = cat
+  const { osFamilies, osVersions, majors, minors, loading } = cat
   return (
     <>
       <div className="grid grid-cols-2 gap-2">
@@ -77,12 +73,7 @@ function VersionPickers({ obj, patch, deployed, majorKey, versionKey, majorLabel
           </select>
         </Field>
       </div>
-      <div className="grid grid-cols-3 gap-2">
-        <Field label="Arch">
-          <select className={`${inputCls} ${lock}`} value={obj.arch} disabled={deployed} onChange={(e) => patch({ arch: e.target.value })}>
-            {archs.map((a) => <option key={a} value={a}>{a}</option>)}
-          </select>
-        </Field>
+      <div className="grid grid-cols-2 gap-2">
         <Field label={majorLabel}>
           <select className={`${inputCls} ${lock}`} value={obj[majorKey]} disabled={deployed} onChange={(e) => patch({ [majorKey]: e.target.value, [versionKey]: '' })}>
             {majors.map((m) => <option key={m} value={m}>{m}</option>)}

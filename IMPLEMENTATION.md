@@ -16366,3 +16366,44 @@ an explicitly saved architecture still wins.
 - Tests: the platform fallback in both directions, that an explicitly saved architecture and an
   unparseable one behave, and that the two pre-baked image tags follow the platform.
   `go build`, `go vet`, `go test ./...` and the smoke suite green.
+
+## 283. The rest of the architecture pickers — `app/web/src/pages/{StackDesigner,UpstreamForms,AllInOne}.jsx`, `app/{versions,valkey}.go`, `app/labs*.go`
+
+Session 282 removed the architecture picker from the Intranet, PMM and Ubuntu VNC forms. The
+argument it rested on — an installation targets one Docker platform and `make images` builds
+only that — was never specific to those three, so the remaining twenty pickers are gone too:
+every frame form, every OS-based node form, the shared upstream-version pickers behind MariaDB
+and MySQL Community, and the All-in-One node.
+
+With nothing left to ask, the field stops being part of a design at all. Twenty-three
+`arch: 'amd64'` creation defaults are gone, and so is the last place a design could acquire an
+architecture by accident.
+
+**The catalogue lookups had to stop keying on it.** Each of those forms found its available
+versions with `imgs.find(i => i.os === … && i.osVersion === … && i.arch === …)`, and a design
+with no architecture would have matched nothing — no majors, no minors, an empty picker. They
+now match on OS and version alone, which is exact rather than approximate: `make versions`
+probes only the built platform, so within one (os, osVersion) the catalogue holds exactly one
+entry. Seventeen dead `archs` lists and `ARCH_OPTIONS` went with them.
+
+**The canvas cards needed a real answer.** They read `n.arch || 'amd64'`, which with the field
+gone would have labelled every node amd64 on an arm64 installation. `/api/catalog/images` now
+returns the platform alongside the images — it is the same catalogue and the same single-
+platform rule — and the designer labels cards from that.
+
+**Two more places pinned amd64 where nothing asked.** `valkeyNodeOS` had its own hardcoded
+fallback that bypassed `archOr` entirely, and the lab templates carried `"arch":"amd64"` in
+their embedded designs — 77 of them across seven files, one per node in every lab. On an
+arm64 installation each was an image that was never built.
+
+### Verified
+
+- In a browser against a fresh design: Percona Server (OS, version, major 8.0, minor
+  `latest (8.0.46-37.1)`), MariaDB through the shared upstream pickers (major 11.4, version
+  list), a PXC frame and an All-in-One node all populate their version pickers with no
+  architecture in the model, and the saved design carries `os`/`osVersion`/major and no `arch`.
+  Cards read "OL9 · amd64" from the catalogue's platform. The Labs page renders. No page errors.
+- Tests: every one of the 23 embedded lab designs is parsed and checked for a pinned
+  architecture (a bulk edit of JSON string literals is exactly the change that ships a lab
+  which fails to open), plus the platform fallback through `pxcImage` and `valkeyNodeOS`.
+  `go build`, `go vet`, `go test ./...` and the smoke suite green.

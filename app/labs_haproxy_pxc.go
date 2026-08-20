@@ -21,16 +21,16 @@ import (
 // direct-PXC labs' Airline Sim does.
 var labHAProxyPXCDesign = json.RawMessage(`{
   "nodes": [
-    {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
+    {"id":"lab-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
     {"id":"lab-pxc-1","type":"pxc","label":"pxc-1","role":"regular","frameId":"lab-pxc","x":574,"y":66},
     {"id":"lab-pxc-2","type":"pxc","label":"pxc-2","role":"regular","frameId":"lab-pxc","x":702,"y":66},
     {"id":"lab-pxc-3","type":"pxc","label":"pxc-3","role":"regular","frameId":"lab-pxc","x":830,"y":66},
-    {"id":"lab-haproxy","type":"haproxy","label":"haproxy","os":"oraclelinux","osVersion":"9","arch":"amd64","x":300,"y":40},
-    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-haproxy","type":"haproxy","label":"haproxy","os":"oraclelinux","osVersion":"9","x":300,"y":40},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220},
     {"id":"lab-airlinesim","type":"airlinesim","label":"airlinesim-01","x":40,"y":300}
   ],
   "frames": [
-    {"id":"lab-pxc","type":"pxc","label":"lab-pxc","os":"oraclelinux","osVersion":"9","arch":"amd64","pxcMajor":"8.0","gtid":true,"x":560,"y":20,"w":400,"h":138}
+    {"id":"lab-pxc","type":"pxc","label":"lab-pxc","os":"oraclelinux","osVersion":"9","pxcMajor":"8.0","gtid":true,"x":560,"y":20,"w":400,"h":138}
   ],
   "edges": [
     {"id":"lab-edge-haproxy","from":{"node":"lab-haproxy","port":"right"},"to":{"node":"lab-pxc","port":"left"},"type":"directional"},

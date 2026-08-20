@@ -18,9 +18,9 @@ import (
 // up by hand.
 var labPSMTLSDesign = json.RawMessage(`{
   "nodes": [
-    {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
-    {"id":"lab-psm","type":"psm","label":"psm-1","os":"oraclelinux","osVersion":"9","arch":"amd64","psmdbMajor":"8.0","psmdbVersion":"","generateCert":true,"certTtlValue":365,"certTtlUnit":"days","x":300,"y":40},
-    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
+    {"id":"lab-psm","type":"psm","label":"psm-1","os":"oraclelinux","osVersion":"9","psmdbMajor":"8.0","psmdbVersion":"","generateCert":true,"certTtlValue":365,"certTtlUnit":"days","x":300,"y":40},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220},
     {"id":"lab-hotelsim","type":"hotelsim","label":"hotelsim-01","x":300,"y":220}
   ],
   "frames": [],
@@ -35,17 +35,17 @@ var labPSMTLSDesign = json.RawMessage(`{
 // needs, with no backend changes required to support it.
 var labPSMRSSpareDesign = json.RawMessage(`{
   "nodes": [
-    {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
+    {"id":"lab-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
     {"id":"lab-rs-1","type":"psmrs","label":"rs-1","frameId":"lab-psmrs","exportEnabled":false,"exportHostPort":0,"x":574,"y":66},
     {"id":"lab-rs-2","type":"psmrs","label":"rs-2","frameId":"lab-psmrs","exportEnabled":false,"exportHostPort":0,"x":702,"y":66},
     {"id":"lab-rs-3","type":"psmrs","label":"rs-3","frameId":"lab-psmrs","exportEnabled":false,"exportHostPort":0,"x":830,"y":66},
-    {"id":"lab-spare","type":"psm","label":"spare","os":"oraclelinux","osVersion":"9","arch":"amd64","psmdbMajor":"8.0","psmdbVersion":"","x":700,"y":180},
-    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-spare","type":"psm","label":"spare","os":"oraclelinux","osVersion":"9","psmdbMajor":"8.0","psmdbVersion":"","x":700,"y":180},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220},
     {"id":"lab-hotelsim","type":"hotelsim","label":"hotelsim-01","x":560,"y":300}
   ],
   "frames": [
     {"id":"lab-psmrs","type":"psmrs","label":"lab-psmrs","x":560,"y":20,"w":400,"h":138,
-     "os":"oraclelinux","osVersion":"9","arch":"amd64","psmdbMajor":"8.0","psmdbVersion":"",
+     "os":"oraclelinux","osVersion":"9","psmdbMajor":"8.0","psmdbVersion":"",
      "rootPassword":"","pmmNodeId":"","useProxy":false,"enablePBM":false,"seaweedfsNodeId":"",
      "generateCert":false,"certTtlValue":365,"certTtlUnit":"days"}
   ],
@@ -61,17 +61,17 @@ var labPSMRSSpareDesign = json.RawMessage(`{
 // automatically at deploy time (mongoConfigurePBMStorage) since EnablePBM is on.
 var labPSMRSPBMDesign = json.RawMessage(`{
   "nodes": [
-    {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
+    {"id":"lab-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
     {"id":"lab-rs-1","type":"psmrs","label":"rs-1","frameId":"lab-psmrs","exportEnabled":false,"exportHostPort":0,"x":574,"y":66},
     {"id":"lab-rs-2","type":"psmrs","label":"rs-2","frameId":"lab-psmrs","exportEnabled":false,"exportHostPort":0,"x":702,"y":66},
     {"id":"lab-rs-3","type":"psmrs","label":"rs-3","frameId":"lab-psmrs","exportEnabled":false,"exportHostPort":0,"x":830,"y":66},
-    {"id":"lab-seaweed","type":"seaweedfs","label":"seaweed","arch":"amd64","bucket":"lab-backups","tls":false,"x":700,"y":220},
-    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-seaweed","type":"seaweedfs","label":"seaweed","bucket":"lab-backups","tls":false,"x":700,"y":220},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220},
     {"id":"lab-hotelsim","type":"hotelsim","label":"hotelsim-01","x":560,"y":300}
   ],
   "frames": [
     {"id":"lab-psmrs","type":"psmrs","label":"lab-psmrs","x":560,"y":20,"w":400,"h":138,
-     "os":"oraclelinux","osVersion":"9","arch":"amd64","psmdbMajor":"8.0","psmdbVersion":"",
+     "os":"oraclelinux","osVersion":"9","psmdbMajor":"8.0","psmdbVersion":"",
      "rootPassword":"","pmmNodeId":"","useProxy":false,
      "enablePBM":true,"seaweedfsNodeId":"lab-seaweed","seaweedfsBucket":"lab-backups",
      "generateCert":false,"certTtlValue":365,"certTtlUnit":"days"}
@@ -89,7 +89,7 @@ var labPSMRSPBMDesign = json.RawMessage(`{
 // every other sharded lab in this batch reuses the lighter "minimum" template.
 var labPSMDBStandardShardedDesign = json.RawMessage(`{
   "nodes": [
-    {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
+    {"id":"lab-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
     {"id":"lab-mongos","type":"psmdb","label":"mongos","frameId":"lab-psmdb","role":"mongos","exportEnabled":false,"exportHostPort":0,"x":560,"y":20},
     {"id":"lab-cfg1","type":"psmdb","label":"cfg1","frameId":"lab-psmdb","role":"config","exportEnabled":false,"exportHostPort":0,"x":680,"y":20},
     {"id":"lab-cfg2","type":"psmdb","label":"cfg2","frameId":"lab-psmdb","role":"config","exportEnabled":false,"exportHostPort":0,"x":800,"y":20},
@@ -103,12 +103,12 @@ var labPSMDBStandardShardedDesign = json.RawMessage(`{
     {"id":"lab-s2r1","type":"psmdb","label":"s2r1","frameId":"lab-psmdb","role":"shard","shard":2,"exportEnabled":false,"exportHostPort":0,"x":800,"y":110},
     {"id":"lab-s2r2","type":"psmdb","label":"s2r2","frameId":"lab-psmdb","role":"shard","shard":2,"exportEnabled":false,"exportHostPort":0,"x":800,"y":190},
     {"id":"lab-s2r3","type":"psmdb","label":"s2r3","frameId":"lab-psmdb","role":"shard","shard":2,"exportEnabled":false,"exportHostPort":0,"x":800,"y":270},
-    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220},
     {"id":"lab-hotelsim","type":"hotelsim","label":"hotelsim-01","x":920,"y":110}
   ],
   "frames": [
     {"id":"lab-psmdb","type":"psmdb","label":"lab-psmdb","x":540,"y":0,"w":420,"h":320,
-     "os":"oraclelinux","osVersion":"9","arch":"amd64","psmdbMajor":"8.0","psmdbVersion":"",
+     "os":"oraclelinux","osVersion":"9","psmdbMajor":"8.0","psmdbVersion":"",
      "psmdbSetup":"standard","rootPassword":"","pmmNodeId":"","useProxy":false,
      "enablePBM":false,"seaweedfsNodeId":"",
      "generateCert":false,"certTtlValue":365,"certTtlUnit":"days"}
@@ -124,7 +124,7 @@ var labPSMDBStandardShardedDesign = json.RawMessage(`{
 // the learner adds live via sh.addShard, then removes.
 var labPSMDBSpareShardDesign = json.RawMessage(`{
   "nodes": [
-    {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
+    {"id":"lab-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
     {"id":"lab-mongos","type":"psmdb","label":"mongos","frameId":"lab-psmdb","role":"mongos","exportEnabled":false,"exportHostPort":0,"x":560,"y":20},
     {"id":"lab-cfg1","type":"psmdb","label":"cfg1","frameId":"lab-psmdb","role":"config","exportEnabled":false,"exportHostPort":0,"x":680,"y":20},
     {"id":"lab-s0r1","type":"psmdb","label":"s0r1","frameId":"lab-psmdb","role":"shard","shard":0,"exportEnabled":false,"exportHostPort":0,"x":560,"y":110},
@@ -133,17 +133,17 @@ var labPSMDBSpareShardDesign = json.RawMessage(`{
     {"id":"lab-spare-1","type":"psmrs","label":"spare-1","frameId":"lab-spare-rs","exportEnabled":false,"exportHostPort":0,"x":560,"y":260},
     {"id":"lab-spare-2","type":"psmrs","label":"spare-2","frameId":"lab-spare-rs","exportEnabled":false,"exportHostPort":0,"x":680,"y":260},
     {"id":"lab-spare-3","type":"psmrs","label":"spare-3","frameId":"lab-spare-rs","exportEnabled":false,"exportHostPort":0,"x":800,"y":260},
-    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220},
     {"id":"lab-hotelsim","type":"hotelsim","label":"hotelsim-01","x":920,"y":110}
   ],
   "frames": [
     {"id":"lab-psmdb","type":"psmdb","label":"lab-psmdb","x":540,"y":0,"w":300,"h":150,
-     "os":"oraclelinux","osVersion":"9","arch":"amd64","psmdbMajor":"8.0","psmdbVersion":"",
+     "os":"oraclelinux","osVersion":"9","psmdbMajor":"8.0","psmdbVersion":"",
      "psmdbSetup":"minimum","rootPassword":"","pmmNodeId":"","useProxy":false,
      "enablePBM":false,"seaweedfsNodeId":"",
      "generateCert":false,"certTtlValue":365,"certTtlUnit":"days"},
     {"id":"lab-spare-rs","type":"psmrs","label":"lab-spare-rs","x":540,"y":240,"w":400,"h":138,
-     "os":"oraclelinux","osVersion":"9","arch":"amd64","psmdbMajor":"8.0","psmdbVersion":"",
+     "os":"oraclelinux","osVersion":"9","psmdbMajor":"8.0","psmdbVersion":"",
      "rootPassword":"","pmmNodeId":"","useProxy":false,"enablePBM":false,"seaweedfsNodeId":"",
      "generateCert":false,"certTtlValue":365,"certTtlUnit":"days"}
   ],
@@ -157,19 +157,19 @@ var labPSMDBSpareShardDesign = json.RawMessage(`{
 // MongoDB wired to a SeaweedFS node.
 var labPSMDBPBMDesign = json.RawMessage(`{
   "nodes": [
-    {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
+    {"id":"lab-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
     {"id":"lab-mongos","type":"psmdb","label":"mongos","frameId":"lab-psmdb","role":"mongos","exportEnabled":false,"exportHostPort":0,"x":560,"y":20},
     {"id":"lab-cfg1","type":"psmdb","label":"cfg1","frameId":"lab-psmdb","role":"config","exportEnabled":false,"exportHostPort":0,"x":680,"y":20},
     {"id":"lab-s0r1","type":"psmdb","label":"s0r1","frameId":"lab-psmdb","role":"shard","shard":0,"exportEnabled":false,"exportHostPort":0,"x":560,"y":110},
     {"id":"lab-s1r1","type":"psmdb","label":"s1r1","frameId":"lab-psmdb","role":"shard","shard":1,"exportEnabled":false,"exportHostPort":0,"x":680,"y":110},
     {"id":"lab-s2r1","type":"psmdb","label":"s2r1","frameId":"lab-psmdb","role":"shard","shard":2,"exportEnabled":false,"exportHostPort":0,"x":800,"y":110},
-    {"id":"lab-seaweed","type":"seaweedfs","label":"seaweed","arch":"amd64","bucket":"lab-backups","tls":false,"x":700,"y":220},
-    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-seaweed","type":"seaweedfs","label":"seaweed","bucket":"lab-backups","tls":false,"x":700,"y":220},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220},
     {"id":"lab-hotelsim","type":"hotelsim","label":"hotelsim-01","x":920,"y":110}
   ],
   "frames": [
     {"id":"lab-psmdb","type":"psmdb","label":"lab-psmdb","x":540,"y":0,"w":300,"h":150,
-     "os":"oraclelinux","osVersion":"9","arch":"amd64","psmdbMajor":"8.0","psmdbVersion":"",
+     "os":"oraclelinux","osVersion":"9","psmdbMajor":"8.0","psmdbVersion":"",
      "psmdbSetup":"minimum","rootPassword":"","pmmNodeId":"","useProxy":false,
      "enablePBM":true,"seaweedfsNodeId":"lab-seaweed","seaweedfsBucket":"lab-backups",
      "generateCert":false,"certTtlValue":365,"certTtlUnit":"days"}

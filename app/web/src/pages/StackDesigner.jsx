@@ -38,12 +38,6 @@ const NODE_W = 212
 const NODE_H = 104
 const SNAP = 26
 
-// Architecture options (must match images built by `make images`).
-const ARCH_OPTIONS = [
-  { id: 'amd64', label: 'amd64 (x86-64)' },
-  { id: 'arm64', label: 'arm64 (aarch64)' },
-]
-
 // Node-type catalog.
 export const NODE_TYPES = {
   intranet: {
@@ -54,9 +48,6 @@ export const NODE_TYPES = {
     singleton: true,
     ports: false, // self-contained; no connection endpoints
     osOptions: [{ id: 'oel9', label: 'Oracle Linux 9' }],
-    // One pre-baked image (dbcanvas-intranet:oraclelinux-9-<arch>) built for the one
-    // platform this installation targets, so there is no architecture to choose.
-    platformFixed: true,
   },
   sambaad: {
     label: 'Samba AD DC',
@@ -78,7 +69,6 @@ export const NODE_TYPES = {
     singleton: false,
     ports: false,
     osOptions: [{ id: 'pmm', label: 'percona/pmm-server' }],
-    platformFixed: true, // percona/pmm-server has no arm64 image at all
     defaults: { version: '', adminPassword: '', generateCert: false, watchtowerNodeId: '' },
   },
   // PXC nodes live inside a PXC cluster frame (not added from the toolbar
@@ -166,7 +156,7 @@ export const NODE_TYPES = {
     ports: true, // connectable — a Hotel Sim node links to it
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: {
-      os: 'oraclelinux', osVersion: '9', arch: 'amd64', psmdbMajor: '8.0', psmdbVersion: '',
+      os: 'oraclelinux', osVersion: '9', psmdbMajor: '8.0', psmdbVersion: '',
       rootPassword: '', pmmNodeId: '', useProxy: false,
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
       exportEnabled: false, exportHostPort: 0,
@@ -186,7 +176,7 @@ export const NODE_TYPES = {
     ports: true, // connectable — Airline Sim, MarketChaos and Stock Market Sim link to it
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: {
-      os: 'oraclelinux', osVersion: '9', arch: 'amd64', psMajor: '8.0', psVersion: '',
+      os: 'oraclelinux', osVersion: '9', psMajor: '8.0', psVersion: '',
       rootPassword: '', gtid: true, pmmNodeId: '', useProxy: false,
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
       exportEnabled: false, exportHostPort: 0,
@@ -205,7 +195,7 @@ export const NODE_TYPES = {
     ports: true, // connectable — a Stock Market Sim node links to it
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }],
     defaults: {
-      os: 'oraclelinux', osVersion: '9', arch: 'amd64', mariadbMajor: '11.4', mariadbVersion: '',
+      os: 'oraclelinux', osVersion: '9', mariadbMajor: '11.4', mariadbVersion: '',
       rootPassword: '', gtid: true, pmmNodeId: '', useProxy: false,
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
       exportEnabled: false, exportHostPort: 0,
@@ -244,7 +234,7 @@ export const NODE_TYPES = {
     ports: true, // connectable — a Stock Market Sim node links to it
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }],
     defaults: {
-      os: 'oraclelinux', osVersion: '9', arch: 'amd64', mysqlceMajor: '8.4', mysqlceVersion: '',
+      os: 'oraclelinux', osVersion: '9', mysqlceMajor: '8.4', mysqlceVersion: '',
       rootPassword: '', gtid: true, pmmNodeId: '', useProxy: false,
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
       exportEnabled: false, exportHostPort: 0,
@@ -283,7 +273,7 @@ export const NODE_TYPES = {
     ports: true, // connectable — a Car Rental Sim or Stock Market Sim node links to it
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: {
-      os: 'oraclelinux', osVersion: '9', arch: 'amd64', pgMajor: '16', pgVersion: '',
+      os: 'oraclelinux', osVersion: '9', pgMajor: '16', pgVersion: '',
       rootPassword: '', pmmNodeId: '', useProxy: false,
       usePgBackRest: false, seaweedfsNodeId: '',
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
@@ -300,7 +290,7 @@ export const NODE_TYPES = {
     ports: true, // links to a PXC cluster frame (data flows PXC → ProxySQL)
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: {
-      os: 'oraclelinux', osVersion: '9', arch: 'amd64',
+      os: 'oraclelinux', osVersion: '9',
       proxysqlMajor: '2', proxysqlVersion: '', mode: 'singlewrite',
       exportEnabled: false, exportHostPort: 0, pmmNodeId: '', useProxy: false,
     },
@@ -319,7 +309,7 @@ export const NODE_TYPES = {
     ports: true,
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: {
-      os: 'oraclelinux', osVersion: '9', arch: 'amd64',
+      os: 'oraclelinux', osVersion: '9',
       exportEnabled: false, exportHostPort: 0, pmmNodeId: '', useProxy: false,
     },
   },
@@ -341,7 +331,7 @@ export const NODE_TYPES = {
     ports: false,
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: {
-      os: 'oraclelinux', osVersion: '9', arch: 'amd64',
+      os: 'oraclelinux', osVersion: '9',
       orchestratorVersion: '', alertEmail: 'admin', useProxy: false,
     },
   },
@@ -400,7 +390,7 @@ export const NODE_TYPES = {
     ports: false,
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux 9' }],
     defaults: {
-      os: 'oraclelinux', osVersion: '9', arch: 'amd64', useProxy: false,
+      os: 'oraclelinux', osVersion: '9', useProxy: false,
       generateCert: true, certTtlValue: 365, certTtlUnit: 'days',
     },
   },
@@ -417,8 +407,6 @@ export const NODE_TYPES = {
     singleton: true,
     ports: false,
     osOptions: [{ id: 'ubuntu', label: 'Ubuntu' }],
-    // As for the Intranet: one pre-baked desktop image, built for one platform.
-    platformFixed: true,
     defaults: {
       os: 'ubuntu', osVersion: '24.04',
       vncUser: 'dbadmin', vncPassword: '', useProxy: false,
@@ -437,7 +425,7 @@ export const NODE_TYPES = {
     ports: true, // connectable — a Traffic Sim node links to it
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: {
-      os: 'oraclelinux', osVersion: '9', arch: 'amd64', valkeyMajor: '9.1', valkeyVersion: '',
+      os: 'oraclelinux', osVersion: '9', valkeyMajor: '9.1', valkeyVersion: '',
       rootPassword: '', useLdap: false, pmmNodeId: '', useProxy: false,
       exportEnabled: false, exportHostPort: 0,
     },
@@ -456,7 +444,7 @@ export const NODE_TYPES = {
     ports: false,
     plainSequentialLabel: true,
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }, { id: 'debian', label: 'Debian' }],
-    defaults: { os: 'oraclelinux', osVersion: '9', arch: 'amd64', useProxy: false },
+    defaults: { os: 'oraclelinux', osVersion: '9', useProxy: false },
   },
   // Traffic Sim — the "Valkey Traffic Lab" live demo app (background agents +
   // a web map). Runs dbcanvas's own first-party image, not an OS/DB image, so it
@@ -556,7 +544,7 @@ export const NODE_TYPES = {
     ports: false,
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }],
     defaults: {
-      os: 'oraclelinux', osVersion: '9', arch: 'amd64', useProxy: false,
+      os: 'oraclelinux', osVersion: '9', useProxy: false,
       aioPsMajor: '8.0', aioPsVersion: '', aioPxcMajor: '8.0', aioPxcVersion: '',
       aioPsmdbMajor: '8.0', aioValkeyMajor: '9.1', aioProxysqlMajor: '2',
       aioInstances: [],
@@ -1133,6 +1121,10 @@ function StackEditor({ stackId, onBack }) {
   const [busy, setBusy] = useState('') // 'validate' | 'deploy' | ''
   const [configNode, setConfigNode] = useState(null) // node whose profile is shown
   const [deployPanel, setDeployPanel] = useState('hidden') // 'open' | 'min' | 'hidden'
+  // The architecture this installation targets. Nodes no longer carry one — an
+  // installation builds images for a single DOCKER_PLATFORM — so the canvas cards
+  // label them from the catalogue instead of from the design.
+  const [platform, setPlatform] = useState('')
   const [fileDrag, setFileDrag] = useState(false) // host files are being dragged over the canvas
   const [dropNode, setDropNode] = useState(null) // node id currently under a file drag
   const [drop, setDrop] = useState(null) // dropped files awaiting a destination choice
@@ -1161,6 +1153,7 @@ function StackEditor({ stackId, onBack }) {
   // load
   useEffect(() => {
     let alive = true
+    stackApi.imagesCatalog().then((c) => setPlatform(c.platform || '')).catch(() => { /* the cards fall back */ })
     stackApi.get(stackId).then((s) => {
       if (!alive) return
       setStack(s)
@@ -1810,7 +1803,7 @@ function StackEditor({ stackId, onBack }) {
     const fy = (-view.y + 200) / view.z
     const frame = {
       id: fid, type: 'pxc', label: nextClusterName(frames), x: fx, y: fy, w: 0, h: 0,
-      os: 'oraclelinux', osVersion: '9', arch: 'amd64', pxcMajor: '8.0', pxcVersion: '',
+      os: 'oraclelinux', osVersion: '9', pxcMajor: '8.0', pxcVersion: '',
       rootPassword: '', pmmNodeId: '', useProxy: false, gtid: true,
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
     }
@@ -1845,7 +1838,7 @@ function StackEditor({ stackId, onBack }) {
     const fy = (-view.y + 200) / view.z
     const frame = {
       id: fid, type: 'proxysql', label: nextNamedCluster(frames, 'proxysql-cluster'), x: fx, y: fy, w: 0, h: 0,
-      os: 'oraclelinux', osVersion: '9', arch: 'amd64', proxysqlMajor: '2', proxysqlVersion: '',
+      os: 'oraclelinux', osVersion: '9', proxysqlMajor: '2', proxysqlVersion: '',
       mode: 'singlewrite', pmmNodeId: '', useProxy: false,
     }
     const used = new Set(nodes.filter((n) => n.type === 'proxysql').map((n) => n.label))
@@ -1871,7 +1864,7 @@ function StackEditor({ stackId, onBack }) {
     const fy = (-view.y + 200) / view.z
     const frame = {
       id: fid, type: 'mysql', label: nextNamedCluster(frames, 'psrepl'), x: fx, y: fy, w: 0, h: 0,
-      os: 'oraclelinux', osVersion: '9', arch: 'amd64', psMajor: '8.0', psVersion: '',
+      os: 'oraclelinux', osVersion: '9', psMajor: '8.0', psVersion: '',
       rootPassword: '', pmmNodeId: '', useProxy: false, gtid: true, replMode: 'async',
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
     }
@@ -1898,7 +1891,7 @@ function StackEditor({ stackId, onBack }) {
     const fy = (-view.y + 200) / view.z
     const frame = {
       id: fid, type: 'innodb', label: nextNamedCluster(frames, 'innodb'), x: fx, y: fy, w: 0, h: 0,
-      os: 'oraclelinux', osVersion: '9', arch: 'amd64', pdpsRepo: '', replMode: 'innodbcluster',
+      os: 'oraclelinux', osVersion: '9', pdpsRepo: '', replMode: 'innodbcluster',
       rootPassword: '', pmmNodeId: '', useProxy: false, mysqlRouter: true,
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
     }
@@ -1924,7 +1917,7 @@ function StackEditor({ stackId, onBack }) {
     const fy = (-view.y + 200) / view.z
     const frame = {
       id: fid, type, label: nextNamedCluster(frames, prefix), x: fx, y: fy, w: 0, h: 0,
-      os: 'oraclelinux', osVersion: '9', arch: 'amd64',
+      os: 'oraclelinux', osVersion: '9',
       rootPassword: '', pmmNodeId: '', useProxy: false,
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
       ...frameDefaults,
@@ -2040,7 +2033,7 @@ function StackEditor({ stackId, onBack }) {
     const fy = (-view.y + 200) / view.z
     const frame = {
       id: fid, type: 'psmdb', label: nextNamedCluster(frames, 'psmdb'), x: fx, y: fy, w: 0, h: 0,
-      os: 'oraclelinux', osVersion: '9', arch: 'amd64', psmdbMajor: '8.0', psmdbVersion: '',
+      os: 'oraclelinux', osVersion: '9', psmdbMajor: '8.0', psmdbVersion: '',
       psmdbSetup: setup, rootPassword: '', pmmNodeId: '', useProxy: false,
       enablePBM: false, seaweedfsNodeId: '',
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
@@ -2075,7 +2068,7 @@ function StackEditor({ stackId, onBack }) {
     const fy = (-view.y + 200) / view.z
     const frame = {
       id: fid, type: 'psmrs', label: nextNamedCluster(frames, 'psmrs'), x: fx, y: fy, w: 0, h: 0,
-      os: 'oraclelinux', osVersion: '9', arch: 'amd64', psmdbMajor: '8.0', psmdbVersion: '',
+      os: 'oraclelinux', osVersion: '9', psmdbMajor: '8.0', psmdbVersion: '',
       rootPassword: '', pmmNodeId: '', useProxy: false,
       enablePBM: false, seaweedfsNodeId: '',
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
@@ -2106,7 +2099,7 @@ function StackEditor({ stackId, onBack }) {
     const fy = (-view.y + 200) / view.z
     const frame = {
       id: fid, type: 'patroni', label: nextNamedCluster(frames, 'patroni-cluster'), x: fx, y: fy, w: 0, h: 0,
-      os: 'oraclelinux', osVersion: '9', arch: 'amd64', pgMajor: '16', pgVersion: '',
+      os: 'oraclelinux', osVersion: '9', pgMajor: '16', pgVersion: '',
       rootPassword: '', pmmNodeId: '', useProxy: false,
       usePgBackRest: false, seaweedfsNodeId: '',
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
@@ -2136,7 +2129,7 @@ function StackEditor({ stackId, onBack }) {
     const fy = (-view.y + 200) / view.z
     const frame = {
       id: fid, type: 'repmgr', label: nextNamedCluster(frames, 'repmgr-cluster'), x: fx, y: fy, w: 0, h: 0,
-      os: 'oraclelinux', osVersion: '9', arch: 'amd64', pgMajor: '16', pgVersion: '',
+      os: 'oraclelinux', osVersion: '9', pgMajor: '16', pgVersion: '',
       rootPassword: '', pmmNodeId: '', useProxy: false,
       useBarman: false, seaweedfsNodeId: '',
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
@@ -2166,7 +2159,7 @@ function StackEditor({ stackId, onBack }) {
     const fy = (-view.y + 200) / view.z
     const frame = {
       id: fid, type: 'spock', label: nextNamedCluster(frames, 'spock-cluster'), x: fx, y: fy, w: 0, h: 0,
-      os: 'oraclelinux', osVersion: '9', arch: 'amd64', pgMajor: '16', pgVersion: '',
+      os: 'oraclelinux', osVersion: '9', pgMajor: '16', pgVersion: '',
       pmmNodeId: '', useProxy: false,
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
     }
@@ -2195,7 +2188,7 @@ function StackEditor({ stackId, onBack }) {
     const fy = (-view.y + 200) / view.z
     const frame = {
       id: fid, type: 'valkeycluster', label: nextNamedCluster(frames, 'valkey-cluster'), x: fx, y: fy, w: 0, h: 0,
-      os: 'oraclelinux', osVersion: '9', arch: 'amd64', valkeyMajor: '9.1', valkeyVersion: '',
+      os: 'oraclelinux', osVersion: '9', valkeyMajor: '9.1', valkeyVersion: '',
       rootPassword: '', pmmNodeId: '', useProxy: false, useLdap: false,
     }
     const used = new Set(nodes.filter((n) => n.type === 'valkeycluster').map((n) => n.label))
@@ -2296,12 +2289,11 @@ function StackEditor({ stackId, onBack }) {
     const id = uid(type)
     const x = (-view.x + 220) / view.z
     const y = (-view.y + 160) / view.z
-    // platformFixed types carry no arch at all: the server resolves it from
-    // DOCKER_PLATFORM, which is the one platform `make images` builds (see archOr).
-    // Stamping amd64 here would override that on an arm64 installation.
+    // No arch is stamped, here or in any type's defaults: an installation targets one
+    // Docker platform (DOCKER_PLATFORM) and `make images` builds only that, so the
+    // server resolves it — see archOr. A value saved here would override that.
     setNodes((ns) => [...ns, {
-      id, type, x, y, label: nextLabel(type, ns), os: def.osOptions[0].id,
-      ...(def.platformFixed ? {} : { arch: 'amd64' }), ...(def.defaults || {}),
+      id, type, x, y, label: nextLabel(type, ns), os: def.osOptions[0].id, ...(def.defaults || {}),
     }])
     setSelected({ kind: 'node', id })
   }
@@ -2814,7 +2806,7 @@ function StackEditor({ stackId, onBack }) {
                             </div>
                             <div className="mt-0.5 truncate text-[10px] text-muted">{sub}</div>
                             <div className="truncate text-[9px] font-medium text-fg/80">
-                              {deployedLabel(n.type, dep) || (f.type === 'k3d' ? 'rancher/k3s' : `${pxcOSLabel(f)} · ${f.arch || 'amd64'}`)}
+                              {deployedLabel(n.type, dep) || (f.type === 'k3d' ? 'rancher/k3s' : `${pxcOSLabel(f)} · ${f.arch || platform}`)}
                             </div>
                             {n.exportEnabled && <div className="text-[9px] font-medium text-primary">⇅ export</div>}
                           </div>
@@ -2873,7 +2865,7 @@ function StackEditor({ stackId, onBack }) {
                         <div className="mt-0.5 text-[11px] leading-snug text-muted">
                           {deployedLabel(n.type, depByNode[n.id]) || def.sub}
                         </div>
-                        <div className="mt-1 text-[11px] font-medium text-fg/80">{nodeOSLabel(n)} · {n.arch || 'amd64'}</div>
+                        <div className="mt-1 text-[11px] font-medium text-fg/80">{nodeOSLabel(n)}{(n.arch || platform) ? ` · ${n.arch || platform}` : ''}</div>
                       </div>
                     </div>
                   </div>
@@ -3305,8 +3297,7 @@ function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, delete
 
   const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
   const osVersions = [...new Set(imgs.filter((i) => i.os === f.os).map((i) => i.osVersion))]
-  const archs = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === f.osVersion).map((i) => i.arch))]
-  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion && i.arch === f.arch)
+  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion)
   const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
   const minors = (entry?.versions?.[f.pxcMajor]) || []
 
@@ -3319,17 +3310,14 @@ function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, delete
     const patch = {}
     const osVer = osVersions.includes(f.osVersion) ? f.osVersion : (osVersions[0] ?? f.osVersion)
     if (osVer !== f.osVersion) patch.osVersion = osVer
-    const archList = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === osVer).map((i) => i.arch))]
-    const arch = archList.includes(f.arch) ? f.arch : (archList[0] ?? f.arch)
-    if (arch !== f.arch) patch.arch = arch
-    const e2 = imgs.find((i) => i.os === f.os && i.osVersion === osVer && i.arch === arch)
+    const e2 = imgs.find((i) => i.os === f.os && i.osVersion === osVer)
     const majorList = e2 ? Object.keys(e2.versions || {}).filter((m) => (e2.versions[m] || []).length) : []
     const major = majorList.includes(f.pxcMajor) ? f.pxcMajor : (majorList[0] ?? f.pxcMajor)
     if (major !== f.pxcMajor) patch.pxcMajor = major
     const minorList = (e2?.versions?.[major]) || []
     if (f.pxcVersion && !minorList.includes(f.pxcVersion)) patch.pxcVersion = ''
     if (Object.keys(patch).length) patchFrame(f.id, patch)
-  }, [imgs, f.id, f.os, f.osVersion, f.arch, f.pxcMajor, f.pxcVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [imgs, f.id, f.os, f.osVersion, f.pxcMajor, f.pxcVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const pmmNodes = nodes.filter((n) => n.type === 'pmm')
   const regulars = frameNodes.filter((n) => n.role !== 'arbitrator').length
@@ -3355,11 +3343,6 @@ function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, delete
         <Field label="OS version">
           <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </Field>
-        <Field label="Platform / arch">
-          <select className={`${inputCls} ${lock}`} value={f.arch} disabled={deployed} onChange={(e) => patchFrame(f.id, { arch: e.target.value })}>
-            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
         <Field label="PXC major">
@@ -3498,8 +3481,7 @@ function MySQLFrameForm({ frame: f, stackId, nodes, frames, edges, patchFrame, d
 
   const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
   const osVersions = [...new Set(imgs.filter((i) => i.os === f.os).map((i) => i.osVersion))]
-  const archs = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === f.osVersion).map((i) => i.arch))]
-  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion && i.arch === f.arch)
+  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion)
   const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
   const minors = (entry?.versions?.[f.psMajor]) || []
 
@@ -3508,17 +3490,14 @@ function MySQLFrameForm({ frame: f, stackId, nodes, frames, edges, patchFrame, d
     const patch = {}
     const osVer = osVersions.includes(f.osVersion) ? f.osVersion : (osVersions[0] ?? f.osVersion)
     if (osVer !== f.osVersion) patch.osVersion = osVer
-    const archList = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === osVer).map((i) => i.arch))]
-    const arch = archList.includes(f.arch) ? f.arch : (archList[0] ?? f.arch)
-    if (arch !== f.arch) patch.arch = arch
-    const e2 = imgs.find((i) => i.os === f.os && i.osVersion === osVer && i.arch === arch)
+    const e2 = imgs.find((i) => i.os === f.os && i.osVersion === osVer)
     const majorList = e2 ? Object.keys(e2.versions || {}).filter((m) => (e2.versions[m] || []).length) : []
     const major = majorList.includes(f.psMajor) ? f.psMajor : (majorList[0] ?? f.psMajor)
     if (major !== f.psMajor) patch.psMajor = major
     const minorList = (e2?.versions?.[major]) || []
     if (f.psVersion && !minorList.includes(f.psVersion)) patch.psVersion = ''
     if (Object.keys(patch).length) patchFrame(f.id, patch)
-  }, [imgs, f.id, f.os, f.osVersion, f.arch, f.psMajor, f.psVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [imgs, f.id, f.os, f.osVersion, f.psMajor, f.psVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const pmmNodes = nodes.filter((x) => x.type === 'pmm')
   const orchestratorNodes = nodes.filter((x) => x.type === 'orchestrator')
@@ -3546,11 +3525,6 @@ function MySQLFrameForm({ frame: f, stackId, nodes, frames, edges, patchFrame, d
         <Field label="OS version">
           <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </Field>
-        <Field label="Platform / arch">
-          <select className={`${inputCls} ${lock}`} value={f.arch} disabled={deployed} onChange={(e) => patchFrame(f.id, { arch: e.target.value })}>
-            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
         <Field label="Percona Server major">
@@ -3967,8 +3941,7 @@ function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
 
   const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
   const osVersions = [...new Set(imgs.filter((i) => i.os === n.os).map((i) => i.osVersion))]
-  const archs = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === n.osVersion).map((i) => i.arch))]
-  const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion && i.arch === n.arch)
+  const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion)
   const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
   const minors = (entry?.versions?.[n.psMajor]) || []
 
@@ -3977,17 +3950,14 @@ function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
     const patch = {}
     const osVer = osVersions.includes(n.osVersion) ? n.osVersion : (osVersions[0] ?? n.osVersion)
     if (osVer !== n.osVersion) patch.osVersion = osVer
-    const archList = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === osVer).map((i) => i.arch))]
-    const arch = archList.includes(n.arch) ? n.arch : (archList[0] ?? n.arch)
-    if (arch !== n.arch) patch.arch = arch
-    const e2 = imgs.find((i) => i.os === n.os && i.osVersion === osVer && i.arch === arch)
+    const e2 = imgs.find((i) => i.os === n.os && i.osVersion === osVer)
     const majorList = e2 ? Object.keys(e2.versions || {}).filter((m) => (e2.versions[m] || []).length) : []
     const major = majorList.includes(n.psMajor) ? n.psMajor : (majorList[0] ?? n.psMajor)
     if (major !== n.psMajor) patch.psMajor = major
     const minorList = (e2?.versions?.[major]) || []
     if (n.psVersion && !minorList.includes(n.psVersion)) patch.psVersion = ''
     if (Object.keys(patch).length) patchNode(n.id, patch)
-  }, [imgs, n.id, n.os, n.osVersion, n.arch, n.psMajor, n.psVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [imgs, n.id, n.os, n.osVersion, n.psMajor, n.psVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const pmmNodes = nodes.filter((x) => x.type === 'pmm')
 
@@ -4012,11 +3982,6 @@ function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
         <Field label="OS version">
           <select className={`${inputCls} ${lock}`} value={n.osVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </Field>
-        <Field label="Platform / arch">
-          <select className={`${inputCls} ${lock}`} value={n.arch} disabled={deployed} onChange={(e) => patchNode(n.id, { arch: e.target.value })}>
-            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
         <Field label="Percona Server major">
@@ -4099,8 +4064,7 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
 
   const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
   const osVersions = [...new Set(imgs.filter((i) => i.os === n.os).map((i) => i.osVersion))]
-  const archs = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === n.osVersion).map((i) => i.arch))]
-  const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion && i.arch === n.arch)
+  const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion)
   const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
   const minors = (entry?.versions?.[n.pgMajor]) || []
 
@@ -4125,11 +4089,6 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
         <Field label="OS version">
           <select className={`${inputCls} ${lock}`} value={n.osVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </Field>
-        <Field label="Platform / arch">
-          <select className={`${inputCls} ${lock}`} value={n.arch} disabled={deployed} onChange={(e) => patchNode(n.id, { arch: e.target.value })}>
-            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
         <Field label="PostgreSQL major">
@@ -4433,12 +4392,6 @@ function OpenBaoForm({ node: n, patchNode, deleteNode, dep, deployed }) {
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
-      <Field label="Platform / arch">
-        <select className={`${inputCls} ${lock}`} value={n.arch || 'amd64'} disabled={deployed}
-          onChange={(e) => patchNode(n.id, { arch: e.target.value })}>
-          {ARCH_OPTIONS.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
-        </select>
-      </Field>
 
       <label className={`flex items-center gap-2 text-sm ${lock}`}>
         <input type="checkbox" checked={ssl} disabled={deployed}
@@ -4736,7 +4689,6 @@ function LinuxClientForm({ node: n, patchNode, deleteNode, dep, deployed }) {
 
   const osFamilies = [...new Set(imgs.map((i) => i.os))]
   const osVersions = [...new Set(imgs.filter((i) => i.os === n.os).map((i) => i.osVersion))]
-  const archs = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === n.osVersion).map((i) => i.arch))]
 
   // Snap invalid dependent selects once the catalog loads.
   useEffect(() => {
@@ -4744,11 +4696,8 @@ function LinuxClientForm({ node: n, patchNode, deleteNode, dep, deployed }) {
     const patch = {}
     const osVer = osVersions.includes(n.osVersion) ? n.osVersion : (osVersions[0] ?? n.osVersion)
     if (osVer !== n.osVersion) patch.osVersion = osVer
-    const archList = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === osVer).map((i) => i.arch))]
-    const arch = archList.includes(n.arch) ? n.arch : (archList[0] ?? n.arch)
-    if (arch !== n.arch) patch.arch = arch
     if (Object.keys(patch).length) patchNode(n.id, patch)
-  }, [imgs, n.id, n.os, n.osVersion, n.arch, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [imgs, n.id, n.os, n.osVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="space-y-3">
@@ -4779,11 +4728,6 @@ function LinuxClientForm({ node: n, patchNode, deleteNode, dep, deployed }) {
           </select>
         </Field>
       </div>
-      <Field label="Platform / arch">
-        <select className={`${inputCls} ${lock}`} value={n.arch} disabled={deployed} onChange={(e) => patchNode(n.id, { arch: e.target.value })}>
-          {archs.map((o) => <option key={o} value={o}>{o}</option>)}
-        </select>
-      </Field>
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
@@ -5896,8 +5840,7 @@ function ValkeyForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }) {
 
   const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
   const osVersions = [...new Set(imgs.filter((i) => i.os === n.os).map((i) => i.osVersion))]
-  const archs = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === n.osVersion).map((i) => i.arch))]
-  const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion && i.arch === n.arch)
+  const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion)
   const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
   const minors = (entry?.versions?.[n.valkeyMajor]) || []
   const debian = n.os === 'ubuntu' || n.os === 'debian'
@@ -5927,11 +5870,6 @@ function ValkeyForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }) {
         <Field label="OS version">
           <select className={`${inputCls} ${lock}`} value={n.osVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </Field>
-        <Field label="Platform / arch">
-          <select className={`${inputCls} ${lock}`} value={n.arch} disabled={deployed} onChange={(e) => patchNode(n.id, { arch: e.target.value })}>
-            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
         <Field label="Valkey major">
@@ -6563,8 +6501,7 @@ function ValkeyClusterFrameForm({ frame: f, nodes, frameNodes, patchFrame, delet
 
   const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
   const osVersions = [...new Set(imgs.filter((i) => i.os === f.os).map((i) => i.osVersion))]
-  const archs = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === f.osVersion).map((i) => i.arch))]
-  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion && i.arch === f.arch)
+  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion)
   const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
   const minors = (entry?.versions?.[f.valkeyMajor]) || []
   const debian = f.os === 'ubuntu' || f.os === 'debian'
@@ -6593,11 +6530,6 @@ function ValkeyClusterFrameForm({ frame: f, nodes, frameNodes, patchFrame, delet
         <Field label="OS version">
           <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </Field>
-        <Field label="Platform / arch">
-          <select className={`${inputCls} ${lock}`} value={f.arch} disabled={deployed} onChange={(e) => patchFrame(f.id, { arch: e.target.value })}>
-            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
         <Field label="Valkey major">
@@ -6687,8 +6619,7 @@ function ProxySQLForm({ node: n, nodes, frames, edges, patchNode, deleteNode, de
 
   const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
   const osVersions = [...new Set(imgs.filter((i) => i.os === n.os).map((i) => i.osVersion))]
-  const archs = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === n.osVersion).map((i) => i.arch))]
-  const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion && i.arch === n.arch)
+  const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion)
   const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
   const minors = (entry?.versions?.[n.proxysqlMajor]) || []
 
@@ -6698,17 +6629,14 @@ function ProxySQLForm({ node: n, nodes, frames, edges, patchNode, deleteNode, de
     const patch = {}
     const osVer = osVersions.includes(n.osVersion) ? n.osVersion : (osVersions[0] ?? n.osVersion)
     if (osVer !== n.osVersion) patch.osVersion = osVer
-    const archList = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === osVer).map((i) => i.arch))]
-    const arch = archList.includes(n.arch) ? n.arch : (archList[0] ?? n.arch)
-    if (arch !== n.arch) patch.arch = arch
-    const e2 = imgs.find((i) => i.os === n.os && i.osVersion === osVer && i.arch === arch)
+    const e2 = imgs.find((i) => i.os === n.os && i.osVersion === osVer)
     const majorList = e2 ? Object.keys(e2.versions || {}).filter((m) => (e2.versions[m] || []).length) : []
     const major = majorList.includes(n.proxysqlMajor) ? n.proxysqlMajor : (majorList[0] ?? n.proxysqlMajor)
     if (major !== n.proxysqlMajor) patch.proxysqlMajor = major
     const minorList = (e2?.versions?.[major]) || []
     if (n.proxysqlVersion && !minorList.includes(n.proxysqlVersion)) patch.proxysqlVersion = ''
     if (Object.keys(patch).length) patchNode(n.id, patch)
-  }, [imgs, n.id, n.os, n.osVersion, n.arch, n.proxysqlMajor, n.proxysqlVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [imgs, n.id, n.os, n.osVersion, n.proxysqlMajor, n.proxysqlVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const pmmNodes = nodes.filter((x) => x.type === 'pmm')
   // Walk the association graph (a ProxySQL may reach a cluster through another ProxySQL).
@@ -6768,11 +6696,6 @@ function ProxySQLForm({ node: n, nodes, frames, edges, patchNode, deleteNode, de
         <Field label="OS version">
           <select className={`${inputCls} ${lock}`} value={n.osVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </Field>
-        <Field label="Platform / arch">
-          <select className={`${inputCls} ${lock}`} value={n.arch} disabled={deployed} onChange={(e) => patchNode(n.id, { arch: e.target.value })}>
-            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
         <Field label="ProxySQL major">
@@ -6861,8 +6784,7 @@ function ProxySQLFrameForm({ frame: f, nodes, frames, edges, patchFrame, deleteF
 
   const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
   const osVersions = [...new Set(imgs.filter((i) => i.os === f.os).map((i) => i.osVersion))]
-  const archs = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === f.osVersion).map((i) => i.arch))]
-  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion && i.arch === f.arch)
+  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion)
   const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
   const minors = (entry?.versions?.[f.proxysqlMajor]) || []
 
@@ -6871,17 +6793,14 @@ function ProxySQLFrameForm({ frame: f, nodes, frames, edges, patchFrame, deleteF
     const patch = {}
     const osVer = osVersions.includes(f.osVersion) ? f.osVersion : (osVersions[0] ?? f.osVersion)
     if (osVer !== f.osVersion) patch.osVersion = osVer
-    const archList = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === osVer).map((i) => i.arch))]
-    const arch = archList.includes(f.arch) ? f.arch : (archList[0] ?? f.arch)
-    if (arch !== f.arch) patch.arch = arch
-    const e2 = imgs.find((i) => i.os === f.os && i.osVersion === osVer && i.arch === arch)
+    const e2 = imgs.find((i) => i.os === f.os && i.osVersion === osVer)
     const majorList = e2 ? Object.keys(e2.versions || {}).filter((m) => (e2.versions[m] || []).length) : []
     const major = majorList.includes(f.proxysqlMajor) ? f.proxysqlMajor : (majorList[0] ?? f.proxysqlMajor)
     if (major !== f.proxysqlMajor) patch.proxysqlMajor = major
     const minorList = (e2?.versions?.[major]) || []
     if (f.proxysqlVersion && !minorList.includes(f.proxysqlVersion)) patch.proxysqlVersion = ''
     if (Object.keys(patch).length) patchFrame(f.id, patch)
-  }, [imgs, f.id, f.os, f.osVersion, f.arch, f.proxysqlMajor, f.proxysqlVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [imgs, f.id, f.os, f.osVersion, f.proxysqlMajor, f.proxysqlVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const pmmNodes = nodes.filter((n) => n.type === 'pmm')
   const memberCount = nodes.filter((n) => n.frameId === f.id).length
@@ -6922,11 +6841,6 @@ function ProxySQLFrameForm({ frame: f, nodes, frames, edges, patchFrame, deleteF
         <Field label="OS version">
           <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </Field>
-        <Field label="Platform / arch">
-          <select className={`${inputCls} ${lock}`} value={f.arch} disabled={deployed} onChange={(e) => patchFrame(f.id, { arch: e.target.value })}>
-            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
         <Field label="ProxySQL major">
@@ -7017,18 +6931,14 @@ function InnoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed })
 
   const osFamilies = [...new Set(imgs.map((i) => i.os))]
   const osVersions = [...new Set(imgs.filter((i) => i.os === f.os).map((i) => i.osVersion))]
-  const archs = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === f.osVersion).map((i) => i.arch))]
 
   useEffect(() => {
     if (deployed || !imgs.length) return
     const patch = {}
     const osVer = osVersions.includes(f.osVersion) ? f.osVersion : (osVersions[0] ?? f.osVersion)
     if (osVer !== f.osVersion) patch.osVersion = osVer
-    const archList = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === osVer).map((i) => i.arch))]
-    const arch = archList.includes(f.arch) ? f.arch : (archList[0] ?? f.arch)
-    if (arch !== f.arch) patch.arch = arch
     if (Object.keys(patch).length) patchFrame(f.id, patch)
-  }, [imgs, f.id, f.os, f.osVersion, f.arch, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [imgs, f.id, f.os, f.osVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (deployed || !repos.length) return
@@ -7065,11 +6975,6 @@ function InnoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed })
         <Field label="OS version">
           <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </Field>
-        <Field label="Platform / arch">
-          <select className={`${inputCls} ${lock}`} value={f.arch} disabled={deployed} onChange={(e) => patchFrame(f.id, { arch: e.target.value })}>
-            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
         <Field label="PDPS repository" hint={deployed ? 'Locked.' : 'Sets the Percona Server version.'}>
@@ -7197,8 +7102,7 @@ function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, rebuildClu
 
   const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
   const osVersions = [...new Set(imgs.filter((i) => i.os === f.os).map((i) => i.osVersion))]
-  const archs = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === f.osVersion).map((i) => i.arch))]
-  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion && i.arch === f.arch)
+  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion)
   const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
   const minors = (entry?.versions?.[f.psmdbMajor]) || []
 
@@ -7209,17 +7113,14 @@ function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, rebuildClu
     const patch = {}
     const osVer = osVersions.includes(f.osVersion) ? f.osVersion : (osVersions[0] ?? f.osVersion)
     if (osVer !== f.osVersion) patch.osVersion = osVer
-    const archList = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === osVer).map((i) => i.arch))]
-    const arch = archList.includes(f.arch) ? f.arch : (archList[0] ?? f.arch)
-    if (arch !== f.arch) patch.arch = arch
-    const e2 = imgs.find((i) => i.os === f.os && i.osVersion === osVer && i.arch === arch)
+    const e2 = imgs.find((i) => i.os === f.os && i.osVersion === osVer)
     const majorList = e2 ? Object.keys(e2.versions || {}).filter((m) => (e2.versions[m] || []).length) : []
     const major = majorList.includes(f.psmdbMajor) ? f.psmdbMajor : (majorList[0] ?? f.psmdbMajor)
     if (major !== f.psmdbMajor) patch.psmdbMajor = major
     const minorList = (e2?.versions?.[major]) || []
     if (f.psmdbVersion && !minorList.includes(f.psmdbVersion)) patch.psmdbVersion = ''
     if (Object.keys(patch).length) patchFrame(f.id, patch)
-  }, [imgs, f.id, f.os, f.osVersion, f.arch, f.psmdbMajor, f.psmdbVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [imgs, f.id, f.os, f.osVersion, f.psmdbMajor, f.psmdbVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const pmmNodes = nodes.filter((n) => n.type === 'pmm')
   const total = nodes.filter((n) => n.frameId === f.id).length
@@ -7258,11 +7159,6 @@ function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, rebuildClu
         <Field label="OS version">
           <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </Field>
-        <Field label="Platform / arch">
-          <select className={`${inputCls} ${lock}`} value={f.arch} disabled={deployed} onChange={(e) => patchFrame(f.id, { arch: e.target.value })}>
-            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
         <Field label="PS MongoDB major">
@@ -7371,17 +7267,14 @@ function useMongoCatalog(obj, deployed, patch) {
     const p = {}
     const osVer = osVersions.includes(obj.osVersion) ? obj.osVersion : (osVersions[0] ?? obj.osVersion)
     if (osVer !== obj.osVersion) p.osVersion = osVer
-    const archList = [...new Set(imgs.filter((i) => i.os === obj.os && i.osVersion === osVer).map((i) => i.arch))]
-    const arch = archList.includes(obj.arch) ? obj.arch : (archList[0] ?? obj.arch)
-    if (arch !== obj.arch) p.arch = arch
-    const e2 = imgs.find((i) => i.os === obj.os && i.osVersion === osVer && i.arch === arch)
+    const e2 = imgs.find((i) => i.os === obj.os && i.osVersion === osVer)
     const majorList = e2 ? Object.keys(e2.versions || {}).filter((m) => (e2.versions[m] || []).length) : []
     const major = majorList.includes(obj.psmdbMajor) ? obj.psmdbMajor : (majorList[0] ?? obj.psmdbMajor)
     if (major !== obj.psmdbMajor) p.psmdbMajor = major
     const minorList = (e2?.versions?.[major]) || []
     if (obj.psmdbVersion && !minorList.includes(obj.psmdbVersion)) p.psmdbVersion = ''
     if (Object.keys(p).length) patch(obj.id, p)
-  }, [imgs, obj.id, obj.os, obj.osVersion, obj.arch, obj.psmdbMajor, obj.psmdbVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [imgs, obj.id, obj.os, obj.osVersion, obj.psmdbMajor, obj.psmdbVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
   return imgs
 }
 
@@ -7389,8 +7282,7 @@ function MongoCatalogFields({ obj, imgs, deployed, patch }) {
   const lock = deployed ? 'opacity-70' : ''
   const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
   const osVersions = [...new Set(imgs.filter((i) => i.os === obj.os).map((i) => i.osVersion))]
-  const archs = [...new Set(imgs.filter((i) => i.os === obj.os && i.osVersion === obj.osVersion).map((i) => i.arch))]
-  const entry = imgs.find((i) => i.os === obj.os && i.osVersion === obj.osVersion && i.arch === obj.arch)
+  const entry = imgs.find((i) => i.os === obj.os && i.osVersion === obj.osVersion)
   const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
   const minors = (entry?.versions?.[obj.psmdbMajor]) || []
   return (
@@ -7404,11 +7296,6 @@ function MongoCatalogFields({ obj, imgs, deployed, patch }) {
         <Field label="OS version">
           <select className={`${inputCls} ${lock}`} value={obj.osVersion} disabled={deployed} onChange={(e) => patch(obj.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </Field>
-        <Field label="Platform / arch">
-          <select className={`${inputCls} ${lock}`} value={obj.arch} disabled={deployed} onChange={(e) => patch(obj.id, { arch: e.target.value })}>
-            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
         <Field label="PS MongoDB major">
@@ -7535,17 +7422,14 @@ function usePPGCatalog(obj, deployed, patch, fetchCat = stackApi.ppgCatalog) {
     const p = {}
     const osVer = osVersions.includes(obj.osVersion) ? obj.osVersion : (osVersions[0] ?? obj.osVersion)
     if (osVer !== obj.osVersion) p.osVersion = osVer
-    const archList = [...new Set(imgs.filter((i) => i.os === obj.os && i.osVersion === osVer).map((i) => i.arch))]
-    const arch = archList.includes(obj.arch) ? obj.arch : (archList[0] ?? obj.arch)
-    if (arch !== obj.arch) p.arch = arch
-    const e2 = imgs.find((i) => i.os === obj.os && i.osVersion === osVer && i.arch === arch)
+    const e2 = imgs.find((i) => i.os === obj.os && i.osVersion === osVer)
     const majorList = e2 ? Object.keys(e2.versions || {}).filter((m) => (e2.versions[m] || []).length) : []
     const major = majorList.includes(obj.pgMajor) ? obj.pgMajor : (majorList[0] ?? obj.pgMajor)
     if (major !== obj.pgMajor) p.pgMajor = major
     const minorList = (e2?.versions?.[major]) || []
     if (obj.pgVersion && !minorList.includes(obj.pgVersion)) p.pgVersion = ''
     if (Object.keys(p).length) patch(obj.id, p)
-  }, [imgs, obj.id, obj.os, obj.osVersion, obj.arch, obj.pgMajor, obj.pgVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [imgs, obj.id, obj.os, obj.osVersion, obj.pgMajor, obj.pgVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
   return imgs
 }
 
@@ -7567,17 +7451,14 @@ function useValkeyCatalog(obj, deployed, patch) {
     const p = {}
     const osVer = osVersions.includes(obj.osVersion) ? obj.osVersion : (osVersions[0] ?? obj.osVersion)
     if (osVer !== obj.osVersion) p.osVersion = osVer
-    const archList = [...new Set(imgs.filter((i) => i.os === obj.os && i.osVersion === osVer).map((i) => i.arch))]
-    const arch = archList.includes(obj.arch) ? obj.arch : (archList[0] ?? obj.arch)
-    if (arch !== obj.arch) p.arch = arch
-    const e2 = imgs.find((i) => i.os === obj.os && i.osVersion === osVer && i.arch === arch)
+    const e2 = imgs.find((i) => i.os === obj.os && i.osVersion === osVer)
     const majorList = e2 ? Object.keys(e2.versions || {}).filter((m) => (e2.versions[m] || []).length) : []
     const major = majorList.includes(obj.valkeyMajor) ? obj.valkeyMajor : (majorList[0] ?? obj.valkeyMajor)
     if (major !== obj.valkeyMajor) p.valkeyMajor = major
     const minorList = (e2?.versions?.[major]) || []
     if (obj.valkeyVersion && !minorList.includes(obj.valkeyVersion)) p.valkeyVersion = ''
     if (Object.keys(p).length) patch(obj.id, p)
-  }, [imgs, obj.id, obj.os, obj.osVersion, obj.arch, obj.valkeyMajor, obj.valkeyVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [imgs, obj.id, obj.os, obj.osVersion, obj.valkeyMajor, obj.valkeyVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
   return imgs
 }
 
@@ -7602,8 +7483,7 @@ function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame
 
   const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
   const osVersions = [...new Set(imgs.filter((i) => i.os === f.os).map((i) => i.osVersion))]
-  const archs = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === f.osVersion).map((i) => i.arch))]
-  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion && i.arch === f.arch)
+  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion)
   const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
   const minors = (entry?.versions?.[f.pgMajor]) || []
 
@@ -7627,11 +7507,6 @@ function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame
         <Field label="OS version">
           <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </Field>
-        <Field label="Platform / arch">
-          <select className={`${inputCls} ${lock}`} value={f.arch} disabled={deployed} onChange={(e) => patchFrame(f.id, { arch: e.target.value })}>
-            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
         <Field label="PostgreSQL major">
@@ -7747,8 +7622,7 @@ function RepmgrFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame,
 
   const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
   const osVersions = [...new Set(imgs.filter((i) => i.os === f.os).map((i) => i.osVersion))]
-  const archs = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === f.osVersion).map((i) => i.arch))]
-  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion && i.arch === f.arch)
+  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion)
   const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
   const minors = (entry?.versions?.[f.pgMajor]) || []
 
@@ -7772,11 +7646,6 @@ function RepmgrFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame,
         <Field label="OS version">
           <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </Field>
-        <Field label="Platform / arch">
-          <select className={`${inputCls} ${lock}`} value={f.arch} disabled={deployed} onChange={(e) => patchFrame(f.id, { arch: e.target.value })}>
-            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
         <Field label="PostgreSQL major">
@@ -7892,8 +7761,7 @@ function SpockFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, 
   // Spock compiles PostgreSQL from source with its patches — Oracle Linux only for now.
   const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))].filter((o) => o === 'oraclelinux')
   const osVersions = [...new Set(imgs.filter((i) => i.os === f.os).map((i) => i.osVersion))]
-  const archs = [...new Set(imgs.filter((i) => i.os === f.os && i.osVersion === f.osVersion).map((i) => i.arch))]
-  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion && i.arch === f.arch)
+  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion)
   // Spock 5.x supports PG 15/16/17 — restrict the major picker accordingly.
   const majors = (entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []).filter((m) => Number(m) >= 15)
   const minors = (entry?.versions?.[f.pgMajor]) || []
@@ -7918,11 +7786,6 @@ function SpockFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, 
         <Field label="OS version">
           <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </Field>
-        <Field label="Platform / arch">
-          <select className={`${inputCls} ${lock}`} value={f.arch} disabled={deployed} onChange={(e) => patchFrame(f.id, { arch: e.target.value })}>
-            {archs.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
         <Field label="PostgreSQL major" hint="Spock supports 15–17.">
@@ -8026,7 +7889,6 @@ function HAProxyForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep
   // Client are filtered out (see PRODUCT_OS_FAMILIES).
   const osFamilies = [...new Set(imgs.map((i) => i.os))].filter((o) => PRODUCT_OS_FAMILIES.includes(o))
   const osVersions = [...new Set(imgs.filter((i) => i.os === n.os).map((i) => i.osVersion))]
-  const archs = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === n.osVersion).map((i) => i.arch))]
 
   // Snap invalid dependent selects once the catalog loads.
   useEffect(() => {
@@ -8034,11 +7896,8 @@ function HAProxyForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep
     const patch = {}
     const osVer = osVersions.includes(n.osVersion) ? n.osVersion : (osVersions[0] ?? n.osVersion)
     if (osVer !== n.osVersion) patch.osVersion = osVer
-    const archList = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === osVer).map((i) => i.arch))]
-    const arch = archList.includes(n.arch) ? n.arch : (archList[0] ?? n.arch)
-    if (arch !== n.arch) patch.arch = arch
     if (Object.keys(patch).length) patchNode(n.id, patch)
-  }, [imgs, n.id, n.os, n.osVersion, n.arch, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [imgs, n.id, n.os, n.osVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const pmmNodes = nodes.filter((x) => x.type === 'pmm')
   // Directly-linked backend cluster frame(s). HAProxy fronts exactly one — a Patroni
@@ -8093,11 +7952,6 @@ function HAProxyForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep
           </select>
         </Field>
       </div>
-      <Field label="Platform / arch">
-        <select className={`${inputCls} ${lock}`} value={n.arch} disabled={deployed} onChange={(e) => patchNode(n.id, { arch: e.target.value })}>
-          {archs.map((o) => <option key={o} value={o}>{o}</option>)}
-        </select>
-      </Field>
 
       <Field label="Monitored by (PMM)" hint="Optional — registers the HAProxy service with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={n.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchNode(n.id, { pmmNodeId: e.target.value })}>
@@ -8146,10 +8000,9 @@ function OrchestratorForm({ node: n, patchNode, deleteNode, dep, deployed }) {
 
   const osFamilies = [...new Set(imgs.map((i) => i.os))]
   const osVersions = [...new Set(imgs.filter((i) => i.os === n.os).map((i) => i.osVersion))]
-  const archs = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === n.osVersion).map((i) => i.arch))]
   // No "major" split (Orchestrator isn't versioned per MySQL series) — a single
   // catalog key (currently "3") carries the installable minors.
-  const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion && i.arch === n.arch)
+  const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion)
   const versionKey = entry ? Object.keys(entry.versions || {})[0] : null
   const versions = (versionKey && entry.versions[versionKey]) || []
 
@@ -8159,15 +8012,12 @@ function OrchestratorForm({ node: n, patchNode, deleteNode, dep, deployed }) {
     const patch = {}
     const osVer = osVersions.includes(n.osVersion) ? n.osVersion : (osVersions[0] ?? n.osVersion)
     if (osVer !== n.osVersion) patch.osVersion = osVer
-    const archList = [...new Set(imgs.filter((i) => i.os === n.os && i.osVersion === osVer).map((i) => i.arch))]
-    const arch = archList.includes(n.arch) ? n.arch : (archList[0] ?? n.arch)
-    if (arch !== n.arch) patch.arch = arch
-    const e2 = imgs.find((i) => i.os === n.os && i.osVersion === osVer && i.arch === arch)
+    const e2 = imgs.find((i) => i.os === n.os && i.osVersion === osVer)
     const vk = e2 ? Object.keys(e2.versions || {})[0] : null
     const vList = (vk && e2.versions[vk]) || []
     if (n.orchestratorVersion && !vList.includes(n.orchestratorVersion)) patch.orchestratorVersion = ''
     if (Object.keys(patch).length) patchNode(n.id, patch)
-  }, [imgs, n.id, n.os, n.osVersion, n.arch, n.orchestratorVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [imgs, n.id, n.os, n.osVersion, n.orchestratorVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="space-y-3">
@@ -8192,11 +8042,6 @@ function OrchestratorForm({ node: n, patchNode, deleteNode, dep, deployed }) {
           </select>
         </Field>
       </div>
-      <Field label="Platform / arch">
-        <select className={`${inputCls} ${lock}`} value={n.arch} disabled={deployed} onChange={(e) => patchNode(n.id, { arch: e.target.value })}>
-          {archs.map((o) => <option key={o} value={o}>{o}</option>)}
-        </select>
-      </Field>
 
       <Field label="Orchestrator version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
         <select className={`${inputCls} ${lock}`} value={n.orchestratorVersion || ''} disabled={deployed}

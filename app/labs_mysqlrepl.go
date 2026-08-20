@@ -21,15 +21,15 @@ import (
 // Airline Sim + Intranet + VNC — GTID on, plain async replication.
 var labMySQLReplDesign = json.RawMessage(`{
   "nodes": [
-    {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
+    {"id":"lab-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
     {"id":"lab-mysql-1","type":"mysql","label":"mysql-1","role":"primary","frameId":"lab-mysql-repl","x":574,"y":66},
     {"id":"lab-mysql-2","type":"mysql","label":"mysql-2","role":"secondary","frameId":"lab-mysql-repl","x":702,"y":66},
     {"id":"lab-mysql-3","type":"mysql","label":"mysql-3","role":"secondary","frameId":"lab-mysql-repl","x":830,"y":66},
-    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220},
     {"id":"lab-airlinesim","type":"airlinesim","label":"airlinesim-01","x":300,"y":220}
   ],
   "frames": [
-    {"id":"lab-mysql-repl","type":"mysql","label":"lab-mysql-repl","os":"oraclelinux","osVersion":"9","arch":"amd64","psMajor":"8.0","gtid":true,"replMode":"async","x":560,"y":20,"w":400,"h":138}
+    {"id":"lab-mysql-repl","type":"mysql","label":"lab-mysql-repl","os":"oraclelinux","osVersion":"9","psMajor":"8.0","gtid":true,"replMode":"async","x":560,"y":20,"w":400,"h":138}
   ],
   "edges": [
     {"id":"lab-as-edge","from":{"node":"lab-mysql-repl","port":"bottom"},"to":{"node":"lab-airlinesim","port":"top"},"type":"directional"}
@@ -42,15 +42,15 @@ var labMySQLReplDesign = json.RawMessage(`{
 // since flipping modes live is a much bigger aside than that lab is about.
 var labMySQLReplSemiSyncDesign = json.RawMessage(`{
   "nodes": [
-    {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
+    {"id":"lab-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
     {"id":"lab-mysql-1","type":"mysql","label":"mysql-1","role":"primary","frameId":"lab-mysql-repl","x":574,"y":66},
     {"id":"lab-mysql-2","type":"mysql","label":"mysql-2","role":"secondary","frameId":"lab-mysql-repl","x":702,"y":66},
     {"id":"lab-mysql-3","type":"mysql","label":"mysql-3","role":"secondary","frameId":"lab-mysql-repl","x":830,"y":66},
-    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220},
     {"id":"lab-airlinesim","type":"airlinesim","label":"airlinesim-01","x":300,"y":220}
   ],
   "frames": [
-    {"id":"lab-mysql-repl","type":"mysql","label":"lab-mysql-repl","os":"oraclelinux","osVersion":"9","arch":"amd64","psMajor":"8.0","gtid":true,"replMode":"semisync","x":560,"y":20,"w":400,"h":138}
+    {"id":"lab-mysql-repl","type":"mysql","label":"lab-mysql-repl","os":"oraclelinux","osVersion":"9","psMajor":"8.0","gtid":true,"replMode":"semisync","x":560,"y":20,"w":400,"h":138}
   ],
   "edges": [
     {"id":"lab-as-edge","from":{"node":"lab-mysql-repl","port":"bottom"},"to":{"node":"lab-airlinesim","port":"top"},"type":"directional"}

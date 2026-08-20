@@ -706,7 +706,10 @@ func (a *App) handleImagesCatalog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"images": loadImagesCatalog()})
+	// platform is the architecture this installation targets (DOCKER_PLATFORM). The
+	// catalogue only ever holds that one — `make versions` probes the built platform —
+	// so the designer uses it to label nodes rather than storing an arch per node.
+	writeJSON(w, http.StatusOK, map[string]any{"images": loadImagesCatalog(), "platform": platformArch()})
 }
 
 // loadPDPSCatalog reads the top-level `pdps:` list of percona-release repositories

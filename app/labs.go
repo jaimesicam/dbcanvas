@@ -62,16 +62,16 @@ type LabStep struct {
 // its dashboard from.
 var labPatroniSwitchoverDesign = json.RawMessage(`{
   "nodes": [
-    {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
+    {"id":"lab-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
     {"id":"lab-pg-1","type":"patroni","label":"pg-node-1","frameId":"lab-patroni-cluster","x":574,"y":66},
     {"id":"lab-pg-2","type":"patroni","label":"pg-node-2","frameId":"lab-patroni-cluster","x":702,"y":66},
     {"id":"lab-pg-3","type":"patroni","label":"pg-node-3","frameId":"lab-patroni-cluster","x":830,"y":66},
-    {"id":"lab-haproxy","type":"haproxy","label":"haproxy","os":"oraclelinux","osVersion":"9","arch":"amd64","x":300,"y":40},
-    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-haproxy","type":"haproxy","label":"haproxy","os":"oraclelinux","osVersion":"9","x":300,"y":40},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220},
     {"id":"lab-carsim","type":"carsim","label":"carsim-01","x":40,"y":300}
   ],
   "frames": [
-    {"id":"lab-patroni-cluster","type":"patroni","label":"lab-patroni","os":"oraclelinux","osVersion":"9","arch":"amd64","pgMajor":"16","x":560,"y":20,"w":400,"h":138}
+    {"id":"lab-patroni-cluster","type":"patroni","label":"lab-patroni","os":"oraclelinux","osVersion":"9","pgMajor":"16","x":560,"y":20,"w":400,"h":138}
   ],
   "edges": [
     {"id":"lab-edge-haproxy","from":{"node":"lab-haproxy","port":"right"},"to":{"node":"lab-patroni-cluster","port":"left"},"type":"directional"},
@@ -87,17 +87,17 @@ var labPatroniSwitchoverDesign = json.RawMessage(`{
 // default bucket).
 var labPatroniBackupDesign = json.RawMessage(`{
   "nodes": [
-    {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
+    {"id":"lab-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
     {"id":"lab-pg-1","type":"patroni","label":"pg-node-1","frameId":"lab-patroni-cluster","x":574,"y":66},
     {"id":"lab-pg-2","type":"patroni","label":"pg-node-2","frameId":"lab-patroni-cluster","x":702,"y":66},
     {"id":"lab-pg-3","type":"patroni","label":"pg-node-3","frameId":"lab-patroni-cluster","x":830,"y":66},
-    {"id":"lab-haproxy","type":"haproxy","label":"haproxy","os":"oraclelinux","osVersion":"9","arch":"amd64","x":300,"y":40},
-    {"id":"lab-seaweed","type":"seaweedfs","label":"seaweed","arch":"amd64","bucket":"lab-backups","tls":true,"x":560,"y":220},
-    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-haproxy","type":"haproxy","label":"haproxy","os":"oraclelinux","osVersion":"9","x":300,"y":40},
+    {"id":"lab-seaweed","type":"seaweedfs","label":"seaweed","bucket":"lab-backups","tls":true,"x":560,"y":220},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220},
     {"id":"lab-carsim","type":"carsim","label":"carsim-01","x":40,"y":300}
   ],
   "frames": [
-    {"id":"lab-patroni-cluster","type":"patroni","label":"lab-patroni","os":"oraclelinux","osVersion":"9","arch":"amd64","pgMajor":"16","usePgBackRest":true,"seaweedfsNodeId":"lab-seaweed","x":560,"y":20,"w":400,"h":138}
+    {"id":"lab-patroni-cluster","type":"patroni","label":"lab-patroni","os":"oraclelinux","osVersion":"9","pgMajor":"16","usePgBackRest":true,"seaweedfsNodeId":"lab-seaweed","x":560,"y":20,"w":400,"h":138}
   ],
   "edges": [
     {"id":"lab-edge-haproxy","from":{"node":"lab-haproxy","port":"right"},"to":{"node":"lab-patroni-cluster","port":"left"},"type":"directional"},
@@ -114,16 +114,16 @@ var labPatroniBackupDesign = json.RawMessage(`{
 // node back at all.
 var labPatroniManualRewindDesign = json.RawMessage(`{
   "nodes": [
-    {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
+    {"id":"lab-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
     {"id":"lab-pg-1","type":"patroni","label":"pg-node-1","frameId":"lab-patroni-cluster","x":574,"y":66},
     {"id":"lab-pg-2","type":"patroni","label":"pg-node-2","frameId":"lab-patroni-cluster","x":702,"y":66},
     {"id":"lab-pg-3","type":"patroni","label":"pg-node-3","frameId":"lab-patroni-cluster","x":830,"y":66},
-    {"id":"lab-haproxy","type":"haproxy","label":"haproxy","os":"oraclelinux","osVersion":"9","arch":"amd64","x":300,"y":40},
-    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-haproxy","type":"haproxy","label":"haproxy","os":"oraclelinux","osVersion":"9","x":300,"y":40},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220},
     {"id":"lab-carsim","type":"carsim","label":"carsim-01","x":40,"y":300}
   ],
   "frames": [
-    {"id":"lab-patroni-cluster","type":"patroni","label":"lab-patroni","os":"oraclelinux","osVersion":"9","arch":"amd64","pgMajor":"16","disablePgRewind":true,"x":560,"y":20,"w":400,"h":138}
+    {"id":"lab-patroni-cluster","type":"patroni","label":"lab-patroni","os":"oraclelinux","osVersion":"9","pgMajor":"16","disablePgRewind":true,"x":560,"y":20,"w":400,"h":138}
   ],
   "edges": [
     {"id":"lab-edge-haproxy","from":{"node":"lab-haproxy","port":"right"},"to":{"node":"lab-patroni-cluster","port":"left"},"type":"directional"},
@@ -141,17 +141,17 @@ var labPatroniManualRewindDesign = json.RawMessage(`{
 // nodes are never provisioned as a replication source.
 var labPatroniStandbyClusterDesign = json.RawMessage(`{
   "nodes": [
-    {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
+    {"id":"lab-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
     {"id":"lab-pg-1","type":"patroni","label":"pg-node-1","frameId":"lab-patroni-cluster","x":574,"y":66},
     {"id":"lab-pg-2","type":"patroni","label":"pg-node-2","frameId":"lab-patroni-cluster","x":702,"y":66},
     {"id":"lab-pg-3","type":"patroni","label":"pg-node-3","frameId":"lab-patroni-cluster","x":830,"y":66},
-    {"id":"lab-haproxy","type":"haproxy","label":"haproxy","os":"oraclelinux","osVersion":"9","arch":"amd64","x":300,"y":40},
-    {"id":"lab-pg-external","type":"pg","label":"external-primary","os":"oraclelinux","osVersion":"9","arch":"amd64","pgMajor":"16","x":560,"y":200},
-    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-haproxy","type":"haproxy","label":"haproxy","os":"oraclelinux","osVersion":"9","x":300,"y":40},
+    {"id":"lab-pg-external","type":"pg","label":"external-primary","os":"oraclelinux","osVersion":"9","pgMajor":"16","x":560,"y":200},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220},
     {"id":"lab-carsim","type":"carsim","label":"carsim-01","x":40,"y":300}
   ],
   "frames": [
-    {"id":"lab-patroni-cluster","type":"patroni","label":"lab-patroni","os":"oraclelinux","osVersion":"9","arch":"amd64","pgMajor":"16","x":560,"y":20,"w":400,"h":138}
+    {"id":"lab-patroni-cluster","type":"patroni","label":"lab-patroni","os":"oraclelinux","osVersion":"9","pgMajor":"16","x":560,"y":20,"w":400,"h":138}
   ],
   "edges": [
     {"id":"lab-edge-haproxy","from":{"node":"lab-haproxy","port":"right"},"to":{"node":"lab-patroni-cluster","port":"left"},"type":"directional"},
@@ -167,16 +167,16 @@ var labPatroniStandbyClusterDesign = json.RawMessage(`{
 // of only inferring them from cluster state.
 var labPatroniCallbacksDesign = json.RawMessage(`{
   "nodes": [
-    {"id":"lab-intranet","type":"intranet","label":"Intranet","arch":"amd64","x":40,"y":40},
+    {"id":"lab-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
     {"id":"lab-pg-1","type":"patroni","label":"pg-node-1","frameId":"lab-patroni-cluster","x":574,"y":66},
     {"id":"lab-pg-2","type":"patroni","label":"pg-node-2","frameId":"lab-patroni-cluster","x":702,"y":66},
     {"id":"lab-pg-3","type":"patroni","label":"pg-node-3","frameId":"lab-patroni-cluster","x":830,"y":66},
-    {"id":"lab-haproxy","type":"haproxy","label":"haproxy","os":"oraclelinux","osVersion":"9","arch":"amd64","x":300,"y":40},
-    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","arch":"amd64","x":40,"y":220},
+    {"id":"lab-haproxy","type":"haproxy","label":"haproxy","os":"oraclelinux","osVersion":"9","x":300,"y":40},
+    {"id":"lab-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220},
     {"id":"lab-carsim","type":"carsim","label":"carsim-01","x":40,"y":300}
   ],
   "frames": [
-    {"id":"lab-patroni-cluster","type":"patroni","label":"lab-patroni","os":"oraclelinux","osVersion":"9","arch":"amd64","pgMajor":"16","enableRoleChangeCallback":true,"x":560,"y":20,"w":400,"h":138}
+    {"id":"lab-patroni-cluster","type":"patroni","label":"lab-patroni","os":"oraclelinux","osVersion":"9","pgMajor":"16","enableRoleChangeCallback":true,"x":560,"y":20,"w":400,"h":138}
   ],
   "edges": [
     {"id":"lab-edge-haproxy","from":{"node":"lab-haproxy","port":"right"},"to":{"node":"lab-patroni-cluster","port":"left"},"type":"directional"},

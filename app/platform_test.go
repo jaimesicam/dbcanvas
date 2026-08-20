@@ -34,6 +34,18 @@ func TestArchOrFollowsTheInstallationPlatform(t *testing.T) {
 	}
 }
 
+// Every OS node resolves its image through pxcImage/archOr, and the Valkey node had its
+// own hardcoded amd64 fallback that bypassed it.
+func TestNodeImagesFollowThePlatform(t *testing.T) {
+	t.Setenv("DOCKER_PLATFORM", "linux/arm64")
+	if got := pxcImage("oraclelinux", "9", ""); got != "dbcanvas-systemd:oraclelinux-9-arm64" {
+		t.Errorf("pxcImage with no arch = %q", got)
+	}
+	if _, _, arch := valkeyNodeOS("", "", ""); arch != "arm64" {
+		t.Errorf("valkeyNodeOS arch = %q, want the installation platform", arch)
+	}
+}
+
 // The image tags the fixed-platform node types resolve to are built by images/service.sh
 // for the one platform, so they must follow the same rule.
 func TestPrebakedImagesFollowThePlatform(t *testing.T) {

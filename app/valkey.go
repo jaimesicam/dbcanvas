@@ -53,9 +53,9 @@ func valkeyNodeOS(os, osVersion, arch string) (string, string, string) {
 	if osVersion == "" {
 		osVersion = "9"
 	}
-	if arch == "" {
-		arch = "amd64"
-	}
+	// Empty means "whatever this installation targets" — see archOr; hardcoding amd64
+	// here would pin a Valkey node to an image that an arm64 install never built.
+	arch = archOr(arch)
 	return os, osVersion, arch
 }
 
