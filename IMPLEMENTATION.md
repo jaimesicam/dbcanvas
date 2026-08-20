@@ -16407,3 +16407,25 @@ arm64 installation each was an image that was never built.
   architecture (a bulk edit of JSON string literals is exactly the change that ships a lab
   which fails to open), plus the platform fallback through `pxcImage` and `valkeyNodeOS`.
   `go build`, `go vet`, `go test ./...` and the smoke suite green.
+
+## 284. An icon for Log Summary — `app/web/src/components/Icons.jsx`, `app/web/src/App.jsx`
+
+Log Summary's nav icon was `Line`, which is one `<line>` element: in the sidebar it rendered
+as a bare dash between Packet Inspector and FTDC Summary. It was a placeholder that had
+outlived the page.
+
+The replacement is log lines with a warning mark over them, because severity is what the page
+is *for* — it classifies every event across several nodes' logs rather than just showing text.
+Two rejected drafts are the reason it looks like this. Swimlanes with event ticks — the page's
+own cluster timeline, and the obvious first idea — turn out to be the universal sliders glyph;
+at 48px it was indistinguishable from a settings control, and this set already has `Sliders`,
+drawn almost identically. And a warning at the *bottom*-right made it a sibling of `Packet`
+(lines plus a round lens, four rows away in the same sidebar), so the mark moved to the top
+right, where its angular silhouette reads as something else entirely at a glance.
+
+### Verified
+
+- Rendered every candidate at 16/18/24/48px against the icons it shares the sidebar with,
+  which is what caught the sliders collision — at 24px the first draft still looked fine.
+- In the running app: the nav row, the collapsed icon-only rail (where it is unmistakable
+  beside Packet's lens) and the jump palette. No page errors; the smoke suite green.

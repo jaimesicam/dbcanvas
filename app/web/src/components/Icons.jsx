@@ -274,9 +274,19 @@ export const Icon = {
       <line x1="19.2" y1="18.2" x2="21.5" y2="20.5" />
     </Svg>
   ),
-  Line: (p) => (
+  // Log Summary: log lines with a warning over them — the page reads several nodes'
+  // logs and classifies every event, so severity is the subject, not the text. The mark
+  // sits top-right and is angular on purpose: Packet is lines plus a round lens at the
+  // bottom-right, and the two sit four rows apart in the same sidebar.
+  Logs: (p) => (
     <Svg {...p}>
-      <line x1="4" y1="12" x2="20" y2="12" />
+      <path d="M17 3.2 21.8 11.4h-9.6z" />
+      <path d="M17 6.2v2.2" />
+      <path d="M17 9.9v0.01" />
+      <path d="M3 6h6.5" />
+      <path d="M3 11h6.5" />
+      <path d="M3 16h18" />
+      <path d="M3 20.8h9" />
     </Svg>
   ),
   Move: (p) => (
