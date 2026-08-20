@@ -54,6 +54,9 @@ export const NODE_TYPES = {
     singleton: true,
     ports: false, // self-contained; no connection endpoints
     osOptions: [{ id: 'oel9', label: 'Oracle Linux 9' }],
+    // One pre-baked image (dbcanvas-intranet:oraclelinux-9-<arch>) built for the one
+    // platform this installation targets, so there is no architecture to choose.
+    platformFixed: true,
   },
   sambaad: {
     label: 'Samba AD DC',
@@ -75,6 +78,7 @@ export const NODE_TYPES = {
     singleton: false,
     ports: false,
     osOptions: [{ id: 'pmm', label: 'percona/pmm-server' }],
+    platformFixed: true, // percona/pmm-server has no arm64 image at all
     defaults: { version: '', adminPassword: '', generateCert: false, watchtowerNodeId: '' },
   },
   // PXC nodes live inside a PXC cluster frame (not added from the toolbar
@@ -413,8 +417,10 @@ export const NODE_TYPES = {
     singleton: true,
     ports: false,
     osOptions: [{ id: 'ubuntu', label: 'Ubuntu' }],
+    // As for the Intranet: one pre-baked desktop image, built for one platform.
+    platformFixed: true,
     defaults: {
-      os: 'ubuntu', osVersion: '24.04', arch: 'amd64',
+      os: 'ubuntu', osVersion: '24.04',
       vncUser: 'dbadmin', vncPassword: '', useProxy: false,
     },
   },
@@ -2290,7 +2296,13 @@ function StackEditor({ stackId, onBack }) {
     const id = uid(type)
     const x = (-view.x + 220) / view.z
     const y = (-view.y + 160) / view.z
-    setNodes((ns) => [...ns, { id, type, x, y, label: nextLabel(type, ns), os: def.osOptions[0].id, arch: 'amd64', ...(def.defaults || {}) }])
+    // platformFixed types carry no arch at all: the server resolves it from
+    // DOCKER_PLATFORM, which is the one platform `make images` builds (see archOr).
+    // Stamping amd64 here would override that on an arm64 installation.
+    setNodes((ns) => [...ns, {
+      id, type, x, y, label: nextLabel(type, ns), os: def.osOptions[0].id,
+      ...(def.platformFixed ? {} : { arch: 'amd64' }), ...(def.defaults || {}),
+    }])
     setSelected({ kind: 'node', id })
   }
 
@@ -4649,13 +4661,6 @@ function VNCForm({ node: n, patchNode, deleteNode, dep, deployed }) {
 
       <Field label="Label" hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
-      </Field>
-
-      <Field label="Arch" hint="Image architecture. Ubuntu 24.04 is pinned — one pre-baked desktop, not one per release.">
-        <select className={`${inputCls} ${lock}`} value={n.arch || 'amd64'} disabled={deployed} onChange={(e) => patchNode(n.id, { arch: e.target.value })}>
-          <option value="amd64">amd64</option>
-          <option value="arm64">arm64</option>
-        </select>
       </Field>
 
       <Field label="Desktop user" hint="Linux login user (has passwordless sudo).">
@@ -9163,28 +9168,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
             ))}
           </select>
         </Field>
-        <Field label="Architecture" hint={deployed ? 'Locked — the node is deployed.' : n.type === 'pmm' ? 'PMM currently ships amd64 only.' : 'Must have a matching image built (make images).'}>
-          <select
-            className={`${inputCls} ${deployed ? 'opacity-70' : ''}`}
-            value={n.type === 'pmm' ? 'amd64' : (n.arch || 'amd64')}
-            disabled={deployed}
-            onChange={(e) => patchNode(n.id, { arch: e.target.value })}
-          >
-            {/* PMM (percona/pmm-server) has no arm64 image yet — offer amd64 only. */}
-            {(n.type === 'pmm' ? ARCH_OPTIONS.filter((o) => o.id !== 'arm64') : ARCH_OPTIONS).map((o) => (
-              <option key={o.id} value={o.id}>{o.label}</option>
-            ))}
-          </select>
-        </Field>
         {n.type === 'pmm' && <PMMOptions n={n} nodes={nodes} patchNode={patchNode} deployed={deployed} />}
-        <div className="grid grid-cols-2 gap-2">
-          <Field label="X">
-            <input type="number" className={inputCls} value={Math.round(n.x)} onChange={(e) => patchNode(n.id, { x: +e.target.value })} />
-          </Field>
-          <Field label="Y">
-            <input type="number" className={inputCls} value={Math.round(n.y)} onChange={(e) => patchNode(n.id, { y: +e.target.value })} />
-          </Field>
-        </div>
         {!deployed && <p className="text-xs text-muted">Management tabs (LDAP, email, certificate, credentials, terminal) appear here after deploy.</p>}
         <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
           <Icon.Trash size={16} /> Delete node

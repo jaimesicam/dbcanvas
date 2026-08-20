@@ -12,7 +12,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"runtime"
 	"strings"
 	"time"
 )
@@ -1244,12 +1243,4 @@ func (d *Docker) ResizeExec(ctx context.Context, execID string, w, h int) error 
 	}
 	drain(resp)
 	return nil
-}
-
-// hostArch maps the Go runtime arch to the image tag suffix used by make images.
-func hostArch() string {
-	if runtime.GOARCH == "arm64" {
-		return "arm64"
-	}
-	return "amd64"
 }

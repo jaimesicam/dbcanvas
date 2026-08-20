@@ -16331,3 +16331,38 @@ by name, and `validateStack` names the target to run when the answer is no.
   dbcanvas-intranet:oraclelinux-9-amd64 — run `make intranet-image` first", and the matching
   line naming `make vnc-image` for the desktop.
 - `go build`, `go vet`, `go test ./...` and the smoke suite green.
+
+## 282. Stop asking for an architecture that was never a choice — `app/{intranet,docker}.go`, `app/web/src/pages/StackDesigner.jsx`
+
+An installation targets exactly one Docker platform. `images/platform.sh` resolves
+`DOCKER_PLATFORM` once, `make images` builds only that, and `images/service.sh` bakes exactly
+one `dbcanvas-intranet:oraclelinux-9-<arch>` and one `dbcanvas-vnc:ubuntu-24.04-<arch>`. So the
+architecture picker on the Intranet and Ubuntu VNC forms offered a choice that could not be
+satisfied: picking the other one names an image tag that was never built.
+
+Both pickers are gone, along with the X/Y number inputs that sat under them — a leftover from
+before nodes were dragged on the canvas, and not something a property panel should be for.
+PMM shares the Intranet's form and loses the picker too, having only ever had one option
+(`percona/pmm-server` publishes no arm64 image).
+
+**Removing them exposed the reason they were there.** `archOr` fell back to `hostArch()` —
+`runtime.GOARCH`, the machine's own architecture — while the images were built for
+`DOCKER_PLATFORM`. On an Apple Silicon host with the shipped default (`linux/amd64`) those
+disagree, so a node with no architecture of its own resolved to `arm64` and asked for an image
+that does not exist. Setting it by hand on every node is what hid it. The fallback is now the
+installation's platform, which is the same single source `make images` reads, and `hostArch`
+is gone — nothing else used it.
+
+New Intranet, PMM and Ubuntu VNC nodes are therefore saved with no `arch` field at all
+(`platformFixed` in `NODE_TYPES`); stamping `amd64` at creation would override the resolution
+just as effectively as the picker did. A design saved earlier keeps whatever it carries, and
+an explicitly saved architecture still wins.
+
+### Verified
+
+- In a browser: the Intranet panel is Label, Operating system and Delete — no Architecture, no
+  X/Y; the Ubuntu VNC panel is Label, Desktop user, Password and the proxy checkbox. Nodes
+  added from the library save with no `arch` key. No page errors.
+- Tests: the platform fallback in both directions, that an explicitly saved architecture and an
+  unparseable one behave, and that the two pre-baked image tags follow the platform.
+  `go build`, `go vet`, `go test ./...` and the smoke suite green.

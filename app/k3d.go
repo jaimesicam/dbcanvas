@@ -154,8 +154,8 @@ type k3dConfig struct {
 	PGOAppSecret string `json:"pgoAppSecret"` // Secret holding the app user's password
 	PGOAppUser   string `json:"pgoAppUser"`
 	PGOAppDB     string `json:"pgoAppDb"`
-	GrafanaURL   string `json:"grafanaUrl"` // Grafana's LoadBalancer URL ("" = not installed)
-	MonitoredBy   string `json:"monitoredBy"` // PMM FQDN, or Prometheus/Grafana ("" = none)
+	GrafanaURL   string `json:"grafanaUrl"`  // Grafana's LoadBalancer URL ("" = not installed)
+	MonitoredBy  string `json:"monitoredBy"` // PMM FQDN, or Prometheus/Grafana ("" = none)
 	// GrafanaUser is the admin login the chart was installed with; the password that goes
 	// with it lives in k3dSecrets, not here. GrafanaService is the Service the URL above
 	// resolves to ("<namespace>/<name>"), which is what makes the address checkable — it is

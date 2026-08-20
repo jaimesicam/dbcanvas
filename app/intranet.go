@@ -689,12 +689,30 @@ func genSecret(prefix string) string {
 	return prefix + strings.ToUpper(hex.EncodeToString(b))
 }
 
-// archOr returns the node's chosen arch, falling back to the host arch.
+// archOr returns the node's chosen arch, falling back to the architecture this
+// installation targets.
+//
+// The fallback is DOCKER_PLATFORM, not the host's own architecture, because that is
+// the single platform `make images` builds for (images/platform.sh) — there is never
+// more than one architecture of dbcanvas-systemd/-intranet/-vnc on disk. Reading
+// runtime.GOARCH instead used to resolve an unset arch to arm64 on an Apple Silicon
+// host while the images built there were amd64, so the node's image did not exist;
+// picking the architecture by hand on every node is what used to paper over that.
 func archOr(a string) string {
 	if a == "amd64" || a == "arm64" {
 		return a
 	}
-	return hostArch()
+	return platformArch()
+}
+
+// platformArch is DOCKER_PLATFORM's architecture — "amd64" or "arm64". See
+// pullPlatform, which is the same single-platform rule for the images DBCanvas pulls
+// rather than builds.
+func platformArch() string {
+	if strings.TrimSpace(pullPlatform()) == "linux/arm64" {
+		return "arm64"
+	}
+	return "amd64"
 }
 
 // intranetImage is the pre-baked Intranet image (images/intranet.Dockerfile): the
