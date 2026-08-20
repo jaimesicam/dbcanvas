@@ -80,8 +80,8 @@ export default function App() {
     <div className="flex h-full bg-bg text-fg">
       <aside className={`flex flex-col border-r bg-surface transition-all ${collapsed ? 'w-[68px]' : 'w-60'}`}>
         <div className="flex items-center gap-2.5 border-b px-4 h-14">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-fg">
-            D
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-fg">
+            <Icon.Brand size={19} />
           </div>
           {!collapsed && (
             <div className="leading-tight">

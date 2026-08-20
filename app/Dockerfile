@@ -14,8 +14,14 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY *.go ./
+COPY cmd/ ./cmd/
 COPY --from=web /web/dist ./web/dist
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /dbcanvas .
+# The password-reset tool. It ships in the image because the runtime is distroless: no
+# shell and no sqlite3, so a forgotten admin password would otherwise need the volume
+# mounted somewhere else entirely.
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+      -o /dbcanvas_reset_password ./cmd/dbcanvas_reset_password
 
 # ---- stage 2b: the k3d binary (K3D cluster frame) ----
 # k3d is a Docker API *client*: it asks the daemon to create the k3s containers. DBCanvas already
@@ -33,6 +39,7 @@ RUN apk add --no-cache curl \
 # ---- stage 3: minimal runtime (single static binary) ----
 FROM gcr.io/distroless/static-debian12 AS runtime
 COPY --from=build /dbcanvas /dbcanvas
+COPY --from=build /dbcanvas_reset_password /usr/local/bin/dbcanvas_reset_password
 COPY --from=k3d /k3d /usr/local/bin/k3d
 ENV APP_HOST=0.0.0.0
 ENV APP_PORT=8080

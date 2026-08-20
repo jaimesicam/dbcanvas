@@ -20,6 +20,25 @@ function Svg({ size = 18, children, fill = 'none', ...rest }) {
 }
 
 export const Icon = {
+  // The DBCanvas mark: a D whose counter is a database.
+  //
+  // It keeps the letter the badge has always shown while making it mean something — the two
+  // bands are a cylinder's, and the top one curves like its lip, which is what separates the
+  // mark from a page of text (a reading the Logs icon deliberately owns). It is drawn on its
+  // own rather than through Svg because it sits on the filled primary badge and wants a
+  // slightly heavier stroke than the UI icons.
+  Brand: ({ size = 20, ...rest }) => (
+    <svg
+      width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"
+      role="img" aria-label="DBCanvas" {...rest}
+    >
+      <path d="M6 4h5.5a8 8 0 0 1 0 16H6z" />
+      <path d="M6 9.5c3.2 1.5 8.4 1.5 11.6 0" />
+      <path d="M6 14.5h11.6" />
+    </svg>
+  ),
+
   Dashboard: (p) => (
     <Svg {...p}>
       <rect x="3" y="3" width="7" height="9" rx="1.5" />

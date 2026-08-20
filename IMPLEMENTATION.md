@@ -16505,3 +16505,52 @@ sidecar will run and Prometheus will scrape it, and the dashboards will stay emp
 - Tests: the version ceiling, that the default respects it only when monitoring is on, that an
   explicit choice is never overridden, and that the warning fires for 18 and stays quiet for 17
   and for monitoring-off. `go build`, `go vet`, `go test ./...` and the smoke suite green.
+
+## 287. A way back in, and a logo — `app/cmd/dbcanvas_reset_password/` (new), `app/Dockerfile`, `app/web/src/components/Icons.jsx`, `app/web/src/{App.jsx,auth/AuthScreens.jsx,index.html}`, `README.md`
+
+**`dbcanvas_reset_password`** resets an admin's password from inside the app container. It has
+to live there: the runtime is `distroless/static`, so there is no shell and no `sqlite3`, and
+the database is on a volume only that container mounts. A forgotten admin password otherwise
+means mounting the volume somewhere else entirely.
+
+    docker exec -it dbcanvas-app-1 dbcanvas_reset_password
+
+It names the admin *before* prompting, not only after — on a stack whose admin is not called
+"admin", knowing which account is about to change is the point of running it. It prompts twice
+with the echo off, enforces the same 8-character minimum the sign-in form does (checked before
+the confirmation, so a too-short password is not typed twice), and deletes that account's
+sessions: a password reset that leaves a stolen cookie working is not a reset. It is its own
+binary rather than a flag on the server, which is an ENTRYPOINT that starts listening.
+
+Three things it does not do the obvious way, each for a reason found while building it:
+
+- **The echo is turned off through termios directly**, not `golang.org/x/term`. Requiring that
+  module pulled the graph backwards — `go get golang.org/x/term` downgraded
+  `golang.org/x/crypto` from v0.53.0 to v0.26.0 — which is not a trade worth making for one
+  ioctl. `golang.org/x/sys` was already in the build.
+- **stdin is buffered once for the process.** A `bufio.Reader` per prompt reads ahead, so the
+  second reader found the confirmation already swallowed and failed with EOF. Piping both
+  lines in is exactly how that surfaced.
+- **A wrong `-db` path says so.** sqlite creates the file on open, so it used to fail later
+  with a raw `no such table: users`; it now checks and names the path.
+
+**The logo.** The badge was the letter D. It is now a D whose counter is a database: two bands
+across the bowl, the top one curved like a cylinder's lip. The curve is what keeps it from
+reading as a page of text — a reading the new Logs icon deliberately owns. Five candidates were
+rendered on the primary badge at 14–72px before this one won; a canvas frame around a cylinder
+and two linked nodes both read as generic app icons, and three bands smudged at 14px. It
+replaces the letter in the sidebar header and on the sign-in card, and the same mark is the
+browser tab's favicon, inlined as a data URI so no binary asset joins the build.
+
+### Verified
+
+- The tool, against a copy of the real database: the new hash verifies with bcrypt and the old
+  one does not, 253 sessions were signed out, and the non-admin user's hash was untouched.
+  Mismatched, too-short, unknown-user, non-admin and wrong-path runs all fail with a message
+  and change nothing.
+- Through a real pty: the password is not echoed, and one containing spaces survives intact.
+- Inside the running container, on distroless: `docker exec` runs the binary and resets a
+  password on a copy placed on the `/data` volume. (`/tmp` there is read-only — the message it
+  produced, "attempt to write a readonly database", is what a wrong `-db` gets.)
+- The mark in the running app: sidebar header and sign-in card, no page errors; the smoke suite
+  green. `go build`, `go vet` and `go test ./...` green.

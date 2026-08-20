@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useAuth } from './AuthProvider.jsx'
 import { useTheme, THEMES } from '../theme/ThemeProvider.jsx'
 import { Button, Field, inputCls } from '../components/ui.jsx'
+import { Icon } from '../components/Icons.jsx'
 
 export function Splash() {
   return (
@@ -34,8 +35,8 @@ function Shell({ title, subtitle, children }) {
       <ThemeSwatches />
       <div className="w-full max-w-sm animate-fade-in rounded-2xl border bg-surface p-6 shadow-xl">
         <div className="mb-5 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-lg font-bold text-primary-fg">
-            D
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-fg">
+            <Icon.Brand size={24} />
           </div>
           <div>
             <h1 className="text-lg font-semibold text-fg">{title}</h1>

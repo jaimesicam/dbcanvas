@@ -731,6 +731,17 @@ default) or **undocked** (its own floating window), your **deployment backend**
 Registration is approval-gated: admins approve, reject, disable, re-approve, and delete
 accounts.
 
+**Locked out?** The image ships a password-reset tool, because the runtime is distroless —
+no shell, no `sqlite3` — and the database lives on a volume only that container mounts:
+
+```bash
+docker exec -it dbcanvas-app-1 dbcanvas_reset_password
+```
+
+It prompts for a new password and a confirmation (echo off), names the admin it is about to
+change, and signs out that account's existing sessions. With more than one admin, name one
+with `-user`.
+
 ## Deployment backends — Docker or Vagrant (hybrid)
 
 Each user picks a **Deployment** backend in **Settings**; it applies to the *next* deploy of
