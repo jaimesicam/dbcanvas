@@ -482,6 +482,13 @@ function OperatorDebugger({ cfg, ns, cr }) {
             <span className="font-mono"> --continue</span>, so the cluster is built whether or not you attach; the
             liveness probe and leader election are off, which is what lets you sit on a breakpoint without kubelet
             or the lease killing the process.
+            <span className="mt-1 block">
+              You can stop the debug session whenever you like: a <span className="font-mono">dbcanvas-debug-watchdog</span>{' '}
+              sidecar clears any breakpoints your IDE left armed and resumes the operator within 10 seconds. Without it a
+              leftover breakpoint fires on the next reconcile with nobody attached and the operator freezes silently —
+              and the session after that shows the breakpoint as unverified. Check it with{' '}
+              <span className="font-mono">kubectl -n {ns} logs deploy/percona-xtradb-cluster-operator -c dbcanvas-debug-watchdog</span>.
+            </span>
           </>
         ) : (
           <>
@@ -501,7 +508,8 @@ cd percona-xtradb-cluster-operator   # open THIS directory as the workspace`} />
 #   err := r.client.Get(ctx, request.NamespacedName, o)
 # then, with the debugger attached:
 kubectl -n ${ns} annotate pxc ${cr} debug="$(date +%s)" --overwrite`} />
-          <Code label="Check on it from here" text={`kubectl -n ${ns} get svc percona-xtradb-cluster-operator-delve
+          <Code label="Check on it from here" text={`kubectl -n ${ns} logs deploy/percona-xtradb-cluster-operator -c dbcanvas-debug-watchdog
+kubectl -n ${ns} get svc percona-xtradb-cluster-operator-delve
 kubectl -n ${ns} logs deployment/percona-xtradb-cluster-operator | head -3
 # ...prints Delve's own "API server listening at: [::]:${K3D_DELVE_PORT}"`} />
         </>

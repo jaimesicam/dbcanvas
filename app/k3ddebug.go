@@ -69,6 +69,11 @@ const (
 	// crawl. Requests are left alone, so scheduling is unchanged.
 	k3dDebugCPULimit = "2"
 	k3dDebugMemLimit = "2Gi"
+	// The watchdog sidecar that heals the debugger's state when a session ends — see
+	// k3dDebugWatchdogScript. Its poll interval is the worst case the operator can stay frozen
+	// after an IDE disconnects.
+	k3dDebugWatchdog     = "dbcanvas-debug-watchdog"
+	k3dDebugWatchdogTick = 10
 	// The Go module and build caches, kept in named volumes so the second debug deploy does not
 	// download the operator's (very large) dependency tree again.
 	k3dDebugModCache   = "dbcanvas-go-mod"
@@ -389,8 +394,16 @@ func (a *App) k3dDebugDrop(ctx context.Context, bits *os.File, cfg *k3dConfig, p
 //   - --continue. The operator runs immediately instead of waiting for a client, so the deploy
 //     finishes and the cluster comes up whether or not anyone ever attaches.
 func (a *App) k3dDebugPatch(ctx context.Context, serverID, deployment string, cfg *k3dConfig, pr *pxcProg) error {
-	patch := k3dDebugPatchJSON(deployment)
 	ns := cfg.Namespace
+	// The watchdog sidecar runs the *operator's own* image — it needs a shell and the dlv on the
+	// hostPath, nothing more — so nothing extra is ever pulled. Read it off the Deployment rather
+	// than reconstructing it: bundle.yaml is the authority on which image this release uses.
+	image, err := a.kubectl(ctx, serverID, "-n", ns, "get", "deployment", deployment,
+		"-o", `jsonpath={.spec.template.spec.containers[?(@.name=="`+deployment+`")].image}`)
+	if err != nil || strings.TrimSpace(image) == "" {
+		return fmt.Errorf("read the operator image off its deployment: %w", err)
+	}
+	patch := k3dDebugPatchJSON(deployment, strings.TrimSpace(image))
 	if _, err := a.kubectl(ctx, serverID, "-n", ns, "patch", "deployment/"+deployment,
 		"--type=strategic", "-p", patch); err != nil {
 		return fmt.Errorf("patch the operator deployment: %w", err)
@@ -435,10 +448,83 @@ func (a *App) k3dDebugPatch(ctx context.Context, serverID, deployment string, cf
 	return nil
 }
 
+// k3dDebugWatchdogScript is the sidecar that makes the debugger safe to walk away from.
+//
+// The problem it solves is not hypothetical — it is what makes a hand-rolled Delve setup so
+// unpleasant, and Delve documents it as a known gap (service/dap/server.go, onDisconnectRequest:
+// "The target is left in whatever state it is already in ... TODO(polina): should we always issue
+// a continue here"). Two things survive an IDE disconnecting:
+//
+//  1. **The breakpoints.** They stay armed on the server. The next reconcile hits one with nobody
+//     attached, and the operator freezes — no probe fires, nothing is logged, the cluster simply
+//     stops being reconciled. Reproduced live: a normal VS Code session, ended normally, and the
+//     operator was halted 6 seconds later.
+//  2. **A halted process.** Disconnect while paused at a breakpoint and it never resumes.
+//
+// And on the *next* attach the stale breakpoint makes Delve answer setBreakpoints with
+// "Breakpoint exists at ...", which the IDE renders as an unverified (hollow) breakpoint — the
+// debugger looks broken when it is the leftovers that are in the way.
+//
+// The fix needs two facts Delve does not report, and the kernel reports both:
+//
+//   - **Is anyone attached?** The sidecar shares the pod's network namespace, so an ESTABLISHED
+//     (state 01) socket on Delve's port in /proc/net/tcp6 is an attached client. A client that has
+//     gone leaves the socket in CLOSE_WAIT (08), which correctly does not count.
+//   - **Is the operator actually halted?** Delve stops its debuggee with ptrace, so the process
+//     sits in state `t` (tracing stop) in /proc/<pid>/stat — verified live on a frozen operator,
+//     where dlv itself was `S` and the operator it had exec'd was `t`. Seeing it needs
+//     shareProcessNamespace on the pod, which is why the patch sets it.
+//
+// Acting on the *condition* rather than on session bookkeeping is what makes this reliable: an
+// earlier version watched for a client appearing and then leaving, and missed short sessions
+// entirely (it polls every 10s; a session can start and end between two ticks, and the operator
+// then stays frozen forever — reproduced). Halted-and-unattached is the thing that is actually
+// wrong, and it is true whether or not the watchdog saw the session that caused it. In the
+// ordinary case — a cluster nobody is debugging — both checks are a few /proc reads and no
+// connection at all.
+//
+// Clearing rather than keeping the breakpoints is deliberate: an IDE re-sends its breakpoints on
+// every attach, so nothing is lost, and the next session starts against a clean server — which is
+// also what stops the second attach from showing an unverified breakpoint.
+const k3dDebugWatchdogScript = `BIN=%s
+attached() {
+  awk -v p=":%s$" '$2 ~ p && $4 == "01" { f=1 } END { exit(f?0:1) }' /proc/net/tcp6 /proc/net/tcp 2>/dev/null
+}
+halted() {
+  for d in /proc/[0-9]*; do
+    [ -r "$d/cmdline" ] || continue
+    case "$(tr '\0' ' ' < "$d/cmdline")" in
+      "$BIN "*) ;;
+      *) continue ;;
+    esac
+    st=$(awk '{ s = $0; sub(/^.*\) /, "", s); split(s, a, " "); print a[1] }' "$d/stat" 2>/dev/null)
+    [ "$st" = "t" ] && return 0
+  done
+  return 1
+}
+echo "dbcanvas debug watchdog: nothing to do unless the operator is halted with no debugger on :%d"
+while :; do
+  sleep %d
+  attached && continue
+  halted || continue
+  printf 'clearall\nexit -c\nn\n' | %s/dlv connect 127.0.0.1:%d >/dev/null 2>&1
+  echo "the operator was halted at a breakpoint with no debugger attached: cleared the leftover breakpoints and resumed it"
+done
+`
+
+// k3dDebugWatchdogSh renders the watchdog for this operator. /proc/net/tcp holds ports in
+// upper-case hex, which is what the socket scan matches on.
+func k3dDebugWatchdogSh(deployment string) string {
+	return fmt.Sprintf(k3dDebugWatchdogScript,
+		k3dDebugPodMount+"/"+deployment, fmt.Sprintf("%04X", k3dDebugPort),
+		k3dDebugPort, k3dDebugWatchdogTick, k3dDebugPodMount, k3dDebugPort)
+}
+
 // k3dDebugPatchJSON is the strategic-merge patch itself, kept separate from the kubectl call so
 // its shape can be asserted without a cluster.
-func k3dDebugPatchJSON(deployment string) string {
+func k3dDebugPatchJSON(deployment, image string) string {
 	return fmt.Sprintf(`{"spec":{"template":{"spec":{
+"shareProcessNamespace":true,
 "volumes":[{"name":"dbcanvas-debug","hostPath":{"path":%q,"type":"Directory"}}],
 "containers":[{"name":%q,
 "command":["%s/dlv"],
@@ -448,10 +534,16 @@ func k3dDebugPatchJSON(deployment string) string {
 "env":[{"name":"PXCO_LEADER_ELECTION_ENABLED","value":"false"}],
 "livenessProbe":null,
 "resources":{"limits":{"cpu":%q,"memory":%q}},
-"securityContext":{"capabilities":{"add":["SYS_PTRACE"]}}}]}}}}`,
+"securityContext":{"capabilities":{"add":["SYS_PTRACE"]}}},
+{"name":%q,
+"image":%q,
+"command":["sh","-c",%s],
+"volumeMounts":[{"name":"dbcanvas-debug","mountPath":%q,"readOnly":true}],
+"resources":{"requests":{"cpu":"10m","memory":"16Mi"},"limits":{"cpu":"100m","memory":"64Mi"}}}]}}}}`,
 		k3dDebugNodeDir, deployment,
 		k3dDebugPodMount, k3dDebugPodMount, deployment, k3dDebugPort,
-		k3dDebugPodMount, k3dDebugPort, k3dDebugCPULimit, k3dDebugMemLimit)
+		k3dDebugPodMount, k3dDebugPort, k3dDebugCPULimit, k3dDebugMemLimit,
+		k3dDebugWatchdog, image, strconv.Quote(k3dDebugWatchdogSh(deployment)), k3dDebugPodMount)
 }
 
 // k3dDebugService fronts Delve with a NodePort, which is the half of the published port that lives

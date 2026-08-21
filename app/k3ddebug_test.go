@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -108,6 +109,7 @@ func TestK3DDebugGOARCH(t *testing.T) {
 // from a loopback peer, which a NodePort never is.
 func TestK3DDebugPatchJSON(t *testing.T) {
 	const dep = "percona-xtradb-cluster-operator"
+	const img = "percona/percona-xtradb-cluster-operator:1.20.0"
 	var patch struct {
 		Spec struct {
 			Template struct {
@@ -121,6 +123,7 @@ func TestK3DDebugPatchJSON(t *testing.T) {
 					} `json:"volumes"`
 					Containers []struct {
 						Name          string                         `json:"name"`
+						Image         string                         `json:"image"`
 						Command       []string                       `json:"command"`
 						Args          []string                       `json:"args"`
 						LivenessProbe json.RawMessage                `json:"livenessProbe"`
@@ -141,12 +144,12 @@ func TestK3DDebugPatchJSON(t *testing.T) {
 			} `json:"template"`
 		} `json:"spec"`
 	}
-	if err := json.Unmarshal([]byte(k3dDebugPatchJSON(dep)), &patch); err != nil {
+	if err := json.Unmarshal([]byte(k3dDebugPatchJSON(dep, img)), &patch); err != nil {
 		t.Fatalf("the patch is not valid JSON: %v", err)
 	}
 	ps := patch.Spec.Template.Spec
-	if len(ps.Containers) != 1 || ps.Containers[0].Name != dep {
-		t.Fatalf("the patch must target the operator container by name (strategic merge keys on it): %+v", ps.Containers)
+	if len(ps.Containers) != 2 || ps.Containers[0].Name != dep {
+		t.Fatalf("the patch must target the operator container by name (strategic merge keys on it), plus the watchdog: %+v", ps.Containers)
 	}
 	c := ps.Containers[0]
 	if len(c.Command) != 1 || !strings.HasSuffix(c.Command[0], "/dlv") {
@@ -185,6 +188,10 @@ func TestK3DDebugPatchJSON(t *testing.T) {
 	if ps.Volumes[0].HostPath.Type != "Directory" {
 		t.Errorf("hostPath type = %q, want Directory — an absent dir must fail loudly, not be created empty",
 			ps.Volumes[0].HostPath.Type)
+	}
+	if w := ps.Containers[1]; w.Name != k3dDebugWatchdog || w.Image != img {
+		t.Errorf("watchdog sidecar = %q on image %q, want %q on the operator's own image %q",
+			w.Name, w.Image, k3dDebugWatchdog, img)
 	}
 	if len(c.VolumeMounts) != 1 || c.VolumeMounts[0].MountPath != k3dDebugPodMount {
 		t.Errorf("volumeMounts = %+v, want %s", c.VolumeMounts, k3dDebugPodMount)
@@ -252,4 +259,49 @@ func testTarball(t *testing.T, files map[string]string) []byte {
 		t.Fatal(err)
 	}
 	return buf.Bytes()
+}
+
+// The watchdog is what makes the debugger safe to walk away from, and every part of it is a
+// literal string that has to be right: the port it scans for is hex in /proc/net, the socket state
+// it counts as "attached" is 01 (ESTABLISHED, not the 08/CLOSE_WAIT a closed client leaves
+// behind), and the heal answers Delve's exit prompt with `n` — `y` there kills the headless
+// server, which takes the operator's container down with it.
+func TestK3DDebugWatchdogScript(t *testing.T) {
+	sh := k3dDebugWatchdogSh("percona-xtradb-cluster-operator")
+	for _, want := range []string{
+		`:9C40$`,     // Delve's port as /proc/net/tcp6 spells it
+		`$4 == "01"`, // ESTABLISHED only
+		"/proc/net/tcp6",
+		"clearall", // leftovers are cleared, not kept: an IDE re-sends its breakpoints
+		"exit -c",  // ...and the process is resumed on the way out
+		k3dDebugPodMount + "/dlv",
+		"127.0.0.1:40000",
+	} {
+		if !strings.Contains(sh, want) {
+			t.Errorf("the watchdog script is missing %q:\n%s", want, sh)
+		}
+	}
+	if strings.Contains(sh, `exit -c\ny\n`) {
+		t.Error("the heal answers Delve's kill-the-headless-instance prompt with y — that stops the operator")
+	}
+	// It must do nothing until somebody has actually attached: a cluster nobody debugs should
+	// never see a connection from this.
+	// It must act on the condition, not on having witnessed the session: a session that starts
+	// and ends between two ticks is invisible, and an operator frozen by one would stay frozen.
+	for _, want := range []string{`"$st" = "t"`, "/proc/[0-9]*", "halted || continue", "attached && continue"} {
+		if !strings.Contains(sh, want) {
+			t.Errorf("the watchdog does not test halted-and-unattached directly (missing %q)", want)
+		}
+	}
+	if !strings.Contains(sh, "sleep 10") {
+		t.Errorf("watchdog tick is not %ds", k3dDebugWatchdogTick)
+	}
+}
+
+// The port appears three ways — decimal in the listener flag, decimal in the dial, hex in the
+// socket scan — and a mismatch is invisible until an operator silently stays frozen.
+func TestK3DDebugPortHexMatchesListener(t *testing.T) {
+	if got := fmt.Sprintf("%04X", k3dDebugPort); got != "9C40" {
+		t.Errorf("port hex = %s, want 9C40 for port %d", got, k3dDebugPort)
+	}
 }

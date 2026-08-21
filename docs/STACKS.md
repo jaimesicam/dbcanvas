@@ -206,6 +206,13 @@ attach. The server node's **Operator** tab hands you the matching `git clone`, a
 `launch.json` (with the `substitutePath` that makes source line up), and the annotation that
 forces a reconcile. It costs a few minutes of build time on the first deploy.
 
+Stop the debug session whenever you like — a watchdog sidecar clears whatever breakpoints your
+IDE left armed and resumes the operator within ten seconds. That matters more than it sounds:
+a breakpoint that outlives its session fires on the next reconcile with nobody attached, and the
+operator freezes with no probe failing and nothing in its log, so the cluster quietly stops being
+reconciled; the next attach then shows the breakpoint as *unverified*, which reads as a broken
+debugger rather than as leftovers in the way.
+
 ![A K3D cluster node's panel beside a console listing the pods the operator built](screenshots/k3d-cluster.png)
 
 > *A one-node K3D cluster on k3s v1.36.3 running the **Percona Operator for MySQL (PXC)

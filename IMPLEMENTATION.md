@@ -16895,3 +16895,70 @@ End to end on a live k3d cluster, running the exact commands the code emits:
   that `go.mod` is read from the module root — a source tarball also carries
   `.github/linters/go.mod`, which sorts first and which suffix matching would have found.
   `go build`, `go vet`, `go test ./...` and the smoke suite green.
+
+## 296. Why the debugger "did not work": what an IDE leaves behind — `app/k3ddebug.go`, `app/web/src/pages/K3DManager.jsx`, `docs/STACKS.md`
+
+Reported as "attaching breakpoint is not working" on a live K3D frame deployed with §295.
+Everything §295 built was working — Delve was listening, the port was published, breakpoints were
+being set and hit. Two things that happen *after* a debug session ends were not.
+
+**The operator freezes.** Breakpoints live on the Delve server, not in the IDE, and they survive a
+disconnect. The next reconcile hits one with nobody attached and the process stops: no probe fails
+(§295 removed it on purpose), nothing is logged, and the cluster simply stops being reconciled.
+Found on the reported cluster before touching anything — the operator's last log line was 20
+minutes old and its process was in state `t`. Delve knows about this and does not fix it; from
+`service/dap/server.go`, `onDisconnectRequest`: *"The target is left in whatever state it is
+already in ... TODO(polina): should we always issue a continue here"*.
+
+**And then the next attach looks broken.** With the stale breakpoint still registered, Delve
+answers the IDE's `setBreakpoints` with `"verified": false, "Breakpoint exists at ..."`, which VS
+Code draws as a hollow breakpoint that never binds. Reproduced over a real DAP session against the
+deployed operator.
+
+A third, louder failure was in the same family: VS Code's *Stop* can send `terminateDebuggee`,
+which kills `dlv` — and since `dlv` is the container's process, the pod restarts. That one at
+least leaves evidence (`RESTARTS 1`, exit code 0).
+
+The fix is a **`dbcanvas-debug-watchdog` sidecar** on the operator pod, running the operator's own
+image (nothing extra pulled) with the same hostPath, that heals the condition rather than the
+symptom. Delve reports neither fact it needs, but the kernel reports both:
+
+- *Is anyone attached?* The sidecar shares the pod's network namespace, so an ESTABLISHED (`01`)
+  socket on Delve's port in `/proc/net/tcp6` is an attached client. A departed client leaves
+  `CLOSE_WAIT` (`08`), which correctly does not count — checked live both ways.
+- *Is the operator halted?* Delve stops its debuggee with ptrace, so it sits in state `t` in
+  `/proc/<pid>/stat`. Seeing it needs `shareProcessNamespace`, which the patch now sets.
+
+Halted **and** unattached → clear the leftover breakpoints and continue. Breakpoints are cleared
+rather than kept because an IDE re-sends its own on every attach, so nothing is lost and the next
+session starts clean — which is also what makes the second attach verify.
+
+The first version of the watchdog got this wrong in an instructive way: it watched for a client
+appearing and then going away. That is session bookkeeping, and it **missed short sessions
+entirely** — it polls every 10s, a session can start and end between two ticks, and the operator
+then stays frozen forever. Reproduced exactly that on the live cluster, which is why the shipped
+version tests the condition instead. In the ordinary case — nobody debugging — it is a few `/proc`
+reads every 10 seconds and no connection at all.
+
+### Verified
+
+On the live cluster the problem was reported against, before and after:
+
+- The reported failure reproduced from both ends: a full DAP session (attach → `verified: true` →
+  breakpoint hit → continue → disconnect), then one forced reconcile, and the operator was halted
+  at `controller.go:258` with no client. Re-attaching returned `"verified": false, "Breakpoint
+  exists at ..."` — the exact thing that reads as "the breakpoint does not work".
+- Delve's own source confirms the disconnect behaviour is deliberate and unfixed upstream, and
+  that `--only-same-user=false` (§295) is what makes the NodePort path work at all.
+- With the watchdog: the same short session, then a reconcile, and the operator was resumed inside
+  one tick — the sidecar logging *"the operator was halted at a breakpoint with no debugger
+  attached: cleared the leftover breakpoints and resumed it"*. Then **three** back-to-back sessions,
+  every one `verified: true` and every one hitting the breakpoint, with `restartCount 0 0` and the
+  PXC cluster still `ready`.
+- The sidecar was confirmed to see the operator's process across the container boundary
+  (`shareProcessNamespace=true`, `FOUND 18 state=S`), and the heal is idempotent — three runs
+  against a *running* target changed nothing and restarted nothing.
+- Tests: four more (the watchdog's socket scan, the ptrace-state test, that it does not answer
+  Delve's kill prompt with `y`, and that the port's hex and decimal forms agree), plus the patch
+  shape now asserting the sidecar runs the operator's own image. `go build`, `go vet`,
+  `go test ./...` and the smoke suite green.
