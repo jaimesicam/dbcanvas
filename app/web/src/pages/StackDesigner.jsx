@@ -710,7 +710,7 @@ function validBucketName(b) {
 
 // The Percona operators a K3D frame can install (PostgreSQL is discovered by `make versions` but
 // not deployable yet).
-const K3D_OPERATOR_LABEL = { pxc: 'PXC operator', ps: 'MySQL (PS) operator', psmdb: 'MongoDB operator', pg: 'PostgreSQL operator', cnpg: 'CloudNativePG', pgo: 'Crunchy PGO' }
+export const K3D_OPERATOR_LABEL = { pxc: 'PXC operator', ps: 'MySQL (PS) operator', psmdb: 'MongoDB operator', pg: 'PostgreSQL operator', cnpg: 'CloudNativePG', pgo: 'Crunchy PGO' }
 
 // typeColor maps a node/frame type to its canvas color so a toolbar "add" button can
 // be tinted to match the node/frame it creates. addBtnStyle turns that into inline
@@ -5303,7 +5303,7 @@ export const SS_LINK_TYPES = {
   patroni: 'Patroni cluster',
   repmgr: 'repmgr cluster',
   spock: 'Spock cluster',
-  k3d: 'CloudNativePG (Kubernetes)',
+  k3d: 'Kubernetes operator cluster',
   psmrs: 'PSMDB replica set',
   psmdb: 'PSMDB sharded cluster',
   valkeycluster: 'Valkey cluster',
@@ -5341,20 +5341,39 @@ const SS_AIO_ENGINE = { mysql: 'mysql', postgres: 'postgres', mongodb: 'mongodb'
 // mode the engine comes from the target at the other end of the line, not from
 // the ssEngine field, which only manual mode fills in.
 //
-// The two routers are absent for the same reason they are absent there: their
-// engine is a property of what they front. ProxySQL is always MySQL-family, but
-// HAProxy fronts either family, and working out which from the canvas is the
-// backend's job — the form treats an unresolved engine as "unknown" and simply
-// keeps the size field, which is the harmless direction to be wrong in.
+// The two routers and the Kubernetes frame are absent for the same reason they
+// are absent there: their engine is a property of something else. ProxySQL is
+// always MySQL-family, but HAProxy fronts either family, and working out which
+// from the canvas is the backend's job — the form treats an unresolved engine
+// as "unknown" and simply keeps the size field, which is the harmless
+// direction to be wrong in. A K3D frame resolves through SS_K3D_ENGINE below.
 export const SS_LINK_ENGINE = {
   ps: 'mysql', mariadb: 'mysql', mysqlce: 'mysql',
   pxc: 'mysql', mysql: 'mysql', innodb: 'mysql',
   mariadbrepl: 'mysql', mariadbgalera: 'mysql',
   mysqlcerepl: 'mysql', mysqlceinnodb: 'mysql',
   proxysql: 'mysql',
-  pg: 'postgres', patroni: 'postgres', repmgr: 'postgres', spock: 'postgres', k3d: 'postgres',
+  pg: 'postgres', patroni: 'postgres', repmgr: 'postgres', spock: 'postgres',
   psm: 'mongodb', psmrs: 'mongodb', psmdb: 'mongodb',
   valkey: 'valkey', valkeycluster: 'valkey',
+}
+
+// SS_K3D_ENGINE mirrors k3dOperatorEngine in app/stocksim_k3d.go: a Kubernetes
+// frame's engine is whichever of the six operators it runs, not the frame type,
+// so it is absent from SS_LINK_ENGINE for the same reason the routers are.
+// A frame with no operator selected has no database in it to drive.
+export const SS_K3D_ENGINE = {
+  pxc: 'mysql', ps: 'mysql',
+  psmdb: 'mongodb',
+  pg: 'postgres', cnpg: 'postgres', pgo: 'postgres',
+}
+
+// ssLinkEngine resolves one linked target — as SS_LINK_TYPES describes it, plus
+// the operator a Kubernetes frame carries — to the engine the sim will speak.
+export function ssLinkEngine(target) {
+  if (!target) return ''
+  if (target.kind === 'k3d') return SS_K3D_ENGINE[target.operator] || ''
+  return SS_LINK_ENGINE[target.kind] || ''
 }
 
 // SS_CAN_GROW mirrors stockSimGrowable / store.CanGrowToSize: Valkey's tick
@@ -5399,6 +5418,16 @@ function fmtTargetBytes(n) {
 // not tell you what the application is actually talking to.
 const SS_TARGET_KIND_LABEL = {
   ...SS_LINK_TYPES,
+  // A Kubernetes frame resolves to the operator that built the database, not to
+  // "Kubernetes" — which of the six it was is the whole story of what the
+  // application is talking to. Plain 'k3d' stays for nodes deployed before the
+  // kind carried the operator.
+  'k3d-pxc': 'PXC operator (Kubernetes)',
+  'k3d-ps': 'Percona Server operator (Kubernetes)',
+  'k3d-psmdb': 'PSMDB operator (Kubernetes)',
+  'k3d-pg': 'Percona PostgreSQL operator (Kubernetes)',
+  'k3d-cnpg': 'CloudNativePG (Kubernetes)',
+  'k3d-pgo': 'Crunchy PGO (Kubernetes)',
   'haproxy-pxc': 'HAProxy → PXC cluster',
   'haproxy-mysql': 'HAProxy → MySQL replication',
   'haproxy-patroni': 'HAProxy → Patroni cluster',
@@ -5439,7 +5468,9 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
       const db = nodes.find((x) => x.id === other && SS_LINK_TYPES[x.type] && !x.frameId)
       if (db) return { kind: db.type, label: db.label }
       const fr = frames.find((x) => x.id === other && SS_LINK_TYPES[x.type])
-      if (fr) return { kind: fr.type, label: fr.label }
+      // k3dOperator rides along because a Kubernetes frame's engine is the
+      // operator's, not the frame type's — see ssLinkEngine.
+      if (fr) return { kind: fr.type, label: fr.label, operator: fr.k3dOperator || '' }
     }
     return null
   })()
@@ -5467,7 +5498,7 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
   const effectiveEngine =
     mode === 'manual' ? engine
       : mode === 'aio' ? (aioInstanceChoices.find((i) => i.name === n.ssAIOInstance)?.engine || engine)
-        : (SS_LINK_ENGINE[linkedTarget?.kind] || engine)
+        : (ssLinkEngine(linkedTarget) || engine)
 
   async function runTest() {
     setTesting(true)
@@ -5515,16 +5546,27 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
 
       {mode === 'linked' ? (
         linkedTarget ? (
-          <div className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
-            Linked to {SS_LINK_TYPES[linkedTarget.kind]} <span className="font-mono font-medium">{linkedTarget.label}</span>
-          </div>
+          linkedTarget.kind === 'k3d' && !SS_K3D_ENGINE[linkedTarget.operator] ? (
+            <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+              Linked to Kubernetes frame <span className="font-mono font-medium">{linkedTarget.label}</span>, which
+              runs no database operator. Choose one on the frame — PXC, Percona Server, PSMDB, Percona
+              PostgreSQL, CloudNativePG or Crunchy PGO — or link this node to a database elsewhere in
+              the stack.
+            </div>
+          ) : (
+            <div className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
+              Linked to {linkedTarget.kind === 'k3d'
+                ? `${K3D_OPERATOR_LABEL[linkedTarget.operator]} on Kubernetes`
+                : SS_LINK_TYPES[linkedTarget.kind]} <span className="font-mono font-medium">{linkedTarget.label}</span>
+            </div>
+          )
         ) : (
           <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
             Not linked. Draw an association line to this node from any database in the stack — a
             standalone Percona Server, MariaDB, MySQL, PostgreSQL, PS MongoDB or Valkey node, any
-            MySQL, PostgreSQL, MongoDB or Valkey cluster, a CloudNativePG Kubernetes frame, or a
-            ProxySQL/HAProxy node fronting one — or switch to a manual connection to use a
-            database outside this stack.
+            MySQL, PostgreSQL, MongoDB or Valkey cluster, a Kubernetes frame running any of the six
+            database operators, or a ProxySQL/HAProxy node fronting one — or switch to a manual
+            connection to use a database outside this stack.
           </div>
         )
       ) : mode === 'aio' ? (
@@ -6205,6 +6247,48 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
                 <option value="loadbalancer">LoadBalancer (MetalLB address)</option>
               </select>
             </Field>
+            {/* PgBouncer is a Pooler CR of CloudNativePG's own, with its own Service — so it is a
+                separate toggle with a separate expose, not a section of the Cluster. */}
+            <div className="space-y-2 rounded-lg border border-dashed p-2">
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-1" disabled={deployed}
+                  checked={!!f.k3dCnpgPooler}
+                  onChange={(e) => patchFrame(f.id, { k3dCnpgPooler: e.target.checked })} />
+                <span>
+                  Connection pooling with PgBouncer
+                  <span className="block text-xs text-muted">
+                    Adds a <span className="font-mono">Pooler</span> of type <span className="font-mono">rw</span>, so the
+                    pool follows the primary across a failover. CloudNativePG wires it to the cluster's own
+                    credentials — the app role connects through it with the same password as direct.
+                  </span>
+                </span>
+              </label>
+              {f.k3dCnpgPooler && (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="PgBouncer pods">
+                      <input type="number" min="1" max="5" className={`${inputCls} ${lock}`} disabled={deployed}
+                        value={f.k3dCnpgPoolerInstances || 2}
+                        onChange={(e) => patchFrame(f.id, { k3dCnpgPoolerInstances: Number(e.target.value) })} />
+                    </Field>
+                    <Field label="Pool mode" hint="Transaction pooling shares a backend between statements — much better reuse, but the client cannot rely on session state.">
+                      <select className={`${inputCls} ${lock}`} value={f.k3dCnpgPoolerMode || 'session'} disabled={deployed}
+                        onChange={(e) => patchFrame(f.id, { k3dCnpgPoolerMode: e.target.value })}>
+                        <option value="session">session (CNPG default)</option>
+                        <option value="transaction">transaction</option>
+                      </select>
+                    </Field>
+                  </div>
+                  <Field label="Expose · PgBouncer" hint="Independent of the Postgres setting above — pooling the primary while Postgres itself stays in-cluster is the usual arrangement.">
+                    <select className={`${inputCls} ${lock}`} value={f.k3dCnpgPoolerExpose || 'clusterip'} disabled={deployed}
+                      onChange={(e) => patchFrame(f.id, { k3dCnpgPoolerExpose: e.target.value })}>
+                      <option value="clusterip">ClusterIP (in-cluster only)</option>
+                      <option value="loadbalancer">LoadBalancer (MetalLB address)</option>
+                    </select>
+                  </Field>
+                </>
+              )}
+            </div>
             <label className="flex items-start gap-2 text-sm">
               <input type="checkbox" className="mt-1" disabled={deployed}
                 checked={!!f.k3dCnpgMonitoring}

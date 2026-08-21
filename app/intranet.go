@@ -426,6 +426,16 @@ type designFrame struct {
 	K3DCNPGMonitoring  bool   `json:"k3dCnpgMonitoring"`  // install kube-prometheus-stack + PodMonitor
 	K3DCNPGPromVersion string `json:"k3dCnpgPromVersion"` // kube-prometheus-stack chart version; "" → latest
 	K3DCNPGExpose      string `json:"k3dCnpgExpose"`      // "clusterip" (default) | "loadbalancer" for the primary
+	// PgBouncer in front of the cluster. CloudNativePG models this as a Pooler CR of its own
+	// rather than a section of the Cluster, so it is a separate toggle here — and it gets its
+	// own Service, hence its own expose setting: pooling the primary while leaving Postgres
+	// itself in-cluster is the usual arrangement. Not the shared K3DExposePGBouncer, which the
+	// two Percona/Crunchy PostgreSQL frames spell in cr.yaml terms (NodePort included); CNPG's
+	// two tiers are hand-written Services, as K3DCNPGExpose above already is.
+	K3DCNPGPooler          bool   `json:"k3dCnpgPooler"`          // create a Pooler (PgBouncer) for the primary
+	K3DCNPGPoolerInstances int    `json:"k3dCnpgPoolerInstances"` // PgBouncer pods (1..5); 0 → 2
+	K3DCNPGPoolerMode      string `json:"k3dCnpgPoolerMode"`      // "session" (CNPG's default) | "transaction"
+	K3DCNPGPoolerExpose    string `json:"k3dCnpgPoolerExpose"`    // "clusterip" (default) | "loadbalancer"
 	// Crunchy PGO frame fields (K3DOperator=="pgo"; ignored by every other operator).
 	// Backups reuse the frame's SeaweedFSNodeID/SeaweedFSBucket, and the Service types reuse
 	// K3DExposePG / K3DExposePGBouncer below — Crunchy's cluster has the same two tiers as
@@ -1076,6 +1086,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			// has to be judged against.
 			engine, issues := stockSimEngineAndIssues(doc, n)
 			out = append(out, issues...)
+			out = append(out, stockSimK3DExposeIssues(doc, n)...)
 			if engine != "" {
 				out = append(out, stockSimSizeIssues(n, engine)...)
 				out = append(out, stockSimLoadIssues(n, engine)...)

@@ -144,6 +144,14 @@ type k3dConfig struct {
 	CNPGAppSecret string `json:"cnpgAppSecret"` // Secret holding the app role's password
 	CNPGAppUser   string `json:"cnpgAppUser"`
 	CNPGAppDB     string `json:"cnpgAppDb"`
+	// PgBouncer (a Pooler CR). Its Service is separate from the cluster's, so it has its own
+	// expose setting and its own endpoint — the app role connects through it with the same
+	// credentials as direct.
+	CNPGPooler          bool   `json:"cnpgPooler"`
+	CNPGPoolerInstances int    `json:"cnpgPoolerInstances"`
+	CNPGPoolerMode      string `json:"cnpgPoolerMode"`   // session | transaction
+	CNPGPoolerExpose    string `json:"cnpgPoolerExpose"` // ClusterIP | LoadBalancer
+	CNPGPoolerEndpoint  string `json:"cnpgPoolerEndpoint"`
 	// Crunchy PGO (Operator=="pgo"): the PostgresCluster's shape and how to reach it. The
 	// Service types are ExposePG / ExposePGBouncer above — the same two tiers as Percona's PGO.
 	PGOInstances int    `json:"pgoInstances"`

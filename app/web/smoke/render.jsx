@@ -28,6 +28,7 @@ import { Comparison, Verdicts, Advisor, ChartCard, KeptCaptures, HeadToHead, Ver
 import {
   frameMemberSub, REPL_FRAME_TYPES,
   NODE_TYPES, CONNECTABLE_FRAMES, SS_LINK_TYPES, SS_LINK_ENGINE,
+  K3D_OPERATOR_LABEL, ssLinkEngine,
 } from '../src/pages/StackDesigner.jsx'
 import MySQLManager from '../src/pages/MySQLManager.jsx'
 import OidcLoginGuide from '../src/components/OidcLoginGuide.jsx'
@@ -1105,11 +1106,28 @@ check('every Stock Market Sim link target is reachable on the canvas', () => {
 })
 
 // The engine map decides the driver and whether a size target is possible, so
-// every non-router target must be in it.
+// every target whose engine the kind alone settles must be in it. The routers
+// and the Kubernetes frame are the exceptions, and each has its own check
+// below: their engine is a property of what they front, or of the operator the
+// frame runs.
 check('every Stock Market Sim link target maps to an engine', () => {
-  const missing = Object.keys(SS_LINK_TYPES)
-    .filter((k) => k !== 'haproxy' && k !== 'proxysql' && !SS_LINK_ENGINE[k])
+  const byOther = new Set(['haproxy', 'proxysql', 'k3d'])
+  const missing = Object.keys(SS_LINK_TYPES).filter((k) => !byOther.has(k) && !SS_LINK_ENGINE[k])
   if (missing.length) throw new Error('no engine for: ' + missing.join(', '))
+  return 'ok'
+})
+
+// A Kubernetes frame is one canvas target with six databases behind it, so the
+// engine comes from the frame's operator. Every operator the frame's own picker
+// offers has to resolve, or a user selects one and the sim node then refuses to
+// deploy against it — which is precisely the gap this replaced.
+check('every K3D operator maps a Stock Market Sim node to an engine', () => {
+  const missing = Object.keys(K3D_OPERATOR_LABEL)
+    .filter((op) => !ssLinkEngine({ kind: 'k3d', operator: op }))
+  if (missing.length) throw new Error('no engine for operator: ' + missing.join(', '))
+  // ...and a frame with no operator has no database to drive, which the form
+  // reports rather than guessing an engine for.
+  if (ssLinkEngine({ kind: 'k3d', operator: '' })) throw new Error('an operator-less frame should have no engine')
   return 'ok'
 })
 

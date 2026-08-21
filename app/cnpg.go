@@ -113,6 +113,32 @@ func cnpgExposeLoadBalancer(f designFrame) bool {
 	return k3dExposeOf(f.K3DCNPGExpose, "clusterip") == "LoadBalancer"
 }
 
+func cnpgPoolerInstances(f designFrame) int {
+	if f.K3DCNPGPoolerInstances > 0 {
+		return clampInt(f.K3DCNPGPoolerInstances, 1, 5)
+	}
+	return 2
+}
+
+// cnpgPoolerMode is PgBouncer's pool mode. CNPG's own default is session; transaction is what
+// makes pooling worth having for most workloads, but it is the caller's choice because it
+// changes what the application may rely on (session state, prepared statements, advisory locks).
+func cnpgPoolerMode(f designFrame) string {
+	if strings.TrimSpace(f.K3DCNPGPoolerMode) == "transaction" {
+		return "transaction"
+	}
+	return "session"
+}
+
+// cnpgPoolerExposeLoadBalancer reports whether the Pooler's Service should be a LoadBalancer.
+// Independent of the primary's: pooling the primary while leaving Postgres itself in-cluster is
+// the usual arrangement, and it is the reason the Pooler gets an expose setting of its own.
+func cnpgPoolerExposeLoadBalancer(f designFrame) bool {
+	return k3dExposeOf(f.K3DCNPGPoolerExpose, "clusterip") == "LoadBalancer"
+}
+
+func cnpgPoolerName(cluster string) string { return cluster + "-pooler-rw" }
+
 // cnpgSecretValue reads and decodes one key out of a Secret. Empty on any problem — these feed
 // display fields, and a blank row beats failing a deploy that otherwise worked.
 func (a *App) cnpgSecretValue(ctx context.Context, serverID, ns, secret, key string) string {
@@ -246,6 +272,17 @@ func cnpgArchiveReadme(cfg *k3dConfig, ns string, files []string, monitoring boo
 		fmt.Fprintf(&b, " — %s", cfg.CNPGEndpoint)
 	}
 	b.WriteString("\n")
+	if cfg.CNPGPooler {
+		fmt.Fprintf(&b, "- PgBouncer:      %d pod(s), %s pooling, %s", cfg.CNPGPoolerInstances, cfg.CNPGPoolerMode, cfg.CNPGPoolerExpose)
+		if cfg.CNPGPoolerEndpoint != "" {
+			fmt.Fprintf(&b, " — %s", cfg.CNPGPoolerEndpoint)
+		}
+		b.WriteString("\n")
+		b.WriteString("                  (a Pooler CR of type `rw`, so the pool follows the primary\n")
+		b.WriteString("                  across a failover; the app role's credentials are unchanged)\n")
+	} else {
+		b.WriteString("- PgBouncer:      not enabled for this cluster\n")
+	}
 	if objectStore != "" {
 		fmt.Fprintf(&b, "- Backups:        barman-cloud plugin %s → ObjectStore `%s`\n", barmanPluginVersion, objectStore)
 	} else {
@@ -336,6 +373,27 @@ func cnpgClusterManifest(name, ns string, instances, storageGB int, pgVersion, o
 		// would take base backups with no WAL stream, which is not a restorable backup.
 		fmt.Fprintf(&b, "  plugins:\n  - name: %s\n    isWALArchiver: true\n    parameters:\n      barmanObjectName: %s\n",
 			barmanPluginName, objectStore)
+	}
+	return []byte(b.String())
+}
+
+// cnpgPoolerManifest renders the Pooler CR: PgBouncer in front of the cluster's primary.
+// CloudNativePG wires the pooler to the cluster's own credentials by itself — no authQuery or
+// secret of ours — so the app role logs in through PgBouncer with the same password as direct.
+// serviceType is written into serviceTemplate only when it is not the ClusterIP the operator
+// would create anyway, which keeps the archived manifest free of a no-op stanza.
+func cnpgPoolerManifest(cluster, ns string, instances int, poolMode, serviceType string) []byte {
+	var b strings.Builder
+	fmt.Fprintf(&b, "apiVersion: %s\nkind: Pooler\nmetadata:\n  name: %s\n  namespace: %s\nspec:\n",
+		cnpgAPIVersion, cnpgPoolerName(cluster), ns)
+	fmt.Fprintf(&b, "  cluster:\n    name: %s\n", cluster)
+	fmt.Fprintf(&b, "  instances: %d\n", instances)
+	// rw: the pool follows the primary, so it survives a failover the same way the -rw Service
+	// does. A read-only pool would be a second Pooler, which the designer does not offer yet.
+	fmt.Fprintf(&b, "  type: rw\n")
+	fmt.Fprintf(&b, "  pgbouncer:\n    poolMode: %s\n", poolMode)
+	if serviceType != "" && serviceType != "ClusterIP" {
+		fmt.Fprintf(&b, "  serviceTemplate:\n    spec:\n      type: %s\n", serviceType)
 	}
 	return []byte(b.String())
 }
@@ -683,6 +741,42 @@ func (a *App) installCNPGOperator(ctx context.Context, st Stack, frame designFra
 	} else {
 		cfg.CNPGExpose = "ClusterIP"
 		cfg.CNPGEndpoint = fmt.Sprintf("%s-rw.%s.svc:%d", cfg.ClusterName, ns, cnpgPostgresPort)
+	}
+
+	// ---- PgBouncer, once the cluster it points at exists ----
+	// A Pooler applied before the Cluster is admitted fine but sits idle until the cluster is
+	// there, so it goes after the wait — and its own Service is independent of the primary's,
+	// which is the point: the pool can be the only thing reachable from outside.
+	if frame.K3DCNPGPooler {
+		pr.phase("Deploying PgBouncer", 94)
+		instances, mode := cnpgPoolerInstances(frame), cnpgPoolerMode(frame)
+		svcType := "ClusterIP"
+		if cnpgPoolerExposeLoadBalancer(frame) {
+			svcType = "LoadBalancer"
+		}
+		pooler := cnpgPoolerName(cfg.ClusterName)
+		if err := apply("pooler", ns, cnpgPoolerManifest(cfg.ClusterName, ns, instances, mode, svcType)); err != nil {
+			// The cluster is fully usable without a pool, so this is a skip, not a failure.
+			pr.logln("PgBouncer skipped: " + err.Error())
+		} else {
+			cfg.CNPGPooler = true
+			cfg.CNPGPoolerInstances, cfg.CNPGPoolerMode, cfg.CNPGPoolerExpose = instances, mode, svcType
+			pr.logln(fmt.Sprintf("Pooler %s applied: %d PgBouncer pod(s), %s pooling", pooler, instances, mode))
+			if err := a.waitForDeployment(ctx, serverID, ns, pooler, deployTimeout()); err != nil {
+				pr.logln("PgBouncer is not ready yet: " + err.Error())
+			}
+			if svcType == "LoadBalancer" {
+				if addr := a.waitForLoadBalancerIP(ctx, serverID, ns, pooler, deployTimeout()); addr != "" {
+					cfg.CNPGPoolerEndpoint = fmt.Sprintf("%s:%d", addr, cnpgPostgresPort)
+					pr.logln("PgBouncer at " + cfg.CNPGPoolerEndpoint + " — same app role and password as a direct connection")
+				} else {
+					cfg.CNPGPoolerEndpoint = "pending"
+					pr.logln("PgBouncer LoadBalancer has no address yet — check the MetalLB pool")
+				}
+			} else {
+				cfg.CNPGPoolerEndpoint = fmt.Sprintf("%s.%s.svc:%d", pooler, ns, cnpgPostgresPort)
+			}
+		}
 	}
 
 	// ---- monitoring resources, now that the cluster exists to be selected ----

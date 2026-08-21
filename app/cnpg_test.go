@@ -158,3 +158,73 @@ func TestCNPGExposeDefaultsToClusterIP(t *testing.T) {
 		t.Error("loadbalancer should be LoadBalancer")
 	}
 }
+
+// The Pooler is what puts PgBouncer in front of the cluster, and its Service is separate from
+// the cluster's — which is the whole reason it has an expose setting of its own. Field spellings
+// were checked against the live CRD (kubectl explain pooler.spec) before this was written.
+func TestCNPGPoolerManifest(t *testing.T) {
+	got := string(cnpgPoolerManifest("pgtest", "cnpg", 2, "transaction", "LoadBalancer"))
+	for _, want := range []string{
+		"apiVersion: postgresql.cnpg.io/v1",
+		"kind: Pooler",
+		"name: pgtest-pooler-rw",
+		"namespace: cnpg",
+		"cluster:\n    name: pgtest",
+		"instances: 2",
+		// rw, so the pool follows the primary across a failover the way the -rw Service does.
+		"type: rw",
+		"pgbouncer:\n    poolMode: transaction",
+		"serviceTemplate:\n    spec:\n      type: LoadBalancer",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("pooler manifest is missing %q:\n%s", want, got)
+		}
+	}
+	// CNPG generates the pooler's credentials from the cluster itself; spelling an authQuery
+	// here would switch that integration off and break the login.
+	if strings.Contains(got, "authQuery") {
+		t.Errorf("pooler manifest must not set authQuery — it disables CNPG's own credential wiring:\n%s", got)
+	}
+}
+
+// A ClusterIP pool is what the operator creates anyway, so the manifest says nothing about the
+// Service — an empty serviceTemplate stanza would be noise in the archived manifest.
+func TestCNPGPoolerManifestOmitsDefaultService(t *testing.T) {
+	got := string(cnpgPoolerManifest("pgtest", "cnpg", 1, "session", "ClusterIP"))
+	if strings.Contains(got, "serviceTemplate") {
+		t.Errorf("a ClusterIP pooler should not carry a serviceTemplate:\n%s", got)
+	}
+	if !strings.Contains(got, "poolMode: session") {
+		t.Errorf("pooler manifest lost its pool mode:\n%s", got)
+	}
+}
+
+func TestCNPGPoolerDefaults(t *testing.T) {
+	var none designFrame
+	if got := cnpgPoolerInstances(none); got != 2 {
+		t.Errorf("default pooler instances = %d, want 2", got)
+	}
+	if got := cnpgPoolerMode(none); got != "session" {
+		t.Errorf("default pool mode = %q, want session (CNPG's own default)", got)
+	}
+	// An address is a finite MetalLB resource, so like every other expose in this app the
+	// pooler stays in-cluster until asked otherwise.
+	if cnpgPoolerExposeLoadBalancer(none) {
+		t.Error("pooler expose should default to ClusterIP")
+	}
+	if !cnpgPoolerExposeLoadBalancer(designFrame{K3DCNPGPoolerExpose: "loadbalancer"}) {
+		t.Error("loadbalancer was not honoured")
+	}
+	// The two tiers are independent: a LoadBalancer pool in front of an in-cluster Postgres is
+	// the arrangement this option exists for.
+	f := designFrame{K3DCNPGPoolerExpose: "loadbalancer"}
+	if cnpgExposeLoadBalancer(f) {
+		t.Error("exposing the pooler must not expose the Postgres primary too")
+	}
+	if got := cnpgPoolerInstances(designFrame{K3DCNPGPoolerInstances: 99}); got != 5 {
+		t.Errorf("pooler instances = %d, want the clamp at 5", got)
+	}
+	if got := cnpgPoolerName("pgtest"); got != "pgtest-pooler-rw" {
+		t.Errorf("pooler name = %q", got)
+	}
+}

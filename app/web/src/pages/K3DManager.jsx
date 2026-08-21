@@ -233,6 +233,8 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
           {cfg.operator && isCNPG && <KV k="PostgreSQL" v={cfg.cnpgPgVersion || "operator default"} />}
           {cfg.operator && isCNPG && <KV k="Expose · Postgres" v={cfg.cnpgExpose || 'ClusterIP'} />}
           {cfg.operator && isCNPG && <KV k="Endpoint" v={cfg.cnpgEndpoint || '—'} mono />}
+          {cfg.operator && isCNPG && cfg.cnpgPooler && <KV k="PgBouncer" v={`${cfg.cnpgPoolerInstances} pod(s) · ${cfg.cnpgPoolerMode} · ${cfg.cnpgPoolerExpose}`} />}
+          {cfg.operator && isCNPG && cfg.cnpgPooler && <KV k="PgBouncer endpoint" v={cfg.cnpgPoolerEndpoint || '—'} mono />}
           {cfg.operator && isCNPG && <KV k="App role / database" v={`${cfg.cnpgAppUser || '—'} / ${cfg.cnpgAppDb || '—'}`} mono />}
           {cfg.operator && isCNPG && <KV k="Password in Secret" v={cfg.cnpgAppSecret || '—'} mono />}
           {cfg.operator && isPGO && <KV k="Status" v={cfg.pgoStatus || 'unknown'} />}

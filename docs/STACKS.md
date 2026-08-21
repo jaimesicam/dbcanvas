@@ -70,10 +70,20 @@ certificate, users, and on-demand backups.
   four dashboards, one per engine. It connects to **any database in the stack**: a standalone
   Percona Server, MariaDB, MySQL, PostgreSQL, PS MongoDB or Valkey node; any cluster frame (PXC,
   MySQL/MariaDB/MySQL CE replication, Galera, InnoDB Cluster and Group Replication, Patroni,
-  repmgr, Spock, PSMDB replica sets and sharded clusters, Valkey cluster); a **CloudNativePG**
-  cluster inside a Kubernetes frame; or a **ProxySQL/HAProxy** node fronting one — always
-  resolving to the cluster's write endpoint, be that the primary, the leader, the router or the
-  mongos. An **All in One** node draws no association lines, so its instance is chosen from a
+  repmgr, Spock, PSMDB replica sets and sharded clusters, Valkey cluster); a **Kubernetes frame
+  running any of the six database operators** (PXC, Percona Server for MySQL, PSMDB, Percona
+  PostgreSQL, CloudNativePG, Crunchy PGO), whose engine follows the operator the frame runs; or a
+  **ProxySQL/HAProxy** node fronting one — always resolving to the cluster's write endpoint, be
+  that the primary, the leader, the router or the mongos. A database inside Kubernetes has to be
+  reachable from the stack network first: set the tier in front of it — the proxy, the mongos
+  routers, the pgBouncer pool, or the database pods themselves — to **LoadBalancer** or
+  **NodePort** on the frame, since a ClusterIP address exists only inside the cluster, and the
+  designer says so before you deploy if none of them is. The two PostgreSQL operators are reached
+  through their **pgBouncer** pool when it has an address, as their own application user, and
+  directly on the primary as `postgres` when it does not. A MongoDB **replica set** is the one target whose
+  address does not follow a failover — the set advertises in-cluster names, so the sim is pointed
+  straight at the member holding the primary role and an election means redeploying the node; a
+  sharded cluster has mongos in front of it and does not have this problem. An **All in One** node draws no association lines, so its instance is chosen from a
   picker on this node instead of with a line. Set the load level to **High** and it also grows the dataset:
   bulk price history is written until the app owns a configurable **dataset size** (5 GiB by
   default), so there is something real on the volume to measure a disk, a storage class or a

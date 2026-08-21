@@ -30,6 +30,28 @@ The 8.4 LTS series is the only one that has this so far — 9.7 does not carry t
 the designer keeps the node on 8.4 when you turn SSO on. The **Ubuntu VNC** desktop ships the
 8.4 client and its OIDC plugin, so you can sign in from there too.
 
+**Every Kubernetes operator can drive a Stock Market Sim.** Link a **Stock Market Sim** node to
+a K3D frame and the sim runs a live trading workload against the cluster that frame's operator
+built — the fastest way to put real, continuous activity on an operator and watch it behave. All
+six are supported: **Percona XtraDB Cluster**, **Percona Server for MySQL**, **Percona Server for
+MongoDB**, **Percona PostgreSQL (PGO)**, **CloudNativePG**, and **Crunchy PGO**. The sim picks up
+the engine from the operator, resolves the cluster's front end and its generated credentials by
+itself, and reports throughput, portfolios and a per-instrument ticker.
+
+![Three Stock Market Sim nodes driving three Kubernetes operators on one canvas](docs/screenshots/stocksim-operators.png)
+
+> *Three K3D frames, three sims, one canvas. The open one is trading against `k3d-02` through
+> that cluster's `k3d-02-rw-lb` Service; the panel on the right is the same frame's k3s node —
+> PGO 6.0.2, pgBouncer in front, **Expose · proxy: LoadBalancer**, which is what made it
+> reachable.*
+
+The cluster has to be reachable from the stack network first, and that is the one thing the
+frame cannot guess: a **ClusterIP** address exists only inside Kubernetes. Set the tier in front
+of the database — the proxy, the MySQL Router, the mongos routers, the pgBouncer pool, or the
+database pods themselves — to **LoadBalancer** (or NodePort) on the frame. The designer checks
+this per operator and warns you before you deploy if every tier is ClusterIP, naming the ones to
+change.
+
 **A file manager, and drag and drop.** Drag a file — or a whole folder — from your desktop
 straight onto a node on the canvas and DBCanvas asks where to put it: no scp, no bind mount, no
 shell. Right-click a running node and choose **File manager** for the whole filesystem —

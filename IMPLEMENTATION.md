@@ -16984,3 +16984,240 @@ in `docs/STACKS.md` but no mention on the front page.
   `mysql --host=ps-01.example.net --protocol=TCP --ssl-mode=REQUIRED --user=jane
   --authentication-openid-connect-client-id-token-file=…` returned `jane@%`, role
   `` `accounting`@`%` ``, server `8.4.11-11` and the `oidc_demo.invoices` rows.
+
+---
+
+## 298. A Stock Market Sim node can drive all six Kubernetes operators, not just CloudNativePG — `app/stocksim_k3d.go` (new), `app/stocksim.go`, `app/intranet.go`, `StackDesigner`, `docs/STACKS.md`
+
+**It could drive exactly one of the six.** `stockSimEngineForKind` mapped the whole `k3d` frame
+type to `postgres`, and the resolver behind it opened with
+
+```go
+case ok && cfg.Operator != "cnpg":
+    return …, fmt.Errorf("the linked Kubernetes cluster %s does not run CloudNativePG — "+
+        "a Stock Market Sim node can only use a CNPG frame", frame.Label)
+```
+
+So a frame running PXC, Percona Server, PSMDB, the Percona PostgreSQL operator or Crunchy PGO was
+accepted by the canvas, passed validation as "PostgreSQL", and then failed the deploy. Two of the
+five were not even PostgreSQL.
+
+**A K3D frame's engine is the operator's, not the frame type's.** That is the whole shape of the
+change: `stockSimEngineForKind` no longer answers for `k3d` at all — it joins the two routers as a
+kind whose engine only `stockSimEngineForTarget` can resolve, because resolving it needs the design
+in hand (`k3dOperatorEngine(frameByID(doc, targetID).K3DOperator)`). `waitStockSimTarget` then
+dispatches `k3d` on the kind rather than the engine, because for a Kubernetes frame the hard part —
+finding the operator's Services and the Secret it keeps its passwords in — is the same work
+whichever database comes out the other end.
+
+**`app/stocksim_k3d.go`** is that work, one resolver per operator:
+
+| Operator | Endpoint, in preference order | Connects as |
+| --- | --- | --- |
+| `pxc` | `<cr>-haproxy` / `<cr>-proxysql`, else the per-pod `<cr>-pxc-N` | `root`, from `<cr>-secrets` |
+| `ps` | `<cr>-haproxy` / `<cr>-router`, else `<cr>-mysql-primary` | `root`, from `<cr>-secrets` |
+| `psmdb` | `<cr>-mongos` when sharded; else the `<cr>-rs0-N` holding the primary | `databaseAdmin`, from `<cr>-secrets` |
+| `pg` | `<cr>-pgbouncer`, else `<cr>-ha` | the app user through the pool, `postgres` direct |
+| `pgo` | the same two tiers, the same order | the same rule |
+| `cnpg` | the `CNPGEndpoint` §227 recorded | the generated `app` role |
+
+Four things are worth naming.
+
+- **Ports are picked by name, not by number.** The PS operator's MySQL Router answers read/write on
+  **6446** and *also* publishes 3306 as `rw-default`, so "the port that looks like MySQL" lands on
+  the wrong one. `servicePort` takes the first of a preference list of port *names* (`rw`, `mysql`,
+  `mongos`, `postgres`), falls back to the expected number, and only then to the first port — so a
+  renamed port still yields something dialable.
+- **A ClusterIP is not a lookup failure, it is a setting.** The k3d cluster is on the stack network
+  precisely so a MetalLB address is routable from a sibling container, and a NodePort on a k3s
+  node's own InternalIP is too. So the resolver distinguishes *retryable* (the Service does not
+  exist yet, its LoadBalancer address has not landed) from *settled* (ClusterIP), and the settled
+  case fails immediately with the name of the tier to change rather than at the 60-minute timeout.
+- **A replica set is dialled directly, and that took a live run to establish.** A sharded PSMDB
+  cluster has mongos in front of it, so one address is the whole cluster. A plain replica set does
+  not, and the first implementation handed the driver every member's MetalLB address as a seed with
+  `replicaSet=rs0` — which the driver dutifully replaced with what the set's own configuration says
+  its members are:
+
+  ```
+  ["k3d-00-rs0-0.k3d-00-rs0.default.svc.cluster.local:27017", …]
+  ```
+
+  Exposing the members does **not** rewrite that; only `clusterServiceDNSMode: External` does, and
+  that changes the addresses *in-cluster* clients get too — PBM, the PMM sidecar, the operator —
+  so it is not a switch to flip for one application. So the sim is pointed at whichever member
+  currently holds the primary role, with `directConnection=true` to stop the driver from
+  rediscovering its way back inside the cluster. `db.hello()` answers before authentication, so
+  finding that member needs no credentials, and its `primary` field's first label *is* the name of
+  the per-pod Service in front of it. The cost is bounded and stated: an election moves the
+  primary, and the sim node has to be redeployed to follow it.
+- **Credentials are read out of the cluster, not assumed.** DBCanvas seeds every operator's secret
+  from `.env` at deploy, but a password rotated in Kubernetes afterwards is the real one, so each
+  resolver reads the Secret and keeps the `.env` value only as a fallback.
+- **pgBouncer locked the app out, so the app changed** — the second thing a live run established
+  rather than an opinion. Both Crunchy-shaped operators put a pooler in front of the primary, and
+  DBCanvas exposes it as a LoadBalancer by default while the primary stays ClusterIP, so the pool
+  is the address such a cluster actually advertises. Pointed at it, the sim died before it ran a
+  statement:
+
+  ```
+  FATAL: unsupported startup parameter in options: search_path (SQLSTATE 08P01)
+  ```
+
+  The sim pinned `search_path` to the schema it owns as a libpq `options=-c search_path=…` startup
+  parameter, and PgBouncer rejects any startup parameter not in its `ignore_startup_parameters`.
+  Routing around the pooler would have been the smaller change and the wrong one: a pooler is the
+  front door of every cluster these two operators build, and it is the tier that stays put across a
+  failover. So `stocksim/internal/store/postgres.go` pins it two other ways instead, which between
+  them cover every pooling mode:
+
+  - `SET search_path` on each new backend connection, from `stdlib.OptionAfterConnect` — enough for
+    a direct connection and for a pooler in **session** mode, where a server connection belongs to
+    one client for its whole session;
+  - `ALTER ROLE CURRENT_USER IN DATABASE … SET search_path`, once at open — the catalogue default,
+    so a backend starts with it already applied, which is what covers **transaction** and
+    **statement** pooling where a `SET` does not survive to the next query. Best effort: a role
+    that may not alter itself still has the first mechanism.
+
+  With that, `pg` and `pgo` share one resolver that takes `<cr>-pgbouncer` first and `<cr>-ha` as
+  the fallback. **Which user depends on which tier**, and that is not a preference either: the
+  pooler's userlist is generated from `spec.users` and the operator leaves the superuser out of it,
+  so connecting through the pool as `postgres` is answered with a flat `FATAL: no such user` (also
+  verified live). Through the pool it is the application user — no CREATEDB, so the sim claims a
+  schema inside the operator's database; direct to the primary it is `postgres`, and the sim gets a
+  database of its own.
+
+**Design-time reachability.** `stockSimK3DExposeIssues` warns, before anything is provisioned, when
+the sim is linked to a frame whose every usable tier is ClusterIP — naming the tiers the frame's
+own form names. A warning rather than an error: the design says what will happen, the cluster
+decides, and an operator release that adds a Service DBCanvas does not know about should not be
+able to block a deploy.
+
+**The designer** stops calling the frame "CloudNativePG (Kubernetes)": `SS_LINK_TYPES.k3d` is
+"Kubernetes operator cluster", the linked-target banner names the operator (and turns red with the
+fix when the frame runs none), and `SS_TARGET_KIND_LABEL` gained `k3d-pxc` … `k3d-pgo` for the kind
+a deployed node now records. `make smoke` gained a check that every operator the frame's own picker
+offers resolves to an engine.
+
+### Verified
+
+Every one of the six was deployed for real on this host — an Intranet node, a one-member K3D frame
+running the operator, and a Stock Market Sim node linked to the frame — and checked by counting the
+rows the running application had written into the cluster:
+
+| Operator | Resolved to | Result |
+| --- | --- | --- |
+| PXC | `k3d-00-haproxy` LoadBalancer `172.26.255.246:3306`, port `mysql` | running; 13 tables in `stocksim`, 136 orders / 55 trades / 340 ticks |
+| Percona Server | `k3d-00-haproxy` LoadBalancer, group replication | running; 65 trades / 460 ticks |
+| PSMDB | `k3d-00-rs0-0`, the member holding the primary role | running; 10 collections, 135 trades |
+| Percona PostgreSQL | `k3d-00-pgbouncer` LoadBalancer, as the app user | running; schema `stocksim` inside `k3d-00`, 41 trades |
+| CloudNativePG | `k3d-00-rw-lb` (the `CNPGEndpoint` §227 records) | running |
+| Crunchy PGO | `k3d-00-pgbouncer` LoadBalancer, as the app user | running; 125 trades |
+
+Three of those runs failed first, and each failure changed the code rather than the test:
+
+- **PXC resolved to `:0`.** `k3dPickEndpoint` returned `(zero, retryable, why)` and the caller read
+  the second value as `ok`, so a cluster that was merely still starting came back as an endpoint.
+  `ok` and `retry` are separate returns now, and `TestResolveServiceRetryability` pins the
+  distinction that makes them different.
+- **The sim beat its own database up.** A K3D node reports Running as soon as `cr.yaml` is applied,
+  minutes before the operator has a database; the sim resolved a LoadBalancer address nobody was
+  listening on and failed its 60-second health check. The resolver now gates on the CR's own
+  `.status.state` (`k3dCRState` — the four Percona operators' CR short names are the operator keys
+  DBCanvas already uses), and logs each distinct reason once so the deploy log reads as a cluster
+  coming up rather than as a hang.
+- **The MongoDB seed list and the pgBouncer startup parameter**, both above.
+
+Also checked: `ALTER ROLE … SET search_path` really does reach a fresh pooled connection — `show
+search_path` on a new connection through `k3d-00-pgbouncer`, with no `SET` of its own, returns
+`stocksim, public`. That is the mechanism transaction pooling depends on, so it is worth having
+seen rather than assumed.
+
+`gofmt`, `go build`, `go vet` and `go test ./...` are clean in both `app/` and `stocksim/`;
+`npm run build` and `make smoke` pass, the latter with the new K3D-operator engine check.
+
+---
+
+## 298. CloudNativePG gets a PgBouncer pool, with a LoadBalancer option — `app/cnpg.go`, `app/k3d.go`, `app/intranet.go`, `app/cnpg_test.go`, `StackDesigner`, `K3DManager`
+
+**The gap was real, and wider than it looked.** The CNPG frame had no LoadBalancer option for
+PgBouncer because it had no PgBouncer at all: `cnpg.go` never mentioned a pool. Its only expose
+setting was `K3DCNPGExpose`, for a hand-written LoadBalancer Service in front of the primary. The
+two Percona/Crunchy PostgreSQL frames have had a two-tier expose (`K3DExposePG` /
+`K3DExposePGBouncer`) all along, because both spell the pool inside `cr.yaml`.
+
+CloudNativePG models it differently: PgBouncer is a **`Pooler`** CR of its own, not a section of
+the `Cluster`, with its own Deployment and its own Service. So it is a separate toggle on the
+frame with a separate expose — which is the arrangement worth having anyway: pool the primary,
+leave Postgres itself in-cluster.
+
+New frame fields `K3DCNPGPooler` / `K3DCNPGPoolerInstances` (0 → 2) / `K3DCNPGPoolerMode`
+(session | transaction) / `K3DCNPGPoolerExpose` (clusterip | loadbalancer), a
+`cnpgPoolerManifest`, and a deploy step after the cluster is healthy that applies it, waits for
+its Deployment, and — for a LoadBalancer — waits for the address. Not fatal if it fails: a cluster
+is fully usable without a pool. Deliberately *not* the shared `K3DExposePGBouncer`, which is
+spelled in cr.yaml terms (NodePort included); CNPG's tiers are hand-written Services, as
+`K3DCNPGExpose` already was.
+
+Details that came out of reading the live CRD rather than guessing:
+
+- `spec.serviceTemplate.spec.type` is how a Pooler's Service becomes a LoadBalancer.
+- `type: rw` makes the pool follow the primary across a failover, like the `-rw` Service.
+- No `authQuery`/`authQuerySecret`: setting either switches **off** CNPG's automatic credential
+  integration, and the app role would stop being able to log in through the pool. A test asserts
+  the manifest never grows one.
+- `serviceTemplate` is omitted entirely for a ClusterIP pool — it is what the operator creates
+  anyway, and a no-op stanza in the archived manifest is noise.
+
+The archived manifest README and the k3s node's panel both report the pool (pods, mode, exposure,
+endpoint).
+
+### Verified
+
+- On a throwaway k3d cluster with the real CloudNativePG chart: `kubectl explain` for every field
+  used, then a 1-instance Cluster reaching healthy, then **the manifests this code generates**
+  (dumped straight out of `cnpgPoolerManifest`) applied to it. The ClusterIP form produced a
+  ClusterIP Service; re-applying the LoadBalancer form updated it in place to `LoadBalancer` with
+  an external address and 2/2 PgBouncer pods; and `psql -h pgtest-pooler-rw -U app` returned
+  `app / app / replica=f` — traffic through the pool reaching the primary with the cluster's own
+  credentials. Cluster deleted afterwards.
+- `gofmt`/`go build`/`go vet`/`go test ./...` and `npm run build` clean.
+
+### Not done
+
+The app simulators still target the CNPG **primary** (`k3dCNPGResolve` reads `CNPGEndpoint` and
+requires `CNPGExpose == LoadBalancer`), so exposing only the pool does not make a Stock Market Sim
+node reachable. That is correct as it stands rather than broken — but routing the sims through the
+pool, the way the docs say the two Percona PostgreSQL operators already are, is the obvious
+follow-up.
+
+---
+
+## 299. The Stock Market Sim reaches CloudNativePG through its pool, and every operator's front end is covered — `app/stocksim_k3d.go`, `app/stocksim_k3d_test.go`, `README.md`
+
+Closing the gap §298 opened, and answering "is the operator front end validated?" — it is, and
+has been: `stockSimK3DExposeIssues` reads `k3dExposedTiers` per operator and warns, before deploy,
+when every tier in front of the database is ClusterIP, naming the ones to change. It is a
+**warning** rather than an error on purpose (the comment there gives the reason: the cluster
+decides, and an operator release that adds a Service DBCanvas has never heard of should not be
+able to block a deploy — the resolver gives the definitive answer at deploy time).
+
+What was actually wrong is that §298 gave CloudNativePG a second front end and told neither half:
+
+- `k3dExposedTiers` listed only "the CloudNativePG primary", so exposing just the pool still
+  warned. It now lists the pool too — but only when the pool is enabled, so an absent tier never
+  reads as one more thing to go and expose.
+- `k3dCNPGResolve` only ever read `CNPGEndpoint`, so an exposed pool was not usable as a target
+  either. It now prefers the pool when the pool has a LoadBalancer address and falls back to the
+  primary — the same order `pg`/`pgo` already resolve in, which is what `docs/STACKS.md` has
+  claimed about "the two PostgreSQL operators" all along. Type `rw` means the pool follows the
+  primary across a failover, and the credentials are the cluster's own either way.
+
+Tests: every one of the six operators must report at least one exposable tier (a regression here
+is silent — the sim just never gets validated), a frame with no operator reports none, and an
+exposed pool in front of an in-cluster primary satisfies the check.
+
+`README.md`'s What's New gains the third entry: all six operators can drive a Stock Market Sim,
+named, with the canvas screenshot of three frames and three sims — and the paragraph that says
+the front end has to be LoadBalancer/NodePort, because that is the one thing the frame cannot
+guess for you.
