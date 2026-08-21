@@ -180,6 +180,7 @@ export const NODE_TYPES = {
       rootPassword: '', gtid: true, pmmNodeId: '', useProxy: false,
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
       exportEnabled: false, exportHostPort: 0,
+      enableOIDC: false, keycloakNodeId: '', oidcRealm: 'dbcanvas',
       enableVault: false, openbaoNodeId: '',
     },
   },
@@ -3754,11 +3755,18 @@ function VaultFields({ node: n, nodes, patchNode, deployed }) {
   )
 }
 
-// KeycloakOidcFields renders the shared "Keycloak SSO" design block for the PMM and PostgreSQL
-// forms: an enable toggle + a Keycloak-node picker + realm. `pg18` locks the pg node to
-// PostgreSQL 18 (pg_oidc_validator requires it) when OIDC is enabled. `blocked` (a message)
-// greys out the toggle when another feature on the node rules OIDC out.
-function KeycloakOidcFields({ node: n, nodes, patchNode, deployed, label, pg18, blocked }) {
+// Version pins for KeycloakOidcFields: each engine's OIDC validator exists in exactly one
+// series, so turning SSO on moves the node onto it rather than letting validation reject the
+// design later. Percona Server's auth_openid_connect plugin arrived in 8.4.11-11, so the
+// minor is cleared to "latest" as well — an 8.4 pinned to an older minor has no plugin.
+const PG_OIDC_PIN = { patch: { pgMajor: '18', pgVersion: '' }, note: <>Uses PostgreSQL 18 + <span className="font-mono">pg_oidc_validator</span> (set automatically).</> }
+const PS_OIDC_PIN = { patch: { psMajor: '8.4', psVersion: '' }, note: <>Uses Percona Server 8.4 (latest minor) + the <span className="font-mono">auth_openid_connect</span> plugin, which Percona added in 8.4.11-11. Not in the 9.7 series yet.</> }
+
+// KeycloakOidcFields renders the shared "Keycloak SSO" design block for the PMM, PostgreSQL
+// and Percona Server forms: an enable toggle + a Keycloak-node picker + realm. `pin` (see
+// above) moves the node onto the version that engine's OIDC support needs and explains why.
+// `blocked` (a message) greys out the toggle when another feature on the node rules OIDC out.
+function KeycloakOidcFields({ node: n, nodes, patchNode, deployed, label, pin, blocked }) {
   const kcNodes = nodes.filter((x) => x.type === 'keycloak')
   const sel = kcNodes.find((k) => k.id === n.keycloakNodeId)
   const selSSL = sel ? sel.generateCert !== false : true
@@ -3768,7 +3776,7 @@ function KeycloakOidcFields({ node: n, nodes, patchNode, deployed, label, pg18, 
       <div className="text-xs font-medium text-muted">Keycloak SSO</div>
       <label className={`flex items-center gap-2 text-sm ${noOidc ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.enableOIDC} disabled={noOidc}
-          onChange={(e) => patchNode(n.id, { enableOIDC: e.target.checked, ...(pg18 && e.target.checked ? { pgMajor: '18', pgVersion: '' } : {}) })} />
+          onChange={(e) => patchNode(n.id, { enableOIDC: e.target.checked, ...(pin && e.target.checked ? pin.patch : {}) })} />
         <span>{label}</span>
       </label>
       {blocked && <p className="text-xs text-muted">{blocked}</p>}
@@ -3786,7 +3794,7 @@ function KeycloakOidcFields({ node: n, nodes, patchNode, deployed, label, pg18, 
             <input className={inputCls} value={n.oidcRealm ?? 'dbcanvas'} disabled={deployed} onChange={(e) => patchNode(n.id, { oidcRealm: e.target.value })} />
           </Field>
           {n.keycloakNodeId && !selSSL && <p className="text-xs text-warning">Enable “Use Intranet CA SSL” on the selected Keycloak — OIDC needs an HTTPS issuer.</p>}
-          {pg18 && <p className="text-xs text-muted">Uses PostgreSQL 18 + <span className="font-mono">pg_oidc_validator</span> (set automatically).</p>}
+          {pin && <p className="text-xs text-muted">{pin.note}</p>}
         </>
       )}
     </div>
@@ -4042,6 +4050,11 @@ function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
 
       <DirectoryAuthFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} kerberos={false} />
 
+      {/* Unlike PostgreSQL, MySQL picks its auth plugin per account, so LDAP and OIDC
+          accounts coexist happily on one server — neither blocks the other. */}
+      <KeycloakOidcFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed}
+        label="Token login with Keycloak (auth_openid_connect)" pin={PS_OIDC_PIN} />
+
       <VaultFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} />
 
       {!deployed && <p className="text-xs text-muted">Access links and credentials appear here after deploy.</p>}
@@ -4165,7 +4178,7 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
       <DirectoryAuthFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} kerberos={true}
         ldapBlocked={n.enableOIDC ? 'PostgreSQL cannot do LDAP and Keycloak OIDC at once — turn off Keycloak SSO below to use LDAP.' : ''} />
 
-      <KeycloakOidcFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} label="OAuth login with Keycloak (pg_oidc_validator)" pg18
+      <KeycloakOidcFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} label="OAuth login with Keycloak (pg_oidc_validator)" pin={PG_OIDC_PIN}
         blocked={n.ldapAuth ? 'PostgreSQL cannot do LDAP and Keycloak OIDC at once — turn off LDAP above to use Keycloak SSO.' : ''} />
 
       {!deployed && <p className="text-xs text-muted">A single read/write PostgreSQL instance (no replication). Access links and credentials appear here after deploy.</p>}
@@ -4607,9 +4620,9 @@ function VNCForm({ node: n, patchNode, deleteNode, dep, deployed }) {
       </div>
       <p className="text-xs text-muted">
         XFCE desktop over a browser-based VNC client, with Firefox, the OpenSSH client, the Percona clients
-        (MySQL/PSMDB/Valkey/PostgreSQL), percona-toolkit + ldap-utils already in the image
-        (<code>dbcanvas-vnc:ubuntu-24.04</code>, built by <code>make vnc-image</code>). The login user has sudo
-        for installing more tools.
+        (MySQL 8.4 with the OpenID Connect plugin, plus PSMDB/Valkey/PostgreSQL), percona-toolkit + ldap-utils
+        already in the image (<code>dbcanvas-vnc:ubuntu-24.04</code>, built by <code>make vnc-image</code>).
+        The login user has sudo for installing more tools.
       </p>
 
       <Field label="Label" hint="Becomes the node hostname; must be unique.">

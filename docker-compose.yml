@@ -39,6 +39,7 @@ services:
       GRAFANA_PASSWORD: ${GRAFANA_PASSWORD:-grafana_password}
       # Keycloak's "admin" console user.
       KEYCLOAK_PASSWORD: ${KEYCLOAK_PASSWORD:-keycloak_password}
+      KEYCLOAK_USER_PASSWORD: ${KEYCLOAK_USER_PASSWORD:-keycloak_user_password}
       # Ubuntu VNC desktop: the desktop login and the VNC access code. VncAuth
       # uses only the first 8 characters.
       VNC_PASSWORD: ${VNC_PASSWORD:-vnc_password}

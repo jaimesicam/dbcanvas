@@ -150,10 +150,23 @@ certificate, users, and on-demand backups.
 **Authentication.** Point a database at a directory and it is wired at deploy: **LDAP** against
 the Intranet OpenLDAP or the Samba AD DC (Percona Server, PostgreSQL, PSMDB), **Kerberos/GSSAPI**
 single sign-on against the Samba AD DC (PostgreSQL, PSMDB), and **Keycloak OIDC** (PMM, PostgreSQL
-18 via `pg_oidc_validator`, PSMDB via `MONGODB-OIDC`). The designer greys out combinations an
-engine cannot actually run — PostgreSQL cannot do LDAP and OIDC at once (they compete for the same
-`pg_hba` line), and MongoDB cannot combine OIDC with LDAP/Kerberos (each needs its own `mongod.conf`
-`setParameter` block) — and validation blocks the deploy rather than letting one silently win.
+18 via `pg_oidc_validator`, PSMDB via `MONGODB-OIDC`, Percona Server 8.4 via `auth_openid_connect`).
+The designer greys out combinations an engine cannot actually run — PostgreSQL cannot do LDAP and
+OIDC at once (they compete for the same `pg_hba` line), and MongoDB cannot combine OIDC with
+LDAP/Kerberos (each needs its own `mongod.conf` `setParameter` block) — and validation blocks the
+deploy rather than letting one silently win. MySQL has no such conflict: it picks an auth plugin
+per account, so LDAP and OIDC accounts live side by side on one server.
+
+Turning on Keycloak SSO for a **Percona Server** node moves it to 8.4 (latest minor): Percona
+added `auth_openid_connect` in **8.4.11-11**, and the 9.7 series does not carry it yet. The deploy
+wires the whole demo, not just the plugin — a realm and a public `mysql` client on the Keycloak
+node, sample users `jane` and `john` in an `accounting` group, MySQL accounts bound to those users'
+`sub` claims, and an `oidc_demo` schema only the group's role can read. The node's **Keycloak SSO**
+tab shows how to log in, and DBCanvas writes a small shell wrapper to `/usr/local/bin/oidc-login`
+on the node (not an upstream tool) that does the whole round-trip in one command: ask Keycloak for
+an ID token, hand the file to `mysql`. No MySQL password is ever sent, and the
+group→role mapping means `SHOW GRANTS` gains `accounting` at connection time (activate it with
+`SET ROLE`). The link must be encrypted — a Unix socket, or TCP with `--ssl-mode=REQUIRED`.
 
 **Data-at-rest encryption (OpenBao).** Add an **OpenBao** node (a Vault-compatible secrets
 manager, one per stack) and tick *Encrypt with OpenBao* on a Percona Server or PSMDB node. At
@@ -270,7 +283,9 @@ themselves, so Percona Monitoring & Management comes up already watching the sta
 ![Percona Monitoring & Management, already watching the services that registered with it](screenshots/pmm-web.png)
 
 **Ubuntu VNC desktop.** An optional XFCE desktop jump-box (Firefox + Percona clients)
-reachable over a browser-based VNC client — handy for GUI database tools inside the stack network:
+reachable over a browser-based VNC client — handy for GUI database tools inside the stack network.
+Its MySQL client is **8.4**, with the OpenID Connect client plugin, so a Keycloak user can sign in
+to a Percona Server node from the desktop the same way they would from the node itself:
 
 ![The Ubuntu VNC desktop, querying a cluster node by name with the pre-installed client](screenshots/vnc-desktop.png)
 

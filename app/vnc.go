@@ -16,7 +16,11 @@ import (
 //
 // It provides an XFCE desktop over a browser-based VNC client (TigerVNC + noVNC/
 // websockify), Firefox, the OpenSSH client, and percona-release with the Percona client
-// tools (MySQL/PSMDB/Valkey/PostgreSQL) + percona-toolkit + ldap-utils. A sudo-enabled
+// tools (MySQL/PSMDB/Valkey/PostgreSQL) + percona-toolkit + ldap-utils. The MySQL client is
+// 8.4, and percona-server-server is installed alongside it — masked, never started — purely
+// because that package is the only one carrying the client-side auth plugins, including
+// authentication_openid_connect_client.so, which the desktop needs to sign in to a
+// Keycloak-backed Percona Server node (see images/vnc.Dockerfile). A sudo-enabled
 // login user (credentials from the node properties) lets the operator install more
 // packages for ad-hoc debugging. Per-stack singleton.
 //

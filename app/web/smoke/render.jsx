@@ -30,6 +30,7 @@ import {
   NODE_TYPES, CONNECTABLE_FRAMES, SS_LINK_TYPES, SS_LINK_ENGINE,
 } from '../src/pages/StackDesigner.jsx'
 import MySQLManager from '../src/pages/MySQLManager.jsx'
+import OidcLoginGuide from '../src/components/OidcLoginGuide.jsx'
 import PacketInspector, {
   Timeline as PktTimeline, RangeControls as PktRangeControls, Filters as PktFilters,
   PacketList as PktList, PacketDetails as PktDetails, SummaryStrip as PktSummary,
@@ -330,6 +331,59 @@ for (const [nodeId, dep] of Object.entries(realDeps)) {
     return html
   })
 }
+
+// The Keycloak-SSO tab is driven entirely by dep.config.oidc, which the Go side writes as
+// oidcInfo (pgoidc.go) — so this renders the guide over exactly the field names
+// applyMySQLOIDC persists. A renamed field would otherwise show up as a blank instruction.
+check('MySQLManager: the Keycloak SSO tab renders the accounts the deploy created', () => {
+  const dep = {
+    state: 'running', containerId: 'abc123def456',
+    config: {
+      hostname: 'ps1', fqdn: 'ps1.example.net', role: 'standalone', serverId: 1,
+      image: 'dbcanvas-systemd:oraclelinux-9-amd64', psVersion: '8.4.11-11.1', ports: [3306],
+      oidc: {
+        enabled: true, realm: 'dbcanvas', clientId: 'mysql',
+        issuer: 'https://keycloak.example.net:8443/realms/dbcanvas',
+        consoleUrl: 'https://keycloak.example.net:8443',
+        nodeFqdn: 'ps1.example.net', users: ['jane', 'john'],
+        group: 'accounting', role: 'accounting', database: 'oidc_demo',
+      },
+    },
+    secrets: { rootUser: 'root', rootPassword: 'root_password', oidcSamplePassword: 'keycloak_user_password' },
+  }
+  const html = renderToString(
+    <TerminalProvider>
+      <MySQLManager stackId={1} nodeId="ps1" dep={dep} onDeleteNode={noop} />
+    </TerminalProvider>,
+  )
+  if (!html.includes('Keycloak SSO')) throw new Error('the SSO tab is missing')
+  const guide = renderToString(<OidcLoginGuide engine="ps" info={dep.config.oidc} secrets={dep.secrets} />)
+  // The facts have to be on the page, not left to the reader: where Keycloak is, which
+  // accounts exist, and the password those accounts actually have.
+  for (const want of [
+    'oidc-login jane', 'auth_openid_connect', 'ps1.example.net', 'oidc_demo', 'SET ROLE accounting',
+    'https://keycloak.example.net:8443', 'jane, john',
+    // oidc-login is a wrapper DBCanvas writes, not an upstream tool — say where it is, or it
+    // reads as an invented command.
+    '/usr/local/bin/oidc-login',
+  ]) {
+    if (!guide.includes(want)) throw new Error(`login guide omits ${want}`)
+  }
+  if (guide.includes('undefined')) throw new Error('login guide rendered a literal "undefined"')
+  return guide
+})
+
+// A node without OIDC must not grow the tab (cfg.oidc is simply absent).
+check('MySQLManager: no Keycloak SSO tab without it', () => {
+  const dep = { state: 'running', config: { hostname: 'ps2', fqdn: 'ps2.example.net', role: 'standalone' }, secrets: {} }
+  const html = renderToString(
+    <TerminalProvider>
+      <MySQLManager stackId={1} nodeId="ps2" dep={dep} onDeleteNode={noop} />
+    </TerminalProvider>,
+  )
+  if (html.includes('Keycloak SSO')) throw new Error('the SSO tab showed on a node without OIDC')
+  return 'hidden'
+})
 
 // --- Packet Inspector -------------------------------------------------------
 // The page itself renders only its empty state under SSR (no effects, no fetch),

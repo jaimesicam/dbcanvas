@@ -9,6 +9,36 @@ development: spin up a production-shaped cluster in minutes, exercise it, tear i
 
 ![The Database Stacks canvas with a deployed stack](docs/screenshots/stacks-canvas.png)
 
+## What's New
+
+**OpenID Connect sign-in for Percona Server, with Keycloak as the identity provider.**
+Percona added the `auth_openid_connect` plugin in **Percona Server 8.4.11-11**, and DBCanvas
+wires it up for you: add a **Keycloak** node, tick *Keycloak SSO* on a **Percona Server** node,
+and deploy. You get a realm and an OIDC client on Keycloak, sample users in a group, MySQL
+accounts bound to those users' identities, and a demo schema only that group's role can read.
+Users then sign in with a signed ID token from Keycloak — **no MySQL password is ever sent** —
+and their Keycloak group grants the matching MySQL role.
+
+![The Percona Server node's Keycloak SSO tab, beside a console signing in with an ID token](docs/screenshots/keycloak-oidc.png)
+
+> *The node's **Keycloak SSO** tab gives you the issuer, client, accounts and the sample users'
+> password, then the exact commands. In the console beside it, `jane` trades her Keycloak
+> password for an `id_token` and logs in with it — `SHOW GRANTS` shows the `accounting` role
+> arriving from her Keycloak group.*
+
+The 8.4 LTS series is the only one that has this so far — 9.7 does not carry the plugin yet, so
+the designer keeps the node on 8.4 when you turn SSO on. The **Ubuntu VNC** desktop ships the
+8.4 client and its OIDC plugin, so you can sign in from there too.
+
+**A file manager, and drag and drop.** Drag a file — or a whole folder — from your desktop
+straight onto a node on the canvas and DBCanvas asks where to put it: no scp, no bind mount, no
+shell. Right-click a running node and choose **File manager** for the whole filesystem —
+navigate, upload and download, create, rename, change permissions and ownership, delete, and
+**edit a file in place**. **Split** opens a second pane on another node and copies between the
+two, which is the fastest way to put one file on every member of a cluster.
+
+![The File Manager browsing a node's filesystem](docs/screenshots/file-manager.png)
+
 ## Quickstart
 
 Requires **Docker**, with access to its daemon socket.

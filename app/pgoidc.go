@@ -25,35 +25,51 @@ type oidcInfo struct {
 	Realm    string `json:"realm"`
 	Issuer   string `json:"issuer"`
 	ClientID string `json:"clientId"`
-	NodeFQDN string `json:"nodeFqdn,omitempty"` // pg
+	NodeFQDN string `json:"nodeFqdn,omitempty"` // pg, ps
 	LoginURL string `json:"loginUrl,omitempty"` // pmm
+	// Where the Keycloak console itself lives, so the panel can point at it rather than
+	// leaving the reader to work it out from the issuer.
+	ConsoleURL string `json:"consoleUrl,omitempty"`
+	// Percona Server only: what applyMySQLOIDC actually created on the node, so the
+	// login guide can name real accounts instead of a placeholder.
+	Users    []string `json:"users,omitempty"`    // MySQL accounts bound to a Keycloak user
+	Group    string   `json:"group,omitempty"`    // Keycloak group those users belong to
+	Role     string   `json:"role,omitempty"`     // MySQL role that group grants
+	Database string   `json:"database,omitempty"` // schema the role can read
 }
 
-// oidcIssues validates a pmm/pg node's Keycloak-SSO selection: a linked SSL-enabled Keycloak
-// (HTTPS issuer), PostgreSQL 18 for the pg node (pg_oidc_validator needs it), and — for pg —
-// no LDAP alongside OIDC: both claim the same `host all all` pg_hba catch-all and the first
-// matching line wins, so the two can never both be live. (Kerberos is fine: it matches on a
-// separate `hostgssenc` line.)
+// oidcIssues validates a pmm/pg/ps node's Keycloak-SSO selection: a linked SSL-enabled
+// Keycloak (HTTPS issuer), plus the per-engine version each validator needs — PostgreSQL 18
+// for pg (pg_oidc_validator) and Percona Server 8.4.11-11 for ps (auth_openid_connect). For
+// pg there is one more rule: no LDAP alongside OIDC, because both claim the same
+// `host all all` pg_hba catch-all and the first matching line wins, so the two can never both
+// be live. (Kerberos is fine: it matches on a separate `hostgssenc` line. And MySQL has no
+// such conflict at all — its auth plugin is chosen per account.)
 func oidcIssues(n designNode, keycloakIDs, keycloakSSL map[string]bool) []issue {
 	if !n.EnableOIDC {
 		return nil
 	}
-	label := "PMM"
-	if n.Type == "pg" {
-		label = "PostgreSQL"
-	}
+	label := nodeKindLabel(n.Type) + " node " + n.Label
 	if !keycloakIDs[n.KeycloakNodeID] {
-		return []issue{{"error", label + " node " + n.Label + " has Keycloak SSO enabled but is not linked to a Keycloak node — add a Keycloak node and select it"}}
+		return []issue{{"error", label + " has Keycloak SSO enabled but is not linked to a Keycloak node — add a Keycloak node and select it"}}
 	}
 	if !keycloakSSL[n.KeycloakNodeID] {
-		return []issue{{"error", label + " node " + n.Label + " uses Keycloak OIDC, which requires an HTTPS issuer — enable \"Use Intranet CA SSL\" on the Keycloak node"}}
+		return []issue{{"error", label + " uses Keycloak OIDC, which requires an HTTPS issuer — enable \"Use Intranet CA SSL\" on the Keycloak node"}}
 	}
-	if n.Type == "pg" {
+	switch n.Type {
+	case "pg":
 		if ppgMajorOf(n.PGMajor) != "18" {
-			return []issue{{"error", "PostgreSQL node " + n.Label + " uses Keycloak OIDC (pg_oidc_validator), which requires PostgreSQL 18 — set the version to 18"}}
+			return []issue{{"error", label + " uses Keycloak OIDC (pg_oidc_validator), which requires PostgreSQL 18 — set the version to 18"}}
 		}
 		if n.LdapAuth {
-			return []issue{{"error", "PostgreSQL node " + n.Label + " has both LDAP and Keycloak OIDC enabled — PostgreSQL cannot use both (they compete for the same pg_hba line); turn one off"}}
+			return []issue{{"error", label + " has both LDAP and Keycloak OIDC enabled — PostgreSQL cannot use both (they compete for the same pg_hba line); turn one off"}}
+		}
+	case "ps":
+		if psMajorOf(n.PSMajor) != "8.4" {
+			return []issue{{"error", label + " uses Keycloak OIDC (auth_openid_connect), which Percona ships in the 8.4 LTS series only — 9.7 does not carry the plugin yet; set the Percona Server major to 8.4"}}
+		}
+		if !psVersionAtLeast(n.PSVersion, mysqlOIDCMinVersion) {
+			return []issue{{"error", label + " is pinned to Percona Server " + n.PSVersion + ", which predates auth_openid_connect — choose " + mysqlOIDCMinVersion + " or newer, or leave the minor version at \"latest\""}}
 		}
 	}
 	return nil
@@ -80,6 +96,27 @@ func (a *App) persistConfigKey(st Stack, nodeID, key string, val any) {
 	m[key] = val
 	if b, e := json.Marshal(m); e == nil {
 		dep.Config = b
+		a.store.UpsertDeployment(dep)
+	}
+}
+
+// persistSecretKey is persistConfigKey for a node's Deployment.Secrets — it merges key→val
+// into the stored JSON without going through the engine's own secrets struct. Used where a
+// secret belongs to one node type but the struct is shared: pxcSecrets covers the whole MySQL
+// family (PXC, replication, MariaDB, MySQL CE), and none of them but the standalone Percona
+// Server node has anything to do with Keycloak.
+func (a *App) persistSecretKey(st Stack, nodeID, key string, val any) {
+	dep, err := a.store.GetDeployment(st.ID, nodeID)
+	if err != nil {
+		return
+	}
+	m := map[string]any{}
+	if len(dep.Secrets) > 0 {
+		json.Unmarshal(dep.Secrets, &m)
+	}
+	m[key] = val
+	if b, e := json.Marshal(m); e == nil {
+		dep.Secrets = b
 		a.store.UpsertDeployment(dep)
 	}
 }

@@ -91,12 +91,15 @@ type designNode struct {
 	// RootPassword (admin pw), PMMNodeID, UseProxy, GenerateCert/CertTTL, export above).
 	PSMDBMajor   string `json:"psmdbMajor"`   // "6.0" | "7.0" | "8.0"
 	PSMDBVersion string `json:"psmdbVersion"` // minor; "" → latest
-	// Keycloak OIDC authentication for a standalone PS MongoDB node (Type=="psm").
-	// When EnableOIDC is set, mongod is configured with a MONGODB-OIDC identity
-	// provider pointing at the selected Keycloak node (KeycloakNodeID).
+	// Keycloak OIDC authentication. When EnableOIDC is set the node is wired at deploy to
+	// the selected Keycloak node (KeycloakNodeID) — as a MONGODB-OIDC identity provider on
+	// a standalone PS MongoDB node (Type=="psm"), Grafana generic OAuth on PMM,
+	// pg_oidc_validator on PostgreSQL, or the auth_openid_connect plugin on a standalone
+	// Percona Server node (Type=="ps"; see mysqloidc.go). The OIDCClientID/AuthClaim fields
+	// below are psm-only; the other engines derive a client id of their own.
 	EnableOIDC       bool   `json:"enableOIDC"`
 	KeycloakNodeID   string `json:"keycloakNodeId"`   // Keycloak node providing OIDC (required when EnableOIDC)
-	OIDCRealm        string `json:"oidcRealm"`        // Keycloak realm ("" → "mongodb")
+	OIDCRealm        string `json:"oidcRealm"`        // Keycloak realm ("" → "mongodb" for psm, "dbcanvas" elsewhere)
 	OIDCClientID     string `json:"oidcClientId"`     // OIDC client id == audience ("" → "mongodb-client")
 	OIDCAuthClaim    string `json:"oidcAuthClaim"`    // group/authorization token claim ("" → "MyClaim")
 	OIDCUseAuthClaim bool   `json:"oidcUseAuthClaim"` // true → authorize via group claim (creates keycloak/* roles)
@@ -913,6 +916,8 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			}
 			if n.Type == "psm" {
 				out = append(out, mongoOIDCIssues(n, keycloakIDs, keycloakSSL)...)
+			} else {
+				out = append(out, oidcIssues(n, keycloakIDs, keycloakSSL)...)
 			}
 			out = append(out, dirAuthIssues(n, dirNodes)...)
 			out = append(out, vaultIssues(n, openbaoIDs)...)

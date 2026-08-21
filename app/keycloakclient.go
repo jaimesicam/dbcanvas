@@ -30,6 +30,7 @@ type kcClientSpec struct {
 	Public      bool           // public client (no secret) vs confidential
 	StdFlow     bool           // authorization-code flow (PMM); false for device-only
 	DeviceFlow  bool           // OAuth 2.0 device authorization grant (psql/libpq)
+	DirectGrant bool           // resource-owner password grant (Percona Server's ID-token fetch)
 	Redirect    []string       // redirect URIs (confidential/standard flow)
 	GroupsClaim bool           // add a "groups" group-membership mapper
 	Groups      []string       // groups to ensure
@@ -41,13 +42,22 @@ type kcClientSpec struct {
 // ensureKeycloakClient runs kcadm inside the Keycloak container and returns the client secret
 // (empty for a public client).
 func (a *App) ensureKeycloakClient(ctx context.Context, kcContainerID, adminPW string, spec kcClientSpec) (string, error) {
+	secret, _, err := a.ensureKeycloakClientUsers(ctx, kcContainerID, adminPW, spec)
+	return secret, err
+}
+
+// ensureKeycloakClientUsers is ensureKeycloakClient plus the Keycloak user id of every sample
+// user, keyed by username. That id is the `sub` claim of the tokens Keycloak issues for the
+// user, which is what Percona Server's auth_openid_connect matches an account against — so a
+// caller that has to create accounts up front needs the ids, not just the usernames.
+func (a *App) ensureKeycloakClientUsers(ctx context.Context, kcContainerID, adminPW string, spec kcClientSpec) (string, map[string]string, error) {
 	clientJSON, _ := json.Marshal(map[string]any{
 		"clientId":                  spec.ClientID,
 		"protocol":                  "openid-connect",
 		"enabled":                   true,
 		"publicClient":              spec.Public,
 		"standardFlowEnabled":       spec.StdFlow,
-		"directAccessGrantsEnabled": false,
+		"directAccessGrantsEnabled": spec.DirectGrant,
 		"redirectUris":              spec.Redirect,
 		"attributes":                map[string]any{"oauth2.device.authorization.grant.enabled": fmt.Sprintf("%v", spec.DeviceFlow)},
 	})
@@ -68,19 +78,35 @@ func (a *App) ensureKeycloakClient(ctx context.Context, kcContainerID, adminPW s
 	}
 	out, err := a.execScript(ctx, kcContainerID, keycloakClientScript, env)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	secret := ""
+	secret, ids := "", map[string]string{}
+	var noPassword []string
 	for _, line := range strings.Split(out, "\n") {
-		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "SECRET="); ok {
+		line = strings.TrimSpace(line)
+		if v, ok := strings.CutPrefix(line, "SECRET="); ok {
 			secret = v
 		}
+		if v, ok := strings.CutPrefix(line, "USERID="); ok {
+			if name, id, found := strings.Cut(v, ":"); found && id != "" {
+				ids[name] = id
+			}
+		}
+		if v, ok := strings.CutPrefix(line, "PWFAIL="); ok {
+			noPassword = append(noPassword, v)
+		}
 	}
-	return secret, nil
+	// A sample user nobody can sign in as is a broken demo, not a partial success — and it
+	// used to pass silently, which is exactly how it went unnoticed.
+	if len(noPassword) > 0 {
+		return "", nil, fmt.Errorf("Keycloak would not set a password for %s", strings.Join(noPassword, ", "))
+	}
+	return secret, ids, nil
 }
 
 // keycloakClientScript ensures realm + client (from $CLIENT_JSON) + optional groups mapper,
-// groups and sample users, then prints SECRET=<client secret> (empty for public clients).
+// groups and sample users. It prints USERID=<username>:<id> per sample user and finally
+// SECRET=<client secret> (empty for public clients).
 const keycloakClientScript = `set -e
 KC=/opt/keycloak/bin/kcadm.sh
 $KC config credentials --server http://localhost:8080 --realm master --user admin --password "$KC_ADMIN_PW" >/dev/null
@@ -106,7 +132,19 @@ for spec in $USERS; do
   $KC create users -r "$REALM" -s username="$U" -s enabled=true -s email="$U@$DOMAIN" -s emailVerified=true -s firstName="$FN" -s lastName="$LN" >/dev/null 2>&1 || true
   UID1=$($KC get users -r "$REALM" -q username="$U" --fields id --format csv --noquotes | tail -n1)
   [ -n "$UID1" ] || continue
-  $KC set-password -r "$REALM" --userid "$UID1" --new-password "$SAMPLE_PW" --temporary=false >/dev/null 2>&1 || true
+  echo "USERID=$U:$UID1"
+  # set-password used to be fire-and-forget, and the FIRST user of a freshly created realm
+  # would silently end up with no credential at all — Keycloak is still initialising the realm
+  # when the credential write lands. (A later user in the same loop always succeeded.) The
+  # re-login also covers the other way this fails quietly: the master realm's admin access
+  # token lives 60s, which a long user list can outrun. Retry, then say so.
+  n=0
+  until $KC set-password -r "$REALM" --userid "$UID1" --new-password "$SAMPLE_PW" --temporary=false >/dev/null 2>&1; do
+    n=$((n + 1))
+    if [ "$n" -ge 5 ]; then echo "PWFAIL=$U"; break; fi
+    sleep 2
+    $KC config credentials --server http://localhost:8080 --realm master --user admin --password "$KC_ADMIN_PW" >/dev/null 2>&1 || true
+  done
   if [ -n "$GRP" ]; then
     GID=$($KC get groups -r "$REALM" --fields id,name --format csv --noquotes | grep ",\?$GRP\"\?$" | head -n1 | cut -d, -f1 | tr -d '"')
     [ -n "$GID" ] && $KC update "users/$UID1/groups/$GID" -r "$REALM" -n >/dev/null 2>&1 || true

@@ -16795,3 +16795,192 @@ panel alone could not show.
 - Both are of the running systems: the PXC cluster reached three ready members before the shot,
   and the log verdict describes the restart this session caused.
 - Captions rewritten; every link and screenshot reference still resolves.
+
+---
+
+## 295. Keycloak SSO for Percona Server 8.4 (`auth_openid_connect`) — `app/mysqloidc.go` (new), `app/keycloakclient.go`, `app/pgoidc.go`, `app/mysql.go`, `app/intranet.go`, `PerconaServerForm`, `MySQLManager`, `OidcLoginGuide.jsx`
+
+**Goal.** The fourth engine behind the Keycloak node (after PSMDB, PMM and PostgreSQL §104):
+a standalone Percona Server node (`ps`) that accepts signed ID tokens from Keycloak through the
+**`auth_openid_connect`** plugin Percona shipped in **8.4.11-11** (2026-08-20). Same shape as the
+others — a toggle on the canvas, configured at deploy, a login guide on the node's panel — and
+scoped to the standalone node, which is where every other auth/encryption integration in this app
+lives (LDAP §103, OpenBao §106). Not offered on 9.7: `9.7.1-1` (2026-08-05) predates the feature.
+
+**What the deploy builds.** Not just the plugin — the whole demo, so the node is usable the moment
+it goes green. A realm + public `mysql` client on the Keycloak node, sample users `jane` and `john`
+in an `accounting` group, MySQL accounts bound to those users' `sub` claims, an `oidc_demo` schema
+that only the group's role can read, and an `oidc-login <user>` helper on the node that does the
+whole round-trip in one command.
+
+**Recipe** (`mysqloidc.go`, mirroring `applyPGOIDC`), every point of it established live:
+
+- Both libraries — `auth_openid_connect.so` (server) and
+  `authentication_openid_connect_client.so` (client) — are **inside `percona-server-server`**.
+  No extra package, and nothing to install client-side on the node.
+- The plugin is loaded from `/etc/my.cnf` with `plugin-load-add`, **not** `INSTALL PLUGIN`:
+  `auth_openid_connect_configuration` is a plugin variable, so an option file can only carry it if
+  the plugin is already loaded when options are parsed. That also makes the whole configuration
+  survive a restart without going near `mysqld-auto.cnf`.
+- The trust document lives in its own file as `FILE:///etc/mysql-oidc-idp.json`. The `JSON://`
+  prefix would mean quoting a JSON document inside a `my.cnf` value.
+- The plugin fetches the JWKS over HTTPS with the **system trust store**, which `mysqlPrepareNode`
+  has already loaded with the Intranet CA (`trustIntranetCA`) — so an Intranet-CA Keycloak
+  validates with no plugin-specific TLS setting. Hence the SSL-Keycloak requirement: HTTPS issuer.
+- `group-role` maps a Keycloak group to a MySQL role, and the key must match the claim **verbatim**.
+  `ensureKeycloakClient` builds the group-membership mapper with `full.path=false`, so the claim is
+  `accounting` and the mapping key is `accounting` — not `/accounting` as in Percona's own
+  quickstart, which assumes a full-path mapper.
+- A group-mapped role is **granted but not activated**: `SHOW GRANTS` gains it at connection time
+  while `CURRENT_ROLE()` stays `NONE` until `SET ROLE`. The guide says so rather than flipping
+  `activate_all_roles_on_login`, which would change role behaviour for every other account.
+- Secure transport is enforced. Socket is fine; over TCP, `--ssl-mode=DISABLED` is refused with a
+  bare `Access denied`, so the guide always passes `--ssl-mode=REQUIRED`.
+- The script reverts `/etc/my.cnf` and restarts if mysqld will not come back or the plugin does not
+  reach `ACTIVE` — a failed SSO extra leaves a working database, not a dead node (and, like pg, it
+  is logged as "skipped" rather than failing the deploy).
+
+**Keycloak helper.** `kcClientSpec` gained `DirectGrant` (resource-owner password grant — what the
+quickstart uses to fetch an ID token; PMM/pg keep it off), and `keycloakClientScript` now prints
+`USERID=<username>:<id>` per sample user. The new `ensureKeycloakClientUsers` returns that map:
+the account is bound to the Keycloak **user id**, which is the token's `sub`, so the MySQL user
+cannot be created until Keycloak has minted the user. `ensureKeycloakClient` is a thin wrapper, so
+the PMM and PostgreSQL callers are untouched.
+
+**Validation.** `oidcIssues` now covers `ps` too (and uses `nodeKindLabel`, so each engine names
+itself): linked SSL Keycloak, major `8.4`, and a minor at or after `8.4.11-11` — the new
+`psVersionAtLeast` compares numeric components across both `.` and `-`, so `8.4.9-9.1` correctly
+loses to `8.4.11-11` where a string compare would not. Empty ("latest") always passes.
+
+**Frontend.** `KeycloakOidcFields`'s `pg18` flag generalised to a `pin` ({patch, note}) so each
+engine states its own version requirement; `PG_OIDC_PIN` and `PS_OIDC_PIN` are the two. Added the
+block to `PerconaServerForm` with no `blocked` message — MySQL picks its auth plugin per account,
+so LDAP and OIDC coexist and neither greys the other out. New `ps` branch in `OidcLoginGuide`
+(the `oidc-login` command, the curl+`mysql` steps it stands for, `SET ROLE`, the TLS rule, and how
+to add your own Keycloak user), rendered in a **Keycloak SSO** tab on `MySQLManager` gated on
+`dep.config.oidc.enabled`, plus a line on the Overview.
+
+### Verified
+
+- **Live, before the code was written**, against a real `percona-server-server-8.4.11-11.1.el9` on
+  the Oracle Linux 9 systemd image + Keycloak 26.5.5 with a CA-signed HTTPS issuer: token fetched,
+  `iss`/`aud`/`sub`/`groups` claims confirmed, login over socket and over TCP+TLS, plaintext TCP
+  refused, `SET ROLE` reaching `oidc_demo`.
+- **Then the committed scripts themselves**, extracted from the Go source and run in those
+  containers: `mysqlOIDCScript` end to end (plugin `ACTIVE`, accounts created, `oidc-login jane`
+  and `oidc-login john --ssl-mode=REQUIRED` both returning rows, a wrong password reported
+  cleanly), idempotent on a second run (one `my.cnf` block, not two), and surviving a full
+  container restart. `keycloakClientScript` against the live Keycloak on a fresh realm: client
+  flags right (`publicClient`, `directAccessGrantsEnabled`, no standard flow), `USERID=` lines
+  emitted, and the id it printed matching the `sub` in the token Keycloak then issued.
+- `gofmt`/`go build`/`go vet`/`go test ./...` clean; `npm run build` and `make smoke` clean, with
+  two new smoke checks rendering the SSO tab over the exact `oidcInfo` shape the Go side persists
+  and confirming it stays hidden without OIDC.
+
+---
+
+## 296. The Keycloak SSO tab states its facts, and the sample users actually get a password — `app/keycloakclient.go`, `app/mysqloidc.go`, `app/pgoidc.go`, `app/mysql.go`, `OidcLoginGuide.jsx`, `MySQLManager`, `docker-compose.yml`
+
+Two problems found on the first real deploy of §295 (stack 121: Intranet + Keycloak + VNC + PSMDB
++ Percona Server).
+
+**The panel read as invented.** The Keycloak SSO tab opened with two `oidc-login` commands and
+told the reader their password was "`KEYCLOAK_USER_PASSWORD` from `.env`". Both are true, and
+neither is checkable from where you are standing — nothing on the page said where Keycloak was or
+what the password actually is, so the commands looked made up. The PSMDB node's tab
+(`MongoDBManager`'s `KeycloakSSOTab`) had the right shape all along: facts first — issuer, client,
+sample users, and the password itself as a revealable `SecretValue` — then the commands. The `ps`
+branch now follows it: a KV block (Keycloak console URL, issuer, client id, realm, the MySQL
+accounts that exist, and `group → role (SELECT on schema)`), the password revealed inline, then the
+two `oidc-login` copy-rows, then what the helper expands to. `oidcInfo` gained `ConsoleURL`.
+
+The password lands in the node's `Deployment.Secrets` via a new **`persistSecretKey`** (the mirror
+of `persistConfigKey`) rather than a field on `pxcSecrets`. That struct is shared by the whole
+MySQL family, and **PXC has no OIDC plugin** — nothing about Keycloak belongs on it. The feature
+stays exactly where §295 put it: the standalone `ps` node, 8.4 at 8.4.11-11 or newer.
+
+**The first sample user of a fresh realm silently had no password.** `jane` could not get a token
+from Keycloak; `john`, created seconds later in the same loop, was fine — and the MySQL accounts,
+group memberships and `sub` bindings were all correct, so nothing looked broken. The cause is in
+`keycloakClientScript`, where `set-password` was `>/dev/null 2>&1 || true`: Keycloak is still
+initialising a realm it has just been asked to create, the first credential write against it does
+not take, and the failure was thrown away. It now retries five times, re-running
+`kcadm config credentials` between attempts — which also closes the other silent failure in that
+loop, the master realm's **60-second** admin access token, which a long enough user list outruns —
+and emits `PWFAIL=<user>` if it never lands. `ensureKeycloakClientUsers` turns that into an error:
+a sample user nobody can sign in as is a broken demo, not a partial success. This bug was never
+`ps`-specific — PMM's `alice` and PostgreSQL's `jane` were exposed to it too.
+
+**`KEYCLOAK_USER_PASSWORD` was never passed to the app container.** It is documented in
+`docs/CONFIGURATION.md` and read by `keycloakUserPassword()`, but `docker-compose.yml` did not
+forward it, so changing it in `.env` did nothing and every stack quietly used the built-in default
+(identical string, which is why nobody noticed). Added alongside `KEYCLOAK_PASSWORD`.
+
+### Verified
+
+- Root cause pinned on the live stack before changing anything: `john`'s credential existed and
+  worked, `jane`'s did not; both were in the `accounting` group with correct `sub` bindings, and
+  the master realm's `accessTokenLifespan` is 60s.
+- The fixed `keycloakClientScript` run against that stack's own Keycloak on a fresh realm: both
+  `jane` and `john` returned an ID token from the password grant, no `PWFAIL` lines. Throwaway
+  realms removed afterwards.
+- `oidc-login jane` on the deployed node now returns `jane@%`, `accounting` and the `oidc_demo`
+  rows over the socket, and over TCP with `--ssl-mode=REQUIRED`.
+- Confirmed by grep that the feature touches nothing else: `applyMySQLOIDC` is called only from
+  `provisionPerconaServer`, the design block is on `PerconaServerForm`/`PMMOptions`/PostgreSQL
+  only, and `pxc.go`/`pxc_mgmt.go`/`innodb.go` contain no OIDC reference at all.
+- `gofmt`/`go build`/`go vet`/`go test ./...`, `npm run build` and `make smoke` all clean; the
+  smoke check now asserts the Keycloak URL and the account list are on the page.
+
+---
+
+## 297. Ubuntu VNC gets the 8.4 client (and the plugin package behind it) + a What's New section — `images/vnc.Dockerfile`, `app/vnc.go`, `docs/STACKS.md`, `README.md`, `docs/screenshots/keycloak-oidc.png`
+
+**The desktop could not sign in with OIDC.** The Ubuntu VNC jump box is where an operator sits
+inside the stack network, so it is the natural place to try a Keycloak login against the Percona
+Server node from §295 — and it could not: its `percona-server-client` came from `ps-80`.
+
+Two facts, both established by inspecting the noble packages rather than assumed:
+
+- `percona-server-client` and `percona-server-server` are both at **8.4.11-11-1.noble** in
+  `ps-84-lts`.
+- `authentication_openid_connect_client.so` is in **`percona-server-server`** and in no other
+  package (`dpkg-deb -c` on both). `percona-server-client` carries no plugins at all. So the
+  server package has to be installed for the *client* to authenticate — which is what makes this
+  awkward on a machine that must not run a database.
+
+`images/vnc.Dockerfile` now enables `ps-84-lts` instead of `ps-80` and installs
+`percona-server-server` beside the client, then makes sure it can never run:
+
+- `policy-rc.d` (exit 101) for the duration of the install, so the postinst's `start` is denied
+  cleanly instead of failing the package's configuration in a build with no init.
+- Afterwards the `multi-user.target.wants` symlink is removed and the unit is **masked**
+  (`/etc/systemd/system/mysql.service → /dev/null`). Masking beats disabling here: the datadir is
+  also deleted, so a `systemctl start` that got through would fail confusingly, while a masked
+  unit says exactly what is true — this box is not a database node.
+- The postinst initialises ~190 MB of InnoDB files the desktop will never use; `rm -rf
+  /var/lib/mysql/*` reclaims it.
+- Added `jq` to the desktop packages — the token dance is `curl … | jq -r .id_token`.
+
+The build now also reports whether the OIDC client plugin landed, next to the existing
+"clients present" list.
+
+**README `What's New`.** A new section at the top: OIDC/OAuth sign-in for Percona Server 8.4.11
+with Keycloak as the identity provider (with a screenshot of the node's Keycloak SSO tab beside a
+console signing in as `jane`), and the file manager + canvas drag-and-drop, which had screenshots
+in `docs/STACKS.md` but no mention on the front page.
+
+### Verified
+
+- The image was rebuilt (`make vnc-image`) and checked: `mysql Ver 8.4.11-11`, the client plugin
+  present, `mysql.service → /dev/null`, no `multi-user.target.wants` entry, `/var/lib/mysql` empty,
+  and every other client (mongosh, psql, valkey-cli, ldapsearch, kinit, pt-query-digest, firefox,
+  jq, curl) still there.
+- Booted under real systemd (`--privileged`, `/sbin/init`): `systemctl is-enabled mysql` → `masked`,
+  `is-active` → `inactive`, `systemctl start mysql` → "Unit mysql.service is masked.", no `mysqld`
+  process.
+- End-to-end from the rebuilt image, attached to a live stack's network: fetched an `id_token` from
+  Keycloak with `curl`+`jq`, then
+  `mysql --host=ps-01.example.net --protocol=TCP --ssl-mode=REQUIRED --user=jane
+  --authentication-openid-connect-client-id-token-file=…` returned `jane@%`, role
+  `` `accounting`@`%` ``, server `8.4.11-11` and the `oidc_demo.invoices` rows.
