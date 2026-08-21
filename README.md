@@ -44,7 +44,7 @@ two, which is the fastest way to put one file on every member of a cluster.
 Requires **Docker**, with access to its daemon socket.
 
 ```sh
-git clone <this repo> && cd dbcanvas
+git clone https://github.com/jaimesicam/dbcanvas.git && cd dbcanvas
 make install
 ```
 
