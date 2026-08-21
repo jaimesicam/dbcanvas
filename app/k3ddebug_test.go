@@ -222,7 +222,10 @@ func TestK3DDebugService(t *testing.T) {
 }
 
 // The build directory is what the generated launch.json maps a local clone onto; an operator with
-// no source repository has no such path rather than a wrong one.
+// no source repository has no such path rather than a wrong one. It is a forward-slash Linux path
+// even when the clone is on Windows: Delve rewrites the separators in the part after the prefix
+// (locspec.joinPath picks the separator from the "to" side), which is what lets a
+// c:\Users\...\controller.go breakpoint resolve against a binary built in /go/src.
 func TestK3DDebugBuildDir(t *testing.T) {
 	if got := k3dDebugBuildDir("pxc"); got != "/go/src/github.com/percona/percona-xtradb-cluster-operator" {
 		t.Errorf("build dir = %q", got)

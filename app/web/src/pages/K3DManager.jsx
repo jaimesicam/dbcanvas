@@ -466,6 +466,14 @@ function OperatorDebugger({ cfg, ns, cr }) {
     }
   ]
 }`
+  // The operator only ever builds for Linux: it uses syscall.SIGUSR1, syscall.Mkfifo and
+  // golang.org/x/sys/unix. A clone on Windows or macOS therefore type-checks as that OS and the
+  // language server marks every one of those undefined — errors that are about the workspace's
+  // platform, not the code. Pinning gopls to the platform the deployed binary was built for makes
+  // them go away, and is a no-op on a Linux clone.
+  const settings = `{
+  "go.toolsEnvVars": { "GOOS": "linux", "GOARCH": "${cfg.debugGoarch || 'amd64'}" }
+}`
   return (
     <div className="space-y-3">
       <div className={`rounded-lg px-3 py-2 text-[11px] leading-snug text-muted ${listening
@@ -489,6 +497,14 @@ function OperatorDebugger({ cfg, ns, cr }) {
               and the session after that shows the breakpoint as unverified. Check it with{' '}
               <span className="font-mono">kubectl -n {ns} logs deploy/percona-xtradb-cluster-operator -c dbcanvas-debug-watchdog</span>.
             </span>
+            <span className="mt-1 block">
+              On a Windows or macOS clone, set <span className="font-mono">GOOS</span> before anything else — the
+              operator is Linux-only code (<span className="font-mono">syscall.SIGUSR1</span>,{' '}
+              <span className="font-mono">syscall.Mkfifo</span>, <span className="font-mono">x/sys/unix</span>), so the
+              language server otherwise fills the workspace with "undefined" errors that say nothing about the code.
+              Breakpoints are unaffected either way: Delve resolves them, not gopls, and a Windows path is mapped by
+              the <span className="font-mono">substitutePath</span> below.
+            </span>
           </>
         ) : (
           <>
@@ -502,8 +518,9 @@ function OperatorDebugger({ cfg, ns, cr }) {
           <Code label="1 · clone the source your IDE will step through (the tag the binary was built from)"
             text={`git clone -b v${cfg.operatorVer} https://github.com/percona/percona-xtradb-cluster-operator.git
 cd percona-xtradb-cluster-operator   # open THIS directory as the workspace`} />
-          <Code label="2 · .vscode/launch.json in that clone" text={launch} />
-          <Code label="3 · break in Reconcile, then force one"
+          <Code label="2 · .vscode/settings.json — the operator is Linux-only code" text={settings} />
+          <Code label="3 · .vscode/launch.json in that clone" text={launch} />
+          <Code label="4 · break in Reconcile, then force one"
             text={`# breakpoint: pkg/controller/pxc/controller.go, in Reconcile() —
 #   err := r.client.Get(ctx, request.NamespacedName, o)
 # then, with the debugger attached:

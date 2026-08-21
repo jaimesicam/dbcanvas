@@ -16962,3 +16962,40 @@ On the live cluster the problem was reported against, before and after:
   Delve's kill prompt with `y`, and that the port's hex and decimal forms agree), plus the patch
   shape now asserting the sidecar runs the operator's own image. `go build`, `go vet`,
   `go test ./...` and the smoke suite green.
+
+## 297. Debugging from a Windows clone — `app/{k3ddebug,k3d}.go`, `app/web/src/pages/K3DManager.jsx`
+
+Five compiler diagnostics reported from a Windows clone of the operator: `undefined:
+syscall.SIGUSR1`, `syscall.Mkfifo`, `unix.Open`, `unix.O_RDONLY`, `unix.O_NONBLOCK`, in
+`cmd/peer-list` and `cmd/pitr/collector`.
+
+None of them are real. The operator is Linux-only code — it uses Unix signals, FIFOs and
+`golang.org/x/sys/unix` — and a clone on Windows is type-checked *as Windows*, where none of that
+exists. Nothing is wrong with the workspace except which platform the language server thinks it is
+building for, and the same clone on a Linux box is silent.
+
+The panel now hands out a `.vscode/settings.json` alongside the `launch.json`, pinning
+`GOOS=linux` and the `GOARCH` the debug binary was actually built for (recorded as
+`DebugGOARCH`, from `k3dPlatform()` — it is not necessarily the daemon's). It is a no-op on a
+Linux clone, so it is offered unconditionally rather than guessed at from the client.
+
+Worth stating plainly because it is the obvious next worry: **breakpoints are unaffected**. Delve
+resolves them, not gopls, and a workspace full of red squiggles debugs exactly the same.
+
+The Windows path itself was the thing worth checking, since the generated `launch.json` maps
+`${workspaceFolder}` onto a Linux build directory. Delve handles it: `locspec.SubstitutePath`
+switches to case-insensitive matching as soon as either side looks like a DOS path, and
+`joinPath` takes the separator from the *"to"* side, rewriting the backslashes in the remainder.
+
+### Verified
+
+- Live against the deployed operator, a DAP session using the reported clone path verbatim:
+  attach with `substitutePath` from `c:\Users\jssic\Documents\operators\percona-xtradb-cluster-operator`,
+  then `setBreakpoints` on
+  `c:\Users\...\pkg\controller\pxc\controller.go:258` — `verified: true`, breakpoint hit, and the
+  source echoed back as the Windows path. So the generated launch config is already correct for a
+  Windows workspace and needed no change.
+- One caveat found in Delve's source while confirming it: the case-insensitive branch lowercases
+  the *whole* path, so a repository with an upper-case directory would not resolve. This one is
+  entirely lower-case, so it does not bite here.
+- `go build`, `go vet`, `go test ./...` and the smoke suite green.

@@ -180,7 +180,12 @@ type k3dConfig struct {
 	DebugPort     int    `json:"debugPort"`     // host port Delve is published on
 	DebugNodePort int    `json:"debugNodePort"` // the NodePort behind it (in-stack access)
 	DebugBuildDir string `json:"debugBuildDir"` // where the binary was compiled (launch.json substitutePath)
-	DebugStatus   string `json:"debugStatus"`
+	// DebugGOARCH is what the debug binary was built for. It belongs in the panel because a
+	// clone on Windows or macOS needs its language server pointed at linux/<arch> — the
+	// operator is Linux-only code, and gopls otherwise reports the Linux-only syscalls it
+	// cannot see as undefined errors all over a workspace that is perfectly fine.
+	DebugGOARCH string `json:"debugGoarch"`
+	DebugStatus string `json:"debugStatus"`
 }
 
 // k3dSecrets holds the credentials a K3D frame was provisioned with, kept out of k3dConfig

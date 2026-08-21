@@ -141,6 +141,7 @@ func (a *App) k3dInstallDebugger(ctx context.Context, st Stack, frame designFram
 	cfg.DebugPort = k3dDebugHostPort(frame)
 	cfg.DebugNodePort = k3dDebugNodePort
 	cfg.DebugBuildDir = k3dDebugBuildDir(cfg.Operator)
+	cfg.DebugGOARCH = k3dDebugGOARCH()
 	if err := a.k3dDebugInstall(ctx, st, deployment, tarball, serverID, cfg, pr); err != nil {
 		cfg.DebugStatus = "not attached: " + err.Error()
 		pr.logln("the operator is NOT running under Delve: " + err.Error())
