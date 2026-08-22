@@ -376,3 +376,15 @@ func lsPGOpNodeName(recs []lsRecord, flavour string) string {
 	}
 	return ""
 }
+
+// lsSniffOperatorFamily answers which of the operator catalogues owns a log, for the
+// families whose fold this file's switch selects. It exists so the builder asks one
+// question instead of four, and so the ORDER of those four is written down in one place:
+// every Percona operator writes byte-identical zap lines, and only the controller group
+// separates them.
+func lsSniffOperatorFamily(data string) string {
+	if f := lsSniffPGOperator(data); f != "" {
+		return f
+	}
+	return lsSniffPSOperator(data)
+}

@@ -36,9 +36,13 @@ func lsLoadScenario(t *testing.T, name string) *lsBundle {
 	}
 	var names []string
 	for _, e := range entries {
-		// .err is MySQL's error log, .log is mongod's. Both are "the server's own log",
-		// which is the only thing this loader cares about.
-		if !e.IsDir() && (strings.HasSuffix(e.Name(), ".err") || strings.HasSuffix(e.Name(), ".log")) {
+		// .err is MySQL's error log, .log is mongod's and everything else's. .json is the
+		// one source that is not a log at all — `kubectl get events -o json` — and it is
+		// loaded here because a bundle holding a cluster's Events beside its logs is the
+		// whole point of that source: the reason a container was killed is in the Events
+		// and the consequence is in the log.
+		if !e.IsDir() && (strings.HasSuffix(e.Name(), ".err") || strings.HasSuffix(e.Name(), ".log") ||
+			strings.HasSuffix(e.Name(), ".json")) {
 			names = append(names, e.Name())
 		}
 	}

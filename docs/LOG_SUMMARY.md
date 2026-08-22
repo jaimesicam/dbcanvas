@@ -30,6 +30,8 @@ matter most are the ones the server never sends to anybody.
 | **Percona Operator for MySQL (PXC)** | full — the operator's own log, the PITR binlog collector's, and every member's, read together. See [the operator](#percona-operator-for-mysql-pxc-three-logs-and-the-outage-is-in-none-of-the-obvious-ones). |
 | **Percona Operator for MongoDB (PSMDB)** | full — the operator's log, every member's mongod log, and every member's `pbm-agent` sidecar. See [PSMDB](#percona-operator-for-mongodb-psmdb-the-backup-agents-are-three-logs-and-only-one-of-them-is-working). |
 | **Percona PG · Crunchy PGO · CloudNativePG** | full — each operator's own format, with the Patroni-based members read by the existing Patroni catalogue. See [the three PostgreSQL operators](#the-three-postgresql-operators-three-formats-and-only-one-of-them-mentions-the-failover). |
+| **Percona Operator for MySQL (Percona Server)** | full — and its members need no new rules: their logs are Group Replication's. See [the sixth operator](#the-sixth-operator-and-the-source-that-is-not-a-log). |
+| **Kubernetes Events** | the reason a container was killed, which is in no log at all. See [Events](#the-sixth-operator-and-the-source-that-is-not-a-log). |
 
 ---
 
@@ -1907,3 +1909,63 @@ operators and a `spec.postgresql.parameters` change for CloudNativePG.
 > it.** Patch the outer `PerconaPGCluster` (`pgv2.percona.com`); a change applied to the
 > inner one is silently undone on the next reconcile, which looks exactly like a setting
 > that would not take.
+
+---
+
+## The sixth operator, and the source that is not a log
+
+### Percona Operator for MySQL (Percona Server)
+
+The last of the six, and the cheapest of them all, because everything before it had already
+paid for it:
+
+- the operator writes the **same zap format** the PXC, PSMDB and Percona PostgreSQL
+  operators write, so the fold is shared and only the controller group (`ps.percona.com`)
+  and the catalogue are new;
+- `kubectl logs <pod> -c mysql` returns **the mysqld error log itself** — not the
+  entrypoint's `bash -x` trace the PXC operator's pods print — and its records are **Group
+  Replication's**, which this page already reads in full. The members need no new rules at
+  all.
+
+Where it sits between the two MySQL operators is the finding. Killing the primary of each:
+
+| | what the operator logged |
+| --- | --- |
+| **PXC** | nothing whatsoever |
+| **Percona Server** | `Assigning primary label to pod psc-mysql-0` — it names the new primary, and nothing else |
+
+So this one records the single fact that is genuinely hard to reconstruct afterwards — which
+member the writes moved to, and when — while the *reason* stays in the members' own Group
+Replication records. Both halves are on the page together.
+
+### Kubernetes Events: the reason a container was killed
+
+The fourth thing this feature kept deferring, and the reason it kept coming back. A PXC
+member cut off from its cluster does the right thing — goes non-primary and waits — and is
+killed twenty-five seconds later by its liveness probe. Its own log records that as
+`Received SHUTDOWN from user <via user signal>`, byte-for-byte what a deliberate stop
+writes. The operator's log says nothing. The reason exists in exactly one place:
+
+```
+Warning  Unhealthy  Liveness probe failed: + [[ -n non-Primary ]]…
+Normal   Killing    Container pxc failed liveness probe, will be restarted
+```
+
+which is an **API object, not a file**. So a cluster's namespace Events are offered as a
+source of their own — `kubectl get events -o json`, one JSON List rather than a line
+stream — and folded into the same records everything else here becomes.
+
+Three things about Events shape how they are read:
+
+- **They expire.** The default TTL is one hour, so an incident investigated the next
+  morning has none, and their absence is not evidence of a quiet night.
+- **They are counted, not repeated.** One object carries `count` and a first/last
+  timestamp — exactly the shape a folded log record already has — so forty probe failures
+  are one row with a span rather than forty rows or one.
+- **`type` is only Normal or Warning, and it is not a severity.** `Killing` — the most
+  consequential thing Kubernetes does to a database — is filed as **Normal**. Severity here
+  therefore comes from the *reason*, the same way it comes from meaning everywhere else on
+  this page.
+
+The engine column says **Kubernetes API** rather than naming a database, because nobody
+tailed a file to get it.

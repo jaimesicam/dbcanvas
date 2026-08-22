@@ -74,6 +74,7 @@ const lsPathPBM = "kubectl logs <pod> -c backup-agent"
 const (
 	lsK8sOperator = "operator"
 	lsK8sPITR     = "pitr"
+	lsK8sEvents   = "events"
 	// A member's backup agent is a suffix on the member's own target rather than a target
 	// of its own, because it is a container inside that pod: `<node>#<pod>~pbm`.
 	lsK8sPBMSuffix = "~pbm"
@@ -86,6 +87,7 @@ var lsK8sOperatorDeploy = map[string]string{
 	"pg":    "percona-postgresql-operator",
 	"pgo":   "pgo",
 	"cnpg":  "cloudnative-pg",
+	"ps":    "percona-server-mysql-operator",
 }
 
 // lsK8sOperatorNS is the namespace an operator installs ITSELF into, when that is not the
@@ -109,6 +111,12 @@ func lsK8sMemberSelector(operator, cr string) string {
 			"postgres-operator.crunchydata.com/cluster=" + cr
 	case "cnpg":
 		return "cnpg.io/cluster=" + cr
+	case "ps":
+		// The PS operator's members are `component=database, name=mysql` — the same pod
+		// carries `component=database` for its router and orchestrator too, so both halves
+		// are required.
+		return "app.kubernetes.io/component=database,app.kubernetes.io/name=mysql," +
+			"app.kubernetes.io/instance=" + cr
 	}
 	return "app.kubernetes.io/component=pxc,app.kubernetes.io/instance=" + cr
 }
@@ -161,6 +169,8 @@ func (a *App) listLogK8sTargets(u User) []qrTarget {
 				memberEngine = pktEngineMongoDB
 			case "pg", "pgo":
 				memberEngine = pktEnginePostgres
+			case "ps":
+				memberEngine = pktEngineMySQL
 			case "cnpg":
 				// Not "postgres": a CloudNativePG member's log is its instance manager's,
 				// with PostgreSQL's records wrapped inside it. The sniff splits them.
@@ -186,6 +196,15 @@ func (a *App) listLogK8sTargets(u User) []qrTarget {
 					})
 				}
 			}
+			// The namespace's Kubernetes Events, for every operator. Not a log — see
+			// logsummary_k8sevents.go — and the only place the reason for a killed
+			// container is written down.
+			out = append(out, qrTarget{
+				StackID: st.ID, StackName: st.Name,
+				NodeID: aioJoinTarget(serverNode, lsK8sEvents),
+				Label:  cfg.ClusterName + " · kubernetes events",
+				Engine: pktEngineK8sEvents, Type: "k3d-events",
+			})
 			if f.K3DOperator == "pxc" && a.lsK8sHasPITR(containerID, cfg.Namespace, cfg.ClusterName) {
 				out = append(out, qrTarget{
 					StackID: st.ID, StackName: st.Name,
@@ -314,6 +333,15 @@ func (a *App) lsK8sTail(ctx context.Context, serverID, ns, cr, what, operator st
 			return "", "", "", err
 		}
 		return out, "kubectl logs -n " + opNS + " deploy/" + deploy, pktEngineOperator, nil
+	case what == lsK8sEvents:
+		// `-o json` rather than the human table: the table drops the count and the
+		// first-seen time, which are exactly what turns forty probe failures into one row
+		// with a span instead of forty rows or one.
+		out, err := a.kubectl(ctx, serverID, "-n", ns, "get", "events", "-o", "json")
+		if err != nil {
+			return "", "", "", err
+		}
+		return out, "kubectl -n " + ns + " get events -o json", pktEngineK8sEvents, nil
 	case what == lsK8sPITR:
 		out, err := a.kubectl(ctx, serverID, "-n", ns, "logs", "deploy/"+cr+"-pitr",
 			"-c", "pitr", "--tail="+n)
@@ -361,19 +389,23 @@ func (a *App) lsK8sTail(ctx context.Context, serverID, ns, cr, what, operator st
 	// A MySQL or MongoDB member. The log on the volume first — it is the raw thing the
 	// engine's parser wants, and it holds more history than the container runtime keeps.
 	logPath, container, engine := lsK8sMemberLog(operator)
-	out, err := a.kubectl(ctx, serverID, "-n", ns, "exec", what, "-c", container, "--",
-		"tail", "-n", n, logPath)
-	if err == nil && strings.TrimSpace(out) != "" {
-		return out, what + ":" + logPath, engine, nil
+	if logPath != "" {
+		out, err := a.kubectl(ctx, serverID, "-n", ns, "exec", what, "-c", container, "--",
+			"tail", "-n", n, logPath)
+		if err == nil && strings.TrimSpace(out) != "" {
+			return out, what + ":" + logPath, engine, nil
+		}
+	} else {
+		out, err := a.kubectl(ctx, serverID, "-n", ns, "logs", what, "-c", container, "--tail="+n)
+		if err == nil && strings.TrimSpace(out) != "" {
+			return out, what + ": " + container + " (stdout is the error log)", engine, nil
+		}
 	}
 	// The sidecar's copy. This is the path that works when the member is not running —
 	// which is the member whose log matters most.
 	raw, err2 := a.kubectl(ctx, serverID, "-n", ns, "logs", what, "-c", "logs", "--tail="+n)
 	if err2 != nil {
-		if err != nil {
-			return "", "", "", fmt.Errorf("%s: %v (and the log-collector sidecar: %v)", what, err, err2)
-		}
-		return "", "", "", err2
+		return "", "", "", fmt.Errorf("%s: could not read the member's log (%v)", what, err2)
 	}
 	return lsK8sUnwrapCollector(raw), what + ": log-collector sidecar", engine, nil
 }
@@ -387,8 +419,14 @@ func (a *App) lsK8sTail(ctx context.Context, serverID, ns, cr, what, operator st
 // JSON log itself. The file is the primary path for both, which makes that difference not
 // matter.
 func lsK8sMemberLog(operator string) (path, container, engine string) {
-	if operator == "psmdb" {
+	switch operator {
+	case "psmdb":
 		return lsK8sMongoLogPath, "mongod", pktEngineMongoDB
+	case "ps":
+		// The one member log that needs no file at all: this operator's `mysql` container
+		// prints the error log to stdout, so `kubectl logs` is already the right thing and
+		// the exec path below simply falls through to it.
+		return "", "mysql", pktEngineMySQL
 	}
 	return lsK8sErrorLogPath, "pxc", pktEngineMySQL
 }

@@ -352,6 +352,8 @@ export const FLAVOUR_LABEL = {
   crunchypgo: 'Crunchy PGO',
   cnpgoperator: 'CloudNativePG operator',
   cnpginstance: 'CloudNativePG instance',
+  psoperator: 'Percona Server operator',
+  k8sevents: 'Kubernetes Events',
 }
 
 export const ENGINE_LABEL = {
@@ -360,4 +362,7 @@ export const ENGINE_LABEL = {
   // language and no data of its own; filing it under MySQL because it manages MySQL
   // would make the sources table claim something about it that is not true.
   operator: 'Kubernetes operator',
+  // Not a log at all: an API object list. Spelled distinctly so the sources table does
+  // not imply somebody tailed a file.
+  k8sevents: 'Kubernetes API',
 }

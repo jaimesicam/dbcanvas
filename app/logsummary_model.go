@@ -351,6 +351,20 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 				events = append(events, e)
 			}
 		}
+	case pktEngineK8sEvents:
+		// Not a log at all: `kubectl get events -o json` is one List object, so it is
+		// unmarshalled whole rather than folded line by line. It is here because the answer
+		// to "why did that member restart" lives nowhere else — see logsummary_k8sevents.go.
+		recs := lsFoldK8sEvents(in.Data)
+		src.Records = len(recs)
+		src.Flavour = lsFlavourK8sEvents
+		src.Node = "kubernetes"
+		for _, r := range recs {
+			if e, keep := lsClassifyK8sEvent(r); keep {
+				e.Src = idx
+				events = append(events, e)
+			}
+		}
 	case pktEngineOperator:
 		// Not a database. A Kubernetes controller's log and its binlog collector's are
 		// parsed here because the facts that matter are in a trailing JSON object with
@@ -387,7 +401,7 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 			}
 			break
 		}
-		switch lsSniffPGOperator(data) {
+		switch lsSniffOperatorFamily(data) {
 		case lsFlavourCrunchyPGO:
 			recs := lsFoldCrunchy(data)
 			src.Records = len(recs)
@@ -420,6 +434,18 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 					e, keep = lsClassifyCNPG(r)
 				}
 				if keep {
+					e.Src = idx
+					events = append(events, e)
+				}
+			}
+			break
+		case lsFlavourPSOperator:
+			recs := lsFoldOperator(data)
+			src.Records = len(recs)
+			src.Flavour = lsFlavourPSOperator
+			src.Node = lsPSOpNodeName(recs)
+			for _, r := range recs {
+				if e, keep := lsClassifyPSOperator(r); keep {
 					e.Src = idx
 					events = append(events, e)
 				}
@@ -528,6 +554,10 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 		lsResolveCNPG(events)
 	case lsFlavourPerconaPG, lsFlavourCrunchyPGO:
 		lsResolvePGOperator(events)
+	case lsFlavourPSOperator:
+		lsResolvePSOperator(events)
+	case lsFlavourK8sEvents:
+		lsResolveK8sEvents(events)
 	case lsFlavourPSMDBOperator:
 		lsResolvePSMDBOperator(events)
 	case lsFlavourPBMAgent:

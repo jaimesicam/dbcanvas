@@ -385,6 +385,9 @@ func lsSniffOperator(data string) string {
 	if f := lsSniffPGOperator(head); f != "" {
 		return f
 	}
+	if f := lsSniffPSOperator(head); f != "" {
+		return f
+	}
 	if strings.Contains(head, "pxc.percona.com") ||
 		strings.Contains(head, "PerconaXtraDBCluster") ||
 		strings.Contains(head, "percona-xtradb-cluster-operator") {

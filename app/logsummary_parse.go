@@ -416,6 +416,12 @@ func lsSniffEngine(data string) string {
 	// matches. A Kubernetes controller's log is not a near-miss for a database's — it is a
 	// different document entirely — and an operator log full of `PerconaXtraDBCluster`
 	// would otherwise be filed as MySQL because a few of its lines happen to parse.
+	// Kubernetes Events first: the document is one JSON object rather than a line stream,
+	// so nothing else here would parse it, and its `message` fields are full of the other
+	// engines' vocabulary.
+	if lsSniffK8sEvents(data) {
+		return pktEngineK8sEvents
+	}
 	if lsSniffOperator(data) != "" {
 		return pktEngineOperator
 	}

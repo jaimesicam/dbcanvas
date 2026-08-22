@@ -1,0 +1,308 @@
++ trap exit SIGTERM
++ '[' m = - ']'
++ wantHelp=
++ for arg in "$@"
++ case "$arg" in
++ CFG=/etc/my.cnf.d/node.cnf
++ TLS_DIR=/etc/mysql/mysql-tls-secret
++ CUSTOM_CONFIG_FILES=("/etc/mysql/config/auto-config.cnf" "/etc/mysql/config/my-config.cnf" "/etc/mysql/config/my-secret.cnf")
+++ mysqld -V
+++ awk '{print $3}'
+++ awk -F. '{print $1"."$2}'
++ MYSQL_VERSION=8.4
++ [[ 8.4 != \8\.\0 ]]
++ [[ 8.4 != \8\.\4 ]]
++ '[' mysqld = mysqld ']'
++ '[' -z '' ']'
++ _check_config mysqld
++ toRun=("$@" --verbose --help)
+++ mysqld --verbose --help
++ errors=
+++ _get_config datadir mysqld
+++ local conf=datadir
+++ shift
+++ awk '$1 == "datadir" && /^[^ \t]/ { sub(/^[^ \t]+[ \t]+/, ""); print; exit }'
++++ mktemp -u
+++ mysqld --verbose --help --log-bin-index=/tmp/tmp.XM72rk82RO
++ DATADIR=/var/lib/mysql/
+++ _get_tmpdir /var/lib/mysql//mysql-tmpdir
+++ local defaul_value=/var/lib/mysql//mysql-tmpdir
+++ local tmpdir_path=
++++ _get_cnf_config mysqld tmpdir ''
++++ local group=mysqld
++++ local var=tmpdir
++++ local reval=
+++++ my_print_defaults mysqld
+++++ awk -F= '{st=index($0,"="); cur=$0; if ($1 ~ /_/) { gsub(/_/,"-",$1);} if (st != 0) { print $1"="substr(cur,st+1) } else { print cur }}'
+++++ grep -- --tmpdir=
+++++ cut -d= -f2-
+++++ tail -1
++++ reval=
++++ [[ -z '' ]]
++++ reval=
++++ echo ''
+++ tmpdir_path=
+++ [[ -z '' ]]
++++ _get_cnf_config xtrabackup tmpdir ''
++++ local group=xtrabackup
++++ local var=tmpdir
++++ local reval=
+++++ my_print_defaults xtrabackup
+++++ awk -F= '{st=index($0,"="); cur=$0; if ($1 ~ /_/) { gsub(/_/,"-",$1);} if (st != 0) { print $1"="substr(cur,st+1) } else { print cur }}'
+++++ grep -- --tmpdir=
+++++ cut -d= -f2-
+++++ tail -1
++++ reval=
++++ [[ -z '' ]]
++++ reval=
++++ echo ''
+++ tmpdir_path=
+++ [[ -z '' ]]
+++ tmpdir_path=/var/lib/mysql//mysql-tmpdir
+++ echo /var/lib/mysql//mysql-tmpdir
++ TMPDIR=/var/lib/mysql//mysql-tmpdir
++ rm -rfv /var/lib/mysql//mysql-tmpdir
++ create_default_cnf
+++ hostname -I
+++ awk '{print $1}'
++ POD_IP=10.42.0.16
++ [[ psc-mysql-0 =~ -xb- ]]
+++ hostname -f
+++ cut -d. -f2
++ CLUSTER_NAME=psc-mysql
++ SERVER_NUM=0
++ SERVER_ID=31695410
++ FQDN=psc-mysql-0.psc-mysql.ps
++ echo '[mysqld]'
++ [[ group-replication == \a\s\y\n\c ]]
++ sed -i '/\[mysqld\]/a read_only=ON' /etc/my.cnf.d/node.cnf
++ sed -i '/\[mysqld\]/a server_id=31695410' /etc/my.cnf.d/node.cnf
++ sed -i '/\[mysqld\]/a admin-address=10.42.0.16' /etc/my.cnf.d/node.cnf
++ sed -i '/\[mysqld\]/a report_host=psc-mysql-0.psc-mysql.ps' /etc/my.cnf.d/node.cnf
++ sed -i '/\[mysqld\]/a report_port=3306' /etc/my.cnf.d/node.cnf
++ sed -i '/\[mysqld\]/a gtid-mode=ON' /etc/my.cnf.d/node.cnf
++ sed -i '/\[mysqld\]/a enforce-gtid-consistency=ON' /etc/my.cnf.d/node.cnf
++ sed -i '/\[mysqld\]/a log_error_verbosity=3' /etc/my.cnf.d/node.cnf
++ sed -i '/\[mysqld\]/a plugin-load-add=clone=mysql_clone.so' /etc/my.cnf.d/node.cnf
++ [[ -d /etc/mysql/mysql-tls-secret ]]
++ sed -i '/\[mysqld\]/a ssl_ca=/etc/mysql/mysql-tls-secret/ca.crt' /etc/my.cnf.d/node.cnf
++ sed -i '/\[mysqld\]/a ssl_cert=/etc/mysql/mysql-tls-secret/tls.crt' /etc/my.cnf.d/node.cnf
++ sed -i '/\[mysqld\]/a ssl_key=/etc/mysql/mysql-tls-secret/tls.key' /etc/my.cnf.d/node.cnf
++ [[ -f /etc/mysql/vault-keyring-secret/keyring_vault.cnf ]]
++ '[' 8.4 == 8.4 ']'
++ sed -i '/\[mysqld\]/a innodb_numa_interleave=OFF' /etc/my.cnf.d/node.cnf
+/etc/mysql/config/auto-config.cnf
+/etc/mysql/config/my-config.cnf
+/etc/mysql/config/my-secret.cnf
++ for f in "${CUSTOM_CONFIG_FILES[@]}"
++ echo /etc/mysql/config/auto-config.cnf
++ '[' -f /etc/mysql/config/auto-config.cnf ']'
++ for f in "${CUSTOM_CONFIG_FILES[@]}"
++ echo /etc/mysql/config/my-config.cnf
++ '[' -f /etc/mysql/config/my-config.cnf ']'
++ for f in "${CUSTOM_CONFIG_FILES[@]}"
++ echo /etc/mysql/config/my-secret.cnf
++ '[' -f /etc/mysql/config/my-secret.cnf ']'
++ '[' '!' -d /var/lib/mysql//mysql ']'
++ [[ group-replication != \a\s\y\n\c ]]
++ load_group_replication_plugin
+++ hostname -I
+++ awk '{print $1}'
++ POD_IP=10.42.0.16
++ sed -i '/\[mysqld\]/a plugin_load_add=group_replication.so' /etc/my.cnf.d/node.cnf
++ sed -i '/\[mysqld\]/a group_replication_exit_state_action=ABORT_SERVER' /etc/my.cnf.d/node.cnf
++ sed -i '/\[mysqld\]/a group_replication_unreachable_majority_timeout=5' /etc/my.cnf.d/node.cnf
++ [[ auto == \m\a\n\u\a\l ]]
++ ensure_read_only
++ sed -i '/\[mysqld\]/a read_only=ON' /etc/my.cnf.d/node.cnf
++ sed -i '/\[mysqld\]/a super_read_only=ON' /etc/my.cnf.d/node.cnf
++ '[' -n '' ']'
++ [[ 8.4 == \8\.\4 ]]
++ [[ -f /etc/mysql/vault-keyring-secret/keyring_vault.cnf ]]
++ uninstall_keyring_component
++ [[ -f /var/lib/mysql/mysqld.my ]]
++ [[ -f /var/lib/mysql/component_keyring_vault.cnf ]]
++ [[ -f /var/lib/mysql/full-cluster-crash ]]
++ recovery_file=/var/lib/mysql/sleep-forever
++ '[' -f /var/lib/mysql/sleep-forever ']'
++ [[ -n /var/lib/mysql/notify.sock ]]
++ export NOTIFY_SOCKET=/var/lib/mysql/notify.sock
++ NOTIFY_SOCKET=/var/lib/mysql/notify.sock
++ unlink /var/lib/mysql/notify.sock
++ monitor_pid=62
++ nohup /opt/percona/mysql-state-monitor
++ set +o xtrace
+Waiting for /var/lib/mysql/notify.sock to be available...
++ exec mysqld
+/var/lib/mysql/notify.sock is available
+2026-08-22T13:26:10.108797Z 0 [Note] [MY-013667] [Server] Error-log destination "stderr" is not a file. Can not restore error log messages from previous run.
+2026-08-22T13:26:09.886463Z 0 [Note] [MY-013930] [Server] systemd notify: STATUS=Server startup in progress 
+2026-08-22T13:26:09.886862Z 0 [System] [MY-015015] [Server] MySQL Server - start.
+2026-08-22T13:26:10.107409Z 0 [Warning] [MY-010097] [Server] Insecure configuration for --secure-log-path: Current value does not restrict location of generated files. Consider setting it to a valid, non-empty path.
+2026-08-22T13:26:10.107451Z 0 [Note] [MY-013932] [Server] BuildID[sha1]=473104efd2a2e11c4345e4256a35a2e9dfce0cb5
+2026-08-22T13:26:10.107456Z 0 [Note] [MY-010949] [Server] Basedir set to /usr/.
+2026-08-22T13:26:10.107463Z 0 [System] [MY-010116] [Server] /usr/sbin/mysqld (mysqld 8.4.10-10) starting as process 1
+2026-08-22T13:26:10.112673Z 0 [Note] [MY-012366] [InnoDB] Using Linux native AIO
+2026-08-22T13:26:10.112754Z 0 [Note] [MY-015140] [InnoDB] Using innodb_flush_method=O_DIRECT
+2026-08-22T13:26:10.112982Z 0 [Note] [MY-010747] [Server] Plugin 'FEDERATED' is disabled.
+2026-08-22T13:26:10.113046Z 0 [Note] [MY-010747] [Server] Plugin 'ndbcluster' is disabled.
+2026-08-22T13:26:10.113076Z 0 [Note] [MY-010747] [Server] Plugin 'ndbinfo' is disabled.
+2026-08-22T13:26:10.113083Z 0 [Note] [MY-010747] [Server] Plugin 'ndb_transid_mysql_connection_map' is disabled.
+2026-08-22T13:26:10.113141Z 0 [Note] [MY-010747] [Server] Plugin 'mysql_native_password' is disabled.
+2026-08-22T13:26:10.113922Z 1 [Note] [MY-013930] [Server] systemd notify: STATUS=InnoDB initialization in progress 
+2026-08-22T13:26:10.113965Z 1 [System] [MY-013576] [InnoDB] InnoDB initialization has started.
+2026-08-22T13:26:10.113983Z 1 [Note] [MY-013546] [InnoDB] Atomic write enabled
+2026-08-22T13:26:10.113997Z 1 [Note] [MY-012932] [InnoDB] PUNCH HOLE support available
+2026-08-22T13:26:10.114015Z 1 [Note] [MY-012944] [InnoDB] Uses event mutexes
+2026-08-22T13:26:10.114018Z 1 [Note] [MY-012945] [InnoDB] GCC builtin __atomic_thread_fence() is used for memory barrier
+2026-08-22T13:26:10.114021Z 1 [Note] [MY-012948] [InnoDB] Compressed tables use zlib 1.3.2
+2026-08-22T13:26:10.115494Z 1 [Note] [MY-012951] [InnoDB] Using hardware accelerated crc32 and polynomial multiplication.
+2026-08-22T13:26:10.115786Z 1 [Note] [MY-012203] [InnoDB] Directories to scan './'
+2026-08-22T13:26:10.115826Z 1 [Note] [MY-012204] [InnoDB] Scanning './'
+2026-08-22T13:26:10.119381Z 1 [Note] [MY-012208] [InnoDB] Completed space ID check of 13 files.
+2026-08-22T13:26:10.121242Z 1 [Note] [MY-012955] [InnoDB] Initializing buffer pool, total size = 128.000000M, instances = 1, chunk size =128.000000M 
+2026-08-22T13:26:10.128300Z 1 [Note] [MY-012957] [InnoDB] Completed initialization of buffer pool
+2026-08-22T13:26:10.137523Z 0 [Note] [MY-011952] [InnoDB] If the mysqld execution user is authorized, page cleaner thread priority can be changed. See the man page of setpriority().
+2026-08-22T13:26:10.138014Z 1 [Note] [MY-013532] [InnoDB] Using './#ib_16384_0.dblwr' for doublewrite
+2026-08-22T13:26:10.146945Z 1 [Note] [MY-013532] [InnoDB] Using './#ib_16384_1.dblwr' for doublewrite
+2026-08-22T13:26:10.183576Z 1 [Note] [MY-013566] [InnoDB] Double write buffer files: 2, --innodb-doublewrite-files=2, segments_per_file=2
+2026-08-22T13:26:10.183611Z 1 [Note] [MY-013565] [InnoDB] Double write buffer pages per instance: 128
+2026-08-22T13:26:10.183626Z 1 [Note] [MY-013532] [InnoDB] Using './#ib_16384_0.dblwr' for doublewrite
+2026-08-22T13:26:10.183632Z 1 [Note] [MY-013532] [InnoDB] Using './#ib_16384_1.dblwr' for doublewrite
+2026-08-22T13:26:10.328102Z 1 [Note] [MY-013883] [InnoDB] The latest found checkpoint is at lsn = 30387477 in redo log file ./#innodb_redo/#ib_redo9.
+2026-08-22T13:26:10.328141Z 1 [Note] [MY-012560] [InnoDB] The log sequence number 29746614 in the system tablespace does not match the log sequence number 30387477 in the redo log files!
+2026-08-22T13:26:10.328146Z 1 [Note] [MY-012551] [InnoDB] Database was not shutdown normally!
+2026-08-22T13:26:10.328159Z 1 [Note] [MY-012552] [InnoDB] Starting crash recovery.
+2026-08-22T13:26:10.438455Z 1 [Note] [MY-013086] [InnoDB] Starting to parse redo log at lsn = 30387310, whereas checkpoint_lsn = 30387477 and start_lsn = 30387200
+2026-08-22T13:26:10.438505Z 1 [Note] [MY-012550] [InnoDB] Doing recovery: scanned up to log sequence number 30387477
+2026-08-22T13:26:10.441587Z 1 [Note] [MY-013083] [InnoDB] Log background threads are being started...
+2026-08-22T13:26:10.442122Z 1 [Note] [MY-012532] [InnoDB] Applying a batch of 0 redo log records ...
+2026-08-22T13:26:10.442156Z 1 [Note] [MY-012535] [InnoDB] Apply batch completed!
+2026-08-22T13:26:10.542773Z 1 [Note] [MY-013252] [InnoDB] Using undo tablespace './undo_001'.
+2026-08-22T13:26:10.543247Z 1 [Note] [MY-013252] [InnoDB] Using undo tablespace './undo_002'.
+2026-08-22T13:26:10.543694Z 1 [Note] [MY-012910] [InnoDB] Opened 2 existing undo tablespaces.
+2026-08-22T13:26:10.543744Z 1 [Note] [MY-011980] [InnoDB] GTID recovery trx_no: 2398
+2026-08-22T13:26:10.570529Z 1 [Note] [MY-013776] [InnoDB] Parallel initialization of rseg complete
+2026-08-22T13:26:10.570571Z 1 [Note] [MY-013777] [InnoDB] Time taken to initialize rseg using 4 thread: 26 ms.
+2026-08-22T13:26:10.572665Z 1 [Note] [MY-012255] [InnoDB] Removed temporary tablespace data file: "ibtmp1"
+2026-08-22T13:26:10.572690Z 1 [Note] [MY-012923] [InnoDB] Creating shared tablespace for temporary tables
+2026-08-22T13:26:10.575586Z 1 [Note] [MY-012265] [InnoDB] Setting file './ibtmp1' size to 12 MB. Physically writing the file full; Please wait ...
+2026-08-22T13:26:10.580177Z 1 [Note] [MY-012266] [InnoDB] File './ibtmp1' size is now 12 MB.
+2026-08-22T13:26:10.580261Z 1 [Note] [MY-013627] [InnoDB] Scanning temp tablespace dir:'./#innodb_temp/'
+2026-08-22T13:26:10.672951Z 1 [Note] [MY-013018] [InnoDB] Created 128 and tracked 128 new rollback segment(s) in the temporary tablespace. 128 are now active.
+2026-08-22T13:26:10.673332Z 1 [Note] [MY-012976] [InnoDB] Percona XtraDB (http://www.percona.com) 8.4.10-10 started; log sequence number 30387487
+2026-08-22T13:26:10.675264Z 1 [System] [MY-013577] [InnoDB] InnoDB initialization has ended.
+2026-08-22T13:26:10.675296Z 1 [Note] [MY-013930] [Server] systemd notify: STATUS=InnoDB initialization successful 
+2026-08-22T13:26:10.681159Z 1 [Note] [MY-011089] [Server] Data dictionary restarting version '80300'.
+2026-08-22T13:26:10.744168Z 1 [Note] [MY-013930] [Server] systemd notify: STATUS=InnoDB crash recovery in progress 
+2026-08-22T13:26:10.751545Z 1 [Note] [MY-012357] [InnoDB] Reading DD tablespace files
+2026-08-22T13:26:10.756177Z 1 [Note] [MY-012356] [InnoDB] Scanned 15 tablespaces. Validated 15.
+2026-08-22T13:26:10.757758Z 1 [Note] [MY-013930] [Server] systemd notify: STATUS=InnoDB crash recovery successful 
+2026-08-22T13:26:10.771111Z 1 [Note] [MY-010006] [Server] Using data dictionary with version '80300'.
+2026-08-22T13:26:10.771820Z 0 [Note] [MY-013930] [Server] systemd notify: STATUS=Initialization of dynamic plugins in progress 
+2026-08-22T13:26:10.782253Z 0 [Note] [MY-011332] [Server] Plugin mysqlx reported: 'IPv6 is available'
+2026-08-22T13:26:10.785450Z 0 [Note] [MY-011323] [Server] Plugin mysqlx reported: 'X Plugin ready for connections. bind-address: '::' port: 33060'
+2026-08-22T13:26:10.785488Z 0 [Note] [MY-011323] [Server] Plugin mysqlx reported: 'X Plugin ready for connections. socket: '/var/lib/mysql/mysqlx.sock''
+2026-08-22T13:26:10.798003Z 0 [System] [MY-013587] [Repl] Plugin group_replication reported: 'Plugin 'group_replication' is starting.'
+2026-08-22T13:26:10.798047Z 0 [Note] [MY-011716] [Repl] Plugin group_replication reported: 'Current debug options are: 'GCS_DEBUG_NONE'.'
+2026-08-22T13:26:10.798199Z 0 [System] [MY-014010] [Repl] Plugin group_replication reported: 'Plugin 'group_replication' has been started.'
+2026-08-22T13:26:10.803598Z 0 [Note] [MY-013930] [Server] systemd notify: STATUS=Initialization of dynamic plugins successful 
+2026-08-22T13:26:10.831063Z 0 [Note] [MY-010902] [Server] Thread priority attribute setting in Resource Group SQL shall be ignored due to unsupported platform or insufficient privilege.
+2026-08-22T13:26:10.834156Z 0 [Note] [MY-010855] [Server] Recovering after a crash using binlog
+2026-08-22T13:26:10.834286Z 0 [System] [MY-010229] [Server] Starting XA crash recovery...
+2026-08-22T13:26:10.837875Z 0 [Note] [MY-013911] [Server] Crash recovery finished in binlog engine. No attempts to commit, rollback or prepare any transactions.
+2026-08-22T13:26:10.837913Z 0 [Note] [MY-013911] [Server] Crash recovery finished in InnoDB engine. No attempts to commit, rollback or prepare any transactions.
+2026-08-22T13:26:10.837916Z 0 [System] [MY-010232] [Server] XA crash recovery finished.
+2026-08-22T13:26:10.843321Z 0 [Note] [MY-012487] [InnoDB] DDL log recovery : begin
+2026-08-22T13:26:10.843608Z 0 [Note] [MY-012488] [InnoDB] DDL log recovery : end
+2026-08-22T13:26:10.843790Z 0 [Note] [MY-011946] [InnoDB] Loading buffer pool(s) from /var/lib/mysql/ib_buffer_pool
+2026-08-22T13:26:10.872838Z 0 [Note] [MY-011946] [InnoDB] Buffer pool(s) load completed at 260822 13:26:10
+2026-08-22T13:26:10.880020Z 0 [Note] [MY-010303] [Server] Skipping generation of SSL certificates as options related to SSL are specified.
+2026-08-22T13:26:10.881405Z 0 [Warning] [MY-010068] [Server] CA certificate /etc/mysql/mysql-tls-secret/ca.crt is self signed.
+2026-08-22T13:26:10.881448Z 0 [System] [MY-013602] [Server] Channel mysql_main configured to support TLS. Encrypted connections are now supported for this channel.
+2026-08-22T13:26:10.886966Z 0 [Warning] [MY-013595] [Server] Failed to initialize TLS for channel: mysql_admin. See below for the description of exact issue.
+2026-08-22T13:26:10.887000Z 0 [Warning] [MY-010069] [Server] Failed to set up SSL because of the following SSL library error: SSL context is not usable without certificate and private key
+2026-08-22T13:26:10.887006Z 0 [System] [MY-013603] [Server] No TLS configuration was given for channel mysql_admin; re-using TLS configuration of channel mysql_main.
+2026-08-22T13:26:10.887245Z 0 [Note] [MY-010308] [Server] Skipping generation of RSA key pair through --sha256_password_auto_generate_rsa_keys as key files are present in data directory.
+2026-08-22T13:26:10.887444Z 0 [Note] [MY-010308] [Server] Skipping generation of RSA key pair through --caching_sha2_password_auto_generate_rsa_keys as key files are present in data directory.
+2026-08-22T13:26:10.887733Z 0 [Note] [MY-010252] [Server] Server hostname (bind-address): '10.42.0.16'; port: 33062
+2026-08-22T13:26:10.887756Z 0 [Note] [MY-010264] [Server]   - '10.42.0.16' resolves to '10.42.0.16';
+2026-08-22T13:26:10.887768Z 0 [Note] [MY-010251] [Server] Server socket created on IP: '10.42.0.16'.
+2026-08-22T13:26:10.887786Z 0 [Note] [MY-010252] [Server] Server hostname (bind-address): '*'; port: 3306
+2026-08-22T13:26:10.887802Z 0 [Note] [MY-010253] [Server] IPv6 is available.
+2026-08-22T13:26:10.887815Z 0 [Note] [MY-010264] [Server]   - '::' resolves to '::';
+2026-08-22T13:26:10.887819Z 0 [Note] [MY-010251] [Server] Server socket created on IP: '::'.
+2026-08-22T13:26:10.891741Z 0 [Note] [MY-013930] [Server] systemd notify: STATUS=Components initialization in progress 
+2026-08-22T13:26:10.892407Z 0 [Note] [MY-013930] [Server] systemd notify: STATUS=Components initialization successful 
+2026-08-22T13:26:10.892552Z 0 [Note] [MY-011071] [Server] Component percona_telemetry reported: 'Applying Telemetry grace interval 86400 seconds'
+2026-08-22T13:26:10.909630Z 0 [Warning] [MY-010604] [Repl] Neither --relay-log nor --relay-log-index were used; so replication may break when this MySQL server acts as a replica and has his hostname changed!! Please use '--relay-log=psc-mysql-0-relay-bin' to avoid this problem.
+2026-08-22T13:26:10.937643Z 0 [Note] [MY-011025] [Repl] Failed to start replica threads for channel ''.
+2026-08-22T13:26:10.939335Z 9 [Note] [MY-010051] [Server] Event Scheduler: scheduler thread started with id 9
+2026-08-22T13:26:10.939431Z 0 [Note] [MY-011240] [Server] Plugin mysqlx reported: 'Using SSL configuration from MySQL Server'
+2026-08-22T13:26:10.940218Z 0 [Note] [MY-011243] [Server] Plugin mysqlx reported: 'Using OpenSSL for TLS connections'
+2026-08-22T13:26:10.940426Z 0 [System] [MY-010931] [Server] /usr/sbin/mysqld: ready for connections. Version: '8.4.10-10'  socket: '/var/lib/mysql/mysql.sock'  port: 3306  Percona Server (GPL), Release 10, Revision d76e81f4.
+2026-08-22T13:26:10.940451Z 0 [System] [MY-013292] [Server] Admin interface ready for connections, address: '10.42.0.16'  port: 33062
+2026-08-22T13:26:10.940425Z 0 [System] [MY-011323] [Server] X Plugin ready for connections. Bind-address: '::' port: 33060, socket: /var/lib/mysql/mysqlx.sock
+2026-08-22T13:26:10.940759Z 0 [Note] [MY-013930] [Server] systemd notify: READY=1 STATUS=Server is operational MAIN_PID=1 
+2026-08-22T13:26:10.941145Z 4 [System] [MY-011565] [Repl] Plugin group_replication reported: 'Setting super_read_only=ON.'
+2026-08-22T13:26:10.941204Z 4 [Note] [MY-011671] [Repl] Plugin group_replication reported: 'Group communication SSL configuration: group_replication_ssl_mode: "REQUIRED"; server_key_file: ""; server_cert_file: ""; client_key_file: ""; client_cert_file: ""; ca_file: ""; ca_path: ""; cipher: ""; tls_version: "TLSv1.2,TLSv1.3"; tls_ciphersuites: "NOT_SET"; crl_file: ""; crl_path: ""; ssl_fips_mode: ""'
+2026-08-22T13:26:10.942095Z 4 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Debug messages will be sent to: asynchronous::/var/lib/mysql/GCS_DEBUG_TRACE'
+2026-08-22T13:26:10.942198Z 4 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Added automatically IP ranges 10.42.0.16/24,127.0.0.1/8,::1/128,fe80::dcbd:4ff:fed1:68d7/64 to the allowlist'
+2026-08-22T13:26:10.944647Z 4 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Translated 'psc-mysql-0.psc-mysql.ps' to 10.42.0.16'
+2026-08-22T13:26:10.944671Z 4 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Translated 'psc-mysql-0.psc-mysql.ps' to 10.42.0.16'
+2026-08-22T13:26:10.944675Z 4 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Translated 'psc-mysql-0.psc-mysql.ps' to 10.42.0.16'
+2026-08-22T13:26:10.945565Z 4 [Note] [MY-011694] [Repl] Plugin group_replication reported: 'Initialized group communication with configuration: group_replication_group_name: 'a874a53e-9e2c-11f1-b6d1-d6d6f354f497'; group_replication_local_address: 'psc-mysql-0.psc-mysql.ps:3306'; group_replication_group_seeds: 'psc-mysql-1.psc-mysql.ps:3306,psc-mysql-2.psc-mysql.ps:3306'; group_replication_bootstrap_group: 'false'; group_replication_poll_spin_loops: 0; group_replication_compression_threshold: 1000000; group_replication_ip_allowlist: 'AUTOMATIC'; group_replication_communication_debug_options: 'GCS_DEBUG_NONE'; group_replication_member_expel_timeout: '5'; group_replication_communication_max_message_size: 10485760; group_replication_message_cache_size: '1073741824u; group_replication_communication_stack: '1''
+2026-08-22T13:26:10.945598Z 4 [Note] [MY-011643] [Repl] Plugin group_replication reported: 'Member configuration: member_id: 31695410; member_uuid: "91796036-9e2c-11f1-a600-d6d6f354f497"; single-primary mode: "true"; group_replication_auto_increment_increment: 7; group_replication_view_change_uuid: "AUTOMATIC";'
+2026-08-22T13:26:10.945874Z 13 [System] [MY-010597] [Repl] 'CHANGE REPLICATION SOURCE TO FOR CHANNEL 'group_replication_applier' executed'. Previous state source_host='<NULL>', source_port= 0, source_log_file='', source_log_pos= 4, source_bind=''. New state source_host='<NULL>', source_port= 0, source_log_file='', source_log_pos= 4, source_bind=''.
+2026-08-22T13:26:10.962177Z 14 [System] [MY-014081] [Repl] Plugin group_replication reported: 'The Group Replication certifier broadcast thread (THD_certifier_broadcast) started.'
+2026-08-22T13:26:10.974136Z 4 [Note] [MY-011670] [Repl] Plugin group_replication reported: 'Group Replication applier module successfully initialized!'
+2026-08-22T13:26:10.974285Z 15 [Note] [MY-010581] [Repl] Replica SQL thread for channel 'group_replication_applier' initialized, starting replication in log 'INVALID' at position 0, relay log './psc-mysql-0-relay-bin-group_replication_applier.000001' position: 4
+2026-08-22T13:26:11.063005Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Using MySQL as Communication Stack for XCom'
+2026-08-22T13:26:11.063182Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Successfully connected to the local XCom via anonymous pipe'
+2026-08-22T13:26:11.083738Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] TCP_NODELAY already set'
+2026-08-22T13:26:11.083770Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Sucessfully connected to peer psc-mysql-1.psc-mysql.ps:3306. Sending a request to be added to the group'
+2026-08-22T13:26:11.083778Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Sending add_node request to a peer XCom node'
+2026-08-22T13:26:12.635432Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Node has not booted. Requesting an XCom snapshot from node number 0 in the current configuration'
+2026-08-22T13:26:12.635742Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Installing requested snapshot. Importing all incoming configurations.'
+2026-08-22T13:26:12.636338Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Updating physical connections to other servers'
+2026-08-22T13:26:12.636364Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Creating new server node 0 host psc-mysql-0.psc-mysql.ps:3306'
+2026-08-22T13:26:12.636941Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Creating new server node 1 host psc-mysql-1.psc-mysql.ps:3306'
+2026-08-22T13:26:12.637361Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Creating new server node 2 host psc-mysql-2.psc-mysql.ps:3306'
+2026-08-22T13:26:12.637774Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Sucessfully installed new site definition. Start synode for this configuration is {ebe31bb 285 0}, boot key synode is {ebe31bb 274 0}, configured event horizon=10, my node identifier is 0'
+2026-08-22T13:26:12.638466Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Updating physical connections to other servers'
+2026-08-22T13:26:12.638488Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Using existing server node 0 host psc-mysql-1.psc-mysql.ps:3306'
+2026-08-22T13:26:12.638492Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Using existing server node 1 host psc-mysql-2.psc-mysql.ps:3306'
+2026-08-22T13:26:12.638495Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Sucessfully installed new site definition. Start synode for this configuration is {ebe31bb 550 0}, boot key synode is {ebe31bb 539 0}, configured event horizon=10, my node identifier is 4294967295'
+2026-08-22T13:26:12.639148Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Updating physical connections to other servers'
+2026-08-22T13:26:12.639172Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Using existing server node 0 host psc-mysql-1.psc-mysql.ps:3306'
+2026-08-22T13:26:12.639176Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Using existing server node 1 host psc-mysql-2.psc-mysql.ps:3306'
+2026-08-22T13:26:12.639179Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Sucessfully installed new site definition. Start synode for this configuration is {ebe31bb 578 0}, boot key synode is {ebe31bb 567 0}, configured event horizon=10, my node identifier is 4294967295'
+2026-08-22T13:26:12.640195Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Updating physical connections to other servers'
+2026-08-22T13:26:12.640217Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Using existing server node 0 host psc-mysql-1.psc-mysql.ps:3306'
+2026-08-22T13:26:12.640222Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Using existing server node 1 host psc-mysql-2.psc-mysql.ps:3306'
+2026-08-22T13:26:12.640225Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Using existing server node 2 host psc-mysql-0.psc-mysql.ps:3306'
+2026-08-22T13:26:12.640228Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Sucessfully installed new site definition. Start synode for this configuration is {ebe31bb 612 0}, boot key synode is {ebe31bb 601 0}, configured event horizon=10, my node identifier is 2'
+2026-08-22T13:26:12.640231Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Finished snapshot installation. My node number is 2'
+2026-08-22T13:26:12.640409Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Connecting to psc-mysql-1.psc-mysql.ps:3306'
+2026-08-22T13:26:12.640642Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] The member has joined the group. Local port: 3306'
+2026-08-22T13:26:12.649690Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Connected to psc-mysql-1.psc-mysql.ps:3306'
+2026-08-22T13:26:12.649743Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Connecting to psc-mysql-2.psc-mysql.ps:3306'
+2026-08-22T13:26:12.670186Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Connected to psc-mysql-2.psc-mysql.ps:3306'
+2026-08-22T13:26:12.671816Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Updating physical connections to other servers'
+2026-08-22T13:26:12.671848Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Using existing server node 0 host psc-mysql-1.psc-mysql.ps:3306'
+2026-08-22T13:26:12.671852Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Using existing server node 1 host psc-mysql-2.psc-mysql.ps:3306'
+2026-08-22T13:26:12.671855Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Using existing server node 2 host psc-mysql-0.psc-mysql.ps:3306'
+2026-08-22T13:26:12.671858Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Sucessfully installed new site definition. Start synode for this configuration is {ebe31bb 639 0}, boot key synode is {ebe31bb 628 0}, configured event horizon=10, my node identifier is 2'
+2026-08-22T13:26:12.750118Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] This server adjusted its communication protocol to 8.0.27 in order to join the group.'
+2026-08-22T13:26:12.750159Z 0 [Note] [MY-011735] [Repl] Plugin group_replication reported: '[GCS] Group is able to support up to communication protocol version 8.0.27'
+2026-08-22T13:26:12.763410Z 4 [System] [MY-011511] [Repl] Plugin group_replication reported: 'This server is working as secondary member with primary member address psc-mysql-1.psc-mysql.ps:3306.'
+2026-08-22T13:26:12.763429Z 0 [System] [MY-011565] [Repl] Plugin group_replication reported: 'Setting super_read_only=ON.'
+2026-08-22T13:26:12.763486Z 0 [System] [MY-013471] [Repl] Plugin group_replication reported: 'Distributed recovery will transfer data using: Incremental recovery from a group donor'
+2026-08-22T13:26:12.763682Z 0 [System] [MY-011503] [Repl] Plugin group_replication reported: 'Group membership changed to psc-mysql-0.psc-mysql.ps:3306, psc-mysql-1.psc-mysql.ps:3306, psc-mysql-2.psc-mysql.ps:3306 on view 17874050070382718:5.'
+2026-08-22T13:26:12.763855Z 29 [Note] [MY-011576] [Repl] Plugin group_replication reported: 'Establishing group recovery connection with a possible donor. Attempt 1/10'
+2026-08-22T13:26:12.807524Z 29 [System] [MY-010597] [Repl] 'CHANGE REPLICATION SOURCE TO FOR CHANNEL 'group_replication_recovery' executed'. Previous state source_host='', source_port= 3306, source_log_file='', source_log_pos= 4, source_bind=''. New state source_host='psc-mysql-2.psc-mysql.ps', source_port= 3306, source_log_file='', source_log_pos= 4, source_bind=''.
+2026-08-22T13:26:12.836313Z 29 [Note] [MY-011580] [Repl] Plugin group_replication reported: 'Establishing connection to a group replication recovery donor c9443626-9e2c-11f1-bf8b-2ed373bb1632 at psc-mysql-2.psc-mysql.ps port: 3306.'
+2026-08-22T13:26:12.836415Z 29 [Note] [MY-015077] [Repl] Plugin group_replication reported: 'The group replication recovery is skipped as the joiner's gtid executed set 91796036-9e2c-11f1-a600-d6d6f354f497:1-4, a874a53e-9e2c-11f1-b6d1-d6d6f354f497:1-80 already has all the transactions of the donor's gtid set 91796036-9e2c-11f1-a600-d6d6f354f497:1-4, a874a53e-9e2c-11f1-b6d1-d6d6f354f497:1-80.'
+2026-08-22T13:26:12.836606Z 29 [Note] [MY-011585] [Repl] Plugin group_replication reported: 'Terminating existing group replication donor connection and purging the corresponding logs.'
+2026-08-22T13:26:12.866749Z 29 [System] [MY-010597] [Repl] 'CHANGE REPLICATION SOURCE TO FOR CHANNEL 'group_replication_recovery' executed'. Previous state source_host='psc-mysql-2.psc-mysql.ps', source_port= 3306, source_log_file='', source_log_pos= 4, source_bind=''. New state source_host='<NULL>', source_port= 0, source_log_file='', source_log_pos= 4, source_bind=''.
+2026-08-22T13:26:12.894323Z 0 [System] [MY-011490] [Repl] Plugin group_replication reported: 'This server was declared online within the replication group.'

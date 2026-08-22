@@ -17741,3 +17741,68 @@ Crunchy's restore produced no operator vocabulary to catalogue, so there is no
 Crunchy-specific restore finding — the honest outcome, and the test asserts the premise
 rather than papering over it. CloudNativePG's `recoveryTarget` (its own PITR) was not
 driven; only a full recovery to the end of the archive.
+
+---
+
+## 305. The sixth operator and the source that is not a log — `app/logsummary_psop.go`, `app/logsummary_k8sevents.go`, `app/logsummary_psop_test.go` (new), `app/{logsummary_k8s,logsummary_model,logsummary_parse,logsummary_pgop,logsummary_pxcop,logsummary_test}.go`, `app/web/src/lib/logApi.js`, `docs/LOG_SUMMARY.md`
+
+Everything left undone by §300–§304, on a clean pair of clusters after the previous stack
+was torn down.
+
+### Percona Operator for MySQL (Percona Server) — the last of the six
+
+The cheapest to add, because the five before it had paid for it: the same zap fold, and
+`kubectl logs <pod> -c mysql` returns **the mysqld error log itself** rather than the
+entrypoint trace the PXC operator's pods print — so its members are read by the existing
+**Group Replication** catalogue with no new code. Live: three members came back as
+`grouprepl` and produced *The group elected a new primary once* and the MySQL-Shell note
+without a line written for them.
+
+Where it sits between the two MySQL operators is the finding. Killing the primary of each,
+PXC's operator logged nothing at all and this one logged
+`Assigning primary label to pod psc-mysql-0` — the one fact that is hard to reconstruct
+afterwards (which member the writes moved to) and nothing about the failure that caused it.
+
+### Kubernetes Events
+
+The fourth format, deferred three times, and it closes a gap this package has carried since
+§300: a container killed by its liveness probe writes an ordinary shutdown record in its own
+log and nothing in the operator's, and the reason is an **API object**. `kubectl get events
+-o json` is now a source — one JSON List, not a line stream, so `lsSniffK8sEvents` claims it
+before the engine sniffers (whose vocabulary appears inside the Events' own `message`
+fields) and `lsFoldK8sEvents` unmarshals it whole.
+
+Three properties shaped the code: Events **expire** (1 h default, so absence is not
+evidence); they are **counted, not repeated**, which maps onto `lsEvent.Repeat`/`EndTS`
+exactly; and `type` is only Normal or Warning and is **not a severity** — `Killing` is
+Normal. Severity comes from the reason. Verified live: *Kubernetes killed a container*,
+severity bad, on a `Normal` event.
+
+`lsLoadScenario` now also loads `.json` fixtures, so a scenario directory can hold a
+cluster's Events beside its logs — which is the whole point of the source.
+
+### CloudNativePG `recoveryTarget`
+
+Driven and verified by data rather than by status: 100 rows before the target, 400 after,
+recovered to the target, and the new cluster came back with exactly 100 and `max(at)` a
+minute before the recovery point. It is still a **new cluster** — CNPG never restores in
+place — and a test asserts the page does not report it as an in-place outage.
+
+### Also fixed on the way
+
+barman-cloud was pointed at a **plain-HTTP** SeaweedFS this time rather than the TLS one,
+which avoids the `endpointCA` + pod-recreation dance of §303 entirely. Worth knowing in both
+directions: pgBackRest needs TLS, barman-cloud is happiest without it.
+
+### Verified
+
+- Live against both clusters: nine targets including the two new kinds, correct flavours
+  (`psoperator`, `grouprepl` ×3, `k8sevents`), and the findings above.
+- 6 new tests over six new fixture directories.
+- `go build` / `go vet` / `go test ./...` / `npm run smoke` / `npm run build` clean.
+
+### Not done
+
+Crunchy's restore still produces no operator vocabulary — unchanged from §304, and the test
+asserts that premise. The `ps` operator's **async/Orchestrator** cluster type was not
+deployed (only group replication), so Orchestrator's own log is not catalogued.
