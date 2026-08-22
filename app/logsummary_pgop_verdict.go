@@ -12,6 +12,7 @@ package main
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -20,6 +21,7 @@ var lsPGOpFindings = []func(*lsBundle) []lsFinding{
 	lsCNPGFindingWALArchive,
 	lsCNPGFindingSwitchover,
 	lsPGOpFindingBackup,
+	lsPGOpFindingPerformance,
 }
 
 // lsIsPGOpSrc gates these to the sources they were written for, the way lsIsPXCOpSrc and
@@ -196,6 +198,38 @@ func lsPGOpFindingBackup(b *lsBundle) []lsFinding {
 			Advice:  "`pgbackrest info` from inside a member's `pgbackrest` container is the same question asked directly, and its stanza-creation records say whether the repository was ever initialised.",
 			At:      empty[0].TS,
 			Sources: lsSrcSet(empty), Events: lsEventNos(empty, 3),
+		})
+	}
+	return out
+}
+
+// lsPGOpFindingPerformance is the advisor, and it is per source rather than per bundle.
+//
+// Three members of one cluster do not share a performance story: only the primary takes
+// the writes, so only the primary checkpoints hard and only the primary logs the slow
+// statements. Averaging them would hide exactly the member you are looking for.
+func lsPGOpFindingPerformance(b *lsBundle) []lsFinding {
+	window := b.Summary.LastTS - b.Summary.FirstTS
+	var out []lsFinding
+	for _, s := range b.Sources {
+		tips := lsPGPerfAdvice(s.PGPerf, window)
+		if len(tips) == 0 {
+			continue
+		}
+		sev := lsSevInfo
+		var lines []string
+		for _, t := range tips {
+			sev = lsWorse(sev, t.Sev)
+			lines = append(lines, fmt.Sprintf("%s — %s → %s. %s", t.Key, t.Is, t.Want, t.Why))
+		}
+		out = append(out, lsFinding{
+			ID: "pgperf-" + strconv.Itoa(s.Idx), Sev: sev,
+			Title: "How " + lsNode(b, s.Idx) + " was performing, from its own log",
+			Detail: "PostgreSQL prints no configuration, so none of this is a lint of settings — it is what the server reported about itself.\n\n" +
+				strings.Join(lines, "\n\n"),
+			Advice: "Measured on three operator-managed clusters driven with pgbench at identical scale: all three ship the same PostgreSQL defaults (`shared_buffers=128MB`, `max_wal_size=1GB`, `work_mem=4MB`), and raising them moved throughput by between −8% and +1.6%. " +
+				"That is why nothing here says to raise a setting because it looks small. Change what the server complained about, and measure.",
+			Sources: []int{s.Idx},
 		})
 	}
 	return out

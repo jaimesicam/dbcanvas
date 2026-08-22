@@ -1,0 +1,547 @@
+2026-08-22 11:13:47,112 INFO: No PostgreSQL configuration items changed, nothing to reload.
+2026-08-22 11:13:47,113 INFO: REST API thread_pool_size = 5
+2026-08-22 11:13:47,116 INFO: Lock owner: None; I am pgc-instance1-44gj-0
+2026-08-22 11:13:47,142 INFO: failed to acquire initialize lock
+2026-08-22 11:13:49,852 INFO: Lock owner: pgc-instance1-pknk-0; I am pgc-instance1-44gj-0
+2026-08-22 11:13:49,852 INFO: trying to bootstrap from leader 'pgc-instance1-pknk-0'
+2026-08-22 11:13:52,874 INFO: replica has been created using basebackup
+2026-08-22 11:13:52,874 INFO: bootstrapped from leader 'pgc-instance1-pknk-0'
+2026-08-22 11:13:53.091 UTC [124] LOG:  pgaudit extension initialized
+2026-08-22 11:13:53,100 INFO: postmaster pid=124
+/tmp/postgres:5432 - no response
+2026-08-22 11:13:53.106 UTC [124] LOG:  redirecting log output to logging collector process
+2026-08-22 11:13:53.106 UTC [124] HINT:  Future log output will appear in directory "log".
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - accepting connections
+2026-08-22 11:13:55,120 INFO: Lock owner: pgc-instance1-pknk-0; I am pgc-instance1-44gj-0
+2026-08-22 11:13:55,120 INFO: establishing a new patroni heartbeat connection to postgres
+2026-08-22 11:13:55,135 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:13:55,181 INFO: establishing a new patroni restapi connection to postgres
+2026-08-22 11:13:59,863 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:14:09,863 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:14:19,860 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:14:29,850 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:14:39,850 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:14:49,865 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:14:59,850 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:15:09,861 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:15:19,863 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:15:29,853 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:15:39,850 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:15:49,864 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:15:59,850 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:16:09,864 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:16:19,859 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:16:29,910 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:16:39,860 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:16:49,850 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:16:59,853 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:17:09,861 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:17:19,850 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:17:29,850 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:17:39,851 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:17:49,851 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:17:59,851 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:18:09,851 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:18:19,851 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:18:29,851 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:18:39,851 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:18:49,850 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:18:59,851 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:19:05,244 INFO: Got response from pgc-instance1-6h22-0 https://pgc-instance1-6h22-0.pgc-pods:8008/patroni: {"state": "running", "postmaster_start_time": "2026-08-22 11:13:53.137380+00:00", "role": "replica", "server_version": 180003, "xlog": {"received_location": 134217888, "replayed_location": 134217888, "replayed_timestamp": "2026-08-22 11:14:48.905348+00:00", "paused": false}, "timeline": 1, "replication_state": "in archive recovery", "cluster_unlocked": true, "dcs_last_seen": 1787397545, "database_system_identifier": "7676812636111786076", "patroni": {"version": "4.1.2", "scope": "pgc-ha", "name": "pgc-instance1-6h22-0"}}
+2026-08-22 11:19:05,249 ERROR: ObjectCache.run ProtocolError("Connection broken: ConnectionResetError(104, 'Connection reset by peer')", ConnectionResetError(104, 'Connection reset by peer'))
+2026-08-22 11:19:05,250 INFO: Could not take out TTL lock
+2026-08-22 11:19:05,251 ERROR: ObjectCache.run ProtocolError("Connection broken: ConnectionResetError(104, 'Connection reset by peer')", ConnectionResetError(104, 'Connection reset by peer'))
+server signaled
+2026-08-22 11:19:05,883 INFO: following new leader after trying and failing to obtain lock
+2026-08-22 11:19:05,885 INFO: Lock owner: pgc-instance1-6h22-0; I am pgc-instance1-44gj-0
+2026-08-22 11:19:05,892 INFO: Local timeline=1 lsn=0/80000A0
+2026-08-22 11:19:05,893 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:19:06,265 INFO: Lock owner: pgc-instance1-6h22-0; I am pgc-instance1-44gj-0
+2026-08-22 11:19:06,271 INFO: Local timeline=1 lsn=0/80000A0
+2026-08-22 11:19:06,285 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:19:06,673 INFO: Lock owner: pgc-instance1-6h22-0; I am pgc-instance1-44gj-0
+2026-08-22 11:19:06,678 INFO: Local timeline=2 lsn=0/80001A8
+2026-08-22 11:19:06,697 INFO: primary_timeline=2
+2026-08-22 11:19:06,710 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:19:16,687 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:19:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:19:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:19:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:19:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:20:06,685 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:20:16,674 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:20:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:20:36,674 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:20:46,680 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:20:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:21:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:21:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:21:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:21:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:21:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:21:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:22:06,683 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:22:16,674 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:22:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:22:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:22:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:22:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:23:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:23:16,698 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:23:26,704 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:23:36,687 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:23:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:23:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:24:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:24:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:24:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:24:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:24:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:24:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:25:06,674 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:25:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:25:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:25:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:25:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:25:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:26:06,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:26:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:26:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:26:36,683 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:26:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:26:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:27:06,683 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:27:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:27:26,674 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:27:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:27:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:27:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:28:06,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:28:16,688 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:28:26,688 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:28:36,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:28:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:28:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:29:06,678 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:29:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:29:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:29:36,677 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:29:46,677 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:29:56,687 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:30:06,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:30:16,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:30:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:30:36,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:30:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:30:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:31:06,677 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:31:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:31:26,677 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:31:36,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:31:46,678 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:31:56,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:32:06,680 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:32:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:32:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:32:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:32:46,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:32:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:33:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:33:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:33:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:33:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:33:46,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:33:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:34:06,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:34:16,674 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:34:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:34:36,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:34:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:34:56,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:35:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:35:16,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:35:26,674 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:35:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:35:46,679 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:35:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:36:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:36:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:36:26,677 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:36:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:36:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:36:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:37:06,682 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:37:16,681 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:37:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:37:36,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:37:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:37:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:38:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:38:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:38:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:38:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:38:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:38:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:39:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:39:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:39:26,692 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:39:36,674 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:39:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:39:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:40:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:40:16,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:40:26,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:40:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:40:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:40:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:41:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:41:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:41:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:41:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:41:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:41:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:42:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:42:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:42:26,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:42:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:42:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:42:56,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:43:06,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:43:16,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:43:26,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:43:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:43:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:43:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:44:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:44:16,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:44:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:44:36,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:44:46,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:44:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:45:06,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:45:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:45:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:45:36,677 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:45:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:45:56,677 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:46:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:46:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:46:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:46:36,678 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:46:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:46:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:47:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:47:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:47:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:47:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:47:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:47:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:48:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:48:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:48:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:48:36,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:48:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:48:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:49:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:49:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:49:26,674 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:49:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:49:46,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:49:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:50:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:50:16,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:50:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:50:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:50:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:50:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:51:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:51:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:51:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:51:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:51:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:51:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:52:06,678 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:52:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:52:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:52:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:52:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:52:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:53:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:53:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:53:26,677 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:53:36,674 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:53:46,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:53:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:54:06,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:54:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:54:26,681 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:54:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:54:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:54:56,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:55:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:55:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:55:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:55:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:55:46,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:55:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:56:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:56:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:56:26,674 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:56:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:56:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:56:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:57:06,678 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:57:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:57:26,674 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:57:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:57:46,674 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:57:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:58:06,674 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:58:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:58:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:58:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:58:46,674 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:58:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:59:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:59:16,674 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:59:26,674 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:59:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:59:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:59:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:00:06,674 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:00:16,674 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:00:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:00:32,262 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:00:32,270 INFO: Changed deadlock_timeout from '1s' to '500ms'
+2026-08-22 12:00:32,270 INFO: Changed log_autovacuum_min_duration from '10min' to '0'
+2026-08-22 12:00:32,270 INFO: Changed log_connections from '' to 'on'
+2026-08-22 12:00:32,270 INFO: Changed log_disconnections from 'off' to 'on'
+2026-08-22 12:00:32,270 INFO: Changed log_lock_waits from 'off' to 'on'
+2026-08-22 12:00:32,270 INFO: Changed log_min_duration_statement from '-1ms' to '200'
+2026-08-22 12:00:32,270 INFO: Changed log_temp_files from '-1kB' to '0'
+2026-08-22 12:00:32,272 INFO: Reloading PostgreSQL configuration.
+server signaled
+2026-08-22 12:00:33,288 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:00:34,122 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:00:34,123 INFO: Changed deadlock_timeout from '500ms' to 'None'
+2026-08-22 12:00:34,123 INFO: Changed log_autovacuum_min_duration from '0' to 'None'
+2026-08-22 12:00:34,123 INFO: Changed log_checkpoints from 'on' to 'None'
+2026-08-22 12:00:34,123 INFO: Changed log_connections from '' to 'None'
+2026-08-22 12:00:34,123 INFO: Changed log_disconnections from 'off' to 'None'
+2026-08-22 12:00:34,123 INFO: Changed log_lock_waits from 'on' to 'None'
+2026-08-22 12:00:34,123 INFO: Changed log_min_duration_statement from '200ms' to 'None'
+2026-08-22 12:00:34,123 INFO: Changed log_temp_files from '0' to 'None'
+2026-08-22 12:00:34,124 INFO: Reloading PostgreSQL configuration.
+server signaled
+2026-08-22 12:00:35,130 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:00:44,126 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:00:54,126 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:01:04,126 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:01:14,127 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:01:24,126 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:01:34,126 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:01:44,125 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:01:54,126 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:02:04,125 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:02:13,076 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:02:13,078 INFO: Changed deadlock_timeout from '1s' to '500ms'
+2026-08-22 12:02:13,078 INFO: Changed log_autovacuum_min_duration from '10min' to '0'
+2026-08-22 12:02:13,078 INFO: Changed log_connections from '' to 'on'
+2026-08-22 12:02:13,078 INFO: Changed log_disconnections from 'off' to 'on'
+2026-08-22 12:02:13,078 INFO: Changed log_lock_waits from 'off' to 'on'
+2026-08-22 12:02:13,078 INFO: Changed log_min_duration_statement from '-1ms' to '200'
+2026-08-22 12:02:13,078 INFO: Changed log_temp_files from '-1kB' to '0'
+2026-08-22 12:02:13,079 INFO: Reloading PostgreSQL configuration.
+server signaled
+2026-08-22 12:02:14,084 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:02:23,081 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:02:33,080 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:02:43,081 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:02:53,080 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:03:03,081 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:03:13,081 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:03:23,081 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:03:33,081 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:03:43,081 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:03:53,081 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:04:03,081 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:04:13,098 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:04:23,093 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:04:33,093 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:04:43,098 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:04:53,093 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:05:03,154 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:05:13,092 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:05:23,091 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:05:33,095 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:05:43,081 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:05:53,081 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:06:03,095 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:06:13,081 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:06:23,081 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:06:33,081 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:06:43,080 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:06:53,081 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:07:03,081 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:07:13,081 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:07:23,081 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:07:33,081 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:07:43,081 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:07:53,081 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:08:03,080 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:08:13,080 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:08:23,094 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:08:33,081 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:08:33,097 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:08:33,099 INFO: Changed effective_cache_size from '4GB' to '3GB'
+2026-08-22 12:08:33,099 INFO: Changed log_connections from '' to 'on'
+2026-08-22 12:08:33,099 INFO: Changed log_disconnections from 'off' to 'on'
+2026-08-22 12:08:33,099 INFO: Changed max_wal_size from '1GB' to '4GB'
+2026-08-22 12:08:33,099 INFO: Changed random_page_cost from '4' to '1.1'
+2026-08-22 12:08:33,099 INFO: Changed shared_buffers from '128MB' to '1GB' (restart might be required)
+2026-08-22 12:08:33,099 INFO: Changed wal_compression from 'off' to 'on'
+2026-08-22 12:08:33,099 INFO: Changed work_mem from '4MB' to '16MB'
+2026-08-22 12:08:33,100 INFO: Reloading PostgreSQL configuration.
+server signaled
+2026-08-22 12:08:34,130 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:08:36,177 INFO: Lock owner: pgc-instance1-6h22-0; I am pgc-instance1-44gj-0
+2026-08-22 12:08:37,187 INFO: closed patroni connections to postgres
+2026-08-22 12:08:37.391 UTC [7994] LOG:  pgaudit extension initialized
+2026-08-22 12:08:37,400 INFO: postmaster pid=7994
+/tmp/postgres:5432 - no response
+2026-08-22 12:08:37.412 UTC [7994] LOG:  redirecting log output to logging collector process
+2026-08-22 12:08:37.412 UTC [7994] HINT:  Future log output will appear in directory "log".
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - accepting connections
+2026-08-22 12:08:40,447 INFO: Lock owner: pgc-instance1-6h22-0; I am pgc-instance1-44gj-0
+2026-08-22 12:08:40,447 INFO: establishing a new patroni heartbeat connection to postgres
+2026-08-22 12:08:40,502 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:08:43,109 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:08:45,188 INFO: establishing a new patroni restapi connection to postgres
+2026-08-22 12:08:48,682 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:08:58,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:09:08,672 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:09:18,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:09:28,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:09:38,663 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:09:48,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:09:58,663 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:10:08,663 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:10:18,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:10:28,663 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:10:38,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:10:48,663 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:10:58,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:11:08,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:11:18,663 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:11:28,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:11:38,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:11:48,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:11:58,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:12:08,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:12:18,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:12:28,687 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:12:38,680 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:12:48,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:12:58,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:13:08,677 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:13:18,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:13:28,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:13:38,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:13:48,679 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:13:58,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:14:08,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:14:18,663 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:14:28,676 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:14:38,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:14:48,663 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:14:58,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:15:08,663 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:15:18,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:15:28,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:15:38,668 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:15:48,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:15:58,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:16:08,662 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:16:13,123 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:16:13,126 INFO: Changed autovacuum_vacuum_cost_delay from '2ms' to '100ms'
+2026-08-22 12:16:13,126 INFO: Changed bgwriter_lru_maxpages from '100' to '0'
+2026-08-22 12:16:13,126 INFO: Changed checkpoint_completion_target from '0.9' to '0.1'
+2026-08-22 12:16:13,126 INFO: Changed checkpoint_timeout from '5min' to '30s'
+2026-08-22 12:16:13,126 INFO: Changed deadlock_timeout from '500ms' to '200ms'
+2026-08-22 12:16:13,126 INFO: Changed effective_cache_size from '3GB' to '128MB'
+2026-08-22 12:16:13,126 INFO: Changed log_min_duration_statement from '200ms' to '100'
+2026-08-22 12:16:13,126 INFO: Changed maintenance_work_mem from '64MB' to '1MB'
+2026-08-22 12:16:13,126 INFO: Changed max_wal_size from '4GB' to '64MB'
+2026-08-22 12:16:13,126 INFO: Changed min_wal_size from '80MB' to '32MB'
+2026-08-22 12:16:13,126 INFO: Changed random_page_cost from '1.1' to '4'
+2026-08-22 12:16:13,126 INFO: Changed shared_buffers from '1GB' to '64MB' (restart might be required)
+2026-08-22 12:16:13,126 INFO: Changed wal_compression from 'pglz' to 'on'
+2026-08-22 12:16:13,126 INFO: Changed work_mem from '16MB' to '64kB'
+2026-08-22 12:16:13,128 INFO: Reloading PostgreSQL configuration.
+server signaled
+2026-08-22 12:16:14,155 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:16:18,523 INFO: Lock owner: pgc-instance1-6h22-0; I am pgc-instance1-44gj-0
+2026-08-22 12:16:19,527 INFO: closed patroni connections to postgres
+2026-08-22 12:16:19.739 UTC [9164] LOG:  pgaudit extension initialized
+2026-08-22 12:16:19.747 UTC [9164] LOG:  redirecting log output to logging collector process
+2026-08-22 12:16:19.747 UTC [9164] HINT:  Future log output will appear in directory "log".
+2026-08-22 12:16:19,751 INFO: postmaster pid=9164
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - accepting connections
+2026-08-22 12:16:20,777 INFO: Lock owner: pgc-instance1-6h22-0; I am pgc-instance1-44gj-0
+2026-08-22 12:16:20,778 INFO: establishing a new patroni heartbeat connection to postgres
+2026-08-22 12:16:20,809 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:16:23,128 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:16:25,173 INFO: establishing a new patroni restapi connection to postgres
+2026-08-22 12:16:27,649 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:16:37,650 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:16:47,635 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:16:57,655 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:17:07,650 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:17:17,635 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:17:27,647 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:17:37,635 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:17:47,635 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:17:57,635 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:18:07,635 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:18:17,635 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:18:27,635 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:18:37,634 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:18:47,635 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:18:57,636 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:19:07,635 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:19:17,635 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:19:27,635 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:19:37,635 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:19:47,635 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:19:57,635 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:20:07,654 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:20:17,647 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:20:27,650 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:20:37,652 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:20:47,650 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:20:57,687 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:21:07,650 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:21:17,649 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:21:27,655 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:21:37,654 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:21:47,646 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:21:57,651 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:22:07,635 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:22:17,649 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:22:27,652 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:22:37,653 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:22:47,651 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:22:57,635 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:23:07,653 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:23:17,639 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:23:27,636 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:23:37,637 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:23:47,655 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:23:57,635 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)

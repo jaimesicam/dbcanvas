@@ -65,6 +65,12 @@ type lsSource struct {
 	// operator-managed cluster it is the only place any of those numbers exists — cr.yaml
 	// ships with no configuration section at all. See logsummary_pxcop_config.go.
 	PXCCfg *lsPXCConfig `json:"pxcConfig,omitempty"`
+	// PGPerf is the performance evidence a PostgreSQL server left in its own log:
+	// checkpoints, sorts that spilled, slow statements, lock waits. Unlike the two above
+	// it is not a configuration — PostgreSQL prints no configuration — it is the symptoms,
+	// which is the only thing this engine gives an advisor to work with. See
+	// logsummary_pgperf.go.
+	PGPerf *lsPGPerf `json:"pgPerf,omitempty"`
 }
 
 // lsPhase is a stretch of time during which a source was in one state. Phases tile the
@@ -288,6 +294,7 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 		src.Records = len(recs)
 		src.Flavour = lsSniffPGFlavour(recs)
 		src.Node = lsPGNodeName(recs)
+		src.PGPerf = lsPGScanPerf(recs)
 		for _, r := range recs {
 			e, keep := lsClassifyPG(r)
 			if !keep {
@@ -403,6 +410,7 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 			src.Records = len(recs)
 			src.Flavour = fl
 			src.Node = lsPGOpNodeName(recs, fl)
+			src.PGPerf = lsPGScanPerf(recs)
 			for _, r := range recs {
 				var e lsEvent
 				var keep bool

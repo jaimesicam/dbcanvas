@@ -1,0 +1,640 @@
+2026-08-22 11:13:48.804 UTC [109] LOG:  starting PostgreSQL 18.3 - Percona Server for PostgreSQL 18.3.1 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 11.5.0 20240719 (Red Hat 11.5.0-11.0.2), 64-bit
+2026-08-22 11:13:48.805 UTC [109] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-08-22 11:13:48.805 UTC [109] LOG:  listening on IPv6 address "::", port 5432
+2026-08-22 11:13:48.812 UTC [109] LOG:  listening on Unix socket "/tmp/postgres/.s.PGSQL.5432"
+2026-08-22 11:13:48.819 UTC [117] LOG:  database system was shut down at 2026-08-22 11:13:47 UTC
+2026-08-22 11:13:48.824 UTC [109] LOG:  database system is ready to accept connections
+2026-08-22 11:13:49.875 UTC [115] LOG:  checkpoint starting: force wait
+2026-08-22 11:13:49.982 P00  ERROR: [103]: unable to find a valid repository:
+                                    repo1: [FileMissingError] unable to load info file '/pgbackrest/pgc/repo1/archive/db/archive.info' or '/pgbackrest/pgc/repo1/archive/db/archive.info.copy':
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info' for read
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info.copy' for read
+                                    HINT: archive.info cannot be opened but is required to push/get WAL segments.
+                                    HINT: is archive_command configured correctly in postgresql.conf?
+                                    HINT: has a stanza-create been performed?
+                                    HINT: use --no-archive-check to disable archive checks during backup if you have an alternate archiving scheme.
+2026-08-22 11:13:51.073 UTC [115] LOG:  checkpoint complete: wrote 12 buffers (0.1%), wrote 4 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=1.127 s, sync=0.028 s, total=1.199 s; sync files=12, longest=0.008 s, average=0.003 s; distance=8859 kB, estimate=8859 kB; lsn=0/2000080, redo lsn=0/2000028
+2026-08-22 11:13:51.073 UTC [115] LOG:  checkpoint starting: force wait
+2026-08-22 11:13:51.089 UTC [115] LOG:  checkpoint complete: wrote 0 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.016 s; sync files=0, longest=0.000 s, average=0.000 s; distance=0 kB, estimate=7973 kB; lsn=0/2000150, redo lsn=0/20000F8
+2026-08-22 11:13:51.252 P00  ERROR: [103]: unable to find a valid repository:
+                                    repo1: [FileMissingError] unable to load info file '/pgbackrest/pgc/repo1/archive/db/archive.info' or '/pgbackrest/pgc/repo1/archive/db/archive.info.copy':
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info' for read
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info.copy' for read
+                                    HINT: archive.info cannot be opened but is required to push/get WAL segments.
+                                    HINT: is archive_command configured correctly in postgresql.conf?
+                                    HINT: has a stanza-create been performed?
+                                    HINT: use --no-archive-check to disable archive checks during backup if you have an alternate archiving scheme.
+2026-08-22 11:13:51.359 P00  ERROR: [103]: unable to find a valid repository:
+                                    repo1: [FileMissingError] unable to load info file '/pgbackrest/pgc/repo1/archive/db/archive.info' or '/pgbackrest/pgc/repo1/archive/db/archive.info.copy':
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info' for read
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info.copy' for read
+                                    HINT: archive.info cannot be opened but is required to push/get WAL segments.
+                                    HINT: is archive_command configured correctly in postgresql.conf?
+                                    HINT: has a stanza-create been performed?
+                                    HINT: use --no-archive-check to disable archive checks during backup if you have an alternate archiving scheme.
+2026-08-22 11:13:51.466 P00  ERROR: [103]: unable to find a valid repository:
+                                    repo1: [FileMissingError] unable to load info file '/pgbackrest/pgc/repo1/archive/db/archive.info' or '/pgbackrest/pgc/repo1/archive/db/archive.info.copy':
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info' for read
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info.copy' for read
+                                    HINT: archive.info cannot be opened but is required to push/get WAL segments.
+                                    HINT: is archive_command configured correctly in postgresql.conf?
+                                    HINT: has a stanza-create been performed?
+                                    HINT: use --no-archive-check to disable archive checks during backup if you have an alternate archiving scheme.
+2026-08-22 11:13:51.572 P00  ERROR: [103]: unable to find a valid repository:
+                                    repo1: [FileMissingError] unable to load info file '/pgbackrest/pgc/repo1/archive/db/archive.info' or '/pgbackrest/pgc/repo1/archive/db/archive.info.copy':
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info' for read
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info.copy' for read
+                                    HINT: archive.info cannot be opened but is required to push/get WAL segments.
+                                    HINT: is archive_command configured correctly in postgresql.conf?
+                                    HINT: has a stanza-create been performed?
+                                    HINT: use --no-archive-check to disable archive checks during backup if you have an alternate archiving scheme.
+2026-08-22 11:14:14.035 UTC [115] LOG:  checkpoint starting: force wait
+2026-08-22 11:16:02.281 UTC [115] LOG:  checkpoint complete: wrote 1068 buffers (6.5%), wrote 2 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=107.856 s, sync=0.371 s, total=108.247 s; sync files=391, longest=0.003 s, average=0.001 s; distance=49151 kB, estimate=49151 kB; lsn=0/6002A90, redo lsn=0/5000028
+pg_waldump: error: could not read file "000000010000000000000005.00000028.backup": read 371 of 8192
+2026-08-22 11:19:04.170 UTC [109] LOG:  received fast shutdown request
+2026-08-22 11:19:04.173 UTC [109] LOG:  aborting any active transactions
+2026-08-22 11:19:04.174 UTC [126] FATAL:  terminating connection due to administrator command
+2026-08-22 11:19:04.176 UTC [109] LOG:  background worker "logical replication launcher" (PID 121) exited with exit code 1
+2026-08-22 11:19:04.176 UTC [115] LOG:  shutting down
+2026-08-22 11:19:04.189 UTC [115] LOG:  checkpoint starting: shutdown immediate
+2026-08-22 11:19:04.241 UTC [115] LOG:  checkpoint complete: wrote 55 buffers (0.3%), wrote 2 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.007 s, sync=0.017 s, total=0.056 s; sync files=16, longest=0.004 s, average=0.002 s; distance=49152 kB, estimate=49152 kB; lsn=0/8000028, redo lsn=0/8000028
+2026-08-22 11:19:04.281 UTC [109] LOG:  database system is shut down
+2026-08-22 11:19:12.602 UTC [102] LOG:  starting PostgreSQL 18.3 - Percona Server for PostgreSQL 18.3.1 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 11.5.0 20240719 (Red Hat 11.5.0-11.0.2), 64-bit
+2026-08-22 11:19:12.602 UTC [102] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-08-22 11:19:12.602 UTC [102] LOG:  listening on IPv6 address "::", port 5432
+2026-08-22 11:19:12.607 UTC [102] LOG:  listening on Unix socket "/tmp/postgres/.s.PGSQL.5432"
+2026-08-22 11:19:12.614 UTC [110] LOG:  database system was shut down at 2026-08-22 11:19:04 UTC
+2026-08-22 11:19:12.627 UTC [110] LOG:  restored log file "00000002.history" from archive
+2026-08-22 11:19:12.650 UTC [110] LOG:  restored log file "00000002.history" from archive
+2026-08-22 11:19:12.870 UTC [110] LOG:  entering standby mode
+2026-08-22 11:19:12.880 UTC [110] LOG:  consistent recovery state reached at 0/80000A0
+2026-08-22 11:19:12.880 UTC [110] LOG:  invalid record length at 0/80000A0: expected at least 24, got 0
+2026-08-22 11:19:12.880 UTC [102] LOG:  database system is ready to accept read-only connections
+2026-08-22 11:19:12.895 UTC [120] LOG:  started streaming WAL from primary at 0/8000000 on timeline 2
+2026-08-22 11:19:12.918 UTC [110] LOG:  redo starts at 0/80000A0
+2026-08-22 11:24:12.699 UTC [108] LOG:  restartpoint starting: time
+2026-08-22 11:24:13.145 UTC [108] LOG:  restartpoint complete: wrote 4 buffers (0.0%), wrote 1 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=0.409 s, sync=0.011 s, total=0.446 s; sync files=2, longest=0.010 s, average=0.006 s; distance=16384 kB, estimate=16384 kB; lsn=0/90000B8, redo lsn=0/9000028
+2026-08-22 11:24:13.145 UTC [108] LOG:  recovery restart point at 0/9000028
+2026-08-22 11:29:12.244 UTC [108] LOG:  restartpoint starting: time
+2026-08-22 11:29:12.271 UTC [108] LOG:  restartpoint complete: wrote 0 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.028 s; sync files=0, longest=0.000 s, average=0.000 s; distance=32768 kB, estimate=32768 kB; lsn=0/B0000B8, redo lsn=0/B000060
+2026-08-22 11:29:12.271 UTC [108] LOG:  recovery restart point at 0/B000060
+2026-08-22 12:00:32.274 UTC [102] LOG:  received SIGHUP, reloading configuration files
+2026-08-22 12:00:32.276 UTC [102] LOG:  parameter "deadlock_timeout" changed to "500ms"
+2026-08-22 12:00:32.276 UTC [102] LOG:  parameter "log_autovacuum_min_duration" changed to "0"
+2026-08-22 12:00:32.276 UTC [102] LOG:  parameter "log_connections" changed to "on"
+2026-08-22 12:00:32.276 UTC [102] LOG:  parameter "log_disconnections" changed to "on"
+2026-08-22 12:00:32.276 UTC [102] LOG:  parameter "log_lock_waits" changed to "on"
+2026-08-22 12:00:32.276 UTC [102] LOG:  parameter "log_min_duration_statement" changed to "200"
+2026-08-22 12:00:32.276 UTC [102] LOG:  parameter "log_temp_files" changed to "0"
+2026-08-22 12:00:34.126 UTC [102] LOG:  received SIGHUP, reloading configuration files
+2026-08-22 12:00:34.126 UTC [102] LOG:  parameter "log_lock_waits" removed from configuration file, reset to default
+2026-08-22 12:00:34.126 UTC [102] LOG:  parameter "log_temp_files" removed from configuration file, reset to default
+2026-08-22 12:00:34.126 UTC [102] LOG:  parameter "deadlock_timeout" removed from configuration file, reset to default
+2026-08-22 12:00:34.126 UTC [102] LOG:  parameter "log_autovacuum_min_duration" removed from configuration file, reset to default
+2026-08-22 12:00:34.126 UTC [102] LOG:  parameter "log_connections" removed from configuration file, reset to default
+2026-08-22 12:00:34.126 UTC [102] LOG:  parameter "log_min_duration_statement" removed from configuration file, reset to default
+2026-08-22 12:00:34.126 UTC [102] LOG:  parameter "log_checkpoints" removed from configuration file, reset to default
+2026-08-22 12:00:34.126 UTC [102] LOG:  parameter "log_disconnections" removed from configuration file, reset to default
+2026-08-22 12:02:13.080 UTC [102] LOG:  received SIGHUP, reloading configuration files
+2026-08-22 12:02:13.081 UTC [102] LOG:  parameter "deadlock_timeout" changed to "500ms"
+2026-08-22 12:02:13.081 UTC [102] LOG:  parameter "log_autovacuum_min_duration" changed to "0"
+2026-08-22 12:02:13.081 UTC [102] LOG:  parameter "log_connections" changed to "on"
+2026-08-22 12:02:13.081 UTC [102] LOG:  parameter "log_disconnections" changed to "on"
+2026-08-22 12:02:13.081 UTC [102] LOG:  parameter "log_lock_waits" changed to "on"
+2026-08-22 12:02:13.081 UTC [102] LOG:  parameter "log_min_duration_statement" changed to "200"
+2026-08-22 12:02:13.081 UTC [102] LOG:  parameter "log_temp_files" changed to "0"
+2026-08-22 12:08:33.101 UTC [102] LOG:  received SIGHUP, reloading configuration files
+2026-08-22 12:08:33.102 UTC [102] LOG:  parameter "effective_cache_size" changed to "3GB"
+2026-08-22 12:08:33.102 UTC [102] LOG:  parameter "max_wal_size" changed to "4GB"
+2026-08-22 12:08:33.102 UTC [102] LOG:  parameter "random_page_cost" changed to "1.1"
+2026-08-22 12:08:33.102 UTC [102] LOG:  parameter "shared_buffers" cannot be changed without restarting the server
+2026-08-22 12:08:33.102 UTC [102] LOG:  parameter "wal_compression" changed to "on"
+2026-08-22 12:08:33.102 UTC [102] LOG:  parameter "work_mem" changed to "16MB"
+2026-08-22 12:08:33.102 UTC [102] LOG:  configuration file "/pgdata/pg18/postgresql.conf" contains errors; unaffected changes were applied
+2026-08-22 12:08:40.453 UTC [7378] LOG:  connection received: host=[local]
+2026-08-22 12:08:40.455 UTC [7378] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:08:40.455 UTC [7378] LOG:  connection authorized: user=postgres database=postgres application_name=Patroni
+2026-08-22 12:08:40.460 UTC [7378] LOG:  disconnection: session time: 0:00:00.007 user=postgres database=postgres host=[local]
+2026-08-22 12:08:40.461 UTC [102] LOG:  received fast shutdown request
+2026-08-22 12:08:40.465 UTC [102] LOG:  aborting any active transactions
+2026-08-22 12:08:40.465 UTC [125] FATAL:  terminating connection due to administrator command
+2026-08-22 12:08:40.465 UTC [156] FATAL:  terminating connection due to administrator command
+2026-08-22 12:08:40.465 UTC [120] FATAL:  terminating walreceiver process due to administrator command
+2026-08-22 12:08:40.476 UTC [108] LOG:  shutting down
+2026-08-22 12:08:40.502 UTC [102] LOG:  database system is shut down
+2026-08-22 12:08:41.711 UTC [7384] LOG:  starting PostgreSQL 18.3 - Percona Server for PostgreSQL 18.3.1 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 11.5.0 20240719 (Red Hat 11.5.0-11.0.2), 64-bit
+2026-08-22 12:08:41.711 UTC [7384] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-08-22 12:08:41.711 UTC [7384] LOG:  listening on IPv6 address "::", port 5432
+2026-08-22 12:08:41.717 UTC [7384] LOG:  listening on Unix socket "/tmp/postgres/.s.PGSQL.5432"
+2026-08-22 12:08:41.723 UTC [7392] LOG:  database system was shut down in recovery at 2026-08-22 12:08:40 UTC
+2026-08-22 12:08:41.753 UTC [7392] LOG:  restored log file "00000002.history" from archive
+2026-08-22 12:08:41.867 UTC [7392] LOG:  restored log file "00000002000000000000000B" from archive
+2026-08-22 12:08:41.879 UTC [7392] LOG:  entering standby mode
+2026-08-22 12:08:41.884 UTC [7392] LOG:  redo starts at 0/B000060
+2026-08-22 12:08:41.891 UTC [7392] LOG:  restored log file "00000002000000000000000C" from archive
+2026-08-22 12:08:41.943 UTC [7392] LOG:  restored log file "00000002000000000000000D" from archive
+2026-08-22 12:08:41.991 UTC [7392] LOG:  restored log file "00000002000000000000000E" from archive
+2026-08-22 12:08:42.076 UTC [7392] LOG:  restored log file "00000002000000000000000F" from archive
+2026-08-22 12:08:42.207 UTC [7392] LOG:  restored log file "000000020000000000000010" from archive
+2026-08-22 12:08:42.303 UTC [7392] LOG:  restored log file "000000020000000000000011" from archive
+2026-08-22 12:08:42.462 UTC [7392] LOG:  restored log file "000000020000000000000012" from archive
+2026-08-22 12:08:42.613 UTC [7392] LOG:  restored log file "000000020000000000000013" from archive
+2026-08-22 12:08:42.709 UTC [7411] LOG:  connection received: host=[local]
+2026-08-22 12:08:42.709 UTC [7411] FATAL:  the database system is not yet accepting connections
+2026-08-22 12:08:42.709 UTC [7411] DETAIL:  Consistent recovery state has not been yet reached.
+2026-08-22 12:08:42.718 UTC [7413] LOG:  connection received: host=[local]
+2026-08-22 12:08:42.718 UTC [7413] FATAL:  the database system is not yet accepting connections
+2026-08-22 12:08:42.718 UTC [7413] DETAIL:  Consistent recovery state has not been yet reached.
+2026-08-22 12:08:42.765 UTC [7392] LOG:  restored log file "000000020000000000000014" from archive
+2026-08-22 12:08:42.917 UTC [7392] LOG:  restored log file "000000020000000000000015" from archive
+2026-08-22 12:08:43.060 UTC [7392] LOG:  restored log file "000000020000000000000016" from archive
+2026-08-22 12:08:43.287 UTC [7392] LOG:  restored log file "000000020000000000000017" from archive
+2026-08-22 12:08:43.404 UTC [7392] LOG:  restored log file "000000020000000000000018" from archive
+2026-08-22 12:08:43.545 UTC [7392] LOG:  restored log file "000000020000000000000019" from archive
+2026-08-22 12:08:43.606 UTC [7392] LOG:  restored log file "00000002000000000000001A" from archive
+2026-08-22 12:08:43.724 UTC [7392] LOG:  restored log file "00000002000000000000001B" from archive
+2026-08-22 12:08:43.735 UTC [7426] LOG:  connection received: host=[local]
+2026-08-22 12:08:43.735 UTC [7426] FATAL:  the database system is not yet accepting connections
+2026-08-22 12:08:43.735 UTC [7426] DETAIL:  Consistent recovery state has not been yet reached.
+2026-08-22 12:08:43.890 UTC [7392] LOG:  restored log file "00000002000000000000001C" from archive
+2026-08-22 12:08:44.092 UTC [7392] LOG:  restored log file "00000002000000000000001D" from archive
+2026-08-22 12:08:44.263 UTC [7392] LOG:  restored log file "00000002000000000000001E" from archive
+2026-08-22 12:08:44.475 UTC [7392] LOG:  restored log file "00000002000000000000001F" from archive
+2026-08-22 12:08:44.686 UTC [7392] LOG:  consistent recovery state reached at 0/20000080
+2026-08-22 12:08:44.686 UTC [7392] LOG:  invalid record length at 0/20000080: expected at least 24, got 0
+2026-08-22 12:08:44.686 UTC [7384] LOG:  database system is ready to accept read-only connections
+2026-08-22 12:08:44.712 UTC [7454] LOG:  started streaming WAL from primary at 0/20000000 on timeline 2
+2026-08-22 12:08:44.743 UTC [7456] LOG:  connection received: host=[local]
+2026-08-22 12:08:44.749 UTC [7456] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:08:44.749 UTC [7456] LOG:  connection authorized: user=postgres database=postgres application_name=pg_isready
+2026-08-22 12:08:44.776 UTC [7456] LOG:  disconnection: session time: 0:00:00.032 user=postgres database=postgres host=[local]
+2026-08-22 12:08:44.779 UTC [7457] LOG:  connection received: host=[local]
+2026-08-22 12:08:44.780 UTC [7457] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:08:44.780 UTC [7457] LOG:  connection authorized: user=postgres database=postgres application_name=Patroni heartbeat
+2026-08-22 12:08:46.526 UTC [7454] LOG:  replication terminated by primary server
+2026-08-22 12:08:46.526 UTC [7454] DETAIL:  End of WAL reached on timeline 2 at 0/210000A0.
+2026-08-22 12:08:46.526 UTC [7454] FATAL:  could not send end-of-streaming message to primary: SSL connection has been closed unexpectedly
+	invalid socket
+	no COPY in progress
+2026-08-22 12:08:46.663 UTC [7392] LOG:  invalid record length at 0/210000A0: expected at least 24, got 0
+2026-08-22 12:08:46.668 UTC [7470] FATAL:  streaming replication receiver "pgc-ha" could not connect to the primary server: connection to server at "pgc-instance1-6h22-0.pgc-pods" (10.42.0.16), port 5432 failed: FATAL:  the database system is shutting down
+2026-08-22 12:08:46.680 UTC [7392] LOG:  waiting for WAL to become available at 0/210000B8
+2026-08-22 12:08:46.809 UTC [7481] LOG:  connection received: host=[local]
+2026-08-22 12:08:46.809 UTC [7481] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:08:46.809 UTC [7481] LOG:  connection authorized: user=postgres database=postgres application_name=Patroni restapi
+2026-08-22 12:08:51.670 UTC [7485] LOG:  started streaming WAL from primary at 0/21000000 on timeline 2
+2026-08-22 12:13:41.822 UTC [7390] LOG:  restartpoint starting: time
+2026-08-22 12:16:13.129 UTC [7384] LOG:  received SIGHUP, reloading configuration files
+2026-08-22 12:16:13.129 UTC [7384] LOG:  parameter "autovacuum_vacuum_cost_delay" changed to "100ms"
+2026-08-22 12:16:13.129 UTC [7384] LOG:  parameter "bgwriter_lru_maxpages" changed to "0"
+2026-08-22 12:16:13.129 UTC [7384] LOG:  parameter "checkpoint_completion_target" changed to "0.1"
+2026-08-22 12:16:13.129 UTC [7384] LOG:  parameter "checkpoint_timeout" changed to "30s"
+2026-08-22 12:16:13.129 UTC [7384] LOG:  parameter "deadlock_timeout" changed to "200ms"
+2026-08-22 12:16:13.130 UTC [7384] LOG:  parameter "effective_cache_size" changed to "128MB"
+2026-08-22 12:16:13.130 UTC [7384] LOG:  parameter "log_min_duration_statement" changed to "100"
+2026-08-22 12:16:13.130 UTC [7384] LOG:  parameter "maintenance_work_mem" changed to "1MB"
+2026-08-22 12:16:13.130 UTC [7384] LOG:  parameter "max_wal_size" changed to "64MB"
+2026-08-22 12:16:13.130 UTC [7384] LOG:  parameter "min_wal_size" changed to "32MB"
+2026-08-22 12:16:13.130 UTC [7384] LOG:  parameter "random_page_cost" changed to "4"
+2026-08-22 12:16:13.130 UTC [7384] LOG:  parameter "shared_buffers" cannot be changed without restarting the server
+2026-08-22 12:16:13.130 UTC [7384] LOG:  parameter "work_mem" changed to "64kB"
+2026-08-22 12:16:13.130 UTC [7384] LOG:  configuration file "/pgdata/pg18/postgresql.conf" contains errors; unaffected changes were applied
+2026-08-22 12:16:13.738 UTC [7390] LOG:  restartpoint complete: wrote 39681 buffers (30.3%), wrote 386 SLRU buffers; 0 WAL file(s) added, 30 removed, 0 recycled; write=151.474 s, sync=0.261 s, total=151.917 s; sync files=58, longest=0.077 s, average=0.005 s; distance=360447 kB, estimate=360447 kB; lsn=0/21000028, redo lsn=0/21000028
+2026-08-22 12:16:13.738 UTC [7390] LOG:  recovery restart point at 0/21000028
+2026-08-22 12:16:13.738 UTC [7390] DETAIL:  Last completed transaction was at log time 2026-08-22 12:13:47.991951+00.
+2026-08-22 12:16:13.738 UTC [7390] LOG:  restartpoint starting: time
+2026-08-22 12:16:14.131 UTC [7457] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp7457.0", size 91712
+2026-08-22 12:16:14.131 UTC [7457] STATEMENT:  SELECT name, pg_catalog.current_setting(name), unit, vartype FROM pg_catalog.pg_settings WHERE pg_catalog.lower(name) != ALL(ARRAY['archive_cleanup_command','pause_at_recovery_target','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_action','recovery_target_inclusive','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command','standby_mode','trigger_file','hot_standby']) AND pending_restart
+2026-08-22 12:16:14.141 UTC [7457] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp7457.1", size 91712
+2026-08-22 12:16:14.141 UTC [7457] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:16:14.142 UTC [7390] LOG:  restartpoint complete: wrote 3 buffers (0.0%), wrote 2 SLRU buffers; 0 WAL file(s) added, 9 removed, 2 recycled; write=0.307 s, sync=0.009 s, total=0.404 s; sync files=4, longest=0.003 s, average=0.003 s; distance=298531 kB, estimate=354256 kB; lsn=0/34000060, redo lsn=0/33388EB0
+2026-08-22 12:16:14.142 UTC [7390] LOG:  recovery restart point at 0/33388EB0
+2026-08-22 12:16:14.142 UTC [7390] DETAIL:  Last completed transaction was at log time 2026-08-22 12:13:47.991951+00.
+2026-08-22 12:16:20.782 UTC [8634] LOG:  connection received: host=[local]
+2026-08-22 12:16:20.783 UTC [8634] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:16:20.783 UTC [8634] LOG:  connection authorized: user=postgres database=postgres application_name=Patroni
+2026-08-22 12:16:20.784 UTC [8634] LOG:  disconnection: session time: 0:00:00.001 user=postgres database=postgres host=[local]
+2026-08-22 12:16:20.784 UTC [7384] LOG:  received fast shutdown request
+2026-08-22 12:16:20.787 UTC [7384] LOG:  aborting any active transactions
+2026-08-22 12:16:20.787 UTC [7485] FATAL:  terminating walreceiver process due to administrator command
+2026-08-22 12:16:20.787 UTC [7457] FATAL:  terminating connection due to administrator command
+2026-08-22 12:16:20.787 UTC [7481] FATAL:  terminating connection due to administrator command
+2026-08-22 12:16:20.787 UTC [7457] LOG:  disconnection: session time: 0:07:36.008 user=postgres database=postgres host=[local]
+2026-08-22 12:16:20.787 UTC [7481] LOG:  disconnection: session time: 0:07:33.978 user=postgres database=postgres host=[local]
+2026-08-22 12:16:20.794 UTC [7390] LOG:  shutting down
+2026-08-22 12:16:20.839 UTC [7384] LOG:  database system is shut down
+2026-08-22 12:16:22.008 UTC [8640] LOG:  starting PostgreSQL 18.3 - Percona Server for PostgreSQL 18.3.1 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 11.5.0 20240719 (Red Hat 11.5.0-11.0.2), 64-bit
+2026-08-22 12:16:22.009 UTC [8640] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-08-22 12:16:22.009 UTC [8640] LOG:  listening on IPv6 address "::", port 5432
+2026-08-22 12:16:22.014 UTC [8640] LOG:  listening on Unix socket "/tmp/postgres/.s.PGSQL.5432"
+2026-08-22 12:16:22.021 UTC [8648] LOG:  database system was shut down in recovery at 2026-08-22 12:16:20 UTC
+2026-08-22 12:16:22.046 UTC [8648] LOG:  restored log file "00000002.history" from archive
+2026-08-22 12:16:22.467 UTC [8648] LOG:  restored log file "000000020000000000000033" from archive
+2026-08-22 12:16:22.477 UTC [8648] LOG:  entering standby mode
+2026-08-22 12:16:22.480 UTC [8648] LOG:  redo starts at 0/33388EB0
+2026-08-22 12:16:22.596 UTC [8648] LOG:  consistent recovery state reached at 0/340000D8
+2026-08-22 12:16:22.596 UTC [8648] LOG:  invalid record length at 0/340000D8: expected at least 24, got 0
+2026-08-22 12:16:22.596 UTC [8640] LOG:  database system is ready to accept read-only connections
+2026-08-22 12:16:22.609 UTC [8661] LOG:  started streaming WAL from primary at 0/34000000 on timeline 2
+2026-08-22 12:16:23.006 UTC [8663] LOG:  connection received: host=[local]
+2026-08-22 12:16:23.007 UTC [8663] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:16:23.007 UTC [8663] LOG:  connection authorized: user=postgres database=postgres application_name=pg_isready
+2026-08-22 12:16:23.012 UTC [8663] LOG:  disconnection: session time: 0:00:00.006 user=postgres database=postgres host=[local]
+2026-08-22 12:16:23.016 UTC [8665] LOG:  connection received: host=[local]
+2026-08-22 12:16:23.017 UTC [8665] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:16:23.017 UTC [8665] LOG:  connection authorized: user=postgres database=postgres application_name=pg_isready
+2026-08-22 12:16:23.018 UTC [8665] LOG:  disconnection: session time: 0:00:00.001 user=postgres database=postgres host=[local]
+2026-08-22 12:16:23.022 UTC [8666] LOG:  connection received: host=[local]
+2026-08-22 12:16:23.022 UTC [8666] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:16:23.022 UTC [8666] LOG:  connection authorized: user=postgres database=postgres application_name=Patroni heartbeat
+2026-08-22 12:16:23.026 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.0", size 91694
+2026-08-22 12:16:23.026 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:16:23.128 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.1", size 91694
+2026-08-22 12:16:23.128 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:16:25.439 UTC [8646] LOG:  restartpoint starting: wal
+2026-08-22 12:16:25.478 UTC [8661] LOG:  replication terminated by primary server
+2026-08-22 12:16:25.478 UTC [8661] DETAIL:  End of WAL reached on timeline 2 at 0/360000A0.
+2026-08-22 12:16:25.478 UTC [8661] FATAL:  could not send end-of-streaming message to primary: SSL connection has been closed unexpectedly
+	invalid socket
+	no COPY in progress
+2026-08-22 12:16:25.599 UTC [8648] LOG:  invalid resource manager ID 32 at 0/360000A0
+2026-08-22 12:16:25.605 UTC [8694] FATAL:  streaming replication receiver "pgc-ha" could not connect to the primary server: connection to server at "pgc-instance1-6h22-0.pgc-pods" (10.42.0.16), port 5432 failed: FATAL:  the database system is shutting down
+2026-08-22 12:16:25.617 UTC [8648] LOG:  waiting for WAL to become available at 0/360000B8
+2026-08-22 12:16:26.764 UTC [8704] LOG:  connection received: host=[local]
+2026-08-22 12:16:26.765 UTC [8704] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:16:26.765 UTC [8704] LOG:  connection authorized: user=postgres database=postgres application_name=Patroni restapi
+2026-08-22 12:16:27.638 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.2", size 91694
+2026-08-22 12:16:27.638 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:16:28.138 UTC [8646] LOG:  restartpoint complete: wrote 518 buffers (6.3%), wrote 3 SLRU buffers; 0 WAL file(s) added, 2 removed, 0 recycled; write=2.623 s, sync=0.040 s, total=2.700 s; sync files=16, longest=0.010 s, average=0.003 s; distance=29148 kB, estimate=29148 kB; lsn=0/35000080, redo lsn=0/35000028
+2026-08-22 12:16:28.138 UTC [8646] LOG:  recovery restart point at 0/35000028
+2026-08-22 12:16:28.138 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:13:47.991951+00.
+2026-08-22 12:16:30.606 UTC [8716] LOG:  started streaming WAL from primary at 0/36000000 on timeline 2
+2026-08-22 12:16:37.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.3", size 91694
+2026-08-22 12:16:37.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:16:47.634 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.4", size 91694
+2026-08-22 12:16:47.634 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:16:55.158 UTC [8646] LOG:  restartpoint starting: time
+2026-08-22 12:16:55.279 UTC [8646] LOG:  restartpoint complete: wrote 1 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.104 s, sync=0.002 s, total=0.121 s; sync files=1, longest=0.002 s, average=0.002 s; distance=16384 kB, estimate=27871 kB; lsn=0/36000028, redo lsn=0/36000028
+2026-08-22 12:16:55.279 UTC [8646] LOG:  recovery restart point at 0/36000028
+2026-08-22 12:16:55.279 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:13:47.991951+00.
+2026-08-22 12:16:57.643 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.5", size 91694
+2026-08-22 12:16:57.643 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:17:07.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.6", size 91694
+2026-08-22 12:17:07.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:17:17.634 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.7", size 91694
+2026-08-22 12:17:17.634 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:17:25.309 UTC [8646] LOG:  restartpoint starting: time
+2026-08-22 12:17:25.339 UTC [8646] LOG:  restartpoint complete: wrote 0 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.031 s; sync files=0, longest=0.000 s, average=0.000 s; distance=1 kB, estimate=25084 kB; lsn=0/360005B0, redo lsn=0/36000558
+2026-08-22 12:17:25.339 UTC [8646] LOG:  recovery restart point at 0/36000558
+2026-08-22 12:17:25.339 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:13:47.991951+00.
+2026-08-22 12:17:27.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.8", size 91694
+2026-08-22 12:17:27.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:17:37.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.9", size 91694
+2026-08-22 12:17:37.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:17:47.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.10", size 91694
+2026-08-22 12:17:47.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:17:57.634 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.11", size 91694
+2026-08-22 12:17:57.634 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:18:07.634 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.12", size 91694
+2026-08-22 12:18:07.634 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:18:17.634 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.13", size 91694
+2026-08-22 12:18:17.634 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:18:27.634 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.14", size 91694
+2026-08-22 12:18:27.634 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:18:37.634 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.15", size 91694
+2026-08-22 12:18:37.634 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:18:47.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.16", size 91694
+2026-08-22 12:18:47.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:18:57.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.17", size 91694
+2026-08-22 12:18:57.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:19:07.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.18", size 91694
+2026-08-22 12:19:07.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:19:17.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.19", size 91694
+2026-08-22 12:19:17.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:19:27.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.20", size 91694
+2026-08-22 12:19:27.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:19:37.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.21", size 91694
+2026-08-22 12:19:37.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:19:47.634 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.22", size 91694
+2026-08-22 12:19:47.634 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:19:57.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.23", size 91694
+2026-08-22 12:19:57.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:20:06.630 UTC [8646] LOG:  restartpoint starting: wal
+2026-08-22 12:20:07.010 UTC [8646] LOG:  restartpoint complete: wrote 7777 buffers (94.9%), wrote 2 SLRU buffers; 0 WAL file(s) added, 8 removed, 0 recycled; write=0.087 s, sync=0.206 s, total=0.381 s; sync files=41, longest=0.024 s, average=0.006 s; distance=51208 kB, estimate=51208 kB; lsn=0/3A500ED8, redo lsn=0/39202690
+2026-08-22 12:20:07.010 UTC [8646] LOG:  recovery restart point at 0/39202690
+2026-08-22 12:20:07.010 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:20:06.223182+00.
+2026-08-22 12:20:07.011 UTC [8646] LOG:  restartpoint starting: wal
+2026-08-22 12:20:07.260 UTC [8646] LOG:  restartpoint complete: wrote 7625 buffers (93.1%), wrote 0 SLRU buffers; 1 WAL file(s) added, 2 removed, 0 recycled; write=0.159 s, sync=0.030 s, total=0.250 s; sync files=3, longest=0.019 s, average=0.010 s; distance=49151 kB, estimate=51002 kB; lsn=0/3DA443F8, redo lsn=0/3C202320
+2026-08-22 12:20:07.260 UTC [8646] LOG:  recovery restart point at 0/3C202320
+2026-08-22 12:20:07.260 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:20:06.223182+00.
+2026-08-22 12:20:07.260 UTC [8646] LOG:  restartpoint starting: wal
+2026-08-22 12:20:07.443 UTC [8646] LOG:  restartpoint complete: wrote 6471 buffers (79.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 2 removed, 0 recycled; write=0.048 s, sync=0.037 s, total=0.183 s; sync files=3, longest=0.015 s, average=0.013 s; distance=49167 kB, estimate=50819 kB; lsn=0/4009F130, redo lsn=0/3F2060B8
+2026-08-22 12:20:07.443 UTC [8646] LOG:  recovery restart point at 0/3F2060B8
+2026-08-22 12:20:07.443 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:20:06.223182+00.
+2026-08-22 12:20:07.614 UTC [8646] LOG:  restartpoint starting: wal
+2026-08-22 12:20:07.637 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.24", size 91694
+2026-08-22 12:20:07.637 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:20:07.821 UTC [8646] LOG:  restartpoint complete: wrote 6613 buffers (80.7%), wrote 0 SLRU buffers; 0 WAL file(s) added, 3 removed, 0 recycled; write=0.113 s, sync=0.042 s, total=0.207 s; sync files=3, longest=0.027 s, average=0.014 s; distance=49173 kB, estimate=50654 kB; lsn=0/432050C8, redo lsn=0/4220B8A8
+2026-08-22 12:20:07.821 UTC [8646] LOG:  recovery restart point at 0/4220B8A8
+2026-08-22 12:20:07.821 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:20:06.223182+00.
+2026-08-22 12:20:07.905 UTC [8646] LOG:  restartpoint starting: wal
+2026-08-22 12:20:08.150 UTC [8646] LOG:  restartpoint complete: wrote 7607 buffers (92.9%), wrote 0 SLRU buffers; 0 WAL file(s) added, 3 removed, 0 recycled; write=0.102 s, sync=0.084 s, total=0.246 s; sync files=3, longest=0.067 s, average=0.028 s; distance=49092 kB, estimate=50498 kB; lsn=0/46200290, redo lsn=0/451FCC70
+2026-08-22 12:20:08.150 UTC [8646] LOG:  recovery restart point at 0/451FCC70
+2026-08-22 12:20:08.150 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:20:06.223182+00.
+2026-08-22 12:20:08.211 UTC [8646] LOG:  restartpoint starting: wal
+2026-08-22 12:20:08.473 UTC [8646] LOG:  restartpoint complete: wrote 6228 buffers (76.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 3 removed, 0 recycled; write=0.111 s, sync=0.100 s, total=0.263 s; sync files=3, longest=0.088 s, average=0.034 s; distance=49190 kB, estimate=50367 kB; lsn=0/4912FBF0, redo lsn=0/482066A0
+2026-08-22 12:20:08.474 UTC [8646] LOG:  recovery restart point at 0/482066A0
+2026-08-22 12:20:08.474 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:20:06.223182+00.
+2026-08-22 12:20:08.562 UTC [8646] LOG:  restartpoint starting: wal
+2026-08-22 12:20:08.722 UTC [8646] LOG:  restartpoint complete: wrote 8186 buffers (99.9%), wrote 0 SLRU buffers; 0 WAL file(s) added, 1 removed, 1 recycled; write=0.075 s, sync=0.042 s, total=0.160 s; sync files=3, longest=0.027 s, average=0.014 s; distance=49163 kB, estimate=50247 kB; lsn=0/4C064190, redo lsn=0/4B2095C8
+2026-08-22 12:20:08.722 UTC [8646] LOG:  recovery restart point at 0/4B2095C8
+2026-08-22 12:20:08.722 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:20:06.223182+00.
+2026-08-22 12:20:08.910 UTC [8646] LOG:  restartpoint starting: wal
+2026-08-22 12:20:09.085 UTC [8646] LOG:  restartpoint complete: wrote 7485 buffers (91.4%), wrote 0 SLRU buffers; 0 WAL file(s) added, 2 removed, 1 recycled; write=0.048 s, sync=0.082 s, total=0.175 s; sync files=3, longest=0.072 s, average=0.028 s; distance=49106 kB, estimate=50133 kB; lsn=0/4F9C3318, redo lsn=0/4E1FE098
+2026-08-22 12:20:09.085 UTC [8646] LOG:  recovery restart point at 0/4E1FE098
+2026-08-22 12:20:09.085 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:20:08.971081+00.
+2026-08-22 12:20:10.779 UTC [8646] LOG:  restartpoint starting: wal
+2026-08-22 12:20:11.110 UTC [8646] LOG:  restartpoint complete: wrote 6182 buffers (75.5%), wrote 2 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=0.225 s, sync=0.071 s, total=0.331 s; sync files=33, longest=0.008 s, average=0.003 s; distance=47971 kB, estimate=49916 kB; lsn=0/517FA528, redo lsn=0/510D6D10
+2026-08-22 12:20:11.110 UTC [8646] LOG:  recovery restart point at 0/510D6D10
+2026-08-22 12:20:11.110 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:20:09.182475+00.
+2026-08-22 12:20:15.141 UTC [8646] LOG:  restartpoint starting: wal
+2026-08-22 12:20:16.026 UTC [8646] LOG:  restartpoint complete: wrote 6597 buffers (80.5%), wrote 20 SLRU buffers; 0 WAL file(s) added, 1 removed, 2 recycled; write=0.635 s, sync=0.167 s, total=0.886 s; sync files=22, longest=0.036 s, average=0.008 s; distance=48308 kB, estimate=49756 kB; lsn=0/54691FB8, redo lsn=0/54003E70
+2026-08-22 12:20:16.026 UTC [8646] LOG:  recovery restart point at 0/54003E70
+2026-08-22 12:20:16.026 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:20:16.017831+00.
+2026-08-22 12:20:17.634 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.25", size 91694
+2026-08-22 12:20:17.634 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:20:20.086 UTC [8646] LOG:  restartpoint starting: wal
+2026-08-22 12:20:20.917 UTC [8646] LOG:  restartpoint complete: wrote 6970 buffers (85.1%), wrote 26 SLRU buffers; 0 WAL file(s) added, 1 removed, 2 recycled; write=0.615 s, sync=0.140 s, total=0.831 s; sync files=15, longest=0.050 s, average=0.010 s; distance=49164 kB, estimate=49696 kB; lsn=0/57605598, redo lsn=0/570071C8
+2026-08-22 12:20:20.917 UTC [8646] LOG:  recovery restart point at 0/570071C8
+2026-08-22 12:20:20.917 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:20:20.903464+00.
+2026-08-22 12:20:25.590 UTC [8646] LOG:  restartpoint starting: wal
+2026-08-22 12:20:26.602 UTC [8646] LOG:  restartpoint complete: wrote 6725 buffers (82.1%), wrote 25 SLRU buffers; 0 WAL file(s) added, 1 removed, 2 recycled; write=0.757 s, sync=0.140 s, total=1.012 s; sync files=14, longest=0.059 s, average=0.010 s; distance=49133 kB, estimate=49640 kB; lsn=0/5A5CD9E8, redo lsn=0/5A002758
+2026-08-22 12:20:26.602 UTC [8646] LOG:  recovery restart point at 0/5A002758
+2026-08-22 12:20:26.602 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:20:26.5667+00.
+2026-08-22 12:20:27.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.26", size 91694
+2026-08-22 12:20:27.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:20:31.779 UTC [8646] LOG:  restartpoint starting: wal
+2026-08-22 12:20:32.750 UTC [8646] LOG:  restartpoint complete: wrote 6666 buffers (81.4%), wrote 27 SLRU buffers; 0 WAL file(s) added, 1 removed, 2 recycled; write=0.705 s, sync=0.191 s, total=0.972 s; sync files=19, longest=0.062 s, average=0.011 s; distance=49145 kB, estimate=49591 kB; lsn=0/5D5D0F70, redo lsn=0/5D000D68
+2026-08-22 12:20:32.750 UTC [8646] LOG:  recovery restart point at 0/5D000D68
+2026-08-22 12:20:32.750 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:20:32.738113+00.
+2026-08-22 12:20:37.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.27", size 91694
+2026-08-22 12:20:37.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:20:38.452 UTC [8646] LOG:  restartpoint starting: wal
+2026-08-22 12:20:39.368 UTC [8646] LOG:  restartpoint complete: wrote 6766 buffers (82.6%), wrote 28 SLRU buffers; 0 WAL file(s) added, 1 removed, 2 recycled; write=0.710 s, sync=0.128 s, total=0.917 s; sync files=14, longest=0.042 s, average=0.010 s; distance=49183 kB, estimate=49550 kB; lsn=0/605B9078, redo lsn=0/60008B58
+2026-08-22 12:20:39.368 UTC [8646] LOG:  recovery restart point at 0/60008B58
+2026-08-22 12:20:39.368 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:20:39.358562+00.
+2026-08-22 12:20:45.988 UTC [8646] LOG:  restartpoint starting: wal
+2026-08-22 12:20:47.140 UTC [8646] LOG:  restartpoint complete: wrote 6974 buffers (85.1%), wrote 28 SLRU buffers; 0 WAL file(s) added, 1 removed, 2 recycled; write=0.867 s, sync=0.192 s, total=1.153 s; sync files=14, longest=0.106 s, average=0.014 s; distance=49130 kB, estimate=49508 kB; lsn=0/6357DEA0, redo lsn=0/630036E8
+2026-08-22 12:20:47.140 UTC [8646] LOG:  recovery restart point at 0/630036E8
+2026-08-22 12:20:47.140 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:20:47.127128+00.
+2026-08-22 12:20:47.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.28", size 91694
+2026-08-22 12:20:47.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:20:54.408 UTC [8646] LOG:  restartpoint starting: wal
+2026-08-22 12:20:55.537 UTC [8646] LOG:  restartpoint complete: wrote 6705 buffers (81.8%), wrote 31 SLRU buffers; 0 WAL file(s) added, 1 removed, 2 recycled; write=0.878 s, sync=0.171 s, total=1.129 s; sync files=14, longest=0.067 s, average=0.013 s; distance=49174 kB, estimate=49475 kB; lsn=0/66560668, redo lsn=0/660090F8
+2026-08-22 12:20:55.537 UTC [8646] LOG:  recovery restart point at 0/660090F8
+2026-08-22 12:20:55.537 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:20:55.526132+00.
+2026-08-22 12:20:57.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.29", size 91694
+2026-08-22 12:20:57.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:21:03.622 UTC [8646] LOG:  restartpoint starting: wal
+2026-08-22 12:21:04.829 UTC [8646] LOG:  restartpoint complete: wrote 6753 buffers (82.4%), wrote 33 SLRU buffers; 0 WAL file(s) added, 1 removed, 2 recycled; write=0.957 s, sync=0.170 s, total=1.208 s; sync files=14, longest=0.076 s, average=0.013 s; distance=49133 kB, estimate=49440 kB; lsn=0/695A0D48, redo lsn=0/690048D0
+2026-08-22 12:21:04.829 UTC [8646] LOG:  recovery restart point at 0/690048D0
+2026-08-22 12:21:04.829 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:21:04.806261+00.
+2026-08-22 12:21:07.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.30", size 91694
+2026-08-22 12:21:07.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:21:13.640 UTC [8646] LOG:  restartpoint starting: wal
+2026-08-22 12:21:14.970 UTC [8646] LOG:  restartpoint complete: wrote 6771 buffers (82.7%), wrote 34 SLRU buffers; 0 WAL file(s) added, 1 removed, 2 recycled; write=1.032 s, sync=0.194 s, total=1.331 s; sync files=15, longest=0.076 s, average=0.013 s; distance=49145 kB, estimate=49411 kB; lsn=0/6C5C7D80, redo lsn=0/6C002F20
+2026-08-22 12:21:14.970 UTC [8646] LOG:  recovery restart point at 0/6C002F20
+2026-08-22 12:21:14.970 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:21:14.940382+00.
+2026-08-22 12:21:17.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.31", size 91694
+2026-08-22 12:21:17.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:21:24.019 UTC [8646] LOG:  restartpoint starting: wal
+2026-08-22 12:21:25.530 UTC [8646] LOG:  restartpoint complete: wrote 6669 buffers (81.4%), wrote 34 SLRU buffers; 0 WAL file(s) added, 1 removed, 2 recycled; write=1.169 s, sync=0.255 s, total=1.511 s; sync files=14, longest=0.169 s, average=0.019 s; distance=49149 kB, estimate=49385 kB; lsn=0/6F598F68, redo lsn=0/6F0024D8
+2026-08-22 12:21:25.530 UTC [8646] LOG:  recovery restart point at 0/6F0024D8
+2026-08-22 12:21:25.530 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:21:25.521154+00.
+2026-08-22 12:21:27.636 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.32", size 91694
+2026-08-22 12:21:27.636 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:21:34.129 UTC [8646] LOG:  restartpoint starting: wal
+2026-08-22 12:21:35.472 UTC [8646] LOG:  restartpoint complete: wrote 6769 buffers (82.6%), wrote 34 SLRU buffers; 0 WAL file(s) added, 1 removed, 2 recycled; write=1.036 s, sync=0.226 s, total=1.343 s; sync files=21, longest=0.109 s, average=0.011 s; distance=49158 kB, estimate=49362 kB; lsn=0/725BACB8, redo lsn=0/72004068
+2026-08-22 12:21:35.472 UTC [8646] LOG:  recovery restart point at 0/72004068
+2026-08-22 12:21:35.472 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:21:35.463039+00.
+2026-08-22 12:21:37.636 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.33", size 91694
+2026-08-22 12:21:37.636 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:21:47.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.34", size 91694
+2026-08-22 12:21:47.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:21:56.127 UTC [8646] LOG:  restartpoint starting: time
+2026-08-22 12:21:57.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.35", size 91694
+2026-08-22 12:21:57.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:21:59.166 UTC [8646] LOG:  restartpoint complete: wrote 8173 buffers (99.8%), wrote 29 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=2.954 s, sync=0.071 s, total=3.040 s; sync files=17, longest=0.052 s, average=0.005 s; distance=49177 kB, estimate=49344 kB; lsn=0/754E5C98, redo lsn=0/7500A730
+2026-08-22 12:21:59.166 UTC [8646] LOG:  recovery restart point at 0/7500A730
+2026-08-22 12:21:59.166 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:21:47.60588+00.
+2026-08-22 12:22:07.634 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.36", size 91694
+2026-08-22 12:22:07.634 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:22:17.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.37", size 91694
+2026-08-22 12:22:17.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:22:26.184 UTC [8646] LOG:  restartpoint starting: time
+2026-08-22 12:22:26.195 UTC [8646] LOG:  restartpoint complete: wrote 0 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.012 s; sync files=0, longest=0.000 s, average=0.000 s; distance=6297 kB, estimate=45039 kB; lsn=0/75630CE8, redo lsn=0/75630C90
+2026-08-22 12:22:26.195 UTC [8646] LOG:  recovery restart point at 0/75630C90
+2026-08-22 12:22:26.195 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:21:47.60588+00.
+2026-08-22 12:22:27.636 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.38", size 91694
+2026-08-22 12:22:27.636 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:22:37.636 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.39", size 91694
+2026-08-22 12:22:37.636 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:22:47.636 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.40", size 91694
+2026-08-22 12:22:47.636 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:22:56.224 UTC [8646] LOG:  restartpoint starting: time
+2026-08-22 12:22:57.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.41", size 91694
+2026-08-22 12:22:57.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:22:59.090 UTC [8646] LOG:  restartpoint complete: wrote 47 buffers (0.6%), wrote 2 SLRU buffers; 0 WAL file(s) added, 0 removed, 1 recycled; write=2.698 s, sync=0.028 s, total=2.867 s; sync files=11, longest=0.004 s, average=0.003 s; distance=106 kB, estimate=40546 kB; lsn=0/76000060, redo lsn=0/7564B4B0
+2026-08-22 12:22:59.090 UTC [8646] LOG:  recovery restart point at 0/7564B4B0
+2026-08-22 12:22:59.090 UTC [8646] DETAIL:  Last completed transaction was at log time 2026-08-22 12:22:27.442128+00.
+2026-08-22 12:23:07.636 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.42", size 91694
+2026-08-22 12:23:07.636 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:23:17.638 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.43", size 91694
+2026-08-22 12:23:17.638 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:23:27.636 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.44", size 91694
+2026-08-22 12:23:27.636 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:23:37.636 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.45", size 91694
+2026-08-22 12:23:37.636 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:23:47.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.46", size 91694
+2026-08-22 12:23:47.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:23:57.635 UTC [8666] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp8666.47", size 91694
+2026-08-22 12:23:57.635 UTC [8666] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+-------------------PROCESS START-------------------
+2026-08-22 11:19:12.664 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000008, 000000020000000000000009, 00000002000000000000000A, 00000002000000000000000B, 00000002000000000000000C, 00000002000000000000000D, 00000002000000000000000E, 00000002000000000000000F] --archive-async --exec-id=114-49d9c3ce --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:19:12.664 P00   INFO: get 8 WAL file(s) from archive: 000000020000000000000008...00000002000000000000000F
+2026-08-22 11:19:12.675 P00   INFO: archive-get:async command end: completed successfully (11ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:19:12.771 P00   INFO: archive-get:async command begin 2.58.0: [000000010000000000000008, 000000010000000000000009, 00000001000000000000000A, 00000001000000000000000B, 00000001000000000000000C, 00000001000000000000000D, 00000001000000000000000E, 00000001000000000000000F] --archive-async --exec-id=117-62fb2156 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:19:12.771 P00   INFO: get 8 WAL file(s) from archive: 000000010000000000000008...00000001000000000000000F
+2026-08-22 11:19:12.798 P00   INFO: archive-get:async command end: completed successfully (27ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:08:41.769 P00   INFO: archive-get:async command begin 2.58.0: [00000002000000000000000B, 00000002000000000000000C, 00000002000000000000000D, 00000002000000000000000E, 00000002000000000000000F, 000000020000000000000010, 000000020000000000000011, 000000020000000000000012] --archive-async --exec-id=7395-fffc18f4 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:08:41.769 P00   INFO: get 8 WAL file(s) from archive: 00000002000000000000000B...000000020000000000000012
+2026-08-22 12:08:42.120 P00   INFO: archive-get:async command end: completed successfully (351ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:08:42.209 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000013, 000000020000000000000014, 000000020000000000000015, 000000020000000000000016, 000000020000000000000017, 000000020000000000000018] --archive-async --exec-id=7403-a629f626 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:08:42.209 P00   INFO: get 6 WAL file(s) from archive: 000000020000000000000013...000000020000000000000018
+2026-08-22 12:08:42.805 P00   INFO: archive-get:async command end: completed successfully (596ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:08:42.935 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000019, 00000002000000000000001A, 00000002000000000000001B, 00000002000000000000001C, 00000002000000000000001D] --archive-async --exec-id=7415-72bb2980 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:08:42.936 P00   INFO: get 5 WAL file(s) from archive: 000000020000000000000019...00000002000000000000001D
+2026-08-22 12:08:43.737 P00   INFO: archive-get:async command end: completed successfully (803ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:08:43.895 P00   INFO: archive-get:async command begin 2.58.0: [00000002000000000000001E, 00000002000000000000001F, 000000020000000000000020, 000000020000000000000021, 000000020000000000000022, 000000020000000000000023, 000000020000000000000024] --archive-async --exec-id=7427-d1623ab4 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:08:43.896 P00   INFO: get 7 WAL file(s) from archive: 00000002000000000000001E...000000020000000000000024
+2026-08-22 12:08:44.322 P00   INFO: archive-get:async command end: completed successfully (429ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:08:44.485 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000020, 000000020000000000000021, 000000020000000000000022, 000000020000000000000023, 000000020000000000000024, 000000020000000000000025, 000000020000000000000026, 000000020000000000000027] --archive-async --exec-id=7433-ed0568d8 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:08:44.485 P00   INFO: get 8 WAL file(s) from archive: 000000020000000000000020...000000020000000000000027
+2026-08-22 12:08:44.503 P00   INFO: archive-get:async command end: completed successfully (24ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:08:44.588 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000020, 000000020000000000000021, 000000020000000000000022, 000000020000000000000023, 000000020000000000000024, 000000020000000000000025, 000000020000000000000026, 000000020000000000000027] --archive-async --exec-id=7451-e438b4c4 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:08:44.588 P00   INFO: get 8 WAL file(s) from archive: 000000020000000000000020...000000020000000000000027
+2026-08-22 12:08:44.606 P00   INFO: archive-get:async command end: completed successfully (18ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:08:46.572 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000021, 000000020000000000000022, 000000020000000000000023, 000000020000000000000024, 000000020000000000000025, 000000020000000000000026, 000000020000000000000027, 000000020000000000000028] --archive-async --exec-id=7467-1bef64cf --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:08:46.573 P00   INFO: get 8 WAL file(s) from archive: 000000020000000000000021...000000020000000000000028
+2026-08-22 12:08:46.595 P00   INFO: archive-get:async command end: completed successfully (23ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:08:51.566 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000021, 000000020000000000000022, 000000020000000000000023, 000000020000000000000024, 000000020000000000000025, 000000020000000000000026, 000000020000000000000027, 000000020000000000000028] --archive-async --exec-id=7482-3daf6a2b --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:08:51.566 P00   INFO: get 8 WAL file(s) from archive: 000000020000000000000021...000000020000000000000028
+2026-08-22 12:08:51.578 P00   INFO: archive-get:async command end: completed successfully (13ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:16:22.062 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000034, 000000020000000000000035, 000000020000000000000036, 000000020000000000000037, 000000020000000000000038, 000000020000000000000039, 00000002000000000000003A, 00000002000000000000003B] --archive-async --exec-id=8651-d20d3a10 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:16:22.063 P00   INFO: get 8 WAL file(s) from archive: 000000020000000000000034...00000002000000000000003B
+2026-08-22 12:16:22.076 P00   INFO: archive-get:async command end: completed successfully (15ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:16:22.169 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000033, 000000020000000000000034, 000000020000000000000035, 000000020000000000000036, 000000020000000000000037, 000000020000000000000038, 000000020000000000000039, 00000002000000000000003A] --archive-async --exec-id=8654-28d0efb1 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:16:22.169 P00   INFO: get 8 WAL file(s) from archive: 000000020000000000000033...00000002000000000000003A
+2026-08-22 12:16:22.332 P00   INFO: archive-get:async command end: completed successfully (163ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:16:22.498 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000034, 000000020000000000000035, 000000020000000000000036, 000000020000000000000037, 000000020000000000000038, 000000020000000000000039, 00000002000000000000003A, 00000002000000000000003B] --archive-async --exec-id=8658-d94de175 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:16:22.498 P00   INFO: get 8 WAL file(s) from archive: 000000020000000000000034...00000002000000000000003B
+2026-08-22 12:16:22.511 P00   INFO: archive-get:async command end: completed successfully (14ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:16:25.501 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000036, 000000020000000000000037, 000000020000000000000038, 000000020000000000000039, 00000002000000000000003A, 00000002000000000000003B, 00000002000000000000003C, 00000002000000000000003D] --archive-async --exec-id=8691-419cc00d --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:16:25.501 P00   INFO: get 8 WAL file(s) from archive: 000000020000000000000036...00000002000000000000003D
+2026-08-22 12:16:25.516 P00   INFO: archive-get:async command end: completed successfully (16ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:16:30.501 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000036, 000000020000000000000037, 000000020000000000000038, 000000020000000000000039, 00000002000000000000003A, 00000002000000000000003B, 00000002000000000000003C, 00000002000000000000003D] --archive-async --exec-id=8713-b58601a7 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:16:30.501 P00   INFO: get 8 WAL file(s) from archive: 000000020000000000000036...00000002000000000000003D
+2026-08-22 12:16:30.523 P00   INFO: archive-get:async command end: completed successfully (22ms)
+-------------------PROCESS START-------------------
+2026-08-22 11:13:49.884 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=132-b7f166ac --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:13:49.884 P00   INFO: push 1 WAL file(s) to archive: 000000010000000000000001
+2026-08-22 11:13:49.908 P00  ERROR: [103]: unable to find a valid repository:
+                                    repo1: [FileMissingError] unable to load info file '/pgbackrest/pgc/repo1/archive/db/archive.info' or '/pgbackrest/pgc/repo1/archive/db/archive.info.copy':
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info' for read
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info.copy' for read
+                                    HINT: archive.info cannot be opened but is required to push/get WAL segments.
+                                    HINT: is archive_command configured correctly in postgresql.conf?
+                                    HINT: has a stanza-create been performed?
+                                    HINT: use --no-archive-check to disable archive checks during backup if you have an alternate archiving scheme.
+2026-08-22 11:13:49.908 P00   INFO: archive-push:async command end: aborted with exception [103]
+
+-------------------PROCESS START-------------------
+2026-08-22 11:13:51.154 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=144-a3151e68 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:13:51.155 P00   INFO: push 2 WAL file(s) to archive: 000000010000000000000002.00000028.backup...000000010000000000000002
+2026-08-22 11:13:51.186 P00  ERROR: [103]: unable to find a valid repository:
+                                    repo1: [FileMissingError] unable to load info file '/pgbackrest/pgc/repo1/archive/db/archive.info' or '/pgbackrest/pgc/repo1/archive/db/archive.info.copy':
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info' for read
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info.copy' for read
+                                    HINT: archive.info cannot be opened but is required to push/get WAL segments.
+                                    HINT: is archive_command configured correctly in postgresql.conf?
+                                    HINT: has a stanza-create been performed?
+                                    HINT: use --no-archive-check to disable archive checks during backup if you have an alternate archiving scheme.
+2026-08-22 11:13:51.186 P00   INFO: archive-push:async command end: aborted with exception [103]
+
+-------------------PROCESS START-------------------
+2026-08-22 11:13:51.262 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=154-c54d3e05 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:13:51.262 P00   INFO: push 3 WAL file(s) to archive: 000000010000000000000002.00000028.backup...000000010000000000000003
+2026-08-22 11:13:51.281 P00  ERROR: [103]: unable to find a valid repository:
+                                    repo1: [FileMissingError] unable to load info file '/pgbackrest/pgc/repo1/archive/db/archive.info' or '/pgbackrest/pgc/repo1/archive/db/archive.info.copy':
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info' for read
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info.copy' for read
+                                    HINT: archive.info cannot be opened but is required to push/get WAL segments.
+                                    HINT: is archive_command configured correctly in postgresql.conf?
+                                    HINT: has a stanza-create been performed?
+                                    HINT: use --no-archive-check to disable archive checks during backup if you have an alternate archiving scheme.
+2026-08-22 11:13:51.281 P00   INFO: archive-push:async command end: aborted with exception [103]
+
+-------------------PROCESS START-------------------
+2026-08-22 11:13:51.368 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=169-7a1a3b0b --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:13:51.368 P00   INFO: push 2 WAL file(s) to archive: 000000010000000000000002.000000F8.backup...000000010000000000000003
+2026-08-22 11:13:51.394 P00  ERROR: [103]: unable to find a valid repository:
+                                    repo1: [FileMissingError] unable to load info file '/pgbackrest/pgc/repo1/archive/db/archive.info' or '/pgbackrest/pgc/repo1/archive/db/archive.info.copy':
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info' for read
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info.copy' for read
+                                    HINT: archive.info cannot be opened but is required to push/get WAL segments.
+                                    HINT: is archive_command configured correctly in postgresql.conf?
+                                    HINT: has a stanza-create been performed?
+                                    HINT: use --no-archive-check to disable archive checks during backup if you have an alternate archiving scheme.
+2026-08-22 11:13:51.394 P00   INFO: archive-push:async command end: aborted with exception [103]
+
+-------------------PROCESS START-------------------
+2026-08-22 11:13:51.475 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=180-5c35e9ce --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:13:51.475 P00   INFO: push 1 WAL file(s) to archive: 000000010000000000000003
+2026-08-22 11:13:51.501 P00  ERROR: [103]: unable to find a valid repository:
+                                    repo1: [FileMissingError] unable to load info file '/pgbackrest/pgc/repo1/archive/db/archive.info' or '/pgbackrest/pgc/repo1/archive/db/archive.info.copy':
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info' for read
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info.copy' for read
+                                    HINT: archive.info cannot be opened but is required to push/get WAL segments.
+                                    HINT: is archive_command configured correctly in postgresql.conf?
+                                    HINT: has a stanza-create been performed?
+                                    HINT: use --no-archive-check to disable archive checks during backup if you have an alternate archiving scheme.
+2026-08-22 11:13:51.501 P00   INFO: archive-push:async command end: aborted with exception [103]
+
+-------------------PROCESS START-------------------
+2026-08-22 11:14:14.047 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=551-8891397a --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:14:14.048 P00   INFO: push 1 WAL file(s) to archive: 000000010000000000000004
+2026-08-22 11:14:14.371 P00   INFO: archive-push:async command end: completed successfully (324ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:15:14.105 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=708-e183371d --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:15:14.105 P00   INFO: push 1 WAL file(s) to archive: 000000010000000000000005
+2026-08-22 11:15:14.318 P00   INFO: archive-push:async command end: completed successfully (213ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:16:05.901 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=838-737fee36 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:16:05.901 P00   INFO: push 2 WAL file(s) to archive: 000000010000000000000005.00000028.backup...000000010000000000000006
+2026-08-22 11:16:06.114 P00   INFO: archive-push:async command end: completed successfully (214ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:17:05.359 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=1178-c6b12189 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:17:05.359 P00   INFO: push 1 WAL file(s) to archive: 000000010000000000000007
+2026-08-22 11:17:05.553 P00   INFO: archive-push:async command end: completed successfully (194ms)
+-------------------PROCESS START-------------------
+2026-08-22 11:13:51.270 P00   INFO: stanza-create command begin 2.58.0: --exec-id=159-3b94011d --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --pg1-port=5432 --pg1-socket-path=/tmp/postgres --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --stanza=db
+2026-08-22 11:13:51.270 P00  ERROR: [050]: unable to acquire lock on file '/tmp/pgbackrest/db-archive-1.lock': Resource temporarily unavailable
+                                    HINT: is another pgBackRest process running?
+2026-08-22 11:13:51.270 P00   INFO: stanza-create command end: aborted with exception [050]
+
+-------------------PROCESS START-------------------
+2026-08-22 11:13:52.468 P00   INFO: stanza-create command begin 2.58.0: --exec-id=191-604b8786 --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --pg1-port=5432 --pg1-socket-path=/tmp/postgres --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --stanza=db
+2026-08-22 11:13:52.474 P00   INFO: stanza-create for stanza 'db' on repo1
+2026-08-22 11:13:52.694 P00   INFO: stanza-create command end: completed successfully (228ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:13:54.583 P00   INFO: stanza-create command begin 2.58.0: --exec-id=341-5e00fb1e --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --pg1-port=5432 --pg1-socket-path=/tmp/postgres --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --stanza=db
+2026-08-22 11:13:54.589 P00   INFO: stanza-create for stanza 'db' on repo1
+2026-08-22 11:13:54.597 P00   INFO: stanza 'db' already exists on repo1 and is valid
+2026-08-22 11:13:54.597 P00   INFO: stanza-create command end: completed successfully (15ms)
+-------------------PROCESS START-------------------
+2026-08-22 11:13:51.274 P00   INFO: stanza-upgrade command begin 2.58.0: --exec-id=160-96d8193f --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --pg1-port=5432 --pg1-socket-path=/tmp/postgres --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --stanza=db
+2026-08-22 11:13:51.274 P00  ERROR: [050]: unable to acquire lock on file '/tmp/pgbackrest/db-archive-1.lock': Resource temporarily unavailable
+                                    HINT: is another pgBackRest process running?
+2026-08-22 11:13:51.275 P00   INFO: stanza-upgrade command end: aborted with exception [050]

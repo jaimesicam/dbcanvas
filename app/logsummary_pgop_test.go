@@ -195,3 +195,83 @@ func TestPGOperatorFindingsDoNotCrossVocabularies(t *testing.T) {
 		}
 	}
 }
+
+// TestPGPerformanceAdvisorReadsTheSymptoms. PostgreSQL prints no configuration, so the
+// advisor is a reading of what the server complained about. kg-pg-stress is a cluster
+// driven with pgbench on a deliberately starved configuration — 64MB shared_buffers, 64MB
+// max_wal_size, 64kB work_mem — which is what produces the evidence.
+func TestPGPerformanceAdvisorReadsTheSymptoms(t *testing.T) {
+	b := lsLoadScenario(t, "kg-pg-stress")
+	var p *lsPGPerf
+	for _, s := range b.Sources {
+		if s.PGPerf != nil && s.PGPerf.CheckpointsTooFrequent > 0 {
+			p = s.PGPerf
+			break
+		}
+	}
+	if p == nil {
+		t.Fatal("no member reported checkpoints occurring too frequently")
+	}
+	if p.CheckpointGapSecs <= 0 || p.CheckpointGapSecs > 60 {
+		t.Errorf("closest checkpoint complaint was %.0fs apart", p.CheckpointGapSecs)
+	}
+	if p.TempFiles == 0 {
+		t.Error("no sorts spilled to disk, on a cluster running work_mem=64kB")
+	}
+	if p.SlowQueries == 0 {
+		t.Error("no slow statements, with log_min_duration_statement at 100ms")
+	}
+	tips := lsPGPerfAdvice(p, 600)
+	var keys []string
+	for _, tip := range tips {
+		keys = append(keys, tip.Key)
+	}
+	for _, want := range []string{"max_wal_size", "work_mem", "slow statements"} {
+		found := false
+		for _, k := range keys {
+			if k == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("no advice about %q; got %v", want, keys)
+		}
+	}
+	// The advisor must never tell anybody to raise a setting merely because it is small:
+	// measured on these three clusters, doing exactly that moved throughput by between
+	// -8% and +1.6%.
+	for _, tip := range tips {
+		if tip.Key == "shared_buffers" {
+			t.Error("the advisor is recommending shared_buffers off the back of no evidence")
+		}
+	}
+}
+
+// TestPGAdvisorSaysWhenTheLogWasNotAllowedToRecord. The gate that matters more than any of
+// the numbers: all three operators ship with slow-query, temp-file and lock-wait logging
+// off, so an empty result is not evidence of health.
+func TestPGAdvisorSaysWhenTheLogWasNotAllowedToRecord(t *testing.T) {
+	quiet := &lsPGPerf{Checkpoints: 3, SawCheckpointLogging: true}
+	tips := lsPGPerfAdvice(quiet, 600)
+	found := false
+	for _, tip := range tips {
+		if strings.Contains(tip.Key, "allowed to record") {
+			found = true
+			for _, want := range []string{"log_min_duration_statement", "log_temp_files"} {
+				if !strings.Contains(tip.Is+tip.Want, want) {
+					t.Errorf("the gate does not name %q", want)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("a log with no slow-query or temp-file records said nothing about why")
+	}
+	// And with everything on, the gate stays quiet rather than nagging.
+	loud := &lsPGPerf{Checkpoints: 3, SawCheckpointLogging: true, SawSlowLogging: true, SawTempLogging: true}
+	for _, tip := range lsPGPerfAdvice(loud, 600) {
+		if strings.Contains(tip.Key, "allowed to record") {
+			t.Error("the gate fires on a log that does record all three")
+		}
+	}
+}

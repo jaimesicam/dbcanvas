@@ -17591,3 +17591,91 @@ findings for them — the backup half is `Backup succeeded` / `pgBackRest report
 and nothing about recovery. `spec.backup.pitr`-equivalent tuning advice is likewise absent:
 unlike PXC's provider options and PSMDB's `oplogSpanMin`, nothing in these three logs states
 a setting, so there was nothing to read and advise on without inventing it.
+
+---
+
+## 303. Stress-testing the three PostgreSQL operators, and an advisor that reads symptoms rather than settings — `app/logsummary_pgperf.go` (new), `app/{logsummary_model,logsummary_pgop_verdict}.go`, `app/logsummary_pgop_test.go`, `docs/LOG_SUMMARY.md`
+
+### The two things that had to be fixed first
+
+**barman-cloud.** §302 left CloudNativePG's WAL archiving failing with `exit status 4`,
+which I had attributed to TLS. Half right. The plugin's own `barman-cloud-backup-list`
+reports `Unable to locate credentials` for that exit code, which sent the diagnosis the
+wrong way for a while; the actual fix was **`spec.configuration.endpointCA`** on the
+`ObjectStore`, pointing at a secret holding the Intranet CA — *and recreating the instance
+pods*, because the plugin runs as a native sidecar (an initContainer with
+`restartPolicy: Always`) and only remounts the CA when the pod is rebuilt. Patching the
+ObjectStore alone changes nothing and looks like the fix not working. Backup `backup2`
+completed afterwards; `backup1`'s failure is kept in the corpus.
+
+**Crunchy at three instances**, per the request, so both Patroni-based operators run the
+same shape.
+
+### Both logs, for the operators that use Patroni
+
+Confirmed rather than assumed: a Percona or Crunchy member's `database` container is
+**Patroni**, and PostgreSQL's own log is a *separate file* on the volume
+(`/pgdata/<version>/log/`). The collector reads both and concatenates them into one source,
+which `lsFoldPostgres` splits again by line shape and marks with `lsSubsysPatroni` /
+`lsSubsysPostgres`. Live, all six Patroni members come back with flavour `patroni` and both
+halves classified — and the performance scan deliberately skips Patroni's records, because
+Patroni says nothing about query performance.
+
+### The advisor
+
+`lsPGScanPerf` reads the evidence off the **records** rather than the classified events: a
+checkpoint is background and the catalogue drops it, but ten thousand of them is the
+finding, so an advisor that could only see kept events would be reading a filtered copy of
+itself. It is attached per source (`lsSource.PGPerf`) and reported per member — three
+members of one cluster do not share a performance story, and only the primary checkpoints
+hard.
+
+**Measured, and it is why the advisor has no "raise shared_buffers" rule.** Three clusters,
+pgbench at identical scale and client counts, defaults vs the settings everybody reaches
+for first:
+
+| | defaults | tuned | |
+| --- | --- | --- | --- |
+| Percona PG (3 inst) | 2,150 tps · 7.43 ms | 1,981 tps · 8.06 ms | **−8%** |
+| Crunchy PGO (3 inst) | 2,150 tps · 7.43 ms | 2,185 tps · 7.31 ms | +1.6% |
+| CloudNativePG (2 inst) | 2,974 tps · 5.37 ms | 3,006 tps · 5.31 ms | +1.1% |
+
+All three ship the *same* PostgreSQL defaults (`shared_buffers=128MB` — the compiled
+default, so none of them sets it — `max_wal_size=1GB`, `work_mem=4MB`) and none puts a
+memory limit on the database container. Raising the obvious knobs moved throughput between
+−8% and +1.6%. So every rule fires on something the server **said**, not on a setting that
+looks small.
+
+Driving a deliberately starved cluster (`shared_buffers` 64MB, `max_wal_size` 64MB,
+`work_mem` 64kB) under pgbench produced the corpus the rules were written against, and
+live on that cluster the advisor reports, per member: 21 × `checkpoints are occurring too
+frequently` with the closest **2.0 s** apart, **153 MB** of temp-file spill with the
+largest single sort at **76.5 MB**, and 34 slow statements worst **2,723 ms** — on the
+leader only, with the replicas correctly reporting their own smaller spills.
+
+The last rule is the one that outranks the rest: all three operators ship with
+`log_min_duration_statement`, `log_temp_files` and `log_lock_waits` off, so an empty result
+is not evidence of health. The gate says so, and stays quiet when all three are on.
+
+### One operator gotcha worth its own line
+
+**The Percona operator owns an inner Crunchy `PostgresCluster` and reverts hand edits to
+it.** The first configuration patch of this session went to the inner CR, was silently
+undone on the next reconcile, and looked exactly like a setting that would not take. Patch
+the outer `PerconaPGCluster`.
+
+### Verified
+
+- Live against all three running clusters through the app's own API; the advisor's output
+  above is from the deployed app, not from the fixtures.
+- 2 new tests over a new `kg-*-stress` fixture set, including that the advisor never
+  recommends `shared_buffers` off the back of no evidence, and that the logging gate fires
+  when records are absent and stays quiet when they are not.
+- `go build` / `go vet` / `go test ./...` / `npm run smoke` / `npm run build` clean.
+
+### Not done
+
+The throughput numbers for the *starved* run are not comparable with the two above — I
+varied scale and client count for it, to generate evidence rather than to measure. Only the
+defaults-vs-tuned pair is like-for-like. Restores and PITR were still not driven for these
+three, so there are no findings for them.

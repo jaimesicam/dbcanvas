@@ -1,0 +1,229 @@
+2026-08-22 11:56:00,468 INFO: Using default value thread_stack_size = 524288
+2026-08-22 11:56:00,478 INFO: Patroni global thread_pool_size = 5
+/usr/local/lib/python3.12/site-packages/urllib3/_request_methods.py:182: FutureWarning: URLs without a scheme (ie 'https://') are deprecated and will raise an error in urllib3 v3.0. To avoid this FutureWarning ensure all URLs start with 'https://' or 'http://'. Read more in this issue: https://github.com/urllib3/urllib3/issues/2920
+  return self.urlopen(method, url, **extra_kw)
+2026-08-22 11:56:00,599 INFO: No PostgreSQL configuration items changed, nothing to reload.
+2026-08-22 11:56:00,601 INFO: REST API thread_pool_size = 5
+2026-08-22 11:56:00,608 INFO: Lock owner: crunchy-instance1-zz6r-0; I am crunchy-instance1-jmtl-0
+2026-08-22 11:56:00,627 INFO: trying to bootstrap from leader 'crunchy-instance1-zz6r-0'
+2026-08-22 11:56:00.635 P00   WARN: --delta or --force specified but unable to find 'PG_VERSION' or 'backup.manifest' in '/pgdata/pg18' to confirm that this is a valid $PGDATA directory. --delta and --force have been disabled and if any files exist in the destination directories the restore will be aborted.
+2026-08-22 11:56:04,671 INFO: Lock owner: crunchy-instance1-zz6r-0; I am crunchy-instance1-jmtl-0
+2026-08-22 11:56:04,681 INFO: bootstrap from leader 'crunchy-instance1-zz6r-0' in progress
+2026-08-22 11:56:05,580 INFO: replica has been created using pgbackrest
+2026-08-22 11:56:05,581 INFO: bootstrapped from leader 'crunchy-instance1-zz6r-0'
+2026-08-22 11:56:05.793 UTC [110] LOG:  pgaudit extension initialized
+2026-08-22 11:56:05.804 UTC [110] LOG:  redirecting log output to logging collector process
+2026-08-22 11:56:05.804 UTC [110] HINT:  Future log output will appear in directory "/pgdata/logs/postgres".
+2026-08-22 11:56:05,805 INFO: postmaster pid=110
+/tmp/postgres:5432 - no response
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - accepting connections
+2026-08-22 11:56:07,828 INFO: Lock owner: crunchy-instance1-zz6r-0; I am crunchy-instance1-jmtl-0
+2026-08-22 11:56:07,828 INFO: establishing a new patroni heartbeat connection to postgres
+2026-08-22 11:56:07,849 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:56:07,853 INFO: establishing a new patroni restapi connection to postgres
+2026-08-22 11:56:14,673 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:56:24,672 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:56:34,672 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:56:44,673 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:56:54,672 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:57:04,672 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:57:14,672 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:57:24,672 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:57:34,672 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:57:44,672 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:57:54,672 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:58:04,672 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:58:14,672 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:58:24,673 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:58:34,675 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:58:44,672 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:58:54,672 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:59:04,672 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:59:14,672 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:59:24,672 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:59:34,672 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:59:44,673 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:59:54,672 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:00:04,673 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:00:14,672 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:00:24,672 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:00:32,952 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:00:32,953 INFO: Changed deadlock_timeout from '1s' to '500ms'
+2026-08-22 12:00:32,953 INFO: Changed log_autovacuum_min_duration from '10min' to '0'
+2026-08-22 12:00:32,953 INFO: Changed log_connections from '' to 'on'
+2026-08-22 12:00:32,953 INFO: Changed log_disconnections from 'off' to 'on'
+2026-08-22 12:00:32,953 INFO: Changed log_lock_waits from 'off' to 'on'
+2026-08-22 12:00:32,954 INFO: Changed log_min_duration_statement from '-1ms' to '200'
+2026-08-22 12:00:32,954 INFO: Changed log_temp_files from '-1kB' to '0'
+2026-08-22 12:00:32,955 INFO: Reloading PostgreSQL configuration.
+server signaled
+2026-08-22 12:00:33,961 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:00:42,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:00:52,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:01:02,957 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:01:12,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:01:22,963 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:01:32,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:01:42,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:01:52,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:02:02,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:02:12,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:02:22,958 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:02:32,957 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:02:42,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:02:52,957 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:03:02,957 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:03:12,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:03:22,957 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:03:32,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:03:42,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:03:52,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:04:02,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:04:12,957 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:04:22,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:04:32,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:04:42,957 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:04:52,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:05:02,957 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:05:12,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:05:22,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:05:32,992 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:05:42,967 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:05:52,969 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:06:02,992 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:06:12,973 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:06:22,971 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:06:32,969 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:06:42,968 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:06:52,971 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:07:02,957 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:07:12,974 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:07:22,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:07:32,972 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:07:42,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:07:52,957 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:08:02,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:08:12,977 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:08:22,956 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:08:32,371 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:08:32,373 INFO: Changed effective_cache_size from '4GB' to '3GB'
+2026-08-22 12:08:32,374 INFO: Changed log_connections from '' to 'on'
+2026-08-22 12:08:32,374 INFO: Changed log_disconnections from 'off' to 'on'
+2026-08-22 12:08:32,374 INFO: Changed max_wal_size from '1GB' to '4GB'
+2026-08-22 12:08:32,374 INFO: Changed random_page_cost from '4' to '1.1'
+2026-08-22 12:08:32,374 INFO: Changed shared_buffers from '128MB' to '1GB' (restart might be required)
+2026-08-22 12:08:32,374 INFO: Changed wal_compression from 'off' to 'on'
+2026-08-22 12:08:32,374 INFO: Changed work_mem from '4MB' to '16MB'
+2026-08-22 12:08:32,375 INFO: Reloading PostgreSQL configuration.
+server signaled
+2026-08-22 12:08:33,404 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:08:36,525 INFO: Lock owner: crunchy-instance1-zz6r-0; I am crunchy-instance1-jmtl-0
+2026-08-22 12:08:37,538 INFO: closed patroni connections to postgres
+2026-08-22 12:08:37.761 UTC [1005] LOG:  pgaudit extension initialized
+2026-08-22 12:08:37,772 INFO: postmaster pid=1005
+/tmp/postgres:5432 - no response
+2026-08-22 12:08:37.797 UTC [1005] LOG:  redirecting log output to logging collector process
+2026-08-22 12:08:37.797 UTC [1005] HINT:  Future log output will appear in directory "/pgdata/logs/postgres".
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - accepting connections
+2026-08-22 12:08:40,806 INFO: Lock owner: crunchy-instance1-zz6r-0; I am crunchy-instance1-jmtl-0
+2026-08-22 12:08:40,806 INFO: establishing a new patroni heartbeat connection to postgres
+2026-08-22 12:08:40,835 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:08:42,360 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:08:47,852 INFO: establishing a new patroni restapi connection to postgres
+2026-08-22 12:08:50,738 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:09:00,727 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:09:10,733 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:09:20,714 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:09:30,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:09:40,714 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:09:50,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:10:00,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:10:10,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:10:20,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:10:30,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:10:40,714 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:10:50,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:11:00,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:11:10,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:11:20,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:11:30,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:11:40,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:11:50,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:12:00,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:12:10,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:12:20,714 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:12:30,716 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:12:40,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:12:50,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:13:00,717 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:13:10,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:13:20,716 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:13:30,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:13:40,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:13:50,753 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:14:00,728 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:14:10,727 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:14:20,728 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:14:30,745 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:14:40,727 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:14:50,732 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:15:00,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:15:10,732 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:15:20,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:15:30,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:15:40,729 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:15:50,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:16:00,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:16:10,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:16:20,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:16:30,716 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:16:40,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:16:50,714 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:17:00,714 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:17:10,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:17:20,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:17:30,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:17:40,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:17:50,714 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:18:00,714 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:18:10,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:18:20,725 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:18:30,742 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:18:40,724 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:18:50,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:19:00,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:19:10,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:19:20,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:19:30,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:19:40,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:19:50,714 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:20:00,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:20:10,716 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:20:20,717 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:20:30,716 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:20:40,717 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:20:50,716 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:21:00,717 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:21:10,717 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:21:20,717 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:21:30,718 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:21:40,717 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:21:50,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:22:00,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:22:10,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:22:20,715 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:22:30,716 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:22:40,716 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:22:50,718 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:23:00,716 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:23:10,716 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:23:20,716 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:23:30,716 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:23:40,719 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:23:50,716 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:24:00,714 INFO: no action. I am (crunchy-instance1-jmtl-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)

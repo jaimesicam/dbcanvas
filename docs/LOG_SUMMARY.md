@@ -1778,3 +1778,78 @@ One more record worth knowing, from the same corpus:
 `Detected ready WAL files in a former primary, triggering WAL archiving` — a demoted
 primary still holding WAL that never reached the archive. Discard that volume before it
 ships and point-in-time recovery has a hole in it that survives the failover.
+
+---
+
+## Advising a PostgreSQL cluster: the server diagnoses itself
+
+Every other advisor in this document reads a **configuration** and reasons about it. Galera
+prints its whole provider config; a mongod prints the cache it opened with. PostgreSQL
+prints *neither* — and gives something better instead. It reports the **symptoms**, in its
+own words, and for one of them it names the parameter to change:
+
+```
+LOG:  checkpoints are occurring too frequently (10 seconds apart)
+HINT: Consider increasing the configuration parameter "max_wal_size".
+LOG:  temporary file: path "base/pgsql_tmp/…", size 8192
+LOG:  checkpoint complete: wrote 12 buffers (0.1%); … write=1.127 s, sync=0.028 s, total=1.199 s
+LOG:  duration: 2409.738 ms  statement: copy pgbench_accounts from stdin …
+```
+
+So the advice is a **reading of evidence**, not a lint of settings — and it is **per
+member**, because three members of one cluster do not share a performance story. Only the
+primary takes the writes, so only the primary checkpoints hard. Averaging them would hide
+the one you are looking for.
+
+### What was measured, and why there is no "raise shared_buffers" rule
+
+Three clusters were deployed side by side on one host — Percona Operator for PostgreSQL and
+Crunchy PGO with three instances each, CloudNativePG with two — and driven with pgbench at
+**identical scale and client counts**, first on the operators' own defaults and then with
+the settings everybody reaches for first (`shared_buffers` 128MB → 1GB, `max_wal_size` 1GB →
+4GB, `work_mem` 4MB → 16MB, `effective_cache_size` → 3GB):
+
+| | defaults | tuned | |
+| --- | --- | --- | --- |
+| Percona Operator for PostgreSQL | 2,150 tps · 7.43 ms | 1,981 tps · 8.06 ms | **−8%** |
+| Crunchy PGO | 2,150 tps · 7.43 ms | 2,185 tps · 7.31 ms | +1.6% |
+| CloudNativePG | 2,974 tps · 5.37 ms | 3,006 tps · 5.31 ms | +1.1% |
+
+All three ship the **same** PostgreSQL defaults — `shared_buffers=128MB` (PostgreSQL's own
+compiled default: none of the three sets it), `max_wal_size=1GB`, `work_mem=4MB` — and
+none of them puts a memory limit on the database container either. Raising the obvious
+settings did essentially nothing on this workload, and on one cluster made it worse.
+
+That is why there is no rule in this advisor of the form *"setting X looks small"*. It says
+what the server complained about, and nothing else.
+
+### What it reports
+
+| | from | |
+| --- | --- | --- |
+| **`max_wal_size` is too small** | `checkpoints are occurring too frequently (N seconds apart)` | the only advice here the server gives you by name, in its own HINT. Measured on a deliberately starved cluster: 21 complaints, the closest **2.0 seconds** apart |
+| **Checkpoints forced by volume, not time** | the ratio of `checkpoint starting: wal` to `checkpoint starting: time` | a cluster where most checkpoints are the first kind is checkpointing as fast as it writes |
+| **Checkpoint sync is stalling commits** | `sync=` in `checkpoint complete` | `write=` is paced; `sync=` is fsync waiting on storage, and while it runs commits wait too. Whole seconds here is a storage answer, not a PostgreSQL one |
+| **`work_mem` is too small** | `temporary file: path …, size N` | the log gives the exact size the sort needed — better than any rule of thumb. Measured: 10 spills totalling **153 MB**, the largest **76.5 MB**, against a `work_mem` of 64kB |
+| **Slow statements** | `duration: N ms statement: …` | recorded with their full text, and the share of the window spent inside them |
+| **Lock contention** | `still waiting for …Lock`, `deadlock detected` | a lock wait is logged only after `deadlock_timeout`, so every one waited at least that long |
+
+### The finding that outranks all of them
+
+Every count above is meaningless unless the server was told to record it — and **all three
+operators ship with `log_min_duration_statement`, `log_temp_files` and `log_lock_waits` off
+or unset**. So the advisor ends with the gate:
+
+> no records from `log_min_duration_statement` (slow statements), `log_temp_files` (sorts
+> that spilled to disk) — the absence of these in this window is not evidence that there
+> were none, it is evidence that nobody asked.
+
+That is the difference between a quiet log and a healthy server, and it is the one thing on
+the page you can fix *before* the next incident rather than during it. Turning them on is a
+`spec.patroni.dynamicConfiguration.postgresql.parameters` change for the two Patroni-based
+operators and a `spec.postgresql.parameters` change for CloudNativePG.
+
+> **Percona's operator owns an inner Crunchy `PostgresCluster` and reverts hand edits to
+> it.** Patch the outer `PerconaPGCluster` (`pgv2.percona.com`); a change applied to the
+> inner one is silently undone on the next reconcile, which looks exactly like a setting
+> that would not take.
