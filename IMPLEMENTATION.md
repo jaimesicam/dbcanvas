@@ -17524,3 +17524,70 @@ is a server that carried on; a log that starts late is a server we knew nothing 
 "Lines per node" field now says so, and `TestDeducedStateDoesNotCoverTimeTheLogNeverSaw`
 pins both halves: unknown before the evidence, still deduced over the stretch there is
 evidence for.
+
+---
+
+## 302. The three PostgreSQL operators — `app/logsummary_pgop{,_rules,_verdict}.go`, `app/logsummary_pgop_test.go` (new), `app/{logsummary_k8s,logsummary_model,logsummary_pxcop,logsummary_galera,logsummary_verdict}.go`, `app/web/src/lib/logApi.js`, `docs/LOG_SUMMARY.md`
+
+MySQL and MongoDB each had one Percona operator writing one format. PostgreSQL has three
+operators writing three — and Percona's is a **fork of Crunchy's** that nevertheless chose a
+different logging library:
+
+| operator | format | fold |
+| --- | --- | --- |
+| Percona Operator for PostgreSQL | zap, tab-separated | `lsFoldOperator`, unchanged from PXC |
+| Crunchy PGO | logfmt (`time="…" level=… msg="…" k=v`) | `lsFoldCrunchy` + a small `lsParseLogfmt` |
+| CloudNativePG | JSON, one object per line | `lsFoldCNPG` |
+
+Percona's operator drives Crunchy's own `PostgresCluster` CR, so its log is full of
+`postgres-operator.crunchydata.com`; only `pgv2.percona.com` separates them, and that check
+runs first.
+
+### The members needed no new catalogue
+
+The best outcome here. A Percona or Crunchy member's `database` container **is Patroni**,
+and this package has had a Patroni catalogue since the Patroni frames landed. The collector
+reads that container plus PostgreSQL's own file on the volume (`/pgdata/*/log/`), and the
+existing rules produce `The cluster had no primary for 2.7s`, `The cluster changed primary`
+and `A member was rebuilt from the leader` on an operator-managed cluster with no new code.
+
+CloudNativePG runs no Patroni, and its member log is **two documents in one**: the instance
+manager's records and PostgreSQL's, the latter wrapped as
+`{"logger":"postgres","msg":"record","record":{…the CSV fields…}}`. `lsFoldCNPG` unwraps
+them into ordinary PostgreSQL records so the same classifier reads them, and keeps the
+instance manager's as their own events.
+
+### What the corpus settled
+
+Three clusters deployed side by side on one host, leaders force-deleted at the same moment.
+In the following minute: Percona's operator logged **seven copies of a Kubernetes API
+deprecation notice and nothing else**; Crunchy's logged 14 × `reconciled instance`; CNPG
+logged the switchover in full. The two Patroni-based operators delegate availability and
+never mention it — `lsPGOpFindingSilentFailover` says so, and deliberately excludes CNPG,
+which is what makes the contrast worth drawing. `lsCNPGFindingSwitchover` measures what only
+CNPG can supply: 56.3 s with nothing accepting writes.
+
+And the finding this catalogue exists for: **WAL archiving failing is invisible everywhere
+else.** Measured, 23 minutes in which every segment failed to archive while the cluster kept
+serving and reported healthy; the first visible failure was a backup somebody asked for. The
+cause in the corpus was an S3 endpoint the pod could not verify — pgBackRest was happy with
+the same TLS endpoint, barman-cloud was not, which is the inverse of the note in
+[[cnpg-k3d-helm-facts]] and worth remembering in both directions.
+
+### Verified
+
+- All three collected live through the app's API against three clusters running at once:
+  ten sources, correct flavours (`perconapgoperator`, `crunchypgo`, `cnpgoperator`,
+  `cnpginstance`, and `patroni` for the six Patroni members), and the findings above.
+- 7 new tests over nine fixture directories (`kg-{pg,pgo,cnpg}-{bootstrap,failover,backup}`),
+  including a third cross-vocabulary gate — this hazard has now bitten once per operator
+  family, so it is checked for every new one.
+- `go build` / `go vet` / `go test ./...` / `npm run smoke` / `npm run build` clean.
+
+### Not done
+
+Restores, PITR and rolling restarts were not driven for these three, so there are no
+findings for them — the backup half is `Backup succeeded` / `pgBackRest reports no backups`
+and nothing about recovery. `spec.backup.pitr`-equivalent tuning advice is likewise absent:
+unlike PXC's provider options and PSMDB's `oplogSpanMin`, nothing in these three logs states
+a setting, so there was nothing to read and advise on without inventing it.

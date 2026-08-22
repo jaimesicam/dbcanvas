@@ -29,6 +29,7 @@ matter most are the ones the server never sends to anybody.
 | **Valkey** | the Packet Inspector's classifier, on the shared timeline |
 | **Percona Operator for MySQL (PXC)** | full — the operator's own log, the PITR binlog collector's, and every member's, read together. See [the operator](#percona-operator-for-mysql-pxc-three-logs-and-the-outage-is-in-none-of-the-obvious-ones). |
 | **Percona Operator for MongoDB (PSMDB)** | full — the operator's log, every member's mongod log, and every member's `pbm-agent` sidecar. See [PSMDB](#percona-operator-for-mongodb-psmdb-the-backup-agents-are-three-logs-and-only-one-of-them-is-working). |
+| **Percona PG · Crunchy PGO · CloudNativePG** | full — each operator's own format, with the Patroni-based members read by the existing Patroni catalogue. See [the three PostgreSQL operators](#the-three-postgresql-operators-three-formats-and-only-one-of-them-mentions-the-failover). |
 
 ---
 
@@ -227,6 +228,8 @@ about whether queries were being answered — the members' lanes do that:
 | `SLICING` | good | this backup agent holds the PITR lock and is streaming the oplog — the only member of its set that is |
 | `PBM-IDLE` | warning | the agent is up and another member won the nomination: normal, and its log will say almost nothing |
 | `PBM-LOST` | bad | the agent cannot reach the cluster, so it can neither slice the oplog nor record that it failed to |
+| `SWITCHOVER` | warning | CloudNativePG is moving the primary — no member is accepting writes until it finishes |
+| `MANAGING` | good | a CloudNativePG instance manager is up and looking after its member |
 
 **Click** for a readout of every node at that instant. **Drag** to narrow a window — the
 event list, the ticks and the filters below, *and the verdict above*.
@@ -1683,3 +1686,95 @@ Three things about applying it:
   how the corpus's cluster lost its anti-affinity and stopped rolling out entirely.
 - **`oplogSizeMB` and `oplogSpanMin` are a pair.** The oplog has to hold at least one
   chunk's worth of writes, or the slicer falls off the end of it between uploads.
+
+---
+
+## The three PostgreSQL operators: three formats, and only one of them mentions the failover
+
+PostgreSQL is where the Kubernetes story stops being tidy. MySQL and MongoDB each had one
+Percona operator writing one format. PostgreSQL has **three** operators writing **three**
+formats — and Percona's is a *fork of Crunchy's* that nevertheless chose a different
+logging library:
+
+| operator | format | members |
+| --- | --- | --- |
+| **Percona Operator for PostgreSQL** | zap, tab-separated — the same shape the PXC and PSMDB operators write | **Patroni**, plus PostgreSQL's own log on the volume |
+| **Crunchy PGO** | logfmt — `time="…" level=debug msg="…" key=value` | **Patroni**, same as above |
+| **CloudNativePG** | JSON, one object per line | no Patroni: an **instance manager**, and PostgreSQL's records wrapped inside its stream |
+
+Because Percona's operator drives Crunchy's own `PostgresCluster` custom resource, its log
+is full of `postgres-operator.crunchydata.com` and only `pgv2.percona.com` tells the two
+apart — which is why that check runs first.
+
+### The members needed no new catalogue at all
+
+The best outcome of the three. A Percona or Crunchy member's `database` container **is
+Patroni**, and this page has had a Patroni catalogue since the Patroni frames were added.
+Point the collector at the container and the existing rules read an operator-managed
+cluster unchanged — `The cluster had no primary for 2.7s`, `The cluster changed primary`,
+`A member was rebuilt from the leader` all come out with no operator-specific code.
+
+PostgreSQL's own log is a file beside it (`/pgdata/<version>/log/`), and both are read
+together for the reason `lsPGTailScript` already gives for a hand-built Patroni node: the
+failover decision is in one and its consequence in the other.
+
+### Two of the three say nothing about a failover
+
+Three clusters were deployed side by side on one host and their leaders force-deleted at
+the same moment. In the following minute the operators logged:
+
+```
+Percona   7 × "v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice"
+Crunchy   14 × "reconciled instance", 7 × "reconciled cluster", 5 × "patched cluster status"
+CNPG      13 × "There is a switchover or a failover in progress, waiting…"
+          "Old primary pod not found in managed instances, skipping label demotion"
+          "Setting primary label" · "Setting replica label" · "Switchover completed"
+```
+
+The two Patroni-based operators delegate availability to Patroni and never mention it — the
+whole story (the lost TTL lock, the election, the new leader, the rejoin) is inside the
+members. **CloudNativePG narrates it because CloudNativePG *is* the failover manager**, and
+it is therefore the only one of the three whose log can date a switchover: measured,
+56.3 seconds with nothing accepting writes.
+
+So the page reports the silence rather than letting it read as calm, and measures the
+switchover where it can.
+
+### A CloudNativePG member's log is two documents in one
+
+No Patroni means the instance manager's records and PostgreSQL's share a single JSON
+stream, and PostgreSQL's are not text at all — they are the CSV log's *fields* as an
+object:
+
+```json
+{"level":"info","logger":"postgres","msg":"record","logging_pod":"cnpgc-1",
+ "record":{"log_time":"2026-08-22 11:16:54.106 UTC","error_severity":"LOG",
+           "message":"redo starts at 0/6000028"}}
+```
+
+Left alone that is a wall of `msg: record` saying nothing. They are unwrapped back into
+ordinary PostgreSQL records — timestamp, severity, message, with `DETAIL`/`HINT` folded
+into the body — so a CloudNativePG member is read by the same PostgreSQL catalogue as any
+other server, and the instance manager's own records stay beside them as their own events.
+
+### The finding this catalogue exists for
+
+WAL archiving failing is invisible everywhere except the instance manager's log:
+
+```
+error  wal-archive  failed to run wal-archive command
+       {"error":"unexpected failure invoking barman-cloud-wal-archive: exit status 4"}
+```
+
+Measured on the corpus: **23 minutes** in which every segment failed to archive. The
+cluster kept serving, reported `Cluster in healthy state` throughout, and the first thing
+that failed visibly was a backup somebody asked for. Meanwhile PostgreSQL keeps every
+segment it cannot archive, so the volume fills at the rate the cluster writes WAL.
+
+`pg_stat_archiver` answers the same question from inside the database, and a filling
+`pg_wal` is the consequence to watch for.
+
+One more record worth knowing, from the same corpus:
+`Detected ready WAL files in a former primary, triggering WAL archiving` — a demoted
+primary still holding WAL that never reached the archive. Discard that volume before it
+ships and point-in-time recovery has a hole in it that survives the failover.

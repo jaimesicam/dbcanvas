@@ -11,6 +11,14 @@ development: spin up a production-shaped cluster in minutes, exercise it, tear i
 
 ## What's New
 
+**...and the three PostgreSQL operators too.** **Percona Operator for PostgreSQL**, **Crunchy
+PGO** and **CloudNativePG** write three different log formats for the same job, and the two
+Patroni-based ones say *nothing* about a failover: kill all three clusters' leaders at the
+same moment and Percona's operator logs seven copies of a Kubernetes API deprecation notice,
+Crunchy's logs fourteen "reconciled instance", and only CloudNativePG — which runs the
+failover itself — reports it. Their members need no new rules at all: a Percona or Crunchy
+member's `database` container *is* Patroni, which this page has read for a long time.
+
 **The Log Summary reads Percona's Kubernetes operators — every log a cluster has, on one
 timeline.** For **Percona XtraDB Cluster** that is the operator's own log, each member's, and
 the binlog collector's; for **Percona Server for MongoDB** it is the operator, each member's

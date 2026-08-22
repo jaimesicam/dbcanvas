@@ -83,6 +83,34 @@ const (
 var lsK8sOperatorDeploy = map[string]string{
 	"pxc":   "percona-xtradb-cluster-operator",
 	"psmdb": "percona-server-mongodb-operator",
+	"pg":    "percona-postgresql-operator",
+	"pgo":   "pgo",
+	"cnpg":  "cloudnative-pg",
+}
+
+// lsK8sOperatorNS is the namespace an operator installs ITSELF into, when that is not the
+// cluster's own. The four Percona operators live beside the cluster they manage; the two
+// chart-installed ones do not — CloudNativePG's manager is a cluster-wide Deployment in
+// its own namespace, so asking for it in the database's namespace finds nothing.
+var lsK8sOperatorNS = map[string]string{"cnpg": "cnpg-system"}
+
+// lsK8sMemberSelector is the label that finds a cluster's database pods, per operator.
+//
+// The PostgreSQL pair share Crunchy's label because Percona's operator is a fork of
+// Crunchy's and drives the same custom resource — one of the few places the fork shows
+// through. CloudNativePG has its own, and it is a label whose PRESENCE is the selector
+// (`cnpg.io/instanceName`) rather than a value to match.
+func lsK8sMemberSelector(operator, cr string) string {
+	switch operator {
+	case "psmdb":
+		return "app.kubernetes.io/component=mongod,app.kubernetes.io/instance=" + cr
+	case "pg", "pgo":
+		return "postgres-operator.crunchydata.com/data=postgres," +
+			"postgres-operator.crunchydata.com/cluster=" + cr
+	case "cnpg":
+		return "cnpg.io/cluster=" + cr
+	}
+	return "app.kubernetes.io/component=pxc,app.kubernetes.io/instance=" + cr
 }
 
 // listLogK8sTargets is every log a running K3D PXC cluster can offer.
@@ -128,8 +156,15 @@ func (a *App) listLogK8sTargets(u User) []qrTarget {
 			// place has a different set of pods from the one its spec asks for, and the
 			// pods that exist are the ones with logs.
 			memberEngine := pktEngineMySQL
-			if f.K3DOperator == "psmdb" {
+			switch f.K3DOperator {
+			case "psmdb":
 				memberEngine = pktEngineMongoDB
+			case "pg", "pgo":
+				memberEngine = pktEnginePostgres
+			case "cnpg":
+				// Not "postgres": a CloudNativePG member's log is its instance manager's,
+				// with PostgreSQL's records wrapped inside it. The sniff splits them.
+				memberEngine = pktEngineOperator
 			}
 			for _, pod := range a.lsK8sMemberPods(containerID, cfg.Namespace, cfg.ClusterName, f.K3DOperator) {
 				out = append(out, qrTarget{
@@ -191,14 +226,10 @@ func lsK8sServerNodeID(doc designDoc, frameID string) string {
 // cluster's pods also include mongos routers and config servers, which are not replica-set
 // members of the shard and whose logs answer different questions.
 func (a *App) lsK8sMemberPods(serverID, ns, cr, operator string) []string {
-	component := "pxc"
-	if operator == "psmdb" {
-		component = "mongod"
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	out, err := a.kubectl(ctx, serverID, "-n", ns, "get", "pods",
-		"-l", "app.kubernetes.io/component="+component+",app.kubernetes.io/instance="+cr,
+		"-l", lsK8sMemberSelector(operator, cr),
 		"-o", "jsonpath={range .items[*]}{.metadata.name}{\"\\n\"}{end}")
 	if err != nil {
 		return nil
@@ -274,11 +305,15 @@ func (a *App) lsK8sTail(ctx context.Context, serverID, ns, cr, what, operator st
 		if deploy == "" {
 			return "", "", "", fmt.Errorf("no operator log for a %q frame", operator)
 		}
-		out, err := a.kubectl(ctx, serverID, "-n", ns, "logs", "deploy/"+deploy, "--tail="+n)
+		opNS := ns
+		if v, ok := lsK8sOperatorNS[operator]; ok {
+			opNS = v
+		}
+		out, err := a.kubectl(ctx, serverID, "-n", opNS, "logs", "deploy/"+deploy, "--tail="+n)
 		if err != nil {
 			return "", "", "", err
 		}
-		return out, "kubectl logs deploy/" + deploy, pktEngineOperator, nil
+		return out, "kubectl logs -n " + opNS + " deploy/" + deploy, pktEngineOperator, nil
 	case what == lsK8sPITR:
 		out, err := a.kubectl(ctx, serverID, "-n", ns, "logs", "deploy/"+cr+"-pitr",
 			"-c", "pitr", "--tail="+n)
@@ -297,8 +332,34 @@ func (a *App) lsK8sTail(ctx context.Context, serverID, ns, cr, what, operator st
 		}
 		return out, pod + ": " + lsPathPBM, pktEngineOperator, nil
 	}
-	// A database member. The log on the volume first — it is the raw thing the engine's
-	// parser wants, and it holds more history than the container runtime keeps.
+	// A PostgreSQL member. The three operators split two ways and the split is the whole
+	// point: Percona's and Crunchy's members run **Patroni**, whose stdout is what
+	// `kubectl logs` returns, with PostgreSQL's own log a file beside it on the volume —
+	// and both are wanted, for exactly the reason lsPGTailScript gives for a hand-built
+	// Patroni node: the failover decision is in one and its consequence in the other.
+	// CloudNativePG runs no Patroni and puts both into one JSON stream, which lsFoldCNPG
+	// splits again.
+	if operator == "pg" || operator == "pgo" {
+		patroni, perr := a.kubectl(ctx, serverID, "-n", ns, "logs", what, "-c", "database", "--tail="+n)
+		pg, _ := a.kubectl(ctx, serverID, "-n", ns, "exec", what, "-c", "database", "--",
+			"bash", "-c", "tail -n "+n+" /pgdata/*/log/*.log 2>/dev/null")
+		if perr != nil && strings.TrimSpace(pg) == "" {
+			return "", "", "", perr
+		}
+		// PostgreSQL first, Patroni after: lsFoldPostgres recognises each line by its own
+		// shape, and the builder sorts the merged events by time anyway.
+		return strings.TrimSuffix(pg, "\n") + "\n" + patroni,
+			what + ": /pgdata/*/log + patroni", pktEnginePostgres, nil
+	}
+	if operator == "cnpg" {
+		out, err := a.kubectl(ctx, serverID, "-n", ns, "logs", what, "-c", "postgres", "--tail="+n)
+		if err != nil {
+			return "", "", "", err
+		}
+		return out, what + ": instance manager + postgres", pktEngineOperator, nil
+	}
+	// A MySQL or MongoDB member. The log on the volume first — it is the raw thing the
+	// engine's parser wants, and it holds more history than the container runtime keeps.
 	logPath, container, engine := lsK8sMemberLog(operator)
 	out, err := a.kubectl(ctx, serverID, "-n", ns, "exec", what, "-c", container, "--",
 		"tail", "-n", n, logPath)

@@ -57,7 +57,7 @@ func lsFindings(b *lsBundle) []lsFinding {
 		lsFindingCoverage,
 		lsFindingHealthy,
 	}, append(append(append(append(lsGRFindings, lsMongoFindings...), lsPGFindings...),
-		lsValkeyFindings...), append(lsPXCOpFindings, lsPSMDBFindings...)...)...) {
+		lsValkeyFindings...), append(append(lsPXCOpFindings, lsPSMDBFindings...), lsPGOpFindings...)...)...) {
 		out = append(out, check(b)...)
 	}
 	sort.SliceStable(out, func(i, j int) bool {

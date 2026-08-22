@@ -242,6 +242,10 @@ export const STATE_TEXT = {
   SLICING: 'This member holds the PITR lock and is streaming the oplog to object storage — the only one of its replica set that is',
   'PBM-IDLE': 'The agent is up and another member won the nomination: normal, and its log will say almost nothing',
   'PBM-LOST': 'The agent cannot reach the cluster, so it can neither slice the oplog nor record that it failed to',
+  // CloudNativePG runs the failover itself — no Patroni — so it is the only one of the
+  // three PostgreSQL operators whose log can date a switchover.
+  SWITCHOVER: 'CloudNativePG is moving the primary: no member is accepting writes until it finishes',
+  MANAGING: 'The instance manager is up and looking after its member',
   // Not a cluster member at all
   RUNNING: 'Up and accepting connections',
   STARTING: 'Starting up — not accepting connections yet',
@@ -265,6 +269,7 @@ export const STATE_SEV = {
   'CR-READY': 'ok', SLICING: 'ok',
   'CR-INIT': 'warn', 'PBM-IDLE': 'warn',
   'CR-ERROR': 'bad', 'PBM-LOST': 'bad',
+  MANAGING: 'ok', SWITCHOVER: 'warn',
   UNKNOWN: 'info',
 }
 
@@ -343,6 +348,10 @@ export const FLAVOUR_LABEL = {
   pxcpitr: 'binlog collector',
   psmdboperator: 'MongoDB operator',
   pbmagent: 'backup agent',
+  perconapgoperator: 'Percona PG operator',
+  crunchypgo: 'Crunchy PGO',
+  cnpgoperator: 'CloudNativePG operator',
+  cnpginstance: 'CloudNativePG instance',
 }
 
 export const ENGINE_LABEL = {

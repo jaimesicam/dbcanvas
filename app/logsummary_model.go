@@ -380,6 +380,59 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 			}
 			break
 		}
+		switch lsSniffPGOperator(data) {
+		case lsFlavourCrunchyPGO:
+			recs := lsFoldCrunchy(data)
+			src.Records = len(recs)
+			src.Flavour = lsFlavourCrunchyPGO
+			src.Node = lsPGOpNodeName(recs, lsFlavourCrunchyPGO)
+			for _, r := range recs {
+				if e, keep := lsClassifyCrunchy(r); keep {
+					e.Src = idx
+					events = append(events, e)
+				}
+			}
+			break
+		case lsFlavourCNPG, lsFlavourCNPGManager:
+			// A CNPG member's stream is TWO documents: the instance manager's own records
+			// and PostgreSQL's, the latter wrapped as `{"logger":"postgres","record":{…}}`.
+			// lsFoldCNPG splits them, and each half goes to the catalogue that owns it —
+			// so a CNPG member is read by the same PostgreSQL rules as any other server.
+			fl := lsSniffPGOperator(data)
+			recs := lsFoldCNPG(data)
+			src.Records = len(recs)
+			src.Flavour = fl
+			src.Node = lsPGOpNodeName(recs, fl)
+			for _, r := range recs {
+				var e lsEvent
+				var keep bool
+				if r.Subsys == lsSubsysPostgres {
+					e, keep = lsClassifyPG(r)
+				} else {
+					e, keep = lsClassifyCNPG(r)
+				}
+				if keep {
+					e.Src = idx
+					events = append(events, e)
+				}
+			}
+			break
+		case lsFlavourPerconaPG:
+			recs := lsFoldOperator(data)
+			src.Records = len(recs)
+			src.Flavour = lsFlavourPerconaPG
+			src.Node = lsPGOpNodeName(recs, lsFlavourPerconaPG)
+			for _, r := range recs {
+				if e, keep := lsClassifyPerconaPG(r); keep {
+					e.Src = idx
+					events = append(events, e)
+				}
+			}
+			break
+		}
+		if src.Flavour != "" {
+			break
+		}
 		// Both Percona operators are the same controller-runtime process writing the same
 		// tab-separated lines, so the fold is shared and only the catalogue differs. The
 		// controller group in the field object is what tells them apart, and it has to be
@@ -463,6 +516,10 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 		lsResolveOperator(events)
 	case lsFlavourPXCPITR:
 		lsResolvePITRCollector(events)
+	case lsFlavourCNPG, lsFlavourCNPGManager:
+		lsResolveCNPG(events)
+	case lsFlavourPerconaPG, lsFlavourCrunchyPGO:
+		lsResolvePGOperator(events)
 	case lsFlavourPSMDBOperator:
 		lsResolvePSMDBOperator(events)
 	case lsFlavourPBMAgent:

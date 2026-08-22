@@ -380,6 +380,11 @@ func lsSniffOperator(data string) string {
 	if f := lsSniffPSMDB(head); f != "" {
 		return f
 	}
+	// The three PostgreSQL operators, for the same reason — and one of them writes the
+	// identical zap format this file's fold reads.
+	if f := lsSniffPGOperator(head); f != "" {
+		return f
+	}
 	if strings.Contains(head, "pxc.percona.com") ||
 		strings.Contains(head, "PerconaXtraDBCluster") ||
 		strings.Contains(head, "percona-xtradb-cluster-operator") {

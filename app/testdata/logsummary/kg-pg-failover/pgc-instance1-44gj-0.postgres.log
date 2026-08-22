@@ -1,0 +1,88 @@
+2026-08-22 11:13:48.804 UTC [109] LOG:  starting PostgreSQL 18.3 - Percona Server for PostgreSQL 18.3.1 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 11.5.0 20240719 (Red Hat 11.5.0-11.0.2), 64-bit
+2026-08-22 11:13:48.805 UTC [109] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-08-22 11:13:48.805 UTC [109] LOG:  listening on IPv6 address "::", port 5432
+2026-08-22 11:13:48.812 UTC [109] LOG:  listening on Unix socket "/tmp/postgres/.s.PGSQL.5432"
+2026-08-22 11:13:48.819 UTC [117] LOG:  database system was shut down at 2026-08-22 11:13:47 UTC
+2026-08-22 11:13:48.824 UTC [109] LOG:  database system is ready to accept connections
+2026-08-22 11:13:49.875 UTC [115] LOG:  checkpoint starting: force wait
+2026-08-22 11:13:49.982 P00  ERROR: [103]: unable to find a valid repository:
+                                    repo1: [FileMissingError] unable to load info file '/pgbackrest/pgc/repo1/archive/db/archive.info' or '/pgbackrest/pgc/repo1/archive/db/archive.info.copy':
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info' for read
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info.copy' for read
+                                    HINT: archive.info cannot be opened but is required to push/get WAL segments.
+                                    HINT: is archive_command configured correctly in postgresql.conf?
+                                    HINT: has a stanza-create been performed?
+                                    HINT: use --no-archive-check to disable archive checks during backup if you have an alternate archiving scheme.
+2026-08-22 11:13:51.073 UTC [115] LOG:  checkpoint complete: wrote 12 buffers (0.1%), wrote 4 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=1.127 s, sync=0.028 s, total=1.199 s; sync files=12, longest=0.008 s, average=0.003 s; distance=8859 kB, estimate=8859 kB; lsn=0/2000080, redo lsn=0/2000028
+2026-08-22 11:13:51.073 UTC [115] LOG:  checkpoint starting: force wait
+2026-08-22 11:13:51.089 UTC [115] LOG:  checkpoint complete: wrote 0 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.016 s; sync files=0, longest=0.000 s, average=0.000 s; distance=0 kB, estimate=7973 kB; lsn=0/2000150, redo lsn=0/20000F8
+2026-08-22 11:13:53.106 UTC [124] LOG:  starting PostgreSQL 18.3 - Percona Server for PostgreSQL 18.3.1 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 11.5.0 20240719 (Red Hat 11.5.0-11.0.2), 64-bit
+2026-08-22 11:13:53.106 UTC [124] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-08-22 11:13:53.106 UTC [124] LOG:  listening on IPv6 address "::", port 5432
+2026-08-22 11:13:53.116 UTC [124] LOG:  listening on Unix socket "/tmp/postgres/.s.PGSQL.5432"
+2026-08-22 11:13:53.124 UTC [132] LOG:  database system was interrupted; last known up at 2026-08-22 11:13:51 UTC
+2026-08-22 11:13:54.106 UTC [142] FATAL:  the database system is starting up
+2026-08-22 11:13:54.110 UTC [144] FATAL:  the database system is starting up
+2026-08-22 11:13:54.672 UTC [132] LOG:  starting backup recovery with redo LSN 0/2000028, checkpoint LSN 0/2000080, on timeline ID 1
+2026-08-22 11:13:54.781 UTC [132] LOG:  entering standby mode
+2026-08-22 11:13:54.787 UTC [132] LOG:  redo starts at 0/2000028
+2026-08-22 11:13:54.897 UTC [132] LOG:  completed backup recovery with redo LSN 0/2000028 and end LSN 0/20001F0
+2026-08-22 11:13:54.897 UTC [132] LOG:  consistent recovery state reached at 0/20001F0
+2026-08-22 11:13:54.897 UTC [124] LOG:  database system is ready to accept read-only connections
+2026-08-22 11:13:55.011 UTC [163] LOG:  started streaming WAL from primary at 0/3000000 on timeline 1
+2026-08-22 11:18:53.221 UTC [130] LOG:  restartpoint starting: time
+2026-08-22 11:19:04.267 UTC [163] LOG:  replication terminated by primary server
+2026-08-22 11:19:04.267 UTC [163] DETAIL:  End of WAL reached on timeline 1 at 0/80000A0.
+2026-08-22 11:19:04.267 UTC [163] FATAL:  could not send end-of-streaming message to primary: SSL connection has been closed unexpectedly
+	invalid socket
+	no COPY in progress
+2026-08-22 11:19:04.390 UTC [132] LOG:  invalid record length at 0/80000A0: expected at least 24, got 0
+2026-08-22 11:19:04.448 UTC [909] FATAL:  streaming replication receiver "pgc-ha" could not connect to the primary server: could not translate host name "pgc-instance1-pknk-0.pgc-pods" to address: Name or service not known
+2026-08-22 11:19:04.465 UTC [132] LOG:  waiting for WAL to become available at 0/80000B8
+2026-08-22 11:19:05.869 UTC [124] LOG:  received SIGHUP, reloading configuration files
+2026-08-22 11:19:05.870 UTC [124] LOG:  parameter "primary_conninfo" changed to "dbname=postgres user=_crunchyrepl host=pgc-instance1-6h22-0.pgc-pods port=5432 sslmode=verify-ca sslcert=/tmp/replication/tls.crt sslkey=/tmp/replication/tls.key sslrootcert=/tmp/replication/ca.crt application_name=pgc-instance1-44gj-0 gssencmode=prefer channel_binding=prefer sslnegotiation=postgres"
+2026-08-22 11:19:05.985 UTC [927] LOG:  fetching timeline history file for timeline 2 from primary server
+2026-08-22 11:19:05.992 UTC [927] LOG:  started streaming WAL from primary at 0/8000000 on timeline 1
+2026-08-22 11:19:05.992 UTC [927] LOG:  replication terminated by primary server
+2026-08-22 11:19:05.992 UTC [927] DETAIL:  End of WAL reached on timeline 1 at 0/80000A0.
+2026-08-22 11:19:06.007 UTC [132] LOG:  restored log file "00000002.history" from archive
+2026-08-22 11:19:06.035 UTC [132] LOG:  restored log file "00000002.history" from archive
+2026-08-22 11:19:06.040 UTC [132] LOG:  new target timeline is 2
+2026-08-22 11:19:06.256 UTC [927] LOG:  restarted WAL streaming at 0/8000000 on timeline 2
+2026-08-22 11:20:45.613 UTC [130] LOG:  restartpoint complete: wrote 1117 buffers (6.8%), wrote 3 SLRU buffers; 1 WAL file(s) added, 0 removed, 0 recycled; write=111.953 s, sync=0.415 s, total=112.393 s; sync files=401, longest=0.009 s, average=0.002 s; distance=49152 kB, estimate=49152 kB; lsn=0/6002A90, redo lsn=0/5000028
+2026-08-22 11:20:45.613 UTC [130] LOG:  recovery restart point at 0/5000028
+2026-08-22 11:20:45.613 UTC [130] DETAIL:  Last completed transaction was at log time 2026-08-22 11:14:48.905348+00.
+-------------------PROCESS START-------------------
+2026-08-22 11:13:54.683 P00   INFO: archive-get:async command begin 2.58.0: [000000010000000000000002, 000000010000000000000003, 000000010000000000000004, 000000010000000000000005, 000000010000000000000006, 000000010000000000000007, 000000010000000000000008, 000000010000000000000009] --archive-async --exec-id=146-291f9b83 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:13:54.683 P00   INFO: get 8 WAL file(s) from archive: 000000010000000000000002...000000010000000000000009
+2026-08-22 11:13:54.694 P00   INFO: archive-get:async command end: completed successfully (12ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:13:54.796 P00   INFO: archive-get:async command begin 2.58.0: [000000010000000000000003, 000000010000000000000004, 000000010000000000000005, 000000010000000000000006, 000000010000000000000007, 000000010000000000000008, 000000010000000000000009, 00000001000000000000000A] --archive-async --exec-id=155-09f8297c --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:13:54.796 P00   INFO: get 8 WAL file(s) from archive: 000000010000000000000003...00000001000000000000000A
+2026-08-22 11:13:54.807 P00   INFO: archive-get:async command end: completed successfully (11ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:13:54.906 P00   INFO: archive-get:async command begin 2.58.0: [000000010000000000000003, 000000010000000000000004, 000000010000000000000005, 000000010000000000000006, 000000010000000000000007, 000000010000000000000008, 000000010000000000000009, 00000001000000000000000A] --archive-async --exec-id=158-e8b8b170 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:13:54.906 P00   INFO: get 8 WAL file(s) from archive: 000000010000000000000003...00000001000000000000000A
+2026-08-22 11:13:54.919 P00   INFO: archive-get:async command end: completed successfully (13ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:19:04.292 P00   INFO: archive-get:async command begin 2.58.0: [000000010000000000000008, 000000010000000000000009, 00000001000000000000000A, 00000001000000000000000B, 00000001000000000000000C, 00000001000000000000000D, 00000001000000000000000E, 00000001000000000000000F] --archive-async --exec-id=906-217b369f --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:19:04.293 P00   INFO: get 8 WAL file(s) from archive: 000000010000000000000008...00000001000000000000000F
+2026-08-22 11:19:04.308 P00   INFO: archive-get:async command end: completed successfully (16ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:19:05.880 P00   INFO: archive-get:async command begin 2.58.0: [000000010000000000000008, 000000010000000000000009, 00000001000000000000000A, 00000001000000000000000B, 00000001000000000000000C, 00000001000000000000000D, 00000001000000000000000E, 00000001000000000000000F] --archive-async --exec-id=922-15496ce8 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:19:05.880 P00   INFO: get 8 WAL file(s) from archive: 000000010000000000000008...00000001000000000000000F
+2026-08-22 11:19:05.893 P00   INFO: archive-get:async command end: completed successfully (14ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:19:06.050 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000008, 000000020000000000000009, 00000002000000000000000A, 00000002000000000000000B, 00000002000000000000000C, 00000002000000000000000D, 00000002000000000000000E, 00000002000000000000000F] --archive-async --exec-id=931-331831e2 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:19:06.050 P00   INFO: get 8 WAL file(s) from archive: 000000020000000000000008...00000002000000000000000F
+2026-08-22 11:19:06.061 P00   INFO: archive-get:async command end: completed successfully (12ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:19:06.162 P00   INFO: archive-get:async command begin 2.58.0: [000000010000000000000008, 000000010000000000000009, 00000001000000000000000A, 00000001000000000000000B, 00000001000000000000000C, 00000001000000000000000D, 00000001000000000000000E, 00000001000000000000000F] --archive-async --exec-id=934-577d1c7b --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:19:06.162 P00   INFO: get 8 WAL file(s) from archive: 000000010000000000000008...00000001000000000000000F
+2026-08-22 11:19:06.175 P00   INFO: archive-get:async command end: completed successfully (13ms)

@@ -115,11 +115,11 @@ func lsStateSev(state string) string {
 	switch state {
 	case lsStateSynced, lsStateUp, lsStateOnline, lsStatePrimaryM, lsStateSecondary, lsStateRouting,
 		lsStateStandby, lsStateVKReplica, lsStateOpLeader, lsStatePITRUp,
-		lsStatePSMDBReady, lsStatePBMSlicing:
+		lsStatePSMDBReady, lsStatePBMSlicing, lsStateCNPGHealth:
 		return lsSevOK
 	case lsStateJoined, lsStateJoiner, lsStateDonor, lsStatePrim, lsStateStarting, lsStateRecovering,
 		lsStateStartup2, lsStateArbiter, lsStatePromoting, lsStateVKSyncing, lsStateVKLoading,
-		lsStateOpFollower, lsStatePSMDBInit, lsStatePBMIdle:
+		lsStateOpFollower, lsStatePSMDBInit, lsStatePBMIdle, lsStateCNPGSwitch:
 		return lsSevWarn
 	case lsStateOpen, lsStateClosed, lsStateDown, lsStateBlocked, lsStateGRError, lsStateOffline,
 		lsStateRollback, lsStateRemoved, lsStateVKDown, lsStatePITRGap, lsStatePITRPaused,
@@ -209,6 +209,8 @@ var lsStateMeaning = map[string]string{
 	lsStatePBMSlicing: lsPSMDBStateMeaning[lsStatePBMSlicing],
 	lsStatePBMIdle:    lsPSMDBStateMeaning[lsStatePBMIdle],
 	lsStatePBMLost:    lsPSMDBStateMeaning[lsStatePBMLost],
+	lsStateCNPGSwitch: lsPGOpStateMeaning[lsStateCNPGSwitch],
+	lsStateCNPGHealth: lsPGOpStateMeaning[lsStateCNPGHealth],
 
 	// MongoDB's replica-set states, spelled as rs.status() spells them.
 	lsStatePrimaryM:  lsMongoStateMeaning[lsStatePrimaryM],

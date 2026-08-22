@@ -1,0 +1,62 @@
+2026-08-22 11:14:55,934 INFO: Using default value thread_stack_size = 524288
+2026-08-22 11:14:55,942 INFO: Patroni global thread_pool_size = 5
+/usr/local/lib/python3.12/site-packages/urllib3/_request_methods.py:182: FutureWarning: URLs without a scheme (ie 'https://') are deprecated and will raise an error in urllib3 v3.0. To avoid this FutureWarning ensure all URLs start with 'https://' or 'http://'. Read more in this issue: https://github.com/urllib3/urllib3/issues/2920
+  return self.urlopen(method, url, **extra_kw)
+2026-08-22 11:14:56,218 INFO: No PostgreSQL configuration items changed, nothing to reload.
+2026-08-22 11:14:56,219 INFO: REST API thread_pool_size = 5
+2026-08-22 11:14:56,222 INFO: Lock owner: None; I am crunchy-instance1-v9gp-0
+2026-08-22 11:14:56,234 INFO: trying to bootstrap a new cluster
+The files belonging to this database system will be owned by user "postgres".
+This user must also own the server process.
+
+The database cluster will be initialized with locale "en_US.utf-8".
+The default text search configuration will be set to "english".
+
+Data page checksums are enabled.
+
+fixing permissions on existing directory /pgdata/pg18 ... ok
+creating directory /pgdata/pg18_wal ... ok
+creating subdirectories ... ok
+selecting dynamic shared memory implementation ... posix
+selecting default "max_connections" ... 100
+selecting default "shared_buffers" ... 128MB
+selecting default time zone ... UTC
+creating configuration files ... ok
+running bootstrap script ... ok
+performing post-bootstrap initialization ... ok
+syncing data to disk ... ok
+
+
+Success. You can now start the database server using:
+
+    pg_ctl -D /pgdata/pg18 -l logfile start
+
+initdb: warning: enabling "trust" authentication for local connections
+initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+2026-08-22 11:14:57.669 UTC [93] LOG:  pgaudit extension initialized
+2026-08-22 11:14:57,676 INFO: postmaster pid=93
+/tmp/postgres:5432 - no response
+2026-08-22 11:14:57.679 UTC [93] LOG:  redirecting log output to logging collector process
+2026-08-22 11:14:57.679 UTC [93] HINT:  Future log output will appear in directory "/pgdata/logs/postgres".
+/tmp/postgres:5432 - accepting connections
+/tmp/postgres:5432 - accepting connections
+2026-08-22 11:14:58,691 INFO: establishing a new patroni heartbeat connection to postgres
+2026-08-22 11:14:58,704 INFO: running post_bootstrap
+2026-08-22 11:14:58,740 INFO: initialized a new cluster
+2026-08-22 11:15:08,736 INFO: no action. I am (crunchy-instance1-v9gp-0), the leader with the lock
+2026-08-22 11:15:18,734 INFO: no action. I am (crunchy-instance1-v9gp-0), the leader with the lock
+2026-08-22 11:15:28,735 INFO: no action. I am (crunchy-instance1-v9gp-0), the leader with the lock
+2026-08-22 11:15:38,725 INFO: no action. I am (crunchy-instance1-v9gp-0), the leader with the lock
+2026-08-22 11:15:48,725 INFO: no action. I am (crunchy-instance1-v9gp-0), the leader with the lock
+2026-08-22 11:15:58,734 INFO: no action. I am (crunchy-instance1-v9gp-0), the leader with the lock
+2026-08-22 11:16:08,725 INFO: no action. I am (crunchy-instance1-v9gp-0), the leader with the lock
+2026-08-22 11:16:18,733 INFO: no action. I am (crunchy-instance1-v9gp-0), the leader with the lock
+2026-08-22 11:16:28,724 INFO: no action. I am (crunchy-instance1-v9gp-0), the leader with the lock
+2026-08-22 11:16:38,725 INFO: no action. I am (crunchy-instance1-v9gp-0), the leader with the lock
+2026-08-22 11:16:48,724 INFO: no action. I am (crunchy-instance1-v9gp-0), the leader with the lock
+2026-08-22 11:16:58,725 INFO: no action. I am (crunchy-instance1-v9gp-0), the leader with the lock
+2026-08-22 11:17:08,724 INFO: no action. I am (crunchy-instance1-v9gp-0), the leader with the lock
+2026-08-22 11:17:18,724 INFO: no action. I am (crunchy-instance1-v9gp-0), the leader with the lock
+2026-08-22 11:17:28,724 INFO: no action. I am (crunchy-instance1-v9gp-0), the leader with the lock
+2026-08-22 11:17:38,724 INFO: no action. I am (crunchy-instance1-v9gp-0), the leader with the lock
+2026-08-22 11:17:48,724 INFO: no action. I am (crunchy-instance1-v9gp-0), the leader with the lock

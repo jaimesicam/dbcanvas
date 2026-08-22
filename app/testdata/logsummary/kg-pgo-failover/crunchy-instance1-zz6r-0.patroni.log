@@ -1,0 +1,71 @@
+2026-08-22 11:14:55,930 INFO: Using default value thread_stack_size = 524288
+2026-08-22 11:14:55,937 INFO: Patroni global thread_pool_size = 5
+/usr/local/lib/python3.12/site-packages/urllib3/_request_methods.py:182: FutureWarning: URLs without a scheme (ie 'https://') are deprecated and will raise an error in urllib3 v3.0. To avoid this FutureWarning ensure all URLs start with 'https://' or 'http://'. Read more in this issue: https://github.com/urllib3/urllib3/issues/2920
+  return self.urlopen(method, url, **extra_kw)
+2026-08-22 11:14:56,218 INFO: No PostgreSQL configuration items changed, nothing to reload.
+2026-08-22 11:14:56,219 INFO: REST API thread_pool_size = 5
+2026-08-22 11:14:56,222 INFO: Lock owner: None; I am crunchy-instance1-zz6r-0
+2026-08-22 11:14:56,238 INFO: failed to acquire initialize lock
+2026-08-22 11:14:58,730 INFO: Lock owner: crunchy-instance1-v9gp-0; I am crunchy-instance1-zz6r-0
+2026-08-22 11:14:58,730 INFO: trying to bootstrap from leader 'crunchy-instance1-v9gp-0'
+2026-08-22 11:15:01,019 INFO: replica has been created using basebackup
+2026-08-22 11:15:01,020 INFO: bootstrapped from leader 'crunchy-instance1-v9gp-0'
+2026-08-22 11:15:01.225 UTC [89] LOG:  pgaudit extension initialized
+2026-08-22 11:15:01.238 UTC [89] LOG:  redirecting log output to logging collector process
+2026-08-22 11:15:01.238 UTC [89] HINT:  Future log output will appear in directory "/pgdata/logs/postgres".
+2026-08-22 11:15:01,238 INFO: postmaster pid=89
+/tmp/postgres:5432 - no response
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - accepting connections
+2026-08-22 11:15:03,260 INFO: Lock owner: crunchy-instance1-v9gp-0; I am crunchy-instance1-zz6r-0
+2026-08-22 11:15:03,260 INFO: establishing a new patroni heartbeat connection to postgres
+2026-08-22 11:15:03,276 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:15:07,230 INFO: establishing a new patroni restapi connection to postgres
+2026-08-22 11:15:08,748 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:15:18,746 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:15:28,743 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:15:38,726 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:15:48,726 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:15:58,736 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:16:08,727 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:16:18,740 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:16:28,726 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:16:38,727 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:16:48,726 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:16:58,727 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:17:08,726 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:17:18,727 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:17:28,726 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:17:38,726 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:17:48,726 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:17:58,737 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:18:08,737 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:18:18,736 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:18:23,273 INFO: promoted self to leader by acquiring session lock
+server promoting
+2026-08-22 11:18:24,299 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:18:24,680 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:18:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:18:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:18:54,679 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:19:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:19:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:19:24,679 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:19:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:19:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:19:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:20:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:20:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:20:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:20:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:20:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:20:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:21:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:21:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:21:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:21:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:21:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:21:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:22:04,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:22:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
