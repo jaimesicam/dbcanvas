@@ -40,7 +40,7 @@ import PacketInspector, {
 } from '../src/pages/PacketInspector.jsx'
 import { PORT_ROLE_TEXT, MONGO_KIND_TEXT, isSevereIssue } from '../src/lib/pktApi.js'
 import LogSummary, {
-  Verdict as LogVerdict, splitFindings, Swimlane as LogSwimlane, Snapshot as LogSnapshot,
+  Verdict as LogVerdict, splitFindings, EventColumns as LogEventColumns, Swimlane as LogSwimlane, Snapshot as LogSnapshot,
   SourcesCard as LogSources, EventList as LogEvents, EventDetail as LogDetail,
   Filters as LogFilters, TopStrip as LogTop, Legend as LogLegend,
   RangeControls as LogRange, UploadPanel as LogUpload, Pager as LogPager,
@@ -1425,6 +1425,29 @@ check('log summary: instant readout when the nodes agree', () =>
     sources={logSources} onClose={noop} />))
 check('log summary: event list', () =>
   renderToString(<LogEvents events={logEventsFixture} sources={logSources} first={1000} selectedNo={2} onSelect={noop} />))
+// The per-node column view: the same events, one column per source, still in time order.
+check('log summary: events by node', () =>
+  renderToString(<LogEventColumns events={logEventsFixture} sources={logSources} first={1000}
+    selectedNo={2} onSelect={noop} />))
+check('log summary: events by node with nothing matching', () =>
+  renderToString(<div><LogEventColumns events={[]} sources={logSources} first={1000} onSelect={noop} /></div>))
+check('log summary: events by node puts every event under its own source', () => {
+  const html = renderToString(<LogEventColumns events={logEventsFixture} sources={logSources} first={1000}
+    onSelect={noop} />)
+  // One header cell per source plus the frozen time column, and every event's label present
+  // exactly once — a label appearing twice would mean a row rendered it in more than one
+  // column, which is the bug this view could most easily have.
+  for (const e of logEventsFixture) {
+    const n = html.split(e.label).length - 1
+    if (n !== 1) throw new Error(`${e.label} appears ${n} times`)
+  }
+  if (!html.includes('Time')) throw new Error('no frozen time column')
+  // The header and the time column have to be sticky, or scrolling loses the thing you are
+  // reading against.
+  if (!html.includes('sticky')) throw new Error('nothing is sticky')
+  return html
+})
+
 check('log summary: event list with nothing matching', () =>
   renderToString(<LogEvents events={[]} sources={logSources} first={1000} onSelect={noop} />))
 for (const e of logEventsFixture) {

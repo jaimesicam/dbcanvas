@@ -69,6 +69,9 @@ export default function LogSummary() {
   const [timeline, setTimeline] = useState(null)
   const [page, setPage] = useState({ events: [], matched: 0, offset: 0 })
   const [selected, setSelected] = useState(null)
+  // How the event list is drawn: one merged column in time order, or one column per node
+  // with the same rows spread across them. See EventColumns.
+  const [layout, setLayout] = useState('list')
   const [snapshot, setSnapshot] = useState(null) // the "at this instant" readout
 
   const [uploadOpen, setUploadOpen] = useState(false)
@@ -303,12 +306,29 @@ export default function LogSummary() {
             <Card
               title="Events"
               subtitle={`${page.matched.toLocaleString()} of ${s.events.toLocaleString()} match the current filters`}
+              action={
+                <div className="flex items-center gap-1 text-[11px]">
+                  {[['list', 'Merged'], ['columns', 'By node']].map(([v, label]) => (
+                    <button key={v} onClick={() => setLayout(v)}
+                      className={`rounded-md border px-2 py-0.5 ${layout === v ? 'border-primary bg-primary/10 text-primary' : 'bg-bg text-muted hover:bg-surface2'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              }
             >
               <Filters range={range} setRange={setRange} summary={s} sources={bundle.sources} />
-              <EventList
-                events={page.events} sources={bundle.sources} first={s.firstTs}
-                selectedNo={selected?.no} onSelect={setSelected}
-              />
+              {layout === 'columns' ? (
+                <EventColumns
+                  events={page.events} sources={bundle.sources} first={s.firstTs}
+                  selectedNo={selected?.no} onSelect={setSelected}
+                />
+              ) : (
+                <EventList
+                  events={page.events} sources={bundle.sources} first={s.firstTs}
+                  selectedNo={selected?.no} onSelect={setSelected}
+                />
+              )}
               <Pager page={page} onPage={(o) => reload(o)} />
             </Card>
 
@@ -1025,6 +1045,81 @@ export function EventList({ events, sources, first, selectedNo, onSelect }) {
           )}
         </button>
       ))}
+    </div>
+  )
+}
+
+// EventColumns is the same events, one column per source, still in time order.
+//
+// The merged list answers "what happened next"; this answers "what was EACH node saying at
+// that moment", which is the question three logs are opened to compare and the one a single
+// column of interleaved rows makes you reconstruct by eye. One row per event, placed under
+// the node that wrote it, so a stretch where only one node is talking is a stripe down one
+// column and a moment where all three are is a row across.
+//
+// Three details that make it usable rather than merely correct:
+//
+//   - **The pane scrolls, not the page.** The columns overflow to the right on any real
+//     bundle, and `overflow-x` alone is not an option: CSS resolves `overflow-x: auto` with
+//     a visible `overflow-y` to `auto` on both axes, so the header would stop sticking to
+//     the page anyway. Making the pane the scroll container for both axes is what lets the
+//     header stick where it is wanted.
+//   - **The header row is sticky and so is the time column.** Scrolling down keeps the node
+//     names; scrolling right keeps the clock. Without the second one the far columns are
+//     unreadable — you can see that something happened and not when.
+//   - **A cell carries its own severity.** The row does not: two nodes at the same instant
+//     are routinely one good and one bad, and colouring the row would have to pick one.
+export function EventColumns({ events, sources, first, selectedNo, onSelect }) {
+  const cols = sources
+  if (!events.length) {
+    return <div className="py-10 text-center text-sm text-muted">No events match the current filters.</div>
+  }
+  return (
+    <div className="max-h-[70vh] overflow-auto rounded-lg border bg-bg">
+      <table className="w-full border-separate border-spacing-0 text-left">
+        <thead>
+          <tr>
+            <th className="sticky left-0 top-0 z-30 border-b border-r bg-surface px-2 py-1.5 text-[10px] uppercase tracking-wide text-muted">
+              Time
+            </th>
+            {cols.map((c) => (
+              <th key={c.idx}
+                className="sticky top-0 z-20 min-w-[15rem] border-b border-r bg-surface px-2 py-1.5 last:border-r-0">
+                <NodeChip src={c.idx} name={c.node || c.name} />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {events.map((e) => (
+            <tr key={e.no} className={e.no === selectedNo ? 'bg-primary/5' : ''}>
+              <th className="sticky left-0 z-10 whitespace-nowrap border-b border-r bg-bg px-2 py-1 text-left align-top font-mono text-[10px] font-normal text-muted"
+                title={logISO(e.ts)}>
+                {logStamp(e.ts)}
+                <span className="block opacity-60">+{(e.ts - first).toFixed(3)}s</span>
+              </th>
+              {cols.map((c) => (
+                <td key={c.idx} className="border-b border-r px-1 py-0.5 align-top last:border-r-0">
+                  {e.src === c.idx && (
+                    <button onClick={() => onSelect(e)}
+                      className={`block w-full rounded px-1.5 py-1 text-left transition hover:bg-surface2 ${SEV_ROW[e.sev] || SEV_ROW.info} ${e.no === selectedNo ? 'ring-1 ring-primary' : ''}`}>
+                      <span className="flex items-baseline gap-1.5 text-[11px]">
+                        <span className={`shrink-0 font-bold ${SEV_TEXT[e.sev]}`}>{SEV_MARK[e.sev]}</span>
+                        <span className="font-medium text-fg">{e.label}</span>
+                      </span>
+                      {e.repeat > 1 && (
+                        <span className="mt-0.5 inline-block rounded bg-surface2 px-1 text-[10px] text-muted">
+                          ×{e.repeat} over {logDur(e.endTs - e.ts)}
+                        </span>
+                      )}
+                    </button>
+                  )}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }

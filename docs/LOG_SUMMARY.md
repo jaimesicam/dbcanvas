@@ -861,6 +861,43 @@ or that requires holding two distant records side by side.
 
 ---
 
+## Two ways to read the events
+
+The event list has a **Merged** and a **By node** layout, and they answer different
+questions.
+
+**Merged** is one column in time order: what happened next, whoever said it.
+
+**By node** is the same events and the same order, one column per source, each event under
+the node that wrote it. It answers "what was *each* node saying at that moment" — the
+question three logs are opened to compare, and the one a single interleaved column makes
+you reconstruct by eye. A stretch where only one node is talking is a stripe down one
+column; a moment where all of them are is a row across. Two replicas coming up in lockstep
+look like this and are hard to see any other way:
+
+```
+19:13:54.780   pgc-instance1-44gj-0   Entering standby mode
+19:13:54.787   pgc-instance1-44gj-0   WAL replay started
+19:13:54.790                          pgc-instance1-6h22-0   Entering standby mode
+19:13:54.796                          pgc-instance1-6h22-0   WAL replay started
+19:13:54.896   pgc-instance1-44gj-0   Consistent state reached
+19:13:55.013                          pgc-instance1-6h22-0   Consistent state reached
+```
+
+Three details that make it usable rather than merely correct:
+
+- **The pane scrolls, not the page**, on both axes. `overflow-x` alone is not an option:
+  CSS resolves `overflow-x: auto` beside a visible `overflow-y` to `auto` on *both*, so the
+  header would stop sticking to the page anyway. Making the pane the scroll container is
+  what lets the header stick where it is wanted.
+- **The header row and the time column are both sticky.** Scrolling down keeps the node
+  names; scrolling right keeps the clock. Without the second, the far columns tell you that
+  something happened and not when.
+- **Severity is on the cell, not the row.** Two nodes at the same instant are routinely one
+  good and one bad, and colouring the row would have to pick one.
+
+---
+
 ## Reading a record
 
 Selecting an event shows the classified record, **what it means** in words, the structured
