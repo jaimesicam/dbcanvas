@@ -996,8 +996,14 @@ func lsSeedState(b *lsBundle, src int) (string, bool) {
 	}
 	// A server with no cluster records at all that is writing to its log is running: the
 	// log is the evidence. Deduced, and flagged as such.
+	//
+	// It does not apply to a Kubernetes Events feed, which is the one source here that is
+	// not a process at all. "This was running" is a deduction about the writer of a log,
+	// and nothing wrote these — they are API objects that the collector asked for. An
+	// operator IS a process writing its own log, so the deduction stands for those.
 	for _, s := range b.Sources {
-		if s.Idx == src && s.Flavour != lsFlavourGalera && s.Events > 0 {
+		if s.Idx == src && s.Flavour != lsFlavourGalera && s.Events > 0 &&
+			s.Engine != pktEngineK8sEvents {
 			return lsStateUp, true
 		}
 	}

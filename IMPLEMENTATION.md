@@ -17801,6 +17801,21 @@ directions: pgBackRest needs TLS, barman-cloud is happiest without it.
 - 6 new tests over six new fixture directories.
 - `go build` / `go vet` / `go test ./...` / `npm run smoke` / `npm run build` clean.
 
+### One bug the rendered page caught, again
+
+The Events feed was being treated as a server. Its lane painted red from the first kill to
+the end of the window, and the unavailability finding read
+`kubernetes: 37.7s not serving (37.7s DOWN)`. Two causes, both fixed:
+`lsResolveK8sEvents` was marking a `Killing` event as DOWN — a fact about a POD, which has
+its own lane — and with that removed `lsSeedState` fell through to its "a server writing to
+its log is running" deduction and seeded RUNNING instead.
+
+An Events feed is the one source here that is not a process at all: nothing wrote it, the
+collector asked for it. So it gets no state and is excluded from the unavailability
+measurement; an operator is a process writing its own log, so the deduction still stands for
+those. `TestK8sEventsAreNotAServer` pins both halves. Third time a live render has caught a
+class of bug the tests did not.
+
 ### Not done
 
 Crunchy's restore still produces no operator vocabulary — unchanged from §304, and the test

@@ -260,15 +260,15 @@ func lsClassifyK8sEvent(r lsRecord) (lsEvent, bool) {
 	return e, true
 }
 
-// lsK8sEventLevelFloor: Kubernetes has two levels and neither is a severity. Warning is
-// worth a look; Normal covers everything from a pull to a kill.
-func lsResolveK8sEvents(events []lsEvent) {
-	for i := range events {
-		e := &events[i]
-		switch e.Label {
-		case "Kubernetes killed a container", "Container is crash-looping",
-			"A container was killed for using too much memory":
-			e.State = lsStateDown
-		}
-	}
-}
+// lsResolveK8sEvents deliberately assigns NO state.
+//
+// The first version marked a `Killing` event as DOWN, which was wrong twice over and the
+// rendered page showed both: the swimlane painted the Events lane red from the first kill
+// to the end of the window, and the unavailability finding reported
+// "kubernetes: 37.7s not serving". Neither is a statement about anything real. An Events
+// feed is not a server — it has no state, it answers no queries, and a kill it reports is a
+// fact about a POD, which has its own lane.
+//
+// So the lane stays UNKNOWN, which is the honest answer and is drawn as one, and the kill
+// is an event on the timeline where it belongs.
+func lsResolveK8sEvents([]lsEvent) {}

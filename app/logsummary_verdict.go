@@ -585,11 +585,12 @@ func lsFindingUnavailability(b *lsBundle) []lsFinding {
 	var rows []row
 	for _, s := range b.Sources {
 		// The Kubernetes sources are skipped outright. "Time spent not answering queries"
-		// is a question about a database, and an operator or a binlog collector answers no
-		// queries at any time — measuring it would report every healthy cluster's
-		// controller as twenty minutes of downtime, in a finding whose whole purpose is to
-		// name real unavailability.
-		if s.Engine == pktEngineOperator {
+		// is a question about a database, and an operator, a binlog collector or an Events
+		// feed answers no queries at any time — measuring it would report every healthy
+		// cluster's controller as twenty minutes of downtime, in a finding whose whole
+		// purpose is to name real unavailability. The Events feed was caught doing exactly
+		// that on a rendered page: "kubernetes: 37.7s not serving".
+		if s.Engine == pktEngineOperator || s.Engine == pktEngineK8sEvents {
 			continue
 		}
 		r := row{src: s.Idx, why: map[string]float64{}}

@@ -148,3 +148,39 @@ func TestCNPGPointInTimeRecovery(t *testing.T) {
 		t.Errorf("advice does not say the application did not move: %s", f.Advice)
 	}
 }
+
+// TestK8sEventsAreNotASerever guards the bug the rendered page caught: an Events feed was
+// being counted in "time spent not answering queries" (`kubernetes: 37.7s not serving`)
+// and painted red on the swimlane from the first kill onward.
+//
+// It is not a server. It has no state, it answers no queries, and a kill it reports is a
+// fact about a POD — which has its own lane.
+func TestK8sEventsAreNotAServer(t *testing.T) {
+	b := lsLoadScenario(t, "ko-ps-primary-kill")
+	var idx = -1
+	for _, s := range b.Sources {
+		if s.Engine == pktEngineK8sEvents {
+			idx = s.Idx
+		}
+	}
+	if idx < 0 {
+		t.Fatal("no Events source in the bundle")
+	}
+	// No state track: every phase for it is UNKNOWN.
+	for _, p := range b.Phases {
+		if p.Src == idx && p.State != "UNKNOWN" {
+			t.Errorf("the Events lane claims state %q", p.State)
+		}
+	}
+	// And it is not a party to the unavailability measurement.
+	if f := lsHasFinding(b, "unavailability"); f != nil {
+		for _, s := range f.Sources {
+			if s == idx {
+				t.Error("the Events feed is counted in time spent not answering queries")
+			}
+		}
+		if strings.Contains(f.Detail, "kubernetes:") {
+			t.Errorf("the unavailability finding quotes the Events feed: %s", f.Detail)
+		}
+	}
+}
