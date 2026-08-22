@@ -31,6 +31,30 @@ var lsPerconaPGRules = []lsRule{
 		means: "pgBackRest finished and the operator marked the PerconaPGBackup Succeeded.",
 	},
 	{
+		substr: []string{"Waiting for restore to start", "Waiting for restore to complete"},
+		class:  lsClassRestore, sev: lsSevBad,
+		label: "Restore in progress",
+		means: "A PerconaPGRestore is running. The operator takes every instance down, restores the repository onto one of them and lets the others rebuild from it — so from here until the cluster is ready again there is no database. Re-logged while it waits, so the count is the duration.",
+	},
+	{
+		substr: []string{"Restore succeeded"},
+		class:  lsClassRestore, sev: lsSevOK,
+		label: "Restore succeeded",
+		means: "The restore finished and the operator is bringing the cluster back. Measured on a three-instance cluster: about four minutes from the request to the leader serving again, most of it the two replicas rebuilding from the restored primary rather than the restore itself.",
+	},
+	{
+		substr: []string{"failed to cleanup outdated backups"},
+		class:  lsClassBackup, sev: lsSevWarn, overLevel: true,
+		label: "Could not clean up superseded backups",
+		means: "Logged at ERROR during a restore, and it is housekeeping rather than a failure of the restore: a point-in-time restore starts a new timeline, and the operator could not delete the backups the old one made. They stay in the repository and keep costing storage.",
+	},
+	{
+		substr: []string{"WALWatcher"},
+		class:  lsClassPITR, sev: lsSevInfo,
+		label: "WAL watcher",
+		means: "The operator's own watcher on the WAL archive, which is what keeps `Got latest restorable timestamp` current.",
+	},
+	{
 		substr: []string{"Waiting for backup to complete"},
 		class:  lsClassBackup, sev: lsSevInfo,
 		label: "Waiting for a backup",
@@ -187,6 +211,19 @@ var lsCNPGRules = []lsRule{
 				e.Label = "WAL archiving is failing: " + lsOpTrunc(msg, 80)
 			}
 		},
+	},
+	{
+		substr: []string{"no orphan PVCs found, skipping the restored cluster reconciliation",
+			"The job finished, setting PVC as ready", "Creating new Job"},
+		class: lsClassRestore, sev: lsSevWarn,
+		label: "Recovering into a new cluster",
+		means: "CloudNativePG does not restore in place. A recovery is a NEW Cluster bootstrapped from the object store — the original keeps running and serving throughout, and what you get is a second cluster beside it. That is the safest of the three models and the one that surprises people: nothing is rolled back, and the old cluster is still there to be switched away from deliberately.",
+	},
+	{
+		substr: []string{"Cluster has become healthy"},
+		class:  lsClassState, sev: lsSevOK,
+		label: "Cluster has become healthy",
+		means: "Every instance is up and the operator is satisfied. After a recovery this is the moment the new cluster is usable.",
 	},
 	{
 		substr: []string{"Instance is still down, will retry"},

@@ -1,0 +1,41 @@
+2026-08-22 12:56:16,339 INFO: Using default value thread_stack_size = 524288
+2026-08-22 12:56:16,347 INFO: Patroni global thread_pool_size = 5
+/usr/local/lib/python3.12/site-packages/urllib3/_request_methods.py:182: FutureWarning: URLs without a scheme (ie 'https://') are deprecated and will raise an error in urllib3 v3.0. To avoid this FutureWarning ensure all URLs start with 'https://' or 'http://'. Read more in this issue: https://github.com/urllib3/urllib3/issues/2920
+  return self.urlopen(method, url, **extra_kw)
+2026-08-22 12:56:16,451 INFO: No PostgreSQL configuration items changed, nothing to reload.
+2026-08-22 12:56:16,452 INFO: REST API thread_pool_size = 5
+2026-08-22 12:56:16,455 INFO: Lock owner: None; I am crunchy-instance1-zz6r-0
+2026-08-22 12:56:16,470 INFO: trying to bootstrap a new cluster
+2026-08-22 12:56:16,471 INFO: Running custom bootstrap script: mv "/pgdata/pg18_bootstrap" "/pgdata/pg18"
+2026-08-22 12:56:16.682 UTC [103] LOG:  pgaudit extension initialized
+2026-08-22 12:56:16,684 INFO: postmaster pid=103
+/tmp/postgres:5432 - no response
+2026-08-22 12:56:16.715 UTC [103] LOG:  redirecting log output to logging collector process
+2026-08-22 12:56:16.715 UTC [103] HINT:  Future log output will appear in directory "/pgdata/logs/postgres".
+/tmp/postgres:5432 - accepting connections
+/tmp/postgres:5432 - accepting connections
+2026-08-22 12:56:17,704 INFO: establishing a new patroni heartbeat connection to postgres
+2026-08-22 12:56:17,717 INFO: running post_bootstrap
+server signaled
+2026-08-22 12:56:18,756 INFO: establishing a new patroni heartbeat connection to postgres
+2026-08-22 12:56:18,777 INFO: initialized a new cluster
+2026-08-22 12:56:28,788 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:56:38,784 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:56:48,763 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:56:58,777 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:57:08,763 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:57:18,777 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:57:28,763 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:57:38,764 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:57:48,763 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:57:58,764 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:58:08,764 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:58:18,762 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:58:28,763 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:58:38,763 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:58:48,763 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:58:58,763 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:59:08,763 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:59:18,763 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:59:28,763 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:59:38,763 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock

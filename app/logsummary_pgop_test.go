@@ -275,3 +275,46 @@ func TestPGAdvisorSaysWhenTheLogWasNotAllowedToRecord(t *testing.T) {
 		}
 	}
 }
+
+// TestThreeRestoreModels. The three operators restore in three different ways, and the
+// difference is the one that matters to whoever is watching: Percona takes the cluster
+// down, CloudNativePG builds a second one beside it, and Crunchy says nothing at all.
+func TestThreeRestoreModels(t *testing.T) {
+	// Percona: in place, and measured.
+	pg := lsLoadScenario(t, "kg-pg-restore")
+	f := lsHasFinding(pg, "pgop-restore")
+	if f == nil {
+		t.Fatal("no restore finding on a bundle whose operator ran one")
+	}
+	if f.Until <= f.At {
+		t.Error("the outage was not measured")
+	}
+	if !strings.Contains(f.Detail, "IN PLACE") {
+		t.Errorf("the finding does not say which model this is: %s", f.Detail)
+	}
+	if !strings.Contains(f.Advice, "new timeline") {
+		t.Errorf("advice does not warn that the old backups are no longer a base: %s", f.Advice)
+	}
+
+	// CloudNativePG: a second cluster, and the application is still pointed at the first.
+	cn := lsLoadScenario(t, "kg-cnpg-restore")
+	g := lsHasFinding(cn, "pgop-recovery-new")
+	if g == nil {
+		t.Fatal("no recovery finding on a CloudNativePG bundle that recovered")
+	}
+	if !strings.Contains(g.Advice, "still pointed at the ORIGINAL") {
+		t.Errorf("advice does not say the application did not move: %s", g.Advice)
+	}
+	if lsHasFinding(cn, "pgop-restore") != nil {
+		t.Error("a CloudNativePG recovery was reported as an in-place restore")
+	}
+
+	// Crunchy: its operator narrated nothing, so there is nothing to report and the page
+	// must not invent it.
+	raw := lsReadFixture(t, "kg-pgo-restore", "operator.log")
+	for _, mustNot := range []string{"restore succeeded", "restore in progress"} {
+		if strings.Contains(strings.ToLower(raw), mustNot) {
+			t.Errorf("the Crunchy operator now narrates its restore — the premise has changed")
+		}
+	}
+}

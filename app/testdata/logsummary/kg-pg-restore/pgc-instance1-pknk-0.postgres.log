@@ -1,0 +1,1535 @@
+2026-08-22 11:13:48.804 UTC [109] LOG:  starting PostgreSQL 18.3 - Percona Server for PostgreSQL 18.3.1 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 11.5.0 20240719 (Red Hat 11.5.0-11.0.2), 64-bit
+2026-08-22 11:13:48.805 UTC [109] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-08-22 11:13:48.805 UTC [109] LOG:  listening on IPv6 address "::", port 5432
+2026-08-22 11:13:48.812 UTC [109] LOG:  listening on Unix socket "/tmp/postgres/.s.PGSQL.5432"
+2026-08-22 11:13:48.819 UTC [117] LOG:  database system was shut down at 2026-08-22 11:13:47 UTC
+2026-08-22 11:13:48.824 UTC [109] LOG:  database system is ready to accept connections
+2026-08-22 11:13:49.875 UTC [115] LOG:  checkpoint starting: force wait
+2026-08-22 11:13:49.982 P00  ERROR: [103]: unable to find a valid repository:
+                                    repo1: [FileMissingError] unable to load info file '/pgbackrest/pgc/repo1/archive/db/archive.info' or '/pgbackrest/pgc/repo1/archive/db/archive.info.copy':
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info' for read
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info.copy' for read
+                                    HINT: archive.info cannot be opened but is required to push/get WAL segments.
+                                    HINT: is archive_command configured correctly in postgresql.conf?
+                                    HINT: has a stanza-create been performed?
+                                    HINT: use --no-archive-check to disable archive checks during backup if you have an alternate archiving scheme.
+2026-08-22 11:13:51.073 UTC [115] LOG:  checkpoint complete: wrote 12 buffers (0.1%), wrote 4 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=1.127 s, sync=0.028 s, total=1.199 s; sync files=12, longest=0.008 s, average=0.003 s; distance=8859 kB, estimate=8859 kB; lsn=0/2000080, redo lsn=0/2000028
+2026-08-22 11:13:51.073 UTC [115] LOG:  checkpoint starting: force wait
+2026-08-22 11:13:51.089 UTC [115] LOG:  checkpoint complete: wrote 0 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.016 s; sync files=0, longest=0.000 s, average=0.000 s; distance=0 kB, estimate=7973 kB; lsn=0/2000150, redo lsn=0/20000F8
+2026-08-22 11:13:53.125 UTC [123] LOG:  starting PostgreSQL 18.3 - Percona Server for PostgreSQL 18.3.1 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 11.5.0 20240719 (Red Hat 11.5.0-11.0.2), 64-bit
+2026-08-22 11:13:53.125 UTC [123] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-08-22 11:13:53.125 UTC [123] LOG:  listening on IPv6 address "::", port 5432
+2026-08-22 11:13:53.133 UTC [123] LOG:  listening on Unix socket "/tmp/postgres/.s.PGSQL.5432"
+2026-08-22 11:13:53.143 UTC [131] LOG:  database system was interrupted; last known up at 2026-08-22 11:13:51 UTC
+2026-08-22 11:13:54.125 UTC [141] FATAL:  the database system is starting up
+2026-08-22 11:13:54.128 UTC [143] FATAL:  the database system is starting up
+2026-08-22 11:13:54.680 UTC [131] LOG:  starting backup recovery with redo LSN 0/20000F8, checkpoint LSN 0/2000150, on timeline ID 1
+2026-08-22 11:13:54.790 UTC [131] LOG:  entering standby mode
+2026-08-22 11:13:54.796 UTC [131] LOG:  redo starts at 0/20000F8
+2026-08-22 11:13:55.013 UTC [131] LOG:  completed backup recovery with redo LSN 0/20000F8 and end LSN 0/3000050
+2026-08-22 11:13:55.013 UTC [131] LOG:  consistent recovery state reached at 0/3000050
+2026-08-22 11:13:55.013 UTC [123] LOG:  database system is ready to accept read-only connections
+2026-08-22 11:13:55.126 UTC [157] LOG:  started streaming WAL from primary at 0/4000000 on timeline 1
+2026-08-22 11:18:53.244 UTC [129] LOG:  restartpoint starting: time
+2026-08-22 11:19:04.267 UTC [157] LOG:  replication terminated by primary server
+2026-08-22 11:19:04.267 UTC [157] DETAIL:  End of WAL reached on timeline 1 at 0/80000A0.
+2026-08-22 11:19:04.268 UTC [157] FATAL:  could not send end-of-streaming message to primary: SSL connection has been closed unexpectedly
+	invalid socket
+	no COPY in progress
+2026-08-22 11:19:04.390 UTC [131] LOG:  invalid record length at 0/80000A0: expected at least 24, got 0
+2026-08-22 11:19:04.448 UTC [940] FATAL:  streaming replication receiver "pgc-ha" could not connect to the primary server: could not translate host name "pgc-instance1-pknk-0.pgc-pods" to address: Name or service not known
+2026-08-22 11:19:04.501 UTC [131] LOG:  waiting for WAL to become available at 0/80000B8
+2026-08-22 11:19:05.369 UTC [131] LOG:  received promote request
+2026-08-22 11:19:05.369 UTC [131] LOG:  redo done at 0/8000028 system usage: CPU: user: 0.00 s, system: 0.01 s, elapsed: 310.57 s
+2026-08-22 11:19:05.369 UTC [131] LOG:  last completed transaction was at log time 2026-08-22 11:14:48.905348+00
+2026-08-22 11:19:05.496 UTC [131] LOG:  selected new timeline ID: 2
+2026-08-22 11:19:05.623 UTC [131] LOG:  archive recovery complete
+2026-08-22 11:19:05.634 UTC [123] LOG:  database system is ready to accept connections
+pg_waldump: error: could not read file "00000002.history": read 41 of 8192
+2026-08-22 11:19:06.650 UTC [129] LOG:  restartpoint complete: wrote 1117 buffers (6.8%), wrote 3 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=13.053 s, sync=0.344 s, total=13.407 s; sync files=401, longest=0.004 s, average=0.001 s; distance=49151 kB, estimate=49151 kB; lsn=0/6002A90, redo lsn=0/5000028
+2026-08-22 11:19:06.650 UTC [129] LOG:  recovery restart point at 0/5000028
+2026-08-22 11:19:06.650 UTC [129] DETAIL:  Last completed transaction was at log time 2026-08-22 11:14:48.905348+00.
+2026-08-22 11:19:06.650 UTC [129] LOG:  checkpoint starting: immediate force wait
+2026-08-22 11:19:06.668 UTC [129] LOG:  checkpoint complete: wrote 0 buffers (0.0%), wrote 2 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.005 s, sync=0.002 s, total=0.018 s; sync files=2, longest=0.001 s, average=0.001 s; distance=49152 kB, estimate=49152 kB; lsn=0/8000130, redo lsn=0/80000D8
+pg_waldump: error: could not find file "000000010000000000000008": No such file or directory
+2026-08-22 11:23:15.400 UTC [129] LOG:  checkpoint starting: force wait
+2026-08-22 11:23:15.727 UTC [129] LOG:  checkpoint complete: wrote 3 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.301 s, sync=0.004 s, total=0.328 s; sync files=1, longest=0.004 s, average=0.004 s; distance=16383 kB, estimate=45875 kB; lsn=0/90000B8, redo lsn=0/9000028
+2026-08-22 11:23:15.728 UTC [2412] LOG:  restore point "pgBackRest Archive Check" created at 0/9000198
+2026-08-22 11:23:15.728 UTC [2412] STATEMENT:  select pg_catalog.pg_create_restore_point('pgBackRest Archive Check')::text
+pg_waldump: error: could not read file "000000020000000000000009.00000028.backup": read 371 of 8192
+2026-08-22 11:28:15.875 UTC [129] LOG:  checkpoint starting: time
+2026-08-22 11:28:16.023 UTC [129] LOG:  checkpoint complete: wrote 1 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 1 recycled; write=0.101 s, sync=0.007 s, total=0.149 s; sync files=1, longest=0.007 s, average=0.007 s; distance=32768 kB, estimate=44564 kB; lsn=0/B0000B8, redo lsn=0/B000060
+2026-08-22 12:00:32.276 UTC [123] LOG:  received SIGHUP, reloading configuration files
+2026-08-22 12:00:32.278 UTC [123] LOG:  parameter "deadlock_timeout" changed to "500ms"
+2026-08-22 12:00:32.278 UTC [123] LOG:  parameter "log_autovacuum_min_duration" changed to "0"
+2026-08-22 12:00:32.278 UTC [123] LOG:  parameter "log_connections" changed to "on"
+2026-08-22 12:00:32.278 UTC [123] LOG:  parameter "log_disconnections" changed to "on"
+2026-08-22 12:00:32.278 UTC [123] LOG:  parameter "log_lock_waits" changed to "on"
+2026-08-22 12:00:32.278 UTC [123] LOG:  parameter "log_min_duration_statement" changed to "200"
+2026-08-22 12:00:32.278 UTC [123] LOG:  parameter "log_temp_files" changed to "0"
+2026-08-22 12:00:34.129 UTC [123] LOG:  received SIGHUP, reloading configuration files
+2026-08-22 12:00:34.129 UTC [123] LOG:  parameter "log_lock_waits" removed from configuration file, reset to default
+2026-08-22 12:00:34.129 UTC [123] LOG:  parameter "log_temp_files" removed from configuration file, reset to default
+2026-08-22 12:00:34.129 UTC [123] LOG:  parameter "deadlock_timeout" removed from configuration file, reset to default
+2026-08-22 12:00:34.129 UTC [123] LOG:  parameter "log_autovacuum_min_duration" removed from configuration file, reset to default
+2026-08-22 12:00:34.129 UTC [123] LOG:  parameter "log_connections" removed from configuration file, reset to default
+2026-08-22 12:00:34.129 UTC [123] LOG:  parameter "log_min_duration_statement" removed from configuration file, reset to default
+2026-08-22 12:00:34.129 UTC [123] LOG:  parameter "log_checkpoints" removed from configuration file, reset to default
+2026-08-22 12:00:34.129 UTC [123] LOG:  parameter "log_disconnections" removed from configuration file, reset to default
+2026-08-22 12:02:13.082 UTC [123] LOG:  received SIGHUP, reloading configuration files
+2026-08-22 12:02:13.083 UTC [123] LOG:  parameter "deadlock_timeout" changed to "500ms"
+2026-08-22 12:02:13.083 UTC [123] LOG:  parameter "log_autovacuum_min_duration" changed to "0"
+2026-08-22 12:02:13.083 UTC [123] LOG:  parameter "log_connections" changed to "on"
+2026-08-22 12:02:13.083 UTC [123] LOG:  parameter "log_disconnections" changed to "on"
+2026-08-22 12:02:13.083 UTC [123] LOG:  parameter "log_lock_waits" changed to "on"
+2026-08-22 12:02:13.083 UTC [123] LOG:  parameter "log_min_duration_statement" changed to "200"
+2026-08-22 12:02:13.083 UTC [123] LOG:  parameter "log_temp_files" changed to "0"
+2026-08-22 12:04:07.859 UTC [15750] LOG:  connection received: host=[local]
+2026-08-22 12:04:07.860 UTC [15750] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:04:07.860 UTC [15750] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:04:10.291 UTC [15750] LOG:  duration: 2409.738 ms  statement: copy pgbench_accounts from stdin with (freeze on)
+2026-08-22 12:04:11.658 UTC [15750] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp15750.1.fileset/0.0", size 8192
+2026-08-22 12:04:11.658 UTC [15750] STATEMENT:  alter table pgbench_accounts add primary key (aid)
+2026-08-22 12:04:11.659 UTC [15750] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp15750.1.fileset/1.0", size 8192
+2026-08-22 12:04:11.659 UTC [15750] STATEMENT:  alter table pgbench_accounts add primary key (aid)
+2026-08-22 12:04:11.660 UTC [15750] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp15750.0.fileset/0.0", size 16949248
+2026-08-22 12:04:11.660 UTC [15750] STATEMENT:  alter table pgbench_accounts add primary key (aid)
+2026-08-22 12:04:11.661 UTC [15750] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp15750.0.fileset/1.0", size 23150592
+2026-08-22 12:04:11.661 UTC [15750] STATEMENT:  alter table pgbench_accounts add primary key (aid)
+2026-08-22 12:04:11.667 UTC [15750] LOG:  duration: 1131.317 ms  statement: alter table pgbench_accounts add primary key (aid)
+2026-08-22 12:04:11.667 UTC [15750] LOG:  disconnection: session time: 0:00:03.808 user=postgres database=postgres host=[local]
+2026-08-22 12:04:12.131 UTC [15937] LOG:  connection received: host=[local]
+2026-08-22 12:04:12.136 UTC [15937] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:04:12.136 UTC [15937] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:04:12.147 UTC [15937] LOG:  disconnection: session time: 0:00:00.016 user=postgres database=postgres host=[local]
+2026-08-22 12:04:12.149 UTC [15942] LOG:  connection received: host=[local]
+2026-08-22 12:04:12.149 UTC [15942] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:04:12.149 UTC [15942] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:04:12.152 UTC [15945] LOG:  connection received: host=[local]
+2026-08-22 12:04:12.153 UTC [15943] LOG:  connection received: host=[local]
+2026-08-22 12:04:12.153 UTC [15944] LOG:  connection received: host=[local]
+2026-08-22 12:04:12.155 UTC [15941] LOG:  connection received: host=[local]
+2026-08-22 12:04:12.157 UTC [15945] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:04:12.157 UTC [15945] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:04:12.158 UTC [15943] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:04:12.158 UTC [15941] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:04:12.158 UTC [15941] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:04:12.158 UTC [15943] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:04:12.158 UTC [15944] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:04:12.158 UTC [15944] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:04:12.160 UTC [15947] LOG:  connection received: host=[local]
+2026-08-22 12:04:12.160 UTC [15947] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:04:12.160 UTC [15947] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:04:12.161 UTC [15948] LOG:  connection received: host=[local]
+2026-08-22 12:04:12.161 UTC [15946] LOG:  connection received: host=[local]
+2026-08-22 12:04:12.161 UTC [15949] LOG:  connection received: host=[local]
+2026-08-22 12:04:12.161 UTC [15948] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:04:12.161 UTC [15948] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:04:12.162 UTC [15949] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:04:12.162 UTC [15949] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:04:12.162 UTC [15946] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:04:12.162 UTC [15946] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:04:12.162 UTC [15950] LOG:  connection received: host=[local]
+2026-08-22 12:04:12.163 UTC [15950] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:04:12.163 UTC [15950] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:04:12.165 UTC [15952] LOG:  connection received: host=[local]
+2026-08-22 12:04:12.166 UTC [15951] LOG:  connection received: host=[local]
+2026-08-22 12:04:12.166 UTC [15953] LOG:  connection received: host=[local]
+2026-08-22 12:04:12.167 UTC [15953] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:04:12.167 UTC [15953] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:04:12.167 UTC [15951] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:04:12.167 UTC [15951] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:04:12.168 UTC [15954] LOG:  connection received: host=[local]
+2026-08-22 12:04:12.171 UTC [15952] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:04:12.171 UTC [15952] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:04:12.172 UTC [15954] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:04:12.172 UTC [15954] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:04:12.173 UTC [15955] LOG:  connection received: host=[local]
+2026-08-22 12:04:12.174 UTC [15955] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:04:12.174 UTC [15955] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:04:12.179 UTC [15956] LOG:  connection received: host=[local]
+2026-08-22 12:04:12.180 UTC [15956] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:04:12.180 UTC [15956] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:04:13.185 UTC [15981] LOG:  automatic vacuum of table "postgres.public.pgbench_branches": index scans: 1
+	pages: 0 removed, 8 remain, 8 scanned (100.00% of total), 0 eagerly scanned
+	tuples: 477 removed, 257 remain, 51 are dead but not yet removable
+	tuples missed: 186 dead from 2 pages not removed due to cleanup lock contention
+	removable cutoff: 2792, which was 67 XIDs old when operation ended
+	new relfrozenxid: 1194, which is 400 XIDs ahead of previous value
+	frozen: 0 pages from table (0.00% of total) had 0 tuples frozen
+	visibility map: 0 pages set all-visible, 0 pages set all-frozen (0 were all-visible)
+	index scan needed: 2 pages from table (25.00% of total) had 23 dead item identifiers removed
+	index "pgbench_branches_pkey": pages: 2 in total, 0 newly deleted, 0 currently deleted, 0 reusable
+	avg read rate: 0.000 MB/s, avg write rate: 0.000 MB/s
+	buffer usage: 75 hits, 0 reads, 0 dirtied
+	WAL usage: 10 records, 0 full page images, 1867 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-22 12:04:13.194 UTC [15981] LOG:  automatic analyze of table "postgres.public.pgbench_branches"
+	avg read rate: 0.868 MB/s, avg write rate: 0.868 MB/s
+	buffer usage: 175 hits, 1 reads, 1 dirtied
+	WAL usage: 16 records, 1 full page images, 9561 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-22 12:04:13.199 UTC [15981] LOG:  automatic vacuum of table "postgres.public.pgbench_history": index scans: 0
+	pages: 0 removed, 22 remain, 22 scanned (100.00% of total), 0 eagerly scanned
+	tuples: 0 removed, 2069 remain, 0 are dead but not yet removable
+	removable cutoff: 2841, which was 46 XIDs old when operation ended
+	new relfrozenxid: 801, which is 3 XIDs ahead of previous value
+	frozen: 0 pages from table (0.00% of total) had 0 tuples frozen
+	visibility map: 7 pages set all-visible, 0 pages set all-frozen (0 were all-visible)
+	index scan not needed: 0 pages from table (0.00% of total) had 0 dead item identifiers removed
+	avg read rate: 0.000 MB/s, avg write rate: 3.749 MB/s
+	buffer usage: 59 hits, 0 reads, 1 dirtied
+	WAL usage: 8 records, 1 full page images, 8868 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-22 12:04:13.227 UTC [15981] LOG:  automatic analyze of table "postgres.public.pgbench_history"
+	avg read rate: 0.279 MB/s, avg write rate: 0.837 MB/s
+	buffer usage: 162 hits, 1 reads, 3 dirtied
+	WAL usage: 22 records, 2 full page images, 23063 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.02 s, elapsed: 0.02 s
+2026-08-22 12:04:13.232 UTC [15981] LOG:  automatic vacuum of table "postgres.public.pgbench_tellers": index scans: 1
+	pages: 0 removed, 8 remain, 8 scanned (100.00% of total), 0 eagerly scanned
+	tuples: 181 removed, 224 remain, 24 are dead but not yet removable
+	removable cutoff: 2923, which was 40 XIDs old when operation ended
+	new relfrozenxid: 1824, which is 1029 XIDs ahead of previous value
+	frozen: 0 pages from table (0.00% of total) had 0 tuples frozen
+	visibility map: 2 pages set all-visible, 0 pages set all-frozen (0 were all-visible)
+	index scan needed: 2 pages from table (25.00% of total) had 142 dead item identifiers removed
+	index "pgbench_tellers_pkey": pages: 2 in total, 0 newly deleted, 0 currently deleted, 0 reusable
+	avg read rate: 0.000 MB/s, avg write rate: 0.000 MB/s
+	buffer usage: 55 hits, 0 reads, 0 dirtied
+	WAL usage: 13 records, 0 full page images, 2099 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-22 12:04:13.232 UTC [15981] LOG:  automatic analyze of table "postgres.public.pgbench_tellers"
+	avg read rate: 0.000 MB/s, avg write rate: 0.000 MB/s
+	buffer usage: 65 hits, 0 reads, 0 dirtied
+	WAL usage: 22 records, 0 full page images, 2867 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-22 12:05:12.148 UTC [15948] LOG:  disconnection: session time: 0:00:59.987 user=postgres database=postgres host=[local]
+2026-08-22 12:05:12.148 UTC [15953] LOG:  disconnection: session time: 0:00:59.981 user=postgres database=postgres host=[local]
+2026-08-22 12:05:12.148 UTC [15943] LOG:  disconnection: session time: 0:00:59.998 user=postgres database=postgres host=[local]
+2026-08-22 12:05:12.148 UTC [15942] LOG:  disconnection: session time: 0:00:59.999 user=postgres database=postgres host=[local]
+2026-08-22 12:05:12.148 UTC [15951] LOG:  disconnection: session time: 0:00:59.984 user=postgres database=postgres host=[local]
+2026-08-22 12:05:12.148 UTC [15954] LOG:  disconnection: session time: 0:00:59.980 user=postgres database=postgres host=[local]
+2026-08-22 12:05:12.148 UTC [15956] LOG:  disconnection: session time: 0:00:59.970 user=postgres database=postgres host=[local]
+2026-08-22 12:05:12.151 UTC [15941] LOG:  disconnection: session time: 0:01:00.002 user=postgres database=postgres host=[local]
+2026-08-22 12:05:12.151 UTC [15950] LOG:  disconnection: session time: 0:00:59.988 user=postgres database=postgres host=[local]
+2026-08-22 12:05:12.151 UTC [15947] LOG:  disconnection: session time: 0:00:59.991 user=postgres database=postgres host=[local]
+2026-08-22 12:05:12.151 UTC [15945] LOG:  disconnection: session time: 0:00:59.999 user=postgres database=postgres host=[local]
+2026-08-22 12:05:12.153 UTC [15952] LOG:  disconnection: session time: 0:00:59.988 user=postgres database=postgres host=[local]
+2026-08-22 12:05:12.153 UTC [15946] LOG:  disconnection: session time: 0:00:59.993 user=postgres database=postgres host=[local]
+2026-08-22 12:05:12.153 UTC [15955] LOG:  disconnection: session time: 0:00:59.979 user=postgres database=postgres host=[local]
+2026-08-22 12:05:12.155 UTC [15944] LOG:  disconnection: session time: 0:01:00.005 user=postgres database=postgres host=[local]
+2026-08-22 12:05:12.158 UTC [15949] LOG:  disconnection: session time: 0:00:59.996 user=postgres database=postgres host=[local]
+2026-08-22 12:05:13.147 UTC [16390] LOG:  automatic vacuum of table "postgres.public.pgbench_branches": index scans: 1
+	pages: 0 removed, 8 remain, 8 scanned (100.00% of total), 0 eagerly scanned
+	tuples: 471 removed, 20 remain, 0 are dead but not yet removable
+	removable cutoff: 129782, which was 0 XIDs old when operation ended
+	new relfrozenxid: 129694, which is 128500 XIDs ahead of previous value
+	frozen: 0 pages from table (0.00% of total) had 0 tuples frozen
+	visibility map: 8 pages set all-visible, 1 pages set all-frozen (0 were all-visible)
+	index scan needed: 5 pages from table (62.50% of total) had 21 dead item identifiers removed
+	index "pgbench_branches_pkey": pages: 2 in total, 0 newly deleted, 0 currently deleted, 0 reusable
+	avg read rate: 207.078 MB/s, avg write rate: 94.127 MB/s
+	buffer usage: 67 hits, 11 reads, 5 dirtied
+	WAL usage: 23 records, 0 full page images, 2633 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-22 12:05:13.153 UTC [16390] LOG:  automatic analyze of table "postgres.public.pgbench_branches"
+	avg read rate: 48.177 MB/s, avg write rate: 6.510 MB/s
+	buffer usage: 135 hits, 37 reads, 5 dirtied
+	WAL usage: 15 records, 0 full page images, 1246 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-22 12:05:13.337 UTC [16390] LOG:  automatic vacuum of table "postgres.public.pgbench_history": index scans: 0
+	pages: 0 removed, 830 remain, 830 scanned (100.00% of total), 0 eagerly scanned
+	tuples: 0 removed, 128978 remain, 0 are dead but not yet removable
+	removable cutoff: 129783, which was 0 XIDs old when operation ended
+	frozen: 0 pages from table (0.00% of total) had 0 tuples frozen
+	visibility map: 824 pages set all-visible, 0 pages set all-frozen (0 were all-visible)
+	index scan not needed: 0 pages from table (0.00% of total) had 0 dead item identifiers removed
+	avg read rate: 29.071 MB/s, avg write rate: 28.900 MB/s
+	buffer usage: 996 hits, 680 reads, 676 dirtied
+	WAL usage: 825 records, 0 full page images, 48874 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.18 s
+2026-08-22 12:05:13.389 UTC [16390] LOG:  automatic analyze of table "postgres.public.pgbench_history"
+	avg read rate: 100.678 MB/s, avg write rate: 0.295 MB/s
+	buffer usage: 284 hits, 683 reads, 2 dirtied
+	WAL usage: 27 records, 0 full page images, 5012 bytes, 0 buffers full
+	system usage: CPU: user: 0.03 s, system: 0.00 s, elapsed: 0.05 s
+2026-08-22 12:05:13.392 UTC [16390] LOG:  automatic vacuum of table "postgres.public.pgbench_tellers": index scans: 1
+	pages: 0 removed, 8 remain, 8 scanned (100.00% of total), 0 eagerly scanned
+	tuples: 681 removed, 200 remain, 0 are dead but not yet removable
+	removable cutoff: 129784, which was 0 XIDs old when operation ended
+	new relfrozenxid: 128879, which is 127055 XIDs ahead of previous value
+	frozen: 0 pages from table (0.00% of total) had 0 tuples frozen
+	visibility map: 8 pages set all-visible, 0 pages set all-frozen (0 were all-visible)
+	index scan needed: 1 pages from table (12.50% of total) had 11 dead item identifiers removed
+	index "pgbench_tellers_pkey": pages: 2 in total, 0 newly deleted, 0 currently deleted, 0 reusable
+	avg read rate: 77.046 MB/s, avg write rate: 61.637 MB/s
+	buffer usage: 49 hits, 5 reads, 4 dirtied
+	WAL usage: 19 records, 0 full page images, 3149 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-22 12:05:13.393 UTC [16390] LOG:  automatic analyze of table "postgres.public.pgbench_tellers"
+	avg read rate: 0.000 MB/s, avg write rate: 0.000 MB/s
+	buffer usage: 53 hits, 0 reads, 0 dirtied
+	WAL usage: 15 records, 0 full page images, 1588 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-22 12:08:09.338 UTC [17042] LOG:  connection received: host=[local]
+2026-08-22 12:08:09.338 UTC [17042] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:08:09.338 UTC [17042] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-08-22 12:08:09.343 UTC [17042] LOG:  disconnection: session time: 0:00:00.005 user=postgres database=postgres host=[local]
+2026-08-22 12:08:16.160 UTC [129] LOG:  checkpoint starting: time
+2026-08-22 12:08:33.107 UTC [123] LOG:  received SIGHUP, reloading configuration files
+2026-08-22 12:08:33.107 UTC [123] LOG:  parameter "effective_cache_size" changed to "3GB"
+2026-08-22 12:08:33.107 UTC [123] LOG:  parameter "max_wal_size" changed to "4GB"
+2026-08-22 12:08:33.107 UTC [123] LOG:  parameter "random_page_cost" changed to "1.1"
+2026-08-22 12:08:33.107 UTC [123] LOG:  parameter "shared_buffers" cannot be changed without restarting the server
+2026-08-22 12:08:33.107 UTC [123] LOG:  parameter "wal_compression" changed to "on"
+2026-08-22 12:08:33.107 UTC [123] LOG:  parameter "work_mem" changed to "16MB"
+2026-08-22 12:08:33.107 UTC [123] LOG:  configuration file "/pgdata/pg18/postgresql.conf" contains errors; unaffected changes were applied
+2026-08-22 12:08:39.664 UTC [17171] LOG:  connection received: host=10.42.0.14 port=57222
+2026-08-22 12:08:39.677 UTC [17171] LOG:  connection authenticated: identity="CN=_crunchyrepl" method=cert (/pgdata/pg18/pg_hba.conf:4)
+2026-08-22 12:08:39.677 UTC [17171] LOG:  replication connection authorized: user=_crunchyrepl application_name=pgc-instance1-44gj-0 SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-08-22 12:08:44.696 UTC [17199] LOG:  connection received: host=10.42.0.18 port=53172
+2026-08-22 12:08:44.709 UTC [17199] LOG:  connection authenticated: identity="CN=_crunchyrepl" method=cert (/pgdata/pg18/pg_hba.conf:4)
+2026-08-22 12:08:44.709 UTC [17199] LOG:  replication connection authorized: user=_crunchyrepl application_name=pgc-instance1-pknk-0 SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-08-22 12:08:46.134 UTC [17216] LOG:  connection received: host=[local]
+2026-08-22 12:08:46.135 UTC [17216] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:08:46.135 UTC [17216] LOG:  connection authorized: user=postgres database=postgres application_name=Patroni
+2026-08-22 12:08:46.396 UTC [129] LOG:  checkpoint complete: wrote 11803 buffers (72.0%), wrote 68 SLRU buffers; 0 WAL file(s) added, 0 removed, 21 recycled; write=30.087 s, sync=0.046 s, total=30.237 s; sync files=56, longest=0.003 s, average=0.001 s; distance=344063 kB, estimate=344063 kB; lsn=0/200000B8, redo lsn=0/20000028
+2026-08-22 12:08:46.396 UTC [129] LOG:  checkpoint starting: immediate force wait
+2026-08-22 12:08:46.411 UTC [129] LOG:  checkpoint complete: wrote 0 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.016 s; sync files=0, longest=0.000 s, average=0.000 s; distance=0 kB, estimate=309657 kB; lsn=0/20000188, redo lsn=0/20000130
+2026-08-22 12:08:46.412 UTC [17216] LOG:  duration: 269.836 ms  statement: CHECKPOINT
+2026-08-22 12:08:46.412 UTC [17216] LOG:  disconnection: session time: 0:00:00.278 user=postgres database=postgres host=[local]
+2026-08-22 12:08:46.412 UTC [123] LOG:  received fast shutdown request
+2026-08-22 12:08:46.414 UTC [123] LOG:  aborting any active transactions
+2026-08-22 12:08:46.415 UTC [161] FATAL:  terminating connection due to administrator command
+2026-08-22 12:08:46.416 UTC [170] FATAL:  terminating connection due to administrator command
+2026-08-22 12:08:46.417 UTC [123] LOG:  background worker "logical replication launcher" (PID 965) exited with exit code 1
+2026-08-22 12:08:46.422 UTC [129] LOG:  shutting down
+2026-08-22 12:08:46.444 UTC [129] LOG:  checkpoint starting: shutdown immediate
+2026-08-22 12:08:46.472 UTC [129] LOG:  checkpoint complete: wrote 0 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.033 s; sync files=0, longest=0.000 s, average=0.000 s; distance=16383 kB, estimate=280330 kB; lsn=0/21000028, redo lsn=0/21000028
+2026-08-22 12:08:46.526 UTC [17199] LOG:  disconnection: session time: 0:00:01.830 user=_crunchyrepl database= host=10.42.0.18 port=53172
+2026-08-22 12:08:46.526 UTC [17171] LOG:  disconnection: session time: 0:00:06.863 user=_crunchyrepl database= host=10.42.0.14 port=57222
+2026-08-22 12:08:46.650 UTC [17222] LOG:  connection received: host=10.42.0.14 port=60882
+2026-08-22 12:08:46.652 UTC [17222] FATAL:  the database system is shutting down
+2026-08-22 12:08:46.666 UTC [17223] LOG:  connection received: host=10.42.0.18 port=51808
+2026-08-22 12:08:46.668 UTC [17223] FATAL:  the database system is shutting down
+2026-08-22 12:08:47.011 UTC [123] LOG:  database system is shut down
+2026-08-22 12:08:47.662 UTC [17247] LOG:  starting PostgreSQL 18.3 - Percona Server for PostgreSQL 18.3.1 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 11.5.0 20240719 (Red Hat 11.5.0-11.0.2), 64-bit
+2026-08-22 12:08:47.662 UTC [17247] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-08-22 12:08:47.662 UTC [17247] LOG:  listening on IPv6 address "::", port 5432
+2026-08-22 12:08:47.669 UTC [17247] LOG:  listening on Unix socket "/tmp/postgres/.s.PGSQL.5432"
+2026-08-22 12:08:47.681 UTC [17255] LOG:  database system was shut down at 2026-08-22 12:08:46 UTC
+2026-08-22 12:08:47.686 UTC [17247] LOG:  database system is ready to accept connections
+2026-08-22 12:08:48.642 UTC [17261] LOG:  connection received: host=[local]
+2026-08-22 12:08:48.643 UTC [17261] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:08:48.643 UTC [17261] LOG:  connection authorized: user=postgres database=postgres application_name=pg_isready
+2026-08-22 12:08:48.649 UTC [17261] LOG:  disconnection: session time: 0:00:00.007 user=postgres database=postgres host=[local]
+2026-08-22 12:08:48.653 UTC [17263] LOG:  connection received: host=[local]
+2026-08-22 12:08:48.653 UTC [17263] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:08:48.653 UTC [17263] LOG:  connection authorized: user=postgres database=postgres application_name=pg_isready
+2026-08-22 12:08:48.654 UTC [17263] LOG:  disconnection: session time: 0:00:00.001 user=postgres database=postgres host=[local]
+2026-08-22 12:08:48.658 UTC [17264] LOG:  connection received: host=[local]
+2026-08-22 12:08:48.659 UTC [17264] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:08:48.659 UTC [17264] LOG:  connection authorized: user=postgres database=postgres application_name=Patroni heartbeat
+2026-08-22 12:08:51.650 UTC [17278] LOG:  connection received: host=10.42.0.14 port=60884
+2026-08-22 12:08:51.654 UTC [17278] LOG:  connection authenticated: identity="CN=_crunchyrepl" method=cert (/pgdata/pg18/pg_hba.conf:4)
+2026-08-22 12:08:51.654 UTC [17278] LOG:  replication connection authorized: user=_crunchyrepl application_name=pgc-instance1-44gj-0 SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-08-22 12:08:51.666 UTC [17279] LOG:  connection received: host=10.42.0.18 port=51824
+2026-08-22 12:08:51.669 UTC [17279] LOG:  connection authenticated: identity="CN=_crunchyrepl" method=cert (/pgdata/pg18/pg_hba.conf:4)
+2026-08-22 12:08:51.669 UTC [17279] LOG:  replication connection authorized: user=_crunchyrepl application_name=pgc-instance1-pknk-0 SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-08-22 12:12:06.430 UTC [17983] LOG:  connection received: host=[local]
+2026-08-22 12:12:06.431 UTC [17983] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:12:06.431 UTC [17983] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-08-22 12:12:06.432 UTC [17983] LOG:  disconnection: session time: 0:00:00.001 user=postgres database=postgres host=[local]
+2026-08-22 12:12:24.390 UTC [18055] LOG:  connection received: host=[local]
+2026-08-22 12:12:24.390 UTC [18055] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:12:24.390 UTC [18055] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:12:25.661 UTC [18055] LOG:  duration: 1209.980 ms  statement: copy pgbench_accounts from stdin with (freeze on)
+2026-08-22 12:12:26.935 UTC [18055] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp18055.1.fileset/0.0", size 8192
+2026-08-22 12:12:26.935 UTC [18055] STATEMENT:  alter table pgbench_accounts add primary key (aid)
+2026-08-22 12:12:26.935 UTC [18055] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp18055.1.fileset/1.0", size 8192
+2026-08-22 12:12:26.935 UTC [18055] STATEMENT:  alter table pgbench_accounts add primary key (aid)
+2026-08-22 12:12:26.936 UTC [18055] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp18055.0.fileset/0.0", size 19660800
+2026-08-22 12:12:26.936 UTC [18055] STATEMENT:  alter table pgbench_accounts add primary key (aid)
+2026-08-22 12:12:26.938 UTC [18055] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp18055.0.fileset/1.0", size 20439040
+2026-08-22 12:12:26.938 UTC [18055] STATEMENT:  alter table pgbench_accounts add primary key (aid)
+2026-08-22 12:12:26.952 UTC [18055] LOG:  duration: 1139.818 ms  statement: alter table pgbench_accounts add primary key (aid)
+2026-08-22 12:12:26.952 UTC [18055] LOG:  disconnection: session time: 0:00:02.562 user=postgres database=postgres host=[local]
+2026-08-22 12:12:27.325 UTC [18208] LOG:  connection received: host=[local]
+2026-08-22 12:12:27.326 UTC [18208] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:12:27.326 UTC [18208] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:12:27.331 UTC [18208] LOG:  disconnection: session time: 0:00:00.005 user=postgres database=postgres host=[local]
+2026-08-22 12:12:27.332 UTC [18212] LOG:  connection received: host=[local]
+2026-08-22 12:12:27.332 UTC [18212] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:12:27.332 UTC [18212] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:12:27.332 UTC [18213] LOG:  connection received: host=[local]
+2026-08-22 12:12:27.332 UTC [18214] LOG:  connection received: host=[local]
+2026-08-22 12:12:27.333 UTC [18215] LOG:  connection received: host=[local]
+2026-08-22 12:12:27.333 UTC [18214] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:12:27.333 UTC [18214] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:12:27.333 UTC [18213] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:12:27.333 UTC [18213] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:12:27.333 UTC [18215] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:12:27.333 UTC [18215] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:12:27.333 UTC [18216] LOG:  connection received: host=[local]
+2026-08-22 12:12:27.334 UTC [18217] LOG:  connection received: host=[local]
+2026-08-22 12:12:27.334 UTC [18218] LOG:  connection received: host=[local]
+2026-08-22 12:12:27.334 UTC [18219] LOG:  connection received: host=[local]
+2026-08-22 12:12:27.334 UTC [18218] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:12:27.334 UTC [18218] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:12:27.334 UTC [18216] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:12:27.334 UTC [18216] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:12:27.335 UTC [18219] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:12:27.335 UTC [18219] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:12:27.336 UTC [18220] LOG:  connection received: host=[local]
+2026-08-22 12:12:27.336 UTC [18221] LOG:  connection received: host=[local]
+2026-08-22 12:12:27.336 UTC [18220] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:12:27.336 UTC [18220] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:12:27.336 UTC [18222] LOG:  connection received: host=[local]
+2026-08-22 12:12:27.336 UTC [18221] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:12:27.336 UTC [18221] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:12:27.337 UTC [18222] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:12:27.337 UTC [18222] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:12:27.337 UTC [18217] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:12:27.337 UTC [18217] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:12:27.337 UTC [18223] LOG:  connection received: host=[local]
+2026-08-22 12:12:27.338 UTC [18224] LOG:  connection received: host=[local]
+2026-08-22 12:12:27.338 UTC [18225] LOG:  connection received: host=[local]
+2026-08-22 12:12:27.338 UTC [18223] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:12:27.338 UTC [18223] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:12:27.338 UTC [18224] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:12:27.338 UTC [18224] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:12:27.338 UTC [18225] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:12:27.338 UTC [18225] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:12:27.339 UTC [18226] LOG:  connection received: host=[local]
+2026-08-22 12:12:27.339 UTC [18226] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:12:27.339 UTC [18226] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:12:27.340 UTC [18227] LOG:  connection received: host=[local]
+2026-08-22 12:12:27.341 UTC [18227] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:12:27.341 UTC [18227] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:12:47.802 UTC [18366] LOG:  automatic vacuum of table "postgres.public.pgbench_branches": index scans: 1
+	pages: 0 removed, 10 remain, 10 scanned (100.00% of total), 0 eagerly scanned
+	tuples: 574 removed, 466 remain, 13 are dead but not yet removable
+	tuples missed: 433 dead from 4 pages not removed due to cleanup lock contention
+	removable cutoff: 174928, which was 29 XIDs old when operation ended
+	new relfrozenxid: 171837, which is 42046 XIDs ahead of previous value
+	frozen: 0 pages from table (0.00% of total) had 0 tuples frozen
+	visibility map: 3 pages set all-visible, 2 pages set all-frozen (0 were all-visible)
+	index scan needed: 5 pages from table (50.00% of total) had 49 dead item identifiers removed
+	index "pgbench_branches_pkey": pages: 2 in total, 0 newly deleted, 0 currently deleted, 0 reusable
+	avg read rate: 0.000 MB/s, avg write rate: 0.000 MB/s
+	buffer usage: 82 hits, 0 reads, 0 dirtied
+	WAL usage: 16 records, 0 full page images, 2512 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-22 12:12:47.805 UTC [18366] LOG:  automatic analyze of table "postgres.public.pgbench_branches"
+	avg read rate: 0.000 MB/s, avg write rate: 0.000 MB/s
+	buffer usage: 160 hits, 0 reads, 0 dirtied
+	WAL usage: 10 records, 0 full page images, 851 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-22 12:12:47.819 UTC [18366] LOG:  automatic vacuum of table "postgres.public.pgbench_history": index scans: 0
+	pages: 0 removed, 295 remain, 295 scanned (100.00% of total), 0 eagerly scanned
+	tuples: 0 removed, 45183 remain, 0 are dead but not yet removable
+	removable cutoff: 174937, which was 61 XIDs old when operation ended
+	new relfrozenxid: 129798, which is 3 XIDs ahead of previous value
+	frozen: 0 pages from table (0.00% of total) had 0 tuples frozen
+	visibility map: 280 pages set all-visible, 0 pages set all-frozen (0 were all-visible)
+	index scan not needed: 0 pages from table (0.00% of total) had 0 dead item identifiers removed
+	avg read rate: 0.000 MB/s, avg write rate: 2.459 MB/s
+	buffer usage: 605 hits, 0 reads, 3 dirtied
+	WAL usage: 283 records, 3 full page images, 17273 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-22 12:12:47.856 UTC [18366] LOG:  automatic analyze of table "postgres.public.pgbench_history"
+	avg read rate: 0.422 MB/s, avg write rate: 0.422 MB/s
+	buffer usage: 428 hits, 2 reads, 2 dirtied
+	WAL usage: 21 records, 1 full page images, 5945 bytes, 0 buffers full
+	system usage: CPU: user: 0.02 s, system: 0.00 s, elapsed: 0.03 s
+2026-08-22 12:12:47.862 UTC [18366] LOG:  automatic vacuum of table "postgres.public.pgbench_tellers": index scans: 1
+	pages: 0 removed, 14 remain, 14 scanned (100.00% of total), 0 eagerly scanned
+	tuples: 867 removed, 235 remain, 35 are dead but not yet removable
+	removable cutoff: 175038, which was 46 XIDs old when operation ended
+	new relfrozenxid: 174059, which is 44267 XIDs ahead of previous value
+	frozen: 0 pages from table (0.00% of total) had 0 tuples frozen
+	visibility map: 2 pages set all-visible, 0 pages set all-frozen (0 were all-visible)
+	index scan needed: 2 pages from table (14.29% of total) had 204 dead item identifiers removed
+	index "pgbench_tellers_pkey": pages: 2 in total, 0 newly deleted, 0 currently deleted, 0 reusable
+	avg read rate: 0.000 MB/s, avg write rate: 0.000 MB/s
+	buffer usage: 67 hits, 0 reads, 0 dirtied
+	WAL usage: 20 records, 0 full page images, 4385 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-22 12:12:47.862 UTC [18366] LOG:  automatic analyze of table "postgres.public.pgbench_tellers"
+	avg read rate: 0.000 MB/s, avg write rate: 0.000 MB/s
+	buffer usage: 55 hits, 0 reads, 0 dirtied
+	WAL usage: 14 records, 0 full page images, 1530 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-22 12:13:27.332 UTC [18217] LOG:  disconnection: session time: 0:00:59.998 user=postgres database=postgres host=[local]
+2026-08-22 12:13:27.332 UTC [18212] LOG:  disconnection: session time: 0:01:00.000 user=postgres database=postgres host=[local]
+2026-08-22 12:13:27.332 UTC [18219] LOG:  disconnection: session time: 0:00:59.998 user=postgres database=postgres host=[local]
+2026-08-22 12:13:27.332 UTC [18226] LOG:  disconnection: session time: 0:00:59.994 user=postgres database=postgres host=[local]
+2026-08-22 12:13:27.335 UTC [18216] LOG:  disconnection: session time: 0:01:00.001 user=postgres database=postgres host=[local]
+2026-08-22 12:13:27.335 UTC [18227] LOG:  disconnection: session time: 0:00:59.994 user=postgres database=postgres host=[local]
+2026-08-22 12:13:27.335 UTC [18222] LOG:  disconnection: session time: 0:00:59.998 user=postgres database=postgres host=[local]
+2026-08-22 12:13:27.335 UTC [18214] LOG:  disconnection: session time: 0:01:00.002 user=postgres database=postgres host=[local]
+2026-08-22 12:13:27.335 UTC [18213] LOG:  disconnection: session time: 0:01:00.002 user=postgres database=postgres host=[local]
+2026-08-22 12:13:27.335 UTC [18225] LOG:  disconnection: session time: 0:00:59.997 user=postgres database=postgres host=[local]
+2026-08-22 12:13:27.337 UTC [18221] LOG:  disconnection: session time: 0:01:00.001 user=postgres database=postgres host=[local]
+2026-08-22 12:13:27.337 UTC [18223] LOG:  disconnection: session time: 0:01:00.000 user=postgres database=postgres host=[local]
+2026-08-22 12:13:27.337 UTC [18224] LOG:  disconnection: session time: 0:00:59.999 user=postgres database=postgres host=[local]
+2026-08-22 12:13:27.340 UTC [18215] LOG:  disconnection: session time: 0:01:00.007 user=postgres database=postgres host=[local]
+2026-08-22 12:13:27.344 UTC [18220] LOG:  disconnection: session time: 0:01:00.008 user=postgres database=postgres host=[local]
+2026-08-22 12:13:27.345 UTC [18218] LOG:  disconnection: session time: 0:01:00.011 user=postgres database=postgres host=[local]
+2026-08-22 12:13:47.778 UTC [17253] LOG:  checkpoint starting: time
+2026-08-22 12:13:47.842 UTC [18694] LOG:  automatic vacuum of table "postgres.public.pgbench_branches": index scans: 1
+	pages: 0 removed, 10 remain, 10 scanned (100.00% of total), 0 eagerly scanned
+	tuples: 1008 removed, 20 remain, 0 are dead but not yet removable
+	removable cutoff: 248681, which was 0 XIDs old when operation ended
+	new relfrozenxid: 248596, which is 76759 XIDs ahead of previous value
+	frozen: 8 pages from table (80.00% of total) had 19 tuples frozen
+	visibility map: 10 pages set all-visible, 9 pages set all-frozen (0 were all-visible)
+	index scan needed: 2 pages from table (20.00% of total) had 7 dead item identifiers removed
+	index "pgbench_branches_pkey": pages: 2 in total, 0 newly deleted, 0 currently deleted, 0 reusable
+	avg read rate: 0.000 MB/s, avg write rate: 0.000 MB/s
+	buffer usage: 79 hits, 0 reads, 0 dirtied
+	WAL usage: 24 records, 13 full page images, 4168 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-22 12:13:47.845 UTC [18694] LOG:  automatic analyze of table "postgres.public.pgbench_branches"
+	avg read rate: 0.000 MB/s, avg write rate: 0.000 MB/s
+	buffer usage: 160 hits, 0 reads, 0 dirtied
+	WAL usage: 10 records, 1 full page images, 3697 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-22 12:13:47.928 UTC [18694] LOG:  automatic vacuum of table "postgres.public.pgbench_history": index scans: 0
+	pages: 0 removed, 765 remain, 487 scanned (63.66% of total), 0 eagerly scanned
+	tuples: 0 removed, 117833 remain, 0 are dead but not yet removable
+	removable cutoff: 248682, which was 0 XIDs old when operation ended
+	frozen: 0 pages from table (0.00% of total) had 0 tuples frozen
+	visibility map: 486 pages set all-visible, 0 pages set all-frozen (0 were all-visible)
+	index scan not needed: 0 pages from table (0.00% of total) had 0 dead item identifiers removed
+	avg read rate: 0.000 MB/s, avg write rate: 0.097 MB/s
+	buffer usage: 990 hits, 0 reads, 1 dirtied
+	WAL usage: 487 records, 487 full page images, 2158686 bytes, 0 buffers full
+	system usage: CPU: user: 0.06 s, system: 0.00 s, elapsed: 0.08 s
+2026-08-22 12:13:47.987 UTC [18694] LOG:  automatic analyze of table "postgres.public.pgbench_history"
+	avg read rate: 0.000 MB/s, avg write rate: 0.265 MB/s
+	buffer usage: 891 hits, 0 reads, 2 dirtied
+	WAL usage: 22 records, 1 full page images, 6844 bytes, 0 buffers full
+	system usage: CPU: user: 0.03 s, system: 0.01 s, elapsed: 0.05 s
+2026-08-22 12:13:47.991 UTC [18694] LOG:  automatic vacuum of table "postgres.public.pgbench_tellers": index scans: 1
+	pages: 0 removed, 14 remain, 14 scanned (100.00% of total), 0 eagerly scanned
+	tuples: 830 removed, 200 remain, 0 are dead but not yet removable
+	removable cutoff: 248683, which was 0 XIDs old when operation ended
+	new relfrozenxid: 248683, which is 74624 XIDs ahead of previous value
+	frozen: 14 pages from table (100.00% of total) had 200 tuples frozen
+	visibility map: 14 pages set all-visible, 14 pages set all-frozen (0 were all-visible)
+	index scan needed: 1 pages from table (7.14% of total) had 13 dead item identifiers removed
+	index "pgbench_tellers_pkey": pages: 2 in total, 0 newly deleted, 0 currently deleted, 0 reusable
+	avg read rate: 0.000 MB/s, avg write rate: 0.000 MB/s
+	buffer usage: 66 hits, 0 reads, 0 dirtied
+	WAL usage: 31 records, 16 full page images, 10561 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-22 12:13:47.991 UTC [18694] LOG:  automatic analyze of table "postgres.public.pgbench_tellers"
+	avg read rate: 0.000 MB/s, avg write rate: 0.000 MB/s
+	buffer usage: 55 hits, 0 reads, 0 dirtied
+	WAL usage: 14 records, 0 full page images, 1467 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-22 12:16:13.133 UTC [17247] LOG:  received SIGHUP, reloading configuration files
+2026-08-22 12:16:13.134 UTC [17247] LOG:  parameter "autovacuum_vacuum_cost_delay" changed to "100ms"
+2026-08-22 12:16:13.134 UTC [17247] LOG:  parameter "bgwriter_lru_maxpages" changed to "0"
+2026-08-22 12:16:13.134 UTC [17247] LOG:  parameter "checkpoint_completion_target" changed to "0.1"
+2026-08-22 12:16:13.134 UTC [17247] LOG:  parameter "checkpoint_timeout" changed to "30s"
+2026-08-22 12:16:13.134 UTC [17247] LOG:  parameter "deadlock_timeout" changed to "200ms"
+2026-08-22 12:16:13.134 UTC [17247] LOG:  parameter "effective_cache_size" changed to "128MB"
+2026-08-22 12:16:13.134 UTC [17247] LOG:  parameter "log_min_duration_statement" changed to "100"
+2026-08-22 12:16:13.134 UTC [17247] LOG:  parameter "maintenance_work_mem" changed to "1MB"
+2026-08-22 12:16:13.134 UTC [17247] LOG:  parameter "max_wal_size" changed to "64MB"
+2026-08-22 12:16:13.134 UTC [17247] LOG:  parameter "min_wal_size" changed to "32MB"
+2026-08-22 12:16:13.134 UTC [17247] LOG:  parameter "random_page_cost" changed to "4"
+2026-08-22 12:16:13.134 UTC [17247] LOG:  parameter "shared_buffers" cannot be changed without restarting the server
+2026-08-22 12:16:13.134 UTC [17247] LOG:  parameter "work_mem" changed to "64kB"
+2026-08-22 12:16:13.134 UTC [17247] LOG:  configuration file "/pgdata/pg18/postgresql.conf" contains errors; unaffected changes were applied
+2026-08-22 12:16:13.635 UTC [17253] LOG:  checkpoint complete: wrote 38828 buffers (29.6%), wrote 211 SLRU buffers; 0 WAL file(s) added, 20 removed, 0 recycled; write=145.501 s, sync=0.178 s, total=145.858 s; sync files=55, longest=0.011 s, average=0.004 s; distance=298531 kB, estimate=298531 kB; lsn=0/34000060, redo lsn=0/33388EB0
+2026-08-22 12:16:14.135 UTC [17264] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp17264.0", size 91714
+2026-08-22 12:16:14.135 UTC [17264] STATEMENT:  SELECT name, pg_catalog.current_setting(name), unit, vartype FROM pg_catalog.pg_settings WHERE pg_catalog.lower(name) != ALL(ARRAY['archive_cleanup_command','pause_at_recovery_target','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_action','recovery_target_inclusive','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command','standby_mode','trigger_file','hot_standby']) AND pending_restart
+2026-08-22 12:16:18.530 UTC [17278] LOG:  disconnection: session time: 0:07:26.879 user=_crunchyrepl database= host=10.42.0.14 port=60884
+2026-08-22 12:16:20.346 UTC [19271] LOG:  connection received: host=10.42.0.14 port=44204
+2026-08-22 12:16:20.349 UTC [19271] LOG:  connection authenticated: identity="CN=_crunchyrepl" method=cert (/pgdata/pg18/pg_hba.conf:4)
+2026-08-22 12:16:20.349 UTC [19271] LOG:  replication connection authorized: user=_crunchyrepl application_name=pgc-instance1-44gj-0 SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-08-22 12:16:20.787 UTC [17279] LOG:  disconnection: session time: 0:07:29.121 user=_crunchyrepl database= host=10.42.0.18 port=51824
+2026-08-22 12:16:22.605 UTC [19300] LOG:  connection received: host=10.42.0.18 port=47682
+2026-08-22 12:16:22.608 UTC [19300] LOG:  connection authenticated: identity="CN=_crunchyrepl" method=cert (/pgdata/pg18/pg_hba.conf:4)
+2026-08-22 12:16:22.609 UTC [19300] LOG:  replication connection authorized: user=_crunchyrepl application_name=pgc-instance1-pknk-0 SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-08-22 12:16:25.360 UTC [19337] LOG:  connection received: host=[local]
+2026-08-22 12:16:25.361 UTC [19337] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:16:25.361 UTC [19337] LOG:  connection authorized: user=postgres database=postgres application_name=Patroni
+2026-08-22 12:16:25.362 UTC [17253] LOG:  checkpoint starting: immediate force wait
+2026-08-22 12:16:25.391 UTC [17253] LOG:  checkpoint complete: wrote 3 buffers (0.0%), wrote 2 SLRU buffers; 0 WAL file(s) added, 0 removed, 1 recycled; write=0.006 s, sync=0.005 s, total=0.029 s; sync files=4, longest=0.003 s, average=0.002 s; distance=29148 kB, estimate=271593 kB; lsn=0/35000080, redo lsn=0/35000028
+2026-08-22 12:16:25.391 UTC [19337] LOG:  disconnection: session time: 0:00:00.031 user=postgres database=postgres host=[local]
+2026-08-22 12:16:25.391 UTC [17247] LOG:  received fast shutdown request
+2026-08-22 12:16:25.394 UTC [17247] LOG:  aborting any active transactions
+2026-08-22 12:16:25.394 UTC [17264] FATAL:  terminating connection due to administrator command
+2026-08-22 12:16:25.394 UTC [17264] LOG:  disconnection: session time: 0:07:36.736 user=postgres database=postgres host=[local]
+2026-08-22 12:16:25.395 UTC [17247] LOG:  background worker "logical replication launcher" (PID 17259) exited with exit code 1
+2026-08-22 12:16:25.396 UTC [17253] LOG:  shutting down
+2026-08-22 12:16:25.444 UTC [17253] LOG:  checkpoint starting: shutdown immediate
+2026-08-22 12:16:25.478 UTC [17253] LOG:  checkpoint complete: wrote 0 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 1 recycled; write=0.006 s, sync=0.001 s, total=0.043 s; sync files=0, longest=0.000 s, average=0.000 s; distance=16384 kB, estimate=246072 kB; lsn=0/36000028, redo lsn=0/36000028
+2026-08-22 12:16:25.478 UTC [19271] LOG:  disconnection: session time: 0:00:05.132 user=_crunchyrepl database= host=10.42.0.14 port=44204
+2026-08-22 12:16:25.478 UTC [19300] LOG:  disconnection: session time: 0:00:02.873 user=_crunchyrepl database= host=10.42.0.18 port=47682
+2026-08-22 12:16:25.602 UTC [19343] LOG:  connection received: host=10.42.0.18 port=50910
+2026-08-22 12:16:25.602 UTC [19344] LOG:  connection received: host=10.42.0.14 port=44090
+2026-08-22 12:16:25.605 UTC [19344] FATAL:  the database system is shutting down
+2026-08-22 12:16:25.605 UTC [19343] FATAL:  the database system is shutting down
+2026-08-22 12:16:25.785 UTC [17247] LOG:  database system is shut down
+2026-08-22 12:16:26.609 UTC [19356] LOG:  starting PostgreSQL 18.3 - Percona Server for PostgreSQL 18.3.1 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 11.5.0 20240719 (Red Hat 11.5.0-11.0.2), 64-bit
+2026-08-22 12:16:26.609 UTC [19356] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-08-22 12:16:26.609 UTC [19356] LOG:  listening on IPv6 address "::", port 5432
+2026-08-22 12:16:26.615 UTC [19356] LOG:  listening on Unix socket "/tmp/postgres/.s.PGSQL.5432"
+2026-08-22 12:16:26.622 UTC [19364] LOG:  database system was shut down at 2026-08-22 12:16:25 UTC
+2026-08-22 12:16:26.626 UTC [19356] LOG:  database system is ready to accept connections
+2026-08-22 12:16:27.617 UTC [19370] LOG:  connection received: host=[local]
+2026-08-22 12:16:27.618 UTC [19370] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:16:27.618 UTC [19370] LOG:  connection authorized: user=postgres database=postgres application_name=pg_isready
+2026-08-22 12:16:27.622 UTC [19370] LOG:  disconnection: session time: 0:00:00.005 user=postgres database=postgres host=[local]
+2026-08-22 12:16:27.626 UTC [19372] LOG:  connection received: host=[local]
+2026-08-22 12:16:27.626 UTC [19372] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:16:27.626 UTC [19372] LOG:  connection authorized: user=postgres database=postgres application_name=pg_isready
+2026-08-22 12:16:27.627 UTC [19372] LOG:  disconnection: session time: 0:00:00.001 user=postgres database=postgres host=[local]
+2026-08-22 12:16:27.630 UTC [19373] LOG:  connection received: host=[local]
+2026-08-22 12:16:27.630 UTC [19373] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:16:27.630 UTC [19373] LOG:  connection authorized: user=postgres database=postgres application_name=Patroni heartbeat
+2026-08-22 12:16:30.602 UTC [19386] LOG:  connection received: host=10.42.0.18 port=50926
+2026-08-22 12:16:30.603 UTC [19387] LOG:  connection received: host=10.42.0.14 port=44096
+2026-08-22 12:16:30.605 UTC [19387] LOG:  connection authenticated: identity="CN=_crunchyrepl" method=cert (/pgdata/pg18/pg_hba.conf:4)
+2026-08-22 12:16:30.605 UTC [19387] LOG:  replication connection authorized: user=_crunchyrepl application_name=pgc-instance1-44gj-0 SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-08-22 12:16:30.605 UTC [19386] LOG:  connection authenticated: identity="CN=_crunchyrepl" method=cert (/pgdata/pg18/pg_hba.conf:4)
+2026-08-22 12:16:30.606 UTC [19386] LOG:  replication connection authorized: user=_crunchyrepl application_name=pgc-instance1-pknk-0 SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-08-22 12:16:56.648 UTC [19362] LOG:  checkpoint starting: time
+2026-08-22 12:16:56.777 UTC [19362] LOG:  checkpoint complete: wrote 1 buffers (0.0%), wrote 3 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.109 s, sync=0.005 s, total=0.129 s; sync files=3, longest=0.004 s, average=0.002 s; distance=1 kB, estimate=1 kB; lsn=0/360005B0, redo lsn=0/36000558
+2026-08-22 12:19:55.688 UTC [20140] LOG:  connection received: host=[local]
+2026-08-22 12:19:55.688 UTC [20140] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:19:55.688 UTC [20140] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-08-22 12:19:55.690 UTC [20140] LOG:  disconnection: session time: 0:00:00.001 user=postgres database=postgres host=[local]
+2026-08-22 12:20:06.182 UTC [20185] LOG:  connection received: host=[local]
+2026-08-22 12:20:06.182 UTC [20185] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:06.182 UTC [20185] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:06.374 UTC [19362] LOG:  checkpoints are occurring too frequently (10 seconds apart)
+2026-08-22 12:20:06.374 UTC [19362] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-08-22 12:20:06.393 UTC [19362] LOG:  checkpoint starting: wal
+2026-08-22 12:20:06.566 UTC [19362] LOG:  checkpoint complete: wrote 975 buffers (11.9%), wrote 2 SLRU buffers; 0 WAL file(s) added, 2 removed, 2 recycled; write=0.035 s, sync=0.074 s, total=0.193 s; sync files=34, longest=0.027 s, average=0.003 s; distance=51208 kB, estimate=51208 kB; lsn=0/3A500ED8, redo lsn=0/39202690
+2026-08-22 12:20:06.692 UTC [19362] LOG:  checkpoints are occurring too frequently (0 seconds apart)
+2026-08-22 12:20:06.692 UTC [19362] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-08-22 12:20:06.693 UTC [19362] LOG:  checkpoint starting: wal
+2026-08-22 12:20:06.944 UTC [19362] LOG:  checkpoint complete: wrote 1000 buffers (12.2%), wrote 0 SLRU buffers; 0 WAL file(s) added, 1 removed, 2 recycled; write=0.091 s, sync=0.041 s, total=0.252 s; sync files=2, longest=0.034 s, average=0.021 s; distance=49151 kB, estimate=51002 kB; lsn=0/3DA443F8, redo lsn=0/3C202320
+2026-08-22 12:20:07.006 UTC [19362] LOG:  checkpoints are occurring too frequently (1 second apart)
+2026-08-22 12:20:07.006 UTC [19362] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-08-22 12:20:07.006 UTC [19362] LOG:  checkpoint starting: wal
+2026-08-22 12:20:07.169 UTC [19362] LOG:  checkpoint complete: wrote 991 buffers (12.1%), wrote 0 SLRU buffers; 0 WAL file(s) added, 1 removed, 2 recycled; write=0.017 s, sync=0.050 s, total=0.163 s; sync files=2, longest=0.044 s, average=0.025 s; distance=49167 kB, estimate=50819 kB; lsn=0/4009F130, redo lsn=0/3F2060B8
+2026-08-22 12:20:07.324 UTC [19362] LOG:  checkpoints are occurring too frequently (0 seconds apart)
+2026-08-22 12:20:07.324 UTC [19362] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-08-22 12:20:07.324 UTC [19362] LOG:  checkpoint starting: wal
+2026-08-22 12:20:07.526 UTC [19362] LOG:  checkpoint complete: wrote 987 buffers (12.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 1 removed, 2 recycled; write=0.041 s, sync=0.074 s, total=0.202 s; sync files=2, longest=0.056 s, average=0.037 s; distance=49173 kB, estimate=50654 kB; lsn=0/432050C8, redo lsn=0/4220B8A8
+2026-08-22 12:20:07.696 UTC [19362] LOG:  checkpoints are occurring too frequently (0 seconds apart)
+2026-08-22 12:20:07.696 UTC [19362] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-08-22 12:20:07.696 UTC [19362] LOG:  checkpoint starting: wal
+2026-08-22 12:20:07.847 UTC [19362] LOG:  checkpoint complete: wrote 987 buffers (12.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 1 removed, 2 recycled; write=0.056 s, sync=0.030 s, total=0.152 s; sync files=2, longest=0.025 s, average=0.015 s; distance=49092 kB, estimate=50498 kB; lsn=0/46200290, redo lsn=0/451FCC70
+2026-08-22 12:20:07.977 UTC [19362] LOG:  checkpoints are occurring too frequently (0 seconds apart)
+2026-08-22 12:20:07.977 UTC [19362] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-08-22 12:20:07.977 UTC [19362] LOG:  checkpoint starting: wal
+2026-08-22 12:20:08.159 UTC [19362] LOG:  checkpoint complete: wrote 1020 buffers (12.5%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=0.044 s, sync=0.069 s, total=0.183 s; sync files=2, longest=0.051 s, average=0.035 s; distance=49190 kB, estimate=50367 kB; lsn=0/4912FBF0, redo lsn=0/482066A0
+2026-08-22 12:20:08.283 UTC [19362] LOG:  checkpoints are occurring too frequently (1 second apart)
+2026-08-22 12:20:08.283 UTC [19362] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-08-22 12:20:08.283 UTC [19362] LOG:  checkpoint starting: wal
+2026-08-22 12:20:08.473 UTC [19362] LOG:  checkpoint complete: wrote 995 buffers (12.1%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 1 recycled; write=0.020 s, sync=0.066 s, total=0.191 s; sync files=2, longest=0.063 s, average=0.033 s; distance=49163 kB, estimate=50247 kB; lsn=0/4C064190, redo lsn=0/4B2095C8
+2026-08-22 12:20:08.618 UTC [19362] LOG:  checkpoints are occurring too frequently (0 seconds apart)
+2026-08-22 12:20:08.618 UTC [19362] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-08-22 12:20:08.618 UTC [19362] LOG:  checkpoint starting: wal
+2026-08-22 12:20:08.903 UTC [19362] LOG:  checkpoint complete: wrote 236 buffers (2.9%), wrote 0 SLRU buffers; 0 WAL file(s) added, 2 removed, 2 recycled; write=0.119 s, sync=0.058 s, total=0.286 s; sync files=2, longest=0.053 s, average=0.029 s; distance=49106 kB, estimate=50133 kB; lsn=0/4F9C3318, redo lsn=0/4E1FE098
+2026-08-22 12:20:08.952 UTC [20185] LOG:  duration: 2723.371 ms  statement: copy pgbench_accounts from stdin with (freeze on)
+2026-08-22 12:20:09.177 UTC [20185] LOG:  duration: 209.967 ms  statement: vacuum analyze pgbench_accounts
+2026-08-22 12:20:10.066 UTC [19362] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-08-22 12:20:10.066 UTC [19362] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-08-22 12:20:10.067 UTC [19362] LOG:  checkpoint starting: wal
+2026-08-22 12:20:10.381 UTC [19362] LOG:  checkpoint complete: wrote 1046 buffers (12.8%), wrote 2 SLRU buffers; 0 WAL file(s) added, 1 removed, 3 recycled; write=0.212 s, sync=0.055 s, total=0.315 s; sync files=33, longest=0.014 s, average=0.002 s; distance=47971 kB, estimate=49916 kB; lsn=0/517FA528, redo lsn=0/510D6D10
+2026-08-22 12:20:11.602 UTC [20185] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp20185.0", size 80191488
+2026-08-22 12:20:11.602 UTC [20185] STATEMENT:  alter table pgbench_accounts add primary key (aid)
+2026-08-22 12:20:11.604 UTC [20185] LOG:  duration: 2420.350 ms  statement: alter table pgbench_accounts add primary key (aid)
+2026-08-22 12:20:11.605 UTC [20185] LOG:  disconnection: session time: 0:00:05.422 user=postgres database=postgres host=[local]
+2026-08-22 12:20:11.949 UTC [20500] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.949 UTC [20500] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.949 UTC [20500] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.953 UTC [20500] LOG:  disconnection: session time: 0:00:00.003 user=postgres database=postgres host=[local]
+2026-08-22 12:20:11.954 UTC [20504] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.954 UTC [20505] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.954 UTC [20504] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.954 UTC [20504] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.954 UTC [20506] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.954 UTC [20505] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.954 UTC [20505] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.955 UTC [20507] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.955 UTC [20506] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.955 UTC [20506] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.955 UTC [20507] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.955 UTC [20507] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.956 UTC [20508] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.956 UTC [20509] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.956 UTC [20510] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.956 UTC [20508] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.956 UTC [20508] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.956 UTC [20509] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.956 UTC [20509] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.956 UTC [20511] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.956 UTC [20510] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.956 UTC [20510] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.957 UTC [20511] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.957 UTC [20511] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.957 UTC [20512] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.958 UTC [20513] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.958 UTC [20512] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.958 UTC [20512] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.958 UTC [20513] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.958 UTC [20513] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.958 UTC [20514] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.959 UTC [20515] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.959 UTC [20514] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.959 UTC [20514] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.959 UTC [20516] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.959 UTC [20515] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.959 UTC [20515] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.959 UTC [20517] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.959 UTC [20516] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.959 UTC [20516] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.960 UTC [20517] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.960 UTC [20517] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.960 UTC [20518] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.960 UTC [20519] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.961 UTC [20518] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.961 UTC [20518] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.961 UTC [20520] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.961 UTC [20519] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.961 UTC [20519] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.961 UTC [20520] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.961 UTC [20521] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.961 UTC [20520] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.962 UTC [20522] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.962 UTC [20521] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.962 UTC [20521] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.962 UTC [20523] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.962 UTC [20522] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.962 UTC [20522] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.962 UTC [20524] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.962 UTC [20523] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.962 UTC [20523] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.963 UTC [20524] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.963 UTC [20524] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.963 UTC [20525] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.964 UTC [20526] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.964 UTC [20527] LOG:  connection received: host=[local]
+2026-08-22 12:20:11.964 UTC [20525] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.964 UTC [20525] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.964 UTC [20526] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.964 UTC [20526] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:11.964 UTC [20527] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:20:11.964 UTC [20527] LOG:  connection authorized: user=postgres database=postgres application_name=pgbench
+2026-08-22 12:20:13.961 UTC [19362] LOG:  checkpoints are occurring too frequently (3 seconds apart)
+2026-08-22 12:20:13.961 UTC [19362] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-08-22 12:20:13.961 UTC [19362] LOG:  checkpoint starting: wal
+2026-08-22 12:20:14.473 UTC [19362] LOG:  checkpoint complete: wrote 6985 buffers (85.3%), wrote 13 SLRU buffers; 0 WAL file(s) added, 0 removed, 3 recycled; write=0.315 s, sync=0.106 s, total=0.512 s; sync files=21, longest=0.025 s, average=0.006 s; distance=48308 kB, estimate=49756 kB; lsn=0/54691FB8, redo lsn=0/54003E70
+2026-08-22 12:20:18.736 UTC [19362] LOG:  checkpoints are occurring too frequently (5 seconds apart)
+2026-08-22 12:20:18.736 UTC [19362] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-08-22 12:20:18.736 UTC [19362] LOG:  checkpoint starting: wal
+2026-08-22 12:20:19.297 UTC [19362] LOG:  checkpoint complete: wrote 6983 buffers (85.2%), wrote 26 SLRU buffers; 0 WAL file(s) added, 0 removed, 3 recycled; write=0.328 s, sync=0.127 s, total=0.562 s; sync files=13, longest=0.054 s, average=0.010 s; distance=49164 kB, estimate=49696 kB; lsn=0/57605598, redo lsn=0/570071C8
+2026-08-22 12:20:24.042 UTC [19362] LOG:  checkpoints are occurring too frequently (6 seconds apart)
+2026-08-22 12:20:24.042 UTC [19362] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-08-22 12:20:24.042 UTC [19362] LOG:  checkpoint starting: wal
+2026-08-22 12:20:24.670 UTC [19362] LOG:  checkpoint complete: wrote 6504 buffers (79.4%), wrote 25 SLRU buffers; 0 WAL file(s) added, 0 removed, 3 recycled; write=0.393 s, sync=0.133 s, total=0.628 s; sync files=11, longest=0.073 s, average=0.013 s; distance=49133 kB, estimate=49640 kB; lsn=0/5A5CD9E8, redo lsn=0/5A002758
+2026-08-22 12:20:26.746 UTC [20713] LOG:  automatic vacuum of table "postgres.public.pgbench_tellers": index scans: 1
+	pages: 0 removed, 19 remain, 19 scanned (100.00% of total), 0 eagerly scanned
+	tuples: 1082 removed, 529 remain, 28 are dead but not yet removable
+	tuples missed: 101 dead from 1 pages not removed due to cleanup lock contention
+	removable cutoff: 295752, which was 52 XIDs old when operation ended
+	new relfrozenxid: 292219, which is 43528 XIDs ahead of previous value
+	frozen: 0 pages from table (0.00% of total) had 0 tuples frozen
+	visibility map: 3 pages set all-visible, 0 pages set all-frozen (0 were all-visible)
+	index scan needed: 3 pages from table (15.79% of total) had 394 dead item identifiers removed
+	index "pgbench_tellers_pkey": pages: 4 in total, 0 newly deleted, 0 currently deleted, 0 reusable
+	avg read rate: 112.484 MB/s, avg write rate: 61.355 MB/s
+	buffer usage: 89 hits, 11 reads, 6 dirtied
+	WAL usage: 30 records, 6 full page images, 7678 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-22 12:20:26.962 UTC [20504] LOG:  duration: 213.299 ms  statement: UPDATE pgbench_tellers SET tbalance = tbalance + -207 WHERE tid = 62;
+2026-08-22 12:20:26.962 UTC [20521] LOG:  duration: 211.921 ms  statement: UPDATE pgbench_tellers SET tbalance = tbalance + 3300 WHERE tid = 154;
+2026-08-22 12:20:26.963 UTC [20509] LOG:  duration: 203.990 ms  statement: UPDATE pgbench_tellers SET tbalance = tbalance + -3123 WHERE tid = 39;
+2026-08-22 12:20:26.963 UTC [20510] LOG:  duration: 203.914 ms  statement: UPDATE pgbench_tellers SET tbalance = tbalance + -2723 WHERE tid = 58;
+2026-08-22 12:20:26.963 UTC [20517] LOG:  duration: 201.789 ms  statement: UPDATE pgbench_tellers SET tbalance = tbalance + -3955 WHERE tid = 30;
+2026-08-22 12:20:26.963 UTC [20524] LOG:  duration: 197.021 ms  statement: UPDATE pgbench_tellers SET tbalance = tbalance + -4862 WHERE tid = 10;
+2026-08-22 12:20:26.963 UTC [20713] LOG:  automatic analyze of table "postgres.public.pgbench_tellers"
+	avg read rate: 1.152 MB/s, avg write rate: 0.036 MB/s
+	buffer usage: 153 hits, 32 reads, 1 dirtied
+	WAL usage: 14 records, 1 full page images, 3025 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.21 s
+2026-08-22 12:20:26.963 UTC [20514] LOG:  duration: 199.571 ms  statement: UPDATE pgbench_tellers SET tbalance = tbalance + 4789 WHERE tid = 1;
+2026-08-22 12:20:26.963 UTC [20515] LOG:  duration: 187.517 ms  statement: UPDATE pgbench_tellers SET tbalance = tbalance + 2672 WHERE tid = 63;
+2026-08-22 12:20:26.963 UTC [20523] LOG:  duration: 187.195 ms  statement: UPDATE pgbench_tellers SET tbalance = tbalance + -2559 WHERE tid = 124;
+2026-08-22 12:20:26.963 UTC [20508] LOG:  duration: 180.780 ms  statement: UPDATE pgbench_tellers SET tbalance = tbalance + 50 WHERE tid = 119;
+2026-08-22 12:20:26.963 UTC [20527] LOG:  duration: 173.264 ms  statement: UPDATE pgbench_tellers SET tbalance = tbalance + -2681 WHERE tid = 86;
+2026-08-22 12:20:26.963 UTC [20526] LOG:  duration: 171.753 ms  statement: UPDATE pgbench_tellers SET tbalance = tbalance + -1899 WHERE tid = 5;
+2026-08-22 12:20:26.963 UTC [20516] LOG:  duration: 168.655 ms  statement: UPDATE pgbench_tellers SET tbalance = tbalance + 486 WHERE tid = 65;
+2026-08-22 12:20:26.963 UTC [20511] LOG:  duration: 162.282 ms  statement: UPDATE pgbench_tellers SET tbalance = tbalance + -114 WHERE tid = 47;
+2026-08-22 12:20:26.963 UTC [20512] LOG:  duration: 150.061 ms  statement: UPDATE pgbench_tellers SET tbalance = tbalance + 1473 WHERE tid = 59;
+2026-08-22 12:20:26.963 UTC [20518] LOG:  duration: 110.888 ms  statement: UPDATE pgbench_tellers SET tbalance = tbalance + 4230 WHERE tid = 148;
+2026-08-22 12:20:26.966 UTC [20507] LOG:  duration: 131.432 ms  statement: UPDATE pgbench_tellers SET tbalance = tbalance + 1687 WHERE tid = 30;
+2026-08-22 12:20:26.966 UTC [20513] LOG:  duration: 150.303 ms  statement: UPDATE pgbench_tellers SET tbalance = tbalance + 542 WHERE tid = 65;
+2026-08-22 12:20:26.966 UTC [20506] LOG:  duration: 108.821 ms  statement: UPDATE pgbench_tellers SET tbalance = tbalance + 4117 WHERE tid = 5;
+2026-08-22 12:20:26.966 UTC [20522] LOG:  duration: 183.733 ms  statement: UPDATE pgbench_tellers SET tbalance = tbalance + 175 WHERE tid = 124;
+2026-08-22 12:20:26.966 UTC [20713] LOG:  automatic vacuum of table "postgres.public.pgbench_branches": index scans: 1
+	pages: 0 removed, 17 remain, 17 scanned (100.00% of total), 0 eagerly scanned
+	tuples: 1358 removed, 579 remain, 192 are dead but not yet removable
+	tuples missed: 347 dead from 3 pages not removed due to cleanup lock contention
+	removable cutoff: 295808, which was 212 XIDs old when operation ended
+	new relfrozenxid: 292570, which is 43880 XIDs ahead of previous value
+	frozen: 0 pages from table (0.00% of total) had 0 tuples frozen
+	visibility map: 0 pages set all-visible, 0 pages set all-frozen (0 were all-visible)
+	index scan needed: 4 pages from table (23.53% of total) had 102 dead item identifiers removed
+	index "pgbench_branches_pkey": pages: 2 in total, 0 newly deleted, 0 currently deleted, 0 reusable
+	avg read rate: 68.172 MB/s, avg write rate: 54.538 MB/s
+	buffer usage: 70 hits, 5 reads, 4 dirtied
+	WAL usage: 23 records, 4 full page images, 5532 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-22 12:20:26.970 UTC [20505] LOG:  duration: 197.628 ms  statement: UPDATE pgbench_tellers SET tbalance = tbalance + 3069 WHERE tid = 58;
+2026-08-22 12:20:27.067 UTC [20713] LOG:  automatic analyze of table "postgres.public.pgbench_branches"
+	avg read rate: 0.000 MB/s, avg write rate: 0.000 MB/s
+	buffer usage: 51 hits, 0 reads, 0 dirtied
+	WAL usage: 10 records, 0 full page images, 941 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.10 s
+2026-08-22 12:20:27.070 UTC [20527] LOG:  duration: 102.499 ms  statement: UPDATE pgbench_branches SET bbalance = bbalance + -1850 WHERE bid = 11;
+2026-08-22 12:20:27.092 UTC [20508] LOG:  duration: 106.861 ms  statement: UPDATE pgbench_branches SET bbalance = bbalance + 3425 WHERE bid = 11;
+2026-08-22 12:20:27.099 UTC [20520] LOG:  duration: 107.632 ms  statement: UPDATE pgbench_branches SET bbalance = bbalance + 3388 WHERE bid = 6;
+2026-08-22 12:20:27.104 UTC [20510] LOG:  duration: 102.806 ms  statement: UPDATE pgbench_tellers SET tbalance = tbalance + 3314 WHERE tid = 264;
+2026-08-22 12:20:27.104 UTC [20519] LOG:  duration: 118.640 ms  statement: UPDATE pgbench_branches SET bbalance = bbalance + 826 WHERE bid = 6;
+2026-08-22 12:20:29.846 UTC [19362] LOG:  checkpoints are occurring too frequently (5 seconds apart)
+2026-08-22 12:20:29.846 UTC [19362] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-08-22 12:20:29.846 UTC [19362] LOG:  checkpoint starting: wal
+2026-08-22 12:20:30.544 UTC [19362] LOG:  checkpoint complete: wrote 6013 buffers (73.4%), wrote 27 SLRU buffers; 0 WAL file(s) added, 0 removed, 3 recycled; write=0.445 s, sync=0.144 s, total=0.699 s; sync files=19, longest=0.059 s, average=0.008 s; distance=49145 kB, estimate=49591 kB; lsn=0/5D5D0F70, redo lsn=0/5D000D68
+2026-08-22 12:20:30.687 UTC [20713] LOG:  automatic vacuum of table "postgres.public.pgbench_history": index scans: 0
+	pages: 0 removed, 315 remain, 315 scanned (100.00% of total), 0 eagerly scanned
+	tuples: 0 removed, 47583 remain, 0 are dead but not yet removable
+	removable cutoff: 295836, which was 12330 XIDs old when operation ended
+	new relfrozenxid: 283370, which is 34676 XIDs ahead of previous value
+	frozen: 276 pages from table (87.62% of total) had 43332 tuples frozen
+	visibility map: 287 pages set all-visible, 276 pages set all-frozen (0 were all-visible)
+	index scan not needed: 0 pages from table (0.00% of total) had 0 dead item identifiers removed
+	avg read rate: 0.695 MB/s, avg write rate: 0.693 MB/s
+	buffer usage: 323 hits, 322 reads, 321 dirtied
+	WAL usage: 871 records, 310 full page images, 1480205 bytes, 0 buffers full
+	system usage: CPU: user: 0.05 s, system: 0.00 s, elapsed: 3.61 s
+2026-08-22 12:20:31.791 UTC [20713] LOG:  automatic analyze of table "postgres.public.pgbench_history"
+	avg read rate: 2.470 MB/s, avg write rate: 0.368 MB/s
+	buffer usage: 186 hits, 349 reads, 52 dirtied
+	WAL usage: 70 records, 52 full page images, 238929 bytes, 0 buffers full
+	system usage: CPU: user: 0.05 s, system: 0.00 s, elapsed: 1.10 s
+2026-08-22 12:20:36.455 UTC [19362] LOG:  checkpoints are occurring too frequently (7 seconds apart)
+2026-08-22 12:20:36.455 UTC [19362] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-08-22 12:20:36.455 UTC [19362] LOG:  checkpoint starting: wal
+2026-08-22 12:20:37.251 UTC [19362] LOG:  checkpoint complete: wrote 5244 buffers (64.0%), wrote 27 SLRU buffers; 0 WAL file(s) added, 0 removed, 3 recycled; write=0.606 s, sync=0.095 s, total=0.797 s; sync files=19, longest=0.024 s, average=0.005 s; distance=49183 kB, estimate=49550 kB; lsn=0/605B9078, redo lsn=0/60008B58
+2026-08-22 12:20:43.752 UTC [19362] LOG:  checkpoints are occurring too frequently (7 seconds apart)
+2026-08-22 12:20:43.752 UTC [19362] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-08-22 12:20:43.752 UTC [19362] LOG:  checkpoint starting: wal
+2026-08-22 12:20:44.561 UTC [19362] LOG:  checkpoint complete: wrote 4815 buffers (58.8%), wrote 30 SLRU buffers; 0 WAL file(s) added, 0 removed, 3 recycled; write=0.576 s, sync=0.128 s, total=0.809 s; sync files=12, longest=0.064 s, average=0.011 s; distance=49130 kB, estimate=49508 kB; lsn=0/6357DEA0, redo lsn=0/630036E8
+2026-08-22 12:20:51.765 UTC [19362] LOG:  checkpoints are occurring too frequently (8 seconds apart)
+2026-08-22 12:20:51.765 UTC [19362] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-08-22 12:20:51.765 UTC [19362] LOG:  checkpoint starting: wal
+2026-08-22 12:20:52.712 UTC [19362] LOG:  checkpoint complete: wrote 4302 buffers (52.5%), wrote 31 SLRU buffers; 0 WAL file(s) added, 0 removed, 3 recycled; write=0.695 s, sync=0.143 s, total=0.947 s; sync files=12, longest=0.077 s, average=0.012 s; distance=49174 kB, estimate=49475 kB; lsn=0/66560668, redo lsn=0/660090F8
+2026-08-22 12:21:00.688 UTC [19362] LOG:  checkpoints are occurring too frequently (9 seconds apart)
+2026-08-22 12:21:00.688 UTC [19362] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-08-22 12:21:00.688 UTC [19362] LOG:  checkpoint starting: wal
+2026-08-22 12:21:01.874 UTC [19362] LOG:  checkpoint complete: wrote 4023 buffers (49.1%), wrote 32 SLRU buffers; 0 WAL file(s) added, 0 removed, 3 recycled; write=0.898 s, sync=0.141 s, total=1.186 s; sync files=13, longest=0.074 s, average=0.011 s; distance=49133 kB, estimate=49440 kB; lsn=0/695A0D48, redo lsn=0/690048D0
+2026-08-22 12:21:10.480 UTC [19362] LOG:  checkpoints are occurring too frequently (10 seconds apart)
+2026-08-22 12:21:10.480 UTC [19362] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-08-22 12:21:10.480 UTC [19362] LOG:  checkpoint starting: wal
+2026-08-22 12:21:11.794 UTC [19362] LOG:  checkpoint complete: wrote 3706 buffers (45.2%), wrote 33 SLRU buffers; 0 WAL file(s) added, 0 removed, 3 recycled; write=1.082 s, sync=0.124 s, total=1.314 s; sync files=13, longest=0.051 s, average=0.010 s; distance=49145 kB, estimate=49411 kB; lsn=0/6C5C7D80, redo lsn=0/6C002F20
+2026-08-22 12:21:20.647 UTC [19362] LOG:  checkpoints are occurring too frequently (10 seconds apart)
+2026-08-22 12:21:20.647 UTC [19362] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-08-22 12:21:20.647 UTC [19362] LOG:  checkpoint starting: wal
+2026-08-22 12:21:22.035 UTC [19362] LOG:  checkpoint complete: wrote 3526 buffers (43.0%), wrote 34 SLRU buffers; 0 WAL file(s) added, 0 removed, 3 recycled; write=1.122 s, sync=0.151 s, total=1.389 s; sync files=13, longest=0.087 s, average=0.012 s; distance=49149 kB, estimate=49385 kB; lsn=0/6F598F68, redo lsn=0/6F0024D8
+2026-08-22 12:21:26.879 UTC [21365] LOG:  automatic vacuum of table "postgres.public.pgbench_tellers": index scans: 1
+	pages: 0 removed, 27 remain, 27 scanned (100.00% of total), 0 eagerly scanned
+	tuples: 1834 removed, 434 remain, 26 are dead but not yet removable
+	tuples missed: 8 dead from 1 pages not removed due to cleanup lock contention
+	removable cutoff: 491763, which was 413 XIDs old when operation ended
+	new relfrozenxid: 489330, which is 197111 XIDs ahead of previous value
+	frozen: 0 pages from table (0.00% of total) had 0 tuples frozen
+	visibility map: 6 pages set all-visible, 4 pages set all-frozen (0 were all-visible)
+	index scan needed: 19 pages from table (70.37% of total) had 661 dead item identifiers removed
+	index "pgbench_tellers_pkey": pages: 5 in total, 0 newly deleted, 0 currently deleted, 0 reusable
+	avg read rate: 0.873 MB/s, avg write rate: 0.728 MB/s
+	buffer usage: 124 hits, 12 reads, 10 dirtied
+	WAL usage: 53 records, 10 full page images, 15255 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.10 s
+2026-08-22 12:21:27.051 UTC [21365] LOG:  automatic analyze of table "postgres.public.pgbench_tellers"
+	avg read rate: 1.445 MB/s, avg write rate: 0.045 MB/s
+	buffer usage: 158 hits, 32 reads, 1 dirtied
+	WAL usage: 13 records, 1 full page images, 3593 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.17 s
+2026-08-22 12:21:27.160 UTC [21365] LOG:  automatic vacuum of table "postgres.public.pgbench_branches": index scans: 1
+	pages: 0 removed, 18 remain, 18 scanned (100.00% of total), 0 eagerly scanned
+	tuples: 1077 removed, 482 remain, 63 are dead but not yet removable
+	tuples missed: 379 dead from 3 pages not removed due to cleanup lock contention
+	removable cutoff: 492700, which was 422 XIDs old when operation ended
+	new relfrozenxid: 484862, which is 192292 XIDs ahead of previous value
+	frozen: 0 pages from table (0.00% of total) had 0 tuples frozen
+	visibility map: 5 pages set all-visible, 5 pages set all-frozen (0 were all-visible)
+	index scan needed: 17 pages from table (94.44% of total) had 101 dead item identifiers removed
+	index "pgbench_branches_pkey": pages: 2 in total, 0 newly deleted, 0 currently deleted, 0 reusable
+	avg read rate: 0.747 MB/s, avg write rate: 0.747 MB/s
+	buffer usage: 80 hits, 10 reads, 10 dirtied
+	WAL usage: 37 records, 10 full page images, 5944 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.10 s
+2026-08-22 12:21:27.160 UTC [21365] LOG:  automatic analyze of table "postgres.public.pgbench_branches"
+	avg read rate: 0.000 MB/s, avg write rate: 0.000 MB/s
+	buffer usage: 52 hits, 0 reads, 0 dirtied
+	WAL usage: 11 records, 0 full page images, 959 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-22 12:21:31.140 UTC [19362] LOG:  checkpoints are occurring too frequently (11 seconds apart)
+2026-08-22 12:21:31.140 UTC [19362] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-08-22 12:21:31.140 UTC [19362] LOG:  checkpoint starting: wal
+2026-08-22 12:21:32.311 UTC [19362] LOG:  checkpoint complete: wrote 3378 buffers (41.2%), wrote 34 SLRU buffers; 0 WAL file(s) added, 0 removed, 3 recycled; write=0.879 s, sync=0.186 s, total=1.172 s; sync files=20, longest=0.089 s, average=0.010 s; distance=49158 kB, estimate=49362 kB; lsn=0/725BACB8, redo lsn=0/72004068
+2026-08-22 12:21:41.097 UTC [19362] LOG:  checkpoints are occurring too frequently (10 seconds apart)
+2026-08-22 12:21:41.097 UTC [19362] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-08-22 12:21:41.097 UTC [19362] LOG:  checkpoint starting: wal
+2026-08-22 12:21:41.953 UTC [20524] LOG:  disconnection: session time: 0:01:29.990 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.953 UTC [20515] LOG:  disconnection: session time: 0:01:29.994 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.953 UTC [20526] LOG:  disconnection: session time: 0:01:29.989 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.953 UTC [20525] LOG:  disconnection: session time: 0:01:29.989 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.955 UTC [20510] LOG:  disconnection: session time: 0:01:29.999 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.955 UTC [20520] LOG:  disconnection: session time: 0:01:29.994 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.955 UTC [20507] LOG:  disconnection: session time: 0:01:30.000 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.955 UTC [20512] LOG:  disconnection: session time: 0:01:29.998 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.955 UTC [20513] LOG:  disconnection: session time: 0:01:29.997 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.955 UTC [20523] LOG:  disconnection: session time: 0:01:29.993 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.955 UTC [20508] LOG:  disconnection: session time: 0:01:30.000 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.958 UTC [20505] LOG:  disconnection: session time: 0:01:30.003 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.958 UTC [20527] LOG:  disconnection: session time: 0:01:29.994 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.958 UTC [20504] LOG:  disconnection: session time: 0:01:30.004 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.958 UTC [20506] LOG:  disconnection: session time: 0:01:30.003 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.958 UTC [20518] LOG:  disconnection: session time: 0:01:29.997 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.958 UTC [20511] LOG:  disconnection: session time: 0:01:30.001 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.960 UTC [20522] LOG:  disconnection: session time: 0:01:29.998 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.960 UTC [20521] LOG:  disconnection: session time: 0:01:29.999 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.963 UTC [20519] LOG:  disconnection: session time: 0:01:30.002 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.963 UTC [20517] LOG:  disconnection: session time: 0:01:30.003 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.964 UTC [20509] LOG:  disconnection: session time: 0:01:30.008 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.964 UTC [20514] LOG:  disconnection: session time: 0:01:30.005 user=postgres database=postgres host=[local]
+2026-08-22 12:21:41.977 UTC [20516] LOG:  disconnection: session time: 0:01:30.018 user=postgres database=postgres host=[local]
+2026-08-22 12:21:42.394 UTC [19362] LOG:  checkpoint complete: wrote 3273 buffers (40.0%), wrote 34 SLRU buffers; 0 WAL file(s) added, 0 removed, 3 recycled; write=1.153 s, sync=0.085 s, total=1.298 s; sync files=14, longest=0.050 s, average=0.007 s; distance=49177 kB, estimate=49344 kB; lsn=0/754E5C98, redo lsn=0/7500A730
+2026-08-22 12:21:42.481 UTC [21365] LOG:  automatic vacuum of table "postgres.public.pgbench_history": index scans: 0
+	pages: 0 removed, 1595 remain, 1309 scanned (82.07% of total), 0 eagerly scanned
+	tuples: 0 removed, 244516 remain, 0 are dead but not yet removable
+	removable cutoff: 493104, which was 49267 XIDs old when operation ended
+	frozen: 1182 pages from table (74.11% of total) had 183024 tuples frozen
+	visibility map: 1284 pages set all-visible, 1182 pages set all-frozen (0 were all-visible)
+	index scan not needed: 0 pages from table (0.00% of total) had 0 dead item identifiers removed
+	avg read rate: 0.672 MB/s, avg write rate: 0.670 MB/s
+	buffer usage: 1317 hits, 1317 reads, 1313 dirtied
+	WAL usage: 3674 records, 1313 full page images, 6468001 bytes, 0 buffers full
+	system usage: CPU: user: 0.22 s, system: 0.00 s, elapsed: 15.31 s
+2026-08-22 12:21:47.605 UTC [21365] LOG:  automatic analyze of table "postgres.public.pgbench_history"
+	avg read rate: 2.809 MB/s, avg write rate: 0.477 MB/s
+	buffer usage: 174 hits, 1843 reads, 313 dirtied
+	WAL usage: 309 records, 288 full page images, 1330553 bytes, 0 buffers full
+	system usage: CPU: user: 0.08 s, system: 0.00 s, elapsed: 5.12 s
+2026-08-22 12:22:11.420 UTC [19362] LOG:  checkpoint starting: time
+2026-08-22 12:22:14.074 UTC [19362] LOG:  checkpoint complete: wrote 2839 buffers (34.7%), wrote 7 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=2.626 s, sync=0.011 s, total=2.654 s; sync files=11, longest=0.004 s, average=0.001 s; distance=6297 kB, estimate=45039 kB; lsn=0/75630CE8, redo lsn=0/75630C90
+2026-08-22 12:22:27.116 UTC [21728] LOG:  automatic vacuum of table "postgres.public.pgbench_tellers": index scans: 0
+	pages: 0 removed, 27 remain, 27 scanned (100.00% of total), 0 eagerly scanned
+	tuples: 1705 removed, 400 remain, 0 are dead but not yet removable
+	removable cutoff: 542372, which was 0 XIDs old when operation ended
+	new relfrozenxid: 542372, which is 53042 XIDs ahead of previous value
+	frozen: 23 pages from table (85.19% of total) had 400 tuples frozen
+	visibility map: 23 pages set all-visible, 23 pages set all-frozen (0 were all-visible)
+	index scan not needed: 0 pages from table (0.00% of total) had 0 dead item identifiers removed
+	avg read rate: 0.344 MB/s, avg write rate: 0.640 MB/s
+	buffer usage: 92 hits, 14 reads, 26 dirtied
+	WAL usage: 71 records, 26 full page images, 57041 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.31 s
+2026-08-22 12:22:27.217 UTC [21728] LOG:  automatic analyze of table "postgres.public.pgbench_tellers"
+	avg read rate: 1.238 MB/s, avg write rate: 0.077 MB/s
+	buffer usage: 168 hits, 16 reads, 1 dirtied
+	WAL usage: 13 records, 1 full page images, 3720 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.10 s
+2026-08-22 12:22:27.441 UTC [21728] LOG:  automatic vacuum of table "postgres.public.pgbench_branches": index scans: 1
+	pages: 0 removed, 18 remain, 18 scanned (100.00% of total), 0 eagerly scanned
+	tuples: 1726 removed, 40 remain, 0 are dead but not yet removable
+	removable cutoff: 542373, which was 0 XIDs old when operation ended
+	new relfrozenxid: 542373, which is 57511 XIDs ahead of previous value
+	frozen: 17 pages from table (94.44% of total) had 40 tuples frozen
+	visibility map: 17 pages set all-visible, 17 pages set all-frozen (0 were all-visible)
+	index scan needed: 3 pages from table (16.67% of total) had 10 dead item identifiers removed
+	index "pgbench_branches_pkey": pages: 2 in total, 0 newly deleted, 0 currently deleted, 0 reusable
+	avg read rate: 0.211 MB/s, avg write rate: 0.703 MB/s
+	buffer usage: 70 hits, 6 reads, 20 dirtied
+	WAL usage: 57 records, 20 full page images, 45199 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.22 s
+2026-08-22 12:22:27.442 UTC [21728] LOG:  automatic analyze of table "postgres.public.pgbench_branches"
+	avg read rate: 0.000 MB/s, avg write rate: 0.000 MB/s
+	buffer usage: 52 hits, 0 reads, 0 dirtied
+	WAL usage: 10 records, 0 full page images, 867 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-22 12:22:41.100 UTC [19362] LOG:  checkpoint starting: time
+2026-08-22 12:22:41.293 UTC [19362] LOG:  checkpoint complete: wrote 47 buffers (0.6%), wrote 2 SLRU buffers; 0 WAL file(s) added, 1 removed, 0 recycled; write=0.131 s, sync=0.028 s, total=0.193 s; sync files=11, longest=0.006 s, average=0.003 s; distance=106 kB, estimate=40546 kB; lsn=0/76000060, redo lsn=0/7564B4B0
+2026-08-22 12:43:24.131 UTC [26295] LOG:  connection received: host=[local]
+2026-08-22 12:43:24.132 UTC [26295] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:43:24.132 UTC [26295] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-08-22 12:43:24.157 UTC [26295] LOG:  disconnection: session time: 0:00:00.025 user=postgres database=postgres host=[local]
+2026-08-22 12:43:27.456 UTC [26304] LOG:  automatic analyze of table "postgres.public.marker"
+	avg read rate: 0.152 MB/s, avg write rate: 0.101 MB/s
+	buffer usage: 300 hits, 3 reads, 2 dirtied
+	WAL usage: 12 records, 2 full page images, 3878 bytes, 0 buffers full
+	system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.15 s
+2026-08-22 12:43:42.124 UTC [19362] LOG:  checkpoint starting: time
+2026-08-22 12:43:42.315 UTC [19362] LOG:  checkpoint complete: wrote 42 buffers (0.5%), wrote 2 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=0.128 s, sync=0.033 s, total=0.191 s; sync files=37, longest=0.003 s, average=0.001 s; distance=26424 kB, estimate=39133 kB; lsn=0/78000060, redo lsn=0/77019848
+2026-08-22 12:43:44.282 UTC [26412] LOG:  connection received: host=[local]
+2026-08-22 12:43:44.283 UTC [26412] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:43:44.283 UTC [26412] LOG:  connection authorized: user=postgres database=postgres
+2026-08-22 12:43:44.288 UTC [26412] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp26412.0", size 91664
+2026-08-22 12:43:44.288 UTC [26412] STATEMENT:  select (select setting from pg_catalog.pg_settings where name = 'server_version_num')::int4, (select setting from pg_catalog.pg_settings where name = 'data_directory')::text, (select setting from pg_catalog.pg_settings where name = 'archive_mode')::text, (select setting from pg_catalog.pg_settings where name = 'archive_command')::text, (select setting from pg_catalog.pg_settings where name = 'checkpoint_timeout')::int4
+2026-08-22 12:43:44.288 UTC [26412] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp26412.1", size 91664
+2026-08-22 12:43:44.288 UTC [26412] STATEMENT:  select (select setting from pg_catalog.pg_settings where name = 'server_version_num')::int4, (select setting from pg_catalog.pg_settings where name = 'data_directory')::text, (select setting from pg_catalog.pg_settings where name = 'archive_mode')::text, (select setting from pg_catalog.pg_settings where name = 'archive_command')::text, (select setting from pg_catalog.pg_settings where name = 'checkpoint_timeout')::int4
+2026-08-22 12:43:44.288 UTC [26412] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp26412.2", size 91664
+2026-08-22 12:43:44.288 UTC [26412] STATEMENT:  select (select setting from pg_catalog.pg_settings where name = 'server_version_num')::int4, (select setting from pg_catalog.pg_settings where name = 'data_directory')::text, (select setting from pg_catalog.pg_settings where name = 'archive_mode')::text, (select setting from pg_catalog.pg_settings where name = 'archive_command')::text, (select setting from pg_catalog.pg_settings where name = 'checkpoint_timeout')::int4
+2026-08-22 12:43:44.288 UTC [26412] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp26412.3", size 91664
+2026-08-22 12:43:44.288 UTC [26412] STATEMENT:  select (select setting from pg_catalog.pg_settings where name = 'server_version_num')::int4, (select setting from pg_catalog.pg_settings where name = 'data_directory')::text, (select setting from pg_catalog.pg_settings where name = 'archive_mode')::text, (select setting from pg_catalog.pg_settings where name = 'archive_command')::text, (select setting from pg_catalog.pg_settings where name = 'checkpoint_timeout')::int4
+2026-08-22 12:43:44.289 UTC [26412] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp26412.4", size 91664
+2026-08-22 12:43:44.289 UTC [26412] STATEMENT:  select (select setting from pg_catalog.pg_settings where name = 'server_version_num')::int4, (select setting from pg_catalog.pg_settings where name = 'data_directory')::text, (select setting from pg_catalog.pg_settings where name = 'archive_mode')::text, (select setting from pg_catalog.pg_settings where name = 'archive_command')::text, (select setting from pg_catalog.pg_settings where name = 'checkpoint_timeout')::int4
+2026-08-22 12:43:44.321 UTC [19362] LOG:  checkpoint starting: force wait
+2026-08-22 12:43:44.357 UTC [19362] LOG:  checkpoint complete: wrote 0 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.036 s; sync files=0, longest=0.000 s, average=0.000 s; distance=32665 kB, estimate=38487 kB; lsn=0/79000080, redo lsn=0/79000028
+2026-08-22 12:49:05.667 UTC [95] LOG:  starting PostgreSQL 18.3 - Percona Server for PostgreSQL 18.3.1 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 11.5.0 20240719 (Red Hat 11.5.0-11.0.2), 64-bit
+2026-08-22 12:49:05.667 UTC [95] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-08-22 12:49:05.667 UTC [95] LOG:  listening on IPv6 address "::", port 5432
+2026-08-22 12:49:05.673 UTC [95] LOG:  listening on Unix socket "/tmp/postgres/.s.PGSQL.5432"
+2026-08-22 12:49:05.681 UTC [103] LOG:  database system was shut down at 2026-08-22 12:48:51 UTC
+2026-08-22 12:49:05.689 UTC [95] LOG:  database system is ready to accept connections
+pg_waldump: error: could not read file "00000003.history": read 92 of 8192
+2026-08-22 12:49:06.667 UTC [130] LOG:  connection received: host=[local]
+2026-08-22 12:49:06.668 UTC [130] LOG:  connection authenticated: user="postgres" method=trust (/pgdata/pg18/pg_hba.conf:4)
+2026-08-22 12:49:06.668 UTC [130] LOG:  connection authorized: user=postgres database=postgres application_name=pg_isready
+2026-08-22 12:49:06.672 UTC [130] LOG:  disconnection: session time: 0:00:00.004 user=postgres database=postgres host=[local]
+2026-08-22 12:49:06.675 UTC [132] LOG:  connection received: host=[local]
+2026-08-22 12:49:06.675 UTC [132] LOG:  connection authenticated: user="postgres" method=trust (/pgdata/pg18/pg_hba.conf:4)
+2026-08-22 12:49:06.675 UTC [132] LOG:  connection authorized: user=postgres database=postgres application_name=pg_isready
+2026-08-22 12:49:06.676 UTC [132] LOG:  disconnection: session time: 0:00:00.001 user=postgres database=postgres host=[local]
+2026-08-22 12:49:06.678 UTC [133] LOG:  connection received: host=[local]
+2026-08-22 12:49:06.678 UTC [133] LOG:  connection authenticated: user="postgres" method=trust (/pgdata/pg18/pg_hba.conf:4)
+2026-08-22 12:49:06.678 UTC [133] LOG:  connection authorized: user=postgres database=postgres application_name=Patroni heartbeat
+2026-08-22 12:49:06.732 UTC [95] LOG:  received SIGHUP, reloading configuration files
+2026-08-22 12:49:07.501 UTC [153] LOG:  connection received: host=[local]
+2026-08-22 12:49:07.501 UTC [153] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:49:07.501 UTC [153] LOG:  connection authorized: user=postgres database=postgres
+2026-08-22 12:49:07.507 UTC [153] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp153.0", size 90519
+2026-08-22 12:49:07.507 UTC [153] STATEMENT:  select (select setting from pg_catalog.pg_settings where name = 'server_version_num')::int4, (select setting from pg_catalog.pg_settings where name = 'data_directory')::text, (select setting from pg_catalog.pg_settings where name = 'archive_mode')::text, (select setting from pg_catalog.pg_settings where name = 'archive_command')::text, (select setting from pg_catalog.pg_settings where name = 'checkpoint_timeout')::int4
+2026-08-22 12:49:07.507 UTC [153] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp153.1", size 90519
+2026-08-22 12:49:07.507 UTC [153] STATEMENT:  select (select setting from pg_catalog.pg_settings where name = 'server_version_num')::int4, (select setting from pg_catalog.pg_settings where name = 'data_directory')::text, (select setting from pg_catalog.pg_settings where name = 'archive_mode')::text, (select setting from pg_catalog.pg_settings where name = 'archive_command')::text, (select setting from pg_catalog.pg_settings where name = 'checkpoint_timeout')::int4
+2026-08-22 12:49:07.507 UTC [153] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp153.2", size 90519
+2026-08-22 12:49:07.507 UTC [153] STATEMENT:  select (select setting from pg_catalog.pg_settings where name = 'server_version_num')::int4, (select setting from pg_catalog.pg_settings where name = 'data_directory')::text, (select setting from pg_catalog.pg_settings where name = 'archive_mode')::text, (select setting from pg_catalog.pg_settings where name = 'archive_command')::text, (select setting from pg_catalog.pg_settings where name = 'checkpoint_timeout')::int4
+2026-08-22 12:49:07.507 UTC [153] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp153.3", size 90519
+2026-08-22 12:49:07.507 UTC [153] STATEMENT:  select (select setting from pg_catalog.pg_settings where name = 'server_version_num')::int4, (select setting from pg_catalog.pg_settings where name = 'data_directory')::text, (select setting from pg_catalog.pg_settings where name = 'archive_mode')::text, (select setting from pg_catalog.pg_settings where name = 'archive_command')::text, (select setting from pg_catalog.pg_settings where name = 'checkpoint_timeout')::int4
+2026-08-22 12:49:07.507 UTC [153] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp153.4", size 90519
+2026-08-22 12:49:07.507 UTC [153] STATEMENT:  select (select setting from pg_catalog.pg_settings where name = 'server_version_num')::int4, (select setting from pg_catalog.pg_settings where name = 'data_directory')::text, (select setting from pg_catalog.pg_settings where name = 'archive_mode')::text, (select setting from pg_catalog.pg_settings where name = 'archive_command')::text, (select setting from pg_catalog.pg_settings where name = 'checkpoint_timeout')::int4
+2026-08-22 12:49:07.508 UTC [153] LOG:  disconnection: session time: 0:00:00.007 user=postgres database=postgres host=[local]
+2026-08-22 12:49:07.587 UTC [163] LOG:  connection received: host=[local]
+2026-08-22 12:49:07.587 UTC [163] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:49:07.587 UTC [163] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-08-22 12:49:07.590 UTC [163] LOG:  disconnection: session time: 0:00:00.003 user=postgres database=postgres host=[local]
+2026-08-22 12:49:07.594 UTC [165] LOG:  connection received: host=[local]
+2026-08-22 12:49:07.594 UTC [165] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:49:07.594 UTC [165] LOG:  connection authorized: user=postgres database=template1 application_name=psql
+2026-08-22 12:49:07.609 UTC [165] LOG:  disconnection: session time: 0:00:00.015 user=postgres database=template1 host=[local]
+2026-08-22 12:49:07.613 UTC [167] LOG:  connection received: host=[local]
+2026-08-22 12:49:07.614 UTC [167] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:49:07.614 UTC [167] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-08-22 12:49:07.623 UTC [167] LOG:  disconnection: session time: 0:00:00.009 user=postgres database=postgres host=[local]
+2026-08-22 12:49:07.626 UTC [169] LOG:  connection received: host=[local]
+2026-08-22 12:49:07.627 UTC [169] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:49:07.627 UTC [169] LOG:  connection authorized: user=postgres database=pgc application_name=psql
+2026-08-22 12:49:07.638 UTC [169] LOG:  disconnection: session time: 0:00:00.011 user=postgres database=pgc host=[local]
+2026-08-22 12:49:07.733 UTC [133] LOG:  disconnection: session time: 0:00:01.055 user=postgres database=postgres host=[local]
+2026-08-22 12:49:07.734 UTC [170] LOG:  connection received: host=[local]
+2026-08-22 12:49:07.735 UTC [170] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:49:07.735 UTC [170] LOG:  connection authorized: user=postgres database=postgres application_name=Patroni heartbeat
+2026-08-22 12:49:13.211 UTC [220] LOG:  connection received: host=[local]
+2026-08-22 12:49:13.211 UTC [220] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:49:13.211 UTC [220] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-08-22 12:49:13.213 UTC [220] LOG:  disconnection: session time: 0:00:00.002 user=postgres database=postgres host=[local]
+2026-08-22 12:49:15.659 UTC [235] LOG:  connection received: host=[local]
+2026-08-22 12:49:15.660 UTC [235] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:49:15.660 UTC [235] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-08-22 12:49:15.662 UTC [235] LOG:  disconnection: session time: 0:00:00.002 user=postgres database=postgres host=[local]
+2026-08-22 12:49:19.135 UTC [259] LOG:  connection received: host=10.42.0.24 port=60182
+2026-08-22 12:49:19.135 UTC [260] LOG:  connection received: host=10.42.0.23 port=38128
+2026-08-22 12:49:19.138 UTC [259] LOG:  connection authenticated: identity="CN=_crunchyrepl" method=cert (/pgdata/pg18/pg_hba.conf:5)
+2026-08-22 12:49:19.138 UTC [259] LOG:  connection authorized: user=_crunchyrepl database=postgres SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-08-22 12:49:19.138 UTC [260] LOG:  connection authenticated: identity="CN=_crunchyrepl" method=cert (/pgdata/pg18/pg_hba.conf:5)
+2026-08-22 12:49:19.138 UTC [260] LOG:  connection authorized: user=_crunchyrepl database=postgres SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-08-22 12:49:19.139 UTC [259] LOG:  disconnection: session time: 0:00:00.004 user=_crunchyrepl database=postgres host=10.42.0.24 port=60182
+2026-08-22 12:49:19.139 UTC [260] LOG:  disconnection: session time: 0:00:00.003 user=_crunchyrepl database=postgres host=10.42.0.23 port=38128
+2026-08-22 12:49:19.140 UTC [261] LOG:  connection received: host=10.42.0.24 port=60186
+2026-08-22 12:49:19.140 UTC [262] LOG:  connection received: host=10.42.0.23 port=38134
+2026-08-22 12:49:19.142 UTC [261] LOG:  connection authenticated: identity="CN=_crunchyrepl" method=cert (/pgdata/pg18/pg_hba.conf:4)
+2026-08-22 12:49:19.142 UTC [261] LOG:  replication connection authorized: user=_crunchyrepl SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-08-22 12:49:19.143 UTC [262] LOG:  connection authenticated: identity="CN=_crunchyrepl" method=cert (/pgdata/pg18/pg_hba.conf:4)
+2026-08-22 12:49:19.143 UTC [262] LOG:  replication connection authorized: user=_crunchyrepl SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-08-22 12:49:19.144 UTC [261] LOG:  disconnection: session time: 0:00:00.004 user=_crunchyrepl database= host=10.42.0.24 port=60186
+2026-08-22 12:49:19.144 UTC [262] LOG:  disconnection: session time: 0:00:00.004 user=_crunchyrepl database= host=10.42.0.23 port=38134
+2026-08-22 12:49:19.179 UTC [263] LOG:  connection received: host=10.42.0.24 port=60202
+2026-08-22 12:49:19.181 UTC [264] LOG:  connection received: host=10.42.0.23 port=38136
+2026-08-22 12:49:19.181 UTC [263] LOG:  connection authenticated: identity="CN=_crunchyrepl" method=cert (/pgdata/pg18/pg_hba.conf:5)
+2026-08-22 12:49:19.181 UTC [263] LOG:  connection authorized: user=_crunchyrepl database=postgres SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-08-22 12:49:19.182 UTC [263] LOG:  disconnection: session time: 0:00:00.004 user=_crunchyrepl database=postgres host=10.42.0.24 port=60202
+2026-08-22 12:49:19.184 UTC [264] LOG:  connection authenticated: identity="CN=_crunchyrepl" method=cert (/pgdata/pg18/pg_hba.conf:5)
+2026-08-22 12:49:19.184 UTC [264] LOG:  connection authorized: user=_crunchyrepl database=postgres SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-08-22 12:49:19.185 UTC [264] LOG:  disconnection: session time: 0:00:00.003 user=_crunchyrepl database=postgres host=10.42.0.23 port=38136
+2026-08-22 12:49:19.207 UTC [265] LOG:  connection received: host=10.42.0.24 port=60218
+2026-08-22 12:49:19.208 UTC [266] LOG:  connection received: host=10.42.0.23 port=38150
+2026-08-22 12:49:19.211 UTC [265] LOG:  connection authenticated: identity="CN=_crunchyrepl" method=cert (/pgdata/pg18/pg_hba.conf:5)
+2026-08-22 12:49:19.211 UTC [265] LOG:  connection authorized: user=_crunchyrepl database=postgres SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-08-22 12:49:19.212 UTC [266] LOG:  connection authenticated: identity="CN=_crunchyrepl" method=cert (/pgdata/pg18/pg_hba.conf:5)
+2026-08-22 12:49:19.212 UTC [266] LOG:  connection authorized: user=_crunchyrepl database=postgres SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-08-22 12:49:19.220 UTC [265] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp265.0", size 51236
+2026-08-22 12:49:19.220 UTC [265] STATEMENT:  WITH RECURSIVE files (path, filename, size, isdir) AS (
+	  SELECT '' AS path, filename, size, isdir FROM
+	  (SELECT pg_ls_dir('.', true, false) AS filename) AS fn,
+	        pg_stat_file(fn.filename, true) AS this
+	  UNION ALL
+	  SELECT parent.path || parent.filename || '/' AS path,
+	         fn, this.size, this.isdir
+	  FROM files AS parent,
+	       pg_ls_dir(parent.path || parent.filename, true, false) AS fn,
+	       pg_stat_file(parent.path || parent.filename || '/' || fn, true) AS this
+	       WHERE parent.isdir = 't'
+	)
+	SELECT path || filename, size, isdir,
+	       pg_tablespace_location(pg_tablespace.oid) AS link_target
+	FROM files
+	LEFT OUTER JOIN pg_tablespace ON files.path = 'pg_tblspc/'
+	                             AND oid::text = files.filename
+	
+2026-08-22 12:49:19.220 UTC [265] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp265.1", size 46792
+2026-08-22 12:49:19.220 UTC [265] STATEMENT:  WITH RECURSIVE files (path, filename, size, isdir) AS (
+	  SELECT '' AS path, filename, size, isdir FROM
+	  (SELECT pg_ls_dir('.', true, false) AS filename) AS fn,
+	        pg_stat_file(fn.filename, true) AS this
+	  UNION ALL
+	  SELECT parent.path || parent.filename || '/' AS path,
+	         fn, this.size, this.isdir
+	  FROM files AS parent,
+	       pg_ls_dir(parent.path || parent.filename, true, false) AS fn,
+	       pg_stat_file(parent.path || parent.filename || '/' || fn, true) AS this
+	       WHERE parent.isdir = 't'
+	)
+	SELECT path || filename, size, isdir,
+	       pg_tablespace_location(pg_tablespace.oid) AS link_target
+	FROM files
+	LEFT OUTER JOIN pg_tablespace ON files.path = 'pg_tblspc/'
+	                             AND oid::text = files.filename
+	
+2026-08-22 12:49:19.220 UTC [266] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp266.0", size 51287
+2026-08-22 12:49:19.220 UTC [266] STATEMENT:  WITH RECURSIVE files (path, filename, size, isdir) AS (
+	  SELECT '' AS path, filename, size, isdir FROM
+	  (SELECT pg_ls_dir('.', true, false) AS filename) AS fn,
+	        pg_stat_file(fn.filename, true) AS this
+	  UNION ALL
+	  SELECT parent.path || parent.filename || '/' AS path,
+	         fn, this.size, this.isdir
+	  FROM files AS parent,
+	       pg_ls_dir(parent.path || parent.filename, true, false) AS fn,
+	       pg_stat_file(parent.path || parent.filename || '/' || fn, true) AS this
+	       WHERE parent.isdir = 't'
+	)
+	SELECT path || filename, size, isdir,
+	       pg_tablespace_location(pg_tablespace.oid) AS link_target
+	FROM files
+	LEFT OUTER JOIN pg_tablespace ON files.path = 'pg_tblspc/'
+	                             AND oid::text = files.filename
+	
+2026-08-22 12:49:19.220 UTC [266] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp266.1", size 46843
+2026-08-22 12:49:19.220 UTC [266] STATEMENT:  WITH RECURSIVE files (path, filename, size, isdir) AS (
+	  SELECT '' AS path, filename, size, isdir FROM
+	  (SELECT pg_ls_dir('.', true, false) AS filename) AS fn,
+	        pg_stat_file(fn.filename, true) AS this
+	  UNION ALL
+	  SELECT parent.path || parent.filename || '/' AS path,
+	         fn, this.size, this.isdir
+	  FROM files AS parent,
+	       pg_ls_dir(parent.path || parent.filename, true, false) AS fn,
+	       pg_stat_file(parent.path || parent.filename || '/' || fn, true) AS this
+	       WHERE parent.isdir = 't'
+	)
+	SELECT path || filename, size, isdir,
+	       pg_tablespace_location(pg_tablespace.oid) AS link_target
+	FROM files
+	LEFT OUTER JOIN pg_tablespace ON files.path = 'pg_tblspc/'
+	                             AND oid::text = files.filename
+	
+2026-08-22 12:49:21.698 UTC [126] LOG:  starting PostgreSQL 18.3 - Percona Server for PostgreSQL 18.3.1 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 11.5.0 20240719 (Red Hat 11.5.0-11.0.2), 64-bit
+2026-08-22 12:49:21.698 UTC [126] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-08-22 12:49:21.698 UTC [126] LOG:  listening on IPv6 address "::", port 5432
+2026-08-22 12:49:21.708 UTC [126] LOG:  listening on Unix socket "/tmp/postgres/.s.PGSQL.5432"
+2026-08-22 12:49:21.720 UTC [134] LOG:  database system was interrupted while in recovery at log time 2026-08-22 12:48:51 UTC
+2026-08-22 12:49:21.720 UTC [134] HINT:  If this has occurred more than once some data might be corrupted and you might need to choose an earlier recovery target.
+2026-08-22 12:49:22.711 UTC [136] LOG:  connection received: host=[local]
+2026-08-22 12:49:22.711 UTC [136] FATAL:  the database system is starting up
+2026-08-22 12:49:22.715 UTC [138] LOG:  connection received: host=[local]
+2026-08-22 12:49:22.715 UTC [138] FATAL:  the database system is starting up
+2026-08-22 12:49:23.718 UTC [164] LOG:  connection received: host=[local]
+2026-08-22 12:49:23.718 UTC [164] FATAL:  the database system is starting up
+2026-08-22 12:49:24.174 UTC [134] LOG:  starting backup recovery with redo LSN 0/7B000520, checkpoint LSN 0/7B000578, on timeline ID 2
+2026-08-22 12:49:24.186 UTC [134] LOG:  restored log file "00000003.history" from archive
+2026-08-22 12:49:24.305 UTC [134] LOG:  restored log file "00000002000000000000007B" from archive
+2026-08-22 12:49:24.320 UTC [134] LOG:  entering standby mode
+2026-08-22 12:49:24.333 UTC [134] LOG:  restored log file "00000002.history" from archive
+2026-08-22 12:49:24.345 UTC [134] LOG:  redo starts at 0/7B000520
+2026-08-22 12:49:24.653 UTC [134] LOG:  restored log file "00000003000000000000007C" from archive
+2026-08-22 12:49:24.723 UTC [179] LOG:  connection received: host=[local]
+2026-08-22 12:49:24.723 UTC [179] FATAL:  the database system is not yet accepting connections
+2026-08-22 12:49:24.723 UTC [179] DETAIL:  Consistent recovery state has not been yet reached.
+2026-08-22 12:49:24.780 UTC [134] LOG:  completed backup recovery with redo LSN 0/7B000520 and end LSN 0/7D017890
+2026-08-22 12:49:24.780 UTC [134] LOG:  consistent recovery state reached at 0/7D017890
+2026-08-22 12:49:24.780 UTC [134] LOG:  invalid record length at 0/7D017890: expected at least 24, got 0
+2026-08-22 12:49:24.780 UTC [126] LOG:  database system is ready to accept read-only connections
+2026-08-22 12:49:24.789 UTC [180] LOG:  started streaming WAL from primary at 0/7D000000 on timeline 3
+2026-08-22 12:49:25.726 UTC [182] LOG:  connection received: host=[local]
+2026-08-22 12:49:25.727 UTC [182] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:49:25.727 UTC [182] LOG:  connection authorized: user=postgres database=postgres application_name=pg_isready
+2026-08-22 12:49:25.735 UTC [182] LOG:  disconnection: session time: 0:00:00.009 user=postgres database=postgres host=[local]
+2026-08-22 12:49:25.738 UTC [183] LOG:  connection received: host=[local]
+2026-08-22 12:49:25.738 UTC [183] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:49:25.738 UTC [183] LOG:  connection authorized: user=postgres database=postgres application_name=Patroni heartbeat
+2026-08-22 12:49:25.742 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.0", size 91694
+2026-08-22 12:49:25.742 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:49:25.794 UTC [192] LOG:  connection received: host=[local]
+2026-08-22 12:49:25.795 UTC [192] LOG:  connection authenticated: identity="postgres" method=peer (/pgdata/pg18/pg_hba.conf:3)
+2026-08-22 12:49:25.795 UTC [192] LOG:  connection authorized: user=postgres database=postgres application_name=Patroni restapi
+2026-08-22 12:49:25.798 UTC [193] LOG:  connection received: host=::1 port=60118
+2026-08-22 12:49:25.801 UTC [193] LOG:  connection authenticated: identity="CN=_crunchyrepl" method=cert (/pgdata/pg18/pg_hba.conf:4)
+2026-08-22 12:49:25.801 UTC [193] LOG:  replication connection authorized: user=_crunchyrepl SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-08-22 12:49:25.802 UTC [193] LOG:  disconnection: session time: 0:00:00.003 user=_crunchyrepl database= host=::1 port=60118
+2026-08-22 12:49:27.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.1", size 91694
+2026-08-22 12:49:27.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:49:37.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.2", size 91694
+2026-08-22 12:49:37.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:49:47.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.3", size 91694
+2026-08-22 12:49:47.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:49:51.749 UTC [132] LOG:  restartpoint starting: time
+2026-08-22 12:49:54.159 UTC [132] LOG:  restartpoint complete: wrote 60 buffers (0.7%), wrote 3 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=2.325 s, sync=0.060 s, total=2.411 s; sync files=43, longest=0.004 s, average=0.002 s; distance=32860 kB, estimate=32860 kB; lsn=0/7D017920, redo lsn=0/7D0178C8
+2026-08-22 12:49:54.160 UTC [132] LOG:  recovery restart point at 0/7D0178C8
+2026-08-22 12:49:54.160 UTC [132] DETAIL:  Last completed transaction was at log time 2026-08-22 12:49:07.637244+00.
+2026-08-22 12:49:57.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.4", size 91694
+2026-08-22 12:49:57.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:50:07.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.5", size 91694
+2026-08-22 12:50:07.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:50:17.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.6", size 91694
+2026-08-22 12:50:17.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:50:27.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.7", size 91694
+2026-08-22 12:50:27.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:50:37.740 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.8", size 91694
+2026-08-22 12:50:37.740 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:50:47.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.9", size 91694
+2026-08-22 12:50:47.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:50:57.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.10", size 91694
+2026-08-22 12:50:57.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:51:07.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.11", size 91694
+2026-08-22 12:51:07.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:51:17.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.12", size 91694
+2026-08-22 12:51:17.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:51:27.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.13", size 91694
+2026-08-22 12:51:27.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:51:37.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.14", size 91694
+2026-08-22 12:51:37.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:51:47.741 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.15", size 91694
+2026-08-22 12:51:47.741 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:51:57.740 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.16", size 91694
+2026-08-22 12:51:57.740 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:52:06.256 UTC [132] LOG:  restartpoint starting: time
+2026-08-22 12:52:06.782 UTC [132] LOG:  restartpoint complete: wrote 5 buffers (0.1%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.504 s, sync=0.003 s, total=0.526 s; sync files=2, longest=0.002 s, average=0.002 s; distance=16298 kB, estimate=31204 kB; lsn=0/7F000060, redo lsn=0/7E002340
+2026-08-22 12:52:06.782 UTC [132] LOG:  recovery restart point at 0/7E002340
+2026-08-22 12:52:06.782 UTC [132] DETAIL:  Last completed transaction was at log time 2026-08-22 12:49:07.637244+00.
+2026-08-22 12:52:07.743 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.17", size 91694
+2026-08-22 12:52:07.743 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:52:17.740 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.18", size 91694
+2026-08-22 12:52:17.740 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:52:27.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.19", size 91694
+2026-08-22 12:52:27.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:52:37.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.20", size 91694
+2026-08-22 12:52:37.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:52:47.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.21", size 91694
+2026-08-22 12:52:47.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:52:57.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.22", size 91694
+2026-08-22 12:52:57.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:53:07.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.23", size 91694
+2026-08-22 12:53:07.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:53:17.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.24", size 91694
+2026-08-22 12:53:17.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:53:27.740 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.25", size 91694
+2026-08-22 12:53:27.740 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:53:37.740 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.26", size 91694
+2026-08-22 12:53:37.740 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:53:47.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.27", size 91694
+2026-08-22 12:53:47.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:53:57.741 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.28", size 91694
+2026-08-22 12:53:57.741 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:54:07.747 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.29", size 91694
+2026-08-22 12:54:07.747 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:54:17.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.30", size 91694
+2026-08-22 12:54:17.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:54:27.740 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.31", size 91694
+2026-08-22 12:54:27.740 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:54:37.740 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.32", size 91694
+2026-08-22 12:54:37.740 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:54:47.741 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.33", size 91694
+2026-08-22 12:54:47.741 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:54:57.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.34", size 91694
+2026-08-22 12:54:57.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:55:07.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.35", size 91694
+2026-08-22 12:55:07.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:55:17.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.36", size 91694
+2026-08-22 12:55:17.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:55:27.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.37", size 91694
+2026-08-22 12:55:27.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:55:37.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.38", size 91694
+2026-08-22 12:55:37.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:55:47.740 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.39", size 91694
+2026-08-22 12:55:47.740 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:55:57.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.40", size 91694
+2026-08-22 12:55:57.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:56:07.740 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.41", size 91694
+2026-08-22 12:56:07.740 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:56:17.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.42", size 91694
+2026-08-22 12:56:17.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:56:27.740 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.43", size 91694
+2026-08-22 12:56:27.740 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:56:37.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.44", size 91694
+2026-08-22 12:56:37.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:56:47.740 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.45", size 91694
+2026-08-22 12:56:47.740 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:56:57.740 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.46", size 91694
+2026-08-22 12:56:57.740 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:57:07.744 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.47", size 91694
+2026-08-22 12:57:07.744 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:57:17.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.48", size 91694
+2026-08-22 12:57:17.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:57:27.740 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.49", size 91694
+2026-08-22 12:57:27.740 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:57:37.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.50", size 91694
+2026-08-22 12:57:37.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:57:47.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.51", size 91694
+2026-08-22 12:57:47.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:57:57.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.52", size 91694
+2026-08-22 12:57:57.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:58:07.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.53", size 91694
+2026-08-22 12:58:07.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:58:17.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.54", size 91694
+2026-08-22 12:58:17.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:58:27.740 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.55", size 91694
+2026-08-22 12:58:27.740 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:58:37.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.56", size 91694
+2026-08-22 12:58:37.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:58:47.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.57", size 91694
+2026-08-22 12:58:47.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:58:57.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.58", size 91694
+2026-08-22 12:58:57.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:59:07.739 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.59", size 91694
+2026-08-22 12:59:07.739 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:59:17.740 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.60", size 91694
+2026-08-22 12:59:17.740 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+2026-08-22 12:59:27.740 UTC [183] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp183.61", size 91694
+2026-08-22 12:59:27.740 UTC [183] STATEMENT:  SELECT name, setting, unit, vartype, context, sourcefile FROM pg_catalog.pg_settings  WHERE pg_catalog.lower(name) = ANY(ARRAY['archive_cleanup_command','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command'])
+-------------------PROCESS START-------------------
+2026-08-22 11:19:12.664 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000008, 000000020000000000000009, 00000002000000000000000A, 00000002000000000000000B, 00000002000000000000000C, 00000002000000000000000D, 00000002000000000000000E, 00000002000000000000000F] --archive-async --exec-id=114-49d9c3ce --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:19:12.664 P00   INFO: get 8 WAL file(s) from archive: 000000020000000000000008...00000002000000000000000F
+2026-08-22 11:19:12.675 P00   INFO: archive-get:async command end: completed successfully (11ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:19:12.771 P00   INFO: archive-get:async command begin 2.58.0: [000000010000000000000008, 000000010000000000000009, 00000001000000000000000A, 00000001000000000000000B, 00000001000000000000000C, 00000001000000000000000D, 00000001000000000000000E, 00000001000000000000000F] --archive-async --exec-id=117-62fb2156 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:19:12.771 P00   INFO: get 8 WAL file(s) from archive: 000000010000000000000008...00000001000000000000000F
+2026-08-22 11:19:12.798 P00   INFO: archive-get:async command end: completed successfully (27ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:08:41.769 P00   INFO: archive-get:async command begin 2.58.0: [00000002000000000000000B, 00000002000000000000000C, 00000002000000000000000D, 00000002000000000000000E, 00000002000000000000000F, 000000020000000000000010, 000000020000000000000011, 000000020000000000000012] --archive-async --exec-id=7395-fffc18f4 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:08:41.769 P00   INFO: get 8 WAL file(s) from archive: 00000002000000000000000B...000000020000000000000012
+2026-08-22 12:08:42.120 P00   INFO: archive-get:async command end: completed successfully (351ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:08:42.209 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000013, 000000020000000000000014, 000000020000000000000015, 000000020000000000000016, 000000020000000000000017, 000000020000000000000018] --archive-async --exec-id=7403-a629f626 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:08:42.209 P00   INFO: get 6 WAL file(s) from archive: 000000020000000000000013...000000020000000000000018
+2026-08-22 12:08:42.805 P00   INFO: archive-get:async command end: completed successfully (596ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:08:42.935 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000019, 00000002000000000000001A, 00000002000000000000001B, 00000002000000000000001C, 00000002000000000000001D] --archive-async --exec-id=7415-72bb2980 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:08:42.936 P00   INFO: get 5 WAL file(s) from archive: 000000020000000000000019...00000002000000000000001D
+2026-08-22 12:08:43.737 P00   INFO: archive-get:async command end: completed successfully (803ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:08:43.895 P00   INFO: archive-get:async command begin 2.58.0: [00000002000000000000001E, 00000002000000000000001F, 000000020000000000000020, 000000020000000000000021, 000000020000000000000022, 000000020000000000000023, 000000020000000000000024] --archive-async --exec-id=7427-d1623ab4 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:08:43.896 P00   INFO: get 7 WAL file(s) from archive: 00000002000000000000001E...000000020000000000000024
+2026-08-22 12:08:44.322 P00   INFO: archive-get:async command end: completed successfully (429ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:08:44.485 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000020, 000000020000000000000021, 000000020000000000000022, 000000020000000000000023, 000000020000000000000024, 000000020000000000000025, 000000020000000000000026, 000000020000000000000027] --archive-async --exec-id=7433-ed0568d8 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:08:44.485 P00   INFO: get 8 WAL file(s) from archive: 000000020000000000000020...000000020000000000000027
+2026-08-22 12:08:44.503 P00   INFO: archive-get:async command end: completed successfully (24ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:08:44.588 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000020, 000000020000000000000021, 000000020000000000000022, 000000020000000000000023, 000000020000000000000024, 000000020000000000000025, 000000020000000000000026, 000000020000000000000027] --archive-async --exec-id=7451-e438b4c4 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:08:44.588 P00   INFO: get 8 WAL file(s) from archive: 000000020000000000000020...000000020000000000000027
+2026-08-22 12:08:44.606 P00   INFO: archive-get:async command end: completed successfully (18ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:08:46.572 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000021, 000000020000000000000022, 000000020000000000000023, 000000020000000000000024, 000000020000000000000025, 000000020000000000000026, 000000020000000000000027, 000000020000000000000028] --archive-async --exec-id=7467-1bef64cf --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:08:46.573 P00   INFO: get 8 WAL file(s) from archive: 000000020000000000000021...000000020000000000000028
+2026-08-22 12:08:46.595 P00   INFO: archive-get:async command end: completed successfully (23ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:08:51.566 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000021, 000000020000000000000022, 000000020000000000000023, 000000020000000000000024, 000000020000000000000025, 000000020000000000000026, 000000020000000000000027, 000000020000000000000028] --archive-async --exec-id=7482-3daf6a2b --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:08:51.566 P00   INFO: get 8 WAL file(s) from archive: 000000020000000000000021...000000020000000000000028
+2026-08-22 12:08:51.578 P00   INFO: archive-get:async command end: completed successfully (13ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:16:22.062 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000034, 000000020000000000000035, 000000020000000000000036, 000000020000000000000037, 000000020000000000000038, 000000020000000000000039, 00000002000000000000003A, 00000002000000000000003B] --archive-async --exec-id=8651-d20d3a10 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:16:22.063 P00   INFO: get 8 WAL file(s) from archive: 000000020000000000000034...00000002000000000000003B
+2026-08-22 12:16:22.076 P00   INFO: archive-get:async command end: completed successfully (15ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:16:22.169 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000033, 000000020000000000000034, 000000020000000000000035, 000000020000000000000036, 000000020000000000000037, 000000020000000000000038, 000000020000000000000039, 00000002000000000000003A] --archive-async --exec-id=8654-28d0efb1 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:16:22.169 P00   INFO: get 8 WAL file(s) from archive: 000000020000000000000033...00000002000000000000003A
+2026-08-22 12:16:22.332 P00   INFO: archive-get:async command end: completed successfully (163ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:16:22.498 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000034, 000000020000000000000035, 000000020000000000000036, 000000020000000000000037, 000000020000000000000038, 000000020000000000000039, 00000002000000000000003A, 00000002000000000000003B] --archive-async --exec-id=8658-d94de175 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:16:22.498 P00   INFO: get 8 WAL file(s) from archive: 000000020000000000000034...00000002000000000000003B
+2026-08-22 12:16:22.511 P00   INFO: archive-get:async command end: completed successfully (14ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:16:25.501 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000036, 000000020000000000000037, 000000020000000000000038, 000000020000000000000039, 00000002000000000000003A, 00000002000000000000003B, 00000002000000000000003C, 00000002000000000000003D] --archive-async --exec-id=8691-419cc00d --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:16:25.501 P00   INFO: get 8 WAL file(s) from archive: 000000020000000000000036...00000002000000000000003D
+2026-08-22 12:16:25.516 P00   INFO: archive-get:async command end: completed successfully (16ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:16:30.501 P00   INFO: archive-get:async command begin 2.58.0: [000000020000000000000036, 000000020000000000000037, 000000020000000000000038, 000000020000000000000039, 00000002000000000000003A, 00000002000000000000003B, 00000002000000000000003C, 00000002000000000000003D] --archive-async --exec-id=8713-b58601a7 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:16:30.501 P00   INFO: get 8 WAL file(s) from archive: 000000020000000000000036...00000002000000000000003D
+2026-08-22 12:16:30.523 P00   INFO: archive-get:async command end: completed successfully (22ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:49:24.207 P00   INFO: archive-get:async command begin 2.58.0: [00000002000000000000007B, 00000002000000000000007C, 00000002000000000000007D, 00000002000000000000007E, 00000002000000000000007F, 000000020000000000000080, 000000020000000000000081, 000000020000000000000082] --archive-async --exec-id=166-edd9c3f9 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:49:24.207 P00   INFO: get 8 WAL file(s) from archive: 00000002000000000000007B...000000020000000000000082
+2026-08-22 12:49:24.392 P00   INFO: archive-get:async command end: completed successfully (186ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:49:24.455 P00   INFO: archive-get:async command begin 2.58.0: [00000003000000000000007C, 00000003000000000000007D, 00000003000000000000007E, 00000003000000000000007F, 000000030000000000000080, 000000030000000000000081, 000000030000000000000082, 000000030000000000000083] --archive-async --exec-id=171-e31edee6 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:49:24.456 P00   INFO: get 8 WAL file(s) from archive: 00000003000000000000007C...000000030000000000000083
+2026-08-22 12:49:24.596 P00   INFO: archive-get:async command end: completed successfully (141ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:49:24.675 P00   INFO: archive-get:async command begin 2.58.0: [00000003000000000000007D, 00000003000000000000007E, 00000003000000000000007F, 000000030000000000000080, 000000030000000000000081, 000000030000000000000082, 000000030000000000000083, 000000030000000000000084] --archive-async --exec-id=175-3fe5b2be --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:49:24.676 P00   INFO: get 8 WAL file(s) from archive: 00000003000000000000007D...000000030000000000000084
+2026-08-22 12:49:24.689 P00   INFO: archive-get:async command end: completed successfully (14ms)
+-------------------PROCESS START-------------------
+2026-08-22 11:13:49.884 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=132-b7f166ac --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:13:49.884 P00   INFO: push 1 WAL file(s) to archive: 000000010000000000000001
+2026-08-22 11:13:49.908 P00  ERROR: [103]: unable to find a valid repository:
+                                    repo1: [FileMissingError] unable to load info file '/pgbackrest/pgc/repo1/archive/db/archive.info' or '/pgbackrest/pgc/repo1/archive/db/archive.info.copy':
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info' for read
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info.copy' for read
+                                    HINT: archive.info cannot be opened but is required to push/get WAL segments.
+                                    HINT: is archive_command configured correctly in postgresql.conf?
+                                    HINT: has a stanza-create been performed?
+                                    HINT: use --no-archive-check to disable archive checks during backup if you have an alternate archiving scheme.
+2026-08-22 11:13:49.908 P00   INFO: archive-push:async command end: aborted with exception [103]
+
+-------------------PROCESS START-------------------
+2026-08-22 11:13:51.154 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=144-a3151e68 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:13:51.155 P00   INFO: push 2 WAL file(s) to archive: 000000010000000000000002.00000028.backup...000000010000000000000002
+2026-08-22 11:13:51.186 P00  ERROR: [103]: unable to find a valid repository:
+                                    repo1: [FileMissingError] unable to load info file '/pgbackrest/pgc/repo1/archive/db/archive.info' or '/pgbackrest/pgc/repo1/archive/db/archive.info.copy':
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info' for read
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info.copy' for read
+                                    HINT: archive.info cannot be opened but is required to push/get WAL segments.
+                                    HINT: is archive_command configured correctly in postgresql.conf?
+                                    HINT: has a stanza-create been performed?
+                                    HINT: use --no-archive-check to disable archive checks during backup if you have an alternate archiving scheme.
+2026-08-22 11:13:51.186 P00   INFO: archive-push:async command end: aborted with exception [103]
+
+-------------------PROCESS START-------------------
+2026-08-22 11:13:51.262 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=154-c54d3e05 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:13:51.262 P00   INFO: push 3 WAL file(s) to archive: 000000010000000000000002.00000028.backup...000000010000000000000003
+2026-08-22 11:13:51.281 P00  ERROR: [103]: unable to find a valid repository:
+                                    repo1: [FileMissingError] unable to load info file '/pgbackrest/pgc/repo1/archive/db/archive.info' or '/pgbackrest/pgc/repo1/archive/db/archive.info.copy':
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info' for read
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info.copy' for read
+                                    HINT: archive.info cannot be opened but is required to push/get WAL segments.
+                                    HINT: is archive_command configured correctly in postgresql.conf?
+                                    HINT: has a stanza-create been performed?
+                                    HINT: use --no-archive-check to disable archive checks during backup if you have an alternate archiving scheme.
+2026-08-22 11:13:51.281 P00   INFO: archive-push:async command end: aborted with exception [103]
+
+-------------------PROCESS START-------------------
+2026-08-22 11:13:51.368 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=169-7a1a3b0b --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:13:51.368 P00   INFO: push 2 WAL file(s) to archive: 000000010000000000000002.000000F8.backup...000000010000000000000003
+2026-08-22 11:13:51.394 P00  ERROR: [103]: unable to find a valid repository:
+                                    repo1: [FileMissingError] unable to load info file '/pgbackrest/pgc/repo1/archive/db/archive.info' or '/pgbackrest/pgc/repo1/archive/db/archive.info.copy':
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info' for read
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info.copy' for read
+                                    HINT: archive.info cannot be opened but is required to push/get WAL segments.
+                                    HINT: is archive_command configured correctly in postgresql.conf?
+                                    HINT: has a stanza-create been performed?
+                                    HINT: use --no-archive-check to disable archive checks during backup if you have an alternate archiving scheme.
+2026-08-22 11:13:51.394 P00   INFO: archive-push:async command end: aborted with exception [103]
+
+-------------------PROCESS START-------------------
+2026-08-22 11:13:51.475 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=180-5c35e9ce --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:13:51.475 P00   INFO: push 1 WAL file(s) to archive: 000000010000000000000003
+2026-08-22 11:13:51.501 P00  ERROR: [103]: unable to find a valid repository:
+                                    repo1: [FileMissingError] unable to load info file '/pgbackrest/pgc/repo1/archive/db/archive.info' or '/pgbackrest/pgc/repo1/archive/db/archive.info.copy':
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info' for read
+                                    FileMissingError: unable to open missing file '/pgbackrest/pgc/repo1/archive/db/archive.info.copy' for read
+                                    HINT: archive.info cannot be opened but is required to push/get WAL segments.
+                                    HINT: is archive_command configured correctly in postgresql.conf?
+                                    HINT: has a stanza-create been performed?
+                                    HINT: use --no-archive-check to disable archive checks during backup if you have an alternate archiving scheme.
+2026-08-22 11:13:51.501 P00   INFO: archive-push:async command end: aborted with exception [103]
+
+-------------------PROCESS START-------------------
+2026-08-22 11:14:14.047 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=551-8891397a --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:14:14.048 P00   INFO: push 1 WAL file(s) to archive: 000000010000000000000004
+2026-08-22 11:14:14.371 P00   INFO: archive-push:async command end: completed successfully (324ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:15:14.105 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=708-e183371d --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:15:14.105 P00   INFO: push 1 WAL file(s) to archive: 000000010000000000000005
+2026-08-22 11:15:14.318 P00   INFO: archive-push:async command end: completed successfully (213ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:16:05.901 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=838-737fee36 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:16:05.901 P00   INFO: push 2 WAL file(s) to archive: 000000010000000000000005.00000028.backup...000000010000000000000006
+2026-08-22 11:16:06.114 P00   INFO: archive-push:async command end: completed successfully (214ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:17:05.359 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=1178-c6b12189 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:17:05.359 P00   INFO: push 1 WAL file(s) to archive: 000000010000000000000007
+2026-08-22 11:17:05.553 P00   INFO: archive-push:async command end: completed successfully (194ms)
+-------------------PROCESS START-------------------
+2026-08-22 11:13:51.270 P00   INFO: stanza-create command begin 2.58.0: --exec-id=159-3b94011d --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --pg1-port=5432 --pg1-socket-path=/tmp/postgres --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --stanza=db
+2026-08-22 11:13:51.270 P00  ERROR: [050]: unable to acquire lock on file '/tmp/pgbackrest/db-archive-1.lock': Resource temporarily unavailable
+                                    HINT: is another pgBackRest process running?
+2026-08-22 11:13:51.270 P00   INFO: stanza-create command end: aborted with exception [050]
+
+-------------------PROCESS START-------------------
+2026-08-22 11:13:52.468 P00   INFO: stanza-create command begin 2.58.0: --exec-id=191-604b8786 --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --pg1-port=5432 --pg1-socket-path=/tmp/postgres --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --stanza=db
+2026-08-22 11:13:52.474 P00   INFO: stanza-create for stanza 'db' on repo1
+2026-08-22 11:13:52.694 P00   INFO: stanza-create command end: completed successfully (228ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:13:54.583 P00   INFO: stanza-create command begin 2.58.0: --exec-id=341-5e00fb1e --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --pg1-port=5432 --pg1-socket-path=/tmp/postgres --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --stanza=db
+2026-08-22 11:13:54.589 P00   INFO: stanza-create for stanza 'db' on repo1
+2026-08-22 11:13:54.597 P00   INFO: stanza 'db' already exists on repo1 and is valid
+2026-08-22 11:13:54.597 P00   INFO: stanza-create command end: completed successfully (15ms)
+-------------------PROCESS START-------------------
+2026-08-22 11:13:51.274 P00   INFO: stanza-upgrade command begin 2.58.0: --exec-id=160-96d8193f --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --pg1-port=5432 --pg1-socket-path=/tmp/postgres --repo1-path=/pgbackrest/pgc/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --stanza=db
+2026-08-22 11:13:51.274 P00  ERROR: [050]: unable to acquire lock on file '/tmp/pgbackrest/db-archive-1.lock': Resource temporarily unavailable
+                                    HINT: is another pgBackRest process running?
+2026-08-22 11:13:51.275 P00   INFO: stanza-upgrade command end: aborted with exception [050]

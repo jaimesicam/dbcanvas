@@ -1,0 +1,234 @@
+-------------------PROCESS START-------------------
+2026-08-22 11:15:02.115 P00   INFO: archive-get:async command begin 2.58.0: [000000010000000000000002, 000000010000000000000003, 000000010000000000000004, 000000010000000000000005, 000000010000000000000006, 000000010000000000000007, 000000010000000000000008, 000000010000000000000009] --archive-async --exec-id=99-dcf10036 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:15:02.115 P00   INFO: get 8 WAL file(s) from archive: 000000010000000000000002...000000010000000000000009
+2026-08-22 11:15:02.268 P00   INFO: archive-get:async command end: completed successfully (153ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:15:02.439 P00   INFO: archive-get:async command begin 2.58.0: [000000010000000000000003, 000000010000000000000004, 000000010000000000000005, 000000010000000000000006, 000000010000000000000007, 000000010000000000000008, 000000010000000000000009, 00000001000000000000000A] --archive-async --exec-id=107-b7435fe7 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:15:02.439 P00   INFO: get 8 WAL file(s) from archive: 000000010000000000000003...00000001000000000000000A
+2026-08-22 11:15:02.453 P00   INFO: archive-get:async command end: completed successfully (14ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:15:02.548 P00   INFO: archive-get:async command begin 2.58.0: [000000010000000000000003, 000000010000000000000004, 000000010000000000000005, 000000010000000000000006, 000000010000000000000007, 000000010000000000000008, 000000010000000000000009, 00000001000000000000000A] --archive-async --exec-id=110-b18f6530 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:15:02.548 P00   INFO: get 8 WAL file(s) from archive: 000000010000000000000003...00000001000000000000000A
+2026-08-22 11:15:02.559 P00   INFO: archive-get:async command end: completed successfully (11ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:18:22.650 P00   INFO: archive-get:async command begin 2.58.0: [000000010000000000000007, 000000010000000000000008, 000000010000000000000009, 00000001000000000000000A, 00000001000000000000000B, 00000001000000000000000C, 00000001000000000000000D, 00000001000000000000000E] --archive-async --exec-id=421-2eee8869 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:18:22.651 P00   INFO: get 8 WAL file(s) from archive: 000000010000000000000007...00000001000000000000000E
+2026-08-22 11:18:22.665 P00   INFO: archive-get:async command end: completed successfully (17ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:18:23.283 P00   INFO: archive-get:async command begin 2.58.0: [000000010000000000000007, 000000010000000000000008, 000000010000000000000009, 00000001000000000000000A, 00000001000000000000000B, 00000001000000000000000C, 00000001000000000000000D, 00000001000000000000000E] --archive-async --exec-id=427-0361268d --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:18:23.283 P00   INFO: get 8 WAL file(s) from archive: 000000010000000000000007...00000001000000000000000E
+2026-08-22 11:18:23.295 P00   INFO: archive-get:async command end: completed successfully (13ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:18:23.389 P00   INFO: archive-get:async command begin 2.58.0: [000000010000000000000007, 000000010000000000000008, 000000010000000000000009, 00000001000000000000000A, 00000001000000000000000B, 00000001000000000000000C, 00000001000000000000000D, 00000001000000000000000E] --archive-async --exec-id=431-e69f811e --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:18:23.390 P00   INFO: get 8 WAL file(s) from archive: 000000010000000000000007...00000001000000000000000E
+2026-08-22 11:18:23.402 P00   INFO: archive-get:async command end: completed successfully (13ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:56:06.142 P00   INFO: archive-get:async command begin 2.58.0: [000000010000000000000004, 000000010000000000000005, 000000010000000000000006, 000000010000000000000007, 000000010000000000000008, 000000010000000000000009, 00000001000000000000000A, 00000001000000000000000B] --archive-async --exec-id=25-62313c6e --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo=1 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:56:06.142 P00   INFO: get 8 WAL file(s) from archive: 000000010000000000000004...00000001000000000000000B
+2026-08-22 12:56:06.368 P00   INFO: archive-get:async command end: completed successfully (226ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:56:06.383 P00   INFO: archive-get:async command begin 2.58.0: [000000010000000000000004, 000000010000000000000005, 000000010000000000000007, 000000010000000000000008, 000000010000000000000009, 00000001000000000000000A, 00000001000000000000000B] --archive-async --exec-id=33-26246f3d --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo=1 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:56:06.383 P00   INFO: get 7 WAL file(s) from archive: 000000010000000000000004...00000001000000000000000B
+2026-08-22 12:56:06.575 P00   INFO: archive-get:async command end: completed successfully (192ms)
+-------------------PROCESS START-------------------
+2026-08-22 11:18:23.625 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=440-9b2e7504 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:18:23.626 P00   INFO: push 2 WAL file(s) to archive: 000000010000000000000007.partial...00000002.history
+2026-08-22 11:18:23.824 P00   INFO: archive-push:async command end: completed successfully (199ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:19:23.747 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=559-d9311d93 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:19:23.747 P00   INFO: push 1 WAL file(s) to archive: 000000020000000000000007
+2026-08-22 11:19:23.959 P00   INFO: archive-push:async command end: completed successfully (212ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 11:24:23.242 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=909-64192d7e --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 11:24:23.242 P00   INFO: push 1 WAL file(s) to archive: 000000020000000000000008
+2026-08-22 11:24:23.437 P00   INFO: archive-push:async command end: completed successfully (195ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:05:28.968 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=3803-5f8b3808 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:05:28.969 P00   INFO: push 1 WAL file(s) to archive: 000000020000000000000009
+2026-08-22 12:05:29.250 P00   INFO: archive-push:async command end: completed successfully (282ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:05:29.291 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=3807-9f0e3c00 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:05:29.292 P00   INFO: push 1 WAL file(s) to archive: 00000002000000000000000A
+2026-08-22 12:05:29.581 P00   INFO: archive-push:async command end: completed successfully (290ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:05:29.612 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=3811-43fb3b0b --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:05:29.612 P00   INFO: push 2 WAL file(s) to archive: 00000002000000000000000B...00000002000000000000000C
+2026-08-22 12:05:30.045 P00   INFO: archive-push:async command end: completed successfully (436ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:05:30.296 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=3816-488be2a0 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:05:30.296 P00   INFO: push 2 WAL file(s) to archive: 00000002000000000000000D...00000002000000000000000E
+2026-08-22 12:05:30.740 P00   INFO: archive-push:async command end: completed successfully (444ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:05:30.950 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=3821-6036c14d --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:05:30.950 P00   INFO: push 2 WAL file(s) to archive: 00000002000000000000000F...000000020000000000000010
+2026-08-22 12:05:31.382 P00   INFO: archive-push:async command end: completed successfully (433ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:05:31.598 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=3826-ec4a9cb3 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:05:31.599 P00   INFO: push 2 WAL file(s) to archive: 000000020000000000000011...000000020000000000000012
+2026-08-22 12:05:32.012 P00   INFO: archive-push:async command end: completed successfully (418ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:05:32.251 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=3831-70e97e76 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:05:32.253 P00   INFO: push 2 WAL file(s) to archive: 000000020000000000000013...000000020000000000000014
+2026-08-22 12:05:32.707 P00   INFO: archive-push:async command end: completed successfully (459ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:05:33.183 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=3840-6225cadc --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:05:33.183 P00   INFO: push 1 WAL file(s) to archive: 000000020000000000000015
+2026-08-22 12:05:33.493 P00   INFO: archive-push:async command end: completed successfully (310ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:05:33.780 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=3844-aa0f9887 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:05:33.780 P00   INFO: push 2 WAL file(s) to archive: 000000020000000000000016...000000020000000000000017
+2026-08-22 12:05:35.557 P00   INFO: archive-push:async command end: completed successfully (1778ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:05:42.550 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=3888-617cb289 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:05:42.550 P00   INFO: push 1 WAL file(s) to archive: 000000020000000000000018
+2026-08-22 12:05:43.617 P00   INFO: archive-push:async command end: completed successfully (1067ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:05:56.132 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=3912-e4d502f1 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:05:56.132 P00   INFO: push 1 WAL file(s) to archive: 000000020000000000000019
+2026-08-22 12:05:57.268 P00   INFO: archive-push:async command end: completed successfully (1136ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:06:09.927 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=3930-1c710a2d --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:06:09.928 P00   INFO: push 1 WAL file(s) to archive: 00000002000000000000001A
+2026-08-22 12:06:11.106 P00   INFO: archive-push:async command end: completed successfully (1180ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:06:23.853 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=3947-fd11fa3f --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:06:23.853 P00   INFO: push 1 WAL file(s) to archive: 00000002000000000000001B
+2026-08-22 12:06:24.921 P00   INFO: archive-push:async command end: completed successfully (1069ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:07:23.249 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=4019-1aa1846c --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:07:23.249 P00   INFO: push 1 WAL file(s) to archive: 00000002000000000000001C
+2026-08-22 12:07:24.043 P00   INFO: archive-push:async command end: completed successfully (795ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:08:23.288 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=4099-c00dae8e --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:08:23.288 P00   INFO: push 1 WAL file(s) to archive: 00000002000000000000001D
+2026-08-22 12:08:23.492 P00   INFO: archive-push:async command end: completed successfully (204ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:08:48.485 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=4171-86bf0c15 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:08:48.485 P00   INFO: push 1 WAL file(s) to archive: 00000002000000000000001E
+2026-08-22 12:08:48.688 P00   INFO: archive-push:async command end: completed successfully (203ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:13:40.960 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=4562-bd4db19b --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:13:40.960 P00   INFO: push 1 WAL file(s) to archive: 00000002000000000000001F
+2026-08-22 12:13:41.221 P00   INFO: archive-push:async command end: completed successfully (261ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:13:41.292 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=4566-a062b9e2 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:13:41.293 P00   INFO: push 4 WAL file(s) to archive: 000000020000000000000020...000000020000000000000023
+2026-08-22 12:13:41.923 P00   INFO: archive-push:async command end: completed successfully (631ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:13:42.045 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=4573-4c6fff43 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:13:42.046 P00   INFO: push 7 WAL file(s) to archive: 000000020000000000000024...00000002000000000000002A
+2026-08-22 12:13:42.982 P00   INFO: archive-push:async command end: completed successfully (937ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:13:43.106 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=4584-409134bb --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:13:43.108 P00   INFO: push 1 WAL file(s) to archive: 00000002000000000000002B
+2026-08-22 12:13:43.378 P00   INFO: archive-push:async command end: completed successfully (277ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:13:43.400 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=4590-1f5fcacf --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:13:43.400 P00   INFO: push 1 WAL file(s) to archive: 00000002000000000000002C
+2026-08-22 12:13:43.946 P00   INFO: archive-push:async command end: completed successfully (547ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:13:50.475 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=4633-bbebcdde --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:13:50.475 P00   INFO: push 1 WAL file(s) to archive: 00000002000000000000002D
+2026-08-22 12:13:51.404 P00   INFO: archive-push:async command end: completed successfully (930ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:13:53.269 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=4639-7ff0dd41 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:13:53.269 P00   INFO: push 1 WAL file(s) to archive: 00000002000000000000002E
+2026-08-22 12:13:54.133 P00   INFO: archive-push:async command end: completed successfully (865ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:13:57.697 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=4650-0f2962a4 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:13:57.698 P00   INFO: push 1 WAL file(s) to archive: 00000002000000000000002F
+2026-08-22 12:13:58.616 P00   INFO: archive-push:async command end: completed successfully (920ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:14:04.623 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=4665-c1a10f6e --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:14:04.624 P00   INFO: push 1 WAL file(s) to archive: 000000020000000000000030
+2026-08-22 12:14:05.567 P00   INFO: archive-push:async command end: completed successfully (944ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:14:13.860 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=4673-8e271a65 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:14:13.860 P00   INFO: push 1 WAL file(s) to archive: 000000020000000000000031
+2026-08-22 12:14:14.784 P00   INFO: archive-push:async command end: completed successfully (925ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:14:25.051 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=4697-e0dc9001 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:14:25.052 P00   INFO: push 1 WAL file(s) to archive: 000000020000000000000032
+2026-08-22 12:14:25.980 P00   INFO: archive-push:async command end: completed successfully (929ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:14:37.535 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=4712-cb960498 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:14:37.535 P00   INFO: push 1 WAL file(s) to archive: 000000020000000000000033
+2026-08-22 12:14:38.495 P00   INFO: archive-push:async command end: completed successfully (960ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:15:37.111 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=4784-3bff6e71 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:15:37.112 P00   INFO: push 1 WAL file(s) to archive: 000000020000000000000034
+2026-08-22 12:15:37.665 P00   INFO: archive-push:async command end: completed successfully (554ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:18:37.291 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=4992-6039e0df --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:18:37.291 P00   INFO: push 1 WAL file(s) to archive: 000000020000000000000035
+2026-08-22 12:18:37.499 P00   INFO: archive-push:async command end: completed successfully (208ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:56:16.750 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=116-88126630 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:56:16.751 P00   INFO: push 2 WAL file(s) to archive: 00000003.history...000000030000000000000004
+2026-08-22 12:56:17.048 P00   INFO: archive-push:async command end: completed successfully (298ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:57:16.842 P00   INFO: archive-push:async command begin 2.58.0: [/pgdata/pg18/pg_wal] --archive-async --exec-id=337-7e8b2783 --log-level-console=off --log-level-stderr=off --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db
+2026-08-22 12:57:16.843 P00   INFO: push 1 WAL file(s) to archive: 000000030000000000000005
+2026-08-22 12:57:17.046 P00   INFO: archive-push:async command end: completed successfully (204ms)
+-------------------PROCESS START-------------------
+2026-08-22 12:56:03.122 P00   INFO: restore command begin 2.58.0: --delta --exec-id=8-e6926eea --link-map=pg_wal=/pgdata/pg18_wal --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --repo=1 --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --spool-path=/pgdata/pgbackrest-spool --stanza=db --type=immediate
+2026-08-22 12:56:03.140 P00   INFO: repo1: restore backup set 20260822-111507F, recovery will start at 2026-08-22 11:15:07
+2026-08-22 12:56:03.140 P00   INFO: map link 'pg_wal' to '/pgdata/pg18_wal'
+2026-08-22 12:56:03.144 P00   INFO: remove invalid files/links/paths from '/pgdata/pg18'
+2026-08-22 12:56:03.175 P00   INFO: remove invalid files/links/paths from '/pgdata/pg18_wal'
+2026-08-22 12:56:05.017 P00   INFO: write updated /pgdata/pg18/postgresql.auto.conf
+2026-08-22 12:56:05.030 P00   INFO: restore global/pg_control (performed last to ensure aborted restores cannot be started)
+2026-08-22 12:56:05.032 P00   INFO: restore size = 30.1MB, file total = 1275
+2026-08-22 12:56:05.032 P00   INFO: restore command end: completed successfully (1911ms)
+-------------------PROCESS START-------------------
+2026-08-22 12:56:19.458 P00   INFO: stanza-create command begin 2.58.0: --exec-id=138-156785cb --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --pg1-port=5432 --pg1-socket-path=/tmp/postgres --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --stanza=db
+2026-08-22 12:56:19.466 P00   INFO: stanza-create for stanza 'db' on repo1
+2026-08-22 12:56:19.474 P00   INFO: stanza 'db' already exists on repo1 and is valid
+2026-08-22 12:56:19.474 P00   INFO: stanza-create command end: completed successfully (18ms)
+
+-------------------PROCESS START-------------------
+2026-08-22 12:56:21.269 P00   INFO: stanza-create command begin 2.58.0: --exec-id=181-ec4a449b --log-path=/pgdata/pgbackrest/log --pg1-path=/pgdata/pg18 --pg1-port=5432 --pg1-socket-path=/tmp/postgres --repo1-path=/pgbackrest/crunchy/repo1 --repo1-s3-bucket=pgbackup --repo1-s3-endpoint=s3-01.example.net:8333 --repo1-s3-key=<redacted> --repo1-s3-key-secret=<redacted> --repo1-s3-region=us-east-1 --repo1-s3-uri-style=path --no-repo1-storage-verify-tls --repo1-type=s3 --stanza=db
+2026-08-22 12:56:21.275 P00   INFO: stanza-create for stanza 'db' on repo1
+2026-08-22 12:56:21.283 P00   INFO: stanza 'db' already exists on repo1 and is valid
+2026-08-22 12:56:21.283 P00   INFO: stanza-create command end: completed successfully (15ms)

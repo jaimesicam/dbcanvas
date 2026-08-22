@@ -1,0 +1,202 @@
+2026-08-22 12:49:19,113 INFO: No PostgreSQL configuration items changed, nothing to reload.
+2026-08-22 12:49:19,115 INFO: REST API thread_pool_size = 5
+2026-08-22 12:49:19,118 WARNING: Postgresql is not running.
+2026-08-22 12:49:19,119 INFO: Lock owner: pgc-instance1-6h22-0; I am pgc-instance1-pknk-0
+2026-08-22 12:49:19,119 INFO: pg_controldata:
+  pg_control version number: 1800
+  Catalog version number: 202506291
+  Database system identifier: 7676812636111786076
+  Database cluster state: shut down in recovery
+  pg_control last modified: Sat Aug 22 12:48:39 2026
+  Latest checkpoint location: 0/7E000028
+  Latest checkpoint's REDO location: 0/7E000028
+  Latest checkpoint's REDO WAL file: 00000002000000000000007E
+  Latest checkpoint's TimeLineID: 2
+  Latest checkpoint's PrevTimeLineID: 2
+  Latest checkpoint's full_page_writes: on
+  Latest checkpoint's NextXID: 0:542379
+  Latest checkpoint's NextOID: 16533
+  Latest checkpoint's NextMultiXactId: 1
+  Latest checkpoint's NextMultiOffset: 0
+  Latest checkpoint's oldestXID: 744
+  Latest checkpoint's oldestXID's DB: 1
+  Latest checkpoint's oldestActiveXID: 0
+  Latest checkpoint's oldestMultiXid: 1
+  Latest checkpoint's oldestMulti's DB: 1
+  Latest checkpoint's oldestCommitTsXid: 752
+  Latest checkpoint's newestCommitTsXid: 542378
+  Time of latest checkpoint: Sat Aug 22 12:48:39 2026
+  Fake LSN counter for unlogged rels: 0/3E8
+  Minimum recovery ending location: 0/7E0000A0
+  Min recovery ending loc's timeline: 2
+  Backup start location: 0/0
+  Backup end location: 0/0
+  End-of-backup record required: no
+  wal_level setting: logical
+  wal_log_hints setting: on
+  max_connections setting: 100
+  max_worker_processes setting: 8
+  max_wal_senders setting: 10
+  max_prepared_xacts setting: 0
+  max_locks_per_xact setting: 64
+  track_commit_timestamp setting: on
+  Maximum data alignment: 8
+  Database block size: 8192
+  Blocks per segment of large relation: 131072
+  WAL block size: 8192
+  Bytes per WAL segment: 16777216
+  Maximum length of identifiers: 64
+  Maximum columns in an index: 32
+  Maximum size of a TOAST chunk: 1996
+  Size of a large-object chunk: 2048
+  Date/time type storage: 64-bit integers
+  Float8 argument passing: by value
+  Data page checksum version: 1
+  Default char data signedness: signed
+  Mock authentication nonce: d3a524e507a19e91c8f45c6b3aa2da1f3c7039461f13015d39259ff3039163f7
+
+2026-08-22 12:49:19,120 INFO: Lock owner: pgc-instance1-6h22-0; I am pgc-instance1-pknk-0
+2026-08-22 12:49:19,132 INFO: Local timeline=2 lsn=0/7E0000A0
+2026-08-22 12:49:19,143 INFO: primary_timeline=3
+2026-08-22 12:49:19,144 INFO: primary: history=1	0/80000A0	no recovery target specified
+2	0/7C012E28	before 2026-08-22 12:48:24.92874+00
+2026-08-22 12:49:19,162 INFO: running pg_rewind from pgc-instance1-6h22-0
+2026-08-22 12:49:19,183 INFO: running pg_rewind from dbname=postgres user=_crunchyrepl host=pgc-instance1-6h22-0.pgc-pods port=5432 sslmode=verify-ca sslcert=/tmp/replication/tls.crt sslkey=/tmp/replication/tls.key sslrootcert=/tmp/replication/ca.crt target_session_attrs=read-write
+2026-08-22 12:49:21,477 INFO: pg_rewind exit code=0
+2026-08-22 12:49:21,477 INFO:  stdout=
+2026-08-22 12:49:21,477 INFO:  stderr=pg_rewind: servers diverged at WAL location 0/7C012E28 on timeline 2
+pg_rewind: rewinding from last common checkpoint at 0/7B000578 on timeline 2
+pg_rewind: Done!
+
+2026-08-22 12:49:21,478 WARNING: Postgresql is not running.
+2026-08-22 12:49:21,478 INFO: Lock owner: pgc-instance1-6h22-0; I am pgc-instance1-pknk-0
+2026-08-22 12:49:21,479 INFO: pg_controldata:
+  pg_control version number: 1800
+  Catalog version number: 202506291
+  Database system identifier: 7676812636111786076
+  Database cluster state: in archive recovery
+  pg_control last modified: Sat Aug 22 12:49:19 2026
+  Latest checkpoint location: 0/7D000028
+  Latest checkpoint's REDO location: 0/7D000028
+  Latest checkpoint's REDO WAL file: 00000003000000000000007D
+  Latest checkpoint's TimeLineID: 3
+  Latest checkpoint's PrevTimeLineID: 3
+  Latest checkpoint's full_page_writes: on
+  Latest checkpoint's NextXID: 0:542378
+  Latest checkpoint's NextOID: 24689
+  Latest checkpoint's NextMultiXactId: 1
+  Latest checkpoint's NextMultiOffset: 0
+  Latest checkpoint's oldestXID: 744
+  Latest checkpoint's oldestXID's DB: 1
+  Latest checkpoint's oldestActiveXID: 0
+  Latest checkpoint's oldestMultiXid: 1
+  Latest checkpoint's oldestMulti's DB: 1
+  Latest checkpoint's oldestCommitTsXid: 0
+  Latest checkpoint's newestCommitTsXid: 0
+  Time of latest checkpoint: Sat Aug 22 12:48:51 2026
+  Fake LSN counter for unlogged rels: 0/3E8
+  Minimum recovery ending location: 0/7D017890
+  Min recovery ending loc's timeline: 3
+  Backup start location: 0/0
+  Backup end location: 0/0
+  End-of-backup record required: no
+  wal_level setting: logical
+  wal_log_hints setting: on
+  max_connections setting: 100
+  max_worker_processes setting: 8
+  max_wal_senders setting: 10
+  max_prepared_xacts setting: 0
+  max_locks_per_xact setting: 64
+  track_commit_timestamp setting: on
+  Maximum data alignment: 8
+  Database block size: 8192
+  Blocks per segment of large relation: 131072
+  WAL block size: 8192
+  Bytes per WAL segment: 16777216
+  Maximum length of identifiers: 64
+  Maximum columns in an index: 32
+  Maximum size of a TOAST chunk: 1996
+  Size of a large-object chunk: 2048
+  Date/time type storage: 64-bit integers
+  Float8 argument passing: by value
+  Data page checksum version: 1
+  Default char data signedness: signed
+  Mock authentication nonce: d3a524e507a19e91c8f45c6b3aa2da1f3c7039461f13015d39259ff3039163f7
+
+2026-08-22 12:49:21,479 INFO: Lock owner: pgc-instance1-6h22-0; I am pgc-instance1-pknk-0
+2026-08-22 12:49:21,479 INFO: starting as a secondary
+2026-08-22 12:49:21.687 UTC [126] LOG:  pgaudit extension initialized
+2026-08-22 12:49:21.698 UTC [126] LOG:  redirecting log output to logging collector process
+2026-08-22 12:49:21.698 UTC [126] HINT:  Future log output will appear in directory "log".
+2026-08-22 12:49:21,705 INFO: postmaster pid=126
+/tmp/postgres:5432 - no response
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - accepting connections
+2026-08-22 12:49:25,737 INFO: Lock owner: pgc-instance1-6h22-0; I am pgc-instance1-pknk-0
+2026-08-22 12:49:25,737 INFO: establishing a new patroni heartbeat connection to postgres
+2026-08-22 12:49:25,752 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:49:25,793 INFO: establishing a new patroni restapi connection to postgres
+2026-08-22 12:49:27,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:49:37,748 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:49:47,753 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:49:57,749 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:50:07,753 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:50:17,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:50:27,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:50:37,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:50:47,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:50:57,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:51:07,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:51:17,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:51:27,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:51:37,739 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:51:47,741 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:51:57,751 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:52:07,753 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:52:17,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:52:27,739 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:52:37,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:52:47,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:52:57,739 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:53:07,751 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:53:17,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:53:27,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:53:37,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:53:47,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:53:57,741 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:54:07,747 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:54:17,739 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:54:27,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:54:37,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:54:47,742 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:54:57,739 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:55:07,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:55:17,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:55:27,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:55:37,739 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:55:47,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:55:57,739 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:56:07,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:56:17,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:56:27,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:56:37,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:56:47,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:56:57,741 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:57:07,745 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:57:17,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:57:27,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:57:37,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:57:47,739 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:57:57,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:58:07,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:58:17,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:58:27,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:58:37,739 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:58:47,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:58:57,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:59:07,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:59:17,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 12:59:27,740 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)

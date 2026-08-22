@@ -17679,3 +17679,65 @@ The throughput numbers for the *starved* run are not comparable with the two abo
 varied scale and client count for it, to generate evidence rather than to measure. Only the
 defaults-vs-tuned pair is like-for-like. Restores and PITR were still not driven for these
 three, so there are no findings for them.
+
+---
+
+## 304. Restores and point-in-time recovery on the three PostgreSQL operators, and a By-node event layout — `app/logsummary_pgop_{rules,verdict,test}.go`, `app/web/src/pages/LogSummary.jsx`, `app/web/smoke/render.jsx`, `docs/LOG_SUMMARY.md`
+
+### The event list gained a second layout
+
+Asked for directly: the same events and the same time order, **one column per source**, each
+event under the node that wrote it. Merged answers "what happened next"; By node answers
+"what was *each* node saying at that moment".
+
+Three details that took thought rather than typing:
+
+- **The pane scrolls, not the page**, on both axes. `overflow-x` alone is not an option —
+  CSS resolves `overflow-x: auto` beside a visible `overflow-y` to `auto` on both, so the
+  header would stop sticking to the page anyway. Making the pane the scroll container is
+  what lets the header stick where it is wanted.
+- **The header row and the time column are both sticky**: scrolling down keeps the node
+  names, scrolling right keeps the clock. Without the second, the far columns say that
+  something happened and not when.
+- **Severity is on the cell, not the row** — two nodes at the same instant are routinely one
+  good and one bad.
+
+Verified in a browser against a three-member Percona cluster; two replicas coming up in
+lockstep read as a staircase (`Entering standby mode` → `WAL replay started` →
+`Consistent state reached` → `Streaming from the primary`, 44gj-0 then 6h22-0 ~20 ms
+behind) which is invisible in a merged column.
+
+### Three restore models, driven
+
+| | what a restore does |
+| --- | --- |
+| Percona | **in place** — every instance stopped, repository restored onto one, others rebuild from it |
+| CloudNativePG | **a new cluster beside the original**, which keeps running and serving |
+| Crunchy | in place, and its operator logged 39 × `reconciled instance` through the whole thing and never named it |
+
+**Point-in-time recovery verified end to end on Percona**: 100 rows before the target, 500
+after, restored to the target, cluster came back with exactly 100 and `max(at)` four minutes
+before the recovery point. New vocabulary: `Waiting for restore to start` / `to complete`,
+`Restore succeeded`, `WALWatcher`, and `failed to cleanup outdated backups` — logged at
+ERROR and *not* a failure of the restore, but the operator saying a PITR started a new
+timeline and it could not delete the superseded backups. `lsPGOpFindingRestore` reports
+whichever model ran, and refuses to call a CloudNativePG recovery an in-place restore.
+
+The CloudNativePG advice is the one worth reading twice: **the application is still pointed
+at the original.** Nothing was rolled back; there are now two clusters holding the same data
+from different moments, and switching is a deliberate act.
+
+### Verified
+
+- All three driven live; the Percona PITR checked by row count and timestamp rather than by
+  the operator's own status.
+- 1 new Go test over three new fixture directories, 3 new smoke checks for the column view
+  (including that no event renders in more than one column).
+- `go build` / `go vet` / `go test ./...` / `npm run smoke` / `npm run build` clean.
+
+### Not done
+
+Crunchy's restore produced no operator vocabulary to catalogue, so there is no
+Crunchy-specific restore finding — the honest outcome, and the test asserts the premise
+rather than papering over it. CloudNativePG's `recoveryTarget` (its own PITR) was not
+driven; only a full recovery to the end of the archive.

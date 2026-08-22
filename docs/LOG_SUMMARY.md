@@ -1794,6 +1794,23 @@ ordinary PostgreSQL records — timestamp, severity, message, with `DETAIL`/`HIN
 into the body — so a CloudNativePG member is read by the same PostgreSQL catalogue as any
 other server, and the instance manager's own records stay beside them as their own events.
 
+### Three operators, three restore models
+
+Driven on all three, and the difference is the one that matters to whoever is watching:
+
+| | what a restore does | what the page reports |
+| --- | --- | --- |
+| **Percona** | **in place.** Every instance is stopped, the repository is restored onto one, the others rebuild from it | the outage, measured — and that most of the elapsed time on a multi-instance cluster is the replicas rebuilding, not the restore |
+| **CloudNativePG** | **a new cluster beside the original.** The original keeps running and serving throughout | that nothing was rolled back, and **the application is still pointed at the original** — switching is a deliberate act |
+| **Crunchy** | in place, like Percona's | *nothing.* Its operator logged 39 × `reconciled instance` through the whole restore and never named it |
+
+A point-in-time restore verified end to end on Percona: 100 rows written before the target,
+500 after it, restored to the target, and the cluster came back with exactly the 100 —
+`max(at)` four minutes before the recovery point. Beside it the operator logs
+`failed to cleanup outdated backups` at ERROR, which is housekeeping rather than a failure:
+a PITR starts a new timeline and the backups from the old one are no longer a base for it.
+**Take a fresh full backup immediately.**
+
 ### The finding this catalogue exists for
 
 WAL archiving failing is invisible everywhere except the instance manager's log:

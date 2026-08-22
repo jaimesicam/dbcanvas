@@ -22,6 +22,7 @@ var lsPGOpFindings = []func(*lsBundle) []lsFinding{
 	lsCNPGFindingSwitchover,
 	lsPGOpFindingBackup,
 	lsPGOpFindingPerformance,
+	lsPGOpFindingRestore,
 }
 
 // lsIsPGOpSrc gates these to the sources they were written for, the way lsIsPXCOpSrc and
@@ -233,4 +234,46 @@ func lsPGOpFindingPerformance(b *lsBundle) []lsFinding {
 		})
 	}
 	return out
+}
+
+// lsPGOpFindingRestore reports a restore, and says which of the three models it was —
+// because they differ in the one way that matters to whoever is watching.
+func lsPGOpFindingRestore(b *lsBundle) []lsFinding {
+	inPlace := lsPick(b, func(e lsEvent) bool {
+		return lsIsPGOpSrc(b, e.Src) && e.Label == "Restore in progress"
+	})
+	newCluster := lsPick(b, func(e lsEvent) bool {
+		return lsIsPGOpSrc(b, e.Src) && e.Label == "Recovering into a new cluster"
+	})
+	done := lsPick(b, func(e lsEvent) bool {
+		return lsIsPGOpSrc(b, e.Src) && e.Label == "Restore succeeded"
+	})
+	switch {
+	case len(inPlace) > 0:
+		first := inPlace[0]
+		end := inPlace[len(inPlace)-1].TS
+		sev, tail := lsSevBad, " This log does not show it finishing."
+		if len(done) > 0 {
+			end, sev, tail = done[len(done)-1].TS, lsSevWarn, ""
+		}
+		return []lsFinding{{
+			ID: "pgop-restore", Sev: sev,
+			Title: "A restore took the cluster down for " + lsOpDur(end-first.TS),
+			Detail: "The Percona operator restores IN PLACE: every instance is stopped, the repository is restored onto one of them, and the others rebuild from it. There is no database between those two points." + tail +
+				" Most of the elapsed time on a multi-instance cluster is the replicas rebuilding, not the restore — their own logs say which.",
+			Advice: "A point-in-time restore starts a new timeline, and the backups from the old one are not usable as a base for it. Take a fresh full backup immediately; `failed to cleanup outdated backups` beside this is the operator saying it could not remove the superseded ones itself.",
+			At:     first.TS, Until: end,
+			Sources: lsSrcSet(inPlace), Events: lsEventNos(append(inPlace, done...), 6),
+		}}
+	case len(newCluster) > 0:
+		return []lsFinding{{
+			ID: "pgop-recovery-new", Sev: lsSevWarn,
+			Title:   "A recovery created a new cluster beside the original",
+			Detail:  "CloudNativePG does not restore in place. A recovery bootstraps a NEW Cluster from the object store while the original keeps running and serving — so nothing was rolled back, and there are now two clusters holding the same data from different moments.",
+			Advice:  "This is the safest of the three models and the one that surprises people: the application is still pointed at the ORIGINAL. Switching to the recovered cluster is a deliberate act — move the Service or the connection string — and the original keeps accruing WAL until you delete it.",
+			At:      newCluster[0].TS,
+			Sources: lsSrcSet(newCluster), Events: lsEventNos(newCluster, 4),
+		}}
+	}
+	return nil
 }
