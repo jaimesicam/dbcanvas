@@ -363,3 +363,70 @@ func TestOperatorFindingsDoNotCrossVocabularies(t *testing.T) {
 		}
 	}
 }
+
+// TestDeducedStateDoesNotCoverTimeTheLogNeverSaw is the bug a reader found by uploading
+// the same logs they had just read from the nodes and getting a different picture.
+//
+// A busy mongod's 5,000-line tail is 2,702 NETWORK and 1,900 ACCESS records with ZERO
+// REPL among them, so the replica-set sniff files it as a standalone and lsSeedState falls
+// through to its last resort: "a server writing to its log is running". That deduction is
+// sound for the stretch the log covers and was being painted from the START OF THE BUNDLE
+// — so three members whose tails covered eighteen minutes were drawn as SERVING, in green,
+// across a two-and-a-half-hour window on the strength of records that begin two hours in.
+//
+// The reassurance was manufactured by the tool, which is worse than a thin reading.
+func TestDeducedStateDoesNotCoverTimeTheLogNeverSaw(t *testing.T) {
+	// A warning rather than an info record, because lsClassifyMongo keeps what the
+	// catalogue recognises plus anything the server itself called a warning and drops the
+	// rest — a source with no kept events has no first timestamp to reason about. Its
+	// component is NETWORK so nothing here sets a replica-set state: the whole point is a
+	// source that says nothing about what it WAS.
+	line := func(ts string) string {
+		return `{"t":{"$date":"` + ts + `"},"s":"W","c":"NETWORK","id":22943,"ctx":"listener","msg":"Slow network response"}` + "\n"
+	}
+	// One source that starts at the beginning of the window, and one whose log begins an
+	// hour later and says nothing about its own state — the shape of a tail off a server
+	// busy enough that 5,000 lines is minutes rather than hours.
+	early := line("2026-08-22T10:00:00.000+00:00") + line("2026-08-22T12:00:00.000+00:00")
+	late := line("2026-08-22T11:00:00.000+00:00") + line("2026-08-22T12:00:00.000+00:00")
+	b := lsBuild([]lsInput{
+		{Name: "early.log", Origin: "upload", Data: []byte(early)},
+		{Name: "late.log", Origin: "upload", Data: []byte(late)},
+	})
+	if len(b.Sources) != 2 {
+		t.Fatalf("got %d sources", len(b.Sources))
+	}
+	const lateIdx = 1
+	lateFirst := b.Sources[lateIdx].FirstTS
+	if lateFirst <= b.Summary.FirstTS {
+		t.Fatalf("the second source is meant to begin after the bundle does")
+	}
+	// Before its own first record the late source must say UNKNOWN, not that it was up.
+	covered := false
+	for _, p := range b.Phases {
+		if p.Src != lateIdx || p.From >= lateFirst {
+			continue
+		}
+		covered = true
+		if p.State != "UNKNOWN" {
+			t.Errorf("the lane claims %q for %.0fs before this source's log begins", p.State, p.To-p.From)
+		}
+		if p.Sev != lsSevInfo {
+			t.Errorf("the lead-in is coloured %q rather than drawn as unknown", p.Sev)
+		}
+	}
+	if !covered {
+		t.Error("no phase covers the window before the late source's first record")
+	}
+	// And from its first record on the deduction is still made: the fix must not silence a
+	// source about the stretch it does cover.
+	deduced := false
+	for _, p := range b.Phases {
+		if p.Src == lateIdx && p.From >= lateFirst && p.State == lsStateUp && p.Inferred {
+			deduced = true
+		}
+	}
+	if !deduced {
+		t.Error("the source is no longer deduced to be running over the stretch its log covers")
+	}
+}

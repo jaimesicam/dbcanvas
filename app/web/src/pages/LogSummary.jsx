@@ -239,7 +239,8 @@ export default function LogSummary() {
         ))}
 
         <div className="mt-3 flex flex-wrap items-end gap-3">
-          <Field label="Lines per node" hint="tail -n · up to 200,000">
+          <Field label="Lines per node"
+            hint="tail -n · up to 200,000 · a busy server writes thousands a minute, so raise this if the timeline comes back mostly grey">
             <input type="number" min="100" max="200000" className={`${inputCls} w-32`} value={lines}
               onChange={(e) => setLines(e.target.value)} />
           </Field>

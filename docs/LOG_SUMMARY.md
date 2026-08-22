@@ -263,6 +263,23 @@ never logs a transition *into* `SYNCED`. Two answers, and the UI distinguishes t
 
 Anything else stays `UNKNOWN`, which is an honest answer and is drawn as one.
 
+**A deduction never covers time the log did not.** The weakest of the seeds is "this server
+was writing to its log, so it was running" — sound for the stretch the log spans, and
+nothing outside it. Painting it across the whole bundle is how a reader got two different
+pictures of the same cluster: five thousand lines of a busy `mongod` is *2,702 NETWORK and
+1,900 ACCESS records with no REPL among them*, covering eight minutes of a two-and-a-half
+hour window, and all three members were drawn **serving, in green, for the whole of it**.
+Uploading the same members' full logs gave the correct and much less green answer.
+
+So a deduced seed now begins at the source's own first record, and the lane before it is
+`UNKNOWN`. A **stated** seed is untouched — the left-hand side of a first transition is a
+real statement about the moment before it, not an inference from the record's existence.
+
+The asymmetry with the end of a track is deliberate: a log that *stops* is a server that
+carried on and had nothing to say, while a log that *starts late* is a server this bundle
+knows nothing about until it does. Which is also why the tail length matters more than it
+looks: on a busy server, raise it until the lanes stop being grey.
+
 ### Transitions are not states
 
 Galera walks several states in the same microsecond. Cutting a member off produced, within

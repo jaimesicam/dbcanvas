@@ -776,11 +776,39 @@ func lsBuildPhases(b *lsBundle) []lsPhase {
 	}
 	for _, src := range b.Sources {
 		seed, inferred := lsSeedState(b, src.Idx)
-		cur := lsPhase{Src: src.Idx, From: start, State: seed, Sev: lsStateSev(seed), Inferred: inferred}
+		var track []lsPhase
+		from := start
+		// A DEDUCED seed may not be painted over time the source did not cover.
+		//
+		// lsSeedState's last resort is "a server writing to its log is running, and the
+		// log is the evidence" — which is sound, and only for the stretch the log actually
+		// spans. Applied from the bundle's start it invents the rest: a mongod whose
+		// 5,000-line tail covers eighteen minutes of a two-and-a-half-hour bundle was
+		// drawn as SERVING for the whole window, in green, on the strength of records that
+		// begin two hours later. Reported by a reader who uploaded the same members' full
+		// logs and got a different — correct, and much less green — picture.
+		//
+		// So the lead-in is UNKNOWN, which is what the source says about it, and the
+		// deduction starts where the evidence does. A STATED seed is left alone: the
+		// left-hand side of a first transition ("Shifting SYNCED -> DONOR") is a real
+		// statement about the moment before the record, not a deduction from its
+		// existence.
+		//
+		// The asymmetry with the END of a track is deliberate. A log that stops is a
+		// server that carried on and had nothing to say; a log that starts late is a
+		// server this bundle knows nothing about until it does. See lsCoverEnd for the
+		// other half of the same idea.
+		if inferred && src.FirstTS > start {
+			track = append(track, lsPhase{
+				Src: src.Idx, From: start, To: src.FirstTS,
+				State: "UNKNOWN", Sev: lsSevInfo,
+			})
+			from = src.FirstTS
+		}
+		cur := lsPhase{Src: src.Idx, From: from, State: seed, Sev: lsStateSev(seed), Inferred: inferred}
 		if seed == "UNKNOWN" {
 			cur.Sev = lsSevInfo
 		}
-		var track []lsPhase
 		for _, e := range b.Events {
 			if e.Src != src.Idx || e.TS <= 0 {
 				continue

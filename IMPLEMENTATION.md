@@ -17497,3 +17497,30 @@ operator without one produces a source of unclassified records under another ope
 verdicts, which is the bug this session already fixed once.
 
 Kubernetes **Events** are still not collected, for both operators.
+
+### Follow-up: the same logs read two ways gave two pictures
+
+Reported with two screenshots side by side — the same members, collected from the nodes and
+then uploaded as files, and the collected one *mostly green*. The upload path was not at
+fault: downloading each source's raw bytes and re-uploading them reproduced the collected
+parse exactly, source for source and event for event. The difference was the **amount** of
+log, and what the code did with a short one.
+
+Five thousand lines — the UI's default — of a `mongod` under load is **2,702 NETWORK and
+1,900 ACCESS records with zero REPL among them**, covering eight minutes of a
+two-and-a-half-hour bundle. So the replica-set sniff filed each member as a standalone, and
+`lsSeedState` fell through to its last resort ("a server writing to its log is running") —
+which `lsBuildPhases` then painted **from the start of the bundle**. Three members were
+drawn as SERVING across 2.4 hours on the strength of records that begin two hours in.
+
+That is worse than a thin reading: the reassurance was manufactured by the tool. A deduced
+seed now starts at the source's own first record and the lead-in is `UNKNOWN`; a *stated*
+seed is left alone, because the left-hand side of a first transition really is a statement
+about the moment before it. Measured after the fix on the same collection: `UNKNOWN` for
+8,466 s, `RUNNING` (deduced) for the 466–599 s each tail actually covers.
+
+It is the mirror of the `lsOverlap` fix in §300 and shares its asymmetry — a log that stops
+is a server that carried on; a log that starts late is a server we knew nothing about. The
+"Lines per node" field now says so, and `TestDeducedStateDoesNotCoverTimeTheLogNeverSaw`
+pins both halves: unknown before the evidence, still deduced over the stretch there is
+evidence for.
