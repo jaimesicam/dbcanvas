@@ -147,7 +147,11 @@ func (a *App) handleLogTargets(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	writeJSON(w, http.StatusOK, a.listPktTargets(u))
+	// Plus the logs inside a Kubernetes cluster, which the Packet Inspector has no
+	// equivalent for: it captures on a container's interface, and a pod's is not one this
+	// app can reach. Reading a log is one `kubectl` away, so this list is a superset of
+	// that one rather than the same list.
+	writeJSON(w, http.StatusOK, append(a.listPktTargets(u), a.listLogK8sTargets(u)...))
 }
 
 // ---------------------------------------------------------------- collect
@@ -206,9 +210,39 @@ func (a *App) handleLogCollect(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 	defer cancel()
 
+	// One read instant for the whole request, not one per source. The nodes are tailed a
+	// few seconds apart and that difference is not evidence about anything — using each
+	// source's own finish time would make the last node read look like it covered slightly
+	// more of the window than the first. What matters is that all of them were current at
+	// the same moment. See lsCoverEnd.
+	readAt := float64(time.Now().UnixNano()) / 1e9
+
 	var inputs []lsInput
 	var failures []string
 	for _, nodeID := range req.NodeIDs {
+		// A Kubernetes target first: its node id is composite (`<k3s node>#<pod>`), which
+		// pktResolveTarget would resolve to the k3s node itself and then tail the wrong
+		// thing — k3s writes no database log, so the failure would be "no readable log
+		// found" rather than "that is not a database node".
+		if serverID, ns, cr, what, operator, ok := a.lsK8sResolveOp(u, req.StackID, nodeID); ok {
+			text, path, engine, err := a.lsK8sTail(ctx, serverID, ns, cr, what, operator, lines)
+			if err != nil {
+				failures = append(failures, what+": "+err.Error())
+				continue
+			}
+			name := what
+			if what == lsK8sOperator || what == lsK8sPITR {
+				name = cr + "/" + what
+			}
+			if strings.HasSuffix(what, lsK8sPBMSuffix) {
+				name = strings.TrimSuffix(what, lsK8sPBMSuffix) + "/pbm"
+			}
+			inputs = append(inputs, lsInput{
+				Name: name, Path: path, Origin: "node", Engine: engine, Data: []byte(text),
+				ReadAt: readAt,
+			})
+			continue
+		}
 		engine, containerID, label, _, _, _, err := a.pktResolveTarget(u, req.StackID, nodeID)
 		if err != nil {
 			failures = append(failures, nodeID+": "+err.Error())
@@ -221,6 +255,7 @@ func (a *App) handleLogCollect(w http.ResponseWriter, r *http.Request) {
 		}
 		inputs = append(inputs, lsInput{
 			Name: label, Path: path, Origin: "node", Engine: engine, Data: []byte(text),
+			ReadAt: readAt,
 		})
 	}
 	if len(inputs) == 0 {

@@ -114,13 +114,16 @@ const (
 func lsStateSev(state string) string {
 	switch state {
 	case lsStateSynced, lsStateUp, lsStateOnline, lsStatePrimaryM, lsStateSecondary, lsStateRouting,
-		lsStateStandby, lsStateVKReplica:
+		lsStateStandby, lsStateVKReplica, lsStateOpLeader, lsStatePITRUp,
+		lsStatePSMDBReady, lsStatePBMSlicing:
 		return lsSevOK
 	case lsStateJoined, lsStateJoiner, lsStateDonor, lsStatePrim, lsStateStarting, lsStateRecovering,
-		lsStateStartup2, lsStateArbiter, lsStatePromoting, lsStateVKSyncing, lsStateVKLoading:
+		lsStateStartup2, lsStateArbiter, lsStatePromoting, lsStateVKSyncing, lsStateVKLoading,
+		lsStateOpFollower, lsStatePSMDBInit, lsStatePBMIdle:
 		return lsSevWarn
 	case lsStateOpen, lsStateClosed, lsStateDown, lsStateBlocked, lsStateGRError, lsStateOffline,
-		lsStateRollback, lsStateRemoved, lsStateVKDown:
+		lsStateRollback, lsStateRemoved, lsStateVKDown, lsStatePITRGap, lsStatePITRPaused,
+		lsStatePSMDBErr, lsStatePBMLost:
 		return lsSevBad
 	}
 	return lsSevInfo
@@ -191,6 +194,21 @@ var lsStateMeaning = map[string]string{
 	lsStateVKSyncing: "receiving a full copy of the primary's dataset — what it can answer while that runs is stale by an unbounded amount",
 	lsStateVKLoading: "up and listening, and refusing every command with -LOADING while it reads its dataset off disk. A health check that only opens a socket sees a healthy node",
 	lsStateVKDown:    "up, healthy, and refusing every command with CLUSTERDOWN because some other shard's hash slots are uncovered. Nothing is wrong with this node",
+
+	// The two Kubernetes sources. Neither is a database and neither has a database's
+	// states; what each has is the one question worth a coloured lane — was this process
+	// the one actually in charge, and was point-in-time recovery actually being collected.
+	lsStateOpLeader:   lsOpStateMeaning[lsStateOpLeader],
+	lsStateOpFollower: lsOpStateMeaning[lsStateOpFollower],
+	lsStatePITRUp:     lsOpStateMeaning[lsStatePITRUp],
+	lsStatePITRGap:    lsOpStateMeaning[lsStatePITRGap],
+	lsStatePITRPaused: lsOpStateMeaning[lsStatePITRPaused],
+	lsStatePSMDBReady: lsPSMDBStateMeaning[lsStatePSMDBReady],
+	lsStatePSMDBInit:  lsPSMDBStateMeaning[lsStatePSMDBInit],
+	lsStatePSMDBErr:   lsPSMDBStateMeaning[lsStatePSMDBErr],
+	lsStatePBMSlicing: lsPSMDBStateMeaning[lsStatePBMSlicing],
+	lsStatePBMIdle:    lsPSMDBStateMeaning[lsStatePBMIdle],
+	lsStatePBMLost:    lsPSMDBStateMeaning[lsStatePBMLost],
 
 	// MongoDB's replica-set states, spelled as rs.status() spells them.
 	lsStatePrimaryM:  lsMongoStateMeaning[lsStatePrimaryM],

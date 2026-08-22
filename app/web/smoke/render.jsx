@@ -40,7 +40,7 @@ import PacketInspector, {
 } from '../src/pages/PacketInspector.jsx'
 import { PORT_ROLE_TEXT, MONGO_KIND_TEXT, isSevereIssue } from '../src/lib/pktApi.js'
 import LogSummary, {
-  Verdict as LogVerdict, Swimlane as LogSwimlane, Snapshot as LogSnapshot,
+  Verdict as LogVerdict, splitFindings, Swimlane as LogSwimlane, Snapshot as LogSnapshot,
   SourcesCard as LogSources, EventList as LogEvents, EventDetail as LogDetail,
   Filters as LogFilters, TopStrip as LogTop, Legend as LogLegend,
   RangeControls as LogRange, UploadPanel as LogUpload, Pager as LogPager,
@@ -1369,6 +1369,48 @@ for (const sev of ['bad', 'warn', 'ok', 'info', 'banana', undefined]) {
   check(`log summary: verdict severity ${sev}`, () =>
     renderToString(<LogVerdict findings={[{ id: 'x', sev, title: 't', detail: 'd' }]} onGo={noop} />))
 }
+// The verdict narrows with the timeline. A reader who drags a window on the swimlane is
+// asking "what does THIS stretch add up to", so the conclusions that do not touch it are
+// taken out — but the undated ones never are, because they stay true of any window and one
+// of them is usually the most important line on the page.
+check('log summary: verdict narrowed to a window', () =>
+  renderToString(<LogVerdict findings={logFindings} onGo={noop} from={1040} to={1060} onClear={noop} />))
+check('log summary: verdict narrowed to a window with nothing in it', () =>
+  renderToString(<LogVerdict findings={logFindings} onGo={noop} from={1200} to={1300} onClear={noop} />))
+
+check('log summary: the verdict filter keeps spans that overlap the window', () => {
+  const { inWindow, always, hidden, narrowed } = splitFindings(logFindings, 1040, 1060)
+  if (!narrowed) throw new Error('a window was given and the verdict did not narrow')
+  const ids = inWindow.map((f) => f.id).sort().join(',')
+  // `crash` is an instant at 1052, inside. `quorum` is a span 1003–1052 that OVERLAPS the
+  // window without being contained by it — containment would drop exactly the finding a
+  // reader zooms into the middle of.
+  if (ids !== 'crash,quorum') throw new Error(`in window: ${ids}`)
+  // The two undated ones are never hidden, and are not counted as hidden either.
+  if (always.length !== 2) throw new Error(`undated: ${always.length}`)
+  if (hidden !== 0) throw new Error(`hidden: ${hidden}`)
+  return 'ok'
+})
+
+check('log summary: the verdict filter hides only dated conclusions outside the window', () => {
+  const { inWindow, always, hidden } = splitFindings(logFindings, 1200, 1300)
+  if (inWindow.length !== 0) throw new Error(`nothing happened there: ${inWindow.length}`)
+  if (hidden !== 2) throw new Error(`hidden: ${hidden}`)
+  if (always.length !== 2) throw new Error(`undated: ${always.length}`)
+  return 'ok'
+})
+
+check('log summary: no window means no narrowing at all', () => {
+  for (const [from, to] of [[0, 0], [1040, 0], [0, 1060], [1060, 1040]]) {
+    const { inWindow, always, narrowed } = splitFindings(logFindings, from, to)
+    if (narrowed) throw new Error(`from=${from} to=${to} narrowed on a window that is not one`)
+    if (inWindow.length !== logFindings.length || always.length !== 0) {
+      throw new Error(`from=${from} to=${to} did not pass everything through`)
+    }
+  }
+  return 'ok'
+})
+
 check('log summary: swimlane', () =>
   renderToString(<LogSwimlane timeline={logTimeline} sources={logSources} first={1000} onSelect={noop} onPick={noop} />))
 check('log summary: swimlane before the timeline loads', () =>

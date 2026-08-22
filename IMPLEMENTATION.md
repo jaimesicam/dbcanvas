@@ -17221,3 +17221,279 @@ exposed pool in front of an in-cluster primary satisfies the check.
 named, with the canvas screenshot of three frames and three sims — and the paragraph that says
 the front end has to be LoadBalancer/NodePort, because that is the one thing the frame cannot
 guess for you.
+
+---
+
+## 300. Log Summary reads a Percona Operator for MySQL (PXC) cluster: the operator's log, the binlog collector's, and every member's — `app/logsummary_pxcop.go`, `app/logsummary_pxcop_rules.go`, `app/logsummary_pxcop_config.go`, `app/logsummary_pxcop_verdict.go`, `app/logsummary_k8s.go` (all new), `app/{logsummary,logsummary_model,logsummary_parse,logsummary_galera,logsummary_verdict}.go`, `app/web/src/{lib/logApi.js,pages/LogSummary.jsx}`, `docs/LOG_SUMMARY.md`
+
+The seventh log vocabulary, and the first that is not a database's. A PXC cluster on a K3D
+frame writes **three** kinds of log and reading any one alone gets a different wrong
+answer, so all three are offered in one picker and read into one bundle:
+
+- `<cluster> · operator` — the `percona-xtradb-cluster-operator` Deployment. controller-runtime
+  (zap), tab-separated, facts in a trailing JSON object.
+- `<cluster>-pxc-N` — each member's mysqld error log, read off the volume. An ordinary
+  Galera log, so `logsummary_galera.go` reads it unchanged.
+- `<cluster> · binlog collector` — the PITR sidecar Deployment. Go's standard `log`
+  package: a date, a time, a sentence, no level and no timezone.
+
+New engine `operator` (not a database: no port, no query language, no data) with two
+flavours, `pxcoperator` and `pxcpitr`. Sources of that engine are kept out of the
+"time spent not answering queries" measurement and out of the membership-disagreement
+finding — see below.
+
+### The corpus
+
+One live cluster: PXC operator **1.20.0** running PXC **8.4.8-8.1** on k3s **v1.36.3**,
+three members behind HAProxy, backing up to a SeaweedFS S3 node, under continuous write
+load throughout. Driven through a bootstrap, two full backups, a full restore, a
+point-in-time restore, PITR enabled and disabled, `kubectl delete pod --force` on a member,
+a `netem` partition, a `cr.yaml` change, and two ways of making a backup fail. Six of the
+fourteen captures are `app/testdata/logsummary/k*/`; the tests read them.
+
+### What the capture taught
+
+1. **The operator's log says nothing about the database.** Force-deleting a member under
+   load produced a full eviction-and-rejoin story in the survivors' logs and, in the
+   operator's over the same two minutes, four `Updated PITR timelines` records. An
+   operator reconciles a desired state; it does not watch the cluster.
+   `lsPXCOpFindingSilentOnMembers` says so out loud.
+
+2. **A member that goes non-primary is killed, not left to rejoin — and it looks like
+   maintenance.** `cluster1-pxc-2`, cut off with netem, shifted `SYNCED -> OPEN` at
+   05:39:03 and its log said `Received SHUTDOWN from user <via user signal>` at 05:39:28.
+   Nobody stopped it: the liveness probe asks wsrep whether the member is Primary, the
+   answer was no, and kubelet killed the container. That record is byte-for-byte what a
+   deliberate stop writes, so this package's own Galera verdict called it *a member left
+   the cluster cleanly*. `lsPXCOpFindingProbeRestart` pairs the two and names
+   `kubectl get events`, where the reason actually is.
+
+3. **Errors at INFO, retries at ERROR.** `reconcile replication error` is INFO and means
+   the operator could not reach the database; `ERROR Reconciler error` is
+   controller-runtime's retry notice with an exponential backoff — 64 of them from five
+   faults in this corpus. Both are handled by rules, and the reconcile finding measures
+   first-to-last rather than counting.
+
+4. **Duplicate JSON keys, both meaningful.** Most reconcile records write `name` twice
+   (the object, then the message's own). `encoding/json`'s map decoding keeps the last and
+   loses the cluster name, so `lsOpParseFields` reads the object in order with duplicates
+   intact and rules ask for `first`/`last`.
+
+5. **`kubectl logs <pod> -c pxc` is not the member's log** — it is the entrypoint's
+   `bash -x` trace, because mysqld writes to `--log-error` on the volume. The primary path
+   is `exec … tail /var/lib/mysql/mysqld-error.log`; the fallback is the pod's `logs`
+   sidecar, which re-emits the same file inside `{"log":"…","file":"…"}` envelopes and is
+   the only path that works when the member is not running. `lsK8sUnwrapCollector` unwraps
+   it and keeps non-envelope lines rather than dropping them.
+
+6. **A restore erases the members' logs.** It replaces every data directory and
+   `mysqld-error.log` lives in one: 923 lines → 313. Which is also why a bundle read after
+   a restore can report that its sources do not overlap. Restores measured at 5m 25s
+   (full) and 5m 54s (point-in-time), and the operator writes no record saying one
+   finished — the end is its last five-second poll.
+
+### Tuning, measured
+
+`lsPXCScanConfig` reads the `Passing config to GCS:` line — the effective wsrep provider
+configuration, ninety options — off any Galera member and hangs it on `lsSource.PXCCfg`,
+the way `MongoCfg` already works. It is the only place those numbers exist on an
+operator-managed cluster: the shipped `cr.yaml` has no `spec.pxc.configuration` at all.
+`lsPXCAdvice` turns it into advice, each rule carrying the measurement behind it:
+
+| setting | shipped | measured |
+| --- | --- | --- |
+| `gcache.size` | 128M | every restart in the corpus rejoined by SST, not IST |
+| `gcs.fc_limit` | 100 → interval [173,173] | at 100 a member at 800 ms RTT never triggered flow control; at 16 (interval 28) it sent one message and the cluster paused 3.5 µs |
+| `gcs.fc_debug` | 0 | at 1: 16–22 records per member, **all inside the ~2 s of its own join and none afterwards** — it does not make a pause visible |
+| `evs.suspect_timeout` | PT5S | 5.0 s to `declaring node … suspected`, twice |
+| liveness probe | operator default | 25.0 s from `SYNCED -> OPEN` to kubelet killing the container |
+
+That last row corrects this document's earlier claim (§ the Galera catalogue) that
+`gcs.fc_debug` buys visibility "at the cost of a lot of volume" — measured on this build it
+buys neither.
+
+### Two bugs live verification found
+
+Both were invisible to the tests and obvious on the rendered page:
+
+- **Two restores were measured as one.** The first restore's start paired with the last
+  member that came back, and since the *second* restore had erased the member logs, a
+  six-minute restore was reported as a 16-minute outage. Each restore is now measured
+  inside its own window. `TestTwoRestoresAreTwoFindings`.
+- **The operator was a party to a membership disagreement.** "operator/cluster1 saw
+  0 member(s) and was LEADER", beside two members that genuinely disagreed — a third
+  opinion from something with no opinion. `lsIsClusterMemberSrc` gates it.
+
+Plus one found while reading the first live bundle: `lsNodeName` split `base_host` on its
+first dot to get a short name, and a pod's `base_host` is an IP — so all three members were
+named **"10"**. It now rejects an address and lets the source keep the name it came with,
+which for a pod is the pod's name.
+
+### Verified
+
+- All five sources collected live through the app's own API and rendered in a real browser:
+  the picker (`cluster1 · operator`, three members, `cluster1 · binlog collector`), the
+  sources table with the two new flavour badges, the fourteen findings, and a five-lane
+  timeline with the operator's `LEADER` and the collector's `COLLECTING` beside the
+  members' `SYNCED`.
+- 19 new tests over the six fixtures, `go build` / `go vet` / `go test ./...` and
+  `npm run build` clean.
+
+### Not done
+
+The other three Percona operators (`ps`, `psmdb`, `pg`) and the two chart-installed ones
+are not offered here. Their member logs are ordinary Percona Server / mongod / PostgreSQL
+logs that this package already reads, and `listLogK8sTargets` is shaped for them — but each
+operator's own controller log is a different vocabulary, and offering one without its
+catalogue would produce a source of unclassified records under a PXC page's verdicts.
+
+### Follow-up: "no common period" on five logs from one cluster
+
+Reported straight after the section above, and a real bug the feature exposed rather than
+one it introduced. `lsOverlap` took each source's last **record** as the end of its
+coverage. Three healthy PXC members write nothing — their files stopped at the 06:14 line
+where they finished starting after the restore — while the binlog collector's pod had
+restarted at 06:23, so `kubectl logs deploy/…` begins there. Latest start (06:23) after
+earliest last-record (06:14) → empty intersection → *"These logs do not overlap"*, on five
+logs tailed from one cluster in one request seconds apart.
+
+`lsBuildPhases` had always assumed the opposite and said so in a comment: *"a log that
+simply stops is a node that carried on and had nothing to say, which on a database server
+is the definition of a good day."* `lsOverlap` now agrees with it. `lsInput`/`lsSource`
+carry a `ReadAt`, stamped once per collect request (not per source — the few seconds
+between tails are not evidence about anything), and `lsCoverEnd` returns the later of the
+last record and the read instant. Measured on the same bundle afterwards: overlap 1h 58m,
+`disjoint = false`.
+
+Deliberately scoped: an **upload** has no read instant and keeps the strict reading, because
+nothing knows when the file was cut. A genuine disjointness on a node bundle — a rotated
+log, a pod whose container log starts after another's ends — is still reported, and the
+banner now names those two causes rather than the upload-shaped ones. The sources table
+gained `· silent for 2.1 h`, which turns a range that looks like it ran out into the good
+news it is. `TestSilentSourcesStillOverlap` covers all three cases.
+
+Kubernetes **Events** are not collected. They are where the liveness-probe reason lives
+(`Container pxc failed liveness probe, will be restarted`) and they are a fourth format
+again; the probe finding infers the fact from the member's own records and names
+`kubectl get events` rather than pretending to have read it.
+
+---
+
+## 301. The same for the Percona Operator for MongoDB: the operator, every mongod, and every `pbm-agent` sidecar — `app/logsummary_psmdbop{,_rules,_config,_verdict}.go`, `app/logsummary_psmdbop_test.go` (all new), `app/{logsummary,logsummary_k8s,logsummary_model,logsummary_pxcop,logsummary_pxcop_verdict,logsummary_galera,logsummary_verdict}.go`, `app/web/src/{lib/logApi.js,pages/LogSummary.jsx}`, `app/web/smoke/render.jsx`, `docs/LOG_SUMMARY.md`
+
+The eighth log vocabulary, and the cheapest of the eight to add: the PSMDB operator **is**
+the same controller-runtime process the PXC one is, so `lsFoldOperator` reads it unchanged
+and only the catalogue and the sniff are new. Nothing about the shape of a line separates
+the two — the controller group (`psmdb.percona.com` vs `pxc.percona.com`) is the only
+discriminator, which is why `lsSniffPSMDB` runs before `lsSniffOperator` for the same
+reason the mongos sniff runs before the replica-set one.
+
+What is genuinely new is the third log, and it is not one log but **three**: `pbm-agent`
+runs as a sidecar in every member's pod, and a bundle therefore holds one per member —
+seven sources for a three-member replica set.
+
+### The corpus
+
+One live cluster: PSMDB operator **1.23.0**, percona-server-mongodb **8.0.26-11**, PBM
+**2.15.0**, k3s **v1.36.3**, three members backing up to SeaweedFS S3, under continuous
+write load. Driven through a bootstrap, two backups, a full restore, a point-in-time
+restore, PITR on and off, a force-deleted primary, a `netem` partition, and a `cr.yaml`
+edit that broke the cluster. Six captures are `app/testdata/logsummary/km*/` — prefixed
+`km` rather than `m` after the first attempt collided with the existing plain-MongoDB
+fixtures (no files were overwritten, and `TestMongo*` was re-run to prove it).
+
+### What the capture taught
+
+1. **PITR runs on exactly one member.** PBM nominates one agent per replica set; the losers
+   write `skip after pitr nomination` and go quiet, which is indistinguishable from PITR
+   being switched off. Reading one agent's log — the obvious thing to do — is the mistake
+   this page exists to prevent. `lsPSMDBFindingPITRWho` names the winner and explains the
+   others' silence; the alerting rule is the *absence* of `created chunk` across all of
+   them together.
+
+2. **After a restore, PITR reports ON and does not run.** `no backup found after the
+   restored …, a new backup is required to resume PITR` — in the agent's log and nowhere
+   else, while `pitr.enabled` is true, the CR is `ready` and `pbm status` prints
+   `Status [ON]`. `lsPSMDBFindingPITRStalled`.
+
+3. **A logical restore runs in place, unfenced** — the difference from PXC, which scales to
+   zero. Measured on a point-in-time restore to 09:02:35: **zero** documents between the
+   target and the collection drop at 09:05:43 (the restore was exact), and **32,000** after
+   it, written by a load generator that was merely slow to shut down, during the seventeen
+   minutes the replay took. `lsPSMDBFindingRestoreWritable`.
+
+4. **The replay is the slow half and scales with writes, not data**: 414,500 documents
+   restored from the dump in 2.3 s, ~92,000 oplog operations replayed in 7 m 32 s — about
+   200 ops/s.
+
+5. **A partitioned member is left alone**, the exact opposite of PXC's 25-second liveness
+   kill: 3 m 46 s of 100% packet loss, zero restarts, no probe event. The evidence is in
+   the sidecar (`ReplicaSetNoPrimary`) and in the `stale lock` another agent takes over.
+
+6. **The agent log is two formats and the second only appears when things are wrong.** PBM
+   keeps its log *inside MongoDB*, so its Go-stdlib stderr lines are by construction written
+   while the database was unreachable; the container entrypoint uses the same shape and is
+   the only record of a crash-loop. `lsFoldPBM` parses both with separate subsystems. The
+   26-line *Join Percona Squad* banner folds into the start record.
+
+7. **A stuck rollout is 1,151 INFO records saying two things** (`StatefulSet is not up to
+   date` ×770, `can't start/continue 'SmartUpdate'` ×381) and nothing that says the cluster
+   is stuck. Measured as a span, not counted. The cause, found by causing it: **`spec.replsets`
+   is a list and a JSON merge patch replaces a list**, so patching it dropped
+   `affinity.antiAffinityTopologyKey: none` and the third pod never scheduled again.
+
+### Tuning
+
+`lsPSMDBAdvice` leans on the existing `lsMongoScanConfig` for the engine and reads the
+operator's own records for what only it knows. `spec.backup.pitr.oplogSpanMin` defaults to
+**10 minutes** and *is* the RPO — nothing in MongoDB mentions it. The untuned corpus cluster
+reports **14,527 MB of WiredTiger cache per member, unpinned**, three of them on a 29.4 GiB
+host, because the engine sizes from what it believes the machine has.
+
+### Three bugs live verification found
+
+All three invisible to the tests and obvious on the rendered page:
+
+- **All three agents were named `pbm`** — the collector's source name is `<pod>/pbm` and the
+  fallback keeps the last path segment. The agent does say which member it is, once, in the
+  version block folded into its start record (`node: rs0/<host>:27017`). Same class of bug
+  as the PXC `base_host` one.
+- **The PXC findings fired on the MongoDB bundle.** Both catalogues use the same classes and
+  some of the same labels, so the page reported *"Gap in the collected binary logs"* about a
+  cluster with no binary logs and *"4 backups started and no success was recorded"* about
+  backups that had all succeeded. `lsIsPXCOpSrc`/`lsIsPSMDBSrc` gate both ways — exactly the
+  hazard `lsSrcIs` already warned about, now demonstrated.
+- The cache tip needed a startup line the fixtures' tails had cut off, which is itself
+  honest: a busy member's 3,000-line tail covers about four minutes, so the tip is omitted
+  rather than guessed. `TestPSMDBCacheAdviceNeedsAStartup` pins both halves.
+
+### The verdict now narrows with the timeline
+
+Asked for separately and done here: dragging a window on the swimlane filters the **Verdict**
+above it, not just the events below. Spans are kept when they **overlap** the window rather
+than when they are contained by it — a 24-minute restore is exactly what you still want to
+see when you drag an 18-minute window into the middle of it — instants when they fall
+inside, and undated conclusions are **never hidden**, because they stay true of any window
+and one of them is usually the most important line on the page. Those move to an *About the
+whole bundle* group with a count of what was hidden. Six smoke checks cover the rule,
+including that a non-window narrows nothing.
+
+### Verified
+
+- All seven sources collected live through the app's API and rendered in a real browser:
+  the picker, the sources table with the two new flavour badges, ten findings, and a
+  seven-lane timeline with the operator's `CR-READY` and each agent's `SLICING`/`PBM-IDLE`
+  beside the members' own states. A real mouse drag on the swimlane took the verdict from
+  seven cards to three.
+- 16 new Go tests over the six fixtures, 6 new smoke checks, `go build` / `go vet` /
+  `go test ./...` / `npm run smoke` / `npm run build` clean.
+
+### Not done
+
+The four remaining operators (`ps`, `pg`, `cnpg`, `pgo`) are still not offered.
+`listLogK8sTargets` is keyed on `lsK8sOperatorDeploy` and adding one is now a map entry, a
+member-log path and a catalogue — but a catalogue is the whole cost, and offering an
+operator without one produces a source of unclassified records under another operator's
+verdicts, which is the bug this session already fixed once.
+
+Kubernetes **Events** are still not collected, for both operators.

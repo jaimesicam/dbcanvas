@@ -1,0 +1,148 @@
+2026/08/22 08:56:48 [entrypoint] starting `pbm-agent`
+2026-08-22T08:56:48.000+0000 I 
+                    %                        _____
+                   %%%                      |  __ \
+                 ###%%%%%%%%%%%%*           | |__) |__ _ __ ___ ___  _ __   __ _
+                ###  ##%%      %%%%         |  ___/ _ \ '__/ __/ _ \| '_ \ / _` |
+              ####     ##%       %%%%       | |  |  __/ | | (_| (_) | | | | (_| |
+             ###        ####      %%%       |_|   \___|_|  \___\___/|_| |_|\__,_|
+           ,((###         ###     %%%         _____                       _
+          (((( (###        ####  %%%%        / ____|                     | |
+         (((     ((#         ######         | (___   __ _ _   _  __ _  __| |
+       ((((       (((#        ####           \___ \ / _` | | | |/ _` |/ _` |
+      /((          ,(((        *###          ____) | (_| | |_| | (_| | (_| |
+    ////             (((         ####       |_____/ \__, |\__,_|\__,_|\__,_|
+   ///                ((((        ####                 | |
+ /////////////(((((((((((((((((########                |_|   Join @ squad.percona.com/mongodb
+
+** Join Percona Squad! **
+Participate in monthly SWAG raffles, get early access to new product features,
+invite-only ”ask me anything” sessions with database performance experts.
+
+Interested? Fill in the form at squad.percona.com/mongodb
+2026-08-22T08:56:48.000+0000 I log options: log-path=/dev/stderr, log-level:D, log-json:false
+2026-08-22T08:56:48.000+0000 I pbm-agent:
+Version:   2.15.0
+Platform:  linux/amd64
+GitCommit: 15c9f217f91bc518b81ad901abe9331227e5c615
+GitBranch: release-2.15.0
+BuildTime: 2026-06-10_09:58_UTC
+GoVersion: go1.25.11
+2026-08-22T08:56:48.000+0000 I starting PITR routine
+2026-08-22T08:56:48.000+0000 I node: rs0/my-cluster-name-rs0-1.my-cluster-name-rs0.psmdb.svc.cluster.local:27017
+2026-08-22T08:56:48.000+0000 I conn level ReadConcern: majority; WriteConcern: majority
+2026-08-22T08:56:48.000+0000 I listening for the commands
+2026-08-22T08:56:48.000+0000 D [pitr] waiting for cluster ready status
+2026-08-22T08:56:50.000+0000 D [pitr] waiting pitr nomination
+2026-08-22T08:56:54.000+0000 D [pitr] skip after pitr nomination, probably started by another node
+2026-08-22T08:58:11.000+0000 I got command restore [name: 2026-08-22T08:58:10.680476405Z, snapshot: 2026-08-22T08:35:39Z] <ts: 1787389090>, opid: 6a8964a28ca63c4041202405
+2026-08-22T08:58:11.000+0000 I got epoch {1787389090 3}
+2026-08-22T08:58:11.000+0000 D [restore/2026-08-22T08:58:10.680476405Z] waiting for PITR config disabled and OpLock released
+2026-08-22T08:58:16.000+0000 I [restore/2026-08-22T08:58:10.680476405Z] PITR slicer stopped
+2026-08-22T08:58:16.000+0000 I [restore/2026-08-22T08:58:10.680476405Z] backup: 2026-08-22T08:35:39Z
+2026-08-22T08:58:16.000+0000 I [restore/2026-08-22T08:58:10.680476405Z] recovery started
+2026-08-22T08:58:16.000+0000 I [restore/2026-08-22T08:58:10.680476405Z] This node is not the primary. Check pbm agent on the primary for restore progress
+2026-08-22T08:58:54.000+0000 D [pitr] waiting for cluster ready status
+2026-08-22T08:59:08.000+0000 D [pitr] waiting pitr nomination
+2026-08-22T08:59:10.000+0000 D [pitr] start_catchup
+2026-08-22T08:59:10.000+0000 D [pitr] setting RS error status for err: catchup: no backup found after the restored 2026-08-22T08:35:39Z, a new backup is required to resume PITR
+2026-08-22T08:59:10.000+0000 E [pitr] init: catchup: no backup found after the restored 2026-08-22T08:35:39Z, a new backup is required to resume PITR
+2026-08-22T08:59:25.000+0000 D [pitr] waiting for cluster ready status
+2026-08-22T08:59:41.000+0000 D [pitr] waiting pitr nomination
+2026-08-22T08:59:43.000+0000 D [pitr] start_catchup
+2026-08-22T08:59:43.000+0000 D [pitr] setting RS error status for err: catchup: no backup found after the restored 2026-08-22T08:35:39Z, a new backup is required to resume PITR
+2026-08-22T08:59:43.000+0000 E [pitr] init: catchup: no backup found after the restored 2026-08-22T08:35:39Z, a new backup is required to resume PITR
+2026-08-22T08:59:58.000+0000 D [pitr] waiting for cluster ready status
+2026-08-22T09:00:03.000+0000 I got command backup [name: 2026-08-22T09:00:02Z, compression: gzip (level: default)] <ts: 1787389202>, opid: 6a8965128ca63c404120243c
+2026-08-22T09:00:03.000+0000 I got epoch {1787389121 4}
+2026-08-22T09:00:04.000+0000 I [backup/2026-08-22T09:00:02Z] backup started
+2026-08-22T09:00:06.000+0000 D [backup/2026-08-22T09:00:02Z] wait for tmp users {1787389206 12}
+2026-08-22T09:00:07.000+0000 D [backup/2026-08-22T09:00:02Z] dumping up to 10 collections in parallel
+2026-08-22T09:00:07.000+0000 D [backup/2026-08-22T09:00:02Z] uploading "2026-08-22T09:00:02Z/rs0/admin.pbmAgents.gz" [size hint: 36864 (36.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T09:00:07.000+0000 D [backup/2026-08-22T09:00:02Z] uploading "2026-08-22T09:00:02Z/rs0/admin.system.version.gz" [size hint: 20480 (20.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T09:00:07.000+0000 D [backup/2026-08-22T09:00:02Z] uploading "2026-08-22T09:00:02Z/rs0/admin.pbmOpLog.gz" [size hint: 36864 (36.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T09:00:07.000+0000 D [backup/2026-08-22T09:00:02Z] uploading "2026-08-22T09:00:02Z/rs0/admin.pbmPITRChunks.gz" [size hint: 36864 (36.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T09:00:07.000+0000 D [backup/2026-08-22T09:00:02Z] uploading "2026-08-22T09:00:02Z/rs0/sim.trades.gz" [size hint: 20758528 (19.80MB); part size: 10485760 (10.00MB)]
+2026-08-22T09:00:07.000+0000 D [backup/2026-08-22T09:00:02Z] uploading "2026-08-22T09:00:02Z/rs0/admin.pbmRestores.gz" [size hint: 20480 (20.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T09:00:07.000+0000 D [backup/2026-08-22T09:00:02Z] uploading "2026-08-22T09:00:02Z/rs0/admin.pbmCmd.gz" [size hint: 36864 (36.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T09:00:07.000+0000 D [backup/2026-08-22T09:00:02Z] uploading "2026-08-22T09:00:02Z/rs0/admin.system.roles.gz" [size hint: 36864 (36.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T09:00:07.000+0000 D [backup/2026-08-22T09:00:02Z] uploading "2026-08-22T09:00:02Z/rs0/admin.pbmPITR.gz" [size hint: 36864 (36.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T09:00:07.000+0000 D [backup/2026-08-22T09:00:02Z] uploading "2026-08-22T09:00:02Z/rs0/admin.pbmBackups.gz" [size hint: 36864 (36.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T09:00:07.000+0000 I [backup/2026-08-22T09:00:02Z] dump collection "admin.pbmPITRChunks" done (size: 2144)
+2026-08-22T09:00:07.000+0000 I [backup/2026-08-22T09:00:02Z] dump collection "admin.system.version" done (size: 104)
+2026-08-22T09:00:07.000+0000 I [backup/2026-08-22T09:00:02Z] dump collection "admin.pbmOpLog" done (size: 565)
+2026-08-22T09:00:07.000+0000 I [backup/2026-08-22T09:00:02Z] dump collection "admin.pbmAgents" done (size: 976)
+2026-08-22T09:00:07.000+0000 I [backup/2026-08-22T09:00:02Z] dump collection "admin.pbmPITR" done (size: 360)
+2026-08-22T09:00:07.000+0000 I [backup/2026-08-22T09:00:02Z] dump collection "admin.pbmRestores" done (size: 1267)
+2026-08-22T09:00:07.000+0000 I [backup/2026-08-22T09:00:02Z] dump collection "admin.pbmCmd" done (size: 551)
+2026-08-22T09:00:07.000+0000 I [backup/2026-08-22T09:00:02Z] dump collection "admin.pbmBackups" done (size: 3474)
+2026-08-22T09:00:07.000+0000 I [backup/2026-08-22T09:00:02Z] dump collection "admin.system.roles" done (size: 648)
+2026-08-22T09:00:07.000+0000 D [backup/2026-08-22T09:00:02Z] uploading "2026-08-22T09:00:02Z/rs0/admin.system.users.gz" [size hint: 36864 (36.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T09:00:07.000+0000 I [backup/2026-08-22T09:00:02Z] dump collection "admin.pbmLockOp" done (size: 0)
+2026-08-22T09:00:07.000+0000 D [backup/2026-08-22T09:00:02Z] uploading "2026-08-22T09:00:02Z/rs0/admin.pbmRRoles.gz" [size hint: 0 (0.00B); part size: 10485760 (10.00MB)]
+2026-08-22T09:00:07.000+0000 D [backup/2026-08-22T09:00:02Z] uploading "2026-08-22T09:00:02Z/rs0/admin.pbmRUsers.gz" [size hint: 0 (0.00B); part size: 10485760 (10.00MB)]
+2026-08-22T09:00:07.000+0000 D [backup/2026-08-22T09:00:02Z] uploading "2026-08-22T09:00:02Z/rs0/admin.pbmConfig.gz" [size hint: 36864 (36.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T09:00:07.000+0000 D [backup/2026-08-22T09:00:02Z] uploading "2026-08-22T09:00:02Z/rs0/admin.pbmLock.gz" [size hint: 24576 (24.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T09:00:07.000+0000 D [backup/2026-08-22T09:00:02Z] uploading "2026-08-22T09:00:02Z/rs0/admin.pbmLog.gz" [size hint: 106496 (104.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T09:00:07.000+0000 I [backup/2026-08-22T09:00:02Z] dump collection "admin.system.users" done (size: 3318)
+2026-08-22T09:00:07.000+0000 I [backup/2026-08-22T09:00:02Z] dump collection "admin.pbmRUsers" done (size: 3318)
+2026-08-22T09:00:07.000+0000 I [backup/2026-08-22T09:00:02Z] dump collection "admin.pbmRRoles" done (size: 648)
+2026-08-22T09:00:07.000+0000 I [backup/2026-08-22T09:00:02Z] dump collection "admin.pbmLock" done (size: 200)
+2026-08-22T09:00:07.000+0000 I [backup/2026-08-22T09:00:02Z] dump collection "admin.pbmConfig" done (size: 496)
+2026-08-22T09:00:07.000+0000 I [backup/2026-08-22T09:00:02Z] dump collection "admin.pbmLog" done (size: 118723)
+2026-08-22T09:00:08.000+0000 I [backup/2026-08-22T09:00:02Z] dump collection "sim.trades" done (size: 198960000)
+2026-08-22T09:00:08.000+0000 D [backup/2026-08-22T09:00:02Z] uploading "2026-08-22T09:00:02Z/rs0/meta.pbm" [size hint: 0 (0.00B); part size: 10485760 (10.00MB)]
+2026-08-22T09:00:08.000+0000 D [backup/2026-08-22T09:00:02Z] uploading "2026-08-22T09:00:02Z/rs0/metadata.json" [size hint: 10020 (9.79KB); part size: 10485760 (10.00MB)]
+2026-08-22T09:00:08.000+0000 I [backup/2026-08-22T09:00:02Z] dump finished for RS: rs0
+2026-08-22T09:00:09.000+0000 I [backup/2026-08-22T09:00:02Z] stopping oplog slicer on this node
+2026-08-22T09:00:09.000+0000 D [backup/2026-08-22T09:00:02Z] uploading "2026-08-22T09:00:02Z/rs0/oplog/20260822090004-5.20260822090009-6.gz" [size hint: 1073741824 (1.00GB); part size: 10485760 (10.00MB)]
+2026-08-22T09:00:09.000+0000 I [backup/2026-08-22T09:00:02Z] created chunk 2026-08-22T09:00:04 - 2026-08-22T09:00:09
+2026-08-22T09:00:09.000+0000 I [backup/2026-08-22T09:00:02Z] setting last write timestamp on this node
+2026-08-22T09:00:09.000+0000 I [backup/2026-08-22T09:00:02Z] setting last common write timestamp across all nodes
+2026-08-22T09:00:09.000+0000 I [backup/2026-08-22T09:00:02Z] dropping tmp collections
+2026-08-22T09:00:10.000+0000 D [backup/2026-08-22T09:00:02Z] uploading "2026-08-22T09:00:02Z.pbm.json" [size hint: 2178 (2.13KB); part size: 10485760 (10.00MB)]
+2026-08-22T09:00:10.000+0000 I [backup/2026-08-22T09:00:02Z] backup finished
+2026-08-22T09:00:10.000+0000 D [backup/2026-08-22T09:00:02Z] releasing lock
+2026-08-22T09:00:14.000+0000 D [pitr] waiting pitr nomination
+2026-08-22T09:00:16.000+0000 D [pitr] start_catchup
+2026-08-22T09:00:16.000+0000 I [pitr] streaming started from 2026-08-22 09:00:09 +0000 UTC / 1787389209
+2026-08-22T09:00:16.000+0000 D [pitr] start_ok
+2026-08-22T09:01:16.000+0000 D [pitr] uploading "pbmPitr/rs0/20260822/20260822090009-6.20260822090116-4.oplog.s2" [size hint: -1 (unknown); part size: 10485760 (10.00MB)]
+2026-08-22T09:01:16.000+0000 I [pitr] created chunk 2026-08-22T09:00:09 - 2026-08-22T09:01:16. Next chunk creation scheduled to begin at ~2026-08-22 09:02:16.645157783 +0000 UTC m=+328.342874354
+2026-08-22T09:02:16.000+0000 D [pitr] uploading "pbmPitr/rs0/20260822/20260822090116-4.20260822090216-4.oplog.s2" [size hint: -1 (unknown); part size: 10485760 (10.00MB)]
+2026-08-22T09:02:16.000+0000 I [pitr] created chunk 2026-08-22T09:01:16 - 2026-08-22T09:02:16. Next chunk creation scheduled to begin at ~2026-08-22 09:03:16.637135574 +0000 UTC m=+388.334852146
+2026-08-22T09:03:16.000+0000 D [pitr] uploading "pbmPitr/rs0/20260822/20260822090216-4.20260822090316-3.oplog.s2" [size hint: -1 (unknown); part size: 10485760 (10.00MB)]
+2026-08-22T09:03:16.000+0000 I [pitr] created chunk 2026-08-22T09:02:16 - 2026-08-22T09:03:16. Next chunk creation scheduled to begin at ~2026-08-22 09:04:16.638245514 +0000 UTC m=+448.335962086
+2026-08-22T09:04:16.000+0000 D [pitr] uploading "pbmPitr/rs0/20260822/20260822090316-3.20260822090416-3.oplog.s2" [size hint: -1 (unknown); part size: 10485760 (10.00MB)]
+2026-08-22T09:04:16.000+0000 I [pitr] created chunk 2026-08-22T09:03:16 - 2026-08-22T09:04:16. Next chunk creation scheduled to begin at ~2026-08-22 09:05:16.645372274 +0000 UTC m=+508.343088847
+2026-08-22T09:05:16.000+0000 D [pitr] uploading "pbmPitr/rs0/20260822/20260822090416-3.20260822090516-4.oplog.s2" [size hint: -1 (unknown); part size: 10485760 (10.00MB)]
+2026-08-22T09:05:16.000+0000 I [pitr] created chunk 2026-08-22T09:04:16 - 2026-08-22T09:05:16. Next chunk creation scheduled to begin at ~2026-08-22 09:06:16.636033306 +0000 UTC m=+568.333749881
+2026-08-22T09:05:31.000+0000 I [pitr] got done signal, stopping
+2026-08-22T09:05:31.000+0000 D [pitr] uploading "pbmPitr/rs0/20260822/20260822090516-4.20260822090531-5.oplog.s2" [size hint: -1 (unknown); part size: 10485760 (10.00MB)]
+2026-08-22T09:05:31.000+0000 I [pitr] created chunk 2026-08-22T09:05:16 - 2026-08-22T09:05:31
+2026-08-22T09:05:31.000+0000 I [pitr] pausing/stopping with last_ts 2026-08-22 09:05:31 +0000 UTC
+2026-08-22T09:05:33.000+0000 I got command restore [name: 2026-08-22T09:05:33.074048175Z, snapshot: 2026-08-22T09:00:02Z point-in-time: <1787389355,0>] <ts: 1787389533>, opid: 6a89665d8ca63c40412024e7
+2026-08-22T09:05:33.000+0000 I got epoch {1787389533 7}
+2026-08-22T09:05:33.000+0000 I [restore/2026-08-22T09:05:33.074048175Z] to time: 2026-08-22T09:02:35Z
+2026-08-22T09:05:33.000+0000 D [restore/2026-08-22T09:05:33.074048175Z] waiting for PITR config disabled and OpLock released
+2026-08-22T09:05:38.000+0000 I [restore/2026-08-22T09:05:33.074048175Z] PITR slicer stopped
+2026-08-22T09:05:38.000+0000 I [restore/2026-08-22T09:05:33.074048175Z] backup: 2026-08-22T09:00:02Z
+2026-08-22T09:05:38.000+0000 I [restore/2026-08-22T09:05:33.074048175Z] recovery started
+2026-08-22T09:05:38.000+0000 I [restore/2026-08-22T09:05:33.074048175Z] This node is not the primary. Check pbm agent on the primary for restore progress
+2026-08-22T09:22:46.000+0000 D [pitr] waiting for cluster ready status
+2026-08-22T09:23:02.000+0000 D [pitr] waiting pitr nomination
+2026-08-22T09:23:04.000+0000 D [pitr] start_catchup
+2026-08-22T09:23:04.000+0000 D [pitr] setting RS error status for err: catchup: no backup found after the restored 2026-08-22T09:00:02Z, a new backup is required to resume PITR
+2026-08-22T09:23:04.000+0000 E [pitr] init: catchup: no backup found after the restored 2026-08-22T09:00:02Z, a new backup is required to resume PITR
+2026-08-22T09:23:19.000+0000 D [pitr] waiting for cluster ready status
+2026-08-22T09:23:35.000+0000 D [pitr] waiting pitr nomination
+2026-08-22T09:23:37.000+0000 D [pitr] start_catchup
+2026-08-22T09:23:37.000+0000 D [pitr] setting RS error status for err: catchup: no backup found after the restored 2026-08-22T09:00:02Z, a new backup is required to resume PITR
+2026-08-22T09:23:37.000+0000 E [pitr] init: catchup: no backup found after the restored 2026-08-22T09:00:02Z, a new backup is required to resume PITR
+2026-08-22T09:23:52.000+0000 D [pitr] waiting for cluster ready status
+2026-08-22T09:24:08.000+0000 D [pitr] waiting pitr nomination
+2026-08-22T09:24:10.000+0000 D [pitr] start_catchup
+2026-08-22T09:24:10.000+0000 D [pitr] setting RS error status for err: catchup: no backup found after the restored 2026-08-22T09:00:02Z, a new backup is required to resume PITR
+2026-08-22T09:24:10.000+0000 E [pitr] init: catchup: no backup found after the restored 2026-08-22T09:00:02Z, a new backup is required to resume PITR
+2026-08-22T09:24:25.000+0000 D [pitr] waiting for cluster ready status
+2026-08-22T09:24:41.000+0000 D [pitr] waiting pitr nomination

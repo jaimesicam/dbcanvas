@@ -1,0 +1,60 @@
+2026/08/22 08:55:32 [entrypoint] starting `pbm-agent`
+2026-08-22T08:55:32.000+0000 I 
+                    %                        _____
+                   %%%                      |  __ \
+                 ###%%%%%%%%%%%%*           | |__) |__ _ __ ___ ___  _ __   __ _
+                ###  ##%%      %%%%         |  ___/ _ \ '__/ __/ _ \| '_ \ / _` |
+              ####     ##%       %%%%       | |  |  __/ | | (_| (_) | | | | (_| |
+             ###        ####      %%%       |_|   \___|_|  \___\___/|_| |_|\__,_|
+           ,((###         ###     %%%         _____                       _
+          (((( (###        ####  %%%%        / ____|                     | |
+         (((     ((#         ######         | (___   __ _ _   _  __ _  __| |
+       ((((       (((#        ####           \___ \ / _` | | | |/ _` |/ _` |
+      /((          ,(((        *###          ____) | (_| | |_| | (_| | (_| |
+    ////             (((         ####       |_____/ \__, |\__,_|\__,_|\__,_|
+   ///                ((((        ####                 | |
+ /////////////(((((((((((((((((########                |_|   Join @ squad.percona.com/mongodb
+
+** Join Percona Squad! **
+Participate in monthly SWAG raffles, get early access to new product features,
+invite-only ”ask me anything” sessions with database performance experts.
+
+Interested? Fill in the form at squad.percona.com/mongodb
+2026-08-22T08:55:32.000+0000 I log options: log-path=/dev/stderr, log-level:D, log-json:false
+2026-08-22T08:55:32.000+0000 I pbm-agent:
+Version:   2.15.0
+Platform:  linux/amd64
+GitCommit: 15c9f217f91bc518b81ad901abe9331227e5c615
+GitBranch: release-2.15.0
+BuildTime: 2026-06-10_09:58_UTC
+GoVersion: go1.25.11
+2026-08-22T08:55:32.000+0000 I starting PITR routine
+2026-08-22T08:55:32.000+0000 I node: rs0/my-cluster-name-rs0-2.my-cluster-name-rs0.psmdb.svc.cluster.local:27017
+2026-08-22T08:55:32.000+0000 I conn level ReadConcern: majority; WriteConcern: majority
+2026-08-22T08:55:32.000+0000 I listening for the commands
+2026-08-22T08:56:32.000+0000 D [pitr] waiting for cluster ready status
+2026-08-22T08:56:44.000+0000 D [pitr] waiting pitr nomination
+2026-08-22T08:56:52.000+0000 D [pitr] stale lock: {PITR incremental backup rs0 my-cluster-name-rs0-0.my-cluster-name-rs0.psmdb.svc.cluster.local:27017  0xc000885128}
+2026-08-22T08:56:52.000+0000 D [pitr] start_catchup
+2026-08-22T08:56:52.000+0000 I [pitr] streaming started from 2026-08-22 08:55:42 +0000 UTC / 1787388942
+2026-08-22T08:56:52.000+0000 D [pitr] start_ok
+2026-08-22T08:57:52.000+0000 D [pitr] uploading "pbmPitr/rs0/20260822/20260822085542-6.20260822085752-4.oplog.s2" [size hint: -1 (unknown); part size: 10485760 (10.00MB)]
+2026-08-22T08:57:52.000+0000 I [pitr] created chunk 2026-08-22T08:55:42 - 2026-08-22T08:57:52. Next chunk creation scheduled to begin at ~2026-08-22 08:58:52.740279126 +0000 UTC m=+200.345424384
+2026-08-22T08:58:07.000+0000 I [pitr] got done signal, stopping
+2026-08-22T08:58:07.000+0000 D [pitr] uploading "pbmPitr/rs0/20260822/20260822085752-4.20260822085807-6.oplog.s2" [size hint: -1 (unknown); part size: 10485760 (10.00MB)]
+2026-08-22T08:58:07.000+0000 I [pitr] created chunk 2026-08-22T08:57:52 - 2026-08-22T08:58:07
+2026-08-22T08:58:07.000+0000 I [pitr] pausing/stopping with last_ts 2026-08-22 08:58:07 +0000 UTC
+2026-08-22T08:58:11.000+0000 I got command restore [name: 2026-08-22T08:58:10.680476405Z, snapshot: 2026-08-22T08:35:39Z] <ts: 1787389090>, opid: 6a8964a28ca63c4041202405
+2026-08-22T08:58:11.000+0000 I got epoch {1787389090 3}
+2026-08-22T08:58:11.000+0000 D [restore/2026-08-22T08:58:10.680476405Z] waiting for PITR config disabled and OpLock released
+2026-08-22T08:58:16.000+0000 I [restore/2026-08-22T08:58:10.680476405Z] PITR slicer stopped
+2026-08-22T08:58:16.000+0000 I [restore/2026-08-22T08:58:10.680476405Z] backup: 2026-08-22T08:35:39Z
+2026-08-22T08:58:16.000+0000 I [restore/2026-08-22T08:58:10.680476405Z] recovery started
+2026-08-22T08:58:16.000+0000 I [restore/2026-08-22T08:58:10.680476405Z] This node is not the primary. Check pbm agent on the primary for restore progress
+2026-08-22T08:58:52.000+0000 D [pitr] waiting for cluster ready status
+2026-08-22T08:59:08.000+0000 D [pitr] waiting pitr nomination
+2026-08-22T08:59:10.000+0000 D [pitr] skip after pitr nomination, probably started by another node
+2026-08-22T08:59:25.000+0000 D [pitr] waiting for cluster ready status
+2026-08-22T08:59:41.000+0000 D [pitr] waiting pitr nomination
+2026-08-22T08:59:43.000+0000 D [pitr] skip after pitr nomination, probably started by another node
+2026-08-22T08:59:58.000+0000 D [pitr] waiting for cluster ready status

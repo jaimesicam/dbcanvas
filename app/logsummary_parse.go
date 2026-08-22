@@ -37,6 +37,7 @@ package main
 // count and a span.
 
 import (
+	"net"
 	"regexp"
 	"strings"
 	"time"
@@ -411,6 +412,13 @@ func lsEndOf(e lsEvent) float64 {
 // answer here is the family; lsSniffFlavour then separates a Galera member from a plain
 // MySQL server, which is a different question and has a much better signal.
 func lsSniffEngine(data string) string {
+	// Checked before the four databases, and by vocabulary rather than by counting header
+	// matches. A Kubernetes controller's log is not a near-miss for a database's — it is a
+	// different document entirely — and an operator log full of `PerconaXtraDBCluster`
+	// would otherwise be filed as MySQL because a few of its lines happen to parse.
+	if lsSniffOperator(data) != "" {
+		return pktEngineOperator
+	}
 	my, pg, mg, vk := 0, 0, 0, 0
 	for i, line := range strings.Split(data, "\n") {
 		if i > 800 || my >= 8 || pg >= 8 || mg >= 8 || vk >= 8 {
@@ -485,12 +493,27 @@ var (
 )
 
 func lsNodeName(recs []lsRecord) string {
+	// `Server <name> synced with group` first, over the whole file rather than record by
+	// record beside the fallback. It is the node's own name as wsrep_node_name set it,
+	// while base_host is only an address — and on Kubernetes it is *always* only an
+	// address, so a per-record race between the two decided the answer by which startup
+	// line the tail happened to begin with.
 	for _, r := range recs {
 		if m := lsServerSyn.FindStringSubmatch(r.Text); m != nil {
 			return m[1]
 		}
+	}
+	for _, r := range recs {
 		if m := lsBaseHost.FindStringSubmatch(r.Text); m != nil {
-			// base_host is an FQDN; the short name is what every other line uses.
+			// base_host is an FQDN; the short name is what every other line uses. Unless
+			// it is an IP address, which has no short name: splitting 10.42.0.15 on its
+			// first dot named a PXC pod "10", and three members of one cluster were all
+			// called "10". A member whose only self-identification is an address keeps
+			// the name the source came with — for a pod that is the pod's name, which is
+			// what `kubectl get pods` and the operator's own log both call it.
+			if net.ParseIP(m[1]) != nil {
+				return ""
+			}
 			return strings.SplitN(m[1], ".", 2)[0]
 		}
 	}

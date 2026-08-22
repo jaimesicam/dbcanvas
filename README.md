@@ -11,6 +11,50 @@ development: spin up a production-shaped cluster in minutes, exercise it, tear i
 
 ## What's New
 
+**The Log Summary reads Percona's Kubernetes operators — every log a cluster has, on one
+timeline.** For **Percona XtraDB Cluster** that is the operator's own log, each member's, and
+the binlog collector's; for **Percona Server for MongoDB** it is the operator, each member's
+mongod, and each member's `pbm-agent` sidecar — seven sources for a three-member replica set.
+
+The MongoDB half found two things no single log says. Point-in-time recovery runs on
+**exactly one member**, and the other agents' logs are indistinguishable from PITR being
+switched off — so reading one of them, the obvious thing to do, tells you nothing. And after
+a restore PBM **refuses to slice the oplog until a new full backup exists**, while
+`pitr.enabled` is still true, the custom resource is `ready`, and `pbm status` still prints
+`Status [ON]`. Nothing is being written to object storage and only the agent says so.
+
+A third is a data-integrity difference between the two operators: a PXC restore scales the
+cluster to zero, and a MongoDB **logical restore runs in place with the cluster still
+accepting writes**. Measured — a restore that was exact to its target still ended with
+32,000 documents that had never been in the backup, written by a client that was merely slow
+to shut down.
+
+Drag a window on the timeline and the **verdict narrows with it**, so you can ask what a
+particular stretch adds up to. See [docs/LOG_SUMMARY.md](docs/LOG_SUMMARY.md).
+
+**The Log Summary reads a Percona Operator for MySQL (PXC) cluster — all three of its logs at
+once.** A PXC cluster on a Kubernetes frame writes three different logs and none of them holds
+the whole story: the **operator's** own (the decisions — rolling restarts, backups, restores,
+which pod it calls primary), each **member's** mysqld error log (what an outage actually
+consists of), and the **binlog collector's** (whether point-in-time recovery is running, and
+whether it has a hole in it). Tick them together and they land on one timeline.
+
+Two things that reading them together makes visible and no single one of them says. A member
+cut off from the cluster does the right thing — it goes non-primary and waits to rejoin — and
+**Kubernetes kills it 25 seconds later**, because the liveness probe asks wsrep whether it is
+Primary; its own log records that as `Received SHUTDOWN from user`, which is exactly what a
+deliberate stop writes. And the operator's log, over the two minutes in which a member was
+evicted, restarted and rebuilt by a state transfer, says only `Updated PITR timelines` —
+an operator reconciles a desired state, it does not watch the cluster, and the page now says
+that out loud instead of letting a quiet controller read as a healthy database.
+
+It also reports **what the cluster is actually configured with**. The operator's `cr.yaml` ships
+with no `spec.pxc.configuration` at all, so none of the numbers appear anywhere in Kubernetes —
+but every member writes its whole effective wsrep configuration on start, and the page reads it
+and advises: a 128 MB `gcache` that makes every restart a full resync, a five-second suspect
+timeout on a platform whose ordinary events last longer, and the liveness probe above. See
+[docs/LOG_SUMMARY.md](docs/LOG_SUMMARY.md).
+
 **OpenID Connect sign-in for Percona Server, with Keycloak as the identity provider.**
 Percona added the `auth_openid_connect` plugin in **Percona Server 8.4.11-11**, and DBCanvas
 wires it up for you: add a **Keycloak** node, tick *Keycloak SSO* on a **Percona Server** node,

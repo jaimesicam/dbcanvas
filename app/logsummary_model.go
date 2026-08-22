@@ -45,6 +45,10 @@ type lsSource struct {
 	// host clock skew, which is the one misalignment parsing cannot fix.
 	Offset float64        `json:"offset"`
 	Counts map[string]int `json:"counts"` // severity → number of events
+	// ReadAt is when this source was tailed from its node, in epoch seconds (0 = uploaded,
+	// so unknown). It is the source's coverage end whenever it is later than the last
+	// record — see lsInput.ReadAt.
+	ReadAt float64 `json:"readAt,omitempty"`
 	// Untimed is the number of records whose header carried no timestamp. They inherit
 	// the previous record's, which is close enough to place them but not to trust to the
 	// millisecond, and saying how many there were is more honest than silently placing them.
@@ -56,6 +60,11 @@ type lsSource struct {
 	// logsummary_mongo_config.go — it is the only part of the bundle that can say what a
 	// setting WAS rather than what its effects looked like.
 	MongoCfg *lsMongoConfig `json:"mongoConfig,omitempty"`
+	// PXCCfg is the same thing for a Galera member, read from its `Passing config to GCS`
+	// line: the effective wsrep provider configuration, all ninety options of it. On an
+	// operator-managed cluster it is the only place any of those numbers exists — cr.yaml
+	// ships with no configuration section at all. See logsummary_pxcop_config.go.
+	PXCCfg *lsPXCConfig `json:"pxcConfig,omitempty"`
 }
 
 // lsPhase is a stretch of time during which a source was in one state. Phases tile the
@@ -135,6 +144,16 @@ type lsInput struct {
 	// correction for host clock skew. Parsing gets the timezone right on its own; it can
 	// do nothing about a machine whose clock is forty seconds fast.
 	Offset float64
+	// ReadAt is when this text was taken off the node, in epoch seconds; 0 for an upload,
+	// where nothing knows.
+	//
+	// It exists because a log's last RECORD is not the end of what it covers. A healthy
+	// PXC member writes nothing at all — measured elsewhere in this package: thirty
+	// seconds of continuous inserts across three nodes produced zero records on all three
+	// — so its file simply stops, hours before the moment you read it. Reading the stop as
+	// the end of its coverage is what made five logs tailed from ONE cluster in ONE
+	// request report that they did not overlap. See lsOverlap.
+	ReadAt float64
 }
 
 // lsMaxEvents bounds a bundle. Past this the page is not the right tool: the classifier
@@ -226,7 +245,7 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 	src := lsSource{
 		Idx: idx, Name: in.Name, Path: in.Path, Origin: in.Origin,
 		Bytes: len(in.Data), Lines: strings.Count(data, "\n") + 1,
-		Offset: in.Offset, Counts: map[string]int{},
+		Offset: in.Offset, ReadAt: in.ReadAt, Counts: map[string]int{},
 	}
 	if src.Origin == "" {
 		src.Origin = "upload"
@@ -249,6 +268,9 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 			src.Node = lsGRNodeName(recs)
 		}
 		names = lsUUIDNames(recs)
+		if src.Flavour == lsFlavourGalera {
+			src.PXCCfg = lsPXCScanConfig(recs)
+		}
 		for _, r := range recs {
 			e, keep := lsClassifyMySQL(r)
 			if !keep {
@@ -322,6 +344,72 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 				events = append(events, e)
 			}
 		}
+	case pktEngineOperator:
+		// Not a database. A Kubernetes controller's log and its binlog collector's are
+		// parsed here because the facts that matter are in a trailing JSON object with
+		// duplicate keys, and because an ERROR record drags a Go stack trace behind it —
+		// neither of which any line classifier in this package would survive. See
+		// logsummary_pxcop.go.
+		if in.Path == lsPathPITR || lsSniffOperator(data) == lsFlavourPXCPITR {
+			recs := lsFoldPITR(data)
+			src.Records = len(recs)
+			src.Flavour = lsFlavourPXCPITR
+			src.Node = lsPITRNodeName(recs)
+			for _, r := range recs {
+				e, keep := lsClassifyPITR(r)
+				if !keep {
+					continue
+				}
+				e.Src = idx
+				events = append(events, e)
+			}
+			break
+		}
+		if in.Path == lsPathPBM || lsSniffPSMDB(data) == lsFlavourPBMAgent {
+			recs := lsFoldPBM(data)
+			src.Records = len(recs)
+			src.Flavour = lsFlavourPBMAgent
+			src.Node = lsPBMNodeName(recs)
+			for _, r := range recs {
+				e, keep := lsClassifyPBM(r)
+				if !keep {
+					continue
+				}
+				e.Src = idx
+				events = append(events, e)
+			}
+			break
+		}
+		// Both Percona operators are the same controller-runtime process writing the same
+		// tab-separated lines, so the fold is shared and only the catalogue differs. The
+		// controller group in the field object is what tells them apart, and it has to be
+		// checked before the PXC one for the same reason the mongos sniff runs before the
+		// replica-set sniff: nothing about the SHAPE of the line distinguishes them.
+		recs := lsFoldOperator(data)
+		src.Records = len(recs)
+		if lsSniffPSMDB(data) == lsFlavourPSMDBOperator {
+			src.Flavour = lsFlavourPSMDBOperator
+			src.Node = lsPSMDBNodeName(recs)
+			for _, r := range recs {
+				e, keep := lsClassifyPSMDBOperator(r)
+				if !keep {
+					continue
+				}
+				e.Src = idx
+				events = append(events, e)
+			}
+			break
+		}
+		src.Flavour = lsFlavourPXCOperator
+		src.Node = lsOpNodeName(recs)
+		for _, r := range recs {
+			e, keep := lsClassifyOperator(r)
+			if !keep {
+				continue
+			}
+			e.Src = idx
+			events = append(events, e)
+		}
 	case pktEngineValkey:
 		// Valkey is parsed here rather than by the shared classifier for a reason the other
 		// engines do not have: its source is two logs in one file. dbcanvas sets no
@@ -371,6 +459,14 @@ func lsBuildSource(idx int, in lsInput) (lsSource, []lsEvent, map[string]string)
 		lsResolveMongos(events)
 	case lsFlavourPostgres, lsFlavourPGStream, lsFlavourPatroni:
 		lsResolvePG(events)
+	case lsFlavourPXCOperator:
+		lsResolveOperator(events)
+	case lsFlavourPXCPITR:
+		lsResolvePITRCollector(events)
+	case lsFlavourPSMDBOperator:
+		lsResolvePSMDBOperator(events)
+	case lsFlavourPBMAgent:
+		lsResolvePBMAgent(events)
 	case lsFlavourValkey, lsFlavourValkeyRepl, lsFlavourValkeyCluster:
 		// The flavour is passed in because it decides one word: a lone server with no
 		// replication anywhere in its file is RUNNING, not PRIMARY. There is nothing for it
@@ -626,8 +722,8 @@ func lsOverlap(sources []lsSource) (float64, bool) {
 		if lo == 0 || s.FirstTS > lo {
 			lo = s.FirstTS
 		}
-		if hi == 0 || s.LastTS < hi {
-			hi = s.LastTS
+		if e := lsCoverEnd(s); hi == 0 || e < hi {
+			hi = e
 		}
 	}
 	if n < 2 {
@@ -637,6 +733,28 @@ func lsOverlap(sources []lsSource) (float64, bool) {
 		return 0, true
 	}
 	return hi - lo, false
+}
+
+// lsCoverEnd is the last instant a source has anything to say ABOUT, which is not the same
+// as the last instant it said anything.
+//
+// A log that stops is a server that carried on and had nothing to report — the assumption
+// lsBuildPhases has always made when it runs the final phase to the end of the window, and
+// the one that makes silence readable as the good news it usually is. lsOverlap did not
+// make it, and the contradiction only became visible with a Kubernetes bundle: three
+// healthy PXC members, tailed at 08:17, whose last record was the 06:14 line where they
+// finished starting, beside a binlog collector whose pod had restarted at 06:23 and whose
+// log therefore begins there. Latest start after earliest last-record, so five logs read
+// from one cluster in one request were reported as not overlapping at all.
+//
+// The read instant is the honest end, and it exists only for logs tailed from a node. An
+// uploaded file keeps the old behaviour, because nothing knows when it was cut: its last
+// record is genuinely all the evidence there is about how far it reaches.
+func lsCoverEnd(s lsSource) float64 {
+	if s.ReadAt > s.LastTS {
+		return s.ReadAt
+	}
+	return s.LastTS
 }
 
 // ---------------------------------------------------------------- phases
