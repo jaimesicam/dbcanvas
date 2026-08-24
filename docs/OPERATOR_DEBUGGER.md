@@ -77,6 +77,13 @@ on its own, so a breakpoint in `Reconcile` will be reached either way.)
 
 **Step** with Continue · Pause · Step over · Step into · Step out, exactly as in an IDE.
 
+**Maximize any panel** with the arrows in its top-right corner — the source, the variables, the
+call stack, the session log, all of them. Three columns is the right default until you need a
+60-frame stack, a struct four levels deep, or a line of Go that runs past the middle column;
+maximizing covers the workspace with the one panel you are reading, and the same button (or
+<kbd>Esc</kbd>) docks it back. Nothing is lost either way: the panels underneath stay live, so a
+variables tree you expanded is still expanded when you come back.
+
 ## Two things worth knowing
 
 **A stopped operator manages nothing.** While you sit at a breakpoint the operator is halted: no

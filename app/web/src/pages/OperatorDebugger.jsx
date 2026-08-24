@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../components/Icons.jsx'
 import { Button, Badge, Card, inputCls } from '../components/ui.jsx'
 import {
@@ -37,17 +37,69 @@ const IDLE_CHOICES = [
 // targetKey identifies a frame across stacks — the same shape the picker's value uses.
 const targetKey = (t) => (t ? `${t.stackId}/${t.frameId}` : '')
 
+// Every panel can be maximized and docked back again.
+//
+// Three columns is the right default and the wrong one the moment you actually need something:
+// a 60-frame call stack, a struct four levels deep, a file whose lines run past the middle
+// column. Maximizing covers the workspace with the one panel you are reading; docking back puts
+// it where it was.
+//
+// It is done by *covering* rather than by re-laying-out: the maximized panel becomes
+// `absolute inset-0` over the grid, and its siblings stay mounted underneath. That is not a
+// shortcut — a panel that unmounts loses what you expanded in it, and coming back from full
+// screen to a collapsed variables tree would defeat the point.
+//
+// PanelMaximize is a context so the panels (which are also rendered on their own by the smoke
+// suite) do not each need the state threaded through them. Without a provider there is simply
+// no maximize button.
+const MaximizeContext = createContext(null)
+
+export function PanelMaximize({ value, onChange, children }) {
+  const ctx = useMemo(() => ({
+    maxId: value,
+    toggle: (id) => onChange(value === id ? null : id),
+  }), [value, onChange])
+  return <MaximizeContext.Provider value={ctx}>{children}</MaximizeContext.Provider>
+}
+
+function useMaximize(id) {
+  const ctx = useContext(MaximizeContext)
+  return {
+    maxed: !!id && ctx?.maxId === id,
+    toggle: ctx && id ? () => ctx.toggle(id) : null,
+  }
+}
+
+// The class that lifts a panel over the workspace. Its sizing classes are dropped with it —
+// a maximized panel that kept `max-h-52` would be a tall panel in an empty page.
+const MAXED_CLS = 'absolute inset-0 z-30 shadow-2xl'
+
+function MaxButton({ maxed, onClick }) {
+  const Ico = maxed ? Icon.Minimize : Icon.Maximize
+  return (
+    <button onClick={onClick} title={maxed ? 'Dock back (Esc)' : 'Maximize'}
+      aria-label={maxed ? 'Dock back' : 'Maximize'}
+      className="shrink-0 rounded p-1 text-muted transition hover:bg-surface2 hover:text-fg">
+      <Ico size={14} />
+    </button>
+  )
+}
+
 // Panel is Card's look with a body that can be told to scroll. Card's body is a plain
 // padded div, so a list inside it grows the page instead of scrolling in place — which in
 // a three-column debugger means the toolbar you need scrolls off the top the moment the
 // operator stops in a long file.
-function Panel({ title, action, className = '', bodyClass = 'p-3', children }) {
+function Panel({ id, title, action, className = '', bodyClass = 'p-3', children }) {
+  const { maxed, toggle } = useMaximize(id)
   return (
-    <div className={`flex min-h-0 flex-col rounded-xl border bg-surface ${className}`}>
-      {(title || action) && (
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b px-3 py-2">
-          <h3 className="text-sm font-semibold text-fg">{title}</h3>
-          {action}
+    <div className={`flex min-h-0 flex-col rounded-xl border bg-surface ${maxed ? MAXED_CLS : className}`}>
+      {(title || action || toggle) && (
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
+          <h3 className="min-w-0 truncate text-sm font-semibold text-fg">{title}</h3>
+          <div className="flex shrink-0 items-center gap-2">
+            {action}
+            {toggle && <MaxButton maxed={maxed} onClick={toggle} />}
+          </div>
         </div>
       )}
       <div className={`min-h-0 flex-1 ${bodyClass}`}>{children}</div>
@@ -71,6 +123,7 @@ export default function OperatorDebugger() {
   const [watch, setWatch] = useState('')
   const [watches, setWatches] = useState([])  // [{expr, value, type, error}]
   const [busy, setBusy] = useState('')
+  const [maxPanel, setMaxPanel] = useState(null) // the panel covering the workspace, if any
 
   const sessionRef = useRef(null)
   const target = useMemo(
@@ -196,6 +249,13 @@ export default function OperatorDebugger() {
     return () => { live = false }
   }, [frameID, stopped, state?.reason]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (!maxPanel) return undefined
+    const onKey = (e) => { if (e.key === 'Escape') setMaxPanel(null) }
+    addEventListener('keydown', onKey)
+    return () => removeEventListener('keydown', onKey)
+  }, [maxPanel])
+
   // ---- commands --------------------------------------------------------------
 
   const send = useCallback((cmd) => sessionRef.current?.send(cmd), [])
@@ -248,8 +308,9 @@ export default function OperatorDebugger() {
       {targets.length === 0 ? <NoTargets /> : (
         <>
           <SessionBanner state={state} target={target} />
-          <div className="grid h-[calc(100vh-15rem)] min-h-[560px] grid-cols-12 gap-3">
-            <div className="col-span-3 flex min-h-0 flex-col gap-3">
+          <PanelMaximize value={maxPanel} onChange={setMaxPanel}>
+          <div className="relative grid h-[calc(100vh-15rem)] min-h-[560px] grid-cols-12 gap-3 overflow-hidden">
+            <div className="col-span-3 flex min-h-0 flex-col gap-3 overflow-y-auto">
               <QuickBreakpoints target={target} state={state} onToggle={(name, on) =>
                 send({ cmd: 'fnbreakpoint', name, on })} />
               <BreakpointList state={state} onOpen={setFile}
@@ -270,7 +331,7 @@ export default function OperatorDebugger() {
               />
             </div>
 
-            <div className="col-span-3 flex min-h-0 flex-col gap-3">
+            <div className="col-span-3 flex min-h-0 flex-col gap-3 overflow-y-auto">
               <CallStack frames={frames} selected={frameID} onSelect={(f) => {
                 setFrameID(f.id)
                 if (f.hasSource && f.file) setFile(f.file)
@@ -288,6 +349,7 @@ export default function OperatorDebugger() {
               <EventLog lines={log} />
             </div>
           </div>
+          </PanelMaximize>
         </>
       )}
     </div>
@@ -395,7 +457,7 @@ export function QuickBreakpoints({ target, state, onToggle }) {
   const byName = Object.fromEntries((state?.functions || []).map((f) => [f.name, f]))
   if (presets.length === 0) return null
   return (
-    <Panel title="Quick breakpoints" className="shrink-0">
+    <Panel id="quick" title="Quick breakpoints" className="shrink-0">
       <div className="space-y-1">
         {presets.map((p) => {
           const on = set.has(p.func)
@@ -425,7 +487,7 @@ export function BreakpointList({ state, onOpen, onRemove, onRemoveFn, onClear })
   const fns = state?.functions || []
   const total = bps.length + fns.length
   return (
-    <Panel title={`Breakpoints (${total})`} className="max-h-56 shrink-0" bodyClass="overflow-auto p-3"
+    <Panel id="breakpoints" title={`Breakpoints (${total})`} className="max-h-56 shrink-0" bodyClass="overflow-auto p-3"
       action={total > 0 && (
         <button onClick={onClear} className="text-xs text-muted hover:text-fg">Clear all</button>
       )}>
@@ -473,7 +535,7 @@ export function FileTree({ files, value, filter, onFilter, onOpen }) {
     return list.slice(0, 400)
   }, [files, filter])
   return (
-    <Panel title="Operator source" className="flex-1" bodyClass="flex min-h-0 flex-1 flex-col p-3">
+    <Panel id="files" title="Operator source" className="flex-1" bodyClass="flex min-h-0 flex-1 flex-col p-3">
       <input className={`${inputCls} mb-2 shrink-0`} placeholder="Filter files…"
         value={filter} onChange={(e) => onFilter(e.target.value)} />
       <div className="min-h-0 flex-1 space-y-0.5 overflow-auto">
@@ -515,9 +577,10 @@ export function SourceView({ path, source, state, stoppedLine, stoppedFile, onTo
 
   const stopped = state?.status === 'stopped'
   const attached = state && state.status !== 'detached'
+  const { maxed, toggle } = useMaximize('source')
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col rounded-xl border bg-surface">
+    <div className={`flex min-h-0 flex-1 flex-col rounded-xl border bg-surface ${maxed ? MAXED_CLS : ''}`}>
       <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg" title={source?.buildPath || path}>
           {path || 'no file open'}
@@ -528,6 +591,7 @@ export function SourceView({ path, source, state, stoppedLine, stoppedFile, onTo
           <StepButton label="Step over" icon="StepOver" disabled={!stopped || !!busy} onClick={() => onStep('next')} />
           <StepButton label="Step into" icon="StepInto" disabled={!stopped || !!busy} onClick={() => onStep('stepIn')} />
           <StepButton label="Step out" icon="StepOut" disabled={!stopped || !!busy} onClick={() => onStep('stepOut')} />
+          {toggle && <MaxButton maxed={maxed} onClick={toggle} />}
         </div>
       </div>
       <div ref={scroller} className="min-h-0 flex-1 overflow-auto font-mono text-[11px] leading-[1.45]">
@@ -572,7 +636,7 @@ function StepButton({ label, icon, disabled, onClick }) {
 
 export function CallStack({ frames, selected, onSelect }) {
   return (
-    <Panel title="Call stack" className="max-h-52 shrink-0" bodyClass="overflow-auto p-3">
+    <Panel id="stack" title="Call stack" className="max-h-52 shrink-0" bodyClass="overflow-auto p-3">
       {frames.length === 0 ? (
         <p className="text-xs text-muted">The operator is running. It appears here when it stops.</p>
       ) : (
@@ -599,7 +663,7 @@ export function CallStack({ frames, selected, onSelect }) {
 // seconds and megabytes.
 export function Variables({ scopes, stopped, onExpand }) {
   return (
-    <Panel title="Variables" className="min-h-[220px] flex-1" bodyClass="overflow-auto p-3">
+    <Panel id="variables" title="Variables" className="min-h-[180px] flex-1" bodyClass="overflow-auto p-3">
       {!stopped ? (
         <p className="text-xs text-muted">Nothing to show while the operator is running.</p>
       ) : scopes.length === 0 ? (
@@ -674,7 +738,7 @@ function VarNode({ v, depth, onExpand }) {
 
 export function WatchBox({ value, onChange, onAdd, watches, onRemove, allowCalls, onAllowCalls, idle, onIdle }) {
   return (
-    <Panel title="Evaluate" className="shrink-0">
+    <Panel id="evaluate" title="Evaluate" className="shrink-0">
       <div className="flex gap-1">
         <input className={inputCls} placeholder="request.NamespacedName"
           value={value} onChange={(e) => onChange(e.target.value)}
@@ -721,7 +785,7 @@ export function EventLog({ lines }) {
   const box = useRef(null)
   useEffect(() => { if (box.current) box.current.scrollTop = box.current.scrollHeight }, [lines.length])
   return (
-    <Panel title="Session log" className="h-36 shrink-0" bodyClass="overflow-auto p-3">
+    <Panel id="log" title="Session log" className="h-36 shrink-0" bodyClass="overflow-auto p-3">
       <div ref={box} className="space-y-0.5 font-mono text-[10px] leading-snug">
         {lines.length === 0 && <p className="text-muted">Nothing yet.</p>}
         {lines.map((ln, i) => (

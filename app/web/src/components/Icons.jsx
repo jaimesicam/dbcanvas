@@ -443,6 +443,25 @@ export const Icon = {
       <circle cx="12" cy="18.5" r="1.8" />
     </Svg>
   ),
+  // Maximize / Restore for the debugger's panels: arrows out of the corners, then into them.
+  // Two marks rather than one that flips, because the button says what will happen next and
+  // "the arrows point the way the panel is about to go" is the whole of the idea.
+  Maximize: (p) => (
+    <Svg {...p}>
+      <polyline points="14 4 20 4 20 10" />
+      <polyline points="10 20 4 20 4 14" />
+      <path d="M20 4l-7 7" />
+      <path d="M4 20l7-7" />
+    </Svg>
+  ),
+  Minimize: (p) => (
+    <Svg {...p}>
+      <polyline points="20 10 14 10 14 4" />
+      <polyline points="4 14 10 14 10 20" />
+      <path d="M14 10l6-6" />
+      <path d="M10 14l-6 6" />
+    </Svg>
+  ),
   StepOut: (p) => (
     <Svg {...p}>
       <path d="M12 12.5v-9" />

@@ -40,6 +40,7 @@ import PacketInspector, {
 } from '../src/pages/PacketInspector.jsx'
 import { PORT_ROLE_TEXT, MONGO_KIND_TEXT, isSevereIssue } from '../src/lib/pktApi.js'
 import OperatorDebugger, {
+  PanelMaximize as DbgMaximize,
   Header as DbgHeader, NoTargets as DbgNoTargets, SessionBanner as DbgBanner,
   QuickBreakpoints as DbgQuick, BreakpointList as DbgBreakpoints, FileTree as DbgFiles,
   SourceView as DbgSource, CallStack as DbgStack, Variables as DbgVars,
@@ -1887,6 +1888,37 @@ check('operator debugger: watches', () =>
     onRemove={noop} allowCalls={false} onAllowCalls={noop} idle={300} onIdle={noop} />))
 check('operator debugger: event log', () =>
   renderToString(<DbgLog lines={[{ at: new Date().toISOString(), kind: 'info', text: 'attached' }]} />))
+
+check('operator debugger: a panel maximizes and docks back', () => {
+  // Without a provider there is no maximize button at all — the panels are rendered on their
+  // own here and in the node panel, and a dead button would be worse than none.
+  const bare = renderToString(<DbgStack frames={dbgState.frames} selected={1000} onSelect={noop} />)
+  if (bare.includes('aria-label="Maximize"')) throw new Error('a maximize button with nothing to maximize')
+
+  const docked = renderToString(
+    <DbgMaximize value={null} onChange={noop}>
+      <DbgStack frames={dbgState.frames} selected={1000} onSelect={noop} />
+    </DbgMaximize>)
+  if (!docked.includes('aria-label="Maximize"')) throw new Error('no maximize button inside a provider')
+
+  const maxed = renderToString(
+    <DbgMaximize value="stack" onChange={noop}>
+      <DbgStack frames={dbgState.frames} selected={1000} onSelect={noop} />
+    </DbgMaximize>)
+  if (!maxed.includes('aria-label="Dock back"')) throw new Error('a maximized panel still offers Maximize')
+  // The sizing classes have to go with it, or "maximized" is a tall panel in an empty page.
+  if (maxed.includes('max-h-52')) throw new Error('a maximized panel kept its height cap')
+  if (!maxed.includes('absolute inset-0')) throw new Error('a maximized panel does not cover the workspace')
+
+  // The source view is a panel in everything but name, and maximizes the same way.
+  const src = renderToString(
+    <DbgMaximize value="source" onChange={noop}>
+      <DbgSource path={dbgSource.path} source={dbgSource} state={dbgState} stoppedLine={237}
+        stoppedFile={dbgSource.path} onToggle={noop} onStep={noop} busy="" />
+    </DbgMaximize>)
+  if (!src.includes('absolute inset-0')) throw new Error('the source view does not maximize')
+  return 'ok'
+})
 
 check('operator debugger: every session status has a tone and a word', () => {
   for (const st of ['detached', 'attaching', 'running', 'stopped']) {
