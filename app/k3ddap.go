@@ -356,10 +356,7 @@ func (c *dapClient) call(ctx context.Context, command string, args, out any) err
 			return c.closedErr()
 		}
 		if !m.Success {
-			if msg := strings.TrimSpace(m.Message); msg != "" {
-				return errors.New(msg)
-			}
-			return fmt.Errorf("the debugger refused %s", command)
+			return errors.New(dapErrorText(m, command))
 		}
 		if out != nil && len(m.Body) > 0 {
 			return json.Unmarshal(m.Body, out)
@@ -373,6 +370,32 @@ func (c *dapClient) call(ctx context.Context, command string, args, out any) err
 	case <-c.done:
 		return c.closedErr()
 	}
+}
+
+// dapErrorText is the most useful sentence in a failed response. DAP splits an error in two:
+// `message` is a summary ("Unable to evaluate expression") and body.error.format carries what
+// actually went wrong ("could not find symbol value for o") — which is the half worth reading,
+// so it wins when both are present.
+func dapErrorText(m dapMessage, command string) string {
+	summary := strings.TrimSpace(m.Message)
+	var body struct {
+		Error struct {
+			Format string `json:"format"`
+		} `json:"error"`
+	}
+	if len(m.Body) > 0 {
+		json.Unmarshal(m.Body, &body)
+	}
+	detail := strings.TrimSpace(body.Error.Format)
+	switch {
+	case detail != "" && summary != "" && !strings.Contains(detail, summary):
+		return summary + ": " + detail
+	case detail != "":
+		return detail
+	case summary != "":
+		return summary
+	}
+	return fmt.Sprintf("the debugger refused %s", command)
 }
 
 func (c *dapClient) closedErr() error {

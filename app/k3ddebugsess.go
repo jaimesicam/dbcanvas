@@ -395,6 +395,13 @@ func (s *k3dDebugSession) snapshot() k3dDebugState {
 // handshake ends with a `continue`, and an error from it (the debuggee was already running) is
 // not a failure.
 func (s *k3dDebugSession) attach(ctx context.Context) error {
+	// On the session's own context, not the caller's. Attaching takes a dial, a handshake and
+	// a re-arm, and the caller is a browser: a page closed (or a socket timed out) halfway
+	// through would otherwise abandon the attach with Delve part-configured. WithoutCancel
+	// keeps what the context carries — the engine — and drops only the cancellation.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+	defer cancel()
+
 	s.mu.Lock()
 	if s.cli != nil {
 		s.mu.Unlock()
@@ -594,6 +601,16 @@ func (s *k3dDebugSession) pump(events <-chan dapRawEvent, cli *dapClient) {
 }
 
 func (s *k3dDebugSession) onEvent(ev dapRawEvent, cli *dapClient) {
+	// Events from a connection the session has already let go of change nothing. Delve sends
+	// `terminated` when a *client* session ends — its own log line says "leaving multi-client
+	// DAP server ... with debuggee running" — so without this check an ordinary detach reports
+	// the operator as gone.
+	s.mu.Lock()
+	current := s.cli == cli
+	s.mu.Unlock()
+	if !current {
+		return
+	}
 	switch ev.name {
 	case "stopped":
 		var st dapStoppedEvent
@@ -633,7 +650,9 @@ func (s *k3dDebugSession) onEvent(ev dapRawEvent, cli *dapClient) {
 		}
 
 	case "terminated", "exited":
-		s.logf("warn", "the debuggee ended — the operator pod is restarting")
+		// Reached only while this is still the live connection, i.e. the debuggee really did
+		// end under us — the pod is being replaced, or somebody stopped it from elsewhere.
+		s.logf("warn", "the debuggee ended — the operator pod is being replaced")
 		s.mu.Lock()
 		s.status, s.reason = "detached", "the debuggee ended"
 		s.mu.Unlock()
