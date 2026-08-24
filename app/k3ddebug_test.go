@@ -308,3 +308,30 @@ func TestK3DDebugPortHexMatchesListener(t *testing.T) {
 		t.Errorf("port hex = %s, want 9C40 for port %d", got, k3dDebugPort)
 	}
 }
+
+// A frame that only wants the in-app debugger publishes no host port: the port is fixed, so
+// two clusters debugged at once would collide on it, and DBCanvas reaches Delve over the
+// stack network anyway.
+func TestK3DDebugNoPublish(t *testing.T) {
+	f := designFrame{K3DDebug: true, K3DOperator: "pxc", K3DDebugNoPublish: true}
+	if k3dDebugPublishes(f) {
+		t.Fatal("a frame that opted out should not publish")
+	}
+	if args := k3dDebugCreateArgs(f); len(args) != 0 {
+		t.Fatalf("create args = %v, want none", args)
+	}
+	// The debugger itself is unaffected — opting out of the host port is not opting out of
+	// debugging, and the NodePort in front of the pod is what the app dials either way.
+	if !k3dDebugOn(f) {
+		t.Fatal("the frame should still deploy its operator under Delve")
+	}
+
+	// And the default — every design saved before this option existed — still publishes.
+	old := designFrame{K3DDebug: true, K3DOperator: "pxc"}
+	if !k3dDebugPublishes(old) {
+		t.Fatal("a design from before the option must keep publishing")
+	}
+	if args := k3dDebugCreateArgs(old); len(args) != 2 {
+		t.Fatalf("create args = %v, want the --port pair", args)
+	}
+}

@@ -253,7 +253,9 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
           {cfg.debugStatus && (
             <KV k="Debugger"
               v={cfg.debugStatus === 'listening'
-                ? `Delve on 127.0.0.1:${cfg.debugPort} (in-stack ${cfg.fqdn}:${cfg.debugNodePort})`
+                ? (cfg.debugPort
+                  ? `Delve on 127.0.0.1:${cfg.debugPort} (in-stack ${cfg.fqdn}:${cfg.debugNodePort})`
+                  : `Delve in-stack only (${cfg.fqdn}:${cfg.debugNodePort})`)
                 : cfg.debugStatus}
               mono={cfg.debugStatus === 'listening'} />
           )}
@@ -454,6 +456,7 @@ const K3D_DELVE_PORT = 40000
 // without the mapping the debugger stops at a breakpoint it cannot show source for.
 function IDEAttachGuide({ cfg, ns, cr, stackId, frameId }) {
   const listening = cfg.debugStatus === 'listening'
+  const published = listening && cfg.debugPort > 0
   const launch = `{
   "version": "0.2.0",
   "configurations": [
@@ -532,7 +535,15 @@ function IDEAttachGuide({ cfg, ns, cr, stackId, frameId }) {
           </>
         )}
       </div>
-      {listening && (
+      {listening && !published && (
+        <div className="rounded-lg border bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+          This frame was deployed without publishing the debugger to the host, so there is nothing for an
+          external IDE to attach to — use the button above. To attach an IDE instead, deploy again with
+          <span className="font-medium text-fg"> Also publish the debugger to the host</span> ticked on the frame;
+          k3d can only publish a port while the cluster is being created.
+        </div>
+      )}
+      {published && (
         <>
           <Code label="1 · clone the source your IDE will step through (the tag the binary was built from)"
             text={`git clone -b v${cfg.operatorVer} https://github.com/percona/percona-xtradb-cluster-operator.git

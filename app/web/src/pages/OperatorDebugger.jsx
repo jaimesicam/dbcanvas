@@ -97,19 +97,44 @@ export default function OperatorDebugger() {
 
   // ---- the session -----------------------------------------------------------
 
+  // The session socket, with a reconnect.
+  //
+  // Reconnecting is not defensive programming for its own sake: the app joins the stack network
+  // to reach the debugger, and connecting a running container to a Docker network reprograms its
+  // NAT rules, which resets connections already open through the published port — this one
+  // included. A frame deployed before that join moved into the deploy (k3ddebug.go) drops its
+  // first socket for exactly that reason. The session itself is server-side and survives, so a
+  // reconnect picks up the same breakpoints and the same stop.
   useEffect(() => {
+    let live = true
+    let timer = null
+
+    const connect = () => {
+      if (!live) return
+      const s = openDebugSession(target.stackId, target.frameId, {
+        state: (st) => setState(st),
+        log: (line) => setLog((prev) => [...prev.slice(-400), line]),
+        close: () => {
+          if (!live) return
+          setState((prev) => (prev ? { ...prev, status: 'detached' } : prev))
+          timer = setTimeout(connect, 1500)
+        },
+      })
+      sessionRef.current = s
+    }
+
     sessionRef.current?.close()
     sessionRef.current = null
     setState(null); setLog([]); setScopes([]); setFrameID(0); setWatches([])
-    if (!target) return
+    if (!target) return undefined
+    connect()
 
-    const s = openDebugSession(target.stackId, target.frameId, {
-      state: (st) => setState(st),
-      log: (line) => setLog((prev) => [...prev.slice(-400), line]),
-      close: () => setState((prev) => (prev ? { ...prev, status: 'detached' } : prev)),
-    })
-    sessionRef.current = s
-    return () => { s.close() }
+    return () => {
+      live = false
+      if (timer) clearTimeout(timer)
+      sessionRef.current?.close()
+      sessionRef.current = null
+    }
   }, [target?.stackId, target?.frameId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // The file list and the first file to show.

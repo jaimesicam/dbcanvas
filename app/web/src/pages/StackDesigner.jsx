@@ -1982,7 +1982,7 @@ function StackEditor({ stackId, onBack }) {
       k3dPgoInstances: 2, k3dPgoStorageGb: 1, k3dPgoVersion: '',
       k3dClusterType: 'group-replication', k3dExposeMysql: 'clusterip', k3dExposeRouter: 'loadbalancer',
       k3dPmmTokenTtlValue: 365, k3dPmmTokenTtlUnit: 'days',
-      k3dDebug: false, k3dDebugPort: 40000,
+      k3dDebug: false, k3dDebugPort: 40000, k3dDebugNoPublish: false,
       pmmNodeId: '', seaweedfsNodeId: '',
     }
     const r = relayout(fid, [...frames, frame], [...nodes, newK3DMember(fid)])
@@ -6530,18 +6530,38 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
           </label>
           {f.k3dDebug && (
             <>
-              <Field label="Debugger port (host)"
-                hint="Fixed rather than auto-assigned — it goes in your IDE's launch.json, and k3d can only publish it while the cluster is being created.">
-                <input type="number" min="1024" max="65535" className={`${inputCls} w-28`} disabled={deployed}
-                  value={f.k3dDebugPort || 40000}
-                  onChange={(e) => patchFrame(f.id, { k3dDebugPort: Number(e.target.value) })} />
-              </Field>
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-1" disabled={deployed}
+                  checked={!f.k3dDebugNoPublish}
+                  onChange={(e) => patchFrame(f.id, { k3dDebugNoPublish: !e.target.checked })} />
+                <span>
+                  Also publish the debugger to the host, for an external IDE
+                  <span className="block text-xs text-muted">
+                    Only needed for VS Code or another editor outside DBCanvas. The built-in
+                    <span className="font-medium text-fg"> Operator Debugger</span> reaches Delve over the stack
+                    network and needs no host port — and the port is fixed, so two clusters debugged at once
+                    would collide on it.
+                  </span>
+                </span>
+              </label>
+              {!f.k3dDebugNoPublish && (
+                <Field label="Debugger port (host)"
+                  hint="Fixed rather than auto-assigned — it goes in your IDE's launch.json, and k3d can only publish it while the cluster is being created.">
+                  <input type="number" min="1024" max="65535" className={`${inputCls} w-28`} disabled={deployed}
+                    value={f.k3dDebugPort || 40000}
+                    onChange={(e) => patchFrame(f.id, { k3dDebugPort: Number(e.target.value) })} />
+                </Field>
+              )}
               <p className="text-xs text-muted">
-                Attach to <span className="font-mono">127.0.0.1:{f.k3dDebugPort || 40000}</span> once the cluster is
-                up — the server node's panel carries the <span className="font-mono">launch.json</span> and the
-                matching <span className="font-mono">git clone</span>. Delve starts with
-                <span className="font-mono"> --continue</span>, so the cluster deploys normally whether or not
-                anyone ever attaches.
+                Once the cluster is up, open <span className="font-medium text-fg">Operator Debugger</span> in the
+                sidebar — breakpoints, call stack and variables, with no IDE to set up.
+                {!f.k3dDebugNoPublish && (
+                  <> An IDE can attach to <span className="font-mono">127.0.0.1:{f.k3dDebugPort || 40000}</span>{' '}
+                  instead; the server node's panel carries the <span className="font-mono">launch.json</span> and the
+                  matching <span className="font-mono">git clone</span>.</>
+                )}{' '}
+                Delve starts with <span className="font-mono">--continue</span>, so the cluster deploys normally
+                whether or not anyone ever attaches.
               </p>
             </>
           )}

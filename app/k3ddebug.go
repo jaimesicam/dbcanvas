@@ -104,11 +104,22 @@ func k3dDebugHostPort(f designFrame) int {
 	return k3dDebugHostDflt
 }
 
-// k3dDebugCreateArgs are the `k3d cluster create` flags that publish the NodePort to the host.
+// k3dDebugPublishes reports whether this frame wants Delve's port on the host. That is only for
+// an external IDE: DBCanvas's own Operator Debugger dials the NodePort over the stack network, so
+// a frame debugged from the app alone need not claim a host port at all — which matters because
+// the port is fixed, and two debug frames would otherwise collide.
+func k3dDebugPublishes(f designFrame) bool { return !f.K3DDebugNoPublish }
+
+// k3dDebugCreateArgs are the `k3d cluster create` flags that publish the NodePort to the host,
+// or nothing at all when the frame asked not to publish it.
+//
 // Bound to CONTAINER_BIND_IP like every other port DBCanvas publishes (default 127.0.0.1, i.e.
 // loopback only — a debugger port is a remote-code-execution endpoint by design, and has no
 // business on the LAN).
 func k3dDebugCreateArgs(f designFrame) []string {
+	if !k3dDebugPublishes(f) {
+		return nil
+	}
 	return []string{"--port", fmt.Sprintf("%s:%d:%d/tcp@server:0",
 		envOr("CONTAINER_BIND_IP", "127.0.0.1"), k3dDebugHostPort(f), k3dDebugNodePort)}
 }
@@ -138,7 +149,11 @@ func k3dDebugBuildDir(op string) string {
 // written to the node's log and recorded in the config the panel renders.
 func (a *App) k3dInstallDebugger(ctx context.Context, st Stack, frame designFrame, deployment string,
 	tarball []byte, serverID string, cfg *k3dConfig, pr *pxcProg) {
-	cfg.DebugPort = k3dDebugHostPort(frame)
+	// DebugPort is what the panel offers an IDE; zero says "not published to the host", which
+	// is a different thing from "not debuggable" — the in-app debugger works either way.
+	if k3dDebugPublishes(frame) {
+		cfg.DebugPort = k3dDebugHostPort(frame)
+	}
 	cfg.DebugNodePort = k3dDebugNodePort
 	cfg.DebugBuildDir = k3dDebugBuildDir(cfg.Operator)
 	cfg.DebugGOARCH = k3dDebugGOARCH()
@@ -148,6 +163,18 @@ func (a *App) k3dInstallDebugger(ctx context.Context, st Stack, frame designFram
 		return
 	}
 	cfg.DebugStatus = "listening"
+
+	// Join the stack network now, while nobody is watching.
+	//
+	// The in-app debugger dials the NodePort from inside this container, so it has to be on the
+	// stack network — and connecting a *running* container to a network reprograms its NAT rules,
+	// which resets connections already open through the published port. Left until the panel is
+	// opened, the first thing that join kills is the WebSocket that triggered it: the session
+	// attaches and the socket dies a few milliseconds later. Doing it here costs nothing (the
+	// deploy's own HTTP traffic is a poll that retries) and makes the first session clean.
+	if err := a.joinStackForDial(ctx, a.engCtx(ctx), networkName(st.ID)); err != nil {
+		pr.logln("could not join the stack network for the debugger (it will be joined on first use): " + err.Error())
+	}
 }
 
 func (a *App) k3dDebugInstall(ctx context.Context, st Stack, deployment string, tarball []byte,
@@ -443,9 +470,12 @@ func (a *App) k3dDebugPatch(ctx context.Context, serverID, deployment string, cf
 			}
 		}
 	}
-	pr.logln("the operator runs under Delve — attach an IDE to " +
-		envOr("CONTAINER_BIND_IP", "127.0.0.1") + ":" + strconv.Itoa(cfg.DebugPort) +
-		" (from inside the stack: any node's FQDN on :" + strconv.Itoa(k3dDebugNodePort) + ")")
+	where := "the Operator Debugger page, or any node's FQDN on :" + strconv.Itoa(k3dDebugNodePort) + " from inside the stack"
+	if cfg.DebugPort > 0 {
+		where = "an IDE on " + envOr("CONTAINER_BIND_IP", "127.0.0.1") + ":" + strconv.Itoa(cfg.DebugPort) +
+			", the Operator Debugger page, or any node's FQDN on :" + strconv.Itoa(k3dDebugNodePort) + " from inside the stack"
+	}
+	pr.logln("the operator runs under Delve — debug it from " + where)
 	return nil
 }
 

@@ -485,6 +485,11 @@ type designFrame struct {
 	// cluster is being created. See k3ddebug.go.
 	K3DDebug     bool `json:"k3dDebug"`
 	K3DDebugPort int  `json:"k3dDebugPort"` // host port for Delve; 0 → 40000
+	// K3DDebugNoPublish stops the debugger's port being published to the host. The in-app
+	// Operator Debugger does not need it — it reaches Delve over the stack network — and the
+	// port is fixed, so two debug frames at once collide on it. Spelled as the negative so the
+	// zero value publishes, which is what every design saved before this option did.
+	K3DDebugNoPublish bool `json:"k3dDebugNoPublish"`
 }
 
 type designDoc struct {

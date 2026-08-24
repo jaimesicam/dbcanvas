@@ -309,18 +309,21 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 
 	// Debugging the operator is wired up per operator (k3dDebuggableOperator), and its host port
 	// is fixed rather than auto-assigned — both are things a design can ask for and not get, so
-	// both are said here rather than discovered in a deploy log.
+	// both are said here rather than discovered in a deploy log. The port checks apply only when
+	// the frame publishes one at all; the in-app debugger needs no host port.
 	if f.K3DDebug {
 		if op := strings.TrimSpace(f.K3DOperator); !k3dDebuggableOperator[op] {
 			out = append(out, issue{"warning", "K3D cluster " + name + " asks to run its operator under Delve, which " +
 				k3dOperatorLabel(op) + " does not support yet — the cluster deploys normally, without a debugger"})
-		} else if p := k3dDebugHostPort(f); p < 1024 {
-			out = append(out, issue{"error", "K3D cluster " + name + ": the debugger's host port " + strconv.Itoa(p) +
-				" is privileged — pick one above 1024"})
-		} else if used, err := a.engCtx(ctx).ListPublishedPorts(ctx); err == nil {
-			if owner, taken := used[p]; taken && !strings.HasPrefix(owner, k3dContainerPrefix+sanitizeName(f.Label)) {
-				out = append(out, issue{"warning", "K3D cluster " + name + ": host port " + strconv.Itoa(p) +
-					" (the debugger) is already published by " + owner + " — the deploy will fail unless it is gone by then"})
+		} else if k3dDebugPublishes(f) {
+			if p := k3dDebugHostPort(f); p < 1024 {
+				out = append(out, issue{"error", "K3D cluster " + name + ": the debugger's host port " + strconv.Itoa(p) +
+					" is privileged — pick one above 1024"})
+			} else if used, err := a.engCtx(ctx).ListPublishedPorts(ctx); err == nil {
+				if owner, taken := used[p]; taken && !strings.HasPrefix(owner, k3dContainerPrefix+sanitizeName(f.Label)) {
+					out = append(out, issue{"warning", "K3D cluster " + name + ": host port " + strconv.Itoa(p) +
+						" (the debugger) is already published by " + owner + " — the deploy will fail unless it is gone by then"})
+				}
 			}
 		}
 	}
@@ -709,7 +712,7 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		// The debugger's host port is fixed (it goes in an IDE's launch.json), so a collision is
 		// possible — and k3d's own failure for it lands halfway through creating the cluster.
 		// Checked after the delete above, or a redeploy would collide with its own predecessor.
-		if k3dDebugOn(frame) {
+		if k3dDebugOn(frame) && k3dDebugPublishes(frame) {
 			if used, err := a.engCtx(ctx).ListPublishedPorts(ctx); err == nil {
 				if owner, taken := used[k3dDebugHostPort(frame)]; taken {
 					failAll("host port %d (the debugger) is already published by %s — pick another on the frame",
