@@ -202,13 +202,14 @@ func stockSimParseSize(s string) (int64, error) {
 //
 // The two routers are absent on purpose: HAProxy fronts MySQL-family *or*
 // PostgreSQL clusters and ProxySQL only MySQL-family ones, so their engine is a
-// property of the backend behind them. stockSimEngineForTarget resolves those.
+// property of the backend behind them. So is a K3D frame's — it is whichever of
+// the six operators the frame runs. stockSimEngineForTarget resolves all three.
 func stockSimEngineForKind(kind string) string {
 	switch kind {
 	case "ps", "mariadb", "mysqlce",
 		"pxc", "mysql", "innodb", "mariadbrepl", "mariadbgalera", "mysqlcerepl", "mysqlceinnodb":
 		return "mysql"
-	case "pg", "patroni", "repmgr", "spock", "k3d":
+	case "pg", "patroni", "repmgr", "spock":
 		return "postgres"
 	case "psm", "psmrs", "psmdb":
 		return "mongodb"
@@ -218,10 +219,12 @@ func stockSimEngineForKind(kind string) string {
 	return ""
 }
 
-// stockSimEngineForTarget is stockSimEngineForKind with the router cases
-// resolved, which needs the design to see what the router fronts. Returns "" if
-// the target is a router with no single identifiable backend — a design error
-// the validator reports in its own words rather than guessing an engine for.
+// stockSimEngineForTarget is stockSimEngineForKind with the router and
+// Kubernetes cases resolved, which needs the design to see what the router
+// fronts and which operator the frame runs. Returns "" if the target is a
+// router with no single identifiable backend, or a K3D frame with no operator —
+// design errors the validator reports in its own words rather than guessing an
+// engine for.
 func stockSimEngineForTarget(doc designDoc, kind, targetID string) string {
 	switch kind {
 	case "haproxy":
@@ -232,6 +235,12 @@ func stockSimEngineForTarget(doc designDoc, kind, targetID string) string {
 	case "proxysql":
 		// ProxySQL is a MySQL-protocol proxy and fronts nothing else.
 		return "mysql"
+	case "k3d":
+		// A Kubernetes frame's engine is the one its operator manages: MySQL
+		// under PXC or PS, MongoDB under PSMDB, PostgreSQL under any of the
+		// three PostgreSQL operators. A frame with no operator has no database
+		// in it at all, and returns "" for the validator to report.
+		return k3dOperatorEngine(frameByID(doc, targetID).K3DOperator)
 	}
 	return stockSimEngineForKind(kind)
 }
@@ -365,12 +374,18 @@ func stockSimEngineAndIssues(doc designDoc, n designNode) (string, []issue) {
 		kind, targetID, ok := stockSimTarget(doc, n.ID)
 		if !ok {
 			return "", []issue{{"error", "Stock Market Sim node " + n.Label +
-				" must be linked to a database — a standalone Percona Server, MariaDB, MySQL, PostgreSQL, PS MongoDB or Valkey node, any MySQL, PostgreSQL, MongoDB or Valkey cluster frame, a CloudNativePG Kubernetes frame, or a ProxySQL/HAProxy node fronting one. Draw an association line from one to it, or switch the node to an All in One instance or a manual connection"}}
+				" must be linked to a database — a standalone Percona Server, MariaDB, MySQL, PostgreSQL, PS MongoDB or Valkey node, any MySQL, PostgreSQL, MongoDB or Valkey cluster frame, a Kubernetes frame running one of the six database operators, or a ProxySQL/HAProxy node fronting one. Draw an association line from one to it, or switch the node to an All in One instance or a manual connection"}}
 		}
 		engine := stockSimEngineForTarget(doc, kind, targetID)
 		if engine == "" {
-			// Only reachable for a router: every other kind maps to an engine
-			// unconditionally.
+			// Only two kinds can fail to name an engine: a router with no
+			// single backend, and a Kubernetes frame running no operator.
+			// Every other kind maps to one unconditionally.
+			if kind == "k3d" {
+				return "", []issue{{"error", "Stock Market Sim node " + n.Label +
+					" is linked to Kubernetes frame " + frameByID(doc, targetID).Label +
+					", which runs no database operator — choose one on the frame (PXC, Percona Server, PSMDB, Percona PostgreSQL, CloudNativePG or Crunchy PGO), or link this node to a database elsewhere in the stack"}}
+			}
 			return "", []issue{{"error", "Stock Market Sim node " + n.Label +
 				" is linked to an HAProxy node that does not front exactly one database cluster, so there is no database to connect to — link the cluster frame directly instead"}}
 		}
@@ -500,7 +515,10 @@ var stockSimFrameTargets = map[string]bool{
 	"mariadbrepl": true, "mariadbgalera": true,
 	"mysqlcerepl": true, "mysqlceinnodb": true,
 	// PostgreSQL.
-	"patroni": true, "repmgr": true, "spock": true, "k3d": true,
+	"patroni": true, "repmgr": true, "spock": true,
+	// Kubernetes. A K3D frame is any of the three engines above, depending on
+	// which of the six operators it runs — see stocksim_k3d.go.
+	"k3d": true,
 	// MongoDB.
 	"psmrs": true, "psmdb": true,
 	// Valkey.
@@ -670,7 +688,7 @@ func (a *App) provisionStockSim(st Stack, n designNode, doc designDoc) {
 		switch mode {
 		case "linked":
 			pr.phase("Waiting for linked database", 20)
-			e, werr := a.waitStockSimTarget(ctx, st, hosts, doc, domain, coarseKind, targetID, deployTimeout())
+			e, werr := a.waitStockSimTarget(ctx, st, hosts, doc, domain, coarseKind, targetID, deployTimeout(), pr.logln)
 			if werr != nil {
 				pr.fail("%v", werr)
 				return
@@ -800,12 +818,24 @@ type stockSimResolved struct {
 // waitStockSimTarget resolves a linked canvas target down to a connectable
 // endpoint and credentials, blocking until it is actually running.
 //
-// It dispatches on the *engine* rather than on the kind, because everything
+// It dispatches mostly on the *engine* rather than on the kind, because everything
 // after the endpoint has been found — the DSN dialect, the driver, the
 // credentials that exist — is a property of the engine, and everything before
 // it is a property of the kind. The four family resolvers below each do the
 // second half for one engine.
-func (a *App) waitStockSimTarget(ctx context.Context, st Stack, hosts map[string]string, doc designDoc, domain, coarseKind, targetID string, timeout time.Duration) (stockSimResolved, error) {
+func (a *App) waitStockSimTarget(ctx context.Context, st Stack, hosts map[string]string, doc designDoc, domain, coarseKind, targetID string, timeout time.Duration, logln func(string)) (stockSimResolved, error) {
+	// A K3D frame is dispatched on the kind rather than the engine: all three
+	// engines share one resolver there, because what has to be found first — the
+	// operator's own Services, and the Secret it keeps its passwords in — is the
+	// same work whichever database came out the other end. See stocksim_k3d.go.
+	//
+	// It is also the only target that gets logln. Every other one is up in
+	// under a minute; an operator building a database cluster inside Kubernetes
+	// is minutes, and a deploy log that says nothing for that long reads as a
+	// hang rather than as waiting.
+	if coarseKind == "k3d" {
+		return a.stockSimK3DTarget(ctx, st, doc, targetID, timeout, logln)
+	}
 	switch stockSimEngineForTarget(doc, coarseKind, targetID) {
 	case "mysql":
 		return a.stockSimMySQLTarget(ctx, st, hosts, doc, domain, coarseKind, targetID, timeout)
@@ -947,13 +977,6 @@ func (a *App) stockSimPostgresTarget(ctx context.Context, st Stack, hosts map[st
 			h = fqdns[0] // symmetric peers — any member is a valid write target
 		}
 
-	case "k3d":
-		// CloudNativePG inside the k3s cluster. Unlike every other target this
-		// one is not on the stack's Docker network by name: §227 recorded the
-		// endpoint the operator's Service resolved to, and that recording is
-		// the only way in from outside Kubernetes.
-		return a.stockSimCNPGTarget(ctx, st, doc, targetID, timeout)
-
 	case "haproxy":
 		back, backKind, ok := haproxyBackend(doc, targetID)
 		if !ok {
@@ -1078,78 +1101,6 @@ func (a *App) stockSimValkeyTarget(ctx context.Context, st Stack, hosts map[stri
 		engine:  "valkey", kind: "valkeycluster", displayName: frame.Label,
 		host: addrs[0], port: valkeyPort,
 	}, nil
-}
-
-// stockSimCNPGTarget resolves a CloudNativePG cluster running inside a K3D
-// frame. Three things make it unlike every other target:
-//
-//   - There is no canvas node to wait on. A K3D frame's members are k3s hosts,
-//     and the database is a Kubernetes object inside them, so the endpoint has
-//     to come from what §227 recorded on the server node's own k3dConfig.
-//   - It is only reachable if the cluster was exposed as a LoadBalancer. The
-//     ClusterIP fallback is a `.svc` name that means nothing outside
-//     Kubernetes, and the k3d cluster is on the stack network precisely so a
-//     MetalLB address *is* routable from a sibling container.
-//   - CNPG generates the application role's password itself and keeps it only
-//     in a Secret, so it is read out of the cluster at deploy time rather than
-//     taken from a stored value.
-//
-// That role is not a superuser, so the sim will find it cannot create a
-// database of its own and will claim a schema inside CNPG's application
-// database instead — the fallback exists for exactly this shape of target.
-func (a *App) stockSimCNPGTarget(ctx context.Context, st Stack, doc designDoc, frameID string, timeout time.Duration) (stockSimResolved, error) {
-	frame := frameByID(doc, frameID)
-
-	deadline := time.Now().Add(timeout)
-	for {
-		cfg, serverID, ok := a.k3dServerConfig(st.ID, doc, frameID)
-		switch {
-		case ok && cfg.Operator != "cnpg":
-			return stockSimResolved{}, fmt.Errorf(
-				"the linked Kubernetes cluster %s does not run CloudNativePG — a Stock Market Sim node can only use a CNPG frame", frame.Label)
-		case ok && cfg.CNPGEndpoint != "" && cfg.CNPGEndpoint != "pending":
-			if cfg.CNPGExpose != "LoadBalancer" {
-				return stockSimResolved{}, fmt.Errorf(
-					"CloudNativePG in %s is only exposed inside Kubernetes (%s) — set the cluster to expose a LoadBalancer so this application can reach it",
-					frame.Label, cfg.CNPGEndpoint)
-			}
-			user := cfg.CNPGAppUser
-			if user == "" {
-				user = "app"
-			}
-			db := cfg.CNPGAppDB
-			if db == "" {
-				db = "app"
-			}
-			pass := a.cnpgSecretValue(ctx, serverID, cfg.Namespace, cfg.CNPGAppSecret, "password")
-			if pass == "" {
-				return stockSimResolved{}, fmt.Errorf(
-					"could not read the CloudNativePG application password out of Secret %q in namespace %q",
-					cfg.CNPGAppSecret, cfg.Namespace)
-			}
-			host, port := splitHostPortDefault(cfg.CNPGEndpoint, cnpgPostgresPort)
-			dsn := (&url.URL{
-				Scheme: "postgres", User: url.UserPassword(user, pass),
-				Host: cfg.CNPGEndpoint, Path: "/" + db,
-				RawQuery: "sslmode=prefer&connect_timeout=10",
-			}).String()
-			return stockSimResolved{
-				env:     []string{"DB_ENGINE=postgres", "POSTGRES_DSN=" + dsn},
-				secrets: stockSimSecrets{User: user, Password: pass},
-				engine:  "postgres", kind: "k3d", displayName: frame.Label,
-				host: host, port: port,
-			}, nil
-		}
-		if time.Now().After(deadline) {
-			return stockSimResolved{}, fmt.Errorf(
-				"CloudNativePG in %s did not report a reachable endpoint within %s", frame.Label, timeout)
-		}
-		select {
-		case <-ctx.Done():
-			return stockSimResolved{}, ctx.Err()
-		case <-time.After(2 * time.Second):
-		}
-	}
 }
 
 // stockSimAIODeclared finds the instance the node's picker names, in the AIO

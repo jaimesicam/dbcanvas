@@ -1,0 +1,86 @@
+2026-08-22 11:13:47,112 INFO: No PostgreSQL configuration items changed, nothing to reload.
+2026-08-22 11:13:47,113 INFO: REST API thread_pool_size = 5
+2026-08-22 11:13:47,116 INFO: Lock owner: None; I am pgc-instance1-44gj-0
+2026-08-22 11:13:47,142 INFO: failed to acquire initialize lock
+2026-08-22 11:13:49,852 INFO: Lock owner: pgc-instance1-pknk-0; I am pgc-instance1-44gj-0
+2026-08-22 11:13:49,852 INFO: trying to bootstrap from leader 'pgc-instance1-pknk-0'
+2026-08-22 11:13:52,874 INFO: replica has been created using basebackup
+2026-08-22 11:13:52,874 INFO: bootstrapped from leader 'pgc-instance1-pknk-0'
+2026-08-22 11:13:53.091 UTC [124] LOG:  pgaudit extension initialized
+2026-08-22 11:13:53,100 INFO: postmaster pid=124
+/tmp/postgres:5432 - no response
+2026-08-22 11:13:53.106 UTC [124] LOG:  redirecting log output to logging collector process
+2026-08-22 11:13:53.106 UTC [124] HINT:  Future log output will appear in directory "log".
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - accepting connections
+2026-08-22 11:13:55,120 INFO: Lock owner: pgc-instance1-pknk-0; I am pgc-instance1-44gj-0
+2026-08-22 11:13:55,120 INFO: establishing a new patroni heartbeat connection to postgres
+2026-08-22 11:13:55,135 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:13:55,181 INFO: establishing a new patroni restapi connection to postgres
+2026-08-22 11:13:59,863 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:14:09,863 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:14:19,860 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:14:29,850 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:14:39,850 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:14:49,865 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:14:59,850 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:15:09,861 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:15:19,863 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:15:29,853 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:15:39,850 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:15:49,864 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:15:59,850 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:16:09,864 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:16:19,859 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:16:29,910 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:16:39,860 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:16:49,850 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:16:59,853 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:17:09,861 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:17:19,850 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:17:29,850 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:17:39,851 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:17:49,851 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:17:59,851 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:18:09,851 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:18:19,851 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:18:29,851 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:18:39,851 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:18:49,850 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:18:59,851 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-pknk-0)
+2026-08-22 11:19:05,244 INFO: Got response from pgc-instance1-6h22-0 https://pgc-instance1-6h22-0.pgc-pods:8008/patroni: {"state": "running", "postmaster_start_time": "2026-08-22 11:13:53.137380+00:00", "role": "replica", "server_version": 180003, "xlog": {"received_location": 134217888, "replayed_location": 134217888, "replayed_timestamp": "2026-08-22 11:14:48.905348+00:00", "paused": false}, "timeline": 1, "replication_state": "in archive recovery", "cluster_unlocked": true, "dcs_last_seen": 1787397545, "database_system_identifier": "7676812636111786076", "patroni": {"version": "4.1.2", "scope": "pgc-ha", "name": "pgc-instance1-6h22-0"}}
+2026-08-22 11:19:05,249 ERROR: ObjectCache.run ProtocolError("Connection broken: ConnectionResetError(104, 'Connection reset by peer')", ConnectionResetError(104, 'Connection reset by peer'))
+2026-08-22 11:19:05,250 INFO: Could not take out TTL lock
+2026-08-22 11:19:05,251 ERROR: ObjectCache.run ProtocolError("Connection broken: ConnectionResetError(104, 'Connection reset by peer')", ConnectionResetError(104, 'Connection reset by peer'))
+server signaled
+2026-08-22 11:19:05,883 INFO: following new leader after trying and failing to obtain lock
+2026-08-22 11:19:05,885 INFO: Lock owner: pgc-instance1-6h22-0; I am pgc-instance1-44gj-0
+2026-08-22 11:19:05,892 INFO: Local timeline=1 lsn=0/80000A0
+2026-08-22 11:19:05,893 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:19:06,265 INFO: Lock owner: pgc-instance1-6h22-0; I am pgc-instance1-44gj-0
+2026-08-22 11:19:06,271 INFO: Local timeline=1 lsn=0/80000A0
+2026-08-22 11:19:06,285 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:19:06,673 INFO: Lock owner: pgc-instance1-6h22-0; I am pgc-instance1-44gj-0
+2026-08-22 11:19:06,678 INFO: Local timeline=2 lsn=0/80001A8
+2026-08-22 11:19:06,697 INFO: primary_timeline=2
+2026-08-22 11:19:06,710 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:19:16,687 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:19:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:19:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:19:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:19:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:20:06,685 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:20:16,674 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:20:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:20:36,674 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:20:46,680 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:20:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:21:06,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:21:16,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:21:26,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:21:36,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:21:46,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:21:56,675 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:22:06,683 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:22:16,674 INFO: no action. I am (pgc-instance1-44gj-0), a secondary, and following a leader (pgc-instance1-6h22-0)

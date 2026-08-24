@@ -1,0 +1,1472 @@
+2026-08-22T05:22:36.368477Z 0 [System] [MY-015015] [Server] MySQL Server - start.
+2026-08-22T05:22:36.600026Z 0 [Warning] [MY-011070] [Server] 'binlog_format' is deprecated and will be removed in a future release.
+2026-08-22T05:22:36.600039Z 0 [Warning] [MY-011068] [Server] The syntax 'wsrep_slave_threads' is deprecated and will be removed in a future release. Please use wsrep_applier_threads instead.
+2026-08-22T05:22:36.601604Z 0 [Warning] [MY-010097] [Server] Insecure configuration for --secure-log-path: Current value does not restrict location of generated files. Consider setting it to a valid, non-empty path.
+2026-08-22T05:22:36.601863Z 0 [System] [MY-010116] [Server] /usr/sbin/mysqld (mysqld 8.4.8-8.1) starting as process 1
+2026-08-22T05:22:36.606534Z 0 [Warning] [MY-010068] [Server] CA certificate /etc/mysql/ssl-internal/ca.crt is self signed.
+2026-08-22T05:22:36.606554Z 0 [System] [MY-013602] [Server] Channel mysql_main configured to support TLS. Encrypted connections are now supported for this channel.
+2026-08-22T05:22:36.606558Z 0 [Note] [MY-000000] [WSREP] New joining cluster node configured to use specified SSL artifacts
+2026-08-22T05:22:36.606582Z 0 [Note] [MY-000000] [Galera] Loading provider /usr/lib64/galera4/libgalera_smm.so initial position: 00000000-0000-0000-0000-000000000000:-1
+2026-08-22T05:22:36.606589Z 0 [Note] [MY-000000] [Galera] wsrep_load(): loading provider library '/usr/lib64/galera4/libgalera_smm.so'
+2026-08-22T05:22:36.607106Z 0 [Note] [MY-000000] [Galera] wsrep_load(): Galera 4.24(c71acc5) by Codership Oy <info@codership.com> (modified by Percona <https://percona.com/>) loaded successfully.
+2026-08-22T05:22:36.607119Z 0 [Note] [MY-000000] [Galera] Resolved symbol 'wsrep_node_isolation_mode_set_v1'
+2026-08-22T05:22:36.607122Z 0 [Note] [MY-000000] [Galera] Resolved symbol 'wsrep_certify_v1'
+2026-08-22T05:22:36.607124Z 0 [Note] [MY-000000] [Galera] Initializing config service v2
+2026-08-22T05:22:36.607322Z 0 [Note] [MY-000000] [Galera] Deinitializing config service v2
+2026-08-22T05:22:36.607335Z 0 [Note] [MY-000000] [Galera] CRC-32C: using 64-bit x86 acceleration.
+2026-08-22T05:22:36.607418Z 0 [Note] [MY-000000] [Galera] not using SSL compression
+2026-08-22T05:22:36.607787Z 0 [Warning] [MY-000000] [Galera] Could not open state file for reading: '/var/lib/mysql//grastate.dat'
+2026-08-22T05:22:36.607795Z 0 [Warning] [MY-000000] [Galera] No persistent state found. Bootstraping with default state
+2026-08-22T05:22:36.607820Z 0 [Note] [MY-000000] [Galera] Found saved state: 00000000-0000-0000-0000-000000000000:-1, safe_to_bootstrap: 1
+2026-08-22T05:22:36.612451Z 0 [Note] [MY-000000] [Galera] Generated new GCache ID: 7c7428ca-9de9-11f1-9186-37f07c4de0f2
+2026-08-22T05:22:36.612466Z 0 [Note] [MY-000000] [Galera] GCache DEBUG: opened preamble:
+Version: 0
+UUID: 00000000-0000-0000-0000-000000000000
+Seqno: -1 - -1
+Offset: -1
+Synced: 0
+EncVersion: 0
+Encrypted: 0
+MasterKeyConst UUID: 7c7428ca-9de9-11f1-9186-37f07c4de0f2
+MasterKey UUID: 00000000-0000-0000-0000-000000000000
+MasterKey ID: 0
+2026-08-22T05:22:36.612469Z 0 [Note] [MY-000000] [Galera] Skipped GCache ring buffer recovery: could not determine history UUID.
+2026-08-22T05:22:36.625290Z 0 [Note] [MY-000000] [Galera] Passing config to GCS: allocator.disk_pages_encryption = no; allocator.encryption_cache_page_size = 32K; allocator.encryption_cache_size = 16777216; base_dir = /var/lib/mysql/; base_host = 10.42.0.12; base_port = 4567; cert.log_conflicts = no; cert.optimistic_pa = no; debug = no; evs.auto_evict = 0; evs.causal_keepalive_period = PT1S; evs.debug_log_mask = 0x1; evs.delay_margin = PT1S; evs.delayed_keep_period = PT30S; evs.inactive_check_period = PT0.5S; evs.inactive_timeout = PT15S; evs.info_log_mask = 0; evs.join_retrans_period = PT1S; evs.keepalive_period = PT1S; evs.max_install_timeouts = 3; evs.send_window = 10; evs.stats_report_period = PT1M; evs.suspect_timeout = PT5S; evs.use_aggregate = true; evs.user_send_window = 4; evs.version = 1; evs.view_forget_timeout = PT24H; gcache.dir = /var/lib/mysql/; gcache.encryption = no; gcache.encryption_cache_page_size = 32K; gcache.encryption_cache_size = 16777216; gcache.freeze_purge_at_seqno = -1; gcache.keep_pages_count = 0; gcache.keep_pages_size = 0; gcache.mem_size = 0; gcache.name = galera.cache; gcache.page_size = 128M; gcache.recover = yes; gcache.size = 128M; gcomm.thread_prio = ; gcs.check_appl_proto = 1; gcs.fc_auto_evict_threshold = 0.75; gcs.fc_auto_evict_window = 0; gcs.fc_debug = 0; gcs.fc_factor = 1.0; gcs.fc_limit = 100; gcs.fc_master_slave = no; gcs.fc_single_primary = no; gcs.max_packet_size = 64500; gcs.max_throttle = 0.25; gcs.recv_q_hard_limit = 9223372036854775807; gcs.recv_q_soft_limit = 0.25; gcs.sync_donor = no; gmcast.mcast_ttl = 1; gmcast.peer_timeout = PT3S; gmcast.segment = 0; gmcast.time_wait = PT5S; gmcast.version = 0; pc.announce_timeout = PT3S; pc.checksum = false; pc.ignore_quorum = false; pc.ignore_sb = false; pc.linger = PT20S; pc.npvo = false; pc.recovery = true; pc.version = 0; pc.wait_prim = true; pc.wait_prim_timeout = PT30S; pc.wait_restored_prim_timeout = PT0S; pc.weight = 10; protonet.backend = asio; protonet.version = 0; repl.causal_read_timeout = PT30S; repl.commit_order = 3; repl.key_format = FLAT8; repl.max_ws_size = 2147483647; repl.proto_max = 11; socket.checksum = 2; socket.recv_buf_size = auto; socket.send_buf_size = auto; socket.ssl = YES; socket.ssl_ca = /etc/mysql/ssl-internal/ca.crt; socket.ssl_cert = /etc/mysql/ssl-internal/tls.crt; socket.ssl_cipher = ; socket.ssl_key = /etc/mysql/ssl-internal/tls.key; socket.ssl_reload = 1; 
+2026-08-22T05:22:36.636335Z 0 [Note] [MY-000000] [WSREP] Starting replication
+2026-08-22T05:22:36.636366Z 0 [Note] [MY-000000] [Galera] Connecting with bootstrap option: 0
+2026-08-22T05:22:36.636372Z 0 [Note] [MY-000000] [Galera] Setting GCS initial position to 00000000-0000-0000-0000-000000000000:-1
+2026-08-22T05:22:36.636394Z 0 [Note] [MY-000000] [Galera] protonet asio version 0
+2026-08-22T05:22:36.636922Z 0 [Note] [MY-000000] [Galera] Using CRC-32C for message checksums.
+2026-08-22T05:22:36.636938Z 0 [Note] [MY-000000] [Galera] backend: asio
+2026-08-22T05:22:36.637002Z 0 [Note] [MY-000000] [Galera] gcomm thread scheduling priority set to other:0 
+2026-08-22T05:22:36.637100Z 0 [Note] [MY-000000] [Galera] Fail to access the file (/var/lib/mysql//gvwstate.dat) error (No such file or directory). It is possible if node is booting for first time or re-booting after a graceful shutdown
+2026-08-22T05:22:36.637115Z 0 [Note] [MY-000000] [Galera] Restoring primary-component from disk failed. Either node is booting for first time or re-booting after a graceful shutdown
+2026-08-22T05:22:36.637172Z 0 [Note] [MY-000000] [Galera] GMCast version 0
+2026-08-22T05:22:36.637653Z 0 [Note] [MY-000000] [Galera] (7c77edba-9d70, 'ssl://0.0.0.0:4567') listening at ssl://0.0.0.0:4567
+2026-08-22T05:22:36.637662Z 0 [Note] [MY-000000] [Galera] (7c77edba-9d70, 'ssl://0.0.0.0:4567') multicast: , ttl: 1
+2026-08-22T05:22:36.637763Z 0 [Note] [MY-000000] [Galera] EVS version 1
+2026-08-22T05:22:36.637789Z 0 [Note] [MY-000000] [Galera] gcomm: connecting to group 'cluster1-pxc', peer 'cluster1-pxc-0.cluster1-pxc:'
+2026-08-22T05:22:36.641450Z 0 [Note] [MY-000000] [Galera] (7c77edba-9d70, 'ssl://0.0.0.0:4567') connection established to 5c53017e-a513 ssl://10.42.0.9:4567
+2026-08-22T05:22:37.138756Z 0 [Note] [MY-000000] [Galera] EVS version upgrade 0 -> 1
+2026-08-22T05:22:37.138799Z 0 [Note] [MY-000000] [Galera] declaring 5c53017e-a513 at ssl://10.42.0.9:4567 stable
+2026-08-22T05:22:37.138806Z 0 [Note] [MY-000000] [Galera] PC protocol upgrade 0 -> 1
+2026-08-22T05:22:37.138972Z 0 [Note] [MY-000000] [Galera] Node 5c53017e-a513 state primary
+2026-08-22T05:22:37.147948Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view (view_id(PRIM,5c53017e-a513,2)
+memb {
+	5c53017e-a513,0
+	7c77edba-9d70,0
+	}
+joined {
+	}
+left {
+	}
+partitioned {
+	}
+)
+2026-08-22T05:22:37.147969Z 0 [Note] [MY-000000] [Galera] Save the discovered primary-component to disk
+2026-08-22T05:22:37.638060Z 0 [Note] [MY-000000] [Galera] gcomm: connected
+2026-08-22T05:22:37.638217Z 0 [Note] [MY-000000] [Galera] Changing maximum packet size to 64500, resulting msg size: 32636
+2026-08-22T05:22:37.638437Z 0 [Note] [MY-000000] [Galera] Shifting CLOSED -> OPEN (TO: 0)
+2026-08-22T05:22:37.638450Z 0 [Note] [MY-000000] [Galera] Opened channel 'cluster1-pxc'
+2026-08-22T05:22:37.638662Z 0 [Note] [MY-000000] [Galera] New COMPONENT: primary = yes, bootstrap = no, my_idx = 1, memb_num = 2
+2026-08-22T05:22:37.638699Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: Waiting for state UUID.
+2026-08-22T05:22:37.638748Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: sent state msg: 7cc5df87-9de9-11f1-aa3a-7bcf5e22b394
+2026-08-22T05:22:37.638769Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 7cc5df87-9de9-11f1-aa3a-7bcf5e22b394 from 0 (cluster1-pxc-0)
+2026-08-22T05:22:37.638981Z 2 [Note] [MY-000000] [WSREP] Starting rollbacker thread 2
+2026-08-22T05:22:37.639075Z 1 [Note] [MY-000000] [WSREP] Starting applier thread 1
+2026-08-22T05:22:37.639340Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 7cc5df87-9de9-11f1-aa3a-7bcf5e22b394 from 1 (cluster1-pxc-1)
+2026-08-22T05:22:37.639365Z 0 [Note] [MY-000000] [Galera] Quorum results:
+	version    = 6,
+	component  = PRIMARY,
+	conf_id    = 1,
+	members    = 1/2 (primary/total),
+	act_id     = 40,
+	last_appl. = 28,
+	protocols  = 5/11/4 (gcs/repl/appl),
+	vote policy= 0,
+	group UUID = 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54
+2026-08-22T05:22:37.639399Z 0 [Note] [MY-000000] [Galera] Flow-control interval: [141, 141]
+2026-08-22T05:22:37.639403Z 0 [Note] [MY-000000] [Galera] Shifting OPEN -> PRIMARY (TO: 41)
+2026-08-22T05:22:37.639614Z 1 [Note] [MY-000000] [Galera] ####### processing CC 41, local, ordered
+2026-08-22T05:22:37.639639Z 1 [Note] [MY-000000] [Galera] Maybe drain monitors from -1 upto current CC event 41 upto:-1
+2026-08-22T05:22:37.639646Z 1 [Note] [MY-000000] [Galera] Drain monitors from -1 up to -1
+2026-08-22T05:22:37.639652Z 1 [Note] [MY-000000] [Galera] Process first view: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54 my uuid: 7c77edba-9de9-11f1-9d70-83373d0e788e
+2026-08-22T05:22:37.639671Z 1 [Note] [MY-000000] [Galera] Server cluster1-pxc-1 connected to cluster at position 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:41 with ID 7c77edba-9de9-11f1-9d70-83373d0e788e
+2026-08-22T05:22:37.639677Z 1 [Note] [MY-000000] [WSREP] Server status change disconnected -> connected
+2026-08-22T05:22:37.644695Z 1 [Note] [MY-000000] [Galera] ####### My UUID: 7c77edba-9de9-11f1-9d70-83373d0e788e
+2026-08-22T05:22:37.644714Z 1 [Note] [MY-000000] [Galera] Cert index reset to 00000000-0000-0000-0000-000000000000:-1 (proto: 11), state transfer needed: yes
+2026-08-22T05:22:37.644770Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:22:37.644828Z 1 [Note] [MY-000000] [Galera] ####### Assign initial position for certification: 00000000-0000-0000-0000-000000000000:-1, protocol version: -1
+2026-08-22T05:22:37.644836Z 1 [Note] [MY-000000] [Galera] State transfer required: 
+	Group state: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:41
+	Local state: 00000000-0000-0000-0000-000000000000:-1
+2026-08-22T05:22:37.644841Z 1 [Note] [MY-000000] [WSREP] Server status change connected -> joiner
+2026-08-22T05:22:37.650881Z 0 [Note] [MY-000000] [WSREP] Initiating SST/IST transfer on JOINER side (wsrep_sst_xtrabackup-v2 --role 'joiner' --address '10.42.0.12' --datadir '/var/lib/mysql/' --basedir '/usr/' --plugindir '/usr/lib64/mysql/plugin/' --defaults-file '/etc/my.cnf' --defaults-group-suffix '' --parent '1' --mysqld-version '8.4.8-8'  --binlog 'binlog' )
+2026-08-22T05:22:38.107399Z 1 [Note] [MY-000000] [WSREP] Prepared SST request: xtrabackup-v2|10.42.0.12:4444/xtrabackup_sst//1
+2026-08-22T05:22:38.107434Z 1 [Note] [MY-000000] [Galera] Check if state gap can be serviced using IST
+2026-08-22T05:22:38.107441Z 1 [Note] [MY-000000] [Galera] Local UUID: 00000000-0000-0000-0000-000000000000 != Group UUID: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54
+2026-08-22T05:22:38.107446Z 1 [Note] [MY-000000] [Galera] ####### IST uuid:00000000-0000-0000-0000-000000000000 f: 0, l: 41, STRv: 3
+2026-08-22T05:22:38.107482Z 1 [Note] [MY-000000] [Galera] IST receiver addr using ssl://10.42.0.12:4568
+2026-08-22T05:22:38.107500Z 1 [Note] [MY-000000] [Galera] IST receiver using ssl
+2026-08-22T05:22:38.107575Z 1 [Note] [MY-000000] [Galera] Prepared IST receiver for 0-41, listening at: ssl://10.42.0.12:4568
+2026-08-22T05:22:38.107841Z 0 [Note] [MY-000000] [Galera] Member 1.0 (cluster1-pxc-1) requested state transfer from '*any*'. Selected 0.0 (cluster1-pxc-0)(SYNCED) as donor.
+2026-08-22T05:22:38.107853Z 0 [Note] [MY-000000] [Galera] Shifting PRIMARY -> JOINER (TO: 41)
+2026-08-22T05:22:38.107882Z 1 [Note] [MY-000000] [Galera] Requesting state transfer: success, donor: 0
+2026-08-22T05:22:38.107889Z 1 [Note] [MY-000000] [Galera] Resetting GCache seqno map due to different histories.
+2026-08-22T05:22:38.107893Z 1 [Note] [MY-000000] [Galera] GCache history reset: 00000000-0000-0000-0000-000000000000:0 -> 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:41
+2026-08-22T05:22:38.381616Z 0 [Note] [MY-000000] [WSREP-SST]    joiner: => Rate:[ 331 B/s] Avg:[ 331 B/s] Elapsed:0:00:00  Bytes:  163 B 
+2026-08-22T05:22:38.926882Z 0 [Note] [MY-000000] [WSREP-SST] Using PXB option --lock-ddl=REDUCED for SST
+2026-08-22T05:22:38.946459Z 0 [Note] [MY-000000] [WSREP-SST] Proceeding with SST.........
+2026-08-22T05:22:38.958262Z 0 [Note] [MY-000000] [WSREP-SST] ............Waiting for SST streaming to complete!
+2026-08-22T05:22:40.139119Z 0 [Note] [MY-000000] [Galera] (7c77edba-9d70, 'ssl://0.0.0.0:4567') turning message relay requesting off
+2026-08-22T05:22:53.137545Z 0 [Note] [MY-000000] [WSREP-SST]    joiner: => Rate:[0.00 B/s] Avg:[0.00 B/s] Elapsed:0:00:10  Bytes: 0.00 B    joiner: => Rate:[5.44MiB/s] Avg:[5.44MiB/s] Elapsed:0:00:14  Bytes: 77.2MiB 
+2026-08-22T05:22:53.142229Z 0 [Note] [MY-000000] [WSREP-SST] Decompressing the backup at /var/lib/mysql//sst-xb-tmpdir
+2026-08-22T05:22:53.143721Z 0 [Note] [MY-000000] [Galera] 0.0 (cluster1-pxc-0): State transfer to 1.0 (cluster1-pxc-1) complete.
+2026-08-22T05:22:53.144183Z 0 [Note] [MY-000000] [Galera] Member 0.0 (cluster1-pxc-0) synced with group.
+2026-08-22T05:22:53.265205Z 0 [Note] [MY-000000] [WSREP-SST] Preparing the backup at /var/lib/mysql//sst-xb-tmpdir
+2026-08-22T05:22:56.066985Z 0 [Note] [MY-000000] [WSREP-SST] Moving the backup to /var/lib/mysql/
+2026-08-22T05:22:56.182817Z 0 [Note] [MY-000000] [WSREP-SST] Running post-processing...........
+2026-08-22T05:22:56.186733Z 0 [Note] [MY-000000] [WSREP-SST] Skipping mysql_upgrade (sst): local version (8.4.8) == donor version (8.4.8)
+2026-08-22T05:22:56.217989Z 0 [Note] [MY-000000] [WSREP-SST] Waiting for server instance to start.....  This may take some time
+2026-08-22T05:22:59.753204Z 0 [Note] [MY-000000] [WSREP-SST] ...........post-processing done
+2026-08-22T05:22:59.754634Z 0 [Note] [MY-000000] [WSREP-SST] Galera co-ords from recovery: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:41
+2026-08-22T05:22:59.761230Z 3 [Note] [MY-000000] [Galera] Processing SST received
+2026-08-22T05:22:59.761277Z 3 [Note] [MY-000000] [WSREP] Server status change joiner -> initializing
+2026-08-22T05:22:59.769774Z 4 [System] [MY-013576] [InnoDB] InnoDB initialization has started.
+2026-08-22T05:23:00.061053Z 4 [System] [MY-013577] [InnoDB] InnoDB initialization has ended.
+2026-08-22T05:23:00.151116Z 4 [Note] [MY-000000] [WSREP] wsrep_init_schema_and_SR (nil)
+2026-08-22T05:23:00.171455Z 4 [System] [MY-000000] [WSREP] PXC upgrade completed successfully
+2026-08-22T05:23:00.305786Z 0 [Warning] [MY-013595] [Server] Failed to initialize TLS for channel: mysql_admin. See below for the description of exact issue.
+2026-08-22T05:23:00.305840Z 0 [Warning] [MY-010069] [Server] Failed to set up SSL because of the following SSL library error: SSL context is not usable without certificate and private key
+2026-08-22T05:23:00.305848Z 0 [System] [MY-013603] [Server] No TLS configuration was given for channel mysql_admin; re-using TLS configuration of channel mysql_main.
+2026-08-22T05:23:00.308835Z 0 [Warning] [MY-011810] [Server] Insecure configuration for --pid-file: Location '/var/lib/mysql' in the path is accessible to all OS users. Consider choosing a different directory.
+2026-08-22T05:23:00.341033Z 0 [Note] [MY-000000] [WSREP] Initialized wsrep sidno 2
+2026-08-22T05:23:00.341076Z 0 [Note] [MY-000000] [Galera] Server initialized
+2026-08-22T05:23:00.341082Z 0 [Note] [MY-000000] [WSREP] Server status change initializing -> initialized
+2026-08-22T05:23:00.345864Z 3 [Note] [MY-000000] [Galera] Recovered position from storage: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:41
+2026-08-22T05:23:00.345912Z 3 [Note] [MY-000000] [WSREP] Server status change initialized -> joined
+2026-08-22T05:23:00.346141Z 13 [Note] [MY-000000] [WSREP] Starting applier thread 13
+2026-08-22T05:23:00.347213Z 0 [System] [MY-011323] [Server] X Plugin ready for connections. Bind-address: '::' port: 33060, socket: /var/lib/mysql/mysqlx.sock
+2026-08-22T05:23:00.347344Z 0 [System] [MY-010931] [Server] /usr/sbin/mysqld: ready for connections. Version: '8.4.8-8.1'  socket: '/tmp/mysql.sock'  port: 3306  Percona XtraDB Cluster (GPL), Release rel8, Revision cacfed1, WSREP version 26.1.4.3.
+2026-08-22T05:23:00.347682Z 0 [System] [MY-013292] [Server] Admin interface ready for connections, address: '10.42.0.12'  port: 33062
+2026-08-22T05:23:00.353632Z 3 [Note] [MY-000000] [Galera] Recovered view from SST:
+  id: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:41
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: 1
+  members(2):
+	0: 5c53017e-9de9-11f1-a513-92a551d71ddd, cluster1-pxc-0
+	1: 7c77edba-9de9-11f1-9d70-83373d0e788e, cluster1-pxc-1
+
+2026-08-22T05:23:00.359527Z 15 [Note] [MY-000000] [WSREP] Recovered cluster id 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54
+2026-08-22T05:23:00.365165Z 3 [Note] [MY-000000] [Galera] SST received: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:41
+2026-08-22T05:23:00.365215Z 3 [System] [MY-000000] [WSREP] SST completed
+2026-08-22T05:23:00.365232Z 1 [Note] [MY-000000] [Galera]  str_proto_ver_: 3 sst_seqno_: 41 cc_seqno: 41 req->ist_len(): 65
+2026-08-22T05:23:00.365257Z 1 [Note] [MY-000000] [Galera] Installed new state from SST: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:41
+2026-08-22T05:23:00.367638Z 1 [Note] [MY-000000] [Galera] Cert. index preload up to 41
+2026-08-22T05:23:00.367704Z 0 [Note] [MY-000000] [Galera] ####### IST applying starts with 42
+2026-08-22T05:23:00.367833Z 0 [Note] [MY-000000] [Galera] ####### IST current seqno initialized to 30
+2026-08-22T05:23:00.367885Z 0 [Note] [MY-000000] [Galera] Receiving IST... 0.0% (0/12 events) complete.
+2026-08-22T05:23:00.367893Z 0 [Note] [MY-000000] [Galera] IST preload starting at 30
+2026-08-22T05:23:00.367992Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:23:00.368051Z 0 [Note] [MY-000000] [Galera] ####### Assign initial position for certification: 00000000-0000-0000-0000-000000000000:29, protocol version: 6
+2026-08-22T05:23:00.368350Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 41, must_apply: 0, preload: true
+2026-08-22T05:23:00.368382Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-08-22T05:23:00.368388Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 40 -> 41
+2026-08-22T05:23:00.368418Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:23:00.368525Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 41
+2026-08-22T05:23:00.368544Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 30
+2026-08-22T05:23:00.368551Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 30
+2026-08-22T05:23:00.368647Z 0 [Note] [MY-000000] [Galera] Receiving IST... 100.0% (12/12 events) complete.
+2026-08-22T05:23:00.368955Z 1 [Note] [MY-000000] [Galera] IST received: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:41
+2026-08-22T05:23:00.369013Z 1 [Note] [MY-000000] [Galera] Recording CC from sst: 41
+2026-08-22T05:23:00.369025Z 1 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from sst: 30
+2026-08-22T05:23:00.369029Z 1 [Note] [MY-000000] [Galera] Min available from gcache for CC from sst: 30
+2026-08-22T05:23:00.369213Z 0 [Note] [MY-000000] [Galera] 1.0 (cluster1-pxc-1): State transfer from 0.0 (cluster1-pxc-0) complete.
+2026-08-22T05:23:00.369242Z 0 [Note] [MY-000000] [Galera] SST leaving flow control
+2026-08-22T05:23:00.369247Z 0 [Note] [MY-000000] [Galera] Shifting JOINER -> JOINED (TO: 41)
+2026-08-22T05:23:00.369273Z 0 [Note] [MY-000000] [Galera] Processing event queue:... 0.0% (0/0 events) complete.
+2026-08-22T05:23:00.369503Z 0 [Note] [MY-000000] [Galera] Member 1.0 (cluster1-pxc-1) synced with group.
+2026-08-22T05:23:00.369534Z 0 [Note] [MY-000000] [Galera] Processing event queue:... 100.0% (1/1 events) complete.
+2026-08-22T05:23:00.369540Z 0 [Note] [MY-000000] [Galera] Shifting JOINED -> SYNCED (TO: 41)
+2026-08-22T05:23:00.369632Z 1 [Note] [MY-000000] [Galera] Server cluster1-pxc-1 synced with group
+2026-08-22T05:23:00.369687Z 1 [Note] [MY-000000] [WSREP] Server status change joined -> synced
+2026-08-22T05:23:00.369699Z 1 [Note] [MY-000000] [WSREP] Synchronized with group, ready for connections
+2026-08-22T05:23:50.027391Z 0 [Note] [MY-000000] [Galera] (7c77edba-9d70, 'ssl://0.0.0.0:4567') connection established to a835b620-9b3f ssl://10.42.0.15:4567
+2026-08-22T05:23:50.525185Z 0 [Note] [MY-000000] [Galera] declaring 5c53017e-a513 at ssl://10.42.0.9:4567 stable
+2026-08-22T05:23:50.525238Z 0 [Note] [MY-000000] [Galera] declaring a835b620-9b3f at ssl://10.42.0.15:4567 stable
+2026-08-22T05:23:50.525621Z 0 [Note] [MY-000000] [Galera] Node 5c53017e-a513 state primary
+2026-08-22T05:23:50.525927Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view (view_id(PRIM,5c53017e-a513,3)
+memb {
+	5c53017e-a513,0
+	7c77edba-9d70,0
+	a835b620-9b3f,0
+	}
+joined {
+	}
+left {
+	}
+partitioned {
+	}
+)
+2026-08-22T05:23:50.525976Z 0 [Note] [MY-000000] [Galera] Save the discovered primary-component to disk
+2026-08-22T05:23:50.535580Z 0 [Note] [MY-000000] [Galera] New COMPONENT: primary = yes, bootstrap = no, my_idx = 1, memb_num = 3
+2026-08-22T05:23:50.535646Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: Waiting for state UUID.
+2026-08-22T05:23:50.539693Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: sent state msg: a8847e36-9de9-11f1-bac1-9bdc0338f502
+2026-08-22T05:23:50.540027Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: a8847e36-9de9-11f1-bac1-9bdc0338f502 from 0 (cluster1-pxc-0)
+2026-08-22T05:23:50.540058Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: a8847e36-9de9-11f1-bac1-9bdc0338f502 from 1 (cluster1-pxc-1)
+2026-08-22T05:23:51.025289Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: a8847e36-9de9-11f1-bac1-9bdc0338f502 from 2 (cluster1-pxc-2)
+2026-08-22T05:23:51.025327Z 0 [Note] [MY-000000] [Galera] Quorum results:
+	version    = 6,
+	component  = PRIMARY,
+	conf_id    = 2,
+	members    = 2/3 (primary/total),
+	act_id     = 41,
+	last_appl. = 28,
+	protocols  = 5/11/4 (gcs/repl/appl),
+	vote policy= 0,
+	group UUID = 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54
+2026-08-22T05:23:51.025354Z 0 [Note] [MY-000000] [Galera] Flow-control interval: [173, 173]
+2026-08-22T05:23:51.025559Z 1 [Note] [MY-000000] [Galera] ####### processing CC 42, local, ordered
+2026-08-22T05:23:51.025672Z 1 [Note] [MY-000000] [Galera] Maybe drain monitors from 41 upto current CC event 42 upto:41
+2026-08-22T05:23:51.025700Z 1 [Note] [MY-000000] [Galera] Drain monitors from 41 up to 41
+2026-08-22T05:23:51.025719Z 1 [Note] [MY-000000] [Galera] ####### My UUID: 7c77edba-9de9-11f1-9d70-83373d0e788e
+2026-08-22T05:23:51.025735Z 1 [Note] [MY-000000] [Galera] Skipping cert index reset
+2026-08-22T05:23:51.025749Z 1 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-08-22T05:23:51.025763Z 1 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 41 -> 42
+2026-08-22T05:23:51.025872Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:23:51.038222Z 1 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:42
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: 1
+  members(3):
+	0: 5c53017e-9de9-11f1-a513-92a551d71ddd, cluster1-pxc-0
+	1: 7c77edba-9de9-11f1-9d70-83373d0e788e, cluster1-pxc-1
+	2: a835b620-9de9-11f1-9b3f-43c146d6200c, cluster1-pxc-2
+=================================================
+2026-08-22T05:23:51.049113Z 1 [Note] [MY-000000] [Galera] Recording CC from group: 42
+2026-08-22T05:23:51.049149Z 1 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from group: 30
+2026-08-22T05:23:51.049155Z 1 [Note] [MY-000000] [Galera] Min available from gcache for CC from group: 30
+2026-08-22T05:23:51.524979Z 0 [Note] [MY-000000] [Galera] Member 2.0 (cluster1-pxc-2) requested state transfer from 'cluster1-pxc-1,'. Selected 1.0 (cluster1-pxc-1)(SYNCED) as donor.
+2026-08-22T05:23:51.525026Z 0 [Note] [MY-000000] [Galera] Shifting SYNCED -> DONOR/DESYNCED (TO: 42)
+2026-08-22T05:23:51.525075Z 1 [Note] [MY-000000] [Galera] Detected STR version: 1, req_len: 127, req: STRv1
+2026-08-22T05:23:51.525097Z 1 [Note] [MY-000000] [Galera] Seqno 30 for index preload found and locked in gcache
+2026-08-22T05:23:51.525102Z 1 [Note] [MY-000000] [Galera] Cert index preload: 30 -> 42
+2026-08-22T05:23:51.528156Z 1 [Note] [MY-000000] [WSREP] Server status change synced -> donor
+2026-08-22T05:23:51.528241Z 0 [Note] [MY-000000] [Galera] async IST sender starting to serve ssl://10.42.0.15:4568 sending 30-42, preload starts from 30
+2026-08-22T05:23:51.528784Z 0 [Note] [MY-000000] [Galera] IST sender 30 -> 42
+2026-08-22T05:23:51.528872Z 0 [Note] [MY-000000] [Galera] IST sender served all writesets. Unlocking GCache.
+2026-08-22T05:23:51.528882Z 0 [Note] [MY-000000] [Galera] IST sender sent EOF. Waiting for joiner to close the connection
+2026-08-22T05:23:51.533141Z 0 [Note] [MY-000000] [WSREP] Initiating SST/IST transfer on DONOR side (wsrep_sst_xtrabackup-v2 --role 'donor' --address '10.42.0.15:4444/xtrabackup_sst//1' --socket '/tmp/mysql.sock' --datadir '/var/lib/mysql/' --basedir '/usr/' --plugindir '/usr/lib64/mysql/plugin/' --defaults-file '/etc/my.cnf' --defaults-group-suffix '' --mysqld-version '8.4.8-8'  --binlog 'binlog' --gtid '4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:42' )
+2026-08-22T05:23:51.538566Z 1 [Note] [MY-000000] [WSREP] DONOR thread signaled with 0
+2026-08-22T05:23:51.780974Z 0 [Note] [MY-000000] [WSREP-SST] Using PXB option --lock-ddl=REDUCED for SST
+2026-08-22T05:23:51.805241Z 55 [Warning] [MY-013712] [Server] No suitable 'keyring_component_metadata_query' service implementation found to fulfill the request.
+2026-08-22T05:23:53.159383Z 0 [Note] [MY-000000] [Galera] (7c77edba-9d70, 'ssl://0.0.0.0:4567') turning message relay requesting off
+2026-08-22T05:24:02.828185Z 0 [Note] [MY-000000] [WSREP-SST] Streaming the backup to joiner at 10.42.0.15 4444
+2026-08-22T05:24:02.855157Z 73 [Warning] [MY-013712] [Server] No suitable 'keyring_component_metadata_query' service implementation found to fulfill the request.
+2026-08-22T05:24:06.568129Z 0 [Note] [MY-000000] [WSREP-SST]     donor: => Rate:[20.6MiB/s] Avg:[20.6MiB/s] Elapsed:0:00:03            
+2026-08-22T05:24:06.569124Z 0 [Note] [MY-000000] [Galera] SST sent: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:42
+2026-08-22T05:24:06.569167Z 0 [Note] [MY-000000] [WSREP] Server status change donor -> joined
+2026-08-22T05:24:06.575240Z 0 [Note] [MY-000000] [Galera] 1.0 (cluster1-pxc-1): State transfer to 2.0 (cluster1-pxc-2) complete.
+2026-08-22T05:24:06.575275Z 0 [Note] [MY-000000] [Galera] Shifting DONOR/DESYNCED -> JOINED (TO: 42)
+2026-08-22T05:24:06.575309Z 0 [Note] [MY-000000] [Galera] Processing event queue:... 0.0% (0/0 events) complete.
+2026-08-22T05:24:06.576023Z 0 [Note] [MY-000000] [Galera] Member 1.0 (cluster1-pxc-1) synced with group.
+2026-08-22T05:24:06.576058Z 0 [Note] [MY-000000] [Galera] Processing event queue:... 100.0% (1/1 events) complete.
+2026-08-22T05:24:06.576068Z 0 [Note] [MY-000000] [Galera] Shifting JOINED -> SYNCED (TO: 42)
+2026-08-22T05:24:06.576112Z 1 [Note] [MY-000000] [Galera] Server cluster1-pxc-1 synced with group
+2026-08-22T05:24:06.576137Z 1 [Note] [MY-000000] [WSREP] Server status change joined -> synced
+2026-08-22T05:24:06.576141Z 1 [Note] [MY-000000] [WSREP] Synchronized with group, ready for connections
+2026-08-22T05:24:13.680137Z 0 [Note] [MY-000000] [Galera] IST sender finished waiting for connection close
+2026-08-22T05:24:13.680323Z 0 [Note] [MY-000000] [Galera] async IST sender served
+2026-08-22T05:24:13.680737Z 0 [Note] [MY-000000] [Galera] 2.0 (cluster1-pxc-2): State transfer from 1.0 (cluster1-pxc-1) complete.
+2026-08-22T05:24:13.681202Z 0 [Note] [MY-000000] [Galera] Member 2.0 (cluster1-pxc-2) synced with group.
+2026-08-22T05:28:30.672357Z 0 [Note] [MY-000000] [Galera] (7c77edba-9d70, 'ssl://0.0.0.0:4567') turning message relay requesting on, nonlive peers: ssl://10.42.0.17:4567 
+2026-08-22T05:28:30.725332Z 0 [Note] [MY-000000] [Galera] (7c77edba-9d70, 'ssl://0.0.0.0:4567') connection established to 4f7cdf50-be53 ssl://10.42.0.17:4567
+2026-08-22T05:28:31.171034Z 0 [Note] [MY-000000] [Galera] declaring 4f7cdf50-be53 at ssl://10.42.0.17:4567 stable
+2026-08-22T05:28:31.171090Z 0 [Note] [MY-000000] [Galera] declaring 5c53017e-a513 at ssl://10.42.0.9:4567 stable
+2026-08-22T05:28:31.171098Z 0 [Note] [MY-000000] [Galera] declaring a835b620-9b3f at ssl://10.42.0.15:4567 stable
+2026-08-22T05:28:31.171544Z 0 [Note] [MY-000000] [Galera] Node 5c53017e-a513 state primary
+2026-08-22T05:28:31.172095Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view (view_id(PRIM,4f7cdf50-be53,4)
+memb {
+	4f7cdf50-be53,0
+	5c53017e-a513,0
+	7c77edba-9d70,0
+	a835b620-9b3f,0
+	}
+joined {
+	}
+left {
+	}
+partitioned {
+	}
+)
+2026-08-22T05:28:31.172126Z 0 [Note] [MY-000000] [Galera] Save the discovered primary-component to disk
+2026-08-22T05:28:31.176802Z 0 [Note] [MY-000000] [Galera] New COMPONENT: primary = yes, bootstrap = no, my_idx = 2, memb_num = 4
+2026-08-22T05:28:31.176837Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: Waiting for state UUID.
+2026-08-22T05:28:31.671265Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: sent state msg: 5015b934-9dea-11f1-9fb3-1a848868469e
+2026-08-22T05:28:31.672004Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 5015b934-9dea-11f1-9fb3-1a848868469e from 0 (garb)
+2026-08-22T05:28:31.672059Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 5015b934-9dea-11f1-9fb3-1a848868469e from 2 (cluster1-pxc-1)
+2026-08-22T05:28:31.672069Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 5015b934-9dea-11f1-9fb3-1a848868469e from 3 (cluster1-pxc-2)
+2026-08-22T05:28:31.672622Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 5015b934-9dea-11f1-9fb3-1a848868469e from 1 (cluster1-pxc-0)
+2026-08-22T05:28:31.672661Z 0 [Note] [MY-000000] [Galera] Quorum results:
+	version    = 6,
+	component  = PRIMARY,
+	conf_id    = 3,
+	members    = 3/4 (primary/total),
+	act_id     = 1191,
+	last_appl. = 1187,
+	protocols  = 5/11/4 (gcs/repl/appl),
+	vote policy= 0,
+	group UUID = 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54
+2026-08-22T05:28:31.672694Z 0 [Note] [MY-000000] [Galera] Flow-control interval: [173, 173]
+2026-08-22T05:28:31.672774Z 1 [Note] [MY-000000] [Galera] ####### processing CC 1192, local, ordered
+2026-08-22T05:28:31.672810Z 1 [Note] [MY-000000] [Galera] Maybe drain monitors from 1191 upto current CC event 1192 upto:1191
+2026-08-22T05:28:31.672816Z 1 [Note] [MY-000000] [Galera] Drain monitors from 1191 up to 1191
+2026-08-22T05:28:31.672821Z 1 [Note] [MY-000000] [Galera] ####### My UUID: 7c77edba-9de9-11f1-9d70-83373d0e788e
+2026-08-22T05:28:31.672824Z 1 [Note] [MY-000000] [Galera] Skipping cert index reset
+2026-08-22T05:28:31.672828Z 1 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-08-22T05:28:31.672833Z 1 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 1191 -> 1192
+2026-08-22T05:28:31.672970Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:28:31.674090Z 0 [Note] [MY-000000] [Galera] Member 0.0 (garb) requested state transfer from 'cluster1-pxc-2'. Selected 3.0 (cluster1-pxc-2)(SYNCED) as donor.
+2026-08-22T05:28:31.679005Z 1 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:1192
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: 2
+  members(4):
+	0: 4f7cdf50-9dea-11f1-be53-9a25cfd65b9e, garb
+	1: 5c53017e-9de9-11f1-a513-92a551d71ddd, cluster1-pxc-0
+	2: 7c77edba-9de9-11f1-9d70-83373d0e788e, cluster1-pxc-1
+	3: a835b620-9de9-11f1-9b3f-43c146d6200c, cluster1-pxc-2
+=================================================
+2026-08-22T05:28:31.688294Z 1 [Note] [MY-000000] [Galera] Recording CC from group: 1192
+2026-08-22T05:28:31.688332Z 1 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from group: 1188
+2026-08-22T05:28:31.688338Z 1 [Note] [MY-000000] [Galera] Min available from gcache for CC from group: 30
+2026-08-22T05:28:34.223498Z 0 [Note] [MY-000000] [Galera] (7c77edba-9d70, 'ssl://0.0.0.0:4567') turning message relay requesting off
+2026-08-22T05:28:49.841454Z 0 [Note] [MY-000000] [Galera] 3.0 (cluster1-pxc-2): State transfer to 0.0 (garb) complete.
+2026-08-22T05:28:49.842098Z 0 [Note] [MY-000000] [Galera] Member 3.0 (cluster1-pxc-2) synced with group.
+2026-08-22T05:28:51.042300Z 0 [Note] [MY-000000] [Galera] declaring 5c53017e-a513 at ssl://10.42.0.9:4567 stable
+2026-08-22T05:28:51.042343Z 0 [Note] [MY-000000] [Galera] declaring a835b620-9b3f at ssl://10.42.0.15:4567 stable
+2026-08-22T05:28:51.042375Z 0 [Note] [MY-000000] [Galera] forgetting 4f7cdf50-be53 (ssl://10.42.0.17:4567)
+2026-08-22T05:28:51.042657Z 0 [Note] [MY-000000] [Galera] Node 5c53017e-a513 state primary
+2026-08-22T05:28:51.042976Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view (view_id(PRIM,5c53017e-a513,5)
+memb {
+	5c53017e-a513,0
+	7c77edba-9d70,0
+	a835b620-9b3f,0
+	}
+joined {
+	}
+left {
+	}
+partitioned {
+	4f7cdf50-be53,0
+	}
+)
+2026-08-22T05:28:51.042999Z 0 [Note] [MY-000000] [Galera] Save the discovered primary-component to disk
+2026-08-22T05:28:51.045497Z 0 [Note] [MY-000000] [Galera] forgetting 4f7cdf50-be53 (ssl://10.42.0.17:4567)
+2026-08-22T05:28:51.045539Z 0 [Note] [MY-000000] [Galera] New COMPONENT: primary = yes, bootstrap = no, my_idx = 1, memb_num = 3
+2026-08-22T05:28:51.045561Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: Waiting for state UUID.
+2026-08-22T05:28:51.048012Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: sent state msg: 5ba27505-9dea-11f1-adbc-d62c56d92bc0
+2026-08-22T05:28:51.048337Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 5ba27505-9dea-11f1-adbc-d62c56d92bc0 from 0 (cluster1-pxc-0)
+2026-08-22T05:28:51.048365Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 5ba27505-9dea-11f1-adbc-d62c56d92bc0 from 1 (cluster1-pxc-1)
+2026-08-22T05:28:51.048372Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 5ba27505-9dea-11f1-adbc-d62c56d92bc0 from 2 (cluster1-pxc-2)
+2026-08-22T05:28:51.048377Z 0 [Note] [MY-000000] [Galera] Quorum results:
+	version    = 6,
+	component  = PRIMARY,
+	conf_id    = 4,
+	members    = 3/3 (primary/total),
+	act_id     = 1352,
+	last_appl. = 1348,
+	protocols  = 5/11/4 (gcs/repl/appl),
+	vote policy= 0,
+	group UUID = 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54
+2026-08-22T05:28:51.048396Z 0 [Note] [MY-000000] [Galera] Flow-control interval: [173, 173]
+2026-08-22T05:28:51.048566Z 1 [Note] [MY-000000] [Galera] ####### processing CC 1353, local, ordered
+2026-08-22T05:28:51.048654Z 1 [Note] [MY-000000] [Galera] Maybe drain monitors from 1352 upto current CC event 1353 upto:1352
+2026-08-22T05:28:51.048671Z 1 [Note] [MY-000000] [Galera] Drain monitors from 1352 up to 1352
+2026-08-22T05:28:51.048675Z 1 [Note] [MY-000000] [Galera] ####### My UUID: 7c77edba-9de9-11f1-9d70-83373d0e788e
+2026-08-22T05:28:51.048682Z 1 [Note] [MY-000000] [Galera] Skipping cert index reset
+2026-08-22T05:28:51.048685Z 1 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-08-22T05:28:51.048689Z 1 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 1352 -> 1353
+2026-08-22T05:28:51.048728Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:28:51.052721Z 1 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:1353
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: 1
+  members(3):
+	0: 5c53017e-9de9-11f1-a513-92a551d71ddd, cluster1-pxc-0
+	1: 7c77edba-9de9-11f1-9d70-83373d0e788e, cluster1-pxc-1
+	2: a835b620-9de9-11f1-9b3f-43c146d6200c, cluster1-pxc-2
+=================================================
+2026-08-22T05:28:51.077467Z 1 [Note] [MY-000000] [Galera] Recording CC from group: 1353
+2026-08-22T05:28:51.077513Z 1 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from group: 1349
+2026-08-22T05:28:51.077519Z 1 [Note] [MY-000000] [Galera] Min available from gcache for CC from group: 30
+2026-08-22T05:28:56.227861Z 0 [Note] [MY-000000] [Galera]  cleaning up 4f7cdf50-be53 (ssl://10.42.0.17:4567)
+2026-08-22T05:30:41.885888Z 0 [System] [MY-013172] [Server] Received SHUTDOWN from user <via user signal>. Shutting down mysqld (Version: 8.4.8-8.1).
+2026-08-22T05:30:41.885942Z 0 [Note] [MY-000000] [WSREP] Received shutdown signal. Will sleep for 10 secs before initiating shutdown. pxc_maint_mode switched to SHUTDOWN
+2026-08-22T05:31:07.508349Z 0 [System] [MY-015015] [Server] MySQL Server - start.
+2026-08-22T05:31:07.726904Z 0 [Warning] [MY-011070] [Server] 'binlog_format' is deprecated and will be removed in a future release.
+2026-08-22T05:31:07.726917Z 0 [Warning] [MY-011068] [Server] The syntax 'wsrep_slave_threads' is deprecated and will be removed in a future release. Please use wsrep_applier_threads instead.
+2026-08-22T05:31:07.727875Z 0 [Warning] [MY-010097] [Server] Insecure configuration for --secure-log-path: Current value does not restrict location of generated files. Consider setting it to a valid, non-empty path.
+2026-08-22T05:31:07.728149Z 0 [System] [MY-010116] [Server] /usr/sbin/mysqld (mysqld 8.4.8-8.1) starting as process 1
+2026-08-22T05:31:07.733903Z 0 [Warning] [MY-010068] [Server] CA certificate /etc/mysql/ssl-internal/ca.crt is self signed.
+2026-08-22T05:31:07.733944Z 0 [System] [MY-013602] [Server] Channel mysql_main configured to support TLS. Encrypted connections are now supported for this channel.
+2026-08-22T05:31:07.733951Z 0 [Note] [MY-000000] [WSREP] New joining cluster node configured to use specified SSL artifacts
+2026-08-22T05:31:07.733976Z 0 [Note] [MY-000000] [Galera] Loading provider /usr/lib64/galera4/libgalera_smm.so initial position: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:2276
+2026-08-22T05:31:07.733985Z 0 [Note] [MY-000000] [Galera] wsrep_load(): loading provider library '/usr/lib64/galera4/libgalera_smm.so'
+2026-08-22T05:31:07.734528Z 0 [Note] [MY-000000] [Galera] wsrep_load(): Galera 4.24(c71acc5) by Codership Oy <info@codership.com> (modified by Percona <https://percona.com/>) loaded successfully.
+2026-08-22T05:31:07.734559Z 0 [Note] [MY-000000] [Galera] Resolved symbol 'wsrep_node_isolation_mode_set_v1'
+2026-08-22T05:31:07.734563Z 0 [Note] [MY-000000] [Galera] Resolved symbol 'wsrep_certify_v1'
+2026-08-22T05:31:07.734567Z 0 [Note] [MY-000000] [Galera] Initializing config service v2
+2026-08-22T05:31:07.734758Z 0 [Note] [MY-000000] [Galera] Deinitializing config service v2
+2026-08-22T05:31:07.734786Z 0 [Note] [MY-000000] [Galera] CRC-32C: using 64-bit x86 acceleration.
+2026-08-22T05:31:07.735050Z 0 [Note] [MY-000000] [Galera] not using SSL compression
+2026-08-22T05:31:07.735468Z 0 [Note] [MY-000000] [Galera] Found saved state: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:-1, safe_to_bootstrap: 0
+2026-08-22T05:31:07.735548Z 0 [Note] [MY-000000] [Galera] GCache DEBUG: opened preamble:
+Version: 2
+UUID: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54
+Seqno: -1 - -1
+Offset: -1
+Synced: 0
+EncVersion: 1
+Encrypted: 0
+MasterKeyConst UUID: 7c7428ca-9de9-11f1-9186-37f07c4de0f2
+MasterKey UUID: 00000000-0000-0000-0000-000000000000
+MasterKey ID: 0
+2026-08-22T05:31:07.735572Z 0 [Note] [MY-000000] [Galera] Recovering GCache ring buffer: version: 2, UUID: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54, offset: -1
+2026-08-22T05:31:07.735602Z 0 [Note] [MY-000000] [Galera] GCache::RingBuffer initial scan... 0.0% (0/134217752 bytes) complete.
+2026-08-22T05:31:07.743024Z 0 [Note] [MY-000000] [Galera] GCache::RingBuffer initial scan... 100.0% (134217752/134217752 bytes) complete.
+2026-08-22T05:31:07.743100Z 0 [Note] [MY-000000] [Galera] Recovering GCache ring buffer: found gapless sequence 30-2276
+2026-08-22T05:31:07.743130Z 0 [Note] [MY-000000] [Galera] GCache::RingBuffer unused buffers scan... 0.0% (0/124171088 bytes) complete.
+2026-08-22T05:31:07.743223Z 0 [Note] [MY-000000] [Galera] GCache::RingBuffer unused buffers scan... 100.0% (124171088/124171088 bytes) complete.
+2026-08-22T05:31:07.743228Z 0 [Note] [MY-000000] [Galera] Recovering GCache ring buffer: found 2/2249 locked buffers
+2026-08-22T05:31:07.743231Z 0 [Note] [MY-000000] [Galera] Recovering GCache ring buffer: free space: 10046928/134217728
+2026-08-22T05:31:07.745731Z 0 [Note] [MY-000000] [Galera] Passing config to GCS: allocator.disk_pages_encryption = no; allocator.encryption_cache_page_size = 32K; allocator.encryption_cache_size = 16777216; base_dir = /var/lib/mysql/; base_host = 10.42.0.19; base_port = 4567; cert.log_conflicts = no; cert.optimistic_pa = no; debug = no; evs.auto_evict = 0; evs.causal_keepalive_period = PT1S; evs.debug_log_mask = 0x1; evs.delay_margin = PT1S; evs.delayed_keep_period = PT30S; evs.inactive_check_period = PT0.5S; evs.inactive_timeout = PT15S; evs.info_log_mask = 0; evs.join_retrans_period = PT1S; evs.keepalive_period = PT1S; evs.max_install_timeouts = 3; evs.send_window = 10; evs.stats_report_period = PT1M; evs.suspect_timeout = PT5S; evs.use_aggregate = true; evs.user_send_window = 4; evs.version = 1; evs.view_forget_timeout = PT24H; gcache.dir = /var/lib/mysql/; gcache.encryption = no; gcache.encryption_cache_page_size = 32K; gcache.encryption_cache_size = 16777216; gcache.freeze_purge_at_seqno = -1; gcache.keep_pages_count = 0; gcache.keep_pages_size = 0; gcache.mem_size = 0; gcache.name = galera.cache; gcache.page_size = 128M; gcache.recover = yes; gcache.size = 128M; gcomm.thread_prio = ; gcs.check_appl_proto = 1; gcs.fc_auto_evict_threshold = 0.75; gcs.fc_auto_evict_window = 0; gcs.fc_debug = 0; gcs.fc_factor = 1.0; gcs.fc_limit = 100; gcs.fc_master_slave = no; gcs.fc_single_primary = no; gcs.max_packet_size = 64500; gcs.max_throttle = 0.25; gcs.recv_q_hard_limit = 9223372036854775807; gcs.recv_q_soft_limit = 0.25; gcs.sync_donor = no; gmcast.mcast_ttl = 1; gmcast.peer_timeout = PT3S; gmcast.segment = 0; gmcast.time_wait = PT5S; gmcast.version = 0; pc.announce_timeout = PT3S; pc.checksum = false; pc.ignore_quorum = false; pc.ignore_sb = false; pc.linger = PT20S; pc.npvo = false; pc.recovery = true; pc.version = 0; pc.wait_prim = true; pc.wait_prim_timeout = PT30S; pc.wait_restored_prim_timeout = PT0S; pc.weight = 10; protonet.backend = asio; protonet.version = 0; repl.causal_read_timeout = PT30S; repl.commit_order = 3; repl.key_format = FLAT8; repl.max_ws_size = 2147483647; repl.proto_max = 11; socket.checksum = 2; socket.recv_buf_size = auto; socket.send_buf_size = auto; socket.ssl = YES; socket.ssl_ca = /etc/mysql/ssl-internal/ca.crt; socket.ssl_cert = /etc/mysql/ssl-internal/tls.crt; socket.ssl_cipher = ; socket.ssl_key = /etc/mysql/ssl-internal/tls.key; socket.ssl_reload = 1; 
+2026-08-22T05:31:07.756701Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:31:07.756790Z 0 [Note] [MY-000000] [Galera] ####### Assign initial position for certification: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:2276, protocol version: -1
+2026-08-22T05:31:07.756881Z 0 [Note] [MY-000000] [WSREP] Starting replication
+2026-08-22T05:31:07.757047Z 0 [Note] [MY-000000] [Galera] Connecting with bootstrap option: 0
+2026-08-22T05:31:07.757105Z 0 [Note] [MY-000000] [Galera] Setting GCS initial position to 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:2276
+2026-08-22T05:31:07.757175Z 0 [Note] [MY-000000] [Galera] protonet asio version 0
+2026-08-22T05:31:07.757875Z 0 [Note] [MY-000000] [Galera] Using CRC-32C for message checksums.
+2026-08-22T05:31:07.757911Z 0 [Note] [MY-000000] [Galera] backend: asio
+2026-08-22T05:31:07.757998Z 0 [Note] [MY-000000] [Galera] gcomm thread scheduling priority set to other:0 
+2026-08-22T05:31:07.758136Z 0 [Note] [MY-000000] [Galera] Restoring primary-component from disk successful
+2026-08-22T05:31:07.761274Z 0 [Note] [MY-000000] [Galera] GMCast version 0
+2026-08-22T05:31:07.761953Z 0 [Note] [MY-000000] [Galera] (7c77edba-9d71, 'ssl://0.0.0.0:4567') listening at ssl://0.0.0.0:4567
+2026-08-22T05:31:07.761980Z 0 [Note] [MY-000000] [Galera] (7c77edba-9d71, 'ssl://0.0.0.0:4567') multicast: , ttl: 1
+2026-08-22T05:31:07.762101Z 0 [Note] [MY-000000] [Galera] EVS version 1
+2026-08-22T05:31:07.762149Z 0 [Note] [MY-000000] [Galera] gcomm: connecting to group 'cluster1-pxc', peer 'cluster1-pxc-0.cluster1-pxc:,cluster1-pxc-2.cluster1-pxc:'
+2026-08-22T05:31:07.762171Z 0 [Note] [MY-000000] [Galera] pc.wait_restored_prim_timeout is set to 0. The server will wait indefinitely to reach PC. If this is undesirable, consider setting pc.wait_restored_prim_timeout.
+2026-08-22T05:31:07.765697Z 0 [Note] [MY-000000] [Galera] (7c77edba-9d71, 'ssl://0.0.0.0:4567') connection established to a835b620-9b3f ssl://10.42.0.15:4567
+2026-08-22T05:31:07.766173Z 0 [Note] [MY-000000] [Galera] (7c77edba-9d71, 'ssl://0.0.0.0:4567') connection established to 5c53017e-a513 ssl://10.42.0.9:4567
+2026-08-22T05:31:08.263108Z 0 [Note] [MY-000000] [Galera] EVS version upgrade 0 -> 1
+2026-08-22T05:31:08.263164Z 0 [Note] [MY-000000] [Galera] declaring 5c53017e-a513 at ssl://10.42.0.9:4567 stable
+2026-08-22T05:31:08.263171Z 0 [Note] [MY-000000] [Galera] declaring a835b620-9b3f at ssl://10.42.0.15:4567 stable
+2026-08-22T05:31:08.263178Z 0 [Note] [MY-000000] [Galera] PC protocol upgrade 0 -> 1
+2026-08-22T05:31:08.263261Z 0 [Note] [MY-000000] [Galera] Node 5c53017e-a513 state primary
+2026-08-22T05:31:08.263587Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view (view_id(PRIM,5c53017e-a513,7)
+memb {
+	5c53017e-a513,0
+	7c77edba-9d71,0
+	a835b620-9b3f,0
+	}
+joined {
+	}
+left {
+	}
+partitioned {
+	}
+)
+2026-08-22T05:31:08.263631Z 0 [Note] [MY-000000] [Galera] Save the discovered primary-component to disk
+2026-08-22T05:31:08.265826Z 0 [Note] [MY-000000] [Galera] clear restored view
+2026-08-22T05:31:08.762504Z 0 [Note] [MY-000000] [Galera] gcomm: connected
+2026-08-22T05:31:08.762686Z 0 [Note] [MY-000000] [Galera] Changing maximum packet size to 64500, resulting msg size: 32636
+2026-08-22T05:31:08.762830Z 0 [Note] [MY-000000] [Galera] Shifting CLOSED -> OPEN (TO: 0)
+2026-08-22T05:31:08.762845Z 0 [Note] [MY-000000] [Galera] Opened channel 'cluster1-pxc'
+2026-08-22T05:31:08.763030Z 0 [Note] [MY-000000] [Galera] New COMPONENT: primary = yes, bootstrap = no, my_idx = 1, memb_num = 3
+2026-08-22T05:31:08.763120Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: Waiting for state UUID.
+2026-08-22T05:31:08.763169Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: sent state msg: ad6c4745-9dea-11f1-b109-9bbc1f119261
+2026-08-22T05:31:08.763215Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: ad6c4745-9dea-11f1-b109-9bbc1f119261 from 0 (cluster1-pxc-0)
+2026-08-22T05:31:08.763226Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: ad6c4745-9dea-11f1-b109-9bbc1f119261 from 2 (cluster1-pxc-2)
+2026-08-22T05:31:08.763351Z 2 [Note] [MY-000000] [WSREP] Starting rollbacker thread 2
+2026-08-22T05:31:08.763485Z 1 [Note] [MY-000000] [WSREP] Starting applier thread 1
+2026-08-22T05:31:08.764015Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: ad6c4745-9dea-11f1-b109-9bbc1f119261 from 1 (cluster1-pxc-1)
+2026-08-22T05:31:08.764055Z 0 [Note] [MY-000000] [Galera] Quorum results:
+	version    = 6,
+	component  = PRIMARY,
+	conf_id    = 6,
+	members    = 2/3 (primary/total),
+	act_id     = 2428,
+	last_appl. = 2420,
+	protocols  = 5/11/4 (gcs/repl/appl),
+	vote policy= 0,
+	group UUID = 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54
+2026-08-22T05:31:08.764096Z 0 [Note] [MY-000000] [Galera] Flow-control interval: [173, 173]
+2026-08-22T05:31:08.764100Z 0 [Note] [MY-000000] [Galera] Shifting OPEN -> PRIMARY (TO: 2429)
+2026-08-22T05:31:08.764347Z 1 [Note] [MY-000000] [Galera] ####### processing CC 2429, local, ordered
+2026-08-22T05:31:08.764466Z 1 [Note] [MY-000000] [Galera] Maybe drain monitors from 2276 upto current CC event 2429 upto:2276
+2026-08-22T05:31:08.764549Z 1 [Note] [MY-000000] [Galera] Drain monitors from 2276 up to 2276
+2026-08-22T05:31:08.764574Z 1 [Note] [MY-000000] [Galera] Process first view: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54 my uuid: 7c77edba-9de9-11f1-9d71-83373d0e788e
+2026-08-22T05:31:08.764610Z 1 [Note] [MY-000000] [Galera] Server cluster1-pxc-1 connected to cluster at position 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:2429 with ID 7c77edba-9de9-11f1-9d71-83373d0e788e
+2026-08-22T05:31:08.764623Z 1 [Note] [MY-000000] [WSREP] Server status change disconnected -> connected
+2026-08-22T05:31:08.769732Z 1 [Note] [MY-000000] [Galera] ####### My UUID: 7c77edba-9de9-11f1-9d71-83373d0e788e
+2026-08-22T05:31:08.769764Z 1 [Note] [MY-000000] [Galera] Cert index reset to 00000000-0000-0000-0000-000000000000:-1 (proto: 11), state transfer needed: yes
+2026-08-22T05:31:08.769823Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:31:08.769885Z 1 [Note] [MY-000000] [Galera] ####### Assign initial position for certification: 00000000-0000-0000-0000-000000000000:-1, protocol version: -1
+2026-08-22T05:31:08.769894Z 1 [Note] [MY-000000] [Galera] State transfer required: 
+	Group state: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:2429
+	Local state: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:2276
+2026-08-22T05:31:08.769899Z 1 [Note] [MY-000000] [WSREP] Server status change connected -> joiner
+2026-08-22T05:31:08.787113Z 0 [Note] [MY-000000] [WSREP] Initiating SST/IST transfer on JOINER side (wsrep_sst_xtrabackup-v2 --role 'joiner' --address '10.42.0.19' --datadir '/var/lib/mysql/' --basedir '/usr/' --plugindir '/usr/lib64/mysql/plugin/' --defaults-file '/etc/my.cnf' --defaults-group-suffix '' --parent '1' --mysqld-version '8.4.8-8'  --binlog 'binlog' )
+2026-08-22T05:31:09.263091Z 1 [Note] [MY-000000] [WSREP] Prepared SST request: xtrabackup-v2|10.42.0.19:4444/xtrabackup_sst//1
+2026-08-22T05:31:09.263143Z 1 [Note] [MY-000000] [Galera] Check if state gap can be serviced using IST
+2026-08-22T05:31:09.263152Z 1 [Note] [MY-000000] [Galera] ####### IST uuid:4c8d9454-9de9-11f1-a96f-8ee14c9e9d54 f: 2277, l: 2429, STRv: 3
+2026-08-22T05:31:09.263189Z 1 [Note] [MY-000000] [Galera] IST receiver addr using ssl://10.42.0.19:4568
+2026-08-22T05:31:09.263202Z 1 [Note] [MY-000000] [Galera] IST receiver using ssl
+2026-08-22T05:31:09.263332Z 1 [Note] [MY-000000] [Galera] Prepared IST receiver for 2277-2429, listening at: ssl://10.42.0.19:4568
+2026-08-22T05:31:09.266573Z 0 [Note] [MY-000000] [Galera] Member 1.0 (cluster1-pxc-1) requested state transfer from 'cluster1-pxc-1,'. Selected 2.0 (cluster1-pxc-2)(SYNCED) as donor.
+2026-08-22T05:31:09.266612Z 0 [Note] [MY-000000] [Galera] Shifting PRIMARY -> JOINER (TO: 2433)
+2026-08-22T05:31:09.266645Z 1 [Note] [MY-000000] [Galera] Requesting state transfer: success, donor: 2
+2026-08-22T05:31:09.549665Z 0 [Note] [MY-000000] [WSREP-SST]    joiner: => Rate:[ 479 B/s] Avg:[ 479 B/s] Elapsed:0:00:00  Bytes:  243 B 
+2026-08-22T05:31:10.054674Z 0 [Note] [MY-000000] [WSREP-SST] xtrabackup_ist received from donor: Running IST
+2026-08-22T05:31:10.054725Z 0 [Note] [MY-000000] [WSREP-SST] Running post-processing...........
+2026-08-22T05:31:10.057365Z 0 [Note] [MY-000000] [WSREP-SST] Skipping mysql_upgrade (ist)
+2026-08-22T05:31:10.057401Z 0 [Note] [MY-000000] [WSREP-SST] ...........post-processing done
+2026-08-22T05:31:10.058669Z 0 [Note] [MY-000000] [WSREP-SST] Galera co-ords from recovery: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:2276
+2026-08-22T05:31:10.063769Z 3 [Note] [MY-000000] [Galera] Processing SST received
+2026-08-22T05:31:10.063810Z 3 [Note] [MY-000000] [WSREP] Server status change joiner -> initializing
+2026-08-22T05:31:10.071017Z 4 [System] [MY-013576] [InnoDB] InnoDB initialization has started.
+2026-08-22T05:31:10.336042Z 4 [System] [MY-013577] [InnoDB] InnoDB initialization has ended.
+2026-08-22T05:31:10.432131Z 4 [Note] [MY-000000] [WSREP] wsrep_init_schema_and_SR (nil)
+2026-08-22T05:31:10.458393Z 4 [System] [MY-000000] [WSREP] PXC upgrade completed successfully
+2026-08-22T05:31:10.557161Z 0 [Note] [MY-000000] [Galera] 2.0 (cluster1-pxc-2): State transfer to 1.0 (cluster1-pxc-1) complete.
+2026-08-22T05:31:10.557781Z 0 [Note] [MY-000000] [Galera] Member 2.0 (cluster1-pxc-2) synced with group.
+2026-08-22T05:31:10.656570Z 0 [Warning] [MY-013595] [Server] Failed to initialize TLS for channel: mysql_admin. See below for the description of exact issue.
+2026-08-22T05:31:10.656624Z 0 [Warning] [MY-010069] [Server] Failed to set up SSL because of the following SSL library error: SSL context is not usable without certificate and private key
+2026-08-22T05:31:10.656632Z 0 [System] [MY-013603] [Server] No TLS configuration was given for channel mysql_admin; re-using TLS configuration of channel mysql_main.
+2026-08-22T05:31:10.660163Z 0 [Warning] [MY-011810] [Server] Insecure configuration for --pid-file: Location '/var/lib/mysql' in the path is accessible to all OS users. Consider choosing a different directory.
+2026-08-22T05:31:10.695134Z 0 [Note] [MY-000000] [WSREP] Initialized wsrep sidno 2
+2026-08-22T05:31:10.695181Z 0 [Note] [MY-000000] [Galera] Server initialized
+2026-08-22T05:31:10.695188Z 0 [Note] [MY-000000] [WSREP] Server status change initializing -> initialized
+2026-08-22T05:31:10.700065Z 3 [Note] [MY-000000] [Galera] Recovered position from storage: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:2276
+2026-08-22T05:31:10.700303Z 13 [Note] [MY-000000] [WSREP] Starting applier thread 13
+2026-08-22T05:31:10.701278Z 0 [System] [MY-011323] [Server] X Plugin ready for connections. Bind-address: '::' port: 33060, socket: /var/lib/mysql/mysqlx.sock
+2026-08-22T05:31:10.701382Z 0 [System] [MY-010931] [Server] /usr/sbin/mysqld: ready for connections. Version: '8.4.8-8.1'  socket: '/tmp/mysql.sock'  port: 3306  Percona XtraDB Cluster (GPL), Release rel8, Revision cacfed1, WSREP version 26.1.4.3.
+2026-08-22T05:31:10.701409Z 0 [System] [MY-013292] [Server] Admin interface ready for connections, address: '10.42.0.19'  port: 33062
+2026-08-22T05:31:10.702516Z 3 [Note] [MY-000000] [Galera] Recovered view from SST:
+  id: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:1353
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: -1
+  members(3):
+	0: 5c53017e-9de9-11f1-a513-92a551d71ddd, cluster1-pxc-0
+	1: 7c77edba-9de9-11f1-9d70-83373d0e788e, cluster1-pxc-1
+	2: a835b620-9de9-11f1-9b3f-43c146d6200c, cluster1-pxc-2
+
+2026-08-22T05:31:10.707293Z 15 [Note] [MY-000000] [WSREP] Recovered cluster id 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54
+2026-08-22T05:31:10.708384Z 3 [Note] [MY-000000] [Galera] SST received: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:2276
+2026-08-22T05:31:10.708443Z 3 [System] [MY-000000] [WSREP] SST completed
+2026-08-22T05:31:10.708465Z 1 [Note] [MY-000000] [Galera]  str_proto_ver_: 3 sst_seqno_: 2276 cc_seqno: 2429 req->ist_len(): 69
+2026-08-22T05:31:10.708503Z 1 [Note] [MY-000000] [Galera] Installed new state from SST: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:2276
+2026-08-22T05:31:10.710868Z 1 [Note] [MY-000000] [Galera] Receiving IST: 153 writesets, seqnos 2277-2429
+2026-08-22T05:31:10.710938Z 0 [Note] [MY-000000] [Galera] ####### IST applying starts with 2277
+2026-08-22T05:31:10.711047Z 0 [Note] [MY-000000] [Galera] ####### IST current seqno initialized to 2277
+2026-08-22T05:31:10.711090Z 0 [Note] [MY-000000] [Galera] Receiving IST... 0.0% (0/153 events) complete.
+2026-08-22T05:31:10.711138Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:31:10.711192Z 0 [Note] [MY-000000] [Galera] ####### Assign initial position for certification: 00000000-0000-0000-0000-000000000000:2276, protocol version: 6
+2026-08-22T05:31:10.711271Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 2278, must_apply: 1, preload: false
+2026-08-22T05:31:10.721044Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-08-22T05:31:10.721094Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 2276 -> 2278
+2026-08-22T05:31:10.721132Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:31:10.721169Z 0 [Note] [MY-000000] [Galera] Recording CC from ist: 2278
+2026-08-22T05:31:10.721175Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from ist: 2278
+2026-08-22T05:31:10.721178Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from ist: 30
+2026-08-22T05:31:10.721214Z 1 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:2278
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: -1
+  members(2):
+	0: 5c53017e-9de9-11f1-a513-92a551d71ddd, cluster1-pxc-0
+	1: a835b620-9de9-11f1-9b3f-43c146d6200c, cluster1-pxc-2
+=================================================
+2026-08-22T05:31:10.729050Z 0 [Note] [MY-000000] [Galera] IST preload starting at 2421
+2026-08-22T05:31:10.729565Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 2429, must_apply: 1, preload: true
+2026-08-22T05:31:11.262985Z 0 [Note] [MY-000000] [Galera] (7c77edba-9d71, 'ssl://0.0.0.0:4567') turning message relay requesting off
+2026-08-22T05:31:11.277967Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-08-22T05:31:11.278015Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 2428 -> 2429
+2026-08-22T05:31:11.278048Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:31:11.278159Z 0 [Note] [MY-000000] [Galera] Recording CC from ist: 2429
+2026-08-22T05:31:11.278169Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from ist: 2421
+2026-08-22T05:31:11.278173Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from ist: 30
+2026-08-22T05:31:11.278212Z 13 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:2429
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: 1
+  members(3):
+	0: 5c53017e-9de9-11f1-a513-92a551d71ddd, cluster1-pxc-0
+	1: 7c77edba-9de9-11f1-9d71-83373d0e788e, cluster1-pxc-1
+	2: a835b620-9de9-11f1-9b3f-43c146d6200c, cluster1-pxc-2
+=================================================
+2026-08-22T05:31:11.278227Z 13 [Note] [MY-000000] [WSREP] Server status change initialized -> joined
+2026-08-22T05:31:11.278364Z 0 [Note] [MY-000000] [Galera] Receiving IST... 100.0% (153/153 events) complete.
+2026-08-22T05:31:11.278653Z 1 [Note] [MY-000000] [Galera] Draining apply monitors after IST up to 2429
+2026-08-22T05:31:11.296833Z 1 [Note] [MY-000000] [Galera] IST received: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:2429
+2026-08-22T05:31:11.299279Z 1 [Note] [MY-000000] [Galera] Recording CC from sst: 2429
+2026-08-22T05:31:11.299335Z 1 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from sst: 2421
+2026-08-22T05:31:11.299341Z 1 [Note] [MY-000000] [Galera] Min available from gcache for CC from sst: 30
+2026-08-22T05:31:11.299714Z 0 [Note] [MY-000000] [Galera] 1.0 (cluster1-pxc-1): State transfer from 2.0 (cluster1-pxc-2) complete.
+2026-08-22T05:31:11.299751Z 0 [Note] [MY-000000] [Galera] SST leaving flow control
+2026-08-22T05:31:11.299867Z 0 [Note] [MY-000000] [Galera] Shifting JOINER -> JOINED (TO: 2451)
+2026-08-22T05:31:11.299976Z 0 [Note] [MY-000000] [Galera] Processing event queue:... 0.0% (0/23 events) complete.
+2026-08-22T05:31:11.300367Z 0 [Note] [MY-000000] [Galera] Member 1.0 (cluster1-pxc-1) synced with group.
+2026-08-22T05:31:11.300402Z 0 [Note] [MY-000000] [Galera] Processing event queue:... 100.0% (24/24 events) complete.
+2026-08-22T05:31:11.300415Z 0 [Note] [MY-000000] [Galera] Shifting JOINED -> SYNCED (TO: 2451)
+2026-08-22T05:31:11.375802Z 1 [Note] [MY-000000] [Galera] Server cluster1-pxc-1 synced with group
+2026-08-22T05:31:11.375841Z 1 [Note] [MY-000000] [WSREP] Server status change joined -> synced
+2026-08-22T05:31:11.375847Z 1 [Note] [MY-000000] [WSREP] Synchronized with group, ready for connections
+2026-08-22T05:39:00.339329Z 0 [Note] [MY-000000] [Galera] (7c77edba-9d71, 'ssl://0.0.0.0:4567') connection to peer a835b620-9b3f with addr ssl://10.42.0.15:4567 timed out, no messages seen in PT3S, socket stats: rtt: 464743 rttvar: 62858 rto: 1744000 lost: 1 last_data_recv: 3276 cwnd: 1 last_queued_since: 28942377 last_delivered_since: 3277504774 send_queue_length: 0 send_queue_bytes: 0 segment: 0 messages: 0 (gmcast.peer_timeout)
+2026-08-22T05:39:00.339469Z 0 [Note] [MY-000000] [Galera] (7c77edba-9d71, 'ssl://0.0.0.0:4567') turning message relay requesting on, nonlive peers: ssl://10.42.0.15:4567 
+2026-08-22T05:39:01.339725Z 0 [Note] [MY-000000] [Galera] (7c77edba-9d71, 'ssl://0.0.0.0:4567') reconnecting to a835b620-9b3f (ssl://10.42.0.15:4567), attempt 0
+2026-08-22T05:39:02.340225Z 0 [Note] [MY-000000] [Galera] declaring node with index 2 suspected, timeout PT5S (evs.suspect_timeout)
+2026-08-22T05:39:02.340283Z 0 [Note] [MY-000000] [Galera] evs::proto(7c77edba-9d71, OPERATIONAL, view_id(REG,5c53017e-a513,7)) suspecting node: a835b620-9b3f
+2026-08-22T05:39:02.340303Z 0 [Note] [MY-000000] [Galera] evs::proto(7c77edba-9d71, OPERATIONAL, view_id(REG,5c53017e-a513,7)) suspected node without join message, declaring inactive
+2026-08-22T05:39:02.840400Z 0 [Note] [MY-000000] [Galera] declaring node with index 2 inactive (evs.inactive_timeout) 
+2026-08-22T05:39:03.341061Z 0 [Note] [MY-000000] [Galera] declaring 5c53017e-a513 at ssl://10.42.0.9:4567 stable
+2026-08-22T05:39:03.341503Z 0 [Note] [MY-000000] [Galera] Node 5c53017e-a513 state primary
+2026-08-22T05:39:03.348463Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view (view_id(PRIM,5c53017e-a513,8)
+memb {
+	5c53017e-a513,0
+	7c77edba-9d71,0
+	}
+joined {
+	}
+left {
+	}
+partitioned {
+	a835b620-9b3f,0
+	}
+)
+2026-08-22T05:39:03.348570Z 0 [Note] [MY-000000] [Galera] Save the discovered primary-component to disk
+2026-08-22T05:39:03.356516Z 0 [Note] [MY-000000] [Galera] forgetting a835b620-9b3f (ssl://10.42.0.15:4567)
+2026-08-22T05:39:03.356572Z 0 [Note] [MY-000000] [Galera] deleting entry ssl://10.42.0.15:4567
+2026-08-22T05:39:03.356601Z 0 [Note] [MY-000000] [Galera] (7c77edba-9d71, 'ssl://0.0.0.0:4567') turning message relay requesting off
+2026-08-22T05:39:03.356613Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Operation aborted.
+2026-08-22T05:39:03.356635Z 0 [Note] [MY-000000] [Galera] New COMPONENT: primary = yes, bootstrap = no, my_idx = 1, memb_num = 2
+2026-08-22T05:39:03.356660Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: Waiting for state UUID.
+2026-08-22T05:39:03.356942Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: sent state msg: c8981778-9deb-11f1-9b9c-035aa7a5a76f
+2026-08-22T05:39:03.357215Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: c8981778-9deb-11f1-9b9c-035aa7a5a76f from 0 (cluster1-pxc-0)
+2026-08-22T05:39:03.357254Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: c8981778-9deb-11f1-9b9c-035aa7a5a76f from 1 (cluster1-pxc-1)
+2026-08-22T05:39:03.357261Z 0 [Note] [MY-000000] [Galera] Quorum results:
+	version    = 6,
+	component  = PRIMARY,
+	conf_id    = 7,
+	members    = 2/2 (primary/total),
+	act_id     = 5074,
+	last_appl. = 5069,
+	protocols  = 5/11/4 (gcs/repl/appl),
+	vote policy= 0,
+	group UUID = 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54
+2026-08-22T05:39:03.357279Z 0 [Note] [MY-000000] [Galera] Flow-control interval: [141, 141]
+2026-08-22T05:39:03.357342Z 1 [Note] [MY-000000] [Galera] ####### processing CC 5075, local, ordered
+2026-08-22T05:39:03.357381Z 1 [Note] [MY-000000] [Galera] Maybe drain monitors from 5074 upto current CC event 5075 upto:5074
+2026-08-22T05:39:03.357392Z 1 [Note] [MY-000000] [Galera] Drain monitors from 5074 up to 5074
+2026-08-22T05:39:03.357396Z 1 [Note] [MY-000000] [Galera] ####### My UUID: 7c77edba-9de9-11f1-9d71-83373d0e788e
+2026-08-22T05:39:03.357516Z 1 [Note] [MY-000000] [Galera] Skipping cert index reset
+2026-08-22T05:39:03.357522Z 1 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-08-22T05:39:03.357527Z 1 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 5074 -> 5075
+2026-08-22T05:39:03.357590Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:39:03.374413Z 1 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:5075
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: 1
+  members(2):
+	0: 5c53017e-9de9-11f1-a513-92a551d71ddd, cluster1-pxc-0
+	1: 7c77edba-9de9-11f1-9d71-83373d0e788e, cluster1-pxc-1
+=================================================
+2026-08-22T05:39:03.386726Z 1 [Note] [MY-000000] [Galera] Recording CC from group: 5075
+2026-08-22T05:39:03.386762Z 1 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from group: 5070
+2026-08-22T05:39:03.386769Z 1 [Note] [MY-000000] [Galera] Min available from gcache for CC from group: 2681
+2026-08-22T05:39:06.341142Z 0 [Note] [MY-000000] [Galera]  cleaning up a835b620-9b3f (ssl://10.42.0.15:4567)
+2026-08-22T05:41:17.064158Z 0 [Note] [MY-000000] [Galera] (7c77edba-9d71, 'ssl://0.0.0.0:4567') connection established to 184aca48-96f3 ssl://10.42.0.15:4567
+2026-08-22T05:41:17.561534Z 0 [Note] [MY-000000] [Galera] declaring 184aca48-96f3 at ssl://10.42.0.15:4567 stable
+2026-08-22T05:41:17.561584Z 0 [Note] [MY-000000] [Galera] declaring 5c53017e-a513 at ssl://10.42.0.9:4567 stable
+2026-08-22T05:41:17.561905Z 0 [Note] [MY-000000] [Galera] Node 5c53017e-a513 state primary
+2026-08-22T05:41:17.562197Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view (view_id(PRIM,184aca48-96f3,9)
+memb {
+	184aca48-96f3,0
+	5c53017e-a513,0
+	7c77edba-9d71,0
+	}
+joined {
+	}
+left {
+	}
+partitioned {
+	}
+)
+2026-08-22T05:41:17.562233Z 0 [Note] [MY-000000] [Galera] Save the discovered primary-component to disk
+2026-08-22T05:41:17.566840Z 0 [Note] [MY-000000] [Galera] New COMPONENT: primary = yes, bootstrap = no, my_idx = 2, memb_num = 3
+2026-08-22T05:41:17.566884Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: Waiting for state UUID.
+2026-08-22T05:41:18.061838Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: sent state msg: 18e3af0f-9dec-11f1-bdaf-63dc3a7f586a
+2026-08-22T05:41:18.062219Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 18e3af0f-9dec-11f1-bdaf-63dc3a7f586a from 0 (cluster1-pxc-2)
+2026-08-22T05:41:18.062283Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 18e3af0f-9dec-11f1-bdaf-63dc3a7f586a from 1 (cluster1-pxc-0)
+2026-08-22T05:41:18.062300Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 18e3af0f-9dec-11f1-bdaf-63dc3a7f586a from 2 (cluster1-pxc-1)
+2026-08-22T05:41:18.062310Z 0 [Note] [MY-000000] [Galera] Quorum results:
+	version    = 6,
+	component  = PRIMARY,
+	conf_id    = 8,
+	members    = 2/3 (primary/total),
+	act_id     = 6182,
+	last_appl. = 6172,
+	protocols  = 5/11/4 (gcs/repl/appl),
+	vote policy= 0,
+	group UUID = 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54
+2026-08-22T05:41:18.062351Z 0 [Note] [MY-000000] [Galera] Flow-control interval: [173, 173]
+2026-08-22T05:41:18.062425Z 1 [Note] [MY-000000] [Galera] ####### processing CC 6183, local, ordered
+2026-08-22T05:41:18.062457Z 1 [Note] [MY-000000] [Galera] Maybe drain monitors from 6182 upto current CC event 6183 upto:6182
+2026-08-22T05:41:18.062463Z 1 [Note] [MY-000000] [Galera] Drain monitors from 6182 up to 6182
+2026-08-22T05:41:18.062477Z 1 [Note] [MY-000000] [Galera] ####### My UUID: 7c77edba-9de9-11f1-9d71-83373d0e788e
+2026-08-22T05:41:18.062480Z 1 [Note] [MY-000000] [Galera] Skipping cert index reset
+2026-08-22T05:41:18.062490Z 1 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-08-22T05:41:18.062525Z 1 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6182 -> 6183
+2026-08-22T05:41:18.062571Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:41:18.073483Z 1 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:6183
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: 2
+  members(3):
+	0: 184aca48-9dec-11f1-96f3-cb540a05dc8e, cluster1-pxc-2
+	1: 5c53017e-9de9-11f1-a513-92a551d71ddd, cluster1-pxc-0
+	2: 7c77edba-9de9-11f1-9d71-83373d0e788e, cluster1-pxc-1
+=================================================
+2026-08-22T05:41:18.082521Z 1 [Note] [MY-000000] [Galera] Recording CC from group: 6183
+2026-08-22T05:41:18.082559Z 1 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from group: 6173
+2026-08-22T05:41:18.082569Z 1 [Note] [MY-000000] [Galera] Min available from gcache for CC from group: 3788
+2026-08-22T05:41:18.568824Z 0 [Note] [MY-000000] [Galera] Member 0.0 (cluster1-pxc-2) requested state transfer from 'cluster1-pxc-1,'. Selected 2.0 (cluster1-pxc-1)(SYNCED) as donor.
+2026-08-22T05:41:18.568863Z 0 [Note] [MY-000000] [Galera] Shifting SYNCED -> DONOR/DESYNCED (TO: 6188)
+2026-08-22T05:41:18.568904Z 13 [Note] [MY-000000] [Galera] Detected STR version: 1, req_len: 131, req: STRv1
+2026-08-22T05:41:18.568936Z 13 [Note] [MY-000000] [Galera] IST request: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:5073-6183|ssl://10.42.0.15:4568
+2026-08-22T05:41:18.568941Z 13 [Note] [MY-000000] [Galera] IST seqno 5074 found and locked in gcache
+2026-08-22T05:41:18.568946Z 13 [Note] [MY-000000] [WSREP] Server status change synced -> donor
+2026-08-22T05:41:18.574061Z 0 [Note] [MY-000000] [WSREP] Initiating SST/IST transfer on DONOR side (wsrep_sst_xtrabackup-v2 --role 'donor' --address '10.42.0.15:4444/xtrabackup_sst//1' --socket '/tmp/mysql.sock' --datadir '/var/lib/mysql/' --basedir '/usr/' --plugindir '/usr/lib64/mysql/plugin/' --defaults-file '/etc/my.cnf' --defaults-group-suffix '' --mysqld-version '8.4.8-8'  --binlog 'binlog' --gtid '4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:5073'  --bypass)
+2026-08-22T05:41:18.594716Z 13 [Note] [MY-000000] [WSREP] DONOR thread signaled with 0
+2026-08-22T05:41:18.598074Z 0 [Note] [MY-000000] [Galera] async IST sender starting to serve ssl://10.42.0.15:4568 sending 5074-6183, preload starts from 6173
+2026-08-22T05:41:18.598500Z 0 [Note] [MY-000000] [Galera] IST sender 5074 -> 6183
+2026-08-22T05:41:18.847126Z 0 [Note] [MY-000000] [WSREP-SST] Using PXB option --lock-ddl=REDUCED for SST
+2026-08-22T05:41:18.872608Z 997 [Warning] [MY-013712] [Server] No suitable 'keyring_component_metadata_query' service implementation found to fulfill the request.
+2026-08-22T05:41:18.877057Z 0 [Note] [MY-000000] [WSREP-SST] Bypassing SST. Can work it through IST
+2026-08-22T05:41:19.886944Z 0 [Note] [MY-000000] [Galera] SST sent: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:5073
+2026-08-22T05:41:19.886986Z 0 [Note] [MY-000000] [WSREP] Server status change donor -> joined
+2026-08-22T05:41:19.894424Z 0 [Note] [MY-000000] [Galera] 2.0 (cluster1-pxc-1): State transfer to 0.0 (cluster1-pxc-2) complete.
+2026-08-22T05:41:19.894467Z 0 [Note] [MY-000000] [Galera] Shifting DONOR/DESYNCED -> JOINED (TO: 6199)
+2026-08-22T05:41:19.894500Z 0 [Note] [MY-000000] [Galera] Processing event queue:... 0.0% (0/0 events) complete.
+2026-08-22T05:41:19.894995Z 0 [Note] [MY-000000] [Galera] Member 2.0 (cluster1-pxc-1) synced with group.
+2026-08-22T05:41:19.895029Z 0 [Note] [MY-000000] [Galera] Processing event queue:... 100.0% (1/1 events) complete.
+2026-08-22T05:41:19.895035Z 0 [Note] [MY-000000] [Galera] Shifting JOINED -> SYNCED (TO: 6199)
+2026-08-22T05:41:19.895074Z 13 [Note] [MY-000000] [Galera] Server cluster1-pxc-1 synced with group
+2026-08-22T05:41:19.895096Z 13 [Note] [MY-000000] [WSREP] Server status change joined -> synced
+2026-08-22T05:41:19.895107Z 13 [Note] [MY-000000] [WSREP] Synchronized with group, ready for connections
+2026-08-22T05:41:20.144959Z 0 [Note] [MY-000000] [Galera] IST sender served all writesets. Unlocking GCache.
+2026-08-22T05:41:20.145008Z 0 [Note] [MY-000000] [Galera] IST sender sent EOF. Waiting for joiner to close the connection
+2026-08-22T05:41:20.364165Z 0 [Note] [MY-000000] [Galera] (7c77edba-9d71, 'ssl://0.0.0.0:4567') turning message relay requesting off
+2026-08-22T05:41:24.742509Z 0 [Note] [MY-000000] [Galera] IST sender finished waiting for connection close
+2026-08-22T05:41:24.742684Z 0 [Note] [MY-000000] [Galera] async IST sender served
+2026-08-22T05:41:24.765379Z 0 [Note] [MY-000000] [Galera] 0.0 (cluster1-pxc-2): State transfer from 2.0 (cluster1-pxc-1) complete.
+2026-08-22T05:41:24.765748Z 0 [Note] [MY-000000] [Galera] Member 0.0 (cluster1-pxc-2) synced with group.
+2026-08-22T05:43:53.926070Z 0 [Note] [MY-000000] [Galera] declaring 5c53017e-a513 at ssl://10.42.0.9:4567 stable
+2026-08-22T05:43:53.926208Z 0 [Note] [MY-000000] [Galera] forgetting 184aca48-96f3 (ssl://10.42.0.15:4567)
+2026-08-22T05:43:53.926475Z 0 [Note] [MY-000000] [Galera] Node 5c53017e-a513 state primary
+2026-08-22T05:43:53.930042Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view (view_id(PRIM,5c53017e-a513,10)
+memb {
+	5c53017e-a513,0
+	7c77edba-9d71,0
+	}
+joined {
+	}
+left {
+	}
+partitioned {
+	184aca48-96f3,0
+	}
+)
+2026-08-22T05:43:53.930084Z 0 [Note] [MY-000000] [Galera] Save the discovered primary-component to disk
+2026-08-22T05:43:53.932414Z 0 [Note] [MY-000000] [Galera] forgetting 184aca48-96f3 (ssl://10.42.0.15:4567)
+2026-08-22T05:43:53.932419Z 0 [Note] [MY-000000] [Galera] New COMPONENT: primary = yes, bootstrap = no, my_idx = 1, memb_num = 2
+2026-08-22T05:43:53.932555Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: Waiting for state UUID.
+2026-08-22T05:43:53.932881Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: sent state msg: 75cb57b6-9dec-11f1-a437-269c5b679084
+2026-08-22T05:43:53.933060Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 75cb57b6-9dec-11f1-a437-269c5b679084 from 0 (cluster1-pxc-0)
+2026-08-22T05:43:53.933122Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 75cb57b6-9dec-11f1-a437-269c5b679084 from 1 (cluster1-pxc-1)
+2026-08-22T05:43:53.933131Z 0 [Note] [MY-000000] [Galera] Quorum results:
+	version    = 6,
+	component  = PRIMARY,
+	conf_id    = 9,
+	members    = 2/2 (primary/total),
+	act_id     = 7472,
+	last_appl. = 7463,
+	protocols  = 5/11/4 (gcs/repl/appl),
+	vote policy= 0,
+	group UUID = 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54
+2026-08-22T05:43:53.933153Z 0 [Note] [MY-000000] [Galera] Flow-control interval: [141, 141]
+2026-08-22T05:43:53.933215Z 1 [Note] [MY-000000] [Galera] ####### processing CC 7473, local, ordered
+2026-08-22T05:43:53.933251Z 1 [Note] [MY-000000] [Galera] Maybe drain monitors from 7472 upto current CC event 7473 upto:7472
+2026-08-22T05:43:53.933257Z 1 [Note] [MY-000000] [Galera] Drain monitors from 7472 up to 7472
+2026-08-22T05:43:53.933261Z 1 [Note] [MY-000000] [Galera] ####### My UUID: 7c77edba-9de9-11f1-9d71-83373d0e788e
+2026-08-22T05:43:53.933265Z 1 [Note] [MY-000000] [Galera] Skipping cert index reset
+2026-08-22T05:43:53.933268Z 1 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-08-22T05:43:53.933271Z 1 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 7472 -> 7473
+2026-08-22T05:43:53.933305Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:43:53.939895Z 1 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:7473
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: 1
+  members(2):
+	0: 5c53017e-9de9-11f1-a513-92a551d71ddd, cluster1-pxc-0
+	1: 7c77edba-9de9-11f1-9d71-83373d0e788e, cluster1-pxc-1
+=================================================
+2026-08-22T05:43:53.948853Z 1 [Note] [MY-000000] [Galera] Recording CC from group: 7473
+2026-08-22T05:43:53.948898Z 1 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from group: 7464
+2026-08-22T05:43:53.948904Z 1 [Note] [MY-000000] [Galera] Min available from gcache for CC from group: 5078
+2026-08-22T05:43:59.392142Z 0 [Note] [MY-000000] [Galera]  cleaning up 184aca48-96f3 (ssl://10.42.0.15:4567)
+2026-08-22T05:44:19.569926Z 0 [Note] [MY-000000] [Galera] (7c77edba-9d71, 'ssl://0.0.0.0:4567') connection established to 8512edba-b7d2 ssl://10.42.0.21:4567
+2026-08-22T05:44:20.067075Z 0 [Note] [MY-000000] [Galera] declaring 5c53017e-a513 at ssl://10.42.0.9:4567 stable
+2026-08-22T05:44:20.067123Z 0 [Note] [MY-000000] [Galera] declaring 8512edba-b7d2 at ssl://10.42.0.21:4567 stable
+2026-08-22T05:44:20.067460Z 0 [Note] [MY-000000] [Galera] Node 5c53017e-a513 state primary
+2026-08-22T05:44:20.067728Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view (view_id(PRIM,5c53017e-a513,11)
+memb {
+	5c53017e-a513,0
+	7c77edba-9d71,0
+	8512edba-b7d2,0
+	}
+joined {
+	}
+left {
+	}
+partitioned {
+	}
+)
+2026-08-22T05:44:20.067768Z 0 [Note] [MY-000000] [Galera] Save the discovered primary-component to disk
+2026-08-22T05:44:20.070315Z 0 [Note] [MY-000000] [Galera] New COMPONENT: primary = yes, bootstrap = no, my_idx = 1, memb_num = 3
+2026-08-22T05:44:20.070346Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: Waiting for state UUID.
+2026-08-22T05:44:20.072326Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: sent state msg: 85600f6a-9dec-11f1-921d-9e4e1111718d
+2026-08-22T05:44:20.072658Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 85600f6a-9dec-11f1-921d-9e4e1111718d from 0 (cluster1-pxc-0)
+2026-08-22T05:44:20.072692Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 85600f6a-9dec-11f1-921d-9e4e1111718d from 1 (cluster1-pxc-1)
+2026-08-22T05:44:20.567624Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 85600f6a-9dec-11f1-921d-9e4e1111718d from 2 (cluster1-pxc-2)
+2026-08-22T05:44:20.567667Z 0 [Note] [MY-000000] [Galera] Quorum results:
+	version    = 6,
+	component  = PRIMARY,
+	conf_id    = 10,
+	members    = 2/3 (primary/total),
+	act_id     = 7690,
+	last_appl. = 7682,
+	protocols  = 5/11/4 (gcs/repl/appl),
+	vote policy= 0,
+	group UUID = 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54
+2026-08-22T05:44:20.567690Z 0 [Note] [MY-000000] [Galera] Flow-control interval: [173, 173]
+2026-08-22T05:44:20.567852Z 1 [Note] [MY-000000] [Galera] ####### processing CC 7691, local, ordered
+2026-08-22T05:44:20.567913Z 1 [Note] [MY-000000] [Galera] Maybe drain monitors from 7690 upto current CC event 7691 upto:7690
+2026-08-22T05:44:20.567924Z 1 [Note] [MY-000000] [Galera] Drain monitors from 7690 up to 7690
+2026-08-22T05:44:20.567934Z 1 [Note] [MY-000000] [Galera] ####### My UUID: 7c77edba-9de9-11f1-9d71-83373d0e788e
+2026-08-22T05:44:20.567942Z 1 [Note] [MY-000000] [Galera] Skipping cert index reset
+2026-08-22T05:44:20.567950Z 1 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-08-22T05:44:20.567959Z 1 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 7690 -> 7691
+2026-08-22T05:44:20.568013Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:44:20.572813Z 1 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:7691
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: 1
+  members(3):
+	0: 5c53017e-9de9-11f1-a513-92a551d71ddd, cluster1-pxc-0
+	1: 7c77edba-9de9-11f1-9d71-83373d0e788e, cluster1-pxc-1
+	2: 8512edba-9dec-11f1-b7d2-2bcfe597b8e1, cluster1-pxc-2
+=================================================
+2026-08-22T05:44:20.583302Z 1 [Note] [MY-000000] [Galera] Recording CC from group: 7691
+2026-08-22T05:44:20.583344Z 1 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from group: 7683
+2026-08-22T05:44:20.583357Z 1 [Note] [MY-000000] [Galera] Min available from gcache for CC from group: 5295
+2026-08-22T05:44:21.076337Z 0 [Note] [MY-000000] [Galera] Member 2.0 (cluster1-pxc-2) requested state transfer from 'cluster1-pxc-1,'. Selected 1.0 (cluster1-pxc-1)(SYNCED) as donor.
+2026-08-22T05:44:21.076374Z 0 [Note] [MY-000000] [Galera] Shifting SYNCED -> DONOR/DESYNCED (TO: 7696)
+2026-08-22T05:44:21.076547Z 13 [Note] [MY-000000] [Galera] Detected STR version: 1, req_len: 131, req: STRv1
+2026-08-22T05:44:21.076577Z 13 [Note] [MY-000000] [Galera] IST request: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:7472-7691|ssl://10.42.0.21:4568
+2026-08-22T05:44:21.076585Z 13 [Note] [MY-000000] [Galera] IST seqno 7473 found and locked in gcache
+2026-08-22T05:44:21.076592Z 13 [Note] [MY-000000] [WSREP] Server status change synced -> donor
+2026-08-22T05:44:21.081091Z 0 [Note] [MY-000000] [WSREP] Initiating SST/IST transfer on DONOR side (wsrep_sst_xtrabackup-v2 --role 'donor' --address '10.42.0.21:4444/xtrabackup_sst//1' --socket '/tmp/mysql.sock' --datadir '/var/lib/mysql/' --basedir '/usr/' --plugindir '/usr/lib64/mysql/plugin/' --defaults-file '/etc/my.cnf' --defaults-group-suffix '' --mysqld-version '8.4.8-8'  --binlog 'binlog' --gtid '4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:7472'  --bypass)
+2026-08-22T05:44:21.084840Z 13 [Note] [MY-000000] [WSREP] DONOR thread signaled with 0
+2026-08-22T05:44:21.087875Z 0 [Note] [MY-000000] [Galera] async IST sender starting to serve ssl://10.42.0.21:4568 sending 7473-7691, preload starts from 7683
+2026-08-22T05:44:21.088541Z 0 [Note] [MY-000000] [Galera] IST sender 7473 -> 7691
+2026-08-22T05:44:21.330410Z 0 [Note] [MY-000000] [WSREP-SST] Using PXB option --lock-ddl=REDUCED for SST
+2026-08-22T05:44:21.355510Z 1313 [Warning] [MY-013712] [Server] No suitable 'keyring_component_metadata_query' service implementation found to fulfill the request.
+2026-08-22T05:44:21.360180Z 0 [Note] [MY-000000] [WSREP-SST] Bypassing SST. Can work it through IST
+2026-08-22T05:44:22.370232Z 0 [Note] [MY-000000] [Galera] SST sent: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:7472
+2026-08-22T05:44:22.370304Z 0 [Note] [MY-000000] [WSREP] Server status change donor -> joined
+2026-08-22T05:44:22.376645Z 0 [Note] [MY-000000] [Galera] 1.0 (cluster1-pxc-1): State transfer to 2.0 (cluster1-pxc-2) complete.
+2026-08-22T05:44:22.376695Z 0 [Note] [MY-000000] [Galera] Shifting DONOR/DESYNCED -> JOINED (TO: 7707)
+2026-08-22T05:44:22.376753Z 0 [Note] [MY-000000] [Galera] Processing event queue:... 0.0% (0/0 events) complete.
+2026-08-22T05:44:22.377595Z 0 [Note] [MY-000000] [Galera] Member 1.0 (cluster1-pxc-1) synced with group.
+2026-08-22T05:44:22.377632Z 0 [Note] [MY-000000] [Galera] Processing event queue:... 100.0% (1/1 events) complete.
+2026-08-22T05:44:22.377639Z 0 [Note] [MY-000000] [Galera] Shifting JOINED -> SYNCED (TO: 7707)
+2026-08-22T05:44:22.377687Z 13 [Note] [MY-000000] [Galera] Server cluster1-pxc-1 synced with group
+2026-08-22T05:44:22.377704Z 13 [Note] [MY-000000] [WSREP] Server status change joined -> synced
+2026-08-22T05:44:22.377708Z 13 [Note] [MY-000000] [WSREP] Synchronized with group, ready for connections
+2026-08-22T05:44:22.574715Z 0 [Note] [MY-000000] [Galera] IST sender served all writesets. Unlocking GCache.
+2026-08-22T05:44:22.574771Z 0 [Note] [MY-000000] [Galera] IST sender sent EOF. Waiting for joiner to close the connection
+2026-08-22T05:44:22.896008Z 0 [Note] [MY-000000] [Galera] (7c77edba-9d71, 'ssl://0.0.0.0:4567') turning message relay requesting off
+2026-08-22T05:44:23.395266Z 0 [Note] [MY-000000] [Galera] IST sender finished waiting for connection close
+2026-08-22T05:44:23.395442Z 0 [Note] [MY-000000] [Galera] async IST sender served
+2026-08-22T05:44:23.413007Z 0 [Note] [MY-000000] [Galera] 2.0 (cluster1-pxc-2): State transfer from 1.0 (cluster1-pxc-1) complete.
+2026-08-22T05:44:23.413409Z 0 [Note] [MY-000000] [Galera] Member 2.0 (cluster1-pxc-2) synced with group.
+2026-08-22T05:44:44.469770Z 0 [System] [MY-013172] [Server] Received SHUTDOWN from user <via user signal>. Shutting down mysqld (Version: 8.4.8-8.1).
+2026-08-22T05:44:44.469857Z 0 [Note] [MY-000000] [WSREP] Received shutdown signal. Will sleep for 10 secs before initiating shutdown. pxc_maint_mode switched to SHUTDOWN
+2026-08-22T05:44:54.470739Z 0 [Note] [MY-000000] [WSREP] Shutdown replication
+2026-08-22T05:44:54.470778Z 0 [Note] [MY-000000] [WSREP] Server status change synced -> disconnecting
+2026-08-22T05:44:54.475760Z 0 [Note] [MY-000000] [Galera] Closing send monitor...
+2026-08-22T05:44:54.475783Z 0 [Note] [MY-000000] [Galera] Closed send monitor.
+2026-08-22T05:44:54.475793Z 0 [Note] [MY-000000] [Galera] gcomm: terminating thread
+2026-08-22T05:44:54.475816Z 0 [Note] [MY-000000] [Galera] gcomm: joining thread
+2026-08-22T05:44:54.476006Z 0 [Note] [MY-000000] [Galera] gcomm: closing backend
+2026-08-22T05:44:54.476860Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view (view_id(NON_PRIM,5c53017e-a513,11)
+memb {
+	7c77edba-9d71,0
+	}
+joined {
+	}
+left {
+	}
+partitioned {
+	5c53017e-a513,0
+	8512edba-b7d2,0
+	}
+)
+2026-08-22T05:44:54.476910Z 0 [Note] [MY-000000] [Galera] PC protocol downgrade 1 -> 0
+2026-08-22T05:44:54.476917Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view ((empty))
+2026-08-22T05:44:54.506463Z 0 [Note] [MY-000000] [Galera] gcomm: closed
+2026-08-22T05:44:54.506568Z 0 [Note] [MY-000000] [Galera] New COMPONENT: primary = no, bootstrap = no, my_idx = 0, memb_num = 1
+2026-08-22T05:44:54.506606Z 0 [Note] [MY-000000] [Galera] Flow-control interval: [100, 100]
+2026-08-22T05:44:54.506610Z 0 [Note] [MY-000000] [Galera] Received NON-PRIMARY.
+2026-08-22T05:44:54.506612Z 0 [Note] [MY-000000] [Galera] Shifting SYNCED -> OPEN (TO: 7971)
+2026-08-22T05:44:54.506642Z 0 [Note] [MY-000000] [Galera] New SELF-LEAVE.
+2026-08-22T05:44:54.506686Z 0 [Note] [MY-000000] [Galera] Flow-control interval: [0, 0]
+2026-08-22T05:44:54.506690Z 1 [Note] [MY-000000] [Galera] Maybe drain monitors from 7971 upto current CC event 7971 upto:7971
+2026-08-22T05:44:54.506705Z 1 [Note] [MY-000000] [Galera] Drain monitors from 7971 up to 7971
+2026-08-22T05:44:54.506716Z 1 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:7971
+  status: non-primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: 0
+  members(1):
+	0: 7c77edba-9de9-11f1-9d71-83373d0e788e, cluster1-pxc-1
+=================================================
+2026-08-22T05:44:54.506721Z 1 [Note] [MY-000000] [Galera] Non-primary view
+2026-08-22T05:44:54.506732Z 0 [Note] [MY-000000] [Galera] Received SELF-LEAVE. Closing connection.
+2026-08-22T05:44:54.506737Z 0 [Note] [MY-000000] [Galera] Shifting OPEN -> CLOSED (TO: 7971)
+2026-08-22T05:44:54.506741Z 0 [Note] [MY-000000] [Galera] RECV thread exiting 0: Success
+2026-08-22T05:44:54.506849Z 0 [Note] [MY-000000] [Galera] recv_thread() joined.
+2026-08-22T05:44:54.506864Z 0 [Note] [MY-000000] [Galera] Closing send queue.
+2026-08-22T05:44:54.506867Z 0 [Note] [MY-000000] [Galera] Closing receive queue.
+2026-08-22T05:44:54.512176Z 1 [Note] [MY-000000] [Galera] Maybe drain monitors from 7971 upto current CC event 7971 upto:7971
+2026-08-22T05:44:54.512199Z 1 [Note] [MY-000000] [Galera] Drain monitors from 7971 up to 7971
+2026-08-22T05:44:54.512208Z 1 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:7971
+  status: non-primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: yes
+  own_index: -1
+  members(0):
+=================================================
+2026-08-22T05:44:54.512213Z 1 [Note] [MY-000000] [Galera] Non-primary view
+2026-08-22T05:44:54.512217Z 1 [Note] [MY-000000] [WSREP] Server status change disconnecting -> disconnected
+2026-08-22T05:44:54.523605Z 1 [Note] [MY-000000] [Galera] Waiting 600 seconds for 2 receivers to finish
+2026-08-22T05:44:54.526908Z 13 [Note] [MY-000000] [Galera] Slave thread exit. Return code: 6
+2026-08-22T05:44:54.526930Z 13 [Note] [MY-000000] [WSREP] Applier thread exiting ret: 6 thd: 13
+2026-08-22T05:44:54.527962Z 1 [Note] [MY-000000] [Galera] Slave thread exit. Return code: 0
+2026-08-22T05:44:54.527974Z 1 [Note] [MY-000000] [WSREP] Applier thread exiting ret: 0 thd: 1
+2026-08-22T05:44:54.528012Z 0 [Note] [MY-000000] [WSREP] Waiting for active wsrep applier to exit
+2026-08-22T05:44:54.528025Z 0 [Note] [MY-000000] [WSREP] All applier thread terminated. Will now terminate rollback thread
+2026-08-22T05:44:54.528043Z 0 [Note] [MY-000000] [WSREP] Waiting for rollback thread to terminate
+2026-08-22T05:44:54.528066Z 2 [Note] [MY-000000] [WSREP] rollbacker thread exiting 2
+2026-08-22T05:44:55.528162Z 0 [Note] [MY-000000] [WSREP] Rollback thread terminated
+2026-08-22T05:44:55.528899Z 0 [Note] [MY-000000] [Galera] dtor state: CLOSED
+2026-08-22T05:44:55.528917Z 0 [Note] [MY-000000] [Galera] MemPool(TrxHandleSlave): hit ratio: 0.973633, misses: 150, in use: 8, in pool: 142
+2026-08-22T05:44:55.531629Z 0 [Note] [MY-000000] [Galera] mon: entered 5691 oooe fraction 0 oool fraction 0
+2026-08-22T05:44:55.534143Z 0 [Note] [MY-000000] [Galera] mon: entered 5691 oooe fraction 0 oool fraction 0
+2026-08-22T05:44:55.536921Z 0 [Note] [MY-000000] [Galera] mon: entered 6654 oooe fraction 0 oool fraction 0.000150286
+2026-08-22T05:44:55.536945Z 0 [Note] [MY-000000] [Galera] cert index usage at exit 807
+2026-08-22T05:44:55.536948Z 0 [Note] [MY-000000] [Galera] cert trx map usage at exit 8
+2026-08-22T05:44:55.536950Z 0 [Note] [MY-000000] [Galera] deps set usage at exit 0
+2026-08-22T05:44:55.536953Z 0 [Note] [MY-000000] [Galera] avg deps dist 1
+2026-08-22T05:44:55.536955Z 0 [Note] [MY-000000] [Galera] avg cert interval 3.4982
+2026-08-22T05:44:55.536957Z 0 [Note] [MY-000000] [Galera] cert index size 807
+2026-08-22T05:44:55.537091Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:44:55.537141Z 0 [Note] [MY-000000] [Galera] wsdb trx map usage 0 conn query map usage 0
+2026-08-22T05:44:55.537175Z 0 [Note] [MY-000000] [Galera] MemPool(LocalTrxHandle): hit ratio: 0, misses: 0, in use: 0, in pool: 0
+2026-08-22T05:44:55.538716Z 0 [Note] [MY-000000] [Galera] Flushing memory map to disk...
+2026-08-22T05:44:57.378300Z 0 [System] [MY-010910] [Server] /usr/sbin/mysqld: Shutdown complete (mysqld 8.4.8-8.1)  Percona XtraDB Cluster (GPL), Release rel8, Revision cacfed1, WSREP version 26.1.4.3.
+2026-08-22T05:44:57.378316Z 0 [System] [MY-015016] [Server] MySQL Server - end.
+2026-08-22T05:45:21.596964Z 0 [System] [MY-015015] [Server] MySQL Server - start.
+2026-08-22T05:45:21.823766Z 0 [Warning] [MY-011070] [Server] 'binlog_format' is deprecated and will be removed in a future release.
+2026-08-22T05:45:21.823779Z 0 [Warning] [MY-011068] [Server] The syntax 'wsrep_slave_threads' is deprecated and will be removed in a future release. Please use wsrep_applier_threads instead.
+2026-08-22T05:45:21.823789Z 0 [Warning] [MY-011068] [Server] The syntax 'wsrep_slave_threads' is deprecated and will be removed in a future release. Please use wsrep_applier_threads instead.
+2026-08-22T05:45:21.825634Z 0 [Warning] [MY-010097] [Server] Insecure configuration for --secure-log-path: Current value does not restrict location of generated files. Consider setting it to a valid, non-empty path.
+2026-08-22T05:45:21.826070Z 0 [System] [MY-010116] [Server] /usr/sbin/mysqld (mysqld 8.4.8-8.1) starting as process 1
+2026-08-22T05:45:21.831887Z 0 [Warning] [MY-010068] [Server] CA certificate /etc/mysql/ssl-internal/ca.crt is self signed.
+2026-08-22T05:45:21.831951Z 0 [System] [MY-013602] [Server] Channel mysql_main configured to support TLS. Encrypted connections are now supported for this channel.
+2026-08-22T05:45:21.831959Z 0 [Note] [MY-000000] [WSREP] New joining cluster node configured to use specified SSL artifacts
+2026-08-22T05:45:21.831988Z 0 [Note] [MY-000000] [Galera] Loading provider /usr/lib64/galera4/libgalera_smm.so initial position: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:7971
+2026-08-22T05:45:21.832003Z 0 [Note] [MY-000000] [Galera] wsrep_load(): loading provider library '/usr/lib64/galera4/libgalera_smm.so'
+2026-08-22T05:45:21.832563Z 0 [Note] [MY-000000] [Galera] wsrep_load(): Galera 4.24(c71acc5) by Codership Oy <info@codership.com> (modified by Percona <https://percona.com/>) loaded successfully.
+2026-08-22T05:45:21.832593Z 0 [Note] [MY-000000] [Galera] Resolved symbol 'wsrep_node_isolation_mode_set_v1'
+2026-08-22T05:45:21.832599Z 0 [Note] [MY-000000] [Galera] Resolved symbol 'wsrep_certify_v1'
+2026-08-22T05:45:21.832603Z 0 [Note] [MY-000000] [Galera] Initializing config service v2
+2026-08-22T05:45:21.832807Z 0 [Note] [MY-000000] [Galera] Deinitializing config service v2
+2026-08-22T05:45:21.832834Z 0 [Note] [MY-000000] [Galera] CRC-32C: using 64-bit x86 acceleration.
+2026-08-22T05:45:21.832943Z 0 [Note] [MY-000000] [Galera] not using SSL compression
+2026-08-22T05:45:21.833363Z 0 [Note] [MY-000000] [Galera] Found saved state: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:7971, safe_to_bootstrap: 0
+2026-08-22T05:45:21.836939Z 0 [Note] [MY-000000] [Galera] GCache DEBUG: opened preamble:
+Version: 2
+UUID: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54
+Seqno: 5574 - 7971
+Offset: 40332240
+Synced: 1
+EncVersion: 1
+Encrypted: 0
+MasterKeyConst UUID: 7c7428ca-9de9-11f1-9186-37f07c4de0f2
+MasterKey UUID: 00000000-0000-0000-0000-000000000000
+MasterKey ID: 0
+2026-08-22T05:45:21.836972Z 0 [Note] [MY-000000] [Galera] Recovering GCache ring buffer: version: 2, UUID: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54, offset: 40332240
+2026-08-22T05:45:21.837006Z 0 [Note] [MY-000000] [Galera] GCache::RingBuffer initial scan... 0.0% (0/1073741848 bytes) complete.
+2026-08-22T05:45:21.840016Z 0 [Note] [MY-000000] [Galera] GCache::RingBuffer initial scan... 100.0% (1073741848/1073741848 bytes) complete.
+2026-08-22T05:45:21.840090Z 0 [Note] [MY-000000] [Galera] Recovering GCache ring buffer: found gapless sequence 5574-7971
+2026-08-22T05:45:21.840134Z 0 [Note] [MY-000000] [Galera] GCache::RingBuffer unused buffers scan... 0.0% (0/134104800 bytes) complete.
+2026-08-22T05:45:21.840257Z 0 [Note] [MY-000000] [Galera] GCache::RingBuffer unused buffers scan... 100.0% (134104800/134104800 bytes) complete.
+2026-08-22T05:45:21.840281Z 0 [Note] [MY-000000] [Galera] Recovering GCache ring buffer: found 2/2400 locked buffers
+2026-08-22T05:45:21.840286Z 0 [Note] [MY-000000] [Galera] Recovering GCache ring buffer: free space: 939637424/1073741824
+2026-08-22T05:45:21.843057Z 0 [Note] [MY-000000] [Galera] Passing config to GCS: allocator.disk_pages_encryption = no; allocator.encryption_cache_page_size = 32K; allocator.encryption_cache_size = 16777216; base_dir = /var/lib/mysql/; base_host = 10.42.0.22; base_port = 4567; cert.log_conflicts = no; cert.optimistic_pa = no; debug = no; evs.auto_evict = 0; evs.causal_keepalive_period = PT1S; evs.debug_log_mask = 0x1; evs.delay_margin = PT1S; evs.delayed_keep_period = PT30S; evs.inactive_check_period = PT0.5S; evs.inactive_timeout = PT30S; evs.info_log_mask = 0; evs.join_retrans_period = PT1S; evs.keepalive_period = PT1S; evs.max_install_timeouts = 3; evs.send_window = 10; evs.stats_report_period = PT1M; evs.suspect_timeout = PT10S; evs.use_aggregate = true; evs.user_send_window = 4; evs.version = 1; evs.view_forget_timeout = PT24H; gcache.dir = /var/lib/mysql/; gcache.encryption = no; gcache.encryption_cache_page_size = 32K; gcache.encryption_cache_size = 16777216; gcache.freeze_purge_at_seqno = -1; gcache.keep_pages_count = 0; gcache.keep_pages_size = 0; gcache.mem_size = 0; gcache.name = galera.cache; gcache.page_size = 128M; gcache.recover = yes; gcache.size = 1G; gcomm.thread_prio = ; gcs.check_appl_proto = 1; gcs.fc_auto_evict_threshold = 0.75; gcs.fc_auto_evict_window = 0; gcs.fc_debug = 1; gcs.fc_factor = 1.0; gcs.fc_limit = 16; gcs.fc_master_slave = no; gcs.fc_single_primary = no; gcs.max_packet_size = 64500; gcs.max_throttle = 0.25; gcs.recv_q_hard_limit = 9223372036854775807; gcs.recv_q_soft_limit = 0.25; gcs.sync_donor = no; gmcast.mcast_ttl = 1; gmcast.peer_timeout = PT3S; gmcast.segment = 0; gmcast.time_wait = PT5S; gmcast.version = 0; pc.announce_timeout = PT3S; pc.checksum = false; pc.ignore_quorum = false; pc.ignore_sb = false; pc.linger = PT20S; pc.npvo = false; pc.recovery = true; pc.version = 0; pc.wait_prim = true; pc.wait_prim_timeout = PT30S; pc.wait_restored_prim_timeout = PT0S; pc.weight = 1; protonet.backend = asio; protonet.version = 0; repl.causal_read_timeout = PT30S; repl.commit_order = 3; repl.key_format = FLAT8; repl.max_ws_size = 2147483647; repl.proto_max = 11; socket.checksum = 2; socket.recv_buf_size = auto; socket.send_buf_size = auto; socket.ssl = YES; socket.ssl_ca = /etc/mysql/ssl-internal/ca.crt; socket.ssl_cert = /etc/mysql/ssl-internal/tls.crt; socket.ssl_cipher = ; socket.ssl_key = /etc/mysql/ssl-internal/tls.key; socket.ssl_reload = 1; 
+2026-08-22T05:45:21.854143Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:45:21.854245Z 0 [Note] [MY-000000] [Galera] ####### Assign initial position for certification: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:7971, protocol version: -1
+2026-08-22T05:45:21.854328Z 0 [Note] [MY-000000] [WSREP] Starting replication
+2026-08-22T05:45:21.854338Z 0 [Note] [MY-000000] [Galera] Connecting with bootstrap option: 0
+2026-08-22T05:45:21.854343Z 0 [Note] [MY-000000] [Galera] Setting GCS initial position to 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:7971
+2026-08-22T05:45:21.854374Z 0 [Note] [MY-000000] [Galera] protonet asio version 0
+2026-08-22T05:45:21.854814Z 0 [Note] [MY-000000] [Galera] Using CRC-32C for message checksums.
+2026-08-22T05:45:21.854854Z 0 [Note] [MY-000000] [Galera] backend: asio
+2026-08-22T05:45:21.854923Z 0 [Note] [MY-000000] [Galera] gcomm thread scheduling priority set to other:0 
+2026-08-22T05:45:21.855027Z 0 [Note] [MY-000000] [Galera] Fail to access the file (/var/lib/mysql//gvwstate.dat) error (No such file or directory). It is possible if node is booting for first time or re-booting after a graceful shutdown
+2026-08-22T05:45:21.855071Z 0 [Note] [MY-000000] [Galera] Restoring primary-component from disk failed. Either node is booting for first time or re-booting after a graceful shutdown
+2026-08-22T05:45:21.855147Z 0 [Note] [MY-000000] [Galera] GMCast version 0
+2026-08-22T05:45:21.855806Z 0 [Note] [MY-000000] [Galera] (aa33a863-8568, 'ssl://0.0.0.0:4567') listening at ssl://0.0.0.0:4567
+2026-08-22T05:45:21.855835Z 0 [Note] [MY-000000] [Galera] (aa33a863-8568, 'ssl://0.0.0.0:4567') multicast: , ttl: 1
+2026-08-22T05:45:21.855960Z 0 [Note] [MY-000000] [Galera] EVS version 1
+2026-08-22T05:45:21.856009Z 0 [Note] [MY-000000] [Galera] gcomm: connecting to group 'cluster1-pxc', peer 'cluster1-pxc-0.cluster1-pxc:,cluster1-pxc-2.cluster1-pxc:'
+2026-08-22T05:45:21.859790Z 0 [Note] [MY-000000] [Galera] (aa33a863-8568, 'ssl://0.0.0.0:4567') connection established to 8512edba-b7d2 ssl://10.42.0.21:4567
+2026-08-22T05:45:21.860586Z 0 [Note] [MY-000000] [Galera] (aa33a863-8568, 'ssl://0.0.0.0:4567') connection established to 5c53017e-a513 ssl://10.42.0.9:4567
+2026-08-22T05:45:22.356950Z 0 [Note] [MY-000000] [Galera] EVS version upgrade 0 -> 1
+2026-08-22T05:45:22.357003Z 0 [Note] [MY-000000] [Galera] declaring 5c53017e-a513 at ssl://10.42.0.9:4567 stable
+2026-08-22T05:45:22.357010Z 0 [Note] [MY-000000] [Galera] declaring 8512edba-b7d2 at ssl://10.42.0.21:4567 stable
+2026-08-22T05:45:22.357018Z 0 [Note] [MY-000000] [Galera] PC protocol upgrade 0 -> 1
+2026-08-22T05:45:22.357501Z 0 [Note] [MY-000000] [Galera] Node 5c53017e-a513 state primary
+2026-08-22T05:45:22.357697Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view (view_id(PRIM,5c53017e-a513,13)
+memb {
+	5c53017e-a513,0
+	8512edba-b7d2,0
+	aa33a863-8568,0
+	}
+joined {
+	}
+left {
+	}
+partitioned {
+	}
+)
+2026-08-22T05:45:22.357727Z 0 [Note] [MY-000000] [Galera] Save the discovered primary-component to disk
+2026-08-22T05:45:22.856379Z 0 [Note] [MY-000000] [Galera] gcomm: connected
+2026-08-22T05:45:22.856539Z 0 [Note] [MY-000000] [Galera] Changing maximum packet size to 64500, resulting msg size: 32636
+2026-08-22T05:45:22.856729Z 0 [Note] [MY-000000] [Galera] Shifting CLOSED -> OPEN (TO: 0)
+2026-08-22T05:45:22.856768Z 0 [Note] [MY-000000] [Galera] Opened channel 'cluster1-pxc'
+2026-08-22T05:45:22.856894Z 0 [Note] [MY-000000] [Galera] New COMPONENT: primary = yes, bootstrap = no, my_idx = 2, memb_num = 3
+2026-08-22T05:45:22.856934Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: Waiting for state UUID.
+2026-08-22T05:45:22.856998Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: sent state msg: aa810287-9dec-11f1-b112-6725c499829b
+2026-08-22T05:45:22.857064Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: aa810287-9dec-11f1-b112-6725c499829b from 0 (cluster1-pxc-0)
+2026-08-22T05:45:22.857083Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: aa810287-9dec-11f1-b112-6725c499829b from 1 (cluster1-pxc-2)
+2026-08-22T05:45:22.857152Z 1 [Note] [MY-000000] [WSREP] Starting rollbacker thread 1
+2026-08-22T05:45:22.857219Z 2 [Note] [MY-000000] [WSREP] Starting applier thread 2
+2026-08-22T05:45:22.857477Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: aa810287-9dec-11f1-b112-6725c499829b from 2 (cluster1-pxc-1)
+2026-08-22T05:45:22.857509Z 0 [Note] [MY-000000] [Galera] Quorum results:
+	version    = 6,
+	component  = PRIMARY,
+	conf_id    = 12,
+	members    = 2/3 (primary/total),
+	act_id     = 8203,
+	last_appl. = 8196,
+	protocols  = 5/11/4 (gcs/repl/appl),
+	vote policy= 0,
+	group UUID = 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54
+2026-08-22T05:45:22.857531Z 0 [Note] [MY-000000] [Galera] Flow-control interval: [28, 28]
+2026-08-22T05:45:22.857534Z 0 [Note] [MY-000000] [Galera] Shifting OPEN -> PRIMARY (TO: 8204)
+2026-08-22T05:45:22.857600Z 2 [Note] [MY-000000] [Galera] ####### processing CC 8204, local, ordered
+2026-08-22T05:45:22.857621Z 2 [Note] [MY-000000] [Galera] Maybe drain monitors from 7971 upto current CC event 8204 upto:7971
+2026-08-22T05:45:22.857628Z 2 [Note] [MY-000000] [Galera] Drain monitors from 7971 up to 7971
+2026-08-22T05:45:22.857634Z 2 [Note] [MY-000000] [Galera] Process first view: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54 my uuid: aa33a863-9dec-11f1-8568-c7929fccfb8d
+2026-08-22T05:45:22.857654Z 2 [Note] [MY-000000] [Galera] Server cluster1-pxc-1 connected to cluster at position 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:8204 with ID aa33a863-9dec-11f1-8568-c7929fccfb8d
+2026-08-22T05:45:22.857659Z 2 [Note] [MY-000000] [WSREP] Server status change disconnected -> connected
+2026-08-22T05:45:22.862547Z 2 [Note] [MY-000000] [Galera] ####### My UUID: aa33a863-9dec-11f1-8568-c7929fccfb8d
+2026-08-22T05:45:22.862592Z 2 [Note] [MY-000000] [Galera] Cert index reset to 00000000-0000-0000-0000-000000000000:-1 (proto: 11), state transfer needed: yes
+2026-08-22T05:45:22.862639Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:45:22.862693Z 2 [Note] [MY-000000] [Galera] ####### Assign initial position for certification: 00000000-0000-0000-0000-000000000000:-1, protocol version: -1
+2026-08-22T05:45:22.862712Z 2 [Note] [MY-000000] [Galera] State transfer required: 
+	Group state: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:8204
+	Local state: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:7971
+2026-08-22T05:45:22.862717Z 2 [Note] [MY-000000] [WSREP] Server status change connected -> joiner
+2026-08-22T05:45:22.876307Z 0 [Note] [MY-000000] [WSREP] Initiating SST/IST transfer on JOINER side (wsrep_sst_xtrabackup-v2 --role 'joiner' --address '10.42.0.22' --datadir '/var/lib/mysql/' --basedir '/usr/' --plugindir '/usr/lib64/mysql/plugin/' --defaults-file '/etc/my.cnf' --defaults-group-suffix '' --parent '1' --mysqld-version '8.4.8-8'  --binlog 'binlog' )
+2026-08-22T05:45:23.364859Z 2 [Note] [MY-000000] [WSREP] Prepared SST request: xtrabackup-v2|10.42.0.22:4444/xtrabackup_sst//1
+2026-08-22T05:45:23.364915Z 2 [Note] [MY-000000] [Galera] Check if state gap can be serviced using IST
+2026-08-22T05:45:23.364925Z 2 [Note] [MY-000000] [Galera] ####### IST uuid:4c8d9454-9de9-11f1-a96f-8ee14c9e9d54 f: 7972, l: 8204, STRv: 3
+2026-08-22T05:45:23.364979Z 2 [Note] [MY-000000] [Galera] IST receiver addr using ssl://10.42.0.22:4568
+2026-08-22T05:45:23.364997Z 2 [Note] [MY-000000] [Galera] IST receiver using ssl
+2026-08-22T05:45:23.365101Z 2 [Note] [MY-000000] [Galera] Prepared IST receiver for 7972-8204, listening at: ssl://10.42.0.22:4568
+2026-08-22T05:45:23.367425Z 0 [Note] [MY-000000] [Galera] Member 2.0 (cluster1-pxc-1) requested state transfer from 'cluster1-pxc-1,'. Selected 1.0 (cluster1-pxc-2)(SYNCED) as donor.
+2026-08-22T05:45:23.367460Z 0 [Note] [MY-000000] [Galera] Shifting PRIMARY -> JOINER (TO: 8209)
+2026-08-22T05:45:23.367504Z 2 [Note] [MY-000000] [Galera] Requesting state transfer: success, donor: 1
+2026-08-22T05:45:23.581290Z 0 [Note] [MY-000000] [Galera] FC: queue size: 335960b ( 0.0% of soft limit)
+2026-08-22T05:45:23.598404Z 0 [Note] [MY-000000] [Galera] FC: queue size: 336824b ( 0.0% of soft limit)
+2026-08-22T05:45:23.663711Z 0 [Note] [MY-000000] [WSREP-SST]    joiner: => Rate:[ 464 B/s] Avg:[ 464 B/s] Elapsed:0:00:00  Bytes:  243 B 
+2026-08-22T05:45:23.819195Z 0 [Note] [MY-000000] [Galera] FC: queue size: 447944b ( 0.0% of soft limit)
+2026-08-22T05:45:23.836775Z 0 [Note] [MY-000000] [Galera] FC: queue size: 448808b ( 0.0% of soft limit)
+2026-08-22T05:45:24.059485Z 0 [Note] [MY-000000] [Galera] FC: queue size: 559928b ( 0.0% of soft limit)
+2026-08-22T05:45:24.079294Z 0 [Note] [MY-000000] [Galera] FC: queue size: 560792b ( 0.0% of soft limit)
+2026-08-22T05:45:24.156735Z 0 [Note] [MY-000000] [WSREP-SST] xtrabackup_ist received from donor: Running IST
+2026-08-22T05:45:24.156785Z 0 [Note] [MY-000000] [WSREP-SST] Running post-processing...........
+2026-08-22T05:45:24.159248Z 0 [Note] [MY-000000] [WSREP-SST] Skipping mysql_upgrade (ist)
+2026-08-22T05:45:24.159297Z 0 [Note] [MY-000000] [WSREP-SST] ...........post-processing done
+2026-08-22T05:45:24.160938Z 0 [Note] [MY-000000] [WSREP-SST] Galera co-ords from recovery: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:7971
+2026-08-22T05:45:24.167046Z 3 [Note] [MY-000000] [Galera] Processing SST received
+2026-08-22T05:45:24.167093Z 3 [Note] [MY-000000] [WSREP] Server status change joiner -> initializing
+2026-08-22T05:45:24.174793Z 4 [System] [MY-013576] [InnoDB] InnoDB initialization has started.
+2026-08-22T05:45:24.300182Z 0 [Note] [MY-000000] [Galera] FC: queue size: 671912b ( 0.0% of soft limit)
+2026-08-22T05:45:24.317564Z 0 [Note] [MY-000000] [Galera] FC: queue size: 672776b ( 0.0% of soft limit)
+2026-08-22T05:45:24.483805Z 4 [System] [MY-013577] [InnoDB] InnoDB initialization has ended.
+2026-08-22T05:45:24.539349Z 0 [Note] [MY-000000] [Galera] FC: queue size: 783896b ( 0.0% of soft limit)
+2026-08-22T05:45:24.545249Z 0 [Note] [MY-000000] [Galera] FC: queue size: 783904b ( 0.0% of soft limit)
+2026-08-22T05:45:24.557117Z 0 [Note] [MY-000000] [Galera] FC: queue size: 784768b ( 0.0% of soft limit)
+2026-08-22T05:45:24.572690Z 4 [Note] [MY-000000] [WSREP] wsrep_init_schema_and_SR (nil)
+2026-08-22T05:45:24.590149Z 4 [System] [MY-000000] [WSREP] PXC upgrade completed successfully
+2026-08-22T05:45:24.671005Z 0 [Note] [MY-000000] [Galera] 1.0 (cluster1-pxc-2): State transfer to 2.0 (cluster1-pxc-1) complete.
+2026-08-22T05:45:24.671407Z 0 [Note] [MY-000000] [Galera] Member 1.0 (cluster1-pxc-2) synced with group.
+2026-08-22T05:45:24.781615Z 0 [Note] [MY-000000] [Galera] FC: queue size: 895888b ( 0.0% of soft limit)
+2026-08-22T05:45:24.800984Z 0 [Note] [MY-000000] [Galera] FC: queue size: 896752b ( 0.0% of soft limit)
+2026-08-22T05:45:24.883059Z 0 [Warning] [MY-013595] [Server] Failed to initialize TLS for channel: mysql_admin. See below for the description of exact issue.
+2026-08-22T05:45:24.883116Z 0 [Warning] [MY-010069] [Server] Failed to set up SSL because of the following SSL library error: SSL context is not usable without certificate and private key
+2026-08-22T05:45:24.883128Z 0 [System] [MY-013603] [Server] No TLS configuration was given for channel mysql_admin; re-using TLS configuration of channel mysql_main.
+2026-08-22T05:45:24.886540Z 0 [Warning] [MY-011810] [Server] Insecure configuration for --pid-file: Location '/var/lib/mysql' in the path is accessible to all OS users. Consider choosing a different directory.
+2026-08-22T05:45:24.908396Z 0 [Note] [MY-000000] [WSREP] Initialized wsrep sidno 2
+2026-08-22T05:45:24.908449Z 0 [Note] [MY-000000] [Galera] Server initialized
+2026-08-22T05:45:24.908456Z 0 [Note] [MY-000000] [WSREP] Server status change initializing -> initialized
+2026-08-22T05:45:24.913404Z 3 [Note] [MY-000000] [Galera] Recovered position from storage: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:7971
+2026-08-22T05:45:24.913660Z 13 [Note] [MY-000000] [WSREP] Starting applier thread 13
+2026-08-22T05:45:24.913743Z 16 [Note] [MY-000000] [WSREP] Starting applier thread 16
+2026-08-22T05:45:24.913752Z 15 [Note] [MY-000000] [WSREP] Starting applier thread 15
+2026-08-22T05:45:24.913784Z 14 [Note] [MY-000000] [WSREP] Starting applier thread 14
+2026-08-22T05:45:24.913857Z 18 [Note] [MY-000000] [WSREP] Starting applier thread 18
+2026-08-22T05:45:24.913859Z 17 [Note] [MY-000000] [WSREP] Starting applier thread 17
+2026-08-22T05:45:24.913866Z 19 [Note] [MY-000000] [WSREP] Starting applier thread 19
+2026-08-22T05:45:24.914596Z 0 [System] [MY-011323] [Server] X Plugin ready for connections. Bind-address: '::' port: 33060, socket: /var/lib/mysql/mysqlx.sock
+2026-08-22T05:45:24.914690Z 0 [System] [MY-010931] [Server] /usr/sbin/mysqld: ready for connections. Version: '8.4.8-8.1'  socket: '/tmp/mysql.sock'  port: 3306  Percona XtraDB Cluster (GPL), Release rel8, Revision cacfed1, WSREP version 26.1.4.3.
+2026-08-22T05:45:24.914707Z 0 [System] [MY-013292] [Server] Admin interface ready for connections, address: '10.42.0.22'  port: 33062
+2026-08-22T05:45:24.915316Z 3 [Note] [MY-000000] [Galera] Recovered view from SST:
+  id: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:7691
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: -1
+  members(3):
+	0: 5c53017e-9de9-11f1-a513-92a551d71ddd, cluster1-pxc-0
+	1: 7c77edba-9de9-11f1-9d71-83373d0e788e, cluster1-pxc-1
+	2: 8512edba-9dec-11f1-b7d2-2bcfe597b8e1, cluster1-pxc-2
+
+2026-08-22T05:45:24.920107Z 21 [Note] [MY-000000] [WSREP] Recovered cluster id 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54
+2026-08-22T05:45:24.921555Z 3 [Note] [MY-000000] [Galera] SST received: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:7971
+2026-08-22T05:45:24.921600Z 3 [System] [MY-000000] [WSREP] SST completed
+2026-08-22T05:45:24.921678Z 2 [Note] [MY-000000] [Galera]  str_proto_ver_: 3 sst_seqno_: 7971 cc_seqno: 8204 req->ist_len(): 69
+2026-08-22T05:45:24.921703Z 2 [Note] [MY-000000] [Galera] Installed new state from SST: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:7971
+2026-08-22T05:45:24.923810Z 2 [Note] [MY-000000] [Galera] Receiving IST: 233 writesets, seqnos 7972-8204
+2026-08-22T05:45:24.923878Z 0 [Note] [MY-000000] [Galera] ####### IST applying starts with 7972
+2026-08-22T05:45:24.924050Z 0 [Note] [MY-000000] [Galera] ####### IST current seqno initialized to 7972
+2026-08-22T05:45:24.924094Z 0 [Note] [MY-000000] [Galera] Receiving IST... 0.0% (0/233 events) complete.
+2026-08-22T05:45:24.924103Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 7972, must_apply: 1, preload: false
+2026-08-22T05:45:24.924115Z 0 [Note] [MY-000000] [Galera] First IST (CC) event for rebuilding cert index
+2026-08-22T05:45:24.924118Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-08-22T05:45:24.924168Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:45:24.924207Z 0 [Note] [MY-000000] [Galera] ####### Assign initial position for certification: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:7971, protocol version: 6
+2026-08-22T05:45:24.924224Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-08-22T05:45:24.924229Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 7971 -> 7972
+2026-08-22T05:45:24.924257Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:45:24.924297Z 0 [Note] [MY-000000] [Galera] Recording CC from ist: 7972
+2026-08-22T05:45:24.924306Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from ist: 7972
+2026-08-22T05:45:24.924309Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from ist: 5590
+2026-08-22T05:45:24.924357Z 13 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:7972
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: -1
+  members(2):
+	0: 5c53017e-9de9-11f1-a513-92a551d71ddd, cluster1-pxc-0
+	1: 8512edba-9dec-11f1-b7d2-2bcfe597b8e1, cluster1-pxc-2
+=================================================
+2026-08-22T05:45:24.939082Z 0 [Note] [MY-000000] [Galera] IST preload starting at 8197
+2026-08-22T05:45:24.939625Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 8204, must_apply: 1, preload: true
+2026-08-22T05:45:25.028668Z 0 [Note] [MY-000000] [Galera] FC: queue size: 1007872b ( 0.0% of soft limit)
+2026-08-22T05:45:25.050196Z 0 [Note] [MY-000000] [Galera] FC: queue size: 1008736b ( 0.0% of soft limit)
+2026-08-22T05:45:25.270398Z 0 [Note] [MY-000000] [Galera] FC: queue size: 1119856b ( 0.0% of soft limit)
+2026-08-22T05:45:25.290163Z 0 [Note] [MY-000000] [Galera] FC: queue size: 1120720b ( 0.0% of soft limit)
+2026-08-22T05:45:25.356873Z 0 [Note] [MY-000000] [Galera] (aa33a863-8568, 'ssl://0.0.0.0:4567') turning message relay requesting off
+2026-08-22T05:45:25.515623Z 0 [Note] [MY-000000] [Galera] FC: queue size: 1231840b ( 0.0% of soft limit)
+2026-08-22T05:45:25.534075Z 0 [Note] [MY-000000] [Galera] FC: queue size: 1232704b ( 0.0% of soft limit)
+2026-08-22T05:45:25.756341Z 0 [Note] [MY-000000] [Galera] FC: queue size: 1343824b ( 0.0% of soft limit)
+2026-08-22T05:45:25.765750Z 0 [Note] [MY-000000] [Galera] FC: queue size: 1343832b ( 0.0% of soft limit)
+2026-08-22T05:45:25.774280Z 0 [Note] [MY-000000] [Galera] FC: queue size: 1344696b ( 0.0% of soft limit)
+2026-08-22T05:45:25.855854Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-08-22T05:45:25.855896Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 8203 -> 8204
+2026-08-22T05:45:25.855928Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:45:25.855978Z 0 [Note] [MY-000000] [Galera] Recording CC from ist: 8204
+2026-08-22T05:45:25.855992Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from ist: 8197
+2026-08-22T05:45:25.855996Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from ist: 5830
+2026-08-22T05:45:25.856037Z 13 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:8204
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: 2
+  members(3):
+	0: 5c53017e-9de9-11f1-a513-92a551d71ddd, cluster1-pxc-0
+	1: 8512edba-9dec-11f1-b7d2-2bcfe597b8e1, cluster1-pxc-2
+	2: aa33a863-9dec-11f1-8568-c7929fccfb8d, cluster1-pxc-1
+=================================================
+2026-08-22T05:45:25.856058Z 13 [Note] [MY-000000] [WSREP] Server status change initialized -> joined
+2026-08-22T05:45:25.856176Z 0 [Note] [MY-000000] [Galera] Receiving IST... 100.0% (233/233 events) complete.
+2026-08-22T05:45:25.856557Z 2 [Note] [MY-000000] [Galera] Draining apply monitors after IST up to 8204
+2026-08-22T05:45:25.874342Z 2 [Note] [MY-000000] [Galera] IST received: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:8204
+2026-08-22T05:45:25.876346Z 2 [Note] [MY-000000] [Galera] Recording CC from sst: 8204
+2026-08-22T05:45:25.876381Z 2 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from sst: 8197
+2026-08-22T05:45:25.876386Z 2 [Note] [MY-000000] [Galera] Min available from gcache for CC from sst: 5830
+2026-08-22T05:45:25.876897Z 0 [Note] [MY-000000] [Galera] 2.0 (cluster1-pxc-1): State transfer from 1.0 (cluster1-pxc-2) complete.
+2026-08-22T05:45:25.876928Z 0 [Note] [MY-000000] [Galera] SST leaving flow control
+2026-08-22T05:45:25.876938Z 0 [Note] [MY-000000] [Galera] Shifting JOINER -> JOINED (TO: 8229)
+2026-08-22T05:45:25.876976Z 0 [Note] [MY-000000] [Galera] Processing event queue:... 0.0% (0/21 events) complete.
+2026-08-22T05:45:25.877367Z 0 [Note] [MY-000000] [Galera] Member 2.0 (cluster1-pxc-1) synced with group.
+2026-08-22T05:45:25.877411Z 0 [Note] [MY-000000] [Galera] Processing event queue:... 100.0% (22/22 events) complete.
+2026-08-22T05:45:25.877417Z 0 [Note] [MY-000000] [Galera] Shifting JOINED -> SYNCED (TO: 8229)
+2026-08-22T05:45:25.989919Z 18 [Note] [MY-000000] [Galera] Server cluster1-pxc-1 synced with group
+2026-08-22T05:45:25.989962Z 18 [Note] [MY-000000] [WSREP] Server status change joined -> synced
+2026-08-22T05:45:25.989968Z 18 [Note] [MY-000000] [WSREP] Synchronized with group, ready for connections
+2026-08-22T05:45:54.525457Z 0 [Note] [MY-000000] [Galera] declaring 8512edba-b7d2 at ssl://10.42.0.21:4567 stable
+2026-08-22T05:45:54.525532Z 0 [Note] [MY-000000] [Galera] forgetting 5c53017e-a513 (ssl://10.42.0.9:4567)
+2026-08-22T05:45:54.525635Z 0 [Note] [MY-000000] [Galera] Node 8512edba-b7d2 state primary
+2026-08-22T05:45:54.528307Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view (view_id(PRIM,8512edba-b7d2,14)
+memb {
+	8512edba-b7d2,0
+	aa33a863-8568,0
+	}
+joined {
+	}
+left {
+	}
+partitioned {
+	5c53017e-a513,0
+	}
+)
+2026-08-22T05:45:54.528340Z 0 [Note] [MY-000000] [Galera] Save the discovered primary-component to disk
+2026-08-22T05:45:54.530580Z 0 [Note] [MY-000000] [Galera] forgetting 5c53017e-a513 (ssl://10.42.0.9:4567)
+2026-08-22T05:45:54.530595Z 0 [Note] [MY-000000] [Galera] New COMPONENT: primary = yes, bootstrap = no, my_idx = 1, memb_num = 2
+2026-08-22T05:45:54.530664Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: Waiting for state UUID.
+2026-08-22T05:45:54.530847Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: sent state msg: bdad2cd4-9dec-11f1-ae66-22787bf5b0e0
+2026-08-22T05:45:54.531115Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: bdad2cd4-9dec-11f1-ae66-22787bf5b0e0 from 0 (cluster1-pxc-2)
+2026-08-22T05:45:54.531167Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: bdad2cd4-9dec-11f1-ae66-22787bf5b0e0 from 1 (cluster1-pxc-1)
+2026-08-22T05:45:54.531182Z 0 [Note] [MY-000000] [Galera] Quorum results:
+	version    = 6,
+	component  = PRIMARY,
+	conf_id    = 13,
+	members    = 2/2 (primary/total),
+	act_id     = 8467,
+	last_appl. = 8457,
+	protocols  = 5/11/4 (gcs/repl/appl),
+	vote policy= 0,
+	group UUID = 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54
+2026-08-22T05:45:54.531210Z 0 [Note] [MY-000000] [Galera] Flow-control interval: [23, 23]
+2026-08-22T05:45:54.531372Z 16 [Note] [MY-000000] [Galera] ####### processing CC 8468, local, ordered
+2026-08-22T05:45:54.531403Z 16 [Note] [MY-000000] [Galera] Maybe drain monitors from 8467 upto current CC event 8468 upto:8467
+2026-08-22T05:45:54.531414Z 16 [Note] [MY-000000] [Galera] Drain monitors from 8467 up to 8467
+2026-08-22T05:45:54.531419Z 16 [Note] [MY-000000] [Galera] ####### My UUID: aa33a863-9dec-11f1-8568-c7929fccfb8d
+2026-08-22T05:45:54.531422Z 16 [Note] [MY-000000] [Galera] Skipping cert index reset
+2026-08-22T05:45:54.531425Z 16 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-08-22T05:45:54.531429Z 16 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 8467 -> 8468
+2026-08-22T05:45:54.531465Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:45:54.534493Z 16 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:8468
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: 1
+  members(2):
+	0: 8512edba-9dec-11f1-b7d2-2bcfe597b8e1, cluster1-pxc-2
+	1: aa33a863-9dec-11f1-8568-c7929fccfb8d, cluster1-pxc-1
+=================================================
+2026-08-22T05:45:54.544669Z 16 [Note] [MY-000000] [Galera] Recording CC from group: 8468
+2026-08-22T05:45:54.544712Z 16 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from group: 8458
+2026-08-22T05:45:54.544724Z 16 [Note] [MY-000000] [Galera] Min available from gcache for CC from group: 6068
+2026-08-22T05:45:59.861251Z 0 [Note] [MY-000000] [Galera]  cleaning up 5c53017e-a513 (ssl://10.42.0.9:4567)
+2026-08-22T05:46:21.012651Z 0 [Note] [MY-000000] [Galera] (aa33a863-8568, 'ssl://0.0.0.0:4567') turning message relay requesting on, nonlive peers: ssl://10.42.0.23:4567 
+2026-08-22T05:46:21.013010Z 0 [Note] [MY-000000] [Galera] (aa33a863-8568, 'ssl://0.0.0.0:4567') connection established to cd758cd8-bf4a ssl://10.42.0.23:4567
+2026-08-22T05:46:21.509159Z 0 [Note] [MY-000000] [Galera] declaring 8512edba-b7d2 at ssl://10.42.0.21:4567 stable
+2026-08-22T05:46:21.509206Z 0 [Note] [MY-000000] [Galera] declaring cd758cd8-bf4a at ssl://10.42.0.23:4567 stable
+2026-08-22T05:46:21.509471Z 0 [Note] [MY-000000] [Galera] Node 8512edba-b7d2 state primary
+2026-08-22T05:46:21.509780Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view (view_id(PRIM,8512edba-b7d2,15)
+memb {
+	8512edba-b7d2,0
+	aa33a863-8568,0
+	cd758cd8-bf4a,0
+	}
+joined {
+	}
+left {
+	}
+partitioned {
+	}
+)
+2026-08-22T05:46:21.509811Z 0 [Note] [MY-000000] [Galera] Save the discovered primary-component to disk
+2026-08-22T05:46:21.512594Z 0 [Note] [MY-000000] [Galera] New COMPONENT: primary = yes, bootstrap = no, my_idx = 1, memb_num = 3
+2026-08-22T05:46:21.512658Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: Waiting for state UUID.
+2026-08-22T05:46:21.512929Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: sent state msg: cdc2aa4b-9dec-11f1-a6ed-3acb0b563a62
+2026-08-22T05:46:21.513182Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: cdc2aa4b-9dec-11f1-a6ed-3acb0b563a62 from 0 (cluster1-pxc-2)
+2026-08-22T05:46:21.513214Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: cdc2aa4b-9dec-11f1-a6ed-3acb0b563a62 from 1 (cluster1-pxc-1)
+2026-08-22T05:46:22.009488Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: cdc2aa4b-9dec-11f1-a6ed-3acb0b563a62 from 2 (cluster1-pxc-0)
+2026-08-22T05:46:22.009542Z 0 [Note] [MY-000000] [Galera] Quorum results:
+	version    = 6,
+	component  = PRIMARY,
+	conf_id    = 14,
+	members    = 2/3 (primary/total),
+	act_id     = 8543,
+	last_appl. = 8538,
+	protocols  = 5/11/4 (gcs/repl/appl),
+	vote policy= 0,
+	group UUID = 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54
+2026-08-22T05:46:22.009566Z 0 [Note] [MY-000000] [Galera] Flow-control interval: [28, 28]
+2026-08-22T05:46:22.009991Z 17 [Note] [MY-000000] [Galera] ####### processing CC 8544, local, ordered
+2026-08-22T05:46:22.010196Z 17 [Note] [MY-000000] [Galera] Maybe drain monitors from 8543 upto current CC event 8544 upto:8543
+2026-08-22T05:46:22.010213Z 17 [Note] [MY-000000] [Galera] Drain monitors from 8543 up to 8543
+2026-08-22T05:46:22.010218Z 17 [Note] [MY-000000] [Galera] ####### My UUID: aa33a863-9dec-11f1-8568-c7929fccfb8d
+2026-08-22T05:46:22.010221Z 17 [Note] [MY-000000] [Galera] Skipping cert index reset
+2026-08-22T05:46:22.010227Z 17 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-08-22T05:46:22.010232Z 17 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 8543 -> 8544
+2026-08-22T05:46:22.010263Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-08-22T05:46:22.018177Z 17 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:8544
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: 1
+  members(3):
+	0: 8512edba-9dec-11f1-b7d2-2bcfe597b8e1, cluster1-pxc-2
+	1: aa33a863-9dec-11f1-8568-c7929fccfb8d, cluster1-pxc-1
+	2: cd758cd8-9dec-11f1-bf4a-d7643255575b, cluster1-pxc-0
+=================================================
+2026-08-22T05:46:22.027820Z 17 [Note] [MY-000000] [Galera] Recording CC from group: 8544
+2026-08-22T05:46:22.027860Z 17 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from group: 8539
+2026-08-22T05:46:22.027875Z 17 [Note] [MY-000000] [Galera] Min available from gcache for CC from group: 6144
+2026-08-22T05:46:22.536882Z 0 [Note] [MY-000000] [Galera] Member 2.0 (cluster1-pxc-0) requested state transfer from 'cluster1-pxc-1,'. Selected 1.0 (cluster1-pxc-1)(SYNCED) as donor.
+2026-08-22T05:46:22.536926Z 0 [Note] [MY-000000] [Galera] Shifting SYNCED -> DONOR/DESYNCED (TO: 8549)
+2026-08-22T05:46:22.536967Z 15 [Note] [MY-000000] [Galera] Detected STR version: 1, req_len: 131, req: STRv1
+2026-08-22T05:46:22.536992Z 15 [Note] [MY-000000] [Galera] IST request: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:8467-8544|ssl://10.42.0.23:4568
+2026-08-22T05:46:22.536998Z 15 [Note] [MY-000000] [Galera] IST seqno 8468 found and locked in gcache
+2026-08-22T05:46:22.537003Z 15 [Note] [MY-000000] [WSREP] Server status change synced -> donor
+2026-08-22T05:46:22.542241Z 0 [Note] [MY-000000] [WSREP] Initiating SST/IST transfer on DONOR side (wsrep_sst_xtrabackup-v2 --role 'donor' --address '10.42.0.23:4444/xtrabackup_sst//1' --socket '/tmp/mysql.sock' --datadir '/var/lib/mysql/' --basedir '/usr/' --plugindir '/usr/lib64/mysql/plugin/' --defaults-file '/etc/my.cnf' --defaults-group-suffix '' --mysqld-version '8.4.8-8'  --binlog 'binlog' --gtid '4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:8467'  --bypass)
+2026-08-22T05:46:22.546634Z 15 [Note] [MY-000000] [WSREP] DONOR thread signaled with 0
+2026-08-22T05:46:22.550063Z 0 [Note] [MY-000000] [Galera] async IST sender starting to serve ssl://10.42.0.23:4568 sending 8468-8544, preload starts from 8539
+2026-08-22T05:46:22.550564Z 0 [Note] [MY-000000] [Galera] IST sender 8468 -> 8544
+2026-08-22T05:46:22.825577Z 0 [Note] [MY-000000] [WSREP-SST] Using PXB option --lock-ddl=REDUCED for SST
+2026-08-22T05:46:22.850863Z 85 [Warning] [MY-013712] [Server] No suitable 'keyring_component_metadata_query' service implementation found to fulfill the request.
+2026-08-22T05:46:22.855418Z 0 [Note] [MY-000000] [WSREP-SST] Bypassing SST. Can work it through IST
+2026-08-22T05:46:23.865760Z 0 [Note] [MY-000000] [Galera] SST sent: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:8467
+2026-08-22T05:46:23.865815Z 0 [Note] [MY-000000] [WSREP] Server status change donor -> joined
+2026-08-22T05:46:23.871574Z 0 [Note] [MY-000000] [Galera] 1.0 (cluster1-pxc-1): State transfer to 2.0 (cluster1-pxc-0) complete.
+2026-08-22T05:46:23.871620Z 0 [Note] [MY-000000] [Galera] Shifting DONOR/DESYNCED -> JOINED (TO: 8559)
+2026-08-22T05:46:23.871656Z 0 [Note] [MY-000000] [Galera] Processing event queue:... 0.0% (0/0 events) complete.
+2026-08-22T05:46:23.871956Z 0 [Note] [MY-000000] [Galera] Member 1.0 (cluster1-pxc-1) synced with group.
+2026-08-22T05:46:23.871989Z 0 [Note] [MY-000000] [Galera] Processing event queue:... 100.0% (1/1 events) complete.
+2026-08-22T05:46:23.871995Z 0 [Note] [MY-000000] [Galera] Shifting JOINED -> SYNCED (TO: 8559)
+2026-08-22T05:46:23.872079Z 18 [Note] [MY-000000] [Galera] Server cluster1-pxc-1 synced with group
+2026-08-22T05:46:23.872106Z 18 [Note] [MY-000000] [WSREP] Server status change joined -> synced
+2026-08-22T05:46:23.872114Z 18 [Note] [MY-000000] [WSREP] Synchronized with group, ready for connections
+2026-08-22T05:46:24.003358Z 0 [Note] [MY-000000] [Galera] IST sender served all writesets. Unlocking GCache.
+2026-08-22T05:46:24.003410Z 0 [Note] [MY-000000] [Galera] IST sender sent EOF. Waiting for joiner to close the connection
+2026-08-22T05:46:24.029661Z 0 [Note] [MY-000000] [Galera] (aa33a863-8568, 'ssl://0.0.0.0:4567') turning message relay requesting off
+2026-08-22T05:46:24.310250Z 0 [Note] [MY-000000] [Galera] IST sender finished waiting for connection close
+2026-08-22T05:46:24.310434Z 0 [Note] [MY-000000] [Galera] async IST sender served
+2026-08-22T05:46:24.328260Z 0 [Note] [MY-000000] [Galera] 2.0 (cluster1-pxc-0): State transfer from 1.0 (cluster1-pxc-1) complete.
+2026-08-22T05:46:24.328742Z 0 [Note] [MY-000000] [Galera] Member 2.0 (cluster1-pxc-0) synced with group.

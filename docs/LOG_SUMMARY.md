@@ -27,6 +27,11 @@ matter most are the ones the server never sends to anybody.
 | **MongoDB** | the Packet Inspector's classifier, on the shared timeline |
 | **PostgreSQL** | full catalogue — standalone, streaming replication and Patroni |
 | **Valkey** | the Packet Inspector's classifier, on the shared timeline |
+| **Percona Operator for MySQL (PXC)** | full — the operator's own log, the PITR binlog collector's, and every member's, read together. See [the operator](#percona-operator-for-mysql-pxc-three-logs-and-the-outage-is-in-none-of-the-obvious-ones). |
+| **Percona Operator for MongoDB (PSMDB)** | full — the operator's log, every member's mongod log, and every member's `pbm-agent` sidecar. See [PSMDB](#percona-operator-for-mongodb-psmdb-the-backup-agents-are-three-logs-and-only-one-of-them-is-working). |
+| **Percona PG · Crunchy PGO · CloudNativePG** | full — each operator's own format, with the Patroni-based members read by the existing Patroni catalogue. See [the three PostgreSQL operators](#the-three-postgresql-operators-three-formats-and-only-one-of-them-mentions-the-failover). |
+| **Percona Operator for MySQL (Percona Server)** | full — and its members need no new rules: their logs are Group Replication's. See [the sixth operator](#the-sixth-operator-and-the-source-that-is-not-a-log). |
+| **Kubernetes Events** | the reason a container was killed, which is in no log at all. See [Events](#the-sixth-operator-and-the-source-that-is-not-a-log). |
 
 ---
 
@@ -46,6 +51,15 @@ The paths tried per engine are the same ones the Packet Inspector uses
 (`/var/log/mysqld.log`, `/var/log/mysql/error.log`, PostgreSQL's day-of-week files plus
 Patroni's own, MongoDB's, and for Valkey the file **or** the systemd journal, because
 dbcanvas sets no `logfile` and Valkey writes to stdout).
+
+A Kubernetes cluster is one hop further: the container this app can reach is the k3s node,
+and the logs are inside pods it schedules. So for a K3D frame running one of the two
+supported operators the collector runs `kubectl` on the node, and the picker offers every
+log the cluster has — **five** sources for a three-member PXC cluster (the operator, three
+members, the binlog collector) and **seven** for a three-member MongoDB replica set (the
+operator, three members, three backup agents), in one bundle. See
+[PXC](#percona-operator-for-mysql-pxc-three-logs-and-the-outage-is-in-none-of-the-obvious-ones)
+and [PSMDB](#percona-operator-for-mongodb-psmdb-the-backup-agents-are-three-logs-and-only-one-of-them-is-working).
 
 Bundles live in memory, like the Packet Inspector's captures, and do not survive an app
 restart. The raw text of every source is kept alongside the parse, so **Show this in the
@@ -200,8 +214,44 @@ see at a glance that two members stayed green while a third went red for fifty s
 | `DOWN` | bad | the server is not running |
 | `UNKNOWN` | grey | the log does not say |
 
-**Click** for a readout of every node at that instant. **Drag** to narrow the event list,
-the ticks and the filters below to a window.
+The two Kubernetes sources have lanes of their own, and neither claims to say anything
+about whether queries were being answered — the members' lanes do that:
+
+| State | Colour | Meaning |
+| --- | --- | --- |
+| `LEADER` | good | the operator holds the leader lease — this is the process actually reconciling |
+| `NOT-LEADER` | warning | the operator is up and holds no lease: it is watching, and changing nothing |
+| `COLLECTING` | good | binary logs are being uploaded; point-in-time recovery reaches the present |
+| `PITR-GAP` | bad | the collector cannot continue its sequence — recovery cannot cross this point |
+| `PITR-OFF` | bad | no collector is running: from here, only a full backup can be restored |
+| `CR-READY` | good | the MongoDB operator considers the cluster to match its spec |
+| `CR-INIT` | warning | it is changing the cluster — ordinary during a rollout, and a cluster that never leaves it is stuck |
+| `CR-ERROR` | bad | it could not bring the cluster to its spec |
+| `SLICING` | good | this backup agent holds the PITR lock and is streaming the oplog — the only member of its set that is |
+| `PBM-IDLE` | warning | the agent is up and another member won the nomination: normal, and its log will say almost nothing |
+| `PBM-LOST` | bad | the agent cannot reach the cluster, so it can neither slice the oplog nor record that it failed to |
+| `SWITCHOVER` | warning | CloudNativePG is moving the primary — no member is accepting writes until it finishes |
+| `MANAGING` | good | a CloudNativePG instance manager is up and looking after its member |
+
+**Click** for a readout of every node at that instant. **Drag** to narrow a window — the
+event list, the ticks and the filters below, *and the verdict above*.
+
+### The verdict narrows with it
+
+Dragging a window is asking "what does this stretch add up to", not "show me fewer rows",
+so the verdict answers for the window rather than for the whole bundle. Three kinds of
+conclusion come back and only two of them can be filtered by time:
+
+| | |
+| --- | --- |
+| a **span** (`restore ran for 24m`) | kept when it **overlaps** the window. Containment would be wrong: a four-minute restore is exactly what you still want to see when you drag a thirty-second window into the middle of it, which is the case people zoom in to investigate |
+| an **instant** (`a server stopped abnormally`) | kept when it falls inside |
+| **undated** (`what this cluster is configured with`, `point-in-time recovery is not running`, `these logs do not cover a common period`) | **never hidden.** These stay true of any window, and a page that silently dropped the most important line on it because the reader zoomed in would be worse than one that never narrowed at all |
+
+The undated ones move to an **About the whole bundle** group underneath, so the narrowed
+list reads as the answer to "what happened *here*" without the bundle-wide notes on top of
+it. The header carries the window and a **whole window** link back out, and the count says
+how many dated conclusions were hidden — never how many were dropped silently.
 
 ### Where the state track comes from when the log does not say
 
@@ -217,6 +267,23 @@ never logs a transition *into* `SYNCED`. Two answers, and the UI distinguishes t
    itself inside a primary component, `SYNCED` is the only state left.
 
 Anything else stays `UNKNOWN`, which is an honest answer and is drawn as one.
+
+**A deduction never covers time the log did not.** The weakest of the seeds is "this server
+was writing to its log, so it was running" — sound for the stretch the log spans, and
+nothing outside it. Painting it across the whole bundle is how a reader got two different
+pictures of the same cluster: five thousand lines of a busy `mongod` is *2,702 NETWORK and
+1,900 ACCESS records with no REPL among them*, covering eight minutes of a two-and-a-half
+hour window, and all three members were drawn **serving, in green, for the whole of it**.
+Uploading the same members' full logs gave the correct and much less green answer.
+
+So a deduced seed now begins at the source's own first record, and the lane before it is
+`UNKNOWN`. A **stated** seed is untouched — the left-hand side of a first transition is a
+real statement about the moment before it, not an inference from the record's existence.
+
+The asymmetry with the end of a track is deliberate: a log that *stops* is a server that
+carried on and had nothing to say, while a log that *starts late* is a server this bundle
+knows nothing about until it does. Which is also why the tail length matters more than it
+looks: on a busy server, raise it until the lanes stop being grey.
 
 ### Transitions are not states
 
@@ -239,6 +306,32 @@ What parsing cannot fix is host clock skew. Each source carries an adjustable **
 and the bundle reports when two sources do not overlap at all — the shape of "you uploaded
 logs from different days", which otherwise draws a perfectly plausible and completely wrong
 timeline.
+
+### A log that stops is not a log that ended
+
+The other half of that, and it was wrong until a Kubernetes bundle made it visible. **A
+source's last record is not the end of what it covers.** A healthy PXC member writes
+nothing at all — measured: thirty seconds of continuous inserts across three members
+produced zero records on all three — so its file simply stops, hours before you read it.
+
+Reading the stop as the end of its coverage produced a false "no common period" on five
+logs tailed from **one** cluster in **one** request: three healthy members whose last line
+was the 06:14 record where they finished starting, beside a binlog collector whose pod had
+restarted at 06:23, so its container log begins there. Latest start after earliest
+last-record, and the page announced that nothing could be compared across nodes.
+
+So a log **read from a node** is covered up to the moment it was read, and the sources
+table says how long it has been quiet:
+
+```
+cluster1-pxc-0   22 Aug 14:11:26 → 22 Aug 14:14:53 · silent for 2.1 h
+```
+
+which is the good news stated as such, rather than a range that looks like it ran out. An
+**uploaded** file keeps the strict reading: nothing knows when it was cut, so its last
+record really is all the evidence there is about how far it reaches. And a genuine
+disjointness on a node bundle — a rotated log, or a pod whose container log starts after
+another's ends — is still reported, now with the sentence that says which of the two it is.
 
 ---
 
@@ -759,7 +852,51 @@ or that requires holding two distant records side by side.
 | **A member desynced itself from the group** | with duration. Desyncs shorter than 2 s are ignored — a donor desyncs for milliseconds as part of every transfer |
 | **A new cluster was bootstrapped** | *bad* rather than a warning when two different nodes did it, which produces two clusters that will never merge |
 | **These logs do not cover a common period** | nothing here can be compared across nodes |
+| **A backup was restored / a point-in-time restore ran** | per restore, with the full-cluster outage measured, and the two things it quietly did: erased the members' logs and started a new binlog timeline |
+| **Point-in-time recovery has a gap** | with the missing GTID range, and that the bucket goes on growing across it |
+| **No binlog collector log is in this bundle** | turning PITR off writes nothing anywhere, so the shape of the bundle is the only evidence |
+| **A rolling restart applied a configuration change to every member** | with the order, the duration, and which pod the operator treats as primary |
+| **A member was shut down while it had no primary component** | on Kubernetes that is the liveness probe, and it is spelled identically to a deliberate stop |
+| **The operator's log says nothing about N of the M incidents in the members' logs** | the honest note, and the largest one here |
+| **What this cluster is actually configured with** | the effective wsrep provider options, read from the members' own logs, with measured advice — see [tuning](#tuning-a-pxc-cluster-on-kubernetes-what-the-logs-say-it-is-and-what-to-set) |
 | **Nothing was written in this window** | a healthy PXC cluster under load writes **nothing** to its error log — measured: thirty seconds of continuous inserts across three nodes produced zero records on all three. So silence is reported as the good news it usually is, together with the other explanation for it |
+
+---
+
+## Two ways to read the events
+
+The event list has a **Merged** and a **By node** layout, and they answer different
+questions.
+
+**Merged** is one column in time order: what happened next, whoever said it.
+
+**By node** is the same events and the same order, one column per source, each event under
+the node that wrote it. It answers "what was *each* node saying at that moment" — the
+question three logs are opened to compare, and the one a single interleaved column makes
+you reconstruct by eye. A stretch where only one node is talking is a stripe down one
+column; a moment where all of them are is a row across. Two replicas coming up in lockstep
+look like this and are hard to see any other way:
+
+```
+19:13:54.780   pgc-instance1-44gj-0   Entering standby mode
+19:13:54.787   pgc-instance1-44gj-0   WAL replay started
+19:13:54.790                          pgc-instance1-6h22-0   Entering standby mode
+19:13:54.796                          pgc-instance1-6h22-0   WAL replay started
+19:13:54.896   pgc-instance1-44gj-0   Consistent state reached
+19:13:55.013                          pgc-instance1-6h22-0   Consistent state reached
+```
+
+Three details that make it usable rather than merely correct:
+
+- **The pane scrolls, not the page**, on both axes. `overflow-x` alone is not an option:
+  CSS resolves `overflow-x: auto` beside a visible `overflow-y` to `auto` on *both*, so the
+  header would stop sticking to the page anyway. Making the pane the scroll container is
+  what lets the header stick where it is wanted.
+- **The header row and the time column are both sticky.** Scrolling down keeps the node
+  names; scrolling right keeps the clock. Without the second, the far columns tell you that
+  something happened and not when.
+- **Severity is on the cell, not the row.** Two nodes at the same instant are routinely one
+  good and one bad, and colouring the row would have to pick one.
 
 ---
 
@@ -1053,3 +1190,782 @@ Both log shapes are in the corpus deliberately: the bare form and the journald-p
 have to parse to the *same instant*, and the inner stamp is the precise one — journald's
 prefix carries no milliseconds and no year, so a systemd record borrows its year from the
 Valkey records beside it or lands at the far left of every timeline it appears on.
+
+---
+
+## Percona Operator for MySQL (PXC): three logs, and the outage is in none of the obvious ones
+
+The seventh vocabulary, and the first that is not a database's at all.
+
+A PXC cluster deployed onto a K3D frame writes **three** kinds of log, and reading any one
+of them alone gets a different wrong answer:
+
+| source | what it is | what only it can tell you |
+| --- | --- | --- |
+| `<cluster> · operator` | the `percona-xtradb-cluster-operator` Deployment: controller-runtime, tab-separated, facts in a trailing JSON object | the **decisions** — a rolling restart and its order, a backup, a restore and what it cost, which pod it calls primary, how far point-in-time recovery reaches |
+| `<cluster>-pxc-N` | each member's ordinary Galera error log | everything an outage actually consists of |
+| `<cluster> · binlog collector` | the PITR sidecar Deployment, written with Go's standard `log` package: a date, a time, a sentence | whether point-in-time recovery is running at all, and whether its sequence has a hole in it |
+
+Tick any of them in the picker and they are read together, on one timeline. The member
+logs come off the volume (`kubectl exec … tail /var/lib/mysql/mysqld-error.log`); the two
+controller logs come from `kubectl logs` against the Deployment rather than a pod, so an
+operator that has been restarted is still readable by name.
+
+Everything below was written against a live cluster — PXC operator **1.20.0** running PXC
+**8.4.8-8.1** on k3s **v1.36.3**, three members behind HAProxy, backing up to a SeaweedFS
+S3 endpoint — driven under continuous write load through a bootstrap, two full backups, a
+full restore, a point-in-time restore, PITR on and off, a member force-deleted, a member
+cut off with `netem`, a `cr.yaml` change, and two ways of making a backup fail. The corpus
+is `app/testdata/logsummary/k*/` and the tests read it.
+
+### 1. The operator's log says nothing about the database
+
+This is the finding the catalogue exists for, and it is the opposite of what everyone
+expects from a Kubernetes operator.
+
+`kubectl delete pod cluster1-pxc-1 --force` under write load produced, in the two
+survivors' logs: five seconds of reconnect attempts, `declaring node with index 1
+suspected, timeout PT5S (evs.suspect_timeout)`, an eviction, a view change, a rejoin and a
+state transfer. In the **operator's** log over the same two minutes:
+
+```
+06:29:33  INFO  Updated PITR timelines   {…}
+06:29:39  INFO  Updated PITR timelines   {…}
+06:30:40  INFO  Updated PITR timelines   {…}
+06:31:38  INFO  Updated PITR timelines   {…}
+```
+
+An operator reconciles a desired state; it does not watch the cluster. So the page says
+that out loud — `The operator's log says nothing about N of the M incidents in the
+members' logs` — rather than letting a quiet controller read as a healthy database.
+
+### 2. A member that goes non-primary is killed, not left to rejoin
+
+The single most important difference between PXC on Kubernetes and PXC on a machine, and
+neither the operator nor the member says it.
+
+`cluster1-pxc-2` was cut off with `tc netem loss 100%`. It did exactly the right thing:
+
+```
+05:39:03.843  [Note] [Galera] Shifting SYNCED -> OPEN (TO: 5073)
+```
+
+no primary component, refuse every query with 1047, wait to rejoin. **Twenty-five seconds
+later** its own log says:
+
+```
+05:39:28.069  [System] [MY-013172] Received SHUTDOWN from user <via user signal>
+```
+
+Nobody stopped it. A PXC pod's liveness probe asks wsrep whether the member is `Primary`;
+a member on the wrong side of a partition is not, so the probe failed and kubelet killed
+the container. The record it wrote is **byte-for-byte what a deliberate `systemctl stop`
+writes** — so read on its own, this package's own Galera verdict called it *a member left
+the cluster cleanly*, a reassuring sentence about a member that was killed.
+
+The pairing is the evidence, and neither log states it: a member that leaves the primary
+component and then receives a shutdown signal within a minute, with nothing in the
+operator's log about it, was killed by its probe. The reason itself lives in a **Kubernetes
+Event** — `Container pxc failed liveness probe, will be restarted` — which is not a log
+file anybody tails, so the finding names it rather than pretending to have read it.
+
+Cost: a member that would have rejoined by itself has to be restarted, and at the operator's
+shipped `gcache.size` that rejoin is a full copy of the dataset.
+
+### 3. The operator logs its errors at INFO, and its retries at ERROR
+
+The PXC lesson at the top of this document, in a new dialect, and it goes both ways.
+
+```
+INFO   reconcile replication error   {… "err": "get primary pxc pod: failed to get proxy
+                                      connection: dial tcp 10.43.61.172:3306: i/o timeout"}
+ERROR  Reconciler error              {… "error": "exec binlog collector pod …"}
+       sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller[...]).reconcileHandler
+       	/go/pkg/mod/sigs.k8s.io/controller-runtime@v0.24.1/…/controller.go:494
+       …
+```
+
+The **INFO** record is a failure to reach the database at all — while it repeats, users,
+grants and PITR settings are not being reconciled and an edit to `cr.yaml` sits unapplied.
+The **ERROR** record is controller-runtime's retry notice, re-emitted on every attempt with
+an exponential backoff, so one persistent fault produces dozens of them: 64 in this corpus,
+from five distinct faults. Counting them measures the backoff, not the damage. The page
+reports the first and last of each fault and the sentence in between, as one finding.
+
+That block also shows why folding matters here: an `ERROR` drags eight to twelve
+unindented stack frames behind it, and a line-at-a-time reader turns one failed reconcile
+into nine events named after functions in `sigs.k8s.io`.
+
+### 4. The field object has duplicate keys and both of them matter
+
+```
+{"controller": "pxc-controller", "PerconaXtraDBCluster": {"name":"cluster1","namespace":"pxc"},
+ "namespace": "pxc", "name": "cluster1", "name": "178f8-daily-backup", "schedule": "0 0 * * *"}
+```
+
+`name` is written twice: the object being reconciled, then whatever the message is about.
+Decoding that into a map keeps the last and throws the cluster's name away — so the fields
+are read **in order and with the duplicates intact**, and a rule asks for the first or the
+last by name. It is not a corner case; most reconcile records are shaped like this.
+
+### 5. `kubectl logs` on a member is not the member's log
+
+Two traps found by doing it, both now handled:
+
+- **`kubectl logs <pod> -c pxc` is the entrypoint's `bash -x` trace** — `+ echo 'set
+  wsrep_on=1;'`, `+ file_env MYSQL_DATABASE` — because mysqld is started with
+  `--log-error` pointing at a file on the volume. Reading stdout gets you the shell script
+  that started the server and almost none of what the server said. The collector reads the
+  file.
+- **There is a second copy of it, JSON-wrapped.** The pod's `logs` container tails that
+  same file and re-emits every line inside an envelope:
+
+  ```json
+  {"log":"2026-08-22T05:21:16.881342Z 2 [Note] … Synchronized with group…\n","file":"/var/lib/mysql/mysqld-error.log"}
+  ```
+
+  which is worth having precisely when `kubectl exec` cannot be used — and the member whose
+  log you most want to read is the one that is not running. So the file is the primary path
+  and the sidecar is the fallback, unwrapped back into the raw error log the parser wants.
+
+### 6. A restore is a full outage, and it erases the members' logs
+
+The operator's restore sequence is legible and the page measures it:
+
+```
+05:55:00  stopping cluster            ← the cluster is scaled to zero
+05:55:45  starting restore
+05:56:05  invalidating binlog collector cache
+05:56:05  preparing cluster
+06:11:46  point-in-time recovering    ← only when the restore asked for one
+05:57:15  starting cluster
+```
+
+Measured: **5m 25s** for a full restore of a 130k-row dataset, **5m 54s** when binary logs
+had to be replayed on top. The operator writes *no* record saying a restore finished — the
+controller simply stops polling — so the end is its last `Waiting for cluster to start`,
+which is exact to the five-second poll interval.
+
+Two consequences a reader only meets afterwards, and the finding names both:
+
+- The restore replaces every member's data directory, and `mysqld-error.log` **lives in
+  it**. Measured: a member's log went from 923 lines to 313, all of them after the restore.
+  A bundle read after a restore may therefore report that its sources do not overlap, which
+  is true and is worth knowing rather than puzzling over.
+- The restore rewinds the GTID history, the collector's cache is invalidated, and a new
+  timeline begins. `Gap detected in binary logs` followed three minutes later in the corpus.
+  **Take a fresh full backup immediately** — point-in-time recovery cannot cross the
+  boundary.
+
+### 7. Point-in-time recovery: the two things only the collector knows
+
+The collector's log is the third format — Go's standard logger, no level, no timezone, and
+multi-line records whose continuations are the data:
+
+```
+2026/08/22 06:00:33 Peer list updated
+was []
+now [cluster1-pxc-0.… cluster1-pxc-1.… cluster1-pxc-2.…]
+```
+
+Two of its records are the reason to read it at all:
+
+```
+ERROR: Gap detected in the binary logs. Binary logs will be uploaded anyway,
+       but full backup needed for consistent recovery.
+```
+
+A gap is silent data loss with a delay on it. The collector *keeps uploading*, so the
+bucket goes on growing and every dashboard looks healthy until somebody tries to restore
+across the hole. The operator's own half of it names the range —
+`Gap detected in binary logs {"missingGTIDSet": "635a239e-…:6497-6504"}`.
+
+```
+switching PITR binlog source from cluster1-pxc-0.… to cluster1-pxc-1.…
+  because current source host cluster1-pxc-0.… is not healthy (not Synced/Primary)
+```
+
+The collector reads binary logs from **one member at a time** and moves when that member
+stops being Synced/Primary. That makes this line a *second witness* that a member was
+unhealthy, at a moment the operator's own log says nothing about.
+
+And one absence: turning PITR **off** writes nothing anywhere. `spec.backup.pitr.enabled:
+false` deletes the collector Deployment, and a deleted Deployment writes no farewell. So
+the only evidence is the shape of the bundle — an operator log with no collector beside it
+— and the page says exactly that rather than staying quiet, because from that moment the
+only recovery point is the last full backup.
+
+The one number worth watching is in the operator's log and nowhere else:
+
+```
+INFO  Updated PITR timelines  {… "latest": "2026-08-22 06:12:53 +0000 UTC", "lastBackup": "backup2"}
+```
+
+`latest` is the newest moment a restore could currently reach. A restore asking for
+anything after it cannot be served.
+
+### 8. A rolling restart, and the one fact Galera does not have
+
+Changing `spec.pxc.configuration` triggers a **smart update**, which the operator narrates
+in full:
+
+```
+statefulSet was changed, run smart update
+primary pod                      {… "pod": "cluster1-pxc-0"}
+apply changes to secondary pod
+Pod is not updated  ×2 · pod is waiting · Pod is not running
+Pod is updated, running and ready
+apply changes to primary pod
+smart update finished
+```
+
+Measured: **3m 0s** for three members. `primary pod` is the interesting one — in Galera
+every member is a primary, but the operator picks one for HAProxy to send writes to and
+restarts it **last**, so the write endpoint moves exactly once instead of once per member.
+That fact exists in no member's log.
+
+### 9. A failing backup stays `Running`
+
+A backup pointed at an unreachable S3 endpoint produced five errored Jobs over
+**seventeen minutes**, and the `PerconaXtraDBClusterBackup` stayed in `Running` the whole
+time — because the operator retries up to `spec.backup.backoffLimit` (6). A dashboard
+reading the CR's status sees a backup in progress, not a backup that is not going to
+happen. The page reports backups that started with no success recorded, and points at
+`kubectl get jobs -l percona.com/backup-job=true`, where the reason is.
+
+The other failure mode is louder and cheaper: a storage name that does not exist fails the
+CR immediately with `"error": "storage nosuchstorage doesn't exist"`.
+
+---
+
+## Tuning a PXC cluster on Kubernetes: what the logs say it is, and what to set
+
+The shipped `cr.yaml` has **no `spec.pxc.configuration` section at all**, so a reader of
+the custom resource sees no numbers whatsoever — and neither does `kubectl describe`, or a
+dashboard, or the operator's log. There is exactly one place the effective configuration
+exists, and it is a line every member writes on every start:
+
+```
+[Note] [Galera] Passing config to GCS: … evs.suspect_timeout = PT5S; …
+  gcache.size = 128M; … gcs.fc_debug = 0; gcs.fc_limit = 100; … socket.ssl = YES; …
+```
+
+Ninety-odd options, resolved after every default and override. The Log Summary reads it,
+reports it as **What this cluster is actually configured with**, and advises against the
+ones that will hurt. Every number below was measured on the corpus cluster, not asserted.
+
+| setting | shipped | measured | set it to |
+| --- | --- | --- | --- |
+| `gcache.size` | **128M** | the corpus cluster wrote 28 MB in the first 40 s of load; every restart in it rejoined by **SST**, not IST | **2–4G**, and size `spec.pxc.volumeSpec` to match — the gcache file lives in the data directory |
+| `gcs.fc_limit` | 100 → interval **[173, 173]** for three members (100 × √3) | at 100, a member slowed to 800 ms RTT under load never once triggered flow control. At **16** (interval 28) it sent one message and the cluster paused **3.5 µs** | leave at 100 unless you are deliberately bounding staleness |
+| `gcs.fc_debug` | 0 | at 1, **16–22 records per member, all inside the ~2 s of that member's own join and none afterwards** — including through a run that did trip flow control | leave at 0; read `wsrep_flow_control_paused_ns` / `_sent` / `_recv` / `wsrep_local_recv_queue_avg`, or PMM |
+| `evs.suspect_timeout` | **PT5S** | 5.0 s from the last packet to `declaring node … suspected`, twice | **PT10S–PT15S** on Kubernetes, with `evs.inactive_timeout` raised to stay well above it |
+| `spec.pxc.livenessProbe` | operator default | **25.0 s** from `Shifting SYNCED -> OPEN` to kubelet killing the container | raise `failureThreshold`/`timeoutSeconds` if members are restarted during network events rather than left to rejoin |
+| `socket.ssl` | **YES** | — | leave it. The operator issues the certificates and encrypts both replication and SST; a hand-built cluster usually has neither |
+
+A `cr.yaml` that applies the four that matter:
+
+```yaml
+spec:
+  pxc:
+    configuration: |
+      [mysqld]
+      wsrep_provider_options="gcache.size=4G; gcache.recover=yes; evs.suspect_timeout=PT10S; evs.inactive_timeout=PT30S"
+    livenessProbe:
+      failureThreshold: 5
+    volumeSpec:
+      persistentVolumeClaim:
+        resources:
+          requests:
+            storage: 20Gi     # dataset + gcache + binary logs
+  backup:
+    pitr:
+      enabled: true
+      storageName: <your storage>
+      timeBetweenUploads: 60
+    schedule:
+      - name: daily-backup
+        schedule: "0 0 * * *"
+        storageName: <your storage>
+        retention: {type: count, count: 5, deleteFromStorage: true}
+```
+
+Three things about applying it, all of which the corpus demonstrated:
+
+- **Every change here restarts every member.** It is a smart update: secondaries first, the
+  primary last, three minutes for three members, and each member rejoins by state transfer.
+  So change several settings at once rather than one at a time — and raise `gcache.size`
+  in the *first* change, because it is what decides whether all the later ones are cheap.
+- **`timeBetweenUploads` is your worst-case data loss.** 60 s by default: a point-in-time
+  restore can lose up to one upload interval plus the upload itself.
+- **A backup schedule and PITR are not alternatives.** PITR is only ever a continuation of a
+  full backup, and the operator says which one: `"lastBackup": "backup2"`. Without a recent
+  base, a long binlog chain is a long replay.
+
+---
+
+## Percona Operator for MongoDB (PSMDB): the backup agents are three logs, and only one of them is working
+
+The eighth vocabulary, and it is built on the seventh: the PSMDB operator **is** the same
+controller-runtime process the PXC one is, writing the same tab-separated zap lines with
+the same trailing JSON object. Nothing about the *shape* of a line separates them — only
+the controller group (`psmdb.percona.com`) does — so the fold is shared and only the
+catalogue is new. What is genuinely different is the third log, and it is not one log but
+three:
+
+| source | what it is | what only it can tell you |
+| --- | --- | --- |
+| `<cluster> · operator` | the `percona-server-mongodb-operator` controller | the **decisions**, plus a real cluster state machine it logs every transition of, and `latestRestorableTime` |
+| `<cluster>-rs0-N` | each member's mongod log, JSON, read from `/data/db/logs/mongod.log` | everything an outage consists of — read by the same catalogue as any other replica set |
+| `<cluster>-rs0-N · backup agent` | each member's `pbm-agent` **sidecar** | whether backups and point-in-time recovery are actually happening. There is one per member and **only ever one of them is doing the work** |
+
+Everything below came off a live cluster: PSMDB operator **1.23.0** running
+percona-server-mongodb **8.0.26-11** with PBM **2.15.0** on k3s **v1.36.3**, a three-member
+replica set backing up to a SeaweedFS S3 endpoint, under continuous write load, driven
+through a bootstrap, two backups, a full restore, a point-in-time restore, PITR on and off,
+a force-deleted primary, a `netem` partition, and a `cr.yaml` edit that broke the cluster.
+The corpus is `app/testdata/logsummary/km*/`.
+
+### 1. Point-in-time recovery is running on exactly one member
+
+PBM **nominates** one agent per replica set. The winner writes:
+
+```
+[pitr] streaming started from 2026-08-22 08:35:45 +0000 UTC / 1787387745
+[pitr] created chunk 2026-08-22T09:00:10 - 2026-08-22T09:01:16
+```
+
+The losers write `skip after pitr nomination, probably started by another node` and then go
+quiet — which is **indistinguishable from an agent whose PITR is switched off**. Reading a
+single agent's log, the obvious thing to do, is therefore the mistake this page exists to
+prevent. It names the member that is slicing, and says what the others' silence means.
+
+The corollary is the alerting rule: alert on the **absence of `created chunk` across all
+agents together**, never on any one of them.
+
+### 2. After a restore, PITR reports ON and does not run
+
+The most dangerous line in these logs, and it is in the agent's:
+
+```
+ERROR while running PITR backup:
+  [pitr] init: catchup: no backup found after the restored 2026-08-22T08:35:39Z,
+         a new backup is required to resume PITR
+```
+
+Everything above the agent goes on reporting health: `spec.backup.pitr.enabled` is still
+`true`, the custom resource is `ready`, and `pbm status` still prints `Status [ON]` with a
+running member. Nothing is being written to object storage. The recoverable window is
+frozen at the moment of the restore, and every write since exists only in the database.
+
+The operator's `latestRestorableTime` is the only signal above the agent that notices, and
+it notices by *not moving*. That makes it the one number worth alerting on — not whether
+PITR is "enabled".
+
+### 3. A logical restore runs in place, with the cluster still accepting writes
+
+The difference between the two operators, and it is a data-integrity difference.
+
+A PXC restore scales the cluster to zero: nothing can write, and the outage is visible to
+everybody. A PSMDB **logical** restore happens in place — the pods keep running and keep
+accepting connections while PBM drops the collections, re-creates them from the dump, and
+replays the oplog on top.
+
+Measured, and the measurement is the finding. A point-in-time restore to `09:02:35` left:
+
+| | |
+| --- | --- |
+| documents between the target and the collection drop at 09:05:43 | **0** — the restore itself was exact |
+| documents after the collection was re-created | **32,000** |
+
+Every one of those 32,000 was written by a load generator that was merely *slow to shut
+down*, into the collection PBM had just re-created, during the seventeen minutes the replay
+took. They were never in the backup and nothing in the restore removes them.
+
+**Fence the application off before restoring** — scale the workload to zero, or take the
+Service away — and afterwards check for documents newer than the moment PBM re-created the
+collections, which is in the agent's log.
+
+### 4. The replay is the slow half, and it scales with writes, not with data
+
+From the same restore:
+
+```
+finished restoring `sim.trades` (414500 documents, 0 failures)   ← 2.3 seconds
+starting oplog replay
++ applying {rs0 pbmPitr/…090009-6.090116-4.oplog.s2 … 91661}     ← 7 minutes 32 seconds
+```
+
+About **200 oplog operations a second**. The cost of a point-in-time restore is set by how
+much was *written* since the base backup, not by how big the dataset is — so a daily backup
+on a busy cluster is a very long recovery, and frequent full backups are the fix.
+
+### 5. A partitioned member is left alone — the opposite of PXC
+
+A PXC member that leaves the primary component is killed by its liveness probe within 25
+seconds, because that probe asks wsrep whether the member is `Primary`. A mongod's probe
+asks whether the process answers. Measured: **3 minutes 46 seconds of 100% packet loss on a
+secondary, zero restarts, and no probe event at all.** The member sat there serving stale
+reads exactly as MongoDB intends.
+
+Which means the evidence for the partition is not in the database's log either. It is in
+the **sidecar's**:
+
+```
+E [agentCheckup] check PBM connection: … current topology: { Type: ReplicaSetNoPrimary, …
+E [pitr] init: get conf: … context deadline exceeded
+```
+
+And when the slicer was on the partitioned member, another agent breaks its lock and takes
+over — `stale lock: {PITR incremental backup rs0 my-cluster-name-rs0-2…}` — which names the
+member that had the problem.
+
+### 6. The agent log is two formats, and the second only appears when things are wrong
+
+```
+2026-08-22T08:35:46.000+0000 I [backup/…] backup finished     ← pbm-agent's own
+2026/08/22 08:42:19 [ERROR] writing log: db: server selection error: …
+2026/08/22 08:32:45 [entrypoint] `pbm-agent` exited with code 1
+2026/08/22 08:32:45 [entrypoint] restart in 5 sec
+```
+
+**PBM keeps its log inside MongoDB.** The Go-stdlib lines are what it prints to stderr when
+it cannot write there — so that half of the file is, by construction, written while the
+cluster was unreachable. The container's entrypoint wrapper uses the same format, and is
+the only place an agent crash-loop is recorded at all.
+
+Both halves are parsed, with different subsystems and separate catalogues — the same shape
+as the PostgreSQL/Patroni and Valkey/systemd pairs, and for the same reason.
+
+One more thing folds: every agent start prints a 26-line ASCII-art *Join Percona Squad*
+banner and a version block, none of it timestamped. It becomes the detail of the start
+record rather than 26 events per start.
+
+### 7. A stuck rollout is 1,151 INFO records saying two things
+
+A `cr.yaml` edit left one member unschedulable. The operator produced, at INFO, forever:
+
+```
+770 ×  StatefulSet is not up to date
+381 ×  SmartUpdate  can't start/continue 'SmartUpdate': waiting for all replicas are ready
+```
+
+and nothing that says the cluster is stuck. It will not restart the next member until every
+replica is ready, so one member that cannot become ready stops the rollout indefinitely and
+never escalates. The count is the reconcile interval; the **span** is the outage, and that
+is what the page reports.
+
+The cause was a Kubernetes fact the operator never mentions — a `Pending` pod — and the
+reason for *that* is worth its own warning: **`spec.replsets` is a list, and a JSON merge
+patch replaces a list rather than merging into it.** Patching it with `{"name":"rs0",…}`
+silently dropped `affinity.antiAffinityTopologyKey: none`, the operator's default spreads
+members across nodes, and on a single-node cluster the third pod never schedules again.
+
+### 8. What the operator says that the members cannot
+
+Two records worth knowing, both unique to it:
+
+```
+INFO  Cluster state changed  {"previous": "ready", "current": "initializing"}
+INFO  my-cluster-name-rs0-0 is the writable primary
+```
+
+`initializing` has no timeout: it is ordinary during a rollout and a cluster that enters it
+and does not come out is stuck. It is `.status.state` on the custom resource, which makes
+it the cheapest thing in the whole stack to alert on. And the primary is a dated record of
+something `rs.status()` only ever tells you about *now*.
+
+---
+
+## Tuning a PSMDB cluster on Kubernetes
+
+MongoDB gives less to read than Galera did. A mongod prints the engine's real cache size
+and its command-line options — which `logsummary_mongo_config.go` already reads — and
+everything else in `spec.replsets[].configuration` reaches the member as a config file and
+is echoed nowhere. So half of this comes from the operator's own records instead.
+
+| setting | shipped | measured | set it to |
+| --- | --- | --- | --- |
+| `spec.backup.pitr.oplogSpanMin` | **10 minutes** | this *is* your RPO: `latestRestorableTime` trails the present by up to one chunk. At **1**, the window tracked to within a minute | **1–5**, unless you have measured that the extra chunks cost you something |
+| `storage.wiredTiger.engineConfig.cacheSizeGB` | unset | the corpus's untuned cluster reports **14,527 MB per member, unpinned** — three members claiming 44 GiB on a 29.4 GiB host, because WiredTiger sizes from what it thinks the *machine* has | pin it to about half of `resources.limits.memory`. The non-Kubernetes measurement in this package: 111 TPS / p95 710 ms unpinned vs **637 TPS / p95 71 ms** pinned |
+| restore fencing | none | a restore that was exact to its target still gained 32,000 documents from a client slow to shut down | scale the workload to zero before restoring — there is no setting for this |
+| backup frequency | — | replay runs at ~200 ops/s; the dump at ~180,000 docs/s | frequent full backups. The replay, not the dump, is what makes a restore slow |
+
+A `cr.yaml` that applies them:
+
+```yaml
+spec:
+  replsets:
+    - name: rs0
+      size: 3
+      affinity:
+        antiAffinityTopologyKey: none    # keep this when you edit the list — see §7
+      configuration: |
+        storage:
+          wiredTiger:
+            engineConfig:
+              cacheSizeGB: 1
+        operationProfiling:
+          mode: slowOp
+          slowOpThresholdMs: 100
+        replication:
+          oplogSizeMB: 2048
+  backup:
+    enabled: true
+    pitr:
+      enabled: true
+      oplogSpanMin: 1
+      compressionType: s2
+```
+
+Three things about applying it:
+
+- **Every change restarts every member**, secondaries first. Batch them.
+- **Edit `replsets` as a whole object.** It is a list; a merge patch replaces it. This is
+  how the corpus's cluster lost its anti-affinity and stopped rolling out entirely.
+- **`oplogSizeMB` and `oplogSpanMin` are a pair.** The oplog has to hold at least one
+  chunk's worth of writes, or the slicer falls off the end of it between uploads.
+
+---
+
+## The three PostgreSQL operators: three formats, and only one of them mentions the failover
+
+PostgreSQL is where the Kubernetes story stops being tidy. MySQL and MongoDB each had one
+Percona operator writing one format. PostgreSQL has **three** operators writing **three**
+formats — and Percona's is a *fork of Crunchy's* that nevertheless chose a different
+logging library:
+
+| operator | format | members |
+| --- | --- | --- |
+| **Percona Operator for PostgreSQL** | zap, tab-separated — the same shape the PXC and PSMDB operators write | **Patroni**, plus PostgreSQL's own log on the volume |
+| **Crunchy PGO** | logfmt — `time="…" level=debug msg="…" key=value` | **Patroni**, same as above |
+| **CloudNativePG** | JSON, one object per line | no Patroni: an **instance manager**, and PostgreSQL's records wrapped inside its stream |
+
+Because Percona's operator drives Crunchy's own `PostgresCluster` custom resource, its log
+is full of `postgres-operator.crunchydata.com` and only `pgv2.percona.com` tells the two
+apart — which is why that check runs first.
+
+### The members needed no new catalogue at all
+
+The best outcome of the three. A Percona or Crunchy member's `database` container **is
+Patroni**, and this page has had a Patroni catalogue since the Patroni frames were added.
+Point the collector at the container and the existing rules read an operator-managed
+cluster unchanged — `The cluster had no primary for 2.7s`, `The cluster changed primary`,
+`A member was rebuilt from the leader` all come out with no operator-specific code.
+
+PostgreSQL's own log is a file beside it (`/pgdata/<version>/log/`), and both are read
+together for the reason `lsPGTailScript` already gives for a hand-built Patroni node: the
+failover decision is in one and its consequence in the other.
+
+### Two of the three say nothing about a failover
+
+Three clusters were deployed side by side on one host and their leaders force-deleted at
+the same moment. In the following minute the operators logged:
+
+```
+Percona   7 × "v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice"
+Crunchy   14 × "reconciled instance", 7 × "reconciled cluster", 5 × "patched cluster status"
+CNPG      13 × "There is a switchover or a failover in progress, waiting…"
+          "Old primary pod not found in managed instances, skipping label demotion"
+          "Setting primary label" · "Setting replica label" · "Switchover completed"
+```
+
+The two Patroni-based operators delegate availability to Patroni and never mention it — the
+whole story (the lost TTL lock, the election, the new leader, the rejoin) is inside the
+members. **CloudNativePG narrates it because CloudNativePG *is* the failover manager**, and
+it is therefore the only one of the three whose log can date a switchover: measured,
+56.3 seconds with nothing accepting writes.
+
+So the page reports the silence rather than letting it read as calm, and measures the
+switchover where it can.
+
+### A CloudNativePG member's log is two documents in one
+
+No Patroni means the instance manager's records and PostgreSQL's share a single JSON
+stream, and PostgreSQL's are not text at all — they are the CSV log's *fields* as an
+object:
+
+```json
+{"level":"info","logger":"postgres","msg":"record","logging_pod":"cnpgc-1",
+ "record":{"log_time":"2026-08-22 11:16:54.106 UTC","error_severity":"LOG",
+           "message":"redo starts at 0/6000028"}}
+```
+
+Left alone that is a wall of `msg: record` saying nothing. They are unwrapped back into
+ordinary PostgreSQL records — timestamp, severity, message, with `DETAIL`/`HINT` folded
+into the body — so a CloudNativePG member is read by the same PostgreSQL catalogue as any
+other server, and the instance manager's own records stay beside them as their own events.
+
+### Three operators, three restore models
+
+Driven on all three, and the difference is the one that matters to whoever is watching:
+
+| | what a restore does | what the page reports |
+| --- | --- | --- |
+| **Percona** | **in place.** Every instance is stopped, the repository is restored onto one, the others rebuild from it | the outage, measured — and that most of the elapsed time on a multi-instance cluster is the replicas rebuilding, not the restore |
+| **CloudNativePG** | **a new cluster beside the original.** The original keeps running and serving throughout | that nothing was rolled back, and **the application is still pointed at the original** — switching is a deliberate act |
+| **Crunchy** | in place, like Percona's | *nothing.* Its operator logged 39 × `reconciled instance` through the whole restore and never named it |
+
+A point-in-time restore verified end to end on Percona: 100 rows written before the target,
+500 after it, restored to the target, and the cluster came back with exactly the 100 —
+`max(at)` four minutes before the recovery point. Beside it the operator logs
+`failed to cleanup outdated backups` at ERROR, which is housekeeping rather than a failure:
+a PITR starts a new timeline and the backups from the old one are no longer a base for it.
+**Take a fresh full backup immediately.**
+
+### The finding this catalogue exists for
+
+WAL archiving failing is invisible everywhere except the instance manager's log:
+
+```
+error  wal-archive  failed to run wal-archive command
+       {"error":"unexpected failure invoking barman-cloud-wal-archive: exit status 4"}
+```
+
+Measured on the corpus: **23 minutes** in which every segment failed to archive. The
+cluster kept serving, reported `Cluster in healthy state` throughout, and the first thing
+that failed visibly was a backup somebody asked for. Meanwhile PostgreSQL keeps every
+segment it cannot archive, so the volume fills at the rate the cluster writes WAL.
+
+`pg_stat_archiver` answers the same question from inside the database, and a filling
+`pg_wal` is the consequence to watch for.
+
+One more record worth knowing, from the same corpus:
+`Detected ready WAL files in a former primary, triggering WAL archiving` — a demoted
+primary still holding WAL that never reached the archive. Discard that volume before it
+ships and point-in-time recovery has a hole in it that survives the failover.
+
+---
+
+## Advising a PostgreSQL cluster: the server diagnoses itself
+
+Every other advisor in this document reads a **configuration** and reasons about it. Galera
+prints its whole provider config; a mongod prints the cache it opened with. PostgreSQL
+prints *neither* — and gives something better instead. It reports the **symptoms**, in its
+own words, and for one of them it names the parameter to change:
+
+```
+LOG:  checkpoints are occurring too frequently (10 seconds apart)
+HINT: Consider increasing the configuration parameter "max_wal_size".
+LOG:  temporary file: path "base/pgsql_tmp/…", size 8192
+LOG:  checkpoint complete: wrote 12 buffers (0.1%); … write=1.127 s, sync=0.028 s, total=1.199 s
+LOG:  duration: 2409.738 ms  statement: copy pgbench_accounts from stdin …
+```
+
+So the advice is a **reading of evidence**, not a lint of settings — and it is **per
+member**, because three members of one cluster do not share a performance story. Only the
+primary takes the writes, so only the primary checkpoints hard. Averaging them would hide
+the one you are looking for.
+
+### What was measured, and why there is no "raise shared_buffers" rule
+
+Three clusters were deployed side by side on one host — Percona Operator for PostgreSQL and
+Crunchy PGO with three instances each, CloudNativePG with two — and driven with pgbench at
+**identical scale and client counts**, first on the operators' own defaults and then with
+the settings everybody reaches for first (`shared_buffers` 128MB → 1GB, `max_wal_size` 1GB →
+4GB, `work_mem` 4MB → 16MB, `effective_cache_size` → 3GB):
+
+| | defaults | tuned | |
+| --- | --- | --- | --- |
+| Percona Operator for PostgreSQL | 2,150 tps · 7.43 ms | 1,981 tps · 8.06 ms | **−8%** |
+| Crunchy PGO | 2,150 tps · 7.43 ms | 2,185 tps · 7.31 ms | +1.6% |
+| CloudNativePG | 2,974 tps · 5.37 ms | 3,006 tps · 5.31 ms | +1.1% |
+
+All three ship the **same** PostgreSQL defaults — `shared_buffers=128MB` (PostgreSQL's own
+compiled default: none of the three sets it), `max_wal_size=1GB`, `work_mem=4MB` — and
+none of them puts a memory limit on the database container either. Raising the obvious
+settings did essentially nothing on this workload, and on one cluster made it worse.
+
+That is why there is no rule in this advisor of the form *"setting X looks small"*. It says
+what the server complained about, and nothing else.
+
+### What it reports
+
+| | from | |
+| --- | --- | --- |
+| **`max_wal_size` is too small** | `checkpoints are occurring too frequently (N seconds apart)` | the only advice here the server gives you by name, in its own HINT. Measured on a deliberately starved cluster: 21 complaints, the closest **2.0 seconds** apart |
+| **Checkpoints forced by volume, not time** | the ratio of `checkpoint starting: wal` to `checkpoint starting: time` | a cluster where most checkpoints are the first kind is checkpointing as fast as it writes |
+| **Checkpoint sync is stalling commits** | `sync=` in `checkpoint complete` | `write=` is paced; `sync=` is fsync waiting on storage, and while it runs commits wait too. Whole seconds here is a storage answer, not a PostgreSQL one |
+| **`work_mem` is too small** | `temporary file: path …, size N` | the log gives the exact size the sort needed — better than any rule of thumb. Measured: 10 spills totalling **153 MB**, the largest **76.5 MB**, against a `work_mem` of 64kB |
+| **Slow statements** | `duration: N ms statement: …` | recorded with their full text, and the share of the window spent inside them |
+| **Lock contention** | `still waiting for …Lock`, `deadlock detected` | a lock wait is logged only after `deadlock_timeout`, so every one waited at least that long |
+
+### The finding that outranks all of them
+
+Every count above is meaningless unless the server was told to record it — and **all three
+operators ship with `log_min_duration_statement`, `log_temp_files` and `log_lock_waits` off
+or unset**. So the advisor ends with the gate:
+
+> no records from `log_min_duration_statement` (slow statements), `log_temp_files` (sorts
+> that spilled to disk) — the absence of these in this window is not evidence that there
+> were none, it is evidence that nobody asked.
+
+That is the difference between a quiet log and a healthy server, and it is the one thing on
+the page you can fix *before* the next incident rather than during it. Turning them on is a
+`spec.patroni.dynamicConfiguration.postgresql.parameters` change for the two Patroni-based
+operators and a `spec.postgresql.parameters` change for CloudNativePG.
+
+> **Percona's operator owns an inner Crunchy `PostgresCluster` and reverts hand edits to
+> it.** Patch the outer `PerconaPGCluster` (`pgv2.percona.com`); a change applied to the
+> inner one is silently undone on the next reconcile, which looks exactly like a setting
+> that would not take.
+
+---
+
+## The sixth operator, and the source that is not a log
+
+### Percona Operator for MySQL (Percona Server)
+
+The last of the six, and the cheapest of them all, because everything before it had already
+paid for it:
+
+- the operator writes the **same zap format** the PXC, PSMDB and Percona PostgreSQL
+  operators write, so the fold is shared and only the controller group (`ps.percona.com`)
+  and the catalogue are new;
+- `kubectl logs <pod> -c mysql` returns **the mysqld error log itself** — not the
+  entrypoint's `bash -x` trace the PXC operator's pods print — and its records are **Group
+  Replication's**, which this page already reads in full. The members need no new rules at
+  all.
+
+Where it sits between the two MySQL operators is the finding. Killing the primary of each:
+
+| | what the operator logged |
+| --- | --- |
+| **PXC** | nothing whatsoever |
+| **Percona Server** | `Assigning primary label to pod psc-mysql-0` — it names the new primary, and nothing else |
+
+So this one records the single fact that is genuinely hard to reconstruct afterwards — which
+member the writes moved to, and when — while the *reason* stays in the members' own Group
+Replication records. Both halves are on the page together.
+
+### Kubernetes Events: the reason a container was killed
+
+The fourth thing this feature kept deferring, and the reason it kept coming back. A PXC
+member cut off from its cluster does the right thing — goes non-primary and waits — and is
+killed twenty-five seconds later by its liveness probe. Its own log records that as
+`Received SHUTDOWN from user <via user signal>`, byte-for-byte what a deliberate stop
+writes. The operator's log says nothing. The reason exists in exactly one place:
+
+```
+Warning  Unhealthy  Liveness probe failed: + [[ -n non-Primary ]]…
+Normal   Killing    Container pxc failed liveness probe, will be restarted
+```
+
+which is an **API object, not a file**. So a cluster's namespace Events are offered as a
+source of their own — `kubectl get events -o json`, one JSON List rather than a line
+stream — and folded into the same records everything else here becomes.
+
+Three things about Events shape how they are read:
+
+- **They expire.** The default TTL is one hour, so an incident investigated the next
+  morning has none, and their absence is not evidence of a quiet night.
+- **They are counted, not repeated.** One object carries `count` and a first/last
+  timestamp — exactly the shape a folded log record already has — so forty probe failures
+  are one row with a span rather than forty rows or one.
+- **`type` is only Normal or Warning, and it is not a severity.** `Killing` — the most
+  consequential thing Kubernetes does to a database — is filed as **Normal**. Severity here
+  therefore comes from the *reason*, the same way it comes from meaning everywhere else on
+  this page.
+
+The engine column says **Kubernetes API** rather than naming a database, because nobody
+tailed a file to get it.

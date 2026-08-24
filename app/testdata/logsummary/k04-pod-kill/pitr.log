@@ -1,0 +1,59 @@
+2026/08/22 05:29:30 initializing collector
+2026/08/22 05:29:31 PXC Node: 2026/08/22 05:29:30 Peer finder enter
+2026/08/22 05:29:30 Determined Domain to be pxc.svc.cluster.local
+2026/08/22 05:29:30 Peer list updated
+was []
+now [cluster1-pxc-0.cluster1-pxc.pxc.svc.cluster.local cluster1-pxc-1.cluster1-pxc.pxc.svc.cluster.local cluster1-pxc-2.cluster1-pxc.pxc.svc.cluster.local]
+2026/08/22 05:29:30 execing: /opt/percona/get-pxc-state.sh with stdin: cluster1-pxc-0.cluster1-pxc.pxc.svc.cluster.local
+cluster1-pxc-1.cluster1-pxc.pxc.svc.cluster.local
+cluster1-pxc-2.cluster1-pxc.pxc.svc.cluster.local
+2026/08/22 05:29:30 
+2026/08/22 05:29:31 PXC Node: cluster1-pxc-0.cluster1-pxc.pxc.svc.cluster.local:wsrep_ready:ON:wsrep_connected:ON:wsrep_local_state_comment:Synced:wsrep_cluster_status:Primary:wsrep_cluster_size:3
+2026/08/22 05:29:31 connecting to cluster1-pxc-0.cluster1-pxc.pxc.svc.cluster.local
+2026/08/22 05:29:31 installing binlog UDF component
+2026/08/22 05:29:31 file://component_binlog_utils_udf is already installed
+2026/08/22 05:29:31 running binlog collector
+2026/08/22 05:29:32 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.pxc.svc.cluster.local
+2026/08/22 05:29:32 WARNING: cache file gtid-binlog-cache.json not found
+2026/08/22 05:29:32 WARNING: ignoring timeout to populate the cache, this might take some time...
+2026/08/22 05:29:32 binlog.000001 (1985 bytes) [E:No]: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:1-5
+2026/08/22 05:29:32 binlog.000002 (2872 bytes) [E:No]: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:6-16
+2026/08/22 05:29:32 binlog.000003 (90111101 bytes) [E:No]: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:17-1665
+2026/08/22 05:29:32 updating binlog cache
+2026/08/22 05:29:32 last uploaded binlog: 
+2026/08/22 05:29:32 starting to process binlog with name binlog.000001
+2026/08/22 05:29:32 successfully wrote binlog file binlog.000001 to storage with name binlog_1787376076_000001_26c29ff404845fce1258291cfd7ae191
+2026/08/22 05:29:32 starting to process binlog with name binlog.000002
+2026/08/22 05:29:32 successfully wrote binlog file binlog.000002 to storage with name binlog_1787376103_000002_37a5c74a959aa077bab0c16cfc92a42e
+2026/08/22 05:29:32 starting to process binlog with name binlog.000003
+2026/08/22 05:29:33 successfully wrote binlog file binlog.000003 to storage with name binlog_1787376171_000003_4dcbd6bf0bf9a9e249700824d5014498
+2026/08/22 05:30:34 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.pxc.svc.cluster.local
+2026/08/22 05:30:34 binlog.000001 (1985 bytes) [E:No]: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:1-5
+2026/08/22 05:30:34 binlog.000002 (2872 bytes) [E:No]: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:6-16
+2026/08/22 05:30:34 binlog.000003 (90111145 bytes) [E:No]: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:17-1665
+2026/08/22 05:30:34 no cache entry for binlog.000004
+2026/08/22 05:30:34 binlog.000004 (28038750 bytes) [E:No]: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:1666-2173
+2026/08/22 05:30:34 updating binlog cache
+2026/08/22 05:30:34 last uploaded GTID set: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:17-1665
+2026/08/22 05:30:34 checking binlog.000004 (4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:1666-2173) against last uploaded set
+2026/08/22 05:30:34 checking binlog.000003 (4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:17-1665) against last uploaded set
+2026/08/22 05:30:34 last uploaded end marker 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:1665 found in binlog.000003 (4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:17-1665)
+2026/08/22 05:30:34 last uploaded binlog: binlog.000003
+2026/08/22 05:30:34 starting to process binlog with name binlog.000004
+2026/08/22 05:30:35 successfully wrote binlog file binlog.000004 to storage with name binlog_1787376572_000004_ab333294c5b8d400a7a5c35ae39f5baf
+2026/08/22 05:31:08 ERROR: invalidate cache: failed to find cache for cluster1-pxc-1.cluster1-pxc.pxc.svc.cluster.local
+2026/08/22 05:31:36 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.pxc.svc.cluster.local
+2026/08/22 05:31:36 binlog.000001 (1985 bytes) [E:No]: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:1-5
+2026/08/22 05:31:36 binlog.000002 (2872 bytes) [E:No]: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:6-16
+2026/08/22 05:31:36 binlog.000003 (90111145 bytes) [E:No]: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:17-1665
+2026/08/22 05:31:36 binlog.000004 (28038794 bytes) [E:No]: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:1666-2173
+2026/08/22 05:31:36 no cache entry for binlog.000005
+2026/08/22 05:31:36 binlog.000005 (25168662 bytes) [E:No]: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:2174-2629
+2026/08/22 05:31:36 updating binlog cache
+2026/08/22 05:31:36 last uploaded GTID set: 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:1666-2173
+2026/08/22 05:31:36 checking binlog.000005 (4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:2174-2629) against last uploaded set
+2026/08/22 05:31:36 checking binlog.000004 (4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:1666-2173) against last uploaded set
+2026/08/22 05:31:36 last uploaded end marker 4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:2173 found in binlog.000004 (4c8d9454-9de9-11f1-a96f-8ee14c9e9d54:1666-2173)
+2026/08/22 05:31:36 last uploaded binlog: binlog.000004
+2026/08/22 05:31:36 starting to process binlog with name binlog.000005
+2026/08/22 05:31:36 successfully wrote binlog file binlog.000005 to storage with name binlog_1787376634_000005_cf4b00440827117dd542f40cab1b2159

@@ -11,7 +11,8 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 )
 
 // pgStore implements Store against PostgreSQL.
@@ -31,6 +32,30 @@ import (
 // so no query below has to know which of the two happened. Location() reports
 // the outcome in words, because "where did my data actually land" is not a
 // question a user should have to answer by hand.
+//
+// *How* it is pinned matters, because the obvious way locks the app out of
+// every connection pooler. Passing it as a libpq startup parameter
+// (`options=-c search_path=…`) is what the DSN form invites, and PgBouncer
+// rejects any startup parameter that is not in its `ignore_startup_parameters`
+// — the connection dies before it runs a statement:
+//
+//	FATAL: unsupported startup parameter in options: search_path (SQLSTATE 08P01)
+//
+// That rules out the pooler in front of every Crunchy-shaped operator cluster
+// (Percona's PostgreSQL operator, Crunchy PGO), which is exactly the endpoint
+// such a cluster advertises. So it is pinned two other ways instead, and
+// between them they cover every pooling mode:
+//
+//   - `SET search_path` on each new backend connection (pgSetSearchPath, run
+//     from stdlib's after-connect hook). Enough for a direct connection and for
+//     a pooler in session mode, where a server connection belongs to one client
+//     for the length of its session.
+//   - `ALTER ROLE … IN DATABASE … SET search_path`, once, at open. This is
+//     the catalogue default for our own role in our own database, so every
+//     backend starts with it already applied — which is what covers transaction
+//     and statement pooling, where a `SET` does not survive to the next query.
+//     Best effort: a role that may not alter itself still has the first
+//     mechanism.
 type pgStore struct {
 	db       *sql.DB
 	name     string // the namespace the user asked for — what Database() reports
@@ -46,14 +71,20 @@ func openPostgres(ctx context.Context, c Config) (Store, error) {
 	}
 
 	dsn, database, schema, owned := pgResolvePlacement(ctx, base, c.Database)
-	// Pin search_path so unqualified table names in every query below resolve
-	// to our schema, without threading the name through each statement.
-	dsn = pgWithSearchPath(dsn, schema)
 
-	db, err := sql.Open("pgx", dsn)
+	// Pin search_path so unqualified table names in every query below resolve
+	// to our schema, without threading the name through each statement — see
+	// the note on pgStore for why this is a connection hook and a role default
+	// rather than the DSN option it looks like it should be.
+	cc, err := pgx.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open postgres: %w", err)
 	}
+	db := stdlib.OpenDB(*cc, stdlib.OptionAfterConnect(func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, pgSetSearchPath(schema))
+		return err
+	}))
+	pgPinSearchPath(ctx, db, schema)
 	pool := c.PoolSize()
 	db.SetConnMaxLifetime(5 * time.Minute)
 	db.SetMaxOpenConns(pool)
@@ -196,24 +227,35 @@ func pgDSN(c Config) string {
 	return out
 }
 
-// pgWithSearchPath appends a search_path option to a DSN in either supported
-// form. Uses the URL's own query when it parses as one, so a user-supplied
-// connection string keeps whatever else it carries.
-func pgWithSearchPath(dsn, schema string) string {
-	opt := "-c search_path=" + schema + ",public"
-	if u, err := url.Parse(dsn); err == nil && u.Scheme != "" {
-		q := u.Query()
-		if q.Get("options") != "" {
-			return dsn // the caller pinned their own options; do not fight them
-		}
-		q.Set("options", opt)
-		u.RawQuery = q.Encode()
-		return u.String()
+// pgSetSearchPath is the statement that pins search_path for one session.
+// public stays on the path so the extensions and types a cluster installs there
+// resolve unqualified, exactly as they did under the startup-parameter form.
+func pgSetSearchPath(schema string) string {
+	return "SET search_path = " + pgQuoteIdent(schema) + ", public"
+}
+
+// pgPinSearchPath makes the same setting the catalogue default for this role in
+// this database, so a backend has it before the first statement — which is what
+// keeps the app working through a pooler in transaction or statement mode,
+// where the per-session SET above is discarded between queries.
+//
+// Deliberately quiet on failure. A role is always allowed to set its own
+// USERSET parameters, but the database name has to be one the role may name,
+// and a managed instance can refuse for its own reasons; the session-level SET
+// is the mechanism that has to work, and this only widens where it holds.
+func pgPinSearchPath(ctx context.Context, db *sql.DB, schema string) {
+	cctx, cancel := context.WithTimeout(ctx, connectTimeout)
+	defer cancel()
+	var database string
+	if err := db.QueryRowContext(cctx, "SELECT current_database()").Scan(&database); err != nil {
+		return
 	}
-	if strings.Contains(dsn, "options=") {
-		return dsn
+	if _, err := db.ExecContext(cctx, fmt.Sprintf(
+		"ALTER ROLE CURRENT_USER IN DATABASE %s SET search_path = %s, public",
+		pgQuoteIdent(database), pgQuoteIdent(schema))); err != nil {
+		log.Printf("stocksim: could not make search_path=%s the default for this role (%v) — "+
+			"it is still set on every connection, which is enough unless a pooler is in transaction mode", schema, err)
 	}
-	return dsn + " options='" + opt + "'"
 }
 
 // pgWithDatabase repoints a DSN at a different database. In keyword/value form

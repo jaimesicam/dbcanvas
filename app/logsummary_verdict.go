@@ -56,7 +56,8 @@ func lsFindings(b *lsBundle) []lsFinding {
 		lsFindingFlowControl,
 		lsFindingCoverage,
 		lsFindingHealthy,
-	}, append(append(append(lsGRFindings, lsMongoFindings...), lsPGFindings...), lsValkeyFindings...)...) {
+	}, append(append(append(append(lsGRFindings, lsMongoFindings...), lsPGFindings...),
+		lsValkeyFindings...), append(append(lsPXCOpFindings, lsPSMDBFindings...), lsPGOpFindings...)...)...) {
 		out = append(out, check(b)...)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -481,6 +482,9 @@ func lsFindingDisagreement(b *lsBundle) []lsFinding {
 		t := e.TS + 0.5
 		lo, hi, seen := 0, 0, 0
 		for _, s := range b.Sources {
+			if !lsIsClusterMemberSrc(s) {
+				continue
+			}
 			p, ok := lsStateAt(b.Phases, s.Idx, t)
 			if !ok || p.Members == 0 || p.State == lsStateDown {
 				continue
@@ -504,6 +508,9 @@ func lsFindingDisagreement(b *lsBundle) []lsFinding {
 	split := false
 	joining := false
 	for _, s := range b.Sources {
+		if !lsIsClusterMemberSrc(s) {
+			continue
+		}
 		p, ok := lsStateAt(b.Phases, s.Idx, worstAt)
 		// A node that was not running, or whose log has not said anything yet, is not a
 		// party to the disagreement — listing it as "saw 0 members" reads like a third
@@ -543,6 +550,23 @@ func lsFindingDisagreement(b *lsBundle) []lsFinding {
 	return []lsFinding{f}
 }
 
+// lsIsClusterMemberSrc reports whether a source is a member of a cluster that HAS a
+// membership count — which is the precondition for being a party to a disagreement about
+// one.
+//
+// It exists because of a Kubernetes source. A PXC operator's log carries no membership at
+// all, and its lane's states are LEADER / NOT-LEADER; letting it into the count produced
+// "operator/cluster1 saw 0 member(s) and was LEADER" beside two members that genuinely
+// disagreed — a third opinion from something that has no opinion. Caught by reading the
+// page rather than by a test, which is why the check is here rather than in each caller.
+func lsIsClusterMemberSrc(s lsSource) bool {
+	switch s.Flavour {
+	case lsFlavourGalera, lsFlavourGroupRepl, lsFlavourMongoRS:
+		return true
+	}
+	return false
+}
+
 // lsFindingUnavailability — how long each node spent not answering queries.
 //
 // The single number people want from a cluster's logs, and one nobody can get by reading
@@ -560,6 +584,15 @@ func lsFindingUnavailability(b *lsBundle) []lsFinding {
 	}
 	var rows []row
 	for _, s := range b.Sources {
+		// The Kubernetes sources are skipped outright. "Time spent not answering queries"
+		// is a question about a database, and an operator, a binlog collector or an Events
+		// feed answers no queries at any time — measuring it would report every healthy
+		// cluster's controller as twenty minutes of downtime, in a finding whose whole
+		// purpose is to name real unavailability. The Events feed was caught doing exactly
+		// that on a rendered page: "kubernetes: 37.7s not serving".
+		if s.Engine == pktEngineOperator || s.Engine == pktEngineK8sEvents {
+			continue
+		}
 		r := row{src: s.Idx, why: map[string]float64{}}
 		for _, p := range b.Phases {
 			if p.Src != s.Idx || lsStateServes(p.State) {

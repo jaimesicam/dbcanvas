@@ -1,0 +1,3681 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:21:52Z",
+            "involvedObject": {
+                "apiVersion": "coordination.k8s.io/v1",
+                "kind": "Lease",
+                "name": "08db2feb.percona.com",
+                "namespace": "ps",
+                "resourceVersion": "687",
+                "uid": "634264e4-10ab-433f-ba69-89aeabb6fc08"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:21:52Z",
+            "message": "percona-server-mysql-operator-74cfc9d9bd-jqftm_11b36f60-90d3-4d0b-97c6-4a0f38bf5cc7 became leader",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:21:52Z",
+                "name": "08db2feb.percona.com.18ce234c27a431d9",
+                "namespace": "ps",
+                "resourceVersion": "689",
+                "uid": "df3f494e-2258-4bfa-b40f-483c130b73b0"
+            },
+            "reason": "LeaderElection",
+            "reportingComponent": "percona-server-mysql-operator-74cfc9d9bd-jqftm_11b36f60-90d3-4d0b-97c6-4a0f38bf5cc7",
+            "reportingInstance": "",
+            "source": {
+                "component": "percona-server-mysql-operator-74cfc9d9bd-jqftm_11b36f60-90d3-4d0b-97c6-4a0f38bf5cc7"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:21:55Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "datadir-psc-mysql-0",
+                "namespace": "ps",
+                "resourceVersion": "728",
+                "uid": "e8e9960a-833b-46b7-9768-b18e86b19d84"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:21:55Z",
+            "message": "waiting for first consumer to be created before binding",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:21:55Z",
+                "name": "datadir-psc-mysql-0.18ce234d09419d56",
+                "namespace": "ps",
+                "resourceVersion": "733",
+                "uid": "ce45ec74-8057-4c98-9443-a9d62c7a5d57"
+            },
+            "reason": "WaitForFirstConsumer",
+            "reportingComponent": "persistentvolume-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "persistentvolume-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 2,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:21:55Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "datadir-psc-mysql-0",
+                "namespace": "ps",
+                "resourceVersion": "737",
+                "uid": "e8e9960a-833b-46b7-9768-b18e86b19d84"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:21:55Z",
+            "message": "Waiting for a volume to be created either by the external provisioner 'rancher.io/local-path' or manually by the system administrator. If volume creation is delayed, please verify that the provisioner is running and correctly registered.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:21:55Z",
+                "name": "datadir-psc-mysql-0.18ce234d09e7b769",
+                "namespace": "ps",
+                "resourceVersion": "739",
+                "uid": "8bc6f700-3908-4423-8445-822e60f524f1"
+            },
+            "reason": "ExternalProvisioning",
+            "reportingComponent": "persistentvolume-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "persistentvolume-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:21:55Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "datadir-psc-mysql-0",
+                "namespace": "ps",
+                "resourceVersion": "737",
+                "uid": "e8e9960a-833b-46b7-9768-b18e86b19d84"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:21:55Z",
+            "message": "External provisioner is provisioning volume for claim \"ps/datadir-psc-mysql-0\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:21:55Z",
+                "name": "datadir-psc-mysql-0.18ce234d0a02c67b",
+                "namespace": "ps",
+                "resourceVersion": "740",
+                "uid": "a2c18418-a57b-4bdb-8034-feb073d07ff5"
+            },
+            "reason": "Provisioning",
+            "reportingComponent": "rancher.io/local-path_local-path-provisioner-58d557dc48-nxvhl_2e2abfaf-77e8-4d5a-98b4-1319716e6e0a",
+            "reportingInstance": "",
+            "source": {
+                "component": "rancher.io/local-path_local-path-provisioner-58d557dc48-nxvhl_2e2abfaf-77e8-4d5a-98b4-1319716e6e0a"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:22:03Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "datadir-psc-mysql-0",
+                "namespace": "ps",
+                "resourceVersion": "737",
+                "uid": "e8e9960a-833b-46b7-9768-b18e86b19d84"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:22:03Z",
+            "message": "Successfully provisioned volume pvc-e8e9960a-833b-46b7-9768-b18e86b19d84",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:22:03Z",
+                "name": "datadir-psc-mysql-0.18ce234eb1f458b9",
+                "namespace": "ps",
+                "resourceVersion": "771",
+                "uid": "674b450d-0668-459b-81c6-27e312632113"
+            },
+            "reason": "ProvisioningSucceeded",
+            "reportingComponent": "rancher.io/local-path_local-path-provisioner-58d557dc48-nxvhl_2e2abfaf-77e8-4d5a-98b4-1319716e6e0a",
+            "reportingInstance": "",
+            "source": {
+                "component": "rancher.io/local-path_local-path-provisioner-58d557dc48-nxvhl_2e2abfaf-77e8-4d5a-98b4-1319716e6e0a"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:31Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "datadir-psc-mysql-1",
+                "namespace": "ps",
+                "resourceVersion": "890",
+                "uid": "f72bcf01-9d05-485d-a5b7-09b20b8a43ae"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:31Z",
+            "message": "waiting for first consumer to be created before binding",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:31Z",
+                "name": "datadir-psc-mysql-1.18ce236339deb122",
+                "namespace": "ps",
+                "resourceVersion": "893",
+                "uid": "317c82e0-eb02-45f1-99f2-ab4fedc90c23"
+            },
+            "reason": "WaitForFirstConsumer",
+            "reportingComponent": "persistentvolume-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "persistentvolume-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:31Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "datadir-psc-mysql-1",
+                "namespace": "ps",
+                "resourceVersion": "905",
+                "uid": "f72bcf01-9d05-485d-a5b7-09b20b8a43ae"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:31Z",
+            "message": "Waiting for a volume to be created either by the external provisioner 'rancher.io/local-path' or manually by the system administrator. If volume creation is delayed, please verify that the provisioner is running and correctly registered.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:31Z",
+                "name": "datadir-psc-mysql-1.18ce23633b136e23",
+                "namespace": "ps",
+                "resourceVersion": "908",
+                "uid": "664b0e47-7908-4298-a2cb-bc5368999d78"
+            },
+            "reason": "ExternalProvisioning",
+            "reportingComponent": "persistentvolume-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "persistentvolume-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:31Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "datadir-psc-mysql-1",
+                "namespace": "ps",
+                "resourceVersion": "905",
+                "uid": "f72bcf01-9d05-485d-a5b7-09b20b8a43ae"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:31Z",
+            "message": "External provisioner is provisioning volume for claim \"ps/datadir-psc-mysql-1\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:31Z",
+                "name": "datadir-psc-mysql-1.18ce23633b36872d",
+                "namespace": "ps",
+                "resourceVersion": "912",
+                "uid": "3e63ab2a-4683-4bfc-970e-dd605b730564"
+            },
+            "reason": "Provisioning",
+            "reportingComponent": "rancher.io/local-path_local-path-provisioner-58d557dc48-nxvhl_2e2abfaf-77e8-4d5a-98b4-1319716e6e0a",
+            "reportingInstance": "",
+            "source": {
+                "component": "rancher.io/local-path_local-path-provisioner-58d557dc48-nxvhl_2e2abfaf-77e8-4d5a-98b4-1319716e6e0a"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:34Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "datadir-psc-mysql-1",
+                "namespace": "ps",
+                "resourceVersion": "905",
+                "uid": "f72bcf01-9d05-485d-a5b7-09b20b8a43ae"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:34Z",
+            "message": "Successfully provisioned volume pvc-f72bcf01-9d05-485d-a5b7-09b20b8a43ae",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:34Z",
+                "name": "datadir-psc-mysql-1.18ce2363f62406e3",
+                "namespace": "ps",
+                "resourceVersion": "947",
+                "uid": "d7f602fb-c7a0-482b-b231-26c358a20534"
+            },
+            "reason": "ProvisioningSucceeded",
+            "reportingComponent": "rancher.io/local-path_local-path-provisioner-58d557dc48-nxvhl_2e2abfaf-77e8-4d5a-98b4-1319716e6e0a",
+            "reportingInstance": "",
+            "source": {
+                "component": "rancher.io/local-path_local-path-provisioner-58d557dc48-nxvhl_2e2abfaf-77e8-4d5a-98b4-1319716e6e0a"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:13Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "datadir-psc-mysql-2",
+                "namespace": "ps",
+                "resourceVersion": "1061",
+                "uid": "aecdb6cd-0bce-450d-8d57-fa59e3ed55ff"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:13Z",
+            "message": "waiting for first consumer to be created before binding",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:13Z",
+                "name": "datadir-psc-mysql-2.18ce236d261ff63b",
+                "namespace": "ps",
+                "resourceVersion": "1064",
+                "uid": "fc470e61-9b49-410f-92fa-997de0d186f4"
+            },
+            "reason": "WaitForFirstConsumer",
+            "reportingComponent": "persistentvolume-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "persistentvolume-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 2,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:13Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "datadir-psc-mysql-2",
+                "namespace": "ps",
+                "resourceVersion": "1073",
+                "uid": "aecdb6cd-0bce-450d-8d57-fa59e3ed55ff"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:13Z",
+            "message": "Waiting for a volume to be created either by the external provisioner 'rancher.io/local-path' or manually by the system administrator. If volume creation is delayed, please verify that the provisioner is running and correctly registered.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:13Z",
+                "name": "datadir-psc-mysql-2.18ce236d26c19b3f",
+                "namespace": "ps",
+                "resourceVersion": "1076",
+                "uid": "b8afb1d8-d9a3-4f44-bb16-775cf727bfd6"
+            },
+            "reason": "ExternalProvisioning",
+            "reportingComponent": "persistentvolume-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "persistentvolume-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:13Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "datadir-psc-mysql-2",
+                "namespace": "ps",
+                "resourceVersion": "1073",
+                "uid": "aecdb6cd-0bce-450d-8d57-fa59e3ed55ff"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:13Z",
+            "message": "External provisioner is provisioning volume for claim \"ps/datadir-psc-mysql-2\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:13Z",
+                "name": "datadir-psc-mysql-2.18ce236d26da3ce6",
+                "namespace": "ps",
+                "resourceVersion": "1075",
+                "uid": "6894aebd-fde1-4ed6-9f91-27bc474c7271"
+            },
+            "reason": "Provisioning",
+            "reportingComponent": "rancher.io/local-path_local-path-provisioner-58d557dc48-nxvhl_2e2abfaf-77e8-4d5a-98b4-1319716e6e0a",
+            "reportingInstance": "",
+            "source": {
+                "component": "rancher.io/local-path_local-path-provisioner-58d557dc48-nxvhl_2e2abfaf-77e8-4d5a-98b4-1319716e6e0a"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:16Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "datadir-psc-mysql-2",
+                "namespace": "ps",
+                "resourceVersion": "1073",
+                "uid": "aecdb6cd-0bce-450d-8d57-fa59e3ed55ff"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:16Z",
+            "message": "Successfully provisioned volume pvc-aecdb6cd-0bce-450d-8d57-fa59e3ed55ff",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:16Z",
+                "name": "datadir-psc-mysql-2.18ce236dc0ff808f",
+                "namespace": "ps",
+                "resourceVersion": "1093",
+                "uid": "5c42fc78-1a9d-490a-a359-4c5ca436f26e"
+            },
+            "reason": "ProvisioningSucceeded",
+            "reportingComponent": "rancher.io/local-path_local-path-provisioner-58d557dc48-nxvhl_2e2abfaf-77e8-4d5a-98b4-1319716e6e0a",
+            "reportingInstance": "",
+            "source": {
+                "component": "rancher.io/local-path_local-path-provisioner-58d557dc48-nxvhl_2e2abfaf-77e8-4d5a-98b4-1319716e6e0a"
+            },
+            "type": "Normal"
+        },
+        {
+            "action": "Binding",
+            "apiVersion": "v1",
+            "eventTime": "2026-08-22T13:21:35.029734Z",
+            "firstTimestamp": null,
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "percona-server-mysql-operator-74cfc9d9bd-jqftm",
+                "namespace": "ps",
+                "resourceVersion": "662",
+                "uid": "4fdc8a47-997a-4850-9f92-740dc80eecf2"
+            },
+            "kind": "Event",
+            "lastTimestamp": null,
+            "message": "Successfully assigned ps/percona-server-mysql-operator-74cfc9d9bd-jqftm to k3d-psc-s147-server-0",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:21:35Z",
+                "name": "percona-server-mysql-operator-74cfc9d9bd-jqftm.18ce23482e0ac131",
+                "namespace": "ps",
+                "resourceVersion": "666",
+                "uid": "3df67ef9-486c-4105-95ab-b50bcc70900b"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "default-scheduler-k3d-psc-s147-server-0",
+            "source": {},
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:21:35Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{manager}",
+                "kind": "Pod",
+                "name": "percona-server-mysql-operator-74cfc9d9bd-jqftm",
+                "namespace": "ps",
+                "resourceVersion": "665",
+                "uid": "4fdc8a47-997a-4850-9f92-740dc80eecf2"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:21:35Z",
+            "message": "Pulling image \"percona/percona-server-mysql-operator:1.2.0\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:21:35Z",
+                "name": "percona-server-mysql-operator-74cfc9d9bd-jqftm.18ce23484a508281",
+                "namespace": "ps",
+                "resourceVersion": "672",
+                "uid": "4f28c7bd-60b3-4d42-9e5e-74ec24a5b79a"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:21:50Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{manager}",
+                "kind": "Pod",
+                "name": "percona-server-mysql-operator-74cfc9d9bd-jqftm",
+                "namespace": "ps",
+                "resourceVersion": "665",
+                "uid": "4fdc8a47-997a-4850-9f92-740dc80eecf2"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:21:50Z",
+            "message": "Successfully pulled image \"percona/percona-server-mysql-operator:1.2.0\" in 15.356s (15.356s including waiting). Image size: 134402985 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:21:50Z",
+                "name": "percona-server-mysql-operator-74cfc9d9bd-jqftm.18ce234bdda5bb47",
+                "namespace": "ps",
+                "resourceVersion": "682",
+                "uid": "da605360-8c0f-4aa2-ab56-5284cc1eada6"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:21:50Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{manager}",
+                "kind": "Pod",
+                "name": "percona-server-mysql-operator-74cfc9d9bd-jqftm",
+                "namespace": "ps",
+                "resourceVersion": "665",
+                "uid": "4fdc8a47-997a-4850-9f92-740dc80eecf2"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:21:50Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:21:50Z",
+                "name": "percona-server-mysql-operator-74cfc9d9bd-jqftm.18ce234bdf0c619c",
+                "namespace": "ps",
+                "resourceVersion": "683",
+                "uid": "b5bfc406-1478-44a0-9c70-ba2089cacdf3"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:21:50Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{manager}",
+                "kind": "Pod",
+                "name": "percona-server-mysql-operator-74cfc9d9bd-jqftm",
+                "namespace": "ps",
+                "resourceVersion": "665",
+                "uid": "4fdc8a47-997a-4850-9f92-740dc80eecf2"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:21:50Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:21:50Z",
+                "name": "percona-server-mysql-operator-74cfc9d9bd-jqftm.18ce234be1f8821c",
+                "namespace": "ps",
+                "resourceVersion": "684",
+                "uid": "2631b78d-c15a-4459-9670-10e9258f393e"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:21:35Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "ReplicaSet",
+                "name": "percona-server-mysql-operator-74cfc9d9bd",
+                "namespace": "ps",
+                "resourceVersion": "656",
+                "uid": "728f3675-9a98-4e7a-98dd-a042e3428154"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:21:35Z",
+            "message": "Created pod: percona-server-mysql-operator-74cfc9d9bd-jqftm",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:21:35Z",
+                "name": "percona-server-mysql-operator-74cfc9d9bd.18ce23482dd987d4",
+                "namespace": "ps",
+                "resourceVersion": "663",
+                "uid": "fe224b3b-e502-496f-bb09-9698129dcaac"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "replicaset-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "replicaset-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:21:34Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "Deployment",
+                "name": "percona-server-mysql-operator",
+                "namespace": "ps",
+                "resourceVersion": "655",
+                "uid": "b2ff4118-7bdf-49b6-ba7e-ee88576ac944"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:21:34Z",
+            "message": "Scaled up replica set percona-server-mysql-operator-74cfc9d9bd from 0 to 1",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:21:34Z",
+                "name": "percona-server-mysql-operator.18ce234825dd878c",
+                "namespace": "ps",
+                "resourceVersion": "657",
+                "uid": "0df97a87-3ce2-4a5a-902f-7ece567c4d01"
+            },
+            "reason": "ScalingReplicaSet",
+            "reportingComponent": "deployment-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "deployment-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "action": "Binding",
+            "apiVersion": "v1",
+            "eventTime": "2026-08-22T13:23:31.222741Z",
+            "firstTimestamp": null,
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "psc-haproxy-0",
+                "namespace": "ps",
+                "resourceVersion": "913",
+                "uid": "02239f29-65ea-42f5-8d89-fc20b2f8c1a8"
+            },
+            "kind": "Event",
+            "lastTimestamp": null,
+            "message": "Successfully assigned ps/psc-haproxy-0 to k3d-psc-s147-server-0",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:31Z",
+                "name": "psc-haproxy-0.18ce23633baf514c",
+                "namespace": "ps",
+                "resourceVersion": "918",
+                "uid": "77ba7812-ebe7-4a5e-b08a-b0aa2d9792cc"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "default-scheduler-k3d-psc-s147-server-0",
+            "source": {},
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:31Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{haproxy-init}",
+                "kind": "Pod",
+                "name": "psc-haproxy-0",
+                "namespace": "ps",
+                "resourceVersion": "916",
+                "uid": "02239f29-65ea-42f5-8d89-fc20b2f8c1a8"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:31Z",
+            "message": "Pulling image \"percona/percona-server-mysql-operator:1.2.0\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:31Z",
+                "name": "psc-haproxy-0.18ce2363581ebf2f",
+                "namespace": "ps",
+                "resourceVersion": "926",
+                "uid": "f224828a-300c-43d9-bea9-97d4c3a74671"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:33Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{haproxy-init}",
+                "kind": "Pod",
+                "name": "psc-haproxy-0",
+                "namespace": "ps",
+                "resourceVersion": "916",
+                "uid": "02239f29-65ea-42f5-8d89-fc20b2f8c1a8"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:33Z",
+            "message": "Successfully pulled image \"percona/percona-server-mysql-operator:1.2.0\" in 1.882s (1.882s including waiting). Image size: 134402985 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:33Z",
+                "name": "psc-haproxy-0.18ce2363c8570a80",
+                "namespace": "ps",
+                "resourceVersion": "936",
+                "uid": "ad8a2ee0-09dd-4f29-aded-4529b81d8908"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:33Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{haproxy-init}",
+                "kind": "Pod",
+                "name": "psc-haproxy-0",
+                "namespace": "ps",
+                "resourceVersion": "916",
+                "uid": "02239f29-65ea-42f5-8d89-fc20b2f8c1a8"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:33Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:33Z",
+                "name": "psc-haproxy-0.18ce2363cb395278",
+                "namespace": "ps",
+                "resourceVersion": "937",
+                "uid": "ab86dfad-247b-42fa-a6d9-43c7422f3bc1"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:33Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{haproxy-init}",
+                "kind": "Pod",
+                "name": "psc-haproxy-0",
+                "namespace": "ps",
+                "resourceVersion": "916",
+                "uid": "02239f29-65ea-42f5-8d89-fc20b2f8c1a8"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:33Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:33Z",
+                "name": "psc-haproxy-0.18ce2363ced20133",
+                "namespace": "ps",
+                "resourceVersion": "938",
+                "uid": "8e7bb234-f134-4c6d-9870-eedfe5a818d6"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:35Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{haproxy}",
+                "kind": "Pod",
+                "name": "psc-haproxy-0",
+                "namespace": "ps",
+                "resourceVersion": "916",
+                "uid": "02239f29-65ea-42f5-8d89-fc20b2f8c1a8"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:35Z",
+            "message": "Pulling image \"percona/haproxy:2.8.18-1\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:35Z",
+                "name": "psc-haproxy-0.18ce236422356555",
+                "namespace": "ps",
+                "resourceVersion": "951",
+                "uid": "6bce3ade-79f0-4ac8-9baa-795264168985"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:44Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{haproxy}",
+                "kind": "Pod",
+                "name": "psc-haproxy-0",
+                "namespace": "ps",
+                "resourceVersion": "916",
+                "uid": "02239f29-65ea-42f5-8d89-fc20b2f8c1a8"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:44Z",
+            "message": "Successfully pulled image \"percona/haproxy:2.8.18-1\" in 9.865s (9.865s including waiting). Image size: 104187685 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:44Z",
+                "name": "psc-haproxy-0.18ce23666e377335",
+                "namespace": "ps",
+                "resourceVersion": "987",
+                "uid": "56d3e46a-ad8b-422a-b2ba-14cc0e77dba6"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:44Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{haproxy}",
+                "kind": "Pod",
+                "name": "psc-haproxy-0",
+                "namespace": "ps",
+                "resourceVersion": "916",
+                "uid": "02239f29-65ea-42f5-8d89-fc20b2f8c1a8"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:44Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:44Z",
+                "name": "psc-haproxy-0.18ce2366705dae0d",
+                "namespace": "ps",
+                "resourceVersion": "988",
+                "uid": "466b7814-bfa9-4c62-a9e0-12045a8f3220"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:45Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{haproxy}",
+                "kind": "Pod",
+                "name": "psc-haproxy-0",
+                "namespace": "ps",
+                "resourceVersion": "916",
+                "uid": "02239f29-65ea-42f5-8d89-fc20b2f8c1a8"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:45Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:45Z",
+                "name": "psc-haproxy-0.18ce23667453d410",
+                "namespace": "ps",
+                "resourceVersion": "989",
+                "uid": "cf8254fa-ee74-4800-904b-30995db86981"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:45Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql-monit}",
+                "kind": "Pod",
+                "name": "psc-haproxy-0",
+                "namespace": "ps",
+                "resourceVersion": "916",
+                "uid": "02239f29-65ea-42f5-8d89-fc20b2f8c1a8"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:45Z",
+            "message": "Pulling image \"percona/haproxy:2.8.18-1\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:45Z",
+                "name": "psc-haproxy-0.18ce2366745932f0",
+                "namespace": "ps",
+                "resourceVersion": "990",
+                "uid": "3dbb3b47-a5af-4b08-94ec-7b1aeb07c3c5"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:46Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql-monit}",
+                "kind": "Pod",
+                "name": "psc-haproxy-0",
+                "namespace": "ps",
+                "resourceVersion": "916",
+                "uid": "02239f29-65ea-42f5-8d89-fc20b2f8c1a8"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:46Z",
+            "message": "Successfully pulled image \"percona/haproxy:2.8.18-1\" in 1.286s (1.286s including waiting). Image size: 104187685 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:46Z",
+                "name": "psc-haproxy-0.18ce2366c10b03c6",
+                "namespace": "ps",
+                "resourceVersion": "992",
+                "uid": "c12db7eb-fa00-450a-b6f3-f2338cdf8cce"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:46Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql-monit}",
+                "kind": "Pod",
+                "name": "psc-haproxy-0",
+                "namespace": "ps",
+                "resourceVersion": "916",
+                "uid": "02239f29-65ea-42f5-8d89-fc20b2f8c1a8"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:46Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:46Z",
+                "name": "psc-haproxy-0.18ce2366c2bc8b1a",
+                "namespace": "ps",
+                "resourceVersion": "993",
+                "uid": "29a5c2a8-c112-448f-8642-7b5bb7e37747"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:46Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql-monit}",
+                "kind": "Pod",
+                "name": "psc-haproxy-0",
+                "namespace": "ps",
+                "resourceVersion": "916",
+                "uid": "02239f29-65ea-42f5-8d89-fc20b2f8c1a8"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:46Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:46Z",
+                "name": "psc-haproxy-0.18ce2366c6424e89",
+                "namespace": "ps",
+                "resourceVersion": "994",
+                "uid": "43a8f37f-ad90-4c00-8650-b658f2761605"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "action": "Binding",
+            "apiVersion": "v1",
+            "eventTime": "2026-08-22T13:24:01.713747Z",
+            "firstTimestamp": null,
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "psc-haproxy-1",
+                "namespace": "ps",
+                "resourceVersion": "1020",
+                "uid": "b2b8b8e5-d120-4ccc-932e-a3493ed21f98"
+            },
+            "kind": "Event",
+            "lastTimestamp": null,
+            "message": "Successfully assigned ps/psc-haproxy-1 to k3d-psc-s147-server-0",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:01Z",
+                "name": "psc-haproxy-1.18ce236a55172e8f",
+                "namespace": "ps",
+                "resourceVersion": "1024",
+                "uid": "15de6ab1-5034-4599-a568-d9a177a0f6c7"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "default-scheduler-k3d-psc-s147-server-0",
+            "source": {},
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:02Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{haproxy-init}",
+                "kind": "Pod",
+                "name": "psc-haproxy-1",
+                "namespace": "ps",
+                "resourceVersion": "1022",
+                "uid": "b2b8b8e5-d120-4ccc-932e-a3493ed21f98"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:02Z",
+            "message": "Pulling image \"percona/percona-server-mysql-operator:1.2.0\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:02Z",
+                "name": "psc-haproxy-1.18ce236a6e7a6089",
+                "namespace": "ps",
+                "resourceVersion": "1028",
+                "uid": "37d70ff1-04f5-4c09-8d5e-5245bd581a67"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:03Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{haproxy-init}",
+                "kind": "Pod",
+                "name": "psc-haproxy-1",
+                "namespace": "ps",
+                "resourceVersion": "1022",
+                "uid": "b2b8b8e5-d120-4ccc-932e-a3493ed21f98"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:03Z",
+            "message": "Successfully pulled image \"percona/percona-server-mysql-operator:1.2.0\" in 1.45s (1.45s including waiting). Image size: 134402985 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:03Z",
+                "name": "psc-haproxy-1.18ce236ac4f2dce6",
+                "namespace": "ps",
+                "resourceVersion": "1032",
+                "uid": "f9f17032-3318-49d3-b9ef-8ed7f0d2145e"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:03Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{haproxy-init}",
+                "kind": "Pod",
+                "name": "psc-haproxy-1",
+                "namespace": "ps",
+                "resourceVersion": "1022",
+                "uid": "b2b8b8e5-d120-4ccc-932e-a3493ed21f98"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:03Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:03Z",
+                "name": "psc-haproxy-1.18ce236ac6942e32",
+                "namespace": "ps",
+                "resourceVersion": "1033",
+                "uid": "27e09c34-7374-4f9d-b99d-91c5f669dd2d"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:03Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{haproxy-init}",
+                "kind": "Pod",
+                "name": "psc-haproxy-1",
+                "namespace": "ps",
+                "resourceVersion": "1022",
+                "uid": "b2b8b8e5-d120-4ccc-932e-a3493ed21f98"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:03Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:03Z",
+                "name": "psc-haproxy-1.18ce236ac96c44d5",
+                "namespace": "ps",
+                "resourceVersion": "1034",
+                "uid": "9be2f066-b362-47e3-a7d9-e013217ceae1"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:04Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{haproxy}",
+                "kind": "Pod",
+                "name": "psc-haproxy-1",
+                "namespace": "ps",
+                "resourceVersion": "1022",
+                "uid": "b2b8b8e5-d120-4ccc-932e-a3493ed21f98"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:04Z",
+            "message": "Pulling image \"percona/haproxy:2.8.18-1\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:04Z",
+                "name": "psc-haproxy-1.18ce236ae659d2c0",
+                "namespace": "ps",
+                "resourceVersion": "1040",
+                "uid": "31c7d393-601d-4e0d-9390-a24dd1e11311"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:05Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{haproxy}",
+                "kind": "Pod",
+                "name": "psc-haproxy-1",
+                "namespace": "ps",
+                "resourceVersion": "1022",
+                "uid": "b2b8b8e5-d120-4ccc-932e-a3493ed21f98"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:05Z",
+            "message": "Successfully pulled image \"percona/haproxy:2.8.18-1\" in 1.344s (1.344s including waiting). Image size: 104187685 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:05Z",
+                "name": "psc-haproxy-1.18ce236b36764005",
+                "namespace": "ps",
+                "resourceVersion": "1043",
+                "uid": "1a776302-b0e6-46d8-b877-29260e00e7d0"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:05Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{haproxy}",
+                "kind": "Pod",
+                "name": "psc-haproxy-1",
+                "namespace": "ps",
+                "resourceVersion": "1022",
+                "uid": "b2b8b8e5-d120-4ccc-932e-a3493ed21f98"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:05Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:05Z",
+                "name": "psc-haproxy-1.18ce236b3819dae6",
+                "namespace": "ps",
+                "resourceVersion": "1044",
+                "uid": "3923e347-9b5f-4613-ad98-0faa57652108"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:05Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{haproxy}",
+                "kind": "Pod",
+                "name": "psc-haproxy-1",
+                "namespace": "ps",
+                "resourceVersion": "1022",
+                "uid": "b2b8b8e5-d120-4ccc-932e-a3493ed21f98"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:05Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:05Z",
+                "name": "psc-haproxy-1.18ce236b3b6aa7a2",
+                "namespace": "ps",
+                "resourceVersion": "1045",
+                "uid": "4627c51b-c4a5-43d1-bb92-4f7c2699825b"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:05Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql-monit}",
+                "kind": "Pod",
+                "name": "psc-haproxy-1",
+                "namespace": "ps",
+                "resourceVersion": "1022",
+                "uid": "b2b8b8e5-d120-4ccc-932e-a3493ed21f98"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:05Z",
+            "message": "Pulling image \"percona/haproxy:2.8.18-1\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:05Z",
+                "name": "psc-haproxy-1.18ce236b3b73db32",
+                "namespace": "ps",
+                "resourceVersion": "1046",
+                "uid": "c5109d7f-f8a3-4f9a-9a60-d21a016dd335"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:06Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql-monit}",
+                "kind": "Pod",
+                "name": "psc-haproxy-1",
+                "namespace": "ps",
+                "resourceVersion": "1022",
+                "uid": "b2b8b8e5-d120-4ccc-932e-a3493ed21f98"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:06Z",
+            "message": "Successfully pulled image \"percona/haproxy:2.8.18-1\" in 1.304s (1.304s including waiting). Image size: 104187685 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:06Z",
+                "name": "psc-haproxy-1.18ce236b892fc457",
+                "namespace": "ps",
+                "resourceVersion": "1048",
+                "uid": "de4ef301-249c-4ffc-afb9-b9290a041a94"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:06Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql-monit}",
+                "kind": "Pod",
+                "name": "psc-haproxy-1",
+                "namespace": "ps",
+                "resourceVersion": "1022",
+                "uid": "b2b8b8e5-d120-4ccc-932e-a3493ed21f98"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:06Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:06Z",
+                "name": "psc-haproxy-1.18ce236b8aecc9b2",
+                "namespace": "ps",
+                "resourceVersion": "1049",
+                "uid": "bcf4f13f-9d76-4224-9cf3-44ef5493184b"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:06Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql-monit}",
+                "kind": "Pod",
+                "name": "psc-haproxy-1",
+                "namespace": "ps",
+                "resourceVersion": "1022",
+                "uid": "b2b8b8e5-d120-4ccc-932e-a3493ed21f98"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:06Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:06Z",
+                "name": "psc-haproxy-1.18ce236b8ea7cf36",
+                "namespace": "ps",
+                "resourceVersion": "1050",
+                "uid": "309b0fe7-59af-402a-9032-da001ff78e87"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "action": "Binding",
+            "apiVersion": "v1",
+            "eventTime": "2026-08-22T13:24:22.227022Z",
+            "firstTimestamp": null,
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "psc-haproxy-2",
+                "namespace": "ps",
+                "resourceVersion": "1126",
+                "uid": "b005ab97-96ad-46f5-b91a-72b4a656a78f"
+            },
+            "kind": "Event",
+            "lastTimestamp": null,
+            "message": "Successfully assigned ps/psc-haproxy-2 to k3d-psc-s147-server-0",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:22Z",
+                "name": "psc-haproxy-2.18ce236f1bc6e78a",
+                "namespace": "ps",
+                "resourceVersion": "1131",
+                "uid": "12c4b972-7fdc-40bb-8615-8e5603f007e1"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "default-scheduler-k3d-psc-s147-server-0",
+            "source": {},
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:22Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{haproxy-init}",
+                "kind": "Pod",
+                "name": "psc-haproxy-2",
+                "namespace": "ps",
+                "resourceVersion": "1129",
+                "uid": "b005ab97-96ad-46f5-b91a-72b4a656a78f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:22Z",
+            "message": "Pulling image \"percona/percona-server-mysql-operator:1.2.0\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:22Z",
+                "name": "psc-haproxy-2.18ce236f36cf6b8c",
+                "namespace": "ps",
+                "resourceVersion": "1137",
+                "uid": "dd976f0f-26da-4b70-a3d3-6ce50f43afb2"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:24Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{haproxy-init}",
+                "kind": "Pod",
+                "name": "psc-haproxy-2",
+                "namespace": "ps",
+                "resourceVersion": "1129",
+                "uid": "b005ab97-96ad-46f5-b91a-72b4a656a78f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:24Z",
+            "message": "Successfully pulled image \"percona/percona-server-mysql-operator:1.2.0\" in 1.4s (1.4s including waiting). Image size: 134402985 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:24Z",
+                "name": "psc-haproxy-2.18ce236f8a4f4ed8",
+                "namespace": "ps",
+                "resourceVersion": "1144",
+                "uid": "555adc80-5d3d-4645-9d44-dbe36e0ad481"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:24Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{haproxy-init}",
+                "kind": "Pod",
+                "name": "psc-haproxy-2",
+                "namespace": "ps",
+                "resourceVersion": "1129",
+                "uid": "b005ab97-96ad-46f5-b91a-72b4a656a78f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:24Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:24Z",
+                "name": "psc-haproxy-2.18ce236f8c264dbb",
+                "namespace": "ps",
+                "resourceVersion": "1145",
+                "uid": "d7c50368-358a-4561-94a9-7a088d788807"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:24Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{haproxy-init}",
+                "kind": "Pod",
+                "name": "psc-haproxy-2",
+                "namespace": "ps",
+                "resourceVersion": "1129",
+                "uid": "b005ab97-96ad-46f5-b91a-72b4a656a78f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:24Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:24Z",
+                "name": "psc-haproxy-2.18ce236f9248f063",
+                "namespace": "ps",
+                "resourceVersion": "1146",
+                "uid": "166a2ab9-5c46-4cfd-a476-9daf8ec4b285"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:25Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{haproxy}",
+                "kind": "Pod",
+                "name": "psc-haproxy-2",
+                "namespace": "ps",
+                "resourceVersion": "1129",
+                "uid": "b005ab97-96ad-46f5-b91a-72b4a656a78f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:25Z",
+            "message": "Pulling image \"percona/haproxy:2.8.18-1\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:25Z",
+                "name": "psc-haproxy-2.18ce236fcd517be8",
+                "namespace": "ps",
+                "resourceVersion": "1152",
+                "uid": "e36c57ae-a5c3-4d52-9311-f01318e1fee9"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:26Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{haproxy}",
+                "kind": "Pod",
+                "name": "psc-haproxy-2",
+                "namespace": "ps",
+                "resourceVersion": "1129",
+                "uid": "b005ab97-96ad-46f5-b91a-72b4a656a78f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:26Z",
+            "message": "Successfully pulled image \"percona/haproxy:2.8.18-1\" in 1.445s (1.445s including waiting). Image size: 104187685 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:26Z",
+                "name": "psc-haproxy-2.18ce23702373edf0",
+                "namespace": "ps",
+                "resourceVersion": "1155",
+                "uid": "d41248fc-e45d-491f-8e28-cf977d83473c"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:26Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{haproxy}",
+                "kind": "Pod",
+                "name": "psc-haproxy-2",
+                "namespace": "ps",
+                "resourceVersion": "1129",
+                "uid": "b005ab97-96ad-46f5-b91a-72b4a656a78f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:26Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:26Z",
+                "name": "psc-haproxy-2.18ce237025937527",
+                "namespace": "ps",
+                "resourceVersion": "1156",
+                "uid": "89ff31b7-9a6a-448e-861c-3cf1bdd972ec"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:26Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{haproxy}",
+                "kind": "Pod",
+                "name": "psc-haproxy-2",
+                "namespace": "ps",
+                "resourceVersion": "1129",
+                "uid": "b005ab97-96ad-46f5-b91a-72b4a656a78f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:26Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:26Z",
+                "name": "psc-haproxy-2.18ce237029b04b04",
+                "namespace": "ps",
+                "resourceVersion": "1157",
+                "uid": "663c0d5a-3f74-45a5-930e-1624c81d8d50"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:26Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql-monit}",
+                "kind": "Pod",
+                "name": "psc-haproxy-2",
+                "namespace": "ps",
+                "resourceVersion": "1129",
+                "uid": "b005ab97-96ad-46f5-b91a-72b4a656a78f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:26Z",
+            "message": "Pulling image \"percona/haproxy:2.8.18-1\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:26Z",
+                "name": "psc-haproxy-2.18ce237029b514e2",
+                "namespace": "ps",
+                "resourceVersion": "1158",
+                "uid": "da0f69a7-d5ca-41e0-a8af-6d863dce35a9"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:28Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql-monit}",
+                "kind": "Pod",
+                "name": "psc-haproxy-2",
+                "namespace": "ps",
+                "resourceVersion": "1129",
+                "uid": "b005ab97-96ad-46f5-b91a-72b4a656a78f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:28Z",
+            "message": "Successfully pulled image \"percona/haproxy:2.8.18-1\" in 1.285s (1.285s including waiting). Image size: 104187685 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:28Z",
+                "name": "psc-haproxy-2.18ce23707652767b",
+                "namespace": "ps",
+                "resourceVersion": "1162",
+                "uid": "725ab4ab-2436-44ac-a96a-5e34e4e1346f"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:28Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql-monit}",
+                "kind": "Pod",
+                "name": "psc-haproxy-2",
+                "namespace": "ps",
+                "resourceVersion": "1129",
+                "uid": "b005ab97-96ad-46f5-b91a-72b4a656a78f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:28Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:28Z",
+                "name": "psc-haproxy-2.18ce2370784c536a",
+                "namespace": "ps",
+                "resourceVersion": "1163",
+                "uid": "aeb3fe61-e07c-42e9-8b2b-ee9c959f5ca0"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:28Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql-monit}",
+                "kind": "Pod",
+                "name": "psc-haproxy-2",
+                "namespace": "ps",
+                "resourceVersion": "1129",
+                "uid": "b005ab97-96ad-46f5-b91a-72b4a656a78f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:28Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:28Z",
+                "name": "psc-haproxy-2.18ce23707d7f2870",
+                "namespace": "ps",
+                "resourceVersion": "1164",
+                "uid": "cddf4d15-f23c-4bc1-bd94-1987f53214f4"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:21:54Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Service",
+                "name": "psc-haproxy",
+                "namespace": "ps",
+                "resourceVersion": "721",
+                "uid": "fb8c16e9-5644-4222-9a55-273784253a09"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:21:54Z",
+            "message": "Assigned IP [\"172.21.255.247\"]",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:21:54Z",
+                "name": "psc-haproxy.18ce234cd072c1c8",
+                "namespace": "ps",
+                "resourceVersion": "723",
+                "uid": "b4bc2b2b-c5a5-4173-9204-21370d856842"
+            },
+            "reason": "IPAllocated",
+            "reportingComponent": "metallb-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "metallb-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 2,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:31Z",
+            "involvedObject": {
+                "apiVersion": "policy/v1",
+                "kind": "PodDisruptionBudget",
+                "name": "psc-haproxy",
+                "namespace": "ps",
+                "resourceVersion": "907",
+                "uid": "c2c50265-ee88-4e09-bdfa-f98e860adfb4"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:31Z",
+            "message": "No matching pods found",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:31Z",
+                "name": "psc-haproxy.18ce23633b3080e8",
+                "namespace": "ps",
+                "resourceVersion": "914",
+                "uid": "7af6950a-211c-47c6-99a4-d5a0e108e583"
+            },
+            "reason": "NoPods",
+            "reportingComponent": "controllermanager",
+            "reportingInstance": "",
+            "source": {
+                "component": "controllermanager"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:31Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "StatefulSet",
+                "name": "psc-haproxy",
+                "namespace": "ps",
+                "resourceVersion": "906",
+                "uid": "4fd4f9a5-2f7e-4d7e-b234-768d269e8d4f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:31Z",
+            "message": "Create Pod psc-haproxy-0 in StatefulSet psc-haproxy successful",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:31Z",
+                "name": "psc-haproxy.18ce23633bb330df",
+                "namespace": "ps",
+                "resourceVersion": "917",
+                "uid": "603afffb-28e9-4896-866c-4bbf7769bcc4"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "statefulset-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "statefulset-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 5,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:01Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Service",
+                "name": "psc-haproxy",
+                "namespace": "ps",
+                "resourceVersion": "724",
+                "uid": "fb8c16e9-5644-4222-9a55-273784253a09"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:42Z",
+            "message": "announcing from node \"k3d-psc-s147-server-0\" with protocol \"layer2\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:01Z",
+                "name": "psc-haproxy.18ce236a4f391fd8",
+                "namespace": "ps",
+                "resourceVersion": "1185",
+                "uid": "668a171f-1862-46c7-9331-42c30da1040f"
+            },
+            "reason": "nodeAssigned",
+            "reportingComponent": "metallb-speaker",
+            "reportingInstance": "",
+            "source": {
+                "component": "metallb-speaker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:01Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "StatefulSet",
+                "name": "psc-haproxy",
+                "namespace": "ps",
+                "resourceVersion": "920",
+                "uid": "4fd4f9a5-2f7e-4d7e-b234-768d269e8d4f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:01Z",
+            "message": "Create Pod psc-haproxy-1 in StatefulSet psc-haproxy successful",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:01Z",
+                "name": "psc-haproxy.18ce236a54eec845",
+                "namespace": "ps",
+                "resourceVersion": "1021",
+                "uid": "4b48de41-8895-436f-a147-443f7c6dd1fa"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "statefulset-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "statefulset-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:22Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "StatefulSet",
+                "name": "psc-haproxy",
+                "namespace": "ps",
+                "resourceVersion": "1025",
+                "uid": "4fd4f9a5-2f7e-4d7e-b234-768d269e8d4f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:22Z",
+            "message": "Create Pod psc-haproxy-2 in StatefulSet psc-haproxy successful",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:22Z",
+                "name": "psc-haproxy.18ce236f1b99b028",
+                "namespace": "ps",
+                "resourceVersion": "1128",
+                "uid": "96ccb7fc-69ad-44ba-9b8a-5d889cfcbe54"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "statefulset-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "statefulset-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "action": "Binding",
+            "apiVersion": "v1",
+            "eventTime": "2026-08-22T13:22:03.899110Z",
+            "firstTimestamp": null,
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "psc-mysql-0",
+                "namespace": "ps",
+                "resourceVersion": "730",
+                "uid": "245bf832-f52f-49f9-bc6c-31ae6591d632"
+            },
+            "kind": "Event",
+            "lastTimestamp": null,
+            "message": "Successfully assigned ps/psc-mysql-0 to k3d-psc-s147-server-0",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:22:03Z",
+                "name": "psc-mysql-0.18ce234ee6ca77e8",
+                "namespace": "ps",
+                "resourceVersion": "776",
+                "uid": "d8d8ee5e-0dc3-49d4-b25d-aa472e4bb96b"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "default-scheduler-k3d-psc-s147-server-0",
+            "source": {},
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:22:04Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{mysql-init}",
+                "kind": "Pod",
+                "name": "psc-mysql-0",
+                "namespace": "ps",
+                "resourceVersion": "775",
+                "uid": "245bf832-f52f-49f9-bc6c-31ae6591d632"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:22:04Z",
+            "message": "Pulling image \"percona/percona-server-mysql-operator:1.2.0\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:22:04Z",
+                "name": "psc-mysql-0.18ce234f003d1aca",
+                "namespace": "ps",
+                "resourceVersion": "779",
+                "uid": "ddd02329-080b-45f6-a2c2-05db9048996f"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:22:05Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{mysql-init}",
+                "kind": "Pod",
+                "name": "psc-mysql-0",
+                "namespace": "ps",
+                "resourceVersion": "775",
+                "uid": "245bf832-f52f-49f9-bc6c-31ae6591d632"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:22:05Z",
+            "message": "Successfully pulled image \"percona/percona-server-mysql-operator:1.2.0\" in 1.442s (1.442s including waiting). Image size: 134402985 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:22:05Z",
+                "name": "psc-mysql-0.18ce234f5635e815",
+                "namespace": "ps",
+                "resourceVersion": "781",
+                "uid": "3afab4db-ffe5-4ace-a761-d5e38c9070ea"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:22:05Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{mysql-init}",
+                "kind": "Pod",
+                "name": "psc-mysql-0",
+                "namespace": "ps",
+                "resourceVersion": "775",
+                "uid": "245bf832-f52f-49f9-bc6c-31ae6591d632"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:22:05Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:22:05Z",
+                "name": "psc-mysql-0.18ce234f57cc6232",
+                "namespace": "ps",
+                "resourceVersion": "782",
+                "uid": "f7243e5b-b05d-427f-907e-a40f46594ee6"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:22:05Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{mysql-init}",
+                "kind": "Pod",
+                "name": "psc-mysql-0",
+                "namespace": "ps",
+                "resourceVersion": "775",
+                "uid": "245bf832-f52f-49f9-bc6c-31ae6591d632"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:22:05Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:22:05Z",
+                "name": "psc-mysql-0.18ce234f59f8f905",
+                "namespace": "ps",
+                "resourceVersion": "783",
+                "uid": "b752208d-1b53-4ca7-a0b6-c1318d21a233"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:22:06Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql}",
+                "kind": "Pod",
+                "name": "psc-mysql-0",
+                "namespace": "ps",
+                "resourceVersion": "775",
+                "uid": "245bf832-f52f-49f9-bc6c-31ae6591d632"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:22:06Z",
+            "message": "Pulling image \"percona/percona-server:8.4.10-10.1\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:22:06Z",
+                "name": "psc-mysql-0.18ce234f9c7359ca",
+                "namespace": "ps",
+                "resourceVersion": "792",
+                "uid": "80f23002-a9ee-4079-878b-05dd516920dc"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:22:48Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql}",
+                "kind": "Pod",
+                "name": "psc-mysql-0",
+                "namespace": "ps",
+                "resourceVersion": "775",
+                "uid": "245bf832-f52f-49f9-bc6c-31ae6591d632"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:22:48Z",
+            "message": "Successfully pulled image \"percona/percona-server:8.4.10-10.1\" in 41.058s (41.058s including waiting). Image size: 439800378 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:22:48Z",
+                "name": "psc-mysql-0.18ce23592bba143f",
+                "namespace": "ps",
+                "resourceVersion": "831",
+                "uid": "57b57fae-a41c-4b9f-900a-868751c594ce"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:22:48Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql}",
+                "kind": "Pod",
+                "name": "psc-mysql-0",
+                "namespace": "ps",
+                "resourceVersion": "775",
+                "uid": "245bf832-f52f-49f9-bc6c-31ae6591d632"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:22:48Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:22:48Z",
+                "name": "psc-mysql-0.18ce23592d462c99",
+                "namespace": "ps",
+                "resourceVersion": "834",
+                "uid": "d85309c4-8e06-47b7-bfb6-05528bfef006"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:22:48Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql}",
+                "kind": "Pod",
+                "name": "psc-mysql-0",
+                "namespace": "ps",
+                "resourceVersion": "775",
+                "uid": "245bf832-f52f-49f9-bc6c-31ae6591d632"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:22:48Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:22:48Z",
+                "name": "psc-mysql-0.18ce23592fd1a183",
+                "namespace": "ps",
+                "resourceVersion": "835",
+                "uid": "6ee32fe7-2b1e-4834-aff1-19d83cd7bd4f"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:22:48Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{xtrabackup}",
+                "kind": "Pod",
+                "name": "psc-mysql-0",
+                "namespace": "ps",
+                "resourceVersion": "775",
+                "uid": "245bf832-f52f-49f9-bc6c-31ae6591d632"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:22:48Z",
+            "message": "Pulling image \"percona/percona-xtrabackup:8.4.0-6.1\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:22:48Z",
+                "name": "psc-mysql-0.18ce23592fd6f837",
+                "namespace": "ps",
+                "resourceVersion": "836",
+                "uid": "37a43176-f43a-4bc5-956a-77852672d067"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:15Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{xtrabackup}",
+                "kind": "Pod",
+                "name": "psc-mysql-0",
+                "namespace": "ps",
+                "resourceVersion": "775",
+                "uid": "245bf832-f52f-49f9-bc6c-31ae6591d632"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:15Z",
+            "message": "Successfully pulled image \"percona/percona-xtrabackup:8.4.0-6.1\" in 27.328s (27.328s including waiting). Image size: 448923388 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:15Z",
+                "name": "psc-mysql-0.18ce235f8cc512c7",
+                "namespace": "ps",
+                "resourceVersion": "862",
+                "uid": "7dd1b72a-ea17-49fa-af70-4605d23ac2bc"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:15Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{xtrabackup}",
+                "kind": "Pod",
+                "name": "psc-mysql-0",
+                "namespace": "ps",
+                "resourceVersion": "775",
+                "uid": "245bf832-f52f-49f9-bc6c-31ae6591d632"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:15Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:15Z",
+                "name": "psc-mysql-0.18ce235f8edb6007",
+                "namespace": "ps",
+                "resourceVersion": "863",
+                "uid": "b16d3a1b-188f-4089-87b2-4f94136cffa4"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:15Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{xtrabackup}",
+                "kind": "Pod",
+                "name": "psc-mysql-0",
+                "namespace": "ps",
+                "resourceVersion": "775",
+                "uid": "245bf832-f52f-49f9-bc6c-31ae6591d632"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:15Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:15Z",
+                "name": "psc-mysql-0.18ce235f91d80529",
+                "namespace": "ps",
+                "resourceVersion": "864",
+                "uid": "cfa3b306-f22c-41c8-9e69-d2436e26720b"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "action": "Binding",
+            "apiVersion": "v1",
+            "eventTime": "2026-08-22T13:23:35.207769Z",
+            "firstTimestamp": null,
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "psc-mysql-1",
+                "namespace": "ps",
+                "resourceVersion": "894",
+                "uid": "f7abc3b7-6480-4d41-bbd4-92a7117b591e"
+            },
+            "kind": "Event",
+            "lastTimestamp": null,
+            "message": "Successfully assigned ps/psc-mysql-1 to k3d-psc-s147-server-0",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:35Z",
+                "name": "psc-mysql-1.18ce236429360395",
+                "namespace": "ps",
+                "resourceVersion": "954",
+                "uid": "fdcdde08-8532-4be7-97b9-5bcabbb2d032"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "default-scheduler-k3d-psc-s147-server-0",
+            "source": {},
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:35Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{mysql-init}",
+                "kind": "Pod",
+                "name": "psc-mysql-1",
+                "namespace": "ps",
+                "resourceVersion": "953",
+                "uid": "f7abc3b7-6480-4d41-bbd4-92a7117b591e"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:35Z",
+            "message": "Pulling image \"percona/percona-server-mysql-operator:1.2.0\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:35Z",
+                "name": "psc-mysql-1.18ce236443436a9b",
+                "namespace": "ps",
+                "resourceVersion": "956",
+                "uid": "7ffa9a00-3291-4645-b44f-c2f13daa10f7"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:36Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{mysql-init}",
+                "kind": "Pod",
+                "name": "psc-mysql-1",
+                "namespace": "ps",
+                "resourceVersion": "953",
+                "uid": "f7abc3b7-6480-4d41-bbd4-92a7117b591e"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:36Z",
+            "message": "Successfully pulled image \"percona/percona-server-mysql-operator:1.2.0\" in 1.318s (1.318s including waiting). Image size: 134402985 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:36Z",
+                "name": "psc-mysql-1.18ce236491ddd2d8",
+                "namespace": "ps",
+                "resourceVersion": "959",
+                "uid": "b95b90bb-6824-42e1-a725-58c213891eae"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:36Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{mysql-init}",
+                "kind": "Pod",
+                "name": "psc-mysql-1",
+                "namespace": "ps",
+                "resourceVersion": "953",
+                "uid": "f7abc3b7-6480-4d41-bbd4-92a7117b591e"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:36Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:36Z",
+                "name": "psc-mysql-1.18ce2364938601c9",
+                "namespace": "ps",
+                "resourceVersion": "960",
+                "uid": "7f8e0310-4b95-49bd-93da-de033a7d2091"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:37Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{mysql-init}",
+                "kind": "Pod",
+                "name": "psc-mysql-1",
+                "namespace": "ps",
+                "resourceVersion": "953",
+                "uid": "f7abc3b7-6480-4d41-bbd4-92a7117b591e"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:37Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:37Z",
+                "name": "psc-mysql-1.18ce236497071502",
+                "namespace": "ps",
+                "resourceVersion": "961",
+                "uid": "b7b9ffbb-45d7-4a71-ac7f-f4dd63b2fb9a"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:38Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql}",
+                "kind": "Pod",
+                "name": "psc-mysql-1",
+                "namespace": "ps",
+                "resourceVersion": "953",
+                "uid": "f7abc3b7-6480-4d41-bbd4-92a7117b591e"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:38Z",
+            "message": "Pulling image \"percona/percona-server:8.4.10-10.1\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:38Z",
+                "name": "psc-mysql-1.18ce2364d578c35f",
+                "namespace": "ps",
+                "resourceVersion": "971",
+                "uid": "2cd9cf61-ba29-4c1a-a096-f7482d4030da"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:39Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql}",
+                "kind": "Pod",
+                "name": "psc-mysql-1",
+                "namespace": "ps",
+                "resourceVersion": "953",
+                "uid": "f7abc3b7-6480-4d41-bbd4-92a7117b591e"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:39Z",
+            "message": "Successfully pulled image \"percona/percona-server:8.4.10-10.1\" in 1.428s (1.428s including waiting). Image size: 439800378 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:39Z",
+                "name": "psc-mysql-1.18ce23652aa2d5e7",
+                "namespace": "ps",
+                "resourceVersion": "974",
+                "uid": "8b99c09f-50fa-4e3c-896a-1a013964065e"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:39Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql}",
+                "kind": "Pod",
+                "name": "psc-mysql-1",
+                "namespace": "ps",
+                "resourceVersion": "953",
+                "uid": "f7abc3b7-6480-4d41-bbd4-92a7117b591e"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:39Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:39Z",
+                "name": "psc-mysql-1.18ce23652c9288c7",
+                "namespace": "ps",
+                "resourceVersion": "975",
+                "uid": "22ac4d71-979b-45d8-b691-f406005ef923"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:39Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql}",
+                "kind": "Pod",
+                "name": "psc-mysql-1",
+                "namespace": "ps",
+                "resourceVersion": "953",
+                "uid": "f7abc3b7-6480-4d41-bbd4-92a7117b591e"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:39Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:39Z",
+                "name": "psc-mysql-1.18ce23652fb006c8",
+                "namespace": "ps",
+                "resourceVersion": "976",
+                "uid": "adfb5c14-efad-4ced-99f7-394e9b85cc61"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:39Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{xtrabackup}",
+                "kind": "Pod",
+                "name": "psc-mysql-1",
+                "namespace": "ps",
+                "resourceVersion": "953",
+                "uid": "f7abc3b7-6480-4d41-bbd4-92a7117b591e"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:39Z",
+            "message": "Pulling image \"percona/percona-xtrabackup:8.4.0-6.1\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:39Z",
+                "name": "psc-mysql-1.18ce23652fb94564",
+                "namespace": "ps",
+                "resourceVersion": "977",
+                "uid": "f634e6aa-f8e8-4223-b1ad-8c6cf154cd3b"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:41Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{xtrabackup}",
+                "kind": "Pod",
+                "name": "psc-mysql-1",
+                "namespace": "ps",
+                "resourceVersion": "953",
+                "uid": "f7abc3b7-6480-4d41-bbd4-92a7117b591e"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:41Z",
+            "message": "Successfully pulled image \"percona/percona-xtrabackup:8.4.0-6.1\" in 1.616s (1.616s including waiting). Image size: 448923388 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:41Z",
+                "name": "psc-mysql-1.18ce2365900f6264",
+                "namespace": "ps",
+                "resourceVersion": "980",
+                "uid": "e24d4119-f40e-44dd-a39b-0e28ec09a57f"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:41Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{xtrabackup}",
+                "kind": "Pod",
+                "name": "psc-mysql-1",
+                "namespace": "ps",
+                "resourceVersion": "953",
+                "uid": "f7abc3b7-6480-4d41-bbd4-92a7117b591e"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:41Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:41Z",
+                "name": "psc-mysql-1.18ce236592638d1c",
+                "namespace": "ps",
+                "resourceVersion": "981",
+                "uid": "081b1a04-60a8-4d99-9cf4-47c2a1fca620"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:41Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{xtrabackup}",
+                "kind": "Pod",
+                "name": "psc-mysql-1",
+                "namespace": "ps",
+                "resourceVersion": "953",
+                "uid": "f7abc3b7-6480-4d41-bbd4-92a7117b591e"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:41Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:41Z",
+                "name": "psc-mysql-1.18ce236595c241ca",
+                "namespace": "ps",
+                "resourceVersion": "982",
+                "uid": "46f3f357-d263-4ebd-8cd0-194bd029290b"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "action": "Binding",
+            "apiVersion": "v1",
+            "eventTime": "2026-08-22T13:24:16.822000Z",
+            "firstTimestamp": null,
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "psc-mysql-2",
+                "namespace": "ps",
+                "resourceVersion": "1065",
+                "uid": "da282828-548b-4e54-84b9-36eae83c4012"
+            },
+            "kind": "Event",
+            "lastTimestamp": null,
+            "message": "Successfully assigned ps/psc-mysql-2 to k3d-psc-s147-server-0",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:16Z",
+                "name": "psc-mysql-2.18ce236dd99ccd92",
+                "namespace": "ps",
+                "resourceVersion": "1098",
+                "uid": "3c2bee2b-02d2-4a73-91fa-be456f86f94b"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "default-scheduler-k3d-psc-s147-server-0",
+            "source": {},
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:17Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{mysql-init}",
+                "kind": "Pod",
+                "name": "psc-mysql-2",
+                "namespace": "ps",
+                "resourceVersion": "1097",
+                "uid": "da282828-548b-4e54-84b9-36eae83c4012"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:17Z",
+            "message": "Pulling image \"percona/percona-server-mysql-operator:1.2.0\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:17Z",
+                "name": "psc-mysql-2.18ce236df58c2939",
+                "namespace": "ps",
+                "resourceVersion": "1100",
+                "uid": "f517607b-83ae-4771-bceb-925572e6f198"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:18Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{mysql-init}",
+                "kind": "Pod",
+                "name": "psc-mysql-2",
+                "namespace": "ps",
+                "resourceVersion": "1097",
+                "uid": "da282828-548b-4e54-84b9-36eae83c4012"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:18Z",
+            "message": "Successfully pulled image \"percona/percona-server-mysql-operator:1.2.0\" in 1.422s (1.422s including waiting). Image size: 134402985 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:18Z",
+                "name": "psc-mysql-2.18ce236e4a53eb42",
+                "namespace": "ps",
+                "resourceVersion": "1105",
+                "uid": "8c64b878-66e2-46df-a03d-ed6bf10b7133"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:18Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{mysql-init}",
+                "kind": "Pod",
+                "name": "psc-mysql-2",
+                "namespace": "ps",
+                "resourceVersion": "1097",
+                "uid": "da282828-548b-4e54-84b9-36eae83c4012"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:18Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:18Z",
+                "name": "psc-mysql-2.18ce236e4c726dd9",
+                "namespace": "ps",
+                "resourceVersion": "1106",
+                "uid": "df537bb5-6e8c-42bb-a7d5-632fc6742da5"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:18Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{mysql-init}",
+                "kind": "Pod",
+                "name": "psc-mysql-2",
+                "namespace": "ps",
+                "resourceVersion": "1097",
+                "uid": "da282828-548b-4e54-84b9-36eae83c4012"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:18Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:18Z",
+                "name": "psc-mysql-2.18ce236e5057c928",
+                "namespace": "ps",
+                "resourceVersion": "1107",
+                "uid": "d0530bb1-4947-4c8b-b868-79d2e3535453"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:20Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql}",
+                "kind": "Pod",
+                "name": "psc-mysql-2",
+                "namespace": "ps",
+                "resourceVersion": "1097",
+                "uid": "da282828-548b-4e54-84b9-36eae83c4012"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:20Z",
+            "message": "Pulling image \"percona/percona-server:8.4.10-10.1\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:20Z",
+                "name": "psc-mysql-2.18ce236ea225bd2b",
+                "namespace": "ps",
+                "resourceVersion": "1115",
+                "uid": "cd4d7f9b-8e10-4184-a91f-ba9cb6fe3248"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:21Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql}",
+                "kind": "Pod",
+                "name": "psc-mysql-2",
+                "namespace": "ps",
+                "resourceVersion": "1097",
+                "uid": "da282828-548b-4e54-84b9-36eae83c4012"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:21Z",
+            "message": "Successfully pulled image \"percona/percona-server:8.4.10-10.1\" in 1.332s (1.332s including waiting). Image size: 439800378 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:21Z",
+                "name": "psc-mysql-2.18ce236ef1955ee1",
+                "namespace": "ps",
+                "resourceVersion": "1118",
+                "uid": "6df0ec45-7f06-4a20-b97e-cadb19370c2e"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:21Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql}",
+                "kind": "Pod",
+                "name": "psc-mysql-2",
+                "namespace": "ps",
+                "resourceVersion": "1097",
+                "uid": "da282828-548b-4e54-84b9-36eae83c4012"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:21Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:21Z",
+                "name": "psc-mysql-2.18ce236ef32b5e3b",
+                "namespace": "ps",
+                "resourceVersion": "1119",
+                "uid": "c883f826-b6a9-4d8e-8d42-35282c972e0d"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:21Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mysql}",
+                "kind": "Pod",
+                "name": "psc-mysql-2",
+                "namespace": "ps",
+                "resourceVersion": "1097",
+                "uid": "da282828-548b-4e54-84b9-36eae83c4012"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:21Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:21Z",
+                "name": "psc-mysql-2.18ce236ef776ca7a",
+                "namespace": "ps",
+                "resourceVersion": "1120",
+                "uid": "e742e5a1-276e-4a1a-8509-92614a391f5b"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:21Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{xtrabackup}",
+                "kind": "Pod",
+                "name": "psc-mysql-2",
+                "namespace": "ps",
+                "resourceVersion": "1097",
+                "uid": "da282828-548b-4e54-84b9-36eae83c4012"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:21Z",
+            "message": "Pulling image \"percona/percona-xtrabackup:8.4.0-6.1\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:21Z",
+                "name": "psc-mysql-2.18ce236ef78265df",
+                "namespace": "ps",
+                "resourceVersion": "1121",
+                "uid": "234c3f18-ab68-47a9-b624-18a791913b9c"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:22Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{xtrabackup}",
+                "kind": "Pod",
+                "name": "psc-mysql-2",
+                "namespace": "ps",
+                "resourceVersion": "1097",
+                "uid": "da282828-548b-4e54-84b9-36eae83c4012"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:22Z",
+            "message": "Successfully pulled image \"percona/percona-xtrabackup:8.4.0-6.1\" in 1.333s (1.333s including waiting). Image size: 448923388 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:22Z",
+                "name": "psc-mysql-2.18ce236f46fd87d8",
+                "namespace": "ps",
+                "resourceVersion": "1139",
+                "uid": "21fbf7e7-2f3b-4eb2-9c35-2f8c459331cc"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:22Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{xtrabackup}",
+                "kind": "Pod",
+                "name": "psc-mysql-2",
+                "namespace": "ps",
+                "resourceVersion": "1097",
+                "uid": "da282828-548b-4e54-84b9-36eae83c4012"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:22Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:22Z",
+                "name": "psc-mysql-2.18ce236f48f2e65a",
+                "namespace": "ps",
+                "resourceVersion": "1140",
+                "uid": "79302746-28e1-4fe1-95fa-40d3b4818974"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:23Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{xtrabackup}",
+                "kind": "Pod",
+                "name": "psc-mysql-2",
+                "namespace": "ps",
+                "resourceVersion": "1097",
+                "uid": "da282828-548b-4e54-84b9-36eae83c4012"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:23Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:23Z",
+                "name": "psc-mysql-2.18ce236f4c528e6e",
+                "namespace": "ps",
+                "resourceVersion": "1141",
+                "uid": "af6fa524-cbe4-46d4-b4b7-a0e0ff5ff449"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-psc-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-psc-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:21:54Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Service",
+                "name": "psc-mysql-primary",
+                "namespace": "ps",
+                "resourceVersion": "710",
+                "uid": "559b52cd-1200-439b-9483-c2e108a8338b"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:21:54Z",
+            "message": "Assigned IP [\"172.21.255.246\"]",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:21:54Z",
+                "name": "psc-mysql-primary.18ce234ccffe7bfe",
+                "namespace": "ps",
+                "resourceVersion": "712",
+                "uid": "a8fa0f49-5b17-4f22-ba66-befa0b1b3d20"
+            },
+            "reason": "IPAllocated",
+            "reportingComponent": "metallb-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "metallb-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:31Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Service",
+                "name": "psc-mysql-primary",
+                "namespace": "ps",
+                "resourceVersion": "713",
+                "uid": "559b52cd-1200-439b-9483-c2e108a8338b"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:31Z",
+            "message": "announcing from node \"k3d-psc-s147-server-0\" with protocol \"layer2\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:31Z",
+                "name": "psc-mysql-primary.18ce236339f9c38c",
+                "namespace": "ps",
+                "resourceVersion": "896",
+                "uid": "632f2dfc-ea99-49b4-8e93-7210623d8181"
+            },
+            "reason": "nodeAssigned",
+            "reportingComponent": "metallb-speaker",
+            "reportingInstance": "",
+            "source": {
+                "component": "metallb-speaker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:21:55Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "StatefulSet",
+                "name": "psc-mysql",
+                "namespace": "ps",
+                "resourceVersion": "726",
+                "uid": "c6f54e7e-112b-4906-88d2-da4a164e4128"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:21:55Z",
+            "message": "Create Claim datadir-psc-mysql-0 Pod psc-mysql-0 in StatefulSet psc-mysql success",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:21:55Z",
+                "name": "psc-mysql.18ce234d093fc943",
+                "namespace": "ps",
+                "resourceVersion": "729",
+                "uid": "e7387eef-b26f-4785-b135-9c7523418727"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "statefulset-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "statefulset-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:21:55Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "StatefulSet",
+                "name": "psc-mysql",
+                "namespace": "ps",
+                "resourceVersion": "726",
+                "uid": "c6f54e7e-112b-4906-88d2-da4a164e4128"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:21:55Z",
+            "message": "Create Pod psc-mysql-0 in StatefulSet psc-mysql successful",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:21:55Z",
+                "name": "psc-mysql.18ce234d09660045",
+                "namespace": "ps",
+                "resourceVersion": "731",
+                "uid": "3a915847-57e9-49ab-b48f-9da7fbf12312"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "statefulset-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "statefulset-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:31Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "StatefulSet",
+                "name": "psc-mysql",
+                "namespace": "ps",
+                "resourceVersion": "736",
+                "uid": "c6f54e7e-112b-4906-88d2-da4a164e4128"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:31Z",
+            "message": "Create Claim datadir-psc-mysql-1 Pod psc-mysql-1 in StatefulSet psc-mysql success",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:31Z",
+                "name": "psc-mysql.18ce236339def096",
+                "namespace": "ps",
+                "resourceVersion": "892",
+                "uid": "55c119ae-0e92-4002-9a8e-d16765d02dff"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "statefulset-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "statefulset-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:31Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "StatefulSet",
+                "name": "psc-mysql",
+                "namespace": "ps",
+                "resourceVersion": "736",
+                "uid": "c6f54e7e-112b-4906-88d2-da4a164e4128"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:31Z",
+            "message": "Create Pod psc-mysql-1 in StatefulSet psc-mysql successful",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:31Z",
+                "name": "psc-mysql.18ce23633a0985e1",
+                "namespace": "ps",
+                "resourceVersion": "897",
+                "uid": "401b1c00-bc1e-43b1-8176-765cfeaa28a7"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "statefulset-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "statefulset-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:13Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "StatefulSet",
+                "name": "psc-mysql",
+                "namespace": "ps",
+                "resourceVersion": "904",
+                "uid": "c6f54e7e-112b-4906-88d2-da4a164e4128"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:13Z",
+            "message": "Create Claim datadir-psc-mysql-2 Pod psc-mysql-2 in StatefulSet psc-mysql success",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:13Z",
+                "name": "psc-mysql.18ce236d261ab2fd",
+                "namespace": "ps",
+                "resourceVersion": "1063",
+                "uid": "c315748a-31a2-49ec-8a14-efb87d3ba3ea"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "statefulset-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "statefulset-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:13Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "StatefulSet",
+                "name": "psc-mysql",
+                "namespace": "ps",
+                "resourceVersion": "904",
+                "uid": "c6f54e7e-112b-4906-88d2-da4a164e4128"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:13Z",
+            "message": "Create Pod psc-mysql-2 in StatefulSet psc-mysql successful",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:13Z",
+                "name": "psc-mysql.18ce236d263daf50",
+                "namespace": "ps",
+                "resourceVersion": "1067",
+                "uid": "903565f1-8979-430d-b338-a71db8fab000"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "statefulset-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "statefulset-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:21:55Z",
+            "involvedObject": {
+                "apiVersion": "ps.percona.com/v1",
+                "kind": "PerconaServerMySQL",
+                "name": "psc",
+                "namespace": "ps",
+                "resourceVersion": "674",
+                "uid": "da8828f4-006c-417e-9b1a-b293e5a68844"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:21:55Z",
+            "message": " -\u003e Initializing",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:21:55Z",
+                "name": "psc.18ce234d0fa185f1",
+                "namespace": "ps",
+                "resourceVersion": "745",
+                "uid": "c0e5fa95-3258-45db-a886-49110394fd0d"
+            },
+            "reason": "ClusterStateChanged",
+            "reportingComponent": "ps-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "ps-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:54Z",
+            "involvedObject": {
+                "apiVersion": "ps.percona.com/v1",
+                "kind": "PerconaServerMySQL",
+                "name": "psc",
+                "namespace": "ps",
+                "resourceVersion": "1205",
+                "uid": "da8828f4-006c-417e-9b1a-b293e5a68844"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:54Z",
+            "message": "Initializing -\u003e Ready",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:54Z",
+                "name": "psc.18ce2376aad5349f",
+                "namespace": "ps",
+                "resourceVersion": "1208",
+                "uid": "a5780b87-f0c7-4e52-8fb2-2ecb6e87a6e7"
+            },
+            "reason": "ClusterStateChanged",
+            "reportingComponent": "ps-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "ps-controller"
+            },
+            "type": "Normal"
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}

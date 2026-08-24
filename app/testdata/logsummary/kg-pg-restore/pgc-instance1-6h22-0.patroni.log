@@ -1,0 +1,79 @@
+2026-08-22 12:49:05,414 INFO: No PostgreSQL configuration items changed, nothing to reload.
+2026-08-22 12:49:05,415 INFO: REST API thread_pool_size = 5
+2026-08-22 12:49:05,418 INFO: Lock owner: None; I am pgc-instance1-6h22-0
+2026-08-22 12:49:05,433 INFO: trying to bootstrap a new cluster
+2026-08-22 12:49:05,433 INFO: Running custom bootstrap script: mv "/pgdata/pg18_bootstrap" "/pgdata/pg18"
+2026-08-22 12:49:05.652 UTC [95] LOG:  pgaudit extension initialized
+2026-08-22 12:49:05,661 INFO: postmaster pid=95
+/tmp/postgres:5432 - no response
+2026-08-22 12:49:05.667 UTC [95] LOG:  redirecting log output to logging collector process
+2026-08-22 12:49:05.667 UTC [95] HINT:  Future log output will appear in directory "log".
+/tmp/postgres:5432 - accepting connections
+/tmp/postgres:5432 - accepting connections
+2026-08-22 12:49:06,677 INFO: establishing a new patroni heartbeat connection to postgres
+2026-08-22 12:49:06,689 INFO: running post_bootstrap
+server signaled
+2026-08-22 12:49:07,733 INFO: establishing a new patroni heartbeat connection to postgres
+2026-08-22 12:49:07,755 INFO: initialized a new cluster
+2026-08-22 12:49:17,750 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:49:27,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:49:37,746 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:49:47,747 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:49:57,747 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:50:07,762 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:50:17,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:50:27,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:50:37,738 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:50:47,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:50:57,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:51:07,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:51:17,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:51:27,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:51:37,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:51:47,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:51:57,749 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:52:07,750 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:52:17,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:52:27,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:52:37,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:52:47,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:52:57,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:53:07,747 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:53:17,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:53:27,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:53:37,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:53:47,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:53:57,739 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:54:07,745 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:54:17,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:54:27,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:54:37,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:54:47,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:54:57,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:55:07,738 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:55:17,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:55:27,738 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:55:37,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:55:47,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:55:57,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:56:07,738 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:56:17,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:56:27,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:56:37,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:56:47,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:56:57,738 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:57:07,742 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:57:17,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:57:27,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:57:37,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:57:47,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:57:57,738 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:58:07,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:58:17,738 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:58:27,738 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:58:37,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:58:47,738 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:58:57,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:59:07,737 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:59:17,738 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock
+2026-08-22 12:59:27,738 INFO: no action. I am (pgc-instance1-6h22-0), the leader with the lock

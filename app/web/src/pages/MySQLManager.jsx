@@ -6,12 +6,14 @@ import { DEPLOY_TONE } from '../lib/stackApi.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import DbLoginGuide from '../components/DbLoginGuide.jsx'
 import VaultGuide from '../components/VaultGuide.jsx'
+import OidcLoginGuide from '../components/OidcLoginGuide.jsx'
 import { SecretValue } from '../components/Secret.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'creds', label: 'Credentials' },
   { id: 'dirlogin', label: 'Directory Login' },
+  { id: 'sso', label: 'Keycloak SSO' },
   { id: 'encryption', label: 'Encryption' },
   { id: 'diag', label: 'Diagnostics' },
 ]
@@ -52,7 +54,7 @@ export default function MySQLManager({ stackId, nodeId, dep, onDeleteNode }) {
       </div>
 
       <div className="flex flex-wrap gap-1 rounded-lg bg-surface2 p-1">
-        {TABS.filter((t) => (t.id !== 'dirlogin' || cfg.dirAuth?.enabled) && (t.id !== 'encryption' || cfg.vault?.enabled)).map((t) => (
+        {TABS.filter((t) => (t.id !== 'dirlogin' || cfg.dirAuth?.enabled) && (t.id !== 'sso' || cfg.oidc?.enabled) && (t.id !== 'encryption' || cfg.vault?.enabled)).map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${tab === t.id ? 'bg-surface text-fg shadow' : 'text-muted'}`}>
             {t.label}
@@ -71,6 +73,7 @@ export default function MySQLManager({ stackId, nodeId, dep, onDeleteNode }) {
           <KV k="GTID" v={cfg.gtid ? 'on' : 'off'} />
           <KV k="read_only" v={cfg.readOnly ? 'ON' : 'OFF'} />
           <KV k="TLS" v={cfg.generateCert ? 'Intranet CA' : 'none'} />
+          {cfg.oidc?.enabled && <KV k="Keycloak SSO" v={`auth_openid_connect · realm ${cfg.oidc.realm}`} />}
           {cfg.vault?.enabled && <KV k="Encryption" v={`OpenBao · ${cfg.vault.method}`} />}
           <KV k="Monitored by" v={cfg.monitoredBy} mono />
           {cfg.serverVersion && <KV k="Version" v={cfg.serverVersion} mono />}
@@ -122,6 +125,7 @@ export default function MySQLManager({ stackId, nodeId, dep, onDeleteNode }) {
         </div>
       )}
       {tab === 'dirlogin' && <DbLoginGuide engine="ps" info={cfg.dirAuth} />}
+      {tab === 'sso' && <OidcLoginGuide engine="ps" info={cfg.oidc} secrets={sec} />}
       {tab === 'encryption' && <VaultGuide engine="ps" info={cfg.vault} />}
       {tab === 'diag' && <PTStalkCard stackId={stackId} nodeId={nodeId} />}
     </div>

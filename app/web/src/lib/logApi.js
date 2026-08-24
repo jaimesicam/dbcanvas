@@ -162,6 +162,13 @@ export const CLASS_LABEL = {
   storage: 'Storage',
   config: 'Configuration',
   security: 'Security',
+  // A Kubernetes controller's classes. They are the operator's verbs, not a database's —
+  // a database never restores itself or restarts its own peers in order.
+  reconcile: 'Reconcile',
+  backup: 'Backup',
+  restore: 'Restore',
+  rollout: 'Rolling restart',
+  pitr: 'Point-in-time recovery',
   other: 'Other',
 }
 
@@ -219,6 +226,26 @@ export const STATE_TEXT = {
   SYNCING: 'Receiving a full copy of the primary\'s dataset — anything it answers meanwhile is stale by an unbounded amount',
   LOADING: 'Up and listening, and refusing every command with -LOADING while it reads its dataset off disk. A health check that only opens a socket sees a healthy node',
   CLUSTERDOWN: 'Up, healthy, and refusing every command because some OTHER shard\'s hash slots are uncovered. Nothing is wrong with this node',
+  // The two Kubernetes sources. Neither is a database, and neither lane claims to say
+  // anything about whether queries were being answered — the members' lanes do that.
+  LEADER: 'The operator holds the leader lease — this is the process actually reconciling the cluster',
+  'NOT-LEADER': 'The operator is running and does not hold the lease: it is watching, and changing nothing',
+  COLLECTING: 'Binary logs are being uploaded — point-in-time recovery can reach the present',
+  'PITR-GAP': 'The collector cannot continue its sequence: a binary log it needed is gone, and recovery cannot cross this point',
+  'PITR-OFF': 'No binlog collector is running — from here, only a full backup can be restored',
+  // The MongoDB operator's own cluster state, and its backup agents'. Exactly one agent
+  // per replica set does any work; the others are SLICING's counterpart, PBM-IDLE, and
+  // that is normal rather than a fault.
+  'CR-READY': 'The operator considers the cluster to match its spec',
+  'CR-INIT': 'The operator is changing the cluster — ordinary during a rollout, and a cluster that never leaves it is stuck',
+  'CR-ERROR': 'The operator could not bring the cluster to its spec',
+  SLICING: 'This member holds the PITR lock and is streaming the oplog to object storage — the only one of its replica set that is',
+  'PBM-IDLE': 'The agent is up and another member won the nomination: normal, and its log will say almost nothing',
+  'PBM-LOST': 'The agent cannot reach the cluster, so it can neither slice the oplog nor record that it failed to',
+  // CloudNativePG runs the failover itself — no Patroni — so it is the only one of the
+  // three PostgreSQL operators whose log can date a switchover.
+  SWITCHOVER: 'CloudNativePG is moving the primary: no member is accepting writes until it finishes',
+  MANAGING: 'The instance manager is up and looking after its member',
   // Not a cluster member at all
   RUNNING: 'Up and accepting connections',
   STARTING: 'Starting up — not accepting connections yet',
@@ -236,6 +263,13 @@ export const STATE_SEV = {
   OPEN: 'bad', CLOSED: 'bad', DOWN: 'bad',
   BLOCKED: 'bad', ERROR: 'bad', OFFLINE: 'bad', ROLLBACK: 'bad', REMOVED: 'bad',
   CLUSTERDOWN: 'bad',
+  LEADER: 'ok', COLLECTING: 'ok',
+  'NOT-LEADER': 'warn',
+  'PITR-GAP': 'bad', 'PITR-OFF': 'bad',
+  'CR-READY': 'ok', SLICING: 'ok',
+  'CR-INIT': 'warn', 'PBM-IDLE': 'warn',
+  'CR-ERROR': 'bad', 'PBM-LOST': 'bad',
+  MANAGING: 'ok', SWITCHOVER: 'warn',
   UNKNOWN: 'info',
 }
 
@@ -310,8 +344,25 @@ export const FLAVOUR_LABEL = {
   patroni: 'Patroni member',
   valkeyrepl: 'Valkey replication',
   valkeycluster: 'Valkey Cluster member',
+  pxcoperator: 'PXC operator',
+  pxcpitr: 'binlog collector',
+  psmdboperator: 'MongoDB operator',
+  pbmagent: 'backup agent',
+  perconapgoperator: 'Percona PG operator',
+  crunchypgo: 'Crunchy PGO',
+  cnpgoperator: 'CloudNativePG operator',
+  cnpginstance: 'CloudNativePG instance',
+  psoperator: 'Percona Server operator',
+  k8sevents: 'Kubernetes Events',
 }
 
 export const ENGINE_LABEL = {
   mysql: 'MySQL / PXC', postgres: 'PostgreSQL', mongodb: 'MongoDB', valkey: 'Valkey',
+  // Not a database, and spelled so. A Kubernetes controller has no port, no query
+  // language and no data of its own; filing it under MySQL because it manages MySQL
+  // would make the sources table claim something about it that is not true.
+  operator: 'Kubernetes operator',
+  // Not a log at all: an API object list. Spelled distinctly so the sources table does
+  // not imply somebody tailed a file.
+  k8sevents: 'Kubernetes API',
 }

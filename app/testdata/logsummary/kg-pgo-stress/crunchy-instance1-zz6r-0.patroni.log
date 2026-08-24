@@ -1,0 +1,474 @@
+2026-08-22 11:14:55,930 INFO: Using default value thread_stack_size = 524288
+2026-08-22 11:14:55,937 INFO: Patroni global thread_pool_size = 5
+/usr/local/lib/python3.12/site-packages/urllib3/_request_methods.py:182: FutureWarning: URLs without a scheme (ie 'https://') are deprecated and will raise an error in urllib3 v3.0. To avoid this FutureWarning ensure all URLs start with 'https://' or 'http://'. Read more in this issue: https://github.com/urllib3/urllib3/issues/2920
+  return self.urlopen(method, url, **extra_kw)
+2026-08-22 11:14:56,218 INFO: No PostgreSQL configuration items changed, nothing to reload.
+2026-08-22 11:14:56,219 INFO: REST API thread_pool_size = 5
+2026-08-22 11:14:56,222 INFO: Lock owner: None; I am crunchy-instance1-zz6r-0
+2026-08-22 11:14:56,238 INFO: failed to acquire initialize lock
+2026-08-22 11:14:58,730 INFO: Lock owner: crunchy-instance1-v9gp-0; I am crunchy-instance1-zz6r-0
+2026-08-22 11:14:58,730 INFO: trying to bootstrap from leader 'crunchy-instance1-v9gp-0'
+2026-08-22 11:15:01,019 INFO: replica has been created using basebackup
+2026-08-22 11:15:01,020 INFO: bootstrapped from leader 'crunchy-instance1-v9gp-0'
+2026-08-22 11:15:01.225 UTC [89] LOG:  pgaudit extension initialized
+2026-08-22 11:15:01.238 UTC [89] LOG:  redirecting log output to logging collector process
+2026-08-22 11:15:01.238 UTC [89] HINT:  Future log output will appear in directory "/pgdata/logs/postgres".
+2026-08-22 11:15:01,238 INFO: postmaster pid=89
+/tmp/postgres:5432 - no response
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - accepting connections
+2026-08-22 11:15:03,260 INFO: Lock owner: crunchy-instance1-v9gp-0; I am crunchy-instance1-zz6r-0
+2026-08-22 11:15:03,260 INFO: establishing a new patroni heartbeat connection to postgres
+2026-08-22 11:15:03,276 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:15:07,230 INFO: establishing a new patroni restapi connection to postgres
+2026-08-22 11:15:08,748 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:15:18,746 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:15:28,743 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:15:38,726 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:15:48,726 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:15:58,736 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:16:08,727 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:16:18,740 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:16:28,726 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:16:38,727 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:16:48,726 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:16:58,727 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:17:08,726 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:17:18,727 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:17:28,726 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:17:38,726 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:17:48,726 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:17:58,737 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:18:08,737 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:18:18,736 INFO: no action. I am (crunchy-instance1-zz6r-0), a secondary, and following a leader (crunchy-instance1-v9gp-0)
+2026-08-22 11:18:23,273 INFO: promoted self to leader by acquiring session lock
+server promoting
+2026-08-22 11:18:24,299 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:18:24,680 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:18:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:18:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:18:54,679 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:19:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:19:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:19:24,679 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:19:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:19:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:19:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:20:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:20:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:20:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:20:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:20:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:20:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:21:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:21:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:21:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:21:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:21:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:21:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:22:04,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:22:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:22:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:22:34,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:22:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:22:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:23:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:23:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:23:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:23:34,687 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:23:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:23:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:24:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:24:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:24:24,678 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:24:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:24:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:24:54,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:25:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:25:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:25:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:25:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:25:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:25:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:26:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:26:14,680 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:26:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:26:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:26:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:26:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:27:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:27:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:27:24,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:27:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:27:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:27:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:28:04,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:28:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:28:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:28:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:28:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:28:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:29:04,672 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:29:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:29:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:29:34,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:29:44,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:29:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:30:04,679 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:30:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:30:24,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:30:34,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:30:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:30:54,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:31:04,672 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:31:14,672 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:31:24,681 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:31:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:31:44,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:31:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:32:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:32:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:32:24,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:32:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:32:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:32:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:33:04,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:33:14,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:33:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:33:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:33:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:33:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:34:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:34:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:34:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:34:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:34:44,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:34:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:35:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:35:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:35:24,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:35:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:35:44,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:35:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:36:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:36:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:36:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:36:34,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:36:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:36:54,672 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:37:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:37:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:37:24,674 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:37:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:37:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:37:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:38:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:38:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:38:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:38:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:38:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:38:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:39:04,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:39:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:39:24,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:39:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:39:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:39:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:40:04,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:40:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:40:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:40:34,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:40:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:40:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:41:04,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:41:14,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:41:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:41:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:41:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:41:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:42:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:42:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:42:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:42:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:42:44,669 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:42:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:43:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:43:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:43:24,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:43:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:43:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:43:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:44:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:44:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:44:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:44:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:44:44,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:44:54,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:45:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:45:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:45:24,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:45:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:45:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:45:54,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:46:04,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:46:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:46:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:46:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:46:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:46:54,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:47:04,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:47:14,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:47:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:47:34,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:47:44,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:47:54,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:48:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:48:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:48:24,666 INFO: Lock owner: crunchy-instance1-zz6r-0; I am crunchy-instance1-zz6r-0
+2026-08-22 11:48:24,667 INFO: Replication slot 'crunchy_instance1_v9gp_0' for absent cluster member is expired after 1800 sec.
+2026-08-22 11:48:24,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:48:34,678 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:48:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:48:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:49:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:49:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:49:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:49:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:49:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:49:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:50:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:50:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:50:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:50:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:50:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:50:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:51:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:51:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:51:24,676 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:51:34,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:51:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:51:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:52:04,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:52:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:52:24,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:52:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:52:44,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:52:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:53:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:53:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:53:24,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:53:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:53:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:53:54,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:54:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:54:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:54:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:54:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:54:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:54:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:55:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:55:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:55:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:55:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:55:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:55:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:56:04,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:56:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:56:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:56:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:56:44,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:56:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:57:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:57:14,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:57:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:57:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:57:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:57:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:58:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:58:14,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:58:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:58:34,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:58:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:58:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:59:04,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:59:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:59:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:59:34,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:59:44,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 11:59:54,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:00:04,671 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:00:14,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:00:24,670 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:00:32,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:00:32,960 INFO: Changed deadlock_timeout from '1s' to '500ms'
+2026-08-22 12:00:32,961 INFO: Changed log_autovacuum_min_duration from '10min' to '0'
+2026-08-22 12:00:32,961 INFO: Changed log_connections from '' to 'on'
+2026-08-22 12:00:32,961 INFO: Changed log_disconnections from 'off' to 'on'
+2026-08-22 12:00:32,961 INFO: Changed log_lock_waits from 'off' to 'on'
+2026-08-22 12:00:32,961 INFO: Changed log_min_duration_statement from '-1ms' to '200'
+2026-08-22 12:00:32,961 INFO: Changed log_temp_files from '-1kB' to '0'
+2026-08-22 12:00:32,965 INFO: Reloading PostgreSQL configuration.
+server signaled
+2026-08-22 12:00:42,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:00:52,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:01:02,955 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:01:12,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:01:22,961 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:01:32,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:01:42,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:01:52,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:02:02,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:02:12,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:02:22,955 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:02:32,955 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:02:42,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:02:52,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:03:02,955 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:03:12,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:03:22,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:03:32,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:03:42,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:03:52,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:04:02,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:04:12,955 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:04:22,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:04:32,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:04:42,955 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:04:52,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:05:02,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:05:12,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:05:22,955 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:05:32,977 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:05:42,967 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:05:52,965 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:06:02,998 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:06:13,016 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:06:22,965 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:06:32,965 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:06:42,963 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:06:52,975 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:07:02,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:07:12,968 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:07:22,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:07:32,969 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:07:42,955 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:07:52,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:08:02,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:08:12,964 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:08:22,954 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:08:32,370 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:08:32,373 INFO: Changed effective_cache_size from '4GB' to '3GB'
+2026-08-22 12:08:32,373 INFO: Changed log_connections from '' to 'on'
+2026-08-22 12:08:32,374 INFO: Changed log_disconnections from 'off' to 'on'
+2026-08-22 12:08:32,374 INFO: Changed max_wal_size from '1GB' to '4GB'
+2026-08-22 12:08:32,374 INFO: Changed random_page_cost from '4' to '1.1'
+2026-08-22 12:08:32,374 INFO: Changed shared_buffers from '128MB' to '1GB' (restart might be required)
+2026-08-22 12:08:32,374 INFO: Changed wal_compression from 'off' to 'on'
+2026-08-22 12:08:32,374 INFO: Changed work_mem from '4MB' to '16MB'
+2026-08-22 12:08:32,376 INFO: Reloading PostgreSQL configuration.
+server signaled
+2026-08-22 12:08:42,381 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:08:48,233 INFO: Lock owner: crunchy-instance1-zz6r-0; I am crunchy-instance1-zz6r-0
+2026-08-22 12:08:49,446 INFO: closed patroni connections to postgres
+2026-08-22 12:08:49.675 UTC [4181] LOG:  pgaudit extension initialized
+2026-08-22 12:08:49,688 INFO: postmaster pid=4181
+/tmp/postgres:5432 - no response
+2026-08-22 12:08:49.702 UTC [4181] LOG:  redirecting log output to logging collector process
+2026-08-22 12:08:49.702 UTC [4181] HINT:  Future log output will appear in directory "/pgdata/logs/postgres".
+/tmp/postgres:5432 - accepting connections
+/tmp/postgres:5432 - accepting connections
+2026-08-22 12:08:50,709 INFO: Lock owner: crunchy-instance1-zz6r-0; I am crunchy-instance1-zz6r-0
+2026-08-22 12:08:50,709 INFO: establishing a new patroni heartbeat connection to postgres
+2026-08-22 12:08:50,754 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:09:00,731 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:09:10,721 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:09:20,712 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:09:30,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:09:40,712 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:09:50,712 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:10:00,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:10:10,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:10:20,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:10:30,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:10:40,712 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:10:50,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:11:00,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:11:10,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:11:20,712 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:11:30,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:11:40,712 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:11:50,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:12:00,712 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:12:10,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:12:20,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:12:30,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:12:40,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:12:50,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:13:00,715 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:13:10,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:13:20,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:13:30,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:13:40,712 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:13:50,729 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:14:00,724 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:14:10,727 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:14:20,724 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:14:30,727 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:14:40,726 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:14:50,725 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:15:00,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:15:10,725 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:15:20,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:15:30,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:15:40,725 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:15:50,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:16:00,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:16:10,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:16:20,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:16:30,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:16:40,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:16:50,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:17:00,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:17:10,712 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:17:20,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:17:30,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:17:40,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:17:50,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:18:00,712 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:18:10,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:18:20,722 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:18:30,739 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:18:40,721 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:18:50,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:19:00,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:19:10,712 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:19:20,712 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:19:30,712 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:19:40,712 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:19:50,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:20:00,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:20:10,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:20:20,714 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:20:30,714 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:20:40,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:20:50,714 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:21:00,714 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:21:10,714 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:21:20,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:21:30,715 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:21:40,714 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:21:50,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:22:00,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:22:10,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:22:20,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:22:30,714 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:22:40,714 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:22:50,714 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:23:00,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:23:10,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:23:20,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:23:30,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:23:40,715 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:23:50,713 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock
+2026-08-22 12:24:00,712 INFO: no action. I am (crunchy-instance1-zz6r-0), the leader with the lock

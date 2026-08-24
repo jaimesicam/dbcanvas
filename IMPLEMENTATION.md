@@ -16796,7 +16796,1032 @@ panel alone could not show.
   and the log verdict describes the restart this session caused.
 - Captions rewritten; every link and screenshot reference still resolves.
 
-## 295. Stepping through the operator: the K3D frame can run it under Delve — `app/k3ddebug.go` (new), `app/{k3d,intranet}.go`, `app/web/src/pages/{StackDesigner,K3DManager}.jsx`
+---
+
+## 295. Keycloak SSO for Percona Server 8.4 (`auth_openid_connect`) — `app/mysqloidc.go` (new), `app/keycloakclient.go`, `app/pgoidc.go`, `app/mysql.go`, `app/intranet.go`, `PerconaServerForm`, `MySQLManager`, `OidcLoginGuide.jsx`
+
+**Goal.** The fourth engine behind the Keycloak node (after PSMDB, PMM and PostgreSQL §104):
+a standalone Percona Server node (`ps`) that accepts signed ID tokens from Keycloak through the
+**`auth_openid_connect`** plugin Percona shipped in **8.4.11-11** (2026-08-20). Same shape as the
+others — a toggle on the canvas, configured at deploy, a login guide on the node's panel — and
+scoped to the standalone node, which is where every other auth/encryption integration in this app
+lives (LDAP §103, OpenBao §106). Not offered on 9.7: `9.7.1-1` (2026-08-05) predates the feature.
+
+**What the deploy builds.** Not just the plugin — the whole demo, so the node is usable the moment
+it goes green. A realm + public `mysql` client on the Keycloak node, sample users `jane` and `john`
+in an `accounting` group, MySQL accounts bound to those users' `sub` claims, an `oidc_demo` schema
+that only the group's role can read, and an `oidc-login <user>` helper on the node that does the
+whole round-trip in one command.
+
+**Recipe** (`mysqloidc.go`, mirroring `applyPGOIDC`), every point of it established live:
+
+- Both libraries — `auth_openid_connect.so` (server) and
+  `authentication_openid_connect_client.so` (client) — are **inside `percona-server-server`**.
+  No extra package, and nothing to install client-side on the node.
+- The plugin is loaded from `/etc/my.cnf` with `plugin-load-add`, **not** `INSTALL PLUGIN`:
+  `auth_openid_connect_configuration` is a plugin variable, so an option file can only carry it if
+  the plugin is already loaded when options are parsed. That also makes the whole configuration
+  survive a restart without going near `mysqld-auto.cnf`.
+- The trust document lives in its own file as `FILE:///etc/mysql-oidc-idp.json`. The `JSON://`
+  prefix would mean quoting a JSON document inside a `my.cnf` value.
+- The plugin fetches the JWKS over HTTPS with the **system trust store**, which `mysqlPrepareNode`
+  has already loaded with the Intranet CA (`trustIntranetCA`) — so an Intranet-CA Keycloak
+  validates with no plugin-specific TLS setting. Hence the SSL-Keycloak requirement: HTTPS issuer.
+- `group-role` maps a Keycloak group to a MySQL role, and the key must match the claim **verbatim**.
+  `ensureKeycloakClient` builds the group-membership mapper with `full.path=false`, so the claim is
+  `accounting` and the mapping key is `accounting` — not `/accounting` as in Percona's own
+  quickstart, which assumes a full-path mapper.
+- A group-mapped role is **granted but not activated**: `SHOW GRANTS` gains it at connection time
+  while `CURRENT_ROLE()` stays `NONE` until `SET ROLE`. The guide says so rather than flipping
+  `activate_all_roles_on_login`, which would change role behaviour for every other account.
+- Secure transport is enforced. Socket is fine; over TCP, `--ssl-mode=DISABLED` is refused with a
+  bare `Access denied`, so the guide always passes `--ssl-mode=REQUIRED`.
+- The script reverts `/etc/my.cnf` and restarts if mysqld will not come back or the plugin does not
+  reach `ACTIVE` — a failed SSO extra leaves a working database, not a dead node (and, like pg, it
+  is logged as "skipped" rather than failing the deploy).
+
+**Keycloak helper.** `kcClientSpec` gained `DirectGrant` (resource-owner password grant — what the
+quickstart uses to fetch an ID token; PMM/pg keep it off), and `keycloakClientScript` now prints
+`USERID=<username>:<id>` per sample user. The new `ensureKeycloakClientUsers` returns that map:
+the account is bound to the Keycloak **user id**, which is the token's `sub`, so the MySQL user
+cannot be created until Keycloak has minted the user. `ensureKeycloakClient` is a thin wrapper, so
+the PMM and PostgreSQL callers are untouched.
+
+**Validation.** `oidcIssues` now covers `ps` too (and uses `nodeKindLabel`, so each engine names
+itself): linked SSL Keycloak, major `8.4`, and a minor at or after `8.4.11-11` — the new
+`psVersionAtLeast` compares numeric components across both `.` and `-`, so `8.4.9-9.1` correctly
+loses to `8.4.11-11` where a string compare would not. Empty ("latest") always passes.
+
+**Frontend.** `KeycloakOidcFields`'s `pg18` flag generalised to a `pin` ({patch, note}) so each
+engine states its own version requirement; `PG_OIDC_PIN` and `PS_OIDC_PIN` are the two. Added the
+block to `PerconaServerForm` with no `blocked` message — MySQL picks its auth plugin per account,
+so LDAP and OIDC coexist and neither greys the other out. New `ps` branch in `OidcLoginGuide`
+(the `oidc-login` command, the curl+`mysql` steps it stands for, `SET ROLE`, the TLS rule, and how
+to add your own Keycloak user), rendered in a **Keycloak SSO** tab on `MySQLManager` gated on
+`dep.config.oidc.enabled`, plus a line on the Overview.
+
+### Verified
+
+- **Live, before the code was written**, against a real `percona-server-server-8.4.11-11.1.el9` on
+  the Oracle Linux 9 systemd image + Keycloak 26.5.5 with a CA-signed HTTPS issuer: token fetched,
+  `iss`/`aud`/`sub`/`groups` claims confirmed, login over socket and over TCP+TLS, plaintext TCP
+  refused, `SET ROLE` reaching `oidc_demo`.
+- **Then the committed scripts themselves**, extracted from the Go source and run in those
+  containers: `mysqlOIDCScript` end to end (plugin `ACTIVE`, accounts created, `oidc-login jane`
+  and `oidc-login john --ssl-mode=REQUIRED` both returning rows, a wrong password reported
+  cleanly), idempotent on a second run (one `my.cnf` block, not two), and surviving a full
+  container restart. `keycloakClientScript` against the live Keycloak on a fresh realm: client
+  flags right (`publicClient`, `directAccessGrantsEnabled`, no standard flow), `USERID=` lines
+  emitted, and the id it printed matching the `sub` in the token Keycloak then issued.
+- `gofmt`/`go build`/`go vet`/`go test ./...` clean; `npm run build` and `make smoke` clean, with
+  two new smoke checks rendering the SSO tab over the exact `oidcInfo` shape the Go side persists
+  and confirming it stays hidden without OIDC.
+
+---
+
+## 296. The Keycloak SSO tab states its facts, and the sample users actually get a password — `app/keycloakclient.go`, `app/mysqloidc.go`, `app/pgoidc.go`, `app/mysql.go`, `OidcLoginGuide.jsx`, `MySQLManager`, `docker-compose.yml`
+
+Two problems found on the first real deploy of §295 (stack 121: Intranet + Keycloak + VNC + PSMDB
++ Percona Server).
+
+**The panel read as invented.** The Keycloak SSO tab opened with two `oidc-login` commands and
+told the reader their password was "`KEYCLOAK_USER_PASSWORD` from `.env`". Both are true, and
+neither is checkable from where you are standing — nothing on the page said where Keycloak was or
+what the password actually is, so the commands looked made up. The PSMDB node's tab
+(`MongoDBManager`'s `KeycloakSSOTab`) had the right shape all along: facts first — issuer, client,
+sample users, and the password itself as a revealable `SecretValue` — then the commands. The `ps`
+branch now follows it: a KV block (Keycloak console URL, issuer, client id, realm, the MySQL
+accounts that exist, and `group → role (SELECT on schema)`), the password revealed inline, then the
+two `oidc-login` copy-rows, then what the helper expands to. `oidcInfo` gained `ConsoleURL`.
+
+The password lands in the node's `Deployment.Secrets` via a new **`persistSecretKey`** (the mirror
+of `persistConfigKey`) rather than a field on `pxcSecrets`. That struct is shared by the whole
+MySQL family, and **PXC has no OIDC plugin** — nothing about Keycloak belongs on it. The feature
+stays exactly where §295 put it: the standalone `ps` node, 8.4 at 8.4.11-11 or newer.
+
+**The first sample user of a fresh realm silently had no password.** `jane` could not get a token
+from Keycloak; `john`, created seconds later in the same loop, was fine — and the MySQL accounts,
+group memberships and `sub` bindings were all correct, so nothing looked broken. The cause is in
+`keycloakClientScript`, where `set-password` was `>/dev/null 2>&1 || true`: Keycloak is still
+initialising a realm it has just been asked to create, the first credential write against it does
+not take, and the failure was thrown away. It now retries five times, re-running
+`kcadm config credentials` between attempts — which also closes the other silent failure in that
+loop, the master realm's **60-second** admin access token, which a long enough user list outruns —
+and emits `PWFAIL=<user>` if it never lands. `ensureKeycloakClientUsers` turns that into an error:
+a sample user nobody can sign in as is a broken demo, not a partial success. This bug was never
+`ps`-specific — PMM's `alice` and PostgreSQL's `jane` were exposed to it too.
+
+**`KEYCLOAK_USER_PASSWORD` was never passed to the app container.** It is documented in
+`docs/CONFIGURATION.md` and read by `keycloakUserPassword()`, but `docker-compose.yml` did not
+forward it, so changing it in `.env` did nothing and every stack quietly used the built-in default
+(identical string, which is why nobody noticed). Added alongside `KEYCLOAK_PASSWORD`.
+
+### Verified
+
+- Root cause pinned on the live stack before changing anything: `john`'s credential existed and
+  worked, `jane`'s did not; both were in the `accounting` group with correct `sub` bindings, and
+  the master realm's `accessTokenLifespan` is 60s.
+- The fixed `keycloakClientScript` run against that stack's own Keycloak on a fresh realm: both
+  `jane` and `john` returned an ID token from the password grant, no `PWFAIL` lines. Throwaway
+  realms removed afterwards.
+- `oidc-login jane` on the deployed node now returns `jane@%`, `accounting` and the `oidc_demo`
+  rows over the socket, and over TCP with `--ssl-mode=REQUIRED`.
+- Confirmed by grep that the feature touches nothing else: `applyMySQLOIDC` is called only from
+  `provisionPerconaServer`, the design block is on `PerconaServerForm`/`PMMOptions`/PostgreSQL
+  only, and `pxc.go`/`pxc_mgmt.go`/`innodb.go` contain no OIDC reference at all.
+- `gofmt`/`go build`/`go vet`/`go test ./...`, `npm run build` and `make smoke` all clean; the
+  smoke check now asserts the Keycloak URL and the account list are on the page.
+
+---
+
+## 297. Ubuntu VNC gets the 8.4 client (and the plugin package behind it) + a What's New section — `images/vnc.Dockerfile`, `app/vnc.go`, `docs/STACKS.md`, `README.md`, `docs/screenshots/keycloak-oidc.png`
+
+**The desktop could not sign in with OIDC.** The Ubuntu VNC jump box is where an operator sits
+inside the stack network, so it is the natural place to try a Keycloak login against the Percona
+Server node from §295 — and it could not: its `percona-server-client` came from `ps-80`.
+
+Two facts, both established by inspecting the noble packages rather than assumed:
+
+- `percona-server-client` and `percona-server-server` are both at **8.4.11-11-1.noble** in
+  `ps-84-lts`.
+- `authentication_openid_connect_client.so` is in **`percona-server-server`** and in no other
+  package (`dpkg-deb -c` on both). `percona-server-client` carries no plugins at all. So the
+  server package has to be installed for the *client* to authenticate — which is what makes this
+  awkward on a machine that must not run a database.
+
+`images/vnc.Dockerfile` now enables `ps-84-lts` instead of `ps-80` and installs
+`percona-server-server` beside the client, then makes sure it can never run:
+
+- `policy-rc.d` (exit 101) for the duration of the install, so the postinst's `start` is denied
+  cleanly instead of failing the package's configuration in a build with no init.
+- Afterwards the `multi-user.target.wants` symlink is removed and the unit is **masked**
+  (`/etc/systemd/system/mysql.service → /dev/null`). Masking beats disabling here: the datadir is
+  also deleted, so a `systemctl start` that got through would fail confusingly, while a masked
+  unit says exactly what is true — this box is not a database node.
+- The postinst initialises ~190 MB of InnoDB files the desktop will never use; `rm -rf
+  /var/lib/mysql/*` reclaims it.
+- Added `jq` to the desktop packages — the token dance is `curl … | jq -r .id_token`.
+
+The build now also reports whether the OIDC client plugin landed, next to the existing
+"clients present" list.
+
+**README `What's New`.** A new section at the top: OIDC/OAuth sign-in for Percona Server 8.4.11
+with Keycloak as the identity provider (with a screenshot of the node's Keycloak SSO tab beside a
+console signing in as `jane`), and the file manager + canvas drag-and-drop, which had screenshots
+in `docs/STACKS.md` but no mention on the front page.
+
+### Verified
+
+- The image was rebuilt (`make vnc-image`) and checked: `mysql Ver 8.4.11-11`, the client plugin
+  present, `mysql.service → /dev/null`, no `multi-user.target.wants` entry, `/var/lib/mysql` empty,
+  and every other client (mongosh, psql, valkey-cli, ldapsearch, kinit, pt-query-digest, firefox,
+  jq, curl) still there.
+- Booted under real systemd (`--privileged`, `/sbin/init`): `systemctl is-enabled mysql` → `masked`,
+  `is-active` → `inactive`, `systemctl start mysql` → "Unit mysql.service is masked.", no `mysqld`
+  process.
+- End-to-end from the rebuilt image, attached to a live stack's network: fetched an `id_token` from
+  Keycloak with `curl`+`jq`, then
+  `mysql --host=ps-01.example.net --protocol=TCP --ssl-mode=REQUIRED --user=jane
+  --authentication-openid-connect-client-id-token-file=…` returned `jane@%`, role
+  `` `accounting`@`%` ``, server `8.4.11-11` and the `oidc_demo.invoices` rows.
+
+---
+
+## 298. A Stock Market Sim node can drive all six Kubernetes operators, not just CloudNativePG — `app/stocksim_k3d.go` (new), `app/stocksim.go`, `app/intranet.go`, `StackDesigner`, `docs/STACKS.md`
+
+**It could drive exactly one of the six.** `stockSimEngineForKind` mapped the whole `k3d` frame
+type to `postgres`, and the resolver behind it opened with
+
+```go
+case ok && cfg.Operator != "cnpg":
+    return …, fmt.Errorf("the linked Kubernetes cluster %s does not run CloudNativePG — "+
+        "a Stock Market Sim node can only use a CNPG frame", frame.Label)
+```
+
+So a frame running PXC, Percona Server, PSMDB, the Percona PostgreSQL operator or Crunchy PGO was
+accepted by the canvas, passed validation as "PostgreSQL", and then failed the deploy. Two of the
+five were not even PostgreSQL.
+
+**A K3D frame's engine is the operator's, not the frame type's.** That is the whole shape of the
+change: `stockSimEngineForKind` no longer answers for `k3d` at all — it joins the two routers as a
+kind whose engine only `stockSimEngineForTarget` can resolve, because resolving it needs the design
+in hand (`k3dOperatorEngine(frameByID(doc, targetID).K3DOperator)`). `waitStockSimTarget` then
+dispatches `k3d` on the kind rather than the engine, because for a Kubernetes frame the hard part —
+finding the operator's Services and the Secret it keeps its passwords in — is the same work
+whichever database comes out the other end.
+
+**`app/stocksim_k3d.go`** is that work, one resolver per operator:
+
+| Operator | Endpoint, in preference order | Connects as |
+| --- | --- | --- |
+| `pxc` | `<cr>-haproxy` / `<cr>-proxysql`, else the per-pod `<cr>-pxc-N` | `root`, from `<cr>-secrets` |
+| `ps` | `<cr>-haproxy` / `<cr>-router`, else `<cr>-mysql-primary` | `root`, from `<cr>-secrets` |
+| `psmdb` | `<cr>-mongos` when sharded; else the `<cr>-rs0-N` holding the primary | `databaseAdmin`, from `<cr>-secrets` |
+| `pg` | `<cr>-pgbouncer`, else `<cr>-ha` | the app user through the pool, `postgres` direct |
+| `pgo` | the same two tiers, the same order | the same rule |
+| `cnpg` | the `CNPGEndpoint` §227 recorded | the generated `app` role |
+
+Four things are worth naming.
+
+- **Ports are picked by name, not by number.** The PS operator's MySQL Router answers read/write on
+  **6446** and *also* publishes 3306 as `rw-default`, so "the port that looks like MySQL" lands on
+  the wrong one. `servicePort` takes the first of a preference list of port *names* (`rw`, `mysql`,
+  `mongos`, `postgres`), falls back to the expected number, and only then to the first port — so a
+  renamed port still yields something dialable.
+- **A ClusterIP is not a lookup failure, it is a setting.** The k3d cluster is on the stack network
+  precisely so a MetalLB address is routable from a sibling container, and a NodePort on a k3s
+  node's own InternalIP is too. So the resolver distinguishes *retryable* (the Service does not
+  exist yet, its LoadBalancer address has not landed) from *settled* (ClusterIP), and the settled
+  case fails immediately with the name of the tier to change rather than at the 60-minute timeout.
+- **A replica set is dialled directly, and that took a live run to establish.** A sharded PSMDB
+  cluster has mongos in front of it, so one address is the whole cluster. A plain replica set does
+  not, and the first implementation handed the driver every member's MetalLB address as a seed with
+  `replicaSet=rs0` — which the driver dutifully replaced with what the set's own configuration says
+  its members are:
+
+  ```
+  ["k3d-00-rs0-0.k3d-00-rs0.default.svc.cluster.local:27017", …]
+  ```
+
+  Exposing the members does **not** rewrite that; only `clusterServiceDNSMode: External` does, and
+  that changes the addresses *in-cluster* clients get too — PBM, the PMM sidecar, the operator —
+  so it is not a switch to flip for one application. So the sim is pointed at whichever member
+  currently holds the primary role, with `directConnection=true` to stop the driver from
+  rediscovering its way back inside the cluster. `db.hello()` answers before authentication, so
+  finding that member needs no credentials, and its `primary` field's first label *is* the name of
+  the per-pod Service in front of it. The cost is bounded and stated: an election moves the
+  primary, and the sim node has to be redeployed to follow it.
+- **Credentials are read out of the cluster, not assumed.** DBCanvas seeds every operator's secret
+  from `.env` at deploy, but a password rotated in Kubernetes afterwards is the real one, so each
+  resolver reads the Secret and keeps the `.env` value only as a fallback.
+- **pgBouncer locked the app out, so the app changed** — the second thing a live run established
+  rather than an opinion. Both Crunchy-shaped operators put a pooler in front of the primary, and
+  DBCanvas exposes it as a LoadBalancer by default while the primary stays ClusterIP, so the pool
+  is the address such a cluster actually advertises. Pointed at it, the sim died before it ran a
+  statement:
+
+  ```
+  FATAL: unsupported startup parameter in options: search_path (SQLSTATE 08P01)
+  ```
+
+  The sim pinned `search_path` to the schema it owns as a libpq `options=-c search_path=…` startup
+  parameter, and PgBouncer rejects any startup parameter not in its `ignore_startup_parameters`.
+  Routing around the pooler would have been the smaller change and the wrong one: a pooler is the
+  front door of every cluster these two operators build, and it is the tier that stays put across a
+  failover. So `stocksim/internal/store/postgres.go` pins it two other ways instead, which between
+  them cover every pooling mode:
+
+  - `SET search_path` on each new backend connection, from `stdlib.OptionAfterConnect` — enough for
+    a direct connection and for a pooler in **session** mode, where a server connection belongs to
+    one client for its whole session;
+  - `ALTER ROLE CURRENT_USER IN DATABASE … SET search_path`, once at open — the catalogue default,
+    so a backend starts with it already applied, which is what covers **transaction** and
+    **statement** pooling where a `SET` does not survive to the next query. Best effort: a role
+    that may not alter itself still has the first mechanism.
+
+  With that, `pg` and `pgo` share one resolver that takes `<cr>-pgbouncer` first and `<cr>-ha` as
+  the fallback. **Which user depends on which tier**, and that is not a preference either: the
+  pooler's userlist is generated from `spec.users` and the operator leaves the superuser out of it,
+  so connecting through the pool as `postgres` is answered with a flat `FATAL: no such user` (also
+  verified live). Through the pool it is the application user — no CREATEDB, so the sim claims a
+  schema inside the operator's database; direct to the primary it is `postgres`, and the sim gets a
+  database of its own.
+
+**Design-time reachability.** `stockSimK3DExposeIssues` warns, before anything is provisioned, when
+the sim is linked to a frame whose every usable tier is ClusterIP — naming the tiers the frame's
+own form names. A warning rather than an error: the design says what will happen, the cluster
+decides, and an operator release that adds a Service DBCanvas does not know about should not be
+able to block a deploy.
+
+**The designer** stops calling the frame "CloudNativePG (Kubernetes)": `SS_LINK_TYPES.k3d` is
+"Kubernetes operator cluster", the linked-target banner names the operator (and turns red with the
+fix when the frame runs none), and `SS_TARGET_KIND_LABEL` gained `k3d-pxc` … `k3d-pgo` for the kind
+a deployed node now records. `make smoke` gained a check that every operator the frame's own picker
+offers resolves to an engine.
+
+### Verified
+
+Every one of the six was deployed for real on this host — an Intranet node, a one-member K3D frame
+running the operator, and a Stock Market Sim node linked to the frame — and checked by counting the
+rows the running application had written into the cluster:
+
+| Operator | Resolved to | Result |
+| --- | --- | --- |
+| PXC | `k3d-00-haproxy` LoadBalancer `172.26.255.246:3306`, port `mysql` | running; 13 tables in `stocksim`, 136 orders / 55 trades / 340 ticks |
+| Percona Server | `k3d-00-haproxy` LoadBalancer, group replication | running; 65 trades / 460 ticks |
+| PSMDB | `k3d-00-rs0-0`, the member holding the primary role | running; 10 collections, 135 trades |
+| Percona PostgreSQL | `k3d-00-pgbouncer` LoadBalancer, as the app user | running; schema `stocksim` inside `k3d-00`, 41 trades |
+| CloudNativePG | `k3d-00-rw-lb` (the `CNPGEndpoint` §227 records) | running |
+| Crunchy PGO | `k3d-00-pgbouncer` LoadBalancer, as the app user | running; 125 trades |
+
+Three of those runs failed first, and each failure changed the code rather than the test:
+
+- **PXC resolved to `:0`.** `k3dPickEndpoint` returned `(zero, retryable, why)` and the caller read
+  the second value as `ok`, so a cluster that was merely still starting came back as an endpoint.
+  `ok` and `retry` are separate returns now, and `TestResolveServiceRetryability` pins the
+  distinction that makes them different.
+- **The sim beat its own database up.** A K3D node reports Running as soon as `cr.yaml` is applied,
+  minutes before the operator has a database; the sim resolved a LoadBalancer address nobody was
+  listening on and failed its 60-second health check. The resolver now gates on the CR's own
+  `.status.state` (`k3dCRState` — the four Percona operators' CR short names are the operator keys
+  DBCanvas already uses), and logs each distinct reason once so the deploy log reads as a cluster
+  coming up rather than as a hang.
+- **The MongoDB seed list and the pgBouncer startup parameter**, both above.
+
+Also checked: `ALTER ROLE … SET search_path` really does reach a fresh pooled connection — `show
+search_path` on a new connection through `k3d-00-pgbouncer`, with no `SET` of its own, returns
+`stocksim, public`. That is the mechanism transaction pooling depends on, so it is worth having
+seen rather than assumed.
+
+`gofmt`, `go build`, `go vet` and `go test ./...` are clean in both `app/` and `stocksim/`;
+`npm run build` and `make smoke` pass, the latter with the new K3D-operator engine check.
+
+---
+
+## 298. CloudNativePG gets a PgBouncer pool, with a LoadBalancer option — `app/cnpg.go`, `app/k3d.go`, `app/intranet.go`, `app/cnpg_test.go`, `StackDesigner`, `K3DManager`
+
+**The gap was real, and wider than it looked.** The CNPG frame had no LoadBalancer option for
+PgBouncer because it had no PgBouncer at all: `cnpg.go` never mentioned a pool. Its only expose
+setting was `K3DCNPGExpose`, for a hand-written LoadBalancer Service in front of the primary. The
+two Percona/Crunchy PostgreSQL frames have had a two-tier expose (`K3DExposePG` /
+`K3DExposePGBouncer`) all along, because both spell the pool inside `cr.yaml`.
+
+CloudNativePG models it differently: PgBouncer is a **`Pooler`** CR of its own, not a section of
+the `Cluster`, with its own Deployment and its own Service. So it is a separate toggle on the
+frame with a separate expose — which is the arrangement worth having anyway: pool the primary,
+leave Postgres itself in-cluster.
+
+New frame fields `K3DCNPGPooler` / `K3DCNPGPoolerInstances` (0 → 2) / `K3DCNPGPoolerMode`
+(session | transaction) / `K3DCNPGPoolerExpose` (clusterip | loadbalancer), a
+`cnpgPoolerManifest`, and a deploy step after the cluster is healthy that applies it, waits for
+its Deployment, and — for a LoadBalancer — waits for the address. Not fatal if it fails: a cluster
+is fully usable without a pool. Deliberately *not* the shared `K3DExposePGBouncer`, which is
+spelled in cr.yaml terms (NodePort included); CNPG's tiers are hand-written Services, as
+`K3DCNPGExpose` already was.
+
+Details that came out of reading the live CRD rather than guessing:
+
+- `spec.serviceTemplate.spec.type` is how a Pooler's Service becomes a LoadBalancer.
+- `type: rw` makes the pool follow the primary across a failover, like the `-rw` Service.
+- No `authQuery`/`authQuerySecret`: setting either switches **off** CNPG's automatic credential
+  integration, and the app role would stop being able to log in through the pool. A test asserts
+  the manifest never grows one.
+- `serviceTemplate` is omitted entirely for a ClusterIP pool — it is what the operator creates
+  anyway, and a no-op stanza in the archived manifest is noise.
+
+The archived manifest README and the k3s node's panel both report the pool (pods, mode, exposure,
+endpoint).
+
+### Verified
+
+- On a throwaway k3d cluster with the real CloudNativePG chart: `kubectl explain` for every field
+  used, then a 1-instance Cluster reaching healthy, then **the manifests this code generates**
+  (dumped straight out of `cnpgPoolerManifest`) applied to it. The ClusterIP form produced a
+  ClusterIP Service; re-applying the LoadBalancer form updated it in place to `LoadBalancer` with
+  an external address and 2/2 PgBouncer pods; and `psql -h pgtest-pooler-rw -U app` returned
+  `app / app / replica=f` — traffic through the pool reaching the primary with the cluster's own
+  credentials. Cluster deleted afterwards.
+- `gofmt`/`go build`/`go vet`/`go test ./...` and `npm run build` clean.
+
+### Not done
+
+The app simulators still target the CNPG **primary** (`k3dCNPGResolve` reads `CNPGEndpoint` and
+requires `CNPGExpose == LoadBalancer`), so exposing only the pool does not make a Stock Market Sim
+node reachable. That is correct as it stands rather than broken — but routing the sims through the
+pool, the way the docs say the two Percona PostgreSQL operators already are, is the obvious
+follow-up.
+
+---
+
+## 299. The Stock Market Sim reaches CloudNativePG through its pool, and every operator's front end is covered — `app/stocksim_k3d.go`, `app/stocksim_k3d_test.go`, `README.md`
+
+Closing the gap §298 opened, and answering "is the operator front end validated?" — it is, and
+has been: `stockSimK3DExposeIssues` reads `k3dExposedTiers` per operator and warns, before deploy,
+when every tier in front of the database is ClusterIP, naming the ones to change. It is a
+**warning** rather than an error on purpose (the comment there gives the reason: the cluster
+decides, and an operator release that adds a Service DBCanvas has never heard of should not be
+able to block a deploy — the resolver gives the definitive answer at deploy time).
+
+What was actually wrong is that §298 gave CloudNativePG a second front end and told neither half:
+
+- `k3dExposedTiers` listed only "the CloudNativePG primary", so exposing just the pool still
+  warned. It now lists the pool too — but only when the pool is enabled, so an absent tier never
+  reads as one more thing to go and expose.
+- `k3dCNPGResolve` only ever read `CNPGEndpoint`, so an exposed pool was not usable as a target
+  either. It now prefers the pool when the pool has a LoadBalancer address and falls back to the
+  primary — the same order `pg`/`pgo` already resolve in, which is what `docs/STACKS.md` has
+  claimed about "the two PostgreSQL operators" all along. Type `rw` means the pool follows the
+  primary across a failover, and the credentials are the cluster's own either way.
+
+Tests: every one of the six operators must report at least one exposable tier (a regression here
+is silent — the sim just never gets validated), a frame with no operator reports none, and an
+exposed pool in front of an in-cluster primary satisfies the check.
+
+`README.md`'s What's New gains the third entry: all six operators can drive a Stock Market Sim,
+named, with the canvas screenshot of three frames and three sims — and the paragraph that says
+the front end has to be LoadBalancer/NodePort, because that is the one thing the frame cannot
+guess for you.
+
+---
+
+## 300. Log Summary reads a Percona Operator for MySQL (PXC) cluster: the operator's log, the binlog collector's, and every member's — `app/logsummary_pxcop.go`, `app/logsummary_pxcop_rules.go`, `app/logsummary_pxcop_config.go`, `app/logsummary_pxcop_verdict.go`, `app/logsummary_k8s.go` (all new), `app/{logsummary,logsummary_model,logsummary_parse,logsummary_galera,logsummary_verdict}.go`, `app/web/src/{lib/logApi.js,pages/LogSummary.jsx}`, `docs/LOG_SUMMARY.md`
+
+The seventh log vocabulary, and the first that is not a database's. A PXC cluster on a K3D
+frame writes **three** kinds of log and reading any one alone gets a different wrong
+answer, so all three are offered in one picker and read into one bundle:
+
+- `<cluster> · operator` — the `percona-xtradb-cluster-operator` Deployment. controller-runtime
+  (zap), tab-separated, facts in a trailing JSON object.
+- `<cluster>-pxc-N` — each member's mysqld error log, read off the volume. An ordinary
+  Galera log, so `logsummary_galera.go` reads it unchanged.
+- `<cluster> · binlog collector` — the PITR sidecar Deployment. Go's standard `log`
+  package: a date, a time, a sentence, no level and no timezone.
+
+New engine `operator` (not a database: no port, no query language, no data) with two
+flavours, `pxcoperator` and `pxcpitr`. Sources of that engine are kept out of the
+"time spent not answering queries" measurement and out of the membership-disagreement
+finding — see below.
+
+### The corpus
+
+One live cluster: PXC operator **1.20.0** running PXC **8.4.8-8.1** on k3s **v1.36.3**,
+three members behind HAProxy, backing up to a SeaweedFS S3 node, under continuous write
+load throughout. Driven through a bootstrap, two full backups, a full restore, a
+point-in-time restore, PITR enabled and disabled, `kubectl delete pod --force` on a member,
+a `netem` partition, a `cr.yaml` change, and two ways of making a backup fail. Six of the
+fourteen captures are `app/testdata/logsummary/k*/`; the tests read them.
+
+### What the capture taught
+
+1. **The operator's log says nothing about the database.** Force-deleting a member under
+   load produced a full eviction-and-rejoin story in the survivors' logs and, in the
+   operator's over the same two minutes, four `Updated PITR timelines` records. An
+   operator reconciles a desired state; it does not watch the cluster.
+   `lsPXCOpFindingSilentOnMembers` says so out loud.
+
+2. **A member that goes non-primary is killed, not left to rejoin — and it looks like
+   maintenance.** `cluster1-pxc-2`, cut off with netem, shifted `SYNCED -> OPEN` at
+   05:39:03 and its log said `Received SHUTDOWN from user <via user signal>` at 05:39:28.
+   Nobody stopped it: the liveness probe asks wsrep whether the member is Primary, the
+   answer was no, and kubelet killed the container. That record is byte-for-byte what a
+   deliberate stop writes, so this package's own Galera verdict called it *a member left
+   the cluster cleanly*. `lsPXCOpFindingProbeRestart` pairs the two and names
+   `kubectl get events`, where the reason actually is.
+
+3. **Errors at INFO, retries at ERROR.** `reconcile replication error` is INFO and means
+   the operator could not reach the database; `ERROR Reconciler error` is
+   controller-runtime's retry notice with an exponential backoff — 64 of them from five
+   faults in this corpus. Both are handled by rules, and the reconcile finding measures
+   first-to-last rather than counting.
+
+4. **Duplicate JSON keys, both meaningful.** Most reconcile records write `name` twice
+   (the object, then the message's own). `encoding/json`'s map decoding keeps the last and
+   loses the cluster name, so `lsOpParseFields` reads the object in order with duplicates
+   intact and rules ask for `first`/`last`.
+
+5. **`kubectl logs <pod> -c pxc` is not the member's log** — it is the entrypoint's
+   `bash -x` trace, because mysqld writes to `--log-error` on the volume. The primary path
+   is `exec … tail /var/lib/mysql/mysqld-error.log`; the fallback is the pod's `logs`
+   sidecar, which re-emits the same file inside `{"log":"…","file":"…"}` envelopes and is
+   the only path that works when the member is not running. `lsK8sUnwrapCollector` unwraps
+   it and keeps non-envelope lines rather than dropping them.
+
+6. **A restore erases the members' logs.** It replaces every data directory and
+   `mysqld-error.log` lives in one: 923 lines → 313. Which is also why a bundle read after
+   a restore can report that its sources do not overlap. Restores measured at 5m 25s
+   (full) and 5m 54s (point-in-time), and the operator writes no record saying one
+   finished — the end is its last five-second poll.
+
+### Tuning, measured
+
+`lsPXCScanConfig` reads the `Passing config to GCS:` line — the effective wsrep provider
+configuration, ninety options — off any Galera member and hangs it on `lsSource.PXCCfg`,
+the way `MongoCfg` already works. It is the only place those numbers exist on an
+operator-managed cluster: the shipped `cr.yaml` has no `spec.pxc.configuration` at all.
+`lsPXCAdvice` turns it into advice, each rule carrying the measurement behind it:
+
+| setting | shipped | measured |
+| --- | --- | --- |
+| `gcache.size` | 128M | every restart in the corpus rejoined by SST, not IST |
+| `gcs.fc_limit` | 100 → interval [173,173] | at 100 a member at 800 ms RTT never triggered flow control; at 16 (interval 28) it sent one message and the cluster paused 3.5 µs |
+| `gcs.fc_debug` | 0 | at 1: 16–22 records per member, **all inside the ~2 s of its own join and none afterwards** — it does not make a pause visible |
+| `evs.suspect_timeout` | PT5S | 5.0 s to `declaring node … suspected`, twice |
+| liveness probe | operator default | 25.0 s from `SYNCED -> OPEN` to kubelet killing the container |
+
+That last row corrects this document's earlier claim (§ the Galera catalogue) that
+`gcs.fc_debug` buys visibility "at the cost of a lot of volume" — measured on this build it
+buys neither.
+
+### Two bugs live verification found
+
+Both were invisible to the tests and obvious on the rendered page:
+
+- **Two restores were measured as one.** The first restore's start paired with the last
+  member that came back, and since the *second* restore had erased the member logs, a
+  six-minute restore was reported as a 16-minute outage. Each restore is now measured
+  inside its own window. `TestTwoRestoresAreTwoFindings`.
+- **The operator was a party to a membership disagreement.** "operator/cluster1 saw
+  0 member(s) and was LEADER", beside two members that genuinely disagreed — a third
+  opinion from something with no opinion. `lsIsClusterMemberSrc` gates it.
+
+Plus one found while reading the first live bundle: `lsNodeName` split `base_host` on its
+first dot to get a short name, and a pod's `base_host` is an IP — so all three members were
+named **"10"**. It now rejects an address and lets the source keep the name it came with,
+which for a pod is the pod's name.
+
+### Verified
+
+- All five sources collected live through the app's own API and rendered in a real browser:
+  the picker (`cluster1 · operator`, three members, `cluster1 · binlog collector`), the
+  sources table with the two new flavour badges, the fourteen findings, and a five-lane
+  timeline with the operator's `LEADER` and the collector's `COLLECTING` beside the
+  members' `SYNCED`.
+- 19 new tests over the six fixtures, `go build` / `go vet` / `go test ./...` and
+  `npm run build` clean.
+
+### Not done
+
+The other three Percona operators (`ps`, `psmdb`, `pg`) and the two chart-installed ones
+are not offered here. Their member logs are ordinary Percona Server / mongod / PostgreSQL
+logs that this package already reads, and `listLogK8sTargets` is shaped for them — but each
+operator's own controller log is a different vocabulary, and offering one without its
+catalogue would produce a source of unclassified records under a PXC page's verdicts.
+
+### Follow-up: "no common period" on five logs from one cluster
+
+Reported straight after the section above, and a real bug the feature exposed rather than
+one it introduced. `lsOverlap` took each source's last **record** as the end of its
+coverage. Three healthy PXC members write nothing — their files stopped at the 06:14 line
+where they finished starting after the restore — while the binlog collector's pod had
+restarted at 06:23, so `kubectl logs deploy/…` begins there. Latest start (06:23) after
+earliest last-record (06:14) → empty intersection → *"These logs do not overlap"*, on five
+logs tailed from one cluster in one request seconds apart.
+
+`lsBuildPhases` had always assumed the opposite and said so in a comment: *"a log that
+simply stops is a node that carried on and had nothing to say, which on a database server
+is the definition of a good day."* `lsOverlap` now agrees with it. `lsInput`/`lsSource`
+carry a `ReadAt`, stamped once per collect request (not per source — the few seconds
+between tails are not evidence about anything), and `lsCoverEnd` returns the later of the
+last record and the read instant. Measured on the same bundle afterwards: overlap 1h 58m,
+`disjoint = false`.
+
+Deliberately scoped: an **upload** has no read instant and keeps the strict reading, because
+nothing knows when the file was cut. A genuine disjointness on a node bundle — a rotated
+log, a pod whose container log starts after another's ends — is still reported, and the
+banner now names those two causes rather than the upload-shaped ones. The sources table
+gained `· silent for 2.1 h`, which turns a range that looks like it ran out into the good
+news it is. `TestSilentSourcesStillOverlap` covers all three cases.
+
+Kubernetes **Events** are not collected. They are where the liveness-probe reason lives
+(`Container pxc failed liveness probe, will be restarted`) and they are a fourth format
+again; the probe finding infers the fact from the member's own records and names
+`kubectl get events` rather than pretending to have read it.
+
+---
+
+## 301. The same for the Percona Operator for MongoDB: the operator, every mongod, and every `pbm-agent` sidecar — `app/logsummary_psmdbop{,_rules,_config,_verdict}.go`, `app/logsummary_psmdbop_test.go` (all new), `app/{logsummary,logsummary_k8s,logsummary_model,logsummary_pxcop,logsummary_pxcop_verdict,logsummary_galera,logsummary_verdict}.go`, `app/web/src/{lib/logApi.js,pages/LogSummary.jsx}`, `app/web/smoke/render.jsx`, `docs/LOG_SUMMARY.md`
+
+The eighth log vocabulary, and the cheapest of the eight to add: the PSMDB operator **is**
+the same controller-runtime process the PXC one is, so `lsFoldOperator` reads it unchanged
+and only the catalogue and the sniff are new. Nothing about the shape of a line separates
+the two — the controller group (`psmdb.percona.com` vs `pxc.percona.com`) is the only
+discriminator, which is why `lsSniffPSMDB` runs before `lsSniffOperator` for the same
+reason the mongos sniff runs before the replica-set one.
+
+What is genuinely new is the third log, and it is not one log but **three**: `pbm-agent`
+runs as a sidecar in every member's pod, and a bundle therefore holds one per member —
+seven sources for a three-member replica set.
+
+### The corpus
+
+One live cluster: PSMDB operator **1.23.0**, percona-server-mongodb **8.0.26-11**, PBM
+**2.15.0**, k3s **v1.36.3**, three members backing up to SeaweedFS S3, under continuous
+write load. Driven through a bootstrap, two backups, a full restore, a point-in-time
+restore, PITR on and off, a force-deleted primary, a `netem` partition, and a `cr.yaml`
+edit that broke the cluster. Six captures are `app/testdata/logsummary/km*/` — prefixed
+`km` rather than `m` after the first attempt collided with the existing plain-MongoDB
+fixtures (no files were overwritten, and `TestMongo*` was re-run to prove it).
+
+### What the capture taught
+
+1. **PITR runs on exactly one member.** PBM nominates one agent per replica set; the losers
+   write `skip after pitr nomination` and go quiet, which is indistinguishable from PITR
+   being switched off. Reading one agent's log — the obvious thing to do — is the mistake
+   this page exists to prevent. `lsPSMDBFindingPITRWho` names the winner and explains the
+   others' silence; the alerting rule is the *absence* of `created chunk` across all of
+   them together.
+
+2. **After a restore, PITR reports ON and does not run.** `no backup found after the
+   restored …, a new backup is required to resume PITR` — in the agent's log and nowhere
+   else, while `pitr.enabled` is true, the CR is `ready` and `pbm status` prints
+   `Status [ON]`. `lsPSMDBFindingPITRStalled`.
+
+3. **A logical restore runs in place, unfenced** — the difference from PXC, which scales to
+   zero. Measured on a point-in-time restore to 09:02:35: **zero** documents between the
+   target and the collection drop at 09:05:43 (the restore was exact), and **32,000** after
+   it, written by a load generator that was merely slow to shut down, during the seventeen
+   minutes the replay took. `lsPSMDBFindingRestoreWritable`.
+
+4. **The replay is the slow half and scales with writes, not data**: 414,500 documents
+   restored from the dump in 2.3 s, ~92,000 oplog operations replayed in 7 m 32 s — about
+   200 ops/s.
+
+5. **A partitioned member is left alone**, the exact opposite of PXC's 25-second liveness
+   kill: 3 m 46 s of 100% packet loss, zero restarts, no probe event. The evidence is in
+   the sidecar (`ReplicaSetNoPrimary`) and in the `stale lock` another agent takes over.
+
+6. **The agent log is two formats and the second only appears when things are wrong.** PBM
+   keeps its log *inside MongoDB*, so its Go-stdlib stderr lines are by construction written
+   while the database was unreachable; the container entrypoint uses the same shape and is
+   the only record of a crash-loop. `lsFoldPBM` parses both with separate subsystems. The
+   26-line *Join Percona Squad* banner folds into the start record.
+
+7. **A stuck rollout is 1,151 INFO records saying two things** (`StatefulSet is not up to
+   date` ×770, `can't start/continue 'SmartUpdate'` ×381) and nothing that says the cluster
+   is stuck. Measured as a span, not counted. The cause, found by causing it: **`spec.replsets`
+   is a list and a JSON merge patch replaces a list**, so patching it dropped
+   `affinity.antiAffinityTopologyKey: none` and the third pod never scheduled again.
+
+### Tuning
+
+`lsPSMDBAdvice` leans on the existing `lsMongoScanConfig` for the engine and reads the
+operator's own records for what only it knows. `spec.backup.pitr.oplogSpanMin` defaults to
+**10 minutes** and *is* the RPO — nothing in MongoDB mentions it. The untuned corpus cluster
+reports **14,527 MB of WiredTiger cache per member, unpinned**, three of them on a 29.4 GiB
+host, because the engine sizes from what it believes the machine has.
+
+### Three bugs live verification found
+
+All three invisible to the tests and obvious on the rendered page:
+
+- **All three agents were named `pbm`** — the collector's source name is `<pod>/pbm` and the
+  fallback keeps the last path segment. The agent does say which member it is, once, in the
+  version block folded into its start record (`node: rs0/<host>:27017`). Same class of bug
+  as the PXC `base_host` one.
+- **The PXC findings fired on the MongoDB bundle.** Both catalogues use the same classes and
+  some of the same labels, so the page reported *"Gap in the collected binary logs"* about a
+  cluster with no binary logs and *"4 backups started and no success was recorded"* about
+  backups that had all succeeded. `lsIsPXCOpSrc`/`lsIsPSMDBSrc` gate both ways — exactly the
+  hazard `lsSrcIs` already warned about, now demonstrated.
+- The cache tip needed a startup line the fixtures' tails had cut off, which is itself
+  honest: a busy member's 3,000-line tail covers about four minutes, so the tip is omitted
+  rather than guessed. `TestPSMDBCacheAdviceNeedsAStartup` pins both halves.
+
+### The verdict now narrows with the timeline
+
+Asked for separately and done here: dragging a window on the swimlane filters the **Verdict**
+above it, not just the events below. Spans are kept when they **overlap** the window rather
+than when they are contained by it — a 24-minute restore is exactly what you still want to
+see when you drag an 18-minute window into the middle of it — instants when they fall
+inside, and undated conclusions are **never hidden**, because they stay true of any window
+and one of them is usually the most important line on the page. Those move to an *About the
+whole bundle* group with a count of what was hidden. Six smoke checks cover the rule,
+including that a non-window narrows nothing.
+
+### Verified
+
+- All seven sources collected live through the app's API and rendered in a real browser:
+  the picker, the sources table with the two new flavour badges, ten findings, and a
+  seven-lane timeline with the operator's `CR-READY` and each agent's `SLICING`/`PBM-IDLE`
+  beside the members' own states. A real mouse drag on the swimlane took the verdict from
+  seven cards to three.
+- 16 new Go tests over the six fixtures, 6 new smoke checks, `go build` / `go vet` /
+  `go test ./...` / `npm run smoke` / `npm run build` clean.
+
+### Not done
+
+The four remaining operators (`ps`, `pg`, `cnpg`, `pgo`) are still not offered.
+`listLogK8sTargets` is keyed on `lsK8sOperatorDeploy` and adding one is now a map entry, a
+member-log path and a catalogue — but a catalogue is the whole cost, and offering an
+operator without one produces a source of unclassified records under another operator's
+verdicts, which is the bug this session already fixed once.
+
+Kubernetes **Events** are still not collected, for both operators.
+
+### Follow-up: the same logs read two ways gave two pictures
+
+Reported with two screenshots side by side — the same members, collected from the nodes and
+then uploaded as files, and the collected one *mostly green*. The upload path was not at
+fault: downloading each source's raw bytes and re-uploading them reproduced the collected
+parse exactly, source for source and event for event. The difference was the **amount** of
+log, and what the code did with a short one.
+
+Five thousand lines — the UI's default — of a `mongod` under load is **2,702 NETWORK and
+1,900 ACCESS records with zero REPL among them**, covering eight minutes of a
+two-and-a-half-hour bundle. So the replica-set sniff filed each member as a standalone, and
+`lsSeedState` fell through to its last resort ("a server writing to its log is running") —
+which `lsBuildPhases` then painted **from the start of the bundle**. Three members were
+drawn as SERVING across 2.4 hours on the strength of records that begin two hours in.
+
+That is worse than a thin reading: the reassurance was manufactured by the tool. A deduced
+seed now starts at the source's own first record and the lead-in is `UNKNOWN`; a *stated*
+seed is left alone, because the left-hand side of a first transition really is a statement
+about the moment before it. Measured after the fix on the same collection: `UNKNOWN` for
+8,466 s, `RUNNING` (deduced) for the 466–599 s each tail actually covers.
+
+It is the mirror of the `lsOverlap` fix in §300 and shares its asymmetry — a log that stops
+is a server that carried on; a log that starts late is a server we knew nothing about. The
+"Lines per node" field now says so, and `TestDeducedStateDoesNotCoverTimeTheLogNeverSaw`
+pins both halves: unknown before the evidence, still deduced over the stretch there is
+evidence for.
+
+---
+
+## 302. The three PostgreSQL operators — `app/logsummary_pgop{,_rules,_verdict}.go`, `app/logsummary_pgop_test.go` (new), `app/{logsummary_k8s,logsummary_model,logsummary_pxcop,logsummary_galera,logsummary_verdict}.go`, `app/web/src/lib/logApi.js`, `docs/LOG_SUMMARY.md`
+
+MySQL and MongoDB each had one Percona operator writing one format. PostgreSQL has three
+operators writing three — and Percona's is a **fork of Crunchy's** that nevertheless chose a
+different logging library:
+
+| operator | format | fold |
+| --- | --- | --- |
+| Percona Operator for PostgreSQL | zap, tab-separated | `lsFoldOperator`, unchanged from PXC |
+| Crunchy PGO | logfmt (`time="…" level=… msg="…" k=v`) | `lsFoldCrunchy` + a small `lsParseLogfmt` |
+| CloudNativePG | JSON, one object per line | `lsFoldCNPG` |
+
+Percona's operator drives Crunchy's own `PostgresCluster` CR, so its log is full of
+`postgres-operator.crunchydata.com`; only `pgv2.percona.com` separates them, and that check
+runs first.
+
+### The members needed no new catalogue
+
+The best outcome here. A Percona or Crunchy member's `database` container **is Patroni**,
+and this package has had a Patroni catalogue since the Patroni frames landed. The collector
+reads that container plus PostgreSQL's own file on the volume (`/pgdata/*/log/`), and the
+existing rules produce `The cluster had no primary for 2.7s`, `The cluster changed primary`
+and `A member was rebuilt from the leader` on an operator-managed cluster with no new code.
+
+CloudNativePG runs no Patroni, and its member log is **two documents in one**: the instance
+manager's records and PostgreSQL's, the latter wrapped as
+`{"logger":"postgres","msg":"record","record":{…the CSV fields…}}`. `lsFoldCNPG` unwraps
+them into ordinary PostgreSQL records so the same classifier reads them, and keeps the
+instance manager's as their own events.
+
+### What the corpus settled
+
+Three clusters deployed side by side on one host, leaders force-deleted at the same moment.
+In the following minute: Percona's operator logged **seven copies of a Kubernetes API
+deprecation notice and nothing else**; Crunchy's logged 14 × `reconciled instance`; CNPG
+logged the switchover in full. The two Patroni-based operators delegate availability and
+never mention it — `lsPGOpFindingSilentFailover` says so, and deliberately excludes CNPG,
+which is what makes the contrast worth drawing. `lsCNPGFindingSwitchover` measures what only
+CNPG can supply: 56.3 s with nothing accepting writes.
+
+And the finding this catalogue exists for: **WAL archiving failing is invisible everywhere
+else.** Measured, 23 minutes in which every segment failed to archive while the cluster kept
+serving and reported healthy; the first visible failure was a backup somebody asked for. The
+cause in the corpus was an S3 endpoint the pod could not verify — pgBackRest was happy with
+the same TLS endpoint, barman-cloud was not, which is the inverse of the note in
+[[cnpg-k3d-helm-facts]] and worth remembering in both directions.
+
+### Verified
+
+- All three collected live through the app's API against three clusters running at once:
+  ten sources, correct flavours (`perconapgoperator`, `crunchypgo`, `cnpgoperator`,
+  `cnpginstance`, and `patroni` for the six Patroni members), and the findings above.
+- 7 new tests over nine fixture directories (`kg-{pg,pgo,cnpg}-{bootstrap,failover,backup}`),
+  including a third cross-vocabulary gate — this hazard has now bitten once per operator
+  family, so it is checked for every new one.
+- `go build` / `go vet` / `go test ./...` / `npm run smoke` / `npm run build` clean.
+
+### Not done
+
+Restores, PITR and rolling restarts were not driven for these three, so there are no
+findings for them — the backup half is `Backup succeeded` / `pgBackRest reports no backups`
+and nothing about recovery. `spec.backup.pitr`-equivalent tuning advice is likewise absent:
+unlike PXC's provider options and PSMDB's `oplogSpanMin`, nothing in these three logs states
+a setting, so there was nothing to read and advise on without inventing it.
+
+---
+
+## 303. Stress-testing the three PostgreSQL operators, and an advisor that reads symptoms rather than settings — `app/logsummary_pgperf.go` (new), `app/{logsummary_model,logsummary_pgop_verdict}.go`, `app/logsummary_pgop_test.go`, `docs/LOG_SUMMARY.md`
+
+### The two things that had to be fixed first
+
+**barman-cloud.** §302 left CloudNativePG's WAL archiving failing with `exit status 4`,
+which I had attributed to TLS. Half right. The plugin's own `barman-cloud-backup-list`
+reports `Unable to locate credentials` for that exit code, which sent the diagnosis the
+wrong way for a while; the actual fix was **`spec.configuration.endpointCA`** on the
+`ObjectStore`, pointing at a secret holding the Intranet CA — *and recreating the instance
+pods*, because the plugin runs as a native sidecar (an initContainer with
+`restartPolicy: Always`) and only remounts the CA when the pod is rebuilt. Patching the
+ObjectStore alone changes nothing and looks like the fix not working. Backup `backup2`
+completed afterwards; `backup1`'s failure is kept in the corpus.
+
+**Crunchy at three instances**, per the request, so both Patroni-based operators run the
+same shape.
+
+### Both logs, for the operators that use Patroni
+
+Confirmed rather than assumed: a Percona or Crunchy member's `database` container is
+**Patroni**, and PostgreSQL's own log is a *separate file* on the volume
+(`/pgdata/<version>/log/`). The collector reads both and concatenates them into one source,
+which `lsFoldPostgres` splits again by line shape and marks with `lsSubsysPatroni` /
+`lsSubsysPostgres`. Live, all six Patroni members come back with flavour `patroni` and both
+halves classified — and the performance scan deliberately skips Patroni's records, because
+Patroni says nothing about query performance.
+
+### The advisor
+
+`lsPGScanPerf` reads the evidence off the **records** rather than the classified events: a
+checkpoint is background and the catalogue drops it, but ten thousand of them is the
+finding, so an advisor that could only see kept events would be reading a filtered copy of
+itself. It is attached per source (`lsSource.PGPerf`) and reported per member — three
+members of one cluster do not share a performance story, and only the primary checkpoints
+hard.
+
+**Measured, and it is why the advisor has no "raise shared_buffers" rule.** Three clusters,
+pgbench at identical scale and client counts, defaults vs the settings everybody reaches
+for first:
+
+| | defaults | tuned | |
+| --- | --- | --- | --- |
+| Percona PG (3 inst) | 2,150 tps · 7.43 ms | 1,981 tps · 8.06 ms | **−8%** |
+| Crunchy PGO (3 inst) | 2,150 tps · 7.43 ms | 2,185 tps · 7.31 ms | +1.6% |
+| CloudNativePG (2 inst) | 2,974 tps · 5.37 ms | 3,006 tps · 5.31 ms | +1.1% |
+
+All three ship the *same* PostgreSQL defaults (`shared_buffers=128MB` — the compiled
+default, so none of them sets it — `max_wal_size=1GB`, `work_mem=4MB`) and none puts a
+memory limit on the database container. Raising the obvious knobs moved throughput between
+−8% and +1.6%. So every rule fires on something the server **said**, not on a setting that
+looks small.
+
+Driving a deliberately starved cluster (`shared_buffers` 64MB, `max_wal_size` 64MB,
+`work_mem` 64kB) under pgbench produced the corpus the rules were written against, and
+live on that cluster the advisor reports, per member: 21 × `checkpoints are occurring too
+frequently` with the closest **2.0 s** apart, **153 MB** of temp-file spill with the
+largest single sort at **76.5 MB**, and 34 slow statements worst **2,723 ms** — on the
+leader only, with the replicas correctly reporting their own smaller spills.
+
+The last rule is the one that outranks the rest: all three operators ship with
+`log_min_duration_statement`, `log_temp_files` and `log_lock_waits` off, so an empty result
+is not evidence of health. The gate says so, and stays quiet when all three are on.
+
+### One operator gotcha worth its own line
+
+**The Percona operator owns an inner Crunchy `PostgresCluster` and reverts hand edits to
+it.** The first configuration patch of this session went to the inner CR, was silently
+undone on the next reconcile, and looked exactly like a setting that would not take. Patch
+the outer `PerconaPGCluster`.
+
+### Verified
+
+- Live against all three running clusters through the app's own API; the advisor's output
+  above is from the deployed app, not from the fixtures.
+- 2 new tests over a new `kg-*-stress` fixture set, including that the advisor never
+  recommends `shared_buffers` off the back of no evidence, and that the logging gate fires
+  when records are absent and stays quiet when they are not.
+- `go build` / `go vet` / `go test ./...` / `npm run smoke` / `npm run build` clean.
+
+### Not done
+
+The throughput numbers for the *starved* run are not comparable with the two above — I
+varied scale and client count for it, to generate evidence rather than to measure. Only the
+defaults-vs-tuned pair is like-for-like. Restores and PITR were still not driven for these
+three, so there are no findings for them.
+
+---
+
+## 304. Restores and point-in-time recovery on the three PostgreSQL operators, and a By-node event layout — `app/logsummary_pgop_{rules,verdict,test}.go`, `app/web/src/pages/LogSummary.jsx`, `app/web/smoke/render.jsx`, `docs/LOG_SUMMARY.md`
+
+### The event list gained a second layout
+
+Asked for directly: the same events and the same time order, **one column per source**, each
+event under the node that wrote it. Merged answers "what happened next"; By node answers
+"what was *each* node saying at that moment".
+
+Three details that took thought rather than typing:
+
+- **The pane scrolls, not the page**, on both axes. `overflow-x` alone is not an option —
+  CSS resolves `overflow-x: auto` beside a visible `overflow-y` to `auto` on both, so the
+  header would stop sticking to the page anyway. Making the pane the scroll container is
+  what lets the header stick where it is wanted.
+- **The header row and the time column are both sticky**: scrolling down keeps the node
+  names, scrolling right keeps the clock. Without the second, the far columns say that
+  something happened and not when.
+- **Severity is on the cell, not the row** — two nodes at the same instant are routinely one
+  good and one bad.
+
+Verified in a browser against a three-member Percona cluster; two replicas coming up in
+lockstep read as a staircase (`Entering standby mode` → `WAL replay started` →
+`Consistent state reached` → `Streaming from the primary`, 44gj-0 then 6h22-0 ~20 ms
+behind) which is invisible in a merged column.
+
+### Three restore models, driven
+
+| | what a restore does |
+| --- | --- |
+| Percona | **in place** — every instance stopped, repository restored onto one, others rebuild from it |
+| CloudNativePG | **a new cluster beside the original**, which keeps running and serving |
+| Crunchy | in place, and its operator logged 39 × `reconciled instance` through the whole thing and never named it |
+
+**Point-in-time recovery verified end to end on Percona**: 100 rows before the target, 500
+after, restored to the target, cluster came back with exactly 100 and `max(at)` four minutes
+before the recovery point. New vocabulary: `Waiting for restore to start` / `to complete`,
+`Restore succeeded`, `WALWatcher`, and `failed to cleanup outdated backups` — logged at
+ERROR and *not* a failure of the restore, but the operator saying a PITR started a new
+timeline and it could not delete the superseded backups. `lsPGOpFindingRestore` reports
+whichever model ran, and refuses to call a CloudNativePG recovery an in-place restore.
+
+The CloudNativePG advice is the one worth reading twice: **the application is still pointed
+at the original.** Nothing was rolled back; there are now two clusters holding the same data
+from different moments, and switching is a deliberate act.
+
+### Verified
+
+- All three driven live; the Percona PITR checked by row count and timestamp rather than by
+  the operator's own status.
+- 1 new Go test over three new fixture directories, 3 new smoke checks for the column view
+  (including that no event renders in more than one column).
+- `go build` / `go vet` / `go test ./...` / `npm run smoke` / `npm run build` clean.
+
+### Not done
+
+Crunchy's restore produced no operator vocabulary to catalogue, so there is no
+Crunchy-specific restore finding — the honest outcome, and the test asserts the premise
+rather than papering over it. CloudNativePG's `recoveryTarget` (its own PITR) was not
+driven; only a full recovery to the end of the archive.
+
+---
+
+## 305. The sixth operator and the source that is not a log — `app/logsummary_psop.go`, `app/logsummary_k8sevents.go`, `app/logsummary_psop_test.go` (new), `app/{logsummary_k8s,logsummary_model,logsummary_parse,logsummary_pgop,logsummary_pxcop,logsummary_test}.go`, `app/web/src/lib/logApi.js`, `docs/LOG_SUMMARY.md`
+
+Everything left undone by §300–§304, on a clean pair of clusters after the previous stack
+was torn down.
+
+### Percona Operator for MySQL (Percona Server) — the last of the six
+
+The cheapest to add, because the five before it had paid for it: the same zap fold, and
+`kubectl logs <pod> -c mysql` returns **the mysqld error log itself** rather than the
+entrypoint trace the PXC operator's pods print — so its members are read by the existing
+**Group Replication** catalogue with no new code. Live: three members came back as
+`grouprepl` and produced *The group elected a new primary once* and the MySQL-Shell note
+without a line written for them.
+
+Where it sits between the two MySQL operators is the finding. Killing the primary of each,
+PXC's operator logged nothing at all and this one logged
+`Assigning primary label to pod psc-mysql-0` — the one fact that is hard to reconstruct
+afterwards (which member the writes moved to) and nothing about the failure that caused it.
+
+### Kubernetes Events
+
+The fourth format, deferred three times, and it closes a gap this package has carried since
+§300: a container killed by its liveness probe writes an ordinary shutdown record in its own
+log and nothing in the operator's, and the reason is an **API object**. `kubectl get events
+-o json` is now a source — one JSON List, not a line stream, so `lsSniffK8sEvents` claims it
+before the engine sniffers (whose vocabulary appears inside the Events' own `message`
+fields) and `lsFoldK8sEvents` unmarshals it whole.
+
+Three properties shaped the code: Events **expire** (1 h default, so absence is not
+evidence); they are **counted, not repeated**, which maps onto `lsEvent.Repeat`/`EndTS`
+exactly; and `type` is only Normal or Warning and is **not a severity** — `Killing` is
+Normal. Severity comes from the reason. Verified live: *Kubernetes killed a container*,
+severity bad, on a `Normal` event.
+
+`lsLoadScenario` now also loads `.json` fixtures, so a scenario directory can hold a
+cluster's Events beside its logs — which is the whole point of the source.
+
+### CloudNativePG `recoveryTarget`
+
+Driven and verified by data rather than by status: 100 rows before the target, 400 after,
+recovered to the target, and the new cluster came back with exactly 100 and `max(at)` a
+minute before the recovery point. It is still a **new cluster** — CNPG never restores in
+place — and a test asserts the page does not report it as an in-place outage.
+
+### Also fixed on the way
+
+barman-cloud was pointed at a **plain-HTTP** SeaweedFS this time rather than the TLS one,
+which avoids the `endpointCA` + pod-recreation dance of §303 entirely. Worth knowing in both
+directions: pgBackRest needs TLS, barman-cloud is happiest without it.
+
+### Verified
+
+- Live against both clusters: nine targets including the two new kinds, correct flavours
+  (`psoperator`, `grouprepl` ×3, `k8sevents`), and the findings above.
+- 6 new tests over six new fixture directories.
+- `go build` / `go vet` / `go test ./...` / `npm run smoke` / `npm run build` clean.
+
+### One bug the rendered page caught, again
+
+The Events feed was being treated as a server. Its lane painted red from the first kill to
+the end of the window, and the unavailability finding read
+`kubernetes: 37.7s not serving (37.7s DOWN)`. Two causes, both fixed:
+`lsResolveK8sEvents` was marking a `Killing` event as DOWN — a fact about a POD, which has
+its own lane — and with that removed `lsSeedState` fell through to its "a server writing to
+its log is running" deduction and seeded RUNNING instead.
+
+An Events feed is the one source here that is not a process at all: nothing wrote it, the
+collector asked for it. So it gets no state and is excluded from the unavailability
+measurement; an operator is a process writing its own log, so the deduction still stands for
+those. `TestK8sEventsAreNotAServer` pins both halves. Third time a live render has caught a
+class of bug the tests did not.
+
+### Not done
+
+Crunchy's restore still produces no operator vocabulary — unchanged from §304, and the test
+asserts that premise. The `ps` operator's **async/Orchestrator** cluster type was not
+deployed (only group replication), so Orchestrator's own log is not catalogued.
+## 306. Stepping through the operator: the K3D frame can run it under Delve — `app/k3ddebug.go` (new), `app/{k3d,intranet}.go`, `app/web/src/pages/{StackDesigner,K3DManager}.jsx`
 
 A K3D frame running the PXC operator can now be deployed with the operator **under a
 debugger**: a checkbox on the frame, and when the cluster comes up an IDE attaches to
@@ -16896,15 +17921,15 @@ End to end on a live k3d cluster, running the exact commands the code emits:
   `.github/linters/go.mod`, which sorts first and which suffix matching would have found.
   `go build`, `go vet`, `go test ./...` and the smoke suite green.
 
-## 296. Why the debugger "did not work": what an IDE leaves behind — `app/k3ddebug.go`, `app/web/src/pages/K3DManager.jsx`, `docs/STACKS.md`
+## 307. Why the debugger "did not work": what an IDE leaves behind — `app/k3ddebug.go`, `app/web/src/pages/K3DManager.jsx`, `docs/STACKS.md`
 
-Reported as "attaching breakpoint is not working" on a live K3D frame deployed with §295.
-Everything §295 built was working — Delve was listening, the port was published, breakpoints were
+Reported as "attaching breakpoint is not working" on a live K3D frame deployed with §306.
+Everything §306 built was working — Delve was listening, the port was published, breakpoints were
 being set and hit. Two things that happen *after* a debug session ends were not.
 
 **The operator freezes.** Breakpoints live on the Delve server, not in the IDE, and they survive a
 disconnect. The next reconcile hits one with nobody attached and the process stops: no probe fails
-(§295 removed it on purpose), nothing is logged, and the cluster simply stops being reconciled.
+(§306 removed it on purpose), nothing is logged, and the cluster simply stops being reconciled.
 Found on the reported cluster before touching anything — the operator's last log line was 20
 minutes old and its process was in state `t`. Delve knows about this and does not fix it; from
 `service/dap/server.go`, `onDisconnectRequest`: *"The target is left in whatever state it is
@@ -16949,7 +17974,7 @@ On the live cluster the problem was reported against, before and after:
   at `controller.go:258` with no client. Re-attaching returned `"verified": false, "Breakpoint
   exists at ..."` — the exact thing that reads as "the breakpoint does not work".
 - Delve's own source confirms the disconnect behaviour is deliberate and unfixed upstream, and
-  that `--only-same-user=false` (§295) is what makes the NodePort path work at all.
+  that `--only-same-user=false` (§306) is what makes the NodePort path work at all.
 - With the watchdog: the same short session, then a reconcile, and the operator was resumed inside
   one tick — the sidecar logging *"the operator was halted at a breakpoint with no debugger
   attached: cleared the leftover breakpoints and resumed it"*. Then **three** back-to-back sessions,
@@ -16963,7 +17988,7 @@ On the live cluster the problem was reported against, before and after:
   shape now asserting the sidecar runs the operator's own image. `go build`, `go vet`,
   `go test ./...` and the smoke suite green.
 
-## 297. Debugging from a Windows clone — `app/{k3ddebug,k3d}.go`, `app/web/src/pages/K3DManager.jsx`
+## 308. Debugging from a Windows clone — `app/{k3ddebug,k3d}.go`, `app/web/src/pages/K3DManager.jsx`
 
 Five compiler diagnostics reported from a Windows clone of the operator: `undefined:
 syscall.SIGUSR1`, `syscall.Mkfifo`, `unix.Open`, `unix.O_RDONLY`, `unix.O_NONBLOCK`, in

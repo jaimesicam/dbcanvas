@@ -70,10 +70,20 @@ certificate, users, and on-demand backups.
   four dashboards, one per engine. It connects to **any database in the stack**: a standalone
   Percona Server, MariaDB, MySQL, PostgreSQL, PS MongoDB or Valkey node; any cluster frame (PXC,
   MySQL/MariaDB/MySQL CE replication, Galera, InnoDB Cluster and Group Replication, Patroni,
-  repmgr, Spock, PSMDB replica sets and sharded clusters, Valkey cluster); a **CloudNativePG**
-  cluster inside a Kubernetes frame; or a **ProxySQL/HAProxy** node fronting one — always
-  resolving to the cluster's write endpoint, be that the primary, the leader, the router or the
-  mongos. An **All in One** node draws no association lines, so its instance is chosen from a
+  repmgr, Spock, PSMDB replica sets and sharded clusters, Valkey cluster); a **Kubernetes frame
+  running any of the six database operators** (PXC, Percona Server for MySQL, PSMDB, Percona
+  PostgreSQL, CloudNativePG, Crunchy PGO), whose engine follows the operator the frame runs; or a
+  **ProxySQL/HAProxy** node fronting one — always resolving to the cluster's write endpoint, be
+  that the primary, the leader, the router or the mongos. A database inside Kubernetes has to be
+  reachable from the stack network first: set the tier in front of it — the proxy, the mongos
+  routers, the pgBouncer pool, or the database pods themselves — to **LoadBalancer** or
+  **NodePort** on the frame, since a ClusterIP address exists only inside the cluster, and the
+  designer says so before you deploy if none of them is. The two PostgreSQL operators are reached
+  through their **pgBouncer** pool when it has an address, as their own application user, and
+  directly on the primary as `postgres` when it does not. A MongoDB **replica set** is the one target whose
+  address does not follow a failover — the set advertises in-cluster names, so the sim is pointed
+  straight at the member holding the primary role and an election means redeploying the node; a
+  sharded cluster has mongos in front of it and does not have this problem. An **All in One** node draws no association lines, so its instance is chosen from a
   picker on this node instead of with a line. Set the load level to **High** and it also grows the dataset:
   bulk price history is written until the app owns a configurable **dataset size** (5 GiB by
   default), so there is something real on the volume to measure a disk, a storage class or a
@@ -150,10 +160,23 @@ certificate, users, and on-demand backups.
 **Authentication.** Point a database at a directory and it is wired at deploy: **LDAP** against
 the Intranet OpenLDAP or the Samba AD DC (Percona Server, PostgreSQL, PSMDB), **Kerberos/GSSAPI**
 single sign-on against the Samba AD DC (PostgreSQL, PSMDB), and **Keycloak OIDC** (PMM, PostgreSQL
-18 via `pg_oidc_validator`, PSMDB via `MONGODB-OIDC`). The designer greys out combinations an
-engine cannot actually run — PostgreSQL cannot do LDAP and OIDC at once (they compete for the same
-`pg_hba` line), and MongoDB cannot combine OIDC with LDAP/Kerberos (each needs its own `mongod.conf`
-`setParameter` block) — and validation blocks the deploy rather than letting one silently win.
+18 via `pg_oidc_validator`, PSMDB via `MONGODB-OIDC`, Percona Server 8.4 via `auth_openid_connect`).
+The designer greys out combinations an engine cannot actually run — PostgreSQL cannot do LDAP and
+OIDC at once (they compete for the same `pg_hba` line), and MongoDB cannot combine OIDC with
+LDAP/Kerberos (each needs its own `mongod.conf` `setParameter` block) — and validation blocks the
+deploy rather than letting one silently win. MySQL has no such conflict: it picks an auth plugin
+per account, so LDAP and OIDC accounts live side by side on one server.
+
+Turning on Keycloak SSO for a **Percona Server** node moves it to 8.4 (latest minor): Percona
+added `auth_openid_connect` in **8.4.11-11**, and the 9.7 series does not carry it yet. The deploy
+wires the whole demo, not just the plugin — a realm and a public `mysql` client on the Keycloak
+node, sample users `jane` and `john` in an `accounting` group, MySQL accounts bound to those users'
+`sub` claims, and an `oidc_demo` schema only the group's role can read. The node's **Keycloak SSO**
+tab shows how to log in, and DBCanvas writes a small shell wrapper to `/usr/local/bin/oidc-login`
+on the node (not an upstream tool) that does the whole round-trip in one command: ask Keycloak for
+an ID token, hand the file to `mysql`. No MySQL password is ever sent, and the
+group→role mapping means `SHOW GRANTS` gains `accounting` at connection time (activate it with
+`SET ROLE`). The link must be encrypted — a Unix socket, or TCP with `--ssl-mode=REQUIRED`.
 
 **Data-at-rest encryption (OpenBao).** Add an **OpenBao** node (a Vault-compatible secrets
 manager, one per stack) and tick *Encrypt with OpenBao* on a Percona Server or PSMDB node. At
@@ -289,7 +312,9 @@ themselves, so Percona Monitoring & Management comes up already watching the sta
 ![Percona Monitoring & Management, already watching the services that registered with it](screenshots/pmm-web.png)
 
 **Ubuntu VNC desktop.** An optional XFCE desktop jump-box (Firefox + Percona clients)
-reachable over a browser-based VNC client — handy for GUI database tools inside the stack network:
+reachable over a browser-based VNC client — handy for GUI database tools inside the stack network.
+Its MySQL client is **8.4**, with the OpenID Connect client plugin, so a Keycloak user can sign in
+to a Percona Server node from the desktop the same way they would from the node itself:
 
 ![The Ubuntu VNC desktop, querying a cluster node by name with the pre-installed client](screenshots/vnc-desktop.png)
 

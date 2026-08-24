@@ -1,0 +1,101 @@
+2026-08-22 11:18:24,320 INFO: Using default value thread_stack_size = 524288
+2026-08-22 11:18:24,328 INFO: Patroni global thread_pool_size = 5
+2026-08-22 11:18:24,457 INFO: No PostgreSQL configuration items changed, nothing to reload.
+2026-08-22 11:18:24,460 INFO: REST API thread_pool_size = 5
+2026-08-22 11:18:24,466 WARNING: Postgresql is not running.
+2026-08-22 11:18:24,466 INFO: Lock owner: crunchy-instance1-zz6r-0; I am crunchy-instance1-v9gp-0
+2026-08-22 11:18:24,467 INFO: pg_controldata:
+  pg_control version number: 1800
+  Catalog version number: 202506291
+  Database system identifier: 7676812932874367061
+  Database cluster state: shut down
+  pg_control last modified: Sat Aug 22 11:18:22 2026
+  Latest checkpoint location: 0/7000028
+  Latest checkpoint's REDO location: 0/7000028
+  Latest checkpoint's REDO WAL file: 000000010000000000000007
+  Latest checkpoint's TimeLineID: 1
+  Latest checkpoint's PrevTimeLineID: 1
+  Latest checkpoint's full_page_writes: on
+  Latest checkpoint's NextXID: 0:783
+  Latest checkpoint's NextOID: 16426
+  Latest checkpoint's NextMultiXactId: 1
+  Latest checkpoint's NextMultiOffset: 0
+  Latest checkpoint's oldestXID: 744
+  Latest checkpoint's oldestXID's DB: 1
+  Latest checkpoint's oldestActiveXID: 0
+  Latest checkpoint's oldestMultiXid: 1
+  Latest checkpoint's oldestMulti's DB: 1
+  Latest checkpoint's oldestCommitTsXid: 0
+  Latest checkpoint's newestCommitTsXid: 0
+  Time of latest checkpoint: Sat Aug 22 11:18:22 2026
+  Fake LSN counter for unlogged rels: 0/3E8
+  Minimum recovery ending location: 0/0
+  Min recovery ending loc's timeline: 0
+  Backup start location: 0/0
+  Backup end location: 0/0
+  End-of-backup record required: no
+  wal_level setting: logical
+  wal_log_hints setting: on
+  max_connections setting: 100
+  max_worker_processes setting: 8
+  max_wal_senders setting: 10
+  max_prepared_xacts setting: 0
+  max_locks_per_xact setting: 64
+  track_commit_timestamp setting: off
+  Maximum data alignment: 8
+  Database block size: 8192
+  Blocks per segment of large relation: 131072
+  WAL block size: 8192
+  Bytes per WAL segment: 16777216
+  Maximum length of identifiers: 64
+  Maximum columns in an index: 32
+  Maximum size of a TOAST chunk: 1996
+  Size of a large-object chunk: 2048
+  Date/time type storage: 64-bit integers
+  Float8 argument passing: by value
+  Data page checksum version: 1
+  Default char data signedness: signed
+  Mock authentication nonce: fc0548c714ccf1b9b5752a3380040404068a6882a22582ee739cd2ed4ca3ad96
+
+2026-08-22 11:18:24,467 INFO: Lock owner: crunchy-instance1-zz6r-0; I am crunchy-instance1-v9gp-0
+2026-08-22 11:18:24,472 INFO: Local timeline=1 lsn=0/7000028
+2026-08-22 11:18:24,484 INFO: primary_timeline=2
+2026-08-22 11:18:24,485 INFO: primary: history=1	0/70000A0	no recovery target specified
+2026-08-22 11:18:24,485 INFO: Lock owner: crunchy-instance1-zz6r-0; I am crunchy-instance1-v9gp-0
+2026-08-22 11:18:24,501 INFO: starting as a secondary
+2026-08-22 11:18:24,670 INFO: Lock owner: crunchy-instance1-zz6r-0; I am crunchy-instance1-v9gp-0
+2026-08-22 11:18:24,681 INFO: restarting after failure in progress
+2026-08-22 11:18:24.750 UTC [110] LOG:  pgaudit extension initialized
+2026-08-22 11:18:24,759 INFO: postmaster pid=110
+2026-08-22 11:18:24.760 UTC [110] LOG:  redirecting log output to logging collector process
+2026-08-22 11:18:24.760 UTC [110] HINT:  Future log output will appear in directory "/pgdata/logs/postgres".
+/tmp/postgres:5432 - no response
+/tmp/postgres:5432 - accepting connections
+/tmp/postgres:5432 - accepting connections
+2026-08-22 11:18:25,777 INFO: Lock owner: crunchy-instance1-zz6r-0; I am crunchy-instance1-v9gp-0
+2026-08-22 11:18:25,777 INFO: establishing a new patroni heartbeat connection to postgres
+2026-08-22 11:18:25,792 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:18:34,673 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:18:36,991 INFO: establishing a new patroni restapi connection to postgres
+2026-08-22 11:18:44,673 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:18:54,688 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:19:04,672 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:19:14,672 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:19:24,682 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:19:34,672 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:19:44,672 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:19:54,672 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:20:04,672 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:20:14,673 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:20:24,672 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:20:34,672 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:20:44,672 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:20:54,672 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:21:04,672 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:21:14,672 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:21:24,672 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:21:34,672 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:21:44,673 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:21:54,672 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:22:04,673 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 11:22:14,672 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)

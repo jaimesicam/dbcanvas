@@ -79,11 +79,12 @@ func TestStockSimEngineForKind(t *testing.T) {
 		"mariadbrepl": "mysql", "mariadbgalera": "mysql",
 		"mysqlcerepl": "mysql", "mysqlceinnodb": "mysql",
 		"pg": "postgres", "patroni": "postgres", "repmgr": "postgres",
-		"spock": "postgres", "k3d": "postgres",
-		"psm": "mongodb", "psmrs": "mongodb", "psmdb": "mongodb",
+		"spock": "postgres",
+		"psm":   "mongodb", "psmrs": "mongodb", "psmdb": "mongodb",
 		"valkey": "valkey", "valkeycluster": "valkey",
-		// Routers resolve through stockSimEngineForTarget, not here.
-		"haproxy": "", "proxysql": "", "nonsense": "",
+		// Routers and Kubernetes frames resolve through
+		// stockSimEngineForTarget, not here.
+		"haproxy": "", "proxysql": "", "k3d": "", "nonsense": "",
 	}
 	for kind, engine := range want {
 		if got := stockSimEngineForKind(kind); got != engine {
@@ -98,8 +99,40 @@ func TestStockSimEngineForKind(t *testing.T) {
 		}
 	}
 	for kind := range stockSimFrameTargets {
+		if kind == "k3d" {
+			continue // resolved from the frame's operator; see the test below
+		}
 		if stockSimEngineForKind(kind) == "" {
 			t.Errorf("frame target %q has no engine", kind)
+		}
+	}
+}
+
+// A K3D frame's engine is whichever of the six operators it runs, so it can
+// only be resolved with the design in hand. All six must map to an engine the
+// sim implements — a frame that deploys into a switch with no branch for it is
+// the bug this guards.
+func TestStockSimEngineForTargetK3D(t *testing.T) {
+	want := map[string]string{
+		"pxc": "mysql", "ps": "mysql",
+		"psmdb": "mongodb",
+		"pg":    "postgres", "cnpg": "postgres", "pgo": "postgres",
+		// A frame with no operator has no database in it to drive.
+		"": "", "nonsense": "",
+	}
+	for op, engine := range want {
+		doc := designDoc{Frames: []designFrame{{ID: "fr", Type: "k3d", Label: "k8s", K3DOperator: op}}}
+		if got := stockSimEngineForTarget(doc, "k3d", "fr"); got != engine {
+			t.Errorf("K3D frame running %q = %q, want %q", op, got, engine)
+		}
+		if engine != "" && !stockSimEngineImplemented(engine) {
+			t.Errorf("K3D frame running %q resolves to %q, which the sim image does not implement", op, engine)
+		}
+	}
+	// Every operator k3d.go can actually install must be one of them.
+	for op, deployable := range k3dDeployableOperator {
+		if deployable && k3dOperatorEngine(op) == "" {
+			t.Errorf("operator %q is deployable but a Stock Market Sim node cannot use it", op)
 		}
 	}
 }

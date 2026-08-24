@@ -1,0 +1,93 @@
+2026-08-22 11:19:12,339 INFO: No PostgreSQL configuration items changed, nothing to reload.
+2026-08-22 11:19:12,341 INFO: REST API thread_pool_size = 5
+2026-08-22 11:19:12,345 WARNING: Postgresql is not running.
+2026-08-22 11:19:12,345 INFO: Lock owner: pgc-instance1-6h22-0; I am pgc-instance1-pknk-0
+2026-08-22 11:19:12,346 INFO: pg_controldata:
+  pg_control version number: 1800
+  Catalog version number: 202506291
+  Database system identifier: 7676812636111786076
+  Database cluster state: shut down
+  pg_control last modified: Sat Aug 22 11:19:04 2026
+  Latest checkpoint location: 0/8000028
+  Latest checkpoint's REDO location: 0/8000028
+  Latest checkpoint's REDO WAL file: 000000010000000000000008
+  Latest checkpoint's TimeLineID: 1
+  Latest checkpoint's PrevTimeLineID: 1
+  Latest checkpoint's full_page_writes: on
+  Latest checkpoint's NextXID: 0:789
+  Latest checkpoint's NextOID: 16447
+  Latest checkpoint's NextMultiXactId: 1
+  Latest checkpoint's NextMultiOffset: 0
+  Latest checkpoint's oldestXID: 744
+  Latest checkpoint's oldestXID's DB: 1
+  Latest checkpoint's oldestActiveXID: 0
+  Latest checkpoint's oldestMultiXid: 1
+  Latest checkpoint's oldestMulti's DB: 1
+  Latest checkpoint's oldestCommitTsXid: 752
+  Latest checkpoint's newestCommitTsXid: 788
+  Time of latest checkpoint: Sat Aug 22 11:19:04 2026
+  Fake LSN counter for unlogged rels: 0/3E8
+  Minimum recovery ending location: 0/0
+  Min recovery ending loc's timeline: 0
+  Backup start location: 0/0
+  Backup end location: 0/0
+  End-of-backup record required: no
+  wal_level setting: logical
+  wal_log_hints setting: on
+  max_connections setting: 100
+  max_worker_processes setting: 8
+  max_wal_senders setting: 10
+  max_prepared_xacts setting: 0
+  max_locks_per_xact setting: 64
+  track_commit_timestamp setting: on
+  Maximum data alignment: 8
+  Database block size: 8192
+  Blocks per segment of large relation: 131072
+  WAL block size: 8192
+  Bytes per WAL segment: 16777216
+  Maximum length of identifiers: 64
+  Maximum columns in an index: 32
+  Maximum size of a TOAST chunk: 1996
+  Size of a large-object chunk: 2048
+  Date/time type storage: 64-bit integers
+  Float8 argument passing: by value
+  Data page checksum version: 1
+  Default char data signedness: signed
+  Mock authentication nonce: d3a524e507a19e91c8f45c6b3aa2da1f3c7039461f13015d39259ff3039163f7
+
+2026-08-22 11:19:12,346 INFO: Lock owner: pgc-instance1-6h22-0; I am pgc-instance1-pknk-0
+2026-08-22 11:19:12,350 INFO: Local timeline=1 lsn=0/8000028
+2026-08-22 11:19:12,362 INFO: primary_timeline=2
+2026-08-22 11:19:12,364 INFO: primary: history=1	0/80000A0	no recovery target specified
+2026-08-22 11:19:12,364 INFO: Lock owner: pgc-instance1-6h22-0; I am pgc-instance1-pknk-0
+2026-08-22 11:19:12,377 INFO: starting as a secondary
+2026-08-22 11:19:12.589 UTC [102] LOG:  pgaudit extension initialized
+2026-08-22 11:19:12,597 INFO: postmaster pid=102
+/tmp/postgres:5432 - no response
+2026-08-22 11:19:12.602 UTC [102] LOG:  redirecting log output to logging collector process
+2026-08-22 11:19:12.602 UTC [102] HINT:  Future log output will appear in directory "log".
+/tmp/postgres:5432 - accepting connections
+/tmp/postgres:5432 - accepting connections
+2026-08-22 11:19:13,616 INFO: Lock owner: pgc-instance1-6h22-0; I am pgc-instance1-pknk-0
+2026-08-22 11:19:13,616 INFO: establishing a new patroni heartbeat connection to postgres
+2026-08-22 11:19:13,631 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:19:16,677 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:19:16,768 INFO: establishing a new patroni restapi connection to postgres
+2026-08-22 11:19:26,675 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:19:36,675 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:19:46,675 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:19:56,675 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:20:06,697 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:20:16,674 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:20:26,675 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:20:36,675 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:20:46,681 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:20:56,675 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:21:06,675 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:21:16,675 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:21:26,675 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:21:36,676 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:21:46,675 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:21:56,675 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:22:06,683 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)
+2026-08-22 11:22:16,675 INFO: no action. I am (pgc-instance1-pknk-0), a secondary, and following a leader (pgc-instance1-6h22-0)

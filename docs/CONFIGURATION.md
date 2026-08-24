@@ -68,7 +68,7 @@ apply to that engine only; the rest are shared where relevant.
 | `PMM_ADMIN_PASSWORD` | `admin_password` | The PMM server's Grafana `admin` user (the PMM web UI login). A per-node password set on the canvas overrides it. |
 | `GRAFANA_PASSWORD` | `grafana_password` | The `admin` user of the Grafana that kube-prometheus-stack installs alongside a CloudNativePG K3D frame. The address and this login appear on the k3s node's panel after deploy. |
 | `KEYCLOAK_PASSWORD` | `keycloak_password` | The Keycloak node's `admin` console user. |
-| `KEYCLOAK_USER_PASSWORD` | `keycloak_user_password` | The sample Keycloak users (`alice`, `bob`) created when a node enables Keycloak SSO. Demo identities — don't reuse this password for anything real. |
+| `KEYCLOAK_USER_PASSWORD` | `keycloak_user_password` | The sample Keycloak users created when a node enables Keycloak SSO (`alice`, `bob` for PMM; `jane`, `john` for PostgreSQL and Percona Server). Demo identities — don't reuse this password for anything real. |
 | `SAMBA_PASSWORD` | `SambaPassword2026` | The Samba AD DC administrator, used to provision the domain and to bind for LDAP/Kerberos management. Must satisfy Active Directory complexity (at least three of: uppercase, lowercase, digit, symbol) or provisioning rejects it. |
 | `VNC_PASSWORD` | `vnc_password` | The Ubuntu VNC desktop login and VNC access code. VncAuth uses only the first 8 characters, so this authenticates as `vnc_pass`. A per-node password set on the canvas overrides it. |
 

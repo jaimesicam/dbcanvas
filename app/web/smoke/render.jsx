@@ -28,8 +28,10 @@ import { Comparison, Verdicts, Advisor, ChartCard, KeptCaptures, HeadToHead, Ver
 import {
   frameMemberSub, REPL_FRAME_TYPES,
   NODE_TYPES, CONNECTABLE_FRAMES, SS_LINK_TYPES, SS_LINK_ENGINE,
+  K3D_OPERATOR_LABEL, ssLinkEngine,
 } from '../src/pages/StackDesigner.jsx'
 import MySQLManager from '../src/pages/MySQLManager.jsx'
+import OidcLoginGuide from '../src/components/OidcLoginGuide.jsx'
 import PacketInspector, {
   Timeline as PktTimeline, RangeControls as PktRangeControls, Filters as PktFilters,
   PacketList as PktList, PacketDetails as PktDetails, SummaryStrip as PktSummary,
@@ -38,7 +40,7 @@ import PacketInspector, {
 } from '../src/pages/PacketInspector.jsx'
 import { PORT_ROLE_TEXT, MONGO_KIND_TEXT, isSevereIssue } from '../src/lib/pktApi.js'
 import LogSummary, {
-  Verdict as LogVerdict, Swimlane as LogSwimlane, Snapshot as LogSnapshot,
+  Verdict as LogVerdict, splitFindings, EventColumns as LogEventColumns, Swimlane as LogSwimlane, Snapshot as LogSnapshot,
   SourcesCard as LogSources, EventList as LogEvents, EventDetail as LogDetail,
   Filters as LogFilters, TopStrip as LogTop, Legend as LogLegend,
   RangeControls as LogRange, UploadPanel as LogUpload, Pager as LogPager,
@@ -330,6 +332,59 @@ for (const [nodeId, dep] of Object.entries(realDeps)) {
     return html
   })
 }
+
+// The Keycloak-SSO tab is driven entirely by dep.config.oidc, which the Go side writes as
+// oidcInfo (pgoidc.go) — so this renders the guide over exactly the field names
+// applyMySQLOIDC persists. A renamed field would otherwise show up as a blank instruction.
+check('MySQLManager: the Keycloak SSO tab renders the accounts the deploy created', () => {
+  const dep = {
+    state: 'running', containerId: 'abc123def456',
+    config: {
+      hostname: 'ps1', fqdn: 'ps1.example.net', role: 'standalone', serverId: 1,
+      image: 'dbcanvas-systemd:oraclelinux-9-amd64', psVersion: '8.4.11-11.1', ports: [3306],
+      oidc: {
+        enabled: true, realm: 'dbcanvas', clientId: 'mysql',
+        issuer: 'https://keycloak.example.net:8443/realms/dbcanvas',
+        consoleUrl: 'https://keycloak.example.net:8443',
+        nodeFqdn: 'ps1.example.net', users: ['jane', 'john'],
+        group: 'accounting', role: 'accounting', database: 'oidc_demo',
+      },
+    },
+    secrets: { rootUser: 'root', rootPassword: 'root_password', oidcSamplePassword: 'keycloak_user_password' },
+  }
+  const html = renderToString(
+    <TerminalProvider>
+      <MySQLManager stackId={1} nodeId="ps1" dep={dep} onDeleteNode={noop} />
+    </TerminalProvider>,
+  )
+  if (!html.includes('Keycloak SSO')) throw new Error('the SSO tab is missing')
+  const guide = renderToString(<OidcLoginGuide engine="ps" info={dep.config.oidc} secrets={dep.secrets} />)
+  // The facts have to be on the page, not left to the reader: where Keycloak is, which
+  // accounts exist, and the password those accounts actually have.
+  for (const want of [
+    'oidc-login jane', 'auth_openid_connect', 'ps1.example.net', 'oidc_demo', 'SET ROLE accounting',
+    'https://keycloak.example.net:8443', 'jane, john',
+    // oidc-login is a wrapper DBCanvas writes, not an upstream tool — say where it is, or it
+    // reads as an invented command.
+    '/usr/local/bin/oidc-login',
+  ]) {
+    if (!guide.includes(want)) throw new Error(`login guide omits ${want}`)
+  }
+  if (guide.includes('undefined')) throw new Error('login guide rendered a literal "undefined"')
+  return guide
+})
+
+// A node without OIDC must not grow the tab (cfg.oidc is simply absent).
+check('MySQLManager: no Keycloak SSO tab without it', () => {
+  const dep = { state: 'running', config: { hostname: 'ps2', fqdn: 'ps2.example.net', role: 'standalone' }, secrets: {} }
+  const html = renderToString(
+    <TerminalProvider>
+      <MySQLManager stackId={1} nodeId="ps2" dep={dep} onDeleteNode={noop} />
+    </TerminalProvider>,
+  )
+  if (html.includes('Keycloak SSO')) throw new Error('the SSO tab showed on a node without OIDC')
+  return 'hidden'
+})
 
 // --- Packet Inspector -------------------------------------------------------
 // The page itself renders only its empty state under SSR (no effects, no fetch),
@@ -1051,11 +1106,28 @@ check('every Stock Market Sim link target is reachable on the canvas', () => {
 })
 
 // The engine map decides the driver and whether a size target is possible, so
-// every non-router target must be in it.
+// every target whose engine the kind alone settles must be in it. The routers
+// and the Kubernetes frame are the exceptions, and each has its own check
+// below: their engine is a property of what they front, or of the operator the
+// frame runs.
 check('every Stock Market Sim link target maps to an engine', () => {
-  const missing = Object.keys(SS_LINK_TYPES)
-    .filter((k) => k !== 'haproxy' && k !== 'proxysql' && !SS_LINK_ENGINE[k])
+  const byOther = new Set(['haproxy', 'proxysql', 'k3d'])
+  const missing = Object.keys(SS_LINK_TYPES).filter((k) => !byOther.has(k) && !SS_LINK_ENGINE[k])
   if (missing.length) throw new Error('no engine for: ' + missing.join(', '))
+  return 'ok'
+})
+
+// A Kubernetes frame is one canvas target with six databases behind it, so the
+// engine comes from the frame's operator. Every operator the frame's own picker
+// offers has to resolve, or a user selects one and the sim node then refuses to
+// deploy against it — which is precisely the gap this replaced.
+check('every K3D operator maps a Stock Market Sim node to an engine', () => {
+  const missing = Object.keys(K3D_OPERATOR_LABEL)
+    .filter((op) => !ssLinkEngine({ kind: 'k3d', operator: op }))
+  if (missing.length) throw new Error('no engine for operator: ' + missing.join(', '))
+  // ...and a frame with no operator has no database to drive, which the form
+  // reports rather than guessing an engine for.
+  if (ssLinkEngine({ kind: 'k3d', operator: '' })) throw new Error('an operator-less frame should have no engine')
   return 'ok'
 })
 
@@ -1297,6 +1369,48 @@ for (const sev of ['bad', 'warn', 'ok', 'info', 'banana', undefined]) {
   check(`log summary: verdict severity ${sev}`, () =>
     renderToString(<LogVerdict findings={[{ id: 'x', sev, title: 't', detail: 'd' }]} onGo={noop} />))
 }
+// The verdict narrows with the timeline. A reader who drags a window on the swimlane is
+// asking "what does THIS stretch add up to", so the conclusions that do not touch it are
+// taken out — but the undated ones never are, because they stay true of any window and one
+// of them is usually the most important line on the page.
+check('log summary: verdict narrowed to a window', () =>
+  renderToString(<LogVerdict findings={logFindings} onGo={noop} from={1040} to={1060} onClear={noop} />))
+check('log summary: verdict narrowed to a window with nothing in it', () =>
+  renderToString(<LogVerdict findings={logFindings} onGo={noop} from={1200} to={1300} onClear={noop} />))
+
+check('log summary: the verdict filter keeps spans that overlap the window', () => {
+  const { inWindow, always, hidden, narrowed } = splitFindings(logFindings, 1040, 1060)
+  if (!narrowed) throw new Error('a window was given and the verdict did not narrow')
+  const ids = inWindow.map((f) => f.id).sort().join(',')
+  // `crash` is an instant at 1052, inside. `quorum` is a span 1003–1052 that OVERLAPS the
+  // window without being contained by it — containment would drop exactly the finding a
+  // reader zooms into the middle of.
+  if (ids !== 'crash,quorum') throw new Error(`in window: ${ids}`)
+  // The two undated ones are never hidden, and are not counted as hidden either.
+  if (always.length !== 2) throw new Error(`undated: ${always.length}`)
+  if (hidden !== 0) throw new Error(`hidden: ${hidden}`)
+  return 'ok'
+})
+
+check('log summary: the verdict filter hides only dated conclusions outside the window', () => {
+  const { inWindow, always, hidden } = splitFindings(logFindings, 1200, 1300)
+  if (inWindow.length !== 0) throw new Error(`nothing happened there: ${inWindow.length}`)
+  if (hidden !== 2) throw new Error(`hidden: ${hidden}`)
+  if (always.length !== 2) throw new Error(`undated: ${always.length}`)
+  return 'ok'
+})
+
+check('log summary: no window means no narrowing at all', () => {
+  for (const [from, to] of [[0, 0], [1040, 0], [0, 1060], [1060, 1040]]) {
+    const { inWindow, always, narrowed } = splitFindings(logFindings, from, to)
+    if (narrowed) throw new Error(`from=${from} to=${to} narrowed on a window that is not one`)
+    if (inWindow.length !== logFindings.length || always.length !== 0) {
+      throw new Error(`from=${from} to=${to} did not pass everything through`)
+    }
+  }
+  return 'ok'
+})
+
 check('log summary: swimlane', () =>
   renderToString(<LogSwimlane timeline={logTimeline} sources={logSources} first={1000} onSelect={noop} onPick={noop} />))
 check('log summary: swimlane before the timeline loads', () =>
@@ -1311,6 +1425,29 @@ check('log summary: instant readout when the nodes agree', () =>
     sources={logSources} onClose={noop} />))
 check('log summary: event list', () =>
   renderToString(<LogEvents events={logEventsFixture} sources={logSources} first={1000} selectedNo={2} onSelect={noop} />))
+// The per-node column view: the same events, one column per source, still in time order.
+check('log summary: events by node', () =>
+  renderToString(<LogEventColumns events={logEventsFixture} sources={logSources} first={1000}
+    selectedNo={2} onSelect={noop} />))
+check('log summary: events by node with nothing matching', () =>
+  renderToString(<div><LogEventColumns events={[]} sources={logSources} first={1000} onSelect={noop} /></div>))
+check('log summary: events by node puts every event under its own source', () => {
+  const html = renderToString(<LogEventColumns events={logEventsFixture} sources={logSources} first={1000}
+    onSelect={noop} />)
+  // One header cell per source plus the frozen time column, and every event's label present
+  // exactly once — a label appearing twice would mean a row rendered it in more than one
+  // column, which is the bug this view could most easily have.
+  for (const e of logEventsFixture) {
+    const n = html.split(e.label).length - 1
+    if (n !== 1) throw new Error(`${e.label} appears ${n} times`)
+  }
+  if (!html.includes('Time')) throw new Error('no frozen time column')
+  // The header and the time column have to be sticky, or scrolling loses the thing you are
+  // reading against.
+  if (!html.includes('sticky')) throw new Error('nothing is sticky')
+  return html
+})
+
 check('log summary: event list with nothing matching', () =>
   renderToString(<LogEvents events={[]} sources={logSources} first={1000} onSelect={noop} />))
 for (const e of logEventsFixture) {

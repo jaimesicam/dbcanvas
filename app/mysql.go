@@ -381,6 +381,13 @@ func (a *App) provisionPerconaServer(st Stack, n designNode, doc designDoc) {
 				pr.logln("directory authentication skipped: " + err.Error())
 			}
 		}
+		// Keycloak OpenID Connect logins (auth_openid_connect, Percona Server 8.4.11-11+).
+		// Restarts mysqld, so it goes before the vault step, which restarts it again.
+		if n.EnableOIDC {
+			if err := a.applyMySQLOIDC(ctx, st, n, doc, a.containerOf(st.ID, n.ID), sec, pr); err != nil {
+				pr.logln("Keycloak OIDC skipped: " + err.Error())
+			}
+		}
 		// Data-at-rest encryption: point the keyring at the linked OpenBao node (the component
 		// on 8.4, the plugin on 5.7/8.0). Done last — it restarts mysqld.
 		if n.EnableVault {

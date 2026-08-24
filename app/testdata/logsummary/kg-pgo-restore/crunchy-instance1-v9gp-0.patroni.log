@@ -1,0 +1,163 @@
+2026-08-22 12:56:22,393 INFO: Using default value thread_stack_size = 524288
+2026-08-22 12:56:22,403 INFO: Patroni global thread_pool_size = 5
+/usr/local/lib/python3.12/site-packages/urllib3/_request_methods.py:182: FutureWarning: URLs without a scheme (ie 'https://') are deprecated and will raise an error in urllib3 v3.0. To avoid this FutureWarning ensure all URLs start with 'https://' or 'http://'. Read more in this issue: https://github.com/urllib3/urllib3/issues/2920
+  return self.urlopen(method, url, **extra_kw)
+2026-08-22 12:56:22,503 INFO: No PostgreSQL configuration items changed, nothing to reload.
+2026-08-22 12:56:22,505 INFO: REST API thread_pool_size = 5
+2026-08-22 12:56:22,509 WARNING: Postgresql is not running.
+2026-08-22 12:56:22,509 INFO: Lock owner: crunchy-instance1-zz6r-0; I am crunchy-instance1-v9gp-0
+2026-08-22 12:56:22,510 INFO: pg_controldata:
+  pg_control version number: 1800
+  Catalog version number: 202506291
+  Database system identifier: 7676812932874367061
+  Database cluster state: shut down in recovery
+  pg_control last modified: Sat Aug 22 12:55:58 2026
+  Latest checkpoint location: 0/35000060
+  Latest checkpoint's REDO location: 0/2DACCD68
+  Latest checkpoint's REDO WAL file: 00000002000000000000002D
+  Latest checkpoint's TimeLineID: 2
+  Latest checkpoint's PrevTimeLineID: 2
+  Latest checkpoint's full_page_writes: on
+  Latest checkpoint's NextXID: 0:143321
+  Latest checkpoint's NextOID: 24643
+  Latest checkpoint's NextMultiXactId: 1
+  Latest checkpoint's NextMultiOffset: 0
+  Latest checkpoint's oldestXID: 744
+  Latest checkpoint's oldestXID's DB: 1
+  Latest checkpoint's oldestActiveXID: 143283
+  Latest checkpoint's oldestMultiXid: 1
+  Latest checkpoint's oldestMulti's DB: 1
+  Latest checkpoint's oldestCommitTsXid: 0
+  Latest checkpoint's newestCommitTsXid: 0
+  Time of latest checkpoint: Sat Aug 22 12:13:49 2026
+  Fake LSN counter for unlogged rels: 0/3E8
+  Minimum recovery ending location: 0/36000000
+  Min recovery ending loc's timeline: 2
+  Backup start location: 0/0
+  Backup end location: 0/0
+  End-of-backup record required: no
+  wal_level setting: logical
+  wal_log_hints setting: on
+  max_connections setting: 100
+  max_worker_processes setting: 8
+  max_wal_senders setting: 10
+  max_prepared_xacts setting: 0
+  max_locks_per_xact setting: 64
+  track_commit_timestamp setting: off
+  Maximum data alignment: 8
+  Database block size: 8192
+  Blocks per segment of large relation: 131072
+  WAL block size: 8192
+  Bytes per WAL segment: 16777216
+  Maximum length of identifiers: 64
+  Maximum columns in an index: 32
+  Maximum size of a TOAST chunk: 1996
+  Size of a large-object chunk: 2048
+  Date/time type storage: 64-bit integers
+  Float8 argument passing: by value
+  Data page checksum version: 1
+  Default char data signedness: signed
+  Mock authentication nonce: fc0548c714ccf1b9b5752a3380040404068a6882a22582ee739cd2ed4ca3ad96
+
+2026-08-22 12:56:22,510 INFO: Lock owner: crunchy-instance1-zz6r-0; I am crunchy-instance1-v9gp-0
+2026-08-22 12:56:22,515 INFO: Local timeline=2 lsn=0/36000000
+2026-08-22 12:56:22,528 INFO: primary_timeline=3
+2026-08-22 12:56:22,529 INFO: primary: history=1	0/4495E38	reached consistency
+2026-08-22 12:56:22,550 INFO: running pg_rewind from crunchy-instance1-zz6r-0
+2026-08-22 12:56:22,571 INFO: running pg_rewind from dbname=postgres user=_crunchyrepl host=crunchy-instance1-zz6r-0.crunchy-pods port=5432 sslmode=verify-ca sslcert=/tmp/replication/tls.crt sslkey=/tmp/replication/tls.key sslrootcert=/tmp/replication/ca.crt target_session_attrs=read-write
+2026-08-22 12:56:28,231 INFO: pg_rewind exit code=0
+2026-08-22 12:56:28,231 INFO:  stdout=
+2026-08-22 12:56:28,231 INFO:  stderr=pg_rewind: servers diverged at WAL location 0/4495E38 on timeline 1
+pg_rewind: rewinding from last common checkpoint at 0/4495D28 on timeline 1
+pg_rewind: Done!
+
+2026-08-22 12:56:28,232 WARNING: Postgresql is not running.
+2026-08-22 12:56:28,232 INFO: Lock owner: crunchy-instance1-zz6r-0; I am crunchy-instance1-v9gp-0
+2026-08-22 12:56:28,233 INFO: pg_controldata:
+  pg_control version number: 1800
+  Catalog version number: 202506291
+  Database system identifier: 7676812932874367061
+  Database cluster state: in archive recovery
+  pg_control last modified: Sat Aug 22 12:56:26 2026
+  Latest checkpoint location: 0/5000028
+  Latest checkpoint's REDO location: 0/5000028
+  Latest checkpoint's REDO WAL file: 000000030000000000000005
+  Latest checkpoint's TimeLineID: 3
+  Latest checkpoint's PrevTimeLineID: 3
+  Latest checkpoint's full_page_writes: on
+  Latest checkpoint's NextXID: 0:772
+  Latest checkpoint's NextOID: 24576
+  Latest checkpoint's NextMultiXactId: 1
+  Latest checkpoint's NextMultiOffset: 0
+  Latest checkpoint's oldestXID: 744
+  Latest checkpoint's oldestXID's DB: 1
+  Latest checkpoint's oldestActiveXID: 0
+  Latest checkpoint's oldestMultiXid: 1
+  Latest checkpoint's oldestMulti's DB: 1
+  Latest checkpoint's oldestCommitTsXid: 0
+  Latest checkpoint's newestCommitTsXid: 0
+  Time of latest checkpoint: Sat Aug 22 12:56:08 2026
+  Fake LSN counter for unlogged rels: 0/3E8
+  Minimum recovery ending location: 0/5020388
+  Min recovery ending loc's timeline: 3
+  Backup start location: 0/0
+  Backup end location: 0/0
+  End-of-backup record required: no
+  wal_level setting: logical
+  wal_log_hints setting: on
+  max_connections setting: 100
+  max_worker_processes setting: 8
+  max_wal_senders setting: 10
+  max_prepared_xacts setting: 0
+  max_locks_per_xact setting: 64
+  track_commit_timestamp setting: off
+  Maximum data alignment: 8
+  Database block size: 8192
+  Blocks per segment of large relation: 131072
+  WAL block size: 8192
+  Bytes per WAL segment: 16777216
+  Maximum length of identifiers: 64
+  Maximum columns in an index: 32
+  Maximum size of a TOAST chunk: 1996
+  Size of a large-object chunk: 2048
+  Date/time type storage: 64-bit integers
+  Float8 argument passing: by value
+  Data page checksum version: 1
+  Default char data signedness: signed
+  Mock authentication nonce: fc0548c714ccf1b9b5752a3380040404068a6882a22582ee739cd2ed4ca3ad96
+
+2026-08-22 12:56:28,233 INFO: Lock owner: crunchy-instance1-zz6r-0; I am crunchy-instance1-v9gp-0
+2026-08-22 12:56:28,233 INFO: starting as a secondary
+2026-08-22 12:56:28.449 UTC [182] LOG:  pgaudit extension initialized
+2026-08-22 12:56:28,466 INFO: postmaster pid=182
+/tmp/postgres:5432 - no response
+2026-08-22 12:56:28.506 UTC [182] LOG:  redirecting log output to logging collector process
+2026-08-22 12:56:28.506 UTC [182] HINT:  Future log output will appear in directory "/pgdata/logs/postgres".
+2026-08-22 12:56:28,761 INFO: Lock owner: crunchy-instance1-zz6r-0; I am crunchy-instance1-v9gp-0
+2026-08-22 12:56:28,786 INFO: restarting after failure in progress
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - accepting connections
+2026-08-22 12:56:31,494 INFO: Lock owner: crunchy-instance1-zz6r-0; I am crunchy-instance1-v9gp-0
+2026-08-22 12:56:31,494 INFO: establishing a new patroni heartbeat connection to postgres
+2026-08-22 12:56:31,514 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:56:31,518 INFO: establishing a new patroni restapi connection to postgres
+2026-08-22 12:56:38,786 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:56:48,763 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:56:58,777 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:57:08,763 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:57:18,772 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:57:28,763 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:57:38,763 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:57:48,763 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:57:58,763 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:58:08,763 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:58:18,763 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:58:28,763 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:58:38,763 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:58:48,762 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:58:58,763 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:59:08,763 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:59:18,763 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)
+2026-08-22 12:59:28,763 INFO: no action. I am (crunchy-instance1-v9gp-0), a secondary, and following a leader (crunchy-instance1-zz6r-0)

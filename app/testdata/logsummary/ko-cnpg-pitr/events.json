@@ -1,0 +1,2852 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:34:16Z",
+            "involvedObject": {
+                "apiVersion": "postgresql.cnpg.io/v1",
+                "kind": "Backup",
+                "name": "base1",
+                "namespace": "cnpg",
+                "resourceVersion": "2799",
+                "uid": "52106f37-29a4-4bc7-b864-c670ee088eab"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:34:16Z",
+            "message": "Starting backup for cluster cnpg2",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:34:16Z",
+                "name": "base1.18ce23f985f394c2",
+                "namespace": "cnpg",
+                "resourceVersion": "2801",
+                "uid": "9d1a6bec-9b9c-4149-b892-6a38278e58af"
+            },
+            "reason": "Starting",
+            "reportingComponent": "cloudnative-pg-backup",
+            "reportingInstance": "",
+            "source": {
+                "component": "cloudnative-pg-backup"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:34:16Z",
+            "involvedObject": {
+                "apiVersion": "postgresql.cnpg.io/v1",
+                "kind": "Backup",
+                "name": "base1",
+                "namespace": "cnpg",
+                "resourceVersion": "2802",
+                "uid": "52106f37-29a4-4bc7-b864-c670ee088eab"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:34:16Z",
+            "message": "Backup started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:34:16Z",
+                "name": "base1.18ce23f989daee34",
+                "namespace": "cnpg",
+                "resourceVersion": "2803",
+                "uid": "0e84a83c-edb3-4277-acae-1a80456b9faa"
+            },
+            "reason": "Starting",
+            "reportingComponent": "local-webserver",
+            "reportingInstance": "",
+            "source": {
+                "component": "local-webserver"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:34:24Z",
+            "involvedObject": {
+                "apiVersion": "postgresql.cnpg.io/v1",
+                "kind": "Backup",
+                "name": "base1",
+                "namespace": "cnpg",
+                "resourceVersion": "2802",
+                "uid": "52106f37-29a4-4bc7-b864-c670ee088eab"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:34:24Z",
+            "message": "Backup completed",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:34:24Z",
+                "name": "base1.18ce23fb6695187c",
+                "namespace": "cnpg",
+                "resourceVersion": "2823",
+                "uid": "40fd4d2b-154a-4f8f-a6c6-f6db1114ebbb"
+            },
+            "reason": "Completed",
+            "reportingComponent": "local-webserver",
+            "reportingInstance": "",
+            "source": {
+                "component": "local-webserver"
+            },
+            "type": "Normal"
+        },
+        {
+            "action": "Binding",
+            "apiVersion": "v1",
+            "eventTime": "2026-08-22T13:23:10.439348Z",
+            "firstTimestamp": null,
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "cnpg2-1-initdb-kqv7q",
+                "namespace": "cnpg",
+                "resourceVersion": "1241",
+                "uid": "9a728810-e0b6-45c0-bb23-7d1131d8cd0d"
+            },
+            "kind": "Event",
+            "lastTimestamp": null,
+            "message": "Successfully assigned cnpg/cnpg2-1-initdb-kqv7q to k3d-cnpg2-s147-server-0",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:10Z",
+                "name": "cnpg2-1-initdb-kqv7q.18ce235e64e5ef0c",
+                "namespace": "cnpg",
+                "resourceVersion": "1285",
+                "uid": "11237eda-dfd7-470a-a906-83d514bab6e1"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "default-scheduler-k3d-cnpg2-s147-server-0",
+            "source": {},
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:11Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{bootstrap-controller}",
+                "kind": "Pod",
+                "name": "cnpg2-1-initdb-kqv7q",
+                "namespace": "cnpg",
+                "resourceVersion": "1284",
+                "uid": "9a728810-e0b6-45c0-bb23-7d1131d8cd0d"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:11Z",
+            "message": "Container image \"ghcr.io/cloudnative-pg/cloudnative-pg:1.30.0\" already present on machine and can be accessed by the pod",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:11Z",
+                "name": "cnpg2-1-initdb-kqv7q.18ce235ea45784ce",
+                "namespace": "cnpg",
+                "resourceVersion": "1288",
+                "uid": "1f9237ad-4a19-4f10-bac9-723d87317a81"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:11Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{bootstrap-controller}",
+                "kind": "Pod",
+                "name": "cnpg2-1-initdb-kqv7q",
+                "namespace": "cnpg",
+                "resourceVersion": "1284",
+                "uid": "9a728810-e0b6-45c0-bb23-7d1131d8cd0d"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:11Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:11Z",
+                "name": "cnpg2-1-initdb-kqv7q.18ce235ea65fd1f6",
+                "namespace": "cnpg",
+                "resourceVersion": "1290",
+                "uid": "b50c5302-9216-486c-8290-58614da5e4df"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:11Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{bootstrap-controller}",
+                "kind": "Pod",
+                "name": "cnpg2-1-initdb-kqv7q",
+                "namespace": "cnpg",
+                "resourceVersion": "1284",
+                "uid": "9a728810-e0b6-45c0-bb23-7d1131d8cd0d"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:11Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:11Z",
+                "name": "cnpg2-1-initdb-kqv7q.18ce235eaa8b94da",
+                "namespace": "cnpg",
+                "resourceVersion": "1291",
+                "uid": "74e2732d-162c-4710-93db-96673e86a94f"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:12Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{initdb}",
+                "kind": "Pod",
+                "name": "cnpg2-1-initdb-kqv7q",
+                "namespace": "cnpg",
+                "resourceVersion": "1284",
+                "uid": "9a728810-e0b6-45c0-bb23-7d1131d8cd0d"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:12Z",
+            "message": "Pulling image \"ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:12Z",
+                "name": "cnpg2-1-initdb-kqv7q.18ce235ede60f3dd",
+                "namespace": "cnpg",
+                "resourceVersion": "1295",
+                "uid": "061c45be-2b97-48fa-a5bc-b6470644a50b"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:32Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{initdb}",
+                "kind": "Pod",
+                "name": "cnpg2-1-initdb-kqv7q",
+                "namespace": "cnpg",
+                "resourceVersion": "1284",
+                "uid": "9a728810-e0b6-45c0-bb23-7d1131d8cd0d"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:32Z",
+            "message": "Successfully pulled image \"ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie\" in 20.468s (20.468s including waiting). Image size: 274390648 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:32Z",
+                "name": "cnpg2-1-initdb-kqv7q.18ce2363a2644cd9",
+                "namespace": "cnpg",
+                "resourceVersion": "1328",
+                "uid": "4101dd70-4834-441c-965f-6c032da8c483"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:32Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{initdb}",
+                "kind": "Pod",
+                "name": "cnpg2-1-initdb-kqv7q",
+                "namespace": "cnpg",
+                "resourceVersion": "1284",
+                "uid": "9a728810-e0b6-45c0-bb23-7d1131d8cd0d"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:32Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:32Z",
+                "name": "cnpg2-1-initdb-kqv7q.18ce2363a463dd0f",
+                "namespace": "cnpg",
+                "resourceVersion": "1329",
+                "uid": "0777b309-0d44-471a-a6eb-7d0f4337ac13"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:33Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{initdb}",
+                "kind": "Pod",
+                "name": "cnpg2-1-initdb-kqv7q",
+                "namespace": "cnpg",
+                "resourceVersion": "1284",
+                "uid": "9a728810-e0b6-45c0-bb23-7d1131d8cd0d"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:33Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:33Z",
+                "name": "cnpg2-1-initdb-kqv7q.18ce2363a92b23cf",
+                "namespace": "cnpg",
+                "resourceVersion": "1330",
+                "uid": "60e96863-4d3c-441f-a554-2ed8ef265292"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:00Z",
+            "involvedObject": {
+                "apiVersion": "batch/v1",
+                "kind": "Job",
+                "name": "cnpg2-1-initdb",
+                "namespace": "cnpg",
+                "resourceVersion": "1240",
+                "uid": "e3f4b5fa-cc76-4043-ad3f-03f1466e6611"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:00Z",
+            "message": "Created pod: cnpg2-1-initdb-kqv7q",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:00Z",
+                "name": "cnpg2-1-initdb.18ce235c104e9595",
+                "namespace": "cnpg",
+                "resourceVersion": "1242",
+                "uid": "97f887ca-6a77-4a4c-8086-36995047d7a5"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "job-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "job-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:37Z",
+            "involvedObject": {
+                "apiVersion": "batch/v1",
+                "kind": "Job",
+                "name": "cnpg2-1-initdb",
+                "namespace": "cnpg",
+                "resourceVersion": "1343",
+                "uid": "e3f4b5fa-cc76-4043-ad3f-03f1466e6611"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:37Z",
+            "message": "Job completed",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:37Z",
+                "name": "cnpg2-1-initdb.18ce2364b4540955",
+                "namespace": "cnpg",
+                "resourceVersion": "1346",
+                "uid": "8c27ad8e-3599-4965-9d59-b727233a2bab"
+            },
+            "reason": "Completed",
+            "reportingComponent": "job-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "job-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:00Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "cnpg2-1",
+                "namespace": "cnpg",
+                "resourceVersion": "1235",
+                "uid": "5a968570-aa5f-4c00-b56b-72b708f4bf5a"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:00Z",
+            "message": "waiting for first consumer to be created before binding",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:00Z",
+                "name": "cnpg2-1.18ce235c0e7d5be2",
+                "namespace": "cnpg",
+                "resourceVersion": "1238",
+                "uid": "ba3a6b67-79bd-4843-9dbc-2462531de222"
+            },
+            "reason": "WaitForFirstConsumer",
+            "reportingComponent": "persistentvolume-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "persistentvolume-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 2,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:00Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "cnpg2-1",
+                "namespace": "cnpg",
+                "resourceVersion": "1247",
+                "uid": "5a968570-aa5f-4c00-b56b-72b708f4bf5a"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:00Z",
+            "message": "Waiting for a volume to be created either by the external provisioner 'rancher.io/local-path' or manually by the system administrator. If volume creation is delayed, please verify that the provisioner is running and correctly registered.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:00Z",
+                "name": "cnpg2-1.18ce235c10bc4ee5",
+                "namespace": "cnpg",
+                "resourceVersion": "1249",
+                "uid": "dcb5ec35-c5fe-43bc-bf24-e705988b56b2"
+            },
+            "reason": "ExternalProvisioning",
+            "reportingComponent": "persistentvolume-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "persistentvolume-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:00Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "cnpg2-1",
+                "namespace": "cnpg",
+                "resourceVersion": "1247",
+                "uid": "5a968570-aa5f-4c00-b56b-72b708f4bf5a"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:00Z",
+            "message": "External provisioner is provisioning volume for claim \"cnpg/cnpg2-1\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:00Z",
+                "name": "cnpg2-1.18ce235c10d302ca",
+                "namespace": "cnpg",
+                "resourceVersion": "1250",
+                "uid": "b8954636-7db9-4890-9306-aa8f102fd385"
+            },
+            "reason": "Provisioning",
+            "reportingComponent": "rancher.io/local-path_local-path-provisioner-58d557dc48-jnd78_22e6194d-5fe9-44e5-a482-0a3c816f4123",
+            "reportingInstance": "",
+            "source": {
+                "component": "rancher.io/local-path_local-path-provisioner-58d557dc48-jnd78_22e6194d-5fe9-44e5-a482-0a3c816f4123"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:10Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "cnpg2-1",
+                "namespace": "cnpg",
+                "resourceVersion": "1247",
+                "uid": "5a968570-aa5f-4c00-b56b-72b708f4bf5a"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:10Z",
+            "message": "Successfully provisioned volume pvc-5a968570-aa5f-4c00-b56b-72b708f4bf5a",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:10Z",
+                "name": "cnpg2-1.18ce235e542cb557",
+                "namespace": "cnpg",
+                "resourceVersion": "1279",
+                "uid": "2cdc3aec-19fe-44cf-b334-46e768e667f5"
+            },
+            "reason": "ProvisioningSucceeded",
+            "reportingComponent": "rancher.io/local-path_local-path-provisioner-58d557dc48-jnd78_22e6194d-5fe9-44e5-a482-0a3c816f4123",
+            "reportingInstance": "",
+            "source": {
+                "component": "rancher.io/local-path_local-path-provisioner-58d557dc48-jnd78_22e6194d-5fe9-44e5-a482-0a3c816f4123"
+            },
+            "type": "Normal"
+        },
+        {
+            "action": "Binding",
+            "apiVersion": "v1",
+            "eventTime": "2026-08-22T13:23:38.425995Z",
+            "firstTimestamp": null,
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "cnpg2-1",
+                "namespace": "cnpg",
+                "resourceVersion": "1350",
+                "uid": "3ecad971-51ac-4071-9245-b526170eaaa4"
+            },
+            "kind": "Event",
+            "lastTimestamp": null,
+            "message": "Successfully assigned cnpg/cnpg2-1 to k3d-cnpg2-s147-server-0",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:38Z",
+                "name": "cnpg2-1.18ce2364e9083da8",
+                "namespace": "cnpg",
+                "resourceVersion": "1352",
+                "uid": "84f8fa08-b4c1-4faf-a9d7-9544d3e70447"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "default-scheduler-k3d-cnpg2-s147-server-0",
+            "source": {},
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:38Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{bootstrap-controller}",
+                "kind": "Pod",
+                "name": "cnpg2-1",
+                "namespace": "cnpg",
+                "resourceVersion": "1351",
+                "uid": "3ecad971-51ac-4071-9245-b526170eaaa4"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:38Z",
+            "message": "Container image \"ghcr.io/cloudnative-pg/cloudnative-pg:1.30.0\" already present on machine and can be accessed by the pod",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:38Z",
+                "name": "cnpg2-1.18ce2365037d2dcb",
+                "namespace": "cnpg",
+                "resourceVersion": "1357",
+                "uid": "c8a6340f-27ab-4d80-af03-9f95eac05400"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:38Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{bootstrap-controller}",
+                "kind": "Pod",
+                "name": "cnpg2-1",
+                "namespace": "cnpg",
+                "resourceVersion": "1351",
+                "uid": "3ecad971-51ac-4071-9245-b526170eaaa4"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:38Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:38Z",
+                "name": "cnpg2-1.18ce23650539eb4b",
+                "namespace": "cnpg",
+                "resourceVersion": "1359",
+                "uid": "184f83f6-573f-4735-86a3-dd8a4e7d43a6"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:38Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{bootstrap-controller}",
+                "kind": "Pod",
+                "name": "cnpg2-1",
+                "namespace": "cnpg",
+                "resourceVersion": "1351",
+                "uid": "3ecad971-51ac-4071-9245-b526170eaaa4"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:38Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:38Z",
+                "name": "cnpg2-1.18ce236508db2d31",
+                "namespace": "cnpg",
+                "resourceVersion": "1360",
+                "uid": "c0881f49-4ba9-4ea9-9118-72813d849e8f"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:39Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{plugin-barman-cloud}",
+                "kind": "Pod",
+                "name": "cnpg2-1",
+                "namespace": "cnpg",
+                "resourceVersion": "1351",
+                "uid": "3ecad971-51ac-4071-9245-b526170eaaa4"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:39Z",
+            "message": "Pulling image \"ghcr.io/cloudnative-pg/plugin-barman-cloud-sidecar:v0.14.0\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:39Z",
+                "name": "cnpg2-1.18ce23652adf4fa7",
+                "namespace": "cnpg",
+                "resourceVersion": "1366",
+                "uid": "06bf97ec-b1af-4adf-a94f-8087c26575ec"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:52Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{plugin-barman-cloud}",
+                "kind": "Pod",
+                "name": "cnpg2-1",
+                "namespace": "cnpg",
+                "resourceVersion": "1351",
+                "uid": "3ecad971-51ac-4071-9245-b526170eaaa4"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:52Z",
+            "message": "Successfully pulled image \"ghcr.io/cloudnative-pg/plugin-barman-cloud-sidecar:v0.14.0\" in 13.396s (13.396s including waiting). Image size: 106574893 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:52Z",
+                "name": "cnpg2-1.18ce2368495c79b4",
+                "namespace": "cnpg",
+                "resourceVersion": "1389",
+                "uid": "f58316b8-d08c-4af5-8c1a-d4cb79e98bec"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:52Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{plugin-barman-cloud}",
+                "kind": "Pod",
+                "name": "cnpg2-1",
+                "namespace": "cnpg",
+                "resourceVersion": "1351",
+                "uid": "3ecad971-51ac-4071-9245-b526170eaaa4"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:52Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:52Z",
+                "name": "cnpg2-1.18ce23684acfc414",
+                "namespace": "cnpg",
+                "resourceVersion": "1390",
+                "uid": "adf194b2-3789-4d6c-bb20-336c8d591c8b"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:53Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{plugin-barman-cloud}",
+                "kind": "Pod",
+                "name": "cnpg2-1",
+                "namespace": "cnpg",
+                "resourceVersion": "1351",
+                "uid": "3ecad971-51ac-4071-9245-b526170eaaa4"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:53Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:53Z",
+                "name": "cnpg2-1.18ce236850ffebb3",
+                "namespace": "cnpg",
+                "resourceVersion": "1391",
+                "uid": "bb1dc666-66d2-46ec-8d38-a10b71e3e981"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:54Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{postgres}",
+                "kind": "Pod",
+                "name": "cnpg2-1",
+                "namespace": "cnpg",
+                "resourceVersion": "1351",
+                "uid": "3ecad971-51ac-4071-9245-b526170eaaa4"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:54Z",
+            "message": "Container image \"ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie\" already present on machine and can be accessed by the pod",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:54Z",
+                "name": "cnpg2-1.18ce2368aa745ab7",
+                "namespace": "cnpg",
+                "resourceVersion": "1398",
+                "uid": "d59a2d93-213b-42fb-9b02-a4dd8fe2dc6c"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:54Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{postgres}",
+                "kind": "Pod",
+                "name": "cnpg2-1",
+                "namespace": "cnpg",
+                "resourceVersion": "1351",
+                "uid": "3ecad971-51ac-4071-9245-b526170eaaa4"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:54Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:54Z",
+                "name": "cnpg2-1.18ce2368ad09ab85",
+                "namespace": "cnpg",
+                "resourceVersion": "1400",
+                "uid": "0694afa1-a3ae-4413-9a27-7f6106c3e6eb"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:54Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{postgres}",
+                "kind": "Pod",
+                "name": "cnpg2-1",
+                "namespace": "cnpg",
+                "resourceVersion": "1351",
+                "uid": "3ecad971-51ac-4071-9245-b526170eaaa4"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:54Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:54Z",
+                "name": "cnpg2-1.18ce2368b1875133",
+                "namespace": "cnpg",
+                "resourceVersion": "1401",
+                "uid": "f0ac9eae-c022-431d-8b9c-4590c0f39458"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "action": "Binding",
+            "apiVersion": "v1",
+            "eventTime": "2026-08-22T13:24:04.196535Z",
+            "firstTimestamp": null,
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "cnpg2-2-join-vzbvx",
+                "namespace": "cnpg",
+                "resourceVersion": "1434",
+                "uid": "d7534300-1b67-4198-8971-11bf79a2e378"
+            },
+            "kind": "Event",
+            "lastTimestamp": null,
+            "message": "Successfully assigned cnpg/cnpg2-2-join-vzbvx to k3d-cnpg2-s147-server-0",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:04Z",
+                "name": "cnpg2-2-join-vzbvx.18ce236ae913a029",
+                "namespace": "cnpg",
+                "resourceVersion": "1472",
+                "uid": "dd9550fe-9baf-42fb-b37e-b7f6ab4b8dba"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "default-scheduler-k3d-cnpg2-s147-server-0",
+            "source": {},
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:04Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{bootstrap-controller}",
+                "kind": "Pod",
+                "name": "cnpg2-2-join-vzbvx",
+                "namespace": "cnpg",
+                "resourceVersion": "1471",
+                "uid": "d7534300-1b67-4198-8971-11bf79a2e378"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:04Z",
+            "message": "Container image \"ghcr.io/cloudnative-pg/cloudnative-pg:1.30.0\" already present on machine and can be accessed by the pod",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:04Z",
+                "name": "cnpg2-2-join-vzbvx.18ce236b04ae5182",
+                "namespace": "cnpg",
+                "resourceVersion": "1478",
+                "uid": "35585c05-14de-43dd-aa35-a6220493fc72"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:04Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{bootstrap-controller}",
+                "kind": "Pod",
+                "name": "cnpg2-2-join-vzbvx",
+                "namespace": "cnpg",
+                "resourceVersion": "1471",
+                "uid": "d7534300-1b67-4198-8971-11bf79a2e378"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:04Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:04Z",
+                "name": "cnpg2-2-join-vzbvx.18ce236b0642515d",
+                "namespace": "cnpg",
+                "resourceVersion": "1480",
+                "uid": "bce5e3b7-d107-47c8-a0b4-e575f7decff7"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:04Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{bootstrap-controller}",
+                "kind": "Pod",
+                "name": "cnpg2-2-join-vzbvx",
+                "namespace": "cnpg",
+                "resourceVersion": "1471",
+                "uid": "d7534300-1b67-4198-8971-11bf79a2e378"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:04Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:04Z",
+                "name": "cnpg2-2-join-vzbvx.18ce236b09fcfda9",
+                "namespace": "cnpg",
+                "resourceVersion": "1481",
+                "uid": "2ed35272-2c76-4c82-9274-6a09a806e0bc"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:05Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{join}",
+                "kind": "Pod",
+                "name": "cnpg2-2-join-vzbvx",
+                "namespace": "cnpg",
+                "resourceVersion": "1471",
+                "uid": "d7534300-1b67-4198-8971-11bf79a2e378"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:05Z",
+            "message": "Container image \"ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie\" already present on machine and can be accessed by the pod",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:05Z",
+                "name": "cnpg2-2-join-vzbvx.18ce236b3b8f64e1",
+                "namespace": "cnpg",
+                "resourceVersion": "1483",
+                "uid": "b6ee40ee-0245-4712-a650-41fb4367a499"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:05Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{join}",
+                "kind": "Pod",
+                "name": "cnpg2-2-join-vzbvx",
+                "namespace": "cnpg",
+                "resourceVersion": "1471",
+                "uid": "d7534300-1b67-4198-8971-11bf79a2e378"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:05Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:05Z",
+                "name": "cnpg2-2-join-vzbvx.18ce236b3d34f19c",
+                "namespace": "cnpg",
+                "resourceVersion": "1485",
+                "uid": "c7159c61-49f7-49bf-b91d-01429f449158"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:05Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{join}",
+                "kind": "Pod",
+                "name": "cnpg2-2-join-vzbvx",
+                "namespace": "cnpg",
+                "resourceVersion": "1471",
+                "uid": "d7534300-1b67-4198-8971-11bf79a2e378"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:05Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:05Z",
+                "name": "cnpg2-2-join-vzbvx.18ce236b40f61ac6",
+                "namespace": "cnpg",
+                "resourceVersion": "1486",
+                "uid": "fd7f2c19-46d8-409a-881f-7e3e5745b2dc"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:00Z",
+            "involvedObject": {
+                "apiVersion": "batch/v1",
+                "kind": "Job",
+                "name": "cnpg2-2-join",
+                "namespace": "cnpg",
+                "resourceVersion": "1432",
+                "uid": "3af3cff3-c52d-42a0-8eed-29c0652e4cbb"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:00Z",
+            "message": "Created pod: cnpg2-2-join-vzbvx",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:00Z",
+                "name": "cnpg2-2-join.18ce2369fa1897e9",
+                "namespace": "cnpg",
+                "resourceVersion": "1435",
+                "uid": "bff9db85-f0ce-4c41-906d-33915e78813f"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "job-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "job-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:11Z",
+            "involvedObject": {
+                "apiVersion": "batch/v1",
+                "kind": "Job",
+                "name": "cnpg2-2-join",
+                "namespace": "cnpg",
+                "resourceVersion": "1505",
+                "uid": "3af3cff3-c52d-42a0-8eed-29c0652e4cbb"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:11Z",
+            "message": "Job completed",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:11Z",
+                "name": "cnpg2-2-join.18ce236ca304b7c4",
+                "namespace": "cnpg",
+                "resourceVersion": "1508",
+                "uid": "03935262-1b5e-4802-8176-994750c6f02c"
+            },
+            "reason": "Completed",
+            "reportingComponent": "job-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "job-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:00Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "cnpg2-2",
+                "namespace": "cnpg",
+                "resourceVersion": "1433",
+                "uid": "f87d84c4-1a15-46ce-8f64-b7604ea5d601"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:00Z",
+            "message": "waiting for first consumer to be created before binding",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:00Z",
+                "name": "cnpg2-2.18ce2369fa1167da",
+                "namespace": "cnpg",
+                "resourceVersion": "1438",
+                "uid": "a624764b-c1c6-49d4-b385-74bb4649d1cd"
+            },
+            "reason": "WaitForFirstConsumer",
+            "reportingComponent": "persistentvolume-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "persistentvolume-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 3,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:00Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "cnpg2-2",
+                "namespace": "cnpg",
+                "resourceVersion": "1440",
+                "uid": "f87d84c4-1a15-46ce-8f64-b7604ea5d601"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:00Z",
+            "message": "Waiting for a volume to be created either by the external provisioner 'rancher.io/local-path' or manually by the system administrator. If volume creation is delayed, please verify that the provisioner is running and correctly registered.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:00Z",
+                "name": "cnpg2-2.18ce2369fa900ab6",
+                "namespace": "cnpg",
+                "resourceVersion": "1452",
+                "uid": "6017b6aa-5d5e-4db0-b669-39bad21b8f0a"
+            },
+            "reason": "ExternalProvisioning",
+            "reportingComponent": "persistentvolume-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "persistentvolume-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:00Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "cnpg2-2",
+                "namespace": "cnpg",
+                "resourceVersion": "1440",
+                "uid": "f87d84c4-1a15-46ce-8f64-b7604ea5d601"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:00Z",
+            "message": "External provisioner is provisioning volume for claim \"cnpg/cnpg2-2\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:00Z",
+                "name": "cnpg2-2.18ce2369faab94d8",
+                "namespace": "cnpg",
+                "resourceVersion": "1443",
+                "uid": "d4df2bed-66e0-4f1a-86d0-b3b2ba95dd4c"
+            },
+            "reason": "Provisioning",
+            "reportingComponent": "rancher.io/local-path_local-path-provisioner-58d557dc48-jnd78_22e6194d-5fe9-44e5-a482-0a3c816f4123",
+            "reportingInstance": "",
+            "source": {
+                "component": "rancher.io/local-path_local-path-provisioner-58d557dc48-jnd78_22e6194d-5fe9-44e5-a482-0a3c816f4123"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:03Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "cnpg2-2",
+                "namespace": "cnpg",
+                "resourceVersion": "1440",
+                "uid": "f87d84c4-1a15-46ce-8f64-b7604ea5d601"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:03Z",
+            "message": "Successfully provisioned volume pvc-f87d84c4-1a15-46ce-8f64-b7604ea5d601",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:03Z",
+                "name": "cnpg2-2.18ce236ac194d409",
+                "namespace": "cnpg",
+                "resourceVersion": "1467",
+                "uid": "93d80459-5c99-4b91-92ae-72cc5bd82685"
+            },
+            "reason": "ProvisioningSucceeded",
+            "reportingComponent": "rancher.io/local-path_local-path-provisioner-58d557dc48-jnd78_22e6194d-5fe9-44e5-a482-0a3c816f4123",
+            "reportingInstance": "",
+            "source": {
+                "component": "rancher.io/local-path_local-path-provisioner-58d557dc48-jnd78_22e6194d-5fe9-44e5-a482-0a3c816f4123"
+            },
+            "type": "Normal"
+        },
+        {
+            "action": "Binding",
+            "apiVersion": "v1",
+            "eventTime": "2026-08-22T13:24:12.243804Z",
+            "firstTimestamp": null,
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "cnpg2-2",
+                "namespace": "cnpg",
+                "resourceVersion": "1512",
+                "uid": "6cd959d7-0839-4c19-9b98-0653499c6550"
+            },
+            "kind": "Event",
+            "lastTimestamp": null,
+            "message": "Successfully assigned cnpg/cnpg2-2 to k3d-cnpg2-s147-server-0",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:12Z",
+                "name": "cnpg2-2.18ce236cc8bb10d7",
+                "namespace": "cnpg",
+                "resourceVersion": "1514",
+                "uid": "0113d3bf-18ad-4c0f-94e8-edec8bc11b6b"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "default-scheduler-k3d-cnpg2-s147-server-0",
+            "source": {},
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:12Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{bootstrap-controller}",
+                "kind": "Pod",
+                "name": "cnpg2-2",
+                "namespace": "cnpg",
+                "resourceVersion": "1513",
+                "uid": "6cd959d7-0839-4c19-9b98-0653499c6550"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:12Z",
+            "message": "Container image \"ghcr.io/cloudnative-pg/cloudnative-pg:1.30.0\" already present on machine and can be accessed by the pod",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:12Z",
+                "name": "cnpg2-2.18ce236ce2f28081",
+                "namespace": "cnpg",
+                "resourceVersion": "1518",
+                "uid": "7d1c8241-10a2-4669-8c1e-9f7e30b88bdc"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:12Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{bootstrap-controller}",
+                "kind": "Pod",
+                "name": "cnpg2-2",
+                "namespace": "cnpg",
+                "resourceVersion": "1513",
+                "uid": "6cd959d7-0839-4c19-9b98-0653499c6550"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:12Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:12Z",
+                "name": "cnpg2-2.18ce236ce4a01605",
+                "namespace": "cnpg",
+                "resourceVersion": "1521",
+                "uid": "d5a987ee-017b-488a-9897-26aa0ac4e7de"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:12Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{bootstrap-controller}",
+                "kind": "Pod",
+                "name": "cnpg2-2",
+                "namespace": "cnpg",
+                "resourceVersion": "1513",
+                "uid": "6cd959d7-0839-4c19-9b98-0653499c6550"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:12Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:12Z",
+                "name": "cnpg2-2.18ce236ce8c44bd8",
+                "namespace": "cnpg",
+                "resourceVersion": "1523",
+                "uid": "1792f204-a17f-4243-82ba-ea13ba597a86"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:13Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{plugin-barman-cloud}",
+                "kind": "Pod",
+                "name": "cnpg2-2",
+                "namespace": "cnpg",
+                "resourceVersion": "1513",
+                "uid": "6cd959d7-0839-4c19-9b98-0653499c6550"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:13Z",
+            "message": "Container image \"ghcr.io/cloudnative-pg/plugin-barman-cloud-sidecar:v0.14.0\" already present on machine and can be accessed by the pod",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:13Z",
+                "name": "cnpg2-2.18ce236d196711af",
+                "namespace": "cnpg",
+                "resourceVersion": "1527",
+                "uid": "11c63c68-dff3-4fd7-966d-98d1fa1c938b"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:13Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{plugin-barman-cloud}",
+                "kind": "Pod",
+                "name": "cnpg2-2",
+                "namespace": "cnpg",
+                "resourceVersion": "1513",
+                "uid": "6cd959d7-0839-4c19-9b98-0653499c6550"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:13Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:13Z",
+                "name": "cnpg2-2.18ce236d1bdcddd7",
+                "namespace": "cnpg",
+                "resourceVersion": "1529",
+                "uid": "fa4b8de5-94eb-44d2-99b5-8a55dd550178"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:13Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{plugin-barman-cloud}",
+                "kind": "Pod",
+                "name": "cnpg2-2",
+                "namespace": "cnpg",
+                "resourceVersion": "1513",
+                "uid": "6cd959d7-0839-4c19-9b98-0653499c6550"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:13Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:13Z",
+                "name": "cnpg2-2.18ce236d2262957d",
+                "namespace": "cnpg",
+                "resourceVersion": "1530",
+                "uid": "1652b34d-3c7e-4428-bb60-524bdde0a370"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:15Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{postgres}",
+                "kind": "Pod",
+                "name": "cnpg2-2",
+                "namespace": "cnpg",
+                "resourceVersion": "1513",
+                "uid": "6cd959d7-0839-4c19-9b98-0653499c6550"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:15Z",
+            "message": "Container image \"ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie\" already present on machine and can be accessed by the pod",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:15Z",
+                "name": "cnpg2-2.18ce236d90ddd0db",
+                "namespace": "cnpg",
+                "resourceVersion": "1537",
+                "uid": "aadc3715-5737-4821-bb6e-60f97aaeac84"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:15Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{postgres}",
+                "kind": "Pod",
+                "name": "cnpg2-2",
+                "namespace": "cnpg",
+                "resourceVersion": "1513",
+                "uid": "6cd959d7-0839-4c19-9b98-0653499c6550"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:15Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:15Z",
+                "name": "cnpg2-2.18ce236d928a476c",
+                "namespace": "cnpg",
+                "resourceVersion": "1539",
+                "uid": "65639c08-4d50-41c9-8f91-1d6f99fe8a4d"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:15Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{postgres}",
+                "kind": "Pod",
+                "name": "cnpg2-2",
+                "namespace": "cnpg",
+                "resourceVersion": "1513",
+                "uid": "6cd959d7-0839-4c19-9b98-0653499c6550"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:15Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:15Z",
+                "name": "cnpg2-2.18ce236d96522ebd",
+                "namespace": "cnpg",
+                "resourceVersion": "1540",
+                "uid": "54068d7e-ab26-4476-b72a-514f08c6464d"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:22:34Z",
+            "involvedObject": {
+                "apiVersion": "postgresql.cnpg.io/v1",
+                "kind": "ScheduledBackup",
+                "name": "cnpg2-nightly",
+                "namespace": "cnpg",
+                "resourceVersion": "1072",
+                "uid": "bc96526b-3148-4b31-bd71-16093482165c"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:22:34Z",
+            "message": "Scheduled first backup by 2026-08-23 00:00:00 +0000 UTC",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:22:34Z",
+                "name": "cnpg2-nightly.18ce2355f919a9e9",
+                "namespace": "cnpg",
+                "resourceVersion": "1073",
+                "uid": "592d5cdf-9852-4123-ba8f-edd2d0ba6d4d"
+            },
+            "reason": "BackupSchedule",
+            "reportingComponent": "cloudnative-pg-scheduledbackup",
+            "reportingInstance": "",
+            "source": {
+                "component": "cloudnative-pg-scheduledbackup"
+            },
+            "type": "Normal"
+        },
+        {
+            "action": "Binding",
+            "apiVersion": "v1",
+            "eventTime": "2026-08-22T13:35:49.503412Z",
+            "firstTimestamp": null,
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "cnpg2-pitr-1-full-recovery-r9wm2",
+                "namespace": "cnpg",
+                "resourceVersion": "3031",
+                "uid": "cfeddba9-31ec-4436-8d4a-3fafeee86b88"
+            },
+            "kind": "Event",
+            "lastTimestamp": null,
+            "message": "Successfully assigned cnpg/cnpg2-pitr-1-full-recovery-r9wm2 to k3d-cnpg2-s147-server-0",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:35:49Z",
+                "name": "cnpg2-pitr-1-full-recovery-r9wm2.18ce240f20a4587e",
+                "namespace": "cnpg",
+                "resourceVersion": "3067",
+                "uid": "73417ec0-56e9-4867-a192-e52c661604e2"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "default-scheduler-k3d-cnpg2-s147-server-0",
+            "source": {},
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:35:49Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{bootstrap-controller}",
+                "kind": "Pod",
+                "name": "cnpg2-pitr-1-full-recovery-r9wm2",
+                "namespace": "cnpg",
+                "resourceVersion": "3066",
+                "uid": "cfeddba9-31ec-4436-8d4a-3fafeee86b88"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:35:49Z",
+            "message": "Container image \"ghcr.io/cloudnative-pg/cloudnative-pg:1.30.0\" already present on machine and can be accessed by the pod",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:35:49Z",
+                "name": "cnpg2-pitr-1-full-recovery-r9wm2.18ce240f3bcb0b7b",
+                "namespace": "cnpg",
+                "resourceVersion": "3071",
+                "uid": "f6e22559-94d0-4eaa-90d0-d6299f821296"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:35:49Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{bootstrap-controller}",
+                "kind": "Pod",
+                "name": "cnpg2-pitr-1-full-recovery-r9wm2",
+                "namespace": "cnpg",
+                "resourceVersion": "3066",
+                "uid": "cfeddba9-31ec-4436-8d4a-3fafeee86b88"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:35:49Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:35:49Z",
+                "name": "cnpg2-pitr-1-full-recovery-r9wm2.18ce240f3d3aad25",
+                "namespace": "cnpg",
+                "resourceVersion": "3073",
+                "uid": "96f94fc4-7018-4466-ac3a-c965ed9e2b75"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:35:50Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{bootstrap-controller}",
+                "kind": "Pod",
+                "name": "cnpg2-pitr-1-full-recovery-r9wm2",
+                "namespace": "cnpg",
+                "resourceVersion": "3066",
+                "uid": "cfeddba9-31ec-4436-8d4a-3fafeee86b88"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:35:50Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:35:50Z",
+                "name": "cnpg2-pitr-1-full-recovery-r9wm2.18ce240f4158cb08",
+                "namespace": "cnpg",
+                "resourceVersion": "3074",
+                "uid": "62d3af26-1474-45f3-b3d5-7666040ffab2"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:35:50Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{plugin-barman-cloud}",
+                "kind": "Pod",
+                "name": "cnpg2-pitr-1-full-recovery-r9wm2",
+                "namespace": "cnpg",
+                "resourceVersion": "3066",
+                "uid": "cfeddba9-31ec-4436-8d4a-3fafeee86b88"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:35:50Z",
+            "message": "Container image \"ghcr.io/cloudnative-pg/plugin-barman-cloud-sidecar:v0.14.0\" already present on machine and can be accessed by the pod",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:35:50Z",
+                "name": "cnpg2-pitr-1-full-recovery-r9wm2.18ce240f752c7b97",
+                "namespace": "cnpg",
+                "resourceVersion": "3076",
+                "uid": "17124c93-6ad2-434c-9947-c6889feb9261"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:35:50Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{plugin-barman-cloud}",
+                "kind": "Pod",
+                "name": "cnpg2-pitr-1-full-recovery-r9wm2",
+                "namespace": "cnpg",
+                "resourceVersion": "3066",
+                "uid": "cfeddba9-31ec-4436-8d4a-3fafeee86b88"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:35:50Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:35:50Z",
+                "name": "cnpg2-pitr-1-full-recovery-r9wm2.18ce240f76be50d8",
+                "namespace": "cnpg",
+                "resourceVersion": "3078",
+                "uid": "9c6279b5-d041-4ff6-9ceb-296b35eb5246"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:35:51Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{plugin-barman-cloud}",
+                "kind": "Pod",
+                "name": "cnpg2-pitr-1-full-recovery-r9wm2",
+                "namespace": "cnpg",
+                "resourceVersion": "3066",
+                "uid": "cfeddba9-31ec-4436-8d4a-3fafeee86b88"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:35:51Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:35:51Z",
+                "name": "cnpg2-pitr-1-full-recovery-r9wm2.18ce240f7a4bd95e",
+                "namespace": "cnpg",
+                "resourceVersion": "3079",
+                "uid": "3c2ddc7d-9ee5-4ab5-8164-90d2161b3b7a"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:35:51Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{full-recovery}",
+                "kind": "Pod",
+                "name": "cnpg2-pitr-1-full-recovery-r9wm2",
+                "namespace": "cnpg",
+                "resourceVersion": "3066",
+                "uid": "cfeddba9-31ec-4436-8d4a-3fafeee86b88"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:35:51Z",
+            "message": "Container image \"ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie\" already present on machine and can be accessed by the pod",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:35:51Z",
+                "name": "cnpg2-pitr-1-full-recovery-r9wm2.18ce240fb0e016e0",
+                "namespace": "cnpg",
+                "resourceVersion": "3086",
+                "uid": "77a0f28b-3b08-4576-828b-f982c051c6a2"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:35:51Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{full-recovery}",
+                "kind": "Pod",
+                "name": "cnpg2-pitr-1-full-recovery-r9wm2",
+                "namespace": "cnpg",
+                "resourceVersion": "3066",
+                "uid": "cfeddba9-31ec-4436-8d4a-3fafeee86b88"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:35:51Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:35:51Z",
+                "name": "cnpg2-pitr-1-full-recovery-r9wm2.18ce240fb3625ce4",
+                "namespace": "cnpg",
+                "resourceVersion": "3088",
+                "uid": "b5316314-9911-415f-a689-49c619fcd2ce"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:35:52Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{full-recovery}",
+                "kind": "Pod",
+                "name": "cnpg2-pitr-1-full-recovery-r9wm2",
+                "namespace": "cnpg",
+                "resourceVersion": "3066",
+                "uid": "cfeddba9-31ec-4436-8d4a-3fafeee86b88"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:35:52Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:35:52Z",
+                "name": "cnpg2-pitr-1-full-recovery-r9wm2.18ce240fb79b610a",
+                "namespace": "cnpg",
+                "resourceVersion": "3089",
+                "uid": "3f2de680-3799-4a64-84bf-f584842cd790"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:36:07Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{plugin-barman-cloud}",
+                "kind": "Pod",
+                "name": "cnpg2-pitr-1-full-recovery-r9wm2",
+                "namespace": "cnpg",
+                "resourceVersion": "3066",
+                "uid": "cfeddba9-31ec-4436-8d4a-3fafeee86b88"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:36:07Z",
+            "message": "Stopping container plugin-barman-cloud",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:36:07Z",
+                "name": "cnpg2-pitr-1-full-recovery-r9wm2.18ce24136ca5f648",
+                "namespace": "cnpg",
+                "resourceVersion": "3123",
+                "uid": "a4569213-b327-431c-ab27-da5794e3fde1"
+            },
+            "reason": "Killing",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:35:45Z",
+            "involvedObject": {
+                "apiVersion": "batch/v1",
+                "kind": "Job",
+                "name": "cnpg2-pitr-1-full-recovery",
+                "namespace": "cnpg",
+                "resourceVersion": "3030",
+                "uid": "b903744c-c6f1-4167-950f-53f7a1cef7a9"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:35:45Z",
+            "message": "Created pod: cnpg2-pitr-1-full-recovery-r9wm2",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:35:45Z",
+                "name": "cnpg2-pitr-1-full-recovery.18ce240e31a7bcb8",
+                "namespace": "cnpg",
+                "resourceVersion": "3032",
+                "uid": "cf65c6de-d721-451d-9dd4-36c1a28244b4"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "job-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "job-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:36:11Z",
+            "involvedObject": {
+                "apiVersion": "batch/v1",
+                "kind": "Job",
+                "name": "cnpg2-pitr-1-full-recovery",
+                "namespace": "cnpg",
+                "resourceVersion": "3134",
+                "uid": "b903744c-c6f1-4167-950f-53f7a1cef7a9"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:36:11Z",
+            "message": "Job completed",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:36:11Z",
+                "name": "cnpg2-pitr-1-full-recovery.18ce241422512163",
+                "namespace": "cnpg",
+                "resourceVersion": "3137",
+                "uid": "2661df7f-2393-4870-8d0b-61f23a53782f"
+            },
+            "reason": "Completed",
+            "reportingComponent": "job-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "job-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:35:45Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "cnpg2-pitr-1",
+                "namespace": "cnpg",
+                "resourceVersion": "3025",
+                "uid": "082ec59a-de7a-4a19-a3b9-796e40d7d3a3"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:35:45Z",
+            "message": "waiting for first consumer to be created before binding",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:35:45Z",
+                "name": "cnpg2-pitr-1.18ce240e2fbda4b5",
+                "namespace": "cnpg",
+                "resourceVersion": "3026",
+                "uid": "6bcfd798-aa09-44ba-bb1b-27e063c4545b"
+            },
+            "reason": "WaitForFirstConsumer",
+            "reportingComponent": "persistentvolume-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "persistentvolume-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:35:45Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "cnpg2-pitr-1",
+                "namespace": "cnpg",
+                "resourceVersion": "3036",
+                "uid": "082ec59a-de7a-4a19-a3b9-796e40d7d3a3"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:35:45Z",
+            "message": "Waiting for a volume to be created either by the external provisioner 'rancher.io/local-path' or manually by the system administrator. If volume creation is delayed, please verify that the provisioner is running and correctly registered.",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:35:45Z",
+                "name": "cnpg2-pitr-1.18ce240e3221021e",
+                "namespace": "cnpg",
+                "resourceVersion": "3037",
+                "uid": "7bce5451-e4b3-4e59-9abf-4ceebdbac61d"
+            },
+            "reason": "ExternalProvisioning",
+            "reportingComponent": "persistentvolume-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "persistentvolume-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:35:45Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "cnpg2-pitr-1",
+                "namespace": "cnpg",
+                "resourceVersion": "3036",
+                "uid": "082ec59a-de7a-4a19-a3b9-796e40d7d3a3"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:35:45Z",
+            "message": "External provisioner is provisioning volume for claim \"cnpg/cnpg2-pitr-1\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:35:45Z",
+                "name": "cnpg2-pitr-1.18ce240e324029e8",
+                "namespace": "cnpg",
+                "resourceVersion": "3038",
+                "uid": "02b62e1a-f66f-4692-a50d-f0b6d33fc859"
+            },
+            "reason": "Provisioning",
+            "reportingComponent": "rancher.io/local-path_local-path-provisioner-58d557dc48-jnd78_22e6194d-5fe9-44e5-a482-0a3c816f4123",
+            "reportingInstance": "",
+            "source": {
+                "component": "rancher.io/local-path_local-path-provisioner-58d557dc48-jnd78_22e6194d-5fe9-44e5-a482-0a3c816f4123"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:35:48Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "name": "cnpg2-pitr-1",
+                "namespace": "cnpg",
+                "resourceVersion": "3036",
+                "uid": "082ec59a-de7a-4a19-a3b9-796e40d7d3a3"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:35:48Z",
+            "message": "Successfully provisioned volume pvc-082ec59a-de7a-4a19-a3b9-796e40d7d3a3",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:35:48Z",
+                "name": "cnpg2-pitr-1.18ce240eef74c35e",
+                "namespace": "cnpg",
+                "resourceVersion": "3062",
+                "uid": "969b3074-586e-466b-8e18-dd9c19a05652"
+            },
+            "reason": "ProvisioningSucceeded",
+            "reportingComponent": "rancher.io/local-path_local-path-provisioner-58d557dc48-jnd78_22e6194d-5fe9-44e5-a482-0a3c816f4123",
+            "reportingInstance": "",
+            "source": {
+                "component": "rancher.io/local-path_local-path-provisioner-58d557dc48-jnd78_22e6194d-5fe9-44e5-a482-0a3c816f4123"
+            },
+            "type": "Normal"
+        },
+        {
+            "action": "Binding",
+            "apiVersion": "v1",
+            "eventTime": "2026-08-22T13:36:11.154472Z",
+            "firstTimestamp": null,
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "cnpg2-pitr-1",
+                "namespace": "cnpg",
+                "resourceVersion": "3140",
+                "uid": "b1d9a437-4c8a-4c87-85ef-4d40adc9fff3"
+            },
+            "kind": "Event",
+            "lastTimestamp": null,
+            "message": "Successfully assigned cnpg/cnpg2-pitr-1 to k3d-cnpg2-s147-server-0",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:36:11Z",
+                "name": "cnpg2-pitr-1.18ce24142b254e76",
+                "namespace": "cnpg",
+                "resourceVersion": "3142",
+                "uid": "f7759dc3-caf1-47e5-bf83-d9414a3a33be"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "default-scheduler-k3d-cnpg2-s147-server-0",
+            "source": {},
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:36:11Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{bootstrap-controller}",
+                "kind": "Pod",
+                "name": "cnpg2-pitr-1",
+                "namespace": "cnpg",
+                "resourceVersion": "3141",
+                "uid": "b1d9a437-4c8a-4c87-85ef-4d40adc9fff3"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:36:11Z",
+            "message": "Container image \"ghcr.io/cloudnative-pg/cloudnative-pg:1.30.0\" already present on machine and can be accessed by the pod",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:36:11Z",
+                "name": "cnpg2-pitr-1.18ce241445515f1f",
+                "namespace": "cnpg",
+                "resourceVersion": "3145",
+                "uid": "3420ee8a-a2fb-4919-b5ee-0168cc96e7c0"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:36:11Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{bootstrap-controller}",
+                "kind": "Pod",
+                "name": "cnpg2-pitr-1",
+                "namespace": "cnpg",
+                "resourceVersion": "3141",
+                "uid": "b1d9a437-4c8a-4c87-85ef-4d40adc9fff3"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:36:11Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:36:11Z",
+                "name": "cnpg2-pitr-1.18ce24144729fcd5",
+                "namespace": "cnpg",
+                "resourceVersion": "3149",
+                "uid": "7a6734ea-9473-440f-acd9-e8043765b16a"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:36:11Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.initContainers{bootstrap-controller}",
+                "kind": "Pod",
+                "name": "cnpg2-pitr-1",
+                "namespace": "cnpg",
+                "resourceVersion": "3141",
+                "uid": "b1d9a437-4c8a-4c87-85ef-4d40adc9fff3"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:36:11Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:36:11Z",
+                "name": "cnpg2-pitr-1.18ce24144ca56dc8",
+                "namespace": "cnpg",
+                "resourceVersion": "3152",
+                "uid": "1d8d8ce9-9aa0-4695-8d94-aa6437aab274"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:36:11Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{postgres}",
+                "kind": "Pod",
+                "name": "cnpg2-pitr-1",
+                "namespace": "cnpg",
+                "resourceVersion": "3141",
+                "uid": "b1d9a437-4c8a-4c87-85ef-4d40adc9fff3"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:36:11Z",
+            "message": "Container image \"ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie\" already present on machine and can be accessed by the pod",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:36:11Z",
+                "name": "cnpg2-pitr-1.18ce24145b97dafa",
+                "namespace": "cnpg",
+                "resourceVersion": "3156",
+                "uid": "6fa40a9d-55d9-42e2-87ed-fbc126621627"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:36:11Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{postgres}",
+                "kind": "Pod",
+                "name": "cnpg2-pitr-1",
+                "namespace": "cnpg",
+                "resourceVersion": "3141",
+                "uid": "b1d9a437-4c8a-4c87-85ef-4d40adc9fff3"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:36:11Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:36:11Z",
+                "name": "cnpg2-pitr-1.18ce24145d40e301",
+                "namespace": "cnpg",
+                "resourceVersion": "3158",
+                "uid": "b79a5742-f5a3-43e1-bb7e-e1a2f16d929b"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:36:12Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{postgres}",
+                "kind": "Pod",
+                "name": "cnpg2-pitr-1",
+                "namespace": "cnpg",
+                "resourceVersion": "3141",
+                "uid": "b1d9a437-4c8a-4c87-85ef-4d40adc9fff3"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:36:12Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:36:12Z",
+                "name": "cnpg2-pitr-1.18ce241461db2049",
+                "namespace": "cnpg",
+                "resourceVersion": "3159",
+                "uid": "a331a77b-d5aa-4816-8917-f2b24d661c9e"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "k3d-cnpg2-s147-server-0",
+            "source": {
+                "component": "kubelet",
+                "host": "k3d-cnpg2-s147-server-0"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 2,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:35:42Z",
+            "involvedObject": {
+                "apiVersion": "policy/v1",
+                "kind": "PodDisruptionBudget",
+                "name": "cnpg2-pitr-primary",
+                "namespace": "cnpg",
+                "resourceVersion": "3005",
+                "uid": "c66351e7-e724-464f-a013-58997303bab1"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:35:42Z",
+            "message": "No matching pods found",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:35:42Z",
+                "name": "cnpg2-pitr-primary.18ce240d6bd1c3bd",
+                "namespace": "cnpg",
+                "resourceVersion": "3010",
+                "uid": "509e9d3f-7760-43a5-8a49-ef3bc9e0aadc"
+            },
+            "reason": "NoPods",
+            "reportingComponent": "controllermanager",
+            "reportingInstance": "",
+            "source": {
+                "component": "controllermanager"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:35:42Z",
+            "involvedObject": {
+                "apiVersion": "postgresql.cnpg.io/v1",
+                "kind": "Cluster",
+                "name": "cnpg2-pitr",
+                "namespace": "cnpg",
+                "resourceVersion": "2988",
+                "uid": "d9b1eeb3-2f5b-4fdd-8231-0e469bc0692f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:35:42Z",
+            "message": "Creating PodDisruptionBudget cnpg2-pitr-primary",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:35:42Z",
+                "name": "cnpg2-pitr.18ce240d6ba41d1d",
+                "namespace": "cnpg",
+                "resourceVersion": "3004",
+                "uid": "9dfb91c4-8cc1-4fe4-ac6a-cd7ca589ded9"
+            },
+            "reason": "CreatingPodDisruptionBudget",
+            "reportingComponent": "cloudnative-pg",
+            "reportingInstance": "",
+            "source": {
+                "component": "cloudnative-pg"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:35:42Z",
+            "involvedObject": {
+                "apiVersion": "postgresql.cnpg.io/v1",
+                "kind": "Cluster",
+                "name": "cnpg2-pitr",
+                "namespace": "cnpg",
+                "resourceVersion": "2988",
+                "uid": "d9b1eeb3-2f5b-4fdd-8231-0e469bc0692f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:35:42Z",
+            "message": "Creating ServiceAccount",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:35:42Z",
+                "name": "cnpg2-pitr.18ce240d6bd2787a",
+                "namespace": "cnpg",
+                "resourceVersion": "3011",
+                "uid": "bfc3cfff-d4b5-4cc6-bda3-e824029ffad0"
+            },
+            "reason": "CreatingServiceAccount",
+            "reportingComponent": "cloudnative-pg",
+            "reportingInstance": "",
+            "source": {
+                "component": "cloudnative-pg"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:35:42Z",
+            "involvedObject": {
+                "apiVersion": "postgresql.cnpg.io/v1",
+                "kind": "Cluster",
+                "name": "cnpg2-pitr",
+                "namespace": "cnpg",
+                "resourceVersion": "2988",
+                "uid": "d9b1eeb3-2f5b-4fdd-8231-0e469bc0692f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:35:42Z",
+            "message": "Creating Cluster Role",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:35:42Z",
+                "name": "cnpg2-pitr.18ce240d6bfc3a31",
+                "namespace": "cnpg",
+                "resourceVersion": "3012",
+                "uid": "b488ee58-0114-4d66-a403-7ad008abe986"
+            },
+            "reason": "CreatingRole",
+            "reportingComponent": "cloudnative-pg",
+            "reportingInstance": "",
+            "source": {
+                "component": "cloudnative-pg"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:35:45Z",
+            "involvedObject": {
+                "apiVersion": "postgresql.cnpg.io/v1",
+                "kind": "Cluster",
+                "name": "cnpg2-pitr",
+                "namespace": "cnpg",
+                "resourceVersion": "3023",
+                "uid": "d9b1eeb3-2f5b-4fdd-8231-0e469bc0692f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:35:45Z",
+            "message": "Primary instance (from backup)",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:35:45Z",
+                "name": "cnpg2-pitr.18ce240e2fc113d4",
+                "namespace": "cnpg",
+                "resourceVersion": "3027",
+                "uid": "fe0db4ef-112b-4781-b3f2-10a2f4718556"
+            },
+            "reason": "CreatingInstance",
+            "reportingComponent": "cloudnative-pg",
+            "reportingInstance": "",
+            "source": {
+                "component": "cloudnative-pg"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 2,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:22:56Z",
+            "involvedObject": {
+                "apiVersion": "policy/v1",
+                "kind": "PodDisruptionBudget",
+                "name": "cnpg2-primary",
+                "namespace": "cnpg",
+                "resourceVersion": "1212",
+                "uid": "2e944393-b99b-4c6e-bf80-573c18745619"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:22:56Z",
+            "message": "No matching pods found",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:22:56Z",
+                "name": "cnpg2-primary.18ce235b4345350f",
+                "namespace": "cnpg",
+                "resourceVersion": "1218",
+                "uid": "e92ae330-1ed7-4b8a-83ea-9ee34f2850cd"
+            },
+            "reason": "NoPods",
+            "reportingComponent": "controllermanager",
+            "reportingInstance": "",
+            "source": {
+                "component": "controllermanager"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:28Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Service",
+                "name": "cnpg2-rw-lb",
+                "namespace": "cnpg",
+                "resourceVersion": "1593",
+                "uid": "9895c0d5-1257-42f9-bd75-0dabaa4175b5"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:28Z",
+            "message": "Assigned IP [\"172.21.255.238\"]",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:28Z",
+                "name": "cnpg2-rw-lb.18ce237085ea3370",
+                "namespace": "cnpg",
+                "resourceVersion": "1599",
+                "uid": "8a364d92-99bf-4ac3-b68a-ff581f0cdcd3"
+            },
+            "reason": "IPAllocated",
+            "reportingComponent": "metallb-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "metallb-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:28Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Service",
+                "name": "cnpg2-rw-lb",
+                "namespace": "cnpg",
+                "resourceVersion": "1596",
+                "uid": "9895c0d5-1257-42f9-bd75-0dabaa4175b5"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:28Z",
+            "message": "announcing from node \"k3d-cnpg2-s147-server-0\" with protocol \"layer2\"",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:28Z",
+                "name": "cnpg2-rw-lb.18ce2370862e1b75",
+                "namespace": "cnpg",
+                "resourceVersion": "1597",
+                "uid": "ddf6bb17-1b0b-44cf-a2d4-a646b18be459"
+            },
+            "reason": "nodeAssigned",
+            "reportingComponent": "metallb-speaker",
+            "reportingInstance": "",
+            "source": {
+                "component": "metallb-speaker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:22:56Z",
+            "involvedObject": {
+                "apiVersion": "postgresql.cnpg.io/v1",
+                "kind": "Cluster",
+                "name": "cnpg2",
+                "namespace": "cnpg",
+                "resourceVersion": "1195",
+                "uid": "5ff30de0-d972-4062-8081-2cbe17543840"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:22:56Z",
+            "message": "Creating PodDisruptionBudget cnpg2-primary",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:22:56Z",
+                "name": "cnpg2.18ce235b42fac337",
+                "namespace": "cnpg",
+                "resourceVersion": "1214",
+                "uid": "7c51d6db-e1d6-4a54-86de-cef4e08d9885"
+            },
+            "reason": "CreatingPodDisruptionBudget",
+            "reportingComponent": "cloudnative-pg",
+            "reportingInstance": "",
+            "source": {
+                "component": "cloudnative-pg"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:22:56Z",
+            "involvedObject": {
+                "apiVersion": "postgresql.cnpg.io/v1",
+                "kind": "Cluster",
+                "name": "cnpg2",
+                "namespace": "cnpg",
+                "resourceVersion": "1195",
+                "uid": "5ff30de0-d972-4062-8081-2cbe17543840"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:22:56Z",
+            "message": "Creating ServiceAccount",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:22:56Z",
+                "name": "cnpg2.18ce235b43446fff",
+                "namespace": "cnpg",
+                "resourceVersion": "1217",
+                "uid": "65843715-eef7-45e0-a972-95c6c59add48"
+            },
+            "reason": "CreatingServiceAccount",
+            "reportingComponent": "cloudnative-pg",
+            "reportingInstance": "",
+            "source": {
+                "component": "cloudnative-pg"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:22:56Z",
+            "involvedObject": {
+                "apiVersion": "postgresql.cnpg.io/v1",
+                "kind": "Cluster",
+                "name": "cnpg2",
+                "namespace": "cnpg",
+                "resourceVersion": "1195",
+                "uid": "5ff30de0-d972-4062-8081-2cbe17543840"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:22:56Z",
+            "message": "Creating Cluster Role",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:22:56Z",
+                "name": "cnpg2.18ce235b435cd220",
+                "namespace": "cnpg",
+                "resourceVersion": "1219",
+                "uid": "41dfcc18-5cb8-4d6a-8ba5-66c10dc7542e"
+            },
+            "reason": "CreatingRole",
+            "reportingComponent": "cloudnative-pg",
+            "reportingInstance": "",
+            "source": {
+                "component": "cloudnative-pg"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:23:00Z",
+            "involvedObject": {
+                "apiVersion": "postgresql.cnpg.io/v1",
+                "kind": "Cluster",
+                "name": "cnpg2",
+                "namespace": "cnpg",
+                "resourceVersion": "1233",
+                "uid": "5ff30de0-d972-4062-8081-2cbe17543840"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:23:00Z",
+            "message": "Primary instance (initdb)",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:23:00Z",
+                "name": "cnpg2.18ce235c0e7fe6cd",
+                "namespace": "cnpg",
+                "resourceVersion": "1236",
+                "uid": "fbfbaa26-548e-495d-a3c7-9d3f53328808"
+            },
+            "reason": "CreatingInstance",
+            "reportingComponent": "cloudnative-pg",
+            "reportingInstance": "",
+            "source": {
+                "component": "cloudnative-pg"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-08-22T13:24:00Z",
+            "involvedObject": {
+                "apiVersion": "postgresql.cnpg.io/v1",
+                "kind": "Cluster",
+                "name": "cnpg2",
+                "namespace": "cnpg",
+                "resourceVersion": "1429",
+                "uid": "5ff30de0-d972-4062-8081-2cbe17543840"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-08-22T13:24:00Z",
+            "message": "Creating instance cnpg2-2",
+            "metadata": {
+                "creationTimestamp": "2026-08-22T13:24:00Z",
+                "name": "cnpg2.18ce2369f9687fcb",
+                "namespace": "cnpg",
+                "resourceVersion": "1430",
+                "uid": "d81e3f1e-cfd2-4c82-ad27-76ef6c38c67c"
+            },
+            "reason": "CreatingInstance",
+            "reportingComponent": "cloudnative-pg",
+            "reportingInstance": "",
+            "source": {
+                "component": "cloudnative-pg"
+            },
+            "type": "Normal"
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}

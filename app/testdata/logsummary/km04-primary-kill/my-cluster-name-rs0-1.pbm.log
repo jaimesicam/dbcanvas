@@ -1,0 +1,118 @@
+2026/08/22 08:32:40 [entrypoint] starting `pbm-agent`
+2026-08-22T08:33:10.000+0000 E Exit: connect to PBM: create mongo connection: ping: server selection error: context deadline exceeded, current topology: { Type: Unknown, Servers: [{ Addr: localhost:27017, Type: RSGhost, Average RTT: 531389 }, ] }
+2026/08/22 08:33:10 [entrypoint] `pbm-agent` exited with code 1
+2026/08/22 08:33:10 [entrypoint] restart in 5 sec
+2026/08/22 08:33:15 [entrypoint] starting `pbm-agent`
+2026-08-22T08:33:39.000+0000 E Exit: connect to the node: ping: connection() error occurred during connection handshake: auth error: sasl conversation error: unable to authenticate using mechanism "SCRAM-SHA-1": (AuthenticationFailed) Authentication failed.
+2026/08/22 08:33:39 [entrypoint] `pbm-agent` exited with code 1
+2026/08/22 08:33:39 [entrypoint] restart in 5 sec
+2026/08/22 08:33:44 [entrypoint] starting `pbm-agent`
+2026-08-22T08:33:44.000+0000 I 
+                    %                        _____
+                   %%%                      |  __ \
+                 ###%%%%%%%%%%%%*           | |__) |__ _ __ ___ ___  _ __   __ _
+                ###  ##%%      %%%%         |  ___/ _ \ '__/ __/ _ \| '_ \ / _` |
+              ####     ##%       %%%%       | |  |  __/ | | (_| (_) | | | | (_| |
+             ###        ####      %%%       |_|   \___|_|  \___\___/|_| |_|\__,_|
+           ,((###         ###     %%%         _____                       _
+          (((( (###        ####  %%%%        / ____|                     | |
+         (((     ((#         ######         | (___   __ _ _   _  __ _  __| |
+       ((((       (((#        ####           \___ \ / _` | | | |/ _` |/ _` |
+      /((          ,(((        *###          ____) | (_| | |_| | (_| | (_| |
+    ////             (((         ####       |_____/ \__, |\__,_|\__,_|\__,_|
+   ///                ((((        ####                 | |
+ /////////////(((((((((((((((((########                |_|   Join @ squad.percona.com/mongodb
+
+** Join Percona Squad! **
+Participate in monthly SWAG raffles, get early access to new product features,
+invite-only ”ask me anything” sessions with database performance experts.
+
+Interested? Fill in the form at squad.percona.com/mongodb
+2026-08-22T08:33:44.000+0000 I log options: log-path=/dev/stderr, log-level:D, log-json:false
+2026-08-22T08:33:44.000+0000 I pbm-agent:
+Version:   2.15.0
+Platform:  linux/amd64
+GitCommit: 15c9f217f91bc518b81ad901abe9331227e5c615
+GitBranch: release-2.15.0
+BuildTime: 2026-06-10_09:58_UTC
+GoVersion: go1.25.11
+2026-08-22T08:33:44.000+0000 I starting PITR routine
+2026-08-22T08:33:44.000+0000 I node: rs0/my-cluster-name-rs0-1.my-cluster-name-rs0.psmdb.svc.cluster.local:27017
+2026-08-22T08:33:44.000+0000 W [agentCheckup] storage is not initialized
+2026-08-22T08:33:44.000+0000 I conn level ReadConcern: majority; WriteConcern: majority
+2026-08-22T08:33:44.000+0000 I listening for the commands
+2026-08-22T08:33:59.000+0000 W [agentCheckup] storage is not initialized
+2026-08-22T08:34:14.000+0000 W [agentCheckup] storage is not initialized
+2026-08-22T08:34:29.000+0000 W [agentCheckup] storage is not initialized
+2026-08-22T08:34:44.000+0000 W [agentCheckup] storage is not initialized
+2026-08-22T08:34:59.000+0000 W [agentCheckup] storage is not initialized
+2026-08-22T08:35:19.000+0000 W [agentCheckup] storage is not initialized
+2026-08-22T08:35:34.000+0000 W [agentCheckup] storage is not initialized
+2026-08-22T08:35:40.000+0000 I got command backup [name: 2026-08-22T08:35:39Z, compression: gzip (level: default)] <ts: 1787387739>, opid: 6a895f5b8ca63c404120207e
+2026-08-22T08:35:40.000+0000 I got epoch {1787387618 3}
+2026-08-22T08:35:40.000+0000 I [backup/2026-08-22T08:35:39Z] backup started
+2026-08-22T08:35:40.000+0000 D [backup/2026-08-22T08:35:39Z] uploading ".pbm.init" [size hint: 6 (6.00B); part size: 10485760 (10.00MB)]
+2026-08-22T08:35:43.000+0000 D [backup/2026-08-22T08:35:39Z] wait for tmp users {1787387743 9}
+2026-08-22T08:35:44.000+0000 D [backup/2026-08-22T08:35:39Z] dumping up to 10 collections in parallel
+2026-08-22T08:35:44.000+0000 I [backup/2026-08-22T08:35:39Z] dump collection "admin.pbmRestores" done (size: 0)
+2026-08-22T08:35:44.000+0000 I [backup/2026-08-22T08:35:39Z] dump collection "admin.pbmPITRChunks" done (size: 0)
+2026-08-22T08:35:44.000+0000 D [backup/2026-08-22T08:35:39Z] uploading "2026-08-22T08:35:39Z/rs0/admin.system.version.gz" [size hint: 20480 (20.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T08:35:44.000+0000 D [backup/2026-08-22T08:35:39Z] uploading "2026-08-22T08:35:39Z/rs0/admin.pbmBackups.gz" [size hint: 20480 (20.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T08:35:44.000+0000 D [backup/2026-08-22T08:35:39Z] uploading "2026-08-22T08:35:39Z/rs0/admin.pbmCmd.gz" [size hint: 36864 (36.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T08:35:44.000+0000 I [backup/2026-08-22T08:35:39Z] dump collection "admin.pbmPITR" done (size: 0)
+2026-08-22T08:35:44.000+0000 D [backup/2026-08-22T08:35:39Z] uploading "2026-08-22T08:35:39Z/rs0/admin.pbmOpLog.gz" [size hint: 20480 (20.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T08:35:44.000+0000 D [backup/2026-08-22T08:35:39Z] uploading "2026-08-22T08:35:39Z/rs0/admin.pbmAgents.gz" [size hint: 36864 (36.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T08:35:44.000+0000 D [backup/2026-08-22T08:35:39Z] uploading "2026-08-22T08:35:39Z/rs0/sim.trades.gz" [size hint: 8794112 (8.39MB); part size: 10485760 (10.00MB)]
+2026-08-22T08:35:44.000+0000 D [backup/2026-08-22T08:35:39Z] uploading "2026-08-22T08:35:39Z/rs0/admin.system.users.gz" [size hint: 20480 (20.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T08:35:44.000+0000 I [backup/2026-08-22T08:35:39Z] dump collection "admin.pbmLockOp" done (size: 0)
+2026-08-22T08:35:44.000+0000 D [backup/2026-08-22T08:35:39Z] uploading "2026-08-22T08:35:39Z/rs0/admin.system.roles.gz" [size hint: 20480 (20.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T08:35:44.000+0000 D [backup/2026-08-22T08:35:39Z] uploading "2026-08-22T08:35:39Z/rs0/admin.pbmRUsers.gz" [size hint: 0 (0.00B); part size: 10485760 (10.00MB)]
+2026-08-22T08:35:44.000+0000 I [backup/2026-08-22T08:35:39Z] dump collection "admin.system.version" done (size: 104)
+2026-08-22T08:35:44.000+0000 I [backup/2026-08-22T08:35:39Z] dump collection "admin.pbmBackups" done (size: 1642)
+2026-08-22T08:35:44.000+0000 I [backup/2026-08-22T08:35:39Z] dump collection "admin.pbmCmd" done (size: 191)
+2026-08-22T08:35:44.000+0000 D [backup/2026-08-22T08:35:39Z] uploading "2026-08-22T08:35:39Z/rs0/admin.pbmRRoles.gz" [size hint: 0 (0.00B); part size: 10485760 (10.00MB)]
+2026-08-22T08:35:44.000+0000 I [backup/2026-08-22T08:35:39Z] dump collection "admin.system.users" done (size: 3318)
+2026-08-22T08:35:44.000+0000 D [backup/2026-08-22T08:35:39Z] uploading "2026-08-22T08:35:39Z/rs0/admin.pbmLog.gz" [size hint: 36864 (36.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T08:35:44.000+0000 D [backup/2026-08-22T08:35:39Z] uploading "2026-08-22T08:35:39Z/rs0/admin.pbmConfig.gz" [size hint: 20480 (20.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T08:35:44.000+0000 I [backup/2026-08-22T08:35:39Z] dump collection "admin.pbmAgents" done (size: 976)
+2026-08-22T08:35:44.000+0000 I [backup/2026-08-22T08:35:39Z] dump collection "admin.system.roles" done (size: 648)
+2026-08-22T08:35:44.000+0000 I [backup/2026-08-22T08:35:39Z] dump collection "admin.pbmRUsers" done (size: 3318)
+2026-08-22T08:35:44.000+0000 I [backup/2026-08-22T08:35:39Z] dump collection "admin.pbmOpLog" done (size: 188)
+2026-08-22T08:35:44.000+0000 D [backup/2026-08-22T08:35:39Z] uploading "2026-08-22T08:35:39Z/rs0/admin.pbmLock.gz" [size hint: 20480 (20.00KB); part size: 10485760 (10.00MB)]
+2026-08-22T08:35:44.000+0000 I [backup/2026-08-22T08:35:39Z] dump collection "admin.pbmRRoles" done (size: 648)
+2026-08-22T08:35:44.000+0000 I [backup/2026-08-22T08:35:39Z] dump collection "admin.pbmLock" done (size: 200)
+2026-08-22T08:35:44.000+0000 I [backup/2026-08-22T08:35:39Z] dump collection "admin.pbmConfig" done (size: 476)
+2026-08-22T08:35:44.000+0000 I [backup/2026-08-22T08:35:39Z] dump collection "admin.pbmLog" done (size: 23518)
+2026-08-22T08:35:44.000+0000 I [backup/2026-08-22T08:35:39Z] dump collection "sim.trades" done (size: 78000000)
+2026-08-22T08:35:44.000+0000 D [backup/2026-08-22T08:35:39Z] uploading "2026-08-22T08:35:39Z/rs0/meta.pbm" [size hint: 0 (0.00B); part size: 10485760 (10.00MB)]
+2026-08-22T08:35:44.000+0000 D [backup/2026-08-22T08:35:39Z] uploading "2026-08-22T08:35:39Z/rs0/metadata.json" [size hint: 9952 (9.72KB); part size: 10485760 (10.00MB)]
+2026-08-22T08:35:44.000+0000 I [backup/2026-08-22T08:35:39Z] dump finished for RS: rs0
+2026-08-22T08:35:45.000+0000 I [backup/2026-08-22T08:35:39Z] stopping oplog slicer on this node
+2026-08-22T08:35:45.000+0000 D [backup/2026-08-22T08:35:39Z] uploading "2026-08-22T08:35:39Z/rs0/oplog/20260822083540-21.20260822083545-6.gz" [size hint: 1073741824 (1.00GB); part size: 10485760 (10.00MB)]
+2026-08-22T08:35:45.000+0000 I [backup/2026-08-22T08:35:39Z] created chunk 2026-08-22T08:35:40 - 2026-08-22T08:35:45
+2026-08-22T08:35:45.000+0000 I [backup/2026-08-22T08:35:39Z] setting last write timestamp on this node
+2026-08-22T08:35:45.000+0000 I [backup/2026-08-22T08:35:39Z] setting last common write timestamp across all nodes
+2026-08-22T08:35:45.000+0000 I [backup/2026-08-22T08:35:39Z] dropping tmp collections
+2026-08-22T08:35:46.000+0000 D [backup/2026-08-22T08:35:39Z] uploading "2026-08-22T08:35:39Z.pbm.json" [size hint: 2180 (2.13KB); part size: 10485760 (10.00MB)]
+2026-08-22T08:35:46.000+0000 I [backup/2026-08-22T08:35:39Z] backup finished
+2026-08-22T08:35:46.000+0000 D [backup/2026-08-22T08:35:39Z] releasing lock
+2026-08-22T08:36:44.000+0000 D [pitr] waiting for cluster ready status
+2026-08-22T08:37:00.000+0000 D [pitr] waiting pitr nomination
+2026-08-22T08:37:02.000+0000 D [pitr] skip after pitr nomination, probably started by another node
+2026-08-22T08:38:47.000+0000 D [pitr] waiting for cluster ready status
+2026-08-22T08:38:47.000+0000 D [pitr] start pitr agent activity monitor
+2026-08-22T08:38:47.000+0000 D [pitr] start pitr config monitor
+2026-08-22T08:38:47.000+0000 D [pitr] start pitr topo monitor
+2026-08-22T08:38:47.000+0000 D [pitr] start pitr hb
+2026-08-22T08:38:47.000+0000 D [pitr] start pitr error monitor
+2026-08-22T08:38:47.000+0000 D [pitr] checking locks in the whole cluster
+2026-08-22T08:39:02.000+0000 D [pitr] init pitr meta on the first usage
+2026-08-22T08:39:02.000+0000 D [pitr] cluster is ready for nomination
+2026-08-22T08:39:02.000+0000 D [pitr] reconciling ready status from all agents
+2026-08-22T08:39:03.000+0000 D [pitr] waiting pitr nomination
+2026-08-22T08:39:04.000+0000 D [pitr] agents in ready: 3; waiting for agents: 3
+2026-08-22T08:39:04.000+0000 D [pitr] cluster leader sets running status
+2026-08-22T08:39:04.000+0000 D [pitr] pitr nomination list for rs0: [[my-cluster-name-rs0-0.my-cluster-name-rs0.psmdb.svc.cluster.local:27017 my-cluster-name-rs0-2.my-cluster-name-rs0.psmdb.svc.cluster.local:27017] [my-cluster-name-rs0-1.my-cluster-name-rs0.psmdb.svc.cluster.local:27017]]
+2026-08-22T08:39:04.000+0000 D [pitr] pitr nomination rs0, set candidates [my-cluster-name-rs0-0.my-cluster-name-rs0.psmdb.svc.cluster.local:27017 my-cluster-name-rs0-2.my-cluster-name-rs0.psmdb.svc.cluster.local:27017]
+2026-08-22T08:39:05.000+0000 D [pitr] skip after pitr nomination, probably started by another node
+2026-08-22T08:39:09.000+0000 D [pitr] pitr nomination: rs0 won by my-cluster-name-rs0-2.my-cluster-name-rs0.psmdb.svc.cluster.local:27017

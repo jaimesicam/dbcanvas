@@ -1,0 +1,56 @@
+2026/08/22 08:38:14 [entrypoint] starting `pbm-agent`
+2026-08-22T08:38:14.000+0000 I 
+                    %                        _____
+                   %%%                      |  __ \
+                 ###%%%%%%%%%%%%*           | |__) |__ _ __ ___ ___  _ __   __ _
+                ###  ##%%      %%%%         |  ___/ _ \ '__/ __/ _ \| '_ \ / _` |
+              ####     ##%       %%%%       | |  |  __/ | | (_| (_) | | | | (_| |
+             ###        ####      %%%       |_|   \___|_|  \___\___/|_| |_|\__,_|
+           ,((###         ###     %%%         _____                       _
+          (((( (###        ####  %%%%        / ____|                     | |
+         (((     ((#         ######         | (___   __ _ _   _  __ _  __| |
+       ((((       (((#        ####           \___ \ / _` | | | |/ _` |/ _` |
+      /((          ,(((        *###          ____) | (_| | |_| | (_| | (_| |
+    ////             (((         ####       |_____/ \__, |\__,_|\__,_|\__,_|
+   ///                ((((        ####                 | |
+ /////////////(((((((((((((((((########                |_|   Join @ squad.percona.com/mongodb
+
+** Join Percona Squad! **
+Participate in monthly SWAG raffles, get early access to new product features,
+invite-only ”ask me anything” sessions with database performance experts.
+
+Interested? Fill in the form at squad.percona.com/mongodb
+2026-08-22T08:38:14.000+0000 I log options: log-path=/dev/stderr, log-level:D, log-json:false
+2026-08-22T08:38:14.000+0000 I pbm-agent:
+Version:   2.15.0
+Platform:  linux/amd64
+GitCommit: 15c9f217f91bc518b81ad901abe9331227e5c615
+GitBranch: release-2.15.0
+BuildTime: 2026-06-10_09:58_UTC
+GoVersion: go1.25.11
+2026-08-22T08:38:14.000+0000 I starting PITR routine
+2026-08-22T08:38:14.000+0000 I node: rs0/my-cluster-name-rs0-0.my-cluster-name-rs0.psmdb.svc.cluster.local:27017
+2026-08-22T08:38:14.000+0000 I conn level ReadConcern: majority; WriteConcern: majority
+2026-08-22T08:38:14.000+0000 I listening for the commands
+2026-08-22T08:38:44.000+0000 D [pitr] waiting for cluster ready status
+2026-08-22T08:39:02.000+0000 D [pitr] waiting pitr nomination
+2026-08-22T08:39:04.000+0000 D [pitr] skip after pitr nomination, probably started by another node
+2026-08-22T08:41:49.000+0000 D [pitr] waiting for cluster ready status
+2026-08-22T08:42:05.000+0000 D [pitr] waiting pitr nomination
+2026-08-22T08:42:07.000+0000 D [pitr] stale lock: {PITR incremental backup rs0 my-cluster-name-rs0-2.my-cluster-name-rs0.psmdb.svc.cluster.local:27017  0xc0006f1fa8}
+2026-08-22T08:42:07.000+0000 D [pitr] start_catchup
+2026-08-22T08:42:07.000+0000 I [pitr] streaming started from 2026-08-22 08:38:41 +0000 UTC / 1787387921
+2026-08-22T08:42:07.000+0000 D [pitr] start_ok
+2026-08-22T08:47:37.000+0000 I [pitr] got wake_up signal
+2026-08-22T08:47:37.000+0000 D [pitr] uploading "pbmPitr/rs0/20260822/20260822083841-4.20260822084737-6.oplog.gz" [size hint: -1 (unknown); part size: 10485760 (10.00MB)]
+2026-08-22T08:47:42.000+0000 I [pitr] created chunk 2026-08-22T08:38:41 - 2026-08-22T08:47:37. Next chunk creation scheduled to begin at ~2026-08-22 08:57:42.618511699 +0000 UTC m=+1168.154634284
+2026-08-22T08:48:42.000+0000 D [pitr] uploading "pbmPitr/rs0/20260822/20260822084737-6.20260822084842-5.oplog.gz" [size hint: -1 (unknown); part size: 10485760 (10.00MB)]
+2026-08-22T08:48:43.000+0000 I [pitr] created chunk 2026-08-22T08:47:37 - 2026-08-22T08:48:42. Next chunk creation scheduled to begin at ~2026-08-22 08:49:43.244086182 +0000 UTC m=+688.780208778
+2026-08-22T08:49:42.000+0000 D [pitr] uploading "pbmPitr/rs0/20260822/20260822084842-5.20260822084942-5.oplog.gz" [size hint: -1 (unknown); part size: 10485760 (10.00MB)]
+2026-08-22T08:49:43.000+0000 I [pitr] created chunk 2026-08-22T08:48:42 - 2026-08-22T08:49:42. Next chunk creation scheduled to begin at ~2026-08-22 08:50:43.182878931 +0000 UTC m=+748.719001516
+2026-08-22T08:50:42.000+0000 D [pitr] uploading "pbmPitr/rs0/20260822/20260822084942-5.20260822085042-5.oplog.gz" [size hint: -1 (unknown); part size: 10485760 (10.00MB)]
+2026-08-22T08:50:43.000+0000 I [pitr] created chunk 2026-08-22T08:49:42 - 2026-08-22T08:50:42. Next chunk creation scheduled to begin at ~2026-08-22 08:51:43.184170748 +0000 UTC m=+808.720293332
+2026-08-22T08:51:42.000+0000 D [pitr] uploading "pbmPitr/rs0/20260822/20260822085042-5.20260822085142-5.oplog.gz" [size hint: -1 (unknown); part size: 10485760 (10.00MB)]
+2026-08-22T08:51:43.000+0000 I [pitr] created chunk 2026-08-22T08:50:42 - 2026-08-22T08:51:42. Next chunk creation scheduled to begin at ~2026-08-22 08:52:43.176714624 +0000 UTC m=+868.712837208
+2026-08-22T08:52:42.000+0000 D [pitr] uploading "pbmPitr/rs0/20260822/20260822085142-5.20260822085242-5.oplog.gz" [size hint: -1 (unknown); part size: 10485760 (10.00MB)]
+2026-08-22T08:52:43.000+0000 I [pitr] created chunk 2026-08-22T08:51:42 - 2026-08-22T08:52:42. Next chunk creation scheduled to begin at ~2026-08-22 08:53:43.146043471 +0000 UTC m=+928.682166056

@@ -1,0 +1,37 @@
+2026/08/22 08:38:14 [entrypoint] starting `pbm-agent`
+2026-08-22T08:38:14.000+0000 I 
+                    %                        _____
+                   %%%                      |  __ \
+                 ###%%%%%%%%%%%%*           | |__) |__ _ __ ___ ___  _ __   __ _
+                ###  ##%%      %%%%         |  ___/ _ \ '__/ __/ _ \| '_ \ / _` |
+              ####     ##%       %%%%       | |  |  __/ | | (_| (_) | | | | (_| |
+             ###        ####      %%%       |_|   \___|_|  \___\___/|_| |_|\__,_|
+           ,((###         ###     %%%         _____                       _
+          (((( (###        ####  %%%%        / ____|                     | |
+         (((     ((#         ######         | (___   __ _ _   _  __ _  __| |
+       ((((       (((#        ####           \___ \ / _` | | | |/ _` |/ _` |
+      /((          ,(((        *###          ____) | (_| | |_| | (_| | (_| |
+    ////             (((         ####       |_____/ \__, |\__,_|\__,_|\__,_|
+   ///                ((((        ####                 | |
+ /////////////(((((((((((((((((########                |_|   Join @ squad.percona.com/mongodb
+
+** Join Percona Squad! **
+Participate in monthly SWAG raffles, get early access to new product features,
+invite-only ”ask me anything” sessions with database performance experts.
+
+Interested? Fill in the form at squad.percona.com/mongodb
+2026-08-22T08:38:14.000+0000 I log options: log-path=/dev/stderr, log-level:D, log-json:false
+2026-08-22T08:38:14.000+0000 I pbm-agent:
+Version:   2.15.0
+Platform:  linux/amd64
+GitCommit: 15c9f217f91bc518b81ad901abe9331227e5c615
+GitBranch: release-2.15.0
+BuildTime: 2026-06-10_09:58_UTC
+GoVersion: go1.25.11
+2026-08-22T08:38:14.000+0000 I starting PITR routine
+2026-08-22T08:38:14.000+0000 I node: rs0/my-cluster-name-rs0-0.my-cluster-name-rs0.psmdb.svc.cluster.local:27017
+2026-08-22T08:38:14.000+0000 I conn level ReadConcern: majority; WriteConcern: majority
+2026-08-22T08:38:14.000+0000 I listening for the commands
+2026-08-22T08:38:44.000+0000 D [pitr] waiting for cluster ready status
+2026-08-22T08:39:02.000+0000 D [pitr] waiting pitr nomination
+2026-08-22T08:39:04.000+0000 D [pitr] skip after pitr nomination, probably started by another node

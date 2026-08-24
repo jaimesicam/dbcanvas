@@ -9,12 +9,64 @@ development: spin up a production-shaped cluster in minutes, exercise it, tear i
 
 ![The Database Stacks canvas with a deployed stack](docs/screenshots/stacks-canvas.png)
 
+## What's New
+
+**OpenID Connect sign-in for Percona Server, with Keycloak as the identity provider.**
+Percona added the `auth_openid_connect` plugin in **Percona Server 8.4.11-11**, and DBCanvas
+wires it up for you: add a **Keycloak** node, tick *Keycloak SSO* on a **Percona Server** node,
+and deploy. You get a realm and an OIDC client on Keycloak, sample users in a group, MySQL
+accounts bound to those users' identities, and a demo schema only that group's role can read.
+Users then sign in with a signed ID token from Keycloak — **no MySQL password is ever sent** —
+and their Keycloak group grants the matching MySQL role.
+
+![The Percona Server node's Keycloak SSO tab, beside a console signing in with an ID token](docs/screenshots/keycloak-oidc.png)
+
+> *The node's **Keycloak SSO** tab gives you the issuer, client, accounts and the sample users'
+> password, then the exact commands. In the console beside it, `jane` trades her Keycloak
+> password for an `id_token` and logs in with it — `SHOW GRANTS` shows the `accounting` role
+> arriving from her Keycloak group.*
+
+The 8.4 LTS series is the only one that has this so far — 9.7 does not carry the plugin yet, so
+the designer keeps the node on 8.4 when you turn SSO on. The **Ubuntu VNC** desktop ships the
+8.4 client and its OIDC plugin, so you can sign in from there too.
+
+**Every Kubernetes operator can drive a Stock Market Sim.** Link a **Stock Market Sim** node to
+a K3D frame and the sim runs a live trading workload against the cluster that frame's operator
+built — the fastest way to put real, continuous activity on an operator and watch it behave. All
+six are supported: **Percona XtraDB Cluster**, **Percona Server for MySQL**, **Percona Server for
+MongoDB**, **Percona PostgreSQL (PGO)**, **CloudNativePG**, and **Crunchy PGO**. The sim picks up
+the engine from the operator, resolves the cluster's front end and its generated credentials by
+itself, and reports throughput, portfolios and a per-instrument ticker.
+
+![Three Stock Market Sim nodes driving three Kubernetes operators on one canvas](docs/screenshots/stocksim-operators.png)
+
+> *Three K3D frames, three sims, one canvas. The open one is trading against `k3d-02` through
+> that cluster's `k3d-02-rw-lb` Service; the panel on the right is the same frame's k3s node —
+> PGO 6.0.2, pgBouncer in front, **Expose · proxy: LoadBalancer**, which is what made it
+> reachable.*
+
+The cluster has to be reachable from the stack network first, and that is the one thing the
+frame cannot guess: a **ClusterIP** address exists only inside Kubernetes. Set the tier in front
+of the database — the proxy, the MySQL Router, the mongos routers, the pgBouncer pool, or the
+database pods themselves — to **LoadBalancer** (or NodePort) on the frame. The designer checks
+this per operator and warns you before you deploy if every tier is ClusterIP, naming the ones to
+change.
+
+**A file manager, and drag and drop.** Drag a file — or a whole folder — from your desktop
+straight onto a node on the canvas and DBCanvas asks where to put it: no scp, no bind mount, no
+shell. Right-click a running node and choose **File manager** for the whole filesystem —
+navigate, upload and download, create, rename, change permissions and ownership, delete, and
+**edit a file in place**. **Split** opens a second pane on another node and copies between the
+two, which is the fastest way to put one file on every member of a cluster.
+
+![The File Manager browsing a node's filesystem](docs/screenshots/file-manager.png)
+
 ## Quickstart
 
 Requires **Docker**, with access to its daemon socket.
 
 ```sh
-git clone <this repo> && cd dbcanvas
+git clone https://github.com/jaimesicam/dbcanvas.git && cd dbcanvas
 make install
 ```
 
