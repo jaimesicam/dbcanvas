@@ -39,6 +39,13 @@ import PacketInspector, {
   FilePick as PktFilePick,
 } from '../src/pages/PacketInspector.jsx'
 import { PORT_ROLE_TEXT, MONGO_KIND_TEXT, isSevereIssue } from '../src/lib/pktApi.js'
+import OperatorDebugger, {
+  Header as DbgHeader, NoTargets as DbgNoTargets, SessionBanner as DbgBanner,
+  QuickBreakpoints as DbgQuick, BreakpointList as DbgBreakpoints, FileTree as DbgFiles,
+  SourceView as DbgSource, CallStack as DbgStack, Variables as DbgVars,
+  WatchBox as DbgWatch, EventLog as DbgLog,
+} from '../src/pages/OperatorDebugger.jsx'
+import { goHighlight, TOKEN_CLS, STATUS_TONE, STATUS_TEXT, shortFrameName } from '../src/lib/debugApi.js'
 import LogSummary, {
   Verdict as LogVerdict, splitFindings, EventColumns as LogEventColumns, Swimlane as LogSwimlane, Snapshot as LogSnapshot,
   SourcesCard as LogSources, EventList as LogEvents, EventDetail as LogDetail,
@@ -1752,11 +1759,6 @@ check('ftdc summary: every advice level is styled', () => {
   return 'ok'
 })
 
-if (failures > 0) {
-  console.error(`\n${failures} render failure(s)`)
-  process.exit(1)
-}
-console.log('\nall render checks passed')
 
 // Every state the backend can put in a lane has to have a colour and a sentence here, or a
 // PostgreSQL cluster renders lanes the legend cannot explain. This is the check that the
@@ -1797,3 +1799,129 @@ check('log summary: each member kind is named beside its node', () => {
   }
   return 'ok'
 })
+
+// ---- Operator Debugger -----------------------------------------------------
+//
+// The page renders before any socket exists (SSR runs no effects), which is exactly the
+// state a user sees for the first second — and the state where a missing icon would blank
+// the whole page.
+
+const dbgTarget = {
+  stackId: 1, frameId: 'f1', stackName: 'delve-verify', label: 'k3d-01',
+  operator: 'pxc', operatorVer: '1.20.0', cr: 'k3d-01', namespace: 'pxc',
+  buildDir: '/go/src/github.com/percona/percona-xtradb-cluster-operator',
+  hostPort: 40000, nodePort: 30400, debugStatus: 'listening',
+  startFile: 'pkg/controller/pxc/controller.go',
+  presets: [
+    { label: 'Reconcile', func: 'pxc.(*ReconcilePerconaXtraDBCluster).Reconcile', hint: 'the main loop' },
+    { label: 'deploy', func: 'pxc.(*ReconcilePerconaXtraDBCluster).deploy', hint: 'the StatefulSets' },
+  ],
+}
+const dbgState = {
+  status: 'stopped', reason: 'breakpoint', threadId: 226,
+  frames: [
+    { id: 1000, name: 'pxc.(*ReconcilePerconaXtraDBCluster).Reconcile', file: 'pkg/controller/pxc/controller.go', line: 237, hasSource: true },
+    { id: 1001, name: 'controller.(*Controller).reconcileHandler', file: '/go/pkg/mod/sigs.k8s.io/controller-runtime@v0.24.1/pkg/internal/controller/controller.go', line: 478, hasSource: false },
+  ],
+  breakpoints: [{ file: 'pkg/controller/pxc/controller.go', line: 237, verified: true }],
+  functions: [{ name: 'pxc.(*ReconcilePerconaXtraDBCluster).Reconcile', verified: true, line: 236 }],
+  allowCalls: false, idleSeconds: 300, subscribers: 1, target: dbgTarget,
+}
+const dbgSource = {
+  path: 'pkg/controller/pxc/controller.go',
+  buildPath: dbgTarget.buildDir + '/pkg/controller/pxc/controller.go',
+  content: `package pxc
+
+/* the reconcile loop */
+func (r *ReconcilePerconaXtraDBCluster) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
+\tlog := logf.FromContext(ctx)      // a comment
+\to := &api.PerconaXtraDBCluster{}
+\tif err := r.client.Get(ctx, request.NamespacedName, o); err != nil {
+\t\treturn reconcile.Result{}, err
+\t}
+\treturn rr, nil
+}
+`,
+}
+
+check('OperatorDebugger page (before the socket opens)', () => renderToString(<OperatorDebugger />))
+check('operator debugger: header', () =>
+  renderToString(<DbgHeader targets={[dbgTarget]} value="1/f1" onChange={noop} state={dbgState}
+    busy="" onAttach={noop} onDetach={noop} onReconcile={noop} />))
+check('operator debugger: nothing to debug', () => renderToString(<DbgNoTargets />))
+check('operator debugger: the banner in every state', () => {
+  for (const status of ['running', 'stopped', 'detached', 'attaching']) {
+    renderToString(<DbgBanner state={{ ...dbgState, status }} target={dbgTarget} />)
+  }
+  return 'ok'
+})
+check('operator debugger: quick breakpoints', () =>
+  renderToString(<DbgQuick target={dbgTarget} state={dbgState} onToggle={noop} />))
+check('operator debugger: breakpoint list counts function breakpoints too', () => {
+  const html = renderToString(<DbgBreakpoints state={dbgState} onOpen={noop} onRemove={noop}
+    onRemoveFn={noop} onClear={noop} />)
+  // One source breakpoint and one quick breakpoint: a panel that says (1) while the operator
+  // is stopped at the other one reads as a broken debugger.
+  if (!html.includes('Breakpoints (2)')) throw new Error('function breakpoints are not counted')
+  return html
+})
+check('operator debugger: file tree', () =>
+  renderToString(<DbgFiles files={['cmd/manager/main.go', 'pkg/controller/pxc/controller.go']}
+    value="pkg/controller/pxc/controller.go" filter="" onFilter={noop} onOpen={noop} />))
+check('operator debugger: source with a breakpoint and the current line', () => {
+  const html = renderToString(<DbgSource path={dbgSource.path} source={dbgSource} state={dbgState}
+    stoppedLine={237} stoppedFile={dbgSource.path} onToggle={noop} onStep={noop} busy="" />)
+  if (!html.includes('Continue') || !html.includes('Step over')) {
+    throw new Error('the stepping toolbar is missing')
+  }
+  return html
+})
+check('operator debugger: call stack (with a frame that has no source)', () =>
+  renderToString(<DbgStack frames={dbgState.frames} selected={1000} onSelect={noop} />))
+check('operator debugger: variables', () =>
+  renderToString(<DbgVars scopes={[{ name: 'Locals', variablesReference: 1000, expensive: false }]}
+    stopped onExpand={() => Promise.resolve([])} />))
+check('operator debugger: watches', () =>
+  renderToString(<DbgWatch value="" onChange={noop} onAdd={noop}
+    watches={[{ expr: 'request.NamespacedName', value: 'types.NamespacedName {Namespace: "pxc"}' }]}
+    onRemove={noop} allowCalls={false} onAllowCalls={noop} idle={300} onIdle={noop} />))
+check('operator debugger: event log', () =>
+  renderToString(<DbgLog lines={[{ at: new Date().toISOString(), kind: 'info', text: 'attached' }]} />))
+
+check('operator debugger: every session status has a tone and a word', () => {
+  for (const st of ['detached', 'attaching', 'running', 'stopped']) {
+    if (!STATUS_TONE[st] || !STATUS_TEXT[st]) throw new Error(`status ${st} is not described`)
+  }
+  return 'ok'
+})
+
+check('operator debugger: the Go highlighter survives real source', () => {
+  const lines = goHighlight(dbgSource.content)
+  if (lines.length !== dbgSource.content.split('\n').length) {
+    throw new Error('the highlighter lost or invented lines')
+  }
+  // Every token must round-trip: colouring must never change what the code says.
+  const rebuilt = lines.map((toks) => toks.map(([, text]) => text).join('')).join('\n')
+  if (rebuilt !== dbgSource.content) throw new Error('the highlighter changed the source text')
+  for (const toks of lines) {
+    for (const [cls] of toks) {
+      if (TOKEN_CLS[cls] === undefined) throw new Error(`token class ${cls} has no colour`)
+    }
+  }
+  if (shortFrameName('sigs.k8s.io/controller-runtime/pkg/internal.(*C).Reconcile') !== 'internal.(*C).Reconcile') {
+    throw new Error('a frame name is not shortened to its package')
+  }
+  // A generic frame's type argument carries slashes of its own; trimming at the last slash
+  // without removing it first leaves "types.NamespacedName }]).Reconcile", which names nothing.
+  const generic = 'controller.(*Controller[go.shape.struct { k8s.io/apimachinery/pkg/types.NamespacedName }]).Reconcile'
+  if (shortFrameName(generic) !== 'controller.(*Controller).Reconcile') {
+    throw new Error(`a generic frame name is mangled: ${shortFrameName(generic)}`)
+  }
+  return 'ok'
+})
+
+if (failures > 0) {
+  console.error(`\n${failures} render failure(s)`)
+  process.exit(1)
+}
+console.log('\nall render checks passed')

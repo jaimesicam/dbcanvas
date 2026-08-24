@@ -405,4 +405,49 @@ export const Icon = {
       <path d="M6 6l12 12M18 6L6 18" />
     </Svg>
   ),
+  // The Operator Debugger's own set. A debugger's controls are a vocabulary people
+  // already know from every IDE, so these are deliberately the familiar shapes rather
+  // than something novel: continue is a play triangle, pause two bars, and the three
+  // step marks are an arc over a dot (over), into a dot (down), and out of one (up).
+  // The dot is the current line in all three, which is what makes them a set.
+  Bug: (p) => (
+    <Svg {...p}>
+      <rect x="7" y="7.5" width="10" height="12" rx="5" />
+      <path d="M9.2 6.2a2.8 2.8 0 0 1 5.6 0" />
+      <path d="M7 11H3.5M7 15.5H4M17 11h3.5M17 15.5H20" />
+      <path d="M8.2 8.2 6 5.6M15.8 8.2 18 5.6" />
+      <path d="M12 11v6" />
+    </Svg>
+  ),
+  Play: (p) => (
+    <Svg {...p}>
+      <path d="M7 4.5 19 12 7 19.5Z" />
+    </Svg>
+  ),
+  Pause: (p) => (
+    <Svg {...p}>
+      <path d="M9 5v14M15 5v14" />
+    </Svg>
+  ),
+  StepOver: (p) => (
+    <Svg {...p}>
+      <path d="M5 14a7 7 0 0 1 14 0" />
+      <polyline points="15.5 13.5 19 14 19.5 10.5" />
+      <circle cx="12" cy="19" r="1.8" />
+    </Svg>
+  ),
+  StepInto: (p) => (
+    <Svg {...p}>
+      <path d="M12 3.5v9" />
+      <polyline points="8.5 9 12 12.5 15.5 9" />
+      <circle cx="12" cy="18.5" r="1.8" />
+    </Svg>
+  ),
+  StepOut: (p) => (
+    <Svg {...p}>
+      <path d="M12 12.5v-9" />
+      <polyline points="8.5 7 12 3.5 15.5 7" />
+      <circle cx="12" cy="18.5" r="1.8" />
+    </Svg>
+  ),
 }

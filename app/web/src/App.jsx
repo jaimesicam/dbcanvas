@@ -13,6 +13,7 @@ import DataGenerator from './pages/DataGenerator.jsx'
 import QueryRunner from './pages/QueryRunner.jsx'
 import Benchmark from './pages/Benchmark.jsx'
 import PacketInspector from './pages/PacketInspector.jsx'
+import OperatorDebugger from './pages/OperatorDebugger.jsx'
 import StalkSummary from './pages/StalkSummary.jsx'
 import LogSummary from './pages/LogSummary.jsx'
 import FTDCSummary from './pages/FTDCSummary.jsx'
@@ -27,6 +28,7 @@ const NAV = [
   { id: 'queryrun', label: 'Query Runner', icon: 'Database', page: QueryRunner, hint: 'Run parallel queries with processlist gating' },
   { id: 'benchmark', label: 'Benchmark', icon: 'Monitor', page: Benchmark, hint: 'OLTP/OLAP/RW/RO throughput + latency' },
   { id: 'packet-inspector', label: 'Packet Inspector', icon: 'Packet', page: PacketInspector, hint: 'tcpdump on a database node, decoded packet by packet — MySQL, PostgreSQL, MongoDB, Valkey' },
+  { id: 'operator-debugger', label: 'Operator Debugger', icon: 'Bug', page: OperatorDebugger, hint: 'Step through a Kubernetes operator under Delve — breakpoints, stack, variables' },
   { id: 'stalk-summary', label: 'Stalk Summary', icon: 'Monitor', page: StalkSummary, hint: 'Charts from a pt-stalk archive' },
   { id: 'log-summary', label: 'Log Summary', icon: 'Logs', page: LogSummary, hint: "Several nodes' logs on one timeline — the good, the warning and the bad" },
   { id: 'ftdc-summary', label: 'FTDC Summary', icon: 'Monitor', page: FTDCSummary, hint: "MongoDB's diagnostic.data — the black box every mongod already writes" },

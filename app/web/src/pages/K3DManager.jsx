@@ -431,7 +431,7 @@ kubectl -n ${ns} rollout restart statefulset -l ${isPG
 # the cluster; a secret that arrives later changes nothing). Passwords come from .env.
 kubectl apply -f ${cfg.operatorSrc}/deploy/secrets.yaml -n ${ns}
 kubectl apply -f ${cfg.operatorSrc}/deploy/cr.yaml -n ${ns}   # re-apply after editing`} />
-          {cfg.debugStatus && <OperatorDebugger cfg={cfg} ns={ns} cr={cr} />}
+          {cfg.debugStatus && <IDEAttachGuide cfg={cfg} ns={ns} cr={cr} frameId={frame?.id} stackId={stackId} />}
         </div>
       )}
     </div>
@@ -441,7 +441,9 @@ kubectl apply -f ${cfg.operatorSrc}/deploy/cr.yaml -n ${ns}   # re-apply after e
 // Delve's listener inside the pod — k3ddebug.go's k3dDebugPort, which the NodePort fronts.
 const K3D_DELVE_PORT = 40000
 
-// OperatorDebugger — everything needed to attach an IDE to the operator running under Delve.
+// IDEAttachGuide — everything needed to attach an *external* IDE to the operator running under
+// Delve. The in-app alternative is the Operator Debugger page, which needs none of it; this is
+// here for people who would rather stay in their own editor.
 //
 // The three steps are in the order they have to happen: a local clone at the tag the deployed
 // binary was built from (or the source paths will not match), the launch configuration, and the
@@ -450,7 +452,7 @@ const K3D_DELVE_PORT = 40000
 // substitutePath is the piece that is easy to miss. The binary was compiled inside a builder
 // container, so the paths in its DWARF are that container's — /go/src/github.com/percona/... — and
 // without the mapping the debugger stops at a breakpoint it cannot show source for.
-function OperatorDebugger({ cfg, ns, cr }) {
+function IDEAttachGuide({ cfg, ns, cr, stackId, frameId }) {
   const listening = cfg.debugStatus === 'listening'
   const launch = `{
   "version": "0.2.0",
@@ -478,6 +480,21 @@ function OperatorDebugger({ cfg, ns, cr }) {
 }`
   return (
     <div className="space-y-3">
+      {listening && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border bg-surface2 px-3 py-2">
+          <span className="text-[11px] leading-snug text-muted">
+            <span className="font-medium text-fg">Debug it here instead.</span> The Operator Debugger
+            page steps through this operator with no IDE, no clone and no Go toolchain — and can force
+            a reconcile for you.
+          </span>
+          <Button size="sm" onClick={() => {
+            try { sessionStorage.setItem('dbcanvas.debugTarget', `${stackId}/${frameId}`) } catch { /* private mode */ }
+            location.hash = 'operator-debugger'
+          }}>
+            <Icon.Bug size={14} /> Open debugger
+          </Button>
+        </div>
+      )}
       <div className={`rounded-lg px-3 py-2 text-[11px] leading-snug text-muted ${listening
         ? 'border border-accent/30 bg-accent/10' : 'border border-warning/30 bg-warning/10'}`}>
         {listening ? (
