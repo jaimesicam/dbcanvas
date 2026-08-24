@@ -327,6 +327,15 @@ func main() {
 	mux.HandleFunc("POST /api/stacks/{id}/frames/{fid}/k3d/users/delete", app.handleK3DUserDelete)
 	mux.HandleFunc("GET /api/stacks/{id}/frames/{fid}/k3d/users/{username}/kubeconfig", app.handleK3DUserKubeconfig)
 
+	// Operator Debugger (see k3ddebugapi.go): the frames whose operator runs under Delve, the
+	// operator's own source, one WebSocket per debug session, and the annotation that forces a
+	// reconcile so a breakpoint in Reconcile is actually reached.
+	mux.HandleFunc("GET /api/k3d/debug/targets", app.handleK3DDebugTargets)
+	mux.HandleFunc("GET /api/stacks/{id}/frames/{fid}/k3d/debug/sources", app.handleK3DDebugSources)
+	mux.HandleFunc("GET /api/stacks/{id}/frames/{fid}/k3d/debug/source", app.handleK3DDebugSource)
+	mux.HandleFunc("GET /api/stacks/{id}/frames/{fid}/k3d/debug/ws", app.handleK3DDebugWS)
+	mux.HandleFunc("POST /api/stacks/{id}/frames/{fid}/k3d/debug/reconcile", app.handleK3DDebugReconcile)
+
 	// All-in-One node: instance inventory + lifecycle. Every action execs the
 	// container's own `aioctl`, so the UI and the CLI cannot diverge.
 	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/aio/instances", app.handleAIOInstances)
