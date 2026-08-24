@@ -38,6 +38,10 @@ type App struct {
 	// (stackID -> *deployRun), so destroy can cancel it and wait for the
 	// provisioners to exit before removing containers. See deployrun.go.
 	deploys sync.Map
+	// debugSessions holds the live Delve session of each K3D frame whose operator runs under a
+	// debugger (stackID/frameID -> *k3dDebugSession). Sessions outlive the browsers watching
+	// them: the breakpoint set is worth keeping across a page reload. See k3ddebugsess.go.
+	debugSessions sync.Map
 }
 
 func main() {

@@ -874,6 +874,9 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 // sweeps `dbcanvas-<id>-*` containers: k3d's containers (and volumes, and its serverlb) carry
 // k3d's own names, so nothing else in the teardown would ever touch them.
 func (a *App) destroyK3DClusters(ctx context.Context, stackID int64) {
+	// Any debug session on this stack refers to source and a listener that are about to stop
+	// existing; end it (which resumes the operator and clears its breakpoints) first.
+	a.k3dDebugForget(stackID)
 	st, err := a.store.GetStack(stackID)
 	if err != nil {
 		return
