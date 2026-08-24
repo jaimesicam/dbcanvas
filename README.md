@@ -20,8 +20,8 @@ you close the page it clears the breakpoints and resumes the operator for you.
 
 ![The Operator Debugger stopped in Reconcile, with the call stack and locals beside the source](docs/screenshots/operator-debugger.png)
 
-> *Stopped at the top of `Reconcile` on a live PXC cluster, with `request.NamespacedName`
-> evaluated on the spot — `{Namespace: "pxc", Name: "k3d-dbg"}`, the cluster being reconciled.*
+> *Stopped at the top of `Reconcile` on a live PXC cluster — the call stack, the operator's own
+> locals, and an expression evaluated on the spot.*
 
 **OpenID Connect sign-in for Percona Server, with Keycloak as the identity provider.**
 Percona added the `auth_openid_connect` plugin in **Percona Server 8.4.11-11**, and DBCanvas

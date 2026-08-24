@@ -9,9 +9,10 @@ so there is **no IDE to set up, no clone of the operator, and no Go toolchain**.
 ![The Operator Debugger stopped in Reconcile, with the call stack and locals beside the source](screenshots/operator-debugger.png)
 
 > *Stopped at the top of `Reconcile` on a live PXC cluster. The call stack shows the operator's
-> own frame above five of controller-runtime's (which have no source on the node, and say so);
-> `Locals` holds the receiver, the context and the request; and `request.NamespacedName` was
-> evaluated on the spot — `{Namespace: "pxc", Name: "k3d-dbg"}`, the cluster being reconciled.*
+> own frame above three of controller-runtime's (which have no source on the node, and say so);
+> `Locals` holds the receiver, the context and the request; and `request.NamespacedName` has been
+> evaluated on the spot — it answers `{Namespace: "pxc", Name: "k3d-dbg"}`, the cluster being
+> reconciled.*
 
 Open it from the sidebar (**Operator Debugger**) or at `#operator-debugger`. The K3D node's
 **Operator** tab also has an **Open debugger** button that opens the page on that frame.
