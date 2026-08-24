@@ -214,7 +214,7 @@ func TestDelveLiveSession(t *testing.T) {
 	}
 
 	// Evaluating in a frame — the thing a println would otherwise be for.
-	if v, err := cli.evaluate(ctx, "request.NamespacedName", frames[0].ID); err != nil {
+	if v, err := cli.evaluate(ctx, "request.NamespacedName", frames[0].ID, dapEvalFull); err != nil {
 		t.Errorf("evaluate: %v", err)
 	} else {
 		t.Logf("request.NamespacedName = %s", truncate(v.Value, 120))

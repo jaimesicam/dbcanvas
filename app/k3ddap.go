@@ -536,15 +536,29 @@ func (c *dapClient) variables(ctx context.Context, ref int) ([]dapVariable, erro
 	return out.Variables, err
 }
 
-// evaluate runs an expression in the given frame. Context is the protocol's hint for what the
-// result is for; "watch" is the read-only one, and it is what this client sends.
-func (c *dapClient) evaluate(ctx context.Context, expr string, frameID int) (dapVariable, error) {
+// evaluate runs an expression in the given frame.
+//
+// `context` is nominally the protocol's hint for what the result is *for* — but with Delve it
+// decides how much of the value you get, which makes it the difference between an answer and an
+// ellipsis. Measured against a real operator, the receiver of `Reconcile` comes back as 259
+// characters under "watch", "repl" and "hover", and 4209 under "variables" and "clipboard": the
+// same value, summarised or whole. dapEvalFull is therefore what this client asks for whenever
+// somebody wants to read a value rather than glance at it.
+const (
+	dapEvalSummary = "watch"
+	dapEvalFull    = "variables"
+)
+
+func (c *dapClient) evaluate(ctx context.Context, expr string, frameID int, evalCtx string) (dapVariable, error) {
+	if evalCtx == "" {
+		evalCtx = dapEvalSummary
+	}
 	var out struct {
 		Result             string `json:"result"`
 		Type               string `json:"type"`
 		VariablesReference int    `json:"variablesReference"`
 	}
-	args := map[string]any{"expression": expr, "context": "watch"}
+	args := map[string]any{"expression": expr, "context": evalCtx}
 	if frameID > 0 {
 		args["frameId"] = frameID
 	}
@@ -552,6 +566,31 @@ func (c *dapClient) evaluate(ctx context.Context, expr string, frameID int) (dap
 	return dapVariable{
 		Name:               expr,
 		Value:              out.Result,
+		Type:               out.Type,
+		VariablesReference: out.VariablesReference,
+	}, err
+}
+
+// setVariable changes a variable in the debuggee: `name` inside the container `ref` (a scope, or
+// a struct/slice a `variables` request returned).
+//
+// Delve can only do this for a variable it can name — the response carries an `evaluateName`, and
+// without one it answers "cannot set the variable without evaluate name". Compiler-generated
+// entries (`~r0`, the named returns) are the common case, so the panel offers editing only where
+// there is a name to edit by. What Delve *can* set is broader than it looks: strings included,
+// which it allocates in the target.
+func (c *dapClient) setVariable(ctx context.Context, ref int, name, value string) (dapVariable, error) {
+	var out struct {
+		Value              string `json:"value"`
+		Type               string `json:"type"`
+		VariablesReference int    `json:"variablesReference"`
+	}
+	err := c.call(ctx, "setVariable", map[string]any{
+		"variablesReference": ref, "name": name, "value": value,
+	}, &out)
+	return dapVariable{
+		Name:               name,
+		Value:              out.Value,
 		Type:               out.Type,
 		VariablesReference: out.VariablesReference,
 	}, err

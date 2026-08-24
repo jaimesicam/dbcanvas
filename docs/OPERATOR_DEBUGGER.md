@@ -72,6 +72,14 @@ on its own, so a breakpoint in `Reconcile` will be reached either way.)
   code was never unpacked onto the node. Click any frame to follow it.
 - **Variables** shows that frame's scope. Values expand on demand, because an operator's cluster
   object is a graph and serialising all of it to look at one field would cost seconds.
+- **Nothing is cut off.** Delve summarises long values (the receiver of `Reconcile` is 259
+  characters that way and 4,209 in full), so any shortened value carries a **show all** that
+  re-reads it whole. Values wrap rather than being clipped — maximize the panel for the long ones.
+- **Values can be edited.** Hover a row and click the pencil: type a Go literal, press Enter, and
+  it is written into the running operator (every edit is recorded in the session log). Delve can
+  only set a variable it can name, so compiler-generated rows like `~r0` offer no pencil. Editing
+  live state does what you would expect — rewrite `request.NamespacedName.Name` and that reconcile
+  goes looking for a cluster of the new name.
 - **Evaluate** takes a Go expression in the selected frame — `request.NamespacedName`,
   `cr.Spec.PXC.Size`, `o.Status.State`. Each one is re-evaluated at every stop.
 

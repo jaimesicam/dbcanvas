@@ -303,6 +303,7 @@ type k3dDebugWSCmd struct {
 	FrameID int    `json:"frameId,omitempty"`
 	Expr    string `json:"expr,omitempty"`
 	Seconds int    `json:"seconds,omitempty"`
+	Value   string `json:"value,omitempty"`
 }
 
 // handleK3DDebugWS is the session: it attaches on connect, forwards everything the session
@@ -433,6 +434,9 @@ func (a *App) k3dDebugRun(ctx context.Context, sess *k3dDebugSession, tgt k3dDeb
 		return map[string]any{"variables": vars}, err
 	case "evaluate":
 		v, err := sess.evaluate(ctx, cmd.Expr, cmd.FrameID)
+		return map[string]any{"result": v}, err
+	case "setVariable":
+		v, err := sess.setVariable(ctx, cmd.Ref, cmd.Name, cmd.Value)
 		return map[string]any{"result": v}, err
 	case "allowCalls":
 		sess.setAllowCalls(cmd.On)

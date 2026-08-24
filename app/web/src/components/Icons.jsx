@@ -443,6 +443,13 @@ export const Icon = {
       <circle cx="12" cy="18.5" r="1.8" />
     </Svg>
   ),
+  // Edit in place — the debugger's variables can be written, not only read.
+  Pencil: (p) => (
+    <Svg {...p}>
+      <path d="M4 20.5h4.2L20 8.7a2.1 2.1 0 0 0-3-3L5.2 17.5 4 20.5Z" />
+      <path d="M14.8 6.9 17.4 9.5" />
+    </Svg>
+  ),
   // Maximize / Restore for the debugger's panels: arrows out of the corners, then into them.
   // Two marks rather than one that flips, because the button says what will happen next and
   // "the arrows point the way the panel is about to go" is the whole of the idea.

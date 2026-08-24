@@ -287,7 +287,7 @@ func TestDAPFailedRequestKeepsTheServerMessage(t *testing.T) {
 	})
 	c := dialFake(t, f, nil)
 
-	_, err := c.evaluate(context.Background(), "nope", 3)
+	_, err := c.evaluate(context.Background(), "nope", 3, dapEvalFull)
 	if err == nil || err.Error() != "could not find symbol value for nope" {
 		t.Fatalf("err = %v, want the server's own message", err)
 	}
@@ -389,5 +389,51 @@ func TestDAPClearBreakpointsSendsAnEmptyList(t *testing.T) {
 		if !strings.Contains(string(m.Arguments), `"breakpoints":[]`) {
 			t.Fatalf("%s arguments = %s, want an empty array", cmd, m.Arguments)
 		}
+	}
+}
+
+// The evaluation context is not a hint with Delve, it is how much of the value you get: the same
+// receiver comes back summarised under "watch" and whole under "variables". Anything that reads a
+// value for a person to look at must therefore ask for the full one.
+func TestDAPEvaluateSendsTheRequestedContext(t *testing.T) {
+	f := startFakeDAP(t, func(req dapMessage, w *dapWriter) {
+		w.respond(req, map[string]any{"result": "ok", "type": "string"})
+	})
+	c := dialFake(t, f, nil)
+
+	if _, err := c.evaluate(context.Background(), "x", 7, dapEvalFull); err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	m, _ := f.request("evaluate")
+	var args map[string]any
+	json.Unmarshal(m.Arguments, &args)
+	if args["context"] != "variables" {
+		t.Fatalf("context = %v, want variables", args["context"])
+	}
+	if args["frameId"] != float64(7) {
+		t.Fatalf("frameId = %v", args["frameId"])
+	}
+}
+
+// setVariable addresses a variable by its container and name, which is the only shape Delve
+// accepts — there is no setExpression on this server ("Not yet implemented").
+func TestDAPSetVariable(t *testing.T) {
+	f := startFakeDAP(t, func(req dapMessage, w *dapWriter) {
+		w.respond(req, map[string]any{"value": `"probe"`, "type": "string"})
+	})
+	c := dialFake(t, f, nil)
+
+	v, err := c.setVariable(context.Background(), 1003, "Name", `"probe"`)
+	if err != nil {
+		t.Fatalf("setVariable: %v", err)
+	}
+	if v.Value != `"probe"` || v.Type != "string" {
+		t.Fatalf("result = %+v", v)
+	}
+	m, _ := f.request("setVariable")
+	var args map[string]any
+	json.Unmarshal(m.Arguments, &args)
+	if args["variablesReference"] != float64(1003) || args["name"] != "Name" {
+		t.Fatalf("arguments = %v", args)
 	}
 }

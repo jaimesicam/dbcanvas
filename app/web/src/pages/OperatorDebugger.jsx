@@ -336,8 +336,17 @@ export default function OperatorDebugger() {
                 setFrameID(f.id)
                 if (f.hasSource && f.file) setFile(f.file)
               }} />
-              <Variables scopes={scopes} stopped={stopped} onExpand={(ref) =>
-                sessionRef.current?.call({ cmd: 'variables', ref }).then((r) => r.variables || [])} />
+              <Variables
+                scopes={scopes} stopped={stopped}
+                onExpand={(ref) => sessionRef.current?.call({ cmd: 'variables', ref })
+                  .then((r) => r.variables || [])}
+                onSet={(ref, name, value) => sessionRef.current
+                  .call({ cmd: 'setVariable', ref, name, value })
+                  .then((r) => r.result)}
+                onFull={(expr) => sessionRef.current
+                  .call({ cmd: 'evaluate', expr, frameId: frameID })
+                  .then((r) => r.result?.value ?? '')}
+              />
               <WatchBox
                 value={watch} onChange={setWatch} onAdd={addWatch}
                 watches={watches} onRemove={(expr) => setWatches((p) => p.filter((wv) => wv.expr !== expr))}
@@ -657,11 +666,23 @@ export function CallStack({ frames, selected, onSelect }) {
   )
 }
 
-// Variables renders the selected frame's scopes. Children are fetched when a value is
-// expanded, which is the protocol's own model and the only sane one here: an operator's
-// cluster object is a graph, and serialising all of it to look at one field would cost
-// seconds and megabytes.
-export function Variables({ scopes, stopped, onExpand }) {
+// Variables renders the selected frame's scopes, and lets you change what is in them.
+//
+// Three things it has to get right, all of them learned from the real thing:
+//
+//  1. **Nothing is cut off.** Delve summarises a value in the `variables` response and in an
+//     ordinary `evaluate` — the receiver of `Reconcile` is 259 characters that way and 4,209 in
+//     full — and a debugger that shows you the first line of a struct and an ellipsis has told
+//     you nothing. Values wrap rather than truncate, and any value Delve summarised can be
+//     loaded whole (`Show all`, which re-reads it with the full evaluation context).
+//  2. **Children are fetched when expanded**, which is the protocol's own model and the only
+//     sane one: an operator's cluster object is a graph, and serialising all of it to look at
+//     one field would cost seconds and megabytes.
+//  3. **Values can be edited** — a variable is set through its *container* (`setVariable`), and
+//     Delve can only do that for a variable it can name. Compiler-generated entries (`~r0` and
+//     friends) have no evaluate name and cannot be set, so those rows offer no pencil rather
+//     than offering one that always fails.
+export function Variables({ scopes, stopped, onExpand, onSet, onFull }) {
   return (
     <Panel id="variables" title="Variables" className="min-h-[180px] flex-1" bodyClass="overflow-auto p-3">
       {!stopped ? (
@@ -671,7 +692,7 @@ export function Variables({ scopes, stopped, onExpand }) {
       ) : (
         <div className="space-y-2">
           {scopes.map((sc) => (
-            <Scope key={sc.variablesReference} scope={sc} onExpand={onExpand} />
+            <Scope key={sc.variablesReference} scope={sc} onExpand={onExpand} onSet={onSet} onFull={onFull} />
           ))}
         </div>
       )}
@@ -679,15 +700,16 @@ export function Variables({ scopes, stopped, onExpand }) {
   )
 }
 
-function Scope({ scope, onExpand }) {
+function Scope({ scope, onExpand, onSet, onFull }) {
   const [open, setOpen] = useState(!scope.expensive)
   const [vars, setVars] = useState(null)
+  const [nonce, setNonce] = useState(0)
   useEffect(() => {
-    if (!open || vars) return
+    if (!open) return undefined
     let live = true
     onExpand(scope.variablesReference).then((v) => { if (live) setVars(v) }).catch(() => { if (live) setVars([]) })
     return () => { live = false }
-  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, nonce]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div>
       <button onClick={() => setOpen((v) => !v)}
@@ -696,40 +718,120 @@ function Scope({ scope, onExpand }) {
         {scope.name}
       </button>
       {open && (
-        <div className="mt-1 space-y-0.5 pl-3">
+        <div className="mt-1 space-y-1 pl-3">
           {vars === null && <p className="text-[11px] text-muted">Reading…</p>}
           {vars?.length === 0 && <p className="text-[11px] text-muted">empty</p>}
-          {(vars || []).map((v, i) => <VarNode key={`${v.name}-${i}`} v={v} depth={0} onExpand={onExpand} />)}
+          {(vars || []).map((v, i) => (
+            <VarNode key={`${v.name}-${i}`} v={v} depth={0} containerRef={scope.variablesReference}
+              onExpand={onExpand} onSet={onSet} onFull={onFull} onChanged={() => setNonce((n) => n + 1)} />
+          ))}
         </div>
       )}
     </div>
   )
 }
 
-function VarNode({ v, depth, onExpand }) {
+// varIsSummarised reports whether Delve shortened this value. Its marker is an ellipsis, and it
+// can land anywhere: at the end of a string, before a closing brace on a struct, inside the
+// brackets of a slice (`[1,2,...]`). So the test is simply whether the value contains one.
+//
+// A Go string whose *contents* end in "..." would be a false positive. That costs a "show all"
+// that returns the same text — which is the harmless way round, next to hiding the fact that
+// four fifths of a value is missing.
+export function varIsSummarised(value) {
+  return String(value || '').includes('...')
+}
+
+export function VarNode({ v, depth, containerRef, onExpand, onSet, onFull, onChanged }) {
   const [open, setOpen] = useState(false)
   const [kids, setKids] = useState(null)
+  const [nonce, setNonce] = useState(0)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [full, setFull] = useState(null)
   const expandable = v.variablesReference > 0
+  // Delve refuses to set anything it cannot name; the rows without one are the compiler's.
+  const settable = !!v.evaluateName && !!onSet && containerRef > 0
+
   useEffect(() => {
-    if (!open || kids) return
+    if (!open) return undefined
     let live = true
     onExpand(v.variablesReference).then((k) => { if (live) setKids(k) }).catch(() => { if (live) setKids([]) })
     return () => { live = false }
-  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, nonce]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const shown = full ?? v.value
+  const commit = async () => {
+    if (busy) return
+    setBusy(true); setErr('')
+    try {
+      await onSet(containerRef, v.name, draft)
+      setEditing(false)
+      setFull(null)
+      onChanged?.()          // the container's other fields may have moved with it
+      setNonce((n) => n + 1) // ...and this row's children are now stale
+    } catch (e) {
+      setErr(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
-    <div style={{ paddingLeft: depth * 8 }}>
-      <button disabled={!expandable} onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-start gap-1 text-left text-[11px] disabled:cursor-default">
-        <span className={`mt-0.5 shrink-0 ${expandable ? '' : 'opacity-0'} ${open ? 'rotate-90' : ''} transition-transform`}>
+    <div style={{ paddingLeft: depth * 8 }} className="group/var">
+      <div className="flex items-start gap-1 text-[11px]">
+        <button disabled={!expandable} onClick={() => setOpen((o) => !o)}
+          title={expandable ? 'Expand' : undefined}
+          className={`mt-0.5 shrink-0 transition-transform disabled:cursor-default ${expandable ? '' : 'opacity-0'} ${open ? 'rotate-90' : ''}`}>
           <Icon.Chevron size={10} />
-        </span>
+        </button>
         <span className="shrink-0 font-mono text-fg">{v.name}</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-muted" title={v.value}>{v.value}</span>
-      </button>
+
+        {editing ? (
+          <span className="flex min-w-0 flex-1 flex-col gap-1">
+            <span className="flex items-center gap-1">
+              <input autoFocus className={`${inputCls} py-1 font-mono text-[11px]`} value={draft} disabled={busy}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commit()
+                  if (e.key === 'Escape') { setEditing(false); setErr('') }
+                }} />
+              <button onClick={commit} disabled={busy} title="Set (Enter)"
+                className="shrink-0 rounded p-1 text-muted hover:bg-surface2 hover:text-fg"><Icon.Check size={12} /></button>
+              <button onClick={() => { setEditing(false); setErr('') }} title="Cancel (Esc)"
+                className="shrink-0 rounded p-1 text-muted hover:bg-surface2 hover:text-fg"><Icon.Close size={12} /></button>
+            </span>
+            {err && <span className="text-danger">{err}</span>}
+          </span>
+        ) : (
+          <span className="min-w-0 flex-1">
+            <span className="whitespace-pre-wrap break-all font-mono text-muted">{shown}</span>
+            {varIsSummarised(shown) && v.evaluateName && onFull && (
+              <button className="ml-1 whitespace-nowrap text-primary hover:underline"
+                onClick={async () => {
+                  try { setFull(await onFull(v.evaluateName)) } catch (e) { setErr(e.message) }
+                }}>show all</button>
+            )}
+            {settable && (
+              <button title={`Set ${v.evaluateName}`}
+                onClick={() => { setDraft(v.value); setEditing(true); setErr('') }}
+                className="ml-1 align-middle text-muted opacity-0 transition group-hover/var:opacity-100 hover:text-fg">
+                <Icon.Pencil size={11} />
+              </button>
+            )}
+            {err && !editing && <span className="ml-1 text-danger">{err}</span>}
+          </span>
+        )}
+      </div>
       {open && (
-        <div className="space-y-0.5">
+        <div className="space-y-1">
           {kids === null && <p className="pl-3 text-[11px] text-muted">Reading…</p>}
-          {(kids || []).map((k, i) => <VarNode key={`${k.name}-${i}`} v={k} depth={depth + 1} onExpand={onExpand} />)}
+          {(kids || []).map((k, i) => (
+            <VarNode key={`${k.name}-${i}`} v={k} depth={depth + 1} containerRef={v.variablesReference}
+              onExpand={onExpand} onSet={onSet} onFull={onFull} onChanged={() => setNonce((n) => n + 1)} />
+          ))}
         </div>
       )}
     </div>
@@ -749,8 +851,8 @@ export function WatchBox({ value, onChange, onAdd, watches, onRemove, allowCalls
         {watches.map((wv) => (
           <div key={wv.expr} className="group flex items-start gap-2 text-[11px]">
             <span className="shrink-0 font-mono text-fg">{wv.expr}</span>
-            <span className={`min-w-0 flex-1 truncate font-mono ${wv.error ? 'text-danger' : 'text-muted'}`}
-              title={wv.error || wv.value}>{wv.error || wv.value}</span>
+            <span className={`min-w-0 flex-1 whitespace-pre-wrap break-all font-mono ${wv.error ? 'text-danger' : 'text-muted'}`}>
+              {wv.error || wv.value}</span>
             <button onClick={() => onRemove(wv.expr)} className="shrink-0 text-muted opacity-0 group-hover:opacity-100 hover:text-danger">
               <Icon.Close size={12} />
             </button>

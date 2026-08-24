@@ -942,7 +942,8 @@ func (s *k3dDebugSession) variables(ctx context.Context, ref int) ([]dapVariable
 	return cli.variables(ctx, ref)
 }
 
-// evaluate runs an expression in a frame.
+// evaluate runs an expression in a frame. Values come back whole (dapEvalFull) rather than
+// summarised: somebody typing an expression wants the answer, not the first 259 characters of it.
 //
 // An expression is not only a read: Delve will happily *call a method* on the live operator if
 // asked to, which is real code running in a process managing a real cluster. That is a legitimate
@@ -960,7 +961,33 @@ func (s *k3dDebugSession) evaluate(ctx context.Context, expr string, frameID int
 			"that expression calls a function, which runs real code in the operator — tick “allow function calls” first")
 	}
 	s.touch()
-	return cli.evaluate(ctx, expr, frameID)
+	return cli.evaluate(ctx, expr, frameID, dapEvalFull)
+}
+
+// setVariable writes a new value into the debuggee.
+//
+// This is the one thing in the panel that changes the operator rather than watching it, so every
+// edit goes in the session log: a cluster that behaves oddly ten minutes later should have a
+// record of the field somebody rewrote, and the log is the record the whole session shares.
+func (s *k3dDebugSession) setVariable(ctx context.Context, ref int, name, value string) (dapVariable, error) {
+	cli := s.client()
+	if cli == nil {
+		return dapVariable{}, fmt.Errorf("not attached")
+	}
+	s.mu.Lock()
+	stopped := s.status == "stopped"
+	s.mu.Unlock()
+	if !stopped {
+		return dapVariable{}, fmt.Errorf("the operator is running — a variable can only be set while it is stopped")
+	}
+	s.touch()
+	v, err := cli.setVariable(ctx, ref, name, value)
+	if err != nil {
+		s.logf("warn", "could not set %s to %s: %v", name, value, err)
+		return v, err
+	}
+	s.logf("warn", "set %s = %s in the running operator", name, v.Value)
+	return v, nil
 }
 
 func (s *k3dDebugSession) client() *dapClient {

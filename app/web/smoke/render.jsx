@@ -45,6 +45,7 @@ import OperatorDebugger, {
   QuickBreakpoints as DbgQuick, BreakpointList as DbgBreakpoints, FileTree as DbgFiles,
   SourceView as DbgSource, CallStack as DbgStack, Variables as DbgVars,
   WatchBox as DbgWatch, EventLog as DbgLog,
+  VarNode as DbgVarRow, varIsSummarised as __varIsSummarised,
 } from '../src/pages/OperatorDebugger.jsx'
 import { goHighlight, TOKEN_CLS, STATUS_TONE, STATUS_TEXT, shortFrameName } from '../src/lib/debugApi.js'
 import LogSummary, {
@@ -1881,7 +1882,39 @@ check('operator debugger: call stack (with a frame that has no source)', () =>
   renderToString(<DbgStack frames={dbgState.frames} selected={1000} onSelect={noop} />))
 check('operator debugger: variables', () =>
   renderToString(<DbgVars scopes={[{ name: 'Locals', variablesReference: 1000, expensive: false }]}
-    stopped onExpand={() => Promise.resolve([])} />))
+    stopped onExpand={() => Promise.resolve([])} onSet={() => Promise.resolve({})}
+    onFull={() => Promise.resolve('')} />))
+
+check('operator debugger: a value is never clipped, and is editable when Delve can name it', () => {
+  // SSR runs no effects, so render the rows directly rather than through a scope's fetch.
+  const settable = { name: 'Name', value: '"k3d-dbg"', type: 'string', evaluateName: 'request.NamespacedName.Name', variablesReference: 0 }
+  const generated = { name: '~r0', value: 'reconcile.Result {Requeue: true, ...}', variablesReference: 1004 }
+  const html = renderToString(
+    <DbgVarRow v={settable} depth={0} containerRef={1003}
+      onExpand={() => Promise.resolve([])} onSet={() => Promise.resolve({})} onFull={() => Promise.resolve('')} />)
+  if (html.includes('truncate')) throw new Error('a value is still clipped by CSS')
+  if (!html.includes('Set request.NamespacedName.Name')) throw new Error('a nameable variable offers no edit')
+
+  // Delve refuses to set what it cannot name, so the row must not pretend otherwise.
+  const noName = renderToString(
+    <DbgVarRow v={generated} depth={0} containerRef={1000}
+      onExpand={() => Promise.resolve([])} onSet={() => Promise.resolve({})} onFull={() => Promise.resolve('')} />)
+  if (noName.includes('Set ')) throw new Error('a compiler-generated row offers an edit that cannot work')
+  // ...but a summarised value still offers the whole thing — except that too needs a name.
+  const summarised = renderToString(
+    <DbgVarRow v={{ ...generated, evaluateName: 'rr' }} depth={0} containerRef={1000}
+      onExpand={() => Promise.resolve([])} onSet={() => Promise.resolve({})} onFull={() => Promise.resolve('')} />)
+  if (!summarised.includes('show all')) throw new Error('a summarised value offers no way to see all of it')
+  return 'ok'
+})
+
+check('operator debugger: what counts as a summarised value', () => {
+  const cut = ['reconcile.Result {Requeue: true, ...}', '"a long string"...', '[]int len: 300, cap: 300, [1,2,...]']
+  const whole = ['"k3d-dbg"', 'true', '6534380408448', 'types.NamespacedName {Namespace: "pxc", Name: "k3d-dbg"}']
+  for (const v of cut) if (!__varIsSummarised(v)) throw new Error(`${v} should read as summarised`)
+  for (const v of whole) if (__varIsSummarised(v)) throw new Error(`${v} should read as complete`)
+  return 'ok'
+})
 check('operator debugger: watches', () =>
   renderToString(<DbgWatch value="" onChange={noop} onAdd={noop}
     watches={[{ expr: 'request.NamespacedName', value: 'types.NamespacedName {Namespace: "pxc"}' }]}
