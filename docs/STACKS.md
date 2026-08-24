@@ -219,22 +219,30 @@ operator's own PVC backup repo and the bucket stays empty.)
 
 **Step through the operator itself.** A PXC frame can be deployed with the operator running
 under **Delve**: tick *Run the operator under Delve*, and DBCanvas rebuilds the operator from
-that release's own source with the optimiser off, runs it under `dlv` in place of the released
-binary, and publishes the debugger on `127.0.0.1:40000`. Attach your IDE, put a breakpoint in
-`Reconcile`, annotate the custom resource, and watch the reconcile loop run against a real
-cluster — no `kubectl port-forward` to keep alive. The pod keeps the released image (only its
-command changes), the liveness probe and leader election are turned off so you can sit on a
-breakpoint, and Delve starts with `--continue` so the cluster still deploys whether or not you
-attach. The server node's **Operator** tab hands you the matching `git clone`, a ready
-`launch.json` (with the `substitutePath` that makes source line up), and the annotation that
-forces a reconcile. It costs a few minutes of build time on the first deploy.
+that release's own source with the optimiser off and runs it under `dlv` in place of the released
+binary. Then open the [**Operator Debugger**](OPERATOR_DEBUGGER.md) — breakpoints, call stack,
+variables and expressions, plus a button that forces a reconcile so a breakpoint in `Reconcile`
+is actually reached. No IDE, no clone of the operator, no Go toolchain, and no
+`kubectl port-forward` to keep alive.
 
-Stop the debug session whenever you like — a watchdog sidecar clears whatever breakpoints your
-IDE left armed and resumes the operator within ten seconds. That matters more than it sounds:
-a breakpoint that outlives its session fires on the next reconcile with nobody attached, and the
-operator freezes with no probe failing and nothing in its log, so the cluster quietly stops being
-reconciled; the next attach then shows the breakpoint as *unverified*, which reads as a broken
-debugger rather than as leftovers in the way.
+The pod keeps the released image (only its command changes), the liveness probe and leader
+election are turned off so you can sit on a breakpoint, and Delve starts with `--continue` so
+the cluster still deploys whether or not you ever attach. It costs a few minutes of build time
+on the first deploy.
+
+Ticking *Also publish the debugger to the host* additionally exposes Delve on
+`127.0.0.1:40000` for an external editor; the server node's **Operator** tab then hands you the
+matching `git clone`, a ready `launch.json` (with the `substitutePath` that makes source line
+up), and the annotation that forces a reconcile. Leave it off when you debug from DBCanvas: the
+port is fixed, so two debugged clusters would collide on it.
+
+Stop the debug session whenever you like — DBCanvas clears the breakpoints and resumes the
+operator when you close the page, resumes a stopped session nobody has touched for five minutes,
+and a watchdog sidecar covers even the case where DBCanvas itself dies, within ten seconds. That
+matters more than it sounds: a breakpoint that outlives its session fires on the next reconcile
+with nobody attached, and the operator freezes with no probe failing and nothing in its log, so
+the cluster quietly stops being reconciled; the next attach then shows the breakpoint as
+*unverified*, which reads as a broken debugger rather than as leftovers in the way.
 
 ![A K3D cluster node's panel beside a console listing the pods the operator built](screenshots/k3d-cluster.png)
 

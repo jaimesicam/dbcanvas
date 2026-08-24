@@ -11,6 +11,26 @@ development: spin up a production-shaped cluster in minutes, exercise it, tear i
 
 ## What's New
 
+**Debug the Kubernetes operator itself, without an IDE.** Deploy a K3D frame with *Run the
+operator under Delve* ticked and the **Operator Debugger** page becomes a real debugger on the
+operator managing your cluster: click a line number (or a named *quick breakpoint* like
+`Reconcile` or `smartUpdate`), press **Force a reconcile**, and read the call stack, the locals
+and any Go expression you type — the custom resource it fetched, the request that woke it, the
+decision it is about to take. No clone of the operator, no Go toolchain, no `launch.json`, no
+`kubectl port-forward`.
+
+![The Operator Debugger stopped in Reconcile, with the call stack and locals beside the source](docs/screenshots/operator-debugger.png)
+
+> *Stopped at the top of `Reconcile` on a live PXC cluster. The operator's own frame sits above
+> five of controller-runtime's, which have no source on the node and say so; `request.NamespacedName`
+> was evaluated on the spot — `{Namespace: "pxc", Name: "k3d-dbg"}`, the cluster being reconciled.*
+
+A stopped operator reconciles nothing, and nothing about that is visible from outside — so
+DBCanvas clears the breakpoints and resumes it when you close the page, resumes a session nobody
+has touched for five minutes, and keeps the watchdog sidecar as a backstop for its own death.
+Attaching VS Code still works: that is now a tick on the frame rather than the only way in.
+[Operator Debugger →](docs/OPERATOR_DEBUGGER.md)
+
 **OpenID Connect sign-in for Percona Server, with Keycloak as the identity provider.**
 Percona added the `auth_openid_connect` plugin in **Percona Server 8.4.11-11**, and DBCanvas
 wires it up for you: add a **Keycloak** node, tick *Keycloak SSO* on a **Percona Server** node,
@@ -110,6 +130,7 @@ runs any of six database operators.
 | [**Log Summary**](docs/LOG_SUMMARY.md) | Several nodes' logs on one timeline, split into the good, the warning and the bad. |
 | [**Stalk Summary**](docs/STALK_SUMMARY.md) | Turn a pt-stalk capture into charts, and say which variables to change. |
 | [**FTDC Summary**](docs/FTDC_SUMMARY.md) | Read MongoDB's own black box — the diagnostic data every mongod already writes. |
+| [**Operator Debugger**](docs/OPERATOR_DEBUGGER.md) | Step through the Kubernetes operator itself — breakpoints, stack and variables, no IDE. |
 | [**All in One**](docs/ALL_IN_ONE.md) | Many database instances in one node, for when you need versions side by side. |
 | [**Labs**](docs/LABS.md) | Hands-on scenarios on a disposable stack, graded against the real cluster. |
 

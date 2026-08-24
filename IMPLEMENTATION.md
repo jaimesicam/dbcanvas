@@ -18024,3 +18024,140 @@ switches to case-insensitive matching as soon as either side looks like a DOS pa
   the *whole* path, so a repository with an upper-case directory would not resolve. This one is
   entirely lower-case, so it does not bite here.
 - `go build`, `go vet`, `go test ./...` and the smoke suite green.
+
+## 309. Debugging the operator from DBCanvas, not from an IDE — `app/k3ddap.go`, `app/k3ddebugsess.go`, `app/k3ddebugapi.go`, `app/k3ddebug_it_test.go` (all new), `app/{k3ddebug,k3d,intranet,main}.go`, `app/web/src/lib/debugApi.js`, `app/web/src/pages/OperatorDebugger.jsx` (new), `App`, `Icons`, `K3DManager`, `StackDesigner`, `smoke/render.jsx`, `docs/OPERATOR_DEBUGGER.md` (new)
+
+§306–§308 put the PXC operator under Delve and published its port. What that produced was an
+*offer*: here is a port, now go and set up VS Code — a clone of the operator at the right tag, a
+Go toolchain, gopls pointed at `GOOS=linux`, and a `launch.json` with the `substitutePath` that
+makes source line up. Every one of those is something DBCanvas already knows or already has. So
+this session made DBCanvas the debugger client: a new **Operator Debugger** page with
+breakpoints, stepping, a call stack, variables, expression evaluation — and a *Force a reconcile*
+button, which is the one thing an IDE on the same port cannot do.
+
+The VS Code path still works; publishing to the host is now a tick on the frame rather than the
+only way in.
+
+### DAP, not Delve's JSON-RPC
+
+The obvious choice for a Go program is Delve's own RPC API. It is the wrong one here:
+
+- `CreateBreakpoint` **blocks while the target runs** — the in-flight `Continue` holds the target
+  mutex — so every client that works halts, sets, and resumes. DAP does that dance internally;
+  on the JSON-RPC path it would be ours to reimplement, under a debuggee that can stop on its own
+  at any moment.
+- Delve serves both protocols on the same port (it peeks the first byte), so nothing extra is
+  deployed either way.
+- DAP is what VS Code drives against this exact deployment — the path already proven live here.
+
+`k3ddap.go` is a small client: `Content-Length` framing, a read loop that demultiplexes responses
+(by `request_seq`) from events, and the handshake `initialize` → `attach {"mode":"remote"}` →
+wait for `initialized` → breakpoints → `configurationDone`. One function is named rather than
+inlined because it is load-bearing: `dapDisconnect` always sends `terminateDebuggee:false`, since
+`true` kills dlv, which is the operator pod's process.
+
+### The session owes the cluster something
+
+A breakpoint stops the operator, and a stopped operator reconciles nothing — no probe fails
+(§306 removed the liveness probe on purpose), nothing is logged, the cluster is simply not being
+managed. `k3ddebugsess.go` is mostly the rules that follow from that:
+
+- **Detach clears the breakpoints and resumes**, then disconnects — the same order the watchdog
+  sidecar uses, because resuming first walks straight back into the breakpoint. The set is kept
+  in the session and re-armed on the next attach, which is what makes closing the page cheap.
+- **An idle stop resumes itself** after five minutes (configurable, and switchable off), with a
+  line in the session log saying so.
+- **The last viewer leaving** gets a 20s grace period *only if the operator is running*; a
+  stopped one is resumed immediately. A page reload therefore costs nothing, and walking away
+  from a frozen operator costs ten seconds, not a cluster.
+- **Several viewers share one session**, because Delve serves one DAP client at a time. A second
+  tab joins rather than being refused.
+- An expression that would **call a function** is refused until the session is told to allow it.
+  Delve will happily run a method inside the process managing a real cluster; that is a legitimate
+  thing to want and a terrible default.
+
+Reachability is the same route Stock Market Sim takes (§298): the app joins the stack network and
+dials the k3s node's InternalIP on the NodePort that already fronts the operator pod. The host
+port is never used, which is why it became optional.
+
+### What live testing changed
+
+Two opt-in integration tests came out of this — `DELVE_IT=host:port` drives the DAP client at a
+real Delve, `DBCANVAS_IT=url` drives the whole feature through its own API — and they earned
+their keep immediately. Against a one-node PXC 1.20.0 frame:
+
+- **Attaching does not halt the debuggee.** The handshake produces `capabilities` and
+  `initialized` and nothing else; the belt-and-braces `continue` that follows comes back
+  "Unable to process `continue`: debuggee is running". That error is expected, and is logged as
+  such rather than as a failure.
+- **All six quick-breakpoint presets resolve** — `Reconcile` 236, `deploy` 565, `smartUpdate`
+  193, `reconcileUsers` 53, and the backup and restore controllers. The names were read out of
+  the 1.20.0 source rather than guessed, and a test asserts they still look like Delve specs.
+- **The attach was running on the browser's request context.** A page closed mid-handshake — or,
+  as in the first run, a test client whose HTTP timeout coder/websocket turns into a deadline on
+  the whole connection — abandoned it with Delve part-configured. It now runs on the session's
+  own context; `context.WithoutCancel` keeps the engine and drops only the cancellation.
+- **Delve sends `terminated` when a *client* session ends** ("leaving multi-client DAP server ...
+  with debuggee running"), so an ordinary detach was reporting the operator as gone. Events from
+  a connection the session has already let go of are now ignored entirely.
+- **A failed request's useful half is `body.error.format`**, not the response's `message`.
+  "Unable to evaluate expression" alone says nothing; with the detail it says which symbol.
+
+And the property that had to be true, verified against the real cluster: stop the operator at a
+breakpoint, hang up without detaching, and the operator is running again with nothing armed —
+while the watchdog's log stays empty, because the app cleaned up before the backstop had to.
+The PXC cluster reached `ready` with three members and three HAProxy pods *while its own operator
+was being stepped through*, and the operator pod ended the session with zero restarts.
+
+### The one that only a browser could find
+
+The first debug session on a freshly deployed stack died a few milliseconds after attaching.
+Not a Delve problem, and not the WebSocket's: **connecting a running container to a Docker
+network reprograms its NAT rules, which resets connections already open through the published
+port** — so the app joining the stack network to reach the debugger killed the very socket that
+had asked it to. Reproduced deliberately by disconnecting the app from the stack network: with
+it off, the socket EOFs at 14ms; with it on, the attach takes 202ms and the session runs for as
+long as you leave it.
+
+Fixed twice over, because both halves are worth having: the join now happens **at deploy time**,
+while nobody is watching (the deploy's own HTTP traffic is a poll that retries), and the page
+**reconnects its session socket** after 1.5s — the session is server-side, so a reconnect picks
+up the same breakpoints and the same stop. That also covers frames deployed before this change.
+
+### The page
+
+Three columns, in the order the questions come: where can I stop, what is the code doing, what
+is it holding. Driving it in a real browser (`playwright-core`, headless Chromium) against the
+live operator found what SSR could not:
+
+- **The panes have to claim a height.** The app's `<main>` scrolls, so a column that merely says
+  `flex-1` grows the page instead — and the stepping toolbar scrolls off the top the moment the
+  operator stops in a long file. Hence a local `Panel`: Card's look, with a body that scrolls.
+- **A source row that shrinks clips the code.** Rows are `w-max` so the pane scrolls sideways,
+  with the gutter pinned by `position: sticky` while it does.
+- **Go generic frames** come back as `controller.(*Controller[go.shape.struct {
+  k8s.io/apimachinery/pkg/types.NamespacedName }]).Reconcile`. Trimming at the last slash before
+  dropping the type argument leaves `types.NamespacedName }]).Reconcile`, which names nothing.
+- **A quick breakpoint is a breakpoint**: counting only the source ones made the panel say
+  "Breakpoints (0)" while the operator sat at one.
+- **The stopped line has to be revealed when the source arrives**, not only when the stop does —
+  the file is fetched *after* the event that names it.
+
+Syntax colouring is ~60 lines of hand-rolled Go tokenizer and no new dependency; the smoke suite
+asserts it round-trips the source exactly, because colouring must never change what the code
+says. Fixing that check also surfaced that `smoke/render.jsx` emitted its pass/fail verdict
+*before* the last checks in the file ran — those were reported and then ignored. The verdict is
+now the last thing in the file.
+
+### Verified
+
+- `go test ./...` and `make smoke` pass; two live integration tests pass against a deployed
+  PXC frame, including the teardown-resumes property and the refusal of a function call.
+- The whole flow driven in headless Chromium: attach, quick breakpoint, force a reconcile, stop
+  in `Reconcile`, call stack, expand a variable, evaluate `request.NamespacedName` →
+  `{Namespace: "pxc", Name: "k3d-dbg"}`, step over 236 → 237, continue.
+- A second frame deployed with the host port **not** published debugs identically over the stack
+  network (`172.23.0.3:30400`), and the collision precheck correctly refused to deploy it while
+  the first frame still held port 40000.
+- The published-port path is unchanged: the DAP integration test attaches through
+  `127.0.0.1:40000`, which is what an IDE uses.

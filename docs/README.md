@@ -27,6 +27,7 @@ How to use each part of DBCanvas. For installing and configuring it, see
 | [Log Summary](LOG_SUMMARY.md) | Several nodes' logs on one timeline, classified into the good, the warning and the bad. |
 | [Stalk Summary](STALK_SUMMARY.md) | Charts from a pt-stalk capture, and which variables to change. |
 | [FTDC Summary](FTDC_SUMMARY.md) | MongoDB's diagnostic data — the black box every mongod already writes. |
+| [Operator Debugger](OPERATOR_DEBUGGER.md) | Step through the Kubernetes operator itself — breakpoints, call stack and variables, with no IDE. |
 
 ## Learn on it
 
