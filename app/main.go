@@ -42,6 +42,11 @@ type App struct {
 	// debugger (stackID/frameID -> *k3dDebugSession). Sessions outlive the browsers watching
 	// them: the breakpoint set is worth keeping across a page reload. See k3ddebugsess.go.
 	debugSessions sync.Map
+	// gdbSessions holds the live gdb of each Linux Client analysing a core dump
+	// (stackID/nodeID -> *gdbSession). They outlive the browsers watching them for a different
+	// reason than the debugger's do: loading an 800 MB core takes tens of seconds, and paying
+	// that again because somebody reloaded the page is a poor trade. See gdbsess.go.
+	gdbSessions sync.Map
 }
 
 func main() {
@@ -335,6 +340,13 @@ func main() {
 	mux.HandleFunc("GET /api/stacks/{id}/frames/{fid}/k3d/debug/source", app.handleK3DDebugSource)
 	mux.HandleFunc("GET /api/stacks/{id}/frames/{fid}/k3d/debug/ws", app.handleK3DDebugWS)
 	mux.HandleFunc("POST /api/stacks/{id}/frames/{fid}/k3d/debug/reconcile", app.handleK3DDebugReconcile)
+
+	// Core Dump Analyzer (see gdbapi.go): the Linux Clients deployed for core-dump analysis, what
+	// is in the mounted core directory (and whether the symbols and libraries actually match it),
+	// and one WebSocket per live gdb.
+	mux.HandleFunc("GET /api/gdb/targets", app.handleGDBTargets)
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/gdb/cores", app.handleGDBCores)
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/gdb/ws", app.handleGDBWS)
 
 	// All-in-One node: instance inventory + lifecycle. Every action execs the
 	// container's own `aioctl`, so the UI and the CLI cannot diverge.

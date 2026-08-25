@@ -36,7 +36,8 @@ certificate, users, and on-demand backups.
   **Ubuntu VNC** desktop, a **Linux Client** jump box (a bare OS host with nothing installed, on
   any base image the matrix builds — Oracle Linux 8/9/10, Ubuntu 22.04/24.04 or Debian 12/13:
   join the stack's DNS/CA trust, then use its terminal to install and exercise whatever client
-  tools a task needs), and **Watchtower**.
+  tools a task needs — or tick *use this client for core-dump analysis* and it becomes one, see
+  below), and **Watchtower**.
 - **App Simulators** — link **Traffic Sim** to a Valkey node/cluster, **Hotel Sim** to a PS
   MongoDB standalone/replica-set/sharded node, **Airline Sim** to a standalone Percona Server
   node, a MySQL replication or PXC cluster, or a ProxySQL/HAProxy node fronting one, **Car
@@ -231,6 +232,15 @@ The pod keeps the released image (only its command changes), the probes and lead
 turned off so you can sit on a breakpoint, and Delve starts with `--continue` so the cluster
 still deploys whether or not you ever attach. It costs a few minutes of build time on the first
 deploy.
+
+**Read a core dump from somewhere else.** A **Linux Client** node can be deployed as a core-dump
+analysis host: give it a host directory holding a `mysqld` core file and another holding the
+crashed server's `mysqld` plus everything `ldd` listed for it, pick the Percona Server or PXC
+version that crashed, and DBCanvas bind-mounts both read-only and installs the matching debug
+symbols. Then open the [**Core Dump Analyzer**](CORE_DUMP_ANALYZER.md) — threads, the stack that
+took the signal, and each frame's arguments and locals, with recursion collapsed and a verdict on
+whether the symbols and libraries actually match the core. An 800 MB core is read where it lies,
+not copied. The two directories are confined to `GDB_MOUNT_ROOT` (`.env`).
 
 Ticking *Also publish the debugger to the host* additionally exposes Delve on
 `127.0.0.1:40000` for an external editor; the server node's **Operator** tab then hands you the

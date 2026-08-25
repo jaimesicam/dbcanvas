@@ -4754,6 +4754,8 @@ function LinuxClientForm({ node: n, patchNode, deleteNode, dep, deployed }) {
         <span>Use Intranet proxy (Squid) for downloads</span>
       </label>
 
+      <GDBFields node={n} patchNode={patchNode} deployed={deployed} />
+
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
         <Icon.Trash size={16} /> Delete node
       </Button>
@@ -4761,21 +4763,162 @@ function LinuxClientForm({ node: n, patchNode, deleteNode, dep, deployed }) {
   )
 }
 
+// GDBFields — turn a Linux Client into a core-dump analysis host.
+//
+// Both directories live on the *Docker host* and are bind-mounted read-only, so a core the size of
+// a server's memory is read where it lies instead of copied. The library directory is the one
+// people get wrong: it wants the crashed host's `mysqld` **and** everything `ldd $(which mysqld)`
+// printed, together in one place. gdb is then pointed at it twice over — `sysroot` for a copied
+// tree, `solib-search-path` for a flat dump — and the copied `mysqld` becomes the binary it reads,
+// which is the only way to be certain the code matches the core.
+//
+// The version picker is not about the binary, then; it is about the *symbols*. A released mysqld
+// carries no debug information, and gdb finds it by build-id under /usr/lib/debug — which is what
+// the debuginfo packages put there. That is why the node's OS has to be the crashed server's too:
+// an el8 build and an el9 build of one version have different build-ids and do not share symbols.
+function GDBFields({ node: n, patchNode, deployed }) {
+  const [cat, setCat] = useState(null)
+  const product = n.gdbProduct || 'ps'
+  useEffect(() => {
+    if (!n.gdbEnabled) return
+    const load = product === 'pxc' ? stackApi.pxcCatalog() : stackApi.psCatalog()
+    load.then((r) => setCat(r?.images || r || [])).catch(() => setCat([]))
+  }, [n.gdbEnabled, product])
+
+  const imgs = cat || []
+  const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion)
+  const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
+  const minors = (entry?.versions?.[n.gdbMajor]) || []
+  const lock = deployed ? 'opacity-70' : ''
+
+  // Snap the dependent selects once the catalog lands, the same way every other version picker
+  // does — a major that this OS has no builds of would otherwise sit there un-deployable.
+  useEffect(() => {
+    if (deployed || !n.gdbEnabled || !majors.length) return
+    const patch = {}
+    if (!majors.includes(n.gdbMajor)) { patch.gdbMajor = majors[0]; patch.gdbVersion = '' }
+    else if (n.gdbVersion && !minors.includes(n.gdbVersion)) patch.gdbVersion = ''
+    if (Object.keys(patch).length) patchNode(n.id, patch)
+  }, [imgs, n.id, n.gdbEnabled, n.gdbMajor, n.gdbVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="space-y-2 rounded-lg bg-surface2 p-2">
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" className="mt-1" disabled={deployed}
+          checked={!!n.gdbEnabled}
+          onChange={(e) => patchNode(n.id, { gdbEnabled: e.target.checked, gdbProduct: n.gdbProduct || 'ps' })} />
+        <span>
+          Use this client for core-dump analysis
+          <span className="block text-xs text-muted">
+            Mounts a core dump and the crashed host's libraries read-only, installs gdb and the
+            matching debug symbols, and opens in the <span className="font-medium text-fg">Core Dump
+            Analyzer</span> — threads, stack and arguments, without touching the server that crashed.
+          </span>
+        </span>
+      </label>
+
+      {n.gdbEnabled && (
+        <>
+          <Field label="Core dump directory (on the Docker host)"
+            hint="Mounted read-only at /coredumps. Every core file in it is offered.">
+            <input className={`${inputCls} font-mono ${lock}`} disabled={deployed}
+              placeholder="/srv/coredumps/db7/cores"
+              value={n.gdbCoreDir || ''} onChange={(e) => patchNode(n.id, { gdbCoreDir: e.target.value })} />
+          </Field>
+          <Field label="Library directory (on the Docker host)"
+            hint="Mounted read-only at /sysroot. Put the crashed host's mysqld here together with everything `ldd $(which mysqld)` listed — gdb reads that copy, so the code is guaranteed to match the core.">
+            <input className={`${inputCls} font-mono ${lock}`} disabled={deployed}
+              placeholder="/srv/coredumps/db7/libs"
+              value={n.gdbLibDir || ''} onChange={(e) => patchNode(n.id, { gdbLibDir: e.target.value })} />
+          </Field>
+
+          <div className="grid grid-cols-3 gap-2">
+            <Field label="Product">
+              <select className={`${inputCls} ${lock}`} disabled={deployed} value={product}
+                onChange={(e) => patchNode(n.id, { gdbProduct: e.target.value, gdbMajor: '', gdbVersion: '' })}>
+                <option value="ps">Percona Server</option>
+                <option value="pxc">PXC</option>
+              </select>
+            </Field>
+            <Field label="Major">
+              <select className={`${inputCls} ${lock}`} disabled={deployed} value={n.gdbMajor || ''}
+                onChange={(e) => patchNode(n.id, { gdbMajor: e.target.value, gdbVersion: '' })}>
+                {majors.length === 0 && <option value="">…</option>}
+                {majors.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </Field>
+            <Field label="Version">
+              <select className={`${inputCls} ${lock}`} disabled={deployed} value={n.gdbVersion || ''}
+                onChange={(e) => patchNode(n.id, { gdbVersion: e.target.value })}>
+                <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
+                {minors.map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
+            </Field>
+          </div>
+
+          <p className="text-xs text-muted">
+            Set this node's <span className="font-medium text-fg">OS to the one the crashed server
+            ran</span>: debug symbols are matched to a build by its build-id, and an el8 build and an
+            el9 build of the same version do not share them. The analyzer says so if they disagree.
+            The server package is installed but never started.
+          </p>
+        </>
+      )}
+    </div>
+  )
+}
+
 // LinuxClientManager shows a deployed Linux Client node's basic connection info — there's
 // no service running on it to manage, just the host it joined the stack as.
-function LinuxClientManager({ dep, onDeleteNode }) {
+function LinuxClientManager({ dep, onDeleteNode, stackId }) {
   const cfg = dep?.config || {}
+  const gdb = !!cfg.gdbEnabled
+  const ready = cfg.gdbStatus === 'ready'
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <span className="text-sm font-semibold">Linux Client</span>
         <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
       </div>
-      <p className="text-xs text-muted">No product installed. Open this node's terminal to install and run clients against the stack.</p>
+      <p className="text-xs text-muted">
+        {gdb
+          ? "Set up for core-dump analysis. Its terminal is still a plain shell if you want gdb by hand."
+          : "No product installed. Open this node's terminal to install and run clients against the stack."}
+      </p>
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
         <div className="flex justify-between gap-3"><span className="text-muted">Image</span><span className="font-mono text-xs">{cfg.image || ''}</span></div>
         <div className="flex justify-between gap-3"><span className="text-muted">Host</span><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></div>
+        {gdb && <>
+          <div className="flex justify-between gap-3"><span className="text-muted">Core dumps</span><span className="font-mono text-xs">{cfg.gdbCoreDir} ({cfg.gdbCoreCount ?? 0})</span></div>
+          <div className="flex justify-between gap-3"><span className="text-muted">Libraries</span><span className="font-mono text-xs">{cfg.gdbLibDir}</span></div>
+          <div className="flex justify-between gap-3"><span className="text-muted">Debugging</span><span className="font-mono text-xs">{cfg.gdbBinary || 'nothing found'}</span></div>
+        </>}
       </div>
+      {gdb && (
+        <>
+          <div className={`rounded-lg px-3 py-2 text-[11px] leading-snug ${ready
+            ? 'border border-accent/30 bg-accent/10 text-muted' : 'border border-warning/30 bg-warning/10 text-muted'}`}>
+            {ready ? (
+              <>
+                <span className="font-medium text-fg">Ready.</span> gdb is reading{' '}
+                <span className="font-mono">{cfg.gdbBinary}</span>{' '}
+                {cfg.gdbBinaryFrom === 'mounted'
+                  ? '— the copy taken off the crashed host, so the code matches the core exactly'
+                  : '— the installed package, because no mysqld was mounted alongside the libraries'}
+                , with separate debug symbols installed.
+              </>
+            ) : (
+              <><span className="font-medium text-fg">Limited.</span> {cfg.gdbStatus}</>
+            )}
+          </div>
+          <Button size="sm" className="w-full" onClick={() => {
+            try { sessionStorage.setItem('dbcanvas.gdbTarget', `${stackId}/${dep.nodeId}`) } catch { /* private mode */ }
+            location.hash = 'core-dump'
+          }}>
+            <Icon.Mineral size={15} /> Open analyzer
+          </Button>
+        </>
+      )}
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
       </Button>
@@ -9106,7 +9249,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     // Linux Client node — a bare OS host with no product installed.
     if (n.type === 'linuxclient') {
       if (dep && dep.state === 'running') {
-        return <LinuxClientManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+        return <LinuxClientManager dep={dep} stackId={stackId} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <LinuxClientForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }

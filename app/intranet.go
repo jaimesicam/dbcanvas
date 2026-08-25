@@ -68,6 +68,18 @@ type designNode struct {
 	Mode            string `json:"mode"`            // "singlewrite" (default) | "loadbal"
 	PMMNodeID       string `json:"pmmNodeId"`       // PMM node monitoring this ProxySQL (optional)
 	UseProxy        bool   `json:"useProxy"`        // route package egress via the Intranet Squid proxy
+	// Linux Client core-dump analysis (Type=="linuxclient"; ignored by other types). The two
+	// paths are directories **on the Docker host**, bind-mounted read-only into the node, so a
+	// core file the size of a server's memory is read where it lies rather than copied. The
+	// product/major/version triple is what decides which debug-symbol packages the node needs:
+	// resolving a core needs the *same build* of mysqld that produced it, which is also why the
+	// node's own OS has to match the crashed server's. See gdbcore.go.
+	GDBEnabled bool   `json:"gdbEnabled"`
+	GDBCoreDir string `json:"gdbCoreDir"` // host dir holding the core file(s)
+	GDBLibDir  string `json:"gdbLibDir"`  // host dir holding the origin host's shared libraries
+	GDBProduct string `json:"gdbProduct"` // "ps" | "pxc"
+	GDBMajor   string `json:"gdbMajor"`   // "8.0" | "8.4" | "5.7"
+	GDBVersion string `json:"gdbVersion"` // pinned minor, e.g. "8.0.16-7.1"; "" → latest
 	// Standalone Percona Server node fields (Type=="ps"; ignored by other types).
 	PSMajor      string `json:"psMajor"`      // Percona Server "8.0" | "8.4"
 	PSVersion    string `json:"psVersion"`    // minor; "" → latest
@@ -813,6 +825,9 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		// Linux Client on a VM-backed stack would fail at box resolution instead.
 		if n.OS == "debian" && n.Type == "linuxclient" && st.Backend == BackendVagrant && a.vagrant != nil {
 			out = append(out, issue{"error", "Linux Client " + n.Label + " is set to Debian, which this stack would provision as a VM — Debian is available on the Docker backend only"})
+		}
+		if n.Type == "linuxclient" && n.GDBEnabled {
+			out = append(out, a.gdbNodeIssues(n, st)...)
 		}
 		switch n.Type {
 		case "intranet":
@@ -2712,6 +2727,10 @@ func (a *App) teardownStack(stackID int64) {
 	// before removing containers. Otherwise they keep running against resources
 	// we are deleting, and their late writes land on the next deploy's rows.
 	a.cancelDeploy(stackID)
+	// A gdb session holds an exec into a node that is about to be removed. Dropping it here
+	// rather than waiting for its grace timer keeps the teardown quiet — and the analyzer page
+	// is told the session ended rather than watching its socket die.
+	a.gdbForget(stackID)
 	st, _ := a.store.GetStack(stackID)
 	if st.ID != 0 {
 		a.notifyStack(stackID, "stack.destroyed", "info", "Stack destroyed",

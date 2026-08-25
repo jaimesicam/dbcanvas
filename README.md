@@ -11,6 +11,17 @@ development: spin up a production-shaped cluster in minutes, exercise it, tear i
 
 ## What's New
 
+**Read a crashed server's core dump, here.** A **Linux Client** node can be deployed as a
+core-dump analysis host: point it at a host directory holding a `mysqld` core file and another
+holding the crashed server's `mysqld` plus its `ldd` closure, pick the version that crashed, and
+DBCanvas mounts both read-only and installs the matching debug symbols. The **Core Dump Analyzer**
+then **diagnoses** it rather than just rendering it: what kind of crash it was, which frame is
+actually the bug (almost never the top one), how deep the runaway went across the whole stack, and
+— for a runaway — the input that set it off, dug out of a frame a thousand deep. Plus the threads,
+the stack and each frame's arguments, and a verdict on whether the symbols and libraries actually
+match the core.
+[Core Dump Analyzer →](docs/CORE_DUMP_ANALYZER.md)
+
 **Debug the Kubernetes operator itself, without an IDE — now on all four Percona operators.**
 Deploy a K3D frame running the MySQL (PXC), MySQL (Percona Server), MongoDB or PostgreSQL
 operator with *Run the operator under Delve* ticked, then open the **Operator Debugger**: set a
@@ -125,6 +136,7 @@ runs any of six database operators.
 | [**Stalk Summary**](docs/STALK_SUMMARY.md) | Turn a pt-stalk capture into charts, and say which variables to change. |
 | [**FTDC Summary**](docs/FTDC_SUMMARY.md) | Read MongoDB's own black box — the diagnostic data every mongod already writes. |
 | [**Operator Debugger**](docs/OPERATOR_DEBUGGER.md) | Step through the Kubernetes operator itself — breakpoints, stack and variables, no IDE. |
+| [**Core Dump Analyzer**](docs/CORE_DUMP_ANALYZER.md) | Read a `mysqld` core dump from another server — threads, stack, arguments. |
 | [**All in One**](docs/ALL_IN_ONE.md) | Many database instances in one node, for when you need versions side by side. |
 | [**Labs**](docs/LABS.md) | Hands-on scenarios on a disposable stack, graded against the real cluster. |
 

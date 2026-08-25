@@ -18286,3 +18286,837 @@ Delve* ticked and the host port unpublished:
 `go test ./...` and `make smoke` pass. `TestDelveLiveSession` now takes `DELVE_IT_OPERATOR`, so
 the "do the presets actually resolve" check is one command per operator rather than a PXC-only
 test.
+
+## 311. Reading a core dump from somewhere else — `app/gdbcore.go`, `app/gdbmi.go`, `app/gdbsess.go`, `app/gdbapi.go`, `app/{gdbcore,gdbmi}_test.go` (all new), `app/{linuxclient,intranet,main}.go`, `app/web/src/lib/gdbApi.js`, `app/web/src/pages/CoreDumpAnalyzer.jsx`, `app/web/src/components/DebugPanel.jsx` (all new), `app/web/src/pages/{StackDesigner,OperatorDebugger}.jsx`, `App.jsx`, `smoke/render.jsx`, `docker-compose.yml`, `.env.example`, `docs/CORE_DUMP_ANALYZER.md` (new), `docs/{README,STACKS}.md`, `README.md`
+
+A `mysqld` core dump from production cannot be read on production — gdb plus a few hundred
+megabytes of debug symbols on a live database server is not something anyone signs off. The
+standard answer is to copy the core and the crashed host's libraries somewhere else and run one
+command:
+
+```
+gdb -ex "set solib-search-path <libs>" -ex "set sysroot <libs>" \
+    -ex "set pagination 0" -ex "thread apply all bt" /usr/sbin/mysqld <core>
+```
+
+Everything that command needs, DBCanvas already has: hosts it can provision, a version catalogue
+that knows every Percona build, and the debugger-shaped page §309 built for Delve. What the
+command cannot do is the reading — and, more to the point, it cannot tell you when it is lying.
+
+### The mounts, and Docker's most expensive default
+
+The core is the size of the server's memory (the one this was built against is 811 MB), so it is
+**mounted, not copied**: two read-only binds onto a Linux Client node, `/coredumps` and
+`/sysroot`. `ContainerSpec.Binds` already existed; nothing had ever put a *user-supplied* host
+path in it.
+
+That makes two things load-bearing:
+
+- **`GDB_MOUNT_ROOT`.** A bind mount is the one place a string somebody typed reaches the Docker
+  daemon as a host path, and the daemon has no confinement of its own. Paths are cleaned, required
+  to resolve under that root, refused at validate time, and always mounted `:ro`.
+- **A pre-flight probe.** Docker creates a missing bind source as an *empty directory* rather than
+  failing. A typo would therefore produce a node that comes up perfectly and an analyzer reporting
+  an empty directory, with nothing in any log to say the path was wrong. So the deploy mounts both
+  paths in a throwaway container first and counts what is there, failing with the path in the
+  message.
+
+### The half nobody guesses right
+
+`percona-server-server-debuginfo` carries mysqld's symbols. It is not enough. They are
+DWZ-compressed, and the common file they refer into ships **separately**, in
+`percona-server-debuginfo` — three files and no symbols of its own. Install one and gdb has half a
+symbol table; install the other and it has none, while `rpm -q` reports debuginfo installed. The
+sample node had exactly the second arrangement, which is why its backtrace showed bare `()` where
+arguments should be. Debian has the same trap next door: `percona-xtradb-cluster-server-debug` is a
+debug *build*, not symbols for the release build.
+
+The node also asks for the OS, and that is not incidental: symbols are matched to a build by its
+build-id, and an el8 build and an el9 build of one version do not share them.
+
+### The binary comes from the mount
+
+Told mid-implementation that the library directory holds `mysqld` **and** the `ldd` closure — which
+is what the recipe actually collects — the resolution order inverted. The copied binary *is* the
+one that produced the core, byte for byte, and no version guess can be wrong about it; the
+installed package became the fallback for a directory holding only libraries.
+
+The packages are still required, because a released mysqld carries no debug information at all: the
+copy supplies the code, the package supplies the names. The deploy records both build-ids so the
+analyzer can say when they disagree — which is the one failure that yields a *wrong* stack rather
+than a poor one.
+
+### MI, not scraping
+
+gdb has a machine interface, and it is to gdb what DAP is to Delve, so `gdbmi.go` is `k3ddap.go`'s
+sibling: tokens out, `^done`/`^error` back, `*stopped` and `=library-loaded` in between. The
+transport is one `HijackExec`, which has a TTY that MI neither wants nor can switch off, so gdb runs
+behind `stty -echo -onlcr` — without `-onlcr` every record arrives with a trailing `\r`.
+
+The parser was written from the grammar and then tested against **records captured from the real
+811 MB core**, which found two bugs no invented fixture would have:
+
+- `threads=[{id="1",…},…]` — a list of *bare tuples*. The first version scanned for a result name,
+  hit the `=` inside the tuple, and produced one nameless entry named `{id`, for every
+  `-thread-info` reply.
+- `stack=[frame={…},frame={…}]` — a list of *named* results. MI does not distinguish `[a,b]` from
+  `[x=a,x=b]`, so a repeated name has to become a list rather than overwrite.
+
+The scanner's line buffer is 16 MiB: one `-stack-list-frames` reply on a recursive core is a single
+line carrying several hundred frames.
+
+### What the page does that the command cannot
+
+- **The verdict, before the stack.** Each core is listed with its size, its executable, its signal,
+  whether the binary's build-id matches, and — via `eu-unstrip -n --core`, reading the core's own
+  notes — exactly which mapped objects are missing from the library directory. "You copied the wrong
+  libraries" and "you installed the wrong version" are the two silent failures, and both become a
+  line of text before anything is believed.
+- **The culprit.** The top frame is almost never the bug: a stack overflow surfaces in
+  `_int_malloc`, an assertion in `abort`. The banner names the first frame below the C library.
+- **Collapsed recursion.** A repeating cycle, direct or mutual up to four frames, folds into one row
+  with a `×N` badge. Without it a stack-exhaustion core is a page of identical lines with the
+  interesting top and bottom offscreen — which is the crash class people bring cores for.
+- **Threads you can scan.** The signalled one first, the rest labelled by what they were doing
+  rather than by LWP.
+
+The session is simpler than the debugger's in one important way: **a core file does not run**. No
+continue, no breakpoints, no lease, and no way to leave a cluster halted by walking away — so no
+watchdog sidecar. The guard it does need is different: gdb is a programmable debugger, and `shell`,
+`python`, `source` and `file` are refused until a tick says otherwise.
+
+`Panel`/`PanelMaximize`/`EventLog` moved out of `OperatorDebugger.jsx` into
+`components/DebugPanel.jsx` on the way — nothing about them was ever specific to Delve.
+
+### Verified
+
+Live, against the real thing: the 811 MB Percona Server 8.0.16-7 core from the `ps-01` node, with
+`mysqld` and its 14-file `ldd` closure copied beside it, mounted onto an Oracle Linux 8 Linux
+Client.
+
+- The mount probe reports `1 file(s)`, `14 library file(s), 1 mysqld`; a typo'd path fails the
+  deploy with *"…/coress does not exist on the Docker host"* and — after the probe was changed to
+  bind `GDB_MOUNT_ROOT` rather than the two paths themselves — leaves nothing behind. The first
+  version's own mount was what made the daemon create the directory it was checking for.
+- The three RHEL packages install pinned to `8.0.16-7.1`, the debug files get linked into
+  `/usr/lib/debug/sysroot/`, and the node reports `/sysroot/mysqld (the copy from the crashed host),
+  symbols true (identical to the installed build)`.
+- The page: 39 threads, the signalled one selected, a 200-frame stack rendered as **10 rows** with
+  `fts_ast_visit_sub_exp ×39`, and the selected frame showing `oper = FTS_EXIST`, `node`, `arg` and
+  its locals at `fts0que.cc:2815`.
+- Validation refuses a path outside `GDB_MOUNT_ROOT`, a relative path, `/var/run`, a version not in
+  the catalog, and an OS the product publishes nothing for; it warns when both mounts are the same
+  directory.
+
+Four things the live run found that no unit test would have, all of them in the "gdb is telling you
+something and you are reading it wrong" family:
+
+1. **`info program` is not how you ask what killed it.** On a core it answers *"The program being
+   debugged is not being run"*, which shipped as the crash summary until it was read on a real core.
+   The answer is on the console stream at load: *"Program terminated with signal SIGSEGV,
+   Segmentation fault."*, said once.
+2. **`(no debugging symbols found)` is usually about a library.** It arrives once per object, and on
+   a flat copy of the crashed host's libraries most objects have no symbols and never will. It is
+   attributed to whatever the preceding *"Reading symbols from &lt;path&gt;"* named — and the first
+   version's pattern stopped at the first dot, which no library path survives
+   (`libpthread-2.28.so`), so it never matched a library, stayed pinned to the executable, and made
+   the page claim there were no symbols for mysqld while showing line numbers from them.
+3. **A C-runtime library has two spellings.** `/lib64/libc.so.6` from a distribution, `libc-2.28.so`
+   from a flat copy of the real files. Matching only the soname made `_int_malloc` — the frame a
+   stack overflow always surfaces in — get reported as the program's own code, which is exactly
+   backwards.
+4. **The repeating unit was five frames, not three.** A four-frame ceiling found the inner run and
+   said "fts_ast_visit repeats 3 times": true, useless, and it leaves the outer cycle spread across
+   the whole pane.
+
+### A backtrace is not a diagnosis — `app/gdbdiag.go`
+
+Shown the finished page, the verdict on it was *"just reading the coredump from the tool doesn't
+tell me what's wrong and why it crashed"*, and that was right. It rendered a stack beautifully and
+diagnosed nothing — and two of the things it did say about this core were actively wrong:
+
+- **"the first frame that is not the C library is `ut_allocator::allocate`."** That is the
+  allocation that happened to touch the guard page. Nothing is wrong with it. The heuristic —
+  "first frame below libc" — picks the wrong frame for precisely the crash class people bring
+  cores for.
+- **"repeats 39 times."** Counted inside the 200-frame window the pane had loaded. The stack is
+  1,085 frames and the cycle runs 212 times. Wrong by a factor of twenty-five, and confidently so.
+
+And the one fact that explains the crash — a 2,748-byte `+(+(+(...` query — is an *argument of
+frame 1,068*. Nobody scrolls to frame 1,068.
+
+So the page now leads with a verdict rather than a summary. It reads the whole stack
+(`-stack-info-depth` then every frame, not the render window), finds the repeating unit and counts
+its real runs, classifies the crash from evidence rather than from the top frame, and then goes
+looking for the input: `-stack-list-arguments` over the frames just below the recursion, picking
+the argument whose printed value carries text rather than a pointer.
+
+Four classes, each of which needs a different response and looks identical in the top few frames:
+**stack-exhaustion** (most of a deep stack is one cycle), **assertion** (abort is on the stack, so
+the server chose to die), **allocation** (bad_alloc is being thrown), **bad-pointer** (a memory
+fault with no runaway). The culprit is never the machinery that runs *after* something went
+wrong — libc's `abort`/`raise`, the server's `handle_fatal_signal`, and, found by the tests,
+InnoDB's own `ut_dbg_assertion_failed`, without which every InnoDB assertion is diagnosed as a bug
+in InnoDB's assertion function.
+
+Every conclusion is published next to the facts it rests on, because a diagnosis you cannot check
+is just a different thing to distrust. On the real core:
+
+> **The thread ran out of stack: `fts_ast_visit` recursed 212 times without a depth limit.**
+> …is a 5-frame cycle that repeats 212 times, 1,060 of the stack's 1,085 frames. The signal landed
+> in `_int_malloc` only because an allocation was the first thing to touch the guard page.
+> **What set it off — `query_str` in `fts_query`, frame #1068 at `fts0que.cc:3760` · `query_len = 2748`**
+
+The pane's `×N` badge now reports the whole stack's count too: two numbers on one screen that
+disagree is worse than either alone.
+
+### Two more cores, and the shape of a real MySQL crash — `app/gdbdiag.go`, `app/gdbcore.go`, `CoreDumpAnalyzer.jsx`
+
+The verdict layer above was built against one core — a runaway recursion — and shown two more, from
+PS 8.0.30, it was useless on both. The reason is structural and applies to nearly every MySQL core
+in existence: **the server catches its own fatal signals**. `handle_fatal_signal` writes a backtrace
+to the error log and calls `my_write_core`, so frame 0 of every such stack is
+`__pthread_kill_implementation` and frames 1–3 are the handler. A tool that reasons from the top
+frame reports the crash handler, every time.
+
+gdb already marks the boundary — `<signal handler called>` — and the frame below it is where the
+program actually was. Using it changed the answers completely:
+
+| | before | after |
+| --- | --- | --- |
+| linuxclient1 | `my_write_core` | `SIGSEGV in String::append at sql_string.cc:451` — the fault is inside `__memmove`, so a bad *length*, and the frame below is `dump_leaf_key` |
+| linuxclient2 | `my_write_core` | `Null pointer: temptable::Storage::size called with this = 0x30 at storage.h:505` |
+
+Three additions came out of those two cores:
+
+- **A fault inside `memcpy`/`memmove` is never libc's bug.** The frame above it computed the
+  length, and saying "far more often the length than the pointer" is the sentence that starts the
+  investigation in the right place.
+- **A near-null pointer is a null plus a field offset.** `this = 0x30` is a null object read 48
+  bytes in. Reporting it as "a bad pointer" loses the only thing about it that matters.
+- **The arguments are where the root cause lives.** Fetching `-stack-list-arguments` for the frames
+  around the fault is what makes `this = 0x0` visible at all; the stack pane shows function names
+  and would never have surfaced it.
+
+### The source, which was the actual complaint
+
+Asked whether `percona-server-debugsource` would help: yes, decisively, and it is nearly free.
+Percona's debug information records an absolute `comp_dir` —
+`/usr/src/debug/percona-server-8.0.30-22.1.el9.x86_64/percona-server-8.0.30-22/sql/item_sum.cc` —
+which is **exactly where the debugsource package installs**. No `substitute-path`, no mapping, no
+configuration. (An older build, 8.0.16, records a relative `../../../percona-server-8.0.16-7/…`
+instead, which is why gdb is also given every `/usr/src/debug/*` root as its source path.)
+
+So the package joined the install set and the page grew a source pane, read off the node with `sed`
+the way the Operator Debugger reads the operator's source — the whole file is more useful than
+gdb's ten lines of `list`, and content beats a format to parse. The pane opens on the frame the
+analysis identified and scrolls the crashing line into view, because a window centred on a line
+that is below the fold shows you the lines *before* the crash, which is the one thing it must not
+do.
+
+That is the difference the complaint was about. `item_sum.cc:4115` is a coordinate; the same frame
+with `memcpy(m_ptr + m_length, s.ptr(), s.length());` highlighted and `s = {m_ptr = 0x73c9… <error:
+Cannot access memory>, m_length = 13315}` in the pane beside it is a root cause.
+
+### Verified
+
+Both of the new cores, live, plus the original: `gdbFaultFrame` never returns a handler frame,
+`this = 0x30` is classified as a null dereference and explained as a field offset, a fault inside
+`__memmove` is attributed to the caller's length, and the source pane shows the crashing line for
+every frame that has one. Tests are built from all three real stacks — including a helper that
+reproduces the handler-topped shape, because every future MySQL core will have it.
+
+## 312. Future-proofing the diagnosis: 58 real bugs, three reproduced live — `app/gdbdiag.go`, `app/gdbmi.go`, `app/gdbcore.go`, `app/{gdbdiag,gdbsess}_test.go`, `app/web/src/pages/CoreDumpAnalyzer.jsx`, `app/web/src/lib/gdbApi.js`, `docs/CORE_DUMP_ANALYZER.md`
+
+Handed a list of 58 previously-fixed Percona Server bugs and told plainly that reading a stack was
+not the same as explaining it, the ask was not to match 58 JIRA numbers — most need exact old
+builds, timing-sensitive races, or plugins this box does not have — but to find the *shapes* they
+represent and make the diagnosis generalize to them. Three were chosen for genuine diversity and
+reproduced for real: deployed a Percona Server node at the exact vulnerable version from each
+bug's own report, triggered the crash with the bug's own repro steps, and read the resulting core
+back through the tool being changed.
+
+### PS-8797 — a class the tool had no name for
+
+*Install the audit_log plugin under `innodb_force_recovery=1`* → `free(): invalid pointer`,
+SIGABRT. `abort()` is on this stack, same as an assertion — and the assertion case matched it
+first, so the tool's own first read of this core called it "an assertion failed." Nobody wrote an
+assertion; `malloc_printerr` did. Fetching the real backtraces for this bug and for PS-10332 (an
+unrelated double-free) off Percona's issue tracker's REST API — its web UI is a JS SPA WebFetch
+cannot render, `curl .../rest/api/2/issue/PS-XXXX` returns the same data as JSON — showed both hit
+the identical glibc chain: `abort → __libc_message → malloc_printerr → _int_free`. That became a
+new class, `heap-corruption`, checked *before* the assertion case for exactly that reason, with its
+own explanation (glibc's own consistency check, not the server's) and its own culprit (the first
+frame below the allocator, never `malloc_printerr` or `_int_free` themselves).
+
+Reproduced live: `my_free(audit_log_exclude_accounts)` twice — once on a partial-init cleanup path
+that never should have run, once in normal deinit — at `audit_log.cc:889`, found through the
+analyzer with nothing hand-tuned for this bug beforehand.
+
+### PS-8647 — proving `null-deref` and `bad-pointer` don't collide
+
+`SET GLOBAL tmp_table_size=51200` then `SELECT * FROM information_schema.APPLICABLE_ROLES` →
+SIGSEGV. The fault frame's `this` is `0x7abe140f8a30` — a real-looking address, not a null or a
+field offset from one — so this is the case that proves the null-deref detector added for the
+previous session's core does not fire on everything: it correctly declined and fell through to the
+generic `bad-pointer` class instead. The line is `Storage::size() { return m_number_of_elements; }`,
+one field read through a receiver that is no longer backed by live memory — TempTable's storage
+converted to its on-disk representation under a tmp_table_size far below anything realistic, out
+from under a reference something still held.
+
+### PS-8877 — reproduced in source, not live, and said so
+
+*Poll `performance_schema.innodb_redo_log_files` while the redo log rotates* →
+`Assertion failure: log0pfs.cc:263:m_position == m_rows_n + 1`, a TOCTOU race between the file
+count `rnd_init` snapshots and the count `rnd_next` iterates against. Chased for over 2,600 tight
+polls across two windows, with concurrent write load, oscillating `innodb_redo_log_capacity` to
+force file replacement mid-scan, and a stored-procedure loop to remove client round-trip latency
+from the timing budget — and it did not reproduce in the session's time. That is reported plainly
+rather than folded in as if it had: the row in the docs' verification table says exactly this, and
+the feature it needed — reading the failed condition off `ut_dbg_assertion_failed`'s own
+arguments, not a caller's — is verified against the bug's *real, published* backtrace and against
+InnoDB's actual source for that assertion (fetched from the same version tag), as a unit test
+rather than a live core.
+
+### Reading the condition, not just knowing there was one
+
+`ut_dbg_assertion_failed(const char *expr, const char *file, int line)` and glibc's own
+`__assert_fail(const char *assertion, const char *file, unsigned line, const char *function)` both
+take the failed check as *their own* first argument — not the caller's, theirs — so it is read
+directly rather than guessed at from context. The headline changed from "An assertion failed and
+the server aborted deliberately" to `` `m_position == m_rows_n + 1` failed (log0pfs.cc:263) ``,
+which is the difference between naming a category of problem and naming the actual one, and it
+applies to every assertion in the server — MySQL's own and InnoDB's — not the one bug it was
+checked against.
+
+### `thd->m_query_string` — the single highest-leverage find
+
+Debugging PS-8647 by hand, evaluating `thd->m_query_string` in an arbitrary SQL-layer frame
+returned the exact statement — a `LEX_CSTRING`, printed by gdb as `{str = 0x… "…", length = N}`.
+Unlike the "trigger" search built for the runaway-recursion case (which only looks in the frames
+right below where a cycle started, and only for classes that have one), this applies to *any*
+crash with SQL in flight: it scans the top of the stack for a `thd` (or `running_thd`/`target_thd`,
+seen in PS-4785's own backtrace) argument and reads its query directly, no guessing which nearby
+argument happens to be a string.
+
+It worked on both reproduced cores on the first try, on two crash classes that share nothing else:
+`select * from information_schema.APPLICABLE_ROLES` for the bad-pointer case, `install plugin
+audit_log soname 'audit_log.so'` for the heap-corruption case. The initial version had a coverage
+bug worth recording — it reused whatever a caller had already attached to frames 0–23 for its own
+purposes, and only fell back to fetching more when *nothing* was attached at all, so a THD sitting
+past frame 24 (not unusual once a few wrapper layers are in play) would go unseen with no error to
+say so. It now always fetches its own window fresh.
+
+### A skip-list that had already drifted
+
+`gdbFirstOwnFrame` kept its own copy of "frames that are crash machinery, not the bug" separate
+from `gdbFaultFrame`'s `gdbHandlerFrames` map — and the two had already disagreed:
+`my_server_abort` was in one and not the other, which is exactly the frame InnoDB's own assertion
+path calls through (`my_server_abort → my_abort → ut_dbg_assertion_failed`), so a bug reached that
+way would have been reported as "the bug is in `my_server_abort`," which is true of no assertion
+ever written. `gdbFirstOwnFrame` now defers to the one map. Also added: `malloc_consolidate`,
+`__libc_message`, `malloc_printerr` — the new heap-corruption machinery, which needed the same
+treatment for the same reason.
+
+### Verified
+
+Live, against three deployed nodes at the exact vulnerable version named in each bug's own report
+(PS 8.0.30-22, PS 8.0.32-24, PS 8.0.31-23), each triggered with that bug's own published repro
+steps, each core loaded and diagnosed through the running tool with nothing pre-tuned. `go test
+./...`, `go vet`, `make smoke` pass; unit tests for the two new classes and the condition-reading
+change are built from the real captured backtraces (PS-8797, PS-10332, PS-8877) rather than
+invented ones.
+
+## 313. A second batch, and a real bug the first three never exercised — `app/gdbdiag.go`, `app/gdbdiag_test.go`, `docs/CORE_DUMP_ANALYZER.md`
+
+Handed a further slice of the original 58-bug list — thirteen more previously-fixed Percona
+Server bugs — with the same instruction as before: deploy at the vulnerable version, trigger with
+the bug's own repro, read the resulting core back through the analyzer, and fix whatever the
+analyzer gets wrong. Batches of three, tearing each PS node down once its core was copied out and
+each analyzer node down once it had been read, so at most two or three extra stacks existed at
+once alongside the app itself.
+
+Of the first three (PS-8328, PS-7958, PS-8291), PS-8291 turned out not to be repeatable at all:
+its assertion (`dd_column_is_dropped(old_col)` at `dict0dd.cc:1685`) is `ut_ad`, a debug-only
+check, and its own JIRA thread already says so — a later comment note reads "the assertion is on
+debug builds only," and a release-build node run through its exact `ALTER ... ALGORITHM=INSTANT`
+add/drop sequence confirmed it: no crash, no error, nothing to analyze, because the packages this
+tool installs are release builds. PS-7538 (`ib_vector_size(optim->words) > 0` at `fts0opt.cc`,
+concurrent `OPTIMIZE TABLE` against an FTS index under `innodb_optimize_fulltext_only=1`) stood in
+for it — a genuine release-build `ut_a`, and one that needed thirty-two concurrent `mysqlslap`
+clients hammering `optimize table t1; UPDATE ...` for several minutes before it actually landed,
+not a single statement.
+
+PS-8328 (`GROUP_CONCAT(...) GROUP BY ... WITH ROLLUP` over a `TEXT` column) came back as
+`bad-pointer` — `String::append` at `sql_string.cc:451` handed a `String` whose `m_ptr` reads as
+`<error: Cannot access memory>` with `m_length = 12304`, one frame below `dump_leaf_key` in
+`item_sum.cc` — with nothing to change: a second, independent confirmation that `bad-pointer`
+finds the actual corrupted object rather than just the frame the crash happened to land in.
+
+PS-7958 is the one that found a real bug in the tool. `MATCH(col4) AGAINST('...\0...')` against an
+`ngram`-parsed FULLTEXT index hits `ut_a(arg3)` at `eval0eval.cc:130` — a genuine, previously
+unseen shape of assertion stack, and reading it back through the analyzer reported the culprit as
+`<signal handler called>` itself, and the condition as unreadable, on a core where both were
+sitting right there in the arguments.
+
+### `<signal handler called>` is not a frame that ran
+
+Every hand-built assertion fixture written for the first batch — including PS-8877's, built from
+that bug's real published backtrace — went straight from `handle_fatal_signal` to
+`my_server_abort`/`my_abort`, because that is how the *text* of a JIRA report is usually pasted.
+A gdb backtrace captured off an actual core is not shaped like that: gdb inserts its own
+`<signal handler called>` marker between the frame that was running when the kernel delivered the
+signal and the libc `raise`/`abort` below it, and PS-7958's core is the first one in this project
+to have gone through the tool with that frame present. `gdbFirstOwnFrame` (`app/gdbdiag.go`) had a
+skip-list for the C runtime and the server's own crash machinery (`gdbHandlerFrames`), built while
+fixing an unrelated drift bug in the previous session (§312), but no rule at all for the marker — so
+it walked past `__pthread_kill`, `my_write_core`, `handle_fatal_signal`, all correctly skipped,
+reached `<signal handler called>`, found nothing telling it to keep going, and returned that as
+"the first frame that belongs to the program." Every assertion reached through the standard
+handler chain — which is nearly all of them — was reporting its culprit as a gdb bookkeeping
+marker instead of the actual code. Fixed by skipping `gdbSignalHandlerMark` the same way the
+already-existing `gdbFaultFrame` does, with a comment recording why a hand-built fixture could
+never have caught this.
+
+### A four-character condition is still a condition
+
+Separately, `arg3` — the literal text of the C expression that failed — is 4 characters, and
+`gdbArgText` (which reads it straight out of `ut_dbg_assertion_failed`'s own `expr` argument) was
+routing through `gdbLooksLikeText`, a shared heuristic built for a different job: `findTrigger`
+scans a whole *range* of arguments below a runaway recursion, guessing which one is the input that
+started it, and needs an 8-character floor so it doesn't seize on some incidental pointer that
+happens to print with a quote in it. Reading a named argument that is already known, by name, to
+be the thing being asked for is not a guess, and the floor built for the guessing case was
+silently discarding a condition that had, in fact, printed — the verdict said "the symbols to read
+it are missing," which was false; they were sitting in frame 5 the whole time. `gdbArgText` now
+only checks for a quote at all, no length floor. `gdbAssertionCondition` also gained a basename
+step on the file it reads: a release RPM bakes the *builder's own* absolute path into `__FILE__`
+(`/mnt/jenkins/workspace/ps8.0-autobuild-RELEASE/.../eval0eval.cc` on this core, not just
+`eval0eval.cc`), and nobody wants that in a headline.
+
+With both fixed, the same core now reads: `An InnoDB assertion failed: arg3 (eval0eval.cc:130).`,
+culprit `eval_cmp_like` at `eval0eval.cc:130` — matching the bug's own report exactly — and the
+fix was re-verified against PS-8877's and PS-7538's cores/fixtures too, since both go through the
+same two functions.
+
+### Verified
+
+Live, against three more deployed nodes (PS-8328 at 8.0.28-19.1, PS-7958 at 8.0.26-16.1, PS-7538 —
+standing in for the non-reproducible PS-8291 — at 8.0.30-22.1), each triggered with that bug's own
+published repro steps, cores read back through the *rebuilt* analyzer to confirm the fix live
+rather than trusting the unit test alone. `go test ./...`, `go vet`, `make smoke` pass; a new test
+(`TestDiagnoseAssertionSkipsTheSignalHandlerMarker`) is built from PS-7958's real captured MI
+frames, including the `<signal handler called>` marker and the 4-character `expr`, specifically
+because the existing hand-built fixtures could not have caught either bug.
+
+## 314. A class the taxonomy never had: an exception nobody caught — `app/gdbdiag.go`, `app/gdbapi.go`, `app/{gdbdiag,gdbcore}_test.go`, `docs/CORE_DUMP_ANALYZER.md`
+
+Third batch from the same 58-bug list: PS-8504, PS-9159, PS-9668. PS-8504 (a huge
+`audit_log_filter_buffer_size` at startup) turned out to be the second bug in this project that
+is simply not reproducible against a released package — its own fix, logging an error and
+clamping the value instead of crashing, was already present in every Percona Server 8.0 build old
+enough to carry the `audit_log_filter` plugin at all, confirmed by setting the same absurd value
+on 8.0.37 and watching it get silently clamped to ~93 GB rather than crash. PS-9828 (malformed
+`audit_log_filter.file` path) stood in for it.
+
+PS-9159 (`SELECT ... GLOBAL_TEMPORARY_TABLES` racing a concurrent partitioned `ALTER TABLE ADD/DROP
+COLUMN`) reproduced clean on a release build after a few minutes of the bug's own two-loop
+concurrent repro and came back correctly as `assertion` — `table2 == nullptr` at
+`dict0dict.cc:1229`, right query, right culprit, no engine changes needed. A third, independent
+confirmation that the signal-handler-marker and short-condition fixes from the previous session
+hold up.
+
+PS-9668 and PS-9828 found the next real gap. Both are **uncaught C++ exceptions** —
+`audit_log_filter`, once enabled, throws `std::logic_error` when `LOCK TABLES FOR BACKUP` (what
+`xtrabackup` runs to start a hot backup) hands its record formatter a null query string, and
+throws `std::filesystem::filesystem_error` when its log file's directory does not exist — and the
+tool had no name for that class of crash at all. `abort()` is on both stacks (the C++ runtime's
+own `terminate` handler calls it once it gives up looking for a `catch`), so the existing
+`assertion` case — which matches on bare `abort()` being present — claimed both, and reported them
+as "an assertion failed" with no readable condition, because there never was one; `expr` and
+`file` arguments belong to `ut_dbg_assertion_failed`, not to `__cxa_throw`.
+
+### `exception`, checked before `assertion` for the same reason `heap-corruption` is
+
+A new class, detected via `__cxa_throw`/`__terminate`/`__verbose_terminate_handler`/the
+`__throw_bad_alloc` family, and — like `heap-corruption` before it — checked *before* `assertion`
+in `gdbClassify`, because both aborts share the same "abort() is on the stack" signature the
+assertion case tests for. `gdbUncaughtExceptionType` names the specific exception by reading which
+`std::__throw_*` helper is on the stack (`__throw_logic_error` → `std::logic_error`,
+`__throw_bad_alloc` → `std::bad_alloc`), when there is one — `filesystem_error` is thrown directly
+by `<filesystem>`'s own constructor rather than through one of libstdc++'s named throw helpers, so
+that headline falls back to "an exception" honestly rather than guessing, the same fallback shape
+`assertion` already used for a check with no readable condition.
+
+### The culprit search had a gap the same shape as the signal-handler-marker bug
+
+Reading PS-9668's core with the new class in place still reported the wrong culprit:
+`std::basic_string`'s own constructor, at a libstdc++ header path
+(`bits/char_traits.h:431`) — real code that ran, but not the bug. `gdbFirstOwnFrame`'s existing
+"skip a system frame" check only fires when a frame carries a `From` naming a shared object
+(`libstdc++.so`, `libgcc_s.so`, …), and correctly filtered every frame in the unwind machinery that
+*does* live in those `.so` files. `basic_string`'s constructor does not: it is a template,
+instantiated for `audit_log_filter`'s own use and compiled straight into `mysqld`, so it carries no
+`From` at all — indistinguishable, by that check, from the server's own code. What does still tell
+them apart is the file path: `/opt/rh/gcc-toolset-12/root/usr/include/c++/12/bits/char_traits.h`
+is libstdc++'s own header regardless of which binary the compiler folded it into. `gdbFirstOwnFrame`
+now also skips any frame whose file contains `/include/c++/`, and the real culprit — one frame
+below, in `audit_log_filter`'s own `new.cc:204` — is what the panel shows.
+
+### A second, unrelated truncation the same core exposed
+
+The full headline for PS-9668, before a second fix, read `Uncaught std::logic_error in
+audit_log_filter::log_record_formatter::LogRecordFormatter< at new.cc:204.` — cut off mid-template.
+`shortFuncName` found the name's argument list by scanning for the first `(`, which is correct for
+almost every signature but wrong here: the class is templated on an *enum value*
+(`LogRecordFormatter<(audit_log_filter::log_record_formatter::AuditLogFormatType)0>`), and a
+non-type template parameter's value prints with its own parentheses, inside the angle brackets,
+well before the real argument list. `shortFuncName` now tracks `<`/`>` depth and only treats a `(`
+at depth zero as the start of the argument list.
+
+### Verified
+
+Live, against three more deployed nodes (PS-9159 at 8.0.37-29.1, PS-9668 at 8.4.3-3.1, PS-9828 —
+standing in for the non-reproducible PS-8504 — at 8.4.5-5.1), each triggered with that bug's own
+published repro, each core read back through the *rebuilt* analyzer twice: once to find the two
+bugs above, once after fixing them to confirm the fix live. `go test ./...`, `go vet`, `make smoke`
+pass; two new tests are built from real captured data —
+`TestDiagnoseUncaughtException` from PS-9668's real MI frames, and a `shortFuncName` case in
+`gdbcore_test.go` using PS-9668's real, full, enum-templated symbol name verbatim.
+
+## 315. The last three, and terminate without an exception — `app/gdbdiag.go`, `app/gdbdiag_test.go`, `docs/CORE_DUMP_ANALYZER.md`
+
+The last batch of three from the 58-bug list: PS-10345, PS-10990, PS-11273 — closing it out at
+58/58 addressed, with 11 reproduced live across four sessions, two more proven fixed on every
+version this tool can install (PS-8291, PS-8504), one verified by unit test against a real
+backtrace after a genuine attempt to reproduce it did not pan out (PS-10990, joining PS-8877), and
+the rest covered by the same handful of generalized classes and mechanisms these did.
+
+PS-10345 (a nested `audit_log_filter_set_filter()` definition missing a required field) reproduced
+first try and read correctly with no engine changes: `bad-pointer`, culprit
+`rapidjson::GenericValue::DataString` reading a garbage pointer, one frame below `GetString` — the
+first case in this project where the culprit is inside a *vendored* third-party library
+(`extra/rapidjson`) rather than Percona's own `sql/` or `storage/innobase/`, and the classifier
+did not need to know that to get it right.
+
+PS-11273 (`authentication_policy=INVALID_VALUE`, which aborts startup before any component's
+`deinit()` runs) found the next real gap, in the `exception` class added last session. Its own
+JIRA thread already diagnoses the mechanism: a component keeps its state in a global
+`std::unique_ptr`, static destruction runs late, and one of the things it owns is a `std::thread`
+that was never joined or detached — destroying a joinable `std::thread` calls `std::terminate()`
+**directly**, with nothing ever thrown. The verdict, unchanged since last session, still said
+"propagated all the way out with nothing to catch it" — which is simply false here, and the
+server's own error log already says so in as many words: `terminate called without an active
+exception`. The distinguishing signal was on the stack the whole time: `__cxa_throw` is what
+actually raises a C++ exception, and it is *never* on this stack, unlike PS-9668's and PS-9828's.
+`gdbClassify`'s `exception` case now checks for it and picks one of three headlines: a named
+exception when a `std::__throw_*` helper is present, a generic "an uncaught exception" when
+`__cxa_throw` fired but the specific type could not be read, and — this case — "std::terminate()
+called directly" when it did not fire at all, with the explanation naming the joinable-thread
+pattern rather than implying a throw that never happened.
+
+PS-10990 (a stale `Item_cache` walked during column-privilege checking on a correlated subquery
+inside a stored procedure, re-filed by different reporters as PXC-4794 and upstream as
+MySQL#115885 — itself a duplicate of a non-public security advisory) got a genuine, unhurried
+attempt: a stored procedure built around the same shape the public reports describe — a `UNION` of
+correlated subqueries under column-level `GRANT`s — called several thousand times concurrently
+from two connections, with a third connection cycling `ALTER TABLE ADD/DROP COLUMN` throughout to
+disturb the object lifetimes further, for several minutes. It did not reproduce. Every public
+report of this bug says the same thing in different words — "not consistently reproducible," a
+private production database was needed, "so far unable to repeat with jemalloc or tcmalloc" — so
+this is treated the same as PS-8877 rather than pushed further: verified by unit test against the
+bug's own real, published, `c++filt`'d backtrace (`Item_cache::walk` → `Item_ref::walk` →
+`Item_func::walk` → `Item_cond::walk` → `Query_block::check_column_privileges`), which the
+existing `bad-pointer` class already reads correctly — a stale-but-plausible pointer, not a null,
+same shape as PS-8647 confirmed last session, on entirely unrelated code.
+
+### Verified
+
+Live, against three more deployed nodes (PS-10345 at 8.4.6-6.1, PS-11273 at 8.4.8-8.1) plus the
+unhurried, unsuccessful live attempt at PS-10990 on 8.0.45-36.1 described above. Both live cores
+were read back through the *rebuilt* analyzer to confirm the `exception` refinement — PS-11273's
+headline changed from a false "uncaught exception" to the accurate "std::terminate() called
+directly, in Worker::~Worker" — without disturbing PS-9668's still-correct "Uncaught
+std::logic_error" reading from the previous session. `go test ./...`, `go vet`, `make smoke` pass;
+two new tests: `TestDiagnoseTerminateWithoutException` from PS-11273's real MI frames, and
+`TestDiagnoseUseAfterFreeInItemCacheWalk` from PS-10990's real published backtrace.
+
+## 316. MyRocks, and a plugin the deploy never heard of — `app/gdbdiag.go`, `app/gdbdiag_test.go`, `docs/CORE_DUMP_ANALYZER.md`
+
+Handed a second, larger catalog — a curated re-pass over bugs already partly covered, ranked by
+"dbcanvas value," plus several categories (MyRocks, crash-recovery, concurrency) not touched
+before — with the same instruction as always: skip what is already done, reproduce three at a
+time, tear down between batches, improve the tool on whatever a real core exposes.
+
+Two of the first three (PS-8303, PS-8428) turned out to be the two flavors of non-reproducible
+already on record from earlier sessions, not new ones: PS-8303 is `dict0mem.h:2498:pos < n_def`,
+the same instant-add/drop-column dictionary family as PS-8291, reported against a `-debug` build,
+and a release node cycling the same DDL (plus a restart, to force the dictionary to fully reload
+rather than trust a cached table) produced nothing — same result, same reason. PS-8428 (`ALTER
+TABLE ... ADD FULLTEXT` under `innodb_encrypt_online_alter_logs=ON`) turned out to be a third kind
+of gap this project had not hit yet: not a debug-only check and not an already-shipped fix, but an
+**environmental** one — the bug's own root cause is `EVP_CIPHER_CTX_buf_noconst()` behaving
+differently under OpenSSL 3.0.x, and every Percona Server package this tool has ever installed, at
+every version tried across four sessions, links `libssl.so.1.1`. Confirmed rather than assumed: run
+against a real node, including with 50,000 rows to force the actual file-based, multi-threaded,
+encrypted merge-sort the bug lives in rather than an in-memory shortcut, and it did not crash.
+PS-9314 (`JSON_TABLE` combined with a string-concatenated correlated subquery) filled the third
+slot and reproduced first try — `null-deref`, `QEP_shared_owner::set_idx` called on `this = 0x0`
+one frame below `JOIN::get_best_combination` — with no engine changes needed.
+
+### MyRocks: a storage engine dbcanvas has never installed
+
+PS-8273 and PS-9666 — `INSERT` into a `ROCKSDB`-engine table with a unique key and a TTL comment,
+one on 8.0.28, one on 8.0.39, both crashing in the same function — filled out the batch, and
+neither is a node type dbcanvas provisions: no PS node has ever had a RocksDB option, so this went
+through `dnf install percona-server-rocksdb-<exact-NVR>` and `ps-admin --enable-rocksdb` by hand on
+top of an already-provisioned node, matching the version already pinned rather than the bare
+package name — the first attempt, without a version pin, silently pulled in and upgraded the whole
+server package to the newest release to satisfy the dependency, which is worth recording plainly
+as a mistake made and caught rather than glossed over: `dnf install <bare-package-name>` against
+an unpinned repo is exactly what dbcanvas's own deploy avoids by disabling the repo file after its
+own pinned install (renaming it to `.repo.bak`), and reaching around that safety measure without
+re-pinning did exactly the thing it exists to prevent. The fix each time was the same: re-enable
+the repo file, install the exact `<version>-<release>.el8` NVR, then rename it back to `.bak`
+immediately, restoring the same protection the deploy itself relies on.
+
+Both cores read correctly — `bad-pointer`, culprit `myrocks::rdb_should_hide_ttl_rec`, right query
+each time — but with a real, honest gap: the culprit carried a function name (resolved from
+`ha_rocksdb.so`'s own export table, copied into the library directory by hand alongside `mysqld`)
+and no file or line at all, because the deploy installs debug symbols for the server package, not
+for a storage-engine plugin it was never told about. Every other culprit this tool has ever shown
+carries a source line, and a reader has no way to tell "no debug info for this plugin" apart from
+"the search failed" without being told. `gdbClassify` now checks, after every branch, whether the
+culprit has a name but no file — the signature of a symbol resolved from a shared object's export
+table rather than from DWARF — and if the object is not a system library either, adds a line of
+evidence saying exactly that, naming the plugin.
+
+### Verified
+
+Live, against three more deployed nodes (PS-9314 at 8.0.36-28.1, PS-8273 at 8.0.28-19.1 with
+MyRocks added by hand, PS-9666 at 8.0.39-30.1 likewise) plus the two confirmed-non-reproducible
+attempts on PS-8303 (8.0.29-21.1) and PS-8428 (8.0.30-22.1) described above. Both MyRocks cores
+were read back through the *rebuilt* analyzer to confirm the new evidence line. `go test ./...`,
+`go vet`, `make smoke` pass; one new test, `TestDiagnosePluginCulpritExplainsMissingSource`, built
+from the real `rdb_should_hide_ttl_rec` frame shape both MyRocks cores share.
+
+## 317. A gap `gdbFirstOwnFrame` already had, found again in `gdbFaultFrame` — `app/gdbdiag.go`, `app/gdbdiag_test.go`, `docs/CORE_DUMP_ANALYZER.md`
+
+Handed a "dbcanvas value"-ranked re-pass of the bug list from a different angle — skip whatever
+was already covered, try three at a time from what was not. This batch (PS-9083, PS-9117,
+PS-9719) was the least productive yet by crash count and the most productive by engine fixes: two
+of the three did not reproduce despite real, sustained attempts, and the one that did found a
+repeat of a bug already fixed once, in the sibling function nobody had checked.
+
+PS-9117 (`SET @@SESSION.innodb_interpreter='init'`) resolved itself in one query: the variable
+does not exist on a release build at all (`ERROR 1193: Unknown system variable`), and the bug's
+own report already says "only debug build is affected" — the fastest confirmation of
+non-reproducibility so far. PS-9083 (slow query log with `log_slow_verbosity` including
+`query_info` and `long_query_time=0`, crashing in `File_query_log::write_slow`) got a real,
+varied attempt — single-connection and 16-way-concurrent connect/query/disconnect cycles, a
+heavier concurrent DML workload, explicit `mysqladmin ping` after a query — several hundred cycles
+across all of it, and none of it crashed. PS-10210 (`rocksdb_debug_cardinality_multiplier=0`) got
+the same effort on a `ROCKSDB` table (`ANALYZE TABLE`, index range scans, a restart) and, once,
+produced a visibly corrupted index cardinality — `-9223372036854775808`, `INT64_MIN` exactly —
+without an actual crash; its own report carries no backtrace at all, so unlike every other
+unreproduced bug on record this one has nothing to fall back to for a unit test either. Both are
+recorded as genuinely attempted and inconclusive rather than folded in as done.
+
+### The same STL-header gap, in the function that actually uses it for SIGSEGV
+
+PS-9719 (`SET GLOBAL binlog_transaction_dependency_tracking = ...` under concurrent write load)
+reproduced on the third try at real concurrent load — sixteen writer threads plus a loop cycling
+the variable between `WRITESET`, `WRITESET_SESSION`, and `COMMIT_ORDER` — and read back as
+`SIGSEGV in std::equal_to<unsigned long>::operator()`, eight frames of libstdc++'s own
+`std::unordered_map` implementation (`_M_key_equals`, `_M_equals`, `_M_find_before_node`,
+`_M_find_node`, two overloads of `find`) sitting between the fault and the real bug: a
+heap-use-after-free in `Writeset_trx_dependency_tracker::get_dependency`, confirmed by the
+report's own ASAN output. This is the *identical* gap fixed in the previous session for
+`std::basic_string` on PS-9668's core — a template instantiated for Percona's own key type,
+compiled straight into `mysqld`, carrying no shared-object `From` for the system-library filter to
+catch, its file path the only signal that it is libstdc++'s own header rather than the program's
+code. The difference is which function needed it: `gdbFirstOwnFrame` got the `gdbSystemHeaderFrame`
+check last session, but `gdbFaultFrame` — the one `bad-pointer` and `null-deref` actually use for
+a `SIGSEGV`, and a separate function from `gdbFirstOwnFrame` — did not, because nobody had yet hit
+a memory-fault core (as opposed to an assertion or an uncaught exception) that landed inside
+inlined STL. It now gets the same check, with a comment recording explicitly that the two
+functions used to disagree about this and why that was never caught until this core forced it.
+
+### Verified
+
+Live, against a fourth deployed node (PS-9719 at 8.0.40-31.1, reproduced under sixteen-way
+concurrent write load), read back through the *rebuilt* analyzer to confirm the fix — culprit
+changed from `std::equal_to::operator()` to `Writeset_trx_dependency_tracker::get_dependency` at
+`rpl_trx_tracking.cc:265`, matching the bug's own report exactly — plus the two documented,
+unhurried non-reproductions above. `go test ./...`, `go vet`, `make smoke` pass; one new test,
+`TestDiagnoseBadPointerSkipsStdlibHashtableTemplate`, built from PS-9719's real captured MI
+frames, all the way down through the eight real libstdc++ template frames to the real culprit.
+
+## 318. Proving "debug-only" instead of assuming it, and a MyRocks confirmation with no fix needed — `docs/CORE_DUMP_ANALYZER.md`
+
+One more batch, from the crash-recovery-adjacent and concurrency categories: PS-7883, PS-7856,
+PS-11143, with PS-10227 pulled in as a fourth after the second and third both turned out
+non-reproducible quickly. No code changed this session — every core read correctly the first
+time — but the batch is worth recording for how the three non-reproductions were each *settled*
+rather than just attempted and abandoned.
+
+PS-7883 (`ALTER TABLE ... ADD COLUMN` on a `ROCKSDB` table under `rocksdb_write_disable_wal=ON`)
+reproduced first try — installing MyRocks is now a known quantity after two prior sessions'
+worth of practice with the exact-NVR-pin dance — and read correctly as `assertion`, culprit
+`myrocks::rdb_handle_io_error` inside `ha_rocksdb.so`, its missing source line explained by the
+plugin-symbols evidence line added two sessions ago. A clean, useful confirmation: a *third*
+independent MyRocks crash, in a different function than PS-8273's or PS-9666's, and nothing
+needed changing.
+
+### Proving "debug-only" instead of trusting the report or giving up after a few tries
+
+PS-7856 (`Field_long::val_int()`'s own `assert()` failing when a partitioned table is updated
+with binary logging off) does not say "debug build only" anywhere in its own report, unlike
+PS-9117's and PS-10227's — so several real UPDATE shapes were tried against partitioned,
+auto-incrementing tables (composite-key, standalone-key, cross-partition row movement) before
+concluding anything. Rather than stop at "it did not crash after N attempts," the release binary
+itself was asked directly: `nm -D /usr/sbin/mysqld | grep __assert_fail` returns nothing. Every
+plain C `assert()` in the SQL layer is compiled out of Percona's release RPM entirely — `NDEBUG`
+is defined for that build — so the instruction that would fire this check is not present in the
+binary at all, for any SQL whatsoever. This is a technique worth keeping for the next thin or
+ambiguous report: checking whether the binary can even reach the failure is faster and more
+certain than more rounds of guessing at repro shapes, and it is different in kind from
+`ut_dbg_assertion_failed`'s `ut_ad`/`ut_a` split (PS-8291, PS-8303) — that one *can't* be checked
+the same way, since both compile to the same call in the source and the difference is purely a
+build-time macro, not a missing symbol.
+
+PS-10227 (`rocksdb_table_stats_skip_system_cf` aborting on restart, a `safe_mutex` check inside
+`my_mutex_lock`) needed no attempt at all — its own report's build string, `Server Version:
+8.0.43-34-debug`, already says what the other two prove independently: `safe_mutex` is MySQL's own
+debug-build mutex instrumentation, the same family as PS-8291's and PS-8303's `ut_ad`. PS-11143
+(Thread Pool clashing with Performance Schema instrumentation under a connection-heavy workload)
+is a different shape of gap entirely, joining PS-8428's OpenSSL-3.0.x case as the second
+*environmental* non-reproducibility on record rather than a build-flavor one: `thread_pool.so`
+does not exist anywhere in Percona's public RHEL or Debian repositories, for either the 8.0 or 8.4
+series — `dnf provides '*/thread_pool.so'` returns nothing — so there is no path to installing the
+component this bug needs at all, independent of SQL, load, or version.
+
+### Verified
+
+PS-7883 read correctly, live, against a deployed node (8.0.26-16.1, MyRocks added by hand) on the
+first attempt, no engine changes required. PS-7856, PS-10227, and PS-11143 are recorded as
+confirmed non-reproducible for three different, specific, checked reasons — one proven directly
+against the installed binary — rather than left as unexplained attempts.
+
+## 319. First PXC core, and a period ceiling that was never really eight — `app/gdbdiag.go`, `app/gdbapi.go`, `app/{gdbdiag,gdbcore}_test.go`, `docs/CORE_DUMP_ANALYZER.md`
+
+Handed a fresh catalog — PXC bugs specifically, split into ones that crash/abort and ones that
+evict a node without a process ever dying — with the same brief, extended to a product the
+analyzer had never actually been pointed at: `gdbProduct: "pxc"` existed in the designer schema
+since the feature's first session, but no PXC core had ever been read through it.
+
+Standing up a PXC cluster from scratch surfaced the shape of the `pxc` frame — nodes need an
+explicit `label` the way `ps`/`linuxclient` nodes do (the deploy's own validator caught this: "Every
+node must have a label"), and the bootstrap node runs under a *different* systemd unit than the
+nodes that join it — `mysql@bootstrap.service`, not `mysql.service`; restarting a live cluster
+member to pick up `core-file` has to go through the right one, and restarting the bootstrap node
+itself risks re-forming the cluster rather than rejoining it, so only the joiners needed touching
+for a config change that must apply cluster-wide anyway.
+
+### A cluster of one still runs the applier; not every real fault leaves a core
+
+PXC-3848 (`ALTER USER CURRENT_USER() IDENTIFIED BY '...'`, but only with `audit_log` loaded —
+confirmed against the bug's own comment thread, which took several rounds of narrowing to find)
+needed nothing more than one bootstrapped node — the code path involved runs regardless of
+cluster size — and reproduced first try. PXC-4341 (`PREPARE`/`FLUSH TABLES`/`EXECUTE` twice on the
+same connection) needed the real thing — a 3-node cluster — and reproduced down to the exact error
+text in its own report, but the losing node self-isolated (`Inconsistent`, cluster size 0) rather
+than aborting its process: a real, confirmed bug with nothing for this tool to read, since there
+is no core when nothing crashes. PXC-2500 (an early, low-numbered `ALTER USER ... REPLACE`
+cross-node crash) ran clean on 8.0.26-16.1 in two shapes — already fixed long before this version,
+the same finding as PS-8291's and PS-8504's from earlier sessions, just for PXC.
+
+### The period ceiling PS-5712 set was never a real limit
+
+PXC-3848's core read back with `class: "unknown"`-adjacent nonsense at first: `SIGSEGV in
+fprintf`, no cycle found, despite a visibly enormous 1,022-frame stack. The real shape, read frame
+by frame off the actual core: `get_current_user` fails inside Galera's applier context, raises a
+condition, which triggers `mysql_audit_notify` to log the query for the audit subsystem, which
+calls the query rewriter, which calls `get_current_user` again — a genuine cycle, ten frames long.
+`gdbFindCycle`'s period ceiling was eight, chosen in an earlier session from PS-5712's real
+five-frame cycle with no reason to think five was special — and ten does not divide into eight, so
+the search did not even fall back to a fragment the way a smaller true period would have; it found
+nothing at all, on a real core, at real depth. Raised to 24, with the reasoning for *why* eight
+was never actually a limit recorded alongside the change: it was one bug's number, not a property
+of recursion.
+
+Reading that cycle back also exposed a second, purely cosmetic bug in the same core:
+`(anonymous namespace)::rewrite_query` — a real, common C++ idiom for internal linkage — rendered
+as a blank string in the cycle list. `shortFuncName`'s depth-tracked paren scan (itself a fix from
+two sessions ago, for a different bug) treats the first `(` at depth zero as the start of an
+argument list; `(anonymous namespace)::` puts that `(` at position zero, before any scanning has
+happened, so the "argument list" it found was the entire name. Fixed by recognizing and stripping
+that specific, well-known prefix before the general scan runs, rather than trying to make the
+general scan itself smarter about a case that is really just C++ spelling "no name" a particular
+way.
+
+### Verified
+
+Live, against a single bootstrapped PXC node (PXC-3848, 8.0.26-16.1) and a real 3-node PXC cluster
+(PXC-2500 and PXC-4341, same version) stood up for the first time this session. PXC-3848's core
+was read back through the *rebuilt* analyzer twice — once to find the cycle-ceiling gap, once
+after fixing it and the anonymous-namespace bug together to confirm both live: the verdict now
+reads `The thread ran out of stack: my_message_sql recursed 100 times`, the full 10-frame cycle
+with every name intact, culprit `my_message_sql`, the triggering `ALTER USER` text recovered from
+frame 1,010. `go test ./...`, `go vet`, `make smoke` pass; two new tests —
+`TestGDBFindCycleTenFramePeriod`, a 100×10-frame synthetic stack built to the real core's exact
+shape, and a `shortFuncName` case in `gdbcore_test.go` using the real anonymous-namespace symbol
+verbatim.
+
+## 320. Closing out the PXC catalog: confirming a boundary, not finding more bugs — `docs/CORE_DUMP_ANALYZER.md`
+
+The full two-part PXC catalog from the previous session — bugs split explicitly into ones that
+crash/abort and ones that only evict a node — worked through to the end, three at a time, three
+deployed PXC clusters across the sweep. No code changed this session; the point of finishing the
+catalog was to find out whether the eviction category held up as a real category, not to chase
+individual bugs indefinitely once the pattern was already load-bearing.
+
+It held up. Five more triggers reproduced clean on top of PXC-4341 from last session — a `GRANT`
+for a nonexistent user (PXC-4284), `SET PASSWORD` with an unescaped `'` (PXC-4965), a
+self-violating `CHECK CONSTRAINT` (PXC-4336), an `ALTER TABLE` on a missing table that only evicts
+when run inside a stored procedure, matching that report's own oddly specific precondition
+exactly (PXC-4683), and — the most interesting of the six — a `CREATE USER` whose
+`authentication_policy` check passes on the node that ran it and fails on the node applying it,
+evicting a *different* node than the one that issued the statement, with no error shown to the
+person who ran it at all (PXC-4709). Every one of the six ends identically: the losing node votes
+itself `Inconsistent`, cluster size drops to zero on that member alone, the rest of the cluster
+carries on as a healthy majority, and no `mysqld` process ever calls `abort()`. Six independent
+confirmations is enough to say plainly, in the docs, what was implied but not stated after the
+first one: this shape of PXC bug is out of scope for a core-dump analyzer *by construction*, not
+by a gap in this one — there is no core because nothing crashed, and that is Galera's consistency
+voting working as designed, not a failure to reproduce.
+
+A few attempted eviction triggers did not reproduce (PXC-4268, PXC-4362, PXC-4765, PXC-4799,
+PXC-4012) and are recorded as attempted-not-reproduced rather than chased further, since a seventh
+or eighth confirmation of an already-confirmed mechanism would not teach the tool anything new —
+diminishing returns on effort that a genuinely novel bug shape would deserve instead.
+
+The "crash" half of the same catalog mostly repeated reasons already on record from earlier PS
+sessions, applied to PXC for the first time: `nm -D mysqld | grep __assert_fail` returning nothing
+settled two more plain-`assert()` bugs (PXC-4033, PXC-4403) the same way it settled PS-7856;
+`SET DEBUG_SYNC` not existing as a variable on a release build settled a third (PXC-667) the way
+missing symbols and missing plugins settled others before it. PXC-4849 (event scheduler +
+`read_only` + SST) reproduced every mechanical step of its own report — including a real, verified
+full SST via xtrabackup — right up to the point where the event loaded without error, meaning it
+is fixed at the version tried rather than not understood. Four bug numbers carried no information
+in Percona's own tracker to work from at all (PXC-4278, PXC-4340, PXC-5099, PXC-5209), and one
+(PXC-3184) turned out on inspection not to be a crash in the first place — a clean, intentional
+`exit()` when SST's own prerequisites are missing, which was never going to produce a core no
+matter how it was run. The rest (PXC-3442, PXC-3936, PXC-4211, PXC-4217, PXC-4348) got real
+attempts — the exact config and SQL from each report, 2- and 3-node clusters, concurrent
+conflicting load where called for — and simply did not land at the versions tried, with no single
+explanation tying them together the way the eviction half has one.
+
+### Verified
+
+Every finding in this session is a live result against a deployed PXC cluster (single-node and
+3-node, versions 8.0.26 through 8.0.41 depending on what each report specified), not a guess from
+reading the report alone — including the negative ones, which is what makes "out of scope by
+construction" a claim this project can stand behind rather than an assumption. No new tests: no
+diagnosis-engine behavior changed, because no core surfaced anything the engine got wrong this
+time.

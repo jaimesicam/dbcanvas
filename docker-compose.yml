@@ -57,6 +57,11 @@ services:
       # Host interface that deployed stack nodes bind their published (exported)
       # ports to. Default 127.0.0.1 (loopback only); set 0.0.0.0 for all interfaces.
       CONTAINER_BIND_IP: ${CONTAINER_BIND_IP:-127.0.0.1}
+      # The only host directory a Linux Client set up for core-dump analysis may
+      # bind-mount from. A bind mount is the one place a path somebody typed reaches
+      # the Docker daemon, and the daemon has no sandbox of its own — so this is the
+      # sandbox. Both mounts are always read-only. See app/gdbcore.go.
+      GDB_MOUNT_ROOT: ${GDB_MOUNT_ROOT:-/srv/coredumps}
     ports:
       # Publish on APP_HOST (default 127.0.0.1 = private). Set APP_HOST=0.0.0.0
       # in .env to expose on all host interfaces.

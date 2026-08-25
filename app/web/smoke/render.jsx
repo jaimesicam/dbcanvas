@@ -48,6 +48,16 @@ import OperatorDebugger, {
   VarNode as DbgVarRow, varIsSummarised as __varIsSummarised,
 } from '../src/pages/OperatorDebugger.jsx'
 import { goHighlight, TOKEN_CLS, STATUS_TONE, STATUS_TEXT, shortFrameName } from '../src/lib/debugApi.js'
+import CoreDumpAnalyzer, {
+  Header as GdbHeader, NoTargets as GdbNoTargets, CrashSummary as GdbSummary,
+  CoreList as GdbCores, ThreadList as GdbThreads, Backtrace as GdbStack,
+  FrameVars as GdbVars, EvaluateBox as GdbEval, ConsoleBox as GdbConsole,
+  SourceView as GdbSource,
+} from '../src/pages/CoreDumpAnalyzer.jsx'
+import {
+  crashSummary, shortFunc, sourceOf, isSystemFrame, formatBytes,
+  GDB_STATUS_TONE, GDB_STATUS_TEXT,
+} from '../src/lib/gdbApi.js'
 import LogSummary, {
   Verdict as LogVerdict, splitFindings, EventColumns as LogEventColumns, Swimlane as LogSwimlane, Snapshot as LogSnapshot,
   SourcesCard as LogSources, EventList as LogEvents, EventDetail as LogDetail,
@@ -1981,6 +1991,177 @@ check('operator debugger: the Go highlighter survives real source', () => {
   const generic = 'controller.(*Controller[go.shape.struct { k8s.io/apimachinery/pkg/types.NamespacedName }]).Reconcile'
   if (shortFrameName(generic) !== 'controller.(*Controller).Reconcile') {
     throw new Error(`a generic frame name is mangled: ${shortFrameName(generic)}`)
+  }
+  return 'ok'
+})
+
+// ---- Core Dump Analyzer ----------------------------------------------------
+//
+// The fixtures are the real crash this page was built for: PS 8.0.16 recursing through the FTS
+// query AST until the stack runs out, with the SIGSEGV surfacing inside libc's allocator.
+
+const gdbTargetFx = {
+  stackId: 1, stackName: 'crash lab', nodeId: 'lc1', label: 'linuxclient1',
+  hostname: 'linuxclient1', os: 'oraclelinux', osVersion: '8',
+  product: 'ps', major: '8.0', version: '8.0.16-7.1',
+  binary: '/sysroot/mysqld', binaryFrom: 'mounted', buildId: '3f2a9c', hasSymbols: true,
+  coreDir: '/srv/coredumps/db7/cores', libDir: '/srv/coredumps/db7/libs', status: 'ready',
+}
+
+const gdbFramesFx = [
+  { level: 0, addr: '0x7602eb1295de', func: '_int_malloc', from: '/lib64/libc.so.6' },
+  { level: 1, addr: '0x7602eb12c0d6', func: 'calloc', from: '/lib64/libc.so.6' },
+  { level: 2, addr: '0x1f67add', func: 'ut_allocator<unsigned char>::allocate(unsigned long, unsigned char const*, unsigned int, bool, bool)' },
+  { level: 3, addr: '0x216283f', func: 'rbt_create(unsigned long, int (*)(void const*, void const*))', file: '/src/storage/innobase/ut/ut0rbt.cc', line: 52 },
+  { level: 4, addr: '0x22f9c88', func: 'fts_query_visitor(fts_ast_oper_t, fts_ast_node_t*, void*)', file: '/src/storage/innobase/fts/fts0que.cc', line: 3707, repeat: 140 },
+  { level: 5, addr: '0x2337a6a', func: 'fts_ast_visit(fts_ast_oper_t, fts_ast_node_t*, dberr_t (*)(fts_ast_oper_t, fts_ast_node_t*, void*), void*, bool*)' },
+]
+
+const gdbStateFx = {
+  status: 'ready', core: 'core.mysqld.9712.1787625764',
+  signal: 'SIGSEGV', signalText: 'Segmentation fault',
+  threads: [
+    { id: '1', target: 'Thread 0x7602d8112700 (LWP 9756)', frame: gdbFramesFx[0] },
+    { id: '2', target: 'Thread 0x7602ed397380 (LWP 9712)', frame: { level: 0, func: 'poll', from: '/lib64/libc.so.6' } },
+  ],
+  thread: '1', totalThreads: 62, allowShell: false, subscribers: 1, target: gdbTargetFx,
+}
+
+const gdbCoresFx = [
+  { name: 'core.mysqld.9712.1787625764', size: 811331584, modified: '2026-08-25T02:42:00Z',
+    executable: '/usr/sbin/mysqld', signal: 'SIGSEGV', buildId: '3f2a9c', buildIdMatch: true,
+    resolved: 41, missing: [] },
+  { name: 'core.mysqld.older', size: 4096, modified: '2026-08-01T00:00:00Z',
+    executable: '/usr/sbin/mysqld', buildId: 'deadbe', buildIdMatch: false,
+    resolved: 3, missing: ['/lib64/libssl.so.1.1', '/lib64/libcrypto.so.1.1'] },
+]
+
+check('CoreDumpAnalyzer page (before the socket opens)', () => renderToString(<CoreDumpAnalyzer />))
+check('core dump: header', () =>
+  renderToString(<GdbHeader targets={[gdbTargetFx]} value="1/lc1" onChange={noop}
+    state={gdbStateFx} busy="" onClose={noop} onRefresh={noop} />))
+check('core dump: nothing to analyse', () => renderToString(<GdbNoTargets />))
+const gdbVerdictFx = {
+  class: 'stack-exhaustion',
+  headline: 'The thread ran out of stack: fts_ast_visit_sub_exp recursed 212 times without a depth limit.',
+  why: 'fts_query_visitor → fts_ast_visit → fts_ast_visit → fts_ast_visit → fts_ast_visit_sub_exp is a '
+    + '5-frame cycle that repeats 212 times, 1060 of the stack\'s 1085 frames. The signal landed in '
+    + '_int_malloc only because an allocation was the first thing to touch the guard page.',
+  evidence: [
+    'the stack is 1085 frames deep',
+    '1060 of them are one repeating 5-frame cycle: fts_query_visitor → fts_ast_visit → fts_ast_visit → fts_ast_visit → fts_ast_visit_sub_exp',
+    'the signal is SIGSEGV and the faulting frame is _int_malloc, in the C library',
+    'the recursion was started by fts_query at frame #1068, working on query_str',
+  ],
+  depth: 1085,
+  cycle: ['fts_query_visitor', 'fts_ast_visit', 'fts_ast_visit', 'fts_ast_visit', 'fts_ast_visit_sub_exp'],
+  repeats: 212,
+  trigger: {
+    frame: 1068, func: 'fts_query(trx_t*, dict_index_t*, uint, char const*, ulint, fts_result_t**, ulonglong)',
+    where: 'fts0que.cc:3760', name: 'query_str', value: '+(+(+(+(+(+(+(', extra: 'query_len = 2748',
+  },
+}
+
+check('core dump: the verdict — what went wrong and why', () => {
+  const html = renderToString(<GdbSummary state={{ ...gdbStateFx, verdict: gdbVerdictFx }}
+    frames={gdbFramesFx} core={gdbCoresFx[0]} />)
+  // The three things a stack alone does not tell you.
+  if (!html.includes('ran out of stack')) throw new Error('the crash class is not named')
+  if (!html.includes('1085')) throw new Error('the real stack depth is not shown')
+  if (!html.includes('query_len = 2748')) throw new Error('the triggering input is not shown')
+  if (!html.includes('frame #1068')) throw new Error('where the trigger was found is not shown')
+  return 'ok'
+})
+check('core dump: with no verdict it still says what is known', () => {
+  const html = renderToString(<GdbSummary state={gdbStateFx} frames={gdbFramesFx} core={gdbCoresFx[0]} />)
+  if (!html.includes('SIGSEGV')) throw new Error('the signal is not shown without a verdict')
+  return 'ok'
+})
+
+check('core dump: the summary in every state', () => {
+  for (const status of ['idle', 'loading', 'error', 'ready']) {
+    renderToString(<GdbSummary state={{ ...gdbStateFx, status, detail: 'x' }}
+      frames={gdbFramesFx} core={gdbCoresFx[0]} />)
+  }
+  // A core from a different build must be called out — that is the failure that produces a
+  // plausible, wrong stack rather than no stack.
+  const html = renderToString(<GdbSummary state={gdbStateFx} frames={gdbFramesFx} core={gdbCoresFx[1]} />)
+  if (!html.includes('different build')) throw new Error('a build-id mismatch is not reported')
+  if (!html.includes('could not be')) throw new Error('missing objects are not reported')
+  return 'ok'
+})
+check('core dump: core list with its verdicts', () =>
+  renderToString(<GdbCores cores={gdbCoresFx} open={gdbCoresFx[0].name} busy=""
+    target={gdbTargetFx} onOpen={noop} />))
+check('core dump: core list with nothing mounted', () =>
+  renderToString(<GdbCores cores={[]} open="" busy="" target={gdbTargetFx} onOpen={noop} />))
+check('core dump: threads', () =>
+  renderToString(<GdbThreads threads={gdbStateFx.threads} selected="1" signal="SIGSEGV" onSelect={noop} />))
+check('core dump: the stack, with recursion collapsed', () => {
+  const html = renderToString(<GdbStack frames={gdbFramesFx} selected={0} onSelect={noop}
+    more busy="" state={gdbStateFx} onMore={noop} />)
+  if (!html.includes('140')) throw new Error('a collapsed frame does not show its repeat count')
+  return 'ok'
+})
+check('core dump: an empty stack explains itself', () =>
+  renderToString(<GdbStack frames={[]} selected={0} onSelect={noop} more={false} busy="" state={{}} onMore={noop} />))
+check('core dump: frame variables', () =>
+  renderToString(<GdbVars frame={gdbFramesFx[4]} vars={[
+    { name: 'oper', type: 'fts_ast_oper_t', value: 'FTS_EXIST', arg: true },
+    { name: 'node', type: 'fts_ast_node_t *', value: '0x7602d0001234', arg: true },
+    { name: 'state', type: 'fts_query_t *', value: '0x7602d0005678' },
+  ]} />))
+check('core dump: a frame with no symbols says why', () =>
+  renderToString(<GdbVars frame={gdbFramesFx[0]} vars={[]} />))
+check('core dump: the source of the selected frame', () => {
+  const frame = { level: 6, func: 'temptable::Table::number_of_rows', file: '/usr/src/debug/percona-server-8.0.30-22.1.el9.x86_64/percona-server-8.0.30-22/storage/temptable/include/temptable/table.h', line: 190 }
+  const html = renderToString(<GdbSource frame={frame} source={{
+    from: 188, line: 190, file: frame.file,
+    lines: ['  size_t number_of_rows() const {', '    /* m_rows is the storage */', '    return m_rows.size();', '  }'],
+  }} />)
+  if (!html.includes('return m_rows.size();')) throw new Error('the source line is not shown')
+  if (!html.includes('190')) throw new Error('the gutter does not number the lines')
+  return 'ok'
+})
+check('core dump: a frame with no source says which kind of gap it is', () => {
+  renderToString(<GdbSource frame={{ level: 0, func: '_int_malloc', from: '/lib64/libc.so.6' }} source={null} />)
+  return renderToString(<GdbSource frame={{ level: 5, func: 'x', file: '/usr/src/debug/a.cc', line: 9 }}
+    source={{ error: '/usr/src/debug/a.cc is not on this node — install the debugsource package for this version' }} />)
+})
+
+check('core dump: evaluate', () =>
+  renderToString(<GdbEval value="" onChange={noop} onAdd={noop} onRemove={noop} watches={[
+    { expr: 'node->type', value: 'FTS_AST_OPER' },
+    { expr: 'nope', error: 'No symbol "nope" in current context.' },
+  ]} />))
+check('core dump: the gdb console and its shell tick', () => {
+  renderToString(<GdbConsole value="info sharedlibrary" onChange={noop} onRun={noop}
+    output="From  To  Syms Read  Shared Object Library" busy="" allowShell={false} onAllowShell={noop} />)
+  return renderToString(<GdbConsole value="" onChange={noop} onRun={noop} output="" busy=""
+    allowShell onAllowShell={noop} />)
+})
+
+// The summary's whole job is picking the frame that names the bug, and the top frame is not it:
+// a stack overflow surfaces inside the allocator every time.
+check('core dump: the summary skips the C library to find the culprit', () => {
+  const { culprit, recursion } = crashSummary(gdbFramesFx)
+  if (!culprit || !culprit.func.startsWith('ut_allocator')) {
+    throw new Error(`culprit = ${culprit && culprit.func} — libc frames must be skipped`)
+  }
+  if (!recursion.includes('fts_query_visitor') || !recursion.includes('140')) {
+    throw new Error(`recursion = ${recursion}`)
+  }
+  if (!isSystemFrame(gdbFramesFx[0]) || isSystemFrame(gdbFramesFx[3])) {
+    throw new Error('libc frames are not being told apart from the program\'s own')
+  }
+  if (shortFunc(gdbFramesFx[2].func) !== 'ut_allocator<unsigned char>::allocate') {
+    throw new Error(`shortFunc mangles a C++ name: ${shortFunc(gdbFramesFx[2].func)}`)
+  }
+  if (sourceOf(gdbFramesFx[3]) !== 'ut0rbt.cc:52') throw new Error(sourceOf(gdbFramesFx[3]))
+  if (sourceOf(gdbFramesFx[0]) !== 'libc.so.6') throw new Error(sourceOf(gdbFramesFx[0]))
+  if (formatBytes(811331584) !== '774 MiB') throw new Error(formatBytes(811331584))
+  for (const st of ['idle', 'loading', 'ready', 'error']) {
+    if (!GDB_STATUS_TONE[st] || !GDB_STATUS_TEXT[st]) throw new Error(`status ${st} has no tone or word`)
   }
   return 'ok'
 })
