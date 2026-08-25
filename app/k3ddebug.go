@@ -1,7 +1,10 @@
 package main
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -26,8 +29,8 @@ import (
 //
 //  2. Getting the two binaries into the pod. Deliberately NOT by building an image: DBCanvas has
 //     no image build (docker.go pulls, it does not build), and a locally built image then has to
-//     be imported into every k3s node and kept in step with the cluster's platform. Instead both
-//     static binaries are dropped into /opt/dbcanvas-debug on each k3s node *container* and
+//     be imported into every k3s node and kept in step with the cluster's platform. Instead the two
+//     binaries are dropped into /opt/dbcanvas-debug on each k3s node *container* and
 //     mounted into the operator pod as a hostPath — kubelet runs inside that container, so its
 //     idea of "the host" is the node container's own filesystem.
 //
@@ -80,17 +83,81 @@ const (
 	k3dDebugBuildCache = "dbcanvas-go-build"
 )
 
-// k3dDebuggableOperator lists the operators whose debug build is wired up. All four Percona
-// operators are a single Go module with the manager under cmd/manager, so extending this is a map
-// entry and a build-directory line — but each one has to be tried on a live cluster before it is
-// offered, so only the one that has been is listed.
-var k3dDebuggableOperator = map[string]bool{"pxc": true}
+// k3dDebugProfile is everything about putting one operator under Delve that is *not* the same for
+// all of them. Everything else here — the build, the drop, the watchdog, the NodePort, the whole
+// session layer — is operator-agnostic, so a fifth operator is a profile and a preset list.
+//
+// The fields are the ways the four Percona operators differ. Every one of them fails *silently* if
+// guessed, which is why each was checked against a live cluster of that operator:
+//
+//   - **Container.** The strategic-merge patch keys containers by name, so a wrong name silently
+//     *adds* a container instead of patching the operator's. Three of the four name it after the
+//     Deployment; percona-server-mysql-operator calls it `manager` and percona-postgresql-operator
+//     calls it `operator`.
+//   - **Pkg.** The main package. Three build from ./cmd/manager; the PostgreSQL operator is a fork
+//     of Crunchy's and keeps its ./cmd/postgres-operator.
+//   - **CGO.** Only the PostgreSQL operator needs it, and it needs it absolutely — see its entry.
+//   - **Env.** Leader election has to be off: the manager renews a lease every few seconds and
+//     *exits* when it cannot, which a process sitting at a breakpoint cannot do. Each operator
+//     names its own variable. The *other* way it is turned off — a `--leader-elect` flag — is not
+//     a field here at all, because whether that flag exists is a property of the release rather
+//     than of the operator: see k3dDebugLeaderElectFlag.
+type k3dDebugProfile struct {
+	Container string      // the container in the operator Deployment — bundle.yaml's own name for it
+	Pkg       string      // the main package to build, relative to the module root
+	CGO       bool        // the operator does not compile with CGO_ENABLED=0
+	Env       [][2]string // environment the debug container needs
+}
+
+// k3dDebugProfiles is the registry: an operator with a profile here is one the debugger is wired
+// up for. Each was tried on a live cluster before it was added — the failure modes (a container
+// patched into existence beside the real one, a Service selecting nothing, a manager that exits
+// mid-session) all look like a broken debugger rather than a missing one.
+var k3dDebugProfiles = map[string]k3dDebugProfile{
+	// PXC reads this variable from 1.20.0 onwards; 1.19.0 and earlier take the flag instead and
+	// ignore it, which is why the flag is detected rather than assumed.
+	"pxc": {
+		Container: "percona-xtradb-cluster-operator",
+		Pkg:       "./cmd/manager",
+		Env:       [][2]string{{"PXCO_LEADER_ELECTION_ENABLED", "false"}},
+	},
+	// PS and PSMDB have no leader-election variable at all: both take the flag, and PSMDB's
+	// defaults to true in code with nothing in bundle.yaml to say so.
+	"ps": {
+		Container: "manager",
+		Pkg:       "./cmd/manager",
+	},
+	"psmdb": {
+		Container: "percona-server-mongodb-operator",
+		Pkg:       "./cmd/manager",
+	},
+	// The PostgreSQL operator is the only one that will not compile with cgo off: it parses SQL
+	// with pg_query_go, which wraps PostgreSQL's own C parser, and a CGO_ENABLED=0 build fails on
+	// `undefined: pg_query.Parse`. Its own Dockerfile builds it with CGO_ENABLED=1 for the same
+	// reason. The binary is then dynamically linked against glibc, which its ubi-minimal image
+	// has — verified by running the built binary inside the released image.
+	"pg": {
+		Container: "operator",
+		Pkg:       "./cmd/postgres-operator",
+		CGO:       true,
+		Env:       [][2]string{{"PGO_CONTROLLER_LEADER_ELECTION_ENABLED", "false"}},
+	},
+}
+
+// k3dDebuggableOperator reports whether this operator's debug build is wired up, i.e. whether it
+// has a profile. The two community PostgreSQL operators never will from here: they are installed
+// from a Helm chart rather than unpacked from a release tarball, so there is no source tree to
+// compile or to read line numbers out of.
+func k3dDebuggableOperator(op string) bool {
+	_, ok := k3dDebugProfiles[strings.TrimSpace(op)]
+	return ok
+}
 
 // k3dDebugOn reports whether this frame asked for its operator to run under Delve. A frame that
 // asks for it against an operator it is not wired up for is ignored here and flagged by
 // k3dFrameIssues, rather than failing the deploy over a debugger.
 func k3dDebugOn(f designFrame) bool {
-	return f.K3DDebug && k3dDebuggableOperator[strings.TrimSpace(f.K3DOperator)]
+	return f.K3DDebug && k3dDebuggableOperator(f.K3DOperator)
 }
 
 // k3dDebugHostPort is the host port Delve is published on. Fixed rather than auto-assigned on
@@ -191,8 +258,19 @@ func (a *App) k3dDebugInstall(ctx context.Context, st Stack, deployment string, 
 		return err
 	}
 
+	// Whether this release takes `--leader-elect` is read out of its own source, not assumed —
+	// see k3dDebugLeaderElectFlag for what setting only the environment variable costs.
+	var opArgs []string
+	if prof, ok := k3dDebugProfiles[cfg.Operator]; ok {
+		srcDir := fmt.Sprintf("%s-%s", k3dOperatorRepos[cfg.Operator], cfg.OperatorVer)
+		if k3dDebugLeaderElectFlag(tarball, srcDir, prof.Pkg) {
+			opArgs = append(opArgs, "--leader-elect=false")
+			pr.logln("this release takes --leader-elect, so it is passed to the operator explicitly")
+		}
+	}
+
 	pr.phase("Restarting the operator under Delve", 80)
-	return a.k3dDebugPatch(ctx, serverID, deployment, cfg, pr)
+	return a.k3dDebugPatch(ctx, serverID, deployment, opArgs, cfg, pr)
 }
 
 // ---------------------------------------------------------------- the build
@@ -204,12 +282,16 @@ func (a *App) k3dDebugInstall(ctx context.Context, st Stack, deployment string, 
 // The builder runs on the *daemon's own* architecture and cross-compiles to the cluster's
 // (GOARCH from k3dPlatform), rather than running an emulated builder: a K3D frame targets
 // linux/amd64 by default even on an arm64 host, and a Go cross-compile is free while qemu is not.
-// Both binaries are CGO_ENABLED=0, so they run in the operator's UBI-minimal image with nothing
-// else copied in.
+// dlv is static, and so is every operator but PostgreSQL's — see k3dDebugBuildScript. Nothing is
+// copied into the pod besides the two binaries; the image they run in is the operator's own.
 func (a *App) k3dDebugBuild(ctx context.Context, st Stack, tarball []byte, cfg *k3dConfig, pr *pxcProg) (*os.File, error) {
 	repo, ok := k3dOperatorRepos[cfg.Operator]
 	if !ok {
 		return nil, fmt.Errorf("no source repository for operator %q", cfg.Operator)
+	}
+	prof, ok := k3dDebugProfiles[cfg.Operator]
+	if !ok {
+		return nil, fmt.Errorf("no debug profile for operator %q", cfg.Operator)
 	}
 	srcDir := fmt.Sprintf("%s-%s", repo, cfg.OperatorVer) // the tarball's own top directory
 	goTag, err := k3dDebugGoVersion(tarball, srcDir)
@@ -217,7 +299,8 @@ func (a *App) k3dDebugBuild(ctx context.Context, st Stack, tarball []byte, cfg *
 		return nil, err
 	}
 	arch := k3dDebugGOARCH()
-	pr.logln("debug build: go " + goTag + " → linux/" + arch + " (optimiser off: -gcflags=all=-N -l)")
+	pr.logln("debug build: " + prof.Pkg + " with go " + goTag + " → linux/" + arch +
+		" (optimiser off: -gcflags=all=-N -l)")
 
 	eng := a.engCtx(ctx)
 	if err := eng.EnsureImage(ctx, "golang", goTag, ""); err != nil {
@@ -265,8 +348,10 @@ func (a *App) k3dDebugBuild(ctx context.Context, st Stack, tarball []byte, cfg *
 		"DST=" + buildDir,
 		"OUT=" + k3dDebugPodMount,
 		"BIN=" + repo,
+		"PKG=" + prof.Pkg,
+		"CGO=" + map[bool]string{true: "1", false: "0"}[prof.CGO],
 		"DLV=" + envOr("DLV_VERSION", "latest"),
-		"GOOS=linux", "GOARCH=" + arch, "CGO_ENABLED=0",
+		"GOOS=linux", "GOARCH=" + arch,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("run the debug build: %w", err)
@@ -301,6 +386,12 @@ func (a *App) k3dDebugBuild(ctx context.Context, st Stack, tarball []byte, cfg *
 
 // k3dDebugBuildScript builds both binaries into $OUT.
 //
+// dlv is always static (CGO_ENABLED=0); the operator takes the profile's setting, because one of
+// the four does not compile without cgo. A cgo build for an architecture other than the builder's
+// needs that architecture's C toolchain, which is what the apt-get is for — the same one the
+// operator's own Dockerfile installs, and skipped entirely in the usual case where the cluster and
+// the daemon are the same architecture.
+//
 // dlv is built rather than `go install`ed because GOBIN's interaction with a cross-compile is not
 // worth relying on: `go build -o` puts the binary exactly where it is told, whatever GOARCH says.
 // For the same reason the version reported at the end comes from the module graph and not from
@@ -311,12 +402,21 @@ const k3dDebugBuildScript = `set -e
 mkdir -p "$OUT"
 mv "$SRC" "$DST"
 cd "$DST"
-go build -gcflags="all=-N -l" -o "$OUT/$BIN" ./cmd/manager
+if [ "$CGO" = "1" ] && [ "$GOARCH" != "$(go env GOHOSTARCH)" ]; then
+  case "$GOARCH" in
+    amd64) cross=gcc-x86-64-linux-gnu; CC=x86_64-linux-gnu-gcc ;;
+    arm64) cross=gcc-aarch64-linux-gnu; CC=aarch64-linux-gnu-gcc ;;
+    *) echo "no cross C toolchain for GOARCH=$GOARCH" >&2; exit 1 ;;
+  esac
+  export CC
+  apt-get update -qq && apt-get install -y -qq --no-install-recommends "$cross"
+fi
+CGO_ENABLED=$CGO go build -gcflags="all=-N -l" -o "$OUT/$BIN" "$PKG"
 mkdir -p /tmp/dlvbuild
 cd /tmp/dlvbuild
 go mod init dbcanvas-dlv >/dev/null
 go get github.com/go-delve/delve/cmd/dlv@$DLV
-go build -o "$OUT/dlv" github.com/go-delve/delve/cmd/dlv
+CGO_ENABLED=0 go build -o "$OUT/dlv" github.com/go-delve/delve/cmd/dlv
 echo "dlv $(go list -m -f '{{.Version}}' github.com/go-delve/delve)"
 `
 
@@ -344,6 +444,42 @@ func k3dDebugGoVersion(tarball []byte, srcDir string) (string, error) {
 		return parts[0] + "." + parts[1], nil
 	}
 	return "", fmt.Errorf("no go directive in %s/go.mod", srcDir)
+}
+
+// k3dDebugLeaderElectFlag reports whether this release's manager registers a `leader-elect`
+// command-line flag, by reading its main package out of the source tarball.
+//
+// Asked rather than tabulated because the answer is per *release*, not per operator, and getting
+// it wrong is silent. PXC 1.19.0 takes `--leader-elect` (default true) and knows nothing about
+// PXCO_LEADER_ELECTION_ENABLED; 1.20.0 dropped the flag and reads that variable instead. Set only
+// the variable on 1.19.0 and the operator still elects — and then *exits* the first time a
+// breakpoint keeps it from renewing its lease, with the pod still Running because the container's
+// process is dlv, not the operator. Nothing fails, the cluster simply stops being reconciled.
+//
+// The env var is set either way: a release that does not read it ignores it. The flag is the part
+// that must not be passed to a binary that does not define one, since Go's flag package treats an
+// unknown flag as fatal.
+func k3dDebugLeaderElectFlag(tarball []byte, srcDir, pkg string) bool {
+	dir := srcDir + "/" + strings.TrimPrefix(strings.TrimSuffix(pkg, "/"), "./") + "/"
+	tr := tar.NewReader(bytes.NewReader(tarball))
+	for {
+		h, err := tr.Next()
+		if err != nil {
+			return false
+		}
+		if h.Typeflag != tar.TypeReg {
+			continue
+		}
+		name := strings.TrimPrefix(h.Name, "./")
+		if !strings.HasPrefix(name, dir) || !strings.HasSuffix(name, ".go") ||
+			strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		body, err := io.ReadAll(io.LimitReader(tr, 4<<20))
+		if err == nil && bytes.Contains(body, []byte(`"leader-elect"`)) {
+			return true
+		}
+	}
 }
 
 // k3dDebugGOARCH is the cluster's architecture, as Go spells it. k3dPlatform is "linux/amd64" or
@@ -421,17 +557,25 @@ func (a *App) k3dDebugDrop(ctx context.Context, bits *os.File, cfg *k3dConfig, p
 //     netns) and would silently refuse the NodePort, where kube-proxy hands it the node's address.
 //   - --continue. The operator runs immediately instead of waiting for a client, so the deploy
 //     finishes and the cluster comes up whether or not anyone ever attaches.
-func (a *App) k3dDebugPatch(ctx context.Context, serverID, deployment string, cfg *k3dConfig, pr *pxcProg) error {
+func (a *App) k3dDebugPatch(ctx context.Context, serverID, deployment string, opArgs []string,
+	cfg *k3dConfig, pr *pxcProg) error {
 	ns := cfg.Namespace
+	prof, ok := k3dDebugProfiles[cfg.Operator]
+	if !ok {
+		return fmt.Errorf("no debug profile for operator %q", cfg.Operator)
+	}
 	// The watchdog sidecar runs the *operator's own* image — it needs a shell and the dlv on the
 	// hostPath, nothing more — so nothing extra is ever pulled. Read it off the Deployment rather
-	// than reconstructing it: bundle.yaml is the authority on which image this release uses.
+	// than reconstructing it: bundle.yaml is the authority on which image this release uses. The
+	// container is addressed by the profile's name, not the Deployment's: they differ for two of
+	// the four operators, and an empty result here is the early warning that the patch below would
+	// have added a second container instead of changing this one.
 	image, err := a.kubectl(ctx, serverID, "-n", ns, "get", "deployment", deployment,
-		"-o", `jsonpath={.spec.template.spec.containers[?(@.name=="`+deployment+`")].image}`)
+		"-o", `jsonpath={.spec.template.spec.containers[?(@.name=="`+prof.Container+`")].image}`)
 	if err != nil || strings.TrimSpace(image) == "" {
-		return fmt.Errorf("read the operator image off its deployment: %w", err)
+		return fmt.Errorf("read the operator image off container %q of its deployment: %w", prof.Container, err)
 	}
-	patch := k3dDebugPatchJSON(deployment, strings.TrimSpace(image))
+	patch := k3dDebugPatchJSON(deployment, strings.TrimSpace(image), prof, opArgs)
 	if _, err := a.kubectl(ctx, serverID, "-n", ns, "patch", "deployment/"+deployment,
 		"--type=strategic", "-p", patch); err != nil {
 		return fmt.Errorf("patch the operator deployment: %w", err)
@@ -553,33 +697,71 @@ func k3dDebugWatchdogSh(deployment string) string {
 
 // k3dDebugPatchJSON is the strategic-merge patch itself, kept separate from the kubectl call so
 // its shape can be asserted without a cluster.
-func k3dDebugPatchJSON(deployment, image string) string {
+//
+// deployment names the *binary* on the hostPath (the build writes it under the repo's name, which
+// is also the Deployment's); prof.Container names the container the patch merges into, which is
+// not always the same string. opArgs are handed to the operator rather than to dlv, behind the
+// `--` separator. Both probes are nulled: liveness because kubelet kills a pod whose
+// probe stops answering at a breakpoint, readiness because an unready pod is dropped from the
+// Delve Service's endpoints — which takes the debugger down at exactly the moment it is being
+// used. PXC ships no readiness probe and never noticed; PS and PSMDB both do.
+//
+// readOnlyRootFilesystem is turned off for the same class of reason: the PostgreSQL operator ships
+// it on, and Delve is not a program that was written to run without a writable /tmp.
+func k3dDebugPatchJSON(deployment, image string, prof k3dDebugProfile, opArgs []string) string {
+	args := []string{"exec", k3dDebugPodMount + "/" + deployment, "--headless",
+		fmt.Sprintf("--listen=:%d", k3dDebugPort), "--api-version=2", "--accept-multiclient",
+		"--only-same-user=false", "--check-go-version=false", "--continue"}
+	// dlv's own flags stop at `--`; everything after it is the debuggee's own argv.
+	if len(opArgs) > 0 {
+		args = append(append(args, "--"), opArgs...)
+	}
+	argsJSON, _ := json.Marshal(args)
+	env := []map[string]string{}
+	for _, kv := range prof.Env {
+		env = append(env, map[string]string{"name": kv[0], "value": kv[1]})
+	}
+	envJSON, _ := json.Marshal(env)
 	return fmt.Sprintf(`{"spec":{"template":{"spec":{
 "shareProcessNamespace":true,
 "volumes":[{"name":"dbcanvas-debug","hostPath":{"path":%q,"type":"Directory"}}],
 "containers":[{"name":%q,
 "command":["%s/dlv"],
-"args":["exec","%s/%s","--headless","--listen=:%d","--api-version=2","--accept-multiclient","--only-same-user=false","--check-go-version=false","--continue"],
+"args":%s,
 "volumeMounts":[{"name":"dbcanvas-debug","mountPath":%q,"readOnly":true}],
 "ports":[{"name":"delve","containerPort":%d,"protocol":"TCP"}],
-"env":[{"name":"PXCO_LEADER_ELECTION_ENABLED","value":"false"}],
+"env":%s,
 "livenessProbe":null,
+"readinessProbe":null,
 "resources":{"limits":{"cpu":%q,"memory":%q}},
-"securityContext":{"capabilities":{"add":["SYS_PTRACE"]}}},
+"securityContext":{"readOnlyRootFilesystem":false,"capabilities":{"add":["SYS_PTRACE"]}}},
 {"name":%q,
 "image":%q,
 "command":["sh","-c",%s],
 "volumeMounts":[{"name":"dbcanvas-debug","mountPath":%q,"readOnly":true}],
 "resources":{"requests":{"cpu":"10m","memory":"16Mi"},"limits":{"cpu":"100m","memory":"64Mi"}}}]}}}}`,
-		k3dDebugNodeDir, deployment,
-		k3dDebugPodMount, k3dDebugPodMount, deployment, k3dDebugPort,
-		k3dDebugPodMount, k3dDebugPort, k3dDebugCPULimit, k3dDebugMemLimit,
+		k3dDebugNodeDir, prof.Container,
+		k3dDebugPodMount, argsJSON,
+		k3dDebugPodMount, k3dDebugPort, envJSON, k3dDebugCPULimit, k3dDebugMemLimit,
 		k3dDebugWatchdog, image, strconv.Quote(k3dDebugWatchdogSh(deployment)), k3dDebugPodMount)
 }
 
 // k3dDebugService fronts Delve with a NodePort, which is the half of the published port that lives
 // inside Kubernetes: k3d maps the host port onto the server node's :30400, and this is what
-// answers there. It selects the operator pod by the three labels bundle.yaml gives it.
+// answers there.
+//
+// The selector is the *one* label all four operators put on their pod:
+// `app.kubernetes.io/name: <deployment>`. PXC, PSMDB and PG also carry component/instance/part-of
+// and the original version selected on three of them — but percona-server-mysql-operator labels
+// its pod with that one alone, and a selector it does not match produces a Service with no
+// endpoints and a debugger that simply never answers. The label is still specific: the databases
+// these operators create label their own pods by role (`mysql`, `haproxy`, `mongod`), never with
+// the operator's name.
+//
+// publishNotReadyAddresses keeps the endpoint even if the pod goes NotReady. The patch removes the
+// operator's readiness probe for exactly that reason, so this is belt and braces — but the failure
+// it guards against (a debugger that disappears the moment the operator is halted) is one nobody
+// would think to look for.
 func k3dDebugService(deployment string) []byte {
 	return []byte(fmt.Sprintf(`apiVersion: v1
 kind: Service
@@ -590,9 +772,8 @@ metadata:
     dbcanvas.io/purpose: debugger
 spec:
   type: NodePort
+  publishNotReadyAddresses: true
   selector:
-    app.kubernetes.io/component: operator
-    app.kubernetes.io/instance: %s
     app.kubernetes.io/name: %s
   ports:
     - name: delve
@@ -600,5 +781,5 @@ spec:
       port: %d
       targetPort: %d
       nodePort: %d
-`, deployment, deployment, deployment, deployment, k3dDebugPort, k3dDebugPort, k3dDebugNodePort))
+`, deployment, deployment, deployment, k3dDebugPort, k3dDebugPort, k3dDebugNodePort))
 }

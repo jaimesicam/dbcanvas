@@ -115,7 +115,12 @@ export default function OperatorDebugger() {
   const [state, setState] = useState(null)
   const [log, setLog] = useState([])
   const [files, setFiles] = useState([])
-  const [file, setFile] = useState('')        // the file open in the centre pane
+  // The file open in the centre pane, stamped with the target it belongs to. Two operators do not
+  // have the same files, and switching targets changes `api` and the open file in the *same*
+  // render — a plain string would spend that one render pointing the new cluster at the old
+  // operator's path, which is long enough to fetch it and put a 502 on the screen. Comparing the
+  // stamp makes the reset happen as the target changes rather than one state update later.
+  const [openFile, setOpenFile] = useState({ target: '', path: '' })
   const [source, setSource] = useState(null)  // { path, content }
   const [frameID, setFrameID] = useState(0)   // the selected stack frame
   const [scopes, setScopes] = useState([])
@@ -130,6 +135,9 @@ export default function OperatorDebugger() {
     () => (targets || []).find((t) => targetKey(t) === key) || null, [targets, key])
   const api = useMemo(
     () => (target ? debugFrameApi(target.stackId, target.frameId) : null), [target])
+
+  const file = openFile.target === key ? openFile.path : ''
+  const setFile = useCallback((path) => setOpenFile({ target: key, path }), [key])
 
   // ---- targets ---------------------------------------------------------------
 
@@ -193,7 +201,7 @@ export default function OperatorDebugger() {
   // The file list and the first file to show.
   useEffect(() => {
     if (!api || !target) return
-    setFiles([]); setSource(null); setFile('')
+    setFiles([]); setSource(null)
     api.sources()
       .then((r) => {
         setFiles(r.files || [])
@@ -411,8 +419,12 @@ export function NoTargets() {
         <p>
           A Kubernetes frame has to be deployed with its operator under a debugger. In the
           Database Stacks designer, select a <span className="font-medium text-fg">K3D cluster</span>{' '}
-          frame running the <span className="font-medium text-fg">Percona Operator for MySQL (PXC)</span>,
-          tick <span className="font-medium text-fg">Run the operator under Delve</span>, and deploy.
+          frame running any of the four Percona operators —{' '}
+          <span className="font-medium text-fg">MySQL (PXC)</span>,{' '}
+          <span className="font-medium text-fg">MySQL (Percona Server)</span>,{' '}
+          <span className="font-medium text-fg">MongoDB</span> or{' '}
+          <span className="font-medium text-fg">PostgreSQL</span> — tick{' '}
+          <span className="font-medium text-fg">Run the operator under Delve</span>, and deploy.
         </p>
         <p>
           It is a deploy-time decision twice over: the operator is rebuilt from that release's own

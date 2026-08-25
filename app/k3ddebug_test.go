@@ -17,9 +17,14 @@ func TestK3DDebugOn(t *testing.T) {
 	}{
 		{"off by default", designFrame{K3DOperator: "pxc"}, false},
 		{"on for pxc", designFrame{K3DOperator: "pxc", K3DDebug: true}, true},
+		{"on for ps", designFrame{K3DOperator: "ps", K3DDebug: true}, true},
+		{"on for psmdb", designFrame{K3DOperator: "psmdb", K3DDebug: true}, true},
+		{"on for pg", designFrame{K3DOperator: "pg", K3DDebug: true}, true},
 		// Asking for a debugger the operator has no build wired up for must not turn into a
-		// deploy that tries anyway — k3dFrameIssues says so, and this stays off.
-		{"not wired up for psmdb", designFrame{K3DOperator: "psmdb", K3DDebug: true}, false},
+		// deploy that tries anyway — k3dFrameIssues says so, and this stays off. The two
+		// community PostgreSQL operators come from a Helm chart: no tarball, no source, no build.
+		{"not wired up for cnpg", designFrame{K3DOperator: "cnpg", K3DDebug: true}, false},
+		{"not wired up for pgo", designFrame{K3DOperator: "pgo", K3DDebug: true}, false},
 		{"no operator at all", designFrame{K3DDebug: true}, false},
 	}
 	for _, c := range cases {
@@ -107,14 +112,16 @@ func TestK3DDebugGOARCH(t *testing.T) {
 // The patch is what actually swaps the operator for a debugger, and each piece of it is load
 // bearing — the flags especially: without --only-same-user=false Delve accepts the connection only
 // from a loopback peer, which a NodePort never is.
+// The patch is the whole install, so it is asserted for every operator the debugger claims to
+// support — the three things that differ between them (the container's name, the main package's
+// binary, and how leader election is turned off) are exactly the three that fail silently.
 func TestK3DDebugPatchJSON(t *testing.T) {
-	const dep = "percona-xtradb-cluster-operator"
-	const img = "percona/percona-xtradb-cluster-operator:1.20.0"
 	var patch struct {
 		Spec struct {
 			Template struct {
 				Spec struct {
-					Volumes []struct {
+					ShareProcessNamespace bool `json:"shareProcessNamespace"`
+					Volumes               []struct {
 						Name     string `json:"name"`
 						HostPath struct {
 							Path string `json:"path"`
@@ -122,13 +129,14 @@ func TestK3DDebugPatchJSON(t *testing.T) {
 						} `json:"hostPath"`
 					} `json:"volumes"`
 					Containers []struct {
-						Name          string                         `json:"name"`
-						Image         string                         `json:"image"`
-						Command       []string                       `json:"command"`
-						Args          []string                       `json:"args"`
-						LivenessProbe json.RawMessage                `json:"livenessProbe"`
-						Env           []struct{ Name, Value string } `json:"env"`
-						VolumeMounts  []struct {
+						Name           string                         `json:"name"`
+						Image          string                         `json:"image"`
+						Command        []string                       `json:"command"`
+						Args           []string                       `json:"args"`
+						LivenessProbe  json.RawMessage                `json:"livenessProbe"`
+						ReadinessProbe json.RawMessage                `json:"readinessProbe"`
+						Env            []struct{ Name, Value string } `json:"env"`
+						VolumeMounts   []struct {
 							MountPath string `json:"mountPath"`
 							ReadOnly  bool   `json:"readOnly"`
 						} `json:"volumeMounts"`
@@ -144,60 +152,183 @@ func TestK3DDebugPatchJSON(t *testing.T) {
 			} `json:"template"`
 		} `json:"spec"`
 	}
-	if err := json.Unmarshal([]byte(k3dDebugPatchJSON(dep, img)), &patch); err != nil {
-		t.Fatalf("the patch is not valid JSON: %v", err)
-	}
-	ps := patch.Spec.Template.Spec
-	if len(ps.Containers) != 2 || ps.Containers[0].Name != dep {
-		t.Fatalf("the patch must target the operator container by name (strategic merge keys on it), plus the watchdog: %+v", ps.Containers)
-	}
-	c := ps.Containers[0]
-	if len(c.Command) != 1 || !strings.HasSuffix(c.Command[0], "/dlv") {
-		t.Errorf("command = %v, want the mounted dlv", c.Command)
-	}
-	if len(c.Args) < 2 || c.Args[0] != "exec" || c.Args[1] != k3dDebugPodMount+"/"+dep {
-		t.Errorf("args = %v, want `exec <mount>/<operator>`", c.Args)
-	}
-	for _, flag := range []string{"--headless", "--accept-multiclient", "--only-same-user=false", "--continue"} {
-		if !hasString(c.Args, flag) {
-			t.Errorf("args %v are missing %s", c.Args, flag)
+
+	for op, prof := range k3dDebugProfiles {
+		dep := k3dOperatorRepos[op]
+		if dep == "" {
+			t.Fatalf("%s has a debug profile but no source repository", op)
+		}
+		img := "percona/" + dep + ":1.2.3"
+		// The leader-elect flag is decided per release (k3dDebugLeaderElectFlag), so the patch is
+		// asserted with it present — the shape that has to be right is the `--` separator.
+		opArgs := []string{"--leader-elect=false"}
+		if err := json.Unmarshal([]byte(k3dDebugPatchJSON(dep, img, prof, opArgs)), &patch); err != nil {
+			t.Fatalf("%s: the patch is not valid JSON: %v", op, err)
+		}
+		ps := patch.Spec.Template.Spec
+		// shareProcessNamespace is what lets the watchdog see the operator's /proc entry at all.
+		if !ps.ShareProcessNamespace {
+			t.Errorf("%s: shareProcessNamespace is off — the watchdog cannot see a halted operator", op)
+		}
+		if len(ps.Containers) != 2 || ps.Containers[0].Name != prof.Container {
+			t.Fatalf("%s: the patch must target container %q by name (strategic merge keys on it), plus the watchdog: %+v",
+				op, prof.Container, ps.Containers)
+		}
+		c := ps.Containers[0]
+		if len(c.Command) != 1 || !strings.HasSuffix(c.Command[0], "/dlv") {
+			t.Errorf("%s: command = %v, want the mounted dlv", op, c.Command)
+		}
+		// The binary is named for the repository whatever main package it was built from, so
+		// this is the Deployment's name even where the container's is not.
+		if len(c.Args) < 2 || c.Args[0] != "exec" || c.Args[1] != k3dDebugPodMount+"/"+dep {
+			t.Errorf("%s: args = %v, want `exec <mount>/%s`", op, c.Args, dep)
+		}
+		for _, flag := range []string{"--headless", "--accept-multiclient", "--only-same-user=false", "--continue"} {
+			if !hasString(c.Args, flag) {
+				t.Errorf("%s: args %v are missing %s", op, c.Args, flag)
+			}
+		}
+		// The probes hit the operator's own endpoints, which stop answering at a breakpoint:
+		// liveness kills the pod, readiness drops it out of the Delve Service's endpoints.
+		if string(c.LivenessProbe) != "null" {
+			t.Errorf("%s: livenessProbe = %s, want null (a breakpoint stops it answering)", op, c.LivenessProbe)
+		}
+		if string(c.ReadinessProbe) != "null" {
+			t.Errorf("%s: readinessProbe = %s, want null (an unready pod leaves the Service with no endpoints)",
+				op, c.ReadinessProbe)
+		}
+		// Leader election renews a lease every few seconds and the manager exits when it cannot;
+		// a process sitting at a breakpoint cannot. Each operator switches it off its own way,
+		// and one of the two ways has to be present.
+		for _, e := range c.Env {
+			if strings.Contains(e.Name, "LEADER_ELECTION") && e.Value != "false" {
+				t.Errorf("%s: %s = %q, want \"false\"", op, e.Name, e.Value)
+			}
+		}
+		// Anything meant for the operator has to land after dlv's own flags, behind the `--`
+		// separator, or dlv reads them as its own and refuses to start.
+		sep := -1
+		for i, a := range c.Args {
+			if a == "--" {
+				sep = i
+			}
+		}
+		if sep < 0 {
+			t.Errorf("%s: args %v carry operator flags with no `--` separator", op, c.Args)
+		} else if !hasString(c.Args[sep+1:], "--leader-elect=false") {
+			t.Errorf("%s: args %v are missing --leader-elect=false after `--`", op, c.Args)
+		}
+		if !hasString(c.SecurityContext.Capabilities.Add, "SYS_PTRACE") {
+			t.Errorf("%s: capabilities = %v, want SYS_PTRACE", op, c.SecurityContext.Capabilities.Add)
+		}
+		// The hostPath and the mount are the delivery mechanism; a mismatch leaves the pod stuck
+		// in ContainerCreating, so they are asserted against the constants the drop actually uses.
+		if len(ps.Volumes) != 1 || ps.Volumes[0].HostPath.Path != k3dDebugNodeDir {
+			t.Errorf("%s: hostPath = %+v, want %s", op, ps.Volumes, k3dDebugNodeDir)
+		}
+		if ps.Volumes[0].HostPath.Type != "Directory" {
+			t.Errorf("%s: hostPath type = %q, want Directory — an absent dir must fail loudly, not be created empty",
+				op, ps.Volumes[0].HostPath.Type)
+		}
+		if w := ps.Containers[1]; w.Name != k3dDebugWatchdog || w.Image != img {
+			t.Errorf("%s: watchdog sidecar = %q on image %q, want %q on the operator's own image %q",
+				op, w.Name, w.Image, k3dDebugWatchdog, img)
+		}
+		if len(c.VolumeMounts) != 1 || c.VolumeMounts[0].MountPath != k3dDebugPodMount {
+			t.Errorf("%s: volumeMounts = %+v, want %s", op, c.VolumeMounts, k3dDebugPodMount)
+		}
+		if len(c.Ports) != 1 || c.Ports[0].ContainerPort != k3dDebugPort {
+			t.Errorf("%s: ports = %+v, want containerPort %d", op, c.Ports, k3dDebugPort)
 		}
 	}
-	// The probe hits the operator's own endpoint, which stops answering at a breakpoint; leader
-	// election renews a lease every 10s, and a paused process cannot. Both would kill the session.
-	if string(c.LivenessProbe) != "null" {
-		t.Errorf("livenessProbe = %s, want null (a breakpoint stops it answering)", c.LivenessProbe)
+}
+
+// With nothing to hand the operator, dlv gets no `--` at all: an empty separator is not harmless,
+// it makes dlv treat the rest of its own line as the debuggee's.
+func TestK3DDebugPatchJSONWithoutOperatorArgs(t *testing.T) {
+	patch := k3dDebugPatchJSON("percona-xtradb-cluster-operator", "img:1",
+		k3dDebugProfiles["pxc"], nil)
+	if strings.Contains(patch, `"--"`) {
+		t.Errorf("a patch with no operator args must not carry a `--` separator:\n%s", patch)
 	}
-	leader := ""
-	for _, e := range c.Env {
-		if e.Name == "PXCO_LEADER_ELECTION_ENABLED" {
-			leader = e.Value
+}
+
+// Whether the manager takes `--leader-elect` is a property of the release, and getting it wrong
+// is silent both ways: pass the flag to a release that dropped it and the binary refuses to
+// start; leave it out of one that has it and the operator elects, then exits the first time a
+// breakpoint stops it renewing. So the answer is read out of the tarball rather than tabulated.
+func TestK3DDebugLeaderElectFlag(t *testing.T) {
+	tarWith := func(dir string, files map[string]string) []byte {
+		var buf bytes.Buffer
+		tw := tar.NewWriter(&buf)
+		for name, body := range files {
+			tw.WriteHeader(&tar.Header{Name: dir + "/" + name, Mode: 0o644,
+				Size: int64(len(body)), Typeflag: tar.TypeReg})
+			tw.Write([]byte(body))
+		}
+		tw.Close()
+		return buf.Bytes()
+	}
+	const flagged = `flag.BoolVar(&enableLeaderElection, "leader-elect", true, "enable it")`
+	const envOnly = "LeaderElection bool `default:\"true\" envconfig:\"PXCO_LEADER_ELECTION_ENABLED\"`"
+
+	cases := []struct {
+		name  string
+		files map[string]string
+		pkg   string
+		want  bool
+	}{
+		{"the flag is registered", map[string]string{"cmd/manager/main.go": flagged}, "./cmd/manager", true},
+		{"envconfig only", map[string]string{"cmd/manager/main.go": envOnly}, "./cmd/manager", false},
+		// The PostgreSQL operator's main package is not cmd/manager, and a hit outside the
+		// package that is actually built must not count.
+		{"another package's flag does not count",
+			map[string]string{"cmd/manager/main.go": flagged, "cmd/postgres-operator/main.go": envOnly},
+			"./cmd/postgres-operator", false},
+		{"the main package is elsewhere",
+			map[string]string{"cmd/postgres-operator/main.go": flagged},
+			"./cmd/postgres-operator", true},
+		// Tests mention flags they do not register.
+		{"a test file does not count",
+			map[string]string{"cmd/manager/main.go": envOnly, "cmd/manager/main_test.go": flagged},
+			"./cmd/manager", false},
+		{"no such package", map[string]string{"cmd/manager/main.go": flagged}, "./cmd/nope", false},
+	}
+	for _, c := range cases {
+		const dir = "percona-xtradb-cluster-operator-1.19.0"
+		if got := k3dDebugLeaderElectFlag(tarWith(dir, c.files), dir, c.pkg); got != c.want {
+			t.Errorf("%s: leader-elect flag = %v, want %v", c.name, got, c.want)
 		}
 	}
-	if leader != "false" {
-		t.Errorf("PXCO_LEADER_ELECTION_ENABLED = %q, want \"false\"", leader)
+}
+
+// A profile that names a container or a main package the release does not have produces a
+// debugger that looks installed and is not, so the shape of every entry is pinned here and the
+// values themselves are checked against a live cluster of each operator.
+func TestK3DDebugProfilesAreComplete(t *testing.T) {
+	for op, prof := range k3dDebugProfiles {
+		if k3dOperatorRepos[op] == "" {
+			t.Errorf("%s: no source repository, so there is nothing to build", op)
+		}
+		if prof.Container == "" {
+			t.Errorf("%s: no container name — the strategic-merge patch keys on it", op)
+		}
+		if !strings.HasPrefix(prof.Pkg, "./cmd/") {
+			t.Errorf("%s: main package %q, want a ./cmd/... path", op, prof.Pkg)
+		}
+		for _, kv := range prof.Env {
+			if kv[0] == "" || kv[1] == "" {
+				t.Errorf("%s: env entry %v is incomplete", op, kv)
+			}
+		}
+		if !k3dDebuggableOperator(op) {
+			t.Errorf("%s: has a profile but is not reported as debuggable", op)
+		}
 	}
-	if !hasString(c.SecurityContext.Capabilities.Add, "SYS_PTRACE") {
-		t.Errorf("capabilities = %v, want SYS_PTRACE", c.SecurityContext.Capabilities.Add)
-	}
-	// The hostPath and the mount are the delivery mechanism; a mismatch leaves the pod stuck in
-	// ContainerCreating, so they are asserted against the constants the drop actually uses.
-	if len(ps.Volumes) != 1 || ps.Volumes[0].HostPath.Path != k3dDebugNodeDir {
-		t.Errorf("hostPath = %+v, want %s", ps.Volumes, k3dDebugNodeDir)
-	}
-	if ps.Volumes[0].HostPath.Type != "Directory" {
-		t.Errorf("hostPath type = %q, want Directory — an absent dir must fail loudly, not be created empty",
-			ps.Volumes[0].HostPath.Type)
-	}
-	if w := ps.Containers[1]; w.Name != k3dDebugWatchdog || w.Image != img {
-		t.Errorf("watchdog sidecar = %q on image %q, want %q on the operator's own image %q",
-			w.Name, w.Image, k3dDebugWatchdog, img)
-	}
-	if len(c.VolumeMounts) != 1 || c.VolumeMounts[0].MountPath != k3dDebugPodMount {
-		t.Errorf("volumeMounts = %+v, want %s", c.VolumeMounts, k3dDebugPodMount)
-	}
-	if len(c.Ports) != 1 || c.Ports[0].ContainerPort != k3dDebugPort {
-		t.Errorf("ports = %+v, want containerPort %d", c.Ports, k3dDebugPort)
+	for _, op := range []string{"cnpg", "pgo", "", "nope"} {
+		if k3dDebuggableOperator(op) {
+			t.Errorf("%q must not be debuggable — it has no release tarball to compile", op)
+		}
 	}
 }
 
@@ -209,14 +340,21 @@ func TestK3DDebugService(t *testing.T) {
 	for _, want := range []string{
 		"name: " + dep + "-delve",
 		"type: NodePort",
-		"app.kubernetes.io/component: operator",
-		"app.kubernetes.io/instance: " + dep,
 		"app.kubernetes.io/name: " + dep,
+		"publishNotReadyAddresses: true",
 		"nodePort: 30400",
 		"targetPort: 40000",
 	} {
 		if !strings.Contains(svc, want) {
 			t.Errorf("the delve Service is missing %q:\n%s", want, svc)
+		}
+	}
+	// The selector must be the one label all four operators share. component/instance are on
+	// three of them and absent from percona-server-mysql-operator, whose pod carries
+	// app.kubernetes.io/name alone — selecting on them leaves that Service with no endpoints.
+	for _, unwanted := range []string{"app.kubernetes.io/component", "app.kubernetes.io/instance"} {
+		if strings.Contains(svc, unwanted) {
+			t.Errorf("the delve Service selects on %q, which not every operator sets:\n%s", unwanted, svc)
 		}
 	}
 }

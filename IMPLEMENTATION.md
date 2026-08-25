@@ -18161,3 +18161,128 @@ now the last thing in the file.
   the first frame still held port 40000.
 - The published-port path is unchanged: the DAP integration test attaches through
   `127.0.0.1:40000`, which is what an IDE uses.
+
+## 310. The other three operators under Delve — `app/k3ddebug.go`, `app/k3ddebugapi.go`, `app/{k3dps,k3dpsmdb,k3dpg}.go`, `app/{k3d.go,k3ddebug_test.go,k3ddebugapi_test.go,k3ddebug_it_test.go}`, `app/web/src/pages/{OperatorDebugger,K3DManager,StackDesigner}.jsx`, `docs/{OPERATOR_DEBUGGER,STACKS}.md`, `README.md`
+
+§306–§309 built the whole debugger against one operator and said so in the docs: *"Only PXC, for
+now. The plumbing is operator-agnostic; what is per-operator is the list of quick breakpoints, the
+custom resource to annotate, and the leader-election environment variable to switch off."*
+
+Two of those three turned out to be right, and the third — "the leader-election environment
+variable" — turned out to be the worst of the lot. The claim that the rest was operator-agnostic
+was not true either: not because the DAP client or the session cared, but because **the install
+did**, in five places that all fail the same way. The deploy succeeds, the panel opens, and
+nothing works.
+
+### What actually differs (`k3dDebugProfiles`)
+
+| | PXC | PS | PSMDB | PG |
+| --- | --- | --- | --- | --- |
+| container in the Deployment | *= the Deployment* | `manager` | *= the Deployment* | `operator` |
+| main package | `./cmd/manager` | `./cmd/manager` | `./cmd/manager` | `./cmd/postgres-operator` |
+| cgo | off | off | off | **required** |
+| leader-election variable | `PXCO_…_ENABLED` (1.20+) | — | — | `PGO_CONTROLLER_…_ENABLED` |
+| `--leader-elect` flag | **1.19 and earlier** | yes | yes | no |
+| readiness probe to remove | — | yes | yes | — |
+
+**The container's name.** The patch is a strategic merge, which keys `containers` by name. Given
+the Deployment's name where the container is called `manager`, Kubernetes does not fail: it
+*adds* a second container to the pod, running dlv against a binary, beside an untouched operator.
+Two operators would then reconcile the same cluster and only one of them would be debuggable.
+Reading the image off the named container before patching turns that into an error at deploy time
+instead.
+
+**cgo, which was not on anyone's list.** The PostgreSQL operator does not compile with
+`CGO_ENABLED=0`: it parses SQL with `pg_query_go`, a cgo wrapper around PostgreSQL's own parser,
+and the build stops at `undefined: pg_query.Parse`. Its own Dockerfile has always used
+`CGO_ENABLED=1`; DBCanvas' builder hard-coded 0 for both binaries. So the flag became a profile
+field, dlv stayed static (it is pure Go and belongs in a pod whose libc is not ours to assume),
+and a cgo build for an architecture other than the builder's now installs that architecture's
+gcc — the same `gcc-x86-64-linux-gnu` / `gcc-aarch64-linux-gnu` upstream's Dockerfile installs.
+The resulting binary is dynamically linked against glibc; that it runs in the operator's
+ubi-minimal image was checked directly, by running it there, before the profile was added.
+
+### The one that only showed up hours later
+
+`PXCO_LEADER_ELECTION_ENABLED=false` was §306's answer to leader election, verified on PXC 1.20.0
+and then treated as settled. The 1.19.0 cluster from the session before this one was still up, and
+seventy minutes in its operator was **dead**: *"Failed to renew lease … manager exited non-zero:
+leader election lost"*. The pod read `2/2 Running` with zero restarts, because the container's
+process is `dlv` — and dlv outlives the program it is debugging. No probe fired (they are removed
+on purpose), nothing was logged after the stack trace, and the cluster simply stopped being
+reconciled.
+
+PXC **1.19.0 takes a `--leader-elect` flag** (default true) and has never heard of that variable;
+1.20.0 dropped the flag and moved to envconfig. So this knob is per *release*, not per operator —
+which a table of operators cannot express, and which the next release can invalidate again.
+
+It is therefore not tabulated. The environment variable is always set (a release that does not
+read it ignores it), and whether to also pass `--leader-elect=false` is answered by reading the
+release's own main package out of the source tarball DBCanvas has already downloaded. The flag is
+the half that must not be guessed: Go's `flag` package treats an unknown flag as fatal, so passing
+it to 1.20.0 would stop the operator from starting at all. Checked against all five tarballs on
+hand — PXC 1.19.0 true, PXC 1.20.0 false, PS 1.2.0 true, PSMDB 1.23.0 true, PG 3.0.0 false.
+
+**The readiness probe.** Only liveness was being removed, with a sound reason: at a breakpoint the
+operator stops answering and kubelet kills the pod. PXC and PG ship no readiness probe, so nobody
+had met the second half — an unready pod is removed from its Services' endpoints, *including the
+NodePort in front of Delve*. Sit on a breakpoint in PS or PSMDB and the debugger you are using
+disappears from the network. Both probes are nulled now, and the Service also sets
+`publishNotReadyAddresses: true`, because the failure is invisible: the socket simply stops
+answering and the page reconnects forever.
+
+**The Service selector.** It selected on `app.kubernetes.io/{component,instance,name}`, which
+three of the four operators set. `percona-server-mysql-operator` labels its pod with
+`app.kubernetes.io/name` alone, so the Service would have had no endpoints at all. The selector
+is now that one label — still specific, because the databases these operators create label their
+pods by role (`mysql`, `haproxy`, `mongod`), never with the operator's name.
+
+### Quick breakpoints
+
+Per operator, and taken from each one's source rather than pattern-matched off PXC's, because the
+shapes genuinely differ: PSMDB's reconciler lives in a package named for the CRD's plural
+(`perconaservermongodb.(*ReconcilePerconaServerMongoDB).Reconcile`), and PS splits its loop —
+`Reconcile` handles finalizers and status, `doReconcile` is where a pass actually happens, so both
+are offered.
+
+PostgreSQL has two loops and both are landmarks: Percona's `pgcluster.(*PGClusterReconciler)`
+writes a `PostgresCluster`, and Crunchy's `postgrescluster.(*Reconciler)` — the code Percona
+forked — turns that into instances, Patroni and pgBackRest. It also has **two packages called
+`pgupgrade`**, Percona's and Crunchy's, so an unqualified `pgupgrade.(*PGUpgradeReconciler).Reconcile`
+is ambiguous to Delve; that one is deliberately not offered rather than shipped as a spec that
+resolves to whichever the linker put first.
+
+### A bug the second operator exposed
+
+Switching targets in the panel asked the *new* cluster for the *old* operator's file. `api` and
+`file` change in the same render, and `file` is still the previous path for that one render —
+long enough to fetch `pkg/controller/pxc/controller.go` from a PS cluster and put a 502 on the
+screen. Invisible while every target was PXC. The open file is now stamped with the target it
+belongs to, so it reads as empty the moment the target changes rather than one state update
+later.
+
+### Verified
+
+Live, one cluster per operator, each deployed from the designer with *Run the operator under
+Delve* ticked and the host port unpublished:
+
+- **PXC 1.19.0** — all six presets resolve (`Reconcile` at `controller.go:223`, where 1.20.0 puts
+  it at 236); stopped, read `request.NamespacedName` = `{pxc, minimal-cluster}`, stepped, resumed.
+  Held at a breakpoint for **45 seconds**, three times its lease duration, and the operator was
+  still alive afterwards — the regression test for the fix above. The lease in the namespace is
+  held by the pre-patch pod and never renewed.
+- **PS 1.2.0** — patched into the `manager` container (two containers in the pod, not three),
+  `--leader-elect=false` behind the `--`; stopped at
+  `ps.(*PerconaServerMySQLReconciler).Reconcile` (`controller.go:221`), locals, `req.NamespacedName`
+  = `{ps, ps-delve}`, `r.ServerVersion` = the k3s version. Cluster reached `ready`, 3 MySQL + 3
+  HAProxy.
+- **PSMDB 1.23.0** — all seven presets resolve; stopped at
+  `perconaservermongodb.(*ReconcilePerconaServerMongoDB).Reconcile` (`psmdb_controller.go:287`).
+- **PG 3.0.0** — the cgo build runs under `dlv` in the released ubi-minimal image; all five presets
+  resolve, including Crunchy's `postgrescluster.(*Reconciler).Reconcile`; stopped, locals,
+  `request.NamespacedName` = `{pg, pg-delve}`, stepped 223 → 224. It does not self-requeue, so the
+  stop needs the CR touched — which is what the page's button is for, and what the test now says.
+
+`go test ./...` and `make smoke` pass. `TestDelveLiveSession` now takes `DELVE_IT_OPERATOR`, so
+the "do the presets actually resolve" check is one command per operator rather than a PXC-only
+test.

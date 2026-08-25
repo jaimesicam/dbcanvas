@@ -312,7 +312,7 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 	// both are said here rather than discovered in a deploy log. The port checks apply only when
 	// the frame publishes one at all; the in-app debugger needs no host port.
 	if f.K3DDebug {
-		if op := strings.TrimSpace(f.K3DOperator); !k3dDebuggableOperator[op] {
+		if op := strings.TrimSpace(f.K3DOperator); !k3dDebuggableOperator(op) {
 			out = append(out, issue{"warning", "K3D cluster " + name + " asks to run its operator under Delve, which " +
 				k3dOperatorLabel(op) + " does not support yet — the cluster deploys normally, without a debugger"})
 		} else if k3dDebugPublishes(f) {

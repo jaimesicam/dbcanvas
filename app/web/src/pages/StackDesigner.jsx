@@ -712,6 +712,12 @@ function validBucketName(b) {
 // not deployable yet).
 export const K3D_OPERATOR_LABEL = { pxc: 'PXC operator', ps: 'MySQL (PS) operator', psmdb: 'MongoDB operator', pg: 'PostgreSQL operator', cnpg: 'CloudNativePG', pgo: 'Crunchy PGO' }
 
+// The operators that can be run under Delve — k3ddebug.go's k3dDebugProfiles, which is the
+// authority (the server warns on a frame that asks for one it cannot give). The two community
+// PostgreSQL operators are installed from a Helm chart, so there is no source tree to compile
+// with the optimiser off or to read line numbers out of, and they are not on this list.
+const K3D_DEBUGGABLE = new Set(['pxc', 'ps', 'psmdb', 'pg'])
+
 // typeColor maps a node/frame type to its canvas color so a toolbar "add" button can
 // be tinted to match the node/frame it creates. addBtnStyle turns that into inline
 // styles (disabled buttons keep the tint but the shared disabled:opacity-50 fades it).
@@ -6511,7 +6517,7 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
       {/* Debugging the operator is a deploy-time decision twice over: the debug binary is compiled
           from the operator's own source tarball, and k3d fixes a cluster's published ports when it
           creates it. Both are why this cannot be switched on after the fact. */}
-      {op === 'pxc' && (
+      {K3D_DEBUGGABLE.has(op) && (
         <div className="space-y-2 rounded-lg bg-surface2 p-2">
           <label className="flex items-start gap-2 text-sm">
             <input type="checkbox" className="mt-1" disabled={deployed}

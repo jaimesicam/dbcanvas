@@ -260,6 +260,12 @@ func (a *App) installPSMDBOperator(ctx context.Context, st Stack, frame designFr
 	if err := a.k3dApplyBundle(ctx, serverID, "percona-server-mongodb-operator", cfg, pr); err != nil {
 		return err
 	}
+	// The debugger goes on BEFORE the custom resource, so a breakpoint set while the deploy is
+	// still running catches the cluster's very first reconcile. Never fatal — see
+	// k3dInstallDebugger.
+	if k3dDebugOn(frame) {
+		a.k3dInstallDebugger(ctx, st, frame, "percona-server-mongodb-operator", tarball, serverID, cfg, pr)
+	}
 	ns := cfg.Namespace
 
 	// ---- secrets.yaml, BEFORE cr.yaml ----

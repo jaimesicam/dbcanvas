@@ -41,8 +41,15 @@ type k3dDebugPreset struct {
 }
 
 // k3dDebugPresets is per operator, like everything else that knows what an operator's code looks
-// like. Only PXC is debuggable today (k3dDebuggableOperator); the rest of the machinery is
-// operator-agnostic, so the day another one is verified this is where its landmarks go.
+// like — the rest of the machinery is operator-agnostic. Every spec here was resolved against a
+// live cluster of that operator, not read off the source: a Delve function spec that does not
+// resolve is reported as a hollow breakpoint, which reads as a broken debugger.
+//
+// The package qualifier matters and is not always the directory you would guess. Two of the four
+// operators put the cluster reconciler in a package named after the CRD's plural
+// (`perconaservermongodb`), and the PostgreSQL operator carries *two* packages called `pgupgrade`
+// — Percona's and the Crunchy code it was forked from — so an unqualified `pgupgrade....Reconcile`
+// is ambiguous and is deliberately not offered.
 var k3dDebugPresets = map[string][]k3dDebugPreset{
 	"pxc": {
 		{Label: "Reconcile", Func: "pxc.(*ReconcilePerconaXtraDBCluster).Reconcile",
@@ -58,12 +65,61 @@ var k3dDebugPresets = map[string][]k3dDebugPreset{
 		{Label: "Restore Reconcile", Func: "pxcrestore.(*ReconcilePerconaXtraDBClusterRestore).Reconcile",
 			Hint: "a PerconaXtraDBClusterRestore being acted on"},
 	},
+	"ps": {
+		{Label: "Reconcile", Func: "ps.(*PerconaServerMySQLReconciler).Reconcile",
+			Hint: "the main loop — every change to the cluster comes through here"},
+		{Label: "doReconcile", Func: "ps.(*PerconaServerMySQLReconciler).doReconcile",
+			Hint: "one pass in full: TLS, users, the StatefulSets, replication"},
+		{Label: "reconcileDatabase", Func: "ps.(*PerconaServerMySQLReconciler).reconcileDatabase",
+			Hint: "creating or updating the MySQL StatefulSet"},
+		{Label: "reconcileReplication", Func: "ps.(*PerconaServerMySQLReconciler).reconcileReplication",
+			Hint: "group replication or Orchestrator — who is primary, and what changed"},
+		{Label: "smartUpdate", Func: "ps.(*PerconaServerMySQLReconciler).smartUpdate",
+			Hint: "the rolling restart: which pod goes next, and why"},
+		{Label: "reconcileUsers", Func: "ps.(*PerconaServerMySQLReconciler).reconcileUsers",
+			Hint: "the system users' passwords and grants"},
+		{Label: "Backup Reconcile", Func: "psbackup.(*PerconaServerMySQLBackupReconciler).Reconcile",
+			Hint: "a PerconaServerMySQLBackup being acted on"},
+		{Label: "Restore Reconcile", Func: "psrestore.(*PerconaServerMySQLRestoreReconciler).Reconcile",
+			Hint: "a PerconaServerMySQLRestore being acted on"},
+	},
+	"psmdb": {
+		{Label: "Reconcile", Func: "perconaservermongodb.(*ReconcilePerconaServerMongoDB).Reconcile",
+			Hint: "the main loop — every change to the cluster comes through here"},
+		{Label: "reconcileReplsets", Func: "perconaservermongodb.(*ReconcilePerconaServerMongoDB).reconcileReplsets",
+			Hint: "the replica sets: their StatefulSets and what state they are in"},
+		{Label: "reconcileCluster", Func: "perconaservermongodb.(*ReconcilePerconaServerMongoDB).reconcileCluster",
+			Hint: "talking to mongod: rs.status(), members added and removed"},
+		{Label: "smartUpdate", Func: "perconaservermongodb.(*ReconcilePerconaServerMongoDB).smartUpdate",
+			Hint: "the rolling restart: secondaries first, then a stepped-down primary"},
+		{Label: "reconcileUsers", Func: "perconaservermongodb.(*ReconcilePerconaServerMongoDB).reconcileUsers",
+			Hint: "the system users' passwords and roles"},
+		{Label: "Backup Reconcile", Func: "perconaservermongodbbackup.(*ReconcilePerconaServerMongoDBBackup).Reconcile",
+			Hint: "a PerconaServerMongoDBBackup being acted on"},
+		{Label: "Restore Reconcile", Func: "perconaservermongodbrestore.(*ReconcilePerconaServerMongoDBRestore).Reconcile",
+			Hint: "a PerconaServerMongoDBRestore being acted on"},
+	},
+	"pg": {
+		{Label: "Reconcile", Func: "pgcluster.(*PGClusterReconciler).Reconcile",
+			Hint: "the main loop — the PerconaPGCluster CR, which writes a PostgresCluster"},
+		{Label: "PostgresCluster Reconcile", Func: "postgrescluster.(*Reconciler).Reconcile",
+			Hint: "the Crunchy loop underneath: instances, Patroni, pgBackRest, pgBouncer"},
+		{Label: "reconcileBackups", Func: "pgcluster.(*PGClusterReconciler).reconcileBackups",
+			Hint: "the repos and schedules a cluster's backups come from"},
+		{Label: "Backup Reconcile", Func: "pgbackup.(*PGBackupReconciler).Reconcile",
+			Hint: "a PerconaPGBackup being acted on"},
+		{Label: "Restore Reconcile", Func: "pgrestore.(*PGRestoreReconciler).Reconcile",
+			Hint: "a PerconaPGRestore being acted on"},
+	},
 }
 
 // k3dDebugStartFile is where the panel opens: the file whose Reconcile is the thing everyone comes
 // here to see.
 var k3dDebugStartFile = map[string]string{
-	"pxc": "pkg/controller/pxc/controller.go",
+	"pxc":   "pkg/controller/pxc/controller.go",
+	"ps":    "pkg/controller/ps/controller.go",
+	"psmdb": "pkg/controller/perconaservermongodb/psmdb_controller.go",
+	"pg":    "percona/controller/pgcluster/controller.go",
 }
 
 // k3dDebugCRKind is the custom resource a forced reconcile annotates — the operator's own short

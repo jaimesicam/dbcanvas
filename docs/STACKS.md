@@ -217,18 +217,20 @@ worth knowing: pgBackRest speaks S3 only over TLS, so its backups need a Seaweed
 on** — the designer warns you when it isn't, because without it the cluster silently keeps the
 operator's own PVC backup repo and the bucket stays empty.)
 
-**Step through the operator itself.** A PXC frame can be deployed with the operator running
-under **Delve**: tick *Run the operator under Delve*, and DBCanvas rebuilds the operator from
-that release's own source with the optimiser off and runs it under `dlv` in place of the released
-binary. Then open the [**Operator Debugger**](OPERATOR_DEBUGGER.md) — breakpoints, call stack,
-variables and expressions, plus a button that forces a reconcile so a breakpoint in `Reconcile`
-is actually reached. No IDE, no clone of the operator, no Go toolchain, and no
-`kubectl port-forward` to keep alive.
+**Step through the operator itself.** A frame running any of the **four Percona operators** can
+be deployed with the operator running under **Delve**: tick *Run the operator under Delve*, and
+DBCanvas rebuilds the operator from that release's own source with the optimiser off and runs it
+under `dlv` in place of the released binary. Then open the
+[**Operator Debugger**](OPERATOR_DEBUGGER.md) — breakpoints, call stack, variables and
+expressions, plus a button that forces a reconcile so a breakpoint in `Reconcile` is actually
+reached. No IDE, no clone of the operator, no Go toolchain, and no `kubectl port-forward` to keep
+alive. (The two community PostgreSQL operators come from a Helm chart rather than a release
+tarball, so there is no source to compile or to show, and the option is not offered for them.)
 
-The pod keeps the released image (only its command changes), the liveness probe and leader
-election are turned off so you can sit on a breakpoint, and Delve starts with `--continue` so
-the cluster still deploys whether or not you ever attach. It costs a few minutes of build time
-on the first deploy.
+The pod keeps the released image (only its command changes), the probes and leader election are
+turned off so you can sit on a breakpoint, and Delve starts with `--continue` so the cluster
+still deploys whether or not you ever attach. It costs a few minutes of build time on the first
+deploy.
 
 Ticking *Also publish the debugger to the host* additionally exposes Delve on
 `127.0.0.1:40000` for an external editor; the server node's **Operator** tab then hands you the

@@ -443,6 +443,17 @@ kubectl apply -f ${cfg.operatorSrc}/deploy/cr.yaml -n ${ns}   # re-apply after e
 // Delve's listener inside the pod — k3ddebug.go's k3dDebugPort, which the NodePort fronts.
 const K3D_DELVE_PORT = 40000
 
+// Where each operator's main reconcile loop lives, for the "put your first breakpoint here" step.
+// Mirrors k3ddebugapi.go's k3dDebugStartFile, which is what the in-app debugger opens on. The
+// Deployment's name is not listed with it: it is the repository name, which the frame already
+// records as the tail of debugBuildDir (/go/src/github.com/percona/<repo>).
+const K3D_DEBUG_START_FILE = {
+  pxc: 'pkg/controller/pxc/controller.go',
+  ps: 'pkg/controller/ps/controller.go',
+  psmdb: 'pkg/controller/perconaservermongodb/psmdb_controller.go',
+  pg: 'percona/controller/pgcluster/controller.go',
+}
+
 // IDEAttachGuide — everything needed to attach an *external* IDE to the operator running under
 // Delve. The in-app alternative is the Operator Debugger page, which needs none of it; this is
 // here for people who would rather stay in their own editor.
@@ -457,6 +468,10 @@ const K3D_DELVE_PORT = 40000
 function IDEAttachGuide({ cfg, ns, cr, stackId, frameId }) {
   const listening = cfg.debugStatus === 'listening'
   const published = listening && cfg.debugPort > 0
+  // The operator's repository: the Deployment's name, the clone's directory, and the tail of the
+  // build directory the binary's DWARF was written with. One value, three uses.
+  const repo = (cfg.debugBuildDir || '').split('/').filter(Boolean).pop() || 'percona-xtradb-cluster-operator'
+  const startFile = K3D_DEBUG_START_FILE[cfg.operator] || ''
   const launch = `{
   "version": "0.2.0",
   "configurations": [
@@ -510,14 +525,14 @@ function IDEAttachGuide({ cfg, ns, cr, stackId, frameId }) {
             the released image — only its command changed — so the init containers it gives the database pods still
             resolve to the real operator image. Delve was started with
             <span className="font-mono"> --continue</span>, so the cluster is built whether or not you attach; the
-            liveness probe and leader election are off, which is what lets you sit on a breakpoint without kubelet
-            or the lease killing the process.
+            liveness and readiness probes and leader election are off, which is what lets you sit on a breakpoint
+            without kubelet, the lease, or a lost Service endpoint taking the session down.
             <span className="mt-1 block">
               You can stop the debug session whenever you like: a <span className="font-mono">dbcanvas-debug-watchdog</span>{' '}
               sidecar clears any breakpoints your IDE left armed and resumes the operator within 10 seconds. Without it a
               leftover breakpoint fires on the next reconcile with nobody attached and the operator freezes silently —
               and the session after that shows the breakpoint as unverified. Check it with{' '}
-              <span className="font-mono">kubectl -n {ns} logs deploy/percona-xtradb-cluster-operator -c dbcanvas-debug-watchdog</span>.
+              <span className="font-mono">kubectl -n {ns} logs deploy/{repo} -c dbcanvas-debug-watchdog</span>.
             </span>
             <span className="mt-1 block">
               On a Windows or macOS clone, set <span className="font-mono">GOOS</span> before anything else — the
@@ -546,18 +561,17 @@ function IDEAttachGuide({ cfg, ns, cr, stackId, frameId }) {
       {published && (
         <>
           <Code label="1 · clone the source your IDE will step through (the tag the binary was built from)"
-            text={`git clone -b v${cfg.operatorVer} https://github.com/percona/percona-xtradb-cluster-operator.git
-cd percona-xtradb-cluster-operator   # open THIS directory as the workspace`} />
+            text={`git clone -b v${cfg.operatorVer} https://github.com/percona/${repo}.git
+cd ${repo}   # open THIS directory as the workspace`} />
           <Code label="2 · .vscode/settings.json — the operator is Linux-only code" text={settings} />
           <Code label="3 · .vscode/launch.json in that clone" text={launch} />
           <Code label="4 · break in Reconcile, then force one"
-            text={`# breakpoint: pkg/controller/pxc/controller.go, in Reconcile() —
-#   err := r.client.Get(ctx, request.NamespacedName, o)
+            text={`# breakpoint: ${startFile}, at the top of Reconcile()
 # then, with the debugger attached:
-kubectl -n ${ns} annotate pxc ${cr} debug="$(date +%s)" --overwrite`} />
-          <Code label="Check on it from here" text={`kubectl -n ${ns} logs deploy/percona-xtradb-cluster-operator -c dbcanvas-debug-watchdog
-kubectl -n ${ns} get svc percona-xtradb-cluster-operator-delve
-kubectl -n ${ns} logs deployment/percona-xtradb-cluster-operator | head -3
+kubectl -n ${ns} annotate ${cfg.operator} ${cr} debug="$(date +%s)" --overwrite`} />
+          <Code label="Check on it from here" text={`kubectl -n ${ns} logs deploy/${repo} -c dbcanvas-debug-watchdog
+kubectl -n ${ns} get svc ${repo}-delve
+kubectl -n ${ns} logs deployment/${repo} | head -3
 # ...prints Delve's own "API server listening at: [::]:${K3D_DELVE_PORT}"`} />
         </>
       )}

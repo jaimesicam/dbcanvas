@@ -11,12 +11,14 @@ development: spin up a production-shaped cluster in minutes, exercise it, tear i
 
 ## What's New
 
-**Debug the Kubernetes operator itself, without an IDE.** Deploy a K3D frame with *Run the
-operator under Delve* ticked, then open the **Operator Debugger**: set a breakpoint, press
-**Force a reconcile**, and read the call stack, the locals and any Go expression you type. No
-clone of the operator, no Go toolchain, no `launch.json`, no `kubectl port-forward` — and when
-you close the page it clears the breakpoints and resumes the operator for you.
-[Operator Debugger →](docs/OPERATOR_DEBUGGER.md)
+**Debug the Kubernetes operator itself, without an IDE — now on all four Percona operators.**
+Deploy a K3D frame running the MySQL (PXC), MySQL (Percona Server), MongoDB or PostgreSQL
+operator with *Run the operator under Delve* ticked, then open the **Operator Debugger**: set a
+breakpoint, press **Force a reconcile**, and read the call stack, the locals and any Go
+expression you type. Each operator brings its own quick breakpoints — PS's `doReconcile`,
+MongoDB's `reconcileCluster`, PostgreSQL's second loop in Crunchy's `PostgresCluster` — so you
+can stop where that operator actually does its work. No clone, no Go toolchain, no `launch.json`,
+no `kubectl port-forward`. [Operator Debugger →](docs/OPERATOR_DEBUGGER.md)
 
 ![The Operator Debugger stopped in Reconcile, with the call stack and locals beside the source](docs/screenshots/operator-debugger.png)
 

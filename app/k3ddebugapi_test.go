@@ -123,16 +123,22 @@ func TestDebugCleanRel(t *testing.T) {
 // The presets are what most sessions actually use, so they have to be spelled the way Delve
 // resolves a function breakpoint — package-qualified, with the pointer receiver.
 func TestDebugPresetsLookLikeDelveSpecs(t *testing.T) {
-	presets := k3dDebugPresets["pxc"]
-	if len(presets) == 0 {
-		t.Fatal("no presets for pxc")
-	}
-	for _, p := range presets {
-		if p.Label == "" || p.Hint == "" {
-			t.Errorf("preset %+v needs a label and a hint", p)
+	for op, presets := range k3dDebugPresets {
+		if len(presets) == 0 {
+			t.Errorf("no presets for %s", op)
 		}
-		if !strings.Contains(p.Func, ".(*") || !strings.Contains(p.Func, ").") {
-			t.Errorf("preset %q is not a package-qualified method spec", p.Func)
+		for _, p := range presets {
+			if p.Label == "" || p.Hint == "" {
+				t.Errorf("%s: preset %+v needs a label and a hint", op, p)
+			}
+			if !strings.Contains(p.Func, ".(*") || !strings.Contains(p.Func, ").") {
+				t.Errorf("%s: preset %q is not a package-qualified method spec", op, p.Func)
+			}
+		}
+		// A "Reconcile" landmark is the one every operator must have — it is what the page tells
+		// people to start from, and the Force-a-reconcile button exists to make it fire.
+		if len(presets) > 0 && presets[0].Label != "Reconcile" {
+			t.Errorf("%s: the first preset is %q, want Reconcile", op, presets[0].Label)
 		}
 	}
 	// Every operator with presets must also have somewhere for the panel to open, or it starts
@@ -145,10 +151,10 @@ func TestDebugPresetsLookLikeDelveSpecs(t *testing.T) {
 			t.Errorf("operator %q has presets but no CR kind to annotate", op)
 		}
 	}
-	// And the debuggable operator is one of them — a frame that can be deployed under Delve with
-	// no landmarks and no start file would open on nothing.
-	for op, on := range k3dDebuggableOperator {
-		if on && len(k3dDebugPresets[op]) == 0 {
+	// And every debuggable operator is one of them — a frame that can be deployed under Delve
+	// with no landmarks and no start file would open on nothing.
+	for op := range k3dDebugProfiles {
+		if len(k3dDebugPresets[op]) == 0 {
 			t.Errorf("operator %q can be debugged but has no presets", op)
 		}
 	}

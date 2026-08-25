@@ -33,13 +33,26 @@ import (
 // (that address is the frame's published debugger port; from inside the app it would be the
 // k3s node's own address on :30400 instead). The test halts the operator it attaches to and
 // always clears up after itself — the same clear-then-resume the session's teardown does.
+//
+// DELVE_IT_OPERATOR picks which operator is on the other end (pxc, ps, psmdb, pg; pxc by
+// default) — the presets, the build directory and the file to break in all come from that
+// operator's own entries, so the one thing this test exists to prove, that the quick
+// breakpoints resolve against the shipped binary, can be proved for each of them.
 func TestDelveLiveSession(t *testing.T) {
 	addr := os.Getenv("DELVE_IT")
 	if addr == "" {
 		t.Skip("integration test; set DELVE_IT=<host:port> to run against a real Delve")
 	}
-	const buildDir = "/go/src/github.com/percona/percona-xtradb-cluster-operator"
-	const controller = "pkg/controller/pxc/controller.go"
+	op := os.Getenv("DELVE_IT_OPERATOR")
+	if op == "" {
+		op = "pxc"
+	}
+	if !k3dDebuggableOperator(op) {
+		t.Fatalf("DELVE_IT_OPERATOR=%q is not an operator the debugger is wired up for", op)
+	}
+	buildDir := k3dDebugBuildDir(op)
+	controller := k3dDebugStartFile[op]
+	t.Logf("operator %s — source under %s, breaking in %s", op, buildDir, controller)
 
 	ctx := context.Background()
 	var mu sync.Mutex
@@ -84,20 +97,37 @@ func TestDelveLiveSession(t *testing.T) {
 
 	// The quick breakpoints, as the panel sends them. A preset that does not resolve is a
 	// preset that lies, so this is the test that keeps them honest.
-	fns := make([]dapFunctionBreakpoint, 0, len(k3dDebugPresets["pxc"]))
-	for _, p := range k3dDebugPresets["pxc"] {
+	presets := k3dDebugPresets[op]
+	fns := make([]dapFunctionBreakpoint, 0, len(presets))
+	for _, p := range presets {
 		fns = append(fns, dapFunctionBreakpoint{Name: p.Func})
 	}
-	got, err := cli.setFunctionBreakpoints(ctx, fns)
+	// The slowest call in the test, and the only one that needs its own deadline: Delve halts a
+	// running debuggee and resolves every spec against a ~100 MiB unstripped binary, which on a
+	// busy box (an operator mid-cluster-creation, a 2-CPU limit) runs past the client's default
+	// 30s. Timing out here reads as "the presets do not resolve", which is the opposite of true.
+	bpCtx, cancelBP := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancelBP()
+	got, err := cli.setFunctionBreakpoints(bpCtx, fns)
 	if err != nil {
 		t.Fatalf("setFunctionBreakpoints: %v", err)
 	}
+	// Where Reconcile turned out to be, which is where the source breakpoint below goes: the
+	// line is per operator and per release, and Delve has just told us it.
+	reconcileLine := 0
 	for i, bp := range got {
-		name := k3dDebugPresets["pxc"][i].Func
+		name := presets[i].Func
 		t.Logf("preset %-70s verified=%v line=%d %s", name, bp.Verified, bp.Line, bp.Message)
 		if !bp.Verified {
 			t.Errorf("preset %q did not resolve: %s", name, bp.Message)
+			continue
 		}
+		if presets[i].Label == "Reconcile" {
+			reconcileLine = bp.Line
+		}
+	}
+	if reconcileLine == 0 {
+		t.Fatalf("the Reconcile preset for %s did not resolve, so there is nowhere to break", op)
 	}
 	// Clear them again: the stop this test wants is the source breakpoint below, and a
 	// function breakpoint on Reconcile would race it.
@@ -108,7 +138,7 @@ func TestDelveLiveSession(t *testing.T) {
 	// A source breakpoint on the line the panel would set it on — through the same path
 	// mapping the session uses, which is the thing an IDE needs substitutePath for.
 	line := 0
-	for _, want := range []int{247, 248, 249, 250} {
+	for _, want := range []int{reconcileLine, reconcileLine + 1, reconcileLine + 2, reconcileLine + 3} {
 		bps, err := cli.setBreakpoints(ctx, k3dDebugBuildPath(buildDir, controller),
 			[]dapSourceBreakpoint{{Line: want}})
 		if err != nil {
@@ -146,13 +176,18 @@ func TestDelveLiveSession(t *testing.T) {
 		t.Logf("continue after the handshake: %v (expected when it is already running)", err)
 	}
 
-	// The PXC operator requeues every five seconds, so Reconcile comes round on its own —
-	// no annotation needed to prove the stop works.
+	// PXC and MongoDB requeue every five seconds, so Reconcile comes round on its own and the
+	// stop below needs nothing from anyone. Percona Server and PostgreSQL only reconcile when
+	// something changes, so on a settled cluster this waits forever unless the custom resource
+	// is touched — which is what the page's "Force a reconcile" button does.
 	var stop dapStoppedEvent
 	select {
 	case stop = <-stops:
 	case <-time.After(90 * time.Second):
-		t.Fatal("the operator never hit the breakpoint in Reconcile")
+		t.Fatalf("the operator never hit the breakpoint in Reconcile. %s only reconciles when "+
+			"something changes; run this again with `kubectl -n <ns> annotate %s <cr> "+
+			"debug=$(date +%%s) --overwrite` in a loop beside it", k3dOperatorLabel(op),
+			k3dDebugCRKind[op])
 	}
 	t.Logf("stopped: reason=%q thread=%d", stop.Reason, stop.ThreadID)
 

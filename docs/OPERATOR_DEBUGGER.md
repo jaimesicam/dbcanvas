@@ -23,14 +23,16 @@ The operator has to be **deployed under the debugger** — it is a deploy-time d
 the operator is rebuilt from that release's own source with the optimiser off
 (`-gcflags=all=-N -l`) and run under `dlv` in place of the released binary.
 
-1. In **Database Stacks**, add a **K3D cluster** frame and set its operator to
-   **Percona Operator for MySQL (PXC)**.
+1. In **Database Stacks**, add a **K3D cluster** frame and set its operator to any of the four
+   Percona operators — **MySQL (PXC)**, **MySQL (Percona Server)**, **MongoDB**, or
+   **PostgreSQL**.
 2. Tick **Run the operator under Delve**.
 3. Deploy. The build adds a few minutes on the first run and is cached afterwards.
 
 The released image stays on the pod — only its command changes — so the init containers the
-operator gives every database pod still resolve. The liveness probe and leader election are
-turned off (both would kill a process sitting at a breakpoint), and Delve is started with
+operator gives every database pod still resolve. The probes and leader election are turned off
+(a halted process answers neither, and kubelet would kill the pod, the lease would expire, and an
+unready pod would be dropped from the debugger's own Service), and Delve is started with
 `--continue`, so **the cluster is built whether or not anyone ever attaches**.
 
 Nothing else is needed. The debugger talks to Delve over the stack network, and reads the
@@ -46,24 +48,31 @@ source the binary was built from, which is why line numbers line up with no conf
 ## Using it
 
 **Set a breakpoint.** Either click a line number in the source, or use a **quick breakpoint** —
-named landmarks in this operator, so you do not have to go and find the line:
+named landmarks in *this* operator, so you do not have to go and find the line. Every operator
+has a **Reconcile** (its main loop, and where to start), a **smartUpdate** or its equivalent, and
+its backup and restore loops; the rest are what that particular operator spends its time on:
 
-| Quick breakpoint | Where it stops |
+| | Quick breakpoints |
 | --- | --- |
-| Reconcile | the main loop — every change to the cluster comes through here |
-| deploy | creating or updating the PXC and proxy StatefulSets |
-| smartUpdate | the rolling restart: which pod goes next, and why |
-| reconcileUsers | the system users' passwords and grants |
-| Backup Reconcile | a `PerconaXtraDBClusterBackup` being acted on |
-| Restore Reconcile | a `PerconaXtraDBClusterRestore` being acted on |
+| **MySQL (PXC)** | Reconcile · deploy · smartUpdate · reconcileUsers · Backup Reconcile · Restore Reconcile |
+| **MySQL (Percona Server)** | Reconcile · doReconcile · reconcileDatabase · reconcileReplication · smartUpdate · reconcileUsers · Backup Reconcile · Restore Reconcile |
+| **MongoDB** | Reconcile · reconcileReplsets · reconcileCluster · smartUpdate · reconcileUsers · Backup Reconcile · Restore Reconcile |
+| **PostgreSQL** | Reconcile · PostgresCluster Reconcile · reconcileBackups · Backup Reconcile · Restore Reconcile |
+
+Each carries a one-line hint in the panel saying what it stops on. Two are worth calling out:
+PS's **doReconcile** is where one pass actually happens (`Reconcile` above it only handles
+finalizers and status), and PostgreSQL's **PostgresCluster Reconcile** is the Crunchy loop
+underneath Percona's — `Reconcile` writes a `PostgresCluster`, and that second loop is what turns
+it into instances, Patroni and pgBackRest.
 
 A breakpoint that could not be resolved shows a hollow marker and Delve's reason — usually
 *"please use a line with a statement"*, i.e. you clicked a blank line or a comment.
 
 **Make it stop.** Press **Force a reconcile**. That annotates the custom resource, which is what
 makes the operator run `Reconcile` now rather than at its next resync — the one thing an IDE
-attached to the same port cannot do for you. (The PXC operator also requeues every five seconds
-on its own, so a breakpoint in `Reconcile` will be reached either way.)
+attached to the same port cannot do for you. (PXC and MongoDB also requeue every five seconds on
+their own, so a breakpoint in `Reconcile` will be reached either way; PS and PostgreSQL are
+quieter, and there the button is how you make something happen.)
 
 **Read the state.** When it stops:
 
@@ -123,14 +132,40 @@ manager. That is the right boundary and worth being explicit about: **a debugger
 execution by design** — it can read any memory in the operator process and, with function calls
 allowed, run its code. Anyone who can open this can already open a root shell on the same node.
 
-## Only PXC, for now
+## Which operators
 
-The plumbing is operator-agnostic — the DAP client, the session, the source browsing and the path
-mapping know nothing about which operator they are pointed at. What is per-operator is the list of
-quick breakpoints, the custom resource to annotate, and the leader-election environment variable
-to switch off; each also needs to be tried on a live cluster before it is offered. Today that is
-the **Percona Operator for MySQL (PXC)**. A frame that asks for a debugger on any other operator
-is warned in the designer and deploys normally, without one.
+All four Percona operators: **MySQL (PXC)**, **MySQL (Percona Server)**, **MongoDB** and
+**PostgreSQL**. The plumbing is operator-agnostic — the DAP client, the session, the source
+browsing and the path mapping know nothing about which operator they are pointed at — and what is
+not is a small profile per operator (`k3dDebugProfiles` in `app/k3ddebug.go`) plus its list of
+quick breakpoints. Five things differ, and every one of them fails *silently* if guessed:
+
+- **The container's name** in the operator Deployment. The patch is a strategic merge, which keys
+  containers by name, so a wrong one adds a second container beside the operator instead of
+  changing it. PXC and MongoDB name it after the Deployment; Percona Server calls it `manager`
+  and PostgreSQL calls it `operator`.
+- **The main package.** Three build from `./cmd/manager`; the PostgreSQL operator is a fork of
+  Crunchy's and keeps `./cmd/postgres-operator`.
+- **Whether it needs cgo.** The PostgreSQL operator will not compile without it — it parses SQL
+  with `pg_query_go`, a wrapper around PostgreSQL's own C parser — so it is built with
+  `CGO_ENABLED=1` (and a cross C toolchain when the cluster's architecture is not the host's),
+  exactly as its own Dockerfile does. The other three, and `dlv` itself, stay static.
+- **How leader election is turned off** — which is per *release*, not per operator. PXC 1.20.0
+  reads `PXCO_LEADER_ELECTION_ENABLED`; PXC **1.19.0 takes a `--leader-elect` flag and has never
+  heard of that variable**, so setting only the variable leaves election on, and the operator
+  exits the first time a breakpoint stops it renewing its lease — with the pod still `Running`,
+  because the container's process is `dlv` rather than the operator. DBCanvas therefore reads the
+  release's own source to see whether the flag exists, and passes it when it does. (Percona Server
+  and MongoDB take the flag too, and MongoDB's defaults to *on* with nothing in `bundle.yaml` to
+  say so.)
+- **The pod's labels**, which the debugger's Service selects on. Only
+  `app.kubernetes.io/name` is set by all four.
+
+The two community PostgreSQL operators — **CloudNativePG** and **Crunchy Postgres for
+Kubernetes** — are not on the list and will not be: they are installed from a Helm chart, so
+there is no release tarball to compile with the optimiser off, and no source on the node for the
+panel to show. A frame that asks for a debugger on one of them is warned in the designer and
+deploys normally, without one.
 
 ## See also
 

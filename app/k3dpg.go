@@ -222,6 +222,12 @@ func (a *App) installPGOperator(ctx context.Context, st Stack, frame designFrame
 	if err := a.k3dApplyBundle(ctx, serverID, "percona-postgresql-operator", cfg, pr); err != nil {
 		return err
 	}
+	// The debugger goes on BEFORE the custom resource, so a breakpoint set while the deploy is
+	// still running catches the cluster's very first reconcile. Never fatal — see
+	// k3dInstallDebugger.
+	if k3dDebugOn(frame) {
+		a.k3dInstallDebugger(ctx, st, frame, "percona-postgresql-operator", tarball, serverID, cfg, pr)
+	}
 	ns := cfg.Namespace
 
 	// ---- the secrets, BEFORE cr.yaml ----
