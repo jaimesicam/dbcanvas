@@ -38,11 +38,11 @@ import (
 // installed. aioMySQLFlavor derives which one a design needs; validateStack
 // rejects a design that asks for both.
 
-// aioMySQLPackages is the percona-release product and server package for the PS
-// flavor. The PXC flavor installs a different, conflicting package set — see
-// aioProvisionMySQL, which rejects it until that path is built.
-func aioMySQLPackages(major, os string) (product, pkg string) {
-	return psClientProduct(psMajorOf(major)), psServerPackage(os, psMajorOf(major))
+// aioMySQLPackages is the percona-release product and the space-joined server
+// package set for the PS flavor. The PXC flavor installs a different, conflicting
+// package set — see aioProvisionMySQL, which rejects it until that path is built.
+func aioMySQLPackages(major, os string) (product, pkgs string) {
+	return psClientProduct(psMajorOf(major)), strings.Join(psServerPackages(os, psMajorOf(major)), " ")
 }
 
 // aioMySQLMajor is the node-level Percona Server series and pinned minor. One
@@ -105,7 +105,7 @@ func (a *App) aioMySQLInstallFor(ctx context.Context, id string, n designNode, f
 		env = []string{"MAJOR=" + major, "PKGS=" + pkgs, "VER=" + version, "TOOLS=" + mysqlceToolsRepo(major)}
 		what = pkgs
 	default:
-		product, pkg := aioMySQLPackages(major, n.OS)
+		product, pkgs := aioMySQLPackages(major, n.OS)
 		script = mysqlInstallRHEL
 		if debian {
 			script = mysqlInstallDebian
@@ -114,8 +114,8 @@ func (a *App) aioMySQLInstallFor(ctx context.Context, id string, n designNode, f
 		// cannot enable, which the script installs from a hand-written repository
 		// (see psRepoRHEL in mysql.go). Passing it unconditionally keeps the two
 		// callers of this script identical.
-		env = []string{"PRODUCT=" + product, "REPO=" + psRepoName(psMajorOf(major)), "PKG=" + pkg, "VER=" + version}
-		what = pkg
+		env = []string{"PRODUCT=" + product, "REPO=" + psRepoName(psMajorOf(major)), "PKGS=" + pkgs, "VER=" + version}
+		what = pkgs
 	}
 	if err := a.runStep(ctx, id, script, env, pr.logln); err != nil {
 		return fmt.Errorf("install %s: %w", what, err)

@@ -19120,3 +19120,51 @@ reading the report alone — including the negative ones, which is what makes "o
 construction" a claim this project can stand behind rather than an assumption. No new tests: no
 diagnosis-engine behavior changed, because no core surfaced anything the engine got wrong this
 time.
+
+## 321. Percona Server's sibling packages were never actually pinned — `app/mysql.go`, `app/aio_mysql.go`, `app/mysql97_test.go`
+
+A user hypothesis — "the packages only respect the percona-server-server version but the rest use
+the latest" — checked out exactly on a live, already-deployed stack before any code was touched:
+a standalone PS node pinned to `percona-server-server-8.0.33-25.1` had `percona-server-client`,
+`percona-server-shared`, and `percona-icu-data-files` all sitting at `8.0.46-37.1`, the newest
+build in the repo. A replication-frame node pinned to `8.0.39-30.1` showed the identical pattern.
+
+The install path (`mysqlPrepareNode` → `mysqlInstallRHEL`/`mysqlInstallDebian`) called
+`pin_install "$PKG"` with `PKG` set to the single result of `psServerPackage()` —
+`percona-server-server` and nothing else — so `pin_install`'s per-package version glob
+(`dnf repoquery "${p}-${VER}*"` / `apt-cache madison`) was only ever applied to that one package.
+Everything else percona-release/apt pulled in as an ordinary dependency, unconstrained, and
+resolved to latest. Contrast with PXC, checked live on the same stack: `percona-xtradb-cluster`
+(the single package PXC pins) carries exact-version `Requires` on its own client/server/shared/icu
+sub-packages, so pinning just the meta-package correctly cascaded to all four — confirmed via
+`rpm -qa` on a running pxc node, every sub-package at the identical `8.0.36-28.1`. Percona Server's
+`percona-server-server` carries no equivalent constraint; `install_pin.go`'s comment that
+"dependencies follow" is true for PXC and was simply wrong for PS.
+
+The fix follows the pattern `mariadb.go`/`mongodb.go`/`innodb.go` already use for multi-package
+installs: `psServerPackage()` (single string) became `psServerPackages()` (`[]string`, the full set
+to pin), and the install scripts loop `for p in $PKGS; do pin_install "$p"; done` instead of pinning
+one name. Package sets, confirmed against the real repos rather than assumed (RHEL 8.0 via live
+`rpm -qa`, RHEL 5.7 and all three Debian variants via `dnf repoquery`/`apt-cache madison` against
+`repo.percona.com` from throwaway containers, since no 5.7 or Debian PS node was deployed to check
+directly):
+
+- RHEL 8.0/8.4/9.7: `percona-server-server percona-server-client percona-server-shared percona-icu-data-files`
+- RHEL 5.7: `Percona-Server-server-57 Percona-Server-client-57 Percona-Server-shared-57` (no `icu-data-files` package exists pre-8.0)
+- Debian/Ubuntu 8.0/8.4/9.7: `percona-server-server percona-server-client percona-server-common` (Debian consolidates shared+ICU into `-common`; no separate `-shared`/`-icu-data-files` packages exist there)
+- Debian/Ubuntu 5.7: `percona-server-server-5.7 percona-server-client-5.7 percona-server-common-5.7`
+
+`aioMySQLPackages` (the All-in-One path, which reuses the same two install scripts) changed the
+same way — its `pkg` return became a space-joined `pkgs`, and its caller's env var went from `PKG=`
+to `PKGS=`.
+
+### Verified
+
+Live, end to end: rebuilt the `dbcanvas:latest` image, restarted the running app container (the
+already-deployed lab stack's node containers were untouched by the restart), added a new standalone
+PS node pinned to `8.0.36-28.1` to the same live stack, and deployed just that node. Before the fix,
+this exact scenario produced the drift described above; after it, `rpm -qa` on the new node showed
+`percona-server-server`, `percona-server-client`, `percona-server-shared`, and
+`percona-icu-data-files` all at the identical pinned `8.0.36-28.1`. Node removed and container
+cleaned up afterward. `go build ./...`, `go vet ./...`, and `go test ./...` all pass; updated
+`TestPS97IsARealSeries` for the new `psServerPackages()` signature.

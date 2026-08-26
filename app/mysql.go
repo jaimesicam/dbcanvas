@@ -507,17 +507,28 @@ func psRepoName(major string) string {
 	return "ps-80"
 }
 
-// psServerPackage is the OS package that installs the Percona Server daemon for a
-// series. 8.0/8.4 share the unsuffixed percona-server-server; the legacy 5.7 series
-// keeps a version-suffixed name that also differs between package managers.
-func psServerPackage(os, major string) string {
+// psServerPackages is the full set of OS packages that make up a Percona Server
+// install for a series, in the order pin_install should apply $VER to each.
+//
+// The server package's own version does not constrain its siblings: unlike
+// percona-xtradb-cluster (a meta-package with exact-version Requires on its
+// client/shared/icu-data-files), percona-server-server carries no such
+// dependency, so pinning only it leaves the rest to resolve to whatever is
+// newest in the repo — verified live, where a node pinned to
+// percona-server-server-8.0.33-25.1 still got percona-server-client and
+// percona-server-shared at 8.0.46-37.1. Every package here must be pinned
+// individually.
+func psServerPackages(os, major string) []string {
 	if major == "5.7" {
 		if isDebianOS(os) {
-			return "percona-server-server-5.7"
+			return []string{"percona-server-server-5.7", "percona-server-client-5.7", "percona-server-common-5.7"}
 		}
-		return "Percona-Server-server-57"
+		return []string{"Percona-Server-server-57", "Percona-Server-client-57", "Percona-Server-shared-57"}
 	}
-	return "percona-server-server"
+	if isDebianOS(os) {
+		return []string{"percona-server-server", "percona-server-client", "percona-server-common"}
+	}
+	return []string{"percona-server-server", "percona-server-client", "percona-server-shared", "percona-icu-data-files"}
 }
 
 // psAuthPlugin is the authentication plugin used for accounts DBCanvas sets a password
@@ -641,14 +652,14 @@ func (a *App) mysqlPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	if debian {
 		instScript, pmmScript = mysqlInstallDebian, pxcInstallPMMClientDebian
 	}
-	psPkg := psServerPackage(frame.OS, psMajorOf(frame.PSMajor))
 	psMajor := psMajorOf(frame.PSMajor)
+	psPkgs := strings.Join(psServerPackages(frame.OS, psMajor), " ")
 	if err := a.runStep(ctx, id, instScript, []string{
 		"PRODUCT=" + psClientProduct(psMajor), "REPO=" + psRepoName(psMajor),
-		"PKG=" + psPkg, "VER=" + frame.PSVersion}, pr.logln); err != nil {
-		return pr.fail("install %s: %v", psPkg, err)
+		"PKGS=" + psPkgs, "VER=" + frame.PSVersion}, pr.logln); err != nil {
+		return pr.fail("install %s: %v", psPkgs, err)
 	}
-	pr.logln(psPkg + " installed")
+	pr.logln(psPkgs + " installed")
 
 	// Install Percona XtraBackup matching the Percona Server series (8.0 → pxb80 /
 	// percona-xtrabackup-80, 8.4 → pxb84lts / percona-xtrabackup-84, 9.7 → the
@@ -846,12 +857,12 @@ fi
 
 const mysqlInstallRHEL = pinInstallRHEL + `set -e
 dnf -y -q module disable mysql >/dev/null 2>&1 || true
-` + psRepoRHEL + `pin_install "$PKG"`
+` + psRepoRHEL + `for p in $PKGS; do pin_install "$p"; done`
 
 const mysqlInstallDebian = pinInstallDebian + `set -e
 export DEBIAN_FRONTEND=noninteractive
 ` + psRepoDebian + `apt-get update -qq >/dev/null
-pin_install "$PKG"`
+for p in $PKGS; do pin_install "$p"; done`
 
 // mysqlSetRootPW is shared shell that sets root@localhost to $ROOT_PW regardless of
 // distro (RHEL expired temp password / Debian auth_socket). The ALTER USER is run

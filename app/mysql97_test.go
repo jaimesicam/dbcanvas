@@ -22,8 +22,8 @@ func TestPS97IsARealSeries(t *testing.T) {
 	// The unsuffixed server package is right for 9.7 as it is for 8.0/8.4 — only the
 	// legacy 5.7 series carries a version in its package name.
 	for _, os := range []string{"oraclelinux", "ubuntu"} {
-		if got := psServerPackage(os, "9.7"); got != "percona-server-server" {
-			t.Errorf("psServerPackage(%s, 9.7) = %q", os, got)
+		if got := psServerPackages(os, "9.7"); len(got) == 0 || got[0] != "percona-server-server" {
+			t.Errorf("psServerPackages(%s, 9.7)[0] = %q", os, got)
 		}
 	}
 }
