@@ -8,6 +8,8 @@ import DbLoginGuide from '../components/DbLoginGuide.jsx'
 import VaultGuide from '../components/VaultGuide.jsx'
 import OidcLoginGuide from '../components/OidcLoginGuide.jsx'
 import { SecretValue } from '../components/Secret.jsx'
+import { Help } from '../components/Tooltip.jsx'
+import { DEP_HELP } from '../lib/help.js'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -29,10 +31,10 @@ function CopyButton({ text, size = 14 }) {
   )
 }
 
-function KV({ k, v, mono }) {
+function KV({ k, v, mono, help }) {
   return (
     <div className="flex justify-between gap-3">
-      <span className="text-muted">{k}</span>
+      <span className="flex shrink-0 items-center gap-1 text-muted">{k}<Help text={help} /></span>
       <span className={`truncate text-fg ${mono ? 'font-mono text-xs' : ''}`}>{(v ?? '') === '' ? '—' : String(v)}</span>
     </div>
   )
@@ -64,20 +66,20 @@ export default function MySQLManager({ stackId, nodeId, dep, onDeleteNode }) {
 
       {tab === 'overview' && (
         <div className="space-y-2 text-sm">
-          {cfg.cluster && <KV k="Cluster" v={cfg.cluster} />}
-          <KV k="Role" v={cfg.role === 'standalone' ? 'standalone (read/write)' : isPrimary ? 'primary (read/write)' : 'secondary (read-only)'} />
-          {cfg.replMode && <KV k="Replication" v={cfg.replMode === 'semisync' ? 'semi-synchronous' : 'asynchronous'} />}
-          {cfg.role === 'secondary' && <KV k="Source (primary)" v={cfg.sourceHost} mono />}
-          <KV k="FQDN" v={cfg.fqdn} mono />
-          <KV k="server-id" v={cfg.serverId} />
-          <KV k="GTID" v={cfg.gtid ? 'on' : 'off'} />
-          <KV k="read_only" v={cfg.readOnly ? 'ON' : 'OFF'} />
-          <KV k="TLS" v={cfg.generateCert ? 'Intranet CA' : 'none'} />
-          {cfg.oidc?.enabled && <KV k="Keycloak SSO" v={`auth_openid_connect · realm ${cfg.oidc.realm}`} />}
-          {cfg.vault?.enabled && <KV k="Encryption" v={`OpenBao · ${cfg.vault.method}`} />}
-          <KV k="Monitored by" v={cfg.monitoredBy} mono />
-          {cfg.serverVersion && <KV k="Version" v={cfg.serverVersion} mono />}
-          <KV k="Image" v={cfg.image} mono />
+          {cfg.cluster && <KV k="Cluster" help={DEP_HELP.Cluster} v={cfg.cluster} />}
+          <KV k="Role" help={DEP_HELP.Role} v={cfg.role === 'standalone' ? 'standalone (read/write)' : isPrimary ? 'primary (read/write)' : 'secondary (read-only)'} />
+          {cfg.replMode && <KV k="Replication" help={DEP_HELP.Replication} v={cfg.replMode === 'semisync' ? 'semi-synchronous' : 'asynchronous'} />}
+          {cfg.role === 'secondary' && <KV k="Source (primary)" help={DEP_HELP['Source (primary)']} v={cfg.sourceHost} mono />}
+          <KV k="FQDN" help={DEP_HELP.FQDN} v={cfg.fqdn} mono />
+          <KV k="server-id" help={DEP_HELP['server-id']} v={cfg.serverId} />
+          <KV k="GTID" help={DEP_HELP.GTID} v={cfg.gtid ? 'on' : 'off'} />
+          <KV k="read_only" help={DEP_HELP.read_only} v={cfg.readOnly ? 'ON' : 'OFF'} />
+          <KV k="TLS" help={DEP_HELP.TLS} v={cfg.generateCert ? 'Intranet CA' : 'none'} />
+          {cfg.oidc?.enabled && <KV k="Keycloak SSO" help={DEP_HELP['Keycloak SSO']} v={`auth_openid_connect · realm ${cfg.oidc.realm}`} />}
+          {cfg.vault?.enabled && <KV k="Encryption" help={DEP_HELP.Encryption} v={`OpenBao · ${cfg.vault.method}`} />}
+          <KV k="Monitored by" help={DEP_HELP['Monitored by']} v={cfg.monitoredBy} mono />
+          {cfg.serverVersion && <KV k="Version" help={DEP_HELP.Version} v={cfg.serverVersion} mono />}
+          <KV k="Image" help={DEP_HELP.Image} v={cfg.image} mono />
           {cfg.exportPort ? (
             <div>
               <div className="text-xs text-muted">Host access (3306)</div>
@@ -87,7 +89,7 @@ export default function MySQLManager({ stackId, nodeId, dep, onDeleteNode }) {
               </div>
             </div>
           ) : null}
-          <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+          <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
           <Button variant="outline" size="sm" className="mt-2 w-full" onClick={() => openTerminal({ stackId, nodeId, title: `${cfg.hostname} · root` })}>
             <Icon.Nodes size={16} /> Open root console
           </Button>

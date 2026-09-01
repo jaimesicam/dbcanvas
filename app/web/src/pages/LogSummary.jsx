@@ -8,6 +8,7 @@ import {
   nodeFill, nodeTint, nodeEdge, nodeEdgeSoft, NODE_SLOTS,
   logTimeOfDay, logStamp, logDateTime, logISO, logDur, logBytes,
 } from '../lib/logApi.js'
+import { TOOL_HELP, MORE_HELP } from '../lib/help.js'
 
 // Log Summary — read several database servers' logs as one classified timeline.
 //
@@ -242,7 +243,7 @@ export default function LogSummary() {
         ))}
 
         <div className="mt-3 flex flex-wrap items-end gap-3">
-          <Field label="Lines per node"
+          <Field label="Lines per node" help={TOOL_HELP.lsLinesPerNode}
             hint="tail -n · up to 200,000 · a busy server writes thousands a minute, so raise this if the timeline comes back mostly grey">
             <input type="number" min="100" max="200000" className={`${inputCls} w-32`} value={lines}
               onChange={(e) => setLines(e.target.value)} />
@@ -357,7 +358,7 @@ export default function LogSummary() {
 export function UploadPanel({ files, setFiles, busy, onUpload, onCancel }) {
   return (
     <div className="mb-4 rounded-lg border bg-bg p-3">
-      <Field label="Log files" hint="one per node · MySQL/PXC, PostgreSQL, MongoDB or Valkey — the format is read from the bytes, whatever the file is called">
+      <Field label="Log files" help={TOOL_HELP.lsLogFiles} hint="one per node · MySQL/PXC, PostgreSQL, MongoDB or Valkey — the format is read from the bytes, whatever the file is called">
         {/* No `accept`. The engine is detected from the bytes, never from the name, and the
             names logs actually arrive under defeat any extension list: a rotated log is
             mysqld.log.1 or error.log-20260814, and a file off a ticket comes back as
@@ -977,7 +978,7 @@ export function Filters({ range, setRange, summary, sources }) {
         ))}
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field label="Kind">
+        <Field label="Kind" help={TOOL_HELP.lsKind}>
           <select className={inputCls} value={range.class} onChange={(e) => set({ class: e.target.value })}>
             <option value="">Everything</option>
             {Object.entries(summary.classes || {}).sort((a, b) => b[1] - a[1]).map(([c, n]) => (
@@ -985,7 +986,7 @@ export function Filters({ range, setRange, summary, sources }) {
             ))}
           </select>
         </Field>
-        <Field label="Search" hint="message, code, peer, or what it means">
+        <Field label="Search" help={MORE_HELP.lsSearch} hint="message, code, peer, or what it means">
           <input className={inputCls} placeholder="e.g. donor, SST, 4567" value={range.q}
             onChange={(e) => set({ q: e.target.value })} />
         </Field>

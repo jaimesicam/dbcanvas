@@ -4,6 +4,8 @@ import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE, sambaApi } from '../lib/stackApi.js'
 import DbLdapAuthGuide from '../components/DbLdapAuthGuide.jsx'
 import { SecretValue } from '../components/Secret.jsx'
+import { Help } from '../components/Tooltip.jsx'
+import { DEP_HELP } from '../lib/help.js'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -14,10 +16,10 @@ const TABS = [
   { id: 'creds', label: 'Credentials' },
 ]
 
-function KV({ k, v, mono }) {
+function KV({ k, v, mono, help }) {
   return (
     <div className="flex justify-between gap-3">
-      <span className="text-muted">{k}</span>
+      <span className="flex shrink-0 items-center gap-1 text-muted">{k}<Help text={help} /></span>
       <span className={`truncate text-fg ${mono ? 'font-mono text-xs' : ''}`}>{v || '—'}</span>
     </div>
   )
@@ -84,15 +86,15 @@ export default function SambaManager({ stackId, nodeId, dep, onDeleteNode }) {
 function Overview({ cfg, dep, onDeleteNode }) {
   return (
     <div className="space-y-2 text-sm">
-      <KV k="Realm" v={cfg.realm} mono />
-      <KV k="Workgroup" v={cfg.workgroup} mono />
-      <KV k="Domain" v={cfg.domain} mono />
-      <KV k="FQDN (DC / KDC)" v={cfg.fqdn} mono />
-      <KV k="Base DN" v={cfg.baseDN} mono />
-      <KV k="LDAP" v="ldap://:389 (plain binds allowed) · ldaps://:636" />
-      <KV k="TLS" v={cfg.tls ? 'Intranet-CA cert' : 'self-signed (default)'} />
-      <KV k="OS" v="Ubuntu 24.04" />
-      <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+      <KV k="Realm" help={DEP_HELP.Realm} v={cfg.realm} mono />
+      <KV k="Workgroup" help={DEP_HELP.Workgroup} v={cfg.workgroup} mono />
+      <KV k="Domain" help={DEP_HELP.Domain} v={cfg.domain} mono />
+      <KV k="FQDN (DC / KDC)" help={DEP_HELP['FQDN (DC / KDC)']} v={cfg.fqdn} mono />
+      <KV k="Base DN" help={DEP_HELP['Base DN']} v={cfg.baseDN} mono />
+      <KV k="LDAP" help={DEP_HELP.LDAP} v="ldap://:389 (plain binds allowed) · ldaps://:636" />
+      <KV k="TLS" help={DEP_HELP.TLS} v={cfg.tls ? 'Intranet-CA cert' : 'self-signed (default)'} />
+      <KV k="OS" help={DEP_HELP.OS} v="Ubuntu 24.04" />
+      <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
       </Button>

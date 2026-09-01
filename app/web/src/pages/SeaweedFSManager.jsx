@@ -3,6 +3,8 @@ import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE, seaweedApi } from '../lib/stackApi.js'
 import { SecretValue } from '../components/Secret.jsx'
+import { Help } from '../components/Tooltip.jsx'
+import { HELP, DEP_HELP } from '../lib/help.js'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -28,10 +30,10 @@ function CopyButton({ text, title = 'Copy', size = 14 }) {
   )
 }
 
-function KV({ k, v, mono }) {
+function KV({ k, v, mono, help }) {
   return (
     <div className="flex justify-between gap-3">
-      <span className="text-muted">{k}</span>
+      <span className="flex shrink-0 items-center gap-1 text-muted">{k}<Help text={help} /></span>
       <span className={`truncate text-fg ${mono ? 'font-mono text-xs' : ''}`}>{v || '—'}</span>
     </div>
   )
@@ -229,14 +231,14 @@ function Overview({ cfg, dep, onDeleteNode }) {
   const web = webEndpoint(cfg)
   return (
     <div className="space-y-2 text-sm">
-      <KV k="FQDN" v={cfg.fqdn} mono />
-      {cfg.serverVersion && <KV k="Version" v={cfg.serverVersion} mono />}
-      <KV k="Image" v={cfg.image} mono />
-      <KV k="Network alias" v={cfg.alias} mono />
-      <KV k={`Bucket${(cfg.buckets || []).length > 1 ? 's' : ''}`} v={(cfg.buckets || [cfg.bucket]).filter(Boolean).join(', ')} mono />
-      <KV k="Region" v={cfg.region || 'us-east-1'} mono />
-      <KV k="S3 TLS" v={cfg.tls ? (cfg.generateCert ? 'HTTPS · Intranet-CA cert' : 'HTTPS · self-signed') : 'disabled (HTTP)'} />
-      <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+      <KV k="FQDN" help={DEP_HELP.FQDN} v={cfg.fqdn} mono />
+      {cfg.serverVersion && <KV k="Version" help={DEP_HELP.Version} v={cfg.serverVersion} mono />}
+      <KV k="Image" help={DEP_HELP.Image} v={cfg.image} mono />
+      <KV k="Network alias" help={DEP_HELP['Network alias']} v={cfg.alias} mono />
+      <KV k={`Bucket${(cfg.buckets || []).length > 1 ? 's' : ''}`} help={HELP.s3Buckets} v={(cfg.buckets || [cfg.bucket]).filter(Boolean).join(', ')} mono />
+      <KV k="Region" help={DEP_HELP.Region} v={cfg.region || 'us-east-1'} mono />
+      <KV k="S3 TLS" help={DEP_HELP['S3 TLS']} v={cfg.tls ? (cfg.generateCert ? 'HTTPS · Intranet-CA cert' : 'HTTPS · self-signed') : 'disabled (HTTP)'} />
+      <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
       {web && (
         <a href={web} target="_blank" rel="noreferrer"
           className="mt-2 flex items-center justify-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/15">

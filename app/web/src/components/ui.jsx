@@ -1,5 +1,6 @@
 // Reusable Tailwind/theme primitives.
 import { useEffect, useState } from 'react'
+import { Help } from './Tooltip.jsx'
 
 export const inputCls =
   'w-full rounded-lg border bg-bg px-3 py-2 text-sm text-fg outline-none ' +
@@ -116,12 +117,38 @@ export function ConfirmButton({ onConfirm, children, confirmLabel = 'Confirm?', 
   )
 }
 
-export function Field({ label, hint, children }) {
+// Field is one labelled control. Two levels of explanation hang off it and they do
+// different jobs: `hint` is always-visible text under the input, for the one line
+// somebody needs every time they look at the field ("0 / empty = random unused port");
+// `help` is the tooltip behind the "?" next to the label, for what the setting is for
+// and when you would change it — the paragraph that would be noise if it were always
+// on screen. Either may be used alone.
+export function Field({ label, hint, help, children }) {
   return (
     <label className="block space-y-1">
-      {label && <span className="block text-xs font-medium text-muted">{label}</span>}
+      {label && (
+        <span className="flex items-center gap-1 text-xs font-medium text-muted">
+          <span>{label}</span>
+          <Help text={help} />
+        </span>
+      )}
       {children}
       {hint && <span className="block text-xs text-muted">{hint}</span>}
     </label>
+  )
+}
+
+// InfoRow is one label/value line in a deployed node's panel — the address, the
+// container, the port, the generated password. `help` says what to do with the value,
+// which is the question these rows actually raise.
+export function InfoRow({ label, help, children, className = '' }) {
+  return (
+    <div className={`flex items-start justify-between gap-3 ${className}`}>
+      <span className="flex shrink-0 items-center gap-1 text-muted">
+        <span>{label}</span>
+        <Help text={help} />
+      </span>
+      {children}
+    </div>
   )
 }

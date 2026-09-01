@@ -321,6 +321,13 @@ actually want when a config is one line wrong.
 > them without closing the window. **Split** opens a second pane on another node and copies
 > between the two — the fastest way to put the same file on every member of a cluster.*
 
+**Finding out what a setting does.** Every field on a node's panel — designing it and
+after it is deployed — carries a **?** next to its label. Hover it, or tab to it, for what
+the setting is for and when you would change it, rather than a restatement of the label.
+The same applies to the values on a deployed node (what to *do* with that port, that
+container name, that password), to every button in the toolbar, and to every entry in the
+Infrastructure Library, which explains what each node type gets you before you add it.
+
 **Reaching a node from your own machine.** On a server install, `CONTAINER_BIND_IP` keeps
 every port a node publishes on the server's loopback — which is the right default and also
 means your browser and your local `mysql` client cannot get to any of them. Set

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Icon } from '../components/Icons.jsx'
 import { Card, Button, Badge, Field, inputCls } from '../components/ui.jsx'
 import { datagenApi, genLabel, BSON_TYPES, mongoChoices, defaultGenFor } from '../lib/datagenApi.js'
+import { TOOL_HELP } from '../lib/help.js'
 
 // Data Generator — pick a running PostgreSQL/MySQL/MongoDB connection provisioned by Database
 // Stacks, browse to a table (or MongoDB collection), configure a generator per column/field
@@ -275,12 +276,12 @@ export default function DataGenerator() {
       {meta && (
         <Card title="4 · Generate" subtitle="Rows, workers, and batching">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            <Field label="Total rows"><input type="number" min="1" value={opts.rows} onChange={(e) => setOpts({ ...opts, rows: e.target.value })} className={inputCls} /></Field>
-            <Field label="Batch size"><input type="number" min="1" value={opts.batch} onChange={(e) => setOpts({ ...opts, batch: e.target.value })} className={inputCls} /></Field>
-            <Field label="Workers"><input type="number" min="1" max="16" value={opts.threads} onChange={(e) => setOpts({ ...opts, threads: e.target.value })} className={inputCls} /></Field>
-            {!isMongo && <Field label="FK sample"><input type="number" min="1" value={opts.fkSampleSize} onChange={(e) => setOpts({ ...opts, fkSampleSize: e.target.value })} className={inputCls} /></Field>}
-            <Field label="Seed (0=random)"><input type="number" value={opts.seed} onChange={(e) => setOpts({ ...opts, seed: e.target.value })} className={inputCls} /></Field>
-            <Field label="On error">
+            <Field label="Total rows" help={TOOL_HELP.dgTotalRows}><input type="number" min="1" value={opts.rows} onChange={(e) => setOpts({ ...opts, rows: e.target.value })} className={inputCls} /></Field>
+            <Field label="Batch size" help={TOOL_HELP.dgBatchSize}><input type="number" min="1" value={opts.batch} onChange={(e) => setOpts({ ...opts, batch: e.target.value })} className={inputCls} /></Field>
+            <Field label="Workers" help={TOOL_HELP.dgWorkers}><input type="number" min="1" max="16" value={opts.threads} onChange={(e) => setOpts({ ...opts, threads: e.target.value })} className={inputCls} /></Field>
+            {!isMongo && <Field label="FK sample" help={TOOL_HELP.dgFKSample}><input type="number" min="1" value={opts.fkSampleSize} onChange={(e) => setOpts({ ...opts, fkSampleSize: e.target.value })} className={inputCls} /></Field>}
+            <Field label="Seed (0=random)" help={TOOL_HELP.dgSeed}><input type="number" value={opts.seed} onChange={(e) => setOpts({ ...opts, seed: e.target.value })} className={inputCls} /></Field>
+            <Field label="On error" help={TOOL_HELP.dgOnError}>
               <label className="flex h-9 items-center gap-2 text-sm"><input type="checkbox" checked={opts.stopOnError} onChange={(e) => setOpts({ ...opts, stopOnError: e.target.checked })} /> stop</label>
             </Field>
           </div>

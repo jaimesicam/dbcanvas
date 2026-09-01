@@ -5,6 +5,8 @@ import { pmmApi, DEPLOY_TONE } from '../lib/stackApi.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import OidcLoginGuide from '../components/OidcLoginGuide.jsx'
 import { SecretValue } from '../components/Secret.jsx'
+import { Help } from '../components/Tooltip.jsx'
+import { DEP_HELP } from '../lib/help.js'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -60,10 +62,10 @@ function Err({ children }) {
   return <div className="mb-2 rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">{children}</div>
 }
 
-function KV({ k, v, mono }) {
+function KV({ k, v, mono, help }) {
   return (
     <div className="flex justify-between gap-3">
-      <span className="text-muted">{k}</span>
+      <span className="flex shrink-0 items-center gap-1 text-muted">{k}<Help text={help} /></span>
       <span className={`truncate text-fg ${mono ? 'font-mono text-xs' : ''}`}>{v || '—'}</span>
     </div>
   )
@@ -115,16 +117,16 @@ export default function PMMManager({ stackId, nodeId, dep, onDeleteNode }) {
 function Overview({ cfg, dep, onDeleteNode, onRootConsole, onPmmConsole }) {
   return (
     <div className="space-y-2 text-sm">
-      <KV k="FQDN" v={cfg.fqdn} mono />
-      <KV k="Image" v={cfg.image} mono />
+      <KV k="FQDN" help={DEP_HELP.FQDN} v={cfg.fqdn} mono />
+      <KV k="Image" help={DEP_HELP.Image} v={cfg.image} mono />
       {/* The version PMM actually deployed with (probed on the node), falling back to the tag
           that was requested — "latest" only resolves to something concrete once it is running. */}
-      <KV k="Version" v={cfg.serverVersion || cfg.version} mono />
-      <KV k="Arch" v={cfg.arch} />
-      <KV k="Network alias" v={cfg.alias} mono />
-      <KV k="Grafana SMTP" v={cfg.smtpHost} mono />
-      <KV k="TLS certificate" v={cfg.generateCert ? 'Intranet CA-signed' : 'self-signed (default)'} />
-      <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+      <KV k="Version" help={DEP_HELP.Version} v={cfg.serverVersion || cfg.version} mono />
+      <KV k="Arch" help={DEP_HELP.Arch} v={cfg.arch} />
+      <KV k="Network alias" help={DEP_HELP['Network alias']} v={cfg.alias} mono />
+      <KV k="Grafana SMTP" help={DEP_HELP['Grafana SMTP']} v={cfg.smtpHost} mono />
+      <KV k="TLS certificate" help={DEP_HELP['TLS certificate']} v={cfg.generateCert ? 'Intranet CA-signed' : 'self-signed (default)'} />
+      <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
       {Array.isArray(cfg.services) && (
         <div className="flex flex-wrap gap-1 pt-1">
           {cfg.services.map((s) => <Badge key={s} tone="primary">{s}</Badge>)}

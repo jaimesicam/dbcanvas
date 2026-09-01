@@ -75,6 +75,10 @@ import FTDCSummary, {
   Findings as FtdcFindings, ConfigAdvice as FtdcConfig,
 } from '../src/pages/FTDCSummary.jsx'
 import { chartPoints, chartLines, fmtSpan, fmtNum, ADVICE_TEXT, ADVICE_FILL, ADVICE_TONE } from '../src/lib/ftdcApi.js'
+import { Field, InfoRow } from '../src/components/ui.jsx'
+import { Hint, place } from '../src/components/Tooltip.jsx'
+import * as nodeFs from 'node:fs'
+import { HELP, MENU_HELP, TOOL_HELP, DEP_HELP, MORE_HELP, FTDC_HELP, nodeHelp } from '../src/lib/help.js'
 import realDeps from './real-deps.json' with { type: 'json' }
 
 const noop = () => {}
@@ -352,6 +356,26 @@ for (const [nodeId, dep] of Object.entries(realDeps)) {
     return html
   })
 }
+
+// The deployed-node surface: a manager's KV rows are the "what do I do with this value"
+// question the tooltips were added for, and they are the half that cannot be checked by
+// hovering a draft stack in a browser — it has no running containers. Rendering over a
+// captured real deployment covers them instead.
+check('tooltip: a deployed node\'s panel explains its rows', () => {
+  const [nodeId, dep] = Object.entries(realDeps)[0]
+  const html = renderToString(
+    <TerminalProvider>
+      <MySQLManager stackId={1} nodeId={nodeId} dep={dep} onDeleteNode={noop} />
+    </TerminalProvider>,
+  )
+  // Only the trigger is in the markup: the bubble is portalled on open, which SSR never
+  // does. That the trigger is there at all means `help` reached Help with a real string
+  // — it renders nothing at all for an undefined one, which is what the dangling-
+  // reference check above exists to catch.
+  const triggers = (html.match(/What is this\?/g) || []).length
+  if (triggers < 5) throw new Error(`only ${triggers} help triggers on a deployed panel`)
+  return `${triggers} help triggers`
+})
 
 // The Keycloak-SSO tab is driven entirely by dep.config.oidc, which the Go side writes as
 // oidcInfo (pgoidc.go) — so this renders the guide over exactly the field names
@@ -2292,6 +2316,119 @@ check('template picker: grouped by category, built-ins first', () => {
   if (!groups.some((g) => g.category === 'Uncategorized')) throw new Error('a template with no category was dropped')
   if (templateSizeLabel(tpls[0]) !== '3 nodes · 1 cluster') throw new Error(templateSizeLabel(tpls[0]))
   if (templateSizeLabel(tpls[2]) !== '1 node') throw new Error(templateSizeLabel(tpls[2]))
+  return 'ok'
+})
+
+// --- tooltips -------------------------------------------------------------
+// The help text is the point of the feature, so the checks are about the text
+// arriving, not about the bubble: a tooltip only opens on hover, which SSR never
+// does. What SSR *can* prove is that the trigger renders wherever a caller passed
+// help, that it stays absent when nobody did (an empty "?" on every label would be
+// worse than none), and that the catalog every call site indexes into is not full
+// of holes — a typo'd key is `undefined`, which renders no trigger and no error.
+
+check('tooltip: Field renders a help trigger only when given help', () => {
+  const withHelp = renderToString(<Field label="Host port" help={HELP.hostPort}><input /></Field>)
+  const without = renderToString(<Field label="Host port"><input /></Field>)
+  if (!withHelp.includes('What is this?')) throw new Error('help was passed but no trigger rendered')
+  if (without.includes('What is this?')) throw new Error('a trigger rendered for a field with no help')
+  return withHelp
+})
+
+check('tooltip: Hint wraps its child and passes it through untouched', () => {
+  const wrapped = renderToString(<Hint text="explain"><button>Deploy</button></Hint>)
+  const bare = renderToString(<Hint text=""><button>Deploy</button></Hint>)
+  if (!wrapped.includes('Deploy')) throw new Error('Hint swallowed its child')
+  if (bare !== '<button>Deploy</button>') throw new Error(`Hint with no text should render the child alone, got ${bare}`)
+  return wrapped
+})
+
+check('tooltip: InfoRow carries a label, its help, and its value', () => {
+  const html = renderToString(<InfoRow label="Image" help={HELP.depImage}><span>percona:8.0</span></InfoRow>)
+  if (!html.includes('Image') || !html.includes('percona:8.0')) throw new Error('InfoRow lost its label or value')
+  if (!html.includes('What is this?')) throw new Error('InfoRow rendered no help trigger')
+  return html
+})
+
+check('tooltip: every catalog entry is a non-empty string', () => {
+  const catalogs = { HELP, MENU_HELP, TOOL_HELP, DEP_HELP, MORE_HELP, FTDC_HELP }
+  const bad = []
+  for (const [name, cat] of Object.entries(catalogs)) {
+    for (const [k, v] of Object.entries(cat)) {
+      // HELP.major / HELP.minor are functions of the product name.
+      const text = typeof v === 'function' ? v('Percona Server') : v
+      if (typeof text !== 'string' || text.trim().length < 20) bad.push(`${name}.${k}`)
+    }
+  }
+  if (bad.length) throw new Error(`empty or stub help text: ${bad.join(', ')}`)
+  return `${Object.values(catalogs).reduce((n, c) => n + Object.keys(c).length, 0)} entries`
+})
+
+check('tooltip: the node palette explains every type it can add', () => {
+  // A palette entry with no blurb falls back to NODE_TYPES.sub, so this is about the
+  // fallback existing at all — an entry with neither would show its own label back.
+  const missing = Object.entries(NODE_TYPES)
+    .filter(([type, def]) => !nodeHelp(type) && !def.sub)
+    .map(([type]) => type)
+  if (missing.length) throw new Error(`no blurb and no subtitle: ${missing.join(', ')}`)
+  return `${Object.keys(NODE_TYPES).length} node types`
+})
+
+check('tooltip: no call site references help text that does not exist', () => {
+  // The catalogs are plain objects, so a typo'd or never-written key is `undefined` —
+  // which Help and Hint quietly treat as "no tooltip". That is the right runtime
+  // behaviour and a terrible failure mode to ship: the control simply has no
+  // explanation and nothing says so. This reads the sources back and checks every
+  // reference resolves. (It caught 19 of them: a catalog section that was never
+  // actually written to the file, behind a shell command that had silently failed.)
+  const { readFileSync, readdirSync } = nodeFs
+  const catalogs = { HELP, MENU_HELP, TOOL_HELP, DEP_HELP, MORE_HELP, FTDC_HELP }
+  const dirs = ['src/pages', 'src/components', 'src/lib', 'src/settings']
+  const files = dirs.flatMap((d) =>
+    readdirSync(new URL(`../${d}`, import.meta.url)).filter((f) => /\.jsx?$/.test(f)).map((f) => `${d}/${f}`))
+  const dangling = []
+  for (const rel of files) {
+    const text = readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8')
+    for (const [name, cat] of Object.entries(catalogs)) {
+      for (const m of text.matchAll(new RegExp(`\\b${name}\\.([A-Za-z_]\\w*)`, 'g'))) {
+        if (!(m[1] in cat)) dangling.push(`${rel}: ${name}.${m[1]}`)
+      }
+      for (const m of text.matchAll(new RegExp(`\\b${name}\\['([^']+)'\\]`, 'g'))) {
+        if (!(m[1] in cat)) dangling.push(`${rel}: ${name}['${m[1]}']`)
+      }
+    }
+  }
+  if (dangling.length) throw new Error(`${dangling.length} dangling: ${dangling.slice(0, 8).join(', ')}`)
+  return `${files.length} files, all references resolve`
+})
+
+check('tooltip: placement flips and clamps to stay on screen', () => {
+  globalThis.window = { innerWidth: 1000, innerHeight: 800 }
+  const bubble = { width: 300, height: 100 }
+  const r = (top, left) => ({ top, bottom: top + 20, left, right: left + 20, width: 20, height: 20 })
+
+  // Room above: the preferred side is used, and the bubble is centred on the trigger.
+  const above = place(r(400, 500), bubble, 'top')
+  if (above.top !== 400 - 100 - 8) throw new Error(`expected to sit above, got top ${above.top}`)
+  if (above.left !== 510 - 150) throw new Error(`expected to centre, got left ${above.left}`)
+
+  // Against the top edge there is no room above, so it flips below.
+  const flipped = place(r(10, 500), bubble, 'top')
+  if (flipped.top !== 10 + 20 + 8) throw new Error(`expected to flip below, got top ${flipped.top}`)
+
+  // A trigger at the right edge — a field in a docked panel — is clamped, not centred.
+  const clamped = place(r(400, 980), bubble, 'top')
+  if (clamped.left !== 1000 - 300 - 6) throw new Error(`expected a right-edge clamp, got left ${clamped.left}`)
+  if (clamped.left + bubble.width > 1000) throw new Error('bubble runs off the right edge')
+
+  // And at the left edge it never goes negative.
+  const left = place(r(400, 0), bubble, 'top')
+  if (left.left < 0) throw new Error(`bubble runs off the left edge: ${left.left}`)
+
+  // Taller than the viewport in both directions: still fully on screen.
+  const tall = place(r(400, 500), { width: 300, height: 900 }, 'top')
+  if (tall.top < 0 || tall.top + 900 > 800 + 900) throw new Error(`unclamped vertical: ${tall.top}`)
+  delete globalThis.window
   return 'ok'
 })
 

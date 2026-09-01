@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../components/Icons.jsx'
 import { Card, Button, Badge, Field, inputCls } from '../components/ui.jsx'
 import { queryrunApi, targetKey } from '../lib/queryrunApi.js'
+import { TOOL_HELP } from '../lib/help.js'
 
 // Query Runner — define one or more queries, each pointed at a canvas-provisioned DB
 // node (picked from a dropdown), with per-query load parameters (count / threads /
@@ -162,7 +163,7 @@ function QueryCard({ idx, q, targets, live, canRemove, onChange, onRemove }) {
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field label="Server">
+        <Field label="Server" help={TOOL_HELP.qrServer}>
           <select value={q.target} onChange={(e) => onChange({ target: e.target.value })} className={inputCls}>
             <option value="">Select a provisioned server…</option>
             {targets.map((t) => (
@@ -172,22 +173,22 @@ function QueryCard({ idx, q, targets, live, canRemove, onChange, onRemove }) {
             ))}
           </select>
         </Field>
-        <Field label="Database" hint="Optional — default schema/db">
+        <Field label="Database" help={TOOL_HELP.qrDatabase} hint="Optional — default schema/db">
           <input value={q.database} onChange={(e) => onChange({ database: e.target.value })} className={inputCls} placeholder="(default)" />
         </Field>
       </div>
 
       <div className="mt-3">
-        <Field label="Query">
+        <Field label="Query" help={TOOL_HELP.qrQuery}>
           <textarea value={q.sql} onChange={(e) => onChange({ sql: e.target.value })} rows={4}
             className={`${inputCls} font-mono`} spellCheck={false} />
         </Field>
       </div>
 
       <div className="mt-3 grid grid-cols-3 gap-3">
-        <Field label="Count (0=∞)"><input type="number" min="0" value={q.count} onChange={(e) => onChange({ count: e.target.value })} className={inputCls} /></Field>
-        <Field label="Threads"><input type="number" min="1" max="64" value={q.threads} onChange={(e) => onChange({ threads: e.target.value })} className={inputCls} /></Field>
-        <Field label="Time limit (s)"><input type="number" min="1" max="3600" value={q.timeLimitS} onChange={(e) => onChange({ timeLimitS: e.target.value })} className={inputCls} /></Field>
+        <Field label="Count (0=∞)" help={TOOL_HELP.qrCount}><input type="number" min="0" value={q.count} onChange={(e) => onChange({ count: e.target.value })} className={inputCls} /></Field>
+        <Field label="Threads" help={TOOL_HELP.qrThreads}><input type="number" min="1" max="64" value={q.threads} onChange={(e) => onChange({ threads: e.target.value })} className={inputCls} /></Field>
+        <Field label="Time limit (s)" help={TOOL_HELP.qrTimeLimit}><input type="number" min="1" max="3600" value={q.timeLimitS} onChange={(e) => onChange({ timeLimitS: e.target.value })} className={inputCls} /></Field>
       </div>
 
       <label className="mt-4 flex items-center gap-2 text-sm">
@@ -198,21 +199,21 @@ function QueryCard({ idx, q, targets, live, canRemove, onChange, onRemove }) {
 
       {q.gateOn && (
         <div className="mt-3 space-y-3">
-          <Field label="Pattern (regex)" hint="Go RE2 · matched against active statements">
+          <Field label="Pattern (regex)" help={TOOL_HELP.qrPattern} hint="Go RE2 · matched against active statements">
             <input value={q.pattern} onChange={(e) => onChange({ pattern: e.target.value })} className={`${inputCls} font-mono`} placeholder="e.g. ALTER TABLE\s+orders" />
           </Field>
           <div className="grid grid-cols-3 gap-3">
-            <Field label="Condition">
+            <Field label="Condition" help={TOOL_HELP.qrCondition}>
               <select value={q.condition} onChange={(e) => onChange({ condition: e.target.value })} className={inputCls}>
                 {CONDITIONS.map((c) => <option key={c.v} value={c.v}>{c.label}</option>)}
               </select>
             </Field>
-            <Field label="Check">
+            <Field label="Check" help={TOOL_HELP.qrCheck}>
               <select value={q.check} onChange={(e) => onChange({ check: e.target.value })} className={inputCls}>
                 {CHECKS.map((c) => <option key={c.v} value={c.v}>{c.label}</option>)}
               </select>
             </Field>
-            <Field label="Poll (ms)"><input type="number" min="100" value={q.pollMs} onChange={(e) => onChange({ pollMs: e.target.value })} className={inputCls} /></Field>
+            <Field label="Poll (ms)" help={TOOL_HELP.qrPoll}><input type="number" min="100" value={q.pollMs} onChange={(e) => onChange({ pollMs: e.target.value })} className={inputCls} /></Field>
           </div>
         </div>
       )}

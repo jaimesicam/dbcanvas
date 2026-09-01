@@ -3,6 +3,8 @@ import { Card, Button, Badge, inputCls } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import TimeChart from '../components/TimeChart.jsx'
 import { FilePick } from './PacketInspector.jsx'
+import { Help } from '../components/Tooltip.jsx'
+import { FTDC_HELP } from '../lib/help.js'
 import {
   ftdcApi, chartPoints, chartLines, fmtSpan, fmtClock, fmtNum,
   ADVICE_TEXT, ADVICE_FILL, ADVICE_TONE, COMPARE_CHARTS, compareSeries,
@@ -416,9 +418,9 @@ export function CompareView({ members }) {
     <div className="space-y-3">
       <Card>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 p-3 text-sm">
-          <Field k="Comparing" v={ok.map((m) => m.label).join(' · ')} />
-          <Field k="Window" v={`${fmtClock(Math.min(...ok.map((m) => m.model.from)))} → ${fmtClock(Math.max(...ok.map((m) => m.model.to)))}`} />
-          <Field k="Charts" v={String(charts.length)} />
+          <Field k="Comparing" help={FTDC_HELP.Comparing} v={ok.map((m) => m.label).join(' · ')} />
+          <Field k="Window" help={FTDC_HELP.Window} v={`${fmtClock(Math.min(...ok.map((m) => m.model.from)))} → ${fmtClock(Math.max(...ok.map((m) => m.model.to)))}`} />
+          <Field k="Charts" help={FTDC_HELP.Charts} v={String(charts.length)} />
         </div>
         {failed.length > 0 && (
           <div className="border-t px-3 py-2 text-xs text-status-warn">
@@ -456,17 +458,17 @@ export function Summary({ model }) {
   return (
     <Card>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 p-3 text-sm">
-        <Field k="Host" v={model.host || '—'} />
-        <Field k="Version" v={model.version || '—'} />
+        <Field k="Host" help={FTDC_HELP.Host} v={model.host || '—'} />
+        <Field k="Version" help={FTDC_HELP.Version} v={model.version || '—'} />
         {/* What KIND of process wrote this. A mongos has no storage engine, no oplog and no
             replica-set status, so half the page is legitimately absent from its capture —
             saying so is the difference between "this file is thin" and "this is a router". */}
-        {model.role && <Field k="Role" v={model.role} />}
-        <Field k="Replica set" v={model.replSet || 'none'} />
-        <Field k="Window" v={`${fmtClock(model.from)} → ${fmtClock(model.to)}`} />
-        <Field k="Span" v={fmtSpan(model.from, model.to)} />
-        <Field k="Samples" v={fmtNum(model.samples)} />
-        <Field k="Metrics" v={fmtNum(model.metrics)} />
+        {model.role && <Field k="Role" help={FTDC_HELP.Role} v={model.role} />}
+        <Field k="Replica set" help={FTDC_HELP['Replica set']} v={model.replSet || 'none'} />
+        <Field k="Window" help={FTDC_HELP.Window} v={`${fmtClock(model.from)} → ${fmtClock(model.to)}`} />
+        <Field k="Span" help={FTDC_HELP.Span} v={fmtSpan(model.from, model.to)} />
+        <Field k="Samples" help={FTDC_HELP.Samples} v={fmtNum(model.samples)} />
+        <Field k="Metrics" help={FTDC_HELP.Metrics} v={fmtNum(model.metrics)} />
       </div>
       {/* The type-0 document, which is the only place a capture says what the server WAS.
           Collapsed by default because it is reference rather than reading — but the notes
@@ -502,10 +504,10 @@ export function Summary({ model }) {
   )
 }
 
-function Field({ k, v }) {
+function Field({ k, v, help }) {
   return (
     <div>
-      <div className="text-[11px] uppercase tracking-wide text-muted">{k}</div>
+      <div className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-muted">{k}<Help text={help} /></div>
       <div className="font-medium text-fg">{v}</div>
     </div>
   )

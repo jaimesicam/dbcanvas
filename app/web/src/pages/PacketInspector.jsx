@@ -5,6 +5,7 @@ import {
   pktApi, pktTargetKey, pktBytesFmt, PROTO_TONE, isSevereIssue, issueKind,
   PORT_ROLE_TEXT, ENGINE_LABEL, MONGO_KIND_TEXT, TIME_MODES, pktFormatTime, pktDateTime, pktISO, pktTimeOfDay,
 } from '../lib/pktApi.js'
+import { TOOL_HELP, MORE_HELP } from '../lib/help.js'
 
 // Packet Inspector — run tcpdump on a provisioned MySQL or PostgreSQL node, then read
 // the capture as decoded protocol: queries, responses, latency, and the network
@@ -204,15 +205,15 @@ export default function PacketInspector() {
         {uploadOpen && (
           <div className="mb-4 rounded-lg border bg-bg p-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <Field label="Capture file" hint=".pcap · .pcapng · .cap">
+              <Field label="Capture file" help={TOOL_HELP.piCaptureFile} hint=".pcap · .pcapng · .cap">
                 <FilePick id="pkt-upload-cap" accept=".pcap,.cap,.pcapng,.dmp"
                   file={capFile} onPick={setCapFile} placeholder="Choose a capture, or drop it here" />
               </Field>
-              <Field label="Server log" hint="optional — MySQL or PostgreSQL, correlated with the timeline">
+              <Field label="Server log" help={TOOL_HELP.piServerLog} hint="optional — MySQL or PostgreSQL, correlated with the timeline">
                 <FilePick id="pkt-upload-log" accept=".log,.err,.txt,text/plain"
                   file={logFile} onPick={setLogFile} placeholder="Choose a log, or drop it here" />
               </Field>
-              <Field label="Protocol" hint="detected from the bytes unless you say">
+              <Field label="Protocol" help={TOOL_HELP.piProtocol} hint="detected from the bytes unless you say">
                 <select className={inputCls} value={uploadEngine}
                   onChange={(e) => setUploadEngine(e.target.value)}>
                   <option value="">Detect automatically</option>
@@ -222,7 +223,7 @@ export default function PacketInspector() {
                   <option value="valkey">Valkey</option>
                 </select>
               </Field>
-              <Field label="Server port"
+              <Field label="Server port" help={TOOL_HELP.piServerPort}
                 hint={`blank = ${DEFAULT_PORTS[uploadEngine] || 'the protocol default'}`}>
                 <input type="number" min="1" max="65535" className={inputCls} value={uploadPort}
                   placeholder={DEFAULT_PORTS[uploadEngine] || 'detected'}
@@ -245,7 +246,7 @@ export default function PacketInspector() {
         )}
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Field label="Database node">
+          <Field label="Database node" help={TOOL_HELP.piNode}>
             <select className={inputCls} value={target} onChange={(e) => setTarget(e.target.value)}>
               <option value="">Select a provisioned MySQL, PostgreSQL, MongoDB or Valkey node…</option>
               {(targets || []).map((t) => (
@@ -255,15 +256,15 @@ export default function PacketInspector() {
               ))}
             </select>
           </Field>
-          <Field label="Duration (s)" hint="1–3600 (up to an hour)">
+          <Field label="Duration (s)" help={TOOL_HELP.piDuration} hint="1–3600 (up to an hour)">
             <input type="number" min="1" max="3600" className={inputCls} value={opts.seconds}
               onChange={(e) => setOpts({ ...opts, seconds: e.target.value })} />
           </Field>
-          <Field label="Max packets" hint="tcpdump -c · up to 100,000">
+          <Field label="Max packets" help={TOOL_HELP.piMaxPackets} hint="tcpdump -c · up to 100,000">
             <input type="number" min="100" max="100000" className={inputCls} value={opts.packets}
               onChange={(e) => setOpts({ ...opts, packets: e.target.value })} />
           </Field>
-          <Field label="Snaplen" hint="tcpdump -s · 65535 = whole frame">
+          <Field label="Snaplen" help={TOOL_HELP.piSnaplen} hint="tcpdump -s · 65535 = whole frame">
             <input type="number" min="64" className={inputCls} value={opts.snaplen}
               onChange={(e) => setOpts({ ...opts, snaplen: e.target.value })} />
           </Field>
@@ -276,7 +277,7 @@ export default function PacketInspector() {
         </p>
 
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[2fr_auto]">
-          <Field label="Extra BPF filter" hint="ANDed with the port filter, e.g. host 172.29.0.5">
+          <Field label="Extra BPF filter" help={TOOL_HELP.piBPF} hint="ANDed with the port filter, e.g. host 172.29.0.5">
             <input className={`${inputCls} font-mono`} placeholder="(none)" value={opts.filter}
               onChange={(e) => setOpts({ ...opts, filter: e.target.value })} />
           </Field>
@@ -793,25 +794,25 @@ export function RangeControls({ range, setRange, buckets, setBuckets, summary, t
   return (
     <div className="mt-3 space-y-3 rounded-lg border bg-bg p-3">
       <div className="flex flex-wrap items-end gap-3">
-        <Field label="From packet #">
+        <Field label="From packet #" help={MORE_HELP.piFromPacket}>
           <input type="number" min="1" className={`${inputCls} w-28`} placeholder="1" value={range.fromNo}
             onChange={(e) => set({ fromNo: e.target.value, fromTs: '', toTs: '' })} />
         </Field>
-        <Field label="To packet #">
+        <Field label="To packet #" help={MORE_HELP.piToPacket}>
           <input type="number" min="1" className={`${inputCls} w-28`} placeholder={String(summary.packets)} value={range.toNo}
             onChange={(e) => set({ toNo: e.target.value, fromTs: '', toTs: '' })} />
         </Field>
-        <Field label="From +s" hint="seconds into the capture">
+        <Field label="From +s" help={MORE_HELP.piFromSeconds} hint="seconds into the capture">
           <input type="number" step="0.001" min="0" className={`${inputCls} w-28`} placeholder="0"
             value={range.fromTs ? (Number(range.fromTs) - first).toFixed(3) : ''}
             onChange={(e) => applyOffsets(Number(e.target.value || 0), winTo)} />
         </Field>
-        <Field label="To +s">
+        <Field label="To +s" help={MORE_HELP.piToSeconds}>
           <input type="number" step="0.001" min="0" className={`${inputCls} w-28`} placeholder={span.toFixed(3)}
             value={range.toTs ? (Number(range.toTs) - first).toFixed(3) : ''}
             onChange={(e) => applyOffsets(winFrom, Number(e.target.value || span))} />
         </Field>
-        <Field label="Resolution" hint="timeline buckets">
+        <Field label="Resolution" help={TOOL_HELP.piResolution} hint="timeline buckets">
           <select className={`${inputCls} w-24`} value={buckets} onChange={(e) => setBuckets(Number(e.target.value))}>
             {[40, 80, 160, 320, 640].map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
@@ -845,7 +846,7 @@ export function Filters({ range, setRange, summary, streams }) {
   const set = (patch) => setRange((r) => ({ ...r, ...patch }))
   return (
     <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-      <Field label="Connection">
+      <Field label="Connection" help={MORE_HELP.piConnection}>
         <select className={inputCls} value={range.stream} onChange={(e) => set({ stream: Number(e.target.value) })}>
           <option value={-1}>All connections</option>
           {streams.map((st) => (
@@ -855,7 +856,7 @@ export function Filters({ range, setRange, summary, streams }) {
           ))}
         </select>
       </Field>
-      <Field label="Protocol">
+      <Field label="Protocol" help={TOOL_HELP.piProtocol}>
         <select className={inputCls} value={range.proto} onChange={(e) => set({ proto: e.target.value })}>
           <option value="">All</option>
           {Object.keys(summary.protos || {}).sort().map((p) => (
@@ -863,21 +864,21 @@ export function Filters({ range, setRange, summary, streams }) {
           ))}
         </select>
       </Field>
-      <Field label="Direction">
+      <Field label="Direction" help={TOOL_HELP.piDirection}>
         <select className={inputCls} value={range.dir} onChange={(e) => set({ dir: e.target.value })}>
           <option value="">Both</option>
           <option value="c2s">Client → server</option>
           <option value="s2c">Server → client</option>
         </select>
       </Field>
-      <Field label="Issues">
+      <Field label="Issues" help={TOOL_HELP.piIssues}>
         <select className={inputCls} value={range.issue} onChange={(e) => set({ issue: e.target.value })}>
           <option value="">Any packet</option>
           <option value="any">Only packets with issues</option>
           {(summary.issueTop || []).map((i) => <option key={i.kind} value={i.kind}>{i.kind}</option>)}
         </select>
       </Field>
-      <Field label="Search" hint="info, SQL, address">
+      <Field label="Search" help={MORE_HELP.piSearch} hint="info, SQL, address">
         <input className={inputCls} placeholder="e.g. SELECT, 1054, 172.29" value={range.q}
           onChange={(e) => set({ q: e.target.value })} />
       </Field>

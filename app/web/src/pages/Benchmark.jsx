@@ -3,6 +3,7 @@ import { Icon } from '../components/Icons.jsx'
 import { Card, Button, Badge, Field, inputCls } from '../components/ui.jsx'
 import { benchmarkApi, benchTargetKey } from '../lib/benchmarkApi.js'
 import { datagenApi } from '../lib/datagenApi.js'
+import { TOOL_HELP, MORE_HELP } from '../lib/help.js'
 
 // Benchmark — load a purpose-built star schema into a chosen database and drive it with
 // one of four workload profiles (OLTP / OLAP / read-write / read-only), reporting
@@ -119,7 +120,7 @@ export default function Benchmark() {
 
       <Card title="New benchmark" subtitle={isMongo ? 'Loads a bench_* embedded-document dataset into the chosen database, then drives it with the selected workload.' : 'Loads a bench_* star schema into the chosen database, then drives it with the selected workload.'}>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Server">
+          <Field label="Server" help={TOOL_HELP.bmServer}>
             <select value={cfg.target} onChange={(e) => set({ target: e.target.value })} className={inputCls}>
               <option value="">Select a provisioned server…</option>
               {(targets || []).map((t) => (
@@ -127,7 +128,7 @@ export default function Benchmark() {
               ))}
             </select>
           </Field>
-          <Field label="Database" hint={isCrud ? 'the database holding your table' : 'bench_* tables live here'}>
+          <Field label="Database" help={TOOL_HELP.bmDatabase} hint={isCrud ? 'the database holding your table' : 'bench_* tables live here'}>
             <div className="flex items-center gap-2">
               <input value={cfg.database} onChange={(e) => set({ database: e.target.value })} className={inputCls} />
               {!isCrud && (
@@ -155,7 +156,7 @@ export default function Benchmark() {
         {isCrud && (
           <div className="mt-3 space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label={isMongo ? 'Collection' : 'Table'} hint={`CRUD runs against this existing ${isMongo ? 'collection' : 'table'} — it will add & remove ${isMongo ? 'documents' : 'rows'}`}>
+              <Field label={isMongo ? 'Collection' : 'Table'} help={MORE_HELP.bmTable} hint={`CRUD runs against this existing ${isMongo ? 'collection' : 'table'} — it will add & remove ${isMongo ? 'documents' : 'rows'}`}>
                 <select value={cfg.table} className={inputCls}
                   onChange={(e) => { const t = tables.find((x) => x.table === e.target.value); set({ table: e.target.value, schema: t?.schema || '', filterColumns: [] }) }}>
                   <option value="">Select a {isMongo ? 'collection' : 'table'}…</option>
@@ -193,16 +194,16 @@ export default function Benchmark() {
         )}
 
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {!isCrud && <Field label="Scale" hint="×½M rows"><input type="number" min="1" max="50" value={cfg.scale} onChange={(e) => set({ scale: e.target.value })} className={inputCls} /></Field>}
-          <Field label="Threads"><input type="number" min="1" max="128" value={cfg.threads} onChange={(e) => set({ threads: e.target.value })} className={inputCls} /></Field>
-          <Field label="Duration (s)"><input type="number" min="1" max="3600" value={cfg.durationS} onChange={(e) => set({ durationS: e.target.value })} className={inputCls} /></Field>
-          <Field label="Warmup (s)"><input type="number" min="0" max="600" value={cfg.warmupS} onChange={(e) => set({ warmupS: e.target.value })} className={inputCls} /></Field>
+          {!isCrud && <Field label="Scale" help={TOOL_HELP.bmScale} hint="×½M rows"><input type="number" min="1" max="50" value={cfg.scale} onChange={(e) => set({ scale: e.target.value })} className={inputCls} /></Field>}
+          <Field label="Threads" help={TOOL_HELP.bmThreads}><input type="number" min="1" max="128" value={cfg.threads} onChange={(e) => set({ threads: e.target.value })} className={inputCls} /></Field>
+          <Field label="Duration (s)" help={TOOL_HELP.bmDuration}><input type="number" min="1" max="3600" value={cfg.durationS} onChange={(e) => set({ durationS: e.target.value })} className={inputCls} /></Field>
+          <Field label="Warmup (s)" help={TOOL_HELP.bmWarmup}><input type="number" min="0" max="600" value={cfg.warmupS} onChange={(e) => set({ warmupS: e.target.value })} className={inputCls} /></Field>
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-4">
           {!isCrud && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={cfg.keepData} onChange={(e) => set({ keepData: e.target.checked })} /> Keep data after run</label>}
           {isCrud && <span className="text-xs text-muted">CRUD mutates your table in place (never dropped).</span>}
-          <Field label="Seed (0 = random)"><input type="number" value={cfg.seed} onChange={(e) => set({ seed: e.target.value })} className={`${inputCls} w-40`} /></Field>
+          <Field label="Seed (0 = random)" help={TOOL_HELP.bmSeed}><input type="number" value={cfg.seed} onChange={(e) => set({ seed: e.target.value })} className={`${inputCls} w-40`} /></Field>
         </div>
 
         <div className="mt-4 flex items-center gap-2">

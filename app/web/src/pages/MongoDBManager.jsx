@@ -7,6 +7,8 @@ import DbLoginGuide from '../components/DbLoginGuide.jsx'
 import VaultGuide from '../components/VaultGuide.jsx'
 import MongoCertReissue from '../components/MongoCertReissue.jsx'
 import { SecretValue } from '../components/Secret.jsx'
+import { Help } from '../components/Tooltip.jsx'
+import { DEP_HELP } from '../lib/help.js'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -30,10 +32,10 @@ function CopyButton({ text, size = 14 }) {
   )
 }
 
-function KV({ k, v, mono }) {
+function KV({ k, v, mono, help }) {
   return (
     <div className="flex justify-between gap-3">
-      <span className="text-muted">{k}</span>
+      <span className="flex shrink-0 items-center gap-1 text-muted">{k}<Help text={help} /></span>
       <span className={`truncate text-fg ${mono ? 'font-mono text-xs' : ''}`}>{(v ?? '') === '' ? '—' : String(v)}</span>
     </div>
   )
@@ -110,20 +112,20 @@ export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDelete
 
       {tab === 'overview' && (
         <div className="space-y-2 text-sm">
-          <KV k="Cluster" v={cfg.cluster} />
-          <KV k="Role" v={roleText(cfg)} />
-          <KV k="FQDN" v={cfg.fqdn} mono />
-          <KV k="PS MongoDB" v={`${cfg.psmdbMajor || ''}${cfg.version ? ` (${cfg.version})` : ''}`} />
-          {isMongos && <KV k="configDB" v={cfg.configDB} mono />}
-          {!isInternal && <KV k="Exported port" v={exportPort || 'not published'} />}
-          <KV k="TLS" v={cfg.generateCert ? 'cert issued (see TLS tab)' : 'none'} />
-          <KV k="Backups (PBM)" v={cfg.enablePBM ? (cfg.backupRepo || 'enabled') : 'disabled'} />
-          {cfg.oidcEnabled && <KV k="Keycloak SSO" v="enabled (see Keycloak SSO tab)" />}
-          {cfg.vault?.enabled && <KV k="Encryption at rest" v={`OpenBao · ${cfg.vault.mount}`} />}
-          <KV k="Monitored by" v={cfg.monitoredBy} mono />
-          {cfg.serverVersion && <KV k="Version" v={cfg.serverVersion} mono />}
-          <KV k="Image" v={cfg.image} mono />
-          <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+          <KV k="Cluster" help={DEP_HELP.Cluster} v={cfg.cluster} />
+          <KV k="Role" help={DEP_HELP.Role} v={roleText(cfg)} />
+          <KV k="FQDN" help={DEP_HELP.FQDN} v={cfg.fqdn} mono />
+          <KV k="PS MongoDB" help={DEP_HELP['PS MongoDB']} v={`${cfg.psmdbMajor || ''}${cfg.version ? ` (${cfg.version})` : ''}`} />
+          {isMongos && <KV k="configDB" help={DEP_HELP.configDB} v={cfg.configDB} mono />}
+          {!isInternal && <KV k="Exported port" help={DEP_HELP['Exported port']} v={exportPort || 'not published'} />}
+          <KV k="TLS" help={DEP_HELP.TLS} v={cfg.generateCert ? 'cert issued (see TLS tab)' : 'none'} />
+          <KV k="Backups (PBM)" help={DEP_HELP['Backups (PBM)']} v={cfg.enablePBM ? (cfg.backupRepo || 'enabled') : 'disabled'} />
+          {cfg.oidcEnabled && <KV k="Keycloak SSO" help={DEP_HELP['Keycloak SSO']} v="enabled (see Keycloak SSO tab)" />}
+          {cfg.vault?.enabled && <KV k="Encryption at rest" help={DEP_HELP['Encryption at rest']} v={`OpenBao · ${cfg.vault.mount}`} />}
+          <KV k="Monitored by" help={DEP_HELP['Monitored by']} v={cfg.monitoredBy} mono />
+          {cfg.serverVersion && <KV k="Version" help={DEP_HELP.Version} v={cfg.serverVersion} mono />}
+          <KV k="Image" help={DEP_HELP.Image} v={cfg.image} mono />
+          <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
           <Button variant="outline" size="sm" className="mt-2 w-full" onClick={() => openTerminal({ stackId, nodeId, title: `${cfg.hostname} · root` })}>
             <Icon.Nodes size={16} /> Open root console
           </Button>
@@ -261,10 +263,10 @@ function KeycloakSSOTab({ cfg, sec }) {
       </div>
 
       <div className="space-y-2 text-sm">
-        <KV k="Issuer" v={cfg.oidcIssuer} mono />
-        <KV k="Client ID" v={cfg.oidcClientId} mono />
-        <KV k="Authorization" v={cfg.oidcUseAuthClaim ? `by group claim (${cfg.oidcAuthClaim})` : 'by username ($external users)'} />
-        {cfg.oidcSampleUsers && <KV k="Sample users" v={cfg.oidcSampleUsers} />}
+        <KV k="Issuer" help={DEP_HELP.Issuer} v={cfg.oidcIssuer} mono />
+        <KV k="Client ID" help={DEP_HELP['Client ID']} v={cfg.oidcClientId} mono />
+        <KV k="Authorization" help={DEP_HELP.Authorization} v={cfg.oidcUseAuthClaim ? `by group claim (${cfg.oidcAuthClaim})` : 'by username ($external users)'} />
+        {cfg.oidcSampleUsers && <KV k="Sample users" help={DEP_HELP['Sample users']} v={cfg.oidcSampleUsers} />}
       </div>
 
       {sec.oidcSamplePassword && (

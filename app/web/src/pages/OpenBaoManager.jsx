@@ -4,6 +4,8 @@ import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE, openbaoApi } from '../lib/stackApi.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import Secret from '../components/Secret.jsx'
+import { Help } from '../components/Tooltip.jsx'
+import { DEP_HELP } from '../lib/help.js'
 
 // OpenBaoManager — properties of a deployed OpenBao node.
 //
@@ -31,10 +33,10 @@ function CopyButton({ text, size = 14 }) {
   )
 }
 
-function KV({ k, v, mono }) {
+function KV({ k, v, mono, help }) {
   return (
     <div className="flex justify-between gap-3">
-      <span className="text-muted">{k}</span>
+      <span className="flex shrink-0 items-center gap-1 text-muted">{k}<Help text={help} /></span>
       <span className={`truncate text-fg ${mono ? 'font-mono text-xs' : ''}`}>{(v ?? '') === '' ? '—' : String(v)}</span>
     </div>
   )
@@ -113,17 +115,17 @@ export default function OpenBaoManager({ dep, stackId, nodeId, onDeleteNode }) {
 
       {tab === 'overview' && (
         <div className="space-y-2 text-sm">
-          <KV k="FQDN" v={cfg.fqdn} mono />
-          <KV k="VAULT_ADDR" v={cfg.addr} mono />
-          <KV k="VAULT_CACERT" v={cfg.caCert} mono />
-          <KV k="TLS" v={tls ? 'Intranet CA-signed (8200)' : 'disabled — plain HTTP'} />
-          <KV k="Config" v={cfg.confFile} mono />
-          <KV k="Seal state" v={seal
+          <KV k="FQDN" help={DEP_HELP.FQDN} v={cfg.fqdn} mono />
+          <KV k="VAULT_ADDR" help={DEP_HELP.VAULT_ADDR} v={cfg.addr} mono />
+          <KV k="VAULT_CACERT" help={DEP_HELP.VAULT_CACERT} v={cfg.caCert} mono />
+          <KV k="TLS" help={DEP_HELP.TLS} v={tls ? 'Intranet CA-signed (8200)' : 'disabled — plain HTTP'} />
+          <KV k="Config" help={DEP_HELP.Config} v={cfg.confFile} mono />
+          <KV k="Seal state" help={DEP_HELP['Seal state']} v={seal
             ? `${seal.initialized ? 'initialized' : 'not initialized'} · ${seal.sealed ? 'sealed' : 'unsealed'}`
             : (cfg.initted ? 'initialized' : 'not initialized')} />
-          {cfg.serverVersion && <KV k="Version" v={cfg.serverVersion} mono />}
-          <KV k="Image" v={cfg.image} mono />
-          <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+          {cfg.serverVersion && <KV k="Version" help={DEP_HELP.Version} v={cfg.serverVersion} mono />}
+          <KV k="Image" help={DEP_HELP.Image} v={cfg.image} mono />
+          <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
           <p className="pt-1 text-[11px] text-muted">
             The client environment (<span className="font-mono">VAULT_ADDR</span>,
             {tls && <span className="font-mono"> VAULT_CACERT</span>}) is exported from

@@ -3,6 +3,7 @@ import { Button, Field, inputCls } from './ui.jsx'
 import { Icon } from './Icons.jsx'
 import { diagApi } from '../lib/stackApi.js'
 import { datagenApi } from '../lib/datagenApi.js'
+import { TOOL_HELP } from '../lib/help.js'
 
 // Shared "Diagnostics" cards for node property panels.
 //   PGGatherCard — pg_gather report (PostgreSQL: pg / patroni / repmgr / spock)
@@ -78,7 +79,7 @@ export function PGGatherCard({ stackId, nodeId, defaultDb }) {
         <span className="font-medium text-fg/80">pg_gather</span> collects a diagnostic snapshot of a database
         (settings, activity, bloat, wait events…) and builds a single <span className="font-mono">GatherReport.html</span> you can download.
       </p>
-      <Field label="Database to gather from" hint="pg_gather runs against this database.">
+      <Field label="Database to gather from" help={TOOL_HELP.pgGatherDatabase} hint="pg_gather runs against this database.">
         <select className={inputCls} value={db} disabled={running} onChange={(e) => setDb(e.target.value)}>
           {dbs.length === 0 && <option value="">loading…</option>}
           {dbs.map((d) => <option key={d} value={d}>{d}</option>)}

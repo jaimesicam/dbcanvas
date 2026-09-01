@@ -19387,3 +19387,90 @@ documented forms, the `user@` extension, bracketed and bare IPv6, and eight reje
 `.env.example`, and the empty-ports case returning no command rather than a bare `ssh`. `npm run
 build` and `npm run smoke` pass. `TestAIOTLSWiringIsIdempotent` still fails on darwin for the
 pre-existing GNU-`sed` reason recorded in entry 322.
+
+---
+
+## 324. Tooltips on everything: 345 pieces of help text behind a "?" — `app/web/src/components/Tooltip.jsx`, `app/web/src/lib/help.js` (both new), `app/web/src/components/{ui,Icons}.jsx`, every page with a form or a deployed-node panel, `app/web/smoke/render.jsx`
+
+The designer asks for a great many decisions before anything is deployed — an OS family,
+a major and a minor version, whether to export a port, whether to mint a certificate,
+which PMM node monitors this cluster — and then a deployed node's panel answers with a
+column of values that assume you already know what they are for. Roughly a quarter of
+the 364 form fields in the app had no explanation at all, and the ones that did had a
+single line of `hint` under the input, which is the wrong place for anything longer than
+a clause.
+
+So: a second tier of explanation, on hover and on focus, everywhere.
+
+### The mechanics that are not obvious
+
+**The bubble is portalled to `<body>`.** The properties panel is `overflow-auto` and the
+canvas clips at its own bounds, so a tooltip rendered in place is cut off by its own
+container — and those are exactly the places the longest ones live.
+
+**Position is measured, not guessed.** The panel can be docked against the right edge,
+floated anywhere, or scrolled halfway down, so there is no side that always works. `place`
+flips vertically when the preferred side does not fit and clamps horizontally, which is
+what keeps a tooltip on a field at the very right edge of a docked panel fully on screen.
+Two passes: the text wraps, so the height is not knowable before it is rendered.
+
+**It closes on scroll and on any pointerdown** rather than trying to follow the page. The
+rect it was placed against is stale the moment either happens.
+
+**The trigger is a `<button>`.** A tooltip nobody can reach from the keyboard helps only
+half the people using this, and a focusable element is the one thing every browser and
+screen reader agrees to announce an `aria-describedby` on. It swallows its own click,
+because `Field` renders it inside a `<label>` where an unhandled click is forwarded to
+the input — toggling the very checkbox the reader was asking about.
+
+**`display` is a prop, not a className.** The wrapper is `inline-flex` so a "?" sits on
+the label's baseline, but in a vertical list (the node palette, the context menu) an
+inline-level box picks up line-height gaps. Passing `flex` through `className` would put
+two same-specificity Tailwind utilities in the same rule and let emission order decide.
+
+### The text lives in a catalog, not at the call sites
+
+`lib/help.js` holds **302 entries plus 43 node blurbs**. This is not tidiness: "OS version"
+appears 17 times in the designer, "Monitored by (PMM)" 17, "Use Intranet proxy (Squid) for
+downloads" 19. Written inline they drift — three of them end up saying subtly different
+things about the same switch and the fourth never gets written. `HELP.major(product)` and
+`HELP.minor(product)` are functions, since a dozen engines share that pair.
+
+The rule for what goes in one: **not a restatement of the label.** The reader can see the
+label. These answer what the setting is for, what happens if it is left alone, and when
+somebody would change it. `hint` keeps the one line needed every time ("0 / empty = random
+unused port"); the tooltip is the paragraph behind it.
+
+### Coverage
+
+**364 / 364** `<Field>`s across the app, **205 / 205** `<KV>` rows on the deployed-node
+management tabs (16 near-identical local `KV` copies each grew a `help` prop), **46**
+`InfoRow`s converted from the designer's inline label/value divs, **70** hand-rolled
+checkboxes, and **14** `Hint`-wrapped chrome controls — the toolbar (Deploy, Validate,
+Destroy, Insert/Save template, Reset view), the TTL and status badges, the minimap, the
+dock toggles, every node-palette button (which previously had `title={it.label}` — a
+tooltip that read the button's own text back), and every node context-menu action.
+
+### The check that mattered
+
+Six render checks cover the components and the placement math. The one that earned its
+keep reads the sources back and asserts **every `HELP.x` / `DEP_HELP.x` / … reference
+resolves to a real entry**. `Help` renders nothing for an `undefined` string — correct at
+runtime, and a terrible failure mode: the control simply has no explanation and nothing
+says so. It immediately found **19 dangling references**, an entire catalog section that
+was never written to the file because the shell command that should have written it had
+silently failed after a bad `cd`. Nothing else would have caught that: the build passed,
+the render checks passed, and the UI looked finished.
+
+**Verified in a browser**, not only by render checks: headless Chrome over the DevTools
+Protocol against the running app, on a real 7-node stack. Confirmed the bubble opens on
+hover and on keyboard focus (with `Emulation.setFocusEmulationEnabled` — headless does not
+deliver focus events to an unfocused window, which produced one false negative before it
+was turned on), closes on pointerout, on Escape and on panel scroll, portals to `body` at
+`z-index: 100`, clamps to the viewport at the right edge of the docked panel
+(left 1290 + width 304 in a 1600px window), and repaints from the theme's own tokens in
+dark mode (`--surface` `#161b24` on `--fg` `#e6eaf2`). This is also what exposed the 19
+dangling references as a *visible* absence — the Deploy button had no wrapper at all.
+
+`npm run build` and `npm run smoke` pass. Go is untouched; `TestAIOTLSWiringIsIdempotent`
+still fails on darwin for the pre-existing GNU-`sed` reason recorded in entry 322.

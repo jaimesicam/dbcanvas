@@ -249,6 +249,16 @@ export const Icon = {
       <line x1="12" y1="16" x2="12" y2="16" />
     </Svg>
   ),
+  // The tooltip affordance. A question mark rather than an "i": these answer "what do
+  // I do with this?", which is a question, and it keeps them visually distinct from
+  // StatusInfo below, which reports severity.
+  Help: (p) => (
+    <Svg {...p}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.6 9.3a2.5 2.5 0 1 1 3.2 2.6c-.6.2-.9.7-.9 1.3v.5" />
+      <line x1="12" y1="16.7" x2="12" y2="16.7" />
+    </Svg>
+  ),
   StatusInfo: (p) => (
     <Svg {...p}>
       <circle cx="12" cy="12" r="9" />

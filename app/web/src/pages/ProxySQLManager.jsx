@@ -4,6 +4,8 @@ import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE } from '../lib/stackApi.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import { SecretValue } from '../components/Secret.jsx'
+import { Help } from '../components/Tooltip.jsx'
+import { DEP_HELP } from '../lib/help.js'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -24,10 +26,10 @@ function CopyButton({ text, size = 14 }) {
   )
 }
 
-function KV({ k, v, mono }) {
+function KV({ k, v, mono, help }) {
   return (
     <div className="flex justify-between gap-3">
-      <span className="text-muted">{k}</span>
+      <span className="flex shrink-0 items-center gap-1 text-muted">{k}<Help text={help} /></span>
       <span className={`truncate text-fg ${mono ? 'font-mono text-xs' : ''}`}>{(v ?? '') === '' ? '—' : String(v)}</span>
     </div>
   )
@@ -72,19 +74,19 @@ export default function ProxySQLManager({ stackId, nodeId, dep, onDeleteNode }) 
 
       {tab === 'overview' && (
         <div className="space-y-2 text-sm">
-          {cfg.proxysqlCluster && <KV k="ProxySQL cluster" v={cfg.proxysqlCluster} />}
-          <KV k="PXC cluster" v={cfg.cluster} />
-          <KV k="Backend (CLUSTER_HOSTNAME)" v={cfg.clusterHost} mono />
-          <KV k="Mode" v={cfg.backendKind === 'mysql'
+          {cfg.proxysqlCluster && <KV k="ProxySQL cluster" help={DEP_HELP['ProxySQL cluster']} v={cfg.proxysqlCluster} />}
+          <KV k="PXC cluster" help={DEP_HELP['PXC cluster']} v={cfg.cluster} />
+          <KV k="Backend (CLUSTER_HOSTNAME)" help={DEP_HELP['Backend (CLUSTER_HOSTNAME)']} v={cfg.clusterHost} mono />
+          <KV k="Mode" help={DEP_HELP.Mode} v={cfg.backendKind === 'mysql'
             ? (cfg.mode === 'primary' ? 'primary only' : 'read/write split')
             : (cfg.mode === 'loadbal' ? 'load balancer' : 'single writer')} />
-          <KV k="FQDN" v={cfg.fqdn} mono />
-          {cfg.serverVersion && <KV k="Version" v={cfg.serverVersion} mono />}
-          <KV k="Image" v={cfg.image} mono />
-          <KV k="ProxySQL" v={`proxysql${cfg.major}${cfg.proxysqlVersion ? ` · ${cfg.proxysqlVersion}` : ''}`} />
-          <KV k="Monitored by" v={cfg.monitoredBy} mono />
-          <KV k="Ports" v={(cfg.ports || []).join(', ')} mono />
-          <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+          <KV k="FQDN" help={DEP_HELP.FQDN} v={cfg.fqdn} mono />
+          {cfg.serverVersion && <KV k="Version" help={DEP_HELP.Version} v={cfg.serverVersion} mono />}
+          <KV k="Image" help={DEP_HELP.Image} v={cfg.image} mono />
+          <KV k="ProxySQL" help={DEP_HELP.ProxySQL} v={`proxysql${cfg.major}${cfg.proxysqlVersion ? ` · ${cfg.proxysqlVersion}` : ''}`} />
+          <KV k="Monitored by" help={DEP_HELP['Monitored by']} v={cfg.monitoredBy} mono />
+          <KV k="Ports" help={DEP_HELP.Ports} v={(cfg.ports || []).join(', ')} mono />
+          <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
           <Button variant="outline" size="sm" className="mt-2 w-full" onClick={() => openTerminal({ stackId, nodeId, title: `${cfg.hostname} · root` })}>
             <Icon.Nodes size={16} /> Open root console
           </Button>

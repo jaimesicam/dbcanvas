@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { stackApi, frameApi } from '../lib/stackApi'
 import { Badge, Button, ConfirmButton, Field, Toggle, inputCls } from '../components/ui'
+import { HELP } from '../lib/help.js'
 
 // Designer forms for the non-Percona upstreams: MariaDB (standalone, replication,
 // Galera) and MySQL Community (standalone, replication, InnoDB Cluster / GR).
@@ -62,24 +63,24 @@ function VersionPickers({ obj, patch, deployed, majorKey, versionKey, majorLabel
   return (
     <>
       <div className="grid grid-cols-2 gap-2">
-        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+        <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
           <select className={`${inputCls} ${lock}`} value={obj.os} disabled={deployed} onChange={(e) => patch({ os: e.target.value })}>
             {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="OS version">
+        <Field label="OS version" help={HELP.osVersion}>
           <select className={`${inputCls} ${lock}`} value={obj.osVersion} disabled={deployed} onChange={(e) => patch({ osVersion: e.target.value })}>
             {osVersions.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
         </Field>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <Field label={majorLabel}>
+        <Field label={majorLabel} help={HELP.major(majorLabel)}>
           <select className={`${inputCls} ${lock}`} value={obj[majorKey]} disabled={deployed} onChange={(e) => patch({ [majorKey]: e.target.value, [versionKey]: '' })}>
             {majors.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         </Field>
-        <Field label="Version" hint={loading ? 'Loading…' : 'Blank = newest'}>
+        <Field label="Version" help={HELP.minor(majorLabel)} hint={loading ? 'Loading…' : 'Blank = newest'}>
           <select className={`${inputCls} ${lock}`} value={obj[versionKey]} disabled={deployed} onChange={(e) => patch({ [versionKey]: e.target.value })}>
             <option value="">latest</option>
             {minors.map((v) => <option key={v} value={v}>{v}</option>)}
@@ -102,14 +103,14 @@ function CommonOptions({ obj, patch, nodes, deployed, showGtid, showRepl }) {
   return (
     <>
       {showRepl && (
-        <Field label="Replication mode" hint="Semi-sync makes the primary wait for one replica to acknowledge.">
+        <Field label="Replication mode" help={HELP.replMode} hint="Semi-sync makes the primary wait for one replica to acknowledge.">
           <select className={inputCls} value={obj.replMode || 'async'} onChange={(e) => patch({ replMode: e.target.value })}>
             <option value="async">async</option>
             <option value="semisync">semisync</option>
           </select>
         </Field>
       )}
-      <Field label="Monitored by">
+      <Field label="Monitored by" help={HELP.pmm}>
         <select className={inputCls} value={obj.pmmNodeId || ''} onChange={(e) => patch({ pmmNodeId: e.target.value })}>
           <option value="">not monitored</option>
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
@@ -124,10 +125,10 @@ function CommonOptions({ obj, patch, nodes, deployed, showGtid, showRepl }) {
       </div>
       {obj.generateCert && (
         <div className="grid grid-cols-2 gap-2">
-          <Field label="Certificate TTL">
+          <Field label="Certificate TTL" help={HELP.certTTL}>
             <input type="number" min="1" className={inputCls} value={obj.certTtlValue ?? 365} onChange={(e) => patch({ certTtlValue: Number(e.target.value) })} />
           </Field>
-          <Field label="Unit">
+          <Field label="Unit" help={HELP.certTTL}>
             <select className={inputCls} value={obj.certTtlUnit || 'days'} onChange={(e) => patch({ certTtlUnit: e.target.value })}>
               <option value="days">days</option>
               <option value="months">months</option>
@@ -195,7 +196,7 @@ function ExportRow({ node: n, patchNode, deployed }) {
     <>
       <Toggle checked={!!n.exportEnabled} onChange={(v) => patchNode(n.id, { exportEnabled: v })} label="Publish port 3306 to the host" />
       {n.exportEnabled && (
-        <Field label="Host port" hint={deployed ? 'Changing this needs a destroy + redeploy — published ports are fixed at container creation.' : '0 = pick a free port'}>
+        <Field label="Host port" help={HELP.hostPort} hint={deployed ? 'Changing this needs a destroy + redeploy — published ports are fixed at container creation.' : '0 = pick a free port'}>
           <input type="number" min="0" className={inputCls} value={n.exportHostPort || 0} onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
         </Field>
       )}
@@ -217,7 +218,7 @@ export function MariaDBNodeForm({ node: n, nodes, patchNode, deleteNode, deploye
         <span className="text-sm font-semibold">MariaDB</span>
         <Badge tone="primary">standalone</Badge>
       </div>
-      <Field label="Name"><input className={inputCls} value={n.label} onChange={(e) => patch({ label: e.target.value })} /></Field>
+      <Field label="Name" help={HELP.label}><input className={inputCls} value={n.label} onChange={(e) => patch({ label: e.target.value })} /></Field>
       <VersionPickers obj={n} patch={patch} deployed={deployed} majorKey="mariadbMajor" versionKey="mariadbVersion" majorLabel="MariaDB" cat={cat} />
       <CommonOptions obj={n} patch={patch} nodes={nodes} deployed={deployed} showGtid />
       <ExportRow node={n} patchNode={patchNode} deployed={deployed} />
@@ -240,7 +241,7 @@ export function MariaDBFrameForm({ frame: f, stackId, nodes, patchFrame, deleteF
         <span className="text-sm font-semibold">MariaDB Replication</span>
         <Badge tone="primary">{members.length} node{members.length === 1 ? '' : 's'}</Badge>
       </div>
-      <Field label="Cluster name" hint="Must be unique across the stack.">
+      <Field label="Cluster name" help={HELP.clusterName} hint="Must be unique across the stack.">
         <input className={inputCls} value={f.label} onChange={(e) => patch({ label: e.target.value })} />
       </Field>
       <VersionPickers obj={f} patch={patch} deployed={deployed} majorKey="mariadbMajor" versionKey="mariadbVersion" majorLabel="MariaDB" cat={cat} />
@@ -279,7 +280,7 @@ export function MariaDBGaleraFrameForm({ frame: f, nodes, patchFrame, deleteFram
         <span className="text-sm font-semibold">MariaDB Galera</span>
         <Badge tone="primary">{members.length} node{members.length === 1 ? '' : 's'}</Badge>
       </div>
-      <Field label="Cluster name" hint="Also the wsrep_cluster_name.">
+      <Field label="Cluster name" help={HELP.clusterName} hint="Also the wsrep_cluster_name.">
         <input className={inputCls} value={f.label} onChange={(e) => patch({ label: e.target.value })} />
       </Field>
       <VersionPickers obj={f} patch={patch} deployed={deployed} majorKey="mariadbMajor" versionKey="mariadbVersion" majorLabel="MariaDB" cat={cat} />
@@ -315,7 +316,7 @@ export function MySQLCENodeForm({ node: n, nodes, patchNode, deleteNode, deploye
         <span className="text-sm font-semibold">MySQL Community</span>
         <Badge tone="primary">standalone</Badge>
       </div>
-      <Field label="Name"><input className={inputCls} value={n.label} onChange={(e) => patch({ label: e.target.value })} /></Field>
+      <Field label="Name" help={HELP.label}><input className={inputCls} value={n.label} onChange={(e) => patch({ label: e.target.value })} /></Field>
       <VersionPickers obj={n} patch={patch} deployed={deployed} majorKey="mysqlceMajor" versionKey="mysqlceVersion" majorLabel="MySQL" cat={cat} />
       <CommonOptions obj={n} patch={patch} nodes={nodes} deployed={deployed} showGtid />
       <ExportRow node={n} patchNode={patchNode} deployed={deployed} />
@@ -338,7 +339,7 @@ export function MySQLCEFrameForm({ frame: f, stackId, nodes, patchFrame, deleteF
         <span className="text-sm font-semibold">MySQL Replication</span>
         <Badge tone="primary">{members.length} node{members.length === 1 ? '' : 's'}</Badge>
       </div>
-      <Field label="Cluster name" hint="Must be unique across the stack.">
+      <Field label="Cluster name" help={HELP.clusterName} hint="Must be unique across the stack.">
         <input className={inputCls} value={f.label} onChange={(e) => patch({ label: e.target.value })} />
       </Field>
       <VersionPickers obj={f} patch={patch} deployed={deployed} majorKey="mysqlceMajor" versionKey="mysqlceVersion" majorLabel="MySQL" cat={cat} />
@@ -366,11 +367,11 @@ export function MySQLCEInnoDBFrameForm({ frame: f, nodes, patchFrame, deleteFram
         <span className="text-sm font-semibold">MySQL InnoDB Cluster / GR</span>
         <Badge tone="primary">{members.length} node{members.length === 1 ? '' : 's'}</Badge>
       </div>
-      <Field label="Cluster name" hint="Must be unique across the stack.">
+      <Field label="Cluster name" help={HELP.clusterName} hint="Must be unique across the stack.">
         <input className={inputCls} value={f.label} onChange={(e) => patch({ label: e.target.value })} />
       </Field>
       <VersionPickers obj={f} patch={patch} deployed={deployed} majorKey="mysqlceMajor" versionKey="mysqlceVersion" majorLabel="MySQL" cat={cat} />
-      <Field label="Mode" hint="InnoDB Cluster adds MySQL Shell orchestration and cluster metadata on top of Group Replication.">
+      <Field label="Mode" help={HELP.k8sPsReplication} hint="InnoDB Cluster adds MySQL Shell orchestration and cluster metadata on top of Group Replication.">
         <select className={inputCls} value={mode} disabled={deployed} onChange={(e) => patch({ replMode: e.target.value })}>
           <option value="innodbcluster">InnoDB Cluster (MySQL Shell)</option>
           <option value="groupreplication">Group Replication (raw)</option>
@@ -402,9 +403,9 @@ export function UpstreamMemberForm({ node: n, frame, patchNode, deleteNode, depl
         <span className="text-sm font-semibold">{frame?.label || 'Cluster'} member</span>
         {n.role ? <Badge tone={n.role === 'primary' ? 'primary' : 'muted'}>{n.role}</Badge> : null}
       </div>
-      <Field label="Name"><input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} /></Field>
+      <Field label="Name" help={HELP.label}><input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} /></Field>
       {roles && (
-        <Field label="Role" hint="Exactly one primary per cluster.">
+        <Field label="Role" help={HELP.role} hint="Exactly one primary per cluster.">
           <select className={inputCls} value={n.role || 'secondary'} disabled={deployed} onChange={(e) => patchNode(n.id, { role: e.target.value })}>
             <option value="primary">primary</option>
             <option value="secondary">secondary</option>

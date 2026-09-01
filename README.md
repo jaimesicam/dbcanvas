@@ -11,6 +11,12 @@ development: spin up a production-shaped cluster in minutes, exercise it, tear i
 
 ## What's New
 
+**Every control now explains itself.** Hover — or tab to — the small **?** beside any
+field, value or button and DBCanvas says what it is *for*, what happens if you leave it
+alone, and when you would change it: 345 pieces of written help across every node form,
+every deployed node's panel, the node palette and the toolbar. The one-line hints under
+the inputs stay where they are; this is the paragraph behind them.
+
 **Reach a node on a remote install from your own machine.** DBCanvas binds every port a
 deployed node publishes to the server's loopback, which is right — and leaves the PMM console
 and the database ports unreachable from the laptop you are actually sitting at. Set the new

@@ -5,6 +5,8 @@ import DbLdapAuthGuide from '../components/DbLdapAuthGuide.jsx'
 import { intranetApi, DEPLOY_TONE } from '../lib/stackApi.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import { SecretValue } from '../components/Secret.jsx'
+import { Help } from '../components/Tooltip.jsx'
+import { DEP_HELP } from '../lib/help.js'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -85,12 +87,12 @@ export default function IntranetManager({ stackId, nodeId, dep, onDeleteNode }) 
 function Overview({ cfg, dep, onDeleteNode, onOpenTerminal }) {
   return (
     <div className="space-y-2 text-sm">
-      <KV k="FQDN" v={cfg.fqdn} mono />
-      <KV k="Domain" v={cfg.domain} />
-      <KV k="Base DN" v={cfg.baseDN} mono />
-      <KV k="OS / arch" v={cfg.os ? `${cfg.os} · ${cfg.arch || ''}` : ''} />
-      <KV k="Network alias" v={cfg.alias} mono />
-      <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+      <KV k="FQDN" help={DEP_HELP.FQDN} v={cfg.fqdn} mono />
+      <KV k="Domain" help={DEP_HELP.Domain} v={cfg.domain} />
+      <KV k="Base DN" help={DEP_HELP['Base DN']} v={cfg.baseDN} mono />
+      <KV k="OS / arch" help={DEP_HELP['OS / arch']} v={cfg.os ? `${cfg.os} · ${cfg.arch || ''}` : ''} />
+      <KV k="Network alias" help={DEP_HELP['Network alias']} v={cfg.alias} mono />
+      <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
       {Array.isArray(cfg.services) && (
         <div className="flex flex-wrap gap-1 pt-1">
           {cfg.services.map((s) => <Badge key={s} tone="primary">{s}</Badge>)}
@@ -106,10 +108,10 @@ function Overview({ cfg, dep, onDeleteNode, onOpenTerminal }) {
   )
 }
 
-function KV({ k, v, mono }) {
+function KV({ k, v, mono, help }) {
   return (
     <div className="flex justify-between gap-3">
-      <span className="text-muted">{k}</span>
+      <span className="flex shrink-0 items-center gap-1 text-muted">{k}<Help text={help} /></span>
       <span className={`truncate text-fg ${mono ? 'font-mono text-xs' : ''}`}>{v || '—'}</span>
     </div>
   )
@@ -514,7 +516,7 @@ function DBCertTab({ api, domain }) {
             <span className="text-sm font-semibold">{result.username}</span>
             {result.notAfter && <Badge tone="primary">expires {result.notAfter}</Badge>}
           </div>
-          {result.subject && <KV k="Subject" v={result.subject} mono />}
+          {result.subject && <KV k="Subject" help={DEP_HELP.Subject} v={result.subject} mono />}
 
           <CodeBlock label="CA certificate — ca.crt" text={result.caCert} />
           <CodeBlock label={`Certificate — ${result.username}.crt`} text={result.cert} />

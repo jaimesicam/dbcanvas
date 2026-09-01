@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
-import { Card, Button, Badge, Field, ConfirmButton, inputCls } from '../components/ui.jsx'
+import { Card, Button, Badge, Field, ConfirmButton, InfoRow, inputCls } from '../components/ui.jsx'
+import { Help, Hint } from '../components/Tooltip.jsx'
+import { HELP, MENU_HELP, nodeHelp } from '../lib/help.js'
 import { stackApi, templateApi, isBuiltinTemplate, frameApi, TTL_OPTIONS, DEPLOY_TONE, NODE_UPLOAD_DESTS, PRODUCT_OS_FAMILIES } from '../lib/stackApi.js'
 import { kindOf as aioKindOf, familyOf as aioFamilyOf } from '../lib/aioPorts.js'
 import IntranetManager from './IntranetManager.jsx'
@@ -1221,10 +1223,10 @@ function NewStackModal({ onClose, onCreated, templates }) {
         <h3 className="mb-4 text-sm font-semibold">New stack</h3>
         {error && <div className="mb-3 rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-sm text-danger">{error}</div>}
         <form onSubmit={submit} className="space-y-3">
-          <Field label="Name">
+          <Field label="Name" help={HELP.label}>
             <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder={chosen ? chosen.name : 'My database stack'} autoFocus />
           </Field>
-          <Field label="Start from" hint="A template puts a whole topology on the canvas; you can edit it before deploying.">
+          <Field label="Start from" help={HELP.tplStartFrom} hint="A template puts a whole topology on the canvas; you can edit it before deploying.">
             <TemplateSelect templates={templates} value={templateId} onChange={setTemplateId} />
           </Field>
           {chosen && (
@@ -1233,7 +1235,7 @@ function NewStackModal({ onClose, onCreated, templates }) {
               <div className="mt-1 text-fg">{templateSizeLabel(chosen)}</div>
             </div>
           )}
-          <Field label="Lifetime" hint="The stack and its containers are torn down when this elapses.">
+          <Field label="Lifetime" help={HELP.stackTTL} hint="The stack and its containers are torn down when this elapses.">
             <select className={inputCls} value={ttl} onChange={(e) => setTtl(e.target.value)}>
               {TTL_OPTIONS.map((t) => (
                 <option key={t.id} value={t.id}>{t.label}</option>
@@ -1443,14 +1445,14 @@ function SaveTemplateModal({ defaultName, design, onClose, onSaved }) {
         </p>
         {error && <div className="mb-3 rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-sm text-danger">{error}</div>}
         <form onSubmit={submit} className="space-y-3">
-          <Field label="Name">
+          <Field label="Name" help={HELP.label}>
             <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
           </Field>
-          <Field label="Description">
+          <Field label="Description" help={HELP.tplDescription}>
             <textarea className={inputCls} rows={3} value={description} onChange={(e) => setDescription(e.target.value)}
               placeholder="What this topology is for" />
           </Field>
-          <Field label="Category" hint="Groups the template in the picker — e.g. MySQL, PostgreSQL, MongoDB.">
+          <Field label="Category" help={HELP.tplCategory} hint="Groups the template in the picker — e.g. MySQL, PostgreSQL, MongoDB.">
             <input className={inputCls} value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Uncategorized" />
           </Field>
           <div className="flex justify-end gap-2 pt-1">
@@ -1494,7 +1496,7 @@ function InsertTemplateModal({ templates, onClose, onInsert }) {
         </p>
         {error && <div className="mb-3 rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-sm text-danger">{error}</div>}
         <form onSubmit={submit} className="space-y-3">
-          <Field label="Template">
+          <Field label="Template" help={HELP.tplPick}>
             <TemplateSelect templates={templates} value={templateId} onChange={setTemplateId} blankLabel="Choose a template…" />
           </Field>
           {chosen && (
@@ -1542,13 +1544,13 @@ function TemplateMetaModal({ template, onClose, onSaved }) {
         <h3 className="mb-4 text-sm font-semibold">Edit template</h3>
         {error && <div className="mb-3 rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-sm text-danger">{error}</div>}
         <form onSubmit={submit} className="space-y-3">
-          <Field label="Name">
+          <Field label="Name" help={HELP.label}>
             <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
           </Field>
-          <Field label="Description">
+          <Field label="Description" help={HELP.tplDescription}>
             <textarea className={inputCls} rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
           </Field>
-          <Field label="Category" hint="Groups the template in the picker — e.g. MySQL, PostgreSQL, MongoDB.">
+          <Field label="Category" help={HELP.tplCategory} hint="Groups the template in the picker — e.g. MySQL, PostgreSQL, MongoDB.">
             <input className={inputCls} value={category} onChange={(e) => setCategory(e.target.value)} />
           </Field>
           <div className="flex justify-end gap-2 pt-1">
@@ -2946,38 +2948,38 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     const dep = depByNode[id]
     const actions = []
     if (dep) {
-      actions.push({ label: 'View config / profile', fn: () => showConfig(id) })
+      actions.push({ label: 'View config / profile', help: MENU_HELP.config, fn: () => showConfig(id) })
       if (dep.state === 'running') {
         const node = nodes.find((n) => n.id === id)
         if (node?.type === 'pmm') {
           // The PMM image runs as the unprivileged pmm user, so a plain exec is the pmm
           // console; root needs -u 0.
-          actions.push({ label: 'Enter root console', fn: () => openTerminal({ stackId: stack.id, nodeId: id, title: `${node.label} · root`, user: '0' }) })
-          actions.push({ label: 'Enter PMM console', fn: () => openTerminal({ stackId: stack.id, nodeId: id, title: `${node.label} · pmm` }) })
+          actions.push({ label: 'Enter root console', help: MENU_HELP.rootConsole, fn: () => openTerminal({ stackId: stack.id, nodeId: id, title: `${node.label} · root`, user: '0' }) })
+          actions.push({ label: 'Enter PMM console', help: MENU_HELP.pmmConsole, fn: () => openTerminal({ stackId: stack.id, nodeId: id, title: `${node.label} · pmm` }) })
         } else {
-          actions.push({ label: 'Enter root console', fn: () => openTerminal({ stackId: stack.id, nodeId: id, title: `${node?.label || 'node'} · root` }) })
+          actions.push({ label: 'Enter root console', help: MENU_HELP.rootConsole, fn: () => openTerminal({ stackId: stack.id, nodeId: id, title: `${node?.label || 'node'} · root` }) })
         }
-        actions.push({ label: 'File manager', fn: () => setFileMgr({ nodeId: id, label: node?.label || 'node' }) })
+        actions.push({ label: 'File manager', help: MENU_HELP.fileManager, fn: () => setFileMgr({ nodeId: id, label: node?.label || 'node' }) })
         // The same shell, but from the operator's own terminal: hand them the
         // exact `docker exec` line for this node's container.
         if (dep.containerName) {
-          actions.push({ label: 'Copy docker exec command', fn: () => copyExecCommand(dep.containerName) })
+          actions.push({ label: 'Copy docker exec command', help: MENU_HELP.copyExec, fn: () => copyExecCommand(dep.containerName) })
         }
         // Only when this installation says where it is reachable over SSH; on a
         // laptop install the ports are already local and a tunnel is noise.
         if (system.sshForwarding?.enabled) {
-          actions.push({ label: 'Copy SSH tunnel command', fn: () => copySSHTunnelCommand(id) })
+          actions.push({ label: 'Copy SSH tunnel command', help: MENU_HELP.sshTunnel, fn: () => copySSHTunnelCommand(id) })
         }
-        actions.push({ label: 'Stop', fn: () => nodeAction(id, 'stop') })
-        actions.push({ label: 'Restart', fn: () => nodeAction(id, 'restart') })
+        actions.push({ label: 'Stop', help: MENU_HELP.stop, fn: () => nodeAction(id, 'stop') })
+        actions.push({ label: 'Restart', help: MENU_HELP.restart, fn: () => nodeAction(id, 'restart') })
       } else if (dep.state === 'stopped' || dep.state === 'error') {
-        actions.push({ label: 'Start', fn: () => nodeAction(id, 'start') })
+        actions.push({ label: 'Start', help: MENU_HELP.start, fn: () => nodeAction(id, 'start') })
       }
       actions.push({ sep: true })
     }
     // PS MongoDB members are part of a fixed topology — no individual delete.
     if (nodes.find((n) => n.id === id)?.type !== 'psmdb') {
-      actions.push({ label: 'Delete node', danger: true, fn: () => deleteNode(id) })
+      actions.push({ label: 'Delete node', danger: true, help: MENU_HELP.deleteNode, fn: () => deleteNode(id) })
     }
     return actions
   }
@@ -3081,14 +3083,17 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     const reason = deploying
       ? 'Locked while deploying'
       : it.off ? `${it.label} is already on the canvas`
-      : !hasIntranet && it.type !== 'intranet' ? 'Add an Intranet node first' : it.label
+      : !hasIntranet && it.type !== 'intranet' ? 'Add an Intranet node first'
+      : nodeHelp(it.type) || NODE_TYPES[it.type]?.sub || it.label
     return (
-      <button key={key} disabled={disabled} title={reason}
-        onClick={() => { remember(it.label); it.onClick() }}
-        style={addBtnStyle(it.type)}
-        className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium shadow-sm disabled:opacity-40">
-        <Icon.Plus size={13} /> <span className="truncate">{it.label}</span>
-      </button>
+      <Hint key={key} text={reason} placement="right" className="w-full" display="block">
+        <button disabled={disabled}
+          onClick={() => { remember(it.label); it.onClick() }}
+          style={addBtnStyle(it.type)}
+          className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium shadow-sm disabled:opacity-40">
+          <Icon.Plus size={13} /> <span className="truncate">{it.label}</span>
+        </button>
+      </Hint>
     )
   }
 
@@ -3168,7 +3173,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   const paletteHeader = (onToggle, dockLabel, dockIcon, onDrag) => (
     <div className={`flex shrink-0 items-center justify-between border-b px-2 py-1.5 ${onDrag ? 'cursor-move' : ''}`} onPointerDown={onDrag}>
       <span className="text-xs font-semibold">Infrastructure Library</span>
-      <button title={dockLabel} onClick={onToggle} className="text-muted hover:text-fg">{dockIcon}</button>
+      <button title={HELP.uiDockPanel} onClick={onToggle} className="text-muted hover:text-fg">{dockIcon}</button>
     </div>
   )
 
@@ -3177,41 +3182,53 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         {/* toolbar */}
         <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-surface px-3 py-2">
-          <Button size="sm" variant="ghost" onClick={onBack}><Icon.ArrowLeft size={16} /> Stacks</Button>
+          <Hint text={HELP.uiBack}><Button size="sm" variant="ghost" onClick={onBack}><Icon.ArrowLeft size={16} /> Stacks</Button></Hint>
           <div className="mx-1 h-5 w-px bg-border" />
           <span className="text-sm font-semibold">{stack.name}</span>
-          <Badge tone="primary">{ttlLabel(stack.ttl)}</Badge>
-          <Badge tone={STATUS_TONE[stack.status] || 'muted'}>{stack.status}</Badge>
+          <Hint text={HELP.uiTTL}><Badge tone="primary">{ttlLabel(stack.ttl)}</Badge></Hint>
+          <Hint text={HELP.uiStackStatus}><Badge tone={STATUS_TONE[stack.status] || 'muted'}>{stack.status}</Badge></Hint>
           <div className="mx-1 h-5 w-px bg-border" />
           {paletteDocked && <span className="text-xs text-muted">Add nodes from the Infrastructure Library →</span>}
           {!paletteDocked && (
-            <Button size="sm" variant="outline" onClick={() => setPaletteDocked(true)}><Icon.Plus size={15} /> Palette</Button>
+            <Hint text={HELP.uiPalette}><Button size="sm" variant="outline" onClick={() => setPaletteDocked(true)}><Icon.Plus size={15} /> Palette</Button></Hint>
           )}
           <div className="mx-1 h-5 w-px bg-border" />
-          <Button size="sm" variant="outline" disabled={!!busy || deploying} onClick={() => setInsertTpl(true)}>
-            <Icon.Copy size={15} /> Insert template
-          </Button>
-          <Button size="sm" variant="outline" disabled={!!busy || nodes.length === 0} onClick={() => setSaveTpl(true)}>
-            <Icon.File size={15} /> Save as template
-          </Button>
+          <Hint text={HELP.uiInsertTemplate}>
+            <Button size="sm" variant="outline" disabled={!!busy || deploying} onClick={() => setInsertTpl(true)}>
+              <Icon.Copy size={15} /> Insert template
+            </Button>
+          </Hint>
+          <Hint text={HELP.uiSaveTemplate}>
+            <Button size="sm" variant="outline" disabled={!!busy || nodes.length === 0} onClick={() => setSaveTpl(true)}>
+              <Icon.File size={15} /> Save as template
+            </Button>
+          </Hint>
           <div className="mx-1 h-5 w-px bg-border" />
-          <Button size="sm" variant="outline" disabled={!!busy} onClick={runValidate}>
-            <Icon.Check size={15} /> {busy === 'validate' ? 'Validating…' : 'Validate'}
-          </Button>
-          <Button size="sm" disabled={!!busy || nodes.length === 0} onClick={runDeploy}>
-            <Icon.Arrow size={15} /> {busy === 'deploy' ? 'Deploying…' : 'Deploy'}
-          </Button>
+          <Hint text={HELP.uiValidate}>
+            <Button size="sm" variant="outline" disabled={!!busy} onClick={runValidate}>
+              <Icon.Check size={15} /> {busy === 'validate' ? 'Validating…' : 'Validate'}
+            </Button>
+          </Hint>
+          <Hint text={HELP.uiDeploy}>
+            <Button size="sm" disabled={!!busy || nodes.length === 0} onClick={runDeploy}>
+              <Icon.Arrow size={15} /> {busy === 'deploy' ? 'Deploying…' : 'Deploy'}
+            </Button>
+          </Hint>
           {(deployments.length > 0 || stack.status === 'deployed') && (
-            <ConfirmButton size="sm" variant="outline" disabled={!!busy} confirmLabel="Destroy — sure?" onConfirm={runDestroy}>
-              <Icon.Trash size={15} /> {busy === 'destroy' ? 'Destroying…' : 'Destroy'}
-            </ConfirmButton>
+            <Hint text={HELP.uiDestroy}>
+              <ConfirmButton size="sm" variant="outline" disabled={!!busy} confirmLabel="Destroy — sure?" onConfirm={runDestroy}>
+                <Icon.Trash size={15} /> {busy === 'destroy' ? 'Destroying…' : 'Destroy'}
+              </ConfirmButton>
+            </Hint>
           )}
           <div className="ml-auto flex items-center gap-3">
-            <span className="text-xs text-muted">{saveState === 'saving' ? 'Saving…' : 'Saved'}</span>
-            <span className="text-xs text-muted">{nodes.length} nodes · {edges.length} links</span>
-            <Button size="sm" variant="ghost" onClick={() => setView({ x: 40, y: 20, z: 1 })}>
-              <Icon.Move size={15} /> Reset view
-            </Button>
+            <Hint text={HELP.uiSaveState}><span className="text-xs text-muted">{saveState === 'saving' ? 'Saving…' : 'Saved'}</span></Hint>
+            <Hint text={HELP.uiCounts}><span className="text-xs text-muted">{nodes.length} nodes · {edges.length} links</span></Hint>
+            <Hint text={HELP.uiResetView}>
+              <Button size="sm" variant="ghost" onClick={() => setView({ x: 40, y: 20, z: 1 })}>
+                <Icon.Move size={15} /> Reset view
+              </Button>
+            </Hint>
           </div>
         </div>
 
@@ -3336,9 +3353,9 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                     {/* PS MongoDB has a fixed topology — no add/remove controls. */}
                     {f.type !== 'psmdb' && (
                       <div className="ml-auto flex items-center gap-0.5">
-                        <button title={deploying ? 'Locked while deploying' : 'Add node'} disabled={deploying} onPointerDown={(e) => e.stopPropagation()} onClick={() => addFrameMember(f)}
+                        <button title={deploying ? 'Locked while deploying' : HELP.uiAddMember} disabled={deploying} onPointerDown={(e) => e.stopPropagation()} onClick={() => addFrameMember(f)}
                           className="rounded px-1.5 text-sm leading-none text-muted hover:bg-surface hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent">+</button>
-                        <button title={deploying ? 'Locked while deploying' : 'Remove a node'} disabled={deploying} onPointerDown={(e) => e.stopPropagation()} onClick={() => removePXCNode(f.id)}
+                        <button title={deploying ? 'Locked while deploying' : HELP.uiRemoveMember} disabled={deploying} onPointerDown={(e) => e.stopPropagation()} onClick={() => removePXCNode(f.id)}
                           className="rounded px-1.5 text-sm leading-none text-muted hover:bg-surface hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent">−</button>
                       </div>
                     )}
@@ -3373,7 +3390,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                               {dep?.state === 'provisioning' ? (
                                 <ProgressRing percent={dep.progress?.percent || 0} size={15} />
                               ) : dep ? (
-                                <span className="h-2 w-2 shrink-0 rounded-full" title={dep.state}
+                                <span className="h-2 w-2 shrink-0 rounded-full" title={`${dep.state} — ${HELP.uiNodeContext}`}
                                   style={{ background: `var(--${DEPLOY_TONE[dep.state] === 'success' ? 'success' : dep.state === 'error' ? 'danger' : 'warning'})` }} />
                               ) : null}
                             </div>
@@ -3843,7 +3860,7 @@ function PMMOptions({ n, nodes = [], patchNode, deployed }) {
           disabled={deployed}
           onChange={(e) => patchNode(n.id, { generateCert: e.target.checked })}
         />
-        <span>Generate nginx certificate from Intranet CA</span>
+        <span>Generate nginx certificate from Intranet CA</span><Help text={HELP.generateCert} />
       </label>
       {n.generateCert && !deployed && (
         <p className="text-xs text-muted">
@@ -3924,36 +3941,36 @@ function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, delete
         <Badge tone="primary">{total} node{total === 1 ? '' : 's'}</Badge>
       </div>
 
-      <Field label="Cluster name" hint="Must be unique across the stack.">
+      <Field label="Cluster name" help={HELP.clusterName} hint="Must be unique across the stack.">
         <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+        <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
           <select className={`${inputCls} ${lock}`} value={f.os} disabled={deployed} onChange={(e) => patchFrame(f.id, { os: e.target.value })}>
             {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="OS version">
+        <Field label="OS version" help={HELP.osVersion}>
           <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="PXC major">
+        <Field label="PXC major" help={HELP.major('PXC')}>
           <select className={`${inputCls} ${lock}`} value={f.pxcMajor} disabled={deployed} onChange={(e) => patchFrame(f.id, { pxcMajor: e.target.value, pxcVersion: '' })}>
             {majors.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
       </div>
 
-      <Field label="PXC minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+      <Field label="PXC minor version" help={HELP.minor('PXC')} hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
         <select className={`${inputCls} ${lock}`} value={f.pxcVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { pxcVersion: e.target.value })}>
           <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
           {minors.map((v) => <option key={v} value={v}>{v}</option>)}
         </select>
       </Field>
 
-      <Field label="Monitored by (PMM)" hint={running ? 'Pick a PMM node (or none), then apply to the running cluster.' : 'Optional — registers the cluster with a PMM node.'}>
+      <Field label="Monitored by (PMM)" help={HELP.pmm} hint={running ? 'Pick a PMM node (or none), then apply to the running cluster.' : 'Optional — registers the cluster with a PMM node.'}>
         <select className={inputCls} value={f.pmmNodeId || ''} onChange={(e) => { patchFrame(f.id, { pmmNodeId: e.target.value }); setMonMsg(''); setMonErr('') }}>
           <option value="">none</option>
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
@@ -3984,15 +4001,15 @@ function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, delete
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
-        <span>Use Intranet proxy (Squid) for egress</span>
+        <span>Use Intranet proxy (Squid) for egress</span><Help text={HELP.proxy} />
       </label>
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={f.gtid !== false} onChange={(e) => patchFrame(f.id, { gtid: e.target.checked })} />
-        <span>Enable GTID</span>
+        <span>Enable GTID</span><Help text={HELP.gtid} />
       </label>
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
-        <span>Generate per-node certificates from Intranet CA</span>
+        <span>Generate per-node certificates from Intranet CA</span><Help text={HELP.generateCert} />
       </label>
       {f.generateCert && (
         <div className="flex items-center gap-2">
@@ -4033,12 +4050,12 @@ function PXCNodeForm({ node: n, frame, nodes, patchNode, dep, deployed }) {
           <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
         </div>
       )}
-      <Field label="Node name" hint="Auto-assigned, unique across the stack.">
+      <Field label="Node name" help={HELP.nodeName} hint="Auto-assigned, unique across the stack.">
         <input className={`${inputCls} opacity-70`} value={n.label} readOnly />
       </Field>
-      <Field label="Cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <Field label="Cluster" help={HELP.clusterReadonly}><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
-      <Field label="Role" hint={deployed ? 'Locked — the node is deployed.' : 'Arbitrator (garbd) votes for quorum but stores no data.'}>
+      <Field label="Role" help={HELP.role} hint={deployed ? 'Locked — the node is deployed.' : 'Arbitrator (garbd) votes for quorum but stores no data.'}>
         <select className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.role || 'regular'} disabled={deployed} onChange={(e) => patchNode(n.id, { role: e.target.value })}>
           <option value="regular">regular (data node)</option>
           <option value="arbitrator">arbitrator (garbd)</option>
@@ -4046,10 +4063,10 @@ function PXCNodeForm({ node: n, frame, nodes, patchNode, dep, deployed }) {
       </Field>
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!n.exportEnabled} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
-        <span>Export DB port to the host</span>
+        <span>Export DB port to the host</span><Help text={HELP.exportPort} />
       </label>
       {n.exportEnabled && (
-        <Field label="Host port" hint="0 / empty = random unused port. Must not clash with another node.">
+        <Field label="Host port" help={HELP.hostPort} hint="0 / empty = random unused port. Must not clash with another node.">
           <input type="number" min="0" max="65535" className={inputCls} value={n.exportHostPort || 0}
             onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
         </Field>
@@ -4106,50 +4123,50 @@ function MySQLFrameForm({ frame: f, stackId, nodes, frames, edges, patchFrame, d
         <Badge tone="primary">{members.length} node{members.length === 1 ? '' : 's'}</Badge>
       </div>
 
-      <Field label="Cluster name" hint="Must be unique across the stack.">
+      <Field label="Cluster name" help={HELP.clusterName} hint="Must be unique across the stack.">
         <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+        <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
           <select className={`${inputCls} ${lock}`} value={f.os} disabled={deployed} onChange={(e) => patchFrame(f.id, { os: e.target.value })}>
             {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="OS version">
+        <Field label="OS version" help={HELP.osVersion}>
           <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="Percona Server major">
+        <Field label="Percona Server major" help={HELP.major('Percona Server')}>
           <select className={`${inputCls} ${lock}`} value={f.psMajor} disabled={deployed} onChange={(e) => patchFrame(f.id, { psMajor: e.target.value, psVersion: '' })}>
             {majors.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
       </div>
 
-      <Field label="Percona Server minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+      <Field label="Percona Server minor version" help={HELP.minor('Percona Server')} hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
         <select className={`${inputCls} ${lock}`} value={f.psVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { psVersion: e.target.value })}>
           <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
           {minors.map((v) => <option key={v} value={v}>{v}</option>)}
         </select>
       </Field>
 
-      <Field label="Replication mode" hint={deployed ? 'Locked.' : 'Semi-sync waits for a replica ack on commit.'}>
+      <Field label="Replication mode" help={HELP.replMode} hint={deployed ? 'Locked.' : 'Semi-sync waits for a replica ack on commit.'}>
         <select className={`${inputCls} ${lock}`} value={f.replMode || 'async'} disabled={deployed} onChange={(e) => patchFrame(f.id, { replMode: e.target.value })}>
           <option value="async">normal (asynchronous)</option>
           <option value="semisync">semi-synchronous</option>
         </select>
       </Field>
 
-      <Field label="Monitored by (PMM)" hint="Optional — registers each node with a PMM node.">
+      <Field label="Monitored by (PMM)" help={HELP.pmm} hint="Optional — registers each node with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
           <option value="">none</option>
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
         </select>
       </Field>
 
-      <Field label="Monitored by (Orchestrator)" hint={running ? 'Pick an Orchestrator node (or none), then apply to the running cluster.' : 'Optional — seeds topology discovery on an Orchestrator node.'}>
+      <Field label="Monitored by (Orchestrator)" help={HELP.orchestrator} hint={running ? 'Pick an Orchestrator node (or none), then apply to the running cluster.' : 'Optional — seeds topology discovery on an Orchestrator node.'}>
         <select className={inputCls} value={f.orchestratorNodeId || ''} onChange={(e) => { patchFrame(f.id, { orchestratorNodeId: e.target.value }); setOrchMsg(''); setOrchErr('') }}>
           <option value="">none</option>
           {orchestratorNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
@@ -4175,15 +4192,15 @@ function MySQLFrameForm({ frame: f, stackId, nodes, frames, edges, patchFrame, d
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
-        <span>Use Intranet proxy (Squid) for downloads</span>
+        <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={f.gtid !== false} disabled={deployed} onChange={(e) => patchFrame(f.id, { gtid: e.target.checked })} />
-        <span>Enable GTID (required for auto-positioning)</span>
+        <span>Enable GTID (required for auto-positioning)</span><Help text={HELP.gtid} />
       </label>
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
-        <span>Generate per-node certificates from Intranet CA</span>
+        <span>Generate per-node certificates from Intranet CA</span><Help text={HELP.generateCert} />
       </label>
       {f.generateCert && (
         <div className="flex items-center gap-2">
@@ -4231,10 +4248,10 @@ function MySQLMemberForm({ node: n, frame, nodes, patchNode, dep, deployed }) {
           <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
         </div>
       )}
-      <Field label="Node name" hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
-      <Field label="Cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <Field label="Node name" help={HELP.nodeName} hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
+      <Field label="Cluster" help={HELP.clusterReadonly}><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
-      <Field label="Role" hint={deployed ? 'Locked — the node is deployed.' : 'There is always exactly one primary; the rest are read-only secondaries.'}>
+      <Field label="Role" help={HELP.role} hint={deployed ? 'Locked — the node is deployed.' : 'There is always exactly one primary; the rest are read-only secondaries.'}>
         <select className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.role || 'secondary'} disabled={deployed} onChange={(e) => setRole(e.target.value)}>
           <option value="primary">primary (read/write)</option>
           <option value="secondary">secondary (read-only)</option>
@@ -4242,10 +4259,10 @@ function MySQLMemberForm({ node: n, frame, nodes, patchNode, dep, deployed }) {
       </Field>
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
-        <span>Export DB port (3306) to the host</span>
+        <span>Export DB port (3306) to the host</span><Help text={HELP.exportPort} />
       </label>
       {n.exportEnabled && (
-        <Field label="Host port" hint="0 / empty = random unused port.">
+        <Field label="Host port" help={HELP.hostPort} hint="0 / empty = random unused port.">
           <input type="number" min="0" max="65535" className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.exportHostPort || 0} disabled={deployed}
             onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
         </Field>
@@ -4271,12 +4288,12 @@ function DirectoryAuthFields({ node: n, nodes, patchNode, deployed, kerberos, ld
       <label className={`flex items-center gap-2 text-sm ${noLdap ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.ldapAuth} disabled={noLdap}
           onChange={(e) => patchNode(n.id, { ldapAuth: e.target.checked })} />
-        <span>Integrate with LDAP</span>
+        <span>Integrate with LDAP</span><Help text={HELP.ldap} />
       </label>
       {ldapBlocked && <p className="text-xs text-muted">{ldapBlocked}</p>}
       {dirs.length === 0 && <p className="text-xs text-muted">Add an Intranet or Samba AD DC node to enable LDAP login.</p>}
       {n.ldapAuth && dirs.length > 0 && (
-        <Field label="Directory">
+        <Field label="Directory" help={HELP.ldapDirectory}>
           <select className={inputCls} value={n.ldapDirNodeId || ''} disabled={deployed}
             onChange={(e) => patchNode(n.id, { ldapDirNodeId: e.target.value })}>
             <option value="">— select —</option>
@@ -4290,7 +4307,7 @@ function DirectoryAuthFields({ node: n, nodes, patchNode, deployed, kerberos, ld
           <label className={`flex items-center gap-2 text-sm ${noKerberos ? 'opacity-70' : ''}`}>
             <input type="checkbox" checked={!!n.kerberosAuth} disabled={noKerberos}
               onChange={(e) => patchNode(n.id, { kerberosAuth: e.target.checked })} />
-            <span>Kerberos (GSSAPI) single sign-on</span>
+            <span>Kerberos (GSSAPI) single sign-on</span><Help text={HELP.kerberos} />
           </label>
           {kerberosBlocked && <p className="text-xs text-muted">{kerberosBlocked}</p>}
           {!hasSamba && <p className="text-xs text-muted">Add a Samba AD DC node to enable Kerberos SSO.</p>}
@@ -4326,7 +4343,7 @@ function VaultFields({ node: n, nodes, patchNode, deployed }) {
             enableVault: e.target.checked,
             openbaoNodeId: e.target.checked ? (bao?.id ?? '') : '',
           })} />
-        <span>Encrypt with OpenBao</span>
+        <span>Encrypt with OpenBao</span><Help text={HELP.vault} />
       </label>
       {!bao && <p className="text-xs text-muted">Add the OpenBao node to key encryption to it.</p>}
       {n.enableVault && bao && (
@@ -4370,20 +4387,20 @@ function KeycloakOidcFields({ node: n, nodes, patchNode, deployed, label, pin, b
       <label className={`flex items-center gap-2 text-sm ${noOidc ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.enableOIDC} disabled={noOidc}
           onChange={(e) => patchNode(n.id, { enableOIDC: e.target.checked, ...(pin && e.target.checked ? pin.patch : {}) })} />
-        <span>{label}</span>
+        <span>{label}</span><Help text={HELP.oidc} />
       </label>
       {blocked && <p className="text-xs text-muted">{blocked}</p>}
       {kcNodes.length === 0 && <p className="text-xs text-muted">Add a Keycloak node (with Intranet CA SSL) to enable SSO.</p>}
       {n.enableOIDC && kcNodes.length > 0 && (
         <>
-          <Field label="Keycloak node">
+          <Field label="Keycloak node" help={HELP.oidc}>
             <select className={inputCls} value={n.keycloakNodeId || ''} disabled={deployed}
               onChange={(e) => patchNode(n.id, { keycloakNodeId: e.target.value })}>
               <option value="">— select —</option>
               {kcNodes.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
             </select>
           </Field>
-          <Field label="Realm" hint="Keycloak realm holding the OIDC client.">
+          <Field label="Realm" help={HELP.oidcRealm} hint="Keycloak realm holding the OIDC client.">
             <input className={inputCls} value={n.oidcRealm ?? 'dbcanvas'} disabled={deployed} onChange={(e) => patchNode(n.id, { oidcRealm: e.target.value })} />
           </Field>
           {n.keycloakNodeId && !selSSL && <p className="text-xs text-warning">Enable “Use Intranet CA SSL” on the selected Keycloak — OIDC needs an HTTPS issuer.</p>}
@@ -4415,31 +4432,31 @@ function VMSizeFields({ node: n, patchNode, deployed }) {
   const throttled = !!(n.deviceReadMbps || n.deviceWriteMbps)
   return (
     <div className="grid grid-cols-2 gap-2">
-      <Field label="CPUs" hint={docker ? 'Container --cpus limit; blank = unlimited.' : 'VirtualBox VM CPUs.'}>
+      <Field label="CPUs" help={HELP.cpuLimit} hint={docker ? 'Container --cpus limit; blank = unlimited.' : 'VirtualBox VM CPUs.'}>
         <input type="number" min="1" max="64" className={`${inputCls} ${lock}`} disabled={deployed}
           placeholder={docker ? 'unlimited' : undefined}
           value={docker ? (n.cpus || '') : (n.cpus || 2)} onChange={(e) => patchNode(n.id, { cpus: size(e.target.value) })} />
       </Field>
-      <Field label="Memory (GiB)" hint={docker ? 'Container --memory limit; blank = unlimited.' : 'VirtualBox VM memory.'}>
+      <Field label="Memory (GiB)" help={HELP.memLimit} hint={docker ? 'Container --memory limit; blank = unlimited.' : 'VirtualBox VM memory.'}>
         <input type="number" min="1" max="256" className={`${inputCls} ${lock}`} disabled={deployed}
           placeholder={docker ? 'unlimited' : undefined}
           value={docker ? (n.memoryGb || '') : (n.memoryGb || 2)} onChange={(e) => patchNode(n.id, { memoryGb: size(e.target.value) })} />
       </Field>
       {docker && (
         <>
-          <Field label="Disk read (MB/s)" hint="Container --device-read-bps; blank = unlimited.">
+          <Field label="Disk read (MB/s)" help={HELP.diskBps} hint="Container --device-read-bps; blank = unlimited.">
             <input type="number" min="1" max="16384" className={`${inputCls} ${lock}`} disabled={deployed}
               placeholder="unlimited"
               value={n.deviceReadMbps || ''} onChange={(e) => patchNode(n.id, { deviceReadMbps: size(e.target.value) })} />
           </Field>
-          <Field label="Disk write (MB/s)" hint="Container --device-write-bps; blank = unlimited.">
+          <Field label="Disk write (MB/s)" help={HELP.diskBps} hint="Container --device-write-bps; blank = unlimited.">
             <input type="number" min="1" max="16384" className={`${inputCls} ${lock}`} disabled={deployed}
               placeholder="unlimited"
               value={n.deviceWriteMbps || ''} onChange={(e) => patchNode(n.id, { deviceWriteMbps: size(e.target.value) })} />
           </Field>
           {throttled && (
             <div className="col-span-2 space-y-1">
-              <Field label="Block device" hint="Host device the disk limits apply to. Blank = auto-detect the disk backing Docker's data root.">
+              <Field label="Block device" help={HELP.blockDevice} hint="Host device the disk limits apply to. Blank = auto-detect the disk backing Docker's data root.">
                 <input className={`${inputCls} ${lock}`} disabled={deployed} placeholder="auto-detect (e.g. /dev/sda)"
                   value={n.devicePath ?? ''} onChange={(e) => patchNode(n.id, { devicePath: e.target.value })} />
               </Field>
@@ -4492,22 +4509,22 @@ function NetworkConditionFields({ node: n, patchNode }) {
           ports are shaped, so DNS and health checks stay clean.
         </p>
         <div className="grid grid-cols-2 gap-2">
-          <Field label="Latency (ms)"
+          <Field label="Latency (ms)" help={HELP.netLatency}
             hint="One-way delay added to cluster traffic. This is what drives Galera flow control and, past evs.suspect_timeout, eviction. Max 1000.">
             <input type="number" min="0" max="1000" className={inputCls} placeholder="none"
               value={n.netLatencyMs || ''} onChange={(e) => patchNode(n.id, { netLatencyMs: size(e.target.value) })} />
           </Field>
-          <Field label="Jitter (±ms)"
+          <Field label="Jitter (±ms)" help={HELP.netJitter}
             hint="Spread around that delay, normally distributed. Capped at the latency: a larger jitter reorders packets instead of delaying them, and TCP reads reordering as loss.">
             <input type="number" min="0" max="500" className={inputCls} placeholder="none"
               value={n.netJitterMs || ''} onChange={(e) => patchNode(n.id, { netJitterMs: size(e.target.value) })} />
           </Field>
-          <Field label="Packet loss (%)"
+          <Field label="Packet loss (%)" help={HELP.netLoss}
             hint="Dropped outbound packets. A few percent is enough to make a synchronous cluster stall; 100% severs the link while leaving the node up, which models a partition rather than a crash.">
             <input type="number" min="0" max="100" step="0.1" className={inputCls} placeholder="none"
               value={n.netLossPct || ''} onChange={(e) => patchNode(n.id, { netLossPct: size(e.target.value) })} />
           </Field>
-          <Field label="Bandwidth (Mbit/s)"
+          <Field label="Bandwidth (Mbit/s)" help={HELP.netBandwidth}
             hint="Cap on outbound cluster traffic. Mostly slows state transfer — latency and loss are what actually break a cluster.">
             <input type="number" min="1" max="10000" className={inputCls} placeholder="unlimited"
               value={n.netRateMbit || ''} onChange={(e) => patchNode(n.id, { netRateMbit: size(e.target.value) })} />
@@ -4569,37 +4586,37 @@ function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
         {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
       </div>
 
-      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+        <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
           <select className={`${inputCls} ${lock}`} value={n.os} disabled={deployed} onChange={(e) => patchNode(n.id, { os: e.target.value })}>
             {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="OS version">
+        <Field label="OS version" help={HELP.osVersion}>
           <select className={`${inputCls} ${lock}`} value={n.osVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="Percona Server major">
+        <Field label="Percona Server major" help={HELP.major('Percona Server')}>
           <select className={`${inputCls} ${lock}`} value={n.psMajor} disabled={deployed} onChange={(e) => patchNode(n.id, { psMajor: e.target.value, psVersion: '' })}>
             {majors.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
       </div>
 
-      <Field label="Percona Server minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+      <Field label="Percona Server minor version" help={HELP.minor('Percona Server')} hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
         <select className={`${inputCls} ${lock}`} value={n.psVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { psVersion: e.target.value })}>
           <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
           {minors.map((v) => <option key={v} value={v}>{v}</option>)}
         </select>
       </Field>
 
-      <Field label="Monitored by (PMM)" hint="Optional — registers this server with a PMM node.">
+      <Field label="Monitored by (PMM)" help={HELP.pmm} hint="Optional — registers this server with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={n.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchNode(n.id, { pmmNodeId: e.target.value })}>
           <option value="">none</option>
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
@@ -4608,15 +4625,15 @@ function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
-        <span>Use Intranet proxy (Squid) for downloads</span>
+        <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={n.gtid !== false} disabled={deployed} onChange={(e) => patchNode(n.id, { gtid: e.target.checked })} />
-        <span>Enable GTID</span>
+        <span>Enable GTID</span><Help text={HELP.gtid} />
       </label>
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.generateCert} disabled={deployed} onChange={(e) => patchNode(n.id, { generateCert: e.target.checked })} />
-        <span>Generate certificate from Intranet CA</span>
+        <span>Generate certificate from Intranet CA</span><Help text={HELP.generateCert} />
       </label>
       {n.generateCert && (
         <div className="flex items-center gap-2">
@@ -4632,10 +4649,10 @@ function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
-        <span>Export DB port (3306) to the host</span>
+        <span>Export DB port (3306) to the host</span><Help text={HELP.exportPort} />
       </label>
       {n.exportEnabled && (
-        <Field label="Host port" hint="0 / empty = random unused port.">
+        <Field label="Host port" help={HELP.hostPort} hint="0 / empty = random unused port.">
           <input type="number" min="0" max="65535" className={`${inputCls} ${lock}`} value={n.exportHostPort || 0} disabled={deployed}
             onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
         </Field>
@@ -4681,30 +4698,30 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
         {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
       </div>
 
-      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+        <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
           <select className={`${inputCls} ${lock}`} value={n.os} disabled={deployed} onChange={(e) => patchNode(n.id, { os: e.target.value })}>
             {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="OS version">
+        <Field label="OS version" help={HELP.osVersion}>
           <select className={`${inputCls} ${lock}`} value={n.osVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="PostgreSQL major">
+        <Field label="PostgreSQL major" help={HELP.major('PostgreSQL')}>
           <select className={`${inputCls} ${lock}`} value={n.pgMajor} disabled={deployed} onChange={(e) => patchNode(n.id, { pgMajor: e.target.value, pgVersion: '' })}>
             {majors.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
       </div>
 
-      <Field label="PostgreSQL minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+      <Field label="PostgreSQL minor version" help={HELP.minor('PostgreSQL')} hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
         <select className={`${inputCls} ${lock}`} value={n.pgVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { pgVersion: e.target.value })}>
           <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
           {minors.map((v) => <option key={v} value={v}>{v}</option>)}
@@ -4713,10 +4730,10 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.usePgBackRest} disabled={deployed} onChange={(e) => patchNode(n.id, { usePgBackRest: e.target.checked })} />
-        <span>Use pgBackRest (SeaweedFS S3) for backup</span>
+        <span>Use pgBackRest (SeaweedFS S3) for backup</span><Help text={HELP.seaweedfsBackup} />
       </label>
       {n.usePgBackRest && (
-        <Field label="SeaweedFS node (S3 repository)" hint={seaweedNodes.length ? 'WAL archive + an initial full backup land here. The node must have S3 TLS enabled (pgBackRest needs HTTPS).' : 'Add a SeaweedFS node (with S3 TLS enabled) to the stack first.'}>
+        <Field label="SeaweedFS node (S3 repository)" help={HELP.seaweedfsBackup} hint={seaweedNodes.length ? 'WAL archive + an initial full backup land here. The node must have S3 TLS enabled (pgBackRest needs HTTPS).' : 'Add a SeaweedFS node (with S3 TLS enabled) to the stack first.'}>
           <select className={`${inputCls} ${lock}`} value={n.seaweedfsNodeId || ''} disabled={deployed} onChange={(e) => patchNode(n.id, { seaweedfsNodeId: e.target.value })}>
             <option value="">select a SeaweedFS node…</option>
             {seaweedNodes.map((s) => <option key={s.id} value={s.id}>{s.label}{s.tls ? '' : ' — needs S3 TLS'}</option>)}
@@ -4728,7 +4745,7 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
           onChange={(v) => patchNode(n.id, { seaweedfsBucket: v })} />
       )}
 
-      <Field label="Monitored by (PMM)" hint="Optional — registers this server with a PMM node.">
+      <Field label="Monitored by (PMM)" help={HELP.pmm} hint="Optional — registers this server with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={n.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchNode(n.id, { pmmNodeId: e.target.value })}>
           <option value="">none</option>
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
@@ -4737,11 +4754,11 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
-        <span>Use Intranet proxy (Squid) for downloads</span>
+        <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.generateCert} disabled={deployed} onChange={(e) => patchNode(n.id, { generateCert: e.target.checked })} />
-        <span>Generate certificate from Intranet CA (PostgreSQL TLS)</span>
+        <span>Generate certificate from Intranet CA (PostgreSQL TLS)</span><Help text={HELP.generateCert} />
       </label>
       {n.generateCert && (
         <div className="flex items-center gap-2">
@@ -4757,10 +4774,10 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
-        <span>Export DB port (5432) to the host</span>
+        <span>Export DB port (5432) to the host</span><Help text={HELP.exportPort} />
       </label>
       {n.exportEnabled && (
-        <Field label="Host port" hint="0 / empty = random unused port.">
+        <Field label="Host port" help={HELP.hostPort} hint="0 / empty = random unused port.">
           <input type="number" min="0" max="65535" className={`${inputCls} ${lock}`} value={n.exportHostPort || 0} disabled={deployed}
             onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
         </Field>
@@ -4789,7 +4806,7 @@ function SeaweedBucketField({ nodes, nodeId, value, onChange, deployed }) {
   const buckets = sw ? seaweedBucketsOf(sw, false) : []
   if (buckets.length < 2) return null
   return (
-    <Field label="Bucket" hint="Which of that node's buckets this cluster backs up to.">
+    <Field label="Bucket" help={HELP.s3Bucket} hint="Which of that node's buckets this cluster backs up to.">
       <select className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={value || ''} disabled={deployed}
         onChange={(e) => onChange(e.target.value)}>
         <option value="">{buckets[0]} (default)</option>
@@ -4824,21 +4841,21 @@ function SeaweedFSForm({ node: n, patchNode, deleteNode, dep, deployed }) {
         used as a backup target for xtrabackup/xbcloud, Percona Backup for MongoDB and pgBackRest.
       </p>
 
-      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
-      <Field label="AWS_ACCESS_KEY_ID" hint={deployed ? 'Set at deploy.' : 'Defaults to "seaweedfs".'}>
+      <Field label="AWS_ACCESS_KEY_ID" help={HELP.s3AccessKey} hint={deployed ? 'Set at deploy.' : 'Defaults to "seaweedfs".'}>
         <input className={`${inputCls} ${lock}`} value={n.accessKey ?? 'seaweedfs'} disabled={deployed} placeholder="seaweedfs"
           onChange={(e) => patchNode(n.id, { accessKey: e.target.value })} />
       </Field>
 
-      <Field label="AWS_SECRET_ACCESS_KEY" hint={deployed ? 'Generated at deploy — see Access tab.' : 'Leave empty to auto-generate.'}>
+      <Field label="AWS_SECRET_ACCESS_KEY" help={HELP.s3SecretKey} hint={deployed ? 'Generated at deploy — see Access tab.' : 'Leave empty to auto-generate.'}>
         <input className={`${inputCls} ${lock}`} value={n.secretKey || ''} disabled={deployed} placeholder="(auto-generate if empty)"
           onChange={(e) => patchNode(n.id, { secretKey: e.target.value })} />
       </Field>
 
-      <Field label="Buckets" hint={`Created at deploy — up to ${MAX_SEAWEED_BUCKETS}. The first one is the default for any node that does not pick.`}>
+      <Field label="Buckets" help={HELP.s3Buckets} hint={`Created at deploy — up to ${MAX_SEAWEED_BUCKETS}. The first one is the default for any node that does not pick.`}>
         <div className="space-y-1">
           {buckets.map((b, i) => (
             <div key={i} className="flex items-center gap-1">
@@ -4877,13 +4894,13 @@ function SeaweedFSForm({ node: n, patchNode, deleteNode, dep, deployed }) {
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.tls} disabled={deployed} onChange={(e) => patchNode(n.id, { tls: e.target.checked })} />
-        <span>Serve the S3 endpoint over TLS (HTTPS on :8333)</span>
+        <span>Serve the S3 endpoint over TLS (HTTPS on :8333)</span><Help text={HELP.generateCert} />
       </label>
       {n.tls && (
         <>
           <label className={`flex items-center gap-2 pl-5 text-sm ${deployed ? 'opacity-70' : ''}`}>
             <input type="checkbox" checked={!!n.generateCert} disabled={deployed} onChange={(e) => patchNode(n.id, { generateCert: e.target.checked })} />
-            <span>Sign the certificate with the Intranet CA</span>
+            <span>Sign the certificate with the Intranet CA</span><Help text={HELP.generateCert} />
           </label>
           {n.generateCert ? (
             <div className="flex items-center gap-2 pl-5">
@@ -4925,7 +4942,7 @@ function WatchtowerForm({ node: n, patchNode, deleteNode, dep, deployed }) {
         upgrades. One Watchtower per stack.
       </p>
 
-      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
@@ -4956,11 +4973,11 @@ function WatchtowerManager({ stackId, nodeId, dep, onDeleteNode }) {
         Container auto-upgrades for PMM. Associate it from a PMM node to enable in-app upgrades.
       </p>
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <div className="flex justify-between gap-3"><span className="text-muted">Image</span><span className="font-mono text-xs">{cfg.image || 'percona/watchtower:latest'}</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">Host</span><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">API</span><span className="font-mono text-xs">http://{cfg.alias || 'watchtower'}:{cfg.apiPort || 8080}</span></div>
+        <InfoRow label="Image" help={HELP.depImage}><span className="font-mono text-xs">{cfg.image || 'percona/watchtower:latest'}</span></InfoRow>
+        <InfoRow label="Host" help={HELP.depHost}><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></InfoRow>
+        <InfoRow label="API" help={HELP.depInternalURL}><span className="font-mono text-xs">http://{cfg.alias || 'watchtower'}:{cfg.apiPort || 8080}</span></InfoRow>
         {sec.apiToken && (
-          <div className="flex justify-between gap-3"><span className="text-muted">API token</span><span className="break-all font-mono text-xs">{sec.apiToken}</span></div>
+          <InfoRow label="API token" help={HELP.depAPIToken}><span className="break-all font-mono text-xs">{sec.apiToken}</span></InfoRow>
         )}
       </div>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
@@ -4994,7 +5011,7 @@ function OpenBaoForm({ node: n, patchNode, deleteNode, dep, deployed }) {
         <span className="font-mono"> security.vault</span>. Oracle Linux 9 only; one OpenBao per stack.
       </p>
 
-      <Field label="Label" hint="Becomes the node hostname and VAULT_ADDR; must be unique.">
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname and VAULT_ADDR; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
@@ -5002,7 +5019,7 @@ function OpenBaoForm({ node: n, patchNode, deleteNode, dep, deployed }) {
       <label className={`flex items-center gap-2 text-sm ${lock}`}>
         <input type="checkbox" checked={ssl} disabled={deployed}
           onChange={(e) => patchNode(n.id, { generateCert: e.target.checked })} />
-        <span>Use Intranet CA SSL (default)</span>
+        <span>Use Intranet CA SSL (default)</span><Help text={HELP.generateCert} />
       </label>
       <p className="text-xs text-muted">
         {ssl
@@ -5026,7 +5043,7 @@ function OpenBaoForm({ node: n, patchNode, deleteNode, dep, deployed }) {
       <label className={`flex items-center gap-2 text-sm ${lock}`}>
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed}
           onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
-        <span>Use Intranet proxy (Squid) for downloads</span>
+        <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
 
       <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
@@ -5061,13 +5078,13 @@ function KeycloakForm({ node: n, patchNode, deleteNode, dep, deployed }) {
         from its desktop.
       </p>
 
-      <Field label="Label" hint="Becomes the node hostname (also the OIDC issuer host); must be unique.">
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname (also the OIDC issuer host); must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={n.generateCert !== false} disabled={deployed} onChange={(e) => patchNode(n.id, { generateCert: e.target.checked })} />
-        <span>Use Intranet CA SSL (HTTPS issuer)</span>
+        <span>Use Intranet CA SSL (HTTPS issuer)</span><Help text={HELP.generateCert} />
       </label>
       <p className="text-xs text-muted">
         {n.generateCert !== false
@@ -5114,16 +5131,16 @@ function SambaForm({ node: n, patchNode, deleteNode, dep, deployed }) {
         <span className="font-mono"> krb5.conf</span>, and mint per-service Kerberos principals + keytabs. One per stack.
       </p>
 
-      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
-      <Field label="Operating system" hint="Samba AD DC deploys on Ubuntu 24.04 only (complete packages).">
+      <Field label="Operating system" help={HELP.os} hint="Samba AD DC deploys on Ubuntu 24.04 only (complete packages).">
         <input className={`${inputCls} opacity-70`} value="Ubuntu 24.04" readOnly />
       </Field>
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.generateCert} disabled={deployed} onChange={(e) => patchNode(n.id, { generateCert: e.target.checked })} />
-        <span>Use Intranet CA certificate for LDAPS (TLS)</span>
+        <span>Use Intranet CA certificate for LDAPS (TLS)</span><Help text={HELP.generateCert} />
       </label>
       {n.generateCert && (
         <div className="flex items-center gap-2">
@@ -5138,7 +5155,7 @@ function SambaForm({ node: n, patchNode, deleteNode, dep, deployed }) {
       )}
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
-        <span>Use Intranet proxy (Squid) for downloads</span>
+        <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
 
       <div className="rounded-lg bg-surface2 px-3 py-2 text-xs text-muted">
@@ -5177,13 +5194,13 @@ function KeycloakManager({ dep, onDeleteNode }) {
         DNS names and trusts the Intranet CA.
       </div>
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <div className="flex justify-between gap-3"><span className="text-muted">Image</span><span className="font-mono text-xs">{cfg.image || 'quay.io/keycloak/keycloak'}</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">Console</span><span className="break-all font-mono text-xs">{consoleURL}</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">Issuer base</span><span className="font-mono text-xs">{cfg.ssl ? `https://${cfg.fqdn || cfg.hostname}:8443` : `http://${cfg.hostname || 'keycloak'}:8080`}</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">TLS</span><span className="font-mono text-xs">{cfg.ssl ? 'Intranet CA' : 'none (HTTP)'}</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">Admin user</span><span className="font-mono text-xs">{cfg.adminUser || 'admin'}</span></div>
+        <InfoRow label="Image" help={HELP.depImage}><span className="font-mono text-xs">{cfg.image || 'quay.io/keycloak/keycloak'}</span></InfoRow>
+        <InfoRow label="Console" help={HELP.depConsole}><span className="break-all font-mono text-xs">{consoleURL}</span></InfoRow>
+        <InfoRow label="Issuer base" help={HELP.depInternalURL}><span className="font-mono text-xs">{cfg.ssl ? `https://${cfg.fqdn || cfg.hostname}:8443` : `http://${cfg.hostname || 'keycloak'}:8080`}</span></InfoRow>
+        <InfoRow label="TLS" help={HELP.depTLS}><span className="font-mono text-xs">{cfg.ssl ? 'Intranet CA' : 'none (HTTP)'}</span></InfoRow>
+        <InfoRow label="Admin user" help={HELP.depUser}><span className="font-mono text-xs">{cfg.adminUser || 'admin'}</span></InfoRow>
         {sec.adminPassword && (
-          <div className="flex justify-between gap-3"><span className="text-muted">Admin password</span><SecretInline value={sec.adminPassword} /></div>
+          <InfoRow label="Admin password" help={HELP.depPassword}><SecretInline value={sec.adminPassword} /></InfoRow>
         )}
       </div>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
@@ -5218,21 +5235,21 @@ function VNCForm({ node: n, patchNode, deleteNode, dep, deployed }) {
         The login user has sudo for installing more tools.
       </p>
 
-      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
-      <Field label="Desktop user" hint="Linux login user (has passwordless sudo).">
+      <Field label="Desktop user" help={HELP.vncUser} hint="Linux login user (has passwordless sudo).">
         <input className={`${inputCls} ${lock}`} value={n.vncUser ?? 'dbadmin'} disabled={deployed} onChange={(e) => patchNode(n.id, { vncUser: e.target.value })} />
       </Field>
 
-      <Field label="Password" hint={deployed ? 'Set at deploy.' : 'Desktop + VNC password. Empty = VNC_PASSWORD from .env. VNC uses the first 8 characters.'}>
+      <Field label="Password" help={HELP.benchPassword} hint={deployed ? 'Set at deploy.' : 'Desktop + VNC password. Empty = VNC_PASSWORD from .env. VNC uses the first 8 characters.'}>
         <input className={`${inputCls} ${lock}`} value={n.vncPassword || ''} disabled={deployed} placeholder="(VNC_PASSWORD from .env)" onChange={(e) => patchNode(n.id, { vncPassword: e.target.value })} />
       </Field>
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
-        <span>Use Intranet proxy (Squid) for downloads</span>
+        <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
 
       {!deployed && <p className="text-xs text-muted">The web desktop URL + credentials appear here after deploy.</p>}
@@ -5263,12 +5280,12 @@ function VNCManager({ dep, onDeleteNode }) {
         </a>
       )}
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <div className="flex justify-between gap-3"><span className="text-muted">Image</span><span className="font-mono text-xs">{cfg.image || 'ubuntu:24.04'}</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">Host</span><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></div>
-        {cfg.webPort ? <div className="flex justify-between gap-3"><span className="text-muted">Web desktop</span><span className="font-mono text-xs">{host}:{cfg.webPort}/vnc.html</span></div> : null}
-        <div className="flex justify-between gap-3"><span className="text-muted">Desktop user</span><span className="font-mono text-xs">{cfg.vncUser || 'dbadmin'} (sudo)</span></div>
+        <InfoRow label="Image" help={HELP.depImage}><span className="font-mono text-xs">{cfg.image || 'ubuntu:24.04'}</span></InfoRow>
+        <InfoRow label="Host" help={HELP.depHost}><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></InfoRow>
+        {cfg.webPort ? <InfoRow label="Web desktop" help={HELP.depConsole}><span className="font-mono text-xs">{host}:{cfg.webPort}/vnc.html</span></InfoRow> : null}
+        <InfoRow label="Desktop user" help={HELP.vncUser}><span className="font-mono text-xs">{cfg.vncUser || 'dbadmin'} (sudo)</span></InfoRow>
         {sec.vncPassword && (
-          <div className="flex justify-between gap-3"><span className="text-muted">VNC password</span><SecretInline value={sec.vncPassword} /></div>
+          <InfoRow label="VNC password" help={HELP.vncPassword}><SecretInline value={sec.vncPassword} /></InfoRow>
         )}
       </div>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
@@ -5318,17 +5335,17 @@ function LinuxClientForm({ node: n, patchNode, deleteNode, dep, deployed }) {
 
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
 
-      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+        <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
           <select className={`${inputCls} ${lock}`} value={n.os} disabled={deployed} onChange={(e) => patchNode(n.id, { os: e.target.value })}>
             {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="OS version">
+        <Field label="OS version" help={HELP.osVersion}>
           <select className={`${inputCls} ${lock}`} value={n.osVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
@@ -5337,7 +5354,7 @@ function LinuxClientForm({ node: n, patchNode, deleteNode, dep, deployed }) {
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
-        <span>Use Intranet proxy (Squid) for downloads</span>
+        <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
 
       <GDBFields node={n} patchNode={patchNode} deployed={deployed} />
@@ -5405,13 +5422,13 @@ function GDBFields({ node: n, patchNode, deployed }) {
 
       {n.gdbEnabled && (
         <>
-          <Field label="Core dump directory (on the Docker host)"
+          <Field label="Core dump directory (on the Docker host)" help={HELP.gdbCoreDir}
             hint="Mounted read-only at /coredumps. Every core file in it is offered.">
             <input className={`${inputCls} font-mono ${lock}`} disabled={deployed}
               placeholder="/srv/coredumps/db7/cores"
               value={n.gdbCoreDir || ''} onChange={(e) => patchNode(n.id, { gdbCoreDir: e.target.value })} />
           </Field>
-          <Field label="Library directory (on the Docker host)"
+          <Field label="Library directory (on the Docker host)" help={HELP.gdbLibDir}
             hint="Mounted read-only at /sysroot. Put the crashed host's mysqld here together with everything `ldd $(which mysqld)` listed — gdb reads that copy, so the code is guaranteed to match the core.">
             <input className={`${inputCls} font-mono ${lock}`} disabled={deployed}
               placeholder="/srv/coredumps/db7/libs"
@@ -5419,21 +5436,21 @@ function GDBFields({ node: n, patchNode, deployed }) {
           </Field>
 
           <div className="grid grid-cols-3 gap-2">
-            <Field label="Product">
+            <Field label="Product" help={HELP.gdbProduct}>
               <select className={`${inputCls} ${lock}`} disabled={deployed} value={product}
                 onChange={(e) => patchNode(n.id, { gdbProduct: e.target.value, gdbMajor: '', gdbVersion: '' })}>
                 <option value="ps">Percona Server</option>
                 <option value="pxc">PXC</option>
               </select>
             </Field>
-            <Field label="Major">
+            <Field label="Major" help={HELP.gdbProduct}>
               <select className={`${inputCls} ${lock}`} disabled={deployed} value={n.gdbMajor || ''}
                 onChange={(e) => patchNode(n.id, { gdbMajor: e.target.value, gdbVersion: '' })}>
                 {majors.length === 0 && <option value="">…</option>}
                 {majors.map((m) => <option key={m} value={m}>{m}</option>)}
               </select>
             </Field>
-            <Field label="Version">
+            <Field label="Version" help={HELP.gdbVersion}>
               <select className={`${inputCls} ${lock}`} disabled={deployed} value={n.gdbVersion || ''}
                 onChange={(e) => patchNode(n.id, { gdbVersion: e.target.value })}>
                 <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
@@ -5472,12 +5489,12 @@ function LinuxClientManager({ dep, onDeleteNode, stackId }) {
           : "No product installed. Open this node's terminal to install and run clients against the stack."}
       </p>
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <div className="flex justify-between gap-3"><span className="text-muted">Image</span><span className="font-mono text-xs">{cfg.image || ''}</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">Host</span><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></div>
+        <InfoRow label="Image" help={HELP.depImage}><span className="font-mono text-xs">{cfg.image || ''}</span></InfoRow>
+        <InfoRow label="Host" help={HELP.depHost}><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></InfoRow>
         {gdb && <>
-          <div className="flex justify-between gap-3"><span className="text-muted">Core dumps</span><span className="font-mono text-xs">{cfg.gdbCoreDir} ({cfg.gdbCoreCount ?? 0})</span></div>
-          <div className="flex justify-between gap-3"><span className="text-muted">Libraries</span><span className="font-mono text-xs">{cfg.gdbLibDir}</span></div>
-          <div className="flex justify-between gap-3"><span className="text-muted">Debugging</span><span className="font-mono text-xs">{cfg.gdbBinary || 'nothing found'}</span></div>
+          <InfoRow label="Core dumps" help={HELP.depCoreDumps}><span className="font-mono text-xs">{cfg.gdbCoreDir} ({cfg.gdbCoreCount ?? 0})</span></InfoRow>
+          <InfoRow label="Libraries" help={HELP.depLibraries}><span className="font-mono text-xs">{cfg.gdbLibDir}</span></InfoRow>
+          <InfoRow label="Debugging" help={HELP.depDebugging}><span className="font-mono text-xs">{cfg.gdbBinary || 'nothing found'}</span></InfoRow>
         </>}
       </div>
       {gdb && (
@@ -5569,7 +5586,7 @@ function TrafficSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, 
         </div>
       )}
 
-      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
@@ -5592,8 +5609,8 @@ function TrafficSimManager({ dep, onDeleteNode }) {
       </div>
       <SimDashboardLink port={cfg.httpPort} />
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <div className="flex justify-between gap-3"><span className="text-muted">Internal URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8088</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">Linked to</span><span className="font-mono text-xs">{cfg.targetName} ({cfg.targetKind})</span></div>
+        <InfoRow label="Internal URL" help={HELP.depInternalURL}><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8088</span></InfoRow>
+        <InfoRow label="Linked to" help={HELP.depLinkedTo}><span className="font-mono text-xs">{cfg.targetName} ({cfg.targetKind})</span></InfoRow>
       </div>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
@@ -5643,7 +5660,7 @@ function HotelSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, de
         </div>
       )}
 
-      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
@@ -5667,8 +5684,8 @@ function HotelSimManager({ dep, onDeleteNode }) {
       </div>
       <SimDashboardLink port={cfg.httpPort} />
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <div className="flex justify-between gap-3"><span className="text-muted">Internal URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8089</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">Linked to</span><span className="font-mono text-xs">{cfg.targetName} ({KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></div>
+        <InfoRow label="Internal URL" help={HELP.depInternalURL}><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8089</span></InfoRow>
+        <InfoRow label="Linked to" help={HELP.depLinkedTo}><span className="font-mono text-xs">{cfg.targetName} ({KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></InfoRow>
       </div>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
@@ -5727,7 +5744,7 @@ function AirlineSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, 
         </div>
       )}
 
-      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
@@ -5757,8 +5774,8 @@ function AirlineSimManager({ dep, onDeleteNode }) {
       </div>
       <SimDashboardLink port={cfg.httpPort} />
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <div className="flex justify-between gap-3"><span className="text-muted">Internal URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8090</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">Linked to</span><span className="font-mono text-xs">{cfg.targetName} ({TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></div>
+        <InfoRow label="Internal URL" help={HELP.depInternalURL}><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8090</span></InfoRow>
+        <InfoRow label="Linked to" help={HELP.depLinkedTo}><span className="font-mono text-xs">{cfg.targetName} ({TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></InfoRow>
       </div>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
@@ -5813,7 +5830,7 @@ function CarSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep,
         </div>
       )}
 
-      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
@@ -5842,8 +5859,8 @@ function CarSimManager({ dep, onDeleteNode }) {
       </div>
       <SimDashboardLink port={cfg.httpPort} />
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <div className="flex justify-between gap-3"><span className="text-muted">Internal URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8091</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">Linked to</span><span className="font-mono text-xs">{cfg.targetName} ({TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></div>
+        <InfoRow label="Internal URL" help={HELP.depInternalURL}><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8091</span></InfoRow>
+        <InfoRow label="Linked to" help={HELP.depLinkedTo}><span className="font-mono text-xs">{cfg.targetName} ({TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></InfoRow>
       </div>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
@@ -5926,11 +5943,11 @@ function MarketChaosForm({ node: n, nodes, frames, edges, patchNode, deleteNode,
         </div>
       )}
 
-      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
-      <Field label="Dataset size" hint="Fixed at deploy — reseeding at a different size means deleting and redeploying this node.">
+      <Field label="Dataset size" help={HELP.benchDataset} hint="Fixed at deploy — reseeding at a different size means deleting and redeploying this node.">
         <select
           className={`${inputCls} ${deployed ? 'opacity-70' : ''}`}
           disabled={deployed}
@@ -5950,10 +5967,10 @@ function MarketChaosForm({ node: n, nodes, frames, edges, patchNode, deleteNode,
 
       {mcDataset === 'custom' ? (
         <div className="grid grid-cols-2 gap-2">
-          <Field label="Traders"><input type="number" min={100} className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} disabled={deployed} value={n.mcTraders || ''} onChange={(e) => patchNode(n.id, { mcTraders: parseInt(e.target.value, 10) || 0 })} /></Field>
-          <Field label="Orders"><input type="number" min={1000} className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} disabled={deployed} value={n.mcOrders || ''} onChange={(e) => patchNode(n.id, { mcOrders: parseInt(e.target.value, 10) || 0 })} /></Field>
-          <Field label="Trades"><input type="number" min={500} className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} disabled={deployed} value={n.mcTrades || ''} onChange={(e) => patchNode(n.id, { mcTrades: parseInt(e.target.value, 10) || 0 })} /></Field>
-          <Field label="Price ticks"><input type="number" min={10000} className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} disabled={deployed} value={n.mcTicks || ''} onChange={(e) => patchNode(n.id, { mcTicks: parseInt(e.target.value, 10) || 0 })} /></Field>
+          <Field label="Traders" help={HELP.simTraders}><input type="number" min={100} className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} disabled={deployed} value={n.mcTraders || ''} onChange={(e) => patchNode(n.id, { mcTraders: parseInt(e.target.value, 10) || 0 })} /></Field>
+          <Field label="Orders" help={HELP.simOrders}><input type="number" min={1000} className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} disabled={deployed} value={n.mcOrders || ''} onChange={(e) => patchNode(n.id, { mcOrders: parseInt(e.target.value, 10) || 0 })} /></Field>
+          <Field label="Trades" help={HELP.simTrades}><input type="number" min={500} className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} disabled={deployed} value={n.mcTrades || ''} onChange={(e) => patchNode(n.id, { mcTrades: parseInt(e.target.value, 10) || 0 })} /></Field>
+          <Field label="Price ticks" help={HELP.simTicks}><input type="number" min={10000} className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} disabled={deployed} value={n.mcTicks || ''} onChange={(e) => patchNode(n.id, { mcTicks: parseInt(e.target.value, 10) || 0 })} /></Field>
         </div>
       ) : (
         <div className="flex justify-between gap-3 rounded-lg bg-surface2 px-3 py-2 text-xs text-muted">
@@ -5994,9 +6011,9 @@ function MarketChaosManager({ node: n, dep, onDeleteNode }) {
       </div>
       <SimDashboardLink port={cfg.httpPort} />
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <div className="flex justify-between gap-3"><span className="text-muted">Internal URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8092</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">Linked to</span><span className="font-mono text-xs">{cfg.targetName} ({TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">Dataset</span><span className="font-mono text-xs">{preset.label}{mcDataset === 'custom' ? ` (${n.mcTraders || 0}/${n.mcOrders || 0}/${n.mcTrades || 0}/${n.mcTicks || 0})` : ''}</span></div>
+        <InfoRow label="Internal URL" help={HELP.depInternalURL}><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8092</span></InfoRow>
+        <InfoRow label="Linked to" help={HELP.depLinkedTo}><span className="font-mono text-xs">{cfg.targetName} ({TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></InfoRow>
+        <InfoRow label="Dataset" help={HELP.depDataset}><span className="font-mono text-xs">{preset.label}{mcDataset === 'custom' ? ` (${n.mcTraders || 0}/${n.mcOrders || 0}/${n.mcTrades || 0}/${n.mcTicks || 0})` : ''}</span></InfoRow>
       </div>
       <p className="text-xs text-muted">Seeding progress is shown live on the dashboard itself, not here.</p>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
@@ -6267,7 +6284,7 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
         host (like PMM) once deployed — no VNC desktop needed.
       </p>
 
-      <Field label="Database connection" hint="Where this application keeps its data.">
+      <Field label="Database connection" help={HELP.benchTarget} hint="Where this application keeps its data.">
         <div className="flex gap-1.5">
           {[['linked', 'Linked node'], ['aio', 'All in One'], ['manual', 'Manual']].map(([id, label]) => (
             <button key={id} type="button"
@@ -6320,14 +6337,14 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
             </div>
           ) : (
             <>
-              <Field label="All in One node">
+              <Field label="All in One node" help={HELP.benchTarget}>
                 <select className={inputCls} value={n.ssAIONode || ''}
                   onChange={(e) => patchNode(n.id, { ssAIONode: e.target.value, ssAIOInstance: '' })}>
                   <option value="">Choose a node…</option>
                   {aioNodes.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
                 </select>
               </Field>
-              <Field label="Instance"
+              <Field label="Instance" help={HELP.benchTarget}
                 hint="Cluster instances resolve to their write endpoint — the primary, the bootstrap member or the mongos.">
                 <select className={inputCls} value={n.ssAIOInstance || ''}
                   onChange={(e) => patchNode(n.id, { ssAIOInstance: e.target.value })}
@@ -6351,7 +6368,7 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
             database running on the Docker host itself. dbcanvas can't verify it before you deploy,
             so test it here.
           </p>
-          <Field label="Engine">
+          <Field label="Engine" help={HELP.benchEngine}>
             <select className={inputCls} value={engine}
               onChange={(e) => patchNode(n.id, { ssEngine: e.target.value })}>
               {SS_ENGINES.map((e) => (
@@ -6363,33 +6380,33 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
           </Field>
           <div className="grid grid-cols-3 gap-2">
             <div className="col-span-2">
-              <Field label="Host">
+              <Field label="Host" help={HELP.benchHost}>
                 <input className={inputCls} value={n.ssHost || ''} placeholder="db.example.com"
                   onChange={(e) => patchNode(n.id, { ssHost: e.target.value })} />
               </Field>
             </div>
-            <Field label="Port">
+            <Field label="Port" help={HELP.benchPort}>
               <input className={inputCls} type="number" value={n.ssPort || ''}
                 placeholder={String(engineDef.port)}
                 onChange={(e) => patchNode(n.id, { ssPort: Number(e.target.value) || 0 })} />
             </Field>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <Field label="User">
+            <Field label="User" help={HELP.benchUser}>
               <input className={inputCls} value={n.ssUser || ''}
                 onChange={(e) => patchNode(n.id, { ssUser: e.target.value })} />
             </Field>
-            <Field label="Password">
+            <Field label="Password" help={HELP.benchPassword}>
               <input className={inputCls} type="password" value={n.ssPassword || ''}
                 onChange={(e) => patchNode(n.id, { ssPassword: e.target.value })} />
             </Field>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <Field label="Database" hint="This app's own schema.">
+            <Field label="Database" help={HELP.benchDatabase} hint="This app's own schema.">
               <input className={inputCls} value={n.ssDatabase || ''} placeholder="stocksim"
                 onChange={(e) => patchNode(n.id, { ssDatabase: e.target.value })} />
             </Field>
-            <Field label="TLS">
+            <Field label="TLS" help={HELP.benchTLS}>
               <select className={inputCls} value={n.ssTLS || 'prefer'}
                 onChange={(e) => patchNode(n.id, { ssTLS: e.target.value })}>
                 <option value="prefer">Prefer</option>
@@ -6398,18 +6415,18 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
               </select>
             </Field>
           </div>
-          <Field label="Display name" hint="Optional — shown on the dashboard and report.">
+          <Field label="Display name" help={HELP.benchDisplayName} hint="Optional — shown on the dashboard and report.">
             <input className={inputCls} value={n.ssLabel || ''} placeholder="Production replica"
               onChange={(e) => patchNode(n.id, { ssLabel: e.target.value })} />
           </Field>
           <details className="text-xs">
             <summary className="cursor-pointer text-muted hover:text-fg">Advanced</summary>
             <div className="mt-2 space-y-2">
-              <Field label="Extra driver parameters">
+              <Field label="Extra driver parameters" help={HELP.benchDriverParams}>
                 <input className={inputCls} value={n.ssParams || ''} placeholder="readTimeout=30s"
                   onChange={(e) => patchNode(n.id, { ssParams: e.target.value })} />
               </Field>
-              <Field label="Full connection string"
+              <Field label="Full connection string" help={HELP.benchDSN}
                 hint="Overrides every field above. For a connection dbcanvas doesn't model.">
                 <input className={inputCls} type="password" value={n.ssDSN || ''}
                   onChange={(e) => patchNode(n.id, { ssDSN: e.target.value })} />
@@ -6431,7 +6448,7 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
 
       {SS_CAN_GROW(effectiveEngine) ? (
         <>
-          <Field label="Dataset size at High load"
+          <Field label="Dataset size at High load" help={HELP.benchDataset}
             hint="At the High load level the app writes bulk price history until it owns this much, then stops. Blank uses 5Gi; “off” never grows it.">
             <input className={inputCls} value={n.ssTargetSize || ''} placeholder="5Gi"
               onChange={(e) => patchNode(n.id, { ssTargetSize: e.target.value })} />
@@ -6440,7 +6457,7 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
               database answers every query out of a few hundred kilobytes of hot
               rows and its cache size makes no measurable difference however
               small you set it. The working set is what makes it matter. */}
-          <Field label="Working set"
+          <Field label="Working set" help={HELP.benchWorkingSet}
             hint="How much of that dataset is kept under continuous random read. Blank uses 50%; write it as “50%”, “2.5G” or “off”. Set it larger than the target's cache to see cache size in the numbers."
             >
             <input className={inputCls} value={n.ssWorkingSet || ''} placeholder="50%"
@@ -6469,14 +6486,14 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
               which is the point. Leave them off for anything you care about.
             </p>
             {SS_LAB(effectiveEngine).idleTxn && (
-              <Field label="Hold an idle transaction"
+              <Field label="Hold an idle transaction" help={HELP.benchIdleTxn}
                 hint="Keeps a transaction open with a read snapshot, so purge can't advance and the history list grows. Write it like 30m or 2h; max 24h. Blank is off.">
                 <input className={inputCls} value={n.ssIdleTxn || ''} placeholder="off"
                   onChange={(e) => patchNode(n.id, { ssIdleTxn: e.target.value })} />
               </Field>
             )}
             {SS_LAB(effectiveEngine).extraTables && (
-              <Field label="Extra tables"
+              <Field label="Extra tables" help={HELP.benchExtraTables}
                 hint="Creates this many small tables and reads them in rotation, so table_open_cache stops holding the working set. 0 is off; max 5000.">
                 <input className={inputCls} type="number" min="0" max="5000"
                   value={n.ssExtraTables || ''} placeholder="0"
@@ -6484,7 +6501,7 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
               </Field>
             )}
             {SS_LAB(effectiveEngine).tempTables && (
-              <Field label="Temporary-table queries"
+              <Field label="Temporary-table queries" help={HELP.benchTempTables}
                 hint="Runs an intraday rollup shaped to build a large intermediate result — in memory, or forced to spill to disk.">
                 <select className={inputCls} value={n.ssTempTables || 'off'}
                   onChange={(e) => patchNode(n.id, { ssTempTables: e.target.value })}>
@@ -6495,7 +6512,7 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
               </Field>
             )}
             {SS_LAB(effectiveEngine).lockContention && (
-              <Field label="Lock contention"
+              <Field label="Lock contention" help={HELP.benchLockContention}
                 hint="Concurrent writers competing for a handful of rows this app owns. Light makes them queue, so row lock waits appear. Heavy has them take the same rows in opposite orders, so the server detects and breaks real deadlocks.">
                 <select className={inputCls} value={n.ssLockContention || 'off'}
                   onChange={(e) => patchNode(n.id, { ssLockContention: e.target.value })}>
@@ -6506,7 +6523,7 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
               </Field>
             )}
             {SS_LAB(effectiveEngine).scanQueries && (
-              <Field label="Scan queries per minute"
+              <Field label="Scan queries per minute" help={HELP.benchScanQueries}
                 hint="Reads the tick history with a predicate no index can serve, so the server reads every row to return a handful. Cost grows with the size target. 0 is off; max 120.">
                 <input className={inputCls} type="number" min="0" max="120"
                   value={n.ssScanQueries || ''} placeholder="0"
@@ -6514,7 +6531,7 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
               </Field>
             )}
             {SS_LAB(effectiveEngine).writePressure && (
-              <Field label="Write pressure"
+              <Field label="Write pressure" help={HELP.benchWritePressure}
                 hint="Two different write costs. Commits runs many tiny transactions, so every one pays for its own log flush — the cost is fsyncs. Redo rewrites wide rows in bulk, filling the write-ahead log — the cost is checkpoint headroom. Neither grows the dataset.">
                 <select className={inputCls} value={n.ssWritePressure || 'off'}
                   onChange={(e) => patchNode(n.id, { ssWritePressure: e.target.value })}>
@@ -6530,14 +6547,14 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
 
       {/* Applies on every engine — even Valkey, where it is still what decides
           how many connections the app opens. */}
-      <Field label="Database threads"
+      <Field label="Database threads" help={HELP.benchThreads}
         hint="Concurrent workers writing history and reading the working set back, and the size of the connection pool. Blank uses 4; raise it to put more concurrency on the target.">
         <input className={inputCls} type="number" min="1" max="64"
           value={n.ssThreads || ''} placeholder="4"
           onChange={(e) => patchNode(n.id, { ssThreads: Number(e.target.value) || 0 })} />
       </Field>
 
-      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
@@ -6590,12 +6607,12 @@ function StockSimManager({ dep, onDeleteNode }) {
       </div>
       <SimDashboardLink port={cfg.httpPort} />
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <div className="flex justify-between gap-3"><span className="text-muted">Internal URL</span><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8093</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">Connected to</span><span className="font-mono text-xs">{cfg.targetName} ({SS_TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">Database</span><span className="font-mono text-xs">{cfg.engine} / {db}</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">Dataset at High</span><span className="font-mono text-xs">{fmtTargetBytes(cfg.targetBytes)}</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">Working set</span><span className="font-mono text-xs">{cfg.workingSet || '50%'}</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">Threads</span><span className="font-mono text-xs">{cfg.threads || 4}</span></div>
+        <InfoRow label="Internal URL" help={HELP.depInternalURL}><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8093</span></InfoRow>
+        <InfoRow label="Connected to" help={HELP.depLinkedTo}><span className="font-mono text-xs">{cfg.targetName} ({SS_TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></InfoRow>
+        <InfoRow label="Database" help={HELP.benchDatabase}><span className="font-mono text-xs">{cfg.engine} / {db}</span></InfoRow>
+        <InfoRow label="Dataset at High" help={HELP.depDataset}><span className="font-mono text-xs">{fmtTargetBytes(cfg.targetBytes)}</span></InfoRow>
+        <InfoRow label="Working set" help={HELP.benchWorkingSet}><span className="font-mono text-xs">{cfg.workingSet || '50%'}</span></InfoRow>
+        <InfoRow label="Threads" help={HELP.depThreads}><span className="font-mono text-xs">{cfg.threads || 4}</span></InfoRow>
       </div>
       {cfg.httpPort && (
         <a href={`http://${typeof location !== 'undefined' ? location.hostname : 'localhost'}:${cfg.httpPort}/report`}
@@ -6647,30 +6664,30 @@ function ValkeyForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }) {
         image, like every other Percona product here. pmm-client is installed via percona-release too.
       </p>
 
-      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+        <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
           <select className={`${inputCls} ${lock}`} value={n.os} disabled={deployed} onChange={(e) => patchNode(n.id, { os: e.target.value })}>
             {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="OS version">
+        <Field label="OS version" help={HELP.osVersion}>
           <select className={`${inputCls} ${lock}`} value={n.osVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="Valkey major">
+        <Field label="Valkey major" help={HELP.major('Valkey')}>
           <select className={`${inputCls} ${lock}`} value={n.valkeyMajor} disabled={deployed} onChange={(e) => patchNode(n.id, { valkeyMajor: e.target.value, valkeyVersion: '' })}>
             {majors.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
       </div>
 
-      <Field label="Valkey minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+      <Field label="Valkey minor version" help={HELP.minor('Valkey')} hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
         <select className={`${inputCls} ${lock}`} value={n.valkeyVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { valkeyVersion: e.target.value })}>
           <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
           {minors.map((v) => <option key={v} value={v}>{v}</option>)}
@@ -6679,17 +6696,17 @@ function ValkeyForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }) {
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.useLdap} disabled={deployed || debian} onChange={(e) => patchNode(n.id, { useLdap: e.target.checked })} />
-        <span>Enable LDAP auth (Intranet OpenLDAP)</span>
+        <span>Enable LDAP auth (Intranet OpenLDAP)</span><Help text={HELP.ldap} />
       </label>
       {n.useLdap && !debian && <p className="text-xs text-muted">Wires the valkey-ldap module to <span className="font-mono">ldap://intranet:389</span> (users under <span className="font-mono">ou=People</span>).</p>}
       {debian && <p className="text-xs text-muted">percona-valkey-ldap isn't published for Ubuntu yet — pick Oracle Linux for LDAP auth.</p>}
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
-        <span>Use Intranet proxy (Squid) for downloads</span>
+        <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
 
-      <Field label="Monitored by (PMM)" hint="Optional — installs/registers pmm-client.">
+      <Field label="Monitored by (PMM)" help={HELP.pmm} hint="Optional — installs/registers pmm-client.">
         <select className={`${inputCls} ${lock}`} value={n.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchNode(n.id, { pmmNodeId: e.target.value })}>
           <option value="">none</option>
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
@@ -6698,10 +6715,10 @@ function ValkeyForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }) {
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
-        <span>Export Valkey port (6379) to the host</span>
+        <span>Export Valkey port (6379) to the host</span><Help text={HELP.exportPort} />
       </label>
       {n.exportEnabled && (
-        <Field label="Host port" hint="0 / empty = random unused port.">
+        <Field label="Host port" help={HELP.hostPort} hint="0 / empty = random unused port.">
           <input type="number" min="0" max="65535" className={`${inputCls} ${lock}`} value={n.exportHostPort || 0} disabled={deployed}
             onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
         </Field>
@@ -6729,12 +6746,12 @@ function ValkeyManager({ dep, onDeleteNode }) {
         <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
       </div>
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <div className="flex justify-between gap-3"><span className="text-muted">Base image</span><span className="font-mono text-xs">{cfg.image || 'dbcanvas-systemd'}</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">Host</span><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">LDAP</span><span className="font-mono text-xs">{cfg.useLdap ? (cfg.ldapServers || 'enabled') : 'disabled'}</span></div>
-        {cfg.exportPort ? <div className="flex justify-between gap-3"><span className="text-muted">Exported port</span><span className="font-mono text-xs">{host}:{cfg.exportPort}</span></div> : null}
-        <div className="flex justify-between gap-3"><span className="text-muted">Monitored by</span><span className="font-mono text-xs">{cfg.monitoredBy || '—'}</span></div>
-        {sec.password && <div className="flex justify-between gap-3"><span className="text-muted">Default password</span><SecretInline value={sec.password} /></div>}
+        <InfoRow label="Base image" help={HELP.depBaseImage}><span className="font-mono text-xs">{cfg.image || 'dbcanvas-systemd'}</span></InfoRow>
+        <InfoRow label="Host" help={HELP.depHost}><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></InfoRow>
+        <InfoRow label="LDAP" help={HELP.ldap}><span className="font-mono text-xs">{cfg.useLdap ? (cfg.ldapServers || 'enabled') : 'disabled'}</span></InfoRow>
+        {cfg.exportPort ? <InfoRow label="Exported port" help={HELP.depExportedPort}><span className="font-mono text-xs">{host}:{cfg.exportPort}</span></InfoRow> : null}
+        <InfoRow label="Monitored by" help={HELP.depMonitoredBy}><span className="font-mono text-xs">{cfg.monitoredBy || '—'}</span></InfoRow>
+        {sec.password && <InfoRow label="Default password" help={HELP.depPassword}><SecretInline value={sec.password} /></InfoRow>}
       </div>
       <div className="rounded-lg bg-surface2 px-3 py-2 text-xs space-y-1">
         <div className="text-muted">Connect as the default user ({clusterFlag ? 'cluster mode' : 'direct'}):</div>
@@ -6833,11 +6850,11 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
         stack subnet. Use the frame +/- to resize (1–3 nodes; the first is the server).
       </p>
 
-      <Field label="Cluster name" hint="Frame label; becomes the k3d cluster name.">
+      <Field label="Cluster name" help={HELP.clusterName} hint="Frame label; becomes the k3d cluster name.">
         <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
-      <Field label="Kubernetes (k3s)" hint="The k3s image the nodes run. From `make versions`.">
+      <Field label="Kubernetes (k3s)" help={HELP.k3sVersion} hint="The k3s image the nodes run. From `make versions`.">
         <select className={`${inputCls} ${lock}`} value={f.k3dK3sVersion || ''} disabled={deployed}
           onChange={(e) => patchFrame(f.id, { k3dK3sVersion: e.target.value })}>
           <option value="">latest{k3s?.latest ? ` (${k3s.latest})` : ''}</option>
@@ -6846,11 +6863,11 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
       </Field>
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="CPUs (whole cluster)">
+        <Field label="CPUs (whole cluster)" help={HELP.cpuLimit}>
           <input type="number" min="1" max="64" className={`${inputCls} ${lock}`} value={cpus} disabled={deployed}
             onChange={(e) => patchFrame(f.id, { k3dCpus: Number(e.target.value) })} />
         </Field>
-        <Field label="Memory GiB (whole cluster)">
+        <Field label="Memory GiB (whole cluster)" help={HELP.memLimit}>
           <input type="number" min="1" max="256" className={`${inputCls} ${lock}`} value={memGb} disabled={deployed}
             onChange={(e) => patchFrame(f.id, { k3dMemoryGb: Number(e.target.value) })} />
         </Field>
@@ -6858,12 +6875,12 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
       <p className="text-xs text-muted">Split evenly across the {count} node{count === 1 ? '' : 's'} ({Math.max(1, Math.floor(memGb / count))} GiB each).</p>
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="Disk read (MB/s, per node)" hint="Blank = unlimited.">
+        <Field label="Disk read (MB/s, per node)" help={HELP.diskBps} hint="Blank = unlimited.">
           <input type="number" min="1" max="16384" className={`${inputCls} ${lock}`} disabled={deployed}
             placeholder="unlimited" value={f.k3dDiskReadMbps || ''}
             onChange={(e) => patchFrame(f.id, { k3dDiskReadMbps: e.target.value === '' ? 0 : Number(e.target.value) })} />
         </Field>
-        <Field label="Disk write (MB/s, per node)" hint="Blank = unlimited.">
+        <Field label="Disk write (MB/s, per node)" help={HELP.diskBps} hint="Blank = unlimited.">
           <input type="number" min="1" max="16384" className={`${inputCls} ${lock}`} disabled={deployed}
             placeholder="unlimited" value={f.k3dDiskWriteMbps || ''}
             onChange={(e) => patchFrame(f.id, { k3dDiskWriteMbps: e.target.value === '' ? 0 : Number(e.target.value) })} />
@@ -6871,7 +6888,7 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
       </div>
       {k3dThrottled && (
         <>
-          <Field label="Block device" hint="Host device the disk limits apply to. Blank = auto-detect the disk backing Docker's data root.">
+          <Field label="Block device" help={HELP.blockDevice} hint="Host device the disk limits apply to. Blank = auto-detect the disk backing Docker's data root.">
             <input className={`${inputCls} ${lock}`} disabled={deployed} placeholder="auto-detect (e.g. /dev/sda)"
               value={f.k3dDevicePath ?? ''} onChange={(e) => patchFrame(f.id, { k3dDevicePath: e.target.value })} />
           </Field>
@@ -6898,7 +6915,7 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
 
       <div className="space-y-2 rounded-lg border border-dashed p-2">
         <div className="text-xs font-medium text-muted">Database operator</div>
-        <Field label="Operator">
+        <Field label="Operator" help={HELP.k8sOperator}>
           <select className={`${inputCls} ${lock}`} value={op} disabled={deployed}
             onChange={(e) => patchFrame(f.id, {
               k3dOperator: e.target.value, k3dOperatorVer: '',
@@ -6916,7 +6933,7 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
         {op && (
           <>
             {helmOp ? (
-              <Field label="Chart version" hint={pgo
+              <Field label="Chart version" help={HELP.k8sChartVersion} hint={pgo
                 ? 'PGO Helm chart version, from `make versions` — the tags Crunchy publishes to their OCI registry. Not the GitHub tags: some of those have no published image.'
                 : 'CloudNativePG Helm chart version, from `make versions`. Not the operator version it ships \u2014 chart 0.29.0 carries operator 1.30.x.'}>
                 {chartVersions.length ? (
@@ -6933,7 +6950,7 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
                 )}
               </Field>
             ) : (
-              <Field label="Operator version" hint="From `make versions`. The source is unpacked into /root on the first node.">
+              <Field label="Operator version" help={HELP.k8sChartVersion} hint="From `make versions`. The source is unpacked into /root on the first node.">
                 <select className={`${inputCls} ${lock}`} value={f.k3dOperatorVer || ''} disabled={deployed}
                   onChange={(e) => patchFrame(f.id, { k3dOperatorVer: e.target.value })}>
                   <option value="">latest{latest ? ` (${latest})` : ''}</option>
@@ -6941,7 +6958,7 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
                 </select>
               </Field>
             )}
-            <Field label="Namespace" hint={cnpg ? 'The Cluster CR is created here; the operator itself runs in cnpg-system.'
+            <Field label="Namespace" help={HELP.k8sNamespace} hint={cnpg ? 'The Cluster CR is created here; the operator itself runs in cnpg-system.'
               : pgo ? 'The operator and the PostgresCluster both run here.'
                 : 'The operator and its cr.yaml are installed here.'}>
               <input className={`${inputCls} ${lock}`} value={f.k3dNamespace ?? op} disabled={deployed}
@@ -6952,18 +6969,18 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
         {cnpg && (
           <>
             <div className="grid grid-cols-2 gap-2">
-              <Field label="Instances" hint="Postgres pods (1 primary + replicas).">
+              <Field label="Instances" help={HELP.instances} hint="Postgres pods (1 primary + replicas).">
                 <input type="number" min="1" max="5" className={`${inputCls} ${lock}`} disabled={deployed}
                   value={f.k3dCnpgInstances || 3}
                   onChange={(e) => patchFrame(f.id, { k3dCnpgInstances: Number(e.target.value) })} />
               </Field>
-              <Field label="Storage (GiB per instance)">
+              <Field label="Storage (GiB per instance)" help={HELP.storageGiB}>
                 <input type="number" min="1" max="512" className={`${inputCls} ${lock}`} disabled={deployed}
                   value={f.k3dCnpgStorageGb || 1}
                   onChange={(e) => patchFrame(f.id, { k3dCnpgStorageGb: Number(e.target.value) })} />
               </Field>
             </div>
-            <Field label="PostgreSQL major" hint="Blank = the operator's default. Pins imageName to ghcr.io/cloudnative-pg/postgresql:<major>.">
+            <Field label="PostgreSQL major" help={HELP.major('PostgreSQL')} hint="Blank = the operator's default. Pins imageName to ghcr.io/cloudnative-pg/postgresql:<major>.">
               {pgMajors.length ? (
                 <select className={`${inputCls} ${lock}`} value={f.k3dCnpgVersion || ''} disabled={deployed}
                   onChange={(e) => patchFrame(f.id, { k3dCnpgVersion: e.target.value })}>
@@ -6976,7 +6993,7 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
                   onChange={(e) => patchFrame(f.id, { k3dCnpgVersion: e.target.value })} />
               )}
             </Field>
-            <Field label="Expose · Postgres primary" hint="CloudNativePG's own services are all ClusterIP. A LoadBalancer address makes the primary reachable from outside the cluster, and follows failover.">
+            <Field label="Expose · Postgres primary" help={HELP.k8sExpose} hint="CloudNativePG's own services are all ClusterIP. A LoadBalancer address makes the primary reachable from outside the cluster, and follows failover.">
               <select className={`${inputCls} ${lock}`} value={f.k3dCnpgExpose || 'clusterip'} disabled={deployed}
                 onChange={(e) => patchFrame(f.id, { k3dCnpgExpose: e.target.value })}>
                 <option value="clusterip">ClusterIP (in-cluster only)</option>
@@ -7002,12 +7019,12 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
               {f.k3dCnpgPooler && (
                 <>
                   <div className="grid grid-cols-2 gap-2">
-                    <Field label="PgBouncer pods">
+                    <Field label="PgBouncer pods" help={HELP.k8sPgBouncerPods}>
                       <input type="number" min="1" max="5" className={`${inputCls} ${lock}`} disabled={deployed}
                         value={f.k3dCnpgPoolerInstances || 2}
                         onChange={(e) => patchFrame(f.id, { k3dCnpgPoolerInstances: Number(e.target.value) })} />
                     </Field>
-                    <Field label="Pool mode" hint="Transaction pooling shares a backend between statements — much better reuse, but the client cannot rely on session state.">
+                    <Field label="Pool mode" help={HELP.k8sPoolMode} hint="Transaction pooling shares a backend between statements — much better reuse, but the client cannot rely on session state.">
                       <select className={`${inputCls} ${lock}`} value={f.k3dCnpgPoolerMode || 'session'} disabled={deployed}
                         onChange={(e) => patchFrame(f.id, { k3dCnpgPoolerMode: e.target.value })}>
                         <option value="session">session (CNPG default)</option>
@@ -7015,7 +7032,7 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
                       </select>
                     </Field>
                   </div>
-                  <Field label="Expose · PgBouncer" hint="Independent of the Postgres setting above — pooling the primary while Postgres itself stays in-cluster is the usual arrangement.">
+                  <Field label="Expose · PgBouncer" help={HELP.k8sExpose} hint="Independent of the Postgres setting above — pooling the primary while Postgres itself stays in-cluster is the usual arrangement.">
                     <select className={`${inputCls} ${lock}`} value={f.k3dCnpgPoolerExpose || 'clusterip'} disabled={deployed}
                       onChange={(e) => patchFrame(f.id, { k3dCnpgPoolerExpose: e.target.value })}>
                       <option value="clusterip">ClusterIP (in-cluster only)</option>
@@ -7052,28 +7069,28 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
             pods can stay in-cluster while the proxy/router takes a LoadBalancer address. */}
         {op === 'pxc' && (
           <>
-            <Field label="Proxy" hint="cr.yaml runs one front end — they are mutually exclusive.">
+            <Field label="Proxy" help={HELP.k8sPxcProxy} hint="cr.yaml runs one front end — they are mutually exclusive.">
               <select className={`${inputCls} ${lock}`} value={f.k3dProxy || 'haproxy'} disabled={deployed}
                 onChange={(e) => patchFrame(f.id, { k3dProxy: e.target.value })}>
                 <option value="haproxy">HAProxy (default)</option>
                 <option value="proxysql">ProxySQL</option>
               </select>
             </Field>
-            <Field label="Expose · database (pxc)" hint="Per-pod Services for the database itself.">
+            <Field label="Expose · database (pxc)" help={HELP.k8sExpose} hint="Per-pod Services for the database itself.">
               <select className={`${inputCls} ${lock}`} value={f.k3dExposePxc || 'clusterip'} disabled={deployed}
                 onChange={(e) => patchFrame(f.id, { k3dExposePxc: e.target.value })}>
                 {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
               </select>
             </Field>
             {(f.k3dProxy || 'haproxy') === 'haproxy' ? (
-              <Field label="Expose · HAProxy" hint="The cluster's front door (primary + replicas).">
+              <Field label="Expose · HAProxy" help={HELP.k8sExpose} hint="The cluster's front door (primary + replicas).">
                 <select className={`${inputCls} ${lock}`} value={f.k3dExposeHaproxy || 'loadbalancer'} disabled={deployed}
                   onChange={(e) => patchFrame(f.id, { k3dExposeHaproxy: e.target.value })}>
                   {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
                 </select>
               </Field>
             ) : (
-              <Field label="Expose · ProxySQL" hint="The cluster's front door.">
+              <Field label="Expose · ProxySQL" help={HELP.k8sExpose} hint="The cluster's front door.">
                 <select className={`${inputCls} ${lock}`} value={f.k3dExposeProxysql || 'loadbalancer'} disabled={deployed}
                   onChange={(e) => patchFrame(f.id, { k3dExposeProxysql: e.target.value })}>
                   {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
@@ -7084,35 +7101,35 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
         )}
         {op === 'ps' && (
           <>
-            <Field label="Replication" hint="Async replication is managed by Orchestrator, which adds 3 more pods.">
+            <Field label="Replication" help={HELP.k8sPsReplication} hint="Async replication is managed by Orchestrator, which adds 3 more pods.">
               <select className={`${inputCls} ${lock}`} value={f.k3dClusterType || 'group-replication'} disabled={deployed}
                 onChange={(e) => patchFrame(f.id, { k3dClusterType: e.target.value })}>
                 <option value="group-replication">Group Replication — 3 MySQL pods (default)</option>
                 <option value="async">Async (Orchestrator) — 3 MySQL + 3 Orchestrator pods</option>
               </select>
             </Field>
-            <Field label="Proxy" hint="MySQL Router speaks group replication only; HAProxy serves both.">
+            <Field label="Proxy" help={HELP.k8sPsProxy} hint="MySQL Router speaks group replication only; HAProxy serves both.">
               <select className={`${inputCls} ${lock}`} value={psFrontEnd} disabled={deployed || psAsync}
                 onChange={(e) => patchFrame(f.id, { k3dProxy: e.target.value })}>
                 <option value="haproxy">HAProxy (default)</option>
                 <option value="router">MySQL Router</option>
               </select>
             </Field>
-            <Field label="Expose · database (mysql)" hint="The primary's Service.">
+            <Field label="Expose · database (mysql)" help={HELP.k8sExpose} hint="The primary's Service.">
               <select className={`${inputCls} ${lock}`} value={f.k3dExposeMysql || 'clusterip'} disabled={deployed}
                 onChange={(e) => patchFrame(f.id, { k3dExposeMysql: e.target.value })}>
                 {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
               </select>
             </Field>
             {psFrontEnd === 'router' ? (
-              <Field label="Expose · MySQL Router" hint="The cluster's front door.">
+              <Field label="Expose · MySQL Router" help={HELP.k8sExpose} hint="The cluster's front door.">
                 <select className={`${inputCls} ${lock}`} value={f.k3dExposeRouter || 'loadbalancer'} disabled={deployed}
                   onChange={(e) => patchFrame(f.id, { k3dExposeRouter: e.target.value })}>
                   {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
                 </select>
               </Field>
             ) : (
-              <Field label="Expose · HAProxy" hint="The cluster's front door.">
+              <Field label="Expose · HAProxy" help={HELP.k8sExpose} hint="The cluster's front door.">
                 <select className={`${inputCls} ${lock}`} value={f.k3dExposeHaproxy || 'loadbalancer'} disabled={deployed}
                   onChange={(e) => patchFrame(f.id, { k3dExposeHaproxy: e.target.value })}>
                   {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
@@ -7123,21 +7140,21 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
         )}
         {op === 'psmdb' && (
           <>
-            <Field label="Topology" hint="Sharding adds 3 config servers + 3 mongos routers on top of the replica set.">
+            <Field label="Topology" help={HELP.k8sTopology} hint="Sharding adds 3 config servers + 3 mongos routers on top of the replica set.">
               <select className={`${inputCls} ${lock}`} value={f.k3dSharding ? 'sharded' : 'replicaset'} disabled={deployed}
                 onChange={(e) => patchFrame(f.id, { k3dSharding: e.target.value === 'sharded' })}>
                 <option value="replicaset">Replica set — rs0, 3 pods (default)</option>
                 <option value="sharded">Sharded — rs0 + config servers + mongos, 9 pods</option>
               </select>
             </Field>
-            <Field label="Expose · replica set" hint="Per-pod Services for the mongod pods.">
+            <Field label="Expose · replica set" help={HELP.k8sExpose} hint="Per-pod Services for the mongod pods.">
               <select className={`${inputCls} ${lock}`} value={f.k3dExposeReplset || 'clusterip'} disabled={deployed}
                 onChange={(e) => patchFrame(f.id, { k3dExposeReplset: e.target.value })}>
                 {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
               </select>
             </Field>
             {f.k3dSharding && (
-              <Field label="Expose · mongos" hint="The routers — a sharded cluster's front door.">
+              <Field label="Expose · mongos" help={HELP.k8sExpose} hint="The routers — a sharded cluster's front door.">
                 <select className={`${inputCls} ${lock}`} value={f.k3dExposeMongos || 'loadbalancer'} disabled={deployed}
                   onChange={(e) => patchFrame(f.id, { k3dExposeMongos: e.target.value })}>
                   {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
@@ -7148,13 +7165,13 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
         )}
         {op === 'pg' && (
           <>
-            <Field label="Expose · PostgreSQL" hint="The primary's Service (the read/write endpoint).">
+            <Field label="Expose · PostgreSQL" help={HELP.k8sExpose} hint="The primary's Service (the read/write endpoint).">
               <select className={`${inputCls} ${lock}`} value={f.k3dExposePg || 'clusterip'} disabled={deployed}
                 onChange={(e) => patchFrame(f.id, { k3dExposePg: e.target.value })}>
                 {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
               </select>
             </Field>
-            <Field label="Expose · pgBouncer" hint="The connection pooler — a PGO cluster's front door.">
+            <Field label="Expose · pgBouncer" help={HELP.k8sExpose} hint="The connection pooler — a PGO cluster's front door.">
               <select className={`${inputCls} ${lock}`} value={f.k3dExposePgbouncer || 'loadbalancer'} disabled={deployed}
                 onChange={(e) => patchFrame(f.id, { k3dExposePgbouncer: e.target.value })}>
                 {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
@@ -7169,18 +7186,18 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
         {pgo && (
           <>
             <div className="grid grid-cols-2 gap-2">
-              <Field label="Instances" hint="Postgres pods (1 primary + replicas). Each is a 4-container pod, on top of a pgBackRest repo host and pgBouncer.">
+              <Field label="Instances" help={HELP.instances} hint="Postgres pods (1 primary + replicas). Each is a 4-container pod, on top of a pgBackRest repo host and pgBouncer.">
                 <input type="number" min="1" max="5" className={`${inputCls} ${lock}`} disabled={deployed}
                   value={f.k3dPgoInstances || 2}
                   onChange={(e) => patchFrame(f.id, { k3dPgoInstances: Number(e.target.value) })} />
               </Field>
-              <Field label="Storage (GiB per instance)">
+              <Field label="Storage (GiB per instance)" help={HELP.storageGiB}>
                 <input type="number" min="1" max="512" className={`${inputCls} ${lock}`} disabled={deployed}
                   value={f.k3dPgoStorageGb || 1}
                   onChange={(e) => patchFrame(f.id, { k3dPgoStorageGb: Number(e.target.value) })} />
               </Field>
             </div>
-            <Field label="PostgreSQL major" hint={f.k3dPgoMonitoring
+            <Field label="PostgreSQL major" help={HELP.major('PostgreSQL')} hint={f.k3dPgoMonitoring
               ? 'spec.postgresVersion. Crunchy\'s pgMonitor exporter stops at 17 — on 18 the sidecar runs but the operator never creates its monitoring role, so the dashboards stay empty. Blank takes the newest that still works.'
               : 'spec.postgresVersion. Required by the CRD, so blank takes the newest the chart ships an image for.'}>
               {pgMajors.length ? (
@@ -7195,13 +7212,13 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
                   onChange={(e) => patchFrame(f.id, { k3dPgoVersion: e.target.value })} />
               )}
             </Field>
-            <Field label="Expose · PostgreSQL" hint="The HA Service in front of the primary (the read/write endpoint).">
+            <Field label="Expose · PostgreSQL" help={HELP.k8sExpose} hint="The HA Service in front of the primary (the read/write endpoint).">
               <select className={`${inputCls} ${lock}`} value={f.k3dExposePg || 'clusterip'} disabled={deployed}
                 onChange={(e) => patchFrame(f.id, { k3dExposePg: e.target.value })}>
                 {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
               </select>
             </Field>
-            <Field label="Expose · pgBouncer" hint="The connection pooler — a PGO cluster's front door.">
+            <Field label="Expose · pgBouncer" help={HELP.k8sExpose} hint="The connection pooler — a PGO cluster's front door.">
               <select className={`${inputCls} ${lock}`} value={f.k3dExposePgbouncer || 'loadbalancer'} disabled={deployed}
                 onChange={(e) => patchFrame(f.id, { k3dExposePgbouncer: e.target.value })}>
                 {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
@@ -7280,7 +7297,7 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
                 </span>
               </label>
               {!f.k3dDebugNoPublish && (
-                <Field label="Debugger port (host)"
+                <Field label="Debugger port (host)" help={HELP.debugPort}
                   hint="Fixed rather than auto-assigned — it goes in your IDE's launch.json, and k3d can only publish it while the cluster is being created.">
                   <input type="number" min="1024" max="65535" className={`${inputCls} w-28`} disabled={deployed}
                     value={f.k3dDebugPort || 40000}
@@ -7303,7 +7320,7 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
         </div>
       )}
 
-      <Field label="Backups (SeaweedFS)" hint="Optional — sets the operator's S3 backup storage.">
+      <Field label="Backups (SeaweedFS)" help={HELP.seaweedfsBackup} hint="Optional — sets the operator's S3 backup storage.">
         <select className={`${inputCls} ${lock}`} value={f.seaweedfsNodeId || ''} disabled={deployed}
           onChange={(e) => patchFrame(f.id, { seaweedfsNodeId: e.target.value })}>
           <option value="">none</option>
@@ -7325,7 +7342,7 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
         </p>
       ) : (
         <>
-          <Field label="Monitored by (PMM)" hint="Optional — sets spec.pmm.serverHost and wires a service token.">
+          <Field label="Monitored by (PMM)" help={HELP.pmm} hint="Optional — sets spec.pmm.serverHost and wires a service token.">
             <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed}
               onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
               <option value="">none</option>
@@ -7372,7 +7389,7 @@ function K3DMemberForm({ node: n, frame, frameNodes, patchNode, dep, deployed })
         <span className="text-sm font-semibold">k3s {isServer ? 'server' : 'agent'}</span>
         {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
       </div>
-      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
       <p className="text-xs text-muted">
@@ -7413,29 +7430,29 @@ function ValkeyClusterFrameForm({ frame: f, nodes, frameNodes, patchFrame, delet
         <span className="font-mono"> valkey-cli --cluster create</span>. Use the frame +/- to resize (3–7).
       </p>
 
-      <Field label="Cluster name" hint="Frame label; must be unique.">
+      <Field label="Cluster name" help={HELP.clusterName} hint="Frame label; must be unique.">
         <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+        <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
           <select className={`${inputCls} ${lock}`} value={f.os} disabled={deployed} onChange={(e) => patchFrame(f.id, { os: e.target.value })}>
             {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="OS version">
+        <Field label="OS version" help={HELP.osVersion}>
           <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="Valkey major">
+        <Field label="Valkey major" help={HELP.major('Valkey')}>
           <select className={`${inputCls} ${lock}`} value={f.valkeyMajor} disabled={deployed} onChange={(e) => patchFrame(f.id, { valkeyMajor: e.target.value, valkeyVersion: '' })}>
             {majors.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
       </div>
 
-      <Field label="Valkey minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+      <Field label="Valkey minor version" help={HELP.minor('Valkey')} hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
         <select className={`${inputCls} ${lock}`} value={f.valkeyVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { valkeyVersion: e.target.value })}>
           <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
           {minors.map((v) => <option key={v} value={v}>{v}</option>)}
@@ -7444,16 +7461,16 @@ function ValkeyClusterFrameForm({ frame: f, nodes, frameNodes, patchFrame, delet
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.useLdap} disabled={deployed || debian} onChange={(e) => patchFrame(f.id, { useLdap: e.target.checked })} />
-        <span>Enable LDAP auth (Intranet OpenLDAP)</span>
+        <span>Enable LDAP auth (Intranet OpenLDAP)</span><Help text={HELP.ldap} />
       </label>
       {debian && <p className="text-xs text-muted">percona-valkey-ldap isn't published for Ubuntu yet — pick Oracle Linux for LDAP auth.</p>}
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
-        <span>Use Intranet proxy (Squid) for downloads</span>
+        <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
 
-      <Field label="Monitored by (PMM)" hint="Optional — installs/registers pmm-client on each member.">
+      <Field label="Monitored by (PMM)" help={HELP.pmm} hint="Optional — installs/registers pmm-client on each member.">
         <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
           <option value="">none</option>
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
@@ -7481,16 +7498,16 @@ function ValkeyClusterMemberForm({ node: n, frame: f, patchNode, dep, deployed }
       <p className="text-xs text-muted">Member of <span className="font-mono">{f?.label || 'valkey cluster'}</span>. Auth/LDAP/PMM are set on the cluster frame.</p>
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
 
-      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
-        <span>Export Valkey port (6379) to the host</span>
+        <span>Export Valkey port (6379) to the host</span><Help text={HELP.exportPort} />
       </label>
       {n.exportEnabled && (
-        <Field label="Host port" hint="0 / empty = random unused port.">
+        <Field label="Host port" help={HELP.hostPort} hint="0 / empty = random unused port.">
           <input type="number" min="0" max="65535" className={`${inputCls} ${lock}`} value={n.exportHostPort || 0} disabled={deployed}
             onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
         </Field>
@@ -7568,7 +7585,7 @@ function ProxySQLForm({ node: n, nodes, frames, edges, patchNode, deleteNode, de
         {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
       </div>
 
-      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
@@ -7584,37 +7601,37 @@ function ProxySQLForm({ node: n, nodes, frames, edges, patchNode, deleteNode, de
       )}
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+        <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
           <select className={`${inputCls} ${lock}`} value={n.os} disabled={deployed} onChange={(e) => patchNode(n.id, { os: e.target.value })}>
             {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="OS version">
+        <Field label="OS version" help={HELP.osVersion}>
           <select className={`${inputCls} ${lock}`} value={n.osVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="ProxySQL major">
+        <Field label="ProxySQL major" help={HELP.major('ProxySQL')}>
           <select className={`${inputCls} ${lock}`} value={n.proxysqlMajor} disabled={deployed} onChange={(e) => patchNode(n.id, { proxysqlMajor: e.target.value, proxysqlVersion: '' })}>
             {majors.map((o) => <option key={o} value={o}>proxysql{o}</option>)}
           </select>
         </Field>
       </div>
 
-      <Field label="ProxySQL minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+      <Field label="ProxySQL minor version" help={HELP.minor('ProxySQL')} hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
         <select className={`${inputCls} ${lock}`} value={n.proxysqlVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { proxysqlVersion: e.target.value })}>
           <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
           {minors.map((v) => <option key={v} value={v}>{v}</option>)}
         </select>
       </Field>
 
-      <Field label="Implementation mode" hint={deployed ? 'Locked.' : (modeOpts === PROXY_MODE_OPTS.mysql ? 'How ProxySQL routes traffic to the MySQL primary/replicas.' : 'MODE for proxysql-admin.')}>
+      <Field label="Implementation mode" help={HELP.proxysqlMode} hint={deployed ? 'Locked.' : (modeOpts === PROXY_MODE_OPTS.mysql ? 'How ProxySQL routes traffic to the MySQL primary/replicas.' : 'MODE for proxysql-admin.')}>
         <select className={`${inputCls} ${lock}`} value={modeOpts.some((m) => m.id === n.mode) ? n.mode : modeOpts[0].id} disabled={deployed} onChange={(e) => patchNode(n.id, { mode: e.target.value })}>
           {modeOpts.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
         </select>
       </Field>
 
-      <Field label="Monitored by (PMM)" hint="Optional — registers ProxySQL with a PMM node.">
+      <Field label="Monitored by (PMM)" help={HELP.pmm} hint="Optional — registers ProxySQL with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={n.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchNode(n.id, { pmmNodeId: e.target.value })}>
           <option value="">none</option>
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
@@ -7623,14 +7640,14 @@ function ProxySQLForm({ node: n, nodes, frames, edges, patchNode, deleteNode, de
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
-        <span>Use Intranet proxy (Squid) for egress</span>
+        <span>Use Intranet proxy (Squid) for egress</span><Help text={HELP.proxy} />
       </label>
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
-        <span>Expose ProxySQL ports to the host (6033 MySQL, 6032 admin)</span>
+        <span>Expose ProxySQL ports to the host (6033 MySQL, 6032 admin)</span><Help text={HELP.exportPort} />
       </label>
       {n.exportEnabled && (
-        <Field label="MySQL host port (6033)" hint="0 / empty = random unused port; the admin port (6032) is auto-assigned.">
+        <Field label="MySQL host port (6033)" help={HELP.hostPort} hint="0 / empty = random unused port; the admin port (6032) is auto-assigned.">
           <input type="number" min="0" max="65535" className={`${inputCls} ${lock}`} value={n.exportHostPort || 0} disabled={deployed}
             onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
         </Field>
@@ -7714,7 +7731,7 @@ function ProxySQLFrameForm({ frame: f, nodes, frames, edges, patchFrame, deleteF
         <Badge tone="primary">{memberCount} node{memberCount === 1 ? '' : 's'}</Badge>
       </div>
 
-      <Field label="Cluster name" hint="Must be unique across the stack.">
+      <Field label="Cluster name" help={HELP.clusterName} hint="Must be unique across the stack.">
         <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
@@ -7729,37 +7746,37 @@ function ProxySQLFrameForm({ frame: f, nodes, frames, edges, patchFrame, deleteF
       )}
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+        <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
           <select className={`${inputCls} ${lock}`} value={f.os} disabled={deployed} onChange={(e) => patchFrame(f.id, { os: e.target.value })}>
             {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="OS version">
+        <Field label="OS version" help={HELP.osVersion}>
           <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="ProxySQL major">
+        <Field label="ProxySQL major" help={HELP.major('ProxySQL')}>
           <select className={`${inputCls} ${lock}`} value={f.proxysqlMajor} disabled={deployed} onChange={(e) => patchFrame(f.id, { proxysqlMajor: e.target.value, proxysqlVersion: '' })}>
             {majors.map((o) => <option key={o} value={o}>proxysql{o}</option>)}
           </select>
         </Field>
       </div>
 
-      <Field label="ProxySQL minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+      <Field label="ProxySQL minor version" help={HELP.minor('ProxySQL')} hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
         <select className={`${inputCls} ${lock}`} value={f.proxysqlVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { proxysqlVersion: e.target.value })}>
           <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
           {minors.map((v) => <option key={v} value={v}>{v}</option>)}
         </select>
       </Field>
 
-      <Field label="Implementation mode" hint={deployed ? 'Locked.' : (modeOpts === PROXY_MODE_OPTS.mysql ? 'How ProxySQL routes traffic to the MySQL primary/replicas.' : 'MODE for proxysql-admin.')}>
+      <Field label="Implementation mode" help={HELP.proxysqlMode} hint={deployed ? 'Locked.' : (modeOpts === PROXY_MODE_OPTS.mysql ? 'How ProxySQL routes traffic to the MySQL primary/replicas.' : 'MODE for proxysql-admin.')}>
         <select className={`${inputCls} ${lock}`} value={modeOpts.some((m) => m.id === f.mode) ? f.mode : modeOpts[0].id} disabled={deployed} onChange={(e) => patchFrame(f.id, { mode: e.target.value })}>
           {modeOpts.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
         </select>
       </Field>
 
-      <Field label="Monitored by (PMM)" hint="Optional — registers each member with a PMM node.">
+      <Field label="Monitored by (PMM)" help={HELP.pmm} hint="Optional — registers each member with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
           <option value="">none</option>
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
@@ -7768,7 +7785,7 @@ function ProxySQLFrameForm({ frame: f, nodes, frames, edges, patchFrame, deleteF
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
-        <span>Use Intranet proxy (Squid) for downloads</span>
+        <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
 
       <p className="text-xs text-muted">Add/remove ProxySQL nodes with the +/- on the frame. Per-node host-port export is set on each node.</p>
@@ -7790,17 +7807,17 @@ function ProxySQLFrameMemberForm({ node: n, frame, patchNode, dep, deployed }) {
           <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
         </div>
       )}
-      <Field label="Node name" hint="Auto-assigned, unique across the stack.">
+      <Field label="Node name" help={HELP.nodeName} hint="Auto-assigned, unique across the stack.">
         <input className={`${inputCls} opacity-70`} value={n.label} readOnly />
       </Field>
-      <Field label="ProxySQL cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <Field label="ProxySQL cluster" help={HELP.clusterReadonly}><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
-        <span>Expose ProxySQL ports to the host (6033 MySQL, 6032 admin)</span>
+        <span>Expose ProxySQL ports to the host (6033 MySQL, 6032 admin)</span><Help text={HELP.exportPort} />
       </label>
       {n.exportEnabled && (
-        <Field label="MySQL host port (6033)" hint="0 / empty = random unused port; the admin port (6032) is auto-assigned.">
+        <Field label="MySQL host port (6033)" help={HELP.hostPort} hint="0 / empty = random unused port; the admin port (6032) is auto-assigned.">
           <input type="number" min="0" max="65535" className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.exportHostPort || 0} disabled={deployed}
             onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
         </Field>
@@ -7851,11 +7868,11 @@ function InnoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed })
         <Badge tone="primary">{members} node{members === 1 ? '' : 's'}</Badge>
       </div>
 
-      <Field label="Cluster name" hint="Must be unique across the stack.">
+      <Field label="Cluster name" help={HELP.clusterName} hint="Must be unique across the stack.">
         <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
-      <Field label="Replication mode" hint={deployed ? 'Locked.' : 'InnoDB Cluster adds MySQL Shell management + Router metadata.'}>
+      <Field label="Replication mode" help={HELP.replMode} hint={deployed ? 'Locked.' : 'InnoDB Cluster adds MySQL Shell management + Router metadata.'}>
         <select className={`${inputCls} ${lock}`} value={f.replMode || 'innodbcluster'} disabled={deployed} onChange={(e) => patchFrame(f.id, { replMode: e.target.value })}>
           <option value="innodbcluster">InnoDB Cluster</option>
           <option value="groupreplication">Group Replication</option>
@@ -7863,17 +7880,17 @@ function InnoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed })
       </Field>
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+        <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
           <select className={`${inputCls} ${lock}`} value={f.os} disabled={deployed} onChange={(e) => patchFrame(f.id, { os: e.target.value })}>
             {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="OS version">
+        <Field label="OS version" help={HELP.osVersion}>
           <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="PDPS repository" hint={deployed ? 'Locked.' : 'Sets the Percona Server version.'}>
+        <Field label="PDPS repository" help={HELP.pdpsRepo} hint={deployed ? 'Locked.' : 'Sets the Percona Server version.'}>
           <select className={`${inputCls} ${lock}`} value={f.pdpsRepo} disabled={deployed} onChange={(e) => patchFrame(f.id, { pdpsRepo: e.target.value })}>
             {repos.length === 0 && <option value="">(run make versions)</option>}
             {repos.map((r) => <option key={r} value={r}>{r}</option>)}
@@ -7881,7 +7898,7 @@ function InnoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed })
         </Field>
       </div>
 
-      <Field label="Monitored by (PMM)" hint="Optional — registers each node with a PMM node.">
+      <Field label="Monitored by (PMM)" help={HELP.pmm} hint="Optional — registers each node with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
           <option value="">none</option>
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
@@ -7890,15 +7907,15 @@ function InnoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed })
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={f.mysqlRouter !== false} disabled={deployed} onChange={(e) => patchFrame(f.id, { mysqlRouter: e.target.checked })} />
-        <span>Install MySQL Router on each node (6446 RW / 6447 RO)</span>
+        <span>Install MySQL Router on each node (6446 RW / 6447 RO)</span><Help text={HELP.exportPort} />
       </label>
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
-        <span>Use Intranet proxy (Squid) for downloads</span>
+        <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
-        <span>Generate per-node certificates from Intranet CA</span>
+        <span>Generate per-node certificates from Intranet CA</span><Help text={HELP.generateCert} />
       </label>
       {f.generateCert && (
         <div className="flex items-center gap-2">
@@ -7936,16 +7953,16 @@ function InnoDBMemberForm({ node: n, frame, patchNode, dep, deployed }) {
           <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
         </div>
       )}
-      <Field label="Node name" hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
-      <Field label="Cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <Field label="Node name" help={HELP.nodeName} hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
+      <Field label="Cluster" help={HELP.clusterReadonly}><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
       <p className="text-xs text-muted">Group Replication auto-elects the primary; secondaries are read-only.</p>
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
-        <span>Export MySQL Router ports to the host (6446 RW / 6447 RO)</span>
+        <span>Export MySQL Router ports to the host (6446 RW / 6447 RO)</span><Help text={HELP.exportPort} />
       </label>
       {n.exportEnabled && (
-        <Field label="RW host port (6446)" hint="0 / empty = random unused port; the RO port (6447) is auto-assigned.">
+        <Field label="RW host port (6446)" help={HELP.hostPort} hint="0 / empty = random unused port; the RO port (6447) is auto-assigned.">
           <input type="number" min="0" max="65535" className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.exportHostPort || 0} disabled={deployed}
             onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
         </Field>
@@ -7965,10 +7982,10 @@ function PBMOptions({ f, nodes, patchFrame, deployed }) {
     <>
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.enablePBM} disabled={deployed} onChange={(e) => patchFrame(f.id, { enablePBM: e.target.checked })} />
-        <span>Enable backups with Percona Backup for MongoDB (PBM)</span>
+        <span>Enable backups with Percona Backup for MongoDB (PBM)</span><Help text={HELP.seaweedfsBackup} />
       </label>
       {f.enablePBM && (
-        <Field label="SeaweedFS node (S3 backup storage)" hint={seaweedNodes.length ? 'pbm-agent runs on every member; backups land in this node\'s S3 bucket.' : 'Add a SeaweedFS node to the stack first.'}>
+        <Field label="SeaweedFS node (S3 backup storage)" help={HELP.seaweedfsBackup} hint={seaweedNodes.length ? 'pbm-agent runs on every member; backups land in this node\'s S3 bucket.' : 'Add a SeaweedFS node to the stack first.'}>
           <select className={`${inputCls} ${lock}`} value={f.seaweedfsNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { seaweedfsNodeId: e.target.value })}>
             <option value="">select a SeaweedFS node…</option>
             {seaweedNodes.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
@@ -8028,11 +8045,11 @@ function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, rebuildClu
         <Badge tone="primary">{total} node{total === 1 ? '' : 's'}</Badge>
       </div>
 
-      <Field label="Cluster name" hint="Must be unique across the stack.">
+      <Field label="Cluster name" help={HELP.clusterName} hint="Must be unique across the stack.">
         <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
-      <Field label="Setup" hint={deployed ? 'Locked.' : 'Standard is HA; minimum is the smallest working sharded cluster.'}>
+      <Field label="Setup" help={HELP.psmdbSetup} hint={deployed ? 'Locked.' : 'Standard is HA; minimum is the smallest working sharded cluster.'}>
         <select className={`${inputCls} ${lock}`} value={f.psmdbSetup || 'standard'} disabled={deployed}
           onChange={(e) => rebuildCluster?.(f.id, e.target.value)}>
           <option value="standard">standard — 3 shards × 3-node RS + 3-node config RS (13 nodes)</option>
@@ -8047,31 +8064,31 @@ function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, rebuildClu
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+        <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
           <select className={`${inputCls} ${lock}`} value={f.os} disabled={deployed} onChange={(e) => patchFrame(f.id, { os: e.target.value })}>
             {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="OS version">
+        <Field label="OS version" help={HELP.osVersion}>
           <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="PS MongoDB major">
+        <Field label="PS MongoDB major" help={HELP.major('PS MongoDB')}>
           <select className={`${inputCls} ${lock}`} value={f.psmdbMajor} disabled={deployed} onChange={(e) => patchFrame(f.id, { psmdbMajor: e.target.value, psmdbVersion: '' })}>
             {majors.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
       </div>
 
-      <Field label="PS MongoDB minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+      <Field label="PS MongoDB minor version" help={HELP.minor('PS MongoDB')} hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
         <select className={`${inputCls} ${lock}`} value={f.psmdbVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { psmdbVersion: e.target.value })}>
           <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
           {minors.map((v) => <option key={v} value={v}>{v}</option>)}
         </select>
       </Field>
 
-      <Field label="Monitored by (PMM)" hint="Optional — registers each node with a PMM node.">
+      <Field label="Monitored by (PMM)" help={HELP.pmm} hint="Optional — registers each node with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
           <option value="">none</option>
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
@@ -8082,11 +8099,11 @@ function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, rebuildClu
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
-        <span>Use Intranet proxy (Squid) for downloads</span>
+        <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
-        <span>Generate per-node certificates from Intranet CA</span>
+        <span>Generate per-node certificates from Intranet CA</span><Help text={HELP.generateCert} />
       </label>
       {f.generateCert && (
         <div className="flex items-center gap-2">
@@ -8120,19 +8137,19 @@ function MongoDBMemberForm({ node: n, frame, patchNode, dep, deployed }) {
           <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
         </div>
       )}
-      <Field label="Node name" hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
-      <Field label="Cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
-      <Field label="Role"><input className={`${inputCls} opacity-70`} value={roleText} readOnly /></Field>
+      <Field label="Node name" help={HELP.nodeName} hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
+      <Field label="Cluster" help={HELP.clusterReadonly}><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <Field label="Role" help={HELP.role}><input className={`${inputCls} opacity-70`} value={roleText} readOnly /></Field>
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
       {n.role === 'mongos' ? (
         <>
           <p className="text-xs text-muted">The mongos router is the cluster entry point; export 27017 so apps connect from the host.</p>
           <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
             <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
-            <span>Export mongos port to the host (27017)</span>
+            <span>Export mongos port to the host (27017)</span><Help text={HELP.exportPort} />
           </label>
           {n.exportEnabled && (
-            <Field label="Host port" hint="0 / empty = random unused port. Must not clash with another node.">
+            <Field label="Host port" help={HELP.hostPort} hint="0 / empty = random unused port. Must not clash with another node.">
               <input type="number" min="0" max="65535" className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.exportHostPort || 0} disabled={deployed}
                 onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
             </Field>
@@ -8184,23 +8201,23 @@ function MongoCatalogFields({ obj, imgs, deployed, patch }) {
   return (
     <>
       <div className="grid grid-cols-2 gap-2">
-        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+        <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
           <select className={`${inputCls} ${lock}`} value={obj.os} disabled={deployed} onChange={(e) => patch(obj.id, { os: e.target.value })}>
             {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="OS version">
+        <Field label="OS version" help={HELP.osVersion}>
           <select className={`${inputCls} ${lock}`} value={obj.osVersion} disabled={deployed} onChange={(e) => patch(obj.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="PS MongoDB major">
+        <Field label="PS MongoDB major" help={HELP.major('PS MongoDB')}>
           <select className={`${inputCls} ${lock}`} value={obj.psmdbMajor} disabled={deployed} onChange={(e) => patch(obj.id, { psmdbMajor: e.target.value, psmdbVersion: '' })}>
             {majors.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
       </div>
-      <Field label="PS MongoDB minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+      <Field label="PS MongoDB minor version" help={HELP.minor('PS MongoDB')} hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
         <select className={`${inputCls} ${lock}`} value={obj.psmdbVersion} disabled={deployed} onChange={(e) => patch(obj.id, { psmdbVersion: e.target.value })}>
           <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
           {minors.map((v) => <option key={v} value={v}>{v}</option>)}
@@ -8224,13 +8241,13 @@ function PSMRSFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed }) 
         <Badge tone="primary">{members} node{members === 1 ? '' : 's'}</Badge>
       </div>
 
-      <Field label="Replica-set name" hint="Becomes the replica-set name; must be unique across the stack.">
+      <Field label="Replica-set name" help={HELP.clusterName} hint="Becomes the replica-set name; must be unique across the stack.">
         <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
       <MongoCatalogFields obj={f} imgs={imgs} deployed={deployed} patch={patchFrame} />
 
-      <Field label="Monitored by (PMM)" hint="Optional — registers each member with a PMM node.">
+      <Field label="Monitored by (PMM)" help={HELP.pmm} hint="Optional — registers each member with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
           <option value="">none</option>
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
@@ -8241,11 +8258,11 @@ function PSMRSFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed }) 
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
-        <span>Use Intranet proxy (Squid) for downloads</span>
+        <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
-        <span>Generate per-node certificates from Intranet CA</span>
+        <span>Generate per-node certificates from Intranet CA</span><Help text={HELP.generateCert} />
       </label>
       {f.generateCert && (
         <div className="flex items-center gap-2">
@@ -8284,16 +8301,16 @@ function PSMRSMemberForm({ node: n, frame, patchNode, dep, deployed }) {
           <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
         </div>
       )}
-      <Field label="Node name" hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
-      <Field label="Replica set"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <Field label="Node name" help={HELP.nodeName} hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
+      <Field label="Replica set" help={HELP.clusterReadonly}><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
       <p className="text-xs text-muted">The replica set auto-elects the primary; secondaries serve reads.</p>
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
-        <span>Export mongod port to the host (27017)</span>
+        <span>Export mongod port to the host (27017)</span><Help text={HELP.exportPort} />
       </label>
       {n.exportEnabled && (
-        <Field label="Host port" hint="0 / empty = random unused port. Must not clash with another node.">
+        <Field label="Host port" help={HELP.hostPort} hint="0 / empty = random unused port. Must not clash with another node.">
           <input type="number" min="0" max="65535" className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.exportHostPort || 0} disabled={deployed}
             onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
         </Field>
@@ -8390,28 +8407,28 @@ function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame
         <Badge tone="primary">{members} node{members === 1 ? '' : 's'}</Badge>
       </div>
 
-      <Field label="Cluster name" hint="Becomes the Patroni scope + pgBackRest stanza; must be unique across the stack.">
+      <Field label="Cluster name" help={HELP.clusterName} hint="Becomes the Patroni scope + pgBackRest stanza; must be unique across the stack.">
         <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+        <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
           <select className={`${inputCls} ${lock}`} value={f.os} disabled={deployed} onChange={(e) => patchFrame(f.id, { os: e.target.value })}>
             {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="OS version">
+        <Field label="OS version" help={HELP.osVersion}>
           <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="PostgreSQL major">
+        <Field label="PostgreSQL major" help={HELP.major('PostgreSQL')}>
           <select className={`${inputCls} ${lock}`} value={f.pgMajor} disabled={deployed} onChange={(e) => patchFrame(f.id, { pgMajor: e.target.value, pgVersion: '' })}>
             {majors.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
       </div>
-      <Field label="PostgreSQL minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+      <Field label="PostgreSQL minor version" help={HELP.minor('PostgreSQL')} hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
         <select className={`${inputCls} ${lock}`} value={f.pgVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { pgVersion: e.target.value })}>
           <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
           {minors.map((v) => <option key={v} value={v}>{v}</option>)}
@@ -8420,10 +8437,10 @@ function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.usePgBackRest} disabled={deployed} onChange={(e) => patchFrame(f.id, { usePgBackRest: e.target.checked })} />
-        <span>Use pgBackRest (SeaweedFS S3) for cloning + backup</span>
+        <span>Use pgBackRest (SeaweedFS S3) for cloning + backup</span><Help text={HELP.seaweedfsBackup} />
       </label>
       {f.usePgBackRest && (
-        <Field label="SeaweedFS node (S3 repository)" hint={seaweedNodes.length ? 'WAL archive + initial full backup land here; replicas clone via pgBackRest. The node must have S3 TLS enabled (pgBackRest needs HTTPS).' : 'Add a SeaweedFS node (with S3 TLS enabled) to the stack first.'}>
+        <Field label="SeaweedFS node (S3 repository)" help={HELP.seaweedfsBackup} hint={seaweedNodes.length ? 'WAL archive + initial full backup land here; replicas clone via pgBackRest. The node must have S3 TLS enabled (pgBackRest needs HTTPS).' : 'Add a SeaweedFS node (with S3 TLS enabled) to the stack first.'}>
           <select className={`${inputCls} ${lock}`} value={f.seaweedfsNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { seaweedfsNodeId: e.target.value })}>
             <option value="">select a SeaweedFS node…</option>
             {seaweedNodes.map((s) => <option key={s.id} value={s.id}>{s.label}{s.tls ? '' : ' — needs S3 TLS'}</option>)}
@@ -8435,7 +8452,7 @@ function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame
           onChange={(v) => patchFrame(f.id, { seaweedfsBucket: v })} />
       )}
 
-      <Field label="Monitored by (PMM)" hint="Optional — registers each member's PostgreSQL with a PMM node.">
+      <Field label="Monitored by (PMM)" help={HELP.pmm} hint="Optional — registers each member's PostgreSQL with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
           <option value="">none</option>
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
@@ -8444,11 +8461,11 @@ function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
-        <span>Use Intranet proxy (Squid) for downloads</span>
+        <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
-        <span>Generate per-node certificates from Intranet CA (PostgreSQL TLS)</span>
+        <span>Generate per-node certificates from Intranet CA (PostgreSQL TLS)</span><Help text={HELP.generateCert} />
       </label>
       {f.generateCert && (
         <div className="flex items-center gap-2">
@@ -8488,16 +8505,16 @@ function PatroniMemberForm({ node: n, frame, patchNode, dep, deployed }) {
           <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
         </div>
       )}
-      <Field label="Node name" hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
-      <Field label="Cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <Field label="Node name" help={HELP.nodeName} hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
+      <Field label="Cluster" help={HELP.clusterReadonly}><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
       <p className="text-xs text-muted">Runs PostgreSQL + Patroni + an etcd member. Patroni auto-elects the leader; replicas stream from it.</p>
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
-        <span>Export PostgreSQL port to the host (5432)</span>
+        <span>Export PostgreSQL port to the host (5432)</span><Help text={HELP.exportPort} />
       </label>
       {n.exportEnabled && (
-        <Field label="Host port" hint="0 / empty = random unused port. Must not clash with another node.">
+        <Field label="Host port" help={HELP.hostPort} hint="0 / empty = random unused port. Must not clash with another node.">
           <input type="number" min="0" max="65535" className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.exportHostPort || 0} disabled={deployed}
             onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
         </Field>
@@ -8529,28 +8546,28 @@ function RepmgrFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame,
         <Badge tone="primary">{members} node{members === 1 ? '' : 's'}</Badge>
       </div>
 
-      <Field label="Cluster name" hint="Becomes the Barman server name; must be unique across the stack.">
+      <Field label="Cluster name" help={HELP.clusterName} hint="Becomes the Barman server name; must be unique across the stack.">
         <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+        <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
           <select className={`${inputCls} ${lock}`} value={f.os} disabled={deployed} onChange={(e) => patchFrame(f.id, { os: e.target.value })}>
             {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="OS version">
+        <Field label="OS version" help={HELP.osVersion}>
           <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="PostgreSQL major">
+        <Field label="PostgreSQL major" help={HELP.major('PostgreSQL')}>
           <select className={`${inputCls} ${lock}`} value={f.pgMajor} disabled={deployed} onChange={(e) => patchFrame(f.id, { pgMajor: e.target.value, pgVersion: '' })}>
             {majors.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
       </div>
-      <Field label="PostgreSQL minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+      <Field label="PostgreSQL minor version" help={HELP.minor('PostgreSQL')} hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
         <select className={`${inputCls} ${lock}`} value={f.pgVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { pgVersion: e.target.value })}>
           <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
           {minors.map((v) => <option key={v} value={v}>{v}</option>)}
@@ -8559,10 +8576,10 @@ function RepmgrFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame,
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.useBarman} disabled={deployed} onChange={(e) => patchFrame(f.id, { useBarman: e.target.checked })} />
-        <span>Use Barman (SeaweedFS S3) for backups</span>
+        <span>Use Barman (SeaweedFS S3) for backups</span><Help text={HELP.seaweedfsBackup} />
       </label>
       {f.useBarman && (
-        <Field label="SeaweedFS node (S3 backup storage)" hint={seaweedNodes.length ? 'WAL archive + base backups land here via barman-cloud (works over HTTP or HTTPS).' : 'Add a SeaweedFS node to the stack first.'}>
+        <Field label="SeaweedFS node (S3 backup storage)" help={HELP.seaweedfsBackup} hint={seaweedNodes.length ? 'WAL archive + base backups land here via barman-cloud (works over HTTP or HTTPS).' : 'Add a SeaweedFS node to the stack first.'}>
           <select className={`${inputCls} ${lock}`} value={f.seaweedfsNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { seaweedfsNodeId: e.target.value })}>
             <option value="">select a SeaweedFS node…</option>
             {seaweedNodes.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
@@ -8574,7 +8591,7 @@ function RepmgrFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame,
           onChange={(v) => patchFrame(f.id, { seaweedfsBucket: v })} />
       )}
 
-      <Field label="Monitored by (PMM)" hint="Optional — registers each member's PostgreSQL with a PMM node.">
+      <Field label="Monitored by (PMM)" help={HELP.pmm} hint="Optional — registers each member's PostgreSQL with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
           <option value="">none</option>
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
@@ -8583,11 +8600,11 @@ function RepmgrFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame,
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
-        <span>Use Intranet proxy (Squid) for downloads</span>
+        <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
-        <span>Generate per-node certificates from Intranet CA (PostgreSQL TLS)</span>
+        <span>Generate per-node certificates from Intranet CA (PostgreSQL TLS)</span><Help text={HELP.generateCert} />
       </label>
       {f.generateCert && (
         <div className="flex items-center gap-2">
@@ -8627,16 +8644,16 @@ function RepmgrMemberForm({ node: n, frame, patchNode, dep, deployed }) {
           <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
         </div>
       )}
-      <Field label="Node name" hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
-      <Field label="Cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <Field label="Node name" help={HELP.nodeName} hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
+      <Field label="Cluster" help={HELP.clusterReadonly}><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
       <p className="text-xs text-muted">Runs PostgreSQL + repmgr. The cluster's first node bootstraps as primary; this node streams from it (repmgr can fail over to it).</p>
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
-        <span>Export PostgreSQL port to the host (5432)</span>
+        <span>Export PostgreSQL port to the host (5432)</span><Help text={HELP.exportPort} />
       </label>
       {n.exportEnabled && (
-        <Field label="Host port" hint="0 / empty = random unused port. Must not clash with another node.">
+        <Field label="Host port" help={HELP.hostPort} hint="0 / empty = random unused port. Must not clash with another node.">
           <input type="number" min="0" max="65535" className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.exportHostPort || 0} disabled={deployed}
             onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
         </Field>
@@ -8669,35 +8686,35 @@ function SpockFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, 
         <Badge tone="primary">{members} node{members === 1 ? '' : 's'}</Badge>
       </div>
 
-      <Field label="Cluster name" hint="Must be unique across the stack.">
+      <Field label="Cluster name" help={HELP.clusterName} hint="Must be unique across the stack.">
         <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+        <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
           <select className={`${inputCls} ${lock}`} value={f.os} disabled={deployed} onChange={(e) => patchFrame(f.id, { os: e.target.value })}>
             {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="OS version">
+        <Field label="OS version" help={HELP.osVersion}>
           <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="PostgreSQL major" hint="Spock supports 15–17.">
+        <Field label="PostgreSQL major" help={HELP.major('PostgreSQL')} hint="Spock supports 15–17.">
           <select className={`${inputCls} ${lock}`} value={f.pgMajor} disabled={deployed} onChange={(e) => patchFrame(f.id, { pgMajor: e.target.value, pgVersion: '' })}>
             {majors.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
       </div>
-      <Field label="PostgreSQL minor version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+      <Field label="PostgreSQL minor version" help={HELP.minor('PostgreSQL')} hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
         <select className={`${inputCls} ${lock}`} value={f.pgVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { pgVersion: e.target.value })}>
           <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
           {minors.map((v) => <option key={v} value={v}>{v}</option>)}
         </select>
       </Field>
 
-      <Field label="Monitored by (PMM)" hint="Optional — registers each member's PostgreSQL with a PMM node.">
+      <Field label="Monitored by (PMM)" help={HELP.pmm} hint="Optional — registers each member's PostgreSQL with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
           <option value="">none</option>
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
@@ -8706,11 +8723,11 @@ function SpockFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, 
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
-        <span>Use Intranet proxy (Squid) for downloads</span>
+        <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
-        <span>Generate per-node certificates from Intranet CA (PostgreSQL TLS)</span>
+        <span>Generate per-node certificates from Intranet CA (PostgreSQL TLS)</span><Help text={HELP.generateCert} />
       </label>
       {f.generateCert && (
         <div className="flex items-center gap-2">
@@ -8749,16 +8766,16 @@ function SpockMemberForm({ node: n, frame, patchNode, dep, deployed }) {
           <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
         </div>
       )}
-      <Field label="Node name" hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
-      <Field label="Cluster"><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <Field label="Node name" help={HELP.nodeName} hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
+      <Field label="Cluster" help={HELP.clusterReadonly}><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
       <p className="text-xs text-muted">PostgreSQL + Spock — a writable member of the active-active mesh. Writes here replicate to every peer, and it receives their writes too.</p>
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
-        <span>Export PostgreSQL port to the host (5432)</span>
+        <span>Export PostgreSQL port to the host (5432)</span><Help text={HELP.exportPort} />
       </label>
       {n.exportEnabled && (
-        <Field label="Host port" hint="0 / empty = random unused port. Must not clash with another node.">
+        <Field label="Host port" help={HELP.hostPort} hint="0 / empty = random unused port. Must not clash with another node.">
           <input type="number" min="0" max="65535" className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.exportHostPort || 0} disabled={deployed}
             onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
         </Field>
@@ -8834,22 +8851,22 @@ function HAProxyForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep
         </div>
       )}
 
-      <Field label="Label"><input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} /></Field>
+      <Field label="Label" help={HELP.label}><input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} /></Field>
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+        <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
           <select className={`${inputCls} ${lock}`} value={n.os} disabled={deployed} onChange={(e) => patchNode(n.id, { os: e.target.value })}>
             {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="OS version">
+        <Field label="OS version" help={HELP.osVersion}>
           <select className={`${inputCls} ${lock}`} value={n.osVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
       </div>
 
-      <Field label="Monitored by (PMM)" hint="Optional — registers the HAProxy service with a PMM node.">
+      <Field label="Monitored by (PMM)" help={HELP.pmm} hint="Optional — registers the HAProxy service with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={n.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchNode(n.id, { pmmNodeId: e.target.value })}>
           <option value="">none</option>
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
@@ -8858,14 +8875,14 @@ function HAProxyForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
-        <span>Use Intranet proxy (Squid) for downloads</span>
+        <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
-        <span>Export ports to the host (write 5000 / read 5001 / stats 7000)</span>
+        <span>Export ports to the host (write 5000 / read 5001 / stats 7000)</span><Help text={HELP.exportPort} />
       </label>
       {n.exportEnabled && (
-        <Field label="Write (leader) host port" hint="0 / empty = random unused port. The read + stats ports get random host ports.">
+        <Field label="Write (leader) host port" help={HELP.hostPort} hint="0 / empty = random unused port. The read + stats ports get random host ports.">
           <input type="number" min="0" max="65535" className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.exportHostPort || 0} disabled={deployed}
             onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
         </Field>
@@ -8924,22 +8941,22 @@ function OrchestratorForm({ node: n, patchNode, deleteNode, dep, deployed }) {
 
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
 
-      <Field label="Label"><input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} /></Field>
+      <Field label="Label" help={HELP.label}><input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} /></Field>
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+        <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
           <select className={`${inputCls} ${lock}`} value={n.os} disabled={deployed} onChange={(e) => patchNode(n.id, { os: e.target.value })}>
             {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="OS version">
+        <Field label="OS version" help={HELP.osVersion}>
           <select className={`${inputCls} ${lock}`} value={n.osVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
       </div>
 
-      <Field label="Orchestrator version" hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+      <Field label="Orchestrator version" help={HELP.orchestratorVersion} hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
         <select className={`${inputCls} ${lock}`} value={n.orchestratorVersion || ''} disabled={deployed}
           onChange={(e) => patchNode(n.id, { orchestratorVersion: e.target.value })}>
           <option value="">latest{versions[0] ? ` (${versions[0]})` : ''}</option>
@@ -8947,14 +8964,14 @@ function OrchestratorForm({ node: n, patchNode, deleteNode, dep, deployed }) {
         </select>
       </Field>
 
-      <Field label="Alert email" hint="A mailbox on the stack's Intranet domain (or a full address) that failure-detection alerts are emailed to. Defaults to admin, which the Intranet always provisions; clear it to disable alerts.">
+      <Field label="Alert email" help={HELP.alertEmail} hint="A mailbox on the stack's Intranet domain (or a full address) that failure-detection alerts are emailed to. Defaults to admin, which the Intranet always provisions; clear it to disable alerts.">
         <input className={`${inputCls} ${lock}`} placeholder="admin" value={n.alertEmail || ''} disabled={deployed}
           onChange={(e) => patchNode(n.id, { alertEmail: e.target.value })} />
       </Field>
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
-        <span>Use Intranet proxy (Squid) for downloads</span>
+        <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
       <p className="text-xs text-muted">The web UI (:3000) is always published to the host, like PMM.</p>
 
@@ -8989,9 +9006,9 @@ function OrchestratorManager({ dep, onDeleteNode }) {
         </div>
       )}
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <div className="flex justify-between gap-3"><span className="text-muted">Host</span><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">Version</span><span className="font-mono text-xs">{cfg.version || 'latest'}</span></div>
-        <div className="flex justify-between gap-3"><span className="text-muted">Alert email</span><span className="font-mono text-xs">{cfg.alertEmail || 'none'}</span></div>
+        <InfoRow label="Host" help={HELP.depHost}><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></InfoRow>
+        <InfoRow label="Version" help={HELP.depVersion}><span className="font-mono text-xs">{cfg.version || 'latest'}</span></InfoRow>
+        <InfoRow label="Alert email" help={HELP.depAlertEmail}><span className="font-mono text-xs">{cfg.alertEmail || 'none'}</span></InfoRow>
       </div>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
@@ -9019,13 +9036,13 @@ function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
       </div>
 
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
-      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
       <MongoCatalogFields obj={n} imgs={imgs} deployed={deployed} patch={patchNode} />
 
-      <Field label="Monitored by (PMM)" hint="Optional — registers this server with a PMM node.">
+      <Field label="Monitored by (PMM)" help={HELP.pmm} hint="Optional — registers this server with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={n.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchNode(n.id, { pmmNodeId: e.target.value })}>
           <option value="">none</option>
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
@@ -9034,11 +9051,11 @@ function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
-        <span>Use Intranet proxy (Squid) for downloads</span>
+        <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.generateCert} disabled={deployed} onChange={(e) => patchNode(n.id, { generateCert: e.target.checked })} />
-        <span>Generate certificate from Intranet CA</span>
+        <span>Generate certificate from Intranet CA</span><Help text={HELP.generateCert} />
       </label>
       {n.generateCert && (
         <div className="flex items-center gap-2">
@@ -9054,10 +9071,10 @@ function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
-        <span>Export mongod port (27017) to the host</span>
+        <span>Export mongod port (27017) to the host</span><Help text={HELP.exportPort} />
       </label>
       {n.exportEnabled && (
-        <Field label="Host port" hint="0 / empty = random unused port.">
+        <Field label="Host port" help={HELP.hostPort} hint="0 / empty = random unused port.">
           <input type="number" min="0" max="65535" className={`${inputCls} ${lock}`} value={n.exportHostPort || 0} disabled={deployed}
             onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
         </Field>
@@ -9069,29 +9086,29 @@ function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
       <div className="rounded-md border border-border/60 p-2 space-y-2">
         <label className={`flex items-center gap-2 text-sm ${deployed || dirAuthOn ? 'opacity-70' : ''}`}>
           <input type="checkbox" checked={!!n.enableOIDC} disabled={deployed || dirAuthOn} onChange={(e) => patchNode(n.id, { enableOIDC: e.target.checked })} />
-          <span>Keycloak OIDC authentication (MONGODB-OIDC)</span>
+          <span>Keycloak OIDC authentication (MONGODB-OIDC)</span><Help text={HELP.oidc} />
         </label>
         {dirAuthOn && <p className="text-xs text-muted">MongoDB cannot do directory authentication and Keycloak OIDC at once — turn off {dirAuthLabel} below to use Keycloak SSO.</p>}
         {n.enableOIDC && (
           <div className="space-y-2 pl-1">
-            <Field label="Keycloak node" hint={keycloakNodes.length ? 'OIDC identity provider for this MongoDB.' : 'Add a Keycloak node first.'}>
+            <Field label="Keycloak node" help={HELP.oidc} hint={keycloakNodes.length ? 'OIDC identity provider for this MongoDB.' : 'Add a Keycloak node first.'}>
               <select className={`${inputCls} ${lock}`} value={n.keycloakNodeId || ''} disabled={deployed || keycloakNodes.length === 0} onChange={(e) => patchNode(n.id, { keycloakNodeId: e.target.value })}>
                 <option value="">none</option>
                 {keycloakNodes.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
               </select>
             </Field>
-            <Field label="Realm" hint="Keycloak realm holding the OIDC client.">
+            <Field label="Realm" help={HELP.oidcRealm} hint="Keycloak realm holding the OIDC client.">
               <input className={`${inputCls} ${lock}`} value={n.oidcRealm ?? 'mongodb'} disabled={deployed} onChange={(e) => patchNode(n.id, { oidcRealm: e.target.value })} />
             </Field>
-            <Field label="Client ID" hint="OIDC client id; also used as the token audience.">
+            <Field label="Client ID" help={HELP.oidcClientId} hint="OIDC client id; also used as the token audience.">
               <input className={`${inputCls} ${lock}`} value={n.oidcClientId ?? 'mongodb-client'} disabled={deployed} onChange={(e) => patchNode(n.id, { oidcClientId: e.target.value })} />
             </Field>
             <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
               <input type="checkbox" checked={n.oidcUseAuthClaim !== false} disabled={deployed} onChange={(e) => patchNode(n.id, { oidcUseAuthClaim: e.target.checked })} />
-              <span>Authorize by group claim</span>
+              <span>Authorize by group claim</span><Help text={HELP.oidc} />
             </label>
             {n.oidcUseAuthClaim !== false ? (
-              <Field label="Authorization claim" hint="Token claim with the user's groups. Creates keycloak/developers + keycloak/dbadmins roles.">
+              <Field label="Authorization claim" help={HELP.oidcClaim} hint="Token claim with the user's groups. Creates keycloak/developers + keycloak/dbadmins roles.">
                 <input className={`${inputCls} ${lock}`} value={n.oidcAuthClaim ?? 'MyClaim'} disabled={deployed} onChange={(e) => patchNode(n.id, { oidcAuthClaim: e.target.value })} />
               </Field>
             ) : (
@@ -9159,7 +9176,7 @@ function Minimap({ nodes, view, setView, wrapRef, selectedId }) {
     <div
       className="absolute bottom-3 right-3 overflow-hidden rounded-lg border bg-surface/90 shadow backdrop-blur"
       style={{ width: MINI_W, height: MINI_H }}
-      title="Minimap — click or drag to navigate"
+      title={HELP.uiMinimap}
     >
       <svg
         width={MINI_W}
@@ -9428,13 +9445,14 @@ function ContextMenu({ menu, onClose, actions }) {
           a.sep ? (
             <div key={i} className="my-1 h-px bg-border" />
           ) : (
-            <button
-              key={i}
-              onClick={() => { a.fn(); onClose() }}
-              className={`block w-full rounded-md px-2.5 py-1.5 text-left text-sm hover:bg-surface2 ${a.danger ? 'text-danger' : 'text-fg'}`}
-            >
-              {a.label}
-            </button>
+            <Hint key={i} text={a.help} placement="right" className="w-full" display="block">
+              <button
+                onClick={() => { a.fn(); onClose() }}
+                className={`block w-full rounded-md px-2.5 py-1.5 text-left text-sm hover:bg-surface2 ${a.danger ? 'text-danger' : 'text-fg'}`}
+              >
+                {a.label}
+              </button>
+            </Hint>
           ),
         )}
       </div>
@@ -9484,7 +9502,7 @@ function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, p
       style={move ? { cursor: 'move' } : undefined}
     >
       <h3 className="text-sm font-semibold">Properties</h3>
-      <button onClick={() => setDocked((d) => !d)} title={docked ? 'Detach' : 'Dock'} className="rounded p-1 text-muted hover:bg-surface2 hover:text-fg">
+      <button onClick={() => setDocked((d) => !d)} title={HELP.uiDockPanel} className="rounded p-1 text-muted hover:bg-surface2 hover:text-fg">
         <Icon.Frame size={14} />
       </button>
     </div>
@@ -9502,7 +9520,7 @@ function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, p
         <div
           onPointerDown={(e) => { drag.current = { kind: 'w', x0: e.clientX, w0: width } }}
           className="absolute left-0 top-0 z-10 h-full w-1.5 -translate-x-1 cursor-ew-resize hover:bg-primary"
-          title="Drag to resize"
+          title={HELP.uiDragToResize}
         />
         <div className="min-h-0 flex-1 overflow-auto rounded-xl border bg-surface p-4">
           <Header move={false} />
@@ -9891,13 +9909,13 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
             <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
           </div>
         )}
-        <Field label="Label">
+        <Field label="Label" help={HELP.label}>
           <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
         </Field>
-        <Field label="Type">
+        <Field label="Type" help={HELP.nodeType}>
           <input className={`${inputCls} opacity-70`} value={def.label} readOnly />
         </Field>
-        <Field label="Operating system" hint={deployed ? 'Locked — the node is deployed.' : 'Locked once the stack is deployed.'}>
+        <Field label="Operating system" help={HELP.os} hint={deployed ? 'Locked — the node is deployed.' : 'Locked once the stack is deployed.'}>
           <select
             className={`${inputCls} ${deployed ? 'opacity-70' : ''}`}
             value={n.os}

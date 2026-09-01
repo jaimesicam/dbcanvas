@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE } from '../lib/stackApi.js'
+import { Help } from '../components/Tooltip.jsx'
+import { DEP_HELP } from '../lib/help.js'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -25,10 +27,10 @@ function CopyButton({ text, title = 'Copy', size = 14 }) {
   )
 }
 
-function KV({ k, v, mono }) {
+function KV({ k, v, mono, help }) {
   return (
     <div className="flex justify-between gap-3">
-      <span className="text-muted">{k}</span>
+      <span className="flex shrink-0 items-center gap-1 text-muted">{k}<Help text={help} /></span>
       <span className={`truncate text-fg ${mono ? 'font-mono text-xs' : ''}`}>{v || '—'}</span>
     </div>
   )
@@ -86,16 +88,16 @@ function Overview({ cfg, dep, onDeleteNode }) {
   const readLabel = isPXC ? 'Read port (→ round-robin · 5001)' : 'Read port (→ replicas · 5001)'
   return (
     <div className="space-y-2 text-sm">
-      <KV k="FQDN" v={cfg.fqdn} mono />
-      {cfg.serverVersion && <KV k="Version" v={cfg.serverVersion} mono />}
-      <KV k="Image" v={cfg.image} mono />
-      <KV k="Backend" v={isPXC ? 'Percona XtraDB Cluster' : 'Patroni PostgreSQL'} />
-      <KV k="Routes to cluster" v={cfg.cluster} mono />
-      <KV k="Backend members" v={(cfg.members || []).length ? `${(cfg.members || []).length} member(s)` : '—'} />
-      <KV k={writeLabel} v={cfg.writePort ? String(cfg.writePort) : 'not published'} mono />
-      <KV k={readLabel} v={cfg.readPort ? String(cfg.readPort) : 'not published'} mono />
-      <KV k="Stats port (7000)" v={cfg.statsPort ? String(cfg.statsPort) : 'not published'} mono />
-      <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+      <KV k="FQDN" help={DEP_HELP.FQDN} v={cfg.fqdn} mono />
+      {cfg.serverVersion && <KV k="Version" help={DEP_HELP.Version} v={cfg.serverVersion} mono />}
+      <KV k="Image" help={DEP_HELP.Image} v={cfg.image} mono />
+      <KV k="Backend" help={DEP_HELP.Backend} v={isPXC ? 'Percona XtraDB Cluster' : 'Patroni PostgreSQL'} />
+      <KV k="Routes to cluster" help={DEP_HELP['Routes to cluster']} v={cfg.cluster} mono />
+      <KV k="Backend members" help={DEP_HELP['Backend members']} v={(cfg.members || []).length ? `${(cfg.members || []).length} member(s)` : '—'} />
+      <KV k={writeLabel} help={DEP_HELP['Exported port']} v={cfg.writePort ? String(cfg.writePort) : 'not published'} mono />
+      <KV k={readLabel} help={DEP_HELP['Exported port']} v={cfg.readPort ? String(cfg.readPort) : 'not published'} mono />
+      <KV k="Stats port (7000)" help={DEP_HELP['Stats port (7000)']} v={cfg.statsPort ? String(cfg.statsPort) : 'not published'} mono />
+      <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
       {stats && (
         <a href={stats} target="_blank" rel="noreferrer"
           className="mt-2 flex items-center justify-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/15">

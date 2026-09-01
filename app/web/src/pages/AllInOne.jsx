@@ -9,6 +9,7 @@ import {
   PORT_ROLE, estMemMB, mysqlFlavor, FLAVOR_LABEL, addBlockedReason, nextInstanceName, sanitizeInst,
   MEMBER_CHOICE_LABEL,
 } from '../lib/aioPorts.js'
+import { HELP } from '../lib/help.js'
 
 // AllInOne.jsx — the All-in-One node's designer form and its deployed manager.
 //
@@ -113,17 +114,17 @@ export function AllInOneForm({ node: n, nodes, patchNode, deleteNode, dep, deplo
         unit, controlled with <code className="font-mono">aioctl</code> in the node's terminal.
       </p>
 
-      <Field label="Label" hint="Becomes the node hostname; must be unique.">
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="OS" hint={deployed ? 'Locked.' : ''}>
+        <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
           <select className={`${inputCls} ${lock}`} value={n.os} disabled={deployed} onChange={(e) => patchNode(n.id, { os: e.target.value })}>
             {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="OS version">
+        <Field label="OS version" help={HELP.osVersion}>
           <select className={`${inputCls} ${lock}`} value={n.osVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { osVersion: e.target.value })}>
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
@@ -302,7 +303,7 @@ function VersionPicker({ label, catalog, node: n, patchNode, deployed, majorKey,
     <div className="space-y-1">
       <div className="grid grid-cols-2 gap-2">
         {majorKey && (
-          <Field label={label}>
+          <Field label={label} help={HELP.major(label)}>
             <select className={`${inputCls} ${lock}`} value={major} disabled={deployed || !majors.length}
               onChange={(e) => patchNode(n.id, { [majorKey]: e.target.value, [minorKey]: '' })}>
               {majors.length === 0 && <option value={major}>{major || '—'}</option>}
@@ -310,7 +311,7 @@ function VersionPicker({ label, catalog, node: n, patchNode, deployed, majorKey,
             </select>
           </Field>
         )}
-        <Field label={majorKey ? 'Minor version' : label}>
+        <Field label={majorKey ? 'Minor version' : label} help={HELP.minor(label)}>
           <select className={`${inputCls} ${lock}`} value={n[minorKey] || ''} disabled={deployed}
             onChange={(e) => patchNode(n.id, { [minorKey]: e.target.value })}>
             <option value="">latest</option>
@@ -395,14 +396,14 @@ function PGVersionPicker({ inst, node: n, patch, deployed }) {
 
   return (
     <div className="grid grid-cols-2 gap-2">
-      <Field label="PostgreSQL major" hint={deployed ? '' : 'Per instance — majors co-install.'}>
+      <Field label="PostgreSQL major" help={HELP.major('PostgreSQL')} hint={deployed ? '' : 'Per instance — majors co-install.'}>
         <select className={`${inputCls} ${lock}`} value={major} disabled={deployed || !majors.length}
           onChange={(e) => patch({ pgMajor: e.target.value, pgVersion: '' })}>
           {majors.length === 0 && <option value={major}>{major}</option>}
           {majors.map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
       </Field>
-      <Field label="Minor version">
+      <Field label="Minor version" help={HELP.minor('the engine')}>
         <select className={`${inputCls} ${lock}`} value={inst.pgVersion || ''} disabled={deployed}
           onChange={(e) => patch({ pgVersion: e.target.value })}>
           <option value="">latest</option>
@@ -496,7 +497,7 @@ function InstanceCard({ inst, node, nodes, instances, open, onToggle, patch, onR
 
       {open && (
         <div className="space-y-2 px-2 py-2">
-          <Field label="Name" hint="Becomes the instance's hostname, directory and systemd unit.">
+          <Field label="Name" help={HELP.label} hint="Becomes the instance's hostname, directory and systemd unit.">
             <input className={`${inputCls} ${lock}`} value={inst.name} disabled={deployed}
               onChange={(e) => patch({ name: e.target.value })} />
           </Field>
@@ -505,7 +506,7 @@ function InstanceCard({ inst, node, nodes, instances, open, onToggle, patch, onR
               shapes, not a member count — the counts in between describe a
               lopsided cluster nobody would build. */}
           {k.cluster && (k.choices ? (
-            <Field label="Topology" hint="The same two setups the dedicated PSMDB Sharded frame offers.">
+            <Field label="Topology" help={HELP.k8sTopology} hint="The same two setups the dedicated PSMDB Sharded frame offers.">
               <select className={`${inputCls} ${lock}`} disabled={deployed}
                 value={k.choices.includes(inst.members) ? inst.members : ''}
                 onChange={(e) => patch({ members: parseInt(e.target.value, 10) || k.def })}>
@@ -518,7 +519,7 @@ function InstanceCard({ inst, node, nodes, instances, open, onToggle, patch, onR
               </select>
             </Field>
           ) : (
-            <Field label="Members" hint={`${k.min}–${k.max}${k.odd ? ', odd only (quorum)' : ''}`}>
+            <Field label="Members" help={HELP.instances} hint={`${k.min}–${k.max}${k.odd ? ', odd only (quorum)' : ''}`}>
               <input type="number" min={k.min} max={k.max} className={`${inputCls} ${lock}`}
                 value={inst.members ?? k.def} disabled={deployed}
                 onChange={(e) => patch({ members: parseInt(e.target.value, 10) || k.def })} />
@@ -526,7 +527,7 @@ function InstanceCard({ inst, node, nodes, instances, open, onToggle, patch, onR
           ))}
 
           {isMySQL && inst.kind === 'psrepl' && (
-            <Field label="Replication mode">
+            <Field label="Replication mode" help={HELP.replMode}>
               <select className={`${inputCls} ${lock}`} value={inst.replMode || 'async'} disabled={deployed}
                 onChange={(e) => patch({ replMode: e.target.value })}>
                 <option value="async">Asynchronous</option>
@@ -535,7 +536,7 @@ function InstanceCard({ inst, node, nodes, instances, open, onToggle, patch, onR
             </Field>
           )}
           {inst.kind === 'innodb' && (
-            <Field label="Topology"
+            <Field label="Topology" help={HELP.k8sTopology}
               hint="InnoDB Cluster proper needs MySQL Shell, which All-in-One does not install yet.">
               <select className={`${inputCls} ${lock}`} value={inst.replMode || 'groupreplication'} disabled={deployed}
                 onChange={(e) => patch({ replMode: e.target.value })}>
@@ -569,7 +570,7 @@ function InstanceCard({ inst, node, nodes, instances, open, onToggle, patch, onR
           )}
 
           {isProxy && (
-            <Field label="Fronts" hint="Which instance in this node this proxy load-balances.">
+            <Field label="Fronts" help={HELP.depLinkedTo} hint="Which instance in this node this proxy load-balances.">
               <select className={`${inputCls} ${lock}`} value={inst.backendInstanceId || ''} disabled={deployed}
                 onChange={(e) => patch({ backendInstanceId: e.target.value })}>
                 <option value="">— select a backend —</option>
@@ -584,7 +585,7 @@ function InstanceCard({ inst, node, nodes, instances, open, onToggle, patch, onR
               nodes but no All-in-One provisioner registers it. Same rule as the TLS
               control below, and validateStack rejects a stale value. */}
           {PMM_KINDS.includes(inst.kind) ? (
-            <Field label="Monitored by (PMM)">
+            <Field label="Monitored by (PMM)" help={HELP.pmm}>
               <select className={`${inputCls} ${lock}`} value={inst.pmmNodeId || ''} disabled={deployed}
                 onChange={(e) => patch({ pmmNodeId: e.target.value })}>
                 <option value="">— none —</option>
@@ -603,7 +604,7 @@ function InstanceCard({ inst, node, nodes, instances, open, onToggle, patch, onR
           ) : null}
 
           {ORCH_KINDS.includes(inst.kind) ? (
-            <Field label="Monitored by (Orchestrator)">
+            <Field label="Monitored by (Orchestrator)" help={HELP.orchestrator}>
               <select className={`${inputCls} ${lock}`} value={inst.orchestratorRef || ''} disabled={deployed}
                 onChange={(e) => patch({ orchestratorRef: e.target.value })}>
                 <option value="">— none —</option>
@@ -640,12 +641,12 @@ function InstanceCard({ inst, node, nodes, instances, open, onToggle, patch, onR
               </label>
               {inst.generateCert && (
                 <div className="grid grid-cols-2 gap-2">
-                  <Field label="Certificate lifetime">
+                  <Field label="Certificate lifetime" help={HELP.certTTL}>
                     <input type="number" min={1} className={`${inputCls} ${lock}`} disabled={deployed}
                       value={inst.certTtlValue || 365}
                       onChange={(e) => patch({ certTtlValue: parseInt(e.target.value, 10) || 365 })} />
                   </Field>
-                  <Field label="Unit">
+                  <Field label="Unit" help={HELP.certTTL}>
                     <select className={`${inputCls} ${lock}`} value={inst.certTtlUnit || 'days'} disabled={deployed}
                       onChange={(e) => patch({ certTtlUnit: e.target.value })}>
                       <option value="minutes">minutes</option>
@@ -674,7 +675,7 @@ function InstanceCard({ inst, node, nodes, instances, open, onToggle, patch, onR
             </p>
           )}
           {inst.exportEnabled && (
-            <Field label="Host port" hint="0 = pick a free one automatically.">
+            <Field label="Host port" help={HELP.hostPort} hint="0 = pick a free one automatically.">
               <input type="number" className={`${inputCls} ${lock}`} value={inst.exportHostPort || 0} disabled={deployed}
                 onChange={(e) => patch({ exportHostPort: parseInt(e.target.value, 10) || 0 })} />
             </Field>

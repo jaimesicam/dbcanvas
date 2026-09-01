@@ -5,6 +5,8 @@ import { pxcApi, DEPLOY_TONE } from '../lib/stackApi.js'
 import { PTStalkCard } from '../components/Diagnostics.jsx'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import { SecretValue } from '../components/Secret.jsx'
+import { Help } from '../components/Tooltip.jsx'
+import { DEP_HELP } from '../lib/help.js'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -31,10 +33,10 @@ function Err({ children }) {
   return <div className="mb-2 rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">{children}</div>
 }
 
-function KV({ k, v, mono }) {
+function KV({ k, v, mono, help }) {
   return (
     <div className="flex justify-between gap-3">
-      <span className="text-muted">{k}</span>
+      <span className="flex shrink-0 items-center gap-1 text-muted">{k}<Help text={help} /></span>
       <span className={`truncate text-fg ${mono ? 'font-mono text-xs' : ''}`}>{(v ?? '') === '' ? '—' : String(v)}</span>
     </div>
   )
@@ -81,16 +83,16 @@ function Overview({ cfg, dep, arbiter, onDeleteNode, onOpenTerminal }) {
   const exportUrl = cfg.exportPort ? `${host}:${cfg.exportPort}` : null
   return (
     <div className="space-y-2 text-sm">
-      <KV k="Cluster" v={cfg.cluster} />
-      <KV k="Role" v={arbiter ? 'arbitrator (garbd)' : 'regular (data)'} />
-      <KV k="FQDN" v={cfg.fqdn} mono />
-      <KV k="server-id" v={cfg.serverId} />
-      {cfg.serverVersion && <KV k="Version" v={cfg.serverVersion} mono />}
-      <KV k="Image" v={cfg.image} mono />
-      <KV k="GTID" v={cfg.gtid ? 'on' : 'off'} />
-      <KV k="TLS" v={cfg.generateCert ? 'Intranet CA' : 'none'} />
-      <KV k="Monitored by" v={cfg.monitoredBy} mono />
-      <KV k="Ports" v={(cfg.ports || []).join(', ')} mono />
+      <KV k="Cluster" help={DEP_HELP.Cluster} v={cfg.cluster} />
+      <KV k="Role" help={DEP_HELP.Role} v={arbiter ? 'arbitrator (garbd)' : 'regular (data)'} />
+      <KV k="FQDN" help={DEP_HELP.FQDN} v={cfg.fqdn} mono />
+      <KV k="server-id" help={DEP_HELP['server-id']} v={cfg.serverId} />
+      {cfg.serverVersion && <KV k="Version" help={DEP_HELP.Version} v={cfg.serverVersion} mono />}
+      <KV k="Image" help={DEP_HELP.Image} v={cfg.image} mono />
+      <KV k="GTID" help={DEP_HELP.GTID} v={cfg.gtid ? 'on' : 'off'} />
+      <KV k="TLS" help={DEP_HELP.TLS} v={cfg.generateCert ? 'Intranet CA' : 'none'} />
+      <KV k="Monitored by" help={DEP_HELP['Monitored by']} v={cfg.monitoredBy} mono />
+      <KV k="Ports" help={DEP_HELP.Ports} v={(cfg.ports || []).join(', ')} mono />
       {!arbiter && exportUrl && (
         <div>
           <div className="text-xs text-muted">Host access (3306)</div>
@@ -100,7 +102,7 @@ function Overview({ cfg, dep, arbiter, onDeleteNode, onOpenTerminal }) {
           </div>
         </div>
       )}
-      <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+      <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
       <Button variant="outline" size="sm" className="mt-2 w-full" onClick={onOpenTerminal}>
         <Icon.Nodes size={16} /> Open root console
       </Button>

@@ -4,6 +4,8 @@ import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE, k3dApi } from '../lib/stackApi.js'
 import { SecretInline } from '../components/Secret.jsx'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
+import { Help } from '../components/Tooltip.jsx'
+import { HELP, TOOL_HELP, DEP_HELP } from '../lib/help.js'
 
 // K3DManager — a running k3s node of a K3D cluster frame.
 //
@@ -24,11 +26,11 @@ function CopyButton({ text }) {
 
 // KV renders one label/value row. `v` may be a React node — a link, a masked secret — so only
 // primitives go through String(): an element would come out as "[object Object]".
-function KV({ k, v, mono }) {
+function KV({ k, v, mono, help }) {
   const empty = v == null || v === ''
   return (
     <div className="flex justify-between gap-3">
-      <span className="text-muted">{k}</span>
+      <span className="flex shrink-0 items-center gap-1 text-muted">{k}<Help text={help} /></span>
       <span className={`truncate text-fg ${mono ? 'font-mono text-xs' : ''}`}>
         {empty ? '—' : typeof v === 'object' ? v : String(v)}
       </span>
@@ -104,11 +106,11 @@ function UsersTab({ stackId, frame, isServer }) {
 
       <div className="space-y-2 rounded-lg border p-2">
         <div className="grid grid-cols-2 gap-2">
-          <Field label="Username">
+          <Field label="Username" help={TOOL_HELP.k8sUsername}>
             <input className={inputCls} value={form.username}
               onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} placeholder="alice" />
           </Field>
-          <Field label="Role">
+          <Field label="Role" help={TOOL_HELP.k8sRole}>
             <select className={inputCls} value={form.role}
               onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}>
               {Object.keys(ROLE_HELP).map((r) => <option key={r} value={r}>{r}</option>)}
@@ -116,7 +118,7 @@ function UsersTab({ stackId, frame, isServer }) {
           </Field>
         </div>
         {form.role !== 'cluster-admin' && (
-          <Field label="Namespace">
+          <Field label="Namespace" help={HELP.k8sNamespace}>
             <input className={inputCls} value={form.namespace}
               onChange={(e) => setForm((f) => ({ ...f, namespace: e.target.value }))} placeholder="default" />
           </Field>
@@ -217,41 +219,41 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
 
       {tab === 'overview' && (
         <div className="space-y-2 text-sm">
-          <KV k="Cluster" v={cfg.cluster} mono />
-          <KV k="Role" v={cfg.role === 'server' ? 'server (control plane)' : 'agent (worker)'} />
-          <KV k="FQDN" v={cfg.fqdn} mono />
-          <KV k="Nodes" v={cfg.nodes} />
-          <KV k="Kubernetes" v={cfg.k3sVersion || cfg.serverVersion} mono />
-          <KV k="Budget" v={`${cfg.cpus} CPU · ${cfg.memoryGb} GiB (whole cluster)`} />
-          {cfg.diskLimit && <KV k="Disk limit" v={cfg.diskLimit} />}
-          <KV k="LoadBalancer pool" v={cfg.metallbRange || 'MetalLB not installed'} mono />
-          <KV k="Operator" v={cfg.operator ? `${cfg.operator.toUpperCase()} ${cfg.operatorVer}` : 'none'} />
-          {cfg.operator && <KV k="Namespace" v={ns} mono />}
-          {cfg.operator && <KV k="Database cluster" v={cr} mono />}
-          {cfg.operator && isCNPG && <KV k="Status" v={cfg.cnpgStatus || 'unknown'} />}
-          {cfg.operator && isCNPG && <KV k="Instances" v={`${cfg.cnpgInstances} · ${cfg.cnpgStorageGb} GiB each`} />}
-          {cfg.operator && isCNPG && <KV k="PostgreSQL" v={cfg.cnpgPgVersion || "operator default"} />}
-          {cfg.operator && isCNPG && <KV k="Expose · Postgres" v={cfg.cnpgExpose || 'ClusterIP'} />}
-          {cfg.operator && isCNPG && <KV k="Endpoint" v={cfg.cnpgEndpoint || '—'} mono />}
-          {cfg.operator && isCNPG && cfg.cnpgPooler && <KV k="PgBouncer" v={`${cfg.cnpgPoolerInstances} pod(s) · ${cfg.cnpgPoolerMode} · ${cfg.cnpgPoolerExpose}`} />}
-          {cfg.operator && isCNPG && cfg.cnpgPooler && <KV k="PgBouncer endpoint" v={cfg.cnpgPoolerEndpoint || '—'} mono />}
-          {cfg.operator && isCNPG && <KV k="App role / database" v={`${cfg.cnpgAppUser || '—'} / ${cfg.cnpgAppDb || '—'}`} mono />}
-          {cfg.operator && isCNPG && <KV k="Password in Secret" v={cfg.cnpgAppSecret || '—'} mono />}
-          {cfg.operator && isPGO && <KV k="Status" v={cfg.pgoStatus || 'unknown'} />}
-          {cfg.operator && isPGO && <KV k="Instances" v={`${cfg.pgoInstances} · ${cfg.pgoStorageGb} GiB each`} />}
-          {cfg.operator && isPGO && <KV k="PostgreSQL" v={cfg.pgoPgVersion || '—'} />}
-          {cfg.operator && isPGO && <KV k="Endpoint" v={cfg.pgoEndpoint || '—'} mono />}
-          {cfg.operator && isPGO && <KV k="App role / database" v={`${cfg.pgoAppUser || '—'} / ${cfg.pgoAppDb || '—'}`} mono />}
-          {cfg.operator && isPGO && <KV k="Password in Secret" v={cfg.pgoAppSecret || '—'} mono />}
-          {cfg.operator && isPS && <KV k="Replication" v={cfg.clusterType === 'async' ? 'Async (Orchestrator)' : 'Group Replication'} />}
-          {cfg.operator && !isCNPG && <KV k={isMongo ? 'Topology' : 'Front end'} v={isMongo ? (cfg.sharding ? 'Sharded (rs0 + config servers + mongos)' : 'Replica set (rs0)') : frontEnd} />}
-          {cfg.operator && !isCNPG && <KV k={isMongo ? 'Expose · replica set' : 'Expose · database'} v={exposeDb} />}
+          <KV k="Cluster" help={DEP_HELP.Cluster} v={cfg.cluster} mono />
+          <KV k="Role" help={DEP_HELP.Role} v={cfg.role === 'server' ? 'server (control plane)' : 'agent (worker)'} />
+          <KV k="FQDN" help={DEP_HELP.FQDN} v={cfg.fqdn} mono />
+          <KV k="Nodes" help={DEP_HELP.Nodes} v={cfg.nodes} />
+          <KV k="Kubernetes" help={DEP_HELP.Kubernetes} v={cfg.k3sVersion || cfg.serverVersion} mono />
+          <KV k="Budget" help={DEP_HELP.Budget} v={`${cfg.cpus} CPU · ${cfg.memoryGb} GiB (whole cluster)`} />
+          {cfg.diskLimit && <KV k="Disk limit" help={DEP_HELP['Disk limit']} v={cfg.diskLimit} />}
+          <KV k="LoadBalancer pool" help={DEP_HELP['LoadBalancer pool']} v={cfg.metallbRange || 'MetalLB not installed'} mono />
+          <KV k="Operator" help={DEP_HELP.Operator} v={cfg.operator ? `${cfg.operator.toUpperCase()} ${cfg.operatorVer}` : 'none'} />
+          {cfg.operator && <KV k="Namespace" help={DEP_HELP.Namespace} v={ns} mono />}
+          {cfg.operator && <KV k="Database cluster" help={DEP_HELP['Database cluster']} v={cr} mono />}
+          {cfg.operator && isCNPG && <KV k="Status" help={DEP_HELP.Status} v={cfg.cnpgStatus || 'unknown'} />}
+          {cfg.operator && isCNPG && <KV k="Instances" help={DEP_HELP.Instances} v={`${cfg.cnpgInstances} · ${cfg.cnpgStorageGb} GiB each`} />}
+          {cfg.operator && isCNPG && <KV k="PostgreSQL" help={DEP_HELP.PostgreSQL} v={cfg.cnpgPgVersion || "operator default"} />}
+          {cfg.operator && isCNPG && <KV k="Expose · Postgres" help={DEP_HELP['Expose · Postgres']} v={cfg.cnpgExpose || 'ClusterIP'} />}
+          {cfg.operator && isCNPG && <KV k="Endpoint" help={DEP_HELP.Endpoint} v={cfg.cnpgEndpoint || '—'} mono />}
+          {cfg.operator && isCNPG && cfg.cnpgPooler && <KV k="PgBouncer" help={DEP_HELP.PgBouncer} v={`${cfg.cnpgPoolerInstances} pod(s) · ${cfg.cnpgPoolerMode} · ${cfg.cnpgPoolerExpose}`} />}
+          {cfg.operator && isCNPG && cfg.cnpgPooler && <KV k="PgBouncer endpoint" help={DEP_HELP['PgBouncer endpoint']} v={cfg.cnpgPoolerEndpoint || '—'} mono />}
+          {cfg.operator && isCNPG && <KV k="App role / database" help={DEP_HELP['App role / database']} v={`${cfg.cnpgAppUser || '—'} / ${cfg.cnpgAppDb || '—'}`} mono />}
+          {cfg.operator && isCNPG && <KV k="Password in Secret" help={DEP_HELP['Password in Secret']} v={cfg.cnpgAppSecret || '—'} mono />}
+          {cfg.operator && isPGO && <KV k="Status" help={DEP_HELP.Status} v={cfg.pgoStatus || 'unknown'} />}
+          {cfg.operator && isPGO && <KV k="Instances" help={DEP_HELP.Instances} v={`${cfg.pgoInstances} · ${cfg.pgoStorageGb} GiB each`} />}
+          {cfg.operator && isPGO && <KV k="PostgreSQL" help={DEP_HELP.PostgreSQL} v={cfg.pgoPgVersion || '—'} />}
+          {cfg.operator && isPGO && <KV k="Endpoint" help={DEP_HELP.Endpoint} v={cfg.pgoEndpoint || '—'} mono />}
+          {cfg.operator && isPGO && <KV k="App role / database" help={DEP_HELP['App role / database']} v={`${cfg.pgoAppUser || '—'} / ${cfg.pgoAppDb || '—'}`} mono />}
+          {cfg.operator && isPGO && <KV k="Password in Secret" help={DEP_HELP['Password in Secret']} v={cfg.pgoAppSecret || '—'} mono />}
+          {cfg.operator && isPS && <KV k="Replication" help={DEP_HELP.Replication} v={cfg.clusterType === 'async' ? 'Async (Orchestrator)' : 'Group Replication'} />}
+          {cfg.operator && !isCNPG && <KV k={isMongo ? 'Topology' : 'Front end'} help={isMongo ? DEP_HELP.Topology : DEP_HELP.Backend} v={isMongo ? (cfg.sharding ? 'Sharded (rs0 + config servers + mongos)' : 'Replica set (rs0)') : frontEnd} />}
+          {cfg.operator && !isCNPG && <KV k={isMongo ? 'Expose · replica set' : 'Expose · database'} help={HELP.k8sExpose} v={exposeDb} />}
           {cfg.operator && !isCNPG && (!isMongo || cfg.sharding) && (
-            <KV k={isMongo ? 'Expose · mongos' : isPG ? 'Expose · pgBouncer' : 'Expose · proxy'} v={exposeFront} />
+            <KV k={isMongo ? 'Expose · mongos' : isPG ? 'Expose · pgBouncer' : 'Expose · proxy'} help={HELP.k8sExpose} v={exposeFront} />
           )}
-          <KV k="Backups" v={cfg.backupRepo || 'none'} />
+          <KV k="Backups" help={DEP_HELP.Backups} v={cfg.backupRepo || 'none'} />
           {cfg.debugStatus && (
-            <KV k="Debugger"
+            <KV k="Debugger" help={DEP_HELP.Debugger}
               v={cfg.debugStatus === 'listening'
                 ? (cfg.debugPort
                   ? `Delve on 127.0.0.1:${cfg.debugPort} (in-stack ${cfg.fqdn}:${cfg.debugNodePort})`
@@ -259,28 +261,28 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
                 : cfg.debugStatus}
               mono={cfg.debugStatus === 'listening'} />
           )}
-          <KV k="Monitored by" v={cfg.monitoredBy} mono />
-          {cfg.monitoredBy && !isCNPG && !isPGO && <KV k="PMM service token" v={cfg.pmmToken || 'not created'} />}
+          <KV k="Monitored by" help={DEP_HELP['Monitored by']} v={cfg.monitoredBy} mono />
+          {cfg.monitoredBy && !isCNPG && !isPGO && <KV k="PMM service token" help={DEP_HELP['PMM service token']} v={cfg.pmmToken || 'not created'} />}
           {cfg.grafanaUrl && (
-            <KV k="Grafana" v={cfg.grafanaUrl === 'pending' ? 'awaiting a LoadBalancer address' : (
+            <KV k="Grafana" help={DEP_HELP.Grafana} v={cfg.grafanaUrl === 'pending' ? 'awaiting a LoadBalancer address' : (
               <a className="text-accent underline" href={cfg.grafanaUrl} target="_blank" rel="noreferrer">{cfg.grafanaUrl}</a>
             )} />
           )}
           {/* The address above is a MetalLB one, so the Service it came from is worth naming:
               it is the single `kubectl get svc` that confirms it, and the only way to find the
               address again if the pool ever reassigns it. */}
-          {cfg.grafanaService && <KV k="Grafana service" v={cfg.grafanaService} mono />}
+          {cfg.grafanaService && <KV k="Grafana service" help={DEP_HELP['Grafana service']} v={cfg.grafanaService} mono />}
           {/* Credentials, so signing in does not mean going and reading $GRAFANA_PASSWORD.
               The password is masked in place — same contract as every other secret row. */}
-          {cfg.grafanaUrl && <KV k="Grafana user" v={cfg.grafanaUser || 'admin'} mono />}
+          {cfg.grafanaUrl && <KV k="Grafana user" help={DEP_HELP['Grafana user']} v={cfg.grafanaUser || 'admin'} mono />}
           {cfg.grafanaUrl && sec.grafanaPassword && (
-            <KV k="Grafana password" v={<SecretInline value={sec.grafanaPassword} />} />
+            <KV k="Grafana password" help={DEP_HELP['Grafana password']} v={<SecretInline value={sec.grafanaPassword} />} />
           )}
           {/* Whether a dashboard landed is worth stating: Grafana with Prometheus wired up
               but nothing to look at is the state that reads as "monitoring doesn't work". */}
-          {cfg.grafanaUrl && <KV k="Grafana dashboard" v={cfg.grafanaDashboard || 'none installed'} />}
-          {cfg.manifestDir && <KV k="Manifests" v={cfg.manifestDir} mono />}
-          <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+          {cfg.grafanaUrl && <KV k="Grafana dashboard" help={DEP_HELP['Grafana dashboard']} v={cfg.grafanaDashboard || 'none installed'} />}
+          {cfg.manifestDir && <KV k="Manifests" help={DEP_HELP.Manifests} v={cfg.manifestDir} mono />}
+          <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
           <Button variant="outline" size="sm" className="mt-2 w-full"
             onClick={() => openTerminal({ stackId, nodeId, title: `${cfg.hostname} · root` })}>
             <Icon.Nodes size={16} /> Open root console
@@ -340,7 +342,7 @@ kubectl get svc -n ${ns}`} />
             helm-controller — so there is no release tarball on disk. The manifests DBCanvas generated and applied
             are archived on the server node instead.
           </div>
-          <KV k="Manifests" v={cfg.manifestDir || '—'} mono />
+          <KV k="Manifests" help={DEP_HELP.Manifests} v={cfg.manifestDir || '—'} mono />
           <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-snug text-muted">
             <span className="font-medium text-fg">The application role is deliberately not a superuser.</span>{' '}
             pgBouncer authenticates through an auth_query whose function excludes superusers, so a superuser
@@ -373,7 +375,7 @@ cd ${cfg.manifestDir || '/root/pgo'} && for f in [0-9]*.yaml; do kubectl apply -
             <span className="font-mono"> deploy/bundle.yaml</span> and the <span className="font-mono">cr.yaml</span> that
             was actually applied — is on the server node.
           </div>
-          <KV k="Source" v={cfg.operatorSrc} mono />
+          <KV k="Source" help={DEP_HELP.Source} v={cfg.operatorSrc} mono />
           <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-snug text-muted">
             <span className="font-medium text-fg">cr.yaml was rewritten before it was applied:</span> every section's
             CPU/memory requests are commented out (the shipped requests do not fit this budget)

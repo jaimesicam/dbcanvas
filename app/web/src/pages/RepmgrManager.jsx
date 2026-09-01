@@ -5,6 +5,8 @@ import { DEPLOY_TONE, repmgrApi } from '../lib/stackApi.js'
 import { PGGatherCard } from '../components/Diagnostics.jsx'
 import PGCertTab from '../components/PGCertTab.jsx'
 import { SecretValue } from '../components/Secret.jsx'
+import { Help } from '../components/Tooltip.jsx'
+import { DEP_HELP } from '../lib/help.js'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -31,10 +33,10 @@ function CopyButton({ text, title = 'Copy', size = 14 }) {
   )
 }
 
-function KV({ k, v, mono }) {
+function KV({ k, v, mono, help }) {
   return (
     <div className="flex justify-between gap-3">
-      <span className="text-muted">{k}</span>
+      <span className="flex shrink-0 items-center gap-1 text-muted">{k}<Help text={help} /></span>
       <span className={`truncate text-fg ${mono ? 'font-mono text-xs' : ''}`}>{v || '—'}</span>
     </div>
   )
@@ -95,17 +97,17 @@ export default function RepmgrManager({ stackId, nodeId, frame, dep, onDeleteNod
 function Overview({ cfg, dep, onDeleteNode }) {
   return (
     <div className="space-y-2 text-sm">
-      <KV k="Cluster" v={cfg.cluster} mono />
-      <KV k="Role (initial)" v={cfg.role === 'primary' ? 'Primary' : 'Standby'} />
-      <KV k="repmgr node_id" v={cfg.nodeId ? String(cfg.nodeId) : '—'} mono />
-      <KV k="FQDN" v={cfg.fqdn} mono />
-      <KV k="PostgreSQL" v={cfg.pgVersion || cfg.pgMajor} mono />
-      {cfg.serverVersion && <KV k="Version" v={cfg.serverVersion} mono />}
-      <KV k="Image" v={cfg.image} mono />
-      <KV k="Barman backups" v={cfg.useBarman ? (cfg.backupRepo || 'enabled') : 'disabled'} />
-      <KV k="TLS" v={cfg.generateCert ? 'Intranet-CA cert' : 'off'} />
-      <KV k="Host port (5432)" v={cfg.exportPort ? String(cfg.exportPort) : 'not published'} mono />
-      <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+      <KV k="Cluster" help={DEP_HELP.Cluster} v={cfg.cluster} mono />
+      <KV k="Role (initial)" help={DEP_HELP['Role (initial)']} v={cfg.role === 'primary' ? 'Primary' : 'Standby'} />
+      <KV k="repmgr node_id" help={DEP_HELP['repmgr node_id']} v={cfg.nodeId ? String(cfg.nodeId) : '—'} mono />
+      <KV k="FQDN" help={DEP_HELP.FQDN} v={cfg.fqdn} mono />
+      <KV k="PostgreSQL" help={DEP_HELP.PostgreSQL} v={cfg.pgVersion || cfg.pgMajor} mono />
+      {cfg.serverVersion && <KV k="Version" help={DEP_HELP.Version} v={cfg.serverVersion} mono />}
+      <KV k="Image" help={DEP_HELP.Image} v={cfg.image} mono />
+      <KV k="Barman backups" help={DEP_HELP['Barman backups']} v={cfg.useBarman ? (cfg.backupRepo || 'enabled') : 'disabled'} />
+      <KV k="TLS" help={DEP_HELP.TLS} v={cfg.generateCert ? 'Intranet-CA cert' : 'off'} />
+      <KV k="Host port (5432)" help={DEP_HELP['Host port (5432)']} v={cfg.exportPort ? String(cfg.exportPort) : 'not published'} mono />
+      <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
       </Button>
