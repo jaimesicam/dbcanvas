@@ -115,6 +115,18 @@ func main() {
 	mux.HandleFunc("POST /api/stacks/{id}/validate", app.handleValidateStack)
 	mux.HandleFunc("POST /api/stacks/{id}/deploy", app.handleDeployStack)
 	mux.HandleFunc("POST /api/stacks/{id}/destroy", app.handleDestroyStack)
+	// Deployment templates (templates.go). "import" is registered before "{id}"
+	// so the literal wins — Go's mux prefers the more specific pattern, but the
+	// ordering also keeps the intent obvious to anyone adding a route here.
+	mux.HandleFunc("GET /api/templates", app.handleListTemplates)
+	mux.HandleFunc("POST /api/templates", app.handleCreateTemplate)
+	mux.HandleFunc("POST /api/templates/import", app.handleImportTemplate)
+	mux.HandleFunc("GET /api/templates/{id}", app.handleGetTemplate)
+	mux.HandleFunc("PUT /api/templates/{id}", app.handleUpdateTemplate)
+	mux.HandleFunc("DELETE /api/templates/{id}", app.handleDeleteTemplate)
+	mux.HandleFunc("POST /api/templates/{id}/share", app.handleShareTemplate)
+	mux.HandleFunc("GET /api/templates/{id}/export", app.handleExportTemplate)
+
 	mux.HandleFunc("GET /api/labs", app.handleListLabs)
 	mux.HandleFunc("GET /api/labs/runs", app.handleListMyLabRuns)
 	mux.HandleFunc("POST /api/labs/{id}/start", app.handleStartLab)

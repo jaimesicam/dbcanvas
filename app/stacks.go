@@ -101,6 +101,11 @@ func (a *App) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 		Name   string          `json:"name"`
 		TTL    string          `json:"ttl"`
 		Design json.RawMessage `json:"design"`
+		// TemplateID seeds the new stack from a deployment template (templates.go).
+		// The server reads the design out of the template rather than taking a
+		// round-tripped copy from the client, so what gets created is what the
+		// template actually says. Ignored when Design is given explicitly.
+		TemplateID string `json:"templateId"`
 	}
 	if err := decode(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
@@ -117,6 +122,17 @@ func (a *App) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 	design := []byte(defaultDesign)
 	if len(body.Design) > 0 {
 		design = body.Design
+	} else if body.TemplateID != "" {
+		t, err := a.loadTemplate(body.TemplateID, u)
+		if err != nil {
+			writeTemplateLoadErr(w, err)
+			return
+		}
+		// A template's node ids only have to be unique within one stack, and this
+		// is a brand-new one — so the design is copied verbatim. Merging a template
+		// into an *existing* canvas is the case that needs remapping, and that one
+		// runs in the designer (see StackDesigner.jsx's insertTemplate).
+		design = t.Design
 	}
 	st, err := a.store.CreateStack(name, u.ID, body.TTL, expiryFor(body.TTL), design)
 	if err != nil {

@@ -354,6 +354,62 @@ download it: **pg_gather** (a single `GatherReport.html`) on PostgreSQL nodes, o
 **pt-stalk** + `pt-summary` + `pt-mysql-summary` (a tarball) on MySQL/PXC nodes. Feed a
 pt-stalk archive straight into **Stalk Summary** (below) to chart it.
 
+## Templates — save a topology, deploy it again
+
+A **template** is a canvas design detached from any one stack: the nodes, the clusters, the
+links and every option set on them, reusable as the starting point for the next stack.
+
+**The built-in defaults.** Eleven ship with the app, covering the engine families:
+
+| Category | Template |
+| --- | --- |
+| Getting started | Starter — Percona Server (one node plus a desktop to reach it from) |
+| MySQL | PXC + ProxySQL + PMM · Percona Server replication + Orchestrator · InnoDB Cluster |
+| PostgreSQL | Patroni + HAProxy · PostgreSQL + pgBackRest |
+| MongoDB | PSMDB replica set + PBM · PSMDB sharded cluster |
+| Valkey | Valkey Cluster |
+| Kubernetes | Percona Operator for MySQL (PXC) on k3s |
+| All in One | Four engines in one container |
+
+None of them pins a minor version — they take whatever this installation's `make versions`
+found — so they deploy on any host regardless of which builds it probed.
+
+**Two ways to apply one.** From the stack list, **New stack** offers a *Start from* picker
+that seeds the whole design. From inside the designer, **Insert template** merges one into
+what is already on the canvas — which means resolving the collisions a merge creates:
+
+- Every node and cluster gets a fresh id, and every reference to it follows — the PMM node a
+  cluster is monitored by, the SeaweedFS node a backup targets, the frame a member belongs to.
+- A node the stack may only have one of (the Intranet, Keycloak, the VNC desktop) is **not
+  duplicated** — the template's copy is dropped and anything pointing at it is redirected to
+  the one already there.
+- Labels become DNS hostnames and must be unique, so a colliding one is numbered: a second
+  `pxc-1` arrives as `pxc-1-2`.
+- The block is placed clear of existing nodes rather than on top of them.
+
+Whatever it had to change is reported when the insert lands, so a rename never surfaces later
+as a deploy error nobody can trace.
+
+**Saving one.** **Save as template** in the designer's toolbar captures the open canvas.
+Three classes of field are deliberately *not* saved, because a template is meant to be reused,
+exported and shared:
+
+- **Passwords and generated secrets** — root and admin passwords, the VNC password, SeaweedFS
+  S3 keys, a Stock Market Sim connection string. Every one of them already falls back to
+  `.env`, so the template picks up this installation's values each time it is used.
+- **Host paths** — the core-dump and library directories a Linux Client bind-mounts, and any
+  pinned block device. They name something about one machine.
+- **Fixed host ports** — reset to auto-assign, so instantiating one template twice on a host
+  does not collide on the second deploy.
+
+**Sharing and portability.** A template you save is yours alone. An **admin** can publish one
+instance-wide, and it then appears in everyone's picker alongside the built-ins. Any template —
+including a built-in — can be **exported** to a `.json` file and **imported** into another
+DBCanvas installation, so a topology can be checked into git or handed to a colleague. The
+design is sanitized again on import, since a file from elsewhere is not to be trusted.
+
+Built-in templates can be applied and exported but never renamed, edited or deleted.
+
 ## Deployment backends — Docker or Vagrant (hybrid)
 
 Each user picks a **Deployment** backend in **Settings**; it applies to the *next* deploy of

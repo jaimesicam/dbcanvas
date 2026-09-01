@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
 import { Card, Button, Badge, Field, ConfirmButton, inputCls } from '../components/ui.jsx'
-import { stackApi, frameApi, TTL_OPTIONS, DEPLOY_TONE, NODE_UPLOAD_DESTS, PRODUCT_OS_FAMILIES } from '../lib/stackApi.js'
+import { stackApi, templateApi, isBuiltinTemplate, frameApi, TTL_OPTIONS, DEPLOY_TONE, NODE_UPLOAD_DESTS, PRODUCT_OS_FAMILIES } from '../lib/stackApi.js'
 import { kindOf as aioKindOf, familyOf as aioFamilyOf } from '../lib/aioPorts.js'
 import IntranetManager from './IntranetManager.jsx'
 import SambaManager from './SambaManager.jsx'
@@ -33,6 +33,7 @@ import {
   PORTS, dist, portPoint, edgePath, screenToWorld, zoomAt,
 } from '../lib/canvas.js'
 import { useSettings } from '../settings/SettingsProvider.jsx'
+import { useAuth } from '../auth/AuthProvider.jsx'
 
 const NODE_W = 212
 const NODE_H = 104
@@ -883,6 +884,153 @@ function nextLabel(type, nodes) {
   return `${base}-${String(max + 1).padStart(2, '0')}`
 }
 
+// ------------------------------------------------------- template insertion
+
+// uniqueLabel returns label if it is free, else the lowest "label-N" (from 2) that
+// is. The "-N" shape is not invented here: psmdbMembers already names a second
+// sharded frame's members mongos-2 / cfg1-2 / s0r1-2, so a template inserted twice
+// reads the same way as a cluster added twice.
+function uniqueLabel(label, used) {
+  if (!used.has(label)) return label
+  for (let i = 2; ; i++) {
+    const candidate = `${label}-${i}`
+    if (!used.has(candidate)) return candidate
+  }
+}
+
+// remapIds deep-copies an object, replacing any string that is a key of idMap with
+// its mapped value. Design objects reference other nodes and frames through a dozen
+// differently-named fields — frameId, pmmNodeId, watchtowerNodeId, keycloakNodeId,
+// seaweedfsNodeId, ldapDirNodeId, openbaoNodeId, orchestratorNodeId, ssAIONode, both
+// edge endpoints, and more inside aioInstances[] — and the set grows with every new
+// node type. Matching on the *value* covers all of them, including the ones that do
+// not exist yet, which a field list could not.
+function remapIds(value, idMap) {
+  if (typeof value === 'string') return idMap[value] ?? value
+  if (Array.isArray(value)) return value.map((v) => remapIds(v, idMap))
+  if (value && typeof value === 'object') {
+    const out = {}
+    for (const [k, v] of Object.entries(value)) out[k] = remapIds(v, idMap)
+    return out
+  }
+  return value
+}
+
+// boundsOf is the bounding box of a set of nodes and frames, or null when empty.
+function boundsOf(nodes, frames) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  const add = (x, y, w, h) => {
+    minX = Math.min(minX, x); minY = Math.min(minY, y)
+    maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h)
+  }
+  for (const n of nodes) add(n.x, n.y, n.frameId ? PXC_NODE_W : NODE_W, n.frameId ? PXC_NODE_H : NODE_H)
+  for (const f of frames) add(f.x, f.y, f.w || 0, f.h || 0)
+  return minX === Infinity ? null : { minX, minY, maxX, maxY }
+}
+
+const TEMPLATE_INSERT_GAP = 60
+
+// insertTemplateDesign merges a template's design into the canvas already open.
+// It is the half of "load a template" that a fresh stack does not need: a new stack
+// takes the design verbatim (node ids only have to be unique within one stack), but
+// merging into existing content has to resolve four collisions.
+//
+//   ids       — every node and frame gets a new id, and every reference to it is
+//               rewritten (see remapIds).
+//   singletons— a type the canvas may only hold one of (Intranet, Keycloak, VNC…)
+//               is not duplicated; the template's copy is dropped and anything that
+//               pointed at it is redirected to the node already there.
+//   labels    — labels become DNS hostnames and must be unique stack-wide, so a
+//               colliding one is suffixed rather than silently breaking the deploy.
+//   position  — the whole block is offset clear of what is already on the canvas,
+//               so an insert never lands on top of existing nodes.
+//
+// Returns the merged design plus what it had to change, so the caller can say so.
+export function insertTemplateDesign(tpl, current, uid) {
+  const curNodes = current.nodes || []
+  const curFrames = current.frames || []
+  const curEdges = current.edges || []
+  const tplNodes = tpl.nodes || []
+  const tplFrames = tpl.frames || []
+  const tplEdges = tpl.edges || []
+
+  // 1. ids, and the singletons that resolve to a node already on the canvas.
+  const idMap = {}
+  const skipped = []
+  const keptNodes = []
+  for (const n of tplNodes) {
+    const def = NODE_TYPES[n.type]
+    const incumbent = def?.singleton ? curNodes.find((x) => x.type === n.type) : null
+    if (incumbent) {
+      idMap[n.id] = incumbent.id
+      skipped.push(def.label || n.type)
+      continue
+    }
+    idMap[n.id] = uid(def?.slug || n.type)
+    keptNodes.push(n)
+  }
+  for (const f of tplFrames) idMap[f.id] = uid('frame')
+
+  // 2. offset the block below whatever is already there.
+  const curBox = boundsOf(curNodes, curFrames)
+  const tplBox = boundsOf(keptNodes, tplFrames)
+  let dx = 0, dy = 0
+  if (curBox && tplBox) {
+    dx = curBox.minX - tplBox.minX
+    dy = curBox.maxY + TEMPLATE_INSERT_GAP - tplBox.minY
+  }
+
+  // 3. rewrite ids, then labels.
+  const usedNodeLabels = new Set(curNodes.map((n) => n.label))
+  const renamed = []
+  const newNodes = keptNodes.map((n) => {
+    const out = remapIds(n, idMap)
+    out.x = n.x + dx
+    out.y = n.y + dy
+    const label = uniqueLabel(n.label, usedNodeLabels)
+    if (label !== n.label) renamed.push({ from: n.label, to: label })
+    usedNodeLabels.add(label)
+    out.label = label
+    return out
+  })
+  const usedFrameLabels = new Set(curFrames.map((f) => f.label))
+  const newFrames = tplFrames.map((f) => {
+    const out = remapIds(f, idMap)
+    out.x = f.x + dx
+    out.y = f.y + dy
+    const label = uniqueLabel(f.label, usedFrameLabels)
+    if (label !== f.label) renamed.push({ from: f.label, to: label })
+    usedFrameLabels.add(label)
+    out.label = label
+    return out
+  })
+
+  // 4. edges. An edge whose two ends collapsed onto the same node (both were
+  // singletons the canvas already had) is meaningless, and one that duplicates a
+  // link already drawn would render twice over the same path.
+  const edgeKey = (e) => `${e.from.node}:${e.from.port}->${e.to.node}:${e.to.port}`
+  const seen = new Set(curEdges.map(edgeKey))
+  const newEdges = []
+  for (const e of tplEdges) {
+    const out = remapIds(e, idMap)
+    out.id = uid('edge')
+    if (out.from.node === out.to.node) continue
+    const key = edgeKey(out)
+    if (seen.has(key)) continue
+    seen.add(key)
+    newEdges.push(out)
+  }
+
+  return {
+    nodes: [...curNodes, ...newNodes],
+    frames: [...curFrames, ...newFrames],
+    edges: [...curEdges, ...newEdges],
+    added: newNodes.length,
+    skipped,
+    renamed,
+  }
+}
+
 // Small SVG progress ring (upper-right of a provisioning node).
 function ProgressRing({ percent = 0, size = 24 }) {
   const r = (size - 5) / 2
@@ -902,6 +1050,7 @@ const STATUS_TONE = { draft: 'muted', deployed: 'success', expired: 'danger' }
 
 export default function StackDesigner() {
   const [stacks, setStacks] = useState([])
+  const [templates, setTemplates] = useState([])
   const [openId, setOpenId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -917,22 +1066,40 @@ export default function StackDesigner() {
     }
   }, [])
 
+  // Templates load alongside the stacks and are handed down to both views: the
+  // list needs them for the New stack picker, the editor for Insert template.
+  const loadTemplates = useCallback(async () => {
+    try {
+      setTemplates(await templateApi.list())
+    } catch { /* the picker just shows Blank canvas */ }
+  }, [])
+
   useEffect(() => {
     load()
-  }, [load])
+    loadTemplates()
+  }, [load, loadTemplates])
 
   if (openId != null) {
-    return <StackEditor stackId={openId} onBack={() => { setOpenId(null); load() }} />
+    return (
+      <StackEditor
+        stackId={openId}
+        templates={templates}
+        onTemplatesChanged={loadTemplates}
+        onBack={() => { setOpenId(null); load() }}
+      />
+    )
   }
 
   return (
     <StackList
       stacks={stacks}
+      templates={templates}
       loading={loading}
       error={error}
       onOpen={setOpenId}
       onCreated={(s) => setOpenId(s.id)}
       onChanged={load}
+      onTemplatesChanged={loadTemplates}
     />
   )
 }
@@ -953,8 +1120,9 @@ function expiresIn(iso) {
   return `expires in ${Math.max(1, Math.floor(ms / 6e4))}m`
 }
 
-function StackList({ stacks, loading, error, onOpen, onCreated, onChanged }) {
+function StackList({ stacks, templates, loading, error, onOpen, onCreated, onChanged, onTemplatesChanged }) {
   const [showNew, setShowNew] = useState(false)
+  const { user } = useAuth()
 
   return (
     <div className="space-y-4">
@@ -1009,8 +1177,11 @@ function StackList({ stacks, loading, error, onOpen, onCreated, onChanged }) {
         </div>
       )}
 
+      <TemplatesPanel templates={templates} isAdmin={user?.role === 'admin'} onChanged={onTemplatesChanged} />
+
       {showNew && (
         <NewStackModal
+          templates={templates}
           onClose={() => setShowNew(false)}
           onCreated={(s) => { setShowNew(false); onCreated(s) }}
         />
@@ -1019,18 +1190,24 @@ function StackList({ stacks, loading, error, onOpen, onCreated, onChanged }) {
   )
 }
 
-function NewStackModal({ onClose, onCreated }) {
+function NewStackModal({ onClose, onCreated, templates }) {
   const [name, setName] = useState('')
   const [ttl, setTtl] = useState('24h')
+  const [templateId, setTemplateId] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+
+  const chosen = templates.find((t) => t.id === templateId)
 
   async function submit(e) {
     e.preventDefault()
     setBusy(true)
     setError('')
     try {
-      const s = await stackApi.create(name.trim() || 'Untitled stack', ttl)
+      // Naming a stack after the template it came from beats "Untitled stack"
+      // when someone picks one and skips the name field.
+      const fallback = chosen ? chosen.name : 'Untitled stack'
+      const s = await stackApi.create(name.trim() || fallback, ttl, undefined, templateId || undefined)
       onCreated(s)
     } catch (err) {
       setError(err.message)
@@ -1040,13 +1217,22 @@ function NewStackModal({ onClose, onCreated }) {
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
-      <div className="w-full max-w-sm rounded-xl border bg-surface p-5 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-md rounded-xl border bg-surface p-5 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
         <h3 className="mb-4 text-sm font-semibold">New stack</h3>
         {error && <div className="mb-3 rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-sm text-danger">{error}</div>}
         <form onSubmit={submit} className="space-y-3">
           <Field label="Name">
-            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="My database stack" autoFocus />
+            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder={chosen ? chosen.name : 'My database stack'} autoFocus />
           </Field>
+          <Field label="Start from" hint="A template puts a whole topology on the canvas; you can edit it before deploying.">
+            <TemplateSelect templates={templates} value={templateId} onChange={setTemplateId} />
+          </Field>
+          {chosen && (
+            <div className="rounded-lg border bg-bg px-3 py-2 text-xs text-muted">
+              {chosen.description}
+              <div className="mt-1 text-fg">{templateSizeLabel(chosen)}</div>
+            </div>
+          )}
           <Field label="Lifetime" hint="The stack and its containers are torn down when this elapses.">
             <select className={inputCls} value={ttl} onChange={(e) => setTtl(e.target.value)}>
               {TTL_OPTIONS.map((t) => (
@@ -1057,6 +1243,317 @@ function NewStackModal({ onClose, onCreated }) {
           <div className="flex justify-end gap-2 pt-1">
             <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
             <Button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create'}</Button>
+          </div>
+        </form>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+// ----------------------------------------------------------------- templates
+
+export function templateSizeLabel(t) {
+  const parts = [`${t.nodes} node${t.nodes === 1 ? '' : 's'}`]
+  if (t.frames) parts.push(`${t.frames} cluster${t.frames === 1 ? '' : 's'}`)
+  return parts.join(' · ')
+}
+
+// groupTemplates buckets the picker by category, built-ins first within each so the
+// defaults stay findable once someone has saved a dozen of their own.
+export function groupTemplates(templates) {
+  const byCategory = new Map()
+  for (const t of templates) {
+    const key = t.category || 'Uncategorized'
+    if (!byCategory.has(key)) byCategory.set(key, [])
+    byCategory.get(key).push(t)
+  }
+  for (const list of byCategory.values()) {
+    list.sort((a, b) => (a.builtin === b.builtin ? a.name.localeCompare(b.name) : a.builtin ? -1 : 1))
+  }
+  return [...byCategory.entries()].map(([category, items]) => ({ category, items }))
+}
+
+function TemplateSelect({ templates, value, onChange, blankLabel = 'Blank canvas' }) {
+  return (
+    <select className={inputCls} value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">{blankLabel}</option>
+      {groupTemplates(templates).map((g) => (
+        <optgroup key={g.category} label={g.category}>
+          {g.items.map((t) => (
+            <option key={t.id} value={t.id}>{t.name} — {templateSizeLabel(t)}</option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
+  )
+}
+
+// TemplatesPanel is the management half: what a template is called, who can see
+// it, and getting one in or out of this installation as a file. Applying one
+// happens elsewhere — from the New stack modal, or the designer's toolbar.
+function TemplatesPanel({ templates, isAdmin, onChanged }) {
+  const [open, setOpen] = useState(false)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState('')
+  const [editing, setEditing] = useState(null)
+  const fileRef = useRef(null)
+
+  async function importFile(file) {
+    if (!file) return
+    setError('')
+    setBusy('import')
+    try {
+      await templateApi.importFile(file)
+      onChanged()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy('')
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  async function togglePublish(t) {
+    setError('')
+    try {
+      await templateApi.share(t.id, !t.shared)
+      onChanged()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const mine = templates.filter((t) => !t.builtin)
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between">
+        <button onClick={() => setOpen((v) => !v)} className="flex items-center gap-2 text-left">
+          <Icon.Chevron size={14} className={open ? '' : '-rotate-90'} />
+          <span className="text-sm font-semibold">Templates</span>
+          <Badge tone="muted">{templates.length}</Badge>
+        </button>
+        <div className="flex gap-1">
+          <input ref={fileRef} type="file" accept=".json,application/json" className="hidden"
+            onChange={(e) => importFile(e.target.files?.[0])} />
+          <Button size="sm" variant="outline" disabled={busy === 'import'} onClick={() => fileRef.current?.click()}>
+            <Icon.Plus size={15} /> {busy === 'import' ? 'Importing…' : 'Import'}
+          </Button>
+        </div>
+      </div>
+
+      {error && <div className="mt-3 rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-sm text-danger">{error}</div>}
+
+      {open && (
+        <div className="mt-3 space-y-3">
+          {groupTemplates(templates).map((g) => (
+            <div key={g.category}>
+              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">{g.category}</div>
+              <div className="space-y-1">
+                {g.items.map((t) => (
+                  <div key={t.id} className="flex items-start gap-2 rounded-lg border bg-bg px-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-sm font-medium text-fg">{t.name}</span>
+                        {t.builtin && <Badge tone="primary">built-in</Badge>}
+                        {t.shared && <Badge tone="success">shared</Badge>}
+                      </div>
+                      <div className="mt-0.5 text-xs text-muted">{t.description}</div>
+                      <div className="mt-0.5 text-xs text-muted">{templateSizeLabel(t)}</div>
+                    </div>
+                    <div className="flex shrink-0 gap-1">
+                      <a href={templateApi.exportUrl(t.id)} download title="Export to a file"
+                        className="rounded-lg p-1.5 text-muted hover:bg-surface2 hover:text-fg">
+                        <Icon.External size={15} />
+                      </a>
+                      {!t.builtin && isAdmin && (
+                        <Button size="sm" variant="ghost" title={t.shared ? 'Unpublish' : 'Publish to everyone'}
+                          onClick={() => togglePublish(t)}>
+                          <Icon.Users size={15} />
+                        </Button>
+                      )}
+                      {!t.builtin && (
+                        <Button size="sm" variant="ghost" title="Rename" onClick={() => setEditing(t)}>
+                          <Icon.Pencil size={15} />
+                        </Button>
+                      )}
+                      {!t.builtin && (
+                        <ConfirmButton size="sm" variant="ghost" title="Delete template" confirmLabel="Delete?"
+                          onConfirm={async () => { await templateApi.remove(t.id); onChanged() }}>
+                          <Icon.Trash size={15} />
+                        </ConfirmButton>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          {mine.length === 0 && (
+            <p className="text-xs text-muted">
+              Only the built-in templates so far. Open a stack and use <em>Save as template</em> to add one of your own.
+            </p>
+          )}
+        </div>
+      )}
+
+      {editing && (
+        <TemplateMetaModal
+          template={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); onChanged() }}
+        />
+      )}
+    </Card>
+  )
+}
+
+// SaveTemplateModal turns the open canvas into a reusable template. The design goes
+// up as-is and the server sanitizes it (app/templates.go) — passwords, host paths
+// and fixed host ports are cleared there, not here, so an export can never carry
+// them regardless of which client saved it.
+function SaveTemplateModal({ defaultName, design, onClose, onSaved }) {
+  const [name, setName] = useState(defaultName || '')
+  const [description, setDescription] = useState('')
+  const [category, setCategory] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function submit(e) {
+    e.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      onSaved(await templateApi.create(name.trim() || 'Untitled template', description, category, design))
+    } catch (err) {
+      setError(err.message)
+      setBusy(false)
+    }
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
+      <div className="w-full max-w-sm rounded-xl border bg-surface p-5 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+        <h3 className="mb-1 text-sm font-semibold">Save as template</h3>
+        <p className="mb-4 text-xs text-muted">
+          {design.nodes.length} node{design.nodes.length === 1 ? '' : 's'} and {design.frames.length} cluster
+          {design.frames.length === 1 ? '' : 's'}. Passwords, host paths and fixed host ports are not saved — the
+          template picks those up from this installation each time it is used.
+        </p>
+        {error && <div className="mb-3 rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-sm text-danger">{error}</div>}
+        <form onSubmit={submit} className="space-y-3">
+          <Field label="Name">
+            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          </Field>
+          <Field label="Description">
+            <textarea className={inputCls} rows={3} value={description} onChange={(e) => setDescription(e.target.value)}
+              placeholder="What this topology is for" />
+          </Field>
+          <Field label="Category" hint="Groups the template in the picker — e.g. MySQL, PostgreSQL, MongoDB.">
+            <input className={inputCls} value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Uncategorized" />
+          </Field>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save template'}</Button>
+          </div>
+        </form>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+// InsertTemplateModal merges a template into the open canvas.
+function InsertTemplateModal({ templates, onClose, onInsert }) {
+  const [templateId, setTemplateId] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const chosen = templates.find((t) => t.id === templateId)
+
+  async function submit(e) {
+    e.preventDefault()
+    if (!templateId) return
+    setBusy(true)
+    setError('')
+    try {
+      await onInsert(templateId)
+    } catch (err) {
+      setError(err.message)
+      setBusy(false)
+    }
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
+      <div className="w-full max-w-md rounded-xl border bg-surface p-5 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+        <h3 className="mb-1 text-sm font-semibold">Insert template</h3>
+        <p className="mb-4 text-xs text-muted">
+          Its nodes are added below what is already on the canvas. A node this stack may only have one of — the
+          Intranet, Keycloak, the VNC desktop — is not duplicated, and colliding labels are numbered.
+        </p>
+        {error && <div className="mb-3 rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-sm text-danger">{error}</div>}
+        <form onSubmit={submit} className="space-y-3">
+          <Field label="Template">
+            <TemplateSelect templates={templates} value={templateId} onChange={setTemplateId} blankLabel="Choose a template…" />
+          </Field>
+          {chosen && (
+            <div className="rounded-lg border bg-bg px-3 py-2 text-xs text-muted">
+              {chosen.description}
+              <div className="mt-1 text-fg">{templateSizeLabel(chosen)}</div>
+            </div>
+          )}
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button type="submit" disabled={busy || !templateId}>{busy ? 'Inserting…' : 'Insert'}</Button>
+          </div>
+        </form>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+// TemplateMetaModal renames/redescribes an existing template (its design is left
+// alone — that comes from a stack, not from a text field).
+function TemplateMetaModal({ template, onClose, onSaved }) {
+  const [name, setName] = useState(template.name)
+  const [description, setDescription] = useState(template.description || '')
+  const [category, setCategory] = useState(template.category || '')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function submit(e) {
+    e.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      await templateApi.update(template.id, name.trim() || template.name, description, category)
+      onSaved()
+    } catch (err) {
+      setError(err.message)
+      setBusy(false)
+    }
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
+      <div className="w-full max-w-sm rounded-xl border bg-surface p-5 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+        <h3 className="mb-4 text-sm font-semibold">Edit template</h3>
+        {error && <div className="mb-3 rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-sm text-danger">{error}</div>}
+        <form onSubmit={submit} className="space-y-3">
+          <Field label="Name">
+            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          </Field>
+          <Field label="Description">
+            <textarea className={inputCls} rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
+          </Field>
+          <Field label="Category" hint="Groups the template in the picker — e.g. MySQL, PostgreSQL, MongoDB.">
+            <input className={inputCls} value={category} onChange={(e) => setCategory(e.target.value)} />
+          </Field>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save'}</Button>
           </div>
         </form>
       </div>
@@ -1102,7 +1599,7 @@ function loadPalettePrefs() {
   catch { return { collapsed: [], recent: [] } }
 }
 
-function StackEditor({ stackId, onBack }) {
+function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   const [stack, setStack] = useState(null)
   const [error, setError] = useState('')
   const [nodes, setNodes] = useState([])
@@ -1139,6 +1636,8 @@ function StackEditor({ stackId, onBack }) {
   const [fileMgr, setFileMgr] = useState(null) // { nodeId, label } while the file manager is open
   const xferAbort = useRef(null)
   const [flash, setFlash] = useState(null) // transient bottom toast ({ tone, text })
+  const [saveTpl, setSaveTpl] = useState(false)   // "Save as template" dialog
+  const [insertTpl, setInsertTpl] = useState(false) // "Insert template" dialog
   const { openTerminal } = useTerminals()
   const { system } = useSettings() // instance-wide: the node-upload ceiling
 
@@ -2324,6 +2823,26 @@ function StackEditor({ stackId, onBack }) {
     setSaveState('saved')
   }
 
+  // applyTemplate merges a template into the canvas. The heavy lifting is in
+  // insertTemplateDesign; this fetches the design, applies the result to state
+  // (autosave persists it) and reports what had to be adjusted, because a silent
+  // rename or a skipped singleton is exactly the kind of surprise that shows up
+  // much later as a deploy error nobody can trace.
+  async function applyTemplate(templateId) {
+    const t = await templateApi.get(templateId)
+    const merged = insertTemplateDesign(t.design || {}, { nodes, frames, edges }, uid)
+    setNodes(merged.nodes)
+    setFrames(merged.frames)
+    setEdges(merged.edges)
+    const notes = []
+    if (merged.skipped.length) notes.push(`kept the existing ${[...new Set(merged.skipped)].join(', ')}`)
+    if (merged.renamed.length) notes.push(`renamed ${merged.renamed.map((r) => `${r.from}→${r.to}`).join(', ')}`)
+    setFlash({
+      tone: 'success',
+      text: `Inserted ${t.name}: ${merged.added} node${merged.added === 1 ? '' : 's'}${notes.length ? ` (${notes.join('; ')})` : ''}`,
+    })
+  }
+
   async function runValidate() {
     setBusy('validate')
     try {
@@ -2629,6 +3148,13 @@ function StackEditor({ stackId, onBack }) {
           {!paletteDocked && (
             <Button size="sm" variant="outline" onClick={() => setPaletteDocked(true)}><Icon.Plus size={15} /> Palette</Button>
           )}
+          <div className="mx-1 h-5 w-px bg-border" />
+          <Button size="sm" variant="outline" disabled={!!busy || deploying} onClick={() => setInsertTpl(true)}>
+            <Icon.Copy size={15} /> Insert template
+          </Button>
+          <Button size="sm" variant="outline" disabled={!!busy || nodes.length === 0} onClick={() => setSaveTpl(true)}>
+            <Icon.File size={15} /> Save as template
+          </Button>
           <div className="mx-1 h-5 w-px bg-border" />
           <Button size="sm" variant="outline" disabled={!!busy} onClick={runValidate}>
             <Icon.Check size={15} /> {busy === 'validate' ? 'Validating…' : 'Validate'}
@@ -2939,6 +3465,27 @@ function StackEditor({ stackId, onBack }) {
       )}
 
       {xfer && <UploadDialog xfer={xfer} onCancel={cancelUpload} onClose={() => setXfer(null)} />}
+
+      {saveTpl && (
+        <SaveTemplateModal
+          defaultName={stack.name}
+          design={{ nodes, edges, frames, view }}
+          onClose={() => setSaveTpl(false)}
+          onSaved={(t) => {
+            setSaveTpl(false)
+            onTemplatesChanged?.()
+            setFlash({ tone: 'success', text: `Saved "${t.name}" as a template.` })
+          }}
+        />
+      )}
+
+      {insertTpl && (
+        <InsertTemplateModal
+          templates={templates}
+          onClose={() => setInsertTpl(false)}
+          onInsert={async (id) => { setInsertTpl(false); await applyTemplate(id) }}
+        />
+      )}
 
       {fileMgr && (
         <FileManager

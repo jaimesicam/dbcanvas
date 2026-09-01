@@ -11,6 +11,17 @@ development: spin up a production-shaped cluster in minutes, exercise it, tear i
 
 ## What's New
 
+**Deployment templates — save a topology, deploy it again.** Eleven templates ship with the
+app, one per engine family: PXC + ProxySQL + PMM, Percona Server replication + Orchestrator,
+InnoDB Cluster, Patroni + HAProxy, PostgreSQL + pgBackRest, a PSMDB replica set with PBM, a
+sharded PSMDB cluster, Valkey Cluster, the PXC operator on k3s, and an All-in-One node running
+four engines at once. Pick one in **New stack** and the whole design is on the canvas; or
+**Insert template** to merge one into a stack you are already building — ids are rewritten,
+the Intranet you already have is not duplicated, and colliding hostnames are numbered.
+**Save as template** turns any canvas into a reusable one, without its passwords, host paths
+or pinned host ports, and templates export to a `.json` file you can hand to someone else or
+check into git. Admins can publish one instance-wide. [Templates →](docs/STACKS.md#templates--save-a-topology-deploy-it-again)
+
 **Read a crashed server's core dump, here.** A **Linux Client** node can be deployed as a
 core-dump analysis host: point it at a host directory holding a `mysqld` core file and another
 holding the crashed server's `mysqld` plus its `ldd` closure, pick the version that crashed, and

@@ -29,6 +29,7 @@ import {
   frameMemberSub, REPL_FRAME_TYPES,
   NODE_TYPES, CONNECTABLE_FRAMES, SS_LINK_TYPES, SS_LINK_ENGINE,
   K3D_OPERATOR_LABEL, ssLinkEngine,
+  insertTemplateDesign, groupTemplates, templateSizeLabel,
 } from '../src/pages/StackDesigner.jsx'
 import MySQLManager from '../src/pages/MySQLManager.jsx'
 import OidcLoginGuide from '../src/components/OidcLoginGuide.jsx'
@@ -2163,6 +2164,134 @@ check('core dump: the summary skips the C library to find the culprit', () => {
   for (const st of ['idle', 'loading', 'ready', 'error']) {
     if (!GDB_STATUS_TONE[st] || !GDB_STATUS_TEXT[st]) throw new Error(`status ${st} has no tone or word`)
   }
+  return 'ok'
+})
+
+// --- deployment templates (StackDesigner.jsx) -------------------------------
+//
+// insertTemplateDesign is the one piece of template handling with no server-side
+// counterpart to catch its mistakes: it rewrites ids, drops singletons and
+// renumbers labels entirely in the browser, and a slip means a design that either
+// fails to deploy or — worse — deploys wired to the wrong node.
+
+// A template that carries an Intranet (a singleton), a PMM node, and a PXC frame
+// whose members and frame both point at that PMM.
+const tplFixture = {
+  nodes: [
+    { id: 't-intra', type: 'intranet', label: 'Intranet', x: 40, y: 40 },
+    { id: 't-pmm', type: 'pmm', label: 'pmm-01', x: 40, y: 220 },
+    { id: 't-pxc-1', type: 'pxc', label: 'pxc-1', frameId: 't-frame', pmmNodeId: 't-pmm', x: 574, y: 66 },
+    { id: 't-pxc-2', type: 'pxc', label: 'pxc-2', frameId: 't-frame', pmmNodeId: 't-pmm', x: 702, y: 66 },
+  ],
+  frames: [
+    { id: 't-frame', type: 'pxc', label: 'pxc-cluster-01', pmmNodeId: 't-pmm', x: 560, y: 20, w: 400, h: 138 },
+  ],
+  edges: [
+    { id: 't-edge', from: { node: 't-frame', port: 'bottom' }, to: { node: 't-pmm', port: 'top' }, type: 'directional' },
+  ],
+}
+
+let uidN = 0
+const testUid = (p) => `${p}-new-${++uidN}`
+
+check('template insert: into an empty canvas', () => {
+  uidN = 0
+  const r = insertTemplateDesign(tplFixture, { nodes: [], frames: [], edges: [] }, testUid)
+  if (r.nodes.length !== 4 || r.frames.length !== 1 || r.edges.length !== 1) {
+    throw new Error(`got ${r.nodes.length} nodes / ${r.frames.length} frames / ${r.edges.length} edges`)
+  }
+  if (r.skipped.length || r.renamed.length) throw new Error('nothing should have been skipped or renamed')
+  // Every id is fresh, and every reference follows it.
+  const ids = new Set(r.nodes.map((n) => n.id).concat(r.frames.map((f) => f.id)))
+  for (const id of ids) {
+    if (id.startsWith('t-')) throw new Error(`id ${id} was not remapped`)
+  }
+  const pmm = r.nodes.find((n) => n.type === 'pmm')
+  const member = r.nodes.find((n) => n.type === 'pxc')
+  const frame = r.frames[0]
+  if (member.pmmNodeId !== pmm.id) throw new Error('member pmmNodeId does not follow the remapped PMM node')
+  if (frame.pmmNodeId !== pmm.id) throw new Error('frame pmmNodeId does not follow the remapped PMM node')
+  if (member.frameId !== frame.id) throw new Error('member frameId does not follow the remapped frame')
+  if (!ids.has(r.edges[0].from.node) || !ids.has(r.edges[0].to.node)) throw new Error('edge endpoints dangle')
+  return 'ok'
+})
+
+check('template insert: the singleton already on the canvas is kept, not duplicated', () => {
+  uidN = 0
+  const current = {
+    nodes: [{ id: 'existing-intra', type: 'intranet', label: 'Intranet', x: 0, y: 0 }],
+    frames: [], edges: [],
+  }
+  const r = insertTemplateDesign(tplFixture, current, testUid)
+  if (r.nodes.filter((n) => n.type === 'intranet').length !== 1) {
+    throw new Error('the stack ended up with two Intranet nodes')
+  }
+  if (!r.skipped.length) throw new Error('the skipped Intranet was not reported')
+  if (r.added !== 3) throw new Error(`added ${r.added}, expected 3 (the Intranet was already there)`)
+  // Nothing may still point at the template's dropped Intranet id.
+  if (JSON.stringify(r).includes('t-intra')) throw new Error('a reference to the dropped Intranet survived')
+  return 'ok'
+})
+
+check('template insert: colliding labels are renumbered, not duplicated', () => {
+  uidN = 0
+  const current = {
+    nodes: [
+      { id: 'e1', type: 'intranet', label: 'Intranet', x: 0, y: 0 },
+      { id: 'e2', type: 'pmm', label: 'pmm-01', x: 0, y: 120 },
+      { id: 'e3', type: 'pxc', label: 'pxc-1', frameId: 'ef', x: 0, y: 240 },
+    ],
+    frames: [{ id: 'ef', type: 'pxc', label: 'pxc-cluster-01', x: 0, y: 220, w: 200, h: 100 }],
+    edges: [],
+  }
+  const r = insertTemplateDesign(tplFixture, current, testUid)
+  const labels = r.nodes.map((n) => n.label)
+  if (new Set(labels).size !== labels.length) throw new Error(`duplicate node labels: ${labels.join(', ')}`)
+  const frameLabels = r.frames.map((f) => f.label)
+  if (new Set(frameLabels).size !== frameLabels.length) throw new Error(`duplicate frame labels: ${frameLabels.join(', ')}`)
+  if (!labels.includes('pmm-01-2') || !labels.includes('pxc-1-2')) {
+    throw new Error(`expected -2 suffixes, got ${labels.join(', ')}`)
+  }
+  if (!r.renamed.length) throw new Error('the renames were not reported')
+  return 'ok'
+})
+
+check('template insert: the block lands clear of what is already on the canvas', () => {
+  uidN = 0
+  const current = {
+    nodes: [{ id: 'e1', type: 'intranet', label: 'Intranet', x: 0, y: 0 }],
+    frames: [], edges: [],
+  }
+  const r = insertTemplateDesign(tplFixture, current, testUid)
+  const inserted = r.nodes.filter((n) => n.id !== 'e1')
+  const topOfInserted = Math.min(...inserted.map((n) => n.y))
+  if (topOfInserted < 104) throw new Error(`inserted block overlaps the existing node (top ${topOfInserted})`)
+  return 'ok'
+})
+
+check('template insert: an edge already drawn is not drawn twice', () => {
+  uidN = 0
+  // Insert the same template into a canvas that is its own previous insert. The
+  // singletons resolve to the incumbents, so the edge between them repeats.
+  const first = insertTemplateDesign(tplFixture, { nodes: [], frames: [], edges: [] }, testUid)
+  const second = insertTemplateDesign(tplFixture, first, testUid)
+  const keys = second.edges.map((e) => `${e.from.node}:${e.from.port}->${e.to.node}:${e.to.port}`)
+  if (new Set(keys).size !== keys.length) throw new Error(`duplicate edges: ${keys.join(', ')}`)
+  return 'ok'
+})
+
+check('template picker: grouped by category, built-ins first', () => {
+  const tpls = [
+    { id: '7', name: 'Mine', category: 'MySQL', nodes: 3, frames: 1, builtin: false },
+    { id: 'builtin:a', name: 'Default', category: 'MySQL', nodes: 5, frames: 1, builtin: true },
+    { id: '8', name: 'Loose', category: '', nodes: 1, frames: 0, builtin: false },
+  ]
+  const groups = groupTemplates(tpls)
+  const mysql = groups.find((g) => g.category === 'MySQL')
+  if (!mysql || mysql.items[0].name !== 'Default') throw new Error('built-ins do not sort first')
+  if (!groups.some((g) => g.category === 'Uncategorized')) throw new Error('a template with no category was dropped')
+  if (templateSizeLabel(tpls[0]) !== '3 nodes · 1 cluster') throw new Error(templateSizeLabel(tpls[0]))
+  if (templateSizeLabel(tpls[2]) !== '1 node') throw new Error(templateSizeLabel(tpls[2]))
   return 'ok'
 })
 

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -147,6 +148,25 @@ CREATE TABLE IF NOT EXISTS ptstalk_archives (
   path        TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ptstalk_node ON ptstalk_archives(stack_id, node_id, captured_at DESC);
+-- Saved deployment templates: a reusable canvas design, detached from any one stack.
+-- Only user-saved templates live here; the built-in defaults are Go literals with
+-- "builtin:" ids (see templates_builtin.go), the same way labs carry their designs.
+--
+-- design_json is sanitized on the way in (see sanitizeTemplateDesign) — no secrets,
+-- no host paths, no fixed host ports — because a template is the one design document
+-- meant to be copied between stacks, exported to a file, and shared with other users.
+CREATE TABLE IF NOT EXISTS stack_templates (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  category    TEXT NOT NULL DEFAULT '',
+  owner_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  shared      INTEGER NOT NULL DEFAULT 0,   -- 1 = published instance-wide (admins only)
+  design_json TEXT NOT NULL,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_stack_templates_owner ON stack_templates(owner_id, id DESC);
 -- Instance-wide settings, as opposed to users.settings_json which is per account.
 -- One row per key so a new knob needs no migration; see syssettings.go for the
 -- typed view over it and who may change it.
@@ -562,6 +582,131 @@ func (s *Store) ListExpiredStacks() ([]Stack, error) {
 		stacks = append(stacks, st)
 	}
 	return stacks, rows.Err()
+}
+
+// --- stack templates ---
+
+// StackTemplate is a reusable canvas design. ID is a string on the wire because
+// the picker mixes two populations: rows from this table (a decimal id) and the
+// built-in defaults (an id prefixed "builtin:"). Everything downstream — apply,
+// export, the frontend — treats it as an opaque handle; see templateIsBuiltin.
+type StackTemplate struct {
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Category    string          `json:"category"`
+	OwnerID     int64           `json:"ownerId,omitempty"`
+	Shared      bool            `json:"shared"`
+	Builtin     bool            `json:"builtin"`
+	CreatedAt   string          `json:"createdAt,omitempty"`
+	UpdatedAt   string          `json:"updatedAt,omitempty"`
+	Design      json.RawMessage `json:"design,omitempty"`
+	// Nodes/Frames are a summary for the picker, so the list response can stay
+	// light (no design) and still say how big each template is.
+	Nodes  int `json:"nodes"`
+	Frames int `json:"frames"`
+}
+
+const templateCols = "id, name, description, category, owner_id, shared, created_at, updated_at"
+
+// scanTemplate reads a row without its design (the list shape).
+func scanTemplate(row interface {
+	Scan(dest ...any) error
+}) (StackTemplate, error) {
+	var t StackTemplate
+	var id int64
+	var shared int
+	if err := row.Scan(&id, &t.Name, &t.Description, &t.Category, &t.OwnerID, &shared, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		return StackTemplate{}, err
+	}
+	t.ID = strconv.FormatInt(id, 10)
+	t.Shared = shared != 0
+	return t, nil
+}
+
+// CreateStackTemplate stores a new template and returns it (with its design).
+func (s *Store) CreateStackTemplate(name, description, category string, ownerID int64, design []byte) (StackTemplate, error) {
+	now := nowRFC3339()
+	res, err := s.db.Exec(
+		"INSERT INTO stack_templates (name, description, category, owner_id, shared, design_json, created_at, updated_at) VALUES (?,?,?,?,0,?,?,?)",
+		name, description, category, ownerID, string(design), now, now,
+	)
+	if err != nil {
+		return StackTemplate{}, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return StackTemplate{}, err
+	}
+	return s.GetStackTemplate(id)
+}
+
+// ListStackTemplates returns the templates visible to a user — their own plus any
+// an admin has published — newest first. Designs are omitted to keep the list light.
+func (s *Store) ListStackTemplates(ownerID int64, isAdmin bool) ([]StackTemplate, error) {
+	q := "SELECT " + templateCols + " FROM stack_templates WHERE owner_id = ? OR shared = 1 ORDER BY id DESC"
+	args := []any{ownerID}
+	if isAdmin {
+		q = "SELECT " + templateCols + " FROM stack_templates ORDER BY id DESC"
+		args = nil
+	}
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []StackTemplate{}
+	for rows.Next() {
+		t, err := scanTemplate(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// GetStackTemplate returns one template including its design.
+func (s *Store) GetStackTemplate(id int64) (StackTemplate, error) {
+	var t StackTemplate
+	var rid int64
+	var shared int
+	var design string
+	err := s.db.QueryRow(
+		"SELECT "+templateCols+", design_json FROM stack_templates WHERE id = ?", id,
+	).Scan(&rid, &t.Name, &t.Description, &t.Category, &t.OwnerID, &shared, &t.CreatedAt, &t.UpdatedAt, &design)
+	if err != nil {
+		return StackTemplate{}, err
+	}
+	t.ID = strconv.FormatInt(rid, 10)
+	t.Shared = shared != 0
+	t.Design = json.RawMessage(design)
+	return t, nil
+}
+
+// UpdateStackTemplate replaces a template's metadata and design.
+func (s *Store) UpdateStackTemplate(id int64, name, description, category string, design []byte) error {
+	_, err := s.db.Exec(
+		"UPDATE stack_templates SET name = ?, description = ?, category = ?, design_json = ?, updated_at = ? WHERE id = ?",
+		name, description, category, string(design), nowRFC3339(), id,
+	)
+	return err
+}
+
+// SetStackTemplateShared publishes (or unpublishes) a template instance-wide.
+func (s *Store) SetStackTemplateShared(id int64, shared bool) error {
+	v := 0
+	if shared {
+		v = 1
+	}
+	_, err := s.db.Exec("UPDATE stack_templates SET shared = ?, updated_at = ? WHERE id = ?", v, nowRFC3339(), id)
+	return err
+}
+
+// DeleteStackTemplate removes a template.
+func (s *Store) DeleteStackTemplate(id int64) error {
+	_, err := s.db.Exec("DELETE FROM stack_templates WHERE id = ?", id)
+	return err
 }
 
 // --- deployments ---

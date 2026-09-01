@@ -93,7 +93,9 @@ export const TTL_OPTIONS = [
 
 export const stackApi = {
   list: () => request('GET', '/api/stacks'),
-  create: (name, ttl, design) => request('POST', '/api/stacks', { name, ttl, design }),
+  // templateId seeds the new stack from a deployment template; the server reads
+  // that template's design itself rather than taking a copy from here.
+  create: (name, ttl, design, templateId) => request('POST', '/api/stacks', { name, ttl, design, templateId }),
   get: (id) => request('GET', `/api/stacks/${id}`),
   update: (id, name, design) => request('PUT', `/api/stacks/${id}`, { name, design }),
   remove: (id) => request('DELETE', `/api/stacks/${id}`),
@@ -136,6 +138,38 @@ export const stackApi = {
   operatorsCatalog: () => request('GET', '/api/catalog/operators'),
   k3sCatalog: () => request('GET', '/api/catalog/k3s'),
 }
+
+// Deployment templates (app/templates.go). Ids are opaque strings: a decimal for a
+// saved template, "builtin:<slug>" for one of the defaults that ship with the app.
+export const templateApi = {
+  list: () => request('GET', '/api/templates'),
+  get: (id) => request('GET', `/api/templates/${encodeURIComponent(id)}`),
+  create: (name, description, category, design) =>
+    request('POST', '/api/templates', { name, description, category, design }),
+  update: (id, name, description, category, design) =>
+    request('PUT', `/api/templates/${encodeURIComponent(id)}`, { name, description, category, design }),
+  remove: (id) => request('DELETE', `/api/templates/${encodeURIComponent(id)}`),
+  share: (id, shared) => request('POST', `/api/templates/${encodeURIComponent(id)}/share`, { shared }),
+  // The export endpoint sets Content-Disposition, so a plain same-origin link is
+  // the whole download — no blob juggling, and the cookie rides along.
+  exportUrl: (id) => `/api/templates/${encodeURIComponent(id)}/export`,
+  // A template file is small (a design document), so it is read here and posted as
+  // JSON rather than as multipart — the server validates it either way.
+  importFile: async (file) => {
+    let doc
+    try {
+      doc = JSON.parse(await file.text())
+    } catch {
+      throw new Error('That file is not valid JSON.')
+    }
+    return request('POST', '/api/templates/import', doc)
+  },
+}
+
+// TEMPLATE_BUILTIN_PREFIX marks the templates that ship with the app — they can be
+// applied and exported, but never renamed, edited or deleted (app/templates.go).
+export const TEMPLATE_BUILTIN_PREFIX = 'builtin:'
+export const isBuiltinTemplate = (id) => String(id || '').startsWith(TEMPLATE_BUILTIN_PREFIX)
 
 // Node File Manager (app/nodefs.go). `nid` is the design node id. Everything is
 // scoped to one node except transfer(), which names the other end, and the

@@ -19168,3 +19168,144 @@ this exact scenario produced the drift described above; after it, `rpm -qa` on t
 `percona-icu-data-files` all at the identical pinned `8.0.36-28.1`. Node removed and container
 cleaned up afterward. `go build ./...`, `go vet ./...`, and `go test ./...` all pass; updated
 `TestPS97IsARealSeries` for the new `psServerPackages()` signature.
+
+## 322. Deployment templates: save a topology, deploy it again — `app/templates.go`, `app/templates_builtin.go`, `app/templates_test.go` (all new), `app/{store,main,stacks}.go`, `app/web/src/lib/stackApi.js`, `app/web/src/pages/StackDesigner.jsx`, `app/web/smoke/render.jsx`, `docs/STACKS.md`, `README.md`
+
+Every stack started from an empty canvas. Rebuilding the same PXC-behind-ProxySQL-with-PMM
+topology for the fifth time is twenty clicks that carry no information, and the thing being
+rebuilt — a design document — was already a first-class value in the database, just welded to
+one stack's row. This session detaches it: a **template** is a canvas design that outlives the
+stack it came from, with eleven defaults shipped so the feature is useful before anyone has
+saved one.
+
+Two populations share one API. The defaults are Go literals in `templates_builtin.go` with
+`builtin:<slug>` ids; user-saved ones are rows in a new `stack_templates` table with decimal
+ids. The wire id is therefore a **string**, and `loadTemplate` dispatches on the prefix. Seeding
+the defaults as database rows was considered and rejected for the reasons lab designs are not
+rows either: a row needs a migration, can be edited into something that no longer deploys, and
+goes stale against a design schema that grows a node family every few sessions. A literal is
+re-read from the binary on every start and covered by tests.
+
+### Sanitization is a key-name walk, not a typed struct
+
+A template travels — to another stack, to another user, to another installation as a file — so
+three classes of field must not travel with it. Secrets (`rootPassword`, `adminPassword`,
+`vncPassword`, `secretKey`, `ssPassword`, `ssDSN`), which every one of already falls back to
+`.env` and so achieve nothing by being copied except leaking. Host paths (`gdbCoreDir`,
+`gdbLibDir`, `devicePath`, `k3dDevicePath`), which name one machine. And `exportHostPort`, which
+is the one design choice that *cannot* survive being used twice: instantiate a template with a
+pinned host port into two stacks on one host and the second deploy collides, so it is reset to
+0 (auto-assign).
+
+`sanitizeTemplateDesign` walks the design as `map[string]any` and matches on JSON key name at
+any depth, rather than going through `designNode`/`designFrame`. Those structs are ~300 lines
+across a dozen node families; a typed sanitizer would go stale the first time somebody adds a
+password field to a new node type, and go stale *silently* — the failure mode is a secret
+shipping inside every exported template from then on, with nothing to notice it. The raw walk
+also reaches nested `aioInstances[]` for free, which a per-field approach would have had to
+special-case.
+
+`TestTemplateSanitizerCoversEverySecretField` is what keeps that list honest: it regexes
+`intranet.go` and `aio.go` for `json:"…"` tags containing "password" or "secret" and fails on
+any that `templateSecretKeys` does not clear, unless the test's own safe-list names it with a
+reason (only the two Intranet lab credentials, which are fixed well-known values and part of
+what the template describes). The guard was checked by deleting `vncPassword` from the list —
+the test fails — and restoring it.
+
+### Id remapping runs in the browser, and matches on values
+
+Applying a template splits in two. **New stack from template** copies the design verbatim: node
+ids only have to be unique within one stack and this is a fresh one, so nothing needs rewriting.
+`POST /api/stacks` grew a `templateId` field and reads the design server-side rather than taking
+a round-tripped copy from the client.
+
+**Insert template** merges into an open canvas, and that is the case with four collisions to
+resolve. It runs in `StackDesigner.jsx` (`insertTemplateDesign`) because the two rules it needs —
+which node types are singletons, and how labels are numbered — already live there.
+
+The id rewrite matches on the **value**, not on a list of field names. A design references other
+nodes through `frameId`, `pmmNodeId`, `watchtowerNodeId`, `keycloakNodeId`, `seaweedfsNodeId`,
+`ldapDirNodeId`, `openbaoNodeId`, `orchestratorNodeId`, `ssAIONode`, both edge endpoints, and
+more of the same inside `aioInstances[]` — eleven spellings today and one more with every node
+type that gets added. `remapIds` replaces any string equal to a known old id, which covers the
+fields that do not exist yet.
+
+The other three: a node type the stack may hold only one of (Intranet, Keycloak, VNC, Watchtower,
+Samba, OpenBao) is not duplicated — the template's copy is dropped and its id mapped to the
+incumbent, so anything that pointed at the template's Intranet now points at the real one.
+Colliding labels are suffixed `-2`, `-3` (labels become DNS hostnames and a duplicate is a
+deploy error; the `-N` shape is not invented here — `psmdbMembers` already names a second
+sharded frame's members `mongos-2`, `cfg1-2`). And the whole block is offset below the existing
+bounding box instead of landing on top of it. Whatever had to change is reported in the toast,
+because a silent rename is exactly the kind of thing that resurfaces as an unexplainable deploy
+error an hour later.
+
+### The eleven defaults, and the two rules they follow
+
+Starter (Percona Server) · PXC + ProxySQL + PMM · PS replication + Orchestrator · InnoDB Cluster ·
+Patroni + HAProxy · PostgreSQL + pgBackRest · PSMDB replica set + PBM · PSMDB sharded (minimum) ·
+Valkey Cluster · PXC operator on k3s · All-in-One with four engines.
+
+Both rules come from what the lab designs learned. No `"arch"`: an installation builds images for
+one `DOCKER_PLATFORM` and the server resolves it, so a pinned `amd64` is an image an arm64 install
+never built. And **no pinned minor version** — majors like `8.0` and `16` are the supported series
+and always in the catalog, but a minor comes from whatever `make versions` probed on that host, so
+pinning one ships a template that fails to deploy wherever a different set was probed. Every
+`*Version` field is `""`. `TestBuiltinTemplatesAreDeployableDesigns` enforces both, plus that each
+design parses, carries the required Intranet, and that every id it references resolves to
+something in the same design — a dangling `pmmNodeId` in a hand-written literal is the failure a
+parse check would sail straight past.
+
+### Sharing, and what a built-in refuses
+
+A saved template is private. An admin can publish one instance-wide (`POST /api/templates/{id}/share`),
+after which it appears in every user's picker beside the built-ins; a non-admin gets 403 even on
+their own. Export (`GET …/export`) writes a `{"dbcanvasTemplate":1,…}` file — the version int so a
+newer format is a clear message rather than a confusing parse failure — and import sanitizes again,
+because a file from outside this installation is not to be trusted. Built-ins export like anything
+else but refuse `PUT`, `DELETE` and `share`.
+
+### Verified
+
+Live against the running instance, rebuilt from source, not asserted from reading the code.
+
+All **eleven built-ins instantiated and validated with zero errors and zero warnings** through
+the real `POST /api/stacks {templateId}` → `POST /api/stacks/{id}/validate` path.
+
+**Two deployed end to end.** The starter template brought up its Intranet, Percona Server and VNC
+desktop; `mysql -uroot` on the resulting container returned Percona Server **8.0.46-37** with
+hostname `ps-01` (the template's label) and the expected `admin@%`, `clustercheck@localhost` and
+`orchestrator@%` accounts — and 8.0.46 is the catalog's current 8.0 build, not something the
+template named, which is the no-pinned-minor rule working. PXC + ProxySQL + PMM brought up all six
+of its nodes and formed a real cluster: `wsrep_cluster_size` 3, `wsrep_cluster_status` Primary,
+every member Synced, and `wsrep_incoming_addresses` carrying the template's own labels
+(`pxc-1/2/3.example.net`). A write issued through ProxySQL's client port landed on the single
+writer and was readable from all three members — which also explains the two SHUNNED rows in
+ProxySQL's writer hostgroup as the ordinary `singlewrite` arrangement the template asks for,
+rather than a health-check failure.
+
+**Sanitization proved on a real save**, not in a unit test: a design carrying a distinct secret in
+three places (a PMM node's `adminPassword`, a PXC frame's `rootPassword`, and a nested
+`aioInstances[].rootPassword`), a host core-dump path, and two pinned host ports was POSTed and
+read back — every one of the six gone, while the four nodes, one frame, the Linux Client's
+`gdbEnabled` flag and the AiO instance's name all survived.
+
+**Round trip and guard rails**, each checked against the live API: export sets
+`Content-Disposition: attachment; filename="secrets-test.dbcanvas-template.json"` and re-imports
+cleanly; a file with no `dbcanvasTemplate` key and one claiming format 99 are both refused with
+the message they should get; an empty design cannot be saved; and all three write verbs on a
+built-in return "built-in templates cannot be modified — save a copy instead" while its export
+still returns 200.
+
+**The sharing rule with a second, non-admin account** (registered, approved, logged in): with
+`shared=false` the admin's template is absent from their listing and a direct GET is "not your
+template"; flipping to `shared=true` makes it appear and readable; it stays un-editable either
+way; and their attempt to publish their own is refused.
+
+`go build ./...`, `go vet ./...` and `go test ./...` pass, as does `npm run smoke` with six new
+render checks covering the merge: a clean insert into an empty canvas (every id fresh, every
+reference following it), the singleton kept rather than duplicated with no dangling reference to
+the dropped one, colliding labels renumbered on both nodes and frames, the block landing clear of
+existing content, and an already-drawn edge not drawn twice. One pre-existing failure is unrelated
+and reproduces on a clean tree: `TestAIOTLSWiringIsIdempotent` shells out to GNU `sed` syntax and
+fails under BSD `sed` on a darwin host (it passes in the Linux image).
