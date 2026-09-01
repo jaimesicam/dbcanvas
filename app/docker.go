@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -717,6 +718,46 @@ func (d *Docker) ContainerPort(ctx context.Context, id, portProto string) (strin
 		return b[0].HostPort, nil
 	}
 	return "", nil
+}
+
+// ContainerPorts returns every published TCP port of one container as
+// containerPort → hostPort. Unlike ContainerPort it needs no advance knowledge
+// of what the node exposes, which is what the SSH tunnel command needs: it
+// forwards whatever this node happens to publish (see sshforward.go).
+func (d *Docker) ContainerPorts(ctx context.Context, id string) (map[int]int, error) {
+	resp, err := d.do(ctx, "GET", "/containers/"+id+"/json", nil)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != 200 {
+		return nil, errBody("inspect", resp)
+	}
+	var out struct {
+		NetworkSettings struct {
+			Ports map[string][]struct {
+				HostPort string `json:"HostPort"`
+			} `json:"Ports"`
+		} `json:"NetworkSettings"`
+	}
+	if err := json.Unmarshal(drain(resp), &out); err != nil {
+		return nil, err
+	}
+	ports := map[int]int{}
+	for key, binds := range out.NetworkSettings.Ports {
+		port, proto, _ := strings.Cut(key, "/")
+		// An exposed-but-unpublished port has an empty binding list; it is
+		// reachable only inside the stack network, so there is nothing to tunnel.
+		if proto != "tcp" || len(binds) == 0 {
+			continue
+		}
+		cp, err1 := strconv.Atoi(port)
+		hp, err2 := strconv.Atoi(binds[0].HostPort)
+		if err1 != nil || err2 != nil || hp == 0 {
+			continue
+		}
+		ports[cp] = hp
+	}
+	return ports, nil
 }
 
 // ListPublishedPorts returns a map of published host TCP port → container name

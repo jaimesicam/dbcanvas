@@ -137,6 +137,9 @@ func main() {
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/start", app.handleNodeAction("start"))
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/stop", app.handleNodeAction("stop"))
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/restart", app.handleNodeAction("restart"))
+	// The `ssh -L` line that tunnels a node's published ports to the operator's
+	// own machine; off unless SSH_FORWARDING_HOST is set (see sshforward.go).
+	mux.HandleFunc("GET /api/stacks/{id}/nodes/{nid}/sshforward", app.handleNodeSSHForward)
 	// Drag files from the host onto a node's card in the designer (see nodeupload.go).
 	mux.HandleFunc("POST /api/stacks/{id}/nodes/{nid}/upload", app.handleNodeUpload)
 

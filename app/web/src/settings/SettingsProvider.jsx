@@ -15,7 +15,10 @@ const DEFAULTS = { terminalMode: 'docked', theme: 'dark', deploymentBackend: 'do
 // serves both the settings page and the designer, which needs the upload
 // ceiling to refuse an over-size drop before sending it. Mirror of
 // defaultSystemSettings() — the server's value wins as soon as it lands.
-const SYSTEM_DEFAULTS = { maxUploadBytes: 4 * 1024 * 1024 * 1024 }
+// sshForwarding is env-derived and read-only (SSH_FORWARDING_HOST); off until the
+// server says otherwise, so the designer never offers a tunnel command that the
+// installation cannot produce.
+const SYSTEM_DEFAULTS = { maxUploadBytes: 4 * 1024 * 1024 * 1024, sshForwarding: { enabled: false } }
 const SettingsCtx = createContext(null)
 
 export function SettingsProvider({ children }) {

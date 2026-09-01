@@ -54,6 +54,7 @@ type Engine interface {
 	ContainersByNamePrefix(ctx context.Context, prefix string) ([]string, error)
 	ContainerIP(ctx context.Context, id, network string) (string, error)
 	ContainerPort(ctx context.Context, id, portProto string) (string, error)
+	ContainerPorts(ctx context.Context, id string) (map[int]int, error)
 	ListPublishedPorts(ctx context.Context) (map[int]string, error)
 	ListManaged(ctx context.Context) ([]ContainerInfo, error)
 	ContainerStats(ctx context.Context, id string) (ContainerStat, error)

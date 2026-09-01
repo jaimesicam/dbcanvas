@@ -33,8 +33,36 @@ const (
 )
 
 // SystemSettings is the instance-wide configuration served to the UI.
+//
+// It carries two kinds of value. MaxUploadBytes is stored and an admin can change
+// it from the settings page. SSHForwarding is derived from the environment
+// (SSH_FORWARDING_HOST) and is read-only — it rides along here because the UI
+// already fetches this once and the designer needs to know, before drawing a
+// node's context menu, whether to offer the tunnel command at all. The update
+// handler ignores it on the way in and re-derives it on the way out, so a client
+// echoing the whole object back can neither set it nor lose it.
 type SystemSettings struct {
-	MaxUploadBytes int64 `json:"maxUploadBytes"`
+	MaxUploadBytes int64                `json:"maxUploadBytes"`
+	SSHForwarding  SSHForwardingSetting `json:"sshForwarding"`
+}
+
+// SSHForwardingSetting is where the app is reachable over SSH, if the
+// administrator configured it. Enabled false means the feature is off and every
+// other field is empty (see sshforward.go).
+type SSHForwardingSetting struct {
+	Enabled bool   `json:"enabled"`
+	User    string `json:"user,omitempty"`
+	Host    string `json:"host,omitempty"`
+	Port    int    `json:"port,omitempty"`
+}
+
+// sshForwardingSetting reads SSH_FORWARDING_HOST for the settings payload.
+func sshForwardingSetting() SSHForwardingSetting {
+	t, ok := sshForwardingTarget()
+	if !ok {
+		return SSHForwardingSetting{}
+	}
+	return SSHForwardingSetting{Enabled: true, User: t.User, Host: t.Host, Port: t.Port}
 }
 
 func defaultSystemSettings() SystemSettings {
@@ -65,7 +93,9 @@ func (a *App) systemSettings() SystemSettings {
 			s.MaxUploadBytes = n
 		}
 	}
-	return s.normalize()
+	s = s.normalize()
+	s.SSHForwarding = sshForwardingSetting()
+	return s
 }
 
 // maxUploadBytes is the configured ceiling on one node file drop.
@@ -91,6 +121,10 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusInternalServerError, "failed to save settings")
 		return
 	}
+	// Re-derived, never taken from the request: SSH forwarding is an environment
+	// setting, and the response has to keep carrying it for the client that
+	// replaced its whole settings object with this reply.
+	s.SSHForwarding = sshForwardingSetting()
 	writeJSON(w, http.StatusOK, s)
 }
 

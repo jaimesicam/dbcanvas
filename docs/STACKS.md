@@ -321,6 +321,22 @@ actually want when a config is one line wrong.
 > them without closing the window. **Split** opens a second pane on another node and copies
 > between the two — the fastest way to put the same file on every member of a cluster.*
 
+**Reaching a node from your own machine.** On a server install, `CONTAINER_BIND_IP` keeps
+every port a node publishes on the server's loopback — which is the right default and also
+means your browser and your local `mysql` client cannot get to any of them. Set
+`SSH_FORWARDING_HOST` in `.env` to the address the server answers SSH on (`10.0.0.7`, or
+`10.0.0.7:2222`, or `you@10.0.0.7`) and right-clicking a running node offers **Copy SSH tunnel
+command**: the exact `ssh -L` line forwarding every port that node currently publishes, each to
+the same port locally, so every address the panel shows works verbatim through the tunnel.
+
+```
+ssh -L 8443:127.0.0.1:8443 -L 8080:127.0.0.1:8080 user@10.0.0.7 -p 22
+```
+
+The ports are read from the engine when you click, not from the design — host ports are
+re-assigned every time a container restarts. Leave `SSH_FORWARDING_HOST` empty (the default)
+and the menu item is absent; on a laptop install the ports are already local.
+
 **Monitoring with PMM.** Add a PMM node and point databases at it; DB nodes register
 themselves, so Percona Monitoring & Management comes up already watching the stack:
 

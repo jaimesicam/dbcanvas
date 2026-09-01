@@ -811,6 +811,27 @@ func (v *Vagrant) ContainerPort(ctx context.Context, id, portProto string) (stri
 	return "", fmt.Errorf("port %s not published for %s", portProto, id)
 }
 
+// ContainerPorts returns every forwarded port of one VM as guestPort → hostPort
+// (see the Docker implementation for what it is for).
+func (v *Vagrant) ContainerPorts(ctx context.Context, id string) (map[int]int, error) {
+	v.mu.Lock()
+	ps := v.loadPorts()
+	v.mu.Unlock()
+	out := map[int]int{}
+	for k, hp := range ps.Ports {
+		slash := strings.LastIndex(k, "/")
+		if slash < 0 || k[:slash] != id {
+			continue
+		}
+		gp, err := strconv.Atoi(k[slash+1:])
+		if err != nil || hp == 0 {
+			continue
+		}
+		out[gp] = hp
+	}
+	return out, nil
+}
+
 func (v *Vagrant) ListPublishedPorts(ctx context.Context) (map[int]string, error) {
 	v.mu.Lock()
 	ps := v.loadPorts()

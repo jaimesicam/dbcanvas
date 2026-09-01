@@ -104,6 +104,9 @@ export const stackApi = {
   destroy: (id) => request('POST', `/api/stacks/${id}/destroy`),
   getNode: (id, nid) => request('GET', `/api/stacks/${id}/nodes/${nid}`),
   nodeAction: (id, nid, action) => request('POST', `/api/stacks/${id}/nodes/${nid}/${action}`),
+  // The `ssh -L` line that tunnels this node's published ports to the operator's
+  // machine. Only meaningful when system.sshForwarding.enabled (app/sshforward.go).
+  nodeSSHForward: (id, nid) => request('GET', `/api/stacks/${id}/nodes/${nid}/sshforward`),
   // Copy host files into a running node. `dest` is one of NODE_UPLOAD_DESTS;
   // `files` is [{ path, file }] where path is relative to dest. The relative
   // path travels as the multipart field name — Go strips directories from the

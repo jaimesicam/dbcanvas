@@ -19309,3 +19309,81 @@ the dropped one, colliding labels renumbered on both nodes and frames, the block
 existing content, and an already-drawn edge not drawn twice. One pre-existing failure is unrelated
 and reproduces on a clean tree: `TestAIOTLSWiringIsIdempotent` shells out to GNU `sed` syntax and
 fails under BSD `sed` on a darwin host (it passes in the Linux image).
+
+---
+
+## 323. `SSH_FORWARDING_HOST` — the tunnel that makes a server install reachable — `app/sshforward.go`, `app/sshforward_test.go` (both new), `app/{docker,vagrant,engine,syssettings,main}.go`, `app/web/src/settings/SettingsProvider.jsx`, `app/web/src/lib/stackApi.js`, `app/web/src/pages/StackDesigner.jsx`, `.env`, `.env.example`, `docker-compose.yml`, `docs/CONFIGURATION.md`, `docs/STACKS.md`, `README.md`
+
+Entry 84 gave deployed nodes `CONTAINER_BIND_IP`, defaulting to `127.0.0.1`, and that default
+is right: an unauthenticated PMM and a root-password MySQL have no business on the LAN. But it
+is only right on a laptop, where "the server's loopback" and "my machine" are the same place.
+Put DBCanvas on a shared server and the default becomes a wall — the panel names a PMM console
+at `:8443` and a MySQL port at `:13306`, and neither the browser nor the `mysql` client on the
+operator's own machine can reach either. The workaround everyone already knows is an SSH
+tunnel, and it is the *same* tunnel every time; only the port numbers change, and they change
+on every container restart.
+
+So: a new **`SSH_FORWARDING_HOST`** (empty = off) naming where this installation answers SSH,
+and a **Copy SSH tunnel command** item on a running node's context menu that hands over the
+exact line.
+
+```
+ssh -L 8443:127.0.0.1:8443 -L 8080:127.0.0.1:8080 user@10.0.0.7 -p 22
+```
+
+**Local port = remote port, deliberately.** The tempting alternative — allocate a free local
+port per forward — would make the tunnel work and every address DBCanvas displays wrong. Keeping
+the numbers identical means the PMM link, the connection strings on the panel and a copied
+client command all keep working verbatim once the tunnel is up, which is the entire point.
+
+**The far end of the `-L` is `CONTAINER_BIND_IP`, not a constant.** It is the address the port
+answers on *from a shell on the server*, so an installation that pinned its nodes to
+`192.168.1.10` tunnels to `192.168.1.10`. The one substitution is a wildcard bind: `0.0.0.0`
+and `::` are not addresses you can dial, so they become loopback. An IPv6 literal comes back
+bracketed, because that is what `ssh -L` wants.
+
+**Ports come from the engine, at click time.** `refreshPublishedPorts` already exists
+because Docker hands out a *new* ephemeral host port on every start, and it has to know each
+node type's config shape to write the number back. A tunnel needs none of that: a new
+`ContainerPorts(ctx, id) (map[int]int, error)` on the Engine interface returns whatever the
+node publishes right now — Docker reads `NetworkSettings.Ports` and skips the exposed-but-
+unpublished entries (nothing to tunnel), Vagrant filters its forwarded-port file by VM name. No
+per-node-type wiring, and no stale port.
+
+The fetch is kicked off by `openMenu`, not by the menu item's click. A clipboard write is only
+honoured while the user's gesture is still live, and awaiting a round trip inside the click
+handler is exactly how that gets lost; by the time the pointer has travelled to the item the
+promise has settled, so the copy happens on an already-resolved value. Each right-click
+re-fetches, because a restart in between would have moved the ports.
+
+### The value is parsed defensively because it becomes a shell command
+
+`SSH_FORWARDING_HOST` is rendered into a line the operator pastes into their own terminal, so
+`parseSSHForwardingHost` rejects rather than repairs. It accepts `host`, `host:port`,
+`user@host` and `user@host:port`, defaults the port to 22 and the login to the literal
+placeholder `user` (DBCanvas cannot know an account on a host it merely runs on, and guessing
+`root` hands over a line that fails). Then both the host and the login must pass
+`sshSafeToken` — letters, digits, `.`, `-`, `_`, `:` only — which is narrower than SSH accepts
+and excludes every way a value could turn into a second command or an extra `ssh` option. A
+colon survives only if `net.ParseIP` agrees it is an IPv6 literal, so `10.0.0.7:22:22` (a
+mistyped port, not a host) is refused instead of being dialled by name. Anything rejected turns
+the feature **off** rather than half-on.
+
+### Why the flag rides on the system settings
+
+The menu is built synchronously, so the designer has to know whether to draw the item *before*
+it can ask about a node. Rather than a second instance-level fetch, `SystemSettings` grew a
+read-only `sshForwarding: {enabled, user, host, port}` derived from the environment — the UI
+already fetches that object once at sign-in. The update handler ignores the field on the way in
+and re-derives it on the way out, so an admin's settings save (which PUTs the whole object back)
+can neither set it nor lose it. The per-node `GET /api/stacks/{id}/nodes/{nid}/sshforward` then
+returns the ports and the assembled command, and goes through `loadRunningNode`, so it inherits
+the ownership check and the "node is not running" refusal every other node endpoint uses.
+
+**Verified.** `go build ./...` and `go vet ./...` pass; the new tests cover the parser (both
+documented forms, the `user@` extension, bracketed and bare IPv6, and eight rejections including
+`10.0.0.7; rm -rf /`, `$(hostname)`, backticks, an out-of-range port and the mistyped
+`10.0.0.7:22:22`), the bind-host substitution table, the rendered command against the example in
+`.env.example`, and the empty-ports case returning no command rather than a bare `ssh`. `npm run
+build` and `npm run smoke` pass. `TestAIOTLSWiringIsIdempotent` still fails on darwin for the
+pre-existing GNU-`sed` reason recorded in entry 322.

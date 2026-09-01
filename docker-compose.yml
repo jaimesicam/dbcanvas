@@ -57,6 +57,11 @@ services:
       # Host interface that deployed stack nodes bind their published (exported)
       # ports to. Default 127.0.0.1 (loopback only); set 0.0.0.0 for all interfaces.
       CONTAINER_BIND_IP: ${CONTAINER_BIND_IP:-127.0.0.1}
+      # Where this installation is reachable over SSH, as IP[:port] (or
+      # user@IP[:port]). Set it on a server install and right-clicking a running
+      # node offers the `ssh -L` line that tunnels its published ports to the
+      # operator's machine. Empty = off. See app/sshforward.go.
+      SSH_FORWARDING_HOST: ${SSH_FORWARDING_HOST:-}
       # The only host directory a Linux Client set up for core-dump analysis may
       # bind-mount from. A bind mount is the one place a path somebody typed reaches
       # the Docker daemon, and the daemon has no sandbox of its own — so this is the

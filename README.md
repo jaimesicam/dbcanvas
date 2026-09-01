@@ -11,6 +11,14 @@ development: spin up a production-shaped cluster in minutes, exercise it, tear i
 
 ## What's New
 
+**Reach a node on a remote install from your own machine.** DBCanvas binds every port a
+deployed node publishes to the server's loopback, which is right — and leaves the PMM console
+and the database ports unreachable from the laptop you are actually sitting at. Set the new
+**`SSH_FORWARDING_HOST`** in `.env` to where the server answers SSH and right-clicking a running
+node offers **Copy SSH tunnel command**: the exact `ssh -L` line forwarding every port that node
+publishes, each to the same port locally, so every address the UI shows works verbatim through
+the tunnel. [Configuration →](docs/CONFIGURATION.md)
+
 **Deployment templates — save a topology, deploy it again.** Eleven templates ship with the
 app, one per engine family: PXC + ProxySQL + PMM, Percona Server replication + Orchestrator,
 InnoDB Cluster, Patroni + HAProxy, PostgreSQL + pgBackRest, a PSMDB replica set with PBM, a

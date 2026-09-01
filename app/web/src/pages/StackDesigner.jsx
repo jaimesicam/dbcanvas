@@ -1639,10 +1639,12 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   const [saveTpl, setSaveTpl] = useState(false)   // "Save as template" dialog
   const [insertTpl, setInsertTpl] = useState(false) // "Insert template" dialog
   const { openTerminal } = useTerminals()
-  const { system } = useSettings() // instance-wide: the node-upload ceiling
+  const { system } = useSettings() // instance-wide: the node-upload ceiling, SSH forwarding
 
   const wrapRef = useRef(null)
   const dragRef = useRef(null)
+  // nodeId -> in-flight/settled promise of that node's SSH tunnel command; see openMenu.
+  const sshFwd = useRef({})
   const counter = useRef(0)
   const uid = (p) => `${p}-${Date.now().toString(36)}-${++counter.current}`
 
@@ -1917,6 +1919,13 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     e.stopPropagation()
     setSelected({ kind: 'node', id })
     setMenu({ x: e.clientX, y: e.clientY, id })
+    // Start fetching the tunnel command as the menu opens, so the click that
+    // asks for it can reach the clipboard without waiting on a round trip —
+    // browsers only honour a clipboard write while the user's gesture is still
+    // live. Re-fetched every time: a restart re-assigns the host ports.
+    if (system.sshForwarding?.enabled && depByNode[id]?.state === 'running') {
+      sshFwd.current[id] = stackApi.nodeSSHForward(stack.id, id).catch((err) => ({ error: err.message }))
+    }
   }
 
   // copyExecCommand puts `docker exec -it <container> bash` on the clipboard and
@@ -1925,6 +1934,31 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   async function copyExecCommand(name) {
     const cmd = `docker exec -it ${name} bash`
     setFlash(await copyText(cmd) ? { tone: 'ok', text: `Copied: ${cmd}` } : { tone: 'err', text: `Could not reach the clipboard. Command: ${cmd}` })
+  }
+
+  // copySSHTunnelCommand hands over the `ssh -L` line that brings this node's
+  // published ports to the operator's own machine. It exists because a server
+  // install binds those ports to the server's loopback (CONTAINER_BIND_IP), so
+  // the browser and the DB client on the operator's laptop cannot reach them.
+  // The port list is read from the engine rather than kept in the deployment
+  // (host ports are re-assigned on every restart), prefetched by openMenu.
+  async function copySSHTunnelCommand(nid) {
+    const info = await (sshFwd.current[nid] || stackApi.nodeSSHForward(stack.id, nid).catch((err) => ({ error: err.message })))
+    if (info.error) {
+      setFlash({ tone: 'err', text: info.error })
+      return
+    }
+    if (!info.enabled) {
+      setFlash({ tone: 'err', text: 'SSH forwarding is not configured \u2014 set SSH_FORWARDING_HOST in .env.' })
+      return
+    }
+    if (!info.command) {
+      setFlash({ tone: 'err', text: 'This node publishes no host ports, so there is nothing to forward.' })
+      return
+    }
+    setFlash(await copyText(info.command)
+      ? { tone: 'ok', text: `Copied: ${info.command}` }
+      : { tone: 'err', text: `Could not reach the clipboard. Command: ${info.command}` })
   }
 
   // --- drag files from the host onto a node -------------------------------
@@ -2928,6 +2962,11 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
         // exact `docker exec` line for this node's container.
         if (dep.containerName) {
           actions.push({ label: 'Copy docker exec command', fn: () => copyExecCommand(dep.containerName) })
+        }
+        // Only when this installation says where it is reachable over SSH; on a
+        // laptop install the ports are already local and a tunnel is noise.
+        if (system.sshForwarding?.enabled) {
+          actions.push({ label: 'Copy SSH tunnel command', fn: () => copySSHTunnelCommand(id) })
         }
         actions.push({ label: 'Stop', fn: () => nodeAction(id, 'stop') })
         actions.push({ label: 'Restart', fn: () => nodeAction(id, 'restart') })
