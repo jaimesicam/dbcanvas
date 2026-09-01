@@ -19474,3 +19474,59 @@ dangling references as a *visible* absence — the Deploy button had no wrapper 
 
 `npm run build` and `npm run smoke` pass. Go is untouched; `TestAIOTLSWiringIsIdempotent`
 still fails on darwin for the pre-existing GNU-`sed` reason recorded in entry 322.
+
+---
+
+## 325. Documentation for operators, not for release notes — `README.md`, `docs/GETTING_STARTED.md` (new), `docs/{README,STACKS,CONFIGURATION,OPERATOR_DEBUGGER}.md`, six new screenshots
+
+The README opened with a hundred lines of **What's New** — six feature announcements — before
+it said how to install anything. Somebody arriving to find out how to *use* DBCanvas had to
+scroll past a changelog to reach a four-line Quickstart, and there was no walkthrough of a
+first stack anywhere in the repository. `docs/STACKS.md` was the closest thing, and it opens
+with a 150-line catalogue of every node type: excellent reference, useless as a first read.
+
+**The reorder.** The README now goes install → your first stack → operating what you built →
+what you can build → the tools → docs index → requirements, and the release notes moved to the
+bottom inside `<details>` blocks, where they stay available without standing in the way.
+
+**`docs/GETTING_STARTED.md`** is the missing walkthrough: install and what `make install`
+actually does, the admin account (the first user is the admin — later signups sit as *pending*
+until approved, which is not obvious and is worth saying), where each sidebar entry is for,
+the template route through a first stack, the by-hand route and why the Intranet has to go on
+first, the two places that operate a node (right-click for actions, click for the panel), the
+**four ways to connect** in the order somebody actually wants them, then load, monitoring,
+templates, teardown, and a "when something goes wrong" section written from the failures a
+first-timer actually hits.
+
+`STACKS.md` gained a **How the canvas works** section — nodes, frames, links, the properties
+panel, Intranet-first, validate-then-deploy — so the catalogue is no longer the first thing
+on the page.
+
+**Screenshots taken from the running app**, driven over the DevTools Protocol at 2× against a
+real deployed stack: the New stack dialog with a template chosen (so the picker's description
+and node count are visible), a deployed three-node stack, a node's Overview panel, the
+right-click menu, the masked Credentials tab, and the stack list. Credentials are captured
+**masked** — they are lab values from `.env`, but a screenshot of passwords does not belong in
+a repository either way.
+
+### Checking the docs rather than trusting them
+
+Every factual claim in the new guide was verified against the code rather than written from
+memory: the first-user-becomes-admin rule (`handleSetup` refuses once `CountUsers() > 0`), the
+pending-approval flow (`handleRegister` writes `StatusPending`), eleven built-in templates
+(counted in `templates_builtin.go` — the UI's "13" includes saved ones), and that **Validate**
+really does catch host-port clashes, both between two nodes in one design and against a port
+already in use on the host (`validateStack`, `exportReq`).
+
+Then a link checker over every relative link, image path and cross-document `#anchor`, using
+GitHub's own slug rules — lowercase, *strip* anything outside `[a-z0-9 _-]`, spaces to hyphens
+— which matters because an em-dash heading like "Templates — save a topology" slugs to a
+**double** hyphen, and a naive slugifier reports the correct link as broken. It found three
+genuinely dead anchors, all pre-existing: `STACKS.md#deployment-backends` (the heading is
+`#deployment-backends--docker-or-vagrant-hybrid`), `CONFIGURATION.md#hybrid-vagrant--virtualbox`
+(no such heading anywhere — retargeted to the backends section in STACKS.md), and
+`OPERATOR_DEBUGGER.md`'s link to `STACKS.md#kubernetes-k3d` (the K3D material is a paragraph
+inside "What you can put on the canvas", not a heading). All 0 broken links and 0 broken
+anchors after the fix.
+
+Markdown only — no code changed, so the Go and web suites are untouched.

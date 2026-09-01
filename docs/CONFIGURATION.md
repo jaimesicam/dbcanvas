@@ -173,6 +173,6 @@ on the `PATH` of the process that runs it.
 ### VM nodes and container nodes can't reach each other
 
 Cross-engine routing needs to install iptables rules on the host — see the
-[hybrid quick start](#hybrid-vagrant--virtualbox). Without `sudo -n` (or root, or
+[Deployment backends](STACKS.md#deployment-backends--docker-or-vagrant-hybrid). Without `sudo -n` (or root, or
 `DBCANVAS_NO_SUDO=1` with `CAP_NET_ADMIN`), both halves of the stack come up healthy but stay
 isolated: DNS lookups against the Intranet time out and PMM shows the VM nodes as down.

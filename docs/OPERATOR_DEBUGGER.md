@@ -169,5 +169,5 @@ deploys normally, without one.
 
 ## See also
 
-- [Stacks](STACKS.md#kubernetes-k3d) — the K3D frame, its operators, and the deploy options
+- [Stacks](STACKS.md#what-you-can-put-on-the-canvas) — the K3D frame, its operators, and the deploy options
 - [Architecture](ARCHITECTURE.md) — how DBCanvas drives Docker and Kubernetes

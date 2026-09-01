@@ -4,6 +4,12 @@ How to use each part of DBCanvas. For installing and configuring it, see
 [Configuration & commands](CONFIGURATION.md); for how it is built,
 [Architecture](ARCHITECTURE.md).
 
+## Start here
+
+| Guide | What it covers |
+| --- | --- |
+| [**Getting started**](GETTING_STARTED.md) | Install, the admin account, your first stack, how to connect to it, and what to do when a deploy fails. Read this one first. |
+
 ## Build and run databases
 
 | Guide | What it covers |

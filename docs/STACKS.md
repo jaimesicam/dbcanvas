@@ -6,8 +6,38 @@ certificate, users, and on-demand backups.
 
 ![The stack list — every stack, its lifetime and its state](screenshots/stacks-list.png)
 
-## What you can put on the canvas
+> **New here?** [Getting started](GETTING_STARTED.md) walks the whole path — install, first
+> stack, deploy, connect — in order. This page is the reference behind it.
 
+## How the canvas works
+
+Four things live on it, and everything below is a variation on them.
+
+- **Nodes** are the things that run: a database, a proxy, a monitoring server, a desktop. Add
+  them from the **Infrastructure Library** on the left; hover an entry to see what that type
+  actually gets you before you add it.
+- **Frames** are clusters. A dashed box owns its members, and has its own panel for what is
+  true of the whole cluster — its name, version, replication mode — while each member's panel
+  sets what is true of just that node. Adding a *PXC Cluster* gives you the frame and its
+  nodes together.
+- **Links** wire nodes to each other: drag from one node's port to another's. This is how a
+  database gets monitored by a PMM server, fronted by a ProxySQL, or backed up to a SeaweedFS
+  S3 node.
+- **The Properties panel** on the right edits whatever is selected. Every field has a `?`
+  explaining what it is for and when you would change it.
+
+**The Intranet node goes on first.** The rest of the library is greyed out until it is there,
+because it provides what everything else assumes exists: DNS for the stack's hostnames, a
+certificate authority the other nodes trust, OpenLDAP, mail, and a Squid proxy that caches
+package downloads (which is what makes the second node of the same OS much faster than the
+first).
+
+Then **Validate** — a dry run that catches missing links, impossible topologies and host-port
+clashes without building anything — and **Deploy**, which provisions in dependency order and
+shows every step in the deployment console. A node that fails leaves the rest running, so you
+can get into it and look.
+
+## What you can put on the canvas
 
 
 - **PostgreSQL** — standalone, **Patroni** HA clusters, **repmgr** clusters, and **Spock**
@@ -492,7 +522,7 @@ approval.
 Per-user preferences, stored on the **account** rather than the browser, so they follow you to
 another machine: whether a node console opens **docked** (a tab in the bottom terminal dock, the
 default) or **undocked** (its own floating window), your **deployment backend**
-([Docker or Vagrant hybrid](STACKS.md#deployment-backends)), and your **theme**
+([Docker or Vagrant hybrid](#deployment-backends--docker-or-vagrant-hybrid)), and your **theme**
 (light, dark, midnight, solarized, synthwave, forest).
 
 ### Manage Users (admin)
