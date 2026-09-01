@@ -166,24 +166,6 @@ func reverseZoneInfo(cidr string) (zone string, owner func(ip string) string, ok
 	return zone, owner, true
 }
 
-// staticIntranetIP picks a stable address for the Intranet within the network
-// subnet (host .2, just past the .1 gateway) so its resolver IP survives
-// restarts. Returns "" if the subnet can't be parsed.
-func staticIntranetIP(cidr string) string {
-	_, ipnet, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return ""
-	}
-	ip := ipnet.IP.To4()
-	if ip == nil {
-		return ""
-	}
-	out := make(net.IP, 4)
-	copy(out, ip)
-	out[3] += 2 // network base is x.x.x.0 → x.x.x.2
-	return out.String()
-}
-
 // --- zone + config rendering ---
 
 type dnsRecord struct{ host, ip string }

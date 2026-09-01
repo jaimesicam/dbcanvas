@@ -2118,14 +2118,26 @@ func (a *App) provisionIntranet(st Stack, n designNode) {
 		if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
 			a.engCtx(ctx).ContainerRemove(ctx, cid)
 		}
-		// Pin the Intranet to a stable address (host .2 of the stack subnet) so it
-		// stays a reliable DNS resolver / SMTP relay for the other nodes across
-		// restarts. The FQDN alias also lets peers reach it as intranet.<domain>.
-		subnet, _ := a.engCtx(ctx).NetworkSubnet(ctx, networkName(st.ID))
+		// The Intranet takes whatever address Docker assigns it — being the first
+		// container on the stack network, that is host .2 in practice anyway.
+		//
+		// It used to *request* .2, which Docker refuses on a network it chose the
+		// subnet for itself: "user specified IP address is supported only when
+		// connecting to networks with user configured subnets". NetworkEnsure creates
+		// the network without a subnet, so every stack hit that and the Intranet — the
+		// first node of every deploy — could not start at all. Docker lifted the
+		// restriction in 29.0.2; on anything older the whole product was unusable.
+		//
+		// Asking for the address bought nothing to begin with. Nothing consumes a
+		// *predicted* Intranet IP: waitIntranet (pmm.go) and intranetEndpoint (dns.go)
+		// both read the real one off the running container, and restoreNodeResolver
+		// re-points every node after a restart — which is the "survives restarts"
+		// property the pin was there for. The FQDN alias below is what peers actually
+		// resolve it by.
 		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
 			Name: name, Image: img, Hostname: "intranet",
 			Network: networkName(st.ID), Aliases: []string{"intranet", "intranet." + domain},
-			Privileged: true, PublishPort: 8080, IPv4Address: staticIntranetIP(subnet),
+			Privileged: true, PublishPort: 8080,
 		})
 		if err != nil {
 			failNode("create container: %v", err)

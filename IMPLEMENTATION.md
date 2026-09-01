@@ -19530,3 +19530,59 @@ inside "What you can put on the canvas", not a heading). All 0 broken links and 
 anchors after the fix.
 
 Markdown only — no code changed, so the Go and web suites are untouched.
+
+---
+
+## 326. The Intranet asked Docker for an address Docker would not give it — `app/intranet.go`, `app/dns.go`
+
+**The symptom.** On a server running Docker 28.0.4, every deploy died on its first node:
+
+```
+stack 1 node intranet-...: create container: docker create container: invalid config for
+network dbcanvas-stack-1: invalid endpoint settings: user specified IP address is supported
+only when connecting to networks with user configured subnets (400)
+```
+
+and then `ps` and `vnc` reported "Intranet failed to provision — cannot start dependent
+nodes". Not a partial failure: the Intranet is the first node of every stack, so **nothing
+could be deployed on that host at all.**
+
+**The cause.** `NetworkEnsure` creates the stack network with `{"Name", "Driver": "bridge"}`
+and no IPAM, so Docker picks the subnet. `provisionIntranet` then read that subnet back and
+asked for host `.2` on it. Docker only honours a requested container IP on a network whose
+subnet the *user* configured at create time — and the trap is that `docker network inspect`
+reports an auto-allocated subnet identically to a configured one, so `NetworkSubnet` returned
+a perfectly plausible `172.26.0.0/16` and the code confidently asked for `172.26.0.2`. The
+address was right; the permission was missing.
+
+Docker lifted the restriction in **29.0.2** ("Allow creation of a container with a specific IP
+address when its networks were not configured with a specific subnet"), which is why this was
+invisible on a 29.5.2 development machine and fatal on a 28.x server.
+
+**The fix is a deletion, because the pin was never load-bearing.** Nothing consumes a
+*predicted* Intranet address. `waitIntranet` (pmm.go:388) and `intranetEndpoint` (dns.go:248),
+between them the source of every `DNS: []string{intranetIP}` and every zone file, both read
+the real address off the running container with `ContainerIP`. And the pin's stated purpose —
+"so its resolver IP survives restarts" — is already met by `restoreNodeResolver`, which
+re-points every node after each start and restart. So the request went, and `staticIntranetIP`
+with it.
+
+This beats the two alternatives considered. Upgrading Docker means 28.0.4 → 29.0.2+, a major
+version bump on a production server. Having DBCanvas allocate the subnet itself and state it
+explicitly at create time works everywhere too, but it is a subnet allocator plus a config
+knob plus a new failure mode, to keep a property nothing uses.
+
+**Verified.** That the Intranet still lands where the pin used to put it: a first container on
+a fresh auto-subnet network, created with no `IPAMConfig`, gets `172.23.0.2` — Docker's IPAM
+allocates from the bottom, and the Intranet is always first onto the stack network. That
+`IPv4Address` had exactly one caller, so no other node type is affected: every other container
+in the product, k3d server nodes included, already came up on an auto-assigned address. That
+the Vagrant backend is unaffected — `vagrant.go:517` falls back to its own `allocIP` when the
+field is empty, and the Intranet runs on Docker even in a hybrid stack. And that **MetalLB is
+untouched**: `metalLBPool` reads the subnet, not the Intranet's address, and carves its blocks
+from the *top* of it (`k3d.go:1010`) precisely because Docker allocates from the bottom — the
+two ends never meet, and MetalLB never asks Docker for an address in the first place, which is
+why the 28.0.4 restriction never applied to it.
+
+`go build`, `go vet` and `go test` pass, with the one pre-existing darwin `sed` failure from
+entry 322.
