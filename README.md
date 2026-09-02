@@ -152,7 +152,8 @@ and leaves the PMM console and the database ports unreachable from the laptop yo
 sitting at. Set **`SSH_FORWARDING_HOST`** in `.env` to where the server answers SSH and
 right-clicking a running node offers **Copy SSH tunnel command**: the exact `ssh -L` line
 forwarding every port that node publishes, each to the same port locally, so every address the
-UI shows works verbatim through the tunnel.
+UI shows works verbatim through the tunnel. The login comes from whoever is signed in to
+DBCanvas, so the line is ready to paste; a `user@` in the value pins one login for everybody.
 [Configuration →](docs/CONFIGURATION.md)
 </details>
 

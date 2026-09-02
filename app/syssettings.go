@@ -56,12 +56,15 @@ type SSHForwardingSetting struct {
 	Port    int    `json:"port,omitempty"`
 }
 
-// sshForwardingSetting reads SSH_FORWARDING_HOST for the settings payload.
-func sshForwardingSetting() SSHForwardingSetting {
+// sshForwardingSetting reads SSH_FORWARDING_HOST for the settings payload. appUser is
+// the signed-in account, used as the login when the configured value named none (see
+// withLogin); "" is fine for callers that only want the upload ceiling.
+func sshForwardingSetting(appUser string) SSHForwardingSetting {
 	t, ok := sshForwardingTarget()
 	if !ok {
 		return SSHForwardingSetting{}
 	}
+	t = t.withLogin(appUser)
 	return SSHForwardingSetting{Enabled: true, User: t.User, Host: t.Host, Port: t.Port}
 }
 
@@ -86,7 +89,7 @@ func (s SystemSettings) normalize() SystemSettings {
 
 // systemSettings reads the stored settings, falling back to the defaults for
 // anything unset or unparseable — a hand-edited row can never wedge an upload.
-func (a *App) systemSettings() SystemSettings {
+func (a *App) systemSettings(appUser string) SystemSettings {
 	s := defaultSystemSettings()
 	if v, err := a.store.AppSetting(settingMaxUploadBytes); err == nil && v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
@@ -94,19 +97,20 @@ func (a *App) systemSettings() SystemSettings {
 		}
 	}
 	s = s.normalize()
-	s.SSHForwarding = sshForwardingSetting()
+	s.SSHForwarding = sshForwardingSetting(appUser)
 	return s
 }
 
 // maxUploadBytes is the configured ceiling on one node file drop.
-func (a *App) maxUploadBytes() int64 { return a.systemSettings().MaxUploadBytes }
+func (a *App) maxUploadBytes() int64 { return a.systemSettings("").MaxUploadBytes }
 
 func (a *App) handleGetSystemSettings(w http.ResponseWriter, r *http.Request) {
-	if _, ok := a.currentUser(r); !ok {
+	u, ok := a.currentUser(r)
+	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	writeJSON(w, http.StatusOK, a.systemSettings())
+	writeJSON(w, http.StatusOK, a.systemSettings(u.Username))
 }
 
 // handleUpdateSystemSettings is admin-only (wired through requireAdmin in main.go).
@@ -124,7 +128,11 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 	// Re-derived, never taken from the request: SSH forwarding is an environment
 	// setting, and the response has to keep carrying it for the client that
 	// replaced its whole settings object with this reply.
-	s.SSHForwarding = sshForwardingSetting()
+	appUser := ""
+	if u, ok := a.currentUser(r); ok { // requireAdmin already established there is one
+		appUser = u.Username
+	}
+	s.SSHForwarding = sshForwardingSetting(appUser)
 	writeJSON(w, http.StatusOK, s)
 }
 

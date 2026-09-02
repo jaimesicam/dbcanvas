@@ -33,13 +33,13 @@ import (
 // default) means off.
 const sshForwardingHostEnv = "SSH_FORWARDING_HOST"
 
-// sshForwardDefaultUser is the login the command carries when the configured
-// value names none. It is a placeholder the operator edits — DBCanvas has no way
-// to know their account on the host it happens to run on, and guessing (root,
-// the container's user) would hand them a line that fails.
-const sshForwardDefaultUser = "user"
+// sshForwardPlaceholderUser is the last resort: the login the command carries when
+// neither SSH_FORWARDING_HOST nor the signed-in account can supply a usable one. It
+// is a placeholder the operator is expected to edit.
+const sshForwardPlaceholderUser = "user"
 
 // sshForwardTarget is a parsed SSH_FORWARDING_HOST: where to ssh to, and as whom.
+// User is empty when the configured value named no login — withLogin fills it.
 type sshForwardTarget struct {
 	User string
 	Host string
@@ -68,9 +68,11 @@ type sshForwardInfo struct {
 
 // parseSSHForwardingHost reads the configured value. The documented form is an
 // address with an optional port — "10.0.0.7", "10.0.0.7:2222" — and a "user@"
-// prefix is accepted too, so an installation whose operators all log in under
-// the same account can drop the placeholder. IPv6 is bracketed, as everywhere
-// else a host:port is written.
+// prefix pins the login for everybody, for an installation whose operators all ssh
+// in under the same account. IPv6 is bracketed, as everywhere else a host:port is
+// written.
+//
+// With no "user@", User comes back empty and withLogin decides it per request.
 //
 // A value that is not a plausible host is rejected rather than patched up: this
 // string is rendered into a command line the operator pastes into their shell,
@@ -81,7 +83,7 @@ func parseSSHForwardingHost(v string) (sshForwardTarget, bool) {
 	if v == "" {
 		return sshForwardTarget{}, false
 	}
-	t := sshForwardTarget{User: sshForwardDefaultUser, Port: 22}
+	t := sshForwardTarget{Port: 22}
 	if at := strings.LastIndex(v, "@"); at >= 0 {
 		if u := strings.TrimSpace(v[:at]); u != "" {
 			t.User = u
@@ -99,7 +101,12 @@ func parseSSHForwardingHost(v string) (sshForwardTarget, bool) {
 		v, t.Port = h, n
 	}
 	t.Host = strings.Trim(v, "[]")
-	if !sshSafeToken(t.Host) || !sshSafeToken(t.User) {
+	if !sshSafeToken(t.Host) {
+		return sshForwardTarget{}, false
+	}
+	// A configured login is held to the same standard as the host. An unusable one
+	// turns the feature off rather than silently becoming somebody else's account.
+	if t.User != "" && !sshSafeToken(t.User) {
 		return sshForwardTarget{}, false
 	}
 	// A colon survives only in an IPv6 literal. Anything else carrying one is a
@@ -109,6 +116,31 @@ func parseSSHForwardingHost(v string) (sshForwardTarget, bool) {
 		return sshForwardTarget{}, false
 	}
 	return t, true
+}
+
+// withLogin settles who the ssh line logs in as.
+//
+// A "user@" in SSH_FORWARDING_HOST wins — an administrator who wrote one meant it,
+// for every operator. Otherwise the signed-in DBCanvas account is used: on the
+// server installs this feature exists for, the person at the browser is very often
+// the same person with an ssh account on that host, and their own name is a far
+// better guess than a literal "user" they have to notice and edit.
+//
+// It is only a guess, so it is held to the same bar as everything else that reaches
+// the command line. A DBCanvas username is validated for length alone (auth.go), and
+// registration is open where an admin approves accounts — so the name may contain
+// anything at all. One that is not shell-safe degrades to the placeholder rather
+// than being quoted or escaped into a line nobody can read.
+func (t sshForwardTarget) withLogin(appUser string) sshForwardTarget {
+	if t.User != "" {
+		return t
+	}
+	if u := strings.TrimSpace(appUser); sshSafeToken(u) {
+		t.User = u
+	} else {
+		t.User = sshForwardPlaceholderUser
+	}
+	return t
 }
 
 // sshSafeToken reports whether s can be dropped into a shell command unquoted.
@@ -195,6 +227,14 @@ func (a *App) handleNodeSSHForward(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, sshForwardInfo{})
 		return
 	}
+	// The login is per caller, not per installation: two people asking the same
+	// running node get their own account in the line. loadRunningNode has already
+	// authenticated, so this only reads back who that was.
+	appUser := ""
+	if u, ok := a.currentUser(r); ok {
+		appUser = u.Username
+	}
+	t = t.withLogin(appUser)
 	ctx := r.Context()
 	pm, err := a.engCtx(ctx).ContainerPorts(ctx, dep.ContainerID)
 	if err != nil {

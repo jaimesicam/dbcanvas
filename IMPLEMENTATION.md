@@ -19586,3 +19586,53 @@ why the 28.0.4 restriction never applied to it.
 
 `go build`, `go vet` and `go test` pass, with the one pre-existing darwin `sed` failure from
 entry 322.
+
+---
+
+## 327. `SSH_FORWARDING_HOST`: the login is optional, and defaults to whoever is signed in — `app/sshforward.go`, `app/syssettings.go`, `app/sshforward_test.go`, `app/web/src/lib/help.js`, `.env`, `.env.example`, `docker-compose.yml`, `docs/{CONFIGURATION,STACKS,GETTING_STARTED}.md`, `README.md`
+
+Entry 323 shipped the tunnel command with a literal `user@` placeholder, on the reasoning
+that DBCanvas "has no way to know their account on the host it happens to run on". That was
+wrong, and the local `.env` proved it: it had been set to `SSH_FORWARDING_HOST=user@127.0.0.1:22`
+— somebody had written the placeholder in as if it were configuration, which produces
+`user@127.0.0.1` forever and is the one thing the design was trying to avoid.
+
+DBCanvas does have a good guess, and it is sitting right there: **the account that is signed
+in.** On the server installs this feature exists for, the person at the browser is very often
+the person with the ssh account on that host, so their own name beats a placeholder they have
+to notice and edit.
+
+**The shape.** `parseSSHForwardingHost` now leaves `User` empty when the value carries no
+`user@`, and a new `withLogin(appUser)` settles it per request: a configured `user@` wins (an
+administrator who wrote one meant it, for everybody), otherwise the signed-in username, and
+failing both the placeholder. It is resolved **per caller, not per installation** — two people
+asking the same running node each get their own account in the line.
+
+**The username is untrusted, which is the part worth being careful about.** `credentials.validate`
+(auth.go) checks a username's *length* and nothing else — 3 to 32 characters, any bytes — and
+registration is open on an instance where an admin approves accounts. That string was about to
+be rendered into a command line somebody pastes into a shell. So the app username goes through
+the same `sshSafeToken` gate as everything else, and one that fails it degrades to the
+placeholder rather than being quoted or escaped into a line nobody can read. `o'brien`,
+`bob;id` and `$(whoami)` are all registerable names and all fall back.
+
+A configured login is now also checked separately from the host, so `bad user@10.0.0.7` turns
+the feature off rather than half-on.
+
+**Threading it through.** `sshForwardingSetting` and `App.systemSettings` take the username;
+`maxUploadBytes`, which only wants the ceiling, passes `""`. `handleNodeSSHForward` reads it
+back from `currentUser` after `loadRunningNode` has already authenticated, and
+`handleUpdateSystemSettings` does the same (`requireAdmin` has established there is one).
+
+**Verified against the running app**, not only by unit test: with `SSH_FORWARDING_HOST=127.0.0.1:22`
+and signed in as `admin`, `GET /api/system/settings` advertises `"user": "admin"`, and the PMM
+node's endpoint returns
+
+```
+ssh -L 35869:127.0.0.1:35869 -L 36817:127.0.0.1:36817 admin@127.0.0.1 -p 22
+```
+
+A node publishing nothing still returns no command (the UI says so) rather than a bare `ssh`
+line. `TestSSHForwardWithLogin` covers the precedence, the nine unsafe usernames and the
+rendered command; `go build`, `go vet`, `go test`, `npm run build` and `npm run smoke` pass,
+with the one pre-existing darwin `sed` failure from entry 322.

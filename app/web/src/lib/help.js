@@ -464,7 +464,7 @@ export const MENU_HELP = {
   pmmConsole: 'A shell as the unprivileged pmm user — the account PMM\'s own tooling expects. Use the root console for anything that needs to write outside PMM\'s directories.',
   fileManager: 'Browse this node\'s filesystem: upload, download, edit a config in place, change ownership and permissions. Usually faster than a shell for fixing one wrong line.',
   copyExec: 'Copies a ready-made `docker exec -it … bash` line, for when you would rather work in your own terminal than the browser.',
-  sshTunnel: 'Copies an `ssh -L` line that forwards every port this node publishes to the same port on your own machine. For when DBCanvas runs on a server and the ports are bound to it, not to you.',
+  sshTunnel: 'Copies an `ssh -L` line that forwards every port this node publishes to the same port on your own machine \u2014 for when DBCanvas runs on a server and the ports are bound to it, not to you. It logs in as your DBCanvas username, so on a server where that is also your ssh account the line is ready to paste.',
   stop: 'Stops the container. The data survives; start it again from this menu.',
   start: 'Starts a stopped node back up. Published host ports are re-assigned on start, so the panel\'s addresses may change.',
   restart: 'Restarts the container — the quick way to make a config change you just wrote take effect.',

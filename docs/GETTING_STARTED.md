@@ -204,6 +204,10 @@ node's right-click menu gains **Copy SSH tunnel command**: the exact `ssh -L` li
 every port that node publishes, each to the same port locally, so every address the UI shows
 works verbatim through the tunnel.
 
+The login is filled in from **whoever is signed in to DBCanvas** — sign in as `jaime` and you
+get `jaime@10.0.0.7`, which on a server install is usually the account you ssh in with anyway.
+Add `user@` to the `.env` value only if everyone should use one fixed login instead.
+
 ## Putting load on it
 
 An idle database does not show you very much.
