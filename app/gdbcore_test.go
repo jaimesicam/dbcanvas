@@ -87,22 +87,50 @@ func TestGDBBindsAreReadOnly(t *testing.T) {
 // guessable — see gdbPackages. These names were read off Percona's repositories.
 func TestGDBPackages(t *testing.T) {
 	cases := []struct {
-		product, os string
-		want        []string
+		product, os, major string
+		want               []string
 	}{
-		{"ps", "oraclelinux", []string{
-			"percona-server-server", "percona-server-server-debuginfo", "percona-server-debuginfo",
+		{"ps", "oraclelinux", "8.0", []string{
+			"percona-server-server", "percona-server-client", "percona-server-shared",
+			"percona-icu-data-files", "percona-server-server-debuginfo", "percona-server-debuginfo",
 			"percona-server-debugsource"}},
-		{"pxc", "oraclelinux", []string{
+		// 5.7 on EL keeps the suffixed spelling the series shipped with: asking for
+		// percona-server-server there matches no package at all, which is what a 5.7 core-dump
+		// node actually failed with.
+		{"ps", "oraclelinux", "5.7", []string{
+			"Percona-Server-server-57", "Percona-Server-client-57", "Percona-Server-shared-57",
+			"Percona-Server-server-57-debuginfo", "Percona-Server-57-debuginfo",
+			"Percona-Server-57-debugsource"}},
+		{"pxc", "oraclelinux", "8.0", []string{
 			"percona-xtradb-cluster-server", "percona-xtradb-cluster-server-debuginfo",
 			"percona-xtradb-cluster-debuginfo", "percona-xtradb-cluster-debugsource"}},
-		{"ps", "ubuntu", []string{"percona-server-server", "percona-server-dbg"}},
-		{"pxc", "debian", []string{"percona-xtradb-cluster-server", "percona-xtradb-cluster-dbg"}},
+		{"ps", "ubuntu", "8.0", []string{
+			"percona-server-server", "percona-server-client", "percona-server-common",
+			"percona-server-dbg"}},
+		{"ps", "ubuntu", "5.7", []string{
+			"percona-server-server-5.7", "percona-server-client-5.7", "percona-server-common-5.7",
+			"percona-server-5.7-dbg"}},
+		{"pxc", "debian", "8.0", []string{"percona-xtradb-cluster-server", "percona-xtradb-cluster-dbg"}},
 	}
 	for _, c := range cases {
-		got := gdbPackages(c.product, c.os)
+		got := gdbPackages(c.product, c.os, c.major)
 		if strings.Join(got, " ") != strings.Join(c.want, " ") {
-			t.Errorf("%s on %s = %v, want %v", c.product, c.os, got, c.want)
+			t.Errorf("%s %s on %s = %v, want %v", c.product, c.major, c.os, got, c.want)
+		}
+	}
+
+	// Every Percona Server package must be one pin_install applies $VER to. percona-server-server
+	// requires its client/shared/ICU siblings with no version, so anything left to dependency
+	// resolution lands at the newest build in the repo — a node whose mysqld and libraries come
+	// from different releases, which is precisely the mismatch this node type exists to rule out.
+	for _, os := range []string{"oraclelinux", "ubuntu"} {
+		for _, major := range []string{"8.0", "8.4", "9.7", "5.7"} {
+			pkgs := gdbPackages("ps", os, major)
+			for _, want := range psServerPackages(os, major) {
+				if !sliceHas(pkgs, want) {
+					t.Errorf("ps %s on %s does not pin %s: %v", major, os, want, pkgs)
+				}
+			}
 		}
 	}
 
@@ -110,7 +138,7 @@ func TestGDBPackages(t *testing.T) {
 	// package's symbols refer into it, so installing only the first leaves gdb with half a
 	// symbol table and no error anywhere.
 	for _, os := range []string{"oraclelinux", "rocky"} {
-		pkgs := gdbPackages("ps", os)
+		pkgs := gdbPackages("ps", os, "8.0")
 		if !sliceHas(pkgs, "percona-server-debuginfo") {
 			t.Errorf("%s is missing the dwz common package: %v", os, pkgs)
 		}
@@ -119,10 +147,15 @@ func TestGDBPackages(t *testing.T) {
 		if !sliceHas(pkgs, "percona-server-debugsource") {
 			t.Errorf("%s is missing debugsource, so no frame can show its code: %v", os, pkgs)
 		}
+		// Same two, under the names 5.7 publishes them as.
+		p57 := gdbPackages("ps", os, "5.7")
+		if !sliceHas(p57, "Percona-Server-57-debuginfo") || !sliceHas(p57, "Percona-Server-57-debugsource") {
+			t.Errorf("%s 5.7 is missing the dwz common package or debugsource: %v", os, p57)
+		}
 	}
 	// The Debian trap next door: -server-debug is a debug *build* of the server, not symbols for
 	// the release build, and must never be substituted for -dbg.
-	for _, p := range append(gdbPackages("pxc", "ubuntu"), gdbPackages("ps", "ubuntu")...) {
+	for _, p := range append(gdbPackages("pxc", "ubuntu", "8.0"), gdbPackages("ps", "ubuntu", "8.0")...) {
 		if strings.HasSuffix(p, "-server-debug") {
 			t.Errorf("%q is a debug build of the server, not its symbols", p)
 		}
@@ -172,6 +205,49 @@ func TestGDBInstallEnv(t *testing.T) {
 	}
 	if !strings.Contains(got["TOOLS"], "gdb") || !strings.Contains(got["TOOLS"], "elfutils") {
 		t.Errorf("TOOLS = %q, want gdb and elfutils", got["TOOLS"])
+	}
+	// 5.7 is the environment that used to install nothing at all: the EL package names are
+	// suffixed, and every one of them has to reach pin_install so $VER applies to it.
+	env57 := gdbInstallEnv("ps", "oraclelinux", "5.7", "5.7.44-48.1")
+	got57 := map[string]string{}
+	for _, kv := range env57 {
+		k, v, _ := strings.Cut(kv, "=")
+		got57[k] = v
+	}
+	if got57["REPO"] != "ps-57" || got57["PRODUCT"] != "ps57" {
+		t.Errorf("5.7 repo/product = %q/%q", got57["REPO"], got57["PRODUCT"])
+	}
+	if strings.Contains(got57["PKGS"], "percona-server-server ") {
+		t.Errorf("5.7 PKGS asks for the 8.0 package name, which the ps-57 repository does not carry: %q", got57["PKGS"])
+	}
+	for _, want := range []string{"Percona-Server-server-57", "Percona-Server-client-57",
+		"Percona-Server-shared-57", "Percona-Server-server-57-debuginfo"} {
+		if !strings.Contains(got57["PKGS"], want) {
+			t.Errorf("5.7 PKGS = %q, missing %s", got57["PKGS"], want)
+		}
+	}
+	// The one sibling that cannot be listed as required: percona-server-shared pulls it in
+	// unversioned, so it drifts to the newest build unless it joins the same transaction — and
+	// it ships only in the el8 builds, so naming it outright would fail the install on el9.
+	if got57["OPT"] != "Percona-Server-shared-compat-57" {
+		t.Errorf("5.7 OPT = %q, want the 5.7 compat library", got57["OPT"])
+	}
+	if got["OPT"] != "percona-server-shared-compat" {
+		t.Errorf("8.0 OPT = %q, want the compat library", got["OPT"])
+	}
+	// Debian has no such package, and PXC pins its own siblings exactly.
+	for _, e := range append(gdbInstallEnv("ps", "ubuntu", "8.0", "8.0.43-34-1"),
+		gdbInstallEnv("pxc", "oraclelinux", "8.0", "8.0.43-34.1")...) {
+		if k, v, _ := strings.Cut(e, "="); k == "OPT" && v != "" {
+			t.Errorf("OPT = %q, want empty", v)
+		}
+	}
+	// Every script that reads $OPT must filter it first — an unfiltered name fails the install
+	// on an EL whose repository does not carry it.
+	for _, script := range []string{gdbInstallRHEL, gdbInstallDebian, mysqlInstallRHEL, mysqlInstallDebian} {
+		if strings.Contains(script, "$OPT") && !strings.Contains(script, "pin_present $OPT") {
+			t.Error("an install script uses $OPT without pin_present")
+		}
 	}
 	// The scripts have to consume every one of those.
 	for _, script := range []string{gdbInstallRHEL, gdbInstallDebian} {

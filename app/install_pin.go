@@ -10,6 +10,13 @@ package main
 // The catalog minor strings come from the per-image version catalog, so they match the target
 // repo's format (RPM `16.4-1`, DEB `16.4-1.…`); the RHEL matcher globs `-<VER>*`, the Debian
 // matcher resolves the exact `apt-cache madison` version containing VER.
+//
+// `pin_present` is the companion for packages that exist in some builds of a repository and not
+// others. Naming a package a repo does not carry fails the whole install — which is the behaviour
+// we want for a package that is simply misspelled, and the reason a conditional sibling cannot
+// just be added to the list. Filtering it first keeps both: the required names stay strict, and an
+// optional one is pinned wherever it exists. See psServerPackagesOptional for the one that made
+// this necessary.
 
 const pinInstallRHEL = `pin_install() {
   local specs=() p
@@ -21,6 +28,13 @@ const pinInstallRHEL = `pin_install() {
     fi
   done
   dnf -y -q install "${specs[@]}"
+}
+pin_present() {
+  local p
+  for p in "$@"; do
+    [ -n "$(dnf -q repoquery "$p" 2>/dev/null)" ] && printf '%s ' "$p"
+  done
+  return 0
 }
 `
 
@@ -34,5 +48,12 @@ const pinInstallDebian = `pin_install() {
     if [ -n "$exact" ]; then specs+=("${p}=${exact}"); else specs+=("$p"); fi
   done
   apt-get install -y -qq "${specs[@]}"
+}
+pin_present() {
+  local p
+  for p in "$@"; do
+    [ -n "$(apt-cache policy "$p" 2>/dev/null)" ] && printf '%s ' "$p"
+  done
+  return 0
 }
 `

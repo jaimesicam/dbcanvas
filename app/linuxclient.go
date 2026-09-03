@@ -168,7 +168,7 @@ func gdbProductOf(n designNode) string {
 // analyzer's first job is telling you whether the backtrace it is about to show means anything.
 func (a *App) linuxClientInstallGDB(ctx context.Context, id string, n designNode, cfg *linuxClientConfig, pr *pxcProg) {
 	product, major, version := cfg.Product, cfg.Major, cfg.Version
-	pkgs := gdbPackages(product, n.OS)
+	pkgs := gdbPackages(product, n.OS, major)
 	pr.phase("Installing gdb and debug symbols", 80)
 	pr.logln(fmt.Sprintf("%s %s%s: %s", gdbProductLabel(product), major,
 		map[bool]string{true: " " + version, false: " (latest)"}[version != ""],

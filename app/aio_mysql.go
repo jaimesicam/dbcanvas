@@ -114,7 +114,8 @@ func (a *App) aioMySQLInstallFor(ctx context.Context, id string, n designNode, f
 		// cannot enable, which the script installs from a hand-written repository
 		// (see psRepoRHEL in mysql.go). Passing it unconditionally keeps the two
 		// callers of this script identical.
-		env = []string{"PRODUCT=" + product, "REPO=" + psRepoName(psMajorOf(major)), "PKGS=" + pkgs, "VER=" + version}
+		env = []string{"PRODUCT=" + product, "REPO=" + psRepoName(psMajorOf(major)), "PKGS=" + pkgs,
+			"OPT=" + strings.Join(psServerPackagesOptional(n.OS, psMajorOf(major)), " "), "VER=" + version}
 		what = pkgs
 	}
 	if err := a.runStep(ctx, id, script, env, pr.logln); err != nil {

@@ -118,9 +118,9 @@ func gdbProductLabel(p string) string {
 	return p
 }
 
-// gdbPackages is the package list to install for one product on one OS family.
+// gdbPackages is the package list to install for one product, on one OS family, for one series.
 //
-// The RHEL list has three entries and the third looks redundant. It is not, and getting this wrong
+// The RHEL list has four entries and the third looks redundant. It is not, and getting this wrong
 // produces the exact failure this whole feature exists to avoid — a backtrace that resolves to
 // nothing, with no error anywhere:
 //
@@ -146,9 +146,23 @@ func gdbProductLabel(p string) string {
 // upstream tarball laid out differently. A Debian client still resolves frames to file and line;
 // it just cannot show the line.
 //
+// Percona Server 5.7 renames every one of these. On EL the packages keep the suffixed spelling the
+// series shipped with — Percona-Server-server-57, and debug symbols in Percona-Server-server-57-
+// debuginfo / Percona-Server-57-debuginfo / Percona-Server-57-debugsource — so asking for
+// percona-server-server there installs nothing at all; on Debian the server is
+// percona-server-server-5.7 and the symbols are percona-server-5.7-dbg. Both sets were read off
+// repo.percona.com's ps-57 metadata, where the EL -server-debuginfo carries the same exact-version
+// Requires on the DWZ common package that the 8.0 one does.
+//
 // The server package itself is installed for one reason: /usr/sbin/mysqld, the executable gdb
-// needs alongside the core. It is never started.
-func gdbPackages(product, os string) []string {
+// needs alongside the core. It is never started. Its siblings (client/shared/ICU) come with it,
+// and they are listed explicitly because percona-server-server's Requires on them carry no
+// version — pinning only the server leaves the rest to resolve to whatever is newest in the repo.
+// That is the drift psServerPackages exists to prevent, and reusing it here is what keeps every
+// Percona Server package on a core-dump node at the one version the core came from. (PXC needs no
+// such list: percona-xtradb-cluster-server has exact-version Requires on its own sub-packages, so
+// pinning it cascades — verified in the pxc-80 repository metadata.)
+func gdbPackages(product, os, major string) []string {
 	debian := isDebianOS(os)
 	switch product {
 	case "pxc":
@@ -162,15 +176,23 @@ func gdbPackages(product, os string) []string {
 			"percona-xtradb-cluster-debugsource",
 		}
 	default: // ps
-		if debian {
-			return []string{"percona-server-server", "percona-server-dbg"}
+		m := psMajorOf(major)
+		pkgs := psServerPackages(os, m)
+		switch {
+		case debian && m == "5.7":
+			return append(pkgs, "percona-server-5.7-dbg")
+		case debian:
+			return append(pkgs, "percona-server-dbg")
+		case m == "5.7":
+			return append(pkgs,
+				"Percona-Server-server-57-debuginfo",
+				"Percona-Server-57-debuginfo",
+				"Percona-Server-57-debugsource")
 		}
-		return []string{
-			"percona-server-server",
+		return append(pkgs,
 			"percona-server-server-debuginfo",
 			"percona-server-debuginfo",
-			"percona-server-debugsource",
-		}
+			"percona-server-debugsource")
 	}
 }
 
@@ -216,7 +238,7 @@ func gdbToolPackages(os string) []string {
 const gdbInstallRHEL = pinInstallRHEL + `set -e
 dnf -y -q module disable mysql >/dev/null 2>&1 || true
 dnf -y -q install $TOOLS
-` + psRepoRHEL + `pin_install $PKGS
+` + psRepoRHEL + `pin_install $PKGS $(pin_present $OPT)
 `
 
 const gdbInstallDebian = pinInstallDebian + `set -e
@@ -224,17 +246,25 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq >/dev/null
 apt-get install -y -qq $TOOLS
 ` + psRepoDebian + `apt-get update -qq >/dev/null
-pin_install $PKGS
+pin_install $PKGS $(pin_present $OPT)
 `
 
 // gdbInstallEnv is the environment the install script reads: which repository to enable, which
-// minor to pin to, and the two package lists.
+// minor to pin to, and the package lists. $OPT is the Percona Server siblings that exist only in
+// some builds of a repository — pinned where they exist, skipped where they do not, which is what
+// keeps every Percona Server package on the node at the version the core came from
+// (psServerPackagesOptional). PXC needs none: its server package pins its own siblings exactly.
 func gdbInstallEnv(product, os, major, version string) []string {
+	opt := []string{}
+	if product != "pxc" {
+		opt = psServerPackagesOptional(os, psMajorOf(major))
+	}
 	return []string{
 		"PRODUCT=" + gdbReleaseProduct(product, major),
 		"REPO=" + gdbReleaseRepo(product, major),
 		"VER=" + version,
-		"PKGS=" + strings.Join(gdbPackages(product, os), " "),
+		"PKGS=" + strings.Join(gdbPackages(product, os, major), " "),
+		"OPT=" + strings.Join(opt, " "),
 		"TOOLS=" + strings.Join(gdbToolPackages(os), " "),
 	}
 }

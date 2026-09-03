@@ -531,6 +531,28 @@ func psServerPackages(os, major string) []string {
 	return []string{"percona-server-server", "percona-server-client", "percona-server-shared", "percona-icu-data-files"}
 }
 
+// psServerPackagesOptional is the rest of a Percona Server install: the packages that exist in
+// some EL builds of a series and not others, so they can be pinned where they exist without
+// failing the install where they do not (see pin_present in install_pin.go).
+//
+// There is one, and it is not decoration. percona-server-shared Requires
+// percona-server-shared-compat — the libmysqlclient.so.18 compatibility library, spelled
+// Percona-Server-shared-compat-57 on 5.7 — *without a version*, and the package ships only in the
+// el8 builds of every series (plus el9 for 9.7), checked against repo.percona.com. Where it does
+// ship it is dragged in as an ordinary dependency and settles on the newest build in the repo,
+// which is how an el8 node pinned to 5.7.42-45.1 ends up with one Percona Server package at
+// 5.7.44-48.1 while every other one is at the version that was asked for — observed live before
+// this existed. Debian consolidates the compat library elsewhere and has no equivalent package.
+func psServerPackagesOptional(os, major string) []string {
+	if isDebianOS(os) {
+		return nil
+	}
+	if major == "5.7" {
+		return []string{"Percona-Server-shared-compat-57"}
+	}
+	return []string{"percona-server-shared-compat"}
+}
+
 // psAuthPlugin is the authentication plugin used for accounts DBCanvas sets a password
 // on. 8.0+ default to caching_sha2_password; 5.7 predates it, so it uses the classic
 // mysql_native_password (also why 5.7 links need no GET_SOURCE_PUBLIC_KEY handshake).
@@ -656,7 +678,8 @@ func (a *App) mysqlPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	psPkgs := strings.Join(psServerPackages(frame.OS, psMajor), " ")
 	if err := a.runStep(ctx, id, instScript, []string{
 		"PRODUCT=" + psClientProduct(psMajor), "REPO=" + psRepoName(psMajor),
-		"PKGS=" + psPkgs, "VER=" + frame.PSVersion}, pr.logln); err != nil {
+		"PKGS=" + psPkgs, "OPT=" + strings.Join(psServerPackagesOptional(frame.OS, psMajor), " "),
+		"VER=" + frame.PSVersion}, pr.logln); err != nil {
 		return pr.fail("install %s: %v", psPkgs, err)
 	}
 	pr.logln(psPkgs + " installed")
@@ -857,12 +880,12 @@ fi
 
 const mysqlInstallRHEL = pinInstallRHEL + `set -e
 dnf -y -q module disable mysql >/dev/null 2>&1 || true
-` + psRepoRHEL + `for p in $PKGS; do pin_install "$p"; done`
+` + psRepoRHEL + `for p in $PKGS $(pin_present $OPT); do pin_install "$p"; done`
 
 const mysqlInstallDebian = pinInstallDebian + `set -e
 export DEBIAN_FRONTEND=noninteractive
 ` + psRepoDebian + `apt-get update -qq >/dev/null
-for p in $PKGS; do pin_install "$p"; done`
+for p in $PKGS $(pin_present $OPT); do pin_install "$p"; done`
 
 // mysqlSetRootPW is shared shell that sets root@localhost to $ROOT_PW regardless of
 // distro (RHEL expired temp password / Debian auth_socket). The ALTER USER is run
