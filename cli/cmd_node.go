@@ -113,7 +113,10 @@ func nodeAction(action string) func([]string) error {
 			st.ID, url.PathEscape(node), action), nil, nil); err != nil {
 			return err
 		}
-		fmt.Printf("%s: %s %sed.\n", st.Name, arg(1), strings.TrimSuffix(action, "e"))
+		// "stop" doubles its consonant; the other two just take -ed. Spelled out
+		// rather than derived, because the derivation printed "stoped".
+		past := map[string]string{"start": "started", "stop": "stopped", "restart": "restarted"}[action]
+		fmt.Printf("%s: %s %s.\n", st.Name, arg(1), past)
 		if action == "restart" {
 			// Docker hands out a new ephemeral host port on every start, so any
 			// address printed before the restart is now wrong.

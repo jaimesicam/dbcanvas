@@ -20904,3 +20904,62 @@ dropped, so the filter discriminates rather than passing everything through. The
 previously-failing test passes against the regenerated `versions.yaml`, which is
 committed with this entry — the catalogue and the tests no longer disagree.
 `TestAIOTLSWiringIsIdempotent` still fails on darwin for the reason in entry 322.
+
+## 342. A session variable behind a read proxy poisoned the connection pool — `stocksim/internal/store/mysql.go`, `stocksim/internal/store/{hostgroup,objects_proxy}_test.go` (new), `cli/cmd_node.go`
+
+Reported against a stack of PXC ×3 behind ProxySQL with a Stock Market Sim driving it.
+The sim's working-set panel read `cannot measure the dataset: Error 9006 (Y0000):
+ProxySQL Error: connection is locked to hostgroup 10 but trying to reach hostgroup 11`,
+and the same error came back as the last background error from the *event feed*, which
+reads nothing resembling `information_schema` and issues no `SET` at all.
+
+That second symptom is the whole shape of the bug. `Objects()` took a connection from
+the pool, ran
+
+```sql
+SET SESSION information_schema_stats_expiry = 0
+```
+
+and then read `information_schema`. ProxySQL does not track that variable, so
+`set_query_lock_on_hostgroup` pinned the session to the writer hostgroup (10); the
+`SELECT` that followed matched the read/write-split rule `^SELECT ` and was routed to
+the reader (11), which ProxySQL refuses rather than silently violating the pin. The pin
+then **outlived the connection going back to the pool**, so every call left one more
+connection that would fail for whoever borrowed it next — which is how a defect in
+information_schema reads surfaced in the event feed.
+
+The trigger was found by elimination against the live ProxySQL rather than by reading
+docs: `SET FOREIGN_KEY_CHECKS`, `SET SESSION tmp_table_size`, `SET SESSION
+innodb_lock_wait_timeout` and a `SELECT` inside an explicit transaction all pass —
+ProxySQL tracks or tolerates each. A user variable (`SET @x := 1`) and
+`information_schema_stats_expiry` do not, and both reproduce the error exactly.
+
+`Objects()` now asks for uncached statistics only while that is known to work, drops
+the request on the first `9006 … locked to hostgroup`, and retries without it. The
+connection that took the pin is **discarded** rather than pooled — `conn.Raw` returning
+`driver.ErrBadConn` is the documented way to take one out of circulation — so the pool
+heals instead of accumulating poison. Losing the variable costs only freshness of
+`TABLE_ROWS`: the byte totals the sim actually steers on come from
+`INNODB_TABLESPACES.FILE_SIZE`, which no cache touches.
+
+The fix is in the sim, not in ProxySQL, which was the constraint. Nothing about the
+proxy's configuration is wrong: refusing to route a pinned session elsewhere is the
+correct behaviour, and turning off `set_query_lock_on_hostgroup` to paper over it would
+weaken every other application on that proxy.
+
+Two more things found while in there. `Wipe` and `DropSchema` ran `SET
+FOREIGN_KEY_CHECKS=0` **on the pool** — wrong twice: this schema declares no foreign
+keys at all (`schema_mysql.go` says so deliberately), and a session `SET` on `*sql.DB`
+lands on an arbitrary connection, so the `TRUNCATE`s that followed could each run on a
+connection the `SET` never reached, while whichever one did get it kept the setting
+afterwards. Removed. And `dbcanvas node stop` printed "stoped", from deriving the past
+tense by trimming an "e"; it is a table now.
+
+**Verified.** `go build`, `go vet`, `gofmt` and `go test` pass for the sim.
+`TestIsHostgroupLocked` covers the classifier the recovery depends on, including that
+ProxySQL's general-purpose 9006 with a *different* message is not treated as this fault.
+`TestNoSessionStateOnThePool` fails if a session `SET` is ever put back on `*sql.DB`.
+`TestObjectsSurvivesAReadProxy` runs against a real server when `STOCKSIM_TEST_DSN` is
+set: pointed at this stack's ProxySQL it passes, and with the fix reverted it fails on
+the first call with the reported error verbatim — so it reproduces the bug rather than
+merely accompanying the fix.

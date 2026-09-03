@@ -4,12 +4,15 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
@@ -26,6 +29,10 @@ type mysqlStore struct {
 	cfg    *mysqldriver.Config
 	schema string
 	pool   int // connection ceiling, kept so EnsureSchema's reopen matches
+	// freshStats is on until a read proxy proves it cannot be honoured; see
+	// objectsOn. Sticky, because the answer is a property of what we are
+	// connected to and will not change under us.
+	freshStats atomic.Bool
 }
 
 // openMySQL builds the DSN (or uses the supplied one verbatim), opens a lazy
@@ -58,7 +65,9 @@ func openMySQL(ctx context.Context, c Config) (Store, error) {
 	// ceiling below the open ceiling would have the pool closing and reopening
 	// connections continuously under exactly the load it was raised for.
 	db.SetMaxIdleConns(pool)
-	return &mysqlStore{db: db, cfg: cfg, schema: c.Database, pool: pool}, nil
+	st := &mysqlStore{db: db, cfg: cfg, schema: c.Database, pool: pool}
+	st.freshStats.Store(true)
+	return st, nil
 }
 
 // mysqlDSN assembles a go-sql-driver DSN from discrete fields. TLS maps onto
@@ -163,10 +172,12 @@ func (s *mysqlStore) EnsureSchema(ctx context.Context) error {
 // place. Scoped to mysqlTables — never a wildcard over the schema, so an
 // object someone else created in the same schema survives.
 func (s *mysqlStore) Wipe(ctx context.Context) error {
-	if _, err := s.db.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS=0"); err != nil {
-		return err
-	}
-	defer s.db.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS=1")
+	// No SET FOREIGN_KEY_CHECKS here, deliberately. This schema declares no
+	// foreign keys (see schema_mysql.go), so it protected nothing — and it was
+	// issued on the POOL, which made it wrong twice over: the TRUNCATEs that
+	// followed could each land on a different connection than the one the SET
+	// applied to, and whichever connection did get it kept the setting after
+	// this returned. Session state belongs on a session, and this needs none.
 	for _, t := range mysqlTables {
 		if _, err := s.db.ExecContext(ctx, "TRUNCATE TABLE `"+t+"`"); err != nil {
 			return fmt.Errorf("truncate %s: %w", t, err)
@@ -189,10 +200,8 @@ func (s *mysqlStore) Wipe(ctx context.Context) error {
 // as one of our objects. An empty schema left behind is harmless; a deleted
 // one may not be recoverable.
 func (s *mysqlStore) DropSchema(ctx context.Context) error {
-	if _, err := s.db.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS=0"); err != nil {
-		return err
-	}
-	defer s.db.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS=1")
+	// See Wipe: no foreign keys exist, so there is nothing to switch off, and
+	// doing it on the pool left the setting behind on a random connection.
 	for _, t := range mysqlTables {
 		if _, err := s.db.ExecContext(ctx, "DROP TABLE IF EXISTS `"+t+"`"); err != nil {
 			return fmt.Errorf("drop %s: %w", t, err)
@@ -241,17 +250,60 @@ const mysqlObjectsFromStats = `
 // mysqlObjectsWithFileSize for where the sizes come from and why there are two
 // queries rather than one.
 func (s *mysqlStore) Objects(ctx context.Context) ([]ObjectInfo, error) {
+	out, err := s.objectsOn(ctx, s.freshStats.Load())
+	// A read proxy in front of a cluster refuses to route a SELECT on a session
+	// that a SET has pinned to the writer. The SET above is the only one this
+	// path issues, so drop it and read again — the numbers are then whatever
+	// the server last computed, which is what the note on the panel says.
+	if err != nil && isHostgroupLocked(err) && s.freshStats.Load() {
+		s.freshStats.Store(false)
+		out, err = s.objectsOn(ctx, false)
+	}
+	return out, err
+}
+
+// objectsOn does the reading, optionally asking for uncached statistics first.
+//
+// fresh=true issues SET SESSION information_schema_stats_expiry = 0, which stops
+// information_schema serving TABLE_ROWS from a cache that is a day old by default.
+// It is worth having and it is not worth failing over: sizes come from
+// INNODB_TABLESPACES.FILE_SIZE, which no cache touches, so without it only the row
+// counts go stale.
+//
+// The connection is DISCARDED rather than returned to the pool when that SET has
+// been issued and the read then failed. ProxySQL pins the session to the writer
+// hostgroup on a SET it does not track, and the pin outlives the Go connection
+// going back to the pool — so a connection left in that state breaks the next
+// caller to be handed it, whatever that caller is reading. That is what happened
+// here: this function poisoned a connection on every call, and the failures
+// surfaced in the event feed and the working-set sampler, neither of which issues
+// a SET or has anything to do with information_schema.
+func (s *mysqlStore) objectsOn(ctx context.Context, fresh bool) ([]ObjectInfo, error) {
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Close()
-	conn.ExecContext(ctx, "SET SESSION information_schema_stats_expiry = 0")
+	pinned := false
+	defer func() {
+		if pinned {
+			// Returning driver.ErrBadConn from Raw takes the connection out of
+			// the pool instead of handing the pin to whoever asks next.
+			conn.Raw(func(any) error { return driver.ErrBadConn })
+		}
+		conn.Close()
+	}()
+	if fresh {
+		conn.ExecContext(ctx, "SET SESSION information_schema_stats_expiry = 0")
+	}
 
 	// The privilege error for INNODB_TABLESPACES arrives while the result set
 	// is being streamed, not when the query is issued, so the whole read has to
 	// be attempted before the fallback can be ruled in or out.
 	out, err := mysqlScanObjects(ctx, conn, mysqlObjectsWithFileSize, s.schema)
+	if err != nil && fresh && isHostgroupLocked(err) {
+		pinned = true
+		return nil, err
+	}
 	if err != nil {
 		// On the fallback the sizes come from InnoDB's persistent statistics,
 		// which are recalculated so lazily that a table being written to hard
@@ -261,9 +313,25 @@ func (s *mysqlStore) Objects(ctx context.Context) ([]ObjectInfo, error) {
 		// on its own tables. NO_WRITE_TO_BINLOG keeps it off the replication
 		// stream, where it would be pure noise.
 		conn.ExecContext(ctx, "ANALYZE NO_WRITE_TO_BINLOG TABLE "+mysqlQualifiedTables(s.schema))
-		return mysqlScanObjects(ctx, conn, mysqlObjectsFromStats, s.schema)
+		out, err = mysqlScanObjects(ctx, conn, mysqlObjectsFromStats, s.schema)
+		if err != nil && fresh && isHostgroupLocked(err) {
+			pinned = true
+		}
+		return out, err
 	}
 	return out, nil
+}
+
+// isHostgroupLocked reports whether err is a proxy refusing to route a read on a
+// session pinned to the writer — ProxySQL error 9006, "connection is locked to
+// hostgroup N but trying to reach hostgroup M". Matched on the text as well as the
+// code because 9006 is ProxySQL's general-purpose error number.
+func isHostgroupLocked(err error) bool {
+	var me *mysqldriver.MySQLError
+	if errors.As(err, &me) && me.Number == 9006 {
+		return strings.Contains(me.Message, "locked to hostgroup")
+	}
+	return false
 }
 
 // mysqlQualifiedTables lists this app's tables, schema-qualified and quoted,
