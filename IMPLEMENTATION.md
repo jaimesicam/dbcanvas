@@ -20857,3 +20857,50 @@ deployed `sso-lab` node, the two commands that established the bug now behave:
 text with `id` never executing. The documented shape runs too —
 `mysql -N -e 'SHOW STATUS LIKE "Uptime"'` reaches the node as one quoted argument and
 returns its row.
+
+## 341. A test that asserted the state of somebody else's registry — `app/k3dpgo_test.go`, `images/versions.sh`, `versions.yaml`
+
+`TestPGOResolvesAgainstTheChartCatalogue` ended with a loop asserting that PGO 5.8.9
+and 6.0.3 were *absent* from the chart catalogue. When it was written that was true:
+both were GitHub tags with no image behind them, and a K3D frame offered one of them
+failed at deploy saying nothing useful.
+
+It is not true now. Checked against the registry with a pull token, `5.8.9`, `6.0.3`,
+`5.8.8` and `6.0.2` all return `200` — Crunchy published them. The test was failing for
+a version of the world that no longer exists.
+
+The deeper problem is the one that made it worth fixing rather than editing. `versions.yaml`
+is generated from live registries by `make versions`, which `make install` runs — so a
+fresh checkout rewrites the very file the test inspects. Any test naming a version string
+is asserting what the registries happened to say when somebody last regenerated, which
+means it breaks for everyone the next time upstream publishes, and it cannot help at
+deploy time because the file it guards has already been replaced.
+
+The repository already had both right shapes and this was the one exception:
+`charts_test.go` writes a synthetic catalogue through `writeVersionsFile` — its own
+comment says "so these tests do not depend on what `make versions` last discovered" —
+and `k3d_test.go`'s `TestOperatorCatalog` reads the real file but asserts only shape
+(entry present, fields non-empty, `Versions[0] == Latest`), which survives any
+regeneration.
+
+So the check moved to where it can be current: `pgo_chart_discover` in
+`images/versions.sh` now confirms each candidate tag's manifest before listing it, and
+says which ones it dropped and why. The catalogue cannot contain an uninstallable
+version by construction, and no Go test needs to know a version number. It costs one
+manifest request per candidate — at most `CHART_VERSION_LIMIT` (40) — during
+`make versions` only.
+
+What replaces the deleted loop is what stays true through a regeneration: the entry is
+complete, versions are newest-first with `Versions[0] == Latest`, there are no
+duplicates, every listed version resolves, and an unlisted one does not — that last
+assertion being the thing the catalogue exists for.
+
+The general rule, worth stating once: **do not assert the contents of a generated file;
+assert its shape.** Content checks belong in the generator, where the live source is.
+
+**Verified.** The new `pgo_chart_discover` was run against the live registry and returns
+the newest tags with each manifest confirmed; a nonexistent tag answers `404` and is
+dropped, so the filter discriminates rather than passing everything through. The
+previously-failing test passes against the regenerated `versions.yaml`, which is
+committed with this entry — the catalogue and the tests no longer disagree.
+`TestAIOTLSWiringIsIdempotent` still fails on darwin for the reason in entry 322.

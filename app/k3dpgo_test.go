@@ -171,12 +171,38 @@ func TestPGOResolvesAgainstTheChartCatalogue(t *testing.T) {
 	if v, ok := cat.resolveChartVersion(pgoChart, ""); !ok || v == "" {
 		t.Errorf("a blank PGO version does not resolve to the catalogue's latest (%q, %v)", v, ok)
 	}
-	// The GitHub tags are NOT the installable set: v5.8.9 and v6.0.3 are tagged there but
-	// their images answer 404. The catalogue comes from the registry, so it must not list them.
-	for _, absent := range []string{"5.8.9", "6.0.3"} {
-		if _, ok := cat.resolveChartVersion(pgoChart, absent); ok {
-			t.Errorf("the catalogue offers PGO %s, whose image is not published to Crunchy's registry", absent)
+	// Shape, not contents. This used to assert that two specific tags — 5.8.9 and 6.0.3 —
+	// were absent, because at the time they existed on GitHub with no image behind them.
+	// Crunchy has since published both, so the assertion started failing for a version of
+	// the world that no longer exists. That was the wrong place for the check twice over:
+	// versions.yaml is regenerated from live registries by `make versions`, which
+	// `make install` runs, so any test naming a version string is asserting what the
+	// registries happened to say when somebody last regenerated — and it breaks for
+	// everyone the next time upstream publishes. "Is this tag installable" is a fact about
+	// a live registry, so it is checked at generation time now (pgo_chart_discover in
+	// images/versions.sh verifies each tag's manifest before listing it), which is the only
+	// place that can actually know.
+	//
+	// What is left is what stays true through any regeneration.
+	e := cat[pgoChart]
+	if e.Latest == "" || len(e.Versions) == 0 {
+		t.Fatalf("incomplete pgo entry: %+v", e)
+	}
+	if e.Versions[0] != e.Latest {
+		t.Errorf("versions are not newest-first (latest %q, first %q)", e.Latest, e.Versions[0])
+	}
+	seen := map[string]bool{}
+	for _, v := range e.Versions {
+		if seen[v] {
+			t.Errorf("duplicate version %q", v)
 		}
+		seen[v] = true
+		if _, ok := cat.resolveChartVersion(pgoChart, v); !ok {
+			t.Errorf("the catalogue lists %q but will not resolve it", v)
+		}
+	}
+	if _, ok := cat.resolveChartVersion(pgoChart, "9.9.9"); ok {
+		t.Error("an unlisted version resolved — the catalogue is not gating anything")
 	}
 }
 

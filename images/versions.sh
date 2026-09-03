@@ -563,14 +563,42 @@ crunchy_token() {
     | grep -oE '"token":"[^"]+"' | sed 's/.*:"//;s/"//'
 }
 
+# pgo_chart_discover lists the PGO chart versions that can ACTUALLY be installed.
+#
+# A tag in tags/list is not proof of an installable chart: Crunchy has shipped tags whose
+# manifest answers 404, and a K3D frame offered one of those fails at deploy with nothing
+# useful to say. So each candidate is confirmed with a manifest request before it is listed.
+#
+# This check lives here, not in a Go test, because it is a fact about a live registry rather
+# than about this codebase. A test naming version strings can only assert what the registries
+# said when somebody last ran `make versions` — and `make install` runs it, so the file under
+# test is rewritten on every fresh install. Checking at generation time is the only way the
+# answer can be current.
 pgo_chart_discover() {
   command -v curl >/dev/null 2>&1 || { echo "WARN: curl not found; skipping PGO discovery" >&2; return 0; }
   local token; token="$(crunchy_token "$PGO_CHART_REPO")"
   [ -n "$token" ] || { echo "WARN: no ${CRUNCHY_REGISTRY} token; skipping PGO discovery" >&2; return 0; }
-  curl -fsSL --max-time 60 -H "Authorization: Bearer ${token}" \
+  local candidates
+  candidates="$(curl -fsSL --max-time 60 -H "Authorization: Bearer ${token}" \
     "https://${CRUNCHY_REGISTRY}/v2/${PGO_CHART_REPO}/tags/list" 2>/dev/null \
     | tr ',' '\n' | tr -d '"[]{}' | sed 's/.*: *//' \
-    | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -rV -u | head -n "$CHART_VERSION_LIMIT"
+    | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -rV -u | head -n "$CHART_VERSION_LIMIT")"
+  [ -n "$candidates" ] || return 0
+  local v code dropped=0
+  while IFS= read -r v; do
+    [ -n "$v" ] || continue
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 \
+      -H "Authorization: Bearer ${token}" \
+      -H "Accept: application/vnd.oci.image.manifest.v1+json" \
+      "https://${CRUNCHY_REGISTRY}/v2/${PGO_CHART_REPO}/manifests/${v}" 2>/dev/null)"
+    if [ "$code" = "200" ]; then
+      echo "$v"
+    else
+      dropped=$((dropped + 1))
+      echo "    pgo: skipping ${v} — manifest answered ${code}, not installable" >&2
+    fi
+  done <<<"$candidates"
+  [ "$dropped" -eq 0 ] || echo "    pgo: dropped ${dropped} tag(s) with no published chart" >&2
 }
 
 # The PostgreSQL majors a PGO release can run are the relatedImages keys in the chart's own
