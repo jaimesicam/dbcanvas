@@ -15,6 +15,10 @@ import (
 const (
 	cookieName = "dbcanvas_session"
 	sessionTTL = 7 * 24 * time.Hour
+	// minPasswordLen is the floor everywhere a password is set — sign-up, first-run
+	// setup, and a change from Settings. Named rather than repeated, because a rule
+	// enforced at sign-up and not at change is not a rule.
+	minPasswordLen = 8
 )
 
 // credentials is the shared shape for setup/register/login bodies.
@@ -29,7 +33,7 @@ func (c credentials) validate() error {
 	if len(u) < 3 || len(u) > 32 {
 		return errors.New("username must be 3–32 characters")
 	}
-	if len(c.Password) < 8 {
+	if len(c.Password) < minPasswordLen {
 		return errors.New("password must be at least 8 characters")
 	}
 	return nil
@@ -84,7 +88,16 @@ func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 }
 
 // currentUser returns the authenticated user for the request, if any.
+//
+// Two credentials resolve to the same thing. A bearer API token has already been
+// verified and scope-checked by requireScope (see apitokens.go), which leaves the
+// account on the request context — so the token path here is a context read, not a
+// second database lookup. Everything after this point, in all 200-odd handlers, is
+// identical either way: the API is the app, not a parallel implementation of it.
 func (a *App) currentUser(r *http.Request) (User, bool) {
+	if p, ok := principalOf(r); ok {
+		return p.User, true
+	}
 	c, err := r.Cookie(cookieName)
 	if err != nil || c.Value == "" {
 		return User{}, false
@@ -124,6 +137,11 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"initialized":   n > 0,
 		"authenticated": false,
 		"user":          nil,
+		// The build, so the UI can show it and decide whether this account has
+		// seen its release notes (see whatsnew.go). This endpoint rather than
+		// /api/me because the client already calls it on every load, and because
+		// /api/me returns a bare User that nothing should be appended to.
+		"version": appVersion,
 	}
 	if u, ok := a.currentUser(r); ok {
 		resp["authenticated"] = true
@@ -165,6 +183,7 @@ func (a *App) handleSetup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to create user")
 		return
 	}
+	a.stampWhatsNewSeen(u.ID)
 	if err := a.issueSession(w, r, u.ID); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to create session")
 		return
@@ -196,6 +215,7 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to create user")
 		return
 	}
+	a.stampWhatsNewSeen(nu.ID)
 	a.notify(Notification{Scope: "admin", Type: "user.pending", Severity: "warning",
 		Title: "New account awaiting approval", Body: nu.Username + " registered and needs approval."})
 	writeJSON(w, http.StatusCreated, map[string]any{

@@ -18,7 +18,7 @@ const DEFAULTS = { terminalMode: 'docked', theme: 'dark', deploymentBackend: 'do
 // sshForwarding is env-derived and read-only (SSH_FORWARDING_HOST); off until the
 // server says otherwise, so the designer never offers a tunnel command that the
 // installation cannot produce.
-const SYSTEM_DEFAULTS = { maxUploadBytes: 4 * 1024 * 1024 * 1024, sshForwarding: { enabled: false } }
+const SYSTEM_DEFAULTS = { maxUploadBytes: 4 * 1024 * 1024 * 1024, maxTokenDays: 90, sshForwarding: { enabled: false } }
 const SettingsCtx = createContext(null)
 
 export function SettingsProvider({ children }) {

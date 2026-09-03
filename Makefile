@@ -3,7 +3,15 @@ SHELL := /bin/bash
 # Load APP_PORT for echoing the URL (falls back to 8080).
 APP_PORT ?= $(shell test -f .env && grep -E '^APP_PORT=' .env | cut -d= -f2 || echo 8080)
 
-.PHONY: install compose env build up down logs restart clean images versions smoke trafficsim-image hotelsim-image airlinesim-image carsim-image marketchaos-image stocksim-image intranet-image vnc-image
+# The release this tree is. Stamped into both binaries so the app can say what it is
+# and the What's New dialog knows whether an account has seen these notes.
+VERSION ?= $(shell cat VERSION 2>/dev/null || echo dev)
+
+# The platforms `make cli` cross-compiles for. Keep in sync with cliPlatforms in
+# app/clidownload.go, which is what the API page offers for download.
+CLI_PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
+
+.PHONY: install compose env build up down logs restart clean images versions smoke cli cli-test trafficsim-image hotelsim-image airlinesim-image carsim-image marketchaos-image stocksim-image intranet-image vnc-image
 
 ## install: everything a first run needs — build the node images, discover the
 ## versions they can install, then build and start DBCanvas itself. Safe to re-run;
@@ -12,7 +20,7 @@ install: images versions compose
 
 ## compose: create .env if needed, then build and start the stack
 compose: env
-	docker compose up --build -d
+	APP_VERSION=$(VERSION) docker compose up --build -d
 	@echo ""
 	@echo "  dbcanvas is up → http://localhost:$(APP_PORT)"
 	@echo "  View logs:    make logs"
@@ -24,11 +32,11 @@ env:
 
 ## build: build the image only
 build: env
-	docker compose build
+	APP_VERSION=$(VERSION) docker compose build
 
 ## up: start containers (no rebuild)
 up: env
-	docker compose up -d
+	APP_VERSION=$(VERSION) docker compose up -d
 
 ## down: stop and remove containers
 down:
@@ -44,11 +52,38 @@ logs:
 ## clean: stop stack and remove the built image
 clean:
 	docker compose down --rmi local --remove-orphans
+	rm -rf dist
 
 ## smoke: render the React components off-browser and fail on any render error,
 ## and check the canvas can actually reach every link target the backend accepts
 smoke:
 	cd app/web && npm run smoke
+
+## cli: cross-compile dbcanvas-cli into dist/ for every platform the app image
+## ships, with a SHA256SUMS beside them. A single static binary per platform, no
+## dependencies — put one on your PATH and run `dbcanvas login`.
+##
+## The app image builds the same matrix (see app/Dockerfile) so a running
+## installation can hand the binary to somebody with no checkout; this target is
+## for building it here.
+cli:
+	@mkdir -p dist
+	@for p in $(CLI_PLATFORMS); do \
+	  os=$${p%/*}; arch=$${p#*/}; out=dist/dbcanvas-cli_$${os}_$${arch}; \
+	  if [ "$$os" = "windows" ]; then out=$$out.exe; fi; \
+	  echo "  $$os/$$arch → $$out"; \
+	  ( cd cli && GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 go build -trimpath \
+	      -ldflags="-s -w -X main.version=$(VERSION)" -o ../$$out . ) || exit 1; \
+	done
+	@cd dist && (command -v sha256sum >/dev/null && sha256sum dbcanvas-cli_* > SHA256SUMS \
+	             || shasum -a 256 dbcanvas-cli_* > SHA256SUMS)
+	@echo ""
+	@echo "  dbcanvas-cli $(VERSION) → dist/"
+	@echo "  Install: install dist/dbcanvas-cli_$$(go env GOOS)_$$(go env GOARCH) /usr/local/bin/dbcanvas"
+
+## cli-test: build, vet and test the CLI module
+cli-test:
+	cd cli && go build ./... && go vet ./... && go test ./...
 
 ## images: everything a node can need — the systemd base images (OS × the one
 ## platform this installation targets) → versions.yaml, then the pre-baked service

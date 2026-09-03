@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Card, Badge } from '../components/ui.jsx'
+import WhatsNew, { WhatsNewLink, useWhatsNew } from '../components/WhatsNew.jsx'
 import { dashApi, fmtBytes } from '../lib/dashApi.js'
 import { relTime } from '../lib/notifApi.js'
 
@@ -51,6 +52,9 @@ function useFocusGatedInterval(cb, ms, onActive) {
 }
 
 export default function Dashboard() {
+  // Release notes live here rather than in App: the dashboard is where somebody
+  // lands after signing in, which is the moment "what changed?" is worth answering.
+  const whatsNew = useWhatsNew()
   const [sum, setSum] = useState(null)
   const [stats, setStats] = useState(null)
   const [rates, setRates] = useState([])
@@ -97,13 +101,23 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Badge tone={admin ? 'primary' : 'muted'}>{admin ? 'System-wide' : 'Your account'}</Badge>
         <span className="flex items-center gap-1.5 text-xs text-muted">
           <span className={`h-2 w-2 rounded-full ${live ? 'animate-pulse bg-primary' : 'bg-muted'}`} />
           {live ? 'Live · monitoring active' : 'Paused (focus the tab to resume)'}
         </span>
+        <span className="ml-auto">
+          <WhatsNewLink data={whatsNew.data} onClick={whatsNew.showAll} />
+        </span>
       </div>
+
+      <WhatsNew
+        data={whatsNew.data}
+        open={whatsNew.open}
+        onClose={whatsNew.close}
+        acknowledging={whatsNew.acknowledging}
+      />
 
       {/* Counters */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">

@@ -486,4 +486,29 @@ export const Icon = {
       <circle cx="12" cy="18.5" r="1.8" />
     </Svg>
   ),
+  // Angle brackets and a slash: the API page. Not a terminal prompt — that would
+  // read as the CLI, which is a different thing on the same page.
+  Code: (p) => (
+    <Svg {...p}>
+      <polyline points="8 6 3 12 8 18" />
+      <polyline points="16 6 21 12 16 18" />
+      <path d="M13.5 4.5l-3 15" />
+    </Svg>
+  ),
+  // A key, for API tokens.
+  Key: (p) => (
+    <Svg {...p}>
+      <circle cx="7.5" cy="15.5" r="3.5" />
+      <path d="M10 13L20 3" />
+      <path d="M15.5 7.5l2.5 2.5" />
+      <path d="M18 5l2.5 2.5" />
+    </Svg>
+  ),
+  // A four-pointed spark with two smaller ones: What's new.
+  Sparkles: (p) => (
+    <Svg {...p}>
+      <path d="M10 3l1.6 4.4L16 9l-4.4 1.6L10 15l-1.6-4.4L4 9l4.4-1.6z" />
+      <path d="M17.5 14l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z" />
+    </Svg>
+  ),
 }

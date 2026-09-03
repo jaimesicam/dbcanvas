@@ -1,0 +1,22 @@
+# The app image is built from the repository root (see app/Dockerfile) so that the
+# server and the sibling `cli/` module can both go in. That means the default build
+# context is the whole repo, most of which the image has no use for — so this file
+# is an allowlist rather than the usual short list of exclusions.
+#
+# Everything is excluded, then the two module directories the Dockerfile actually
+# copies from are let back in.
+*
+
+!app/
+!cli/
+
+# ...minus what must never be sent even from those.
+app/web/node_modules
+app/web/dist
+app/web/.smoke
+app/*.db
+app/*.db-*
+app/dbcanvas
+app/testdata
+**/*.log
+.env

@@ -33,6 +33,10 @@ type UserSettings struct {
 	TerminalMode      string `json:"terminalMode"`      // docked | undocked
 	Theme             string `json:"theme"`             // one of validThemes
 	DeploymentBackend string `json:"deploymentBackend"` // docker | vagrant
+	// WhatsNewSeen is the highest release whose notes this account has dismissed
+	// (see whatsnew.go). Free-form on purpose: it holds whatever appVersion was,
+	// including "dev", and normalize() must leave it exactly as it found it.
+	WhatsNewSeen string `json:"whatsNewSeen,omitempty"`
 }
 
 func defaultSettings() UserSettings {
@@ -51,7 +55,32 @@ func (s UserSettings) normalize() UserSettings {
 	if s.DeploymentBackend != BackendDocker && s.DeploymentBackend != BackendVagrant {
 		s.DeploymentBackend = def.DeploymentBackend
 	}
+	// WhatsNewSeen is deliberately not normalized. It is a version string, not a
+	// value from a fixed set, and every other field in here is clamped to one — so
+	// the obvious next edit to this function is to clamp this too, which would
+	// silently re-open the release notes for everybody on every save.
 	return s
+}
+
+// userSettingsFor loads an account's preferences, degrading to the defaults for a
+// missing or corrupt row.
+func (a *App) userSettingsFor(userID int64) UserSettings {
+	s := defaultSettings()
+	js, err := a.store.UserSettings(userID)
+	if err != nil || js == "" {
+		return s
+	}
+	json.Unmarshal([]byte(js), &s)
+	return s.normalize()
+}
+
+// saveUserSettings persists an account's preferences.
+func (a *App) saveUserSettings(userID int64, s UserSettings) error {
+	js, err := json.Marshal(s.normalize())
+	if err != nil {
+		return err
+	}
+	return a.store.SetUserSettings(userID, string(js))
 }
 
 func (a *App) handleGetSettings(w http.ResponseWriter, r *http.Request) {
@@ -60,16 +89,7 @@ func (a *App) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	js, err := a.store.UserSettings(u.ID)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "failed to load settings")
-		return
-	}
-	s := defaultSettings()
-	if js != "" {
-		json.Unmarshal([]byte(js), &s) // a corrupt row degrades to the defaults
-	}
-	writeJSON(w, http.StatusOK, s.normalize())
+	writeJSON(w, http.StatusOK, a.userSettingsFor(u.ID))
 }
 
 func (a *App) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
@@ -78,18 +98,16 @@ func (a *App) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	var in UserSettings
+	// Seeded from what is stored, so a client that PUTs a settings object without
+	// whatsNewSeen (an older UI, or the CLI) cannot blank it and re-open the
+	// release notes for that account.
+	in := a.userSettingsFor(u.ID)
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	s := in.normalize()
-	js, err := json.Marshal(s)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "failed to encode settings")
-		return
-	}
-	if err := a.store.SetUserSettings(u.ID, string(js)); err != nil {
+	if err := a.saveUserSettings(u.ID, s); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to save settings")
 		return
 	}

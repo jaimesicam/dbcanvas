@@ -21,6 +21,7 @@ import FTDCSummary from './pages/FTDCSummary.jsx'
 import ManageUsers from './pages/ManageUsers.jsx'
 import Settings from './pages/Settings.jsx'
 import Labs from './pages/Labs.jsx'
+import Api from './pages/Api.jsx'
 
 const NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: 'Dashboard', page: Dashboard, hint: 'Widgets & live charts' },
@@ -35,6 +36,7 @@ const NAV = [
   { id: 'log-summary', label: 'Log Summary', icon: 'Logs', page: LogSummary, hint: "Several nodes' logs on one timeline — the good, the warning and the bad" },
   { id: 'ftdc-summary', label: 'FTDC Summary', icon: 'Monitor', page: FTDCSummary, hint: "MongoDB's diagnostic.data — the black box every mongod already writes" },
   { id: 'labs', label: 'Labs (experimental)', icon: 'Flask', page: Labs, hint: 'Hands-on scenarios with real check-work verification' },
+  { id: 'api', label: 'API', icon: 'Code', page: Api, hint: 'Every endpoint, and the tokens that authenticate against them' },
   { id: 'settings', label: 'Settings', icon: 'Settings', page: Settings, hint: 'Terminal & theme preferences' },
 ]
 const ADMIN_NAV = { id: 'users', label: 'Manage Users', icon: 'Users', page: ManageUsers, hint: 'Approve & manage accounts' }

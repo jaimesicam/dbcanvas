@@ -173,7 +173,33 @@ CREATE INDEX IF NOT EXISTS idx_stack_templates_owner ON stack_templates(owner_id
 CREATE TABLE IF NOT EXISTS app_settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
-);`
+);
+-- API tokens: a revocable, expiring bearer credential that stands in for a password
+-- so a script or dbcanvas-cli never has to hold one. See apitokens.go.
+--
+-- token_hash is SHA-256, not bcrypt, and that is deliberate. bcrypt exists to make a
+-- LOW-entropy secret expensive to guess; a token here is 32 bytes from crypto/rand,
+-- so there is nothing to guess. What it does have that a password does not is a
+-- verification on EVERY request, and bcrypt at its default cost would put ~100 ms on
+-- all of them. The secret itself is never stored, so a copy of this database still
+-- yields no usable token.
+--
+-- Expired and revoked rows are kept (and reaped only after 30 days) because "why did
+-- my script start getting 401s" is answered by the row, not by its absence.
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,        -- what it is for: "dbcanvas-cli on thinkpad"
+  token_hash   TEXT NOT NULL,        -- hex SHA-256 of the secret
+  prefix       TEXT NOT NULL,        -- "dbc_a1b2c3d4", the only displayable part
+  scope        TEXT NOT NULL,        -- read | write | admin
+  created_at   TEXT NOT NULL,
+  expires_at   TEXT,                 -- RFC3339; NULL = never (admin-created only)
+  last_used_at TEXT,
+  revoked_at   TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, id DESC);`
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, err

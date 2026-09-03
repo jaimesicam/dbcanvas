@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Icon } from '../components/Icons.jsx'
-import { Button, inputCls } from '../components/ui.jsx'
+import { Button, Field, Toggle, inputCls } from '../components/ui.jsx'
+import { Help } from '../components/Tooltip.jsx'
+import { HELP } from '../lib/help.js'
 import { useAuth } from '../auth/AuthProvider.jsx'
+import { api } from '../lib/api.js'
 import { useSettings } from '../settings/SettingsProvider.jsx'
 import { THEMES } from '../theme/ThemeProvider.jsx'
 
@@ -123,6 +126,152 @@ function UploadLimit() {
   )
 }
 
+// ChangePassword — your own password, from Settings.
+//
+// The current password is required by the server even though the user is signed in,
+// and the form says why: this is the check that stops a stolen session becoming a
+// lockout. Token revocation is opt-in, because a routine rotation should not break a
+// CI job while a leak-driven change should be able to take everything with it.
+export function ChangePassword() {
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [revokeTokens, setRevokeTokens] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [done, setDone] = useState('')
+
+  // Checked here as well as on the server so the mismatch is caught before a round
+  // trip; the server does not see the confirmation field at all.
+  const mismatch = confirm !== '' && next !== confirm
+  const tooShort = next !== '' && next.length < 8
+  const ready = current !== '' && next.length >= 8 && next === confirm && !busy
+
+  const submit = async (e) => {
+    e.preventDefault()
+    setErr(''); setDone(''); setBusy(true)
+    try {
+      const res = await api.changePassword(current, next, revokeTokens)
+      setCurrent(''); setNext(''); setConfirm(''); setRevokeTokens(false)
+      setDone(res?.tokensRevoked
+        ? `Password changed. Other sessions signed out, and ${res.tokensRevoked} API token${res.tokensRevoked === 1 ? '' : 's'} revoked.`
+        : 'Password changed. Every other session was signed out; your API tokens still work.')
+    } catch (e2) {
+      setErr(e2.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Row title="Password" hint="Changing it signs out every other browser and device. This one stays signed in.">
+      <form onSubmit={submit} className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field label="Current password" help={HELP.currentPassword}>
+            <input type="password" autoComplete="current-password" className={inputCls}
+              value={current} onChange={(e) => setCurrent(e.target.value)} required />
+          </Field>
+          <Field label="New password" help={HELP.newPassword}
+            hint={tooShort ? 'At least 8 characters.' : undefined}>
+            <input type="password" autoComplete="new-password" className={inputCls}
+              value={next} onChange={(e) => setNext(e.target.value)} required minLength={8} />
+          </Field>
+          <Field label="Confirm new password"
+            hint={mismatch ? 'These do not match.' : undefined}>
+            <input type="password" autoComplete="new-password" className={inputCls}
+              value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
+          </Field>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <Toggle checked={revokeTokens} onChange={setRevokeTokens}
+            label="Also revoke my API tokens" />
+          <Help text={HELP.revokeTokensOnPasswordChange} />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="submit" disabled={!ready}>{busy ? 'Changing…' : 'Change password'}</Button>
+          <Help text={HELP.passwordSessions} />
+        </div>
+
+        {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
+        {done && (
+          <div className="flex items-start gap-1.5 rounded-lg border border-success/30 bg-success/15 px-3 py-2 text-xs text-success">
+            <Icon.Check size={14} /> <span>{done}</span>
+          </div>
+        )}
+        <div className="text-xs text-muted">
+          Forgotten it entirely, with nobody able to sign in? An administrator runs{' '}
+          <code className="rounded bg-surface2 px-1">dbcanvas_reset_password</code> inside the app
+          container — see Configuration &amp; commands.
+        </div>
+      </form>
+    </Row>
+  )
+}
+
+// TokenLifetime is the other instance-wide setting: the longest expiry a
+// non-administrator may give an API token. Same shape as UploadLimit — everyone can
+// see the limit they are working under, only an admin can move it.
+function TokenLifetime() {
+  const { system, saveSystem } = useSettings()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
+
+  const [draft, setDraft] = useState(system.maxTokenDays ?? 90)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => { setDraft(system.maxTokenDays ?? 90) }, [system.maxTokenDays])
+
+  const dirty = draft !== system.maxTokenDays
+
+  const apply = async () => {
+    setErr(''); setBusy(true); setSaved(false)
+    try {
+      await saveSystem({ maxTokenDays: draft })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch (e) {
+      setErr(e.message)
+      setDraft(system.maxTokenDays ?? 90)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Row
+      title="API token lifetime"
+      hint="The longest expiry anyone who is not an administrator may give an API token. Instance-wide."
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="w-24">
+          <input
+            type="number" min="1" max="365" step="1" disabled={!isAdmin || busy}
+            className={`${inputCls} disabled:cursor-not-allowed disabled:opacity-55`}
+            value={draft}
+            onChange={(e) => setDraft(Math.min(365, Math.max(1, Number(e.target.value) || 1)))}
+          />
+        </div>
+        <span className="text-sm text-muted">days</span>
+        <Help text={HELP.maxTokenDays} />
+        {isAdmin && (
+          <Button onClick={apply} disabled={!dirty || busy}>{busy ? 'Saving…' : 'Save'}</Button>
+        )}
+        {saved && <span className="flex items-center gap-1 text-xs text-success"><Icon.Check size={14} /> Saved</span>}
+      </div>
+      {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
+      <div className="text-xs text-muted">
+        {isAdmin
+          ? 'Default 90 days, between 1 and 365. A request for longer is shortened to this rather than refused, so lowering it never breaks the create form — and it does not shorten tokens that already exist. Only an administrator can create a token that never expires.'
+          : 'Set by an administrator. Tokens you create are capped at this, whatever you ask for.'}
+      </div>
+    </Row>
+  )
+}
+
 export default function Settings() {
   const { settings, save, loaded } = useSettings()
   const [err, setErr] = useState('')
@@ -185,7 +334,11 @@ export default function Settings() {
         </div>
       </Row>
 
+      <ChangePassword />
+
       <UploadLimit />
+
+      <TokenLifetime />
 
       <Row title="Theme" hint="Applied now and whenever you sign in, on any browser.">
         <div className="grid gap-2 sm:grid-cols-3">

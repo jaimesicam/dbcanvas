@@ -1,8 +1,14 @@
 services:
   app:
     build:
-      context: ./app
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: app/Dockerfile
+      args:
+        # Stamped into the server and the CLI binaries (see app/version.go). The
+        # Makefile passes it from the repo's VERSION file, which compose cannot read
+        # itself; a bare `docker compose up` therefore builds a "dev" image, and that
+        # is the honest label for one built outside `make`.
+        APP_VERSION: ${APP_VERSION:-dev}
     image: dbcanvas:latest
     platform: ${DOCKER_PLATFORM:-linux/amd64}
     environment:

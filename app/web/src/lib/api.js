@@ -46,4 +46,13 @@ export const api = {
   listUsers: () => request('GET', '/api/users'),
   setUserStatus: (id, action) => request('POST', `/api/users/${id}/${action}`),
   deleteUser: (id) => request('DELETE', `/api/users/${id}`),
+  // Release notes (app/whatsnew.go). The server decides whether there is anything
+  // unread, so the client never has to compare version strings — getting that
+  // subtly wrong would re-open the dialog on every page load.
+  // Changing your own password (app/password.go). Deliberately cookie-only on the
+  // server, so this cannot be done with an API token.
+  changePassword: (currentPassword, newPassword, revokeTokens) =>
+    request('POST', '/api/me/password', { currentPassword, newPassword, revokeTokens }),
+  whatsNew: () => request('GET', '/api/whatsnew'),
+  markWhatsNewSeen: () => request('POST', '/api/whatsnew/seen'),
 }

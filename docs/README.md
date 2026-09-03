@@ -42,6 +42,14 @@ How to use each part of DBCanvas. For installing and configuring it, see
 | --- | --- |
 | [Labs](LABS.md) | Hands-on scenarios on a disposable stack, graded against the real cluster. |
 
+## Automate it
+
+| Guide | What it covers |
+| --- | --- |
+| [HTTP API](API.md) | Tokens, scopes, expiry, status codes and the OpenAPI document. Read this one first. |
+| [API & CLI reference](API_REFERENCE.md) | Every feature, with its endpoints, the equivalent `dbcanvas-cli` command, and the UI action each replaces. |
+| [`dbcanvas-cli`](CLI.md) | Signing in, changing your password, driving stacks and nodes from a terminal, scripting it in CI. |
+
 ---
 
 Screenshots used by these guides live in [`screenshots/`](screenshots).

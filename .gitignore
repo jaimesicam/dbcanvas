@@ -16,10 +16,15 @@ dist/
 # machinery that produces them is ignored.
 /app/web/scripts/
 
+# Cross-compiled dbcanvas-cli binaries (`make cli`)
+/dist/
+
 # Go
 /app/*.db
 /app/*.db-*
 /app/dbcanvas
+# `go build ./...` in cli/ drops the binary next to its source, named after the module.
+/cli/dbcanvas-cli
 
 # OS
 .DS_Store

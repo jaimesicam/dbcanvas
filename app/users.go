@@ -49,9 +49,12 @@ func (a *App) handleUserStatus(status string) http.HandlerFunc {
 			writeErr(w, http.StatusInternalServerError, "failed to update user")
 			return
 		}
-		// Revoke active sessions when access is removed.
+		// Revoke active sessions AND API tokens when access is removed. Missing the
+		// tokens here would mean "disable" closed the browser and left the API open,
+		// which is the one failure mode worth being careful about.
 		if status == StatusDisabled || status == StatusRejected {
 			a.store.DeleteUserSessions(id)
+			a.store.RevokeUserAPITokens(id)
 		}
 		writeJSON(w, http.StatusOK, u)
 	}

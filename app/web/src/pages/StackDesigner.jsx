@@ -116,6 +116,17 @@ export const NODE_TYPES = {
     color: '#059669',
     icon: 'Database',
   },
+  // Valkey Cluster members. This entry existed nowhere for a long time, which was not
+  // harmless: the member card lookup falls back to NODE_TYPES.intranet, so every shard
+  // in a Valkey Cluster rendered with the Intranet's icon and colour. Every other
+  // frame's member type has an entry here; this was the only one missing.
+  valkeycluster: {
+    label: 'Valkey Cluster',
+    slug: 'valkeycluster',
+    sub: 'Valkey Cluster shard member',
+    color: '#7c3aed',
+    icon: 'Database',
+  },
   // Patroni members (PostgreSQL + Patroni + etcd) live inside a Patroni cluster frame.
   patroni: {
     label: 'Patroni',
@@ -291,7 +302,7 @@ export const NODE_TYPES = {
     color: '#f59e0b',
     icon: 'ProxySQL',
     singleton: false,
-    ports: true, // links to a PXC cluster frame (data flows PXC → ProxySQL)
+    ports: true, // links to a PXC or MySQL replication frame (data flows backend → ProxySQL)
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: {
       os: 'oraclelinux', osVersion: '9',
@@ -306,7 +317,7 @@ export const NODE_TYPES = {
   haproxy: {
     label: 'HAProxy',
     slug: 'haproxy',
-    sub: 'HAProxy — PostgreSQL / PXC load balancer',
+    sub: 'HAProxy — fronts Patroni, repmgr, Spock, PXC or MySQL replication',
     color: '#22c55e',
     icon: 'ProxySQL',
     singleton: false,

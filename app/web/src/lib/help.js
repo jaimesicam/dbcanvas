@@ -403,6 +403,60 @@ export const HELP = {
   uiRemoveMember: 'Remove the last node from this cluster.',
   uiNodeContext: 'Right-click any node for its root console, a file browser, start/stop, and the commands to reach it from your own shell.',
   uiDragToResize: 'Drag to resize this panel.',
+  // --- API tokens & the API page -------------------------------------------
+  tokenName:
+    'What this token is for, so that in three months you can tell which one to revoke. The name is ' +
+    'the only thing distinguishing two tokens in the list — the secret is never shown again, and the ' +
+    'prefix is eight characters of noise. Name it after the machine or the job that will hold it: ' +
+    '"dbcanvas-cli on my laptop", "nightly CI deploy".',
+  tokenScope:
+    'How much of the API this token may reach. "read" covers every GET plus the handful of POSTs that ' +
+    'compute something without changing anything (validate, compare, preview); "write" covers ' +
+    'everything you can do in the UI; "admin" adds the administrator-only endpoints and can only be ' +
+    'created by an administrator. Pick the narrowest one that does the job — a read token on a laptop ' +
+    'cannot destroy a stack, however it is misused. Whatever you pick is also capped by your own ' +
+    'account: if your role changes, the token narrows with it.',
+  tokenExpiry:
+    'When this token stops working. Shorter is better: a token you have to renew is one you notice ' +
+    'when it is no longer needed, and one forgotten on an old machine stops mattering by itself. The ' +
+    'ceiling is set instance-wide by an administrator; only an administrator can create a token that ' +
+    'never expires, because a permanent credential against a host that drives Docker should be a ' +
+    'deliberate decision. Expiry is checked when the token is used, and an expired token stays in the ' +
+    'list marked expired — which is how "why did my script start failing" gets an answer.',
+  maxTokenDays:
+    'The longest lifetime anyone who is not an administrator may give an API token. Asking for longer ' +
+    'gets this value rather than an error, so lowering it never breaks the create form. It does not ' +
+    'shorten tokens that already exist — revoke those if the point was to shorten them.',
+  apiSearch:
+    'Matches the method, the path, the summary and the group, and every word has to match something. ' +
+    'So "stack deploy" finds the deploy endpoints, and "POST /api/stacks" narrows to what a stack ' +
+    'accepts. Searching for a feature name ("backup", "kubeconfig", "ftdc") is usually faster than ' +
+    'scrolling to its group.',
+  apiScopeFilter:
+    'Show only the endpoints a token of a given scope can reach. Filtering to "read" is the quick way ' +
+    'to see what a read-only token could actually do before you hand one to a script — and filtering ' +
+    'to "admin" shows what it could not.',
+  currentPassword:
+    'Your password as it is now. Required even though you are already signed in: a session somebody ' +
+    'else got hold of should not be able to change your password and lock you out of your own account, ' +
+    'which is exactly what an attacker with a stolen session would do first.',
+  newPassword:
+    'At least 8 characters — the same floor that applies when an account is created. It cannot be your ' +
+    'current password, and it cannot start or end with a space: DBCanvas refuses rather than trimming ' +
+    'one, because a password that silently differs from what you typed is how people lock themselves out.',
+  revokeTokensOnPasswordChange:
+    'Also revoke every API token on your account. Leave it off for a routine change — revoking would ' +
+    'break any script or CI job holding one, for no gain. Turn it on if you are changing your password ' +
+    'because it may have leaked, since whoever had it could have minted a token with it, and that token ' +
+    'would outlive the password.',
+  passwordSessions:
+    'Changing your password signs out every other browser and device, and keeps this one. That is the ' +
+    'point of doing it when you suspect somebody else has your password — leaving their session alive ' +
+    'would defeat the exercise.',
+  cliDownload:
+    'The `dbcanvas-cli` binary for a platform, served by this installation, so a machine with no ' +
+    'checkout can still get it. It is a single static binary with no dependencies: put it on your ' +
+    'PATH and run `dbcanvas login`. From a checkout, `make cli` builds the same thing.',
 }
 
 // NODE_BLURB — what a palette entry actually gets you, for the tooltip on the button
@@ -656,4 +710,5 @@ export const FTDC_HELP = {
   Span: 'How long the capture covers. A short span exaggerates spikes; a long one can average an incident away entirely.',
   Samples: 'How many data points the file holds. Sparse samples mean the chart is interpolating between distant readings.',
   Metrics: 'How many distinct metrics were recovered. A low count usually means a truncated or partly corrupt file.',
+
 }

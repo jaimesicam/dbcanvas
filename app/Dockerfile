@@ -1,27 +1,59 @@
 # syntax=docker/dockerfile:1
+#
+# Built from the REPOSITORY ROOT, not from app/: the image carries dbcanvas-cli as
+# well as the server, and the CLI is a sibling Go module (cli/). Every path below is
+# therefore repo-relative. docker-compose.yml sets the context accordingly; building
+# by hand is `docker build -f app/Dockerfile .`.
 
 # ---- stage 1: build the React SPA ----
 FROM node:22-alpine AS web
 WORKDIR /web
-COPY web/package.json web/package-lock.json ./
+COPY app/web/package.json app/web/package-lock.json ./
 RUN npm ci
-COPY web/ ./
+COPY app/web/ ./
 RUN npm run build      # → /web/dist
 
 # ---- stage 2: build the Go server with the SPA embedded ----
 FROM golang:1.26-alpine AS build
 WORKDIR /src
-COPY go.mod go.sum ./
+ARG APP_VERSION=dev
+COPY app/go.mod app/go.sum ./
 RUN go mod download
-COPY *.go ./
-COPY cmd/ ./cmd/
+COPY app/*.go ./
+COPY app/cmd/ ./cmd/
 COPY --from=web /web/dist ./web/dist
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /dbcanvas .
+# APP_VERSION is stamped in rather than read at runtime: the What's New dialog and
+# the API page both need to say which build this is, and a file the container could
+# be missing is a worse source for that than a linker flag (see app/version.go).
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.appVersion=${APP_VERSION}" -o /dbcanvas .
 # The password-reset tool. It ships in the image because the runtime is distroless: no
 # shell and no sqlite3, so a forgotten admin password would otherwise need the volume
 # mounted somewhere else entirely.
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
       -o /dbcanvas_reset_password ./cmd/dbcanvas_reset_password
+
+# ---- stage 2a: dbcanvas-cli, for every platform the app will offer ----
+#
+# These ride in the image so that somebody using a DBCanvas on a shared server can
+# download a client for it without cloning the repository — which is exactly the
+# audience a CLI has. Five static binaries, ~6.5 MB each — 33 MB on the image, which
+# is a fair price for not telling a remote user to go and install a Go toolchain.
+#
+# Keep the list in step with cliPlatforms in app/clidownload.go and CLI_PLATFORMS in
+# the Makefile.
+FROM golang:1.26-alpine AS cli
+WORKDIR /src
+ARG APP_VERSION=dev
+COPY cli/go.mod cli/go.sum ./
+RUN go mod download
+COPY cli/ ./
+RUN set -eu; mkdir -p /out; \
+    for p in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do \
+      os="${p%/*}"; arch="${p#*/}"; out="/out/dbcanvas-cli_${os}_${arch}"; \
+      [ "$os" = windows ] && out="$out.exe"; \
+      GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -trimpath \
+        -ldflags="-s -w -X main.version=${APP_VERSION}" -o "$out" .; \
+    done
 
 # ---- stage 2b: the k3d binary (K3D cluster frame) ----
 # k3d is a Docker API *client*: it asks the daemon to create the k3s containers. DBCanvas already
@@ -40,6 +72,7 @@ RUN apk add --no-cache curl \
 FROM gcr.io/distroless/static-debian12 AS runtime
 COPY --from=build /dbcanvas /dbcanvas
 COPY --from=build /dbcanvas_reset_password /usr/local/bin/dbcanvas_reset_password
+COPY --from=cli /out/ /usr/local/share/dbcanvas/cli/
 COPY --from=k3d /k3d /usr/local/bin/k3d
 ENV APP_HOST=0.0.0.0
 ENV APP_PORT=8080

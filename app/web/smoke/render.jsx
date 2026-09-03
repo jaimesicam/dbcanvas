@@ -49,6 +49,17 @@ import OperatorDebugger, {
   VarNode as DbgVarRow, varIsSummarised as __varIsSummarised,
 } from '../src/pages/OperatorDebugger.jsx'
 import { goHighlight, TOKEN_CLS, STATUS_TONE, STATUS_TEXT, shortFrameName } from '../src/lib/debugApi.js'
+import Api, {
+  Tokens as ApiTokens, CreateToken as ApiCreateToken, TokenTable as ApiTokenTable,
+  FreshSecret as ApiFreshSecret, Endpoints as ApiEndpoints, EndpointRow as ApiEndpointRow,
+  Snippet as ApiSnippet, GettingStarted as ApiGettingStarted, AdminTokens as ApiAdminTokens,
+} from '../src/pages/Api.jsx'
+import WhatsNew, { WhatsNewLink } from '../src/components/WhatsNew.jsx'
+import { ChangePassword as SettingsChangePassword } from '../src/pages/Settings.jsx'
+import {
+  curlFor, cliFor, matches as epMatches, samplePath, expiryText, relDate,
+  METHOD_TONE, SCOPE_TEXT, MEDIA_TEXT, MEDIA_LABEL, TOKEN_STATE_TONE, EXPIRY_CHOICES,
+} from '../src/lib/apiApi.js'
 import CoreDumpAnalyzer, {
   Header as GdbHeader, NoTargets as GdbNoTargets, CrashSummary as GdbSummary,
   CoreList as GdbCores, ThreadList as GdbThreads, Backtrace as GdbStack,
@@ -2430,6 +2441,265 @@ check('tooltip: placement flips and clamps to stay on screen', () => {
   if (tall.top < 0 || tall.top + 900 > 800 + 900) throw new Error(`unclamped vertical: ${tall.top}`)
   delete globalThis.window
   return 'ok'
+})
+
+// --- the API page ---------------------------------------------------------------
+//
+// These render with fixtures shaped exactly like the server's responses, because the
+// failure this file exists to catch is a missing Icon (Code, Key and Sparkles are all
+// new) blanking the page the first time somebody opens it.
+
+const apiTokens = [
+  { id: 1, name: 'dbcanvas-cli on thinkpad', prefix: 'dbc_a1b2c3d4', scope: 'write',
+    createdAt: '2026-09-01T10:00:00Z', expiresAt: '2026-12-01T10:00:00Z',
+    lastUsedAt: '2026-09-02T08:00:00Z', state: 'active', username: 'jaime' },
+  { id: 2, name: 'read-only dashboard', prefix: 'dbc_9f8e7d6c', scope: 'read',
+    createdAt: '2026-08-01T10:00:00Z', expiresAt: '2026-08-31T10:00:00Z',
+    state: 'expired', username: 'jaime' },
+  { id: 3, name: 'leaked, revoked', prefix: 'dbc_00112233', scope: 'admin',
+    createdAt: '2026-07-01T10:00:00Z', revokedAt: '2026-07-02T10:00:00Z',
+    state: 'revoked', username: 'admin' },
+  // No expiry at all — the admin-only case, and the one a naive date format breaks on.
+  { id: 4, name: 'never expires', prefix: 'dbc_44556677', scope: 'write',
+    createdAt: '2026-06-01T10:00:00Z', state: 'active', username: 'admin' },
+]
+
+const apiEndpoints = [
+  { method: 'GET', path: '/api/stacks', group: 'Stacks', summary: 'The stacks you own.', auth: 'user', scope: 'read' },
+  { method: 'POST', path: '/api/stacks/{id}/deploy', group: 'Stacks', summary: 'Provision every node.',
+    auth: 'user', scope: 'write', params: [{ name: 'id', help: "The stack's numeric id." }] },
+  { method: 'DELETE', path: '/api/users/{id}', group: 'Users', summary: 'Delete an account.',
+    auth: 'admin', scope: 'admin', params: [{ name: 'id', help: "The account's numeric id." }] },
+  { method: 'POST', path: '/api/ftdc/upload', group: 'FTDC Summary', summary: 'Upload diagnostic data.',
+    auth: 'user', scope: 'write', media: 'multipart' },
+  { method: 'GET', path: '/api/notifications/stream', group: 'Notifications', summary: 'Live events.',
+    auth: 'user', scope: 'read', media: 'sse' },
+  { method: 'GET', path: '/api/stacks/{id}/nodes/{nid}/term', group: 'Nodes', summary: 'Open a console.',
+    auth: 'user', scope: 'read', media: 'websocket',
+    params: [{ name: 'id', help: 'stack' }, { name: 'nid', help: 'node' }] },
+  { method: 'GET', path: '/api/templates/{id}/export', group: 'Templates', summary: 'Download a template.',
+    auth: 'user', scope: 'read', media: 'download', params: [{ name: 'id', help: 'template' }] },
+]
+
+check('api page: the whole thing mounts', () => renderToString(<Api />))
+
+check('api page: token table, every state', () =>
+  renderToString(<ApiTokenTable tokens={apiTokens} onRevoke={() => {}} />))
+
+check('api page: token table with owners (the admin view)', () =>
+  renderToString(<ApiTokenTable tokens={apiTokens} onRevoke={() => {}} showOwner />))
+
+check('api page: an empty token list says what to do', () => {
+  const html = renderToString(<ApiTokenTable tokens={[]} />)
+  if (!/No tokens yet/.test(html)) throw new Error('the empty state does not explain itself')
+  return html
+})
+
+check('api page: a loading token table does not claim to be empty', () => {
+  const html = renderToString(<ApiTokenTable tokens={undefined} />)
+  if (/No tokens yet/.test(html)) throw new Error('a pending fetch rendered as "no tokens"')
+  return html
+})
+
+check('api page: the create form, as a user and as an admin', () => {
+  const asUser = renderToString(
+    <ApiCreateToken scopes={['read', 'write']} maxDays={90} canNeverExpire={false}
+      onCreated={() => {}} onError={() => {}} />)
+  if (/>Never</.test(asUser)) throw new Error('a non-admin was offered a never-expiring token')
+  const asAdmin = renderToString(
+    <ApiCreateToken scopes={['read', 'write', 'admin']} maxDays={365} canNeverExpire
+      onCreated={() => {}} onError={() => {}} />)
+  if (!/>Never</.test(asAdmin)) throw new Error('an admin was not offered a never-expiring token')
+  if (!/>admin</.test(asAdmin)) throw new Error('an admin was not offered the admin scope')
+  return asUser + asAdmin
+})
+
+check('api page: a low instance ceiling hides the longer lifetimes', () => {
+  const html = renderToString(
+    <ApiCreateToken scopes={['read', 'write']} maxDays={14} canNeverExpire={false}
+      onCreated={() => {}} onError={() => {}} />)
+  if (/>90 days</.test(html)) throw new Error('offered 90 days when the ceiling is 14')
+  if (!/>7 days</.test(html)) throw new Error('did not offer a lifetime under the ceiling')
+  return html
+})
+
+check('api page: the one-time secret panel', () => {
+  const html = renderToString(
+    <ApiFreshSecret data={{ token: apiTokens[0], secret: 'dbc_' + 'x'.repeat(43) }} onDismiss={() => {}} />)
+  if (!/one and only time/.test(html)) throw new Error('the panel does not warn that this is the last look')
+  return html
+})
+
+check('api page: an endpoint row, collapsed and every media kind', () =>
+  apiEndpoints.map((ep) => renderToString(<ApiEndpointRow ep={ep} />)).join(''))
+
+check('api page: snippets', () =>
+  renderToString(<ApiSnippet label="curl" text={'curl -s http://x/api/stacks'} />))
+
+check('api page: getting started, with the CLI downloads', () => {
+  const html = renderToString(<ApiGettingStarted />)
+  if (!/api\/cli\/download\?os=linux&(amp;)?arch=amd64/.test(html)) {
+    throw new Error('the Linux download link is missing or malformed')
+  }
+  return html
+})
+
+check('api page: the endpoint browser and the admin token list mount before their fetch lands', () =>
+  renderToString(<ApiEndpoints />) + renderToString(<ApiAdminTokens onError={() => {}} />))
+
+check('api page: curl lines suit the media kind', () => {
+  const by = Object.fromEntries(apiEndpoints.map((ep) => [`${ep.method} ${ep.path}`, ep]))
+  const get = curlFor(by['GET /api/stacks'], 'http://x')
+  if (!/^curl -s /.test(get) || /-X GET/.test(get)) throw new Error(`GET: ${get}`)
+  const post = curlFor(by['POST /api/stacks/{id}/deploy'], 'http://x')
+  if (!/-X POST/.test(post) || /\{id\}/.test(post)) throw new Error(`POST kept a placeholder brace: ${post}`)
+  const upload = curlFor(by['POST /api/ftdc/upload'], 'http://x')
+  if (!/-F file=@/.test(upload)) throw new Error(`upload: ${upload}`)
+  const stream = curlFor(by['GET /api/notifications/stream'], 'http://x')
+  if (!/curl -N/.test(stream)) throw new Error(`sse: ${stream}`)
+  const dl = curlFor(by['GET /api/templates/{id}/export'], 'http://x')
+  if (!/-OJ/.test(dl)) throw new Error(`download: ${dl}`)
+  // A WebSocket cannot be curled, and pretending otherwise would be worse than
+  // saying so.
+  const ws = curlFor(by['GET /api/stacks/{id}/nodes/{nid}/term'], 'http://x')
+  if (/^curl/.test(ws) || !/WebSocket/.test(ws)) throw new Error(`websocket: ${ws}`)
+  return get + post + upload + stream + dl + ws
+})
+
+check('api page: every wildcard is substituted in the examples', () => {
+  for (const ep of apiEndpoints) {
+    // The websocket "example" is a comment naming the endpoint, so it quotes the
+    // path verbatim — braces and all — on purpose. Every actual command must not.
+    const lines = ep.media === 'websocket' ? [cliFor(ep)] : [curlFor(ep, 'http://x'), cliFor(ep)]
+    for (const line of lines) {
+      if (/\{[a-zA-Z0-9_]+\}/.test(line)) throw new Error(`${ep.method} ${ep.path}: ${line}`)
+    }
+  }
+  if (samplePath('/api/stacks/{id}/nodes/{nid}/fs/list') !== '/api/stacks/1/nodes/node-1/fs/list') {
+    throw new Error(samplePath('/api/stacks/{id}/nodes/{nid}/fs/list'))
+  }
+  return 'ok'
+})
+
+check('api page: search matches path, summary and method', () => {
+  const ep = apiEndpoints[1] // POST /api/stacks/{id}/deploy — "Provision every node."
+  const cases = [['', true], ['deploy', true], ['DEPLOY', true], ['provision', true],
+    ['POST /api/stacks', true], ['stacks deploy', true], ['benchmark', false], ['deploy benchmark', false]]
+  for (const [q, want] of cases) {
+    if (epMatches(ep, q) !== want) throw new Error(`matches(${JSON.stringify(q)}) !== ${want}`)
+  }
+  return 'ok'
+})
+
+check('api page: expiry is described in the units that matter', () => {
+  const at = (ms) => new Date(Date.now() + ms).toISOString()
+  const cases = [
+    [{ state: 'active', expiresAt: at(30 * 86400000) }, /30 days left/],
+    [{ state: 'active', expiresAt: at(5 * 3600000) }, /5 hours left/],
+    [{ state: 'active', expiresAt: at(60000) }, /Under an hour/],
+    [{ state: 'expired', expiresAt: at(-86400000) }, /Expired/],
+    [{ state: 'revoked', expiresAt: at(86400000) }, /Revoked/],
+    [{ state: 'active' }, /Never expires/],
+    [{ state: 'active', expiresAt: 'nonsense' }, /—/],
+  ]
+  for (const [tok, want] of cases) {
+    const got = expiryText(tok)
+    if (!want.test(got)) throw new Error(`${JSON.stringify(tok)} -> ${got}`)
+  }
+  if (relDate(undefined) !== '—' || relDate('nonsense') !== '—') throw new Error('relDate on a missing stamp')
+  return 'ok'
+})
+
+check('api page: every method, scope and media kind has a label', () => {
+  for (const mm of ['GET', 'POST', 'PUT', 'DELETE']) {
+    if (!METHOD_TONE[mm]) throw new Error(`no tone for ${mm}`)
+  }
+  for (const sc of ['read', 'write', 'admin']) {
+    if (!SCOPE_TEXT[sc]) throw new Error(`no explanation for scope ${sc}`)
+    if (!TOKEN_STATE_TONE.active) throw new Error('no tone for an active token')
+  }
+  for (const md of ['multipart', 'download', 'sse', 'websocket']) {
+    if (!MEDIA_TEXT[md] || !MEDIA_LABEL[md]) throw new Error(`no label/explanation for media ${md}`)
+  }
+  if (!EXPIRY_CHOICES.some((c) => c.days === 0)) throw new Error('no "never" choice')
+  return 'ok'
+})
+
+check('settings: the change-password form', () => {
+  const html = renderToString(<SettingsChangePassword />)
+  // Three password inputs, and the browser told which is which — otherwise a
+  // password manager offers to fill the current one into the new field.
+  if ((html.match(/type="password"/g) || []).length !== 3) {
+    throw new Error('expected three password inputs')
+  }
+  // Matched case-insensitively: the attribute is written autoComplete in JSX and
+  // React's server renderer keeps that casing, which HTML treats as the same
+  // attribute but a case-sensitive regex does not.
+  if (!/autocomplete="current-password"/i.test(html) || !/autocomplete="new-password"/i.test(html)) {
+    throw new Error('the password fields are not labelled for password managers')
+  }
+  if (!/Also revoke my API tokens/.test(html)) throw new Error('no token-revocation opt-in')
+  if (!/dbcanvas_reset_password/.test(html)) {
+    throw new Error('the form should say what to do when the password is forgotten entirely')
+  }
+  return html
+})
+
+// --- What's new ------------------------------------------------------------------
+
+const whatsNewData = {
+  version: '0.2.0',
+  seen: '0.1.0',
+  hasUnseen: true,
+  notes: [
+    { version: '0.2.0', date: '2026-09-02', title: 'An HTTP API', body: 'Every endpoint, documented.', doc: 'docs/API.md' },
+    { version: '0.1.0', date: '2026-09-01', title: 'Tooltips', body: '345 pieces of help.' },
+  ],
+  unseen: [
+    { version: '0.2.0', date: '2026-09-02', title: 'An HTTP API', body: 'Every endpoint, documented.', doc: 'docs/API.md' },
+  ],
+}
+
+check("what's new: the dialog, opened by itself", () => {
+  const html = renderToString(
+    <WhatsNew data={whatsNewData} open acknowledging onClose={() => {}} />)
+  if (!/What&#x27;s new in DBCanvas|What's new in DBCanvas/.test(html)) throw new Error('no heading')
+  if (!/Got it/.test(html)) throw new Error('no acknowledge button')
+  // Auto-opened, it shows only the unread notes.
+  if (/Tooltips/.test(html)) throw new Error('an already-read note was shown in the auto-open')
+  return html
+})
+
+check("what's new: reopened from the link, it shows everything", () => {
+  const html = renderToString(
+    <WhatsNew data={whatsNewData} open acknowledging={false} onClose={() => {}} />)
+  if (!/Tooltips/.test(html)) throw new Error('the full list is missing older notes')
+  if (/Got it/.test(html)) throw new Error('a deliberate reopen should not offer to acknowledge')
+  return html
+})
+
+check("what's new: closed renders nothing, and neither does an empty changelog", () => {
+  if (renderToString(<WhatsNew data={whatsNewData} open={false} onClose={() => {}} />) !== '') {
+    throw new Error('a closed dialog rendered something')
+  }
+  const empty = { version: '0.2.0', hasUnseen: false, notes: [], unseen: [] }
+  if (renderToString(<WhatsNew data={empty} open onClose={() => {}} />) !== '') {
+    throw new Error('an empty changelog rendered an empty dialog')
+  }
+  return 'ok'
+})
+
+check("what's new: the header link, with and without something unread", () => {
+  const unread = renderToString(<WhatsNewLink data={whatsNewData} onClick={() => {}} />)
+  if (!/0\.2\.0/.test(unread)) throw new Error('the link does not show the version')
+  const read = renderToString(
+    <WhatsNewLink data={{ ...whatsNewData, hasUnseen: false }} onClick={() => {}} />)
+  if (read.length >= unread.length) throw new Error('the unread dot is not rendered')
+  // Before the fetch lands there is nothing to link to.
+  if (renderToString(<WhatsNewLink data={null} onClick={() => {}} />) !== '') {
+    throw new Error('the link rendered before its data arrived')
+  }
+  return unread + read
 })
 
 if (failures > 0) {

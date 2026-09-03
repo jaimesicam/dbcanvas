@@ -17,12 +17,27 @@ often enough to be worth writing down. For what the product *does*, see the
 | `make logs` | Follow the app's logs. |
 | `make clean` | Stop the app and remove its locally built images. Deployed stacks are untouched. |
 | `make smoke` | Render every page off-browser and fail on a render error. |
+| `make cli` | Cross-compile `dbcanvas-cli` into `dist/` for Linux, macOS and Windows, with a `SHA256SUMS`. See [`dbcanvas-cli`](CLI.md). |
+| `make cli-test` | Build, vet and test the CLI module. |
 
 Single-image rebuilds, for when only one thing changed: `make intranet-image`,
 `make vnc-image`, and one per demo app (`make trafficsim-image`, `make hotelsim-image`,
 `make airlinesim-image`, `make carsim-image`, `make marketchaos-image`,
 `make stocksim-image`). `make images` builds all of them, so these are for iterating on
 one without waiting for the operating systems again.
+
+### Versioning
+
+The repository's **`VERSION`** file (one line, e.g. `0.2.0`) is stamped into both binaries
+at build time — `-ldflags "-X main.appVersion=…"` for the server, `main.version` for the
+CLI. It is what `/api/setup/status` reports, what `dbcanvas version` prints, and what the
+**What's new** dialog compares against each account's read state to decide whether to open
+itself. A plain `go build` leaves it at `dev`, which sorts as newer than every release so a
+developer always sees release notes they are still writing.
+
+Bumping it is the whole release process as far as the app is concerned: edit `VERSION`, add
+an entry to `whatsNewNotes` in `app/whatsnew.go` and the matching prose to the README's
+*What's new* section (a test fails if those two disagree), and rebuild.
 
 > **`make images` rewrites `versions.yaml`.** It discards the enrichment `make versions`
 > adds, which is why `make install` runs them in that order. If you run `make images` on its
@@ -94,6 +109,20 @@ active. All optional; the defaults work out of the box.
 | `DBCANVAS_BOX_<OS>_<VER>` | — | Override the Vagrant box for one OS (dots/dashes → underscores), e.g. `DBCANVAS_BOX_UBUNTU_24_04=my/box`. |
 | `DBCANVAS_NO_SUDO` | unset | Run `iptables`/`ip`/`sysctl` directly instead of via `sudo -n`, for hosts that already grant `CAP_NET_ADMIN`. |
 | `DBCANVAS_HOST_MODE` | auto | Force "the app runs on the host" detection (normally inferred from `/.dockerenv`). Only needed for odd environments. |
+
+## Instance settings (not `.env`)
+
+Two things are configured in the app rather than the environment, because they bound work
+the *server* does on everyone's behalf. **Settings** → any admin can change them; anyone
+signed in can see the limit they are working under.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| Maximum upload size | 4 GiB | The ceiling on one file drop onto a node. Clamped to 1 MiB–1 TiB. |
+| Maximum API token lifetime | 90 days | The longest expiry a non-administrator may give an [API token](API.md). Clamped to 1–365 days. A request for longer is shortened to this rather than refused, so lowering it never breaks the create form; it does not shorten tokens that already exist. |
+
+Administrators can additionally create a token that **never expires** — deliberately an
+administrator's decision, since DBCanvas drives the Docker daemon.
 
 ## Recovering an admin password
 

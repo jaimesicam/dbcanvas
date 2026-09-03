@@ -18,7 +18,10 @@ import (
 // the limit they are working under — and writable only by an admin.
 
 // Keys in the app_settings table.
-const settingMaxUploadBytes = "maxUploadBytes"
+const (
+	settingMaxUploadBytes = "maxUploadBytes"
+	settingMaxTokenDays   = "maxTokenDays"
+)
 
 const (
 	// defaultMaxUploadBytes is the ceiling on one file drop onto a node.
@@ -32,6 +35,18 @@ const (
 	maxMaxUploadBytes int64 = 1 << 40 // 1 TiB
 )
 
+const (
+	// defaultMaxTokenDays is the longest lifetime a non-admin may give an API
+	// token. Ninety days is long enough that nobody re-authenticates weekly, short
+	// enough that a token forgotten on an old laptop stops mattering.
+	defaultMaxTokenDays = 90
+	minMaxTokenDays     = 1
+	// maxMaxTokenDays caps even an admin's ceiling. Past a year a lifetime is not
+	// really a lifetime; an admin who wants that creates a never-expiring token
+	// deliberately instead, which is a decision the UI makes them make.
+	maxMaxTokenDays = 365
+)
+
 // SystemSettings is the instance-wide configuration served to the UI.
 //
 // It carries two kinds of value. MaxUploadBytes is stored and an admin can change
@@ -43,6 +58,7 @@ const (
 // echoing the whole object back can neither set it nor lose it.
 type SystemSettings struct {
 	MaxUploadBytes int64                `json:"maxUploadBytes"`
+	MaxTokenDays   int                  `json:"maxTokenDays"`
 	SSHForwarding  SSHForwardingSetting `json:"sshForwarding"`
 }
 
@@ -69,7 +85,7 @@ func sshForwardingSetting(appUser string) SSHForwardingSetting {
 }
 
 func defaultSystemSettings() SystemSettings {
-	return SystemSettings{MaxUploadBytes: defaultMaxUploadBytes}
+	return SystemSettings{MaxUploadBytes: defaultMaxUploadBytes, MaxTokenDays: defaultMaxTokenDays}
 }
 
 // normalize clamps out-of-range values rather than rejecting them, so a value
@@ -84,6 +100,15 @@ func (s SystemSettings) normalize() SystemSettings {
 	if s.MaxUploadBytes > maxMaxUploadBytes {
 		s.MaxUploadBytes = maxMaxUploadBytes
 	}
+	if s.MaxTokenDays <= 0 {
+		s.MaxTokenDays = defaultMaxTokenDays
+	}
+	if s.MaxTokenDays < minMaxTokenDays {
+		s.MaxTokenDays = minMaxTokenDays
+	}
+	if s.MaxTokenDays > maxMaxTokenDays {
+		s.MaxTokenDays = maxMaxTokenDays
+	}
 	return s
 }
 
@@ -96,6 +121,9 @@ func (a *App) systemSettings(appUser string) SystemSettings {
 			s.MaxUploadBytes = n
 		}
 	}
+	if v, err := a.store.AppSetting(settingMaxTokenDays); err == nil && v != "" {
+		s.MaxTokenDays = maxTokenDaysFromSetting(v)
+	}
 	s = s.normalize()
 	s.SSHForwarding = sshForwardingSetting(appUser)
 	return s
@@ -103,6 +131,9 @@ func (a *App) systemSettings(appUser string) SystemSettings {
 
 // maxUploadBytes is the configured ceiling on one node file drop.
 func (a *App) maxUploadBytes() int64 { return a.systemSettings("").MaxUploadBytes }
+
+// maxTokenDays is the configured ceiling on a non-admin API token's lifetime.
+func (a *App) maxTokenDays() int { return a.systemSettings("").MaxTokenDays }
 
 func (a *App) handleGetSystemSettings(w http.ResponseWriter, r *http.Request) {
 	u, ok := a.currentUser(r)
@@ -122,6 +153,10 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 	}
 	s := in.normalize()
 	if err := a.store.SetAppSetting(settingMaxUploadBytes, strconv.FormatInt(s.MaxUploadBytes, 10)); err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to save settings")
+		return
+	}
+	if err := a.store.SetAppSetting(settingMaxTokenDays, strconv.Itoa(s.MaxTokenDays)); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to save settings")
 		return
 	}

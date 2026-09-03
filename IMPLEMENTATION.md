@@ -19636,3 +19636,1224 @@ A node publishing nothing still returns no command (the UI says so) rather than 
 line. `TestSSHForwardWithLogin` covers the precedence, the nine unsafe usernames and the
 rendered command; `go build`, `go vet`, `go test`, `npm run build` and `npm run smoke` pass,
 with the one pre-existing darwin `sed` failure from entry 322.
+
+## 328. Every endpoint declared once: the route table, and an API page generated from it — `app/api_routes.go`, `app/apimeta.go`, `app/version.go`, `app/api_routes_test.go` (all new), `app/main.go`, `app/web/src/pages/Api.jsx`, `app/web/src/lib/apiApi.js` (both new), `App.jsx`, `Icons.jsx`, `help.js`, `smoke/render.jsx`, `docs/API.md` (new), `docs/README.md`
+
+DBCanvas serves 206 endpoints. They were 206 `mux.HandleFunc` lines in `main.go` — which is a
+perfectly good way to register a route and a hopeless way to *describe* one. Nothing outside
+that function knew a route existed, so an API reference could only be prose written somewhere
+else, going stale a route at a time; entries 300–327 alone added forty-odd.
+
+So `main()`'s 300-line registration block collapses to a loop over a new declarative table in
+`app/api_routes.go`. Each row carries what a caller needs and a registration does not: a
+**Group** (the heading it renders under, and its OpenAPI tag), a one-sentence **Summary**, the
+**Auth** it enforces, and a **Media** kind for the minority that do not speak JSON.
+
+```go
+{Method: "POST", Path: "/api/stacks/{id}/deploy", Group: gStacks, Handler: m((*App).handleDeployStack),
+	Summary: "Provision every node in the design. Returns at once; watch the deployments for progress."},
+```
+
+`m()` adapts an `*App` method expression so the common row is one line; the nineteen routes
+whose handler comes from a factory (`handleNodeAction("start")`, `emailMutate(…)`) pass a
+closure. The whole thing then registers with:
+
+```go
+for _, rt := range apiRoutes() {
+	h := rt.Handler(a)
+	if rt.Auth == authAdmin {
+		h = a.requireAdmin(h)
+	}
+	mux.HandleFunc(rt.Pattern(), a.requireScope(rt, h))
+}
+```
+
+### What the table deliberately does not do
+
+It does not move authentication out of the handlers. Every one of them already resolves the
+caller itself — `currentUser`, `loadOwnedStack`, `loadRunningNode` — and hoisting that into a
+wrapper here would be a behavioural change wearing a refactor's clothes. `Auth` *records* what
+a handler enforces so the catalogue can publish it and a token can be scoped against it. The
+one exception is `authAdmin`, which genuinely was a wrapper (`requireAdmin`) and stays one.
+
+`TestAdminRoutesUnchanged` and `TestPublicRoutesUnchanged` pin both sets by name, which is what
+makes the conversion provably access-preserving: if the admin-only or unauthenticated set ever
+changes, a test says so and somebody has to mean it.
+
+### `apiRoutes` is a function, not a slice
+
+The obvious spelling — `var apiRoutes = []apiRoute{…}` — does not compile. The table names
+`handleAPIEndpoints`, and `handleAPIEndpoints` reads the table back; between two package-level
+variables that is an initialization cycle, and Go rejects it even though it is perfectly
+well-defined at run time. `var apiRoutes = sync.OnceValue(buildAPIRoutes)` fails for the same
+reason, because the cycle still runs through a variable. Between two *functions* there is no
+cycle to reject, so the memoisation is spelled out by hand with a `sync.Once`.
+
+### Six POSTs that are reads
+
+`ReadOnly` marks the endpoints that are POSTs only because they take a body too large for a
+query string: `validate`, `stalksummary/compare`, `ftdc/compare`, `datagen/…/preview`,
+`stocksim/test`, and a lab step check. None of them changes anything, so a read-scoped token
+(entry 329) can call them. Without the table this distinction would have been a hand-maintained
+allowlist of 206 strings; with it, the scope check is one comparison against `Method` and this
+flag.
+
+### The API page, and the OpenAPI document
+
+`GET /api/meta/endpoints` serves the catalogue grouped and ordered — `apiGroupOrder` puts it in
+roughly the order somebody meets the app, so the page reads as a tour rather than a dump — and
+carries the caller's own role, so a non-admin sees which endpoints their tokens could never
+reach. The new **API** page renders it with a search box and method/scope filters; each row
+expands to its path parameters, a copyable `curl` line and the equivalent `dbcanvas-cli`
+invocation. Both examples are *derived in the browser from the route record*, so there is still
+exactly one description of the API and it lives on the server. `curlFor` varies by media kind
+because a single generic example would be wrong for four of the five: an upload needs `-F`, a
+download `-OJ`, a stream `-N`, and a WebSocket cannot be curled at all — so for that one the
+"example" says so instead of pretending.
+
+`GET /api/meta/openapi.json` renders the same table as OpenAPI 3.1. Bodies stay free-form
+`application/json` rather than 206 hand-written schemas: that would be a second description of
+the app, able to disagree with the first, which is the thing this entry exists to prevent.
+Wildcards had to go into the `operationId` after all — dropping them reads better in isolation
+but collides six times (`GET /api/stacks` and `GET /api/stacks/{id}` both reduce to
+`getStacks`), so ids are `getStacksByIdNodesByNid` and a test proves they are unique.
+
+`app/version.go` arrives here because the OpenAPI document has to state a version:
+`appVersion`, stamped at link time, `"dev"` when unstamped. Entry 331 makes fuller use of it.
+
+**Verified.** `go build .`, `go vet .` and `go test .` pass; the new tests cover the documented
+summary and group on all 216 rows, path well-formedness, duplicate patterns, actual
+registrability on a live `ServeMux` (the only way to find out that Go's pattern parser accepts
+them, since it panics at startup otherwise), the pinned admin and public sets, the scope
+derivation, catalogue coverage and ordering, and the OpenAPI document's shape, unique operation
+ids and public-route security opt-out. `npm run build` and `npm run smoke` pass, with the API
+page's subcomponents rendered against fixtures shaped like the server's responses.
+`TestAIOTLSWiringIsIdempotent` still fails on darwin for the pre-existing GNU-`sed` reason
+recorded in entry 322.
+
+---
+
+## 329. API tokens: a credential that expires, and cannot create another — `app/apitokens.go`, `app/apitokens_test.go` (both new), `app/{store,auth,users,syssettings,api_routes,main}.go`, `app/web/src/pages/{Api,Settings}.jsx`, `app/web/src/lib/api.js`, `settings/SettingsProvider.jsx`, `help.js`, `smoke/render.jsx`, `docs/{API,CONFIGURATION}.md`
+
+An API is only usable from a script if a script can hold a credential, and the only credential
+DBCanvas had was a password. So: named, scoped, expiring bearer tokens, created by the account
+that will use them and revocable the moment it stops wanting them.
+
+The whole design turns on one asymmetry. **A password is the credential that can create
+credentials, and a token is not.** `POST /api/tokens` is marked `NoToken` in the route table
+and refuses bearer authentication outright, whatever the token's scope. A token that leaks
+therefore cannot mint a longer-lived replacement for itself — whoever has it still needs the
+password to get anything durable. Everything else follows from that, including why
+`dbcanvas login` (entry 330) bothers to do a password handshake.
+
+### SHA-256, not bcrypt
+
+`api_tokens.token_hash` is a plain SHA-256. bcrypt exists to make a *low-entropy* secret
+expensive to guess; a token here is 32 bytes from `crypto/rand`, so there is no dictionary to
+run against it. What it does have that a password does not is a verification on **every**
+request, and bcrypt at its default cost would put ~100 ms on all 219 endpoints. The secret is
+never stored, so a copy of the database still yields no usable token.
+
+The secret is `dbc_` plus 43 characters of base64url. The prefix is not decoration: a literal,
+searchable marker is what lets a secret scanner, a pre-commit hook, or somebody grepping their
+shell history find one that escaped. The first eight characters are stored as `prefix` — enough
+to tell two of your own tokens apart, far too little to guess the rest — and **the secret is
+served exactly once**, in the reply to the request that created it.
+
+### Scopes are checked against the route, which is only possible because of entry 328
+
+`read` covers every GET plus the six `ReadOnly` POSTs; `write` covers everything the account can
+do in the UI; `admin` adds the admin-only routes and only an administrator can create one.
+`routeScope` is three lines, because the table already knows the method and whether a POST
+mutates.
+
+A scope is also **capped by the owner's role, re-read on every request**. Demote an
+administrator and the `admin`-scope tokens they hold become `write` tokens by themselves —
+nobody has to remember to chase them through the table. Trusting the stored column would have
+made a role change something you had to follow up.
+
+### The refusals, as a set
+
+`tokenAuth` rejects a token that is revoked, one that has expired, and one whose owner is no
+longer `approved`. That last is the one worth being careful about: `handleUserStatus` now calls
+`RevokeUserAPITokens` alongside `DeleteUserSessions`, because without it *disable* would close
+somebody's browser and leave their scripts running, which is the worst available combination.
+
+An early version swallowed every store error as `ErrTokenNotFound`, and that immediately earned
+its keep as a mistake: `apiTokenCols` is an unqualified column list, so the two queries that
+join `users` asked SQLite for an ambiguous `id`, and the resulting query error presented itself
+as *every token being invalid*. Hence `apiTokenColsT`, and hence `tokenAuth` now logging a real
+database error instead of reporting it as a bad credential. The tautological
+`subtle.ConstantTimeCompare` of the hash against itself went at the same time — it looked like
+security and did nothing.
+
+### Expiry is enforced on use, and an expired row stays
+
+7/30/60/90 days, a custom count, or — for an administrator only — never. A non-expiring
+credential against a host that drives the Docker daemon should be somebody's deliberate
+decision. Everyone else is capped by a new instance setting `maxTokenDays` (default 90, clamped
+1–365), and a request for longer is **shortened rather than refused**, so lowering the ceiling
+never breaks the create form.
+
+Expired and revoked rows are kept, and listed, for thirty days. "Why did my script start
+getting 401s on Tuesday" is a question the row answers and its absence does not.
+
+### `last_used_at` without a write per request
+
+The store runs SQLite with `SetMaxOpenConns(1)`. An `UPDATE` per authenticated request would
+put every API call in a queue behind the write lock, to maintain a column whose entire purpose
+is to be roughly right in a list. So uses are buffered in a map and flushed once a minute by
+`startTokenMaintenance`, which also purges long-dead rows hourly. One minute of granularity
+costs nothing anybody can perceive.
+
+### One function, and 208 endpoints inherit it
+
+`currentUser` gains a context read at the top. `requireScope` — applied to every route by the
+registration loop — resolves the bearer token once, enforces the scope, and stashes the
+principal on the request; `currentUser` then finds it there rather than looking it up again.
+For a cookie session the wrapper does nothing at all, which is what keeps the browser's path
+byte-for-byte unchanged. The API is the app, not a parallel implementation of it.
+
+WebSockets take the token from the `Authorization` header on the handshake, which a Go client
+can set and a browser cannot — the browser has a cookie and needs no such thing. There is
+deliberately **no `?token=` parameter**: a query string ends up in access logs and browser
+history, which is precisely what a searchable secret prefix is trying to make findable.
+
+**Verified.** `go build .`, `go vet .` and `go test .` pass. The new tests cover the secret's
+shape and uniqueness, `Authorization` parsing across eight header forms, acceptance of a live
+token and rejection of revoked/expired/disabled-owner ones, tokens revoked by disabling an
+account *through the handler*, the full scope matrix including a nonsense stored scope, scope
+capped by role, `requireScope` across all five outcomes (including that a request with no
+`Authorization` header is left entirely alone), the `NoToken` refusal naming what to do
+instead, expiry clamping and the never-expires permission, the settings ceiling degrading to
+its default on a hand-edited row, the create/revoke/admin-revoke handlers, owner-only revocation,
+that the listing never leaks a secret, batched last-used writes, and that a purge keeps
+recently-dead rows. `npm run build` and `npm run smoke` pass.
+
+---
+
+## 330. `dbcanvas-cli`: sign in once, then drive a stack from a terminal — `cli/**` (new module), `app/clidownload.go` (new), `app/{api_routes}.go`, `Makefile`, `app/Dockerfile`, `docker-compose.yml`, `.dockerignore` (new), `.gitignore`, `app/web/src/pages/Api.jsx`, `docs/CLI.md` (new), `docs/{README,CONFIGURATION}.md`
+
+A new top-level `cli/` Go module, sibling to `stocksim/` and `hotelsim/` — which is how this
+repository already houses independent binaries. Standard library plus `coder/websocket` (already
+an app dependency) and `golang.org/x/term`; no CLI framework, because a hand-rolled
+`flag.FlagSet` per subcommand matches the app's dependency discipline and the command tree is
+small.
+
+### `login` is three requests, and the order is the design
+
+```
+POST /api/auth/login    →  a session cookie, held in memory only
+POST /api/tokens        →  an API token — this is what gets stored
+POST /api/auth/logout   →  the session is discarded immediately
+```
+
+The extra round trip buys a much better thing to leave on a laptop. A stored password is
+unscoped, unexpiring, invisible to its owner and able to create anything; the token that
+replaces it is scoped, expires, appears in **API → Tokens**, and — because of entry 329's
+`NoToken` — cannot mint a replacement for itself. The sign-out is `defer`red so it happens on
+the error paths too; a refused token creation must not leave a live session behind.
+
+`logout` revokes server-side as well as deleting the local copy, because deleting your record
+of a live credential is not logging out, it is losing track of it. The config is written
+`0600`, via a temp file and a rename so an interrupted write cannot truncate it, and the mode
+is **re-asserted on every save** — a file that starts private and later becomes world-readable
+through a careless umask or a restored backup is a leak nobody notices.
+
+### Total coverage on day one
+
+208 endpoints, growing weekly, cannot each have a hand-written subcommand without becoming a
+second always-lagging copy of the API's surface. So:
+
+```sh
+dbcanvas endpoints --group Stacks -q backup   # find it
+dbcanvas api POST /api/stacks/12/deploy       # call it
+```
+
+`endpoints` prints what the *server* says it serves, so a CLI several releases behind still
+describes the installation it is pointed at correctly. The curated commands — `stack`, `node`,
+`template`, `datagen`, `query`, `benchmark`, `token` — are ergonomics for the twenty verbs
+people type daily, not the boundary of the tool.
+
+Two of those ergonomics do real work. **Names, not just ids**: nobody remembers that the PXC
+lab is stack 47, so `resolveStack` takes either, prefers an exact name match over a
+case-insensitive one, and *refuses rather than guesses* when two stacks share a name — picking
+one to deploy is not a risk worth taking to save typing an id. And **`--wait`**: `POST
+/api/stacks/{id}/deploy` returns as soon as provisioning has started, which is right for a UI
+that then watches the node cards and wrong for a pipeline whose next step assumes a database.
+`--wait` polls to a terminal state, prints each node transition once (a CI log is read later,
+where a spinner is noise), and exits **4** if it never got there. The exit codes divide the
+same way: `3` for "your token lapsed", `4` for "the cluster failed to come up", because those
+are not the same problem and should not page the same person.
+
+### Two bugs the tests found
+
+`dbcanvas api POST /api/stacks --data '{}'` silently sent **no body**. Go's `flag` package
+stops parsing at the first non-flag argument, so `--data` was never seen — and that is the form
+the documentation uses. `parse` now loops, re-parsing after each positional, which is the
+standard idiom for interspersed flags; `--` still ends parsing, which is what lets `node exec`
+pass a remote command through with its own flags intact.
+
+And `parseNodeRef` rejected `1:node-1:/tmp` as a Windows drive letter, because it treated any
+single-character first segment as one — breaking `cp` for exactly the stacks people address by
+id. The drive test is now a single *letter* followed by a slash.
+
+The cross-compile matrix found a third: `syscall.SIGWINCH` does not exist on Windows, so
+`windows/amd64` would not build at all. Terminal-resize watching moved into
+`console_unix.go` (the signal) and `console_windows.go` (a one-second poll, since Windows has
+no such signal), which is the kind of thing that only surfaces when you actually build for all
+five platforms.
+
+### Shipping it
+
+`make cli` cross-compiles into `dist/` for Linux, macOS and Windows with a `SHA256SUMS`. The
+app image builds the same matrix and carries the results, so `GET /api/cli/download?os=&arch=`
+can hand a binary to somebody on a shared server who has no checkout — which is precisely the
+audience a CLI has. Five static binaries at ~6.5 MB come to 33 MB on the image; the alternative
+was telling a remote user to install a Go toolchain.
+
+That required moving the build context from `app/` to the repository root, since `cli/` is a
+sibling module. Hence a new root `.dockerignore`, written as an allowlist (`*`, then `!app/`
+and `!cli/`) rather than the usual short exclusion list — the context is now the whole repo,
+most of which the image has no use for. `docker-compose.yml` passes `APP_VERSION` as a build
+argument, and the Makefile supplies it from `VERSION`, because compose cannot read a file; a
+bare `docker compose up` therefore builds a `dev` image, which is the honest label for one
+built outside `make`.
+
+**Verified.** `go build ./...`, `go vet ./...` and `go test ./...` pass in `cli/`, and the
+binary cross-compiles cleanly for all five platforms. The tests cover the config round trip,
+its file mode (including tightening a pre-existing loose one), a corrupt file reporting the
+actual problem, the resolution precedence with the environment beating the config file — which
+is how CI passes a token — the full `login` handshake against an `httptest` server asserting
+the request order, that token creation is cookie-authenticated and never bearer, and that the
+password appears nowhere in the written config; sign-out on the failure path; server-side
+revocation on logout; the bearer header on every request; the status-to-exit-code mapping for
+five statuses; an unreachable server naming the URL it could not reach; stack resolution by
+name, id, a numeric name and an ambiguous pair; all three `--wait` outcomes; the `api` command's
+argument forms and its four refusals; `--data` from a file, stdin and inline; interspersed flags
+and `--`; and node-reference parsing including a Windows drive path. `docker build` produces the
+image with all five binaries in place.
+
+---
+
+## 331. What's new, once, when DBCanvas is updated — `VERSION`, `app/whatsnew.go`, `app/whatsnew_test.go`, `app/version_test.go`, `app/web/src/components/WhatsNew.jsx` (all new), `app/{version,settings,auth,api_routes}.go`, `app/web/src/pages/Dashboard.jsx`, `Icons.jsx`, `lib/api.js`, `help.js`, `smoke/render.jsx`, `README.md`
+
+The README has carried a *What's new* section since entry 325, which is useful to somebody
+reading the repository on GitHub and invisible to the operator who just had their DBCanvas
+updated underneath them. So: the notes for a new build, in a dialog, once — and a **What's
+new** link beside the dashboard heading to read them again on purpose.
+
+### The tree had no version
+
+No `VERSION` file, no git tag, no `appVersion` anywhere. So one had to be invented before any
+of this could work: a one-line `VERSION` at the repo root, stamped into both binaries at link
+time, `"dev"` in a plain `go build` — which has to keep working, because that is what the test
+binary and everyone's local build are.
+
+`compareVersions` exists because string comparison gets the one case that will certainly happen
+exactly wrong: `"0.10.0" < "0.2.0"` lexically, which would have silently stopped the release
+notes at the tenth minor version. Segments compare as integers, a missing segment is zero
+(`1.2 == 1.2.0`), and a pre-release suffix is ignored, so `1.2.0-rc1` does not re-open a dialog
+that `1.2.0` already dismissed. `"dev"` sorts newer than everything real — but its effect is
+narrow, and the first draft of the comment overstated it: a dev build never *suppresses* the
+dialog on the "you have already acknowledged this build" test, and it cannot conjure notes that
+do not exist. A dev build with nothing new written still shows nothing, which is what an empty
+changelog should do.
+
+### Go literals, and a test against the README
+
+The notes are `releaseNote` values in `app/whatsnew.go`, the same way `templates_builtin.go` and
+`labs.go` carry their content. Parsing the README's section at run time was tempting, because
+that prose already exists — but it is `<details>` blocks, screenshots and relative links
+written for a GitHub reader. Good prose, bad data source.
+
+Which leaves the risk of two copies drifting, so `TestWhatsNewMatchesREADME` reads
+`../README.md` and fails if a note's title is missing from its *What's new* section. Titles are
+flattened first — the README wraps parts of them in `<code>` — because a guard that fails on
+formatting rather than on drift is one people disable instead of trust.
+
+### Read state on the account, not in the browser
+
+`UserSettings` gains `WhatsNewSeen`. That follows `settings.go`'s own stated rule that
+preferences follow the user across browsers and machines, and here it is right for a specific
+reason: a `localStorage` flag would re-open the dialog in every new browser and never again
+after a reinstall, which is exactly backwards.
+
+`normalize()` deliberately leaves the field alone, with a comment saying so, because every
+other field in that struct is clamped to a fixed set — so clamping this one is the obvious next
+edit, and it would re-open the release notes for everybody on every save. `TestNormalizePreservesWhatsNewSeen`
+guards it. `handleUpdateSettings` also now seeds its decode target from what is stored, so a
+client that PUTs a settings object without the field — an older UI, or the CLI — cannot blank
+it; that PUT already replaced the whole object, and the new field made the difference visible.
+
+### The server decides whether to open
+
+`GET /api/whatsnew` returns `{version, seen, hasUnseen, notes, unseen}` with `hasUnseen`
+computed in Go. The client never compares version strings: it would have to reimplement
+`compareVersions` to do it, and a client that gets that subtly wrong shows a dialog nobody asked
+for on every page load. Both conditions are required — the build has moved on from what this
+account acknowledged, *and* there is a note it has not read.
+
+A brand-new account is stamped with the current version at creation (`stampWhatsNewSeen`, from
+both `handleSetup` and `handleRegister`). A first-time user has no "new" to be told about —
+everything is new — and opening a changelog over somebody's first look at the app is the wrong
+welcome.
+
+Opening the dialog from the header link deliberately records nothing, and shows every note
+rather than only the unread ones. Reading release notes again should not change any state; and
+if it did, somebody who opened it out of curiosity before the auto-open had fired would never
+see it fire.
+
+**Verified.** `go build .`, `go vet .` and `go test .` pass. The tests cover `compareVersions`
+across nineteen pairs including `0.10.0` vs `0.2.0`, the `dev` sentinel and a pre-release
+suffix, plus an antisymmetry check over seven versions; note ordering, completeness and that
+every `Doc` link points at a file that exists; `hasUnseen` against a fixed note list across
+seven cases plus the "release with no note written" case; `normalize()` preserving the field; a
+partial settings PUT not blanking it; a new account being stamped; and the two handlers,
+including that both require authentication. `npm run build` and `npm run smoke` pass, with the
+dialog rendered auto-opened (unread notes only, "Got it"), reopened (everything, no
+acknowledge), closed, against an empty changelog, and the header link with and without an unread
+dot. `TestAIOTLSWiringIsIdempotent` still fails on darwin for the reason in entry 322.
+
+## 332. Change your own password, from Settings — `app/password.go`, `app/password_test.go` (both new), `app/{auth,api_routes}.go`, `cli/cmd_password.go` (new), `cli/{main,cmd_auth,cli_test}.go`, `app/web/src/pages/Settings.jsx`, `app/web/src/lib/{api.js,help.js}`, `app/web/smoke/render.jsx`, `docs/{API,CLI,API_REFERENCE}.md`
+
+Entry 329 gave every account a way to mint credentials and revoke them, and left the
+one credential everything else rests on unchangeable from inside the app. The only
+route to a new password was `dbcanvas_reset_password` in the container — a tool
+written for the case where *nobody* can sign in, being used for the case where
+somebody can.
+
+**`POST /api/me/password`**, and **Settings → Password**. Three decisions, each one
+the answer to a way this goes wrong:
+
+**The current password is always required.** Being signed in is not enough. A session
+somebody else got hold of should not be able to change the password and lock the owner
+out of their own account, which is the first move an attacker with a stolen session
+makes. The handler re-reads the stored hash rather than trusting the session, because
+that check *is* the endpoint.
+
+**An API token cannot do it.** The route carries `NoToken`, the same flag
+`POST /api/tokens` carries, for the same reason: the two endpoints that would turn a
+leaked token into a permanent credential or a full account takeover both require a
+password. A token can read and write your stacks; it cannot become you. That is now
+two instances of one rule rather than a special case, and `docs/API.md` says so under
+a heading of its own.
+
+**Other sessions go, this one stays.** The usual reason to change a password is that
+somebody else might have it, so leaving their browser signed in would defeat the
+exercise — hence a new `DeleteUserSessionsExcept`. Signing out the tab that just did
+the changing would be gratuitous, hence the exception.
+
+### API tokens survive unless you say otherwise
+
+This one could have gone either way. Revoking tokens on every password change is the
+safer-sounding default and the wrong one: a rotation on a schedule would silently
+break a CI job for no gain. Leaving them always is wrong too, because a password
+changed *because it leaked* has to be able to take everything with it — whoever had
+the password could have minted a token with it, and that token would outlive the
+password.
+
+So `revokeTokens` is opt-in, off by default, with the UI's tooltip explaining which
+situation is which. The response reports how many were revoked so the CLI can say
+"including this one — run `dbcanvas login`", and `dbcanvas password --revoke-tokens`
+then drops its own now-dead token from the config rather than leaving a puzzling 401
+for tomorrow.
+
+### Two small refusals
+
+`minPasswordLen` is now a named constant that `credentials.validate` and this handler
+share, because a floor enforced at sign-up and not at change is not a floor.
+
+And a new password that starts or ends with a space is **refused, not trimmed**. It is
+almost always a paste accident, and trimming would mean the password the user believes
+they set is not the one that works — which locks somebody out tomorrow, with no way to
+work out why.
+
+### The CLI mirrors the constraint rather than hiding it
+
+`dbcanvas password` cannot send the stored token, so it signs in with the current
+password, changes it, and signs out — the same three-request shape as `login`. That is
+not a workaround: a CLI that appeared to have a way around the rule would teach the
+wrong thing about the API.
+
+`--user` exists on it for one specific case: `--revoke-tokens` removes the profile,
+which takes the stored username with it, so the very next `dbcanvas password` had
+nothing to prompt with but a bare "Username:". Same reason `login` has the flag.
+
+Writing it found a real bug in the existing prompt code. `prompt` and `promptSecret`
+each made a **fresh `bufio.Reader`** over stdin, and bufio reads ahead — so the first
+prompt swallowed the lines the later ones needed, and
+`printf 'old\nnew\nnew\n' | dbcanvas password` failed on the second prompt with EOF
+having already consumed its answer. `dbcanvas login`'s username-then-password pair had
+the same latent fault. One shared reader, keyed on the current `os.Stdin` so a test
+that swaps it gets a reader over the new pipe.
+
+**Verified.** `go build`, `go vet` and `go test` pass in both modules. The new tests
+cover the happy path (the new password works, the old one does not, the owner is
+notified), a wrong current password changing nothing, an admin-scope token being
+refused by `requireScope`, six validation refusals none of which alter the stored
+hash, other sessions dying while the caller's survives, both sides of the token
+opt-in, and the two new store methods including `SetUserPassword` on a missing
+account. On the CLI side: that the change is cookie-authenticated and never sends the
+bearer token, the three-request order, that all three local refusals happen before the
+round trip, that `--revoke-tokens` drops the dead token, and that three prompts in a
+row read three distinct answers. `npm run build` and `npm run smoke` pass, with the
+Settings form now render-checked — three password inputs, labelled for password
+managers, the opt-in toggle, and the pointer to `dbcanvas_reset_password`.
+
+---
+
+## 333. Documentation that maps every feature to its endpoint, its CLI command and the thing you would have clicked — `docs/API_REFERENCE.md`, `SKILL.md` (both new), `cli/cmd_diag.go` (new), `cli/main.go`, `docs/{API,CLI,README}.md`, `README.md`
+
+Entry 328 made the endpoint catalogue generate itself, which solves *staleness* and
+not *findability*. `dbcanvas endpoints` will tell you that
+`POST /api/stacks/{id}/frames/{fid}/pbm/backup` exists; it will not tell you that this
+is the thing the **Run backup** button on a MongoDB frame does, or that there is no
+curated CLI command for it. So: **`docs/API_REFERENCE.md`**, organised by feature
+rather than by URL, with three columns — *to do this* / *API* / *CLI* — and, where a
+picture earns its place, the screenshot of the UI action the row replaces.
+
+Thirty screenshots already exist in `docs/screenshots/`; nineteen of them are now
+reused here with captions written from the API's side rather than the UI's. The
+file-drop shot, for instance, says that dragging a file onto a node card *is*
+`POST …/nodes/{nid}/upload`, streamed, and that `dbcanvas node cp` is the same
+endpoint from a shell. No new screenshots were produced: the capture tooling is
+maintainer-only and gitignored (`app/web/scripts/`), so inventing one was not on the
+table and pretending otherwise would have been worse than a caption.
+
+The page says at the top that it is hand-written and the catalogue is not, and that
+`dbcanvas endpoints` wins any disagreement. A hand-written map is worth having and
+worth being honest about.
+
+### Two things no endpoint does, said plainly
+
+Worth a section rather than leaving people to hunt: there is no "add a PXC node"
+endpoint — a topology is one `design` document, and you change it by `PUT`ting a new
+one, so the practical route from a script is template-or-export, edit, `PUT` back. And
+the Operator Debugger and Core Dump Analyzer expose a WebSocket protocol built for a
+UI; the CLI opens a console and deliberately does not reimplement a breakpoint
+interface in a terminal.
+
+### The docs promised three commands that did not exist
+
+Writing the reference against the actual CLI surfaced that entry 330's `docs/CLI.md`
+advertised `dbcanvas logs collect`, `dbcanvas ftdc node` and `dbcanvas stalk start`,
+none of which had been implemented. Deleting the lines was one option; the better one
+was `cli/cmd_diag.go`, because those three plus their siblings are exactly what a
+support engineer wants from a terminal — the request is trivial and the thing you want
+back is a file or a JSON document to attach to a ticket.
+
+So `logs` (targets, collect, list, get, events, delete), `capture` (the Packet
+Inspector: targets, start, list, get, stop, packets, download), `stalk` (start,
+status, download, archives, analyse — both spellings, nobody should have to guess),
+`ftdc` (targets, node), plus `dashboard` and `notifications`. Twenty-two new
+subcommands, most of them one call, sharing a `simpleGet` helper because eight copies
+of six lines is eight places for the error handling to drift.
+
+These print the server's JSON rather than a table even without `--json`: a Log Summary
+verdict or an FTDC comparison has no sensible table form, and rendering one badly
+would be worse than not rendering it.
+
+### `SKILL.md` — for an agent, not for a reader
+
+A reference tells you what exists. An agent driving DBCanvas needs to know what to do
+*first*, what will hang, and what not to touch. So `SKILL.md` is organised around
+that instead:
+
+- **Establish reachability before anything else** (`dbcanvas whoami`), and read what
+  this installation actually has rather than assuming — endpoints and installable
+  versions differ per installation, so never hardcode a version string that has not
+  come back from a catalogue.
+- **Ask for a credential, do not improvise one.** Exit 3 means not signed in, and the
+  correct response is to ask the user, not to guess.
+- **What will hang.** `dbcanvas login`, `token create`, `password` and `node console`
+  all prompt or are interactive. `node exec` is the non-interactive one — and its
+  remote exit status is not available, which is stated rather than left to be
+  discovered.
+- **`--wait` is not optional if anything comes next**, because `deploy` returns as
+  soon as provisioning *starts*.
+- **Always set a TTL**, because a lab an agent forgets runs until somebody notices.
+- **A table of destructive commands** to confirm before running, from `stack delete`
+  through `password --revoke-tokens` to arbitrary `fs/write`.
+- **Never print a token secret** into a transcript, a commit or a log.
+- A worked end-to-end example that deliberately does **not** tear the stack down: it
+  leaves the evidence standing and asks, with the TTL as the safety net.
+
+It ends by pointing at `dbcanvas endpoints --long` as the authority over itself, for
+the same reason the reference does.
+
+**Verified.** `go build`, `go vet`, `gofmt` and `go test` pass in both modules; the
+CLI still cross-compiles for all five platforms; `npm run build` and `npm run smoke`
+pass; `docker build` produces the image. Two mechanical checks were run over the new
+documentation and both are worth keeping in mind when editing it: every
+`dbcanvas <command> <subcommand>` mentioned across all six documents resolves to a
+command that exists in `cli/`, and every concrete `METHOD /api/...` path in them
+matches one of the 217 patterns in `apiRoutes()` — checked by pattern, so a `{nid}`
+filled in as `pxc-01` counts. Every internal markdown link in `README.md`, `SKILL.md`
+and `docs/*.md` resolves to a file that exists. `TestAIOTLSWiringIsIdempotent` still
+fails on darwin for the reason in entry 322.
+
+## 334. Screenshots that can be re-taken — `app/web/scripts/**` (not in the repo), eight new `docs/screenshots/*.png`, `docs/{API_REFERENCE,CLI}.md`, `README.md`
+
+Entry 333 reused nineteen of the thirty images in `docs/screenshots/` and could not
+produce a single new one, because the capture tooling the root `.gitignore` reserves a
+path for (`/app/web/scripts/`, "maintainer-only, kept out of the repo") did not
+actually exist. Eleven features therefore had no picture, and
+`docs/screenshots/dashboard.png` showed a sidebar missing **Operator Debugger**,
+**Core Dump Analyzer** and **API** — three features out of date, because re-shooting
+was nobody's job and nobody had a tool for it.
+
+So: that directory now holds a Playwright capture pipeline. It stays out of the
+repository, which is the constraint and also the point — Playwright plus a Chromium
+download is ~150 MB that nobody needs in order to *run* DBCanvas, and the images it
+produces are small and are what the docs reference. The cost is stated in its README
+rather than glossed: a fresh clone cannot re-shoot the docs until somebody restores
+the directory.
+
+### Determinism is most of the code, because it is the whole problem
+
+A screenshot that differs on every run makes every re-capture a noisy diff, so nobody
+re-captures, so the images go stale. That is not a hypothesis — it is the history of
+this directory. `lib/capture.mjs` therefore **normalises volatile text in the DOM
+before the shutter opens**: relative times, dates, container ids, byte counts, CPU
+percentages, ephemeral host ports, generated hostnames and token prefixes all become
+fixed stand-ins. Then it stops everything that moves (animations, transitions, the
+pulsing "live" dot, the caret, platform-dependent scrollbars) and pins everything
+pinnable — viewport 1600×950 at 2× to match the existing 3200×1900, theme `midnight`
+because that is what the existing images were shot in, plus locale and timezone.
+
+Two runs of eight shots now produce byte-identical PNGs. That is the property worth
+having: a re-capture of an unchanged page is a no-op in `git status`.
+
+**The rules are grouped, and that is not tidiness.** The first version rewrote every
+`yyyy-mm-dd` — including the What's New dialog's release-note dates, which are
+hardcoded in `whatsnew.go`, differ from each other on purpose, and are the thing the
+list is showing. It flattened three releases into one date. A normaliser cannot tell a
+measurement from content, so rules live in named groups (`ids`, `times`, `dates`,
+`metrics`, `ports`, `names`) and a shot skips the ones that are static for it. Two
+other rules were over-broad the same way and were narrowed: the port rule matched any
+five digits starting 3–5, which included a row count of 50000 in the Data Generator,
+and the byte rule rewrote a *configured* memory limit on a node form as though it were
+a sample.
+
+### Redaction, separately from determinism
+
+A deployed node's panel shows generated database passwords and these images get
+published, so before every capture the tool reads the repo's `.env`, collects every
+`*_PASSWORD`/`*_SECRET`/`*_TOKEN`/`*_KEY` value of six characters or more, and
+replaces each occurrence anywhere in the DOM — text node or input value — on top of
+the masking `Secret.jsx` already does. The placeholder is visibly a placeholder, so a
+reader can tell the value was removed rather than absent.
+
+### Seeding over the API, not by clicking
+
+`lib/api.mjs` arranges the state each shot needs with HTTP calls: sign in (creating
+the first account if the installation is empty), pin the theme, create two tokens with
+different scopes so the token table has more than one row and more than one scope,
+create three draft stacks from templates, provoke real notifications, and — only for a
+`stack`-tier shot — deploy and wait.
+
+This is the payoff from entries 328–333. Clicking through the designer to build a PXC
+cluster is twenty interactions each depending on a selector and a transition;
+`POST /api/stacks` with a template's design is one call that either worked or said
+why. The browser is left doing the one thing it is needed for.
+
+Everything created carries the prefix `shots-`, and `--cleanup` removes exactly that
+prefix — it will not touch a stack somebody was using. The prefix is then stripped
+from captured *text* by the `names` rule, because cleanup safety should not leak
+tooling scaffolding into a published image.
+
+### Three tiers, because the tiering was wrong at first
+
+`ui` needs only a signed-in app (seconds, no containers). `stack` needs a deployed
+stack, which the tool will deploy. `manual` needs something it cannot arrange — a real
+`mysqld` core file, an operator under Delve, an OS-level file drag whose source is
+outside the browser — and each such shot documents what to set up by hand.
+
+`data-generator`, `query-runner` and `benchmark` were classified `ui` and are not:
+they render only "no running database nodes" until something is deployed. That was
+found by *looking at the captures*, which is the only way it could have been found.
+
+### Four bugs, all found by looking at the output
+
+- **State leaked between shots.** One reused page meant the notification dropdown left
+  open by the `notifications` shot covered the "New stack" button and made the next
+  shot time out, and the API page's tab state survived a hash navigation so a "click
+  Getting started" step silently did nothing. Both presented as broken selectors and
+  were neither. A fresh page per shot costs an SPA mount and buys order independence.
+- **`waitFor: 'text=Manage Users, table'`** — Playwright's text engine takes the whole
+  string literally, so a comma is not "or"; it waited 20 seconds for text that does
+  not exist. Ten selectors had this shape. `assertSelectors()` now fails the run up
+  front rather than after a browser launch.
+- **The template picker is a disclosure on the stacks page**, not a modal with a
+  "Start from" heading, so that shot's `prepare` was looking for something that has
+  never existed.
+- **The capture host leaked into the API page's `curl` examples**, telling readers to
+  curl `127.0.0.1:18097`. Rewritten to `localhost:8080`.
+
+### What was kept, and what was not
+
+Eight new images are committed: `api-tokens`, `api-endpoints`, `api-getting-started`,
+`settings`, `settings-password`, `whats-new`, `manage-users`, `notifications`. They
+fill six of the eleven gaps entry 333 recorded, and are referenced from
+`API_REFERENCE.md`, `CLI.md` and the README with captions written from the API's side.
+
+Seven existing images were overwritten during development and **reverted**. The new
+captures were technically fine and worse as documentation: shot against a throwaway
+container with nothing deployed, `dashboard.png` became an empty state where the
+committed one shows a live five-node cluster, and `stacks-canvas.png` — the README's
+lead image — became a draft with a clipped cluster frame. A tool working is not the
+same as its output being an improvement, and the remaining images need a re-shoot with
+`--tier stack` on a machine with the capacity for it.
+
+**Verified.** Both modules still build, vet and test; `npm run build` and
+`npm run smoke` pass. The tooling's own checks: `node --check` on all four modules,
+and `assertSelectors()` over the manifest (no literal-comma text selectors, no
+duplicate names — the name is the output filename and therefore a doc reference, no
+incomplete entries). Against a throwaway container: the seeding step ran on its own
+(`--seed-only`) producing three drafts, two tokens of different scopes, notifications
+and a pinned theme; `--cleanup` removed exactly those and nothing else; the
+non-localhost guard refused a remote URL; all thirteen `ui`-tier shots captured; and
+two consecutive runs of eight shots produced byte-identical files. `git status` shows
+zero paths under `app/web/scripts`, and every `![…](…png)` reference in the README and
+`docs/*.md` resolves to a file that exists.
+
+## 335. `stack compose`: describe the stack you want instead of authoring its canvas — `app/compose.go`, `app/composebuild.go`, `app/compose_test.go`, `cli/cmd_compose.go` (all new), `app/api_routes.go`, `cli/{main,cmd_stack,cli_test}.go`, `docs/{API_REFERENCE,CLI}.md`, `SKILL.md`, `README.md`
+
+Entry 330 gave the CLI `stack create --template`, and entry 333 documented the escape
+hatch for everything else: export a design, edit the JSON, `PUT` it back. Asked how to
+build *three PXC 8.4.5 nodes on EL8, a Percona Server 8.0.45 on EL9 with LDAP, and a
+PMM 3 monitoring both*, the honest answer was the second one — and it is a bad answer.
+
+To write that design by hand you have to know:
+
+- that the package is **`8.4.5-5.1`** on Oracle Linux and **`8.4.5-5-1`** on Ubuntu,
+  and that its series key is `8.4` — neither of which is derivable from "8.4.5";
+- that a cluster is a **frame** plus member nodes whose `Type` equals the frame's and
+  which carry its `frameId`;
+- that monitoring is **`pmmNodeId` holding another node's generated id**, on the frame
+  for a cluster and on the node otherwise — not a line drawn on the canvas;
+- that LDAP is `ldapAuth` plus `ldapDirNodeId`, pointing at the Intranet;
+- that an **Intranet node is effectively mandatory**, because everything else assumes
+  the DNS, CA, LDAP and package proxy it provides;
+- and that nodes need x/y or the stack opens as a pile in the corner.
+
+That is a document of ~120 type-discriminated fields with cross-references by ids that
+do not exist until something generates them. It is the right shape for a canvas and
+the wrong one for a terminal.
+
+So **`POST /api/stacks/compose`**, and `dbcanvas stack compose`:
+
+```sh
+dbcanvas stack compose repro-1234 --ttl 8h \
+  --node 'pxc:3,version=8.4.5,os=el8,monitor' \
+  --node 'ps,version=8.0.45,os=el9,ldap,monitor' \
+  --node 'pmm,version=3' --deploy --wait
+```
+
+### Version resolution is the part that earns its keep
+
+`resolveCatalogVersion` takes what a person writes — a full package version, an
+upstream release, a series, or nothing — and answers against what *this installation
+can actually install*. A release resolves to the right build for the chosen OS family,
+a series to its newest, nothing to the newest series. The prefix match requires a
+separator boundary, so asking for `8.0.4` does not silently hand back `8.0.45`; there
+is a test for exactly that.
+
+The errors are most of the value. An unavailable version is answered with what *is*
+available in that series; an unknown OS with the alias list; a bad member count with
+the range; `"monitor"` with no PMM with the line to add. `el8` and friends are aliases
+because that is what every bug report and release note calls the platform — nobody
+writes `oraclelinux` with a separate `8` unless a form makes them.
+
+### What it refuses, by name
+
+`unsupportedKinds` lists the shapes compose deliberately does not model with the
+reason: a sharded PSMDB (per-member shard/config/mongos roles and shard indices), a
+Kubernetes frame (operator choice, node budget, expose tiers), an All-in-One node (a
+list of per-instance configurations), the Stock Market Sim, a core-dump host and
+MarketChaos. These are precisely the things a terse spec would get subtly and silently
+wrong. Refusing them by name with the reason is better than omitting them, which would
+have made the error "unknown kind" — a lie.
+
+Compose is not a second way to say everything the canvas can say. That would be a
+second design format to keep in step with the first.
+
+### The relationships, and the one that was missing
+
+The first version of this had `monitor` and `ldap` as two hand-written special cases.
+That was fine until somebody asked whether Keycloak was reachable from the CLI, and the
+honest answer turned out to be: you can deploy a **Keycloak node**, and you cannot wire
+anything to it — which is the only reason to have one. The same gap covered Kerberos,
+OpenBao keyrings, S3 backups and Orchestrator: five relationships the canvas has and a
+spec could not ask for.
+
+They are all one shape — a boolean that resolves to a field holding another node's
+generated id — so they are now one table, `composeLinks`, with a row per relationship
+naming which kinds provide it and a closure that writes the reference:
+
+| Option | Provided by | On |
+| --- | --- | --- |
+| `monitor` | `pmm` | every engine and cluster |
+| `ldap` | `intranet`, `sambaad` | `ps`, `pg`, `psm`, `valkey`, `valkey-cluster` |
+| `oidc` | `keycloak` | `ps`, `pg`, `psm`, `pmm` |
+| `kerberos` | `sambaad` | `pg`, `psm` |
+| `vault` | `openbao` | `ps`, `psm` |
+| `backup` | `seaweedfs` | `pg`, `patroni`, `repmgr`, `psmrs` |
+| `orchestrator` | `orchestrator` | `ps-repl`, `mariadb-repl`, `mysql-repl` |
+
+`backup` is the row that justifies the closure: the flag differs per engine —
+`usePgBackRest`, `useBarman`, `enablePBM` are three different tools — while the S3
+target is the same field on all of them. A kind lists the options it supports;
+`TestComposeLinkTableIsConsistent` fails if a kind claims one that does not exist, if a
+link names a provider that is not a buildable kind, or if a relationship is claimed by
+no kind at all — which is exactly the state `oidc` was in.
+
+### Prerequisites the validator knew and compose did not
+
+Composing that Keycloak stack and running the existing validator over it produced four
+errors, three of which were compose's fault:
+
+- **An OIDC issuer has to be reachable over HTTPS**, so a Keycloak node something signs
+  in through needs a certificate from the Intranet CA. Compose now turns it on and says
+  so in `added`: the validator refuses the alternative and the fix is mechanical, so
+  handing the caller an error to go and fix by hand would be pointless.
+- **OpenBao installs from EPEL and is Oracle Linux 9 only**, and had been mis-flagged
+  `ImageOnly` — which cleared its OS and made every OpenBao node fail validation. It
+  uses a systemd image like any other engine. Kinds with one supported OS now carry
+  `PinOS`, which also covers the Ubuntu 24.04 VNC desktop.
+- **Five kinds are singletons** the validator allows one of — Intranet, Keycloak,
+  OpenBao, VNC, Watchtower — and compose would happily emit two.
+
+The fourth is left alone: Keycloak also requires an Ubuntu VNC node, because its admin
+console is only reachable from inside the stack network. That is a whole desktop
+container, so it is not added silently for the same reason PMM is not — the validator's
+message is clear and the choice is the caller's.
+
+### The table, and what the table is for
+
+`composeKinds` is a row per kind, in the spirit of `api_routes.go`: node type, whether
+it is a cluster and its member bounds, which catalogue section lists its versions, a
+`SetVersion` closure that writes the resolved pair into whichever fields that engine
+uses, and which options it supports. The closure is a closure rather than a field name
+as a string so a renamed field is a compile error rather than a silently ignored
+design. `GET /api/stacks/compose/kinds` publishes the same table, so
+`dbcanvas stack kinds` describes the installation rather than a hand-written list.
+
+An option a kind does not have is **refused**, not ignored — `keycloak,monitor` is an
+error, and so is `pmm,os=el8`, because PMM runs a pulled image and has no OS to choose.
+A flag that silently does nothing is worse than one that is refused.
+
+### Two things it decides for you, and one it does not
+
+The **Intranet is added automatically** when the spec has none, and reported in
+`added` rather than hidden — the designer greys the whole node library out until one
+is on the canvas, so a spec without one is never what was meant.
+
+**PMM is not.** `"monitor": true` with no PMM node in the spec is an error naming the
+line to add, because a PMM server is a heavy container and starting one because a flag
+was set would be a surprise.
+
+And there is deliberately **no `deploy` flag on the endpoint**.
+`POST /api/stacks/{id}/deploy` already handles backend pinning, the one-deploy-at-a-time
+guard, network setup and cancellation; a convenience flag that duplicated any of that
+would be a second deploy path to keep correct. `dbcanvas stack compose --deploy` makes
+both calls.
+
+### Coordinates, without widening a shared struct
+
+`designNode` declares no x/y: the Go side never reads a node's position, only the
+browser does, and the store keeps a design as opaque JSON. Rather than add two fields
+to a 120-field struct for the benefit of one writer, compose tracks positions beside
+the document and folds them in at marshal time (`designJSON`). The layout constants
+come from the built-in templates, so a composed stack opens looking like a designed
+one — verified against a real server: frame at (560, 20) 412×138, members at 574/702/830.
+
+### Three bugs the tests and a real run found
+
+- **Member labels collided across two clusters of one kind.** Both `pxc-cluster-01`
+  and `pxc-cluster-02` trimmed to the stem `pxc`, so the second cluster's members were
+  named over the first — and a label is the node's *hostname on the stack network*, so
+  that is a DNS collision, not a cosmetic one. `memberPrefix` now uses the short stem
+  only when it is free.
+- **Shape was checked after versions**, so `psmrs:1` came back with "nothing
+  installable on oraclelinux 9" instead of "psmrs takes 3–7 members, not 1". A member
+  count needs no catalogue; it is checked first now.
+- **`dbcanvas stack validate` had never worked.** It decoded a `problems` field the
+  server does not send — the field is `issues` — so every design "validated cleanly"
+  however broken it was. A validator that cannot fail is worse than no validator.
+  Found by composing a stack against a server with no Docker socket, watching compose
+  report the error, and then watching `validate` report nothing. It now separates
+  errors (exit non-zero) from warnings and notes (printed, exit 0), counted per level
+  — reporting an `info` line as a warning is a small lie that makes the summary
+  useless.
+
+**Verified.** `go build`, `go vet`, `gofmt` and `go test` pass in both modules;
+`npm run build` and `npm run smoke` pass. The Go tests cover the asked-for scenario end
+to end — asserting the resolved package versions, the frame plus three members with
+their roles and `frameId`, the LDAP and PMM references by id, the auto-added Intranet,
+and that the whole thing marshals with coordinates — plus OS aliasing, version
+resolution across five input shapes, the prefix boundary, four classes of error
+message, eleven refusals, ambiguous monitoring, label and id uniqueness, replication
+roles, frame geometry containing its members, and a walk over every row of the kind
+table. The CLI tests cover the `--node` grammar and its seven refusals, that the flags
+become exactly the documented JSON, and the `issues`-not-`problems` regression.
+
+The relationship tests cover Keycloak SSO on both Percona Server and PMM, OpenBao
+keyrings, Kerberos against a Samba AD DC (including that the Intranet is *not* picked,
+since it cannot issue tickets), backups across all four engines and their three
+different tools, Orchestrator on a replication frame and its refusal on PXC, the pinned
+OSes, the singletons, and the certificate prerequisite firing only when something
+actually uses the issuer.
+
+Against a real server with the repository's own `versions.yaml`: the scenario composes,
+resolves `8.4.5` → `8.4.5-5.1` and `8.0.45` → `8.0.45-36.1`, validates with no errors,
+and produces a design whose geometry matches the built-in templates. A second stack —
+Keycloak, VNC, Percona Server 8.4.11 with OIDC and PMM, PMM with OIDC, OpenBao, and a
+PSMDB with vault and LDAP — composes, wires nine references, turns on the issuer
+certificate, and validates with "All checks passed".
+`TestAIOTLSWiringIsIdempotent` still fails on darwin for the reason in entry 322.
+
+## 336. An audit of every node type and property, and the four things compose could not express — `app/compose.go`, `app/composebuild.go`, `app/compose_test.go`, `app/web/src/pages/StackDesigner.jsx`, `cli/{cmd_compose,cmd_node,cmd_diag,cmd_tool,cli_test}.go`, `docs/{API_REFERENCE,CLI}.md`, `SKILL.md`
+
+`stack compose` (entry 335) covered the shapes people ask for most, and the question
+that followed was whether it covered the product. It did not. Walking every node type
+in the canvas palette against every field of `designNode` and `designFrame`, and then
+against the provisioner that actually reads each one, turned up four gaps and a
+handful of fields that are written by something and read by nothing.
+
+**Edges were missing entirely, and that is half of a design.** `designJSON` wrote a
+literal `"edges": []` for every composed stack. So a ProxySQL came up with no backend,
+an HAProxy could not pass validation at all — `haproxyClusterFrames` requires exactly
+one associated cluster — and each of the five application simulators came up with
+nothing to drive. No amount of field-setting substitutes: `backendFrameForProxySQL`,
+`trafficSimTarget` and the rest resolve their target by walking the association graph,
+never by reading a field.
+
+Associations are now a `to` option, and the legal targets live on the kind because
+they genuinely differ — an Airline Sim speaks MySQL, a Car Rental Sim speaks
+PostgreSQL, and the lists mirror the validator's own rules. Naming a target is
+optional: with one legal candidate compose uses it and reports it in the plan, with
+several it refuses and names them (driving a cluster directly and driving it through a
+proxy are different tests), and with none it refuses rather than composing a design
+that cannot deploy. The endpoint is the *frame* id for a cluster, so one line covers
+every member, which is what the walkers expect.
+
+The bug had a second half worth recording: after `associate` was written and its unit
+test passed, composing against a real server still produced a design with no edges.
+The test asserted on the in-memory document; `designJSON` was still returning the
+hardcoded empty list it had been given back when there was nothing to serialise. The
+test now goes through `designJSON`, which is the only version of that assertion that
+was ever worth anything.
+
+**Ten kinds were missing**, and each was reachable only by hand-editing a design:
+`innodb`, `mysql-innodb`, `spock`, `proxysql-cluster`, `psmdb`, and the five
+simulators. Four of those were on the "deliberately not supported" list, which was
+honest when the reasons held and stopped being honest once edges existed —
+MarketChaos was listed as unsupported because its dataset is a preset choice, which is
+one option, and a sharded PSMDB because of its per-member roles, which is a function.
+
+`psmdb` is the one frame whose members are not N of the same thing: its shape is fixed
+at one mongos, a config replica set and exactly three shards, so it takes `setup`
+(13 containers or 5) and refuses `count`, and `psmdbTopology` emits every member with
+the role and shard index `provisionMongoDBFrame` selects on. `innodb` is the one kind
+whose version is not a catalogue pair but a percona-release repo name, matched
+literally because the names are inconsistent by design — `pdps-84-lts` alongside
+`pdps-9.7.1`.
+
+**Resource shaping was unreachable**, and it is close to the point of the product. A
+slow disk and a lossy link between Galera members are the failures worth reproducing,
+and neither is a version string. `netLatencyMs`, `netJitterMs`, `netLossPct`,
+`netRateMbit`, `netAllTraffic`, `deviceReadMbps` and `deviceWriteMbps` are now spec
+options, along with the per-engine choices that select a different topology rather
+than a tuning detail — `replMode`, `mode`, `setup`, `mysqlRouter`, `buckets`, `tls`,
+`alertEmail`, `dataset` and `certTtl`.
+
+**An option that does nothing is now refused, everywhere.** Nine node types never call
+`applyVMSize`, so `cpus` and `memoryGb` on a Keycloak or a PMM node reached nothing;
+`netemPortsFor` knows ports for the database engines and the two proxies and nobody
+else, so shaping anywhere else was equally silent. Both are refused now, on the same
+principle the option table already followed. Two more of the same shape: composing a
+Keycloak node **adds the Ubuntu desktop it requires** — its admin console publishes no
+host ports, so `intranet.go` refuses the alternative outright, which is what
+distinguishes it from monitoring and is why the earlier decision not to add one was
+wrong — and `oidc` on a Percona Server below 8.4.11-11 is refused, because
+`auth_openid_connect` arrived there and below it `provisionMySQLOIDC` skips without
+failing, so the flag was accepted everywhere and did nothing at every layer.
+
+**`stack kinds` had quietly stopped telling the truth.** It is generated from the kind
+table, but the option list was hand-built beside it, so it went on advertising `cpus`
+and `memoryGb` for the nine types that ignore them and knew about none of the new
+options. It is now `composeKindsDoc`, held against the table by a test, because this
+endpoint is what the CLI, the docs and anything reading the API learn the spec language
+from — a lie here is a lie in every one of them.
+
+**Node commands took an id nobody has.** `Store.GetDeployment` keys on the design
+node's id, and the designer generates those from a timestamp, so the node whose
+hostname is `ps-01` in every panel and every compose plan was addressed as
+`ps-mt1kvaak-3` — and `node list` printed only the id, so the mapping appeared
+nowhere. `resolveNode` mirrors `resolveStack` exactly (exact id, then exact label, then
+case-insensitive, refusing rather than guessing on ambiguity, and naming the available
+nodes when it misses) and is applied at all fifteen call sites; `node list` grew a NAME
+column, which is where somebody looks after a failed guess.
+
+Three UI bugs fell out of the same walk. `NODE_TYPES` had no `valkeycluster` entry, and
+the lookup falls back to the Intranet's card, so every shard in a Valkey Cluster
+rendered with the Intranet's icon and colour. The HAProxy and ProxySQL palette
+descriptions had not kept up with the backends they support.
+
+The audit also found fields that are written and never read: `ValkeyMajor` on both
+structs (`valkey.go` reads only `ValkeyVersion`), `AIOValkeyMajor`, and `K3DNodes`
+(`k3d.go` derives the count from the canvas members). Compose was writing the first of
+those, which made it look like it mattered; it no longer does. `RootPassword` is read
+only by Valkey — every other engine takes its credentials from the environment — and
+`PSMDBSetup` is read only by the validator, which is why compose sets it *and* emits
+the matching members rather than relying on either alone. These are recorded rather
+than fixed: removing a field from a persisted design document is a migration, not a
+cleanup, and nothing is currently broken by them.
+
+**Verified.** `go build`, `go vet`, `gofmt` and `go test` pass in both modules;
+`npm run build` and `npm run smoke` pass. New tests cover the association graph (that
+the edges reach the frame, that they survive `designJSON`, and that
+`haproxyClusterFrames` and `marketChaosTarget` — the real walkers — find their targets
+through them), the sharded topology at both setups including hostname uniqueness, that
+shaping reaches `nodeNetemSpec`, the added desktop and that an explicit one is not
+doubled, the refused OIDC version, and the agreement between the kind table and the
+catalogue endpoint. Eight new refusals are asserted, including the two that are now
+errors rather than silence.
+
+Against a real server with the repository's own `versions.yaml` and Docker: a PXC
+cluster shaped at 40 ms latency, an HAProxy in front of it and a MarketChaos node
+behind that composes, persists both association lines, and validates clean — while the
+*same design with its edges stripped*, which is exactly what compose emitted before,
+produces the two association errors the audit predicted. `validate` also reports the
+shaping it will apply ("Node pxc-1 will run with 40ms latency on ports
+3306/4444/4567/4568"), which is the engine reading back what the spec asked for. A
+sharded PSMDB at `setup=minimum` with a Hotel Sim composes to five members plus its
+sim with no `to` given, and a Keycloak node composed alone gains its desktop and its
+certificate.
+
+The 13 UI-tier screenshots were re-taken. Eight — the API page, tokens, settings,
+the password form, What's new, Manage Users and notifications — are unchanged from
+entry 334 and are what that entry added. The other five (dashboard, the stack list and
+canvas, Labs, the New stack dialog) came back different, and the difference is the
+installation's own data rather than anything in the app: they were shot here against a
+throwaway database holding only the three stacks the tool seeds, where the committed
+ones were taken on an instance with real ones. Nothing in this entry changes those
+five pages, so they were reverted rather than replaced with a poorer picture of the
+same screen. That these shots move with the installation's contents — the stack cards,
+the notification count — is a limit of the tool worth knowing before reading a diff:
+it pins the viewport, theme, locale, timezone and every piece of text it normalises,
+but it does not own the database.
+`TestAIOTLSWiringIsIdempotent` still fails on darwin for the pre-existing GNU-`sed`
+reason recorded in entry 322.
+
+## 337. Renumber the releases from 0.0.1, and the last two screenshots — `VERSION`, `app/version.go`, `app/whatsnew.go`, `app/web/scripts/manifest.mjs` (not in the repo), `docs/screenshots/{ftdc-summary,core-dump-analyzer}.png` (new), `docs/API_REFERENCE.md`
+
+**Versions.** 0.2.0 read as a bigger number than this is. The releases are renumbered
+sequentially from 0.0.1 — the first wave (tooltips, templates, the stack designer) is
+0.0.1 and the second (the HTTP API, the CLI, the What's New dialog) is 0.0.2 — and
+each future update adds 0.0.1. Flattening all six notes onto a single 0.0.1 was the
+other candidate and is wrong: `TestNotesNewerThan` asserts that a reader on the oldest
+release still has something unread, which only holds if the notes span more than one
+release. That test was the thing that settled it, which is the point of writing it
+down as an invariant rather than an example.
+
+The numbering rules now live in `version.go` beside `compareVersions`: bump `VERSION`
+in the same change that writes the note for it, and never renumber a release somebody
+has already acknowledged. The second rule has a live consequence here — read state is
+stored per account as the version string it acknowledged, so an account that
+acknowledged 0.2.0 has a `seen` ahead of every number the new scheme will produce for
+a long time. `hasUnseenIn` already treats that as a rollback and shows nothing, so
+nothing breaks, but those accounts stay quiet until the count passes them. Clearing
+`WhatsNewSeen` for them is a one-line update and the only way to make them see notes
+again.
+
+**The last two screenshots.** `ftdc-summary` and `core-dump-analyzer` were the only
+two entries in the manifest with no file, the only two pages in the sidebar with no
+picture, and the only two sections in `API_REFERENCE.md` carrying a full API/CLI table
+and no image. Both are `manual` tier because the state they need cannot be
+manufactured: a MongoDB node with real `diagnostic.data` history, and a core-dump host
+with a genuine `mysqld` core and its matching binary. Both now exist on a working
+installation, so both were taken.
+
+Neither worked on the first attempt, and the three failures are worth recording
+because each is a property of this tool rather than of these two shots:
+
+  - **No `prepare` step meant photographing the picker.** Both entries navigated and
+    stopped, so FTDC came back as an empty "Pick a MongoDB node…" and the analyzer as
+    "no core open" with three empty panels — pages that say nothing about features
+    whose whole promise is a decoded capture and a diagnosis. Both now select the
+    target and wait for the result.
+  - **`waitFor` gates arrival, not the prepared state.** It runs inside `settle()`
+    before `prepare`, with a 20-second cap, so pointing it at the post-click state
+    fails every time and cannot succeed by waiting longer. The waiting a `prepare`
+    needs belongs inside the `prepare`.
+  - **Threads and stack frames are both labelled `#N`.** An unscoped wait for a `#N`
+    button matched a thread row and returned while gdb was still mapping the core, so
+    the shot came back mid-analysis with the banner still up and the stack still
+    empty. The wait is now scoped to the Stack panel, whose only `#N` buttons are
+    frames, and also waits for the "Reading the core file." banner to clear.
+
+One more thing that only shows up on a real page: clicking "the first button in the
+Stack panel" selects that panel's own maximize control, and the shot came back as a
+single blown-up empty panel. It turns out no click is needed at all — the page selects
+the culprit frame itself once the frames land — so `prepare` waits rather than clicks.
+
+**Verified.** `go build`, `go vet`, `gofmt` and `go test` pass in both modules. The
+What's New tests pass against the renumbered notes, including the ordering and
+newest/oldest invariants. Both screenshots were taken against a real installation and
+show real state: 41 threads with the SIGABRT thread selected and all 27 of its stack
+frames read out of an 819 MB core with resolved symbols, and a 13.3-minute
+`diagnostic.data` capture — 801 samples, 3.4k metrics — with 11 of 28 charts flagged.
+Every one of the 40 manifest shots now has a file, every file is referenced by a doc,
+and no doc references one that does not exist. The seed stacks and tokens the tool
+created on the installation were removed with `--cleanup` and the session's own token
+revoked, leaving it exactly as found.
+
+## 338. `SKILL.md` moves to where a skill is actually found — `.claude/skills/dbcanvas/SKILL.md` (was `SKILL.md`), `README.md`
+
+The file was written as an Agent Skill — it carries `name: dbcanvas` and a
+`description` listing its trigger phrases — and then sat at the repository root,
+which is the one place a skill is never looked for. Skills are discovered at
+`.claude/skills/<name>/SKILL.md` (this checkout), `~/.claude/skills/<name>/SKILL.md`
+(everywhere) or `<plugin>/skills/<name>/SKILL.md`. At the root the frontmatter was
+inert, and worse than inert: it advertised the file as loadable when nothing would
+ever load it.
+
+Root was not an unreasonable guess — `SCAFFOLD.md` is also a top-level AI-facing
+document, so there is a visible precedent for the placement. The difference is that
+SCAFFOLD.md is prose an agent is *pointed at*, while this one is meant to be *found*,
+and being found has a fixed address.
+
+`docs/` was the other candidate and is worse on both counts: still undiscoverable, and
+it would break the file's five relative links, which are written from the root.
+
+The links are now absolute GitHub URLs rather than repo-relative paths. That is the
+detail the move turns on: the audience is somebody *operating* an installation, not
+somebody working on this repo, so the skill's real home is the reader's own
+`~/.claude/skills/` — where `docs/API.md` resolves to nothing. Absolute URLs work from
+both places; relative ones only ever worked from one.
+
+README now points at the new path and gives the two-line copy for installing it
+outside the checkout.
+
+**And the content, checked rather than assumed.** The compose and node-naming sections
+were already brought up to date with entry 336, and the exit-code table still matches
+`exitCodeFor` exactly (0/1/2/3/4), so most of it needed nothing. One real gap had
+opened up, and entry 336 is what opened it: every curated command now resolves a node
+by name, and `dbcanvas api` — the fallback this file tells an agent to reach for —
+still needs the id. A name in a raw path does not fail cleanly, and the message
+depends on the endpoint (`node is not deployed` on one, `this capture is not available
+for this node type` on another); none of them say "no such node", so it reads as a
+problem with the node rather than with the name. That trap is now written down with
+the one-line `jq` that gets the id, in both the rules section and the escape-hatch
+section.
+
+Two things that only surfaced by running what was written. The first draft of that
+`jq` used `.design | fromjson`, which is wrong — `design` comes back as an object, not
+a string, so it errored on the only command an agent would have copied verbatim. And
+the first draft asserted a single `409 node is not deployed`, which is one endpoint's
+message rather than the rule. A file whose entire purpose is telling an agent what to
+run has no business containing a command nobody ran.
+
+**Verified.** The skill sits at `.claude/skills/dbcanvas/SKILL.md` with its frontmatter
+intact; `.claude/` is not gitignored, so it ships with the repo. No file outside
+IMPLEMENTATION.md's own history still refers to the old path, and every internal link
+in README.md resolves to a file that exists. Every `dbcanvas <group> <sub>` the skill
+teaches was checked against the built CLI and all 30 exist; the corrected `jq` and both
+error messages were run against a live server.
+
+## 339. The SSO stack as a worked, verified example — `docs/CLI.md`, `docs/API_REFERENCE.md`, `.claude/skills/dbcanvas/SKILL.md`
+
+Entry 336 made "Intranet, Percona Server 8.4.11 with Keycloak SSO, PMM 3 watching it"
+composable in one command. Nothing documented it end to end, and the two existing
+Keycloak examples had gone stale in the same change that made them work: both still
+passed `--node vnc` explicitly, which compose now adds for you. An example that
+carries a step the tool has taken over is worse than no example — it teaches a
+ritual.
+
+`docs/CLI.md` gains the whole flow with its real output, transcribed from an actual
+run rather than composed by hand: four `--node` flags becoming five containers, the
+three `+` lines for the Intranet, the desktop and the certificate, and the deploy
+progression to "sso-lab is up: 5 node(s) running." The deploy output was undocumented
+anywhere until now. Both stale `--node vnc` arguments are gone, and the relationships
+example's output shows the desktop being added instead.
+
+**The verification steps were wrong, and running them is what caught it.** The first
+draft said to log in with `oidc-login jane` and `SELECT * FROM oidc_demo.invoices`.
+Against the live stack that fails: `ERROR 1142 SELECT command denied to user
+'jane'@'localhost'`. The login itself had worked — a privilege error, not an
+authentication one — but a role mapped from a Keycloak group is granted for the life
+of the connection and left *inactive*, so `CURRENT_ROLE()` is `NONE` until `SET ROLE`.
+That behaviour is deliberate and already recorded at the top of `mysqloidc.go`:
+flipping `activate_all_roles_on_login` instead would change role handling for every
+other account on the node. `SET ROLE accounting;` is now the first line of the block,
+with the reason, because the failure looks exactly like broken SSO when it is not.
+
+The same example, compressed, is in the skill — an agent asked for an SSO lab needs
+the prerequisite behaviour and the `SET ROLE` trap far more than it needs the flag
+syntax.
+
+**Verified.** Against the deployed stack: `auth_openid_connect` reports `ACTIVE`,
+`jane` and `john` are bound to it in `mysql.user`, `oidc_demo.invoices` holds its three
+rows, and `/usr/local/bin/oidc-login` is present. The documented sequence was then run
+in full — `oidc-login jane` followed by `SET ROLE accounting` — returning
+``jane@%  `accounting`@`%` `` and a count of 3. Every command in the new section has
+been executed as written.
+
+## 340. `node exec` was running a different command than the one it was given — `cli/cmd_node.go`, `cli/cli_test.go`
+
+`nodeExec` built the remote command line with `strings.Join(cmdArgs, " ")`. exec has
+no endpoint of its own — the line is *typed into a login shell* over the console
+WebSocket — so joining with plain spaces threw every argument boundary away and let
+the remote shell invent its own.
+
+Two failures, both found by running the tool rather than reading it:
+
+```
+sent:  printf '[%s]\n' 'one two' three
+node:  printf [%s]\n one two three        →  [one]n[two]n[three]n
+```
+
+```
+sent:  echo 'harmless; id -un'
+node:  echo harmless; id -un              →  harmless
+                                             root
+```
+
+The first is mangling. The second is a command that silently becomes a *different*
+command: a metacharacter inside what the caller meant as one literal argument runs as
+a second command on the node. That is not privilege escalation — `node exec` hands you
+root on that node by design — but anything that passes file- or user-derived text
+through it executes that text.
+
+It also made both of our own documented examples wrong (`docs/CLI.md` and the skill
+both use `mysql -e 'SHOW …'`), and it explains a 120-second hang earlier in the same
+session: `bash -lc '…'` lost its quotes, so `bash -lc mysql` ran `mysql` with no query
+and it waited on stdin.
+
+`shellJoin`/`shellQuote` now wrap each argument in single quotes, escaping an embedded
+single quote as `'\''` — the one sequence single quotes cannot hold. Arguments made
+only of `A-Za-z0-9@%+=:,./-_` are passed through unquoted, because the console echoes
+the line back and a readable `mysql -uroot -e '…'` is worth more than uniformity. The
+allow-list is deliberately small: anything unrecognised gets quoted, which is the safe
+direction to be wrong in.
+
+The test asserts the *property* rather than an escaping style: build the line, hand it
+to a real `/bin/sh` behind a `printf '<%s>\n'` prologue, and require the argv the shell
+produces to equal the argv that went in — across spaces, `;`, `|`, `&&`, `>`, `$HOME`,
+backticks, `$(…)`, a literal `'`, globs, an empty argument, UTF-8 and a trailing
+backslash. A style assertion would have passed for any implementation that merely
+looked plausible; this one fails for the old code, which was checked before trusting
+it (the old join yields five arguments where four were sent).
+
+The documented examples needed no rewriting — they were always right about what should
+happen, and now it does.
+
+**Verified.** `gofmt`, `go vet` and `go test` pass for the CLI module. Against the
+deployed `sso-lab` node, the two commands that established the bug now behave:
+`'one two'` arrives as `[one two]`, and `'harmless; id -un'` comes back as literal
+text with `id` never executing. The documented shape runs too —
+`mysql -N -e 'SHOW STATUS LIKE "Uptime"'` reaches the node as one quoted argument and
+returns its row.

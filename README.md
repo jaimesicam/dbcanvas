@@ -112,12 +112,27 @@ yourself.
 | [**Core Dump Analyzer**](docs/CORE_DUMP_ANALYZER.md) | Read a `mysqld` core dump from another server — threads, stack, arguments. |
 | [**All in One**](docs/ALL_IN_ONE.md) | Many database instances in one node, for when you need versions side by side. |
 | [**Labs**](docs/LABS.md) | Hands-on scenarios on a disposable stack, graded against the real cluster. |
+| [**HTTP API**](docs/API.md) | Every one of the 219 endpoints, with tokens you create and expire yourself. |
+| [**`dbcanvas-cli`**](docs/CLI.md) | Sign in once, then compose, deploy and drive stacks from your terminal. |
 
 ## Documentation
 
 - **[Getting started](docs/GETTING_STARTED.md)** — install to running cluster, end to end
 - [Feature guides](docs/README.md) — the tools above, one page each
 - [Stacks](docs/STACKS.md) — every node and cluster type, and everything the canvas does
+- [HTTP API](docs/API.md) — tokens, scopes, the endpoint catalogue, OpenAPI
+- [API & CLI reference](docs/API_REFERENCE.md) — every feature, its endpoints, and the
+  equivalent CLI command
+- [`dbcanvas-cli`](docs/CLI.md) — install, sign in, every command
+- [`.claude/skills/dbcanvas/`](.claude/skills/dbcanvas/SKILL.md) — an Agent Skill for
+  driving DBCanvas: the safe path through the API and the CLI. It loads by itself for
+  anyone working in this checkout; to use it from anywhere else, copy it into your own
+  skills directory:
+
+  ```sh
+  mkdir -p ~/.claude/skills/dbcanvas
+  cp .claude/skills/dbcanvas/SKILL.md ~/.claude/skills/dbcanvas/
+  ```
 - [Configuration & commands](docs/CONFIGURATION.md) — `.env`, every `make` target,
   troubleshooting, recovering an admin password
 - [Architecture](docs/ARCHITECTURE.md) — how it is wired, and why
@@ -135,8 +150,54 @@ yourself.
 
 ## What's new
 
+<details open>
+<summary><b>An HTTP API for everything, with tokens that expire</b> — and an <code>/api/meta/openapi.json</code></summary>
+
+Every one of the 219 things DBCanvas can do now has a documented HTTP endpoint, and the new
+**API** page lists all of them — grouped by feature, searchable, each row carrying its path
+parameters, the access it needs, a copyable `curl` line and the equivalent CLI command. The
+catalogue is not written by hand: it is generated from the same table that installs the
+handlers, and a test fails the build if a new route arrives without a summary, so the reference
+cannot drift out of date the way a hand-maintained one would.
+
+Authenticate with an **API token** you create yourself under **API → Tokens**: give it a name
+you will recognise later, pick `read` (every GET, plus the handful of POSTs that change nothing)
+or `write`, pick how long it should last, and revoke it the instant you stop wanting it. The
+secret is shown once. Creating one deliberately requires your password, so a leaked token cannot
+mint a longer-lived replacement for itself; and disabling an account revokes its tokens at the
+same moment it closes its browser sessions. [HTTP API →](docs/API.md)
+</details>
+
 <details>
-<summary><b>Every control now explains itself</b> — 345 pieces of written help behind a “?”</summary>
+<summary><b><code>dbcanvas-cli</code> — drive a stack from your terminal</b></summary>
+
+`dbcanvas login` asks for your password once, exchanges it for a scoped, expiring token, and
+stores **only the token**, at `0600`. After that: list, create, deploy and destroy stacks, start
+and stop nodes, open a root console over the same WebSocket the browser uses, copy files in and
+out, and run the Data Generator, Query Runner and Benchmark — all with `--json` when you are
+scripting and human tables when you are not, and `--wait` where waiting is the point.
+
+Anything the curated commands do not cover, `dbcanvas api POST /api/stacks/12/deploy` does, so
+the whole surface is reachable on day one; `dbcanvas endpoints` prints the catalogue to find it.
+`make cli` cross-compiles for Linux, macOS and Windows, and the running app serves the binaries
+from the API page for anyone without a checkout. [CLI →](docs/CLI.md)
+</details>
+
+<details>
+<summary><b>This dialog</b> — release notes, once, when DBCanvas is updated</summary>
+
+![The What's new dialog](docs/screenshots/whats-new.png)
+
+Update DBCanvas and whoever signs in next gets the notes for the new build in a dialog, once.
+Close it and it does not come back until the next release. The **What's new** link beside the
+dashboard heading reopens it whenever you want to read it again. The read state lives on your
+account rather than in the browser, so it follows you between machines instead of re-appearing
+in every new browser — and a brand-new account never sees it at all, because nothing is new
+about an installation you have only just met.
+</details>
+
+<details>
+<summary><b>Every control explains itself</b> — 345 pieces of written help behind a “?”</summary>
 
 Hover — or tab to — the small **?** beside any field, value or button and DBCanvas says what
 it is *for*, what happens if you leave it alone, and when you would change it: across every
