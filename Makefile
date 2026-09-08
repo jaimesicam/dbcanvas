@@ -11,15 +11,36 @@ VERSION ?= $(shell cat VERSION 2>/dev/null || echo dev)
 # app/clidownload.go, which is what the API page offers for download.
 CLI_PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
-.PHONY: install compose env build up down logs restart clean images extra-images versions smoke cli cli-test trafficsim-image hotelsim-image airlinesim-image carsim-image marketchaos-image stocksim-image intranet-image vnc-image
+.PHONY: install install-extras compose env build up down logs restart clean images extra-images versions smoke cli cli-test trafficsim-image hotelsim-image airlinesim-image carsim-image marketchaos-image stocksim-image intranet-image vnc-image
 
-## install: everything a first run needs — build the base images (the OS bases and
-## the Intranet), discover the versions they can install, then build and start
-## DBCanvas itself. Safe to re-run; `make compose` alone is enough once the images
-## exist. It deliberately does NOT run extra-images: a first run should get you a
-## working DBCanvas, and the tool and demo images are asked for when a stack actually
-## wants one — or built from the web interface, which is the point of the split.
-install: images versions compose
+## install: everything a first run needs — every image DBCanvas can build (the OS
+## bases and the Intranet, then the optional ones on top: the VNC desktop, the K3D
+## collector, the two third-party tool images and the six demo apps), the version
+## catalog those bases yield, then DBCanvas itself. Safe to re-run; `make compose`
+## alone is enough once the images exist.
+##
+## The optional half runs through install-extras rather than extra-images so that a
+## failure in somebody else's npm registry, GitHub or Percona repo cannot stop a
+## first run from ending with DBCanvas up: what failed is reported here, said again
+## at Validate by the node that needs it, and can be retried from the web interface
+## or the per-image target. `make extra-images` on its own still fails loudly.
+install: images versions install-extras compose
+
+## install-extras: the optional images, built the way `make install` wants them —
+## every one of them, and a failure reported rather than fatal. Not the target to
+## use by hand; that is `make extra-images`.
+install-extras:
+	@bash images/service.sh all || { \
+	  echo ""; \
+	  echo "  Some images above did not build — DBCanvas will still start, and only the"; \
+	  echo "  node types that need them are affected."; \
+	  echo "  Retry with 'make extra-images', or from the Build button DBCanvas shows at Validate."; \
+	}
+	@bash images/apps.sh || { \
+	  echo ""; \
+	  echo "  Some demo application images did not build — the rest of DBCanvas is unaffected."; \
+	  echo "  Retry with 'make extra-images' or the per-app target (e.g. 'make trafficsim-image')."; \
+	}
 
 ## compose: create .env if needed, then build and start the stack
 compose: env
@@ -117,11 +138,13 @@ images:
 ## extra-images: everything OPTIONAL built on top of the bases — the pre-baked Ubuntu
 ## VNC image, the third-party tool images (MClusterAdmin, Big Hole), the K3D
 ## diagnostics collector, and the six demo applications (Traffic/Hotel/Airline/Car
-## Rental/MarketChaos/Stock Market Sim). Split out of `make images` because these
-## reach into npm, GitHub and Percona's repos, so they fail for reasons that have
-## nothing to do with your machine — and because most stacks need none of them. A node
-## whose image is missing says so at Validate, and an admin can build the ones with no
-## local build context from the web interface rather than coming back here.
+## Rental/MarketChaos/Stock Market Sim). `make install` builds these too (through
+## install-extras, which tolerates a failure); this is the target for rebuilding them
+## on their own, and it fails if any of them fails. Kept separate from `make images`
+## because these reach into npm, GitHub and Percona's repos, so they fail for reasons
+## that have nothing to do with your machine. A node whose image is missing says so at
+## Validate, and an admin can build the ones with no local build context from the web
+## interface rather than coming back here.
 ##
 ## It runs service.sh over the whole set, Intranet included, so this one command still
 ## guarantees every image above the bases exists; a good Intranet image is already

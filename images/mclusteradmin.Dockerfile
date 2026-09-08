@@ -23,6 +23,18 @@
 
 ARG MCA_VERSION=v0.3.7
 
+# BUILDPLATFORM and TARGETARCH are BuildKit's own build arguments, and the legacy
+# builder — a Docker install with no buildx plugin, or DOCKER_BUILDKIT=0 — sets
+# neither: the FROM below resolves to an empty platform and the build dies before its
+# first step ("failed to parse platform : "" is an invalid OS component"), and
+# GOARCH would be empty. images/service.sh passes both by hand whenever the build is
+# not a BuildKit one — the target platform there, since a legacy build cannot split
+# build from target.
+#
+# Declared with NO default on purpose: a default here would win over the value
+# BuildKit supplies, and the build stage would be pulled for the wrong architecture.
+ARG BUILDPLATFORM
+
 FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 ARG MCA_VERSION
 ARG TARGETARCH

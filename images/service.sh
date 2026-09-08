@@ -76,6 +76,69 @@ esac
 PLATFORM="$(resolve_platform "$ROOT")" || exit 1
 ARCH="${PLATFORM#linux/}"
 
+# ---- BuildKit or not -------------------------------------------------------------
+#
+# mclusteradmin.Dockerfile and bighole.Dockerfile build their sources on the BUILD
+# host's architecture and emit output for the target one — `FROM
+# --platform=$BUILDPLATFORM` plus $TARGETARCH — so an arm64 installation does not run
+# `npm ci` or the Go compiler under emulation. Those two variables are BuildKit's,
+# and a Docker install with no buildx plugin (or DOCKER_BUILDKIT=0) has only the
+# legacy builder, which sets neither and dies on the very first instruction:
+#
+#   failed to parse platform : "" is an invalid OS component of ""
+#
+# So work out which builder `docker build` will use and, when it is the legacy one,
+# pass both by hand. The Dockerfiles declare the two ARGs without defaults, which is
+# what makes this work either way: a default would override the value BuildKit sets
+# and cross-build the wrong way round.
+#
+# The value passed is the TARGET platform, not the host's — a legacy build cannot do
+# the split. Give it a build stage of one architecture and a target of another and it
+# gets as far as the runtime stage before refusing to copy between them:
+#
+#   invalid from flag value build: image with reference sha256:… was found but does
+#   not provide the specified platform (linux/amd64)
+#
+# So on this builder both stages are the target platform: native and free when that
+# is the host's architecture (the usual case), emulated and slow when it is not.
+# Installing buildx is what buys back the fast cross-build.
+
+# buildkit_build — true when `docker build` here will be a BuildKit build.
+# DOCKER_BUILDKIT settles it when set; otherwise it comes down to whether the CLI has
+# the buildx plugin it shells out to.
+buildkit_build() {
+  case "${DOCKER_BUILDKIT:-}" in
+    0|false) return 1 ;;
+    1|true)  return 0 ;;
+  esac
+  docker buildx version >/dev/null 2>&1
+}
+
+# native_platform — the daemon's own os/arch. Only used to say whether a legacy build
+# is about to be emulated; empty if Docker will not say.
+native_platform() {
+  local os arch
+  os="$(docker version --format '{{.Server.Os}}' 2>/dev/null)"
+  arch="$(docker version --format '{{.Server.Arch}}' 2>/dev/null)"
+  [ -n "$os" ] && [ -n "$arch" ] && printf '%s/%s\n' "$os" "$arch"
+}
+
+# Extra "KEY=VALUE" build args for the two cross-compiling Dockerfiles. Empty under
+# BuildKit — passing them there would override what it works out for itself, and the
+# legacy builder is the only one that needs telling.
+declare -a XPLATFORM_ARGS=()
+if ! buildkit_build; then
+  XPLATFORM_ARGS=("BUILDPLATFORM=${PLATFORM}" "TARGETARCH=${ARCH}")
+  echo "==> legacy Docker builder (no buildx): passing BUILDPLATFORM=${PLATFORM} and"
+  echo "    TARGETARCH=${ARCH} by hand, which BuildKit would have supplied."
+  NATIVE="$(native_platform)"
+  if [ -n "$NATIVE" ] && [ "$NATIVE" != "$PLATFORM" ]; then
+    echo "    NOTE: this host is ${NATIVE}, so the ${PLATFORM} build stages run under"
+    echo "          emulation and will be slow. Installing the buildx plugin lets them"
+    echo "          build natively instead: https://docs.docker.com/go/buildx/"
+  fi
+fi
+
 declare -a BUILT=() SKIPPED=() FAILED=()
 
 # build_service <name> <dockerfile> <base_os> <base_version> <tag>
@@ -141,11 +204,13 @@ fi
 # Built for the installation's own platform, unlike the collector: the panel is
 # ordinary Go with no architecture-bound packages, and it runs beside the stack.
 if [ "$WANT" = "mclusteradmin" ] || [ "$WANT" = "all" ]; then
-  build_standalone mclusteradmin.Dockerfile "$MCA_TAG" "$PLATFORM" "MCA_VERSION=${MCA_VERSION}"
+  build_standalone mclusteradmin.Dockerfile "$MCA_TAG" "$PLATFORM" "MCA_VERSION=${MCA_VERSION}" \
+    ${XPLATFORM_ARGS[@]+"${XPLATFORM_ARGS[@]}"}
 fi
 
 if [ "$WANT" = "bighole" ] || [ "$WANT" = "all" ]; then
-  build_standalone bighole.Dockerfile "$BIGHOLE_TAG" "$PLATFORM" "BIGHOLE_REF=${BIGHOLE_REF}"
+  build_standalone bighole.Dockerfile "$BIGHOLE_TAG" "$PLATFORM" "BIGHOLE_REF=${BIGHOLE_REF}" \
+    ${XPLATFORM_ARGS[@]+"${XPLATFORM_ARGS[@]}"}
 fi
 
 echo ""

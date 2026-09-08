@@ -38,15 +38,21 @@ import (
 // this process can produce without the repository being anywhere near it.
 //
 // WHY IT IS NOT the Docker API's /build endpoint: that is the classic builder, and
-// these Dockerfiles use BuildKit — `FROM --platform=$BUILDPLATFORM` and $TARGETARCH,
-// which is how a cross-compiled image gets built at native speed instead of under
-// emulation. The classic builder does not set those, and fails outright:
+// two of these Dockerfiles use BuildKit — `FROM --platform=$BUILDPLATFORM` and
+// $TARGETARCH, which is how a cross-compiled image gets built at native speed
+// instead of under emulation. The classic builder does not set those, and fails
+// outright:
 //
 //	failed to parse platform : "" is an invalid OS component
 //
 // So the build runs in a throwaway `docker:cli` container with the daemon's socket
 // mounted — the same shape as the K3D diagnostics collector (k8sdiag.go), and the
 // docker CLI there brings buildx, so the daemon does a real BuildKit build.
+//
+// (images/service.sh closes the same gap the other way for a command-line build on a
+// Docker with no buildx: it passes both variables by hand and builds the whole image
+// for one platform. Here there is no need — the helper container always has buildx,
+// so this path always gets the cross-build.)
 
 const (
 	// buildhelperImage is the throwaway container the build runs in. Pinned to the

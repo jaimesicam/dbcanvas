@@ -17,6 +17,17 @@
 
 ARG BIGHOLE_REF=896984fe9e9a7f1f59cc4ce29237625f8aaa713f
 
+# BUILDPLATFORM is one of BuildKit's own build arguments, and the legacy builder — a
+# Docker install with no buildx plugin, or DOCKER_BUILDKIT=0 — does not set it. The
+# FROM below then resolves to an empty platform and the build dies before its first
+# step ("failed to parse platform : "" is an invalid OS component"), so
+# images/service.sh passes it by hand whenever the build is not a BuildKit one
+# — the target platform there, since a legacy build cannot split build from target.
+#
+# Declared with NO default on purpose: a default here would win over the value
+# BuildKit supplies, and the build stage would be pulled for the wrong architecture.
+ARG BUILDPLATFORM
+
 FROM --platform=$BUILDPLATFORM node:20-alpine AS build
 ARG BIGHOLE_REF
 RUN apk add --no-cache git

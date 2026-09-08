@@ -34,20 +34,24 @@ git clone https://github.com/jaimesicam/dbcanvas.git && cd dbcanvas
 make install
 ```
 
-`make install` does three things: builds the base node images, records what each of them
-can install (the version pickers read this), and starts DBCanvas at
+`make install` does three things: builds the node images — the operating-system bases and
+everything layered on them, from the Intranet to the demo applications — records what each of
+them can install (the version pickers read this), and starts DBCanvas at
 **http://localhost:8080**.
 
 **The first run takes a while** — it is building operating-system images with systemd in
-them. Later runs are just `make compose`, which is quick.
+them, then the images on top. Later runs are just `make compose`, which is quick. An image
+that fails to build does not stop the install: it is reported, DBCanvas starts anyway, and
+the node types that need it say so when you validate a stack.
 
 | Command | What it does |
 | --- | --- |
-| `make install` | Full first-time setup: images, version catalog, start. |
+| `make install` | Full first-time setup: every image, version catalog, start. |
 | `make compose` | Rebuild the app and start it. The everyday command. |
 | `make up` / `make down` | Start / stop without rebuilding. |
 | `make logs` | Follow the application log. |
 | `make versions` | Re-probe the repositories for new database versions. |
+| `make extra-images` | Rebuild the optional images (VNC, tool and demo images) on their own. |
 
 Every setting has a working default. **Before exposing DBCanvas beyond your own machine,
 change the passwords in `.env`** — see [Configuration](CONFIGURATION.md).

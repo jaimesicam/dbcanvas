@@ -15,10 +15,10 @@ often enough to be worth writing down. For what the product *does*, see the
 
 | Command | What it does |
 | --- | --- |
-| `make install` | The first run: `images`, then `versions`, then `compose`. Safe to re-run. Deliberately not `extra-images` — see below. |
+| `make install` | The first run: `images`, then `versions`, then the optional images, then `compose`. Safe to re-run. The optional half is built tolerantly — anything that fails is reported and skipped, and DBCanvas still starts. |
 | `make compose` | Create `.env` if missing, build the app image and start it. Enough on its own once the node images exist. |
 | `make images` | Build what every stack needs: the operating-system bases (the systemd images, one per OS × the one platform this installation targets) and the pre-baked **Intranet** on top of the Oracle Linux 9 base — the DNS and CA the rest of a stack is built against, so it is not an optional image. Slow — this is the long part of `make install`. If only the Intranet fails (it is the one build here that reaches Percona's repos), the bases still stand, DBCanvas still starts, and you can retry with `make intranet-image` or from the Build button a Validate offers. |
-| `make extra-images` | Build everything *optional* that sits on top of the bases: the pre-baked Ubuntu VNC image, the K3D diagnostics collector, the two third-party tool images (MClusterAdmin, Big Hole), and the six demo applications. (It re-checks the Intranet too — a cached no-op once it exists.) Separate from `make images` because these fetch from npm, GitHub and Percona's repos — so they fail for reasons that are not about your machine — and because most stacks need none of them. **An admin can build any but the demo apps from the web interface instead**, at the point a Validate says one is missing. |
+| `make extra-images` | Build everything *optional* that sits on top of the bases: the pre-baked Ubuntu VNC image, the K3D diagnostics collector, the two third-party tool images (MClusterAdmin, Big Hole), and the six demo applications. (It re-checks the Intranet too — a cached no-op once it exists.) `make install` builds these as well; this is the target for rebuilding them on their own, and unlike the install it fails if any of them fails. Kept separate from `make images` because these fetch from npm, GitHub and Percona's repos, so they fail for reasons that are not about your machine. **An admin can build any but the demo apps from the web interface instead**, at the point a Validate says one is missing. |
 | `make versions` | Run the built images and record what each can actually install into `versions.yaml`. This is what fills the designer's version pickers. |
 | `make up` / `make down` | Start / stop the app without rebuilding. |
 | `make restart` | `down`, then `compose`. |
@@ -35,6 +35,14 @@ built from upstream source at a pinned commit), and one per demo app (`make traf
 `make hotelsim-image`, `make airlinesim-image`, `make carsim-image`,
 `make marketchaos-image`, `make stocksim-image`). `make extra-images` builds all of them, so
 these are for iterating on one without waiting for the others.
+
+> **BuildKit is used when it is there, and not needed when it is not.** MClusterAdmin and Big
+> Hole build their sources on the host's architecture and emit output for the target one, which
+> is a BuildKit feature (`FROM --platform=$BUILDPLATFORM`, `$TARGETARCH`). A Docker install with
+> no `buildx` plugin — or `DOCKER_BUILDKIT=0` — has only the legacy builder, which sets neither
+> variable and would fail before its first step (`failed to parse platform : "" is an invalid OS
+> component`). `images/service.sh` detects that and passes both by hand, targeting one platform
+> for the whole build; installing `buildx` is what buys back the native cross-build.
 
 The four with no build context of their own — Intranet, VNC, the K3D collector, MClusterAdmin
 and Big Hole — can also be built **from DBCanvas itself**: when Validate reports one missing, an
@@ -58,8 +66,8 @@ an entry to `whatsNewNotes` in `app/whatsnew.go` and the matching prose to the R
 *What's new* section (a test fails if those two disagree), and rebuild.
 
 > **`make images` rewrites `versions.yaml`.** It discards the enrichment `make versions`
-> adds, which is why `make install` runs them in that order. If you run `make images` on its
-> own, run `make versions` after it.
+> adds, which is why `make install` runs them in that order (and runs the optional images
+> after both). If you run `make images` on its own, run `make versions` after it.
 
 ## `.env`
 

@@ -26,9 +26,12 @@ git clone https://github.com/jaimesicam/dbcanvas.git && cd dbcanvas
 make install
 ```
 
-That builds the node images, records what each of them can install, and starts DBCanvas at
-**http://localhost:8080**. The first run takes a while — it is building operating-system
-images — and later runs are just `make compose`.
+That builds every image DBCanvas can build, records what each of them can install, and starts
+DBCanvas at **http://localhost:8080**. The first run takes a while — it is building
+operating-system images, and then the tool and demo images on top of them — and later runs are
+just `make compose`. An image that fails to build (they fetch from npm, GitHub and Percona's
+repositories) is reported and skipped: DBCanvas still starts, and only the node types that
+need it are affected.
 
 Open the URL and create an account: **the first one becomes the administrator.** Anyone who
 signs up afterwards waits for an admin to approve them.

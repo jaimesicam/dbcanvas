@@ -56,8 +56,9 @@ can get into it and look.
 One kind of Validate error can be fixed without leaving the page. `make images` builds the
 operating-system bases and the Intranet on top of them; the rest of the images layered on the
 bases — the VNC desktop, the K3D collector, MClusterAdmin, Big Hole — are `make extra-images`,
-because they fetch from npm, GitHub and Percona's repositories and most stacks need none of
-them. So a stack can name an image nobody has built yet, and when it does, an **administrator
+which `make install` runs but does not insist on, because they fetch from npm, GitHub and
+Percona's repositories and fail for reasons that are not about your machine. So a stack can
+name an image nobody has built yet, and when it does, an **administrator
 gets a Build button under the error**: the same build, on the same Docker daemon DBCanvas is already using, with the
 log if it fails. The demo applications are the exception — their build context is a directory of
 the DBCanvas source, so they need a checkout and `make <name>-image`.

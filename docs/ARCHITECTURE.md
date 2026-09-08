@@ -74,7 +74,8 @@ is built against, so an installation without that image is one where almost noth
 Its build is the one part that reaches Percona's repositories, so a failure there is reported
 and tolerated rather than taking the bases and the rest of `make install` down with it.
 
-Everything *optional* on top of the bases is `make extra-images`: the pre-baked Ubuntu VNC image
+Everything *optional* on top of the bases is `make extra-images` — which `make install` runs
+too, tolerating a failure the way it tolerates the Intranet's: the pre-baked Ubuntu VNC image
 and the tool images (`images/service.sh`), whose package sets never vary so deploying one is
 configuration only, and the six demo application images (`images/apps.sh`), which are Go
 binaries with their frontends embedded — no OS matrix, one tag apiece, and nothing to record in
@@ -87,8 +88,11 @@ says one is missing (`app/extraimages.go`). It works because no `images/*.Docker
 anything from its build context — every `COPY` is `--from=<stage>` — so the Dockerfile *is* the
 context, and the app carries a copy. The build itself runs in a throwaway `docker:cli` container
 with the daemon's socket mounted, the same shape as the K3D collector, because the Engine API's
-own `/build` endpoint is the classic builder and these Dockerfiles need BuildKit
-(`--platform=$BUILDPLATFORM`, `$TARGETARCH`). The demo applications stay CLI-only: their context
+own `/build` endpoint is the classic builder, which sets neither `BUILDPLATFORM` nor
+`TARGETARCH` — the two variables that let MClusterAdmin and Big Hole compile on the host's
+architecture for the target one. (On the command line the same gap is closed differently:
+`images/service.sh` notices a Docker with no `buildx`, passes both by hand and builds the whole
+image for one platform, so a legacy builder works — just without the free cross-build.) The demo applications stay CLI-only: their context
 is a directory of this repository's source.
 
 An installation targets **exactly one platform**. `DOCKER_PLATFORM` selects it,
