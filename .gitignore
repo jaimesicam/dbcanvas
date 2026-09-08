@@ -1,0 +1,33 @@
+# Environment / secrets
+.env
+
+# Node
+node_modules/
+dist/
+*.log
+# …except the test corpus. Every MongoDB Log Summary fixture is a mongod log and mongod
+# names its log `.log`, so the blanket rule above silently kept all eight scenarios out of
+# the repo — the tests passed locally and would have failed on a fresh clone. The Galera and
+# Group Replication fixtures escaped only because MySQL calls its error log `.err`.
+!app/testdata/**/*.log
+
+# Screenshot-capture tooling — maintainer-only, kept out of the repo.
+# The generated screenshots (docs/screenshots/*.png) ARE committed; only the
+# machinery that produces them is ignored.
+/app/web/scripts/
+
+# Cross-compiled dbcanvas-cli binaries (`make cli`)
+/dist/
+
+# Go
+/app/*.db
+/app/*.db-*
+/app/dbcanvas
+# `go build ./...` in cli/ drops the binary next to its source, named after the module.
+/cli/dbcanvas-cli
+
+# OS
+.DS_Store
+
+# vite SSR bundle for the render smoke test (npm run smoke)
+app/web/.smoke/

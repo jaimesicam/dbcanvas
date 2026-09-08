@@ -1,0 +1,2858 @@
+package main
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// design parsing (the canvas document stored in stacks.design_json)
+type designNode struct {
+	ID        string `json:"id"`
+	Type      string `json:"type"`
+	Label     string `json:"label"`
+	OS        string `json:"os"`
+	OSVersion string `json:"osVersion"` // OS release (e.g. "9", "24.04") — used by ProxySQL
+	Arch      string `json:"arch"`
+	// Per-node sizing (VM-capable node types only). 0 → the Vagrant engine default
+	// (DBCANVAS_VM_CPUS / DBCANVAS_VM_MEMORY), or no limit on Docker. See applyVMSize.
+	// Network conditions applied to this node with tc once it is running —
+	// latency, jitter, packet loss and a bandwidth cap. All zero means the node
+	// is left alone. The fourth constrainable resource alongside CPUs, MemoryGB
+	// and the disk limits; see netem.go for why it is tc rather than a container
+	// limit, and why it is scoped to the node's own ports by default.
+	//
+	// NetLatencyMS and NetLossPct are the two that matter for a synchronous
+	// cluster: they are what produce Galera flow control and, past
+	// evs.suspect_timeout, eviction. NetAllTraffic widens the shaping from the
+	// node's database/cluster ports to every packet it sends, which models a bad
+	// NIC rather than a bad link between members — and can make the node fail
+	// its own provisioning, so it is off by default.
+	NetLatencyMS  int     `json:"netLatencyMs"`
+	NetJitterMS   int     `json:"netJitterMs"`
+	NetLossPct    float64 `json:"netLossPct"`
+	NetRateMbit   int     `json:"netRateMbit"`
+	NetAllTraffic bool    `json:"netAllTraffic"`
+	CPUs          int     `json:"cpus"`     // VirtualBox vCPUs / container --cpus
+	MemoryGB      int     `json:"memoryGb"` // VirtualBox VM memory / container --memory, in GiB
+	// Per-node disk throttling (Docker engine only — Vagrant has no equivalent and
+	// ignores these). 0 → no limit, which is what stacks designed before these fields
+	// existed keep getting. DevicePath overrides the auto-detected Docker-root block
+	// device; "" → auto-detect. See blkio.go.
+	DeviceReadMBps  int    `json:"deviceReadMbps"`  // container --device-read-bps, in MB/s
+	DeviceWriteMBps int    `json:"deviceWriteMbps"` // container --device-write-bps, in MB/s
+	DevicePath      string `json:"devicePath"`      // "" → auto-detect
+	// PMM node fields (ignored by other node types).
+	Version          string `json:"version"`          // PMM minor version tag ("" → catalog default)
+	AdminPassword    string `json:"adminPassword"`    // PMM admin password ("" → PMM_ADMIN_PASSWORD)
+	GenerateCert     bool   `json:"generateCert"`     // sign nginx certs from the Intranet CA on deploy
+	WatchtowerNodeID string `json:"watchtowerNodeId"` // PMM: Watchtower node enabling in-app upgrades (optional)
+	// PXC node fields — a PXC node belongs to a PXC frame (FrameID) and is either
+	// a data member ("regular") or a voting-only "arbitrator" (garbd).
+	FrameID        string `json:"frameId"`
+	Role           string `json:"role"`           // PXC: "regular"|"arbitrator"; psmdb: "shard"|"config"|"mongos"
+	Shard          int    `json:"shard"`          // psmdb shard index (0-based) for role=="shard"
+	ExportEnabled  bool   `json:"exportEnabled"`  // publish the DB port to the host
+	ExportHostPort int    `json:"exportHostPort"` // desired host port (0 = random/unused)
+	// ProxySQL node fields (ignored by other node types). os/osVersion/arch are the
+	// shared image fields above; these add the ProxySQL series + behaviour.
+	ProxySQLMajor   string `json:"proxysqlMajor"`   // "2" | "3"
+	ProxySQLVersion string `json:"proxysqlVersion"` // minor (e.g. 2.7.1-1); "" → latest
+	Mode            string `json:"mode"`            // "singlewrite" (default) | "loadbal"
+	PMMNodeID       string `json:"pmmNodeId"`       // PMM node monitoring this ProxySQL (optional)
+	UseProxy        bool   `json:"useProxy"`        // route package egress via the Intranet Squid proxy
+	// Linux Client core-dump analysis (Type=="linuxclient"; ignored by other types). The two
+	// paths are directories **on the Docker host**, bind-mounted read-only into the node, so a
+	// core file the size of a server's memory is read where it lies rather than copied. The
+	// product/major/version triple is what decides which debug-symbol packages the node needs:
+	// resolving a core needs the *same build* of mysqld that produced it, which is also why the
+	// node's own OS has to match the crashed server's. See gdbcore.go.
+	GDBEnabled bool   `json:"gdbEnabled"`
+	GDBCoreDir string `json:"gdbCoreDir"` // host dir holding the core file(s)
+	GDBLibDir  string `json:"gdbLibDir"`  // host dir holding the origin host's shared libraries
+	GDBProduct string `json:"gdbProduct"` // "ps" | "pxc"
+	GDBMajor   string `json:"gdbMajor"`   // "8.0" | "8.4" | "5.7"
+	GDBVersion string `json:"gdbVersion"` // pinned minor, e.g. "8.0.16-7.1"; "" → latest
+	// Standalone Percona Server node fields (Type=="ps"; ignored by other types).
+	PSMajor      string `json:"psMajor"`      // Percona Server "8.0" | "8.4"
+	PSVersion    string `json:"psVersion"`    // minor; "" → latest
+	GTID         bool   `json:"gtid"`         // enable GTID
+	RootPassword string `json:"rootPassword"` // "" → auto-generated
+	CertTTLValue int    `json:"certTtlValue"`
+	CertTTLUnit  string `json:"certTtlUnit"`
+	// MariaDB node fields (Type=="mariadb" standalone; the "mariadbrepl" and
+	// "mariadbgalera" members take these from their frame). Reuses OS/OSVersion/Arch,
+	// GTID, RootPassword, PMMNodeID, UseProxy, GenerateCert/CertTTL and export above.
+	// Packages come from mariadb.org, whose repo is per major series.
+	MariaDBMajor   string `json:"mariadbMajor"`   // "10.6" | "10.11" | "11.4" | "11.8"
+	MariaDBVersion string `json:"mariadbVersion"` // minor; "" → latest
+	// MySQL Community node fields (Type=="mysqlce" standalone; "mysqlcerepl" and
+	// "mysqlceinnodb" members take these from their frame). Oracle's community
+	// packages from repo.mysql.com — only 8.0 and 8.4 are published for this image
+	// matrix (5.7 exists for el7 only).
+	MySQLCEMajor   string `json:"mysqlceMajor"`   // "8.0" | "8.4"
+	MySQLCEVersion string `json:"mysqlceVersion"` // minor; "" → latest
+	// Standalone PS MongoDB node fields (Type=="psm"; reuses OS/OSVersion/Arch,
+	// RootPassword (admin pw), PMMNodeID, UseProxy, GenerateCert/CertTTL, export above).
+	PSMDBMajor   string `json:"psmdbMajor"`   // "6.0" | "7.0" | "8.0"
+	PSMDBVersion string `json:"psmdbVersion"` // minor; "" → latest
+	// MCACredentials adds the two MClusterAdmin accounts — madmin and madmin-ro —
+	// to this MongoDB when it deploys, with SCRAM-SHA-256 credentials and the
+	// least-privilege role sets the panel publishes (see mcaRolesJS in mongodb.go).
+	// Their passwords come from the stack's MClusterAdmin node, so both ends agree
+	// on them without either having to guess. Same field on designFrame for the
+	// replica-set and sharded topologies.
+	MCACredentials bool `json:"mcaCredentials"`
+	// Keycloak OIDC authentication. When EnableOIDC is set the node is wired at deploy to
+	// the selected Keycloak node (KeycloakNodeID) — as a MONGODB-OIDC identity provider on
+	// a standalone PS MongoDB node (Type=="psm"), Grafana generic OAuth on PMM,
+	// pg_oidc_validator on PostgreSQL, or the auth_openid_connect plugin on a standalone
+	// Percona Server node (Type=="ps"; see mysqloidc.go). The OIDCClientID/AuthClaim fields
+	// below are psm-only; the other engines derive a client id of their own.
+	EnableOIDC       bool   `json:"enableOIDC"`
+	KeycloakNodeID   string `json:"keycloakNodeId"`   // Keycloak node providing OIDC (required when EnableOIDC)
+	OIDCRealm        string `json:"oidcRealm"`        // Keycloak realm ("" → "mongodb" for psm, "dbcanvas" elsewhere)
+	OIDCClientID     string `json:"oidcClientId"`     // OIDC client id == audience ("" → "mongodb-client")
+	OIDCAuthClaim    string `json:"oidcAuthClaim"`    // group/authorization token claim ("" → "MyClaim")
+	OIDCUseAuthClaim bool   `json:"oidcUseAuthClaim"` // true → authorize via group claim (creates keycloak/* roles)
+	// Ubuntu VNC node fields (Type=="vnc"; a desktop jump box). Reuses UseProxy above.
+	VNCUser     string `json:"vncUser"`     // sudo login + VNC user ("" → "dbadmin")
+	VNCPassword string `json:"vncPassword"` // desktop/VNC password ("" → VNC_PASSWORD; capped at 8 chars)
+	// Valkey node fields (Type=="valkey" standalone / "valkeycluster" members). Reuses
+	// OS/OSVersion/Arch, RootPassword (default-user password), PMMNodeID, UseProxy,
+	// ExportEnabled/HostPort above. Installed via percona-release (valkey-91 repo),
+	// not a pulled image.
+	ValkeyMajor   string `json:"valkeyMajor"`   // Valkey "9.1"
+	ValkeyVersion string `json:"valkeyVersion"` // minor; "" → latest
+	UseLDAP       bool   `json:"useLdap"`       // wire the valkey-ldap module to the Intranet OpenLDAP (Oracle Linux only for now)
+	// SeaweedFS node fields (Type=="seaweedfs"; an S3-compatible object store used
+	// as a backup target). Runs the chrislusf/seaweedfs image (pulled, not a systemd
+	// image), so it ignores os/arch like PMM.
+	AccessKey string `json:"accessKey"` // S3 AWS_ACCESS_KEY_ID ("" → "seaweedfs")
+	SecretKey string `json:"secretKey"` // S3 AWS_SECRET_ACCESS_KEY ("" → generated)
+	// Buckets are created at deploy: 1–10 of them, so several databases can back up to one
+	// SeaweedFS node without sharing a bucket. Bucket is the older single-bucket field, kept as the
+	// fallback for designs saved before the list existed (and it is always the first bucket).
+	Bucket  string   `json:"bucket"`
+	Buckets []string `json:"buckets"`
+	// TLS serves the S3 endpoint over HTTPS. When GenerateCert is also set the
+	// certificate is signed by the Intranet CA (else it is self-signed). Reuses
+	// GenerateCert + CertTTLValue/CertTTLUnit above.
+	TLS bool `json:"tls"`
+	// Standalone PostgreSQL node fields (Type=="pg"; a single PostgreSQL instance,
+	// optionally backed up to SeaweedFS S3 via pgBackRest). Reuses OS/OSVersion/Arch,
+	// RootPassword (postgres superuser pw), PMMNodeID, UseProxy, GenerateCert/CertTTL,
+	// ExportEnabled/ExportHostPort above.
+	PGMajor         string `json:"pgMajor"`         // Percona PostgreSQL "13".."18"
+	PGVersion       string `json:"pgVersion"`       // minor; "" → latest
+	UsePgBackRest   bool   `json:"usePgBackRest"`   // configure pgBackRest → SeaweedFS S3 backup
+	SeaweedFSNodeID string `json:"seaweedfsNodeId"` // SeaweedFS node id backing pgBackRest
+	// Which of that node's buckets to use ("" → its first, i.e. the default bucket).
+	SeaweedFSBucket string `json:"seaweedfsBucket"`
+	// Directory authentication (Type=="ps"|"pg"|"psm"). When LdapAuth is set the engine
+	// is configured at deploy to authenticate against the chosen directory node
+	// (LdapDirNodeID → an "intranet" OpenLDAP or "sambaad" AD node). KerberosAuth
+	// (pg/psm only) additionally wires GSSAPI single sign-on and requires a "sambaad"
+	// directory (mints a service principal + keytab on the Samba DC).
+	LdapAuth      bool   `json:"ldapAuth"`
+	LdapDirNodeID string `json:"ldapDirNodeId"`
+	KerberosAuth  bool   `json:"kerberosAuth"`
+	// Data-at-rest encryption keyed by an OpenBao node (Type=="ps"|"psm"; see dbvault.go).
+	// The engine's keyring is wired to OpenBaoNodeID at deploy: the keyring_vault component
+	// (PS 8.4), the keyring_vault plugin (PS 5.7/8.0) or mongod's security.vault (PSMDB).
+	EnableVault   bool   `json:"enableVault"`
+	OpenBaoNodeID string `json:"openbaoNodeId"`
+	// MarketChaos node fields (Type=="marketchaos"). Unlike every other app
+	// simulator, dataset size is a deploy-time choice, not a fixed constant —
+	// re-seeding a large market after deploy would take the same many minutes
+	// as the initial seed, so the learner picks it up front. MCDataset selects
+	// a named preset; the MCTraders/.../MCTicks counts are only read when
+	// MCDataset=="custom" (0 → that preset's own default for the field).
+	MCDataset string `json:"mcDataset"` // "small" | "medium" (default) | "large" | "custom"
+	MCTraders int    `json:"mcTraders"`
+	MCOrders  int    `json:"mcOrders"`
+	MCTrades  int    `json:"mcTrades"`
+	MCTicks   int    `json:"mcTicks"`
+	// Stock Market Sim node fields (Type=="stocksim") — where its database is.
+	// Unlike every other app simulator, this one is not required to be linked
+	// to a node on the canvas: SSMode "" or "linked" resolves the target from a
+	// drawn association line the usual way, while "manual" uses the fields
+	// below and needs no edge at all, so the app can drive a database outside
+	// the stack entirely (elsewhere on the host, on the LAN, or a managed
+	// instance). SSDSN, when set, is handed to the driver verbatim and beats
+	// every other field — the escape hatch for a connection string dbcanvas
+	// does not model. SSPassword is stored the same way the RootPassword field
+	// above already is; provisionStockSim moves it into the deployment's
+	// secrets and keeps it out of the non-secret config the node panel renders.
+	// SSAIONode and SSAIOInstance are the third connection mode. An All in One
+	// node draws no association lines at all (see aioInstance's comment: its
+	// NODE_TYPES entry sets ports:false, so every AIO relationship in this app
+	// is a picker), which makes "linked" structurally impossible for it.
+	// SSAIONode is the AIO node's id and SSAIOInstance the *declared* instance
+	// name on it — "ps01", "pxc-cluster-01" — resolved to a concrete running
+	// member at deploy time by stockSimAIOMember.
+	SSAIONode     string `json:"ssAIONode"`
+	SSAIOInstance string `json:"ssAIOInstance"`
+	SSMode        string `json:"ssMode"`   // "" | "linked" | "aio" | "manual"
+	SSEngine      string `json:"ssEngine"` // "mysql" | "postgres" | "mongodb" | "valkey"
+	SSHost        string `json:"ssHost"`
+	SSPort        int    `json:"ssPort"` // 0 → the engine default (3306/5432/27017/6379)
+	SSUser        string `json:"ssUser"`
+	SSPassword    string `json:"ssPassword"`
+	SSDatabase    string `json:"ssDatabase"` // schema / database / key prefix; "" → "stocksim"
+	SSTLS         string `json:"ssTLS"`      // "disable" | "prefer" | "require"
+	SSParams      string `json:"ssParams"`   // extra driver params, appended verbatim
+	SSDSN         string `json:"ssDSN"`      // full raw DSN/URI override
+	SSLabel       string `json:"ssLabel"`    // display name for the dashboard/report header
+	// SSTargetSize is how large the sim grows its dataset when its load level
+	// is set to High, written the way a person writes a size: "5G", "512Mi", a
+	// plain byte count. "" takes the sim's own 5 GiB default and "0"/"off"
+	// disables growth. Only meaningful on an engine whose dataset can actually
+	// be grown — see stockSimGrowable.
+	SSTargetSize string `json:"ssTargetSize"`
+	// SSWorkingSet is how much of that dataset the sim keeps under continuous
+	// random read — "50%" (the default), "0.5", "2G", or "off". A dataset that
+	// is only ever written to sits cold, so the database serves every query out
+	// of a few hundred kilobytes of hot rows and its cache size stops mattering;
+	// the working set is what makes it matter. Same engine restriction as
+	// SSTargetSize.
+	SSWorkingSet string `json:"ssWorkingSet"`
+	// The lab knobs (Type=="stocksim"), all off unless set. Each makes the
+	// target exhibit one pathology that is otherwise hard to produce on demand
+	// and easy to meet by accident in production.
+	//
+	// SSIdleTxn holds a transaction open with a read snapshot — "30m", "2h",
+	// capped at 24h — so purge cannot advance and the InnoDB history list (or
+	// PostgreSQL's xmin horizon, and the bloat behind it) grows for as long as
+	// it sits there. SSExtraTables creates that many synthetic tables and reads
+	// them in rotation, which is what makes table_open_cache misses measurable.
+	// SSTempTables is "off" | "memory" | "disk" and runs an intraday rollup
+	// shaped to build a large intermediate result, forced either way.
+	SSIdleTxn     string `json:"ssIdleTxn"`
+	SSExtraTables int    `json:"ssExtraTables"`
+	SSTempTables  string `json:"ssTempTables"`
+	// SSLockContention is "off" | "light" | "heavy": concurrent writers competing
+	// for a handful of rows this app owns. Light makes them queue, so row lock
+	// waits appear; Heavy has them take the same two rows in opposite orders, so
+	// the server has to detect and break real deadlocks. SSScanQueries is how
+	// many reads per minute to run against the tick history with a predicate no
+	// index can serve, so the server reads every row to return a handful.
+	// SSWritePressure is "off" | "commits" | "redo" — the two distinct shapes of
+	// write cost, one paid in fsyncs and the other in checkpoint headroom.
+	SSLockContention string `json:"ssLockContention"`
+	SSScanQueries    int    `json:"ssScanQueries"`
+	SSWritePressure  string `json:"ssWritePressure"`
+	// SSThreads is how many concurrent database workers the sim runs in each of
+	// its two heavy agents — the one writing history and the one reading the
+	// working set back. 0 takes the sim's own default of 4. It also decides the
+	// size of the connection pool, so this is the knob for how much concurrency
+	// the target database actually sees.
+	SSThreads int `json:"ssThreads"`
+	// Percona Orchestrator node fields (Type=="orchestrator"). A standalone topology
+	// visualization/failure-detection node — not a cluster frame — that async and
+	// semi-sync MySQL replication frames optionally point at
+	// (designFrame.OrchestratorNodeID), the same way they point at a PMM node. Reuses OS/OSVersion/Arch, ExportEnabled/
+	// ExportHostPort (the web UI, default :3000) above. Installed via percona-release
+	// (any pdps/pdpxc repo — the percona-orchestrator package is identical across
+	// them), not a pulled image.
+	OrchestratorVersion string `json:"orchestratorVersion"` // minor (e.g. 3.2.6-22); "" → latest
+	// AlertEmail is a mailbox on the stack's Intranet mail domain (local part or a
+	// full user@domain address) that failure-detection alerts are sent to. "" → no
+	// alert hook is wired.
+	AlertEmail string `json:"alertEmail"`
+	// All-in-One node fields (Type=="aio"). ONE container running many database
+	// feature instances side by side, instead of one product per node — see aio.go.
+	// Reuses OS/OSVersion/Arch, CPUs/MemoryGB and UseProxy above; every other option
+	// is per instance. The node draws no association lines (its NODE_TYPES entry sets
+	// ports:false): each instance wires itself to PMM/LDAP/OpenBao/etc. through its
+	// own picker, the same optional relationship PMMNodeID already is elsewhere.
+	AIOInstances []aioInstance `json:"aioInstances"`
+	// Per-family versions. One package install serves every instance of a family, so
+	// the version is a node-level choice, not a per-instance one. PostgreSQL is the
+	// exception (PPG packages are per-major and co-install), so its major lives on
+	// aioInstance instead.
+	AIOPSMajor    string `json:"aioPsMajor"`   // Percona Server "8.0" | "8.4"
+	AIOPSVersion  string `json:"aioPsVersion"` // minor; "" → latest
+	AIOPXCMajor   string `json:"aioPxcMajor"`
+	AIOPXCVersion string `json:"aioPxcVersion"`
+	// MariaDB / MySQL Community keep their own pair per flavor rather than sharing
+	// one: the numbering schemes are unrelated, so a version string carried across
+	// a flavor switch would silently mean something else.
+	AIOMariaDBMajor   string `json:"aioMariadbMajor"`
+	AIOMariaDBVersion string `json:"aioMariadbVersion"`
+	AIOMySQLCEMajor   string `json:"aioMysqlceMajor"`
+	AIOMySQLCEVersion string `json:"aioMysqlceVersion"`
+	AIOPSMDBMajor     string `json:"aioPsmdbMajor"`
+	AIOPSMDBVersion   string `json:"aioPsmdbVersion"`
+	AIOValkeyMajor    string `json:"aioValkeyMajor"`
+	AIOValkeyVer      string `json:"aioValkeyVersion"`
+	AIOProxySQLMajor  string `json:"aioProxysqlMajor"`
+	AIOProxySQLVer    string `json:"aioProxysqlVersion"`
+	AIOOrchVersion    string `json:"aioOrchestratorVersion"`
+	// MClusterAdmin node fields (Type=="mclusteradmin"; see mclusteradmin.go).
+	//
+	// ViewOnly starts the panel with --view-only, which disables every write it can
+	// offer. Worth having even though the read-only account exists too: the flag
+	// stops the panel showing a balancer toggle that MongoDB would then refuse,
+	// which is a better answer than an error after the click. It also decides which
+	// of the two accounts the generated connection string uses.
+	ViewOnly bool `json:"viewOnly"`
+	// The passwords for the two accounts a MongoDB creates for this panel. They live
+	// on the PANEL rather than on each database on purpose: the panel is the thing
+	// you log in from, so this is the one place to look them up, and a stack with
+	// three MongoDBs does not get three different passwords for the same account.
+	// Empty means the defaults (MCLUSTERADMIN_PASSWORD / MCLUSTERADMIN_RO_PASSWORD
+	// in .env), which is also what a MongoDB uses when the stack has no panel node
+	// on it yet.
+	MCAAdminPassword    string `json:"mcaAdminPassword"`
+	MCAReadOnlyPassword string `json:"mcaReadonlyPassword"`
+}
+
+// designEdge is a connection drawn on the canvas. The endpoints' Node field holds
+// the id of a node OR a frame (e.g. a ProxySQL node linked to a PXC cluster frame).
+type designEdge struct {
+	ID   string  `json:"id"`
+	From edgeEnd `json:"from"`
+	To   edgeEnd `json:"to"`
+	// "directional" — a data-flow link (e.g. backend cluster → ProxySQL).
+	// "async"/"bidir" — a cross-cluster replication link between two cluster members
+	// (From is the source, To the replica; "bidir" replicates both ways). See
+	// replication.go.
+	Type string `json:"type"`
+}
+
+type edgeEnd struct {
+	Node string `json:"node"`
+	Port string `json:"port"`
+}
+
+// designFrame is a group container on the canvas: a PXC cluster frame (holds PXC
+// nodes) or a ProxySQL cluster frame (holds ProxySQL nodes), carrying the
+// cluster-wide configuration for its members.
+type designFrame struct {
+	ID    string  `json:"id"`
+	Type  string  `json:"type"` // "pxc" | "proxysql"
+	Label string  `json:"label"`
+	X     float64 `json:"x"`
+	Y     float64 `json:"y"`
+	W     float64 `json:"w"`
+	H     float64 `json:"h"`
+	// PXC cluster config.
+	OS           string `json:"os"`           // os family: "oraclelinux" | "ubuntu"
+	OSVersion    string `json:"osVersion"`    // e.g. "9" | "24.04"
+	Arch         string `json:"arch"`         // "amd64" | "arm64"
+	PXCMajor     string `json:"pxcMajor"`     // "8.0" | "8.4"
+	PXCVersion   string `json:"pxcVersion"`   // minor (e.g. 8.0.45-36.1); "" → latest
+	RootPassword string `json:"rootPassword"` // "" → auto-generated
+	PMMNodeID    string `json:"pmmNodeId"`    // PMM node that monitors this cluster (optional)
+	UseProxy     bool   `json:"useProxy"`     // route egress via the Intranet Squid proxy
+	GTID         bool   `json:"gtid"`         // enable GTID (default on)
+	GenerateCert bool   `json:"generateCert"` // per-node certs signed by the Intranet CA
+	CertTTLValue int    `json:"certTtlValue"`
+	CertTTLUnit  string `json:"certTtlUnit"`
+	// OrchestratorNodeID is a Percona Orchestrator node that discovers/monitors this
+	// cluster's topology (optional; "" → not monitored). Shared by the async/semi-sync
+	// replication frames ("mysql", "mariadbrepl", "mysqlcerepl" — see
+	// orchestratableFrame; NOT "pxc" or the other cluster types), the same way
+	// PMMNodeID is — one Orchestrator node can be pointed at by many frames. See
+	// app/orchestrator.go.
+	OrchestratorNodeID string `json:"orchestratorNodeId"`
+	// ProxySQL cluster frame config (Type=="proxysql"; reuses OS/OSVersion/Arch,
+	// PMMNodeID, UseProxy above).
+	ProxySQLMajor   string `json:"proxysqlMajor"`   // "2" | "3"
+	ProxySQLVersion string `json:"proxysqlVersion"` // minor; "" → latest
+	Mode            string `json:"mode"`            // "singlewrite" | "loadbal"
+	// MySQL replication frame config (Type=="mysql"; reuses OS/OSVersion/Arch,
+	// RootPassword, PMMNodeID, OrchestratorNodeID, UseProxy, GTID, GenerateCert/CertTTL
+	// above).
+	PSMajor   string `json:"psMajor"`   // Percona Server "8.0" | "8.4"
+	PSVersion string `json:"psVersion"` // minor; "" → latest
+	ReplMode  string `json:"replMode"`  // mysql: "async"|"semisync" · innodb: "innodbcluster"|"groupreplication"
+	// MariaDB frame config (Type=="mariadbrepl" replication | "mariadbgalera"
+	// Galera). Reuses OS/OSVersion/Arch, RootPassword, PMMNodeID,
+	// OrchestratorNodeID, UseProxy, GTID, ReplMode, GenerateCert/CertTTL above.
+	MariaDBMajor   string `json:"mariadbMajor"`   // "10.6" | "10.11" | "11.4" | "11.8"
+	MariaDBVersion string `json:"mariadbVersion"` // minor; "" → latest
+	// MySQL Community frame config (Type=="mysqlcerepl" replication |
+	// "mysqlceinnodb" InnoDB Cluster / Group Replication). Reuses the same shared
+	// fields, plus ReplMode and MySQLRouter for the InnoDB frame.
+	MySQLCEMajor   string `json:"mysqlceMajor"`   // "8.0" | "8.4"
+	MySQLCEVersion string `json:"mysqlceVersion"` // minor; "" → latest
+	// InnoDB / Group Replication frame config (Type=="innodb"; reuses OS/OSVersion/
+	// Arch, RootPassword, PMMNodeID, UseProxy, GenerateCert/CertTTL, ReplMode above;
+	// GTID is always on). The Percona Server version comes from the PDPS repo.
+	PDPSRepo    string `json:"pdpsRepo"`    // percona-release repo, e.g. "pdps-84-lts"
+	MySQLRouter bool   `json:"mysqlRouter"` // install + run MySQL Router on each member
+	// PS MongoDB Sharded Cluster frame config (Type=="psmdb"; reuses OS/OSVersion/
+	// Arch, RootPassword, PMMNodeID, UseProxy, GenerateCert/CertTTL above). Fixed
+	// topology per setup; no replication config.
+	PSMDBMajor   string `json:"psmdbMajor"`   // "6.0" | "7.0" | "8.0"
+	PSMDBVersion string `json:"psmdbVersion"` // minor (e.g. 8.0.26-11); "" → latest
+	PSMDBSetup   string `json:"psmdbSetup"`   // "standard" (3×3 + 3 cfg) | "minimum" (3×1 + 1 cfg)
+	// Percona Backup for MongoDB (PBM) → SeaweedFS S3, for psmdb/psmrs frames. When
+	// EnablePBM is set, pbm-agent is configured on every mongod member and the S3
+	// store (SeaweedFSNodeID, reused from the Patroni fields above) is registered.
+	EnablePBM bool `json:"enablePBM"`
+	// MCACredentials adds the two MClusterAdmin accounts to this cluster when it
+	// deploys. See the identical field on designNode (the standalone case).
+	MCACredentials bool `json:"mcaCredentials"`
+	// Patroni PostgreSQL cluster frame config (Type=="patroni"; reuses OS/OSVersion/
+	// Arch, RootPassword (postgres superuser pw), PMMNodeID, UseProxy, GenerateCert/
+	// CertTTL above). Each member co-locates PostgreSQL + Patroni + an etcd member.
+	PGMajor         string `json:"pgMajor"`         // Percona PostgreSQL "13".."18"
+	PGVersion       string `json:"pgVersion"`       // minor (e.g. 16.4); "" → latest
+	UsePgBackRest   bool   `json:"usePgBackRest"`   // configure pgBackRest → SeaweedFS S3 (clone + backup)
+	SeaweedFSNodeID string `json:"seaweedfsNodeId"` // SeaweedFS node id backing pgBackRest/Barman (when enabled)
+	// Which of that node's buckets to use ("" → its first, i.e. the default bucket).
+	SeaweedFSBucket string `json:"seaweedfsBucket"`
+	// DisablePgRewind turns off Patroni's use_pg_rewind (on by default for
+	// every Patroni cluster). Not exposed in Stack Designer's UI — it exists
+	// so the "manual pg_rewind" lab's cluster can require the learner to run
+	// pg_rewind themselves instead of Patroni doing it automatically on startup.
+	DisablePgRewind bool `json:"disablePgRewind"`
+	// EnableRoleChangeCallback stages an on_role_change script and wires it
+	// into patroni.yml (postgresql.callbacks.on_role_change). Not exposed in
+	// Stack Designer's UI — it exists for the "Patroni Callbacks" lab, whose
+	// Check Work reads the script's own append-only log to confirm a
+	// role-change callback actually fired.
+	EnableRoleChangeCallback bool `json:"enableRoleChangeCallback"`
+	// repmgr PostgreSQL cluster frame config (Type=="repmgr"; reuses OS/OSVersion/Arch,
+	// RootPassword (postgres superuser pw), PMMNodeID, UseProxy, GenerateCert/CertTTL,
+	// PGMajor/PGVersion above). Each member runs PostgreSQL + repmgr (streaming
+	// replication + repmgrd failover); backups go to Barman cloud (→ SeaweedFS S3).
+	UseBarman bool `json:"useBarman"` // configure Barman cloud → SeaweedFS S3 (uses SeaweedFSNodeID)
+	// Spock PostgreSQL cluster frame config (Type=="spock"; reuses OS/OSVersion/Arch,
+	// PGMajor/PGVersion, PMMNodeID, UseProxy, GenerateCert/CertTTL above). Every member
+	// is a PGDG PostgreSQL with the pgEdge Spock extension compiled from source, wired
+	// into a full-mesh active-active (multi-master) logical-replication topology. No
+	// extra fields — the demo database + git ref are fixed/env-driven (see spock.go).
+	// Valkey cluster frame config (Type=="valkeycluster"; reuses OS/OSVersion/Arch,
+	// RootPassword (default-user password), PMMNodeID, UseProxy above). Installed via
+	// percona-release (valkey-91 repo), not a pulled image. 3–7 all-master shards.
+	ValkeyMajor   string `json:"valkeyMajor"`   // Valkey "9.1"
+	ValkeyVersion string `json:"valkeyVersion"` // minor; "" → latest
+	UseLDAP       bool   `json:"useLdap"`       // wire valkey-ldap to the Intranet OpenLDAP (Oracle Linux only for now)
+	// K3D cluster frame config (Type=="k3d"): a k3s cluster created by k3d on the stack
+	// network, for running the Percona Kubernetes operators. Members are the k3s nodes
+	// (the first is the server). Reuses PMMNodeID (monitoring) and SeaweedFSNodeID
+	// (backups). CPU/memory are a budget for the whole cluster, split across its nodes.
+	// See k3d.go.
+	K3DNodes int `json:"k3dNodes"` // 1..3 (1 server + N-1 agents)
+	// The Kubernetes the cluster runs: a rancher/k3s tag from the catalog ("" / "latest" = the
+	// catalog's newest). k3d's own default trails the releases, and an API server too old for an
+	// operator's CRDs makes that operator uninstallable — so the version is ours to choose.
+	K3DK3SVersion string `json:"k3dK3sVersion"`
+	K3DCPUs       int    `json:"k3dCpus"`     // total CPUs for the cluster
+	K3DMemoryGB   int    `json:"k3dMemoryGb"` // total memory (GiB) for the cluster
+	// Disk rate limits imposed on each k3s node container, in MB/s (0 = unlimited). Unlike
+	// CPUs/memory these are per node, not a cluster total divided up: blk-throttle is
+	// per-cgroup, so a shared cluster-wide ceiling is not something the kernel can enforce.
+	K3DDiskReadMBps  int    `json:"k3dDiskReadMbps"`
+	K3DDiskWriteMBps int    `json:"k3dDiskWriteMbps"`
+	K3DDevicePath    string `json:"k3dDevicePath"` // "" → auto-detect the Docker-root device
+	// CloudNativePG frame fields (K3DOperator=="cnpg"; ignored by the Percona operators).
+	// Backups reuse the frame's SeaweedFSNodeID/SeaweedFSBucket, like every other operator.
+	K3DCNPGInstances   int    `json:"k3dCnpgInstances"`   // Postgres instances (1..5); 0 → 3
+	K3DCNPGStorageGB   int    `json:"k3dCnpgStorageGb"`   // per-instance PVC size in GiB; 0 → 1
+	K3DCNPGVersion     string `json:"k3dCnpgVersion"`     // PostgreSQL major ("17"); "" → chart default
+	K3DCNPGMonitoring  bool   `json:"k3dCnpgMonitoring"`  // install kube-prometheus-stack + PodMonitor
+	K3DCNPGPromVersion string `json:"k3dCnpgPromVersion"` // kube-prometheus-stack chart version; "" → latest
+	K3DCNPGExpose      string `json:"k3dCnpgExpose"`      // "clusterip" (default) | "loadbalancer" for the primary
+	// PgBouncer in front of the cluster. CloudNativePG models this as a Pooler CR of its own
+	// rather than a section of the Cluster, so it is a separate toggle here — and it gets its
+	// own Service, hence its own expose setting: pooling the primary while leaving Postgres
+	// itself in-cluster is the usual arrangement. Not the shared K3DExposePGBouncer, which the
+	// two Percona/Crunchy PostgreSQL frames spell in cr.yaml terms (NodePort included); CNPG's
+	// two tiers are hand-written Services, as K3DCNPGExpose above already is.
+	K3DCNPGPooler          bool   `json:"k3dCnpgPooler"`          // create a Pooler (PgBouncer) for the primary
+	K3DCNPGPoolerInstances int    `json:"k3dCnpgPoolerInstances"` // PgBouncer pods (1..5); 0 → 2
+	K3DCNPGPoolerMode      string `json:"k3dCnpgPoolerMode"`      // "session" (CNPG's default) | "transaction"
+	K3DCNPGPoolerExpose    string `json:"k3dCnpgPoolerExpose"`    // "clusterip" (default) | "loadbalancer"
+	// Crunchy PGO frame fields (K3DOperator=="pgo"; ignored by every other operator).
+	// Backups reuse the frame's SeaweedFSNodeID/SeaweedFSBucket, and the Service types reuse
+	// K3DExposePG / K3DExposePGBouncer below — Crunchy's cluster has the same two tiers as
+	// Percona's, and a frame switched between the two operators means the same thing by them.
+	K3DPGOInstances int    `json:"k3dPgoInstances"` // Postgres instances (1..5); 0 → 2
+	K3DPGOStorageGB int    `json:"k3dPgoStorageGb"` // per-instance PVC size in GiB; 0 → 1
+	K3DPGOVersion   string `json:"k3dPgoVersion"`   // PostgreSQL major ("17"); "" → the catalog's newest
+	// Monitoring is the same kube-prometheus-stack CloudNativePG gets, but the exporter is the
+	// operator's own: spec.monitoring.pgmonitor.exporter adds a crunchy-postgres-exporter
+	// sidecar to every instance pod. Off by default — it is four more containers.
+	K3DPGOMonitoring  bool   `json:"k3dPgoMonitoring"`
+	K3DPGOPromVersion string `json:"k3dPgoPromVersion"` // kube-prometheus-stack chart version; "" → latest
+	K3DOperator       string `json:"k3dOperator"`       // "" | "pxc" | "ps" | "psmdb" | "pg" | "cnpg" | "pgo"
+	K3DOperatorVer    string `json:"k3dOperatorVer"`    // "" = the catalog's latest
+	K3DNamespace      string `json:"k3dNamespace"`      // namespace the operator + CR are installed into
+	// The proxy in front of the database. cr.yaml ships HAProxy enabled and the alternative disabled;
+	// they are mutually exclusive, so choosing one disables the other. PXC: haproxy | proxysql.
+	// PS: haproxy | router (MySQL Router understands group replication only).
+	K3DProxy string `json:"k3dProxy"` // "haproxy" (default) | "proxysql" | "router"
+	// PS: group replication (the operator's default), or async replication under Orchestrator —
+	// which adds 3 Orchestrator pods, and which the operator will not run without.
+	K3DClusterType string `json:"k3dClusterType"` // "" | "group-replication" | "async"
+	// PSMDB: sharding adds 3 config servers + 3 mongos routers on top of the replica set (9 pods
+	// against a k3d budget), so it is off by default — a plain replica set is 3.
+	K3DSharding bool `json:"k3dSharding"`
+	// Service type per cr.yaml `expose` section — they are independent (e.g. keep the database
+	// pods in-cluster while the proxy gets a LoadBalancer address). K3DExpose is the older
+	// single-value field, kept as the fallback for designs saved before this split.
+	K3DExpose          string `json:"k3dExpose"`          // legacy: applied where a section has no value
+	K3DExposePXC       string `json:"k3dExposePxc"`       // clusterip | nodeport | loadbalancer
+	K3DExposeHAProxy   string `json:"k3dExposeHaproxy"`   //
+	K3DExposeProxySQL  string `json:"k3dExposeProxysql"`  //
+	K3DExposeMySQL     string `json:"k3dExposeMysql"`     // PS: the primary MySQL Service
+	K3DExposeRouter    string `json:"k3dExposeRouter"`    // PS: MySQL Router
+	K3DExposeReplset   string `json:"k3dExposeReplset"`   // PSMDB: the replica set's pods
+	K3DExposeMongos    string `json:"k3dExposeMongos"`    // PSMDB: the mongos routers (sharded only)
+	K3DExposePG        string `json:"k3dExposePg"`        // PG: the primary Postgres Service
+	K3DExposePGBouncer string `json:"k3dExposePgbouncer"` // PG: the pgBouncer pool
+	// PMM 3 authenticates the pmm-client sidecars with a *service token*, not a password: it is
+	// minted on the PMM server at deploy and patched into the cluster's secret. The token carries
+	// its own expiry (default 365 days) — after that the pods stop reporting.
+	K3DPMMTokenTTLValue int    `json:"k3dPmmTokenTtlValue"` // 0 → 365
+	K3DPMMTokenTTLUnit  string `json:"k3dPmmTokenTtlUnit"`  // minutes | hours | days ("" → days)
+	// Run the operator under Delve, with the debugger's port published to the host so an IDE
+	// can attach to it. Both are deploy-time decisions: the debug binary is compiled from the
+	// operator's own source tarball, and the host port can only be published while the k3d
+	// cluster is being created. See k3ddebug.go.
+	K3DDebug     bool `json:"k3dDebug"`
+	K3DDebugPort int  `json:"k3dDebugPort"` // host port for Delve; 0 → 40000
+	// K3DDebugNoPublish stops the debugger's port being published to the host. The in-app
+	// Operator Debugger does not need it — it reaches Delve over the stack network — and the
+	// port is fixed, so two debug frames at once collide on it. Spelled as the negative so the
+	// zero value publishes, which is what every design saved before this option did.
+	K3DDebugNoPublish bool `json:"k3dDebugNoPublish"`
+}
+
+type designDoc struct {
+	Nodes  []designNode  `json:"nodes"`
+	Frames []designFrame `json:"frames"`
+	Edges  []designEdge  `json:"edges"`
+}
+
+// backendFrameForProxySQL returns the backend database cluster frame a ProxySQL
+// node/cluster is associated with — a PXC cluster *or* a MySQL replication frame —
+// plus its type ("pxc"|"mysql"). It walks the canvas association graph (undirected),
+// so a ProxySQL chained behind another ProxySQL still resolves the upstream backend.
+func backendFrameForProxySQL(doc designDoc, startID string) (designFrame, string, bool) {
+	frames := map[string]designFrame{}
+	for _, f := range doc.Frames {
+		if f.Type == "pxc" || f.Type == "mysql" {
+			frames[f.ID] = f
+		}
+	}
+	adj := map[string][]string{}
+	for _, e := range doc.Edges {
+		adj[e.From.Node] = append(adj[e.From.Node], e.To.Node)
+		adj[e.To.Node] = append(adj[e.To.Node], e.From.Node)
+	}
+	visited := map[string]bool{startID: true}
+	queue := []string{startID}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, nb := range adj[cur] {
+			if f, ok := frames[nb]; ok {
+				return f, f.Type, true
+			}
+			if !visited[nb] {
+				visited[nb] = true
+				queue = append(queue, nb)
+			}
+		}
+	}
+	return designFrame{}, "", false
+}
+
+// haproxyClusterFrames returns the distinct Patroni, repmgr, Spock, PXC, or MySQL
+// replication cluster frames directly associated (by an association line) with an
+// HAProxy node. HAProxy fronts exactly one backend cluster, so 0 (unlinked) or >1
+// (ambiguous — not mutually exclusive) are validation errors; the provisioner uses
+// the single frame. The five configs differ (Patroni REST health checks vs a
+// pg_is_in_recovery()-based responder for repmgr vs HAProxy's native pgsql-check for
+// Spock vs PXC clustercheck vs a read_only-based mysqlchk for plain MySQL
+// replication), so the *kind* also selects the provisioning path — see
+// haproxyBackend.
+func haproxyClusterFrames(doc designDoc, startID string) []designFrame {
+	cluster := map[string]designFrame{}
+	for _, f := range doc.Frames {
+		if f.Type == "patroni" || f.Type == "repmgr" || f.Type == "spock" || f.Type == "pxc" || f.Type == "mysql" {
+			cluster[f.ID] = f
+		}
+	}
+	seen := map[string]bool{}
+	var out []designFrame
+	for _, e := range doc.Edges {
+		var other string
+		switch startID {
+		case e.From.Node:
+			other = e.To.Node
+		case e.To.Node:
+			other = e.From.Node
+		default:
+			continue
+		}
+		if f, ok := cluster[other]; ok && !seen[f.ID] {
+			seen[f.ID] = true
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// haproxyBackend returns the single backend cluster frame + its kind
+// ("patroni" | "repmgr" | "spock" | "pxc" | "mysql") an HAProxy fronts, ok only when
+// exactly one is associated (the mutual-exclusivity rule).
+func haproxyBackend(doc designDoc, startID string) (designFrame, string, bool) {
+	fr := haproxyClusterFrames(doc, startID)
+	if len(fr) != 1 {
+		return designFrame{}, "", false
+	}
+	return fr[0], fr[0].Type, true
+}
+
+// nodeConfig is the non-secret profile shown for a deployed node.
+type nodeConfig struct {
+	Domain      string   `json:"domain"`
+	BaseDN      string   `json:"baseDN"`
+	OS          string   `json:"os"`
+	Arch        string   `json:"arch"`
+	Alias       string   `json:"alias"`
+	Hostname    string   `json:"hostname"`
+	FQDN        string   `json:"fqdn"`
+	LDAPAdminDN string   `json:"ldapAdminDN"`
+	Services    []string `json:"services"`
+	WebmailPort int      `json:"webmailPort,omitempty"`
+}
+
+// provProgress is the live provisioning status surfaced to the deployment console.
+type provProgress struct {
+	Percent int      `json:"percent"`
+	Phase   string   `json:"phase"`
+	Log     []string `json:"log"`
+	Message string   `json:"message,omitempty"`
+}
+
+// provStep is one idempotent provisioning step (retried up to 10×).
+type provStep struct {
+	Name   string
+	Script string
+}
+
+// nodeSecrets holds generated credentials for a deployed node.
+type nodeSecrets struct {
+	Domain            string `json:"domain"`
+	BaseDN            string `json:"baseDN"`
+	LDAPAdminDN       string `json:"ldapAdminDN"`
+	LDAPAdminPassword string `json:"ldapAdminPassword"`
+	MailAdminUser     string `json:"mailAdminUser"`
+	MailAdminPassword string `json:"mailAdminPassword"`
+}
+
+type issue struct {
+	Level   string `json:"level"` // info | warning | error
+	Message string `json:"message"`
+	// Image names an extraImageCatalog id when this issue is a missing image that
+	// DBCanvas can build itself (app/extraimages.go). The UI turns it into a Build
+	// button for an admin, which is the whole reason it is a field rather than
+	// something the front end greps out of the message: an error that tells you to
+	// go and run a make target is a poor answer when the daemon is right there.
+	Image string `json:"image,omitempty"`
+}
+
+// missingImageIssue is the one place a "you have not built this image" error is
+// worded. It carries the catalogue id, which is what lets the UI offer to build it
+// — and it takes the id rather than the tag so the two cannot drift.
+func missingImageIssue(id string) issue {
+	e, ok := extraImageByID(id)
+	if !ok {
+		return issue{Level: "error", Message: "Missing image " + id}
+	}
+	msg := "Missing image " + e.Tag + " — "
+	if e.Buildable {
+		msg += "build it below, or run `make " + e.Make + "`"
+	} else {
+		msg += "run `make " + e.Make + "` in a DBCanvas checkout"
+	}
+	return issue{Level: "error", Message: msg, Image: e.ID}
+}
+
+func hasError(issues []issue) bool {
+	for _, i := range issues {
+		if i.Level == "error" {
+			return true
+		}
+	}
+	return false
+}
+
+func networkName(stackID int64) string { return fmt.Sprintf("dbcanvas-stack-%d", stackID) }
+
+func containerName(stackID int64, nodeID string) string {
+	return fmt.Sprintf("dbcanvas-%d-%s", stackID, sanitizeName(nodeID))
+}
+
+func sanitizeName(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	return b.String()
+}
+
+// domainToDN turns "example.net" into "dc=example,dc=net".
+func domainToDN(domain string) string {
+	parts := strings.Split(domain, ".")
+	for i, p := range parts {
+		parts[i] = "dc=" + p
+	}
+	return strings.Join(parts, ",")
+}
+
+// rsyslogScript{RHEL,Debian} install rsyslog if missing and enable+start it, so
+// every systemd-image node has system logging. Best-effort.
+const rsyslogScriptRHEL = `set -e
+command -v rsyslogd >/dev/null 2>&1 || dnf -y -q install rsyslog >/dev/null
+systemctl enable --now rsyslog >/dev/null 2>&1 || true`
+
+const rsyslogScriptDebian = `set -e
+export DEBIAN_FRONTEND=noninteractive
+command -v rsyslogd >/dev/null 2>&1 || { apt-get update -qq >/dev/null; apt-get install -y -qq rsyslog >/dev/null; }
+systemctl enable --now rsyslog >/dev/null 2>&1 || true`
+
+// ensureRsyslog installs (if needed) + enables rsyslog on a systemd-image node.
+// Best-effort: a failure is logged but never fails the deployment.
+func (a *App) ensureRsyslog(ctx context.Context, id, os string, logln func(string)) {
+	s := rsyslogScriptRHEL
+	if isDebianOS(os) {
+		s = rsyslogScriptDebian
+	}
+	if _, err := a.engCtx(ctx).Exec(ctx, id, []string{"bash", "-c", s}, nil); err != nil {
+		logln("rsyslog setup skipped: " + err.Error())
+	} else {
+		logln("rsyslog installed + enabled")
+	}
+}
+
+// dnfIPv4Script forces dnf to resolve over IPv4 (ip_resolve=4), so an OEL node on a
+// host without working IPv6 doesn't stall on AAAA when downloading packages. Mirrors
+// bind's filter-aaaa. Idempotent.
+const dnfIPv4Script = `grep -q '^ip_resolve=' /etc/dnf/dnf.conf 2>/dev/null || echo 'ip_resolve=4' >> /etc/dnf/dnf.conf`
+
+// ensureDNFIPv4 applies dnfIPv4Script on RHEL-family (Oracle Linux) nodes before any
+// package download. No-op on Debian/Ubuntu (apt). Best-effort.
+func (a *App) ensureDNFIPv4(ctx context.Context, id, os string, logln func(string)) {
+	if isDebianOS(os) {
+		return
+	}
+	if _, err := a.engCtx(ctx).Exec(ctx, id, []string{"bash", "-c", dnfIPv4Script}, nil); err != nil {
+		logln("ip_resolve=4 setup skipped: " + err.Error())
+	} else {
+		logln("dnf ip_resolve=4 set")
+	}
+}
+
+// genSecret returns prefix + 8 uppercase hex chars (e.g. LdapAdm^(A02FB5C6).
+// The '!' historically used as the prefix separator is replaced with "^(":
+// unlike '!' (shell history expansion) or '$' (variable interpolation), these
+// characters are not interpolated by shells, so generated passwords stay safe
+// to paste into terminal / psql / mysql contexts.
+func genSecret(prefix string) string {
+	prefix = strings.ReplaceAll(prefix, "!", "^(")
+	b := make([]byte, 4)
+	rand.Read(b)
+	return prefix + strings.ToUpper(hex.EncodeToString(b))
+}
+
+// archOr returns the node's chosen arch, falling back to the architecture this
+// installation targets.
+//
+// The fallback is DOCKER_PLATFORM, not the host's own architecture, because that is
+// the single platform `make images` builds for (images/platform.sh) — there is never
+// more than one architecture of dbcanvas-systemd/-intranet/-vnc on disk. Reading
+// runtime.GOARCH instead used to resolve an unset arch to arm64 on an Apple Silicon
+// host while the images built there were amd64, so the node's image did not exist;
+// picking the architecture by hand on every node is what used to paper over that.
+func archOr(a string) string {
+	if a == "amd64" || a == "arm64" {
+		return a
+	}
+	return platformArch()
+}
+
+// platformArch is DOCKER_PLATFORM's architecture — "amd64" or "arm64". See
+// pullPlatform, which is the same single-platform rule for the images DBCanvas pulls
+// rather than builds.
+func platformArch() string {
+	if strings.TrimSpace(pullPlatform()) == "linux/arm64" {
+		return "arm64"
+	}
+	return "amd64"
+}
+
+// intranetImage is the pre-baked Intranet image (images/intranet.Dockerfile): the
+// systemd Oracle Linux 9 base with OpenLDAP, bind, Squid, postfix/dovecot and Roundcube
+// already installed. Built by `make images` / `make intranet-image`. The node is always
+// Oracle Linux 9 whatever the canvas says — its service config is written for it — so
+// the tag varies by architecture alone.
+func intranetImage(arch string) string {
+	return "dbcanvas-intranet:oraclelinux-9-" + archOr(arch)
+}
+
+// --- validation ---
+
+func (a *App) validateStack(ctx context.Context, st Stack) []issue {
+	var out []issue
+	if err := a.engCtx(ctx).Ping(ctx); err != nil {
+		return append(out, issue{Level: "error", Message: "Docker is not reachable: " + err.Error()})
+	}
+	if osEnv := envOr("DOMAIN", ""); osEnv == "" {
+		out = append(out, issue{Level: "warning", Message: "DOMAIN is not set; using default example.net"})
+	}
+	var doc designDoc
+	if err := json.Unmarshal(st.Design, &doc); err != nil {
+		return append(out, issue{Level: "error", Message: "stack design is invalid"})
+	}
+	if len(doc.Nodes) == 0 {
+		out = append(out, issue{Level: "warning", Message: "Stack has no nodes to deploy"})
+	}
+	intranet := 0
+	watchtower := 0
+	keycloak := 0
+	openbao := 0
+	vnc := 0
+	samba := 0
+	others := 0
+	labels := map[string]int{}
+	seenImg := map[string]bool{}
+	exportReq := map[int][]string{} // requested host port → node labels (PXC + ProxySQL)
+	watchtowerIDs := map[string]bool{}
+	keycloakIDs := map[string]bool{}
+	keycloakSSL := map[string]bool{}
+	dirNodes := map[string]string{} // node id → "intranet" | "sambaad" (directory nodes)
+	openbaoIDs := map[string]bool{} // OpenBao nodes a ps/psm node can key its encryption to
+	pmmCat := loadPMMCatalog()
+	for _, n := range doc.Nodes {
+		if n.Type == "watchtower" {
+			watchtowerIDs[n.ID] = true
+		}
+		if n.Type == "keycloak" {
+			keycloakIDs[n.ID] = true
+			keycloakSSL[n.ID] = n.GenerateCert
+		}
+		if n.Type == "intranet" || n.Type == "sambaad" {
+			dirNodes[n.ID] = n.Type
+		}
+		if n.Type == "openbao" {
+			openbaoIDs[n.ID] = true
+		}
+	}
+	for _, n := range doc.Nodes {
+		labels[strings.TrimSpace(n.Label)]++
+		// Network conditions apply to any node type that has them, so they are
+		// checked before the per-type switch rather than inside it.
+		out = append(out, netemIssues(n)...)
+		// So is the base-image OS family: `make images` builds the Debian bases for
+		// the Linux Client (a jump box that installs nothing), so no product's
+		// install path is exercised on Debian and no other picker offers it — see
+		// productOSFamily in versions.go. A design that says otherwise came from the
+		// API or a hand-edited save, and would fail somewhere inside a package step.
+		if n.OS == "debian" && n.Type != "linuxclient" {
+			out = append(out, issue{Level: "error", Message: "Node " + n.Label + " is set to Debian — Debian base images are supported for Linux Client nodes only"})
+		}
+		// The Debian bases are Docker images; vagrantBoxes maps no box for Debian, so a
+		// Linux Client on a VM-backed stack would fail at box resolution instead.
+		if n.OS == "debian" && n.Type == "linuxclient" && st.Backend == BackendVagrant && a.vagrant != nil {
+			out = append(out, issue{Level: "error", Message: "Linux Client " + n.Label + " is set to Debian, which this stack would provision as a VM — Debian is available on the Docker backend only"})
+		}
+		if n.Type == "linuxclient" && n.GDBEnabled {
+			out = append(out, a.gdbNodeIssues(n, st)...)
+		}
+		switch n.Type {
+		case "intranet":
+			intranet++
+			img := intranetImage(n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make intranet-image` first"})
+				}
+			}
+		case "pmm":
+			others++
+			if !pmmCat.validPMMTag(n.Version) {
+				out = append(out, issue{Level: "warning", Message: "Unknown PMM version " + n.Version + " for node " + n.Label + " — run `make versions`"})
+			}
+			if n.WatchtowerNodeID != "" && !watchtowerIDs[n.WatchtowerNodeID] {
+				out = append(out, issue{Level: "error", Message: "PMM node " + n.Label + " is associated with a Watchtower node that is not on the canvas — add a Watchtower node or clear the association"})
+			}
+			out = append(out, oidcIssues(n, keycloakIDs, keycloakSSL)...)
+			out = append(out, dirAuthIssues(n, dirNodes)...)
+		case "watchtower":
+			watchtower++
+			others++
+		case "keycloak":
+			keycloak++
+			others++
+		case "openbao":
+			openbao++
+			others++
+			// OpenBao installs from EPEL, which DBCanvas only wires up for Oracle Linux 9;
+			// the node is offered on OEL9 (amd64/arm64) alone.
+			if n.OS != "oraclelinux" || !strings.HasPrefix(strings.TrimSpace(n.OSVersion), "9") {
+				out = append(out, issue{Level: "error", Message: "OpenBao node " + n.Label + " is only available on Oracle Linux 9"})
+				break
+			}
+			img := pxcImage(n.OS, n.OSVersion, n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				}
+			}
+		case "sambaad":
+			samba++
+			others++
+			img := pxcImage("ubuntu", "24.04", n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				}
+			}
+		case "vnc":
+			vnc++
+			others++
+			// The pre-baked desktop image, pinned to one Ubuntu release — the node
+			// ignores the design's os/osVersion (see vncImage).
+			img := vncImage(n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make vnc-image` first"})
+				}
+			}
+		case "valkey":
+			others++
+			vos, vosVer, varch := valkeyNodeOS(n.OS, n.OSVersion, n.Arch)
+			img := pxcImage(vos, vosVer, varch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				}
+			}
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		case "proxysql":
+			others++
+			if n.FrameID != "" {
+				break // ProxySQL cluster member — validated via its frame below
+			}
+			img := pxcImage(n.OS, n.OSVersion, n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				}
+			}
+			if _, _, ok := backendFrameForProxySQL(doc, n.ID); !ok {
+				out = append(out, issue{Level: "error", Message: "ProxySQL node " + n.Label + " must be linked to a PXC or MySQL cluster — draw an association line from one to it"})
+			}
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		case "mariadb", "mysqlce":
+			others++
+			img := pxcImage(n.OS, n.OSVersion, n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				}
+			}
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+			out = append(out, upstreamVersionIssues(n.Type, n.Label, n.OS, n.OSVersion, n.Arch,
+				n.MariaDBMajor, n.MariaDBVersion, n.MySQLCEMajor, n.MySQLCEVersion)...)
+		case "ps", "psm":
+			others++
+			img := pxcImage(n.OS, n.OSVersion, n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				}
+			}
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+			if n.Type == "psm" {
+				out = append(out, mongoOIDCIssues(n, keycloakIDs, keycloakSSL)...)
+			} else {
+				out = append(out, oidcIssues(n, keycloakIDs, keycloakSSL)...)
+			}
+			out = append(out, dirAuthIssues(n, dirNodes)...)
+			out = append(out, vaultIssues(n, openbaoIDs)...)
+		case "pg":
+			others++
+			img := pxcImage(n.OS, n.OSVersion, n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				}
+			}
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+			if n.UsePgBackRest {
+				out = append(out, pgBackRestSeaweedIssues("PostgreSQL node "+n.Label, n.SeaweedFSNodeID, doc)...)
+				out = append(out, seaweedBucketIssues("PostgreSQL node "+n.Label, n.SeaweedFSNodeID, n.SeaweedFSBucket, doc)...)
+			}
+			out = append(out, dirAuthIssues(n, dirNodes)...)
+			out = append(out, oidcIssues(n, keycloakIDs, keycloakSSL)...)
+		case "seaweedfs":
+			others++
+			buckets := seaweedBuckets(n)
+			if len(buckets) == 0 {
+				out = append(out, issue{Level: "error", Message: "SeaweedFS node " + n.Label + " needs at least one bucket"})
+			}
+			if len(n.Buckets) > maxSeaweedBuckets {
+				out = append(out, issue{Level: "error", Message: fmt.Sprintf("SeaweedFS node %s has %d buckets — at most %d", n.Label, len(n.Buckets), maxSeaweedBuckets)})
+			}
+			for _, b := range buckets {
+				if !validBucketName(b) {
+					out = append(out, issue{Level: "error", Message: "SeaweedFS node " + n.Label + ": " + b + " is not a valid bucket name (3–63 chars: lowercase letters, digits, dots and hyphens; start/end alphanumeric)"})
+				}
+			}
+		case "haproxy":
+			others++
+			img := pxcImage(n.OS, n.OSVersion, n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				}
+			}
+			// HAProxy fronts exactly one backend cluster — a Patroni PostgreSQL cluster,
+			// a repmgr cluster, a Spock (multi-master) cluster, a PXC cluster, or a
+			// MySQL replication frame (mutually exclusive; each uses a different
+			// config).
+			if hf := haproxyClusterFrames(doc, n.ID); len(hf) == 0 {
+				out = append(out, issue{Level: "error", Message: "HAProxy node " + n.Label + " must be linked to a Patroni, repmgr, Spock, PXC, or MySQL replication cluster — draw an association line from one to it"})
+			} else if len(hf) > 1 {
+				out = append(out, issue{Level: "error", Message: "HAProxy node " + n.Label + " can front only one cluster — remove the extra association (Patroni, repmgr, Spock, PXC, and MySQL replication are mutually exclusive)"})
+			}
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		case "orchestrator":
+			others++
+			img := pxcImage(n.OS, n.OSVersion, n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				}
+			}
+			// No "must be linked to a cluster" error, unlike HAProxy — an Orchestrator
+			// with nothing linked yet is a legal (if pointless) deploy, the same as an
+			// unlinked PMMNodeID everywhere else.
+			if email := strings.TrimSpace(n.AlertEmail); email != "" {
+				if !validName(localPart(email)) || strings.Count(email, "@") > 1 {
+					out = append(out, issue{Level: "error", Message: "Orchestrator node " + n.Label + " has an invalid alert email " + email})
+				}
+			}
+			// The web UI is always published to an auto-assigned free host port
+			// (like PMM/the app simulators) — no user-chosen port to collide with.
+		case "aio":
+			others++
+			img := pxcImage(n.OS, n.OSVersion, n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				}
+			}
+			_, hostMem := a.engCtx(ctx).HostResources(ctx)
+			out = append(out, aioIssues(n, doc, exportReq, hostMem)...)
+		case "trafficsim":
+			others++
+			if !seenImg[trafficSimImage] {
+				seenImg[trafficSimImage] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, trafficSimImage); !ok {
+					out = append(out, missingImageIssue("trafficsim"))
+				}
+			}
+			if _, _, _, ok := trafficSimTarget(doc, n.ID); !ok {
+				out = append(out, issue{Level: "error", Message: "Traffic Sim node " + n.Label + " must be linked to a Valkey or Valkey Cluster node — draw an association line from one to it"})
+			}
+		case "bighole":
+			others++
+			if !seenImg[bigHoleImage] {
+				seenImg[bigHoleImage] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, bigHoleImage); !ok {
+					out = append(out, missingImageIssue("bighole"))
+				}
+			}
+			// Nothing else to check: the viewer takes no association, no
+			// credentials and no configuration, because it talks to nothing.
+		case "mclusteradmin":
+			others++
+			if !seenImg[mcaImage] {
+				seenImg[mcaImage] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, mcaImage); !ok {
+					out = append(out, missingImageIssue("mclusteradmin"))
+				}
+			}
+			// Nothing else to check. The panel takes no association line and needs no
+			// database to be present: which one it opens is a URI typed into its own
+			// UI. The MongoDB half that IS wired — the two accounts — is validated on
+			// the MongoDB, where the box that asks for them lives.
+		case "hotelsim":
+			others++
+			if !seenImg[hotelSimImage] {
+				seenImg[hotelSimImage] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, hotelSimImage); !ok {
+					out = append(out, missingImageIssue("hotelsim"))
+				}
+			}
+			if _, _, _, ok := hotelSimTarget(doc, n.ID); !ok {
+				out = append(out, issue{Level: "error", Message: "Hotel Sim node " + n.Label + " must be linked to a PS MongoDB (standalone, replica set, or sharded cluster) node — draw an association line from one to it"})
+			}
+		case "airlinesim":
+			others++
+			if !seenImg[airlineSimImage] {
+				seenImg[airlineSimImage] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, airlineSimImage); !ok {
+					out = append(out, missingImageIssue("airlinesim"))
+				}
+			}
+			if _, _, ok := airlineSimTarget(doc, n.ID); !ok {
+				out = append(out, issue{Level: "error", Message: "Airline Sim node " + n.Label + " must be linked to a standalone Percona Server node, a MySQL replication or PXC cluster, or a ProxySQL/HAProxy node fronting one — draw an association line from one to it"})
+			}
+		case "carsim":
+			others++
+			if !seenImg[carSimImage] {
+				seenImg[carSimImage] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, carSimImage); !ok {
+					out = append(out, missingImageIssue("carsim"))
+				}
+			}
+			if _, _, ok := carSimTarget(doc, n.ID); !ok {
+				out = append(out, issue{Level: "error", Message: "Car Rental Sim node " + n.Label + " must be linked to a standalone PostgreSQL node, a Patroni/repmgr/Spock cluster, or an HAProxy node fronting one — draw an association line from one to it"})
+			}
+		case "marketchaos":
+			others++
+			if !seenImg[marketChaosImage] {
+				seenImg[marketChaosImage] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, marketChaosImage); !ok {
+					out = append(out, missingImageIssue("marketchaos"))
+				}
+			}
+			if _, _, ok := marketChaosTarget(doc, n.ID); !ok {
+				out = append(out, issue{Level: "error", Message: "MarketChaos node " + n.Label + " must be linked to a standalone Percona Server node, a direct PXC member node, a PXC cluster or MySQL replication frame, or an HAProxy node fronting one — draw an association line from one to it"})
+			}
+		case "stocksim":
+			others++
+			if !seenImg[stockSimImage] {
+				seenImg[stockSimImage] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, stockSimImage); !ok {
+					out = append(out, missingImageIssue("stocksim"))
+				}
+			}
+			// Unlike every other app simulator this one has three valid shapes:
+			// linked to a database on the canvas, pointed at one instance inside
+			// an All in One node (which draws no lines at all, so it is a picker
+			// rather than an edge), or configured by hand to reach a database
+			// outside the stack. Only the first needs an edge. engine is
+			// whichever of the three decided it, and is what the growth target
+			// has to be judged against.
+			engine, issues := stockSimEngineAndIssues(doc, n)
+			out = append(out, issues...)
+			out = append(out, stockSimK3DExposeIssues(doc, n)...)
+			if engine != "" {
+				out = append(out, stockSimSizeIssues(n, engine)...)
+				out = append(out, stockSimLoadIssues(n, engine)...)
+				out = append(out, stockSimLabIssues(n, engine)...)
+			}
+		default:
+			others++
+		}
+	}
+	if intranet > 1 {
+		out = append(out, issue{Level: "error", Message: "Only one Intranet node is allowed per stack"})
+	}
+	if watchtower > 1 {
+		out = append(out, issue{Level: "error", Message: "Only one Watchtower node is allowed per stack"})
+	}
+	if keycloak > 1 {
+		out = append(out, issue{Level: "error", Message: "Only one Keycloak node is allowed per stack"})
+	}
+	if openbao > 1 {
+		out = append(out, issue{Level: "error", Message: "Only one OpenBao node is allowed per stack"})
+	}
+	if vnc > 1 {
+		out = append(out, issue{Level: "error", Message: "Only one Ubuntu VNC node is allowed per stack"})
+	}
+	// Keycloak publishes no host ports — its admin console lives on the stack
+	// network and is only reachable from a browser inside it, i.e. the VNC desktop.
+	if keycloak > 0 && vnc == 0 {
+		out = append(out, issue{Level: "error", Message: "A Keycloak node requires an Ubuntu VNC node — its admin console is only reachable from inside the stack network"})
+	}
+	if samba > 1 {
+		out = append(out, issue{Level: "error", Message: "Only one Samba AD DC node is allowed per stack"})
+	}
+	// The Intranet provides DNS, mail, LDAP and the CA for the whole stack, so it
+	// is required before any other node can be deployed.
+	if others > 0 && intranet == 0 {
+		out = append(out, issue{Level: "error", Message: "An Intranet node is required — add one before deploying other nodes"})
+	}
+	// Labels become DNS hostnames, so they must be present and unique — a stack
+	// with duplicate (or blank) labels cannot be deployed.
+	if labels[""] > 0 {
+		out = append(out, issue{Level: "error", Message: "Every node must have a label"})
+	}
+	for l, c := range labels {
+		if c > 1 && l != "" {
+			out = append(out, issue{Level: "error", Message: "Duplicate node label: " + l + " — labels must be unique"})
+		}
+	}
+
+	// Frames carry the OS for every member they own, so the Debian rule above
+	// applies to them too — no cluster is a Linux Client.
+	for _, f := range doc.Frames {
+		if f.OS == "debian" {
+			out = append(out, issue{Level: "error", Message: "Cluster " + f.Label + " is set to Debian — Debian base images are supported for Linux Client nodes only"})
+		}
+	}
+
+	// --- PXC cluster frames ---
+	clusterNames := map[string]int{}
+	var usedPorts map[int]string
+	for _, f := range doc.Frames {
+		if f.Type != "pxc" {
+			continue
+		}
+		clusterNames[strings.TrimSpace(f.Label)]++
+		regs, total := 0, 0
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != "pxc" {
+				continue
+			}
+			total++
+			if n.Role != "arbitrator" {
+				regs++
+			}
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		}
+		if regs == 0 {
+			out = append(out, issue{Level: "error", Message: "PXC cluster " + f.Label + " needs at least one regular (data) node"})
+		} else if regs < 3 {
+			out = append(out, issue{Level: "warning", Message: "PXC cluster " + f.Label + ": at least 3 regular nodes are recommended for high availability"})
+		}
+		if total%2 == 0 && total > 0 {
+			out = append(out, issue{Level: "warning", Message: "PXC cluster " + f.Label + ": an odd number of nodes keeps quorum on a split network"})
+		}
+	}
+	for name, c := range clusterNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{Level: "error", Message: "Duplicate PXC cluster name: " + name})
+		}
+	}
+
+	// --- ProxySQL cluster frames ---
+	proxyClusterNames := map[string]int{}
+	for _, f := range doc.Frames {
+		if f.Type != "proxysql" {
+			continue
+		}
+		proxyClusterNames[strings.TrimSpace(f.Label)]++
+		members := 0
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != "proxysql" {
+				continue
+			}
+			members++
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		}
+		if members == 0 {
+			out = append(out, issue{Level: "error", Message: "ProxySQL cluster " + f.Label + " needs at least one ProxySQL node"})
+		}
+		img := pxcImage(f.OS, f.OSVersion, f.Arch)
+		if !seenImg[img] {
+			seenImg[img] = true
+			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+			}
+		}
+		if _, _, ok := backendFrameForProxySQL(doc, f.ID); !ok {
+			out = append(out, issue{Level: "error", Message: "ProxySQL cluster " + f.Label + " must be linked to a PXC or MySQL cluster — draw an association line from one to it"})
+		}
+	}
+	for name, c := range proxyClusterNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{Level: "error", Message: "Duplicate ProxySQL cluster name: " + name})
+		}
+	}
+
+	// --- MySQL replication frames ---
+	mysqlNames := map[string]int{}
+	for _, f := range doc.Frames {
+		if f.Type != "mysql" {
+			continue
+		}
+		mysqlNames[strings.TrimSpace(f.Label)]++
+		primaries, secondaries := 0, 0
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != "mysql" {
+				continue
+			}
+			if n.Role == "primary" {
+				primaries++
+			} else {
+				secondaries++
+			}
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		}
+		if primaries != 1 {
+			out = append(out, issue{Level: "error", Message: fmt.Sprintf("MySQL replication %s must have exactly one primary (has %d)", f.Label, primaries)})
+		}
+		if secondaries == 0 {
+			out = append(out, issue{Level: "error", Message: "MySQL replication " + f.Label + " needs at least one secondary"})
+		}
+		img := pxcImage(f.OS, f.OSVersion, f.Arch)
+		if !seenImg[img] {
+			seenImg[img] = true
+			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+			}
+		}
+	}
+	for name, c := range mysqlNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{Level: "error", Message: "Duplicate MySQL replication name: " + name})
+		}
+	}
+
+	// --- MariaDB and MySQL Community frames ---
+	// All four share a shape, so one loop handles them: count members, check the
+	// topology rule for the kind, verify the image, and check the chosen version
+	// against the catalog (availability is uneven — see upstreamVersionIssues).
+	upstreamNames := map[string]int{}
+	for _, f := range doc.Frames {
+		var pretty string
+		switch f.Type {
+		case "mariadbrepl":
+			pretty = "MariaDB replication"
+		case "mariadbgalera":
+			pretty = "MariaDB Galera"
+		case "mysqlcerepl":
+			pretty = "MySQL replication"
+		case "mysqlceinnodb":
+			pretty = "MySQL InnoDB Cluster"
+		default:
+			continue
+		}
+		upstreamNames[f.Type+"\x00"+strings.TrimSpace(f.Label)]++
+		primaries, members := 0, 0
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != f.Type {
+				continue
+			}
+			members++
+			if n.Role == "primary" {
+				primaries++
+			}
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		}
+		switch f.Type {
+		case "mariadbrepl", "mysqlcerepl":
+			if primaries != 1 {
+				out = append(out, issue{Level: "error", Message: fmt.Sprintf("%s %s must have exactly one primary (has %d)", pretty, f.Label, primaries)})
+			}
+			if members-primaries < 1 {
+				out = append(out, issue{Level: "error", Message: pretty + " " + f.Label + " needs at least one secondary"})
+			}
+		case "mariadbgalera":
+			// Galera needs a majority to hold a primary component, so an even member
+			// count buys no extra fault tolerance and two nodes cannot survive one loss.
+			if members < 3 {
+				out = append(out, issue{Level: "error", Message: fmt.Sprintf("%s %s needs at least 3 members (has %d)", pretty, f.Label, members)})
+			} else if members%2 == 0 {
+				out = append(out, issue{Level: "warning", Message: fmt.Sprintf("%s %s has %d members — an even cluster cannot break a tie; use an odd number", pretty, f.Label, members)})
+			}
+		case "mysqlceinnodb":
+			if members < 3 {
+				out = append(out, issue{Level: "error", Message: fmt.Sprintf("%s %s needs at least 3 members (has %d)", pretty, f.Label, members)})
+			} else if members%2 == 0 {
+				out = append(out, issue{Level: "warning", Message: fmt.Sprintf("%s %s has %d members — Group Replication needs an odd number to reach quorum", pretty, f.Label, members)})
+			}
+		}
+		img := pxcImage(f.OS, f.OSVersion, f.Arch)
+		if !seenImg[img] {
+			seenImg[img] = true
+			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+			}
+		}
+		out = append(out, upstreamVersionIssues(f.Type, f.Label, f.OS, f.OSVersion, f.Arch,
+			f.MariaDBMajor, f.MariaDBVersion, f.MySQLCEMajor, f.MySQLCEVersion)...)
+	}
+	for key, c := range upstreamNames {
+		if name := key[strings.IndexByte(key, 0)+1:]; c > 1 && name != "" {
+			out = append(out, issue{Level: "error", Message: "Duplicate cluster name: " + name})
+		}
+	}
+
+	// --- InnoDB / Group Replication frames ---
+	innodbNames := map[string]int{}
+	for _, f := range doc.Frames {
+		if f.Type != "innodb" {
+			continue
+		}
+		innodbNames[strings.TrimSpace(f.Label)]++
+		members := 0
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != "innodb" {
+				continue
+			}
+			members++
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		}
+		if members == 0 {
+			out = append(out, issue{Level: "error", Message: "InnoDB/GR cluster " + f.Label + " needs at least one node"})
+		} else if members < 3 {
+			out = append(out, issue{Level: "warning", Message: "InnoDB/GR cluster " + f.Label + ": at least 3 nodes are recommended for quorum"})
+		} else if members%2 == 0 {
+			out = append(out, issue{Level: "warning", Message: "InnoDB/GR cluster " + f.Label + ": an odd number of nodes keeps quorum on a split network"})
+		}
+		img := pxcImage(f.OS, f.OSVersion, f.Arch)
+		if !seenImg[img] {
+			seenImg[img] = true
+			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+			}
+		}
+	}
+	for name, c := range innodbNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{Level: "error", Message: "Duplicate InnoDB/GR cluster name: " + name})
+		}
+	}
+
+	// --- Valkey cluster frames (3–7 all-master shards) ---
+	valkeyNames := map[string]int{}
+	for _, f := range doc.Frames {
+		if f.Type != "valkeycluster" {
+			continue
+		}
+		valkeyNames[strings.TrimSpace(f.Label)]++
+		members := 0
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != "valkeycluster" {
+				continue
+			}
+			members++
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		}
+		if members < 3 {
+			out = append(out, issue{Level: "error", Message: "Valkey cluster " + f.Label + " needs at least 3 nodes"})
+		} else if members > 7 {
+			out = append(out, issue{Level: "error", Message: "Valkey cluster " + f.Label + " allows at most 7 nodes"})
+		}
+		vos, vosVer, varch := valkeyNodeOS(f.OS, f.OSVersion, f.Arch)
+		img := pxcImage(vos, vosVer, varch)
+		if !seenImg[img] {
+			seenImg[img] = true
+			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+			}
+		}
+	}
+	for name, c := range valkeyNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{Level: "error", Message: "Duplicate Valkey cluster name: " + name})
+		}
+	}
+
+	// --- K3D cluster frames (1-3 k3s nodes; see k3d.go) ---
+	k3dNames := map[string]int{}
+	opCat := loadOperatorCatalog()
+	for _, f := range doc.Frames {
+		if f.Type != "k3d" {
+			continue
+		}
+		k3dNames[strings.TrimSpace(f.Label)]++
+		members := 0
+		for _, n := range doc.Nodes {
+			if n.FrameID == f.ID && n.Type == "k3d" {
+				members++
+			}
+		}
+		out = append(out, a.k3dFrameIssues(ctx, f, members, opCat)...)
+		out = append(out, seaweedBucketIssues("K3D cluster "+f.Label, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
+		out = append(out, k3dBackupIssues(f, doc)...)
+	}
+	for name, c := range k3dNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{Level: "error", Message: "Duplicate K3D cluster name: " + name})
+		}
+	}
+
+	// --- PS MongoDB sharded-cluster frames ---
+	// The topology is fixed by the designer (1 mongos + 3-node config RS + 3 shards
+	// × 3-node RS); validate the member set is intact and the image exists.
+	psmdbNames := map[string]int{}
+	for _, f := range doc.Frames {
+		if f.Type != "psmdb" {
+			continue
+		}
+		psmdbNames[strings.TrimSpace(f.Label)]++
+		config, mongos := 0, 0
+		shardMembers := map[int]int{}
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != "psmdb" {
+				continue
+			}
+			switch n.Role {
+			case "config":
+				config++
+			case "mongos":
+				mongos++
+				if n.ExportEnabled && n.ExportHostPort > 0 {
+					exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+				}
+			default:
+				shardMembers[n.Shard]++
+			}
+		}
+		// Expected member counts per setup: standard = 3-node config RS + 3 shards ×
+		// 3-node RS; minimum = 1 config server + 3 single-node shards.
+		wantCfg, wantRS := 3, 3
+		if f.PSMDBSetup == "minimum" {
+			wantCfg, wantRS = 1, 1
+		}
+		if mongos != 1 {
+			out = append(out, issue{Level: "error", Message: "PS MongoDB cluster " + f.Label + " must have exactly one mongos router"})
+		}
+		if config != wantCfg {
+			out = append(out, issue{Level: "error", Message: fmt.Sprintf("PS MongoDB cluster %s must have a %d-node config-server replica set", f.Label, wantCfg)})
+		}
+		if len(shardMembers) != 3 {
+			out = append(out, issue{Level: "error", Message: "PS MongoDB cluster " + f.Label + " must have 3 shards"})
+		}
+		for s, m := range shardMembers {
+			if m != wantRS {
+				out = append(out, issue{Level: "error", Message: fmt.Sprintf("PS MongoDB cluster %s: shard %d must have a %d-node replica set", f.Label, s, wantRS)})
+			}
+		}
+		out = append(out, pbmFrameIssues(f, doc)...)
+		out = append(out, seaweedBucketIssues("PS MongoDB cluster "+f.Label, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
+		img := pxcImage(f.OS, f.OSVersion, f.Arch)
+		if !seenImg[img] {
+			seenImg[img] = true
+			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+			}
+		}
+	}
+	for name, c := range psmdbNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{Level: "error", Message: "Duplicate PS MongoDB cluster name: " + name})
+		}
+	}
+
+	// --- PS MongoDB replica-set frames (Type=="psmrs") ---
+	psmrsNames := map[string]int{}
+	for _, f := range doc.Frames {
+		if f.Type != "psmrs" {
+			continue
+		}
+		psmrsNames[strings.TrimSpace(f.Label)]++
+		members := 0
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != "psmrs" {
+				continue
+			}
+			members++
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		}
+		if members < 1 {
+			out = append(out, issue{Level: "error", Message: "PS MongoDB replica set " + f.Label + " needs at least one node"})
+		} else if members > 9 {
+			out = append(out, issue{Level: "error", Message: "PS MongoDB replica set " + f.Label + " allows at most 9 nodes"})
+		} else if members%2 == 0 {
+			out = append(out, issue{Level: "warning", Message: "PS MongoDB replica set " + f.Label + ": an odd number of members keeps election quorum on a split network"})
+		}
+		out = append(out, pbmFrameIssues(f, doc)...)
+		out = append(out, seaweedBucketIssues("PS MongoDB cluster "+f.Label, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
+		img := pxcImage(f.OS, f.OSVersion, f.Arch)
+		if !seenImg[img] {
+			seenImg[img] = true
+			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+			}
+		}
+	}
+	for name, c := range psmrsNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{Level: "error", Message: "Duplicate PS MongoDB replica-set name: " + name})
+		}
+	}
+
+	// --- Patroni PostgreSQL cluster frames (Type=="patroni") ---
+	// Each member co-locates PostgreSQL + Patroni + an etcd member; etcd needs a
+	// quorum so 3–7 nodes (odd recommended). When pgBackRest is enabled it must
+	// point at a SeaweedFS node present in the design.
+	patroniNames := map[string]int{}
+	for _, f := range doc.Frames {
+		if f.Type != "patroni" {
+			continue
+		}
+		patroniNames[strings.TrimSpace(f.Label)]++
+		members := 0
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != "patroni" {
+				continue
+			}
+			members++
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		}
+		if members < 3 {
+			out = append(out, issue{Level: "error", Message: "Patroni cluster " + f.Label + " needs at least 3 nodes (etcd quorum)"})
+		} else if members > 7 {
+			out = append(out, issue{Level: "error", Message: "Patroni cluster " + f.Label + " allows at most 7 nodes"})
+		} else if members%2 == 0 {
+			out = append(out, issue{Level: "warning", Message: "Patroni cluster " + f.Label + ": an odd number of members keeps etcd quorum on a split network"})
+		}
+		if f.UsePgBackRest {
+			out = append(out, pgBackRestSeaweedIssues("Patroni cluster "+f.Label, f.SeaweedFSNodeID, doc)...)
+			out = append(out, seaweedBucketIssues("Patroni cluster "+f.Label, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
+		}
+		img := pxcImage(f.OS, f.OSVersion, f.Arch)
+		if !seenImg[img] {
+			seenImg[img] = true
+			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+			}
+		}
+	}
+	for name, c := range patroniNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{Level: "error", Message: "Duplicate Patroni cluster name: " + name})
+		}
+	}
+
+	// --- repmgr PostgreSQL cluster frames (Type=="repmgr") ---
+	// Streaming replication + repmgrd failover; 3–7 nodes (odd recommended). When
+	// Barman is enabled it must point at a SeaweedFS node present in the design.
+	repmgrNames := map[string]int{}
+	for _, f := range doc.Frames {
+		if f.Type != "repmgr" {
+			continue
+		}
+		repmgrNames[strings.TrimSpace(f.Label)]++
+		members := 0
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != "repmgr" {
+				continue
+			}
+			members++
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		}
+		if members < 3 {
+			out = append(out, issue{Level: "error", Message: "repmgr cluster " + f.Label + " needs at least 3 nodes"})
+		} else if members > 7 {
+			out = append(out, issue{Level: "error", Message: "repmgr cluster " + f.Label + " allows at most 7 nodes"})
+		} else if members%2 == 0 {
+			out = append(out, issue{Level: "warning", Message: "repmgr cluster " + f.Label + ": an odd number of members keeps a clear quorum on a split network"})
+		}
+		if f.UseBarman {
+			out = append(out, barmanSeaweedIssues("repmgr cluster "+f.Label, f.SeaweedFSNodeID, doc)...)
+			out = append(out, seaweedBucketIssues("repmgr cluster "+f.Label, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
+		}
+		img := pxcImage(f.OS, f.OSVersion, f.Arch)
+		if !seenImg[img] {
+			seenImg[img] = true
+			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+			}
+		}
+	}
+	for name, c := range repmgrNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{Level: "error", Message: "Duplicate repmgr cluster name: " + name})
+		}
+	}
+
+	// --- Spock PostgreSQL cluster frames (Type=="spock") ---
+	// Multi-master active-active via pgEdge Spock logical replication; every member is
+	// writable (no quorum/failover), so 2–7 nodes with no odd-count requirement.
+	spockNames := map[string]int{}
+	for _, f := range doc.Frames {
+		if f.Type != "spock" {
+			continue
+		}
+		spockNames[strings.TrimSpace(f.Label)]++
+		members := 0
+		for _, n := range doc.Nodes {
+			if n.FrameID != f.ID || n.Type != "spock" {
+				continue
+			}
+			members++
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		}
+		if members < 2 {
+			out = append(out, issue{Level: "error", Message: "Spock cluster " + f.Label + " needs at least 2 nodes"})
+		} else if members > 7 {
+			out = append(out, issue{Level: "error", Message: "Spock cluster " + f.Label + " allows at most 7 nodes"})
+		}
+		img := pxcImage(f.OS, f.OSVersion, f.Arch)
+		if !seenImg[img] {
+			seenImg[img] = true
+			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+			}
+		}
+	}
+	for name, c := range spockNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{Level: "error", Message: "Duplicate Spock cluster name: " + name})
+		}
+	}
+
+	// --- cross-cluster replication links (async / bidirectional) ---
+	// Each replication edge must connect two replication-capable members in
+	// *different* clusters, both with GTID enabled (auto-positioning); a server-id
+	// collision between the endpoints breaks replication.
+	replPairs := map[string]bool{}
+	for _, e := range doc.Edges {
+		if !isReplEdge(e) {
+			continue
+		}
+		src, fa, ok1 := replMember(doc, e.From.Node)
+		dst, fb, ok2 := replMember(doc, e.To.Node)
+		if !ok1 || !ok2 {
+			out = append(out, issue{Level: "error", Message: "A replication link must connect two PXC or Percona Server cluster members"})
+			continue
+		}
+		if fa.ID == fb.ID {
+			out = append(out, issue{Level: "error", Message: fmt.Sprintf("Replication link %s ↔ %s must connect members in different clusters", src.Label, dst.Label)})
+			continue
+		}
+		key := src.ID + "|" + dst.ID
+		rev := dst.ID + "|" + src.ID
+		if replPairs[key] || replPairs[rev] {
+			out = append(out, issue{Level: "error", Message: fmt.Sprintf("Duplicate replication link between %s and %s", src.Label, dst.Label)})
+		}
+		replPairs[key] = true
+		if !fa.GTID || !fb.GTID {
+			out = append(out, issue{Level: "warning", Message: fmt.Sprintf("Replication link %s ↔ %s uses binary-log file/position (GTID off on a cluster) — only writes made after deploy replicate; seed existing data first", src.Label, dst.Label)})
+		}
+		if memberServerID(src) == memberServerID(dst) {
+			out = append(out, issue{Level: "warning", Message: fmt.Sprintf("Replication link %s ↔ %s: both resolve to server-id %d — rename one so the ids differ", src.Label, dst.Label, memberServerID(src))})
+		}
+		if e.Type == "bidir" {
+			out = append(out, issue{Level: "warning", Message: fmt.Sprintf("Bidirectional replication %s ↔ %s is multi-writer — avoid writing the same rows on both sides", src.Label, dst.Label)})
+		}
+	}
+
+	// Export host-port conflicts: within the design, and against ports already
+	// published by other containers (the stack's own containers are excluded so a
+	// redeploy doesn't flag itself).
+	if len(exportReq) > 0 {
+		usedPorts, _ = a.engCtx(ctx).ListPublishedPorts(ctx)
+		selfPrefix := fmt.Sprintf("dbcanvas-%d-", st.ID)
+		for port, who := range exportReq {
+			if len(who) > 1 {
+				out = append(out, issue{Level: "error", Message: fmt.Sprintf("Export host port %d requested by multiple nodes: %s", port, strings.Join(who, ", "))})
+			}
+			if owner, taken := usedPorts[port]; taken && !strings.HasPrefix(owner, selfPrefix) {
+				out = append(out, issue{Level: "error", Message: fmt.Sprintf("Export host port %d is already in use (by %s)", port, owner)})
+			}
+		}
+	}
+
+	if len(out) == 0 {
+		out = append(out, issue{Level: "info", Message: "All checks passed"})
+	}
+	return out
+}
+
+func (a *App) handleValidateStack(w http.ResponseWriter, r *http.Request) {
+	st, _, ok := a.loadOwnedStack(w, r)
+	if !ok {
+		return
+	}
+	issues := a.validateStack(r.Context(), st)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": !hasError(issues), "issues": issues})
+}
+
+// --- deploy ---
+
+func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
+	st, u, ok := a.loadOwnedStack(w, r)
+	if !ok {
+		return
+	}
+	bg := context.Background()
+	issues := a.validateStack(bg, st)
+	if hasError(issues) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "issues": issues})
+		return
+	}
+
+	var doc designDoc
+	json.Unmarshal(st.Design, &doc)
+
+	// Pick the provisioning backend on the first deploy — from the deploying user's
+	// setting — and pin it to the stack for its whole life, so redeploys, management
+	// and teardown never switch engines under it. A vagrant request on a host with no
+	// vagrant/VirtualBox falls back to docker.
+	if st.Backend == "" {
+		backend := a.userBackend(u)
+		if backend == BackendVagrant && a.vagrant == nil {
+			backend = BackendDocker
+		}
+		if err := a.store.SetStackBackend(st.ID, backend); err != nil {
+			writeErr(w, http.StatusInternalServerError, "failed to record backend: "+err.Error())
+			return
+		}
+		st.Backend = backend
+	}
+
+	// One deploy at a time per stack: a second one would race a duplicate set of
+	// provisioners onto the same nodes. Provisioners run on this run's context so
+	// a destroy can cancel them.
+	run, fresh := a.beginDeploy(st.ID)
+	if !fresh {
+		writeErr(w, http.StatusConflict, "a deployment is already in progress for this stack")
+		return
+	}
+
+	// A hybrid stack has nodes on both engines, so ensure the stack network on each
+	// engine it will use: always Docker; also Vagrant (a host-only /24) for a vagrant
+	// stack. ContainerCreate then attaches each node to its own engine's network.
+	for _, e := range a.stackEngines(st) {
+		if err := e.NetworkEnsure(bg, networkName(st.ID)); err != nil {
+			a.abortDeploy(st.ID, run)
+			writeErr(w, http.StatusInternalServerError, "failed to create network: "+err.Error())
+			return
+		}
+	}
+	// Open the host FORWARD path between the two subnets now, so Docker→VM traffic
+	// works as soon as nodes come up; VM→Docker routes are added per node once each
+	// VM is running (reconcileStackRouting, via reconcileStackDNS). No-op if not hybrid.
+	a.linkStackNetworks(bg, st)
+
+	deps, _ := a.store.ListDeployments(st.ID)
+	existing := map[string]Deployment{}
+	for _, d := range deps {
+		existing[d.NodeID] = d
+	}
+	inDesign := map[string]bool{}
+	for _, n := range doc.Nodes {
+		inDesign[n.ID] = true
+	}
+
+	// Remove containers + volumes for nodes deleted from the canvas.
+	removed := false
+	for _, d := range deps {
+		if !inDesign[d.NodeID] {
+			a.removeNodeResources(bg, st, d)
+			removed = true
+		}
+	}
+	// Drop removed hosts from the Intranet DNS zones (reconcile resolves each node's
+	// engine internally).
+	if removed {
+		a.reconcileStackDNS(bg, st.ID)
+	}
+
+	// Create newly added nodes; keep already-running ones (redeploy). Cluster
+	// members (PXC or ProxySQL, identified by FrameID) are provisioned as a unit by
+	// their frame, not individually.
+	for _, n := range doc.Nodes {
+		if n.FrameID != "" {
+			continue
+		}
+		if d, ok := existing[n.ID]; ok && d.State == DeployRunning {
+			// An All-in-One node is the one type whose contents can legitimately
+			// grow after it is running: its instance list is edited on the node
+			// itself, not by adding canvas nodes. Re-enter it when the planned
+			// instance set has changed so the new instances get built; provisionAIO
+			// reuses the container and skips the ones already there.
+			if !(n.Type == "aio" && aioNeedsRedeploy(a, st, n, d)) {
+				continue
+			}
+		}
+		switch n.Type {
+		case "intranet":
+			a.provisionIntranet(st, n)
+		case "sambaad":
+			a.provisionSambaNode(st, n, doc)
+		case "pmm":
+			a.provisionPMM(st, n, doc)
+		case "proxysql":
+			a.provisionProxySQL(st, n, doc)
+		case "ps":
+			a.provisionPerconaServer(st, n, doc)
+		case "mariadb":
+			a.provisionMariaDB(st, n, doc)
+		case "mysqlce":
+			a.provisionMySQLCE(st, n, doc)
+		case "pg":
+			a.provisionPG(st, n, doc)
+		case "psm":
+			a.provisionMongoStandalone(st, n, doc)
+		case "seaweedfs":
+			a.provisionSeaweedFS(st, n, doc)
+		case "watchtower":
+			a.provisionWatchtower(st, n, doc)
+		case "keycloak":
+			a.provisionKeycloak(st, n, doc)
+		case "mclusteradmin":
+			a.provisionMClusterAdmin(st, n, doc)
+		case "bighole":
+			a.provisionBigHole(st, n, doc)
+		case "openbao":
+			a.provisionOpenBao(st, n, doc)
+		case "vnc":
+			a.provisionVNC(st, n, doc)
+		case "valkey":
+			a.provisionValkeyStandalone(st, n, doc)
+		case "haproxy":
+			a.provisionHAProxy(st, n, doc)
+		case "orchestrator":
+			a.provisionOrchestrator(st, n, doc)
+		case "linuxclient":
+			a.provisionLinuxClient(st, n, doc)
+		case "trafficsim":
+			a.provisionTrafficSim(st, n, doc)
+		case "hotelsim":
+			a.provisionHotelSim(st, n, doc)
+		case "airlinesim":
+			a.provisionAirlineSim(st, n, doc)
+		case "carsim":
+			a.provisionCarSim(st, n, doc)
+		case "marketchaos":
+			a.provisionMarketChaos(st, n, doc)
+		case "stocksim":
+			a.provisionStockSim(st, n, doc)
+		case "aio":
+			a.provisionAIO(st, n, doc)
+		}
+	}
+
+	// Seed the stack-wide replication barrier with every PXC + MySQL-replication
+	// member being (re)provisioned this pass (frames already fully running are
+	// skipped, matching the provision gate below). Intra-cluster attach and
+	// cross-cluster channels are held until all of them reach their reset baseline.
+	var barrierIDs []string
+	for _, f := range doc.Frames {
+		if !mysqlFamilyFrame(f.Type) {
+			continue
+		}
+		var ids []string
+		running := 0
+		for _, n := range doc.Nodes {
+			if n.FrameID == f.ID && n.Type == f.Type {
+				ids = append(ids, n.ID)
+				if d, ok := existing[n.ID]; ok && d.State == DeployRunning {
+					running++
+				}
+			}
+		}
+		if len(ids) > 0 && running == len(ids) {
+			continue // frame skipped (already fully running) — not part of this pass
+		}
+		barrierIDs = append(barrierIDs, ids...)
+	}
+	a.setDeployBarrier(st.ID, barrierIDs)
+
+	// Cluster frames: (re)provision a frame unless all its member nodes are already
+	// running. PXC formation is sequential/all-or-nothing; ProxySQL members are
+	// independent but treated the same for the redeploy gate.
+	for _, f := range doc.Frames {
+		memberType := ""
+		switch f.Type {
+		case "pxc":
+			memberType = "pxc"
+		case "proxysql":
+			memberType = "proxysql"
+		case "mysql":
+			memberType = "mysql"
+		case "innodb":
+			memberType = "innodb"
+		case "mariadbrepl":
+			memberType = "mariadbrepl"
+		case "mariadbgalera":
+			memberType = "mariadbgalera"
+		case "mysqlcerepl":
+			memberType = "mysqlcerepl"
+		case "mysqlceinnodb":
+			memberType = "mysqlceinnodb"
+		case "psmdb":
+			memberType = "psmdb"
+		case "psmrs":
+			memberType = "psmrs"
+		case "patroni":
+			memberType = "patroni"
+		case "repmgr":
+			memberType = "repmgr"
+		case "spock":
+			memberType = "spock"
+		case "valkeycluster":
+			memberType = "valkeycluster"
+		case "k3d":
+			memberType = "k3d"
+		default:
+			continue
+		}
+		members := 0
+		running := 0
+		for _, n := range doc.Nodes {
+			if n.FrameID == f.ID && n.Type == memberType {
+				members++
+				if d, ok := existing[n.ID]; ok && d.State == DeployRunning {
+					running++
+				}
+			}
+		}
+		if members > 0 && running == members {
+			continue
+		}
+		switch f.Type {
+		case "pxc":
+			a.provisionPXCFrame(st, f, doc)
+		case "proxysql":
+			a.provisionProxySQLFrame(st, f, doc)
+		case "mysql":
+			a.provisionMySQLFrame(st, f, doc)
+		case "innodb":
+			a.provisionInnoDBFrame(st, f, doc)
+		case "mariadbrepl":
+			a.provisionMariaDBFrame(st, f, doc)
+		case "mariadbgalera":
+			a.provisionMariaDBGaleraFrame(st, f, doc)
+		case "mysqlcerepl":
+			a.provisionMySQLCEFrame(st, f, doc)
+		case "mysqlceinnodb":
+			a.provisionMySQLCEInnoDBFrame(st, f, doc)
+		case "psmdb":
+			a.provisionMongoDBFrame(st, f, doc)
+		case "psmrs":
+			a.provisionMongoRSFrame(st, f, doc)
+		case "patroni":
+			a.provisionPatroniFrame(st, f, doc)
+		case "repmgr":
+			a.provisionRepmgrFrame(st, f, doc)
+		case "spock":
+			a.provisionSpockFrame(st, f, doc)
+		case "valkeycluster":
+			a.provisionValkeyClusterFrame(st, f, doc)
+		case "k3d":
+			a.provisionK3DFrame(st, f, doc)
+		}
+	}
+
+	// Final phase: configure cross-cluster replication links (async / bidirectional)
+	// drawn between cluster members. It waits for the clusters to come up, then
+	// reconciles channels (creating new ones, pruning removed ones) on each redeploy.
+	replCtx, endRepl := a.deployScope(st.ID, a.eng(st))
+	go func() {
+		defer endRepl()
+		a.reconcileReplication(replCtx, st, doc)
+	}()
+
+	// Last of all: impair the links that were asked to be impaired. This runs
+	// after the clusters are formed and after replication is wired, because
+	// shaping applied earlier would be in force during state transfer — and a
+	// lossy link fails SST, which would break the stack rather than degrade it.
+	// See reconcileNetem.
+	netCtx, endNet := a.deployScope(st.ID, a.eng(st))
+	go func() {
+		defer endNet()
+		a.reconcileNetem(netCtx, st, doc)
+	}()
+
+	// Every provisioner has registered with the run by now; release it once they
+	// all return so a later deploy (or a destroy) is not blocked forever.
+	a.finishDeploy(st.ID, run)
+
+	a.store.SetStackStatus(st.ID, StackDeployed)
+	a.notifyStack(st.ID, "stack.deploying", "info", "Deployment started",
+		"Provisioning "+st.Name+" — you'll be notified of any node failures.", "")
+	out, _ := a.store.ListDeployments(st.ID)
+	writeJSON(w, http.StatusAccepted, map[string]any{"deployments": out})
+}
+
+// provisionIntranet records the deployment and starts an async provisioning
+// goroutine for an Intranet node.
+func (a *App) provisionIntranet(st Stack, n designNode) {
+	domain := envOr("DOMAIN", "example.net")
+	baseDN := domainToDN(domain)
+	adminDN := "cn=admin," + baseDN
+
+	// reuse secrets if this node was deployed before (keeps creds stable)
+	var sec nodeSecrets
+	if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
+		json.Unmarshal(dep.Secrets, &sec)
+	}
+	if sec.LDAPAdminPassword == "" {
+		sec = nodeSecrets{
+			Domain:            domain,
+			BaseDN:            baseDN,
+			LDAPAdminDN:       adminDN,
+			LDAPAdminPassword: genSecret("LdapAdm!"),
+			MailAdminUser:     "admin@" + domain,
+			MailAdminPassword: genSecret("MailAdm!"),
+		}
+	}
+	cfg := nodeConfig{
+		Domain: domain, BaseDN: baseDN, OS: "oel9", Arch: archOr(n.Arch),
+		Alias: "intranet", Hostname: "intranet", FQDN: "intranet." + domain, LDAPAdminDN: adminDN,
+		Services: []string{"Squid proxy", "DNS", "SMTP", "IMAP", "Webmail (RoundCube)", "OpenLDAP", "Self-signing CA"},
+	}
+	cfgJSON, _ := json.Marshal(cfg)
+	secJSON, _ := json.Marshal(sec)
+	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
+
+	// Each node provisions in its own goroutine, so one failing never blocks the
+	// others. Steps are retried up to 10×; progress is published for the console.
+	ctx, endScope := a.deployScope(st.ID, a.nodeEngine(st, n.Type))
+	go func() {
+		defer endScope()
+		prog := &provProgress{Percent: 0, Phase: "Starting", Log: []string{}}
+		save := func() { b, _ := json.Marshal(prog); a.store.SetDeploymentProgress(st.ID, n.ID, b) }
+		logln := func(s string) {
+			prog.Log = append(prog.Log, s)
+			if len(prog.Log) > 200 {
+				prog.Log = prog.Log[len(prog.Log)-200:]
+			}
+			save()
+		}
+		setPhase := func(p string, pct int) { prog.Phase = p; prog.Percent = pct; save() }
+		failNode := func(format string, args ...any) {
+			msg := fmt.Sprintf(format, args...)
+			log.Printf("stack %d node %s: %s", st.ID, n.ID, msg)
+			prog.Phase = "failed"
+			prog.Message = msg
+			save()
+			a.store.SetDeploymentState(st.ID, n.ID, DeployError)
+		}
+
+		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
+
+		// The Intranet runs the pre-baked image, not a base image: without it there is
+		// nothing to configure, so say which command builds it rather than letting the
+		// container create fail with "no such image".
+		img := intranetImage(n.Arch)
+		if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+			failNode("image %s not found — run `make intranet-image` first", img)
+			return
+		}
+
+		setPhase("Creating container", 3)
+
+		name := containerName(st.ID, n.ID)
+		if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
+			a.engCtx(ctx).ContainerRemove(ctx, cid)
+		}
+		// The Intranet takes whatever address Docker assigns it — being the first
+		// container on the stack network, that is host .2 in practice anyway.
+		//
+		// It used to *request* .2, which Docker refuses on a network it chose the
+		// subnet for itself: "user specified IP address is supported only when
+		// connecting to networks with user configured subnets". NetworkEnsure creates
+		// the network without a subnet, so every stack hit that and the Intranet — the
+		// first node of every deploy — could not start at all. Docker lifted the
+		// restriction in 29.0.2; on anything older the whole product was unusable.
+		//
+		// Asking for the address bought nothing to begin with. Nothing consumes a
+		// *predicted* Intranet IP: waitIntranet (pmm.go) and intranetEndpoint (dns.go)
+		// both read the real one off the running container, and restoreNodeResolver
+		// re-points every node after a restart — which is the "survives restarts"
+		// property the pin was there for. The FQDN alias below is what peers actually
+		// resolve it by.
+		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
+			Name: name, Image: img, Hostname: "intranet",
+			Network: networkName(st.ID), Aliases: []string{"intranet", "intranet." + domain},
+			Privileged: true, PublishPort: 8080,
+		})
+		if err != nil {
+			failNode("create container: %v", err)
+			return
+		}
+		if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
+			failNode("start container: %v", err)
+			return
+		}
+
+		// record the auto-assigned (unused) host port for RoundCube
+		if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, "8080/tcp"); e == nil && hp != "" {
+			if p, e2 := strconv.Atoi(hp); e2 == nil {
+				cfg.WebmailPort = p
+			}
+		}
+		cfgJSON, _ = json.Marshal(cfg)
+		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON, Secrets: secJSON})
+		logln(fmt.Sprintf("container started (webmail host port %d)", cfg.WebmailPort))
+
+		setPhase("Waiting for systemd", 8)
+		if err := a.engCtx(ctx).WaitSystemd(ctx, id, 90*time.Second); err != nil {
+			failNode("systemd did not start: %v", err)
+			return
+		}
+		// The Intranet image is always Oracle Linux — force dnf over IPv4 before its
+		// package installs.
+		a.ensureDNFIPv4(ctx, id, "oraclelinux", logln)
+
+		// Detect cross-arch emulation: an amd64 Intranet on an arm64 Docker host runs
+		// under QEMU or, on Apple Silicon + Rancher/colima, Rosetta. The "Relax
+		// sandboxing for emulation" step keys off EMULATED to disarm the systemd
+		// hardening that breaks the translator's RW→RX code-cache mappings.
+		emulated := ""
+		if ha := a.engCtx(ctx).HostArch(ctx); ha != "" {
+			hostArm := strings.Contains(ha, "arm") || strings.Contains(ha, "aarch64")
+			if hostArm && archOr(n.Arch) == "amd64" {
+				emulated = "1"
+				logln("detected x86-64 emulation on an " + ha + " host — relaxing systemd sandboxing for php-fpm/dovecot")
+			}
+		}
+
+		env := []string{
+			"DOMAIN=" + sec.Domain,
+			"BASE_DN=" + sec.BaseDN,
+			"LDAP_ADMIN_DN=" + sec.LDAPAdminDN,
+			"LDAP_ADMIN_PW=" + sec.LDAPAdminPassword,
+			"MAIL_ADMIN=admin",
+			"MAIL_ADMIN_PW=" + sec.MailAdminPassword,
+			"EMULATED=" + emulated,
+		}
+		steps := intranetSteps()
+		for i, step := range steps {
+			setPhase(step.Name, 10+i*88/len(steps))
+			lastErr := ""
+			ok := false
+			for attempt := 1; attempt <= 10; attempt++ {
+				res, err := a.engCtx(ctx).Exec(ctx, id, []string{"bash", "-c", step.Script}, env)
+				if err == nil && res.Code == 0 {
+					ok = true
+					break
+				}
+				if err != nil {
+					lastErr = err.Error()
+				} else if lastErr = strings.TrimSpace(res.Stderr); lastErr == "" {
+					lastErr = strings.TrimSpace(res.Stdout)
+				}
+				logln(fmt.Sprintf("%s: attempt %d/10 failed: %s", step.Name, attempt, lastLines(lastErr, 160)))
+				time.Sleep(2 * time.Second)
+			}
+			if !ok {
+				failNode("step %q failed after 10 attempts: %s", step.Name, lastLines(lastErr, 160))
+				return
+			}
+			logln(step.Name + ": ok")
+		}
+
+		// Configure bind as the authoritative resolver and publish DNS records for
+		// every host in the stack (including the Intranet itself).
+		setPhase("Publishing DNS records", 98)
+		a.reconcileStackDNS(ctx, st.ID)
+		logln("DNS zones published")
+
+		setPhase("Running", 100)
+		prog.Message = "provisioned"
+		save()
+		a.store.SetDeploymentState(st.ID, n.ID, DeployRunning)
+		log.Printf("stack %d node %s: provisioned", st.ID, n.ID)
+	}()
+}
+
+// intranetSteps is the ordered, idempotent provisioning sequence. Each step is
+// run via `bash -c` inside the container and may be retried.
+//
+// Configuration only: every package these steps configure is already installed in the
+// image (images/intranet.Dockerfile). That is the whole reason the list starts here —
+// installing them at deploy time was 56 of the node's 63 seconds, and what gets
+// installed never varied. What is left does vary, per stack: the CA, the LDAP suffix
+// and credentials, the mail domain, and the DNS zones.
+func intranetSteps() []provStep {
+	return []provStep{
+		// Under x86-64 emulation on an arm64 host (e.g. Rosetta on Apple Silicon via
+		// Rancher Desktop), the binary translator intermittently fails to obtain its
+		// code-cache mapping at process start and the daemon dies with "rosetta error:
+		// mmap_anonymous_rw mmap failed" / SIGSEGV. The retry is what makes it work: with
+		// Restart=always systemd keeps relaunching until a start lands (the failure is
+		// transient). So when emulation is detected, add Restart=always to the
+		// long-running daemons (Roundcube already gets it via dbcanvas-roundcube.service).
+		// The MemoryDenyWriteExecute/SystemCallFilter clears are harmless belt-and-
+		// suspenders for unit versions that do set them. (Localhost-only dev services.)
+		// Runs before any service starts (slapd comes up in "Configure OpenLDAP").
+		{"Relax sandboxing for emulation", `set -e
+[ -n "$EMULATED" ] || exit 0
+for svc in dovecot postfix named slapd squid rsyslog; do
+  d="/etc/systemd/system/${svc}.service.d"
+  install -d "$d"
+  cat > "$d/10-dbcanvas-emulation.conf" <<'UNIT'
+[Service]
+MemoryDenyWriteExecute=no
+SystemCallFilter=
+Restart=always
+RestartSec=2
+UNIT
+done
+systemctl daemon-reload`},
+
+		{"Create CA", `set -e
+install -d -m 0755 /etc/pki/dbcanvas
+if [ ! -f /etc/pki/dbcanvas/ca.crt ]; then
+  openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -keyout /etc/pki/dbcanvas/ca.key -out /etc/pki/dbcanvas/ca.crt -subj "/O=DBCanvas/CN=DBCanvas CA" >/dev/null 2>&1
+fi
+chmod 600 /etc/pki/dbcanvas/ca.key 2>/dev/null || true`},
+
+		{"Configure OpenLDAP", `set -e
+chown -R ldap:ldap /var/lib/ldap 2>/dev/null || true
+systemctl enable --now slapd
+for i in $(seq 1 20); do ldapsearch -Y EXTERNAL -H ldapi:/// -b cn=config -s base >/dev/null 2>&1 && break; sleep 1; done
+HASH=$(slappasswd -s "$LDAP_ADMIN_PW")
+cat >/tmp/db.ldif <<EOF
+dn: olcDatabase={2}mdb,cn=config
+changetype: modify
+replace: olcSuffix
+olcSuffix: $BASE_DN
+-
+replace: olcRootDN
+olcRootDN: $LDAP_ADMIN_DN
+-
+replace: olcRootPW
+olcRootPW: $HASH
+EOF
+ldapmodify -Y EXTERNAL -H ldapi:/// -f /tmp/db.ldif
+for s in cosine inetorgperson nis; do ldapadd -Y EXTERNAL -H ldapi:/// -f "/etc/openldap/schema/$s.ldif" >/dev/null 2>&1 || true; done`},
+
+		{"Seed LDAP directory", `set -e
+DC="${BASE_DN%%,*}"; DC="${DC#dc=}"
+cat >/tmp/base.ldif <<EOF
+dn: $BASE_DN
+objectClass: top
+objectClass: dcObject
+objectClass: organization
+o: $DOMAIN
+dc: $DC
+
+dn: ou=People,$BASE_DN
+objectClass: organizationalUnit
+ou: People
+
+dn: ou=Groups,$BASE_DN
+objectClass: organizationalUnit
+ou: Groups
+EOF
+ldapadd -x -D "$LDAP_ADMIN_DN" -w "$LDAP_ADMIN_PW" -f /tmp/base.ldif 2>/dev/null || ldapsearch -x -D "$LDAP_ADMIN_DN" -w "$LDAP_ADMIN_PW" -b "$BASE_DN" -s base dn >/dev/null`},
+
+		{"Configure mail", `set -e
+getent group vmail >/dev/null || groupadd -g 5000 vmail
+id vmail >/dev/null 2>&1 || useradd -g vmail -u 5000 -d /var/mail/vhosts -s /sbin/nologin vmail
+install -d -o vmail -g vmail "/var/mail/vhosts/$DOMAIN"
+postconf -e "myhostname = intranet.$DOMAIN" "mydomain = $DOMAIN" "myorigin = \$mydomain" "inet_interfaces = all" "inet_protocols = ipv4" "virtual_mailbox_domains = $DOMAIN" "virtual_mailbox_base = /var/mail/vhosts" "virtual_mailbox_maps = hash:/etc/postfix/vmailbox" "virtual_minimum_uid = 5000" "virtual_uid_maps = static:5000" "virtual_gid_maps = static:5000"
+touch /etc/postfix/vmailbox
+grep -q "^$MAIL_ADMIN@$DOMAIN " /etc/postfix/vmailbox || echo "$MAIL_ADMIN@$DOMAIN $DOMAIN/$MAIL_ADMIN/" >> /etc/postfix/vmailbox
+postmap /etc/postfix/vmailbox
+install -d /etc/dovecot
+[ -f /etc/dovecot/users ] || echo "$MAIL_ADMIN@$DOMAIN:{PLAIN}$MAIL_ADMIN_PW::::::" > /etc/dovecot/users
+# Wire dovecot to authenticate the virtual users (passwd-file) over plaintext
+# IMAP on localhost, with maildirs matching postfix's virtual_mailbox_base.
+# Rosetta (Apple Silicon) hardening, matching the old working image:
+#  - default_vsz_limit=1G: dovecot caps each process's address space at 256M by default,
+#    but the Rosetta translator needs a far larger virtual mapping for its runtime/code
+#    cache — under the 256M cap even a 4KB mmap fails ("rosetta error: mmap_anonymous_rw
+#    mmap failed, size=1000") and dovecot dies (SIGTRAP). Raising the cap gives it room.
+#  - mmap_disable=yes: dovecot also mmaps its own index/cache files; force plain read/write.
+# Both are harmless on native hosts (a little extra address space / minor index I/O cost).
+cat > /etc/dovecot/conf.d/99-dbcanvas.conf <<'DCONF'
+protocols = imap
+default_vsz_limit = 1G
+mmap_disable = yes
+ssl = no
+disable_plaintext_auth = no
+auth_mechanisms = plain login
+mail_location = maildir:/var/mail/vhosts/%d/%n
+first_valid_uid = 5000
+passdb {
+  driver = passwd-file
+  args = scheme=PLAIN username_format=%u /etc/dovecot/users
+}
+userdb {
+  driver = static
+  args = uid=vmail gid=vmail home=/var/mail/vhosts/%d/%n
+}
+DCONF`},
+
+		{"Configure webmail", `set -e
+install -d -o apache -g apache /var/lib/roundcubemail
+RC=/etc/roundcubemail/config.inc.php
+cat > "$RC" <<'RCCFG'
+<?php
+$config = [];
+$config['db_dsnw'] = 'sqlite:////var/lib/roundcubemail/roundcube.db?mode=0646';
+$config['imap_host'] = 'localhost';
+$config['imap_port'] = 143;
+// SMTP: localhost:25 with no auth (delivery permitted via postfix mynetworks).
+// smtp_server/smtp_port are the RoundCube 1.5 keys; smtp_host is the 1.6 name.
+$config['smtp_server'] = 'localhost';
+$config['smtp_port'] = 25;
+$config['smtp_host'] = 'localhost:25';
+$config['smtp_user'] = '';
+$config['smtp_pass'] = '';
+$config['des_key'] = 'dbcanvasRoundcube24key!!';
+$config['enable_installer'] = false;
+$config['support_url'] = '';
+$config['product_name'] = 'DBCanvas Webmail';
+RCCFG
+chown apache:apache "$RC" 2>/dev/null || true
+# Do NOT pre-create the sqlite db with a one-shot "php -r": under Rosetta that php CLI
+# invocation SIGSEGVs every time ("mmap_anonymous_rw mmap failed") and would fail the
+# deploy. Roundcube creates the db + schema itself on first request, so we just make the
+# directory writable by the apache user that dbcanvas-roundcube.service (php -S) runs as;
+# the db lands at /var/lib/roundcubemail/roundcube.db on first hit (Restart=always rides
+# out any transient Rosetta crash until a request lands).
+chown -R apache:apache /var/lib/roundcubemail 2>/dev/null || true
+# Serve Roundcube with PHP's built-in web server instead of httpd + php-fpm. httpd's
+# php-fpm master/worker model fares worse under emulation; a single "php -S" process is
+# simpler. Runs as the unprivileged apache user, so it binds 8080 (not the privileged
+# 80) — dbcanvas publishes that to an auto host port — and serves Roundcube at the root
+# (the frontend links to http://host:port/).
+#
+# opcache is DISABLED (-d opcache.enable=0 -d opcache.enable_cli=0). This is the fix for
+# Apple Silicon / Rosetta: php-opcache (+ its tracing JIT) allocates executable memory via
+# mmap, which the Rosetta translator can't satisfy ("mmap_anonymous_rw mmap failed") — so
+# with opcache on, php SIGSEGVs the instant it executes Roundcube code on a request. The
+# old working image simply had no php-opcache package; we keep the package but turn it off
+# for this server. (Harmless on native x86/arm too — webmail doesn't need opcache.)
+cat > /etc/systemd/system/dbcanvas-roundcube.service <<'UNIT'
+[Unit]
+Description=DBCanvas Roundcube webmail (php built-in server)
+After=network.target
+
+[Service]
+User=apache
+Group=apache
+ExecStart=/usr/bin/php -d error_reporting=0 -d opcache.enable=0 -d opcache.enable_cli=0 -S 0.0.0.0:8080 -t /usr/share/roundcubemail
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload`},
+
+		{"Configure Squid", `set -e
+CONF=/etc/squid/squid.conf
+grep -q '^maximum_object_size 150 MB$' "$CONF" || echo 'maximum_object_size 150 MB' >> "$CONF"
+grep -q '^cache_dir ufs /var/spool/squid ' "$CONF" || echo 'cache_dir ufs /var/spool/squid 4000 16 256' >> "$CONF"
+install -d -o squid -g squid /var/spool/squid 2>/dev/null || true
+# Enable collapsed_forwarding + package-repo-aware refresh_pattern rules so distro
+# package/metadata caches (rpm/deb bodies long, repodata/dists short) behave well and
+# concurrent misses for the same object collapse to one upstream fetch. Inserted before
+# the stock refresh_pattern block so these more specific rules win. Idempotent (guarded
+# on the collapsed_forwarding marker); read from a temp file to avoid awk/sed escaping.
+if ! grep -q '^collapsed_forwarding on$' "$CONF"; then
+  BLOCK=$(mktemp)
+  cat > "$BLOCK" <<'REFRESH'
+collapsed_forwarding on
+refresh_pattern -i \.rpm$                  10080 90% 43200
+refresh_pattern -i \.(deb|udeb|ddeb)$      10080 90% 43200
+refresh_pattern -i /repodata/              0     20% 1440
+refresh_pattern -i /dists/                 0     20% 60
+refresh_pattern .                          0     20% 4320
+REFRESH
+  TMP=$(mktemp)
+  awk -v block="$BLOCK" '
+    !ins && /^refresh_pattern/ { while ((getline line < block) > 0) print line; close(block); ins=1 }
+    { print }
+  ' "$CONF" > "$TMP" && cat "$TMP" > "$CONF"
+  rm -f "$TMP" "$BLOCK"
+fi`},
+		// NOTE: the cache_dir swap directories are initialized by the squid.service's
+		// own ExecStartPre (cache_swap.sh) on start — do NOT run "squid -z" here: it
+		// leaves a detached instance + /run/squid.pid that makes the subsequent
+		// systemctl start fail with "Squid is already running" (Result: protocol).
+
+		{"Configure named", `set -e
+# Load the filter-aaaa plugin so AAAA records are stripped from IPv4 queries
+# (hosts without working IPv6 otherwise stall on AAAA). Inserted before the
+# options{} block; reconcileStackDNS keeps it when it
+# rewrites named.conf with the stack's zones. Idempotent.
+CONF=/etc/named.conf
+if [ -f "$CONF" ] && ! grep -q 'filter-aaaa.so' "$CONF"; then
+  TMP=$(mktemp)
+  printf '%s\n' \
+    'plugin query "/usr/lib64/named/filter-aaaa.so" {' \
+    '    filter-aaaa-on-v4 yes;' \
+    '};' > "$TMP"
+  cat "$CONF" >> "$TMP"
+  cat "$TMP" > "$CONF"
+  rm -f "$TMP"
+fi`},
+
+		{"Enable services", `set -e
+# Webmail runs as dbcanvas-roundcube (php -S); httpd/php-fpm are intentionally not
+# started (the roundcubemail package pulls them in, but php -S replaces both — see
+# "Configure webmail").
+for svc in rsyslog slapd squid named postfix dovecot dbcanvas-roundcube; do
+  systemctl enable "$svc" >/dev/null 2>&1 || true
+  systemctl restart "$svc" >/dev/null 2>&1 || true
+done`},
+	}
+}
+
+func lastLines(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if len(s) > n {
+		s = s[len(s)-n:]
+	}
+	return s
+}
+
+// --- lifecycle + profile ---
+
+func (a *App) handleGetNode(w http.ResponseWriter, r *http.Request) {
+	st, _, ok := a.loadOwnedStack(w, r)
+	if !ok {
+		return
+	}
+	dep, err := a.store.GetDeployment(st.ID, r.PathValue("nid"))
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "node is not deployed")
+		return
+	}
+	writeJSON(w, http.StatusOK, dep)
+}
+
+func (a *App) handleNodeAction(action string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		st, _, ok := a.loadOwnedStack(w, r)
+		if !ok {
+			return
+		}
+		nid := r.PathValue("nid")
+		dep, err := a.store.GetDeployment(st.ID, nid)
+		if err != nil || dep.ContainerID == "" {
+			writeErr(w, http.StatusNotFound, "node is not deployed")
+			return
+		}
+		// start/stop/restart must hit the node's own engine — a VM node's lifecycle is
+		// driven by Vagrant, not Docker.
+		a.stampEngine(r, st, nid)
+		ctx := r.Context()
+		switch action {
+		case "start":
+			err = a.engCtx(ctx).ContainerStart(ctx, dep.ContainerID)
+			if err == nil {
+				a.store.SetDeploymentState(st.ID, nid, DeployRunning)
+				a.refreshPublishedPorts(ctx, st, nid, dep)
+				a.restoreNodeResolver(ctx, st, nid, dep)
+				a.reconcileStackDNS(ctx, st.ID)
+			}
+		case "stop":
+			err = a.engCtx(ctx).ContainerStop(ctx, dep.ContainerID)
+			if err == nil {
+				a.store.SetDeploymentState(st.ID, nid, DeployStopped)
+			}
+		case "restart":
+			err = a.engCtx(ctx).ContainerRestart(ctx, dep.ContainerID)
+			if err == nil {
+				a.store.SetDeploymentState(st.ID, nid, DeployRunning)
+				a.refreshPublishedPorts(ctx, st, nid, dep)
+				a.restoreNodeResolver(ctx, st, nid, dep)
+				a.reconcileStackDNS(ctx, st.ID)
+			}
+		}
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		updated, _ := a.store.GetDeployment(st.ID, nid)
+		writeJSON(w, http.StatusOK, updated)
+	}
+}
+
+// refreshPublishedPorts re-reads a node container's auto-assigned host ports and
+// persists them into the stored config. Containers are created with an empty
+// HostPort binding, so Docker hands out a *new* ephemeral host port every time
+// the container starts — meaning a stop/start or restart changes the published
+// port and would otherwise leave the recorded access links (Intranet webmail,
+// PMM 8080/8443) pointing at the old, now-invalid port. Called after start and
+// restart for both node types.
+func (a *App) refreshPublishedPorts(ctx context.Context, st Stack, nid string, dep Deployment) {
+	if dep.ContainerID == "" {
+		return
+	}
+	var doc designDoc
+	json.Unmarshal(st.Design, &doc)
+	typ := ""
+	for _, n := range doc.Nodes {
+		if n.ID == nid {
+			typ = n.Type
+			break
+		}
+	}
+	readPort := func(portProto string) (int, bool) {
+		hp, err := a.engCtx(ctx).ContainerPort(ctx, dep.ContainerID, portProto)
+		if err != nil || hp == "" {
+			return 0, false
+		}
+		v, err := strconv.Atoi(hp)
+		return v, err == nil
+	}
+	save := func(cfg any) {
+		b, _ := json.Marshal(cfg)
+		a.store.UpsertDeployment(Deployment{
+			StackID: dep.StackID, NodeID: dep.NodeID, ContainerID: dep.ContainerID,
+			State: DeployRunning, Config: b, Secrets: dep.Secrets,
+		})
+	}
+	switch typ {
+	case "intranet":
+		var cfg nodeConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("8080/tcp"); ok {
+			cfg.WebmailPort = p
+		}
+		save(cfg)
+	case "pmm":
+		var cfg pmmConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("8080/tcp"); ok {
+			cfg.HTTPPort = p
+		}
+		if p, ok := readPort("8443/tcp"); ok {
+			cfg.HTTPSPort = p
+		}
+		save(cfg)
+	// keycloak publishes no host ports — its console is stack-network only and is
+	// reached from the Ubuntu VNC desktop, so there is nothing to re-read here.
+	case "vnc":
+		var cfg vncConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort(fmt.Sprintf("%d/tcp", vncWebPort)); ok {
+			cfg.WebPort = p
+		}
+		save(cfg)
+	case "proxysql":
+		var cfg proxysqlConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort(fmt.Sprintf("%d/tcp", proxysqlMySQLPort)); ok {
+			cfg.MySQLPort = p
+		}
+		if p, ok := readPort(fmt.Sprintf("%d/tcp", proxysqlAdminPort)); ok {
+			cfg.AdminPort = p
+		}
+		save(cfg)
+	case "mysql", "ps", "mysqlce", "mysqlcerepl":
+		var cfg mysqlConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("3306/tcp"); ok {
+			cfg.ExportPort = p
+		}
+		save(cfg)
+	case "mariadb", "mariadbrepl", "mariadbgalera":
+		var cfg mariadbConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("3306/tcp"); ok {
+			cfg.ExportPort = p
+		}
+		save(cfg)
+	case "innodb", "mysqlceinnodb":
+		var cfg innodbConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("6446/tcp"); ok {
+			cfg.RWPort = p
+		}
+		if p, ok := readPort("6447/tcp"); ok {
+			cfg.ROPort = p
+		}
+		save(cfg)
+	case "psmdb", "psmrs", "psm":
+		var cfg mongoConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("27017/tcp"); ok {
+			cfg.ExportPort = p
+			if cfg.Role == "mongos" {
+				cfg.MongosPort = p
+			}
+		}
+		save(cfg)
+	case "seaweedfs":
+		var cfg seaweedConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort(fmt.Sprintf("%d/tcp", seaweedWebPort)); ok {
+			cfg.WebPort = p
+		}
+		save(cfg)
+	case "patroni":
+		var cfg patroniConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("5432/tcp"); ok {
+			cfg.ExportPort = p
+		}
+		save(cfg)
+	case "pg":
+		var cfg pgConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("5432/tcp"); ok {
+			cfg.ExportPort = p
+		}
+		save(cfg)
+	case "repmgr":
+		var cfg repmgrConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("5432/tcp"); ok {
+			cfg.ExportPort = p
+		}
+		save(cfg)
+	case "spock":
+		var cfg spockConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("5432/tcp"); ok {
+			cfg.ExportPort = p
+		}
+		save(cfg)
+	case "haproxy":
+		var cfg haproxyConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort(fmt.Sprintf("%d/tcp", haproxyWritePort)); ok {
+			cfg.WritePort = p
+		}
+		if p, ok := readPort(fmt.Sprintf("%d/tcp", haproxyReadPort)); ok {
+			cfg.ReadPort = p
+		}
+		if p, ok := readPort(fmt.Sprintf("%d/tcp", haproxyStatsPort)); ok {
+			cfg.StatsPort = p
+		}
+		save(cfg)
+	}
+}
+
+// handleDestroyStack tears down the deployment (all containers + the per-stack
+// network), clears the deployment records, and returns the stack to draft so it
+// can be redeployed fresh. The stack design is preserved; post-deployment-only
+// node state (generated credentials, LDAP/email users, certificates) is reset
+// because the deployment rows and containers are removed.
+func (a *App) handleDestroyStack(w http.ResponseWriter, r *http.Request) {
+	st, _, ok := a.loadOwnedStack(w, r)
+	if !ok {
+		return
+	}
+	a.teardownStack(st.ID)
+	a.store.SetStackStatus(st.ID, StackDraft)
+	writeJSON(w, http.StatusOK, map[string]any{"status": StackDraft, "deployments": []Deployment{}})
+}
+
+// removeNodeResources tears down one node's runtime: its container (force + v=true,
+// so anonymous volumes go with it), its named data volume (only PMM creates one; the
+// name is namespaced so this is a no-op for other node types), and its deployment
+// record. Best-effort. Shared by stack teardown, the deploy-time reconcile of nodes
+// deleted from the canvas, and the real-time per-node cleanup.
+// It removes on every engine the stack could have used: a node deleted from the
+// canvas no longer has a type in the design, so its engine can't be looked up — and
+// removing a resource that lives on the other engine is a harmless no-op (a wrong-id
+// ContainerRemove just 404s / hits a missing VM dir).
+func (a *App) removeNodeResources(ctx context.Context, st Stack, d Deployment) {
+	for _, e := range a.stackEngines(st) {
+		if d.ContainerID != "" {
+			e.ContainerRemove(ctx, d.ContainerID)
+		}
+		e.VolumeRemove(ctx, pmmDataVolume(st.ID, d.NodeID))
+	}
+	a.store.DeleteDeployment(st.ID, d.NodeID)
+}
+
+// teardownStack stops and removes every container deployed for a stack and
+// removes its network. Best-effort.
+func (a *App) teardownStack(stackID int64) {
+	if a.docker == nil {
+		return
+	}
+	// Stop any in-flight provisioning and wait for those goroutines to return
+	// before removing containers. Otherwise they keep running against resources
+	// we are deleting, and their late writes land on the next deploy's rows.
+	a.cancelDeploy(stackID)
+	// A gdb session holds an exec into a node that is about to be removed. Dropping it here
+	// rather than waiting for its grace timer keeps the teardown quiet — and the analyzer page
+	// is told the session ended rather than watching its socket die.
+	a.gdbForget(stackID)
+	st, _ := a.store.GetStack(stackID)
+	if st.ID != 0 {
+		a.notifyStack(stackID, "stack.destroyed", "info", "Stack destroyed",
+			st.Name+" and its containers were removed.", "")
+	}
+	bg := context.Background()
+	// k3d's containers are named k3d-<cluster>-*, not dbcanvas-<id>-*, so the sweep below would
+	// leave a whole k3s cluster (and its volumes) running. Let k3d remove its own cluster first.
+	// k3d is Docker-only, so it always runs on the Docker engine.
+	a.destroyK3DClusters(withEngine(bg, a.docker), stackID)
+	// Remove each node on the engine it was provisioned with (a hybrid stack mixes them).
+	deps, _ := a.store.ListDeployments(stackID)
+	for _, d := range deps {
+		a.removeNodeResources(bg, st, d)
+	}
+	// Remove the host FORWARD rules that bridged this stack's Docker and host-only
+	// subnets (best-effort; no-op for a docker-only stack). Done before NetworkRemove
+	// drops the subnet allocations, though unlink reads the live chain either way.
+	a.unlinkStackNetworks(bg, stackID)
+	// A provisioner cancelled between ContainerCreate and recording the container id on
+	// its deployment row leaves an untracked container/VM behind (whose name would then
+	// collide on the next deploy). Sweep anything still named for this stack, and drop
+	// the stack network, on every engine the stack could have used. Safe now that
+	// cancelDeploy has waited: nothing can create more.
+	for _, e := range a.stackEngines(st) {
+		ctx := withEngine(bg, e)
+		if ids, err := e.ContainersByNamePrefix(ctx, fmt.Sprintf("dbcanvas-%d-", stackID)); err == nil {
+			for _, id := range ids {
+				e.ContainerRemove(ctx, id)
+			}
+		}
+		// The Query Runner may have joined this network to reach the stack's DB nodes;
+		// detach the app first so the network can be removed.
+		e.NetworkDisconnect(ctx, networkName(stackID), qrAppContainerID())
+		e.NetworkRemove(ctx, networkName(stackID))
+	}
+}

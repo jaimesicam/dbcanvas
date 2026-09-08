@@ -1,0 +1,108 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+      args:
+        # Stamped into the server and the CLI binaries (see app/version.go). The
+        # Makefile passes it from the repo's VERSION file, which compose cannot read
+        # itself; a bare `docker compose up` therefore builds a "dev" image, and that
+        # is the honest label for one built outside `make`.
+        APP_VERSION: ${APP_VERSION:-dev}
+    image: dbcanvas:latest
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
+    environment:
+      # The container always listens on all interfaces internally (the
+      # Dockerfile sets APP_HOST=0.0.0.0); host-side exposure is controlled by
+      # the publish binding below, not by this value.
+      APP_PORT: ${APP_PORT:-8080}
+      DB_PATH: /data/dbcanvas.db
+      # Domain used to configure deployed stacks (Intranet: LDAP/mail/DNS/CA).
+      DOMAIN: ${DOMAIN:-example.net}
+      # Catalog of installable versions (produced by `make versions`).
+      VERSIONS_FILE: /etc/dbcanvas/versions.yaml
+      # Default DB users created on deployed Percona XtraDB Cluster nodes.
+      APP_PASSWORD: ${APP_PASSWORD:-app_password}
+      REPL_PASSWORD: ${REPL_PASSWORD:-repl_password}
+      MONITOR_PASSWORD: ${MONITOR_PASSWORD:-monitor_password}
+      CLUSTER_PASSWORD: ${CLUSTER_PASSWORD:-cluster_password}
+      # clustercheck@'localhost' password — PXC clustercheck health endpoint for HAProxy.
+      CLUSTERCHECK_PASSWORD: ${CLUSTERCHECK_PASSWORD:-cluster_password}
+      # Root/superuser + admin passwords for MySQL/PXC/GR/InnoDB nodes.
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}
+      MYSQL_ADMIN_PASSWORD: ${MYSQL_ADMIN_PASSWORD:-admin_password}
+      # Superuser/admin passwords for the other database + ProxySQL engines.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_password}
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD:-valkey_password}
+      PROXYSQL_ADMIN_PASSWORD: ${PROXYSQL_ADMIN_PASSWORD:-admin_password}
+      MONGODB_ADMIN_PASSWORD: ${MONGODB_ADMIN_PASSWORD:-admin_password}
+      # The two MClusterAdmin accounts a MongoDB creates when asked to (madmin,
+      # madmin-ro). Overridden per stack by the MClusterAdmin node's own fields.
+      MCLUSTERADMIN_PASSWORD: ${MCLUSTERADMIN_PASSWORD:-madmin_password}
+      MCLUSTERADMIN_RO_PASSWORD: ${MCLUSTERADMIN_RO_PASSWORD:-madmin_ro_password}
+      # Password for the "pmm" monitoring user created in Valkey (PMM add valkey).
+      PMM_PASSWORD: ${PMM_PASSWORD:-pmm_password}
+      # PMM server's Grafana "admin" user.
+      PMM_ADMIN_PASSWORD: ${PMM_ADMIN_PASSWORD:-admin_password}
+      # The "admin" user of the Grafana that kube-prometheus-stack installs into a
+      # CloudNativePG K3D frame. Surfaced on the k3s node's panel after deploy.
+      GRAFANA_PASSWORD: ${GRAFANA_PASSWORD:-grafana_password}
+      # Keycloak's "admin" console user.
+      KEYCLOAK_PASSWORD: ${KEYCLOAK_PASSWORD:-keycloak_password}
+      KEYCLOAK_USER_PASSWORD: ${KEYCLOAK_USER_PASSWORD:-keycloak_user_password}
+      # Ubuntu VNC desktop: the desktop login and the VNC access code. VncAuth
+      # uses only the first 8 characters.
+      VNC_PASSWORD: ${VNC_PASSWORD:-vnc_password}
+      # The platform this installation targets. Also selects the manifest-list
+      # entry when the app pulls multi-arch images for stack nodes (Keycloak,
+      # SeaweedFS, Valkey). PMM and Watchtower are pinned to linux/amd64 in code
+      # because upstream publishes no arm64 image for them.
+      DOCKER_PLATFORM: ${DOCKER_PLATFORM:-linux/amd64}
+      # The platform K3D frames' k3s nodes target. Independent of
+      # DOCKER_PLATFORM above — see K3D_PLATFORM in .env.example.
+      K3D_PLATFORM: ${K3D_PLATFORM:-linux/amd64}
+      # Minutes a provisioner waits for a dependency (cluster/node/service) to
+      # become ready before failing the deploy. Raise for large stacks.
+      DEPLOYMENT_TIMEOUT: ${DEPLOYMENT_TIMEOUT:-60}
+      # Host interface that deployed stack nodes bind their published (exported)
+      # ports to. Default 127.0.0.1 (loopback only); set 0.0.0.0 for all interfaces.
+      CONTAINER_BIND_IP: ${CONTAINER_BIND_IP:-127.0.0.1}
+      # Where this installation is reachable over SSH, as IP[:port]. The login is
+      # optional — without one the command uses the signed-in DBCanvas user's name;
+      # user@IP[:port] pins one login for everybody. Set it on a server install and
+      # right-clicking a running
+      # node offers the `ssh -L` line that tunnels its published ports to the
+      # operator's machine. Empty = off. See app/sshforward.go.
+      SSH_FORWARDING_HOST: ${SSH_FORWARDING_HOST:-}
+      # Whether features that are not finished yet appear in the menus. on/off,
+      # default off — on reveals work that is still being fixed. See app/experimental.go.
+      EXPERIMENTAL: ${EXPERIMENTAL:-off}
+      # The only host directory a Linux Client set up for core-dump analysis may
+      # bind-mount from. A bind mount is the one place a path somebody typed reaches
+      # the Docker daemon, and the daemon has no sandbox of its own — so this is the
+      # sandbox. Both mounts are always read-only. See app/gdbcore.go.
+      GDB_MOUNT_ROOT: ${GDB_MOUNT_ROOT:-/srv/coredumps}
+    ports:
+      # Publish on APP_HOST (default 127.0.0.1 = private). Set APP_HOST=0.0.0.0
+      # in .env to expose on all host interfaces.
+      - "${APP_HOST:-127.0.0.1}:${APP_PORT:-8080}:${APP_PORT:-8080}"
+    volumes:
+      - app-data:/data            # SQLite database persists across rebuilds
+      # Catalog of installable versions (Percona Server per image + PMM3),
+      # produced by `make versions`. Mounted read-only; re-run `make versions`
+      # on the host to refresh what the version pickers offer.
+      - ./versions.yaml:/etc/dbcanvas/versions.yaml:ro
+      # Stack Designer drives Docker on the host to deploy/manage stack
+      # containers (Docker-out-of-Docker). The app talks to this socket via the
+      # Engine API using only the Go stdlib — no docker CLI in the image.
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/dbcanvas", "-healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  app-data:

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MySQL Airline Reservation Lab</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>✈️ MySQL Airline Reservation Lab</h1>
+  <div class="topbar">
+    <span id="kind-badge" class="badge">detecting…</span>
+    <span id="conn-status" class="dot" title="connection status"></span>
+    <div class="controls">
+      <button id="btn-stop" data-level="stop">Stop</button>
+      <button id="btn-low" data-level="low">Low</button>
+      <button id="btn-medium" data-level="medium">Medium</button>
+      <button id="btn-high" data-level="high">High</button>
+      <button id="btn-reset" class="danger">Reset</button>
+    </div>
+  </div>
+</header>
+
+<div id="error-banner" class="banner hidden"></div>
+
+<main>
+  <section id="dashboard" class="panel">
+    <h2>Summary</h2>
+    <div id="stat-grid" class="stat-grid"></div>
+  </section>
+
+  <section id="overview" class="panel">
+    <h2>Route Network (200 routes)</h2>
+    <div id="route-grid" class="route-grid"></div>
+  </section>
+
+  <section id="fleet-panel" class="panel">
+    <h2>Fleet (2000 aircraft)</h2>
+    <div class="fleet-toolbar">
+      <span id="fleet-summary" class="hint"></span>
+      <input id="fleet-search" type="text" placeholder="search tail # or route…">
+      <select id="fleet-status-filter">
+        <option value="">any status</option>
+        <option value="active">active</option>
+        <option value="maintenance">maintenance</option>
+        <option value="grounded">grounded</option>
+      </select>
+    </div>
+    <div id="fleet-table" class="fleet-table"></div>
+    <div id="fleet-pager" class="fleet-pager"></div>
+  </section>
+
+  <div class="row">
+    <section id="mysql-panel" class="panel half">
+      <h2>MySQL Topology</h2>
+      <div id="mysql-detail"></div>
+    </section>
+
+    <section id="query-panel" class="panel half">
+      <h2>Query Education</h2>
+      <p class="hint">Every search is classified targeted (a route_id equality — hits <code>idx_fi_route_date</code> directly) or scatter (a region-only browse — hits the much wider <code>idx_fi_region_date</code> range across every route in the region).</p>
+      <div id="query-list" class="query-list"></div>
+    </section>
+  </div>
+
+  <div class="row">
+    <section id="agents-panel" class="panel half">
+      <h2>Agents</h2>
+      <div id="agent-list" class="agent-list"></div>
+    </section>
+
+    <section id="activity-panel" class="panel half">
+      <h2>Recent Activity</h2>
+      <div id="event-list" class="event-list"></div>
+    </section>
+  </div>
+</main>
+
+<div id="detail-modal" class="modal hidden">
+  <div class="modal-content">
+    <button id="modal-close" class="modal-close">&times;</button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

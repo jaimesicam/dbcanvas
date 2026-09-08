@@ -1,0 +1,375 @@
+// Plain JS, no framework, no build step — mirrors Hotel Sim's app.js shape.
+// fetchState() polls every 2s (the authoritative recovery path); the WebSocket is
+// only for the live event feed, and losing it never loses the dashboard.
+
+let currentLevel = 'low';
+let eventLog = [];
+const EVENT_LOG_CAP = 100;
+
+let fleetOffset = 0;
+const FLEET_PAGE_SIZE = 50;
+
+function $(sel) { return document.querySelector(sel); }
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (!res.ok) throw new Error(`${path}: ${res.status}`);
+  return res.json();
+}
+
+// ---------------------------------------------------------------- polling
+
+async function fetchState() {
+  try {
+    const snap = await api('/api/state');
+    setConn(true);
+    renderErrorBanner(snap.error);
+    if (snap.error) return;
+    renderDashboard(snap);
+    renderRouteGrid(snap.routes || []);
+    renderFleetSummary(snap.fleet || {});
+    renderAgents(snap.agents || []);
+    renderMysqlPanel(snap.diag || {}, snap.control?.kind);
+    currentLevel = snap.control?.level || currentLevel;
+    highlightLevel(currentLevel);
+  } catch (err) {
+    setConn(false);
+    renderErrorBanner('cannot reach the airlinesim server: ' + err.message);
+  }
+}
+
+async function fetchQueries() {
+  try {
+    const d = await api('/api/queries?limit=25');
+    renderQueries(d.samples || []);
+  } catch (e) { /* keep last render */ }
+}
+
+async function fetchEventsBackfill() {
+  try {
+    const d = await api('/api/events?limit=50');
+    eventLog = (d.events || []).reverse();
+    renderEvents();
+  } catch (e) { /* keep last render */ }
+}
+
+async function fetchFleetPage() {
+  const search = $('#fleet-search').value.trim();
+  const status = $('#fleet-status-filter').value;
+  const qs = new URLSearchParams({ limit: FLEET_PAGE_SIZE, offset: fleetOffset });
+  if (search) qs.set('search', search);
+  if (status) qs.set('status', status);
+  try {
+    const d = await api('/api/aircraft?' + qs.toString());
+    renderFleetTable(d);
+  } catch (e) { /* keep last render */ }
+}
+
+function setConn(ok) {
+  const dot = $('#conn-status');
+  dot.className = 'dot ' + (ok ? 'ok' : 'bad');
+}
+
+function renderErrorBanner(msg) {
+  const b = $('#error-banner');
+  if (msg) {
+    b.textContent = '⚠ ' + msg;
+    b.classList.remove('hidden');
+  } else {
+    b.classList.add('hidden');
+  }
+}
+
+// --------------------------------------------------------------- rendering
+
+function renderDashboard(snap) {
+  const c = snap.summary || {};
+  $('#kind-badge').textContent = snap.control?.kind || 'unknown';
+  const tiles = [
+    ['Reservations', c.reservationsTotal ?? 0],
+    ['Cancellations', c.cancellationsTotal ?? 0],
+    ['Modifications', c.modificationsTotal ?? 0],
+    ['Check-ins', c.checkInsTotal ?? 0],
+    ['Completed', c.completionsTotal ?? 0],
+    ['No-shows', c.noShowsTotal ?? 0],
+    ['Searches', c.searchesTotal ?? 0],
+    ['Sold out', c.soldOut ?? 0],
+    ['Duplicates rejected', c.duplicatesRejected ?? 0],
+    ['Txn retries', c.txnRetries ?? 0],
+    ['Active passengers', c.activePassengers ?? 0],
+    ['Uptime (s)', snap.uptimeSeconds ?? 0],
+  ];
+  const grid = $('#stat-grid');
+  grid.innerHTML = '';
+  for (const [label, val] of tiles) {
+    const t = el('div', 'stat-tile');
+    t.appendChild(el('div', 'v', String(val)));
+    t.appendChild(el('div', 'l', label));
+    grid.appendChild(t);
+  }
+}
+
+function renderRouteGrid(routes) {
+  const grid = $('#route-grid');
+  grid.innerHTML = '';
+  for (const r of routes) {
+    const tile = el('div', 'route-tile ' + (r.loadFactorClass || ''));
+    if (!r.inScope) tile.classList.add('outofscope');
+    tile.onclick = () => showRouteDetail(r.id);
+    tile.appendChild(el('span', 'name', `${r.flightNumber} ${r.origin}-${r.destination}`));
+    const meta = el('div', 'meta');
+    meta.appendChild(el('span', 'badge-letter', r.badge || '?'));
+    meta.appendChild(el('span', '', (r.loadFactorPct ?? 0) + '%'));
+    tile.appendChild(meta);
+    grid.appendChild(tile);
+  }
+}
+
+function renderFleetSummary(fleet) {
+  const byStatus = fleet.byStatus || {};
+  const parts = Object.keys(byStatus).sort().map((k) => `${k}: ${byStatus[k]}`);
+  $('#fleet-summary').textContent = `${fleet.total ?? 0} aircraft — ${parts.join(' · ')}`;
+}
+
+function renderFleetTable(d) {
+  const div = $('#fleet-table');
+  div.innerHTML = '';
+  const table = el('table');
+  const thead = el('thead');
+  const hrow = el('tr');
+  for (const h of ['Tail #', 'Type', 'Tier', 'Home base', 'Route', 'Status']) hrow.appendChild(el('th', '', h));
+  thead.appendChild(hrow);
+  table.appendChild(thead);
+  const tbody = el('tbody');
+  for (const a of d.aircraft || []) {
+    const row = el('tr');
+    row.appendChild(el('td', '', a.tailNumber));
+    row.appendChild(el('td', '', a.type));
+    row.appendChild(el('td', '', a.sizeTier));
+    row.appendChild(el('td', '', a.homeBase));
+    const routeCell = el('td');
+    const link = el('a', '', a.routeId);
+    link.href = '#';
+    link.onclick = (e) => { e.preventDefault(); showRouteDetail(a.routeId); };
+    routeCell.appendChild(link);
+    row.appendChild(routeCell);
+    const statusCell = el('td');
+    statusCell.appendChild(el('span', 'status-pill ' + a.status, a.status));
+    row.appendChild(statusCell);
+    tbody.appendChild(row);
+  }
+  table.appendChild(tbody);
+  div.appendChild(table);
+
+  const pager = $('#fleet-pager');
+  pager.innerHTML = '';
+  const total = d.total ?? 0;
+  const from = total === 0 ? 0 : fleetOffset + 1;
+  const to = Math.min(fleetOffset + (d.aircraft || []).length, total);
+  pager.appendChild(el('span', '', `${from}-${to} of ${total}`));
+  const btns = el('div');
+  const prev = el('button', '', '← prev');
+  prev.disabled = fleetOffset === 0;
+  prev.onclick = () => { fleetOffset = Math.max(0, fleetOffset - FLEET_PAGE_SIZE); fetchFleetPage(); };
+  const next = el('button', '', 'next →');
+  next.disabled = fleetOffset + FLEET_PAGE_SIZE >= total;
+  next.onclick = () => { fleetOffset += FLEET_PAGE_SIZE; fetchFleetPage(); };
+  btns.appendChild(prev);
+  btns.appendChild(next);
+  pager.appendChild(btns);
+}
+
+function renderAgents(agents) {
+  const list = $('#agent-list');
+  list.innerHTML = '';
+  const now = Date.now();
+  for (const a of [...agents].sort((x, y) => x.name.localeCompare(y.name))) {
+    const stale = now - new Date(a.lastTick).getTime() > 30000;
+    const row = el('div', 'agent-row' + (stale ? ' stale' : ''));
+    const left = el('span');
+    const dotClass = stale ? 'error' : (a.status === 'idle' ? 'idle' : 'ok');
+    left.innerHTML = `<span class="status-dot ${dotClass}"></span>${a.name}`;
+    row.appendChild(left);
+    row.appendChild(el('span', '', `${a.detail || ''}${stale ? ' (stale)' : ''}`));
+    list.appendChild(row);
+  }
+}
+
+function renderMysqlPanel(m, kind) {
+  const div = $('#mysql-detail');
+  div.innerHTML = '';
+  const rows = [
+    ['Target kind', kind || m.kind],
+    ['Version', m.serverVersion],
+    ['Threads connected', m.threadsConnected],
+    ['Uptime (s)', m.uptime],
+  ];
+  if (m.wsrepStatus) {
+    for (const [k, v] of Object.entries(m.wsrepStatus)) rows.push([k, v]);
+  }
+  if (m.replicaStatus) {
+    const keys = Object.keys(m.replicaStatus);
+    if (keys.length === 0) {
+      rows.push(['Replica status', '(this is the primary — no replica status)']);
+    } else {
+      for (const [k, v] of Object.entries(m.replicaStatus)) rows.push([k, v]);
+    }
+  }
+  for (const [k, v] of rows) {
+    if (v == null || v === '') continue;
+    const row = el('div', 'kv');
+    row.appendChild(el('span', 'k', k));
+    row.appendChild(el('span', '', String(v)));
+    div.appendChild(row);
+  }
+}
+
+function renderQueries(samples) {
+  const list = $('#query-list');
+  list.innerHTML = '';
+  for (const q of samples) {
+    const row = el('div', 'query-row ' + (q.kind === 'targeted' ? 'targeted' : 'scatter'));
+    const left = el('span', '', `${q.kind} · ${(q.durationMs ?? 0).toFixed(2)}ms${q.indexUsed ? ' · ' + q.indexUsed : ''}`);
+    row.appendChild(left);
+    row.appendChild(el('span', '', q.rowsExamined != null ? `${q.rowsExamined} rows examined` : ''));
+    list.appendChild(row);
+  }
+}
+
+function renderEvents() {
+  const list = $('#event-list');
+  list.innerHTML = '';
+  for (const ev of eventLog.slice(0, 50)) {
+    const row = el('div', 'event-row');
+    row.appendChild(el('span', 'kind', ev.kind));
+    row.appendChild(el('span', '', `${ev.routeId || ''} · ${new Date(ev.at).toLocaleTimeString()}`));
+    list.appendChild(row);
+  }
+}
+
+function pushEvent(ev) {
+  eventLog.unshift(ev);
+  if (eventLog.length > EVENT_LOG_CAP) eventLog.length = EVENT_LOG_CAP;
+  renderEvents();
+}
+
+// ------------------------------------------------------------------- detail
+
+async function showRouteDetail(id) {
+  try {
+    const d = await api(`/api/routes/${id}`);
+    const body = $('#modal-body');
+    body.innerHTML = '';
+    body.appendChild(el('h2', '', `${d.route.flightNumber} ${d.route.origin}-${d.route.destination} (${d.route.routeId})`));
+    body.appendChild(el('p', 'hint', `${d.route.region} · ${d.route.sizeTier} · ${d.route.operationalStatus} · load factor ${(d.route.currentLoadFactor * 100).toFixed(0)}%`));
+    body.appendChild(el('p', 'hint', `Pooled aircraft: ${(d.aircraftPool || []).join(', ')}`));
+    body.appendChild(el('h3', '', 'Recent reservations'));
+    for (const r of (d.recentReservations || []).slice(0, 10)) {
+      const row = el('div', 'kv');
+      row.appendChild(el('span', '', `${r.id} · ${r.passengerName}`));
+      const link = el('a', '', r.status);
+      link.href = '#';
+      link.onclick = (e) => { e.preventDefault(); showReservationDetail(r.id, d.route.routeId, (r.flightDate || '').slice(0, 10)); };
+      row.appendChild(link);
+      body.appendChild(row);
+    }
+    openModal();
+  } catch (e) { /* ignore */ }
+}
+
+async function showReservationDetail(id, routeId, flightDate) {
+  try {
+    const qs = routeId ? `?routeId=${encodeURIComponent(routeId)}&flightDate=${encodeURIComponent(flightDate || '')}` : '';
+    const d = await api(`/api/reservations/${id}${qs}`);
+    const body = $('#modal-body');
+    body.innerHTML = '';
+    body.appendChild(el('h2', '', `Reservation ${d.reservation.reservationId}`));
+    const kvs = [
+      ['Route', `${d.reservation.flightNumber} ${d.reservation.origin}-${d.reservation.destination}`],
+      ['Passenger', d.reservation.passengerName], ['Status', d.reservation.status],
+      ['Flight date', d.reservation.flightDate], ['Seats', d.reservation.seats],
+      ['Total', `${d.reservation.fareTotal} ${d.reservation.currency}`],
+      ['Query routing', `${d.query.targeted ? 'targeted' : 'primary-key-only'} (${d.query.durationMs?.toFixed?.(2)}ms) — ${d.query.reason}`],
+    ];
+    for (const [k, v] of kvs) {
+      const row = el('div', 'kv');
+      row.appendChild(el('span', 'k', k));
+      row.appendChild(el('span', '', String(v)));
+      body.appendChild(row);
+    }
+    body.appendChild(el('h3', '', 'History'));
+    for (const h of d.history || []) {
+      const row = el('div', 'kv');
+      row.appendChild(el('span', '', h.action));
+      row.appendChild(el('span', '', new Date(h.at).toLocaleString()));
+      body.appendChild(row);
+    }
+    openModal();
+  } catch (e) { /* ignore */ }
+}
+
+function openModal() { $('#detail-modal').classList.remove('hidden'); }
+function closeModal() { $('#detail-modal').classList.add('hidden'); }
+
+// -------------------------------------------------------------------- ws
+
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${proto}//${location.host}/ws`);
+  ws.onmessage = (msg) => {
+    try {
+      const ev = JSON.parse(msg.data);
+      if (ev.kind) pushEvent(ev);
+    } catch (e) { /* ignore malformed */ }
+  };
+  ws.onclose = () => setTimeout(connectWS, 2000);
+  ws.onerror = () => ws.close();
+}
+
+// -------------------------------------------------------------- controls
+
+function highlightLevel(level) {
+  for (const b of document.querySelectorAll('.controls button[data-level]')) {
+    b.classList.toggle('active', b.dataset.level === level);
+  }
+}
+
+async function setLevel(level) {
+  await fetch('/api/control/level', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ level }) });
+  currentLevel = level;
+  highlightLevel(level);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  for (const b of document.querySelectorAll('.controls button[data-level]')) {
+    b.addEventListener('click', () => setLevel(b.dataset.level));
+  }
+  $('#btn-reset').addEventListener('click', async () => {
+    if (!confirm('Reset wipes all simulated routes/aircraft/reservations and starts fresh. Continue?')) return;
+    await fetch('/api/control/reset', { method: 'POST' });
+    fetchState(); fetchEventsBackfill(); fetchQueries(); fetchFleetPage();
+  });
+  $('#modal-close').addEventListener('click', closeModal);
+  $('#detail-modal').addEventListener('click', (e) => { if (e.target.id === 'detail-modal') closeModal(); });
+  $('#fleet-search').addEventListener('input', debounce(() => { fleetOffset = 0; fetchFleetPage(); }, 300));
+  $('#fleet-status-filter').addEventListener('change', () => { fleetOffset = 0; fetchFleetPage(); });
+
+  fetchState();
+  fetchEventsBackfill();
+  fetchQueries();
+  fetchFleetPage();
+  connectWS();
+  setInterval(fetchState, 2000);
+  setInterval(fetchQueries, 5000);
+});
+
+function debounce(fn, ms) {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}

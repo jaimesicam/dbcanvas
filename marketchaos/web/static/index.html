@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MarketChaos — Unoptimized MySQL Challenge</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="error-banner" class="banner hidden"></div>
+  <header>
+    <div>
+      <h1>MarketChaos <span class="badge">Unoptimized MySQL Challenge</span></h1>
+      <div class="sub">Fix a struggling stock exchange before the market collapses.</div>
+    </div>
+    <div class="topbar">
+      <span id="conn-status" class="dot"></span>
+      <span id="kind-badge" class="badge">…</span>
+      <span id="version-badge" class="badge">…</span>
+      <div class="controls">
+        <button data-level="stop">Stopped</button>
+        <button data-level="low">Low</button>
+        <button data-level="medium">Medium</button>
+        <button data-level="high">High</button>
+        <button data-level="extreme">Extreme</button>
+        <select id="mix-select">
+          <option value="balanced">Balanced</option>
+          <option value="read-heavy">Read-heavy</option>
+          <option value="write-heavy">Write-heavy</option>
+          <option value="analytics-heavy">Analytics-heavy</option>
+          <option value="contention-heavy">Contention-heavy</option>
+          <option value="pxc-conflict-heavy">PXC-conflict-heavy</option>
+        </select>
+        <button id="reset-btn" class="danger">Reset</button>
+      </div>
+    </div>
+  </header>
+  <main>
+    <section class="panel">
+      <h2>Status</h2>
+      <div class="stat-grid">
+        <div class="stat-tile"><div id="stat-state" class="v">—</div><div class="l">Control state</div></div>
+        <div class="stat-tile"><div id="stat-level" class="v">—</div><div class="l">Traffic level</div></div>
+        <div class="stat-tile"><div id="stat-uptime" class="v">—</div><div class="l">Uptime (s)</div></div>
+      </div>
+      <p class="muted">
+        This is the stage-S6 scaffold: connection wiring, the full domain schema, dataset
+        seeding, all 10 workload agents, diagnostic panels, the 18-challenge catalog with
+        full grading, and the market/trading/portfolio panels below are all live.
+      </p>
+    </section>
+    <section class="panel">
+      <h2>Market overview</h2>
+      <div class="two-col">
+        <div>
+          <div class="muted" style="margin-bottom:4px">Top gainers</div>
+          <table class="data-table"><tbody id="market-gainers"></tbody></table>
+        </div>
+        <div>
+          <div class="muted" style="margin-bottom:4px">Top losers</div>
+          <table class="data-table"><tbody id="market-losers"></tbody></table>
+        </div>
+      </div>
+      <div class="muted" style="margin-top:12px">Volume by sector</div>
+      <div id="market-sectors" class="stat-grid" style="margin-top:6px"></div>
+    </section>
+    <section class="panel">
+      <h2>Live trading</h2>
+      <div class="two-col">
+        <div>
+          <div class="muted" style="margin-bottom:4px">Recent trades</div>
+          <table class="data-table">
+            <thead><tr><th>Symbol</th><th>Price</th><th>Qty</th><th>Executed</th></tr></thead>
+            <tbody id="trades-body"></tbody>
+          </table>
+        </div>
+        <div>
+          <div class="muted" style="margin-bottom:4px">Order book depth</div>
+          <div class="controls" style="margin-bottom:8px">
+            <input id="orderbook-symbol" placeholder="Symbol, e.g. NBLX" style="background:var(--panel2);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;width:140px">
+          </div>
+          <div id="orderbook-body" class="stat-grid"></div>
+        </div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Portfolio <span class="muted" style="font-weight:normal">(sample account #1)</span></h2>
+      <div class="stat-grid">
+        <div class="stat-tile"><div id="pf-cash" class="v">—</div><div class="l">Cash balance</div></div>
+        <div class="stat-tile"><div id="pf-holdings" class="v">—</div><div class="l">Holdings value</div></div>
+        <div class="stat-tile"><div id="pf-total" class="v">—</div><div class="l">Total value</div></div>
+      </div>
+      <table class="data-table" style="margin-top:10px">
+        <thead><tr><th>Symbol</th><th>Qty</th><th>Avg cost</th><th>Last price</th><th>Market value</th><th>Unrealized P/L</th></tr></thead>
+        <tbody id="pf-holdings-body"></tbody>
+      </table>
+    </section>
+    <section class="panel">
+      <h2>Challenges</h2>
+      <div id="challenge-idle">
+        <p class="muted">Pick a challenge below to inject it, then diagnose and fix it — indexing/schema challenges are fixed with real SQL through DBCanvas's own Terminal or Query Runner; app-behavior challenges are fixed with the toggle that appears here once you've used a hint and answered both diagnosis questions.</p>
+        <div id="challenge-list" class="challenge-list"></div>
+      </div>
+      <div id="challenge-active" class="hidden">
+        <div class="flex-row">
+          <span id="ca-title" class="ca-title"></span>
+          <span id="ca-badges"></span>
+        </div>
+        <p id="ca-scenario" class="muted"></p>
+        <p id="ca-symptom"></p>
+        <div id="ca-hints" class="ca-hints"></div>
+        <div class="controls" style="margin:10px 0 14px">
+          <button id="ca-hint-btn">Get a hint</button>
+          <button id="ca-reset-btn" class="danger">Reset challenge</button>
+        </div>
+        <div class="two-col">
+          <div>
+            <label class="muted" style="display:block;margin-bottom:4px">Root cause</label>
+            <div id="ca-root-cause" class="diag-choices"></div>
+          </div>
+          <div>
+            <label class="muted" style="display:block;margin-bottom:4px">Fix approach</label>
+            <div id="ca-fix-approach" class="diag-choices"></div>
+          </div>
+        </div>
+        <div class="controls" style="margin-top:8px">
+          <button id="ca-diagnosis-btn">Save diagnosis</button>
+        </div>
+        <div id="ca-variant-block" class="hidden" style="margin-top:12px">
+          <button id="ca-variant-btn">Apply improved implementation</button>
+          <span id="ca-variant-status" class="muted"></span>
+        </div>
+        <div class="controls" style="margin:14px 0 0">
+          <button id="ca-baseline-btn">Capture baseline (~15s)</button>
+          <button id="ca-validate-btn">Validate solution (~15s)</button>
+        </div>
+        <p id="ca-grading-status" class="muted" style="margin-top:8px"></p>
+        <div id="ca-grade-result" class="hidden" style="margin-top:10px">
+          <div class="flex-row">
+            <span id="ca-grade-total" class="ca-title"></span>
+            <span id="ca-grade-band" class="tag"></span>
+          </div>
+          <p id="ca-grade-gate" class="muted"></p>
+          <div class="stat-grid" style="margin-top:8px">
+            <div class="stat-tile"><div id="ca-grade-functional" class="v">—</div><div class="l">Functional (/30)</div></div>
+            <div class="stat-tile"><div id="ca-grade-performance" class="v">—</div><div class="l">Performance (/50)</div></div>
+            <div class="stat-tile"><div id="ca-grade-regression" class="v">—</div><div class="l">Regression (/10)</div></div>
+            <div class="stat-tile"><div id="ca-grade-diagnosis" class="v">—</div><div class="l">Diagnosis (/10)</div></div>
+          </div>
+          <p id="ca-grade-metric" class="muted" style="margin-top:8px"></p>
+        </div>
+      </div>
+    </section>
+    <section id="seed-panel" class="panel hidden">
+      <h2>Seeding market data</h2>
+      <div id="seed-status" class="muted"></div>
+      <div class="progress-track"><div id="seed-bar" class="progress-fill" style="width:0%"></div></div>
+      <div class="stat-grid">
+        <div class="stat-tile"><div id="seed-table" class="v">—</div><div class="l">Current table</div></div>
+        <div class="stat-tile"><div id="seed-rows" class="v">—</div><div class="l">Rows done / total</div></div>
+        <div class="stat-tile"><div id="seed-elapsed" class="v">—</div><div class="l">Elapsed (s)</div></div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Agents</h2>
+      <div id="agents-list" class="muted">No agents running yet.</div>
+    </section>
+    <section class="panel">
+      <h2>Database performance</h2>
+      <div class="stat-grid">
+        <div class="stat-tile"><div id="dbp-qps" class="v">—</div><div class="l">Queries/sec</div></div>
+        <div class="stat-tile"><div id="dbp-tps" class="v">—</div><div class="l">Writes/sec</div></div>
+        <div class="stat-tile"><div id="dbp-rw" class="v">—</div><div class="l">Read:write ratio</div></div>
+        <div class="stat-tile"><div id="dbp-lockwait" class="v">—</div><div class="l">Lock waits/sec</div></div>
+        <div class="stat-tile"><div id="dbp-deadlocks" class="v">—</div><div class="l">Deadlocks (lifetime)</div></div>
+        <div class="stat-tile"><div id="dbp-tmpdisk" class="v">—</div><div class="l">Disk temp tables/sec</div></div>
+        <div class="stat-tile"><div id="dbp-hitrate" class="v">—</div><div class="l">Buffer pool hit rate</div></div>
+        <div class="stat-tile"><div id="dbp-threads" class="v">—</div><div class="l">Server threads connected</div></div>
+      </div>
+      <p class="muted" style="margin-top:10px">
+        Workers configured vs. connections actually used — the same traffic can look very
+        different depending on how the pool is sized.
+      </p>
+      <div class="stat-grid">
+        <div class="stat-tile"><div id="dbp-pool-cfg" class="v">—</div><div class="l">App pool configured (max open)</div></div>
+        <div class="stat-tile"><div id="dbp-pool-inuse" class="v">—</div><div class="l">App pool in use</div></div>
+        <div class="stat-tile"><div id="dbp-max-used" class="v">—</div><div class="l">Server max used connections</div></div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Slow-query leaderboard <span class="muted" style="font-weight:normal">(last 5s window)</span></h2>
+      <table class="data-table">
+        <thead><tr><th>Shape</th><th>Agent</th><th>Calls</th><th>Avg ms</th><th>Max ms</th><th>Rows examined</th><th>No index</th><th>Tmp disk tables</th></tr></thead>
+        <tbody id="leaderboard-body"><tr><td colspan="8" class="muted">No activity yet.</td></tr></tbody>
+      </table>
+    </section>
+    <section id="pxc-panel" class="panel hidden">
+      <h2>PXC cluster</h2>
+      <div class="stat-grid">
+        <div class="stat-tile"><div id="pxc-state" class="v">—</div><div class="l">Local state</div></div>
+        <div class="stat-tile"><div id="pxc-size" class="v">—</div><div class="l">Cluster size</div></div>
+        <div class="stat-tile"><div id="pxc-certfail" class="v">—</div><div class="l">Cert failures (lifetime)</div></div>
+        <div class="stat-tile"><div id="pxc-bfaborts" class="v">—</div><div class="l">BF aborts (lifetime)</div></div>
+        <div class="stat-tile"><div id="pxc-fc-paused" class="v">—</div><div class="l">Flow control paused (fraction)</div></div>
+        <div class="stat-tile"><div id="pxc-recv-q" class="v">—</div><div class="l">Receive queue</div></div>
+        <div class="stat-tile"><div id="pxc-send-q" class="v">—</div><div class="l">Send queue</div></div>
+        <div class="stat-tile"><div id="pxc-latency" class="v">—</div><div class="l">Repl. latency avg (ms)</div></div>
+      </div>
+      <p class="muted" style="margin-top:10px">
+        This is this node's own primary connection's view of the cluster (usually the first
+        member) — cert failures/BF aborts climb when concurrent writers on different nodes
+        conflict, exactly what the institutional-trader agent's PXC member pinning is for.
+      </p>
+    </section>
+    <section id="haproxy-panel" class="panel hidden">
+      <h2>HAProxy backends</h2>
+      <table class="data-table">
+        <thead><tr><th>Backend</th><th>Server</th><th>Status</th><th>Weight</th><th>Current sessions</th><th>Total sessions</th></tr></thead>
+        <tbody id="haproxy-body"><tr><td colspan="6" class="muted">No data yet.</td></tr></tbody>
+      </table>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

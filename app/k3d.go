@@ -1,0 +1,1546 @@
+package main
+
+import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// k3d.go — the K3D cluster frame: a throwaway k3s cluster (1–3 nodes) created by k3d, used to run
+// the Percona Kubernetes operators the way they are actually run in production.
+//
+// Where k3d runs. k3d is a Docker API *client*: it tells the daemon to create the k3s containers.
+// DBCanvas already holds the daemon socket, so it runs the k3d binary itself — baked into the app
+// image, or the host's binary in local dev (where k3d sits next to Docker). validateStack refuses
+// the deploy when the binary is missing, rather than failing halfway through.
+//
+// The cluster is created **on the stack network** (--network dbcanvas-stack-<id>). That one flag is
+// what makes the rest work: the k3s nodes get Intranet DNS names like any other node, pods can
+// reach the PMM and SeaweedFS nodes by FQDN, and MetalLB can hand out LoadBalancer IPs from the
+// stack subnet — reachable from every other container in the stack (e.g. the Ubuntu VNC desktop).
+//
+// k3s ships kubectl, so every kubectl call is an exec into the first node; nothing else needs a
+// Kubernetes client. The operator source is unpacked into /root on that same node, which is where
+// bundle.yaml and the (rewritten) cr.yaml are applied from.
+
+const (
+	// The k3s node containers k3d creates: k3d-<cluster>-server-0, -agent-0, …
+	k3dContainerPrefix = "k3d-"
+	// kubectl inside a k3s node reads the admin kubeconfig from here.
+	k3dKubeconfig = "/etc/rancher/k3s/k3s.yaml"
+	// Where the operator source is unpacked on the first node.
+	k3dOperatorDir = "/root"
+	// MetalLB is pinned: its manifest and CRDs must agree with the pool we apply below.
+	metalLBVersion  = "v0.14.9"
+	metalLBManifest = "https://raw.githubusercontent.com/metallb/metallb/" + metalLBVersion + "/config/manifests/metallb-native.yaml"
+	// The operator source tarball (the git tag carries deploy/bundle.yaml + deploy/cr.yaml).
+	operatorTarballFmt = "https://github.com/percona/%s/archive/refs/tags/v%s.tar.gz"
+)
+
+// k3dOperatorRepos maps a product to its GitHub repository — the tag's source tarball is where
+// bundle.yaml, secrets.yaml and cr.yaml come from.
+var k3dOperatorRepos = map[string]string{
+	"pxc":   "percona-xtradb-cluster-operator",
+	"ps":    "percona-server-mysql-operator",
+	"psmdb": "percona-server-mongodb-operator",
+	"pg":    "percona-postgresql-operator",
+}
+
+// k3dDeployableOperator is the subset DBCanvas can actually install — the four Percona
+// operators plus the two community PostgreSQL ones, which are Helm-installed (see cnpg.go
+// and k3dpgo.go) rather than unpacked from a release tarball.
+var k3dDeployableOperator = map[string]bool{
+	"pxc": true, "ps": true, "psmdb": true, "pg": true, "cnpg": true, "pgo": true,
+}
+
+// k3dChartOperator maps an operator installed from a Helm chart to its key in the `charts:`
+// catalog — which is where its version comes from, and is not the version of the operator the
+// chart ships (the cloudnative-pg chart 0.29.0 carries operator 1.30.x; the pgo chart's version
+// happens to equal its appVersion, but that is Crunchy's convention, not a rule).
+var k3dChartOperator = map[string]string{"cnpg": cnpgChart, "pgo": pgoChart}
+
+// k3dOperatorLabel names an operator the way its own project does, for messages a user reads.
+func k3dOperatorLabel(op string) string {
+	switch op {
+	case "pxc":
+		return "the Percona Operator for MySQL (PXC)"
+	case "ps":
+		return "the Percona Operator for MySQL (Percona Server)"
+	case "psmdb":
+		return "the Percona Operator for MongoDB"
+	case "pg":
+		return "the Percona Operator for PostgreSQL"
+	case "cnpg":
+		return "CloudNativePG"
+	case "pgo":
+		return "Crunchy Postgres for Kubernetes"
+	}
+	return op
+}
+
+// k3dExposeTypes are the Kubernetes Service types a cr.yaml `expose` section accepts.
+var k3dExposeTypes = map[string]string{
+	"clusterip":    "ClusterIP",
+	"nodeport":     "NodePort",
+	"loadbalancer": "LoadBalancer",
+}
+
+// k3dConfig is the non-secret profile stored on every member node of a K3D frame, so any member's
+// properties panel can describe the whole cluster.
+type k3dConfig struct {
+	Cluster      string `json:"cluster"`      // k3d cluster name (= frame label)
+	Role         string `json:"role"`         // "server" | "agent"
+	Hostname     string `json:"hostname"`     // DBCanvas hostname (also the DNS name)
+	FQDN         string `json:"fqdn"`         //
+	Nodes        int    `json:"nodes"`        // 1..3
+	K3SVersion   string `json:"k3sVersion"`   // the rancher/k3s tag the cluster runs
+	CPUs         int    `json:"cpus"`         // total CPUs for the cluster
+	MemoryGB     int    `json:"memoryGb"`     // total memory for the cluster
+	DiskLimit    string `json:"diskLimit"`    // per-node disk ceiling, e.g. "read 50 MB/s · write 20 MB/s" ("" = unlimited)
+	MetalLBRange string `json:"metallbRange"` // the LoadBalancer address pool
+	Operator     string `json:"operator"`     // "" | "pxc" | "ps" | "psmdb" | "pg"
+	OperatorVer  string `json:"operatorVer"`  //
+	OperatorSrc  string `json:"operatorSrc"`  // /root/<repo>-<ver> on the first node
+	Namespace    string `json:"namespace"`    //
+	ClusterName  string `json:"crName"`       // the database cluster's name inside cr.yaml
+	// PXC / PS: the front end (they are mutually exclusive) and the Service type of each tier.
+	// PXC's proxy is haproxy|proxysql; PS's is haproxy|router.
+	Proxy       string `json:"proxy"`       //
+	Expose      string `json:"expose"`      // the database Service type — kept for the card
+	ExposePXC   string `json:"exposePxc"`   // ClusterIP | NodePort | LoadBalancer
+	ExposeProxy string `json:"exposeProxy"` // the chosen proxy's Service type
+	// PS: group replication, or async replication under Orchestrator.
+	ClusterType string `json:"clusterType"`
+	ExposeMySQL string `json:"exposeMysql"`
+	// PSMDB: a plain replica set, or sharded (config servers + mongos routers).
+	Sharding      bool   `json:"sharding"`
+	ExposeReplset string `json:"exposeReplset"`
+	ExposeMongos  string `json:"exposeMongos"` // sharded clusters only
+	// PG: the primary Postgres Service and the pgBouncer pool in front of it.
+	ExposePG        string `json:"exposePg"`
+	ExposePGBouncer string `json:"exposePgbouncer"`
+	// CloudNativePG (Operator=="cnpg"): the cluster's shape, how to reach it, and where the
+	// generated application password lives. The password itself is deliberately not here —
+	// k3dConfig is the non-secret profile.
+	CNPGInstances int    `json:"cnpgInstances"`
+	CNPGStorageGB int    `json:"cnpgStorageGb"`
+	CNPGPGVersion string `json:"cnpgPgVersion"` // "" = the operator's default
+	CNPGStatus    string `json:"cnpgStatus"`    // the Cluster's phase + ready/desired
+	CNPGExpose    string `json:"cnpgExpose"`    // ClusterIP | LoadBalancer
+	CNPGEndpoint  string `json:"cnpgEndpoint"`  // host:port to reach the primary
+	CNPGAppSecret string `json:"cnpgAppSecret"` // Secret holding the app role's password
+	CNPGAppUser   string `json:"cnpgAppUser"`
+	CNPGAppDB     string `json:"cnpgAppDb"`
+	// PgBouncer (a Pooler CR). Its Service is separate from the cluster's, so it has its own
+	// expose setting and its own endpoint — the app role connects through it with the same
+	// credentials as direct.
+	CNPGPooler          bool   `json:"cnpgPooler"`
+	CNPGPoolerInstances int    `json:"cnpgPoolerInstances"`
+	CNPGPoolerMode      string `json:"cnpgPoolerMode"`   // session | transaction
+	CNPGPoolerExpose    string `json:"cnpgPoolerExpose"` // ClusterIP | LoadBalancer
+	CNPGPoolerEndpoint  string `json:"cnpgPoolerEndpoint"`
+	// Crunchy PGO (Operator=="pgo"): the PostgresCluster's shape and how to reach it. The
+	// Service types are ExposePG / ExposePGBouncer above — the same two tiers as Percona's PGO.
+	PGOInstances int    `json:"pgoInstances"`
+	PGOStorageGB int    `json:"pgoStorageGb"`
+	PGOPGVersion string `json:"pgoPgVersion"` // the PostgreSQL major spec.postgresVersion pins
+	PGOStatus    string `json:"pgoStatus"`    // instances ready/desired, plus pgBouncer's
+	PGOEndpoint  string `json:"pgoEndpoint"`  // host:port for the primary ("" = in-cluster only)
+	PGOAppSecret string `json:"pgoAppSecret"` // Secret holding the app user's password
+	PGOAppUser   string `json:"pgoAppUser"`
+	PGOAppDB     string `json:"pgoAppDb"`
+	GrafanaURL   string `json:"grafanaUrl"`  // Grafana's LoadBalancer URL ("" = not installed)
+	MonitoredBy  string `json:"monitoredBy"` // PMM FQDN, or Prometheus/Grafana ("" = none)
+	// GrafanaUser is the admin login the chart was installed with; the password that goes
+	// with it lives in k3dSecrets, not here. GrafanaService is the Service the URL above
+	// resolves to ("<namespace>/<name>"), which is what makes the address checkable — it is
+	// the one `kubectl get svc` a user otherwise has to work out for themselves.
+	GrafanaUser    string `json:"grafanaUser"`
+	GrafanaService string `json:"grafanaService"`
+	PMMToken       string `json:"pmmToken"`   // "" | "expires <when>" — the service token's lifetime
+	BackupRepo     string `json:"backupRepo"` // SeaweedFS S3 target ("" = none)
+	Image          string `json:"image"`      // the k3s image k3d used
+	// GrafanaDashboard names the dashboard provisioned into Grafana ("" = none). Grafana
+	// with Prometheus wired up but no dashboard reads to a user as monitoring that does
+	// not work, so whether one landed is worth reporting rather than leaving to be
+	// discovered.
+	GrafanaDashboard string `json:"grafanaDashboard"`
+	// ManifestDir is where the applied manifests were archived on the first k3s node
+	// ("" = not archived). CNPG only: the Percona operators leave their release source in
+	// /root already.
+	ManifestDir string `json:"manifestDir"`
+	// The operator under Delve (frame.K3DDebug) — see k3ddebug.go. DebugStatus is "" when the
+	// frame did not ask for it, "listening" when it is up, and carries the reason otherwise:
+	// a debugger that could not be attached must not read as one that was.
+	DebugPort     int    `json:"debugPort"`     // host port Delve is published on
+	DebugNodePort int    `json:"debugNodePort"` // the NodePort behind it (in-stack access)
+	DebugBuildDir string `json:"debugBuildDir"` // where the binary was compiled (launch.json substitutePath)
+	// DebugGOARCH is what the debug binary was built for. It belongs in the panel because a
+	// clone on Windows or macOS needs its language server pointed at linux/<arch> — the
+	// operator is Linux-only code, and gopls otherwise reports the Linux-only syscalls it
+	// cannot see as undefined errors all over a workspace that is perfectly fine.
+	DebugGOARCH string `json:"debugGoarch"`
+	DebugStatus string `json:"debugStatus"`
+}
+
+// k3dSecrets holds the credentials a K3D frame was provisioned with, kept out of k3dConfig
+// because that is the non-secret profile the node panel renders in full. Written only on the
+// final upsert, once provisioning knows what actually landed.
+type k3dSecrets struct {
+	// GrafanaPassword is the kube-prometheus-stack admin password (CNPG frames with
+	// monitoring enabled). It comes from $GRAFANA_PASSWORD, so it is not generated and not
+	// recoverable from the cluster in any friendlier form than reading the chart's Secret.
+	GrafanaPassword string `json:"grafanaPassword,omitempty"`
+}
+
+// ---------------------------------------------------------------- the k3d binary
+
+// k3dBinary resolves the k3d executable: $K3D_BIN, else "k3d" on PATH. In the app image the binary
+// is baked in; in local development it is the one installed next to Docker on the host.
+func k3dBinary() (string, error) {
+	if p := strings.TrimSpace(os.Getenv("K3D_BIN")); p != "" {
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
+		}
+		return "", fmt.Errorf("K3D_BIN=%s does not exist", p)
+	}
+	return exec.LookPath("k3d")
+}
+
+// k3dInstalled reports whether the k3d binary is available. validateStack calls this so a design
+// with a K3D frame fails with a clear message instead of dying mid-deploy.
+func k3dInstalled() bool {
+	_, err := k3dBinary()
+	return err == nil
+}
+
+// runK3D executes k3d against the same Docker daemon DBCanvas uses. k3d wants a HOME for its
+// config; it never needs one in our flow, so it gets a scratch dir.
+func (a *App) runK3D(ctx context.Context, logln func(string), args ...string) (string, error) {
+	bin, err := k3dBinary()
+	if err != nil {
+		return "", fmt.Errorf("k3d is not installed: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Env = append(os.Environ(),
+		"DOCKER_HOST=unix://"+envOr("DOCKER_SOCK", "/var/run/docker.sock"),
+		"HOME=/tmp",
+	)
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	err = cmd.Run()
+	if logln != nil {
+		for _, ln := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+			if ln != "" {
+				logln("k3d: " + ln)
+			}
+		}
+	}
+	if err != nil {
+		return out.String(), fmt.Errorf("k3d %s: %w", strings.Join(args, " "), err)
+	}
+	return out.String(), nil
+}
+
+// k3dClusterName is the k3d cluster name for a frame: its label, sanitized, scoped by the stack.
+// The scope is not cosmetic — every stack's first K3D frame is labelled "k3d-00" by default, and
+// k3d cluster names are global to the Docker daemon, so without it two stacks would fight over one
+// cluster (the second deploy dies with "a cluster with that name already exists").
+func k3dClusterName(stackID int64, frame designFrame) string {
+	return fmt.Sprintf("%s-s%d", sanitizeName(frame.Label), stackID)
+}
+
+// k3dNodeContainer is the container k3d creates for the i-th member (0 = the server).
+func k3dNodeContainer(cluster string, i int) string {
+	if i == 0 {
+		return fmt.Sprintf("%s%s-server-0", k3dContainerPrefix, cluster)
+	}
+	return fmt.Sprintf("%s%s-agent-%d", k3dContainerPrefix, cluster, i-1)
+}
+
+// ---------------------------------------------------------------- validation
+
+// k3dFrameIssues validates a K3D frame: node count, namespace, operator selection, and the
+// CPU/memory budget. The budget produces *warnings*, never errors — it is a judgement call about
+// the host, and the operator explicitly asked for one.
+func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, opCat OperatorCatalog) []issue {
+	var out []issue
+	name := f.Label
+	if members < 1 || members > 3 {
+		out = append(out, issue{Level: "error", Message: "K3D cluster " + name + " must have 1–3 nodes"})
+	}
+	if !k3dInstalled() {
+		out = append(out, issue{Level: "error", Message: "K3D cluster " + name + " needs the k3d binary — install k3d on the host (it talks to the same Docker daemon), or rebuild the app image"})
+	}
+	if _, ok := loadK3SCatalog().resolveK3SVersion(f.K3DK3SVersion); !ok {
+		out = append(out, issue{Level: "error", Message: "K3D cluster " + name + " requests an unknown Kubernetes version " + f.K3DK3SVersion + " — pick one from the list, or run `make versions`"})
+	}
+	if ns := strings.TrimSpace(f.K3DNamespace); ns != "" && !validNamespace(ns) {
+		out = append(out, issue{Level: "error", Message: "K3D cluster " + name + " has an invalid namespace " + ns + " — use lowercase letters, digits and '-' (a DNS-1123 label)"})
+	}
+	if op := strings.TrimSpace(f.K3DOperator); op != "" {
+		if !k3dDeployableOperator[op] {
+			out = append(out, issue{Level: "error", Message: "K3D cluster " + name + ": unknown operator " + op})
+		} else if chart, helmInstalled := k3dChartOperator[op]; helmInstalled {
+			// A Helm-installed operator's version is a *chart* version, so it is checked
+			// against the chart catalog rather than the Percona operator one. An empty version
+			// means the chart repo's latest; a catalog with no charts (make versions never run)
+			// accepts anything, since helm is the one that ultimately resolves it.
+			if _, ok := loadChartCatalog().resolveChartVersion(chart, f.K3DOperatorVer); !ok {
+				out = append(out, issue{Level: "error", Message: "K3D cluster " + name + " requests an unknown " + chart + " chart version — pick one from the list, or run `make versions`"})
+			}
+		} else if _, ok := opCat.resolveOperatorVersion(op, f.K3DOperatorVer); !ok {
+			out = append(out, issue{Level: "error", Message: "K3D cluster " + name + " requests an unknown " + op + " operator version — pick one from the list, or run `make versions`"})
+		}
+	}
+
+	// Debugging the operator is wired up per operator (k3dDebuggableOperator), and its host port
+	// is fixed rather than auto-assigned — both are things a design can ask for and not get, so
+	// both are said here rather than discovered in a deploy log. The port checks apply only when
+	// the frame publishes one at all; the in-app debugger needs no host port.
+	if f.K3DDebug {
+		if op := strings.TrimSpace(f.K3DOperator); !k3dDebuggableOperator(op) {
+			out = append(out, issue{Level: "warning", Message: "K3D cluster " + name + " asks to run its operator under Delve, which " +
+				k3dOperatorLabel(op) + " does not support yet — the cluster deploys normally, without a debugger"})
+		} else if k3dDebugPublishes(f) {
+			if p := k3dDebugHostPort(f); p < 1024 {
+				out = append(out, issue{Level: "error", Message: "K3D cluster " + name + ": the debugger's host port " + strconv.Itoa(p) +
+					" is privileged — pick one above 1024"})
+			} else if used, err := a.engCtx(ctx).ListPublishedPorts(ctx); err == nil {
+				if owner, taken := used[p]; taken && !strings.HasPrefix(owner, k3dContainerPrefix+sanitizeName(f.Label)) {
+					out = append(out, issue{Level: "warning", Message: "K3D cluster " + name + ": host port " + strconv.Itoa(p) +
+						" (the debugger) is already published by " + owner + " — the deploy will fail unless it is gone by then"})
+				}
+			}
+		}
+	}
+
+	// A design saved before the PMM picker was hidden for the community operators can still
+	// carry a PMM node. It is ignored at deploy (see provisionK3DFrame), but silently ignoring
+	// it would leave the user expecting monitoring that will never appear. Neither operator is
+	// a Percona product and neither has a pmm-client sidecar to configure.
+	if _, chartInstalled := k3dChartOperator[f.K3DOperator]; chartInstalled && f.PMMNodeID != "" {
+		out = append(out, issue{Level: "warning", Message: "K3D cluster " + name + " has a PMM node selected, which " +
+			k3dOperatorLabel(f.K3DOperator) + " cannot use — it is not a Percona product and ships no pmm-client. " +
+			"Clear it; enable Prometheus/Grafana monitoring on the cluster instead"})
+	}
+
+	// Crunchy's exporter is not built for every PostgreSQL major, and the operator's refusal
+	// is invisible: the sidecar still runs and still scrapes, it just has no role to log in
+	// as and publishes nothing. Only an explicitly chosen version can land here — an unset
+	// one is defaulted to a supported major (see pgoPGVersion).
+	if is, ok := pgoExporterIssue(f, name); ok {
+		out = append(out, is)
+	}
+
+	// The CPU/memory budget is for the whole cluster, split across its nodes.
+	cpus, memGB := k3dCPUs(f), k3dMemoryGB(f)
+	if cpus < 4 || memGB < 6 {
+		out = append(out, issue{Level: "warning", Message: fmt.Sprintf("K3D cluster %s is allotted %d CPU / %d GiB — a database cluster (3 pods plus a proxy or router) is unlikely to schedule below 4 CPU / 6 GiB", name, cpus, memGB)})
+	}
+	// An async PS cluster adds 3 Orchestrator pods on top of the database and the proxy.
+	if f.K3DOperator == "ps" && psClusterType(f.K3DClusterType) == "async" && (cpus < 8 || memGB < 12) {
+		out = append(out, issue{Level: "warning", Message: fmt.Sprintf("K3D cluster %s runs async replication — 9 pods (3 MySQL + 3 Orchestrator + 3 HAProxy) against %d CPU / %d GiB; below 8 CPU / 12 GiB, use group replication instead", name, cpus, memGB)})
+	}
+	// A sharded MongoDB cluster is 3 replica-set + 3 config-server + 3 mongos pods.
+	if f.K3DOperator == "psmdb" && f.K3DSharding && (cpus < 8 || memGB < 12) {
+		out = append(out, issue{Level: "warning", Message: fmt.Sprintf("K3D cluster %s is sharded — 9 MongoDB pods (replica set + config servers + mongos) against %d CPU / %d GiB; below 8 CPU / 12 GiB, deploy it as a replica set instead", name, cpus, memGB)})
+	}
+	if ncpu, memBytes := a.engCtx(ctx).HostResources(ctx); ncpu > 0 && memBytes > 0 {
+		hostGB := int(memBytes / (1 << 30))
+		if cpus*5 > ncpu*4 || memGB*5 > hostGB*4 { // > 80% of the host
+			out = append(out, issue{Level: "warning", Message: fmt.Sprintf("K3D cluster %s is allotted %d CPU / %d GiB of this host's %d CPU / %d GiB — leaving under 20%% for the host and the rest of the stack", name, cpus, memGB, ncpu, hostGB)})
+		}
+	}
+	return out
+}
+
+// k3dBackupIssues warns when a frame's backup target cannot actually be used by the operator it
+// runs. Today that is one case, and it is a quiet one: **pgBackRest speaks S3 only over TLS**, so the
+// PostgreSQL operator cannot back up to a SeaweedFS node with plain HTTP. installPGOperator does the
+// right thing — it keeps the operator's own PVC repo rather than configuring a repo that would fail
+// every backup — but it says so only in the node's deploy log, which is not where anyone looks. The
+// symptom is a bucket that stays empty forever.
+//
+// It is a warning, not an error: the cluster deploys, and it does back up — just to a volume inside
+// the k3s cluster instead of to S3.
+//
+// The other three operators are fine on plain HTTP: xbcloud and PBM both do plaintext S3, and their
+// storages already skip TLS verification.
+//
+// This lives outside k3dFrameIssues because it needs the design (to find the SeaweedFS node), which
+// that function does not take.
+func k3dBackupIssues(f designFrame, doc designDoc) []issue {
+	// Crunchy's operator is where Percona's was forked from and runs the same pgBackRest, so
+	// the constraint and the fallback are identical — see installPGOOperator.
+	if (f.K3DOperator != "pg" && f.K3DOperator != "pgo") || f.SeaweedFSNodeID == "" {
+		return nil
+	}
+	for _, n := range doc.Nodes {
+		if n.ID != f.SeaweedFSNodeID || n.Type != "seaweedfs" {
+			continue
+		}
+		if !n.TLS {
+			return []issue{{Level: "warning", Message: "K3D cluster " + f.Label + " cannot back up to SeaweedFS node " + n.Label +
+				": pgBackRest speaks S3 only over TLS, so the cluster will use the operator's own PVC repo instead and the bucket will stay empty — turn on S3 TLS for " + n.Label + " to back up to it"}}
+		}
+		return nil
+	}
+	return nil // a SeaweedFS node that is not in the design is already reported elsewhere
+}
+
+// validNamespace enforces a DNS-1123 label (what Kubernetes accepts as a namespace).
+func validNamespace(s string) bool {
+	if len(s) == 0 || len(s) > 63 {
+		return false
+	}
+	for i, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+		case r == '-' && i != 0 && i != len(s)-1:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// Defaults for the frame's knobs, so an older design (or a hand-written one) still deploys.
+func k3dCPUs(f designFrame) int {
+	if f.K3DCPUs > 0 {
+		return f.K3DCPUs
+	}
+	return 4
+}
+func k3dMemoryGB(f designFrame) int {
+	if f.K3DMemoryGB > 0 {
+		return f.K3DMemoryGB
+	}
+	return 8
+}
+
+// k3dDiskLimits returns the per-node disk rate limits in bytes/sec (0 = unlimited), clamped
+// the same way applyVMSize clamps a plain node's. No default: a K3D frame designed before
+// these fields existed stays unthrottled.
+func k3dDiskLimits(f designFrame) (readBPS, writeBPS int64) {
+	if f.K3DDiskReadMBps > 0 {
+		readBPS = int64(clampInt(f.K3DDiskReadMBps, 1, 16384)) * (1 << 20)
+	}
+	if f.K3DDiskWriteMBps > 0 {
+		writeBPS = int64(clampInt(f.K3DDiskWriteMBps, 1, 16384)) * (1 << 20)
+	}
+	return readBPS, writeBPS
+}
+
+// k3dDiskLimitLabel describes the per-node disk ceiling for the properties panel. Empty when
+// the frame is unthrottled, so the card shows nothing rather than "unlimited · unlimited".
+func k3dDiskLimitLabel(f designFrame) string {
+	var parts []string
+	if f.K3DDiskReadMBps > 0 {
+		parts = append(parts, fmt.Sprintf("read %d MB/s", clampInt(f.K3DDiskReadMBps, 1, 16384)))
+	}
+	if f.K3DDiskWriteMBps > 0 {
+		parts = append(parts, fmt.Sprintf("write %d MB/s", clampInt(f.K3DDiskWriteMBps, 1, 16384)))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	label := strings.Join(parts, " · ") + " per node"
+	if p := strings.TrimSpace(f.K3DDevicePath); p != "" {
+		label += " on " + p
+	}
+	return label
+}
+
+func k3dNamespace(f designFrame) string {
+	if ns := strings.TrimSpace(f.K3DNamespace); ns != "" {
+		return ns
+	}
+	return "default"
+}
+
+// k3dExposeOf normalizes one section's Service type, falling back to the frame's legacy
+// single-value setting (designs saved before the per-section split) and then to ClusterIP.
+func k3dExposeOf(want, fallback string) string {
+	if t, ok := k3dExposeTypes[strings.ToLower(strings.TrimSpace(want))]; ok {
+		return t
+	}
+	if t, ok := k3dExposeTypes[strings.ToLower(strings.TrimSpace(fallback))]; ok {
+		return t
+	}
+	return "ClusterIP"
+}
+
+// k3dProxy is the front end in front of the database: HAProxy (cr.yaml's own default) or ProxySQL.
+// They are mutually exclusive.
+func k3dProxy(f designFrame) string {
+	if strings.ToLower(strings.TrimSpace(f.K3DProxy)) == "proxysql" {
+		return "proxysql"
+	}
+	return "haproxy"
+}
+
+// ---------------------------------------------------------------- provisioning
+
+// provisionK3DFrame brings up a k3d cluster and (optionally) a Percona operator on it.
+func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
+	domain := envOr("DOMAIN", "example.net")
+	hosts := stackHostnames(doc)
+
+	var members []designNode
+	for _, n := range doc.Nodes {
+		if n.FrameID == frame.ID && n.Type == "k3d" {
+			members = append(members, n)
+		}
+	}
+	sort.Slice(members, func(i, j int) bool { return members[i].Label < members[j].Label })
+	if len(members) == 0 {
+		log.Printf("stack %d k3d %s: no members", st.ID, frame.Label)
+		return
+	}
+
+	cluster := k3dClusterName(st.ID, frame)
+	nodes := len(members)
+	cpus, memGB := k3dCPUs(frame), k3dMemoryGB(frame)
+	ns := k3dNamespace(frame)
+	proxy := k3dProxy(frame)
+	exposePXC := k3dExposeOf(frame.K3DExposePXC, frame.K3DExpose)
+	exposeProxy := k3dExposeOf(frame.K3DExposeHAProxy, frame.K3DExpose)
+	if proxy == "proxysql" {
+		exposeProxy = k3dExposeOf(frame.K3DExposeProxySQL, frame.K3DExpose)
+	}
+
+	// The Kubernetes the cluster runs. An unknown tag was already flagged by validation; fall back
+	// to the catalog's latest rather than letting k3d pick its own (stale) default.
+	k3sCat := loadK3SCatalog()
+	k3sTag, ok := k3sCat.resolveK3SVersion(frame.K3DK3SVersion)
+	if !ok {
+		k3sTag = k3sCat.Latest
+	}
+	k3sImage := k3sCat.k3sImageRef(k3sTag)
+
+	opCat := loadOperatorCatalog()
+	operator := strings.TrimSpace(frame.K3DOperator)
+	operatorVer := ""
+	if chart, helmInstalled := k3dChartOperator[operator]; helmInstalled {
+		// A chart-installed operator's version is a *chart* version, so it resolves against the
+		// chart catalog, not the Percona operator one. Without this it would fall through to the
+		// branch below, find no such product, and silently disable the operator.
+		if v, ok := loadChartCatalog().resolveChartVersion(chart, frame.K3DOperatorVer); ok {
+			operatorVer = v
+		} else {
+			operator = ""
+		}
+	} else if operator != "" {
+		if v, ok := opCat.resolveOperatorVersion(operator, frame.K3DOperatorVer); ok {
+			operatorVer = v
+		} else {
+			operator = "" // validation already flagged this; do not guess a version
+		}
+	}
+
+	// PMM monitors the four Percona operators' clusters through a pmm-client sidecar the
+	// operator's own CR configures. CloudNativePG is not a Percona product, has no such
+	// sidecar, and nothing in installCNPGOperator consumes PMMNodeID — so a PMM node
+	// selected against a CNPG frame is ignored here rather than recorded as monitoring
+	// that does not exist. CNPG's monitoring is Prometheus/Grafana, which
+	// installCNPGOperator sets MonitoredBy to when it lands.
+	monitoredBy := ""
+	if _, chartInstalled := k3dChartOperator[operator]; frame.PMMNodeID != "" && !chartInstalled {
+		for _, m := range doc.Nodes {
+			if m.ID == frame.PMMNodeID && m.Type == "pmm" {
+				monitoredBy = fqdnOf(hosts[m.ID], domain)
+			}
+		}
+	}
+	backupRepo := ""
+	if frame.SeaweedFSNodeID != "" {
+		backupRepo = "SeaweedFS S3" // refined to name the bucket once the node is up (k3dBackupSecret)
+	}
+
+	// One Deployment row per member, up front: without these the canvas shows no cards.
+	base := k3dConfig{
+		Cluster: cluster, Nodes: nodes, CPUs: cpus, MemoryGB: memGB, K3SVersion: k3sTag,
+		Operator: operator, OperatorVer: operatorVer, Namespace: ns,
+		Proxy: proxy, Expose: exposePXC, ExposePXC: exposePXC, ExposeProxy: exposeProxy,
+		Sharding:    frame.K3DSharding,
+		MonitoredBy: monitoredBy, BackupRepo: backupRepo, ClusterName: k3dCRName(frame),
+		DiskLimit: k3dDiskLimitLabel(frame),
+	}
+	if operator == "psmdb" {
+		base.ExposeReplset = k3dExposeOf(frame.K3DExposeReplset, frame.K3DExpose)
+		base.Expose = base.ExposeReplset // the card shows the database tier
+		if frame.K3DSharding {
+			base.ExposeMongos = k3dExposeOf(frame.K3DExposeMongos, frame.K3DExpose)
+		}
+	}
+	if operator == "ps" {
+		base.ClusterType = psClusterType(frame.K3DClusterType)
+		base.Proxy = psProxy(frame.K3DProxy, base.ClusterType)
+		base.ExposeMySQL = k3dExposeOf(frame.K3DExposeMySQL, frame.K3DExpose)
+		base.Expose = base.ExposeMySQL
+		if base.Proxy == "router" {
+			base.ExposeProxy = k3dExposeOf(frame.K3DExposeRouter, frame.K3DExpose)
+		}
+	}
+	if operator == "pg" {
+		base.ExposePG = k3dExposeOf(frame.K3DExposePG, frame.K3DExpose)
+		base.ExposePGBouncer = k3dExposeOf(frame.K3DExposePGBouncer, frame.K3DExpose)
+		base.Expose = base.ExposePG
+	}
+	if operator == "pgo" {
+		base.ExposePG = k3dExposeOf(frame.K3DExposePG, frame.K3DExpose)
+		base.ExposePGBouncer = k3dExposeOf(frame.K3DExposePGBouncer, frame.K3DExpose)
+		base.Expose = base.ExposePG
+		base.PGOInstances = pgoInstances(frame)
+		base.PGOStorageGB = pgoStorageGB(frame)
+		base.PGOPGVersion = pgoPGVersion(frame)
+	}
+	if repo, ok := k3dOperatorRepos[operator]; ok && operator != "" {
+		base.OperatorSrc = fmt.Sprintf("%s/%s-%s", k3dOperatorDir, repo, operatorVer)
+	}
+	for i, n := range members {
+		cfg := base
+		cfg.Role = "agent"
+		if i == 0 {
+			cfg.Role = "server"
+		}
+		cfg.Hostname = hosts[n.ID]
+		cfg.FQDN = fqdnOf(hosts[n.ID], domain)
+		cfgJSON, _ := json.Marshal(cfg)
+		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON})
+	}
+
+	ctx, endScope := a.deployScope(st.ID, a.nodeEngine(st, frame.Type))
+	go func() {
+		defer endScope()
+		progs := map[string]*pxcProg{}
+		for _, n := range members {
+			progs[n.ID] = a.pxcNewProg(st.ID, n.ID)
+			a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
+			progs[n.ID].phase("Waiting for Intranet to be ready", 5)
+		}
+		pr := progs[members[0].ID] // the server node carries the cluster-wide progress
+		failAll := func(format string, args ...any) {
+			for _, n := range members {
+				progs[n.ID].fail(format, args...)
+			}
+		}
+
+		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
+		if werr != nil {
+			failAll("%v", werr)
+			return
+		}
+
+		// ---- pull the k3s image ourselves, for OUR platform, before k3d ever touches it ----
+		// k3d does not have a --platform flag, and its own pull path (docker.ImagePull with empty
+		// PullOptions, then ContainerCreate with a nil platform) never sends one either — see
+		// https://github.com/k3d-io/k3d/discussions/1031. Left alone, the daemon resolves
+		// rancher/k3s's multi-arch manifest against its OWN host architecture, which silently
+		// ignores K3D_PLATFORM (e.g. an arm64 daemon creates arm64 k3s nodes even though this
+		// K3D frame targets linux/amd64).
+		//
+		// Pre-pulling the exact repo:tag for k3dPlatform() is not enough on its own: under the
+		// containerd image store, a tag can hold multiple platform variants at once, and k3d's
+		// platform-blind ContainerCreate then resolves to the HOST's architecture regardless of
+		// which variant we just pulled (verified live — see ImageRemove's doc comment in docker.go).
+		// Removing the reference first guarantees only k3dPlatform()'s variant is cached, so k3d's
+		// create has nothing left to be ambiguous about.
+		pr.phase("Pulling the k3s image", 10)
+		a.engCtx(ctx).ImageRemove(ctx, k3sImage)
+		if err := a.engCtx(ctx).EnsureImage(ctx, k3sCat.Repository, k3sTag, k3dPlatform()); err != nil {
+			failAll("pull k3s image %s: %v", k3sImage, err)
+			return
+		}
+		pr.logln("k3s image " + k3sImage + " ready for " + k3dPlatform())
+
+		// ---- create the cluster on the stack network ----
+		pr.phase("Creating k3d cluster", 15)
+		// NOTE: k3d's --servers-memory/--agents-memory are deliberately NOT used. They work by
+		// writing a fake /proc/meminfo under $HOME and bind-mounting that *host* path into the k3s
+		// container — which breaks the moment k3d runs inside the app container (`make compose`):
+		// the file exists in the app container, the daemon looks for it on the host, does not find
+		// it, and the mount fails ("not a directory"). CPU and memory are both imposed with
+		// ContainerUpdate below instead: a real cgroup limit, identical whether DBCanvas runs on
+		// the host or in Docker.
+		args := []string{
+			"cluster", "create", cluster,
+			// The Kubernetes version is always ours, never k3d's default — that one trails the
+			// releases (5.8.3 still ships v1.31.5), and an API server too old for an operator's CRDs
+			// makes the operator uninstallable: the ps-operator's clusterset CRD has a CEL rule that
+			// needs the `format` library, and a 1.31 API server rejects the CRD outright.
+			"--image", k3sImage,
+			"--network", networkName(st.ID),
+			"--servers", "1",
+			"--agents", strconv.Itoa(nodes - 1),
+			// servicelb (klipper) and MetalLB both hand out external IPs and fight over them;
+			// MetalLB is the one we want. Traefik is not needed and just eats resources.
+			"--k3s-arg", "--disable=servicelb@server:*",
+			"--k3s-arg", "--disable=traefik@server:*",
+			// Let the *daemon* pick the host port the API server is published on. Left to itself k3d
+			// probes for a free port in its own network namespace — which, when DBCanvas runs in a
+			// container, is not the host's: the port can be free in here and taken out there (another
+			// cluster's serverlb, say), and the create then dies with "Bind for 127.0.0.1:xxxxx
+			// failed: port is already allocated". Port 0 defers the choice to Docker, which knows.
+			// Nothing uses this port anyway — kubectl runs inside the server node.
+			"--api-port", "0.0.0.0:0",
+			"--wait", "--timeout", "10m",
+		}
+		// The debugger's port is published here or not at all: k3d fixes a cluster's port
+		// mappings at create time. See k3ddebug.go.
+		if k3dDebugOn(frame) {
+			args = append(args, k3dDebugCreateArgs(frame)...)
+		}
+		// A previous run (or a failed one) may have left the cluster behind, and k3d refuses to
+		// create over it. Removing it first makes a redeploy idempotent — the same thing every
+		// other provisioner does with "remove the container of this name before creating it".
+		a.runK3D(ctx, nil, "cluster", "delete", cluster)
+		// The debugger's host port is fixed (it goes in an IDE's launch.json), so a collision is
+		// possible — and k3d's own failure for it lands halfway through creating the cluster.
+		// Checked after the delete above, or a redeploy would collide with its own predecessor.
+		if k3dDebugOn(frame) && k3dDebugPublishes(frame) {
+			if used, err := a.engCtx(ctx).ListPublishedPorts(ctx); err == nil {
+				if owner, taken := used[k3dDebugHostPort(frame)]; taken {
+					failAll("host port %d (the debugger) is already published by %s — pick another on the frame",
+						k3dDebugHostPort(frame), owner)
+					return
+				}
+			}
+		}
+		if _, err := a.runK3D(ctx, pr.logln, args...); err != nil {
+			failAll("create k3d cluster: %v", err)
+			return
+		}
+
+		// ---- adopt the containers k3d created, one per member card ----
+		pr.phase("Registering nodes", 30)
+		// The CPU/memory budget is for the whole cluster, so each node gets an equal share.
+		nanoCPUs := int64(float64(cpus) / float64(nodes) * 1e9)
+		memPerNode := int64(max(1, memGB/nodes)) << 30
+		// Disk limits are per node, not a divided total — see the designFrame comment.
+		diskReadBPS, diskWriteBPS := k3dDiskLimits(frame)
+		nodeCIDs := make([]string, 0, nodes)
+		serverID := ""
+		for i, n := range members {
+			cname := k3dNodeContainer(cluster, i)
+			cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, cname)
+			if !ok {
+				failAll("k3d did not create the expected container %s", cname)
+				return
+			}
+			if i == 0 {
+				serverID = cid
+			}
+			// Impose this node's share of the cluster's CPU/memory budget as a cgroup limit.
+			if err := a.engCtx(ctx).ContainerUpdate(ctx, cid, nanoCPUs, memPerNode); err != nil {
+				progs[n.ID].logln("could not apply the CPU/memory limit: " + err.Error())
+			}
+			cfg := base
+			cfg.Role = "agent"
+			if i == 0 {
+				cfg.Role = "server"
+			}
+			cfg.Hostname = hosts[n.ID]
+			cfg.FQDN = fqdnOf(hosts[n.ID], domain)
+			cfg.Image = k3dNodeImage(ctx, a, cid)
+			cfgJSON, _ := json.Marshal(cfg)
+			a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: cid, State: DeployProvisioning, Config: cfgJSON})
+			progs[n.ID].phase("Node up", 40)
+			nodeCIDs = append(nodeCIDs, cid)
+		}
+
+		// ---- per-node disk rate limits ----
+		// These cannot take the ContainerUpdate route above: the update endpoint accepts
+		// BlkioDeviceRead/WriteBps and silently drops them, and k3d has no flag to pass them
+		// through at create time. They are written straight into each node's cgroup instead —
+		// see ApplyDiskLimits. The k3s image is reused for the helper, so nothing is pulled.
+		if diskReadBPS > 0 || diskWriteBPS > 0 {
+			pr.phase("Applying disk limits", 42)
+			out, err := a.docker.ApplyDiskLimits(ctx, k3sImage, nodeCIDs, frame.K3DDevicePath, diskReadBPS, diskWriteBPS)
+			if err != nil {
+				// Not fatal — the cluster is up and usable, just not throttled. Said loudly
+				// rather than leaving the design's limit looking as though it applied.
+				pr.logln("per-node disk limit NOT applied: " + err.Error())
+			} else {
+				for _, line := range strings.Split(out, "\n") {
+					if line = strings.TrimSpace(line); line != "" {
+						pr.logln("io.max " + line)
+					}
+				}
+			}
+		}
+
+		// The k3s nodes are on the stack network, so they get DNS names like every other node.
+		a.reconcileStackDNS(ctx, st.ID)
+
+		// ---- pods must resolve the stack's own names (pmm-01.example.net, seaweedfs-01…) ----
+		pr.phase("Wiring cluster DNS to the Intranet", 45)
+		if err := a.kubectlApply(ctx, serverID, "", corednsCustomConfigMap(domain, intranetIP)); err != nil {
+			pr.logln("CoreDNS forward to the Intranet skipped: " + err.Error())
+		} else {
+			pr.logln("CoreDNS forwards *." + domain + " to the Intranet DNS (" + intranetIP + ")")
+		}
+
+		// ---- MetalLB, so LoadBalancer services get an address on the stack network ----
+		pr.phase("Installing MetalLB", 55)
+		pool, perr := a.metalLBPool(ctx, st, doc, frame.ID)
+		if perr != nil {
+			pr.logln("MetalLB address pool skipped: " + perr.Error())
+		} else if err := a.installMetalLB(ctx, serverID, pool, pr.logln); err != nil {
+			pr.logln("MetalLB install failed (LoadBalancer services will stay pending): " + err.Error())
+		} else {
+			base.MetalLBRange = pool
+			pr.logln("MetalLB pool " + pool + " — this cluster's own block of " +
+				strconv.Itoa(k3dPoolSize) + " from the stack subnet")
+		}
+
+		// ---- the operator ----
+		switch operator {
+		case "pxc":
+			if err := a.installPXCOperator(ctx, st, frame, doc, serverID, &base, pr); err != nil {
+				failAll("install the PXC operator: %v", err)
+				return
+			}
+		case "psmdb":
+			if err := a.installPSMDBOperator(ctx, st, frame, doc, serverID, &base, pr); err != nil {
+				failAll("install the MongoDB operator: %v", err)
+				return
+			}
+		case "ps":
+			if err := a.installPSOperator(ctx, st, frame, doc, serverID, &base, pr); err != nil {
+				failAll("install the MySQL (Percona Server) operator: %v", err)
+				return
+			}
+		case "pg":
+			if err := a.installPGOperator(ctx, st, frame, doc, serverID, &base, pr); err != nil {
+				failAll("install the PostgreSQL operator: %v", err)
+				return
+			}
+		case "cnpg":
+			// Helm-installed rather than bundle.yaml-installed — see cnpg.go.
+			if err := a.installCNPGOperator(ctx, st, frame, doc, serverID, &base, pr); err != nil {
+				failAll("install the CloudNativePG operator: %v", err)
+				return
+			}
+		case "pgo":
+			// Also Helm-installed, from an OCI chart in Crunchy's registry — see k3dpgo.go.
+			if err := a.installPGOOperator(ctx, st, frame, serverID, &base, pr); err != nil {
+				failAll("install the Crunchy Postgres operator: %v", err)
+				return
+			}
+		}
+
+		// ---- done: record the final config on every member ----
+		// Grafana's admin password is the one credential this frame hands out, so it goes to
+		// every member's Deployment alongside the config — the panel is opened on whichever
+		// node the user clicked, not necessarily the server.
+		var secJSON json.RawMessage
+		if base.GrafanaURL != "" {
+			secJSON, _ = json.Marshal(k3dSecrets{GrafanaPassword: grafanaAdminPassword()})
+		}
+		for i, n := range members {
+			dep, _ := a.store.GetDeployment(st.ID, n.ID)
+			cfg := base
+			cfg.Role = "agent"
+			if i == 0 {
+				cfg.Role = "server"
+			}
+			cfg.Hostname = hosts[n.ID]
+			cfg.FQDN = fqdnOf(hosts[n.ID], domain)
+			cfg.Image = k3dNodeImage(ctx, a, dep.ContainerID)
+			cfgJSON, _ := json.Marshal(cfg)
+			a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: dep.ContainerID, State: DeployRunning, Config: cfgJSON, Secrets: secJSON})
+			progs[n.ID].phase("Running", 100)
+			progs[n.ID].p.Message = "provisioned"
+			progs[n.ID].save()
+		}
+		a.reconcileStackDNS(ctx, st.ID)
+		log.Printf("stack %d k3d %s: provisioned (%d node(s), operator %q)", st.ID, frame.Label, nodes, operator)
+	}()
+}
+
+// destroyK3DClusters deletes every k3d cluster a stack owns. Called from teardownStack *before* it
+// sweeps `dbcanvas-<id>-*` containers: k3d's containers (and volumes, and its serverlb) carry
+// k3d's own names, so nothing else in the teardown would ever touch them.
+func (a *App) destroyK3DClusters(ctx context.Context, stackID int64) {
+	// Any debug session on this stack refers to source and a listener that are about to stop
+	// existing; end it (which resumes the operator and clears its breakpoints) first.
+	a.k3dDebugForget(stackID)
+	st, err := a.store.GetStack(stackID)
+	if err != nil {
+		return
+	}
+	var doc designDoc
+	if json.Unmarshal(st.Design, &doc) != nil {
+		return
+	}
+	for _, f := range doc.Frames {
+		if f.Type != "k3d" {
+			continue
+		}
+		cluster := k3dClusterName(stackID, f)
+		if _, err := a.runK3D(ctx, nil, "cluster", "delete", cluster); err != nil {
+			log.Printf("stack %d: k3d cluster delete %s: %v", stackID, cluster, err)
+			continue
+		}
+		log.Printf("stack %d: k3d cluster %s deleted", stackID, cluster)
+	}
+}
+
+// k3dNodeImage reports the k3s image a node container runs (for the properties panel).
+func k3dNodeImage(ctx context.Context, a *App, containerID string) string {
+	if containerID == "" {
+		return ""
+	}
+	out, err := a.engCtx(ctx).Exec(ctx, containerID, []string{"sh", "-c", "echo $K3S_IMAGE"}, nil)
+	if err == nil && strings.TrimSpace(out.Stdout) != "" {
+		return strings.TrimSpace(out.Stdout)
+	}
+	return "rancher/k3s"
+}
+
+// ---------------------------------------------------------------- kubectl
+
+// kubectl runs kubectl inside a k3s node (the k3s image ships it) against the cluster's own admin
+// kubeconfig. Nothing outside the cluster needs a Kubernetes client.
+func (a *App) kubectl(ctx context.Context, serverID string, args ...string) (string, error) {
+	res, err := a.engCtx(ctx).Exec(ctx, serverID, append([]string{"kubectl"}, args...), []string{"KUBECONFIG=" + k3dKubeconfig})
+	if err != nil {
+		return "", err
+	}
+	if res.Code != 0 {
+		return res.Stdout + res.Stderr, fmt.Errorf("kubectl %s: %s", strings.Join(args, " "), strings.TrimSpace(res.Stderr+res.Stdout))
+	}
+	return res.Stdout, nil
+}
+
+// kubectlApply pipes a manifest to `kubectl apply -f -` (no temp files on the node). ns targets a
+// namespace; pass "" for manifests that carry their own (MetalLB, the CoreDNS ConfigMap). The
+// custom resource MUST be applied into the operator's namespace — applied without one it lands in
+// `default`, where nothing watches it and the cluster is silently never created.
+// kubectlApplyServerSide is kubectlApply using server-side apply, for manifests too large for
+// the client-side kind. Client-side apply stores the whole manifest in the object's
+// last-applied-configuration annotation, and annotations are capped at 256KiB in total;
+// server-side apply records ownership in managedFields instead and has no such ceiling.
+// --force-conflicts takes ownership of fields a previous client-side apply already claimed,
+// which is what makes it idempotent across a redeploy.
+func (a *App) kubectlApplyServerSide(ctx context.Context, serverID, ns string, manifest []byte) error {
+	args := []string{"kubectl", "apply", "--server-side", "--force-conflicts", "-f", "-"}
+	if ns != "" {
+		args = append(args, "-n", ns)
+	}
+	res, err := a.engCtx(ctx).ExecInput(ctx, serverID, "", args,
+		[]string{"KUBECONFIG=" + k3dKubeconfig}, manifest)
+	if err != nil {
+		return err
+	}
+	if res.Code != 0 {
+		return fmt.Errorf("kubectl apply --server-side: %s", strings.TrimSpace(res.Stderr+res.Stdout))
+	}
+	return nil
+}
+
+func (a *App) kubectlApply(ctx context.Context, serverID, ns string, manifest []byte) error {
+	args := []string{"kubectl", "apply", "-f", "-"}
+	if ns != "" {
+		args = append(args, "-n", ns)
+	}
+	res, err := a.engCtx(ctx).ExecInput(ctx, serverID, "", args,
+		[]string{"KUBECONFIG=" + k3dKubeconfig}, manifest)
+	if err != nil {
+		return err
+	}
+	if res.Code != 0 {
+		return fmt.Errorf("kubectl apply: %s", strings.TrimSpace(res.Stderr+res.Stdout))
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------- CoreDNS + MetalLB
+
+// corednsCustomConfigMap forwards the stack's domain to the Intranet DNS. k3s's CoreDNS imports
+// /etc/coredns/custom/*.server, so a ConfigMap is all it takes — the shipped Corefile is untouched.
+func corednsCustomConfigMap(domain, intranetIP string) []byte {
+	return []byte(fmt.Sprintf(`apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+data:
+  %s.server: |
+    %s:53 {
+      errors
+      cache 30
+      forward . %s
+    }
+`, domain, domain, intranetIP))
+}
+
+// k3dPoolSize is how many LoadBalancer addresses one K3D cluster gets.
+//
+// Every K3D cluster in a stack runs on the *same* Docker network — that is what lets a
+// cluster reach the Intranet and the PMM/SeaweedFS nodes — so their MetalLB pools have to
+// be disjoint. MetalLB here is L2: it answers ARP for the addresses it owns, and two
+// speakers on one network answering for the same address is a coin toss that changes on
+// every re-ARP. Before this, every cluster in a stack was handed the identical top-50
+// range, so a second cluster was a collision waiting for its first LoadBalancer service.
+//
+// Eight is enough for what a frame exposes: a Percona cluster's per-pod services plus its
+// proxy tier, or a PostgreSQL cluster's primary plus pgBouncer plus Grafana. A frame that
+// exposes every tier of a sharded MongoDB cluster can run a pool dry, and MetalLB then
+// leaves the extra services Pending — which is visible, unlike two clusters quietly
+// claiming one address.
+const k3dPoolSize = 8
+
+// metalLBPool carves this cluster's LoadBalancer range out of the stack's Docker subnet.
+// Docker's IPAM hands out addresses from the bottom, so the pools are taken from the top,
+// one k3dPoolSize block per cluster, working downwards.
+//
+// Blocks are claimed rather than computed from the frame's position: a cluster that is
+// already deployed has its range recorded on its members, and this skips any block that
+// overlaps one. That keeps a running cluster's addresses stable no matter what else is
+// added, removed or redeployed around it — including the wide 50-address ranges handed out
+// before there were blocks at all, which is why the check is overlap and not equality.
+func (a *App) metalLBPool(ctx context.Context, st Stack, doc designDoc, frameID string) (string, error) {
+	cidr, err := a.engCtx(ctx).NetworkSubnet(ctx, networkName(st.ID))
+	if err != nil || cidr == "" {
+		return "", fmt.Errorf("could not read the stack subnet: %v", err)
+	}
+	taken, mine := a.k3dPoolClaims(st.ID, doc, frameID)
+	return pickMetalLBBlock(cidr, taken, mine, k3dFrameIndex(doc, frameID))
+}
+
+// k3dFrameIndex is a frame's position among the stack's K3D frames, by sorted id.
+//
+// It is what keeps two clusters deploying *at the same time* apart. Frames provision
+// concurrently, so when both reach MetalLB neither has recorded a range yet and the
+// recorded claims below cannot separate them — a position each frame can compute for
+// itself, without looking at what anyone else has written, can. Sorting by id rather than
+// by canvas order or label makes it stable across edits to either.
+func k3dFrameIndex(doc designDoc, frameID string) int {
+	ids := []string{}
+	for _, f := range doc.Frames {
+		if f.Type == "k3d" {
+			ids = append(ids, f.ID)
+		}
+	}
+	sort.Strings(ids)
+	for i, id := range ids {
+		if id == frameID {
+			return i
+		}
+	}
+	return 0
+}
+
+// pickMetalLBBlock is metalLBPool without the Docker and database reads: given the stack
+// subnet, the ranges other clusters hold, this cluster's own previous range and its
+// position among the stack's K3D frames, it returns the range to advertise.
+func pickMetalLBBlock(cidr string, taken [][2]uint32, mine string, index int) (string, error) {
+	_, ipnet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return "", err
+	}
+	ip4 := ipnet.IP.To4()
+	if ip4 == nil {
+		return "", fmt.Errorf("stack subnet %s is not IPv4", cidr)
+	}
+	// Broadcast = network | ^mask.
+	bcast := make(net.IP, 4)
+	for i := 0; i < 4; i++ {
+		bcast[i] = ip4[i] | ^ipnet.Mask[i]
+	}
+	// A redeploy keeps the range it already had, so addresses that were written down — or
+	// that a kubeconfig, a bookmark or another node's config points at — do not move.
+	// This also carries a cluster deployed before blocks existed, whose recorded range is
+	// the old 50-address one: it is wider than it needs to be, but it is where that
+	// cluster's services already live.
+	if lo, hi, ok := parseRange(mine); ok && !overlapsAny(lo, hi, taken) {
+		return mine, nil
+	}
+	top := ipToU32(bcast) - 2 // leave the broadcast and one address free
+	floor := ipToU32(ip4) + 1 // and the network address itself
+	// block n counts down from the top of the subnet: 0 is the highest.
+	block := func(n int) (uint32, uint32, bool) {
+		if n < 0 || uint32(n)*k3dPoolSize > top-floor {
+			return 0, 0, false
+		}
+		last := top - uint32(n)*k3dPoolSize
+		if last < floor+k3dPoolSize {
+			return 0, 0, false
+		}
+		return last - (k3dPoolSize - 1), last, true
+	}
+	pool := func(first, last uint32) string {
+		return fmt.Sprintf("%s-%s", u32ToIP(first), u32ToIP(last))
+	}
+	// The frame's own position first. Two clusters deploying together each land on their
+	// own block without either having to see the other's claim.
+	if first, last, ok := block(index); ok && !overlapsAny(first, last, taken) {
+		return pool(first, last), nil
+	}
+	// Otherwise the highest block nobody holds — a cluster added to a stack later, or one
+	// whose position now maps onto a range somebody else already has.
+	for n := 0; ; n++ {
+		first, last, ok := block(n)
+		if !ok {
+			break
+		}
+		if !overlapsAny(first, last, taken) {
+			return pool(first, last), nil
+		}
+	}
+	return "", fmt.Errorf("no free LoadBalancer block left in %s — every %d-address block is claimed by another cluster in this stack", cidr, k3dPoolSize)
+}
+
+// k3dPoolClaims returns the address ranges other K3D clusters in this stack have already
+// been given, and this frame's own range if it has one from an earlier deploy.
+func (a *App) k3dPoolClaims(stackID int64, doc designDoc, frameID string) (taken [][2]uint32, mine string) {
+	frameOf := map[string]string{}
+	for _, n := range doc.Nodes {
+		if n.Type == "k3d" {
+			frameOf[n.ID] = n.FrameID
+		}
+	}
+	deps, err := a.store.ListDeployments(stackID)
+	if err != nil {
+		return nil, ""
+	}
+	for _, d := range deps {
+		fid, ok := frameOf[d.NodeID]
+		if !ok || len(d.Config) == 0 {
+			continue
+		}
+		var cfg k3dConfig
+		if json.Unmarshal(d.Config, &cfg) != nil || cfg.MetalLBRange == "" {
+			continue
+		}
+		if fid == frameID {
+			mine = cfg.MetalLBRange
+			continue
+		}
+		if lo, hi, ok := parseRange(cfg.MetalLBRange); ok {
+			taken = append(taken, [2]uint32{lo, hi})
+		}
+	}
+	return taken, mine
+}
+
+// parseRange reads a "first-last" MetalLB pool back into a pair of addresses.
+func parseRange(pool string) (uint32, uint32, bool) {
+	first, last, ok := strings.Cut(pool, "-")
+	if !ok {
+		return 0, 0, false
+	}
+	a, b := net.ParseIP(strings.TrimSpace(first)), net.ParseIP(strings.TrimSpace(last))
+	if a.To4() == nil || b.To4() == nil {
+		return 0, 0, false
+	}
+	return ipToU32(a), ipToU32(b), true
+}
+
+func overlapsAny(first, last uint32, taken [][2]uint32) bool {
+	for _, t := range taken {
+		if first <= t[1] && t[0] <= last {
+			return true
+		}
+	}
+	return false
+}
+
+func ipToU32(ip net.IP) uint32 {
+	b := ip.To4()
+	return uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
+}
+func u32ToIP(v uint32) net.IP {
+	return net.IPv4(byte(v>>24), byte(v>>16), byte(v>>8), byte(v))
+}
+
+// installMetalLB applies the pinned MetalLB manifest, waits for its controller, then advertises an
+// address pool from the stack subnet (L2 mode). servicelb was disabled at cluster creation, so
+// MetalLB owns LoadBalancer services outright.
+func (a *App) installMetalLB(ctx context.Context, serverID, pool string, logln func(string)) error {
+	manifest, err := httpGetBytes(ctx, metalLBManifest)
+	if err != nil {
+		return fmt.Errorf("fetch the MetalLB manifest: %w", err)
+	}
+	if err := a.kubectlApply(ctx, serverID, "", manifest); err != nil {
+		return err
+	}
+	if _, err := a.kubectl(ctx, serverID, "-n", "metallb-system", "wait", "--for=condition=Available",
+		"deployment/controller", "--timeout=180s"); err != nil {
+		return fmt.Errorf("MetalLB controller did not become ready: %w", err)
+	}
+	// The webhook needs a moment after Available before it accepts the CRs.
+	poolYAML := []byte(fmt.Sprintf(`apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: dbcanvas
+  namespace: metallb-system
+spec:
+  addresses:
+    - %s
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: dbcanvas
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - dbcanvas
+`, pool))
+	var lastErr error
+	for i := 0; i < 10; i++ {
+		if lastErr = a.kubectlApply(ctx, serverID, "", poolYAML); lastErr == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(5 * time.Second):
+		}
+	}
+	return lastErr
+}
+
+// httpGetBytes fetches a URL (the MetalLB manifest, the operator source). The app does the
+// fetching because the k3s image has neither curl nor git.
+func httpGetBytes(ctx context.Context, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := (&http.Client{Timeout: 3 * time.Minute}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("GET %s: %s", url, resp.Status)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+}
+
+// ---------------------------------------------------------------- the PXC operator
+
+// k3dCRName is the database cluster's name inside Kubernetes — and the stem of every resource the
+// operator derives from it (<name>-pxc / <name>-rs0, <name>-secrets, …). It is the frame's label, NOT the k3d
+// cluster name: that one is suffixed with the stack id because k3d names are global to the Docker
+// daemon, but a custom resource lives inside its own Kubernetes cluster and never collides, so the
+// suffix would only show up in every resource name for no reason.
+func k3dCRName(frame designFrame) string {
+	name := "cluster1"
+	if l := sanitizeName(frame.Label); l != "" {
+		name = l
+	}
+	if len(name) > 22 { // the operator appends suffixes to build resource names
+		name = name[:22]
+	}
+	return strings.Trim(name, "-")
+}
+
+// k3dFetchOperator downloads an operator's source tarball for the selected version and unpacks it
+// into /root on the first node — the k3s image has neither git nor curl, so the app does the
+// fetching. Returns the tarball, which is also where cr.yaml and secrets.yaml are read from
+// (readContainerFile needs bash; k3s is busybox).
+func (a *App) k3dFetchOperator(ctx context.Context, serverID, repo string, cfg *k3dConfig, pr *pxcProg) ([]byte, error) {
+	pr.phase("Fetching the operator source", 65)
+	url := fmt.Sprintf(operatorTarballFmt, repo, cfg.OperatorVer)
+	tgz, err := httpGetBytes(ctx, url)
+	if err != nil {
+		return nil, fmt.Errorf("download %s: %w", url, err)
+	}
+	tarball, err := gunzip(tgz)
+	if err != nil {
+		return nil, fmt.Errorf("unpack the operator source: %w", err)
+	}
+	if _, err := a.engCtx(ctx).Exec(ctx, serverID, []string{"mkdir", "-p", k3dOperatorDir}, nil); err != nil {
+		return nil, err
+	}
+	if err := a.engCtx(ctx).PutArchive(ctx, serverID, k3dOperatorDir, tarball); err != nil {
+		return nil, fmt.Errorf("copy the operator source to %s: %w", k3dOperatorDir, err)
+	}
+	pr.logln("operator source in " + cfg.OperatorSrc + " (on the first node)")
+	return tarball, nil
+}
+
+// k3dApplyBundle creates the namespace and applies deploy/bundle.yaml (CRDs, RBAC and the operator
+// itself), then waits for the operator Deployment. Nothing may be applied before it: the custom
+// resource's CRD arrives with the bundle.
+func (a *App) k3dApplyBundle(ctx context.Context, serverID, deployment string, cfg *k3dConfig, pr *pxcProg) error {
+	pr.phase("Installing the operator", 75)
+	ns := cfg.Namespace
+	if _, err := a.kubectl(ctx, serverID, "create", "namespace", ns); err != nil && !strings.Contains(err.Error(), "already exists") {
+		return err
+	}
+	if _, err := a.kubectl(ctx, serverID, "apply", "--server-side", "-n", ns, "-f", cfg.OperatorSrc+"/deploy/bundle.yaml"); err != nil {
+		return err
+	}
+	if _, err := a.kubectl(ctx, serverID, "-n", ns, "wait", "--for=condition=Available",
+		"deployment/"+deployment, "--timeout=300s"); err != nil {
+		return fmt.Errorf("the operator did not become ready: %w", err)
+	}
+	return nil
+}
+
+// k3dPMMToken mints a PMM service token and patches it into the cluster's secret under tokenKey
+// (PXC: `pmmservertoken`; PSMDB: `PMM_SERVER_TOKEN`). It returns the value for the CR's
+// `pmm.serverHost` — "" when PMM is not usable, which leaves PMM disabled in the CR rather than
+// starting sidecars that can only fail.
+//
+// This must run BEFORE cr.yaml: the operator reads the secret while creating the pods.
+//
+// The returned host carries the **port**. Both operators hand serverHost to the sidecars verbatim as
+// PMM_AGENT_SERVER_ADDRESS, whose default port is 443 — but a DBCanvas PMM node serves HTTPS on
+// 8443, so a bare hostname leaves every pmm-client retrying "connection refused".
+func (a *App) k3dPMMToken(ctx context.Context, st Stack, frame designFrame, doc designDoc, serverID, secret, tokenKey string, cfg *k3dConfig, pr *pxcProg) string {
+	if cfg.MonitoredBy == "" {
+		return ""
+	}
+	_, pmmUser, pmmPass, ok := a.pmmServerFor(st, doc, frame.PMMNodeID)
+	pmmID := a.containerOf(st.ID, frame.PMMNodeID)
+	if !ok || pmmID == "" {
+		pr.logln("PMM monitoring skipped: the PMM node is not running")
+		return ""
+	}
+	ttl := certTTL(frame.K3DPMMTokenTTLValue, frame.K3DPMMTokenTTLUnit)
+	token, err := a.pmmServiceToken(ctx, pmmID, pmmUser, pmmPass, "dbcanvas-"+cfg.ClusterName, ttl)
+	if err != nil {
+		pr.logln("PMM monitoring skipped: could not create a service token: " + err.Error())
+		return ""
+	}
+	patch := fmt.Sprintf(`{"stringData":{%q:%q}}`, tokenKey, token)
+	if _, err := a.kubectl(ctx, serverID, "-n", cfg.Namespace, "patch", "secret", secret, "--type=merge", "-p", patch); err != nil {
+		pr.logln("PMM monitoring skipped: could not patch the service token into " + secret + ": " + err.Error())
+		return ""
+	}
+	cfg.PMMToken = "expires " + time.Now().Add(ttl).UTC().Format(time.RFC3339)
+	host := cfg.MonitoredBy + ":8443"
+	pr.logln("PMM serverHost " + host + "; service token patched into " + secret + " as " + tokenKey +
+		" (" + cfg.PMMToken + ")")
+	return host
+}
+
+// k3dBackupSecret creates the S3 credentials secret the operators expect for a backup storage
+// (both read AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY out of it), pointed at the stack's SeaweedFS
+// node. Returns nil when there is no SeaweedFS node, or it is not usable — backups are then simply
+// left as cr.yaml ships them.
+func (a *App) k3dBackupSecret(ctx context.Context, st Stack, frame designFrame, serverID string, cfg *k3dConfig, pr *pxcProg) *crS3 {
+	if frame.SeaweedFSNodeID == "" {
+		return nil
+	}
+	sw, sec, err := a.waitSeaweedBucket(ctx, st.ID, frame.SeaweedFSNodeID, frame.SeaweedFSBucket, deployTimeout())
+	if err != nil {
+		pr.logln("backups skipped: " + err.Error())
+		return nil
+	}
+	name := cfg.ClusterName + "-backup-s3"
+	if _, err := a.kubectl(ctx, serverID, "-n", cfg.Namespace, "create", "secret", "generic", name,
+		"--from-literal=AWS_ACCESS_KEY_ID="+seaweedAccessKeyOf(sw, sec),
+		"--from-literal=AWS_SECRET_ACCESS_KEY="+sec.SecretKey); err != nil &&
+		!strings.Contains(err.Error(), "already exists") {
+		pr.logln("backup secret skipped: " + err.Error())
+		return nil
+	}
+	pr.logln("backups → " + sw.InternalEndpoint + " (bucket " + sw.Bucket + ")")
+	cfg.BackupRepo = "SeaweedFS S3 (" + sw.Bucket + ")"
+	return &crS3{
+		Bucket:      sw.Bucket,
+		Region:      sw.Region,
+		EndpointURL: sw.InternalEndpoint,
+		Secret:      name,
+	}
+}
+
+// installPXCOperator unpacks the operator source into /root on the first node, applies the bundle
+// into the chosen namespace, rewrites cr.yaml (§ crTransform) and applies it.
+func (a *App) installPXCOperator(ctx context.Context, st Stack, frame designFrame, doc designDoc, serverID string, cfg *k3dConfig, pr *pxcProg) error {
+	tarball, err := a.k3dFetchOperator(ctx, serverID, k3dOperatorRepos["pxc"], cfg, pr)
+	if err != nil {
+		return err
+	}
+	if err := a.k3dApplyBundle(ctx, serverID, "percona-xtradb-cluster-operator", cfg, pr); err != nil {
+		return err
+	}
+	// The debugger goes on BEFORE cr.yaml: a breakpoint set while the deploy is still running
+	// then catches the cluster's very first reconcile. Never fatal — see k3dInstallDebugger.
+	if k3dDebugOn(frame) {
+		a.k3dInstallDebugger(ctx, st, frame, "percona-xtradb-cluster-operator", tarball, serverID, cfg, pr)
+	}
+	ns := cfg.Namespace
+
+	// ---- secrets.yaml, BEFORE cr.yaml ----
+	// The cluster's users (root, monitor, replication, …) come from this secret. The operator reads
+	// it while creating the cluster, so it has to exist first — applied afterwards it changes
+	// nothing, and the operator will have generated its own random passwords instead.
+	pr.phase("Applying secrets.yaml", 82)
+	rawSecrets, err := tarFile(tarball, "deploy/secrets.yaml")
+	if err != nil {
+		return fmt.Errorf("read secrets.yaml from the operator source: %w", err)
+	}
+	newSecrets := secretsTransform(string(rawSecrets), cfg.ClusterName, k3dSecretsPasswords())
+	if err := a.engCtx(ctx).CopyFile(ctx, serverID, cfg.OperatorSrc+"/deploy", "secrets.yaml", 0o600, []byte(newSecrets)); err != nil {
+		pr.logln("could not write secrets.yaml back to the source tree: " + err.Error())
+	}
+	if err := a.kubectlApply(ctx, serverID, ns, []byte(newSecrets)); err != nil {
+		return fmt.Errorf("apply secrets.yaml: %w", err)
+	}
+	pr.logln("secrets.yaml applied as " + cfg.ClusterName + "-secrets (passwords from .env)")
+
+	// ---- cr.yaml: rewrite before applying ----
+	pr.phase("Applying cr.yaml", 88)
+	// Read it out of the tarball, not off the node: the k3s image is busybox — it has no bash,
+	// which readContainerFile needs.
+	raw, err := tarFile(tarball, "deploy/cr.yaml")
+	if err != nil {
+		return fmt.Errorf("read cr.yaml from the operator source: %w", err)
+	}
+	opts := crOptions{
+		Name:  cfg.ClusterName,
+		Proxy: cfg.Proxy,
+		// Each section gets its own Service type; only the chosen proxy's section is enabled, so
+		// the other one's expose value is irrelevant (and left as cr.yaml ships it).
+		ExposePXC: cfg.ExposePXC,
+	}
+	if cfg.Proxy == "proxysql" {
+		opts.ExposeProxySQL = cfg.ExposeProxy
+	} else {
+		opts.ExposeHAProxy = cfg.ExposeProxy
+	}
+
+	// Backups → the SeaweedFS node's S3 endpoint, with its credentials in a secret.
+	if opts.S3 = a.k3dBackupSecret(ctx, st, frame, serverID, cfg, pr); opts.S3 != nil {
+		// `forcePathStyle` (SeaweedFS does not do virtual-host bucket addressing) only exists in the
+		// PXC operator's S3 schema from 1.20.0 — an older CRD rejects the WHOLE custom resource over
+		// the unknown field, so the cluster is never created. The selected version's own cr.yaml is
+		// the authority on what its schema accepts. Backups still work without it: xbcloud already
+		// addresses path-style when it is given a custom endpoint (verified against 1.19.1).
+		opts.S3.ForcePathStyle = strings.Contains(string(raw), "forcePathStyle")
+		if !opts.S3.ForcePathStyle {
+			pr.logln("operator " + cfg.OperatorVer + " has no forcePathStyle option (added in 1.20.0) — omitted; xbcloud addresses path-style against a custom endpoint anyway")
+		}
+	}
+	// PMM 3's pmm-client sidecars authenticate with a service token, not a password.
+	opts.PMMHost = a.k3dPMMToken(ctx, st, frame, doc, serverID, cfg.ClusterName+"-secrets", "pmmservertoken", cfg, pr)
+
+	newCR := crTransform(string(raw), opts)
+	// Keep /root in sync with what was actually applied — the source is there to be read.
+	if err := a.engCtx(ctx).CopyFile(ctx, serverID, cfg.OperatorSrc+"/deploy", "cr.yaml", 0o644, []byte(newCR)); err != nil {
+		pr.logln("could not write the rewritten cr.yaml back to the source tree: " + err.Error())
+	}
+	if err := a.kubectlApply(ctx, serverID, ns, []byte(newCR)); err != nil {
+		return err
+	}
+	pr.logln(fmt.Sprintf("cr.yaml applied (affinity none, resources commented out, %s front end, pxc %s / %s %s)",
+		cfg.Proxy, cfg.ExposePXC, cfg.Proxy, cfg.ExposeProxy))
+	return nil
+}
+
+// pmmServiceTokenScript mints a PMM service token, printing just the token.
+//
+// PMM 3's pmm-client authenticates with a *service token*, not a password — the operator reads it
+// from the cluster secret's `pmmservertoken` key. PMM is Grafana underneath, so the token comes
+// from Grafana's API: the service-accounts endpoint (Grafana 11+), falling back to the older
+// api-keys endpoint that Percona's own docs still use. Both honour secondsToLive, which is what
+// gives the token its expiry. Run inside the PMM container, against its own loopback.
+const pmmServiceTokenScript = `set -e
+BASE="https://127.0.0.1:8443"
+AUTH="-u $PMM_USER:$PMM_PASS"
+key_of() { sed -n 's/.*"key":"\([^"]*\)".*/\1/p'; }
+
+# Service accounts (Grafana 11+). An account of this name may already exist (a redeploy), in which
+# case it is looked up rather than recreated — only the token is new.
+SA=$(curl -sk $AUTH -X POST -H 'Content-Type: application/json' \
+  -d "{\"name\":\"$NAME\",\"role\":\"Admin\",\"isDisabled\":false}" "$BASE/graph/api/serviceaccounts" 2>/dev/null || true)
+ID=$(printf '%s' "$SA" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p' | head -1)
+if [ -z "$ID" ]; then
+  ID=$(curl -sk $AUTH "$BASE/graph/api/serviceaccounts/search?query=$NAME" 2>/dev/null \
+    | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p' | head -1)
+fi
+if [ -n "$ID" ]; then
+  KEY=$(curl -sk $AUTH -X POST -H 'Content-Type: application/json' \
+    -d "{\"name\":\"$NAME-$STAMP\",\"secondsToLive\":$TTL}" "$BASE/graph/api/serviceaccounts/$ID/tokens" 2>/dev/null | key_of)
+  if [ -n "$KEY" ]; then printf '%s' "$KEY"; exit 0; fi
+fi
+
+# Older api-keys endpoint (what the Percona docs show).
+KEY=$(curl -sk $AUTH -X POST -H 'Content-Type: application/json' \
+  -d "{\"name\":\"$NAME-$STAMP\",\"role\":\"Admin\",\"secondsToLive\":$TTL}" "$BASE/graph/api/auth/keys" 2>/dev/null | key_of)
+[ -n "$KEY" ] || { echo "could not create a PMM service token" >&2; exit 1; }
+printf '%s' "$KEY"`
+
+// pmmServiceToken mints a service token on the PMM node and returns it.
+func (a *App) pmmServiceToken(ctx context.Context, pmmContainerID, user, pass, name string, ttl time.Duration) (string, error) {
+	out, err := a.execScript(ctx, pmmContainerID, pmmServiceTokenScript, []string{
+		"PMM_USER=" + user,
+		"PMM_PASS=" + pass,
+		"NAME=" + name,
+		"STAMP=" + strconv.FormatInt(time.Now().Unix(), 10),
+		"TTL=" + strconv.Itoa(int(ttl.Seconds())),
+	})
+	token := strings.TrimSpace(out)
+	if err != nil {
+		return "", err
+	}
+	if token == "" {
+		return "", fmt.Errorf("PMM returned an empty service token")
+	}
+	return token, nil
+}
+
+// seaweedAccessKeyOf mirrors the other backup consumers: the config's access key, else the secret's.
+func seaweedAccessKeyOf(sw seaweedConfig, sec seaweedSecrets) string {
+	if sw.AccessKey != "" {
+		return sw.AccessKey
+	}
+	return sec.AccessKey
+}
+
+func gunzip(b []byte) ([]byte, error) {
+	zr, err := gzip.NewReader(bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	defer zr.Close()
+	return io.ReadAll(io.LimitReader(zr, 256<<20))
+}
+
+// tarFile reads the file with the given suffix out of a tarball — e.g. "deploy/cr.yaml", which a
+// GitHub source tarball nests under "<repo>-<version>/". Matching on the suffix means the pax
+// header entry GitHub prepends, and the top directory's exact name, are both irrelevant.
+//
+// cr.yaml is taken from here rather than read back off the node: the k3s image is busybox, and
+// readContainerFile needs bash.
+func tarFile(tarball []byte, suffix string) ([]byte, error) {
+	tr := tar.NewReader(bytes.NewReader(tarball))
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			return nil, fmt.Errorf("%s not found in the operator source", suffix)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if h.Typeflag != tar.TypeReg {
+			continue
+		}
+		if name := strings.TrimPrefix(h.Name, "./"); name == suffix || strings.HasSuffix(name, "/"+suffix) {
+			return io.ReadAll(io.LimitReader(tr, 8<<20))
+		}
+	}
+}

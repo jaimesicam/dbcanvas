@@ -1,0 +1,163 @@
+// Reusable Tailwind/theme primitives.
+import { useEffect, useState } from 'react'
+import { Help } from './Tooltip.jsx'
+
+// The ui-* classes carry no styles of their own. They are the hooks a LOOK styles
+// (index.css): a look needs to reach the chrome that no token can describe — the
+// typeface a control is set in, a card's title bar, a pill button — and these four
+// are the shapes the app actually repeats. Anything not wearing one still gets the
+// look's radius, borders, elevation and density, because those come from tokens the
+// utilities already read.
+export const inputCls =
+  'ui-input w-full rounded-lg border bg-bg px-3 py-2 text-sm text-fg outline-none ' +
+  'transition focus:ring-2 focus:ring-primary/30 focus:border-primary placeholder:text-muted'
+
+export function Card({ title, subtitle, action, className = '', children }) {
+  const hasHeader = title || subtitle || action
+  return (
+    <div className={`ui-card rounded-xl border bg-surface ${className}`}>
+      {hasHeader && (
+        <div className="ui-card-head flex items-start justify-between gap-3 border-b px-4 py-3">
+          <div>
+            {title && <h3 className="text-sm font-semibold text-fg">{title}</h3>}
+            {subtitle && <p className="text-xs text-muted">{subtitle}</p>}
+          </div>
+          {action}
+        </div>
+      )}
+      <div className="p-4">{children}</div>
+    </div>
+  )
+}
+
+const BTN_VARIANTS = {
+  primary: 'bg-primary text-primary-fg hover:opacity-90',
+  ghost: 'text-fg hover:bg-surface2',
+  outline: 'border text-fg hover:bg-surface2',
+  danger: 'bg-danger text-white hover:opacity-90',
+  subtle: 'bg-surface2 text-fg hover:opacity-80',
+}
+const BTN_SIZES = {
+  sm: 'text-xs px-2.5 py-1.5 gap-1',
+  md: 'text-sm px-3.5 py-2 gap-1.5',
+  lg: 'text-base px-5 py-2.5 gap-2',
+}
+
+export function Button({
+  variant = 'primary',
+  size = 'md',
+  className = '',
+  children,
+  ...rest
+}) {
+  return (
+    <button
+      className={`ui-btn inline-flex items-center justify-center rounded-lg font-medium transition ` +
+        `active:scale-[.97] disabled:opacity-50 disabled:pointer-events-none ` +
+        `${BTN_VARIANTS[variant] || BTN_VARIANTS.primary} ${BTN_SIZES[size] || BTN_SIZES.md} ${className}`}
+      {...rest}
+    >
+      {children}
+    </button>
+  )
+}
+
+const BADGE_TONES = {
+  muted: 'bg-muted/15 text-muted',
+  primary: 'bg-primary/15 text-primary',
+  // accent is for a category rather than a status — the Packet Inspector labels DNS and
+  // ARP with it, which are neither good news nor bad, just not the database.
+  accent: 'bg-accent/15 text-accent',
+  success: 'bg-success/15 text-success',
+  warning: 'bg-warning/15 text-warning',
+  danger: 'bg-danger/15 text-danger',
+}
+
+export function Badge({ tone = 'muted', children }) {
+  return (
+    <span className={`ui-badge inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${BADGE_TONES[tone] || BADGE_TONES.muted}`}>
+      {children}
+    </span>
+  )
+}
+
+export function Toggle({ checked, onChange, label }) {
+  return (
+    <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={`relative h-6 w-11 rounded-full transition ${checked ? 'bg-primary' : 'bg-surface2'}`}
+      >
+        {/* The knob travels by the track's own scale (11 - 5 - 0.5 - 0.5 = 5 units)
+            rather than a fixed 22px, so it still lands in the corner when a look
+            changes the spacing scale — see index.css. */}
+        <span
+          className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${checked ? 'translate-x-5' : ''}`}
+        />
+      </button>
+      {label && <span className="text-sm text-fg">{label}</span>}
+    </label>
+  )
+}
+
+// ConfirmButton requires a second click (within a few seconds) to fire its
+// action — an in-app replacement for window.confirm().
+export function ConfirmButton({ onConfirm, children, confirmLabel = 'Confirm?', ...props }) {
+  const [armed, setArmed] = useState(false)
+  useEffect(() => {
+    if (!armed) return
+    const t = setTimeout(() => setArmed(false), 2500)
+    return () => clearTimeout(t)
+  }, [armed])
+  return (
+    <Button
+      {...props}
+      variant={armed ? 'danger' : props.variant}
+      onClick={(e) => {
+        e.stopPropagation()
+        if (armed) { setArmed(false); onConfirm() } else { setArmed(true) }
+      }}
+    >
+      {armed ? confirmLabel : children}
+    </Button>
+  )
+}
+
+// Field is one labelled control. Two levels of explanation hang off it and they do
+// different jobs: `hint` is always-visible text under the input, for the one line
+// somebody needs every time they look at the field ("0 / empty = random unused port");
+// `help` is the tooltip behind the "?" next to the label, for what the setting is for
+// and when you would change it — the paragraph that would be noise if it were always
+// on screen. Either may be used alone.
+export function Field({ label, hint, help, children }) {
+  return (
+    <label className="block space-y-1">
+      {label && (
+        <span className="flex items-center gap-1 text-xs font-medium text-muted">
+          <span>{label}</span>
+          <Help text={help} />
+        </span>
+      )}
+      {children}
+      {hint && <span className="block text-xs text-muted">{hint}</span>}
+    </label>
+  )
+}
+
+// InfoRow is one label/value line in a deployed node's panel — the address, the
+// container, the port, the generated password. `help` says what to do with the value,
+// which is the question these rows actually raise.
+export function InfoRow({ label, help, children, className = '' }) {
+  return (
+    <div className={`flex items-start justify-between gap-3 ${className}`}>
+      <span className="flex shrink-0 items-center gap-1 text-muted">
+        <span>{label}</span>
+        <Help text={help} />
+      </span>
+      {children}
+    </div>
+  )
+}

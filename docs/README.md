@@ -1,0 +1,59 @@
+# Feature guides
+
+How to use each part of DBCanvas. For installing and configuring it, see
+[Configuration & commands](CONFIGURATION.md); for how it is built,
+[Architecture](ARCHITECTURE.md).
+
+> [!IMPORTANT]
+> **DBCanvas is for previewing features, testing and learning — not for production.** What it
+> deploys is disposable lab infrastructure, and none of these guides should be read as
+> instructions for running a database anyone depends on.
+
+## Start here
+
+| Guide | What it covers |
+| --- | --- |
+| [**Getting started**](GETTING_STARTED.md) | Install, the admin account, your first stack, how to connect to it, and what to do when a deploy fails. Read this one first. |
+
+## Build and run databases
+
+| Guide | What it covers |
+| --- | --- |
+| [Stacks](STACKS.md) | The canvas, every node and cluster type, deploying, TTLs, node panels, web terminals, drag-and-drop file copy, the file manager, and the Docker/hybrid backends. |
+| [All in One](ALL_IN_ONE.md) | Many database instances inside a single node — versions and engines side by side. |
+
+## Load and exercise them
+
+| Guide | What it covers |
+| --- | --- |
+| [Data Generator](DATA_GENERATOR.md) | Realistic test data, at the scale it takes to see a problem. |
+| [Query Runner](QUERY_RUNNER.md) | Parallel SQL across nodes, gated on the processlist. |
+| [Benchmark](BENCHMARK.md) | OLTP, OLAP, read-write and read-only workloads with throughput and latency. |
+
+## Find out what happened
+
+| Guide | What it covers |
+| --- | --- |
+| [Packet Inspector](PACKET_INSPECTOR.md) | Capture on a node, decode MySQL, PostgreSQL, MongoDB and Valkey off the wire. |
+| [Log Summary](LOG_SUMMARY.md) | Several nodes' logs on one timeline, classified into the good, the warning and the bad. |
+| [Stalk Summary](STALK_SUMMARY.md) | Charts from a pt-stalk capture, and which variables to change. |
+| [FTDC Summary](FTDC_SUMMARY.md) | MongoDB's diagnostic data — the black box every mongod already writes. |
+| [Operator Debugger](OPERATOR_DEBUGGER.md) | Step through the Kubernetes operator itself — breakpoints, call stack and variables, with no IDE. |
+| [Core Dump Analyzer](CORE_DUMP_ANALYZER.md) | Read a crashed server's `mysqld` core dump — threads, stack and arguments — without touching the server. |
+
+## Learn on it
+
+| Guide | What it covers |
+| --- | --- |
+
+## Automate it
+
+| Guide | What it covers |
+| --- | --- |
+| [HTTP API](API.md) | Tokens, scopes, expiry, status codes and the OpenAPI document. Read this one first. |
+| [API & CLI reference](API_REFERENCE.md) | Every feature, with its endpoints, the equivalent `dbcanvas-cli` command, and the UI action each replaces. |
+| [`dbcanvas-cli`](CLI.md) | Signing in, changing your password, driving stacks and nodes from a terminal, scripting it in CI. |
+
+---
+
+Screenshots used by these guides live in [`screenshots/`](screenshots).

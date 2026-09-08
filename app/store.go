@@ -1,0 +1,1036 @@
+package main
+
+import (
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"strconv"
+	"strings"
+	"time"
+
+	_ "modernc.org/sqlite"
+)
+
+// Roles and statuses.
+const (
+	RoleAdmin = "admin"
+	RoleUser  = "user"
+
+	StatusPending  = "pending"
+	StatusApproved = "approved"
+	StatusRejected = "rejected"
+	StatusDisabled = "disabled"
+)
+
+// ErrUserExists is returned when a username is already taken.
+var ErrUserExists = errors.New("username already exists")
+
+// User is the JSON-facing representation of an account (never includes the hash).
+type User struct {
+	ID         int64   `json:"id"`
+	Username   string  `json:"username"`
+	Role       string  `json:"role"`
+	Status     string  `json:"status"`
+	CreatedAt  string  `json:"createdAt"`
+	ApprovedAt *string `json:"approvedAt,omitempty"`
+}
+
+// Store wraps the SQLite database.
+type Store struct {
+	db *sql.DB
+}
+
+// OpenStore opens (and migrates) the SQLite database at path.
+func OpenStore(path string) (*Store, error) {
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, err
+	}
+	// Pure-Go SQLite is happiest with a single connection; this also avoids
+	// "database is locked" under WAL with concurrent writers.
+	db.SetMaxOpenConns(1)
+
+	pragmas := []string{
+		"PRAGMA journal_mode=WAL;",
+		"PRAGMA foreign_keys=ON;",
+		"PRAGMA busy_timeout=5000;",
+	}
+	for _, p := range pragmas {
+		if _, err := db.Exec(p); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+
+	schema := `
+CREATE TABLE IF NOT EXISTS users (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  username      TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  role          TEXT NOT NULL,
+  status        TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  approved_at   TEXT
+);
+CREATE TABLE IF NOT EXISTS sessions (
+  token      TEXT PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS stacks (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT NOT NULL,
+  owner_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  ttl         TEXT NOT NULL,        -- '2h'|'4h'|'8h'|'24h'|'2w'|'infinity'
+  status      TEXT NOT NULL,        -- 'draft'|'deployed'|'expired'
+  created_at  TEXT NOT NULL,        -- RFC3339
+  expires_at  TEXT,                 -- RFC3339, NULL for infinity
+  design_json TEXT NOT NULL         -- canvas: {nodes,edges,view}
+);
+CREATE TABLE IF NOT EXISTS deployments (
+  stack_id     INTEGER NOT NULL REFERENCES stacks(id) ON DELETE CASCADE,
+  node_id      TEXT NOT NULL,
+  container_id TEXT,
+  state        TEXT NOT NULL,       -- pending|provisioning|running|stopped|error
+  config_json  TEXT,
+  secrets_json TEXT,
+  PRIMARY KEY (stack_id, node_id)
+);
+CREATE TABLE IF NOT EXISTS notifications (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL,       -- owner (0 = admin-only broadcast)
+  scope      TEXT NOT NULL,          -- 'user'|'admin'
+  type       TEXT NOT NULL,          -- e.g. node.error, stack.deployed, datagen.done
+  severity   TEXT NOT NULL,          -- info|success|warning|error
+  title      TEXT NOT NULL,
+  body       TEXT,
+  stack_id   INTEGER,
+  node_id    TEXT,
+  job_id     TEXT,
+  read_at    TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, id DESC);
+CREATE TABLE IF NOT EXISTS lab_runs (
+  id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+  lab_id                 TEXT NOT NULL,
+  user_id                INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  stack_id               INTEGER NOT NULL,
+  initial_leader_node_id TEXT,
+  initial_backup_count   INTEGER NOT NULL DEFAULT 0,
+  started_at             TEXT NOT NULL,
+  finished_at            TEXT
+);
+CREATE TABLE IF NOT EXISTS lab_step_results (
+  lab_run_id INTEGER NOT NULL REFERENCES lab_runs(id) ON DELETE CASCADE,
+  step_id    TEXT NOT NULL,
+  passed     INTEGER NOT NULL,
+  message    TEXT,
+  checked_at TEXT NOT NULL,
+  PRIMARY KEY (lab_run_id, step_id)
+);
+CREATE INDEX IF NOT EXISTS idx_lab_runs_user ON lab_runs(user_id, id DESC);
+-- pt-stalk archives kept by capture time. The tarball itself lives on disk under
+-- the data directory (they are megabytes each, and a blob column would bloat
+-- every backup of this database); this table is the index over them.
+--
+-- Deliberately NOT keyed to the deployment: a node can be recreated, and the
+-- whole point of keeping captures is to compare across the change that recreated
+-- it. Rows outlive the container they came from, and survive the node entirely.
+CREATE TABLE IF NOT EXISTS ptstalk_archives (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  stack_id    INTEGER NOT NULL,
+  node_id     TEXT NOT NULL,
+  host        TEXT NOT NULL DEFAULT '',
+  captured_at TEXT NOT NULL,
+  size_bytes  INTEGER NOT NULL DEFAULT 0,
+  note        TEXT NOT NULL DEFAULT '',
+  path        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ptstalk_node ON ptstalk_archives(stack_id, node_id, captured_at DESC);
+-- Kept pt-k8s-debug-collector captures, the K3D equivalent of the table above and
+-- kept for the same reason: a cluster-dump is the evidence of a moment, and the
+-- useful thing to do with one is compare it against the moment before. Keyed to
+-- the *frame* rather than a node, because the capture is of the whole cluster —
+-- the k3s node it was taken through is an implementation detail, and a cluster
+-- outlives any one of its nodes.
+CREATE TABLE IF NOT EXISTS k8s_dumps (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  stack_id    INTEGER NOT NULL,
+  frame_id    TEXT NOT NULL,
+  cluster     TEXT NOT NULL DEFAULT '',
+  operator    TEXT NOT NULL DEFAULT '',
+  captured_at TEXT NOT NULL,
+  size_bytes  INTEGER NOT NULL DEFAULT 0,
+  note        TEXT NOT NULL DEFAULT '',
+  path        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_k8sdump_frame ON k8s_dumps(stack_id, frame_id, captured_at DESC);
+-- Saved deployment templates: a reusable canvas design, detached from any one stack.
+-- Only user-saved templates live here; the built-in defaults are Go literals with
+-- "builtin:" ids (see templates_builtin.go), the same way labs carry their designs.
+--
+-- design_json is sanitized on the way in (see sanitizeTemplateDesign) — no secrets,
+-- no host paths, no fixed host ports — because a template is the one design document
+-- meant to be copied between stacks, exported to a file, and shared with other users.
+CREATE TABLE IF NOT EXISTS stack_templates (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  category    TEXT NOT NULL DEFAULT '',
+  owner_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  shared      INTEGER NOT NULL DEFAULT 0,   -- 1 = published instance-wide (admins only)
+  design_json TEXT NOT NULL,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_stack_templates_owner ON stack_templates(owner_id, id DESC);
+-- Instance-wide settings, as opposed to users.settings_json which is per account.
+-- One row per key so a new knob needs no migration; see syssettings.go for the
+-- typed view over it and who may change it.
+CREATE TABLE IF NOT EXISTS app_settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+-- API tokens: a revocable, expiring bearer credential that stands in for a password
+-- so a script or dbcanvas-cli never has to hold one. See apitokens.go.
+--
+-- token_hash is SHA-256, not bcrypt, and that is deliberate. bcrypt exists to make a
+-- LOW-entropy secret expensive to guess; a token here is 32 bytes from crypto/rand,
+-- so there is nothing to guess. What it does have that a password does not is a
+-- verification on EVERY request, and bcrypt at its default cost would put ~100 ms on
+-- all of them. The secret itself is never stored, so a copy of this database still
+-- yields no usable token.
+--
+-- Expired and revoked rows are kept (and reaped only after 30 days) because "why did
+-- my script start getting 401s" is answered by the row, not by its absence.
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,        -- what it is for: "dbcanvas-cli on thinkpad"
+  token_hash   TEXT NOT NULL,        -- hex SHA-256 of the secret
+  prefix       TEXT NOT NULL,        -- "dbc_a1b2c3d4", the only displayable part
+  scope        TEXT NOT NULL,        -- read | write | admin
+  created_at   TEXT NOT NULL,
+  expires_at   TEXT,                 -- RFC3339; NULL = never (admin-created only)
+  last_used_at TEXT,
+  revoked_at   TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, id DESC);`
+	if _, err := db.Exec(schema); err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	// Best-effort migrations for columns added after initial release (ignore the
+	// "duplicate column name" error when they already exist).
+	db.Exec("ALTER TABLE deployments ADD COLUMN progress_json TEXT")
+	db.Exec("ALTER TABLE users ADD COLUMN settings_json TEXT")
+	db.Exec("ALTER TABLE stacks ADD COLUMN backend TEXT")
+	db.Exec("ALTER TABLE lab_runs ADD COLUMN initial_backup_count INTEGER NOT NULL DEFAULT 0")
+
+	return &Store{db: db}, nil
+}
+
+// Close closes the underlying database.
+func (s *Store) Close() error { return s.db.Close() }
+
+func nowRFC3339() string { return time.Now().UTC().Format(time.RFC3339) }
+
+// scanUser scans a user row, mapping the nullable approved_at column.
+func scanUser(row interface {
+	Scan(dest ...any) error
+}) (User, error) {
+	var u User
+	var approved sql.NullString
+	if err := row.Scan(&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved); err != nil {
+		return User{}, err
+	}
+	if approved.Valid {
+		u.ApprovedAt = &approved.String
+	}
+	return u, nil
+}
+
+const userCols = "id, username, role, status, created_at, approved_at"
+
+// CountUsers returns the total number of user accounts.
+func (s *Store) CountUsers() (int, error) {
+	var n int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&n)
+	return n, err
+}
+
+// CreateUser inserts a new user. When status is approved, approved_at is set to now.
+func (s *Store) CreateUser(username, hash, role, status string) (User, error) {
+	created := nowRFC3339()
+	var approved sql.NullString
+	if status == StatusApproved {
+		approved = sql.NullString{String: created, Valid: true}
+	}
+	res, err := s.db.Exec(
+		"INSERT INTO users (username, password_hash, role, status, created_at, approved_at) VALUES (?,?,?,?,?,?)",
+		username, hash, role, status, created, approved,
+	)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return User{}, ErrUserExists
+		}
+		return User{}, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return User{}, err
+	}
+	return s.GetUser(id)
+}
+
+// GetUser fetches a single user by id.
+func (s *Store) GetUser(id int64) (User, error) {
+	row := s.db.QueryRow("SELECT "+userCols+" FROM users WHERE id = ?", id)
+	return scanUser(row)
+}
+
+// CredByUsername returns the user plus the stored password hash.
+func (s *Store) CredByUsername(username string) (User, string, error) {
+	row := s.db.QueryRow(
+		"SELECT id, username, role, status, created_at, approved_at, password_hash FROM users WHERE username = ?",
+		username,
+	)
+	var u User
+	var approved sql.NullString
+	var hash string
+	if err := row.Scan(&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved, &hash); err != nil {
+		return User{}, "", err
+	}
+	if approved.Valid {
+		u.ApprovedAt = &approved.String
+	}
+	return u, hash, nil
+}
+
+// ListUsers returns all users, pending first, then newest first.
+func (s *Store) ListUsers() ([]User, error) {
+	rows, err := s.db.Query(
+		"SELECT " + userCols + " FROM users " +
+			"ORDER BY (status = 'pending') DESC, created_at DESC, id DESC",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	users := []User{}
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, rows.Err()
+}
+
+// SetStatus updates a user's status; approving sets approved_at to now.
+func (s *Store) SetStatus(id int64, status string) (User, error) {
+	if status == StatusApproved {
+		if _, err := s.db.Exec(
+			"UPDATE users SET status = ?, approved_at = ? WHERE id = ?",
+			status, nowRFC3339(), id,
+		); err != nil {
+			return User{}, err
+		}
+	} else {
+		if _, err := s.db.Exec("UPDATE users SET status = ? WHERE id = ?", status, id); err != nil {
+			return User{}, err
+		}
+	}
+	return s.GetUser(id)
+}
+
+// DeleteUser removes a user (cascading to their sessions).
+func (s *Store) DeleteUser(id int64) error {
+	_, err := s.db.Exec("DELETE FROM users WHERE id = ?", id)
+	return err
+}
+
+// UserSettings returns a user's raw settings JSON ("" when they have never saved any).
+func (s *Store) UserSettings(id int64) (string, error) {
+	var js sql.NullString
+	if err := s.db.QueryRow("SELECT settings_json FROM users WHERE id = ?", id).Scan(&js); err != nil {
+		return "", err
+	}
+	return js.String, nil
+}
+
+// SetUserSettings replaces a user's settings JSON.
+func (s *Store) SetUserSettings(id int64, js string) error {
+	_, err := s.db.Exec("UPDATE users SET settings_json = ? WHERE id = ?", js, id)
+	return err
+}
+
+// AppSetting returns one instance-wide setting, or "" when it has never been
+// set (the caller applies its own default — an absent row is not an error).
+func (s *Store) AppSetting(key string) (string, error) {
+	var v string
+	err := s.db.QueryRow("SELECT value FROM app_settings WHERE key = ?", key).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return v, err
+}
+
+// SetAppSetting writes one instance-wide setting.
+func (s *Store) SetAppSetting(key, value string) error {
+	_, err := s.db.Exec(
+		"INSERT INTO app_settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+		key, value,
+	)
+	return err
+}
+
+// CreateSession stores a session token for a user with an expiry.
+func (s *Store) CreateSession(token string, userID int64, expires time.Time) error {
+	_, err := s.db.Exec(
+		"INSERT INTO sessions (token, user_id, expires_at) VALUES (?,?,?)",
+		token, userID, expires.UTC().Format(time.RFC3339),
+	)
+	return err
+}
+
+// SessionUser returns the user for a valid, unexpired token. Expired tokens are
+// deleted and treated as missing.
+func (s *Store) SessionUser(token string) (User, error) {
+	var userID int64
+	var expiresStr string
+	err := s.db.QueryRow(
+		"SELECT user_id, expires_at FROM sessions WHERE token = ?", token,
+	).Scan(&userID, &expiresStr)
+	if err != nil {
+		return User{}, err
+	}
+	expires, err := time.Parse(time.RFC3339, expiresStr)
+	if err != nil || time.Now().After(expires) {
+		s.DeleteSession(token)
+		return User{}, sql.ErrNoRows
+	}
+	return s.GetUser(userID)
+}
+
+// DeleteSession removes a single session token.
+func (s *Store) DeleteSession(token string) error {
+	_, err := s.db.Exec("DELETE FROM sessions WHERE token = ?", token)
+	return err
+}
+
+// DeleteUserSessions removes all sessions for a user (used to revoke access).
+func (s *Store) DeleteUserSessions(userID int64) error {
+	_, err := s.db.Exec("DELETE FROM sessions WHERE user_id = ?", userID)
+	return err
+}
+
+// isUniqueViolation reports whether err is a SQLite UNIQUE constraint failure.
+func isUniqueViolation(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
+}
+
+// --- stacks ---
+
+// Stack statuses.
+const (
+	StackDraft    = "draft"
+	StackDeployed = "deployed"
+	StackExpired  = "expired"
+)
+
+// Deployment states.
+const (
+	DeployPending      = "pending"
+	DeployProvisioning = "provisioning"
+	DeployRunning      = "running"
+	DeployStopped      = "stopped"
+	DeployError        = "error"
+)
+
+// Stack is a designed (and possibly deployed) collection of nodes.
+type Stack struct {
+	ID        int64           `json:"id"`
+	Name      string          `json:"name"`
+	OwnerID   int64           `json:"ownerId"`
+	TTL       string          `json:"ttl"`
+	Status    string          `json:"status"`
+	CreatedAt string          `json:"createdAt"`
+	ExpiresAt *string         `json:"expiresAt,omitempty"`
+	Design    json.RawMessage `json:"design,omitempty"`
+	// Backend is the provisioning engine the stack was first deployed with
+	// ("docker" | "vagrant"). Empty until the first deploy stamps it; callers
+	// treat empty as "docker" (see App.eng). Only populated by GetStack.
+	Backend string `json:"backend,omitempty"`
+}
+
+// Deployment is the runtime record for one node in a stack.
+type Deployment struct {
+	StackID     int64           `json:"stackId"`
+	NodeID      string          `json:"nodeId"`
+	ContainerID string          `json:"containerId,omitempty"`
+	State       string          `json:"state"`
+	Config      json.RawMessage `json:"config,omitempty"`
+	Secrets     json.RawMessage `json:"secrets,omitempty"`
+	Progress    json.RawMessage `json:"progress,omitempty"`
+	// ContainerName is derived, not stored: containerName(StackID, NodeID), filled
+	// on the read paths so the UI can show/copy the `docker exec` command without
+	// re-deriving the naming rule client-side. UpsertDeployment ignores it.
+	ContainerName string `json:"containerName,omitempty"`
+}
+
+// CreateStack inserts a new stack. expiresAt is nil for an infinite TTL.
+func (s *Store) CreateStack(name string, ownerID int64, ttl string, expiresAt *string, design []byte) (Stack, error) {
+	created := nowRFC3339()
+	res, err := s.db.Exec(
+		"INSERT INTO stacks (name, owner_id, ttl, status, created_at, expires_at, design_json) VALUES (?,?,?,?,?,?,?)",
+		name, ownerID, ttl, StackDraft, created, nullStr(expiresAt), string(design),
+	)
+	if err != nil {
+		return Stack{}, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return Stack{}, err
+	}
+	return s.GetStack(id)
+}
+
+// ListStacks returns stacks visible to the user (own stacks; all when admin),
+// newest first. Design JSON is omitted to keep the list light.
+func (s *Store) ListStacks(ownerID int64, isAdmin bool) ([]Stack, error) {
+	var rows *sql.Rows
+	var err error
+	if isAdmin {
+		rows, err = s.db.Query("SELECT id, name, owner_id, ttl, status, created_at, expires_at FROM stacks ORDER BY created_at DESC, id DESC")
+	} else {
+		rows, err = s.db.Query("SELECT id, name, owner_id, ttl, status, created_at, expires_at FROM stacks WHERE owner_id = ? ORDER BY created_at DESC, id DESC", ownerID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	stacks := []Stack{}
+	for rows.Next() {
+		var st Stack
+		var exp sql.NullString
+		if err := rows.Scan(&st.ID, &st.Name, &st.OwnerID, &st.TTL, &st.Status, &st.CreatedAt, &exp); err != nil {
+			return nil, err
+		}
+		if exp.Valid {
+			st.ExpiresAt = &exp.String
+		}
+		stacks = append(stacks, st)
+	}
+	return stacks, rows.Err()
+}
+
+// GetStack returns a single stack including its design JSON.
+func (s *Store) GetStack(id int64) (Stack, error) {
+	var st Stack
+	var exp sql.NullString
+	var backend sql.NullString
+	var design string
+	err := s.db.QueryRow(
+		"SELECT id, name, owner_id, ttl, status, created_at, expires_at, design_json, backend FROM stacks WHERE id = ?", id,
+	).Scan(&st.ID, &st.Name, &st.OwnerID, &st.TTL, &st.Status, &st.CreatedAt, &exp, &design, &backend)
+	if err != nil {
+		return Stack{}, err
+	}
+	if exp.Valid {
+		st.ExpiresAt = &exp.String
+	}
+	st.Backend = backend.String
+	st.Design = json.RawMessage(design)
+	return st, nil
+}
+
+// SetStackBackend records the provisioning engine a stack was deployed with.
+// Called once, on the first deploy, so redeploy/manage/teardown stay on the same
+// engine for the stack's life.
+func (s *Store) SetStackBackend(id int64, backend string) error {
+	_, err := s.db.Exec("UPDATE stacks SET backend = ? WHERE id = ?", backend, id)
+	return err
+}
+
+// UpdateStack updates a stack's name and design.
+func (s *Store) UpdateStack(id int64, name string, design []byte) error {
+	_, err := s.db.Exec("UPDATE stacks SET name = ?, design_json = ? WHERE id = ?", name, string(design), id)
+	return err
+}
+
+// SetStackStatus updates a stack's lifecycle status.
+func (s *Store) SetStackStatus(id int64, status string) error {
+	_, err := s.db.Exec("UPDATE stacks SET status = ? WHERE id = ?", status, id)
+	return err
+}
+
+// DeleteStack removes a stack (cascading to its deployments).
+func (s *Store) DeleteStack(id int64) error {
+	_, err := s.db.Exec("DELETE FROM stacks WHERE id = ?", id)
+	return err
+}
+
+// ListExpiredStacks returns non-expired stacks whose expiry has passed.
+// ListStacksExpiringSoon returns deployed stacks whose TTL runs out within the window.
+func (s *Store) ListStacksExpiringSoon(within time.Duration) ([]Stack, error) {
+	now := time.Now().UTC()
+	rows, err := s.db.Query(
+		"SELECT id, name, owner_id, ttl, status, created_at, expires_at FROM stacks "+
+			"WHERE expires_at IS NOT NULL AND expires_at >= ? AND expires_at < ? AND status = ?",
+		now.Format(time.RFC3339), now.Add(within).Format(time.RFC3339), StackDeployed,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	stacks := []Stack{}
+	for rows.Next() {
+		var st Stack
+		var exp sql.NullString
+		if err := rows.Scan(&st.ID, &st.Name, &st.OwnerID, &st.TTL, &st.Status, &st.CreatedAt, &exp); err != nil {
+			return nil, err
+		}
+		if exp.Valid {
+			st.ExpiresAt = &exp.String
+		}
+		stacks = append(stacks, st)
+	}
+	return stacks, rows.Err()
+}
+
+func (s *Store) ListExpiredStacks() ([]Stack, error) {
+	rows, err := s.db.Query(
+		"SELECT id, name, owner_id, ttl, status, created_at, expires_at FROM stacks "+
+			"WHERE expires_at IS NOT NULL AND expires_at < ? AND status != ?",
+		nowRFC3339(), StackExpired,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	stacks := []Stack{}
+	for rows.Next() {
+		var st Stack
+		var exp sql.NullString
+		if err := rows.Scan(&st.ID, &st.Name, &st.OwnerID, &st.TTL, &st.Status, &st.CreatedAt, &exp); err != nil {
+			return nil, err
+		}
+		if exp.Valid {
+			st.ExpiresAt = &exp.String
+		}
+		stacks = append(stacks, st)
+	}
+	return stacks, rows.Err()
+}
+
+// --- stack templates ---
+
+// StackTemplate is a reusable canvas design. ID is a string on the wire because
+// the picker mixes two populations: rows from this table (a decimal id) and the
+// built-in defaults (an id prefixed "builtin:"). Everything downstream — apply,
+// export, the frontend — treats it as an opaque handle; see templateIsBuiltin.
+type StackTemplate struct {
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Category    string          `json:"category"`
+	OwnerID     int64           `json:"ownerId,omitempty"`
+	Shared      bool            `json:"shared"`
+	Builtin     bool            `json:"builtin"`
+	CreatedAt   string          `json:"createdAt,omitempty"`
+	UpdatedAt   string          `json:"updatedAt,omitempty"`
+	Design      json.RawMessage `json:"design,omitempty"`
+	// Nodes/Frames are a summary for the picker, so the list response can stay
+	// light (no design) and still say how big each template is.
+	Nodes  int `json:"nodes"`
+	Frames int `json:"frames"`
+}
+
+const templateCols = "id, name, description, category, owner_id, shared, created_at, updated_at"
+
+// scanTemplate reads a row without its design (the list shape).
+func scanTemplate(row interface {
+	Scan(dest ...any) error
+}) (StackTemplate, error) {
+	var t StackTemplate
+	var id int64
+	var shared int
+	if err := row.Scan(&id, &t.Name, &t.Description, &t.Category, &t.OwnerID, &shared, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		return StackTemplate{}, err
+	}
+	t.ID = strconv.FormatInt(id, 10)
+	t.Shared = shared != 0
+	return t, nil
+}
+
+// CreateStackTemplate stores a new template and returns it (with its design).
+func (s *Store) CreateStackTemplate(name, description, category string, ownerID int64, design []byte) (StackTemplate, error) {
+	now := nowRFC3339()
+	res, err := s.db.Exec(
+		"INSERT INTO stack_templates (name, description, category, owner_id, shared, design_json, created_at, updated_at) VALUES (?,?,?,?,0,?,?,?)",
+		name, description, category, ownerID, string(design), now, now,
+	)
+	if err != nil {
+		return StackTemplate{}, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return StackTemplate{}, err
+	}
+	return s.GetStackTemplate(id)
+}
+
+// ListStackTemplates returns the templates visible to a user — their own plus any
+// an admin has published — newest first. Designs are omitted to keep the list light.
+func (s *Store) ListStackTemplates(ownerID int64, isAdmin bool) ([]StackTemplate, error) {
+	q := "SELECT " + templateCols + " FROM stack_templates WHERE owner_id = ? OR shared = 1 ORDER BY id DESC"
+	args := []any{ownerID}
+	if isAdmin {
+		q = "SELECT " + templateCols + " FROM stack_templates ORDER BY id DESC"
+		args = nil
+	}
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []StackTemplate{}
+	for rows.Next() {
+		t, err := scanTemplate(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// GetStackTemplate returns one template including its design.
+func (s *Store) GetStackTemplate(id int64) (StackTemplate, error) {
+	var t StackTemplate
+	var rid int64
+	var shared int
+	var design string
+	err := s.db.QueryRow(
+		"SELECT "+templateCols+", design_json FROM stack_templates WHERE id = ?", id,
+	).Scan(&rid, &t.Name, &t.Description, &t.Category, &t.OwnerID, &shared, &t.CreatedAt, &t.UpdatedAt, &design)
+	if err != nil {
+		return StackTemplate{}, err
+	}
+	t.ID = strconv.FormatInt(rid, 10)
+	t.Shared = shared != 0
+	t.Design = json.RawMessage(design)
+	return t, nil
+}
+
+// UpdateStackTemplate replaces a template's metadata and design.
+func (s *Store) UpdateStackTemplate(id int64, name, description, category string, design []byte) error {
+	_, err := s.db.Exec(
+		"UPDATE stack_templates SET name = ?, description = ?, category = ?, design_json = ?, updated_at = ? WHERE id = ?",
+		name, description, category, string(design), nowRFC3339(), id,
+	)
+	return err
+}
+
+// SetStackTemplateShared publishes (or unpublishes) a template instance-wide.
+func (s *Store) SetStackTemplateShared(id int64, shared bool) error {
+	v := 0
+	if shared {
+		v = 1
+	}
+	_, err := s.db.Exec("UPDATE stack_templates SET shared = ?, updated_at = ? WHERE id = ?", v, nowRFC3339(), id)
+	return err
+}
+
+// DeleteStackTemplate removes a template.
+func (s *Store) DeleteStackTemplate(id int64) error {
+	_, err := s.db.Exec("DELETE FROM stack_templates WHERE id = ?", id)
+	return err
+}
+
+// --- deployments ---
+
+// UpsertDeployment inserts or updates a node's runtime record.
+func (s *Store) UpsertDeployment(d Deployment) error {
+	_, err := s.db.Exec(
+		`INSERT INTO deployments (stack_id, node_id, container_id, state, config_json, secrets_json)
+		 VALUES (?,?,?,?,?,?)
+		 ON CONFLICT(stack_id, node_id) DO UPDATE SET
+		   container_id=excluded.container_id, state=excluded.state,
+		   config_json=excluded.config_json, secrets_json=excluded.secrets_json`,
+		d.StackID, d.NodeID, nullStr(strPtr(d.ContainerID)), d.State,
+		nullRaw(d.Config), nullRaw(d.Secrets),
+	)
+	return err
+}
+
+// SetDeploymentState updates just the state of a node deployment.
+func (s *Store) SetDeploymentState(stackID int64, nodeID, state string) error {
+	_, err := s.db.Exec("UPDATE deployments SET state = ? WHERE stack_id = ? AND node_id = ?", state, stackID, nodeID)
+	return err
+}
+
+// SetDeploymentProgress updates just the provisioning progress JSON.
+func (s *Store) SetDeploymentProgress(stackID int64, nodeID string, progress []byte) error {
+	_, err := s.db.Exec("UPDATE deployments SET progress_json = ? WHERE stack_id = ? AND node_id = ?", nullRaw(progress), stackID, nodeID)
+	return err
+}
+
+// ListDeployments returns all node deployments for a stack.
+func (s *Store) ListDeployments(stackID int64) ([]Deployment, error) {
+	rows, err := s.db.Query(
+		"SELECT stack_id, node_id, container_id, state, config_json, secrets_json, progress_json FROM deployments WHERE stack_id = ?", stackID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Deployment{}
+	for rows.Next() {
+		var d Deployment
+		var cid, cfg, sec, prog sql.NullString
+		if err := rows.Scan(&d.StackID, &d.NodeID, &cid, &d.State, &cfg, &sec, &prog); err != nil {
+			return nil, err
+		}
+		d.ContainerID = cid.String
+		if cfg.Valid {
+			d.Config = json.RawMessage(cfg.String)
+		}
+		if sec.Valid {
+			d.Secrets = json.RawMessage(sec.String)
+		}
+		if prog.Valid {
+			d.Progress = json.RawMessage(prog.String)
+		}
+		d.ContainerName = containerName(d.StackID, d.NodeID)
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// GetDeployment returns one node's deployment record.
+func (s *Store) GetDeployment(stackID int64, nodeID string) (Deployment, error) {
+	var d Deployment
+	var cid, cfg, sec, prog sql.NullString
+	err := s.db.QueryRow(
+		"SELECT stack_id, node_id, container_id, state, config_json, secrets_json, progress_json FROM deployments WHERE stack_id = ? AND node_id = ?",
+		stackID, nodeID,
+	).Scan(&d.StackID, &d.NodeID, &cid, &d.State, &cfg, &sec, &prog)
+	if err != nil {
+		return Deployment{}, err
+	}
+	d.ContainerID = cid.String
+	if cfg.Valid {
+		d.Config = json.RawMessage(cfg.String)
+	}
+	if sec.Valid {
+		d.Secrets = json.RawMessage(sec.String)
+	}
+	if prog.Valid {
+		d.Progress = json.RawMessage(prog.String)
+	}
+	d.ContainerName = containerName(d.StackID, d.NodeID)
+	return d, nil
+}
+
+// DeleteDeployment removes one node's deployment record.
+func (s *Store) DeleteDeployment(stackID int64, nodeID string) error {
+	_, err := s.db.Exec("DELETE FROM deployments WHERE stack_id = ? AND node_id = ?", stackID, nodeID)
+	return err
+}
+
+// --- labs ---
+
+// LabRun is one learner's attempt at a Lab: the disposable stack it provisioned,
+// the leadership snapshot taken once the cluster comes up (so Check Work has a
+// baseline to compare against), and per-step pass/fail history.
+type LabRun struct {
+	ID                int64  `json:"id"`
+	LabID             string `json:"labId"`
+	UserID            int64  `json:"userId"`
+	StackID           int64  `json:"stackId"`
+	InitialLeaderNode string `json:"initialLeaderNodeId,omitempty"`
+	// InitialBackupCount is the pgBackRest backup count seen once the cluster
+	// first comes up (the automatic initial backup taken at deploy time) — 0
+	// means "not captured yet" (or not a pgBackRest-enabled lab). The Backup &
+	// Restore lab's Check Work compares the live count against this baseline.
+	InitialBackupCount int     `json:"initialBackupCount,omitempty"`
+	StartedAt          string  `json:"startedAt"`
+	FinishedAt         *string `json:"finishedAt,omitempty"`
+}
+
+// LabStepResult is the outcome of the most recent Check Work call for one step.
+type LabStepResult struct {
+	LabRunID  int64  `json:"labRunId"`
+	StepID    string `json:"stepId"`
+	Passed    bool   `json:"passed"`
+	Message   string `json:"message"`
+	CheckedAt string `json:"checkedAt"`
+}
+
+// CreateLabRun records a new lab attempt, tying it to the disposable stack that
+// was just created for it.
+func (s *Store) CreateLabRun(labID string, userID, stackID int64) (LabRun, error) {
+	started := nowRFC3339()
+	res, err := s.db.Exec(
+		"INSERT INTO lab_runs (lab_id, user_id, stack_id, started_at) VALUES (?,?,?,?)",
+		labID, userID, stackID, started,
+	)
+	if err != nil {
+		return LabRun{}, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return LabRun{}, err
+	}
+	return LabRun{ID: id, LabID: labID, UserID: userID, StackID: stackID, StartedAt: started}, nil
+}
+
+// GetActiveLabRun returns the learner's most recent not-yet-finished run of a lab.
+func (s *Store) GetActiveLabRun(labID string, userID int64) (LabRun, error) {
+	row := s.db.QueryRow(
+		`SELECT id, lab_id, user_id, stack_id, initial_leader_node_id, initial_backup_count, started_at, finished_at
+		 FROM lab_runs WHERE lab_id = ? AND user_id = ? AND finished_at IS NULL
+		 ORDER BY id DESC LIMIT 1`,
+		labID, userID,
+	)
+	return scanLabRun(row)
+}
+
+// GetLabRun returns a single lab run by id (ownership is checked by the caller).
+func (s *Store) GetLabRun(id int64) (LabRun, error) {
+	row := s.db.QueryRow(
+		`SELECT id, lab_id, user_id, stack_id, initial_leader_node_id, initial_backup_count, started_at, finished_at
+		 FROM lab_runs WHERE id = ?`, id,
+	)
+	return scanLabRun(row)
+}
+
+func scanLabRun(row *sql.Row) (LabRun, error) {
+	var r LabRun
+	var leader, finished sql.NullString
+	if err := row.Scan(&r.ID, &r.LabID, &r.UserID, &r.StackID, &leader, &r.InitialBackupCount, &r.StartedAt, &finished); err != nil {
+		return LabRun{}, err
+	}
+	r.InitialLeaderNode = leader.String
+	if finished.Valid {
+		r.FinishedAt = &finished.String
+	}
+	return r, nil
+}
+
+// SetLabRunLeader records the node that was leader when the lab's cluster first
+// came up — the baseline Check Work compares the current leader against.
+func (s *Store) SetLabRunLeader(id int64, nodeID string) error {
+	_, err := s.db.Exec("UPDATE lab_runs SET initial_leader_node_id = ? WHERE id = ?", nodeID, id)
+	return err
+}
+
+// SetLabRunBackupCount records the pgBackRest backup count seen once the
+// lab's cluster first comes up — the baseline the Backup & Restore lab's
+// Check Work compares the live count against.
+func (s *Store) SetLabRunBackupCount(id int64, count int) error {
+	_, err := s.db.Exec("UPDATE lab_runs SET initial_backup_count = ? WHERE id = ?", count, id)
+	return err
+}
+
+// FinishLabRun marks a lab attempt as ended (the learner clicked "End Lab").
+func (s *Store) FinishLabRun(id int64) error {
+	_, err := s.db.Exec("UPDATE lab_runs SET finished_at = ? WHERE id = ?", nowRFC3339(), id)
+	return err
+}
+
+// FinishLabRunsForStack closes out any still-active lab run whose disposable
+// stack was just reaped (TTL expiry, not an explicit "End Lab") — otherwise
+// GetActiveLabRun keeps pointing at a destroyed stack.
+func (s *Store) FinishLabRunsForStack(stackID int64) error {
+	_, err := s.db.Exec("UPDATE lab_runs SET finished_at = ? WHERE stack_id = ? AND finished_at IS NULL", nowRFC3339(), stackID)
+	return err
+}
+
+// ListLabRuns returns a user's lab attempts, newest first (their progress history).
+func (s *Store) ListLabRuns(userID int64) ([]LabRun, error) {
+	rows, err := s.db.Query(
+		`SELECT id, lab_id, user_id, stack_id, initial_leader_node_id, initial_backup_count, started_at, finished_at
+		 FROM lab_runs WHERE user_id = ? ORDER BY id DESC`, userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []LabRun{}
+	for rows.Next() {
+		var r LabRun
+		var leader, finished sql.NullString
+		if err := rows.Scan(&r.ID, &r.LabID, &r.UserID, &r.StackID, &leader, &r.InitialBackupCount, &r.StartedAt, &finished); err != nil {
+			return nil, err
+		}
+		r.InitialLeaderNode = leader.String
+		if finished.Valid {
+			r.FinishedAt = &finished.String
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// RecordLabStepResult upserts the outcome of the latest Check Work call for a step.
+func (s *Store) RecordLabStepResult(res LabStepResult) error {
+	_, err := s.db.Exec(
+		`INSERT INTO lab_step_results (lab_run_id, step_id, passed, message, checked_at)
+		 VALUES (?,?,?,?,?)
+		 ON CONFLICT(lab_run_id, step_id) DO UPDATE SET
+		   passed=excluded.passed, message=excluded.message, checked_at=excluded.checked_at`,
+		res.LabRunID, res.StepID, res.Passed, res.Message, res.CheckedAt,
+	)
+	return err
+}
+
+// ListLabStepResults returns every step's latest result for one lab run.
+func (s *Store) ListLabStepResults(labRunID int64) ([]LabStepResult, error) {
+	rows, err := s.db.Query(
+		"SELECT lab_run_id, step_id, passed, message, checked_at FROM lab_step_results WHERE lab_run_id = ?",
+		labRunID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []LabStepResult{}
+	for rows.Next() {
+		var r LabStepResult
+		var msg sql.NullString
+		if err := rows.Scan(&r.LabRunID, &r.StepID, &r.Passed, &msg, &r.CheckedAt); err != nil {
+			return nil, err
+		}
+		r.Message = msg.String
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func nullStr(p *string) any {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+func strPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+func nullRaw(r json.RawMessage) any {
+	if len(r) == 0 {
+		return nil
+	}
+	return string(r)
+}
