@@ -172,7 +172,12 @@ type k3dConfig struct {
 	GrafanaService string `json:"grafanaService"`
 	PMMToken       string `json:"pmmToken"`   // "" | "expires <when>" — the service token's lifetime
 	BackupRepo     string `json:"backupRepo"` // SeaweedFS S3 target ("" = none)
-	Image          string `json:"image"`      // the k3s image k3d used
+	// PITR describes the binlog collector as it was actually applied ("" = off): enabled with
+	// its bucket and upload interval, or deferred because this cluster is a replication replica
+	// waiting to be seeded. The two are worth telling apart in the panel — "off" and "on in ten
+	// minutes" are different answers to "is point-in-time recovery running".
+	PITR  string `json:"pitr"`
+	Image string `json:"image"` // the k3s image k3d used
 	// Cross-cluster replication (PXC operator only — see k3drepl.go). ReplRole is what this
 	// cluster is on the canvas's replication edge: "source", "replica", or "" for neither.
 	ReplRole    string   `json:"replRole"`
@@ -394,22 +399,37 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 // This lives outside k3dFrameIssues because it needs the design (to find the SeaweedFS node), which
 // that function does not take.
 func k3dBackupIssues(f designFrame, doc designDoc) []issue {
+	// Point-in-time recovery is the PXC operator's binlog collector, and it uploads to S3 —
+	// there is no PVC fallback for it, so without a store it is an option that would silently
+	// do nothing. Checked for every frame, whether or not it is part of a replication link.
+	var out []issue
+	if f.K3DPITR {
+		switch {
+		case f.K3DOperator != "pxc":
+			out = append(out, issue{Level: "warning", Message: "K3D cluster " + f.Label +
+				" has point-in-time recovery on, but it is a " + orDefault(k3dOperatorLabel(f.K3DOperator), "bare Kubernetes") +
+				" cluster — the binlog collector is a Percona XtraDB Cluster operator feature and the setting is ignored"})
+		case f.SeaweedFSNodeID == "":
+			out = append(out, issue{Level: "error", Message: "K3D cluster " + f.Label +
+				" has point-in-time recovery on but no SeaweedFS backup store — the binlog collector uploads binary logs to S3, and there is nowhere to put them"})
+		}
+	}
 	// Crunchy's operator is where Percona's was forked from and runs the same pgBackRest, so
 	// the constraint and the fallback are identical — see installPGOOperator.
 	if (f.K3DOperator != "pg" && f.K3DOperator != "pgo") || f.SeaweedFSNodeID == "" {
-		return nil
+		return out
 	}
 	for _, n := range doc.Nodes {
 		if n.ID != f.SeaweedFSNodeID || n.Type != "seaweedfs" {
 			continue
 		}
 		if !n.TLS {
-			return []issue{{Level: "warning", Message: "K3D cluster " + f.Label + " cannot back up to SeaweedFS node " + n.Label +
-				": pgBackRest speaks S3 only over TLS, so the cluster will use the operator's own PVC repo instead and the bucket will stay empty — turn on S3 TLS for " + n.Label + " to back up to it"}}
+			return append(out, issue{Level: "warning", Message: "K3D cluster " + f.Label + " cannot back up to SeaweedFS node " + n.Label +
+				": pgBackRest speaks S3 only over TLS, so the cluster will use the operator's own PVC repo instead and the bucket will stay empty — turn on S3 TLS for " + n.Label + " to back up to it"})
 		}
-		return nil
+		return out
 	}
-	return nil // a SeaweedFS node that is not in the design is already reported elsewhere
+	return out // a SeaweedFS node that is not in the design is already reported elsewhere
 }
 
 // validNamespace enforces a DNS-1123 label (what Kubernetes accepts as a namespace).
@@ -895,6 +915,10 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 			progs[n.ID].save()
 		}
 		a.reconcileStackDNS(ctx, st.ID)
+		// The members now report running, and for a frame with an operator on it that is true
+		// and incomplete: cr.yaml has been applied, and the operator has yet to create a single
+		// database pod. Keep the cards spinning until the cluster it manages says it is ready.
+		a.k3dWaitClusterReady(ctx, st, frame, members, base, serverID)
 		log.Printf("stack %d k3d %s: provisioned (%d node(s), operator %q)", st.ID, frame.Label, nodes, operator)
 	}()
 }
@@ -1393,6 +1417,138 @@ func (a *App) k3dBackupSecret(ctx context.Context, st Stack, frame designFrame, 
 	}
 }
 
+// k3dWaitClusterReady holds a frame's members in the "configuring" state until the operator's
+// custom resource reports ready — the window between `kubectl apply -f cr.yaml` returning and
+// there being a database to connect to, which is minutes long and was indistinguishable from
+// finished on the canvas.
+//
+// It reports readiness by clearing the marker and by nothing else: the node is already Running
+// (the operator being installed is what that state means, and several things — the replication
+// phase, the Stock Market Sim resolver — rendezvous on it), and a cluster that never becomes
+// ready is not a failed *node*. What it leaves behind is a card that stops spinning, a log line,
+// and the operator's own state in the panel.
+//
+// Chart-installed operators are skipped: CloudNativePG and Crunchy PGO have no `.status.state`
+// under a short name matching their operator key, and installPGOOperator already waited for its
+// cluster before recording anything.
+func (a *App) k3dWaitClusterReady(ctx context.Context, st Stack, frame designFrame, members []designNode, cfg k3dConfig, serverID string) {
+	if !k3dCRStateOperator[cfg.Operator] {
+		return
+	}
+	phase := k3dOperatorLabel(cfg.Operator) + " is building the cluster"
+	for _, n := range members {
+		a.setConfiguring(st.ID, n.ID, phase)
+	}
+	defer func() {
+		for _, n := range members {
+			a.clearConfiguringIf(st.ID, n.ID, phase)
+		}
+	}()
+
+	say := func(msg string) {
+		if len(members) > 0 {
+			a.replLogln(st.ID, members[0].ID, msg)
+		}
+	}
+	deadline := time.Now().Add(deployTimeout())
+	last := ""
+	for {
+		state, ready := a.k3dCRState(ctx, serverID, cfg)
+		if ready {
+			say(cfg.ClusterName + " reports ready — the cluster is up")
+			return
+		}
+		if state == "error" {
+			say(cfg.ClusterName + " reports state \"error\" — see the operator's log; the k3s nodes themselves are running")
+			return
+		}
+		if state != "" && state != last {
+			say(cfg.ClusterName + " is " + state)
+			last = state
+		}
+		if time.Now().After(deadline) {
+			say(cfg.ClusterName + " has not reported ready yet (last state " + orDefault(last, "unknown") + ") — DBCanvas has stopped waiting; the operator has not")
+			return
+		}
+		if !k3dSleep(ctx, 10*time.Second) {
+			return // the deploy was cancelled (a destroy) — the deferred clear still runs
+		}
+	}
+}
+
+// k3dCRStateOperator is the operators whose custom resource reports `.status.state` under a short
+// name that is also their DBCanvas key, which is what makes k3dCRState a single call for all of
+// them. The two Helm-installed community PostgreSQL operators are not among them.
+var k3dCRStateOperator = map[string]bool{"pxc": true, "ps": true, "psmdb": true, "pg": true}
+
+// k3dPITROptions builds the point-in-time-recovery half of the custom resource: the binlog
+// collector, and the storage it uploads to. nil means "leave cr.yaml's pitr as shipped",
+// which is disabled.
+//
+// Two things here are not simply the frame's settings read back:
+//
+//   - The binlogs get a storage (and a bucket) of their own whenever one was chosen, because
+//     two clusters writing one binlog bucket interleave two streams and neither replays.
+//     Backups do not have that problem and keep sharing.
+//   - A cluster that is the REPLICA end of a replication link deploys with the collector
+//     off, however the frame is set. Its data and its whole GTID history are about to be
+//     replaced by a restore from the source; a collector running across that uploads binlogs
+//     from two different histories into one stream, and the restore itself is documented as
+//     requiring PITR off. It is turned on afterwards, once replication is actually running —
+//     k3dReplEnablePITR. The frame's setting is not overridden, only deferred, and cfg.PITR
+//     says which of the two it is so the panel does not have to guess.
+func (a *App) k3dPITROptions(ctx context.Context, st Stack, frame designFrame, cfg *k3dConfig, s3 *crS3, pr *pxcProg) *crPITR {
+	if frame.K3DOperator != "pxc" || !frame.K3DPITR {
+		return nil
+	}
+	if s3 == nil {
+		// No backup storage means no storages block was written, so there is nothing for the
+		// collector to name. Validation says so at design time; this says so on the node.
+		pr.logln("point-in-time recovery skipped: it uploads binary logs to S3, and this cluster has no SeaweedFS backup store")
+		return nil
+	}
+	p := &crPITR{Enabled: true, Storage: crStorageName, Seconds: frame.K3DPITRSeconds}
+	bucket := s3.Bucket
+	if want := strings.TrimSpace(frame.K3DPITRBucket); want != "" {
+		sw, _, err := a.waitSeaweedBucket(ctx, st.ID, frame.SeaweedFSNodeID, want, deployTimeout())
+		switch {
+		case err != nil:
+			pr.logln("point-in-time recovery: could not resolve bucket " + want + " (" + err.Error() + ") — using the backup bucket " + s3.Bucket)
+		case sw.Bucket != want:
+			// pickSeaweedBucket falls back to the node's first bucket for a name it does not
+			// have, which would silently put the binlogs in the backup bucket. Say so.
+			pr.logln("point-in-time recovery: SeaweedFS node has no bucket " + want + " — using " + sw.Bucket)
+			bucket = sw.Bucket
+		default:
+			bucket = sw.Bucket
+		}
+	}
+	if bucket != s3.Bucket {
+		binlog := *s3
+		binlog.Bucket = bucket
+		p.Storage, p.Binlog = crBinlogStorageName, &binlog
+	}
+	every := frame.K3DPITRSeconds
+	if every <= 0 {
+		every = crPITRDefaultSeconds
+	}
+	where := fmt.Sprintf("bucket %s, every %ds", bucket, every)
+	if cfg.ReplRole == "replica" {
+		p.Enabled = false
+		cfg.PITR = "deferred until replication is established (" + where + ")"
+		pr.logln("point-in-time recovery deferred: this cluster is a replication replica and is about to be " +
+			"restored from the source — the binlog collector is enabled after the channel is running (" + where + ")")
+		return p
+	}
+	cfg.PITR = "enabled (" + where + ")"
+	pr.logln("point-in-time recovery enabled: binary logs uploaded to " + where)
+	return p
+}
+
+// crPITRDefaultSeconds is cr.yaml's own `timeBetweenUploads`, used only to describe what was
+// applied when the frame did not set one.
+const crPITRDefaultSeconds = 60
+
 // installPXCOperator unpacks the operator source into /root on the first node, applies the bundle
 // into the chosen namespace, rewrites cr.yaml (§ crTransform) and applies it.
 func (a *App) installPXCOperator(ctx context.Context, st Stack, frame designFrame, doc designDoc, serverID string, cfg *k3dConfig, pr *pxcProg) error {
@@ -1469,6 +1625,9 @@ func (a *App) installPXCOperator(ctx context.Context, st Stack, frame designFram
 			pr.logln("operator " + cfg.OperatorVer + " has no forcePathStyle option (added in 1.20.0) — omitted; xbcloud addresses path-style against a custom endpoint anyway")
 		}
 	}
+	// Point-in-time recovery rides on the same S3 credentials — after opts.S3, because the
+	// binlog storage copies its endpoint, secret and forcePathStyle from it.
+	opts.PITR = a.k3dPITROptions(ctx, st, frame, cfg, opts.S3, pr)
 	// PMM 3's pmm-client sidecars authenticate with a service token, not a password.
 	opts.PMMHost = a.k3dPMMToken(ctx, st, frame, doc, serverID, cfg.ClusterName+"-secrets", "pmmservertoken", cfg, pr)
 

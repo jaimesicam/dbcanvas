@@ -8,6 +8,7 @@ import { sendHandoff } from '../lib/handoff.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import { Help } from '../components/Tooltip.jsx'
 import { HELP, TOOL_HELP, DEP_HELP } from '../lib/help.js'
+import { CRFormEditor } from './CRFormEditor.jsx'
 
 // K3DManager — a running k3s node of a K3D cluster frame.
 //
@@ -58,11 +59,20 @@ const TABS = [
   { id: 'kubeconfig', label: 'Kubeconfig' },
   { id: 'users', label: 'Users' },
   { id: 'operator', label: 'Operator' },
+  // The custom resource as a form, generated from the CRD this cluster is running. Only for the
+  // four Percona operators — the two Helm-installed community PostgreSQL ones are not a cr.yaml
+  // DBCanvas wrote, and their charts are the place to change them.
+  { id: 'cr', label: 'cr.yaml' },
   // Only ever shown for a PXC-operator cluster that is one end of a replication link on the
   // canvas — it is the one operator whose custom resource can replicate from another cluster.
   { id: 'replication', label: 'Replication' },
   { id: 'diag', label: 'Diagnostics' },
 ]
+
+// The operators whose custom resource the cr.yaml editor can build a form for — the four Percona
+// ones, which is where k3dCRDNames in app/k3dcrform.go stops too. CloudNativePG and Crunchy PGO
+// are Helm-installed and were never a cr.yaml DBCanvas rewrote.
+const CR_EDITABLE = new Set(['pxc', 'ps', 'psmdb', 'pg'])
 
 const ROLE_HELP = {
   view: 'read-only, this namespace',
@@ -326,6 +336,7 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
       <div className="flex flex-wrap gap-1 rounded-lg bg-surface2 p-1">
         {TABS.filter((t) => (t.id !== 'operator' || cfg.operator)
           && (t.id !== 'diag' || isServer)
+          && (t.id !== 'cr' || CR_EDITABLE.has(cfg.operator))
           && (t.id !== 'replication' || (cfg.operator === 'pxc' && isServer))).map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${tab === t.id ? 'bg-surface text-fg shadow' : 'text-muted'}`}>
@@ -369,6 +380,9 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
             <KV k={isMongo ? 'Expose · mongos' : isPG ? 'Expose · pgBouncer' : 'Expose · proxy'} help={HELP.k8sExpose} v={exposeFront} />
           )}
           <KV k="Backups" help={DEP_HELP.Backups} v={cfg.backupRepo || 'none'} />
+          {/* Only when there is something to say: an operator with no PITR configured would
+              otherwise get a row saying "off", which is true of five of the six. */}
+          {!!cfg.pitr && <KV k="Point-in-time recovery" help={DEP_HELP['Point-in-time recovery']} v={cfg.pitr} />}
           {cfg.debugStatus && (
             <KV k="Debugger" help={DEP_HELP.Debugger}
               v={cfg.debugStatus === 'listening'
@@ -448,6 +462,7 @@ kubectl get svc -n ${ns}`} />
 
       {tab === 'users' && <UsersTab stackId={stackId} frame={frame} isServer={isServer} />}
       {tab === 'replication' && <ReplicationTab stackId={stackId} frame={frame} isServer={isServer} />}
+      {tab === 'cr' && <CRFormEditor stackId={stackId} frame={frame} isServer={isServer} />}
 
       {tab === 'diag' && (
         frame

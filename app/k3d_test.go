@@ -397,3 +397,137 @@ func TestK3DBackupIssuesWarnsWhenPGCannotReachS3(t *testing.T) {
 		t.Error("no backup target selected must not warn")
 	}
 }
+
+// Point-in-time recovery is the binlog collector (`backup.pitr`), and the thing that can go
+// wrong silently is its STORAGE: the general backup rule repoints every `storageName:` in the
+// section at the backup storage, and applying that to pitr sends the binary logs to the backup
+// bucket while the panel says otherwise. Nothing notices until a point-in-time restore is
+// attempted and finds no binlogs.
+func TestCRTransformPITR(t *testing.T) {
+	raw, err := os.ReadFile("testdata/cr.yaml")
+	if err != nil {
+		t.Skipf("no cr.yaml fixture: %v", err)
+	}
+	backups := &crS3{Bucket: "backups", Region: "us-east-1", Secret: "k3d-01-backup-s3",
+		EndpointURL: "http://seaweedfs-01.example.net:8333", ForcePathStyle: true}
+	binlogs := &crS3{Bucket: "binlogs", Region: "us-east-1", Secret: "k3d-01-backup-s3",
+		EndpointURL: "http://seaweedfs-01.example.net:8333", ForcePathStyle: true}
+
+	// pitrKeys reads the three keys inside `backup.pitr` out of the result, so the assertions
+	// are about that block and not about a string that happens to appear in the file.
+	pitrKeys := func(out string) map[string]string {
+		got := map[string]string{}
+		section, at := "", -1
+		for _, ln := range strings.Split(out, "\n") {
+			ind, commented, body := crLine(ln)
+			if commented || body == "" {
+				continue
+			}
+			if ind == 2 && strings.HasSuffix(body, ":") {
+				section = strings.TrimSuffix(body, ":")
+			}
+			if at >= 0 && ind <= at {
+				at = -1
+			}
+			if section == "backup" && body == "pitr:" {
+				at = ind
+				continue
+			}
+			if at >= 0 && ind > at {
+				if k, v, ok := strings.Cut(body, ":"); ok {
+					got[strings.TrimSpace(k)] = strings.TrimSpace(v)
+				}
+			}
+		}
+		return got
+	}
+
+	t.Run("its own bucket", func(t *testing.T) {
+		out := crTransform(string(raw), crOptions{
+			Name: "k3d-01", Proxy: "haproxy", ExposePXC: "ClusterIP", S3: backups,
+			PITR: &crPITR{Enabled: true, Storage: crBinlogStorageName, Seconds: 30, Binlog: binlogs},
+		})
+		got := pitrKeys(out)
+		if got["enabled"] != "true" {
+			t.Errorf("pitr.enabled = %q, want true", got["enabled"])
+		}
+		if got["storageName"] != crBinlogStorageName {
+			t.Errorf("pitr.storageName = %q, want %q — the binlogs must not go to the backup storage", got["storageName"], crBinlogStorageName)
+		}
+		if got["timeBetweenUploads"] != "30" {
+			t.Errorf("pitr.timeBetweenUploads = %q, want 30", got["timeBetweenUploads"])
+		}
+		// Both storages have to exist, or the operator refuses the whole custom resource over a
+		// storageName that names nothing.
+		for _, want := range []string{"      " + crStorageName + ":", "      " + crBinlogStorageName + ":"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("missing storage entry %q", strings.TrimSpace(want))
+			}
+		}
+		if !strings.Contains(out, "bucket: binlogs") || !strings.Contains(out, "bucket: backups") {
+			t.Error("each storage must carry its own bucket")
+		}
+		// And the scheduled backup still points at the backup storage.
+		for _, ln := range strings.Split(out, "\n") {
+			ind, commented, body := crLine(ln)
+			if !commented && ind == 8 && strings.HasPrefix(body, "storageName:") &&
+				strings.TrimSpace(strings.TrimPrefix(body, "storageName:")) != crStorageName {
+				t.Errorf("the schedule's storage was repointed at %q", body)
+			}
+		}
+	})
+
+	t.Run("sharing the backup bucket", func(t *testing.T) {
+		out := crTransform(string(raw), crOptions{
+			Name: "k3d-01", Proxy: "haproxy", ExposePXC: "ClusterIP", S3: backups,
+			PITR: &crPITR{Enabled: true, Storage: crStorageName},
+		})
+		got := pitrKeys(out)
+		if got["storageName"] != crStorageName {
+			t.Errorf("pitr.storageName = %q, want %q", got["storageName"], crStorageName)
+		}
+		// No second storage was asked for, so none may appear.
+		if strings.Contains(out, crBinlogStorageName+":") {
+			t.Error("a binlog storage was written that nothing points at")
+		}
+		// The shipped default is 60 and was not overridden, so it must survive untouched.
+		if got["timeBetweenUploads"] != "60" {
+			t.Errorf("timeBetweenUploads = %q, want cr.yaml's own 60", got["timeBetweenUploads"])
+		}
+	})
+
+	t.Run("deferred on a replica", func(t *testing.T) {
+		// What k3dPITROptions produces for the replica end of a replication link: the collector
+		// is configured but off, so the seed restore replaces the GTID history with nothing
+		// uploading across it.
+		out := crTransform(string(raw), crOptions{
+			Name: "cluster2", Proxy: "haproxy", ExposePXC: "ClusterIP", S3: backups,
+			PITR: &crPITR{Enabled: false, Storage: crBinlogStorageName, Binlog: binlogs},
+		})
+		if got := pitrKeys(out); got["enabled"] != "false" {
+			t.Errorf("pitr.enabled = %q, want false on a replica", got["enabled"])
+		}
+		// The storage is still written, so turning it on later is a one-field patch.
+		if !strings.Contains(out, "      "+crBinlogStorageName+":") {
+			t.Error("the binlog storage must be in place even while the collector is off")
+		}
+	})
+
+	t.Run("not asked for", func(t *testing.T) {
+		out := crTransform(string(raw), crOptions{
+			Name: "k3d-01", Proxy: "haproxy", ExposePXC: "ClusterIP", S3: backups,
+		})
+		got := pitrKeys(out)
+		if got["enabled"] != "false" {
+			t.Errorf("pitr.enabled = %q, want cr.yaml's own false", got["enabled"])
+		}
+		// The shipped placeholder does not exist once the storages block is replaced, and the
+		// operator validates the name even with the collector disabled.
+		if got["storageName"] != crStorageName {
+			t.Errorf("pitr.storageName = %q, want it repointed to %q", got["storageName"], crStorageName)
+		}
+		if strings.Contains(out, "STORAGE-NAME-HERE") {
+			t.Error("a storage name that does not exist was left in the custom resource")
+		}
+	})
+}

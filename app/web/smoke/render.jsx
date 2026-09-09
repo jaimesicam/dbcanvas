@@ -35,6 +35,9 @@ import {
   BigHoleForm, BigHoleManager, BigHoleLink,
   nodeCardTip, memberCardTip,
   k8sReplLinkable, ReplicationLinkForm, ReplicationLinkChoices,
+  associationBlocked, isReplEdge, k8sReplRoleOf, K3D_SOURCE_EXPOSE, K8sToolFields,
+  frameHeaderW, layoutFrame, separateFrames, SIM_NODE_TYPES, frameVersionLabel, frameSubLabel,
+  Spinner, NodeStatus, nodeConfiguring, configPhaseOf, PITRFields,
 } from '../src/pages/StackDesigner.jsx'
 import { ReplicationView } from '../src/pages/K3DManager.jsx'
 import OperatorSummary, { Verdicts as OpVerdicts, Findings as OpFindings, Workloads as OpWorkloads, Pods as OpPods, CRs as OpCRs, Operators as OpOperators, Deployment as OpDeployment, Images as OpImages, Secrets as OpSecrets, Backups as OpBackups, Certs as OpCerts, Storage as OpStorage, Logs as OpLogs, Galera as OpGalera, PodSummaries as OpPodSummaries, BackupLogs as OpBackupLogs, Extras as OpExtras } from '../src/pages/OperatorSummary.jsx'
@@ -45,6 +48,9 @@ import { TabCount, TabCapNotice, NAV } from '../src/App.jsx'
 import { showExperimental, visible, visibleGroups } from '../src/lib/experimental.js'
 import MySQLManager from '../src/pages/MySQLManager.jsx'
 import OidcLoginGuide from '../src/components/OidcLoginGuide.jsx'
+import CRFormEditor, {
+  crPatch, changedPaths, yamlish, matchField, getAt, setAt, delAt,
+} from '../src/pages/CRFormEditor.jsx'
 import PacketInspector, {
   Timeline as PktTimeline, RangeControls as PktRangeControls, Filters as PktFilters,
   PacketList as PktList, PacketDetails as PktDetails, SummaryStrip as PktSummary,
@@ -1242,6 +1248,169 @@ check('the replication link form reads a frame endpoint', () => {
   if (!html.includes('cluster1') || !html.includes('cluster2')) throw new Error('the cluster labels are missing')
   if (html.includes('bidirectional')) throw new Error('bidirectional must not be offered between Kubernetes clusters')
   return html
+})
+
+// ---- a replication link must not consume a cluster's association budget ----
+// The live bug: a Stock Market Sim node could be attached to the REPLICA of a Kubernetes
+// replication pair but not to its SOURCE. The replication edge is stored source →
+// replica, the cardinality guard counted it, and so the source had already spent its one
+// outgoing edge. Assert both ends now accept an application link, and that the guards
+// still hold for the association edges they are actually about.
+check('a replication link leaves both clusters connectable', () => {
+  const sim = { id: 'ss1' }
+  for (const end of ['kf1', 'kf2']) {
+    const why = associationBlocked([k8sEdge], end, sim.id, { singleOutgoing: true })
+    if (why) throw new Error(`${end} refused an app link: ${why}`)
+  }
+  // The guards themselves, on association edges, are unchanged.
+  const assoc = { id: 'e2', type: 'directional', from: { node: 'kf1' }, to: { node: 'ss1' } }
+  if (!associationBlocked([assoc], 'kf2', 'ss1', {})) throw new Error('a simulator must take only one incoming link')
+  if (!associationBlocked([assoc], 'kf1', 'ss2', { singleOutgoing: true })) throw new Error('singleOutgoing must still bound the source')
+  if (associationBlocked([assoc], 'kf1', 'ss2', {})) throw new Error('without singleOutgoing a second outgoing link is fine')
+  if (!associationBlocked([assoc], 'ss1', 'kf1', {})) throw new Error('one line per pair, whichever way it was drawn')
+  if (!isReplEdge(k8sEdge) || isReplEdge(assoc)) throw new Error('isReplEdge must tell the two kinds of line apart')
+  return 'ok'
+})
+
+// A source's database Service is not the frame's choice — a replica in another cluster
+// cannot dial a ClusterIP. k8sReplRoleOf is what the panel and the correcting effect both
+// read, so it has to agree with the stored edge direction.
+check('a Kubernetes replication source is known from the edge, and exposed', () => {
+  if (k8sReplRoleOf('kf1', [k8sEdge], k8sFrames) !== 'source') throw new Error('the from end is the source')
+  if (k8sReplRoleOf('kf2', [k8sEdge], k8sFrames) !== 'replica') throw new Error('the to end is the replica')
+  if (k8sReplRoleOf('kf3', [k8sEdge], k8sFrames) !== '') throw new Error('an unrelated frame has no role')
+  const assoc = { id: 'e3', type: 'directional', from: { node: 'kf1' }, to: { node: 'ss1' } }
+  if (k8sReplRoleOf('kf1', [assoc], k8sFrames) !== '') throw new Error('an association line makes nobody a source')
+  if (K3D_SOURCE_EXPOSE !== 'loadbalancer') throw new Error('a source must be exposed on a LoadBalancer')
+  return 'ok'
+})
+
+// ---- a node that is running but not finished spins ----
+// A k3s node reports running the moment cr.yaml is applied, and a replica cluster stays
+// running through its whole seed restore. Both used to show the green dot that means ready.
+check('a node still being configured spins instead of showing ready', () => {
+  const ring = { state: 'provisioning', progress: { percent: 40 } }
+  const busy = { state: 'running', progress: { configuring: true, configPhase: 'seeding the replica from a backup of the source' } }
+  const ready = { state: 'running', progress: { percent: 100 } }
+  const stopped = { state: 'stopped', progress: {} }
+  if (!nodeConfiguring(busy)) throw new Error('a running node with the marker set is being configured')
+  if (nodeConfiguring(ready)) throw new Error('a plain running node is ready')
+  if (nodeConfiguring(ring)) throw new Error('provisioning keeps its progress ring — it carries a real number')
+  if (nodeConfiguring({ state: 'stopped', progress: { configuring: true } })) throw new Error('only a running node spins')
+  if (!configPhaseOf(busy).includes('seeding')) throw new Error('the phase has to reach the tooltip')
+  if (configPhaseOf(ready) !== '') throw new Error('a ready node has no phase')
+  // The three states have to render, and to differ.
+  const spin = renderToString(<NodeStatus dep={busy} />)
+  if (!spin.includes('animate-spin')) throw new Error('a configuring node must show a spinner')
+  if (renderToString(<NodeStatus dep={ready} />).includes('animate-spin')) throw new Error('a ready node must not spin')
+  if (renderToString(<NodeStatus dep={ring} />).includes('animate-spin')) throw new Error('provisioning must keep the ring')
+  if (!renderToString(<NodeStatus dep={stopped} />).includes('stopped')) throw new Error('a stopped node keeps its word')
+  return renderToString(<Spinner size={16} />)
+})
+
+// ---- point-in-time recovery ----
+// The fields, and the sentence that says a replica's collector starts switched off.
+check('PITR fields: the bucket defaults to the backups, and a replica says it waits', () => {
+  const sw = { id: 'sw1', type: 'seaweedfs', label: 'seaweedfs-01', buckets: ['pxc-backups', 'pxc-binlogs'], bucket: 'pxc-backups' }
+  const frame = { id: 'kf1', type: 'k3d', label: 'cluster1', k3dOperator: 'pxc', seaweedfsNodeId: 'sw1', k3dPitr: true }
+  const on = renderToString(<PITRFields f={frame} nodes={[sw]} patchFrame={noop} deployed={false} />)
+  if (!on.includes('same as backups (pxc-backups)')) throw new Error('the default binlog bucket is the backup bucket')
+  if (!on.includes('pxc-binlogs')) throw new Error('a spare bucket has to be offered for the binlogs')
+  if (on.includes('deploys with the collector')) throw new Error('a cluster with no replication link is not deferred')
+  const asReplica = renderToString(<PITRFields f={frame} nodes={[sw]} patchFrame={noop} deployed={false} replRole="replica" />)
+  if (!asReplica.includes('deploys with the collector')) throw new Error('a replica must say its collector starts off')
+  // Off, and with no store: the checkbox explains itself instead of offering a bucket.
+  const noStore = renderToString(<PITRFields f={{ id: 'kf2', type: 'k3d' }} nodes={[]} patchFrame={noop} deployed={false} />)
+  if (!noStore.includes('Needs a SeaweedFS backup store')) throw new Error('PITR without a store has to say why it is unavailable')
+  if (noStore.includes('Binlog bucket')) throw new Error('no store means no bucket picker')
+  return 'ok'
+})
+
+// ---- a frame is wide enough for its own title ----
+// A one-member frame used to be 144px, and its header — icon, two lines, ± buttons — was
+// clipped to "clust…" / "k3s 1.3…". The name is the whole point of the card, so the frame
+// is sized to fit it.
+check('a frame fits its own header text', () => {
+  const f = { id: 'kf1', type: 'k3d', label: 'k3d-cluster-00', k3dOperator: 'pxc', x: 0, y: 0 }
+  const one = layoutFrame(f, [{ id: 'n1', frameId: 'kf1' }])
+  // Both header lines have to fit inside the box, not just the members.
+  const designSub = `${frameVersionLabel(f)} · 1 node`
+  if (one.frame.w < frameHeaderW(f, 1)) throw new Error('the header does not fit the frame')
+  if (one.frame.w <= 144) throw new Error(`a one-node frame is still member-sized (${one.frame.w}px) — the title would clip`)
+  if (designSub.length < 10) throw new Error('the description line went missing')
+  // Members stay inside, and centred.
+  const [m] = one.nodes
+  if (m.x < one.frame.x || m.x + 116 > one.frame.x + one.frame.w) throw new Error('the member fell outside its frame')
+  // Three members are wider than any title, so the members set the width there.
+  const three = layoutFrame(f, [{ id: 'n1' }, { id: 'n2' }, { id: 'n3' }])
+  if (three.frame.w !== 14 * 2 + 3 * 116 + 2 * 12) throw new Error('a full frame must keep its member-derived width')
+  // A pathological name is bounded rather than dragging a 900px box across the canvas.
+  const long = layoutFrame({ ...f, label: 'x'.repeat(400) }, [{ id: 'n1' }])
+  if (long.frame.w > 380) throw new Error('the frame width is unbounded')
+
+  // Deployed, the header stops showing the design-time description and shows the version it
+  // is running — which is much shorter. The box has to follow it down, or a deployed cluster
+  // sits in a box sized for a sentence it is no longer displaying.
+  const members = [{ id: 'n1', type: 'k3d', frameId: 'kf1' }]
+  const deps = { n1: { state: 'running', config: { serverVersion: '1.36.4+k3s1' } } }
+  const sub = frameSubLabel(f, members, deps)
+  if (!sub.startsWith('k3s 1.36.4+k3s1')) throw new Error(`the deployed line is the version: ${sub}`)
+  const deployed = layoutFrame(f, members, sub)
+  if (deployed.frame.w >= one.frame.w) {
+    throw new Error(`a deployed frame must shrink to its shorter line (${deployed.frame.w}px vs ${one.frame.w}px)`)
+  }
+  if (deployed.frame.w < frameHeaderW(f, 1, sub)) throw new Error('the deployed header must still fit')
+  // The header and the layout must read the same line — they were two expressions saying the
+  // same thing, which is how the box came to be sized for text the header was not showing.
+  if (frameSubLabel(f, members, {}) === sub) throw new Error('an undeployed frame shows the design-time description')
+  return `1 node: ${one.frame.w}px, deployed: ${deployed.frame.w}px, 3 nodes: ${three.frame.w}px`
+})
+
+// Frames now grow to fit their titles, which on an existing design can push one frame over
+// the one beside it — two overlapping title bars, worse than the clipping being fixed. The
+// repair runs once, on load, so it has to be right the first time.
+check('a frame that grew is pushed clear of its neighbour', () => {
+  // Two frames placed side by side when both were 144px wide, now 362 each: the second sits
+  // across the first.
+  const grown = [
+    { id: 'f1', x: 0, y: 0, w: 362, h: 108 },
+    { id: 'f2', x: 180, y: 0, w: 362, h: 108 },
+  ]
+  const [shift, ...rest] = separateFrames(grown)
+  if (!shift || shift.id !== 'f2') throw new Error('the right-hand frame is the one that moves')
+  if (180 + shift.dx < 362 + 24) throw new Error(`the frames still overlap after a ${shift.dx}px shift`)
+  if (rest.length) throw new Error('one overlap, one shift')
+  // Idempotent: applying the shifts and running again must find nothing left to do. This is
+  // what makes it safe to run on every load rather than once.
+  const fixed = grown.map((f) => (f.id === shift.id ? { ...f, x: f.x + shift.dx } : f))
+  if (separateFrames(fixed).length) throw new Error('the repair must converge in one pass')
+  // Nothing to do when they clear each other.
+  if (separateFrames([{ id: 'f1', x: 0, y: 0, w: 100, h: 100 }, { id: 'f2', x: 400, y: 0, w: 100, h: 100 }]).length) {
+    throw new Error('frames that clear each other must be left alone')
+  }
+  // Stacked vertically, they never overlap however wide they get.
+  if (separateFrames([{ id: 'f1', x: 0, y: 0, w: 362, h: 100 }, { id: 'f2', x: 0, y: 300, w: 362, h: 100 }]).length) {
+    throw new Error('a frame below another is not overlapping it')
+  }
+  // A chain: three frames, each pushing the next, resolved in one pass.
+  const three = separateFrames(
+    [{ id: 'a', x: 0, y: 0, w: 300, h: 100 }, { id: 'b', x: 150, y: 0, w: 300, h: 100 }, { id: 'c', x: 300, y: 0, w: 300, h: 100 }],
+  )
+  if (three.length !== 2) throw new Error(`a chain of three needs two shifts, got ${three.length}`)
+  return `shift ${shift.dx}px`
+})
+
+// The simulators are what get the "app connection" caption on their association line.
+check('the application simulators are named as such', () => {
+  for (const t of ['stocksim', 'airlinesim', 'carsim', 'hotelsim', 'trafficsim', 'marketchaos']) {
+    if (!SIM_NODE_TYPES.has(t)) throw new Error(`${t} is a simulator and must carry the app-connection caption`)
+    if (!NODE_TYPES[t]?.ports) throw new Error(`${t} needs connection ports for its line to exist`)
+  }
+  // The two display-only panels draw no line at all, so they are not simulators here.
+  for (const t of ['bighole', 'mclusteradmin']) {
+    if (SIM_NODE_TYPES.has(t)) throw new Error(`${t} carries no association line`)
+  }
+  return 'ok'
 })
 
 // The member-to-member shape has to keep working unchanged — it is the same two components.
@@ -3588,6 +3757,198 @@ check("what's new: the header link, with and without something unread", () => {
     throw new Error('the link rendered before its data arrived')
   }
   return unread + read
+})
+
+
+// ---- the cr.yaml editor -------------------------------------------------------------
+// The form is generated from the operator's CRD, so what has to be right here is not any one
+// control but the contract with the API server: the patch. It is a JSON merge patch, and every
+// one of its rules is a way to destroy a running cluster if it is wrong — a missing null leaves
+// a field set, a merged array rewrites a backup schedule nobody touched.
+const crSchema = {
+  kind: 'PerconaXtraDBCluster', resource: 'pxc', group: 'pxc.percona.com', version: 'v1',
+  cluster: 'cluster1', namespace: 'pxc', operator: 'pxc', status: 'ready',
+  groups: [
+    { id: 'cluster', label: 'Cluster', sections: ['pause', 'unsafeFlags'], note: 'The top of cr.yaml.' },
+    { id: 'database', label: 'Database', sections: ['pxc'] },
+    { id: 'backup', label: 'Backup', sections: ['backup'] },
+  ],
+  sections: [
+    { name: 'pause', path: 'pause', type: 'boolean', help: 'Stop the cluster without deleting it.' },
+    { name: 'unsafeFlags', path: 'unsafeFlags', type: 'object', fields: [
+      { name: 'pxcSize', path: 'unsafeFlags.pxcSize', type: 'boolean', help: 'Allow fewer than three PXC pods.' },
+    ] },
+    { name: 'pxc', path: 'pxc', type: 'object', fields: [
+      { name: 'size', path: 'pxc.size', type: 'integer', min: 1, default: 3, help: 'How many Galera members.' },
+      { name: 'image', path: 'pxc.image', type: 'string' },
+      { name: 'configuration', path: 'pxc.configuration', type: 'string' },
+      { name: 'mysqlAllocator', path: 'pxc.mysqlAllocator', type: 'string', enum: ['jemalloc', 'tcmalloc'] },
+      { name: 'affinity', path: 'pxc.affinity', type: 'raw', raw: true, rawWhy: 'opaque' },
+      { name: 'replicationChannels', path: 'pxc.replicationChannels', type: 'array', items: 'object', element: [
+        { name: '', path: 'pxc.replicationChannels[]', type: 'object', fields: [
+          { name: 'name', path: 'pxc.replicationChannels[].name', type: 'string' },
+          { name: 'isSource', path: 'pxc.replicationChannels[].isSource', type: 'boolean' },
+        ] },
+      ] },
+    ] },
+    { name: 'backup', path: 'backup', type: 'object', fields: [
+      { name: 'pitr', path: 'backup.pitr', type: 'object', fields: [
+        { name: 'enabled', path: 'backup.pitr.enabled', type: 'boolean' },
+        { name: 'storageName', path: 'backup.pitr.storageName', type: 'string' },
+        { name: 'timeBetweenUploads', path: 'backup.pitr.timeBetweenUploads', type: 'integer' },
+      ] },
+      { name: 'storages', path: 'backup.storages', type: 'object', map: true, element: [
+        { name: '', path: 'backup.storages.*', type: 'object', fields: [
+          { name: 'type', path: 'backup.storages.*.type', type: 'string', enum: ['s3', 'filesystem', 'azure'] },
+        ] },
+      ] },
+      { name: 'schedule', path: 'backup.schedule', type: 'array', items: 'object', element: [
+        { name: '', path: 'backup.schedule[]', type: 'object', fields: [
+          { name: 'name', path: 'backup.schedule[].name', type: 'string' },
+          { name: 'storageName', path: 'backup.schedule[].storageName', type: 'string' },
+        ] },
+      ] },
+    ] },
+  ],
+  spec: {
+    pause: false,
+    pxc: { size: 3, image: 'percona/percona-xtradb-cluster:8.4', affinity: { antiAffinityTopologyKey: 'none' } },
+    backup: {
+      pitr: { enabled: true, storageName: 'seaweedfs-binlog', timeBetweenUploads: 60 },
+      storages: { seaweedfs: { type: 's3' } },
+      schedule: [{ name: 'daily-backup', storageName: 'seaweedfs' }],
+    },
+  },
+}
+
+check('cr editor: the patch is a merge patch, with every rule it has', () => {
+  const orig = crSchema.spec
+  // A scalar changed deep in the tree carries only its own path.
+  let patch = crPatch(orig, { ...orig, backup: { ...orig.backup, pitr: { ...orig.backup.pitr, enabled: false } } })
+  if (JSON.stringify(patch) !== '{"backup":{"pitr":{"enabled":false}}}') {
+    throw new Error(`a nested change must not carry its siblings: ${JSON.stringify(patch)}`)
+  }
+  // A removed key is null — that is how a merge patch deletes, and sending it absent instead
+  // would leave the field set on the cluster.
+  const noStorage = JSON.parse(JSON.stringify(orig))
+  delete noStorage.backup.pitr.storageName
+  patch = crPatch(orig, noStorage)
+  if (patch.backup.pitr.storageName !== null) throw new Error('a removed field must be sent as null')
+  // Arrays are replaced wholesale: merging them by position rewrites entries nobody edited.
+  patch = crPatch(orig, { ...orig, backup: { ...orig.backup, schedule: [{ name: 'weekly', storageName: 'seaweedfs' }] } })
+  if (!Array.isArray(patch.backup.schedule) || patch.backup.schedule.length !== 1) {
+    throw new Error('an edited list is sent whole')
+  }
+  // No edit, no patch — this is what the footer counts, and what stops an empty Apply.
+  if (Object.keys(crPatch(orig, orig)).length) throw new Error('an untouched form must produce no patch')
+  if (Object.keys(crPatch(orig, JSON.parse(JSON.stringify(orig)))).length) {
+    throw new Error('a deep copy is not a change')
+  }
+  // The paths the footer and the field markers read.
+  const paths = changedPaths(crPatch(orig, { ...orig, pause: true, pxc: { ...orig.pxc, size: 5 } }))
+  if (!paths.includes('pause') || !paths.includes('pxc.size') || paths.length !== 2) {
+    throw new Error(`changed paths: ${paths.join(', ')}`)
+  }
+  return 'ok'
+})
+
+check('cr editor: paths address the draft without mutating it', () => {
+  const base = { pxc: { size: 3 }, backup: { pitr: { enabled: true } } }
+  const next = setAt(base, 'backup.pitr.enabled', false)
+  if (base.backup.pitr.enabled !== true) throw new Error('setAt mutated the original — the diff would vanish')
+  if (getAt(next, 'backup.pitr.enabled') !== false) throw new Error('setAt did not write')
+  if (getAt(next, 'pxc.size') !== 3) throw new Error('setAt dropped a sibling')
+  const gone = delAt(next, 'backup.pitr.enabled')
+  if (getAt(gone, 'backup.pitr.enabled') !== undefined) throw new Error('delAt did not remove')
+  if (getAt(next, 'backup.pitr.enabled') !== false) throw new Error('delAt mutated its input')
+  // A path into nothing is undefined, not a crash: the form asks for values that are not set.
+  if (getAt(base, 'nope.nothing.here') !== undefined) throw new Error('a missing path must read as undefined')
+  // setAt creates the objects on the way down, which is how a field inside an unset section is set.
+  if (getAt(setAt(base, 'pmm.serverHost', 'pmm-01'), 'pmm.serverHost') !== 'pmm-01') {
+    throw new Error('setAt must create the parents it needs')
+  }
+  return 'ok'
+})
+
+check('cr editor: the review panel prints the patch as cr.yaml reads', () => {
+  const out = yamlish({ backup: { pitr: { enabled: true, storageName: 'seaweedfs-binlog' } }, pxc: { size: 5 } }, 1)
+  if (!out.includes('enabled: true') || !out.includes('storageName: seaweedfs-binlog')) {
+    throw new Error(`scalars are not printed: ${out}`)
+  }
+  if (!out.includes('  backup:')) throw new Error('nesting is not indented')
+  const list = yamlish({ schedule: [{ name: 'daily' }] }, 0)
+  if (!list.includes('- ')) throw new Error('a list is not printed as a list')
+  if (yamlish({ storageName: null }, 0).indexOf('null') < 0) throw new Error('a deletion must be visible in the review')
+  return out
+})
+
+check('cr editor: search finds a field by its path, not just its name', () => {
+  const backup = crSchema.sections.find((s) => s.name === 'backup')
+  if (!matchField(backup, 'pitr')) throw new Error('a section must match on a field inside it')
+  if (!matchField(backup, 'timebetweenuploads')) throw new Error('search is case-insensitive')
+  if (!matchField(backup, 'storagename')) throw new Error('a field inside an array element must be findable')
+  if (matchField(backup, 'jemalloc')) throw new Error('backup must not match a pxc field')
+  const pxc = crSchema.sections.find((s) => s.name === 'pxc')
+  if (!matchField(pxc, 'galera')) throw new Error('the help text is searchable too — it is the only prose the CRD has')
+  if (!matchField(pxc, '')) throw new Error('an empty search shows everything')
+  return 'ok'
+})
+
+check('cr editor: the whole form renders from a CRD model', () => {
+  const html = renderToString(
+    <CRFormEditor stackId={1} frame={{ id: 'f1' }} isServer preloaded={crSchema} />)
+  // The header says what is being edited — this is a live object, not a file.
+  if (!html.includes('PerconaXtraDBCluster') || !html.includes('cluster1')) throw new Error('the header does not name the object')
+  // SSR splits interpolated text with comment markers, so compare on the text alone.
+  const text = html.replace(/<!--.*?-->/g, '')
+  if (!text.includes('pxc.percona.com/v1')) throw new Error('the CRD version is what makes the form trustworthy; show it')
+  // The groups, the search, and the footer's resting state.
+  for (const want of ['Cluster', 'Database', 'Backup', 'Find a field', 'No changes']) {
+    if (!text.includes(want)) throw new Error(`missing from the editor: ${want}`)
+  }
+  // A field's live value, its type hint and its full path all reach the screen.
+  if (!text.includes('spec.pause')) throw new Error('a field must show the path it patches')
+  if (!text.includes('boolean')) throw new Error('the type hint is the only machine truth on screen; show it')
+  return html.length + ' bytes'
+})
+
+check('cr editor: the sections a group names are the ones it renders', () => {
+  const db = renderToString(<CRFormEditor stackId={1} frame={{ id: 'f1' }} isServer preloaded={crSchema} />)
+  // The first group is selected, so its sections are on screen and another group's are not.
+  if (!db.includes('unsafeFlags')) throw new Error('the first group renders its own sections')
+  if (db.includes('mysqlAllocator')) throw new Error('another group’s fields must not render until it is chosen')
+  // A worker node has no kubectl, and the editor says so rather than failing to load.
+  const worker = renderToString(<CRFormEditor stackId={1} frame={{ id: 'f1' }} isServer={false} />)
+  if (!worker.includes('server')) throw new Error('an agent node must be told where the custom resource lives')
+  return 'ok'
+})
+
+
+// ---- kubectl / Helm on a Linux Client -------------------------------------------------
+// The version is the whole point of choosing this at design time rather than typing it into the
+// node's terminal: kubectl is supported one minor either side of the API server, and the cluster
+// it will talk to is on the same canvas. So the form has to SAY which version, and change its mind
+// when a cluster is added.
+check('linux client: the kubectl version follows the cluster on the canvas', () => {
+  const node = { id: 'lc1', type: 'linuxclient', label: 'linuxclient1', lcKubectl: true, lcHelm: true, useProxy: false }
+  const withCluster = renderToString(
+    <K8sToolFields node={node} patchNode={noop} deployed={false}
+      frames={[{ id: 'f1', type: 'k3d', label: 'k3d-00', k3dK3sVersion: 'v1.36.4-k3s1' }]} />)
+  if (!withCluster.includes('k3d-00')) throw new Error('the form must name the cluster it matches')
+  if (!withCluster.includes('v1.36.4')) throw new Error('the form must show the kubectl version it will install')
+  if (withCluster.includes('k3s1')) throw new Error('the k3s suffix is not a kubectl release')
+  // No cluster yet: say what happens instead of showing a version pulled from nowhere.
+  const alone = renderToString(<K8sToolFields node={node} patchNode={noop} deployed={false} frames={[]} />)
+  if (!alone.includes('No Kubernetes cluster on this canvas yet')) throw new Error('a lone client must say where its version comes from')
+  // A frame with no pinned k3s ("latest") still names the cluster — the server resolves the tag.
+  const unpinned = renderToString(
+    <K8sToolFields node={node} patchNode={noop} deployed={false} frames={[{ id: 'f1', type: 'k3d', label: 'k3d-01', k3dK3sVersion: '' }]} />)
+  if (!unpinned.includes('k3d-01')) throw new Error('an unpinned frame still decides the version')
+  // Both tools off: no kubeconfig advice, because there is nothing to advise about.
+  const off = renderToString(<K8sToolFields node={{ id: 'lc2' }} patchNode={noop} deployed={false} frames={[]} />)
+  if (off.includes('kubeconfig')) throw new Error('the kubeconfig note belongs to a node that installs something')
+  if (!withCluster.includes('kubeconfig')) throw new Error('a node with the tools on must be told it has no kubeconfig')
+  return 'ok'
 })
 
 if (failures > 0) {

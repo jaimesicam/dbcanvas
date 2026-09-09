@@ -362,6 +362,10 @@ export const HELP = {
   depThreads:
     'How many concurrent connections the generator is driving right now. Change it to move the offered load up and ' +
     'down while watching the effect in PMM.',
+  depK8sTools:
+    'The Kubernetes client tools installed on this node, as they answer for themselves — the versions are read off ' +
+    'the binaries after the install, not copied from what was requested. kubectl is matched to the k3s release of a ' +
+    'Kubernetes frame on the canvas, because it is only supported one minor version either side of the API server.',
   depCoreDumps:
     'The host directory holding the core file, mounted read-only inside the analyzer at /coredumps.',
   depLibraries:
@@ -668,6 +672,7 @@ export const DEP_HELP = {
   'Grafana service': 'The Kubernetes Service in front of Grafana, and how it is exposed.',
   'Grafana SMTP': 'Where Grafana sends alert mail — the Intranet node\'s mail server, so alerts land in its webmail.',
   Backups: 'The backup tool configured for this node and where it writes.',
+  'Point-in-time recovery': 'The operator\'s binlog collector (spec.backup.pitr): binary logs uploaded continuously, so a restore can land between backups. On the replica end of a replication link it starts switched off — the seed restore replaces the GTID history the collector would be uploading — and DBCanvas turns it on once replication is running.',
   'Backups (PBM)': 'Percona Backup for MongoDB, and the S3 bucket it targets. Run and restore backups from this node\'s Backups tab.',
   'Barman backups': 'Barman\'s backup store for this cluster.',
   pgBackRest: 'The pgBackRest repository this cluster backs up to, and clones new replicas from.',

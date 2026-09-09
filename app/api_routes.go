@@ -696,6 +696,10 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Where a PXC-operator cluster sits in a cross-cluster replication link, and whether the channel is running."},
 		{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/k3d/replication/reseed", Group: gK3D, Handler: m((*App).handleK3DReplicationReseed),
 			Summary: "Restore a replica cluster again from a fresh backup of its source, replacing its data."},
+		{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/k3d/cr", Group: gK3D, Handler: m((*App).handleK3DCRForm),
+			Summary: "The operator's own CRD as a form model, plus the live custom resource — what the cr.yaml editor is built from."},
+		{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/k3d/cr", Group: gK3D, Handler: m((*App).handleK3DCRPatch),
+			Summary: "Apply a merge patch to the cluster's custom resource, server-side dry-run first. `dryRun` validates without changing anything."},
 
 		// --- Operator Debugger --------------------------------------------------
 		{Method: "GET", Path: "/api/k3d/debug/targets", Group: gDebug, Handler: m((*App).handleK3DDebugTargets),

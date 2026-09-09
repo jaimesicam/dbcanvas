@@ -514,6 +514,8 @@ dbcanvas api GET /api/catalog/ps | jq '.["oraclelinux-9"]'
 | Get a kubeconfig scoped to one user | `GET …/k3d/users/{username}/kubeconfig` | `dbcanvas api GET …/kubeconfig` |
 | Read a cross-cluster replication link | `GET …/frames/{fid}/k3d/replication` | `dbcanvas api GET …/k3d/replication` |
 | Re-seed a replica from its source | `POST …/frames/{fid}/k3d/replication/reseed` | `dbcanvas api POST …/k3d/replication/reseed` |
+| Read the CRD as a form model, with the live `spec` | `GET …/frames/{fid}/k3d/cr` | `dbcanvas api GET …/k3d/cr` |
+| Patch the custom resource | `POST …/frames/{fid}/k3d/cr` | `dbcanvas api POST …/k3d/cr --data '{"patch":{"pxc":{"size":5}}}'` |
 
 ```sh
 dbcanvas api GET /api/stacks/1/frames/k3d-01/k3d/kubeconfig | jq -r .kubeconfig > kube.yaml
@@ -528,6 +530,20 @@ Deploy never does it on its own.
 
 ```sh
 dbcanvas api GET /api/stacks/1/frames/cluster2/k3d/replication | jq '{role, channel, peer, running}'
+```
+
+The last two are the **cr.yaml editor**'s endpoints, and are useful on their own. `GET …/k3d/cr`
+returns the operator's own CustomResourceDefinition pruned to a form model — every field with its
+type, enum, bounds and grouping — alongside the live `spec` and the cluster's state, which is a
+compact way to ask what *this* operator version accepts. `POST` takes a JSON merge patch of `spec`
+(a `null` deletes a key) and is **always dry-run against the API server first**; pass
+`"dryRun": true` to validate a change and stop there. A rejected patch comes back with the API
+server's own message and nothing applied.
+
+```sh
+# what would this operator do with a fourth database pod?
+dbcanvas api POST /api/stacks/1/frames/k3d-00/k3d/cr \
+  --data '{"patch":{"pxc":{"size":4}},"dryRun":true}'
 ```
 
 ## All in One

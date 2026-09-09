@@ -159,12 +159,96 @@ func TestK3DReplValidationNeedsABackupStore(t *testing.T) {
 	if !hasIssue(k3dReplValidate(doc), "error", "SeaweedFS backup store") {
 		t.Error("a replica with nowhere to restore from must be an error")
 	}
-	// Two different stores is just as broken: the replica restores from the source's bucket, and
-	// its credentials only open the store it was given.
+	// Two different stores is fine, and used to be refused. The restore is handed the source
+	// store's endpoint by the backup itself, and its credentials are copied into the replica's
+	// cluster under a name of their own (k3dReplSeedSecret) — so one object store per cluster,
+	// which is how two sites are actually built, now validates.
 	doc = k3dReplDoc("async")
 	doc.Frames[1].SeaweedFSNodeID = "sw2"
-	if !hasIssue(k3dReplValidate(doc), "error", "same SeaweedFS node") {
-		t.Error("two different SeaweedFS nodes must be an error")
+	if iss := k3dReplValidate(doc); hasError(iss) {
+		t.Errorf("two SeaweedFS nodes is a legitimate pair: %+v", iss)
+	}
+}
+
+// Point-in-time recovery is the one thing a replication pair must not share, and only at bucket
+// level: two binlog collectors uploading into one bucket interleave two streams, and neither of
+// them can be replayed afterwards.
+func TestK3DReplValidationPITRBuckets(t *testing.T) {
+	clash := func(edit func(*designDoc)) []issue {
+		doc := k3dReplDoc("async")
+		doc.Frames[0].K3DPITR, doc.Frames[1].K3DPITR = true, true
+		edit(&doc)
+		return k3dReplValidate(doc)
+	}
+	// Same node, same bucket: refused.
+	same := clash(func(d *designDoc) {
+		d.Frames[0].K3DPITRBucket, d.Frames[1].K3DPITRBucket = "binlogs", "binlogs"
+	})
+	if !hasIssue(same, "error", "same bucket") {
+		t.Errorf("two collectors in one bucket must be an error: %+v", same)
+	}
+	// A bucket each: fine.
+	if iss := clash(func(d *designDoc) {
+		d.Frames[0].K3DPITRBucket, d.Frames[1].K3DPITRBucket = "binlogs-1", "binlogs-2"
+	}); hasError(iss) {
+		t.Errorf("a bucket each is the arrangement we are asking for: %+v", iss)
+	}
+	// Different SeaweedFS nodes: the same bucket NAME is a different bucket.
+	if iss := clash(func(d *designDoc) {
+		d.Frames[1].SeaweedFSNodeID = "sw2"
+		d.Frames[0].K3DPITRBucket, d.Frames[1].K3DPITRBucket = "binlogs", "binlogs"
+	}); hasError(iss) {
+		t.Errorf("one bucket name on two nodes is two buckets: %+v", iss)
+	}
+	// Neither names a bucket: both fall back to the same node's default, which is the same
+	// bucket — the clash you get by simply ticking the box on both clusters, and the one most
+	// worth catching. k3dPITRBucketOf is what has to see that they agree.
+	if iss := clash(func(*designDoc) {}); !hasIssue(iss, "error", "same bucket") {
+		t.Errorf("two clusters defaulting to one node's bucket is the clash: %+v", iss)
+	}
+	// Give them different backup buckets and the binlogs follow, so there is nothing to report.
+	if iss := clash(func(d *designDoc) {
+		d.Frames[0].SeaweedFSBucket, d.Frames[1].SeaweedFSBucket = "c1", "c2"
+	}); hasError(iss) {
+		t.Errorf("two backup buckets means two binlog buckets: %+v", iss)
+	}
+	// And the replica is told its collector starts switched off.
+	warn := clash(func(d *designDoc) {
+		d.Frames[0].K3DPITRBucket, d.Frames[1].K3DPITRBucket = "binlogs-1", "binlogs-2"
+	})
+	if !hasIssue(warn, "warning", "point-in-time recovery switched off") {
+		t.Errorf("a replica's deferred collector must be said out loud: %+v", warn)
+	}
+	// PITR with no store at all is an error, and it is reported by k3dBackupIssues rather than
+	// here: it is true of any frame, linked or not, and saying it twice for a linked one is noise.
+	doc := k3dReplDoc("async")
+	doc.Frames[1].K3DPITR = true
+	doc.Frames[1].SeaweedFSNodeID = ""
+	if hasIssue(k3dReplValidate(doc), "error", "no SeaweedFS backup store") {
+		t.Error("the link validator must not repeat what k3dBackupIssues already reports")
+	}
+	if !hasIssue(k3dBackupIssues(doc.Frames[1], doc), "error", "no SeaweedFS backup store") {
+		t.Error("the binlog collector uploads to S3 — without a store that is an error")
+	}
+	// And on an operator that has no binlog collector at all, the setting is ignored rather than
+	// silently doing nothing.
+	psmdb := designFrame{Label: "k3d-09", K3DOperator: "psmdb", K3DPITR: true, SeaweedFSNodeID: "sw1"}
+	if !hasIssue(k3dBackupIssues(psmdb, doc), "warning", "is ignored") {
+		t.Error("PITR on a non-PXC operator must say it does nothing")
+	}
+}
+
+// k3dPITRBucketOf answers "which bucket do this frame's binary logs go to" from the design alone,
+// which is what makes the clash check above correct without resolving anything against a node.
+func TestK3DPITRBucketOf(t *testing.T) {
+	if got := k3dPITRBucketOf(designFrame{K3DPITRBucket: " binlogs "}); got != "binlogs" {
+		t.Errorf("an explicit bucket wins, trimmed: %q", got)
+	}
+	if got := k3dPITRBucketOf(designFrame{SeaweedFSBucket: "backups"}); got != "backups" {
+		t.Errorf("no choice means the backup bucket: %q", got)
+	}
+	if got := k3dPITRBucketOf(designFrame{}); got != "" {
+		t.Errorf("nothing chosen anywhere is the node's default, named by neither: %q", got)
 	}
 }
 
@@ -365,9 +449,11 @@ func TestK3DReplTemplateIsALink(t *testing.T) {
 	if issues := k3dReplValidate(doc); hasError(issues) {
 		t.Errorf("the template must validate without errors: %+v", issues)
 	}
-	// Both clusters must share one store, or the replica cannot read the source's bucket back.
+	// The template puts both clusters on one SeaweedFS node with a bucket each — the smallest
+	// stack that shows the feature. Two nodes are allowed (k3dReplSeedSecret), but a template is
+	// a starting point, and one store is one fewer container to explain.
 	if links[0].Src.SeaweedFSNodeID == "" || links[0].Src.SeaweedFSNodeID != links[0].Dst.SeaweedFSNodeID {
-		t.Error("both clusters must point at the same SeaweedFS node")
+		t.Error("the template is built around a single shared SeaweedFS node")
 	}
 	if links[0].Src.SeaweedFSBucket == links[0].Dst.SeaweedFSBucket {
 		t.Error("each cluster should own its own bucket, so the seed is readable as the source's")
@@ -699,5 +785,46 @@ func TestK3DReplSeedDeletesThePreviousBackupFirst(t *testing.T) {
 	}
 	if del > create {
 		t.Errorf("the delete must come first, got delete at %d and create at %d", del, create)
+	}
+}
+
+// A replication pair is allowed one object store each, which is how two sites really are built.
+// The restore then reads the backup out of the SOURCE's bucket, at the source's endpoint, with the
+// source's keys — and a Secret is named rather than embedded, so those keys have to be copied into
+// the replica's cluster under a name that resolves there. Reusing the replica's own backup secret
+// (which is all that was needed while both clusters had to share one store) fails with a 403 that
+// reads like a missing backup.
+func TestK3DReplSeedSecretPerStore(t *testing.T) {
+	app := newTestApp(t)
+	doc := k3dReplDoc("async")
+	link := k3dReplLinks(doc)[0]
+	dstCfg := k3dConfig{ClusterName: "cluster2", Namespace: "default"}
+
+	// One shared store: the replica's own secret already holds the right keys, so nothing is
+	// created — and nothing has to be resolvable, which is what keeps the common path cheap.
+	rec := &recordingEngine{}
+	name, err := app.k3dReplSeedSecret(withEngine(context.Background(), rec), Stack{ID: 1}, link, "dst", dstCfg, func(string) {})
+	if err != nil {
+		t.Fatalf("shared store: %v", err)
+	}
+	if name != "cluster2-backup-s3" {
+		t.Errorf("secret = %q, want the replica's own backup secret", name)
+	}
+	for _, c := range rec.calls {
+		if strings.Contains(c, "create secret") {
+			t.Errorf("nothing should be created for a shared store, got %q", c)
+		}
+	}
+
+	// Two stores, and the source's is not deployed in this stack: the seed fails with a reason,
+	// rather than quietly naming a secret that opens the wrong store.
+	twoStores := k3dReplDoc("async")
+	twoStores.Frames[1].SeaweedFSNodeID = "sw2"
+	link2 := k3dReplLinks(twoStores)[0]
+	if link2.Src.SeaweedFSNodeID == link2.Dst.SeaweedFSNodeID {
+		t.Fatal("the fixture must have two different stores for this half of the test")
+	}
+	if _, err := app.k3dReplSeedSecret(withEngine(context.Background(), rec), Stack{ID: 1}, link2, "dst", dstCfg, func(string) {}); err == nil {
+		t.Error("an unresolvable source store must fail the seed, not fall back to the wrong keys")
 	}
 }

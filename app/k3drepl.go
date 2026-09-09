@@ -266,9 +266,27 @@ func k3dReplIssues(doc designDoc, ends k3dReplEdgeEnds, e designEdge, pairs map[
 	if src.SeaweedFSNodeID == "" || dst.SeaweedFSNodeID == "" {
 		err("Replication link " + src.Label + " → " + dst.Label +
 			": both clusters need a SeaweedFS backup store — the replica is seeded from a backup of the source, and there is nowhere to put one")
-	} else if src.SeaweedFSNodeID != dst.SeaweedFSNodeID {
+	}
+	// The two stores may be different nodes: the restore is given the source store's endpoint by
+	// the backup itself, and its credentials are copied into the replica's cluster under a name of
+	// their own (k3dReplSeedSecret). This used to be an error, which refused the most ordinary
+	// two-site shape there is — one object store per cluster.
+	//
+	// Point-in-time recovery is the one thing that must not be shared, and only at bucket level:
+	// two binlog collectors uploading to one bucket interleave two streams, and neither of them
+	// replays afterwards.
+	if src.K3DPITR && dst.K3DPITR && src.SeaweedFSNodeID == dst.SeaweedFSNodeID &&
+		k3dPITRBucketOf(src) == k3dPITRBucketOf(dst) {
 		err("Replication link " + src.Label + " → " + dst.Label +
-			": both clusters must use the same SeaweedFS node — the replica restores from the source's bucket, which it can only reach on the store it has credentials for")
+			": both clusters have point-in-time recovery on and would upload their binary logs to the same bucket on " +
+			"the same SeaweedFS node — two binlog streams in one bucket cannot be replayed. Give one of them its own bucket.")
+	}
+	// "PITR with no store" is not repeated here: k3dBackupIssues already reports it for every
+	// frame, linked or not, and two identical errors in one validation list is noise.
+	if dst.K3DPITR {
+		warn("Replication link " + src.Label + " → " + dst.Label + ": " + dst.Label +
+			" deploys with point-in-time recovery switched off — it is about to be restored from " + src.Label +
+			", which replaces its GTID history. The binlog collector is turned on once replication is running.")
 	}
 	// The source's database pods each take an address out of the frame's own MetalLB block, on top
 	// of whatever its proxy tier takes. Running the block dry leaves Services Pending, which looks
@@ -291,6 +309,17 @@ func k3dReplIssues(doc designDoc, ends k3dReplEdgeEnds, e designEdge, pairs map[
 			src.Label + " → " + dst.Label)
 	}
 	return out
+}
+
+// k3dPITRBucketOf is the bucket a frame's binlog collector uploads to, as the design states it:
+// the explicit choice, or "" meaning "whichever bucket the backups use". Two frames both saying
+// "" on one SeaweedFS node do mean the same bucket, which is what makes the comparison in
+// k3dReplIssues correct without resolving anything against a running node.
+func k3dPITRBucketOf(f designFrame) string {
+	if b := strings.TrimSpace(f.K3DPITRBucket); b != "" {
+		return b
+	}
+	return strings.TrimSpace(f.SeaweedFSBucket)
 }
 
 // k3dProxyLBServices is how many LoadBalancer addresses a frame's proxy tier takes. HAProxy
@@ -357,8 +386,20 @@ func (a *App) k3dReplLink(ctx context.Context, st Stack, doc designDoc, l k3dRep
 	}
 
 	say := func(msg string) { a.k3dReplLogln(st, doc, l.Dst, msg) }
+	// Both clusters now report running, and from here until the channel is attached they are
+	// being configured rather than finished — so both spin, and the phase says which step. The
+	// source spins too: its pods are being backed up and its GTID history read, and a green dot
+	// on it while its replica is mid-restore invites exactly the write that makes the seed stale.
+	phase := func(p string) {
+		a.k3dReplConfiguring(st, doc, l.Src, p)
+		a.k3dReplConfiguring(st, doc, l.Dst, p)
+	}
+	// Cleared on every path out, including the failures: what went wrong is in the log and in the
+	// Replication tab, and a card that spins forever claims work that is no longer being done.
+	defer phase("")
 
 	// ---- 1. both clusters ready ----
+	phase("waiting for both clusters to be ready")
 	say(fmt.Sprintf("replication %s → %s: waiting for both clusters to be ready", l.Src.Label, l.Dst.Label))
 	if err := a.k3dWaitPXCReady(ctx, srcServer, srcCfg.Namespace, srcCfg.ClusterName, deployTimeout()); err != nil {
 		return fmt.Errorf("source %s never became ready: %w", srcCfg.ClusterName, err)
@@ -369,6 +410,7 @@ func (a *App) k3dReplLink(ctx context.Context, st Stack, doc designDoc, l k3dRep
 
 	// ---- 2 + 3. seed, once ----
 	if dstCfg.ReplSeededFrom == "" {
+		phase("seeding the replica from a backup of the source")
 		dest, err := a.k3dReplSeed(ctx, st, doc, l, srcServer, srcCfg, dstServer, dstCfg, say)
 		if err != nil {
 			return err
@@ -377,6 +419,7 @@ func (a *App) k3dReplLink(ctx context.Context, st Stack, doc designDoc, l k3dRep
 		a.k3dReplSaveConfig(st, doc, l.Dst, func(c *k3dConfig) { c.ReplSeededFrom = dest })
 		// The restore pauses and resumes the cluster; it is not ready the instant it reports
 		// Succeeded.
+		phase("waiting for the replica to come back after the restore")
 		if err := a.k3dWaitPXCReady(ctx, dstServer, dstCfg.Namespace, dstCfg.ClusterName, deployTimeout()); err != nil {
 			return fmt.Errorf("replica %s did not come back after the restore: %w", dstCfg.ClusterName, err)
 		}
@@ -385,6 +428,7 @@ func (a *App) k3dReplLink(ctx context.Context, st Stack, doc designDoc, l k3dRep
 	}
 
 	// ---- 4. the channel ----
+	phase("attaching the replication channel")
 	hosts, err := a.k3dReplSourceHosts(ctx, srcServer, srcCfg.Namespace, srcCfg.ClusterName)
 	if err != nil {
 		return err
@@ -405,10 +449,99 @@ func (a *App) k3dReplLink(ctx context.Context, st Stack, doc designDoc, l k3dRep
 	// fail while the cluster settles ("get primary pxc pod: connection refused"). So this polls
 	// rather than reading once, and reports what it found either way — a link that is not running
 	// yet is worth saying out loud, but is not a failure of the deploy.
-	if status := a.k3dReplWaitRunning(ctx, dstServer, dstCfg.Namespace, dstCfg.ClusterName, l.Channel, 5*time.Minute); status != "" {
+	phase("waiting for replication to start")
+	status := a.k3dReplWaitRunning(ctx, dstServer, dstCfg.Namespace, dstCfg.ClusterName, l.Channel, 5*time.Minute)
+	if status != "" {
 		say("replication " + status)
 	}
+
+	// ---- 6. point-in-time recovery on the replica, now that it is safe ----
+	// Deliberately last, and only once replication is actually running: see k3dReplEnablePITR.
+	a.k3dReplEnablePITR(ctx, st, doc, l, dstServer, dstCfg, strings.HasPrefix(status, "is running"), phase, say)
 	return nil
+}
+
+// ---------------------------------------------------------------- point-in-time recovery
+
+// k3dReplPatchPITR turns the binlog collector on or off on a live cluster. A merge patch, so it
+// touches nothing else in the custom resource — the collector is one Deployment the operator
+// creates or removes in response.
+func (a *App) k3dReplPatchPITR(ctx context.Context, serverID, ns, cluster string, enabled bool) error {
+	_, err := a.kubectl(ctx, serverID, "-n", ns, "patch", "pxc", cluster, "--type", "merge",
+		"-p", fmt.Sprintf(`{"spec":{"backup":{"pitr":{"enabled":%t}}}}`, enabled))
+	return err
+}
+
+// k3dReplPITRWanted reports whether the replica end of a link asked for point-in-time recovery.
+// Read from the design, not from the cluster: the deploy deliberately applied `enabled: false`
+// there (k3dPITROptions), so the custom resource says what was safe at the time rather than what
+// was asked for.
+func k3dReplPITRWanted(l k3dReplLink) bool {
+	return l.Dst.K3DOperator == "pxc" && l.Dst.K3DPITR
+}
+
+// k3dReplDisablePITR stops the binlog collector on a cluster that is about to be restored.
+//
+// This is the ordering that matters on a RE-seed, where the replica has been running with PITR on
+// for hours: the restore replaces its data and its entire GTID history, so binlogs uploaded across
+// it belong to two different histories in one stream — and a point-in-time restore from that
+// stream cannot work. The operator's own restore procedure says to disable PITR first for the same
+// reason. On a first deploy this is already a no-op, because the cluster was created with the
+// collector off.
+func (a *App) k3dReplDisablePITR(ctx context.Context, l k3dReplLink, dstServer string, dstCfg k3dConfig, say func(string)) {
+	if !k3dReplPITRWanted(l) {
+		return
+	}
+	if err := a.k3dReplPatchPITR(ctx, dstServer, dstCfg.Namespace, dstCfg.ClusterName, false); err != nil {
+		// Not fatal: on a first deploy it is already off, and the restore is the thing worth
+		// getting on with. Said out loud because a collector still running would make the seed
+		// unusable for a later point-in-time restore, which nothing else would report.
+		say("could not disable point-in-time recovery before the restore: " + err.Error())
+		return
+	}
+	say("point-in-time recovery disabled on " + dstCfg.ClusterName + " for the restore — re-enabled once replication is running")
+}
+
+// k3dReplEnablePITR turns the binlog collector back on, and is the last thing a link does.
+//
+// It waits for replication to be *running*, not merely configured. Until the channel is attached
+// and both threads are up, the replica's binary logs are its restored history and nothing else;
+// the useful stream — the one a point-in-time restore replays — starts where replication does. A
+// collector started earlier writes a prefix of binlogs that no restore has a use for, into the
+// same bucket, ahead of the ones that matter.
+//
+// So when replication is not running yet, this says so and leaves the collector off rather than
+// enabling it on a cluster whose state is unknown. The next deploy reconciles the link again and
+// gets here with replication up.
+func (a *App) k3dReplEnablePITR(ctx context.Context, st Stack, doc designDoc, l k3dReplLink,
+	dstServer string, dstCfg k3dConfig, running bool, phase func(string), say func(string)) {
+
+	if !k3dReplPITRWanted(l) {
+		return
+	}
+	if !running {
+		say("point-in-time recovery left disabled on " + l.Dst.Label +
+			": replication is not running yet, and the binlog stream a restore replays starts where replication does — it is enabled on the next deploy, once the channel is up")
+		a.k3dReplSaveConfig(st, doc, l.Dst, func(c *k3dConfig) {
+			c.PITR = "disabled — waiting for replication to start"
+		})
+		return
+	}
+	phase("enabling point-in-time recovery on the replica")
+	if err := a.k3dReplPatchPITR(ctx, dstServer, dstCfg.Namespace, dstCfg.ClusterName, true); err != nil {
+		say("could not enable point-in-time recovery: " + err.Error())
+		a.k3dReplSaveConfig(st, doc, l.Dst, func(c *k3dConfig) {
+			c.PITR = "not enabled: " + err.Error()
+		})
+		return
+	}
+	say("point-in-time recovery enabled on " + dstCfg.ClusterName + " — replication is running, so the binlog collector has a stream worth keeping")
+	a.k3dReplSaveConfig(st, doc, l.Dst, func(c *k3dConfig) {
+		c.PITR = strings.Replace(c.PITR, "deferred until replication is established", "enabled", 1)
+		if !strings.HasPrefix(c.PITR, "enabled") {
+			c.PITR = "enabled"
+		}
+	})
 }
 
 // k3dReplWaitFrame blocks until a frame's server node reports running, then resolves it. The
@@ -478,10 +611,21 @@ spec:
 	say("seed backup finished: " + src.Destination)
 
 	// ---- the restore, on the replica ----
-	restore, err := k3dReplRestoreManifest(src, restoreName, dstCfg.ClusterName, dstCfg.ClusterName+"-backup-s3")
+	// The replica reads the backup out of the SOURCE's bucket, so it needs the source store's
+	// credentials — which are not necessarily its own. See k3dReplSeedSecret.
+	credSecret, err := a.k3dReplSeedSecret(ctx, st, l, dstServer, dstCfg, say)
+	if err != nil {
+		return "", err
+	}
+	restore, err := k3dReplRestoreManifest(src, restoreName, dstCfg.ClusterName, credSecret)
 	if err != nil {
 		return "", fmt.Errorf("build the seed restore: %w", err)
 	}
+
+	// The collector goes off before the restore, not after it: see k3dReplDisablePITR. On a first
+	// deploy the cluster was already created with it off; this is what makes a *re-seed* of a
+	// replica that has been running PITR for hours safe.
+	a.k3dReplDisablePITR(ctx, l, dstServer, dstCfg, say)
 
 	say("restoring it onto " + dstCfg.ClusterName + " (the cluster pauses while this runs)")
 	// A restore object from an earlier attempt would be reconciled as already-finished, so the name
@@ -497,6 +641,51 @@ spec:
 	return src.Destination, nil
 }
 
+// k3dReplSeedSecret creates, in the replica's namespace, a Secret holding the credentials for the
+// SOURCE cluster's object store, and returns its name.
+//
+// The restore reads the backup out of the source's bucket, at the source's endpoint — that is what
+// `backupSource` means, and the endpoint comes straight from what the source's backup wrote. The
+// credentials cannot come from there: a Secret is named, not embedded, and the name has to resolve
+// in the *replica's* cluster.
+//
+// This used to reuse the replica's own backup secret, which worked only because both clusters'
+// stores were required to be the same SeaweedFS node — a design-time error refused a pair pointed
+// at two stores, which is a perfectly reasonable stack to want: one object store per cluster, the
+// way two sites really are set up. Copying the source's keys in under a name of their own is what
+// removes that restriction. It is written on every seed rather than once, because a re-seed may
+// follow a store whose keys have been rotated, and a stale secret fails the restore with a 403
+// that reads like a missing backup.
+func (a *App) k3dReplSeedSecret(ctx context.Context, st Stack, l k3dReplLink,
+	dstServer string, dstCfg k3dConfig, say func(string)) (string, error) {
+
+	own := dstCfg.ClusterName + "-backup-s3"
+	// One store between the two clusters — the common shape, and what the built-in template
+	// deploys — means the replica's own backup secret already holds the right keys. Nothing to
+	// copy, nothing to keep in step, and no dependency on the store still being resolvable.
+	if l.Src.SeaweedFSNodeID == "" || l.Src.SeaweedFSNodeID == l.Dst.SeaweedFSNodeID {
+		return own, nil
+	}
+	// Two stores: the keys have to come from the source's. A short wait, not the deploy timeout —
+	// the source has just finished writing a backup to this very store, so it is up; if it cannot
+	// be resolved in a minute something is wrong that waiting will not fix, and the seed should
+	// say so rather than sit there for ten minutes.
+	sw, sec, err := a.waitSeaweedBucket(ctx, st.ID, l.Src.SeaweedFSNodeID, l.Src.SeaweedFSBucket, time.Minute)
+	if err != nil {
+		return "", fmt.Errorf("read the source cluster's object store credentials: %w", err)
+	}
+	name := dstCfg.ClusterName + "-seed-src-s3"
+	// Replaced rather than created-if-absent: the keys may have changed since the last seed.
+	_, _ = a.kubectl(ctx, dstServer, "-n", dstCfg.Namespace, "delete", "secret", name, "--ignore-not-found")
+	if _, err := a.kubectl(ctx, dstServer, "-n", dstCfg.Namespace, "create", "secret", "generic", name,
+		"--from-literal=AWS_ACCESS_KEY_ID="+seaweedAccessKeyOf(sw, sec),
+		"--from-literal=AWS_SECRET_ACCESS_KEY="+sec.SecretKey); err != nil {
+		return "", fmt.Errorf("create the seed credentials secret %s: %w", name, err)
+	}
+	say("restore credentials: " + name + " (the source's store, " + sw.FQDN + " bucket " + sw.Bucket + ")")
+	return name, nil
+}
+
 // k3dReplRestoreManifest builds the replica's PerconaXtraDBClusterRestore from the source backup's
 // status.
 //
@@ -509,9 +698,10 @@ spec:
 //
 // Two deliberate departures from a straight copy:
 //
-//   - credentialsSecret becomes the *replica's* secret. Both clusters' secrets are seeded from the
-//     same .env, so it opens the source's bucket; naming the source's would name a secret that
-//     does not exist in this cluster.
+//   - credentialsSecret is replaced with a secret that exists in the REPLICA's cluster and holds
+//     the source store's keys (k3dReplSeedSecret). The name the source wrote resolves only in the
+//     source's own cluster, and the keys themselves may differ — the two clusters are allowed to
+//     back up to different SeaweedFS nodes.
 //   - storageName and the two ssl secret names are dropped. They name resources in the source's
 //     cluster: a storageName would resolve against the replica's OWN backup storage and quietly
 //     restore it from the wrong bucket, and the ssl secrets are simply not there.
@@ -979,6 +1169,21 @@ func (a *App) k3dReplLogln(st Stack, doc designDoc, frame designFrame, msg strin
 		return
 	}
 	a.replLogln(st.ID, ids[0], msg)
+}
+
+// k3dReplConfiguring marks (or unmarks) every member of a frame as still being configured,
+// so the canvas spins rather than showing the green dot that means ready — see
+// setConfiguring. Every member, not just the server node, because a Kubernetes cluster's
+// identity on the canvas is its frame: the cards all belong to the same thing, and one of
+// three spinning while the other two sit green would describe nothing that is true.
+func (a *App) k3dReplConfiguring(st Stack, doc designDoc, frame designFrame, phase string) {
+	for _, id := range k3dReplMembers(doc, frame) {
+		if phase == "" {
+			a.clearConfiguring(st.ID, id)
+		} else {
+			a.setConfiguring(st.ID, id, phase)
+		}
+	}
 }
 
 // k3dSleep waits, or returns false if the deploy was cancelled first.

@@ -80,6 +80,13 @@ type designNode struct {
 	GDBProduct string `json:"gdbProduct"` // "ps" | "pxc"
 	GDBMajor   string `json:"gdbMajor"`   // "8.0" | "8.4" | "5.7"
 	GDBVersion string `json:"gdbVersion"` // pinned minor, e.g. "8.0.16-7.1"; "" → latest
+	// Kubernetes client tools on a Linux Client (Type=="linuxclient"; ignored elsewhere). A
+	// design-time choice rather than something to install by hand afterwards, because the
+	// version that matters is the *stack's*: kubectl supports one minor either side of the API
+	// server, and this node is next to a K3D frame running a pinned k3s. See
+	// linuxClientInstallK8sTools.
+	LCKubectl bool `json:"lcKubectl"`
+	LCHelm    bool `json:"lcHelm"`
 	// Standalone Percona Server node fields (Type=="ps"; ignored by other types).
 	PSMajor      string `json:"psMajor"`      // Percona Server "8.0" | "8.4"
 	PSVersion    string `json:"psVersion"`    // minor; "" → latest
@@ -487,9 +494,18 @@ type designFrame struct {
 	// sidecar to every instance pod. Off by default — it is four more containers.
 	K3DPGOMonitoring  bool   `json:"k3dPgoMonitoring"`
 	K3DPGOPromVersion string `json:"k3dPgoPromVersion"` // kube-prometheus-stack chart version; "" → latest
-	K3DOperator       string `json:"k3dOperator"`       // "" | "pxc" | "ps" | "psmdb" | "pg" | "cnpg" | "pgo"
-	K3DOperatorVer    string `json:"k3dOperatorVer"`    // "" = the catalog's latest
-	K3DNamespace      string `json:"k3dNamespace"`      // namespace the operator + CR are installed into
+	// Point-in-time recovery, PXC operator only (`backup.pitr` — the binlog collector). It needs
+	// an S3 store, so it rides on SeaweedFSNodeID; K3DPITRBucket is which of that node's buckets
+	// the *binlogs* go to, and giving them their own is the point — two clusters uploading
+	// binlogs into one bucket interleave two streams and neither can be replayed. Empty means
+	// the backup bucket, which is fine for a single cluster. K3DPITRSeconds is
+	// `timeBetweenUploads`; 0 leaves cr.yaml's 60.
+	K3DPITR        bool   `json:"k3dPitr"`
+	K3DPITRBucket  string `json:"k3dPitrBucket"`
+	K3DPITRSeconds int    `json:"k3dPitrSeconds"`
+	K3DOperator    string `json:"k3dOperator"`    // "" | "pxc" | "ps" | "psmdb" | "pg" | "cnpg" | "pgo"
+	K3DOperatorVer string `json:"k3dOperatorVer"` // "" = the catalog's latest
+	K3DNamespace   string `json:"k3dNamespace"`   // namespace the operator + CR are installed into
 	// The proxy in front of the database. cr.yaml ships HAProxy enabled and the alternative disabled;
 	// they are mutually exclusive, so choosing one disables the other. PXC: haproxy | proxysql.
 	// PS: haproxy | router (MySQL Router understands group replication only).
@@ -638,6 +654,18 @@ type provProgress struct {
 	Phase   string   `json:"phase"`
 	Log     []string `json:"log"`
 	Message string   `json:"message,omitempty"`
+	// Configuring says DBCanvas is still working on this node although its container
+	// already reports running, and ConfigPhase says what it is doing.
+	//
+	// A container being up is not the same as the thing inside it being finished, and for
+	// the phases that run *after* a node goes Running the difference is minutes: a k3s node
+	// reports running the moment cr.yaml is applied, while the operator has yet to create a
+	// single database pod; a replica cluster is running throughout its seed backup, its
+	// restore, and the wait for the channel to attach. The canvas showed a green dot for
+	// all of it — the state that means "ready" — so the honest signal is a separate one,
+	// and the card spins instead. See setConfiguring.
+	Configuring bool   `json:"configuring,omitempty"`
+	ConfigPhase string `json:"configPhase,omitempty"`
 }
 
 // provStep is one idempotent provisioning step (retried up to 10×).

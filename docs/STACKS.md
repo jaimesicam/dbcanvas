@@ -101,8 +101,9 @@ the DBCanvas source, so they need a checkout and `make <name>-image`.
   its panel), an **Ubuntu VNC** desktop, and a **Linux Client** jump box (a bare OS host with
   nothing installed, on any base image the matrix builds — Oracle Linux 8/9/10, Ubuntu
   22.04/24.04 or Debian 12/13: join the stack's DNS/CA trust, then use its terminal to install
-  and exercise whatever client tools a task needs — or tick *use this client for core-dump
-  analysis* and it becomes one, see below).
+  and exercise whatever client tools a task needs — or tick *install kubectl* / *install Helm* to
+  have them there at deploy, or *use this client for core-dump analysis* and it becomes one, see
+  below).
 - **App Simulators** — link **Traffic Sim** to a Valkey node/cluster, **Hotel Sim** to a PS
   MongoDB standalone/replica-set/sharded node, **Airline Sim** to a standalone Percona Server
   node, a MySQL replication or PXC cluster, or a ProxySQL/HAProxy node fronting one, **Car
@@ -295,6 +296,16 @@ turned off so you can sit on a breakpoint, and Delve starts with `--continue` so
 still deploys whether or not you ever attach. It costs a few minutes of build time on the first
 deploy.
 
+**kubectl and Helm, at design time.** A **Linux Client** can be deployed with either or both
+already on it — on PATH, with bash completion and the `k` alias. The reason to choose it here rather
+than install it from the node's terminal is the version: kubectl is supported one minor version
+either side of the API server, and a Kubernetes frame on the same canvas has its k3s release pinned,
+so DBCanvas installs the kubectl that matches *that cluster* (and says which one it matched). Helm
+takes the current release from its own installer, which needs no matching. Neither is given a
+kubeconfig — the clusters deploy at the same time as the client — so take one from the K3D server
+node's **Kubeconfig** tab, or a role-scoped one from its **Users** tab, which is the more interesting
+thing to test with.
+
 **Read a core dump from somewhere else.** A **Linux Client** node can be deployed as a core-dump
 analysis host: give it a host directory holding a `mysqld` core file and another holding the
 crashed server's `mysqld` plus everything `ldd` listed for it, pick the Percona Server or PXC
@@ -353,17 +364,20 @@ run in the order they have to happen in:
    node's log.
 2. Both clusters deploy **at the same time**; the replica waits for nothing.
 3. Once both are ready, a **backup of the source** is taken to its SeaweedFS bucket.
-4. That backup is **restored onto the replica** — pointed at the *source's* bucket, which the
-   replica can open because both clusters' S3 credentials come from the same store. The cluster
-   pauses while this runs and comes back carrying the source's data and its GTID history.
+4. That backup is **restored onto the replica** — pointed at the *source's* bucket, at the
+   source's endpoint, with the source store's credentials copied into the replica's cluster as a
+   Secret of its own. The cluster pauses while this runs and comes back carrying the source's data
+   and its GTID history.
 5. **Only then** is the replica's own channel attached, with the source's pod addresses as its
    sources. Attaching it earlier would point the replica at binary logs the source has already
    purged, and replication would stop with error 1236 instead of starting.
 
-Both clusters must use the **same SeaweedFS node** (each with its own bucket is fine, and is what
-the template does) — that is the one thing validation refuses to deploy without, along with the
-address arithmetic: a source spends one MetalLB address per database pod on top of its proxy tier,
-out of the eight a cluster's block holds.
+Both clusters need a **SeaweedFS backup store** — that is what validation refuses to deploy
+without, along with the address arithmetic: a source spends one MetalLB address per database pod on
+top of its proxy tier, out of the eight a cluster's block holds. **One store each is fine**, which
+is the shape two sites really have: the restore is handed the source's endpoint by the backup
+itself, and the source store's keys are copied into the replica's cluster under a name of their own.
+Sharing one node with a bucket each — what the template does — is one fewer container to explain.
 
 The server node's **Replication** tab is where it is afterwards: which end this cluster is, the
 channel, what it reads from or is reachable at, the backup it was seeded from, and — on the replica
@@ -374,6 +388,30 @@ the canvas and the next Deploy stops the channel and leaves the data where it is
 
 > **Replicating is one-way.** The operator holds a cluster that carries an inbound channel
 > read-only, so bidirectional is not offered between Kubernetes clusters — write to the source.
+
+**Point-in-time recovery.** A PXC-operator frame can turn on the operator's **binlog collector**
+(`backup.pitr`): binary logs uploaded continuously, so a restore can land at any moment between
+backups rather than only on a backup. It needs the frame's SeaweedFS store, and it takes a **bucket
+of its own** — two clusters uploading binary logs into one bucket interleave two streams, and
+neither of them can be replayed afterwards, which is the one arrangement validation refuses.
+
+On the **replica end of a replication link it starts switched off**, whatever the frame says, and
+DBCanvas turns it on afterwards. The seed restore replaces the replica's data and its whole GTID
+history; a collector running across that writes binary logs from two different histories into one
+stream. So the order is: deploy with the collector off, restore, attach the channel, wait until
+replication is actually *running* — and only then enable it. A re-seed does the same thing in
+reverse, switching the collector off before it restores. The node's panel says which of the two
+states it is in rather than leaving "on" to mean both.
+
+**Editing `cr.yaml` after it is applied.** The K3D server node's panel has a **cr.yaml** tab: the
+live custom resource as a form, generated from the CRD *this cluster* is running — so it offers what
+this operator version accepts rather than a fixed list that goes stale a release later. Search
+across every section (`pitr`, `size`, `resources`), edit with real controls — toggles, pickers,
+bounded numbers, repeatable entries for schedules and storages — and nothing is sent until you say
+so: the footer counts the pending changes, **Review patch** shows the exact merge patch, **Check**
+validates it against the API server without applying anything, **Apply** sends it. Fields the form
+cannot usefully draw — affinity, tolerations, sidecars — are still there as JSON, so the whole
+resource is reachable. Available for the four Percona operators.
 
 **S3 backups (SeaweedFS).** One SeaweedFS node can create **up to 10 buckets**, and every database
 that backs up to it — standalone PostgreSQL, Patroni, repmgr, the MongoDB clusters, and all four K3D

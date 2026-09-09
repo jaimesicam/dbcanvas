@@ -35,6 +35,32 @@ import (
 // ("storage fs-pvc doesn't exist"), and never creates the cluster.
 const crStorageName = "seaweedfs"
 
+// crBinlogStorageName is the second storage, for point-in-time recovery.
+//
+// PITR is not a backup: it is a Deployment (the binlog collector) that uploads binary logs
+// continuously, and `backup.pitr.storageName` is what says where. It gets a storage of its
+// own so the binlogs can live in their own bucket — which is what makes two clusters in a
+// replication pair able to run PITR at all, since two collectors writing one bucket
+// interleave their binlog streams and neither can be replayed. Backups are per-object and
+// do not have that problem, which is why they share happily and this does not.
+const crBinlogStorageName = "seaweedfs-binlog"
+
+// crPITR turns on the binlog collector. nil leaves cr.yaml's `pitr` as shipped (disabled).
+type crPITR struct {
+	// Enabled is what lands in the custom resource, and it is NOT simply "the user asked
+	// for PITR". A cluster that is about to be seeded from another one deploys with the
+	// collector off — see k3dPITROptions.
+	Enabled bool
+	// Storage is the storages entry the collector writes to: crBinlogStorageName when it has
+	// a bucket of its own, else crStorageName (the backup storage).
+	Storage string
+	// Seconds is `timeBetweenUploads`; 0 leaves the shipped value (60).
+	Seconds int
+	// Binlog is the second storages entry to write, when the binlogs have their own bucket.
+	// nil means Storage names one that already exists.
+	Binlog *crS3
+}
+
 // crS3 points the operator's backups at a SeaweedFS node's S3 endpoint.
 type crS3 struct {
 	Bucket      string
@@ -74,6 +100,8 @@ type crOptions struct {
 	// dies with 1236. The replica's channel is patched in after its seed restore, by
 	// reconcileK3DReplication (k3drepl.go).
 	SourceChannel string
+	// PITR is the binlog collector — nil leaves `backup.pitr` as cr.yaml ships it, disabled.
+	PITR *crPITR
 }
 
 // crExposeFor is the Service type for a section, or "" when that section should be left as shipped.
@@ -128,6 +156,7 @@ func crTransform(src string, o crOptions) string {
 	section := ""       // the current 4-space section (pxc, haproxy, proxysql, pmm, backup, …)
 	commentTo := -1     // >=0: commenting out a block until a line dedents to this indent
 	dropTo := -1        // >=0: dropping lines (the shipped backup storages) until this indent
+	pitrAt := -1        // >=0: inside `backup.pitr`, whose keys are one level in from this indent
 	inStorages := false
 	pvc := newCRPVC()
 	// inserted holds the 4-space keys this transform has written into the *current* section, so
@@ -142,6 +171,21 @@ func crTransform(src string, o crOptions) string {
 	for _, ln := range lines {
 		ind, commented, body := crLine(ln)
 		pvc.update(ind, commented, body)
+
+		// Track `backup.pitr`, whose keys have to be told apart from the rest of the backup
+		// section by more than their names: `enabled:` and `storageName:` both appear on either
+		// side of it, and the general backup rules below would rewrite the collector's storage to
+		// the *backup* storage — quietly sending the binlogs to the wrong bucket, which is not
+		// visible until a point-in-time restore is attempted and finds nothing.
+		if !commented && body != "" {
+			if pitrAt >= 0 && ind <= pitrAt {
+				pitrAt = -1
+			}
+			if section == "backup" && body == "pitr:" {
+				pitrAt = ind
+			}
+		}
+		inPITR := pitrAt >= 0 && ind > pitrAt
 
 		// Close an open comment/drop range once the block dedents.
 		if commentTo >= 0 && !commented && body != "" && ind <= commentTo {
@@ -238,16 +282,43 @@ func crTransform(src string, o crOptions) string {
 
 			// 4a. Backups: the shipped schedule (and pitr) name a storage that the replacement
 			//     below removes. Repoint them, or the operator rejects the CR outright.
-			case section == "backup" && o.S3 != nil && strings.HasPrefix(body, "storageName:"):
+			//     `pitr` is excluded because it has a storage of its own — see 4c.
+			case section == "backup" && !inPITR && o.S3 != nil && strings.HasPrefix(body, "storageName:"):
 				out = append(out, strings.Repeat(" ", ind)+"storageName: "+crStorageName)
 				continue
 
-			// 4b. Backups: replace the shipped placeholder storages with the SeaweedFS one.
+			// 4b. Backups: replace the shipped placeholder storages with the SeaweedFS one, plus
+			//     the binlog storage when point-in-time recovery has a bucket of its own.
 			case section == "backup" && ind == 4 && body == "storages:" && o.S3 != nil:
 				out = append(out, ln)
-				out = append(out, crIndent(crSeaweedStorage(o.S3), 6)...)
+				out = append(out, crIndent(crSeaweedStorageNamed(crStorageName, o.S3), 6)...)
+				if o.PITR != nil && o.PITR.Binlog != nil {
+					out = append(out, crIndent(crSeaweedStorageNamed(crBinlogStorageName, o.PITR.Binlog), 6)...)
+				}
 				dropTo = ind // drop the shipped storage entries that follow
 				inStorages = true
+				continue
+
+			// 4c. Point-in-time recovery: the collector's own three keys. cr.yaml ships the block
+			//     present and disabled, so these are rewrites rather than insertions — and the
+			//     storage is whichever one the binlogs were given, never the backup storage 4a
+			//     would have pointed it at.
+			case inPITR && o.PITR != nil && strings.HasPrefix(body, "enabled:"):
+				out = append(out, fmt.Sprintf("%senabled: %t", strings.Repeat(" ", ind), o.PITR.Enabled))
+				continue
+			// The storage is repointed even when PITR was not asked for: the shipped
+			// `STORAGE-NAME-HERE` does not exist once the storages block is replaced, and the
+			// operator validates the name whether or not the collector is enabled — it rejected
+			// the whole custom resource over it, which is what 4a was written for.
+			case inPITR && o.S3 != nil && strings.HasPrefix(body, "storageName:"):
+				storage := crStorageName
+				if o.PITR != nil {
+					storage = o.PITR.Storage
+				}
+				out = append(out, strings.Repeat(" ", ind)+"storageName: "+storage)
+				continue
+			case inPITR && o.PITR != nil && o.PITR.Seconds > 0 && strings.HasPrefix(body, "timeBetweenUploads:"):
+				out = append(out, fmt.Sprintf("%stimeBetweenUploads: %d", strings.Repeat(" ", ind), o.PITR.Seconds))
 				continue
 			}
 		}
@@ -279,7 +350,12 @@ func crDuplicateWarning(key string) string {
 // an Intranet-CA certificate that the backup pods do not trust — their image ships its own CA
 // bundle, and nothing hands them the stack CA. Verifying would fail the backup; the traffic never
 // leaves the stack network. (Giving the pods the CA is a separate, larger piece of work.)
-func crSeaweedStorage(s *crS3) string {
+func crSeaweedStorage(s *crS3) string { return crSeaweedStorageNamed(crStorageName, s) }
+
+// crSeaweedStorageNamed is the same block under a chosen name, so point-in-time recovery can
+// have a storage of its own (crBinlogStorageName) pointing at a different bucket on the same
+// endpoint — or on a different SeaweedFS node, which is just a different endpoint and secret.
+func crSeaweedStorageNamed(name string, s *crS3) string {
 	block := fmt.Sprintf(`%s:
   type: s3
   verifyTLS: false
@@ -287,7 +363,7 @@ func crSeaweedStorage(s *crS3) string {
     bucket: %s
     credentialsSecret: %s
     region: %s
-    endpointUrl: %s`, crStorageName, s.Bucket, s.Secret, s.Region, s.EndpointURL)
+    endpointUrl: %s`, name, s.Bucket, s.Secret, s.Region, s.EndpointURL)
 	if s.ForcePathStyle {
 		block += "\n    forcePathStyle: true"
 	}

@@ -163,6 +163,44 @@ yourself.
 ### 0.0.3
 
 <details open>
+<summary><b>Edit cr.yaml as a form, generated from the operator's own CRD</b></summary>
+
+A Kubernetes server node's panel has a **cr.yaml** tab: the live custom resource as a form built
+from the CustomResourceDefinition *that cluster is running*. Nothing is hand-written, so it offers
+what this operator version accepts rather than a fixed list that goes stale a release later — and
+the whole resource is reachable, with the parts no form can usefully draw (affinity, tolerations,
+sidecars) kept as JSON boxes rather than dropped.
+
+Search across every section at once — nobody browses to `backup.pitr.timeBetweenUploads` — and edit
+with controls the schema chooses: switches, pickers, bounded numbers, repeatable entries for backup
+schedules and storages. **Nothing is sent until you say so.** The footer counts the pending changes,
+**Review patch** shows the exact merge patch, **Check** validates it against the API server without
+changing anything, and only **Apply** writes. For the four Percona operators.
+[Kubernetes frames →](docs/STACKS.md)
+</details>
+
+<details>
+<summary><b>Point-in-time recovery</b>, two object stores, and kubectl on a Linux Client</summary>
+
+A PXC-operator cluster can run the operator's **binlog collector**, with a **bucket of its own** for
+the binary logs — two clusters uploading into one bucket interleave two streams that neither can
+replay afterwards. On the **replica end of a replication link it starts switched off**, whatever the
+frame says: the seed restore replaces the replica's data and its whole GTID history, so DBCanvas
+turns the collector on only once replication is actually *running*, and switches it off again before
+any re-seed.
+
+A replication pair may now use **one SeaweedFS node each** — the shape two sites really have. The
+restore is handed the source's endpoint by the backup itself, and the source store's credentials are
+copied into the replica's cluster under a name of their own.
+
+And a **Linux Client** can be deployed with **kubectl and Helm** already on it, on PATH with
+completion and the `k` alias. kubectl is matched to the k3s release of a Kubernetes frame on the
+same canvas, because it is only supported one minor version either side of the API server — the one
+thing "install the latest" gets wrong, and gets more wrong the longer a stack lives.
+[Kubernetes frames →](docs/STACKS.md)
+</details>
+
+<details>
 <summary><b>Replicate one Kubernetes cluster into another</b></summary>
 
 Draw a link between two **Kubernetes frames that both run the PXC operator**, pick a direction,

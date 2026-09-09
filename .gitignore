@@ -20,6 +20,12 @@ dist/
 # so a directory rule here would silently defeat the negation above and make the whole log corpus
 # uncommittable again — the exact bug that line was added to fix.
 app/testdata/cr.yaml
+# The same for the operator's CustomResourceDefinition, captured from a running cluster with
+# `kubectl get crd perconaxtradbclusters.pxc.percona.com -o json` (IMPLEMENTATION.md). The custom
+# resource editor's tests build their form from it, because the thing worth testing about a
+# schema pruner is what it does to the real 1.4 MB schema — a hand-written fixture would only
+# prove the pruner works on fixtures.
+app/testdata/pxc-crd.json
 
 # Screenshot-capture tooling — maintainer-only, kept out of the repo.
 # The generated screenshots (docs/screenshots/*.png) ARE committed; only the

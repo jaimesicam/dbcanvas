@@ -25,6 +25,11 @@ type linuxClientConfig struct {
 	Hostname string `json:"hostname"`
 	FQDN     string `json:"fqdn"`
 	UseProxy bool   `json:"useProxy"`
+	// The Kubernetes client tools, as they are ON THE NODE — read back from the binaries after
+	// the install rather than copied from what was requested, because the panel showing a
+	// version is a claim that the tool runs. "" means it is not there. See linuxclient_k8s.go.
+	KubectlVersion string `json:"kubectlVersion,omitempty"`
+	HelmVersion    string `json:"helmVersion,omitempty"`
 	gdbNodeConfig
 }
 
@@ -135,6 +140,13 @@ func (a *App) provisionLinuxClient(st Stack, n designNode, doc designDoc) {
 				return
 			}
 			pr.logln("package egress via Intranet proxy")
+		}
+
+		// kubectl / Helm before gdb: they are a short download, and a node whose debug symbols
+		// take four minutes should not hold up the tools somebody is waiting to type with.
+		if n.LCKubectl || n.LCHelm {
+			a.linuxClientInstallK8sTools(ctx, id, n, doc, &cfg, pr)
+			cfgJSON, _ = json.Marshal(cfg)
 		}
 
 		if cfg.gdbNodeConfig.Enabled {

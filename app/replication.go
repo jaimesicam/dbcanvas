@@ -271,16 +271,66 @@ func (a *App) waitNodeRunning(stackID int64, nodeID string, timeout time.Duratio
 // its phase/percent — by the time replication is configured the node is already
 // running, so we only annotate its log.
 func (a *App) replLogln(stackID int64, nodeID, line string) {
+	a.editProgress(stackID, nodeID, func(p *provProgress) {
+		p.Log = append(p.Log, line)
+		if len(p.Log) > 200 {
+			p.Log = p.Log[len(p.Log)-200:]
+		}
+	})
+}
+
+// setConfiguring marks a node as still being configured by DBCanvas, with a phase to say
+// what by. The canvas shows a spinner instead of the running dot for as long as it is set
+// (NodeStatus in StackDesigner.jsx), and the phase goes into the card's tooltip.
+//
+// Every caller is a phase that runs AFTER the node reports running, which is exactly the
+// window that used to be indistinguishable from finished: cross-cluster replication (here
+// and in k3drepl.go) and the wait for an operator to actually build the cluster whose
+// custom resource was just applied (k3d.go). It leaves phase/percent alone — those belong
+// to provisioning, which is over — and the marker must be cleared by whoever set it,
+// including on the error paths, or a card spins forever.
+func (a *App) setConfiguring(stackID int64, nodeID, phase string) {
+	a.editProgress(stackID, nodeID, func(p *provProgress) {
+		p.Configuring, p.ConfigPhase = true, phase
+	})
+}
+
+// clearConfiguring takes the marker off, whatever the outcome was: the deployment log and
+// the node's own state carry whether it worked, and a spinner that never stops says
+// something is still happening when nothing is.
+func (a *App) clearConfiguring(stackID int64, nodeID string) {
+	a.editProgress(stackID, nodeID, func(p *provProgress) {
+		p.Configuring, p.ConfigPhase = false, ""
+	})
+}
+
+// clearConfiguringIf clears the marker only while it still says what the caller put there.
+//
+// Two phases can own one node in sequence: a Kubernetes frame waits for its operator to build
+// the cluster, and the replication phase then seeds and links it — and the second starts
+// before the first has noticed it is finished. Clearing unconditionally let the first one
+// switch the spinner off while the second was mid-restore, which is the one moment the
+// spinner exists to describe.
+func (a *App) clearConfiguringIf(stackID int64, nodeID, phase string) {
+	a.editProgress(stackID, nodeID, func(p *provProgress) {
+		if p.ConfigPhase == phase {
+			p.Configuring, p.ConfigPhase = false, ""
+		}
+	})
+}
+
+// editProgress is the read-modify-write behind replLogln and the two above. Racy in
+// principle — two goroutines annotating one node's progress can lose a log line — and left
+// that way on purpose: the alternative is a lock per deployment row for something that is
+// only ever displayed, and each of these phases owns the node it writes to.
+func (a *App) editProgress(stackID int64, nodeID string, edit func(*provProgress)) {
 	dep, err := a.store.GetDeployment(stackID, nodeID)
 	if err != nil {
 		return
 	}
 	var p provProgress
 	json.Unmarshal(dep.Progress, &p)
-	p.Log = append(p.Log, line)
-	if len(p.Log) > 200 {
-		p.Log = p.Log[len(p.Log)-200:]
-	}
+	edit(&p)
 	b, _ := json.Marshal(p)
 	a.store.SetDeploymentProgress(stackID, nodeID, b)
 }

@@ -467,7 +467,7 @@ export const NODE_TYPES = {
     ports: false,
     plainSequentialLabel: true,
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }, { id: 'debian', label: 'Debian' }],
-    defaults: { os: 'oraclelinux', osVersion: '9', useProxy: false },
+    defaults: { os: 'oraclelinux', osVersion: '9', useProxy: false, lcKubectl: false, lcHelm: false },
   },
   // Traffic Sim — the "Valkey Traffic Lab" live demo app (background agents +
   // a web map). Runs dbcanvas's own first-party image, not an OS/DB image, so it
@@ -653,6 +653,39 @@ export const NODE_TYPES = {
   },
 }
 
+// SIM_NODE_TYPES are the application simulators: the nodes that exist to put load on
+// a database rather than to be one. What they have in common on the canvas is a
+// load-bearing association line — their provisioner walks the edge graph to find the
+// database they drive — which is why the line gets a caption of its own ("app
+// connection"), and why the two panels that merely *display* data (Big Hole,
+// MClusterAdmin) are not in here: they carry no connector at all.
+export const SIM_NODE_TYPES = new Set(['stocksim', 'airlinesim', 'carsim', 'hotelsim', 'trafficsim', 'marketchaos'])
+
+// isReplEdge distinguishes the two kinds of line the canvas draws with one edge list: a
+// cross-cluster replication link ('async' / 'bidir'), and everything else — an
+// association line, which is a data-flow relationship between an application, a proxy
+// and a database. They are stored together and must not be counted together: see the
+// cardinality guards in createFlow.
+export const isReplEdge = (ed) => ed?.type === 'async' || ed?.type === 'bidir'
+
+// associationBlocked reports why a proposed association edge may not be added, or '' if
+// it may. It is the cardinality rule, and it is a pure exported function because that is
+// where a real bug lived unnoticed: the counts used to include replication edges, so a
+// PXC-operator cluster that replicated to another one was already "sending" and a Stock
+// Market Sim node could not be attached to it, while its replica accepted the same line.
+//
+//   - a destination takes at most one incoming edge — this is what makes "an HAProxy
+//     fronts exactly one cluster" and "a simulator drives exactly one target" true;
+//   - with singleOutgoing, a source sends at most one;
+//   - and one line per pair, whichever way round it was drawn.
+export function associationBlocked(edges, fromId, toId, opts = {}) {
+  const E = (edges || []).filter((ed) => !isReplEdge(ed))
+  if (E.some((ed) => ed.to.node === toId)) return 'destination already receives'
+  if (opts.singleOutgoing && E.some((ed) => ed.from.node === fromId)) return 'source already sends'
+  if (E.some((ed) => (ed.from.node === fromId && ed.to.node === toId) || (ed.from.node === toId && ed.to.node === fromId))) return 'already linked'
+  return ''
+}
+
 // ---------------------------------------------------------- PXC cluster frames
 const PXC_NODE_W = 116
 // Same for a cluster member, which had even less room for it: name and status, with
@@ -661,18 +694,108 @@ const PXC_NODE_H = 48
 const FRAME_TITLE = 32
 const FRAME_PAD = 14
 const FRAME_GAP = 12
+// A frame used to be exactly as wide as its members needed, which for a one-member
+// frame is 144px — and a header with an icon, two lines of text and the ± buttons in
+// it does not fit that. The name is the thing you are looking for, so the frame grows
+// to fit its own title instead of clipping it into "clust…" / "k3s 1.3…".
+//
+// FRAME_MAX_W bounds that: a frame whose description is genuinely enormous should not
+// drag a 900px box across the canvas, and past this width the description (never the
+// name) is the part that gives.
+const FRAME_MAX_W = 380
+// The header's non-text pixels: px-2 either side, the type icon, the gap after it, and
+// the add/remove member buttons on the frames that have them.
+const FRAME_HEAD_CHROME = 8 + 15 + 8 + 8
+const FRAME_HEAD_BUTTONS = 44
+
+// approxTextW estimates a string's rendered width. Measuring for real would mean a
+// canvas 2d context (or a DOM read) inside a pure layout function called on every
+// drag frame; 0.58em per character is the average for the UI font at these two sizes
+// and errs wide, which is the harmless direction — a little slack in the header.
+const approxTextW = (s, px) => (s || '').length * px * 0.58
+
+// frameHeaderW is the width a frame's title bar needs for both its lines to read in
+// full: the name at 12px semibold, and the description + node count at 10px.
+//
+// `sub` is the description as it is ACTUALLY rendered, which is the whole point: a
+// deployed frame swaps the design-time description ("Kubernetes (k3s via k3d) · PXC
+// operator") for the version it is running ("k3s 1.36.4+k3s1"), and sizing for the
+// longer of the two left a deployed cluster in a box half again as wide as its own
+// title needed. Callers pass frameSubLabel; omitting it falls back to the design-time
+// text, which is what a frame with no deployment shows anyway.
+export function frameHeaderW(frame, memberCount, sub) {
+  const n = Math.max(1, memberCount)
+  const line = sub || `${frameVersionLabel(frame)} · ${n} node${n === 1 ? '' : 's'}`
+  const text = Math.max(approxTextW(frame?.label, 12), approxTextW(line, 10))
+  const chrome = FRAME_HEAD_CHROME + (frame?.type === 'psmdb' ? 0 : FRAME_HEAD_BUTTONS)
+  return Math.min(FRAME_MAX_W, Math.ceil(text + chrome))
+}
+
+// frameSubLabel is the description line under a frame's name, and the single source of
+// it: the header renders this, and the layout sizes the box to it. They were two
+// expressions saying the same thing, which is how the box came to be sized for text the
+// header was not showing.
+export function frameSubLabel(frame, members, depByNode) {
+  const n = members?.length || 0
+  const built = depByNode ? frameDeployedLabel(frame, members, depByNode) : ''
+  return `${built || frameVersionLabel(frame)} · ${n} node${n === 1 ? '' : 's'}`
+}
 
 // layoutFrame derives a frame's size and lays its member nodes out in a row.
-function layoutFrame(frame, frameNodes) {
+export function layoutFrame(frame, frameNodes, sub) {
   const n = Math.max(1, frameNodes.length)
-  const w = FRAME_PAD * 2 + n * PXC_NODE_W + (n - 1) * FRAME_GAP
+  const contentW = FRAME_PAD * 2 + n * PXC_NODE_W + (n - 1) * FRAME_GAP
+  const w = Math.max(contentW, frameHeaderW(frame, frameNodes.length, sub))
   const h = FRAME_TITLE + FRAME_PAD * 2 + PXC_NODE_H
+  // Members stay centred when the title is what set the width, so a one-node frame
+  // does not read as a wide box with something forgotten in the corner.
+  const ox = frame.x + Math.round((w - contentW) / 2) + FRAME_PAD
   const positioned = frameNodes.map((nd, i) => ({
     ...nd,
-    x: frame.x + FRAME_PAD + i * (PXC_NODE_W + FRAME_GAP),
+    x: ox + i * (PXC_NODE_W + FRAME_GAP),
     y: frame.y + FRAME_TITLE + FRAME_PAD,
   }))
   return { frame: { ...frame, w, h }, nodes: positioned }
+}
+
+// FRAME_SEPARATION is the gap left between two frames that had to be pushed apart.
+const FRAME_SEPARATION = 24
+
+// separateFrames returns the horizontal shifts that pull overlapping cluster frames apart,
+// as [{id, dx}] in the order they must be applied. Frames are walked left to right, so a
+// chain resolves in one pass — a pushed frame can push the next one — and running it again
+// on the result produces nothing, which is what makes it safe on every load.
+//
+// It exists because frames are now sized to fit their own title: a one-member frame that was
+// 144px when its neighbour was placed is 360 now, and it would sit across it. Two overlapping
+// title bars is worse than the clipping this was fixing.
+//
+// It repairs ANY overlap, not only a newly created one. That was the first attempt — leave
+// alone what somebody arranged deliberately — and it does not work: the grown geometry is
+// saved by the next autosave, so one load later the overlap *is* what the design says, and
+// the rule declined to fix its own mess. Overlapping frames are not an arrangement anyone
+// wants (each hides the other's members and its name), so the simpler rule is the honest one.
+//
+// Exported for the smoke test: this runs once, on load, on designs that already exist, which
+// is the hardest place to notice it going wrong.
+export function separateFrames(frames) {
+  const box = (f) => ({ x: f.x, y: f.y, w: f.w || 0, h: f.h || 0 })
+  const hits = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+  const order = [...frames].sort((a, b) => a.x - b.x || a.y - b.y)
+  const now = new Map(order.map((f) => [f.id, box(f)]))
+  const shifts = []
+  for (let i = 0; i < order.length; i++) {
+    for (let j = i + 1; j < order.length; j++) {
+      const a = now.get(order[i].id)
+      const b = now.get(order[j].id)
+      if (!hits(a, b)) continue
+      const dx = Math.round(a.x + a.w + FRAME_SEPARATION - b.x)
+      if (dx <= 0) continue
+      shifts.push({ id: order[j].id, dx })
+      now.set(order[j].id, { ...b, x: b.x + dx })
+    }
+  }
+  return shifts
 }
 
 // layoutPSMDBFrame lays out a sharded cluster as a grouped grid: a top row with
@@ -680,7 +803,7 @@ function layoutFrame(frame, frameNodes) {
 // (its replica-set members stacked below). Sizes adapt to the member count so it
 // fits both the standard (13-node) and minimum (5-node) setups; the single-row
 // layoutFrame is unusable here.
-function layoutPSMDBFrame(frame, frameNodes) {
+function layoutPSMDBFrame(frame, frameNodes, sub) {
   // Stable ordering independent of array order: derive columns/rows from role.
   const mongos = frameNodes.filter((n) => n.role === 'mongos')
   const config = frameNodes.filter((n) => n.role === 'config')
@@ -690,12 +813,13 @@ function layoutPSMDBFrame(frame, frameNodes) {
   const rowH = PXC_NODE_H + FRAME_GAP
   // columns: max(top row = 1 mongos + config members, shard columns).
   const ncols = Math.max(1 + config.length, shards.length, 3)
-  const w = FRAME_PAD * 2 + ncols * PXC_NODE_W + (ncols - 1) * FRAME_GAP
+  const contentW = FRAME_PAD * 2 + ncols * PXC_NODE_W + (ncols - 1) * FRAME_GAP
+  const w = Math.max(contentW, frameHeaderW(frame, frameNodes.length, sub))
   // rows: 1 top row + the tallest shard replica set.
   const maxShardRows = shards.reduce((m, s) => Math.max(m, s.length), 0)
   const nrows = 1 + maxShardRows
   const h = FRAME_TITLE + FRAME_PAD * 2 + nrows * PXC_NODE_H + (nrows - 1) * FRAME_GAP
-  const ox = frame.x + FRAME_PAD
+  const ox = frame.x + Math.round((w - contentW) / 2) + FRAME_PAD
   const oy = frame.y + FRAME_TITLE + FRAME_PAD
   const positioned = []
   // Top row: mongos at col 0, config RS at cols 1..n.
@@ -712,8 +836,8 @@ function layoutPSMDBFrame(frame, frameNodes) {
 }
 
 // relayoutFrame picks the right layout for a frame type.
-function relayoutFrame(frame, frameNodes) {
-  return frame.type === 'psmdb' ? layoutPSMDBFrame(frame, frameNodes) : layoutFrame(frame, frameNodes)
+function relayoutFrame(frame, frameNodes, sub) {
+  return frame.type === 'psmdb' ? layoutPSMDBFrame(frame, frameNodes, sub) : layoutFrame(frame, frameNodes, sub)
 }
 
 // nextClusterName → pxc-cluster-NN, unique across all PXC frames (from 00).
@@ -865,6 +989,10 @@ export function NodeStatus({ dep }) {
   if (dep.state === 'provisioning') {
     return <ProgressRing percent={dep.progress?.percent || 0} size={20} />
   }
+  // Running, but DBCanvas has not finished with it — a spinner, not the ready dot.
+  if (nodeConfiguring(dep)) {
+    return <Spinner size={16} />
+  }
   if (dep.state === 'running') {
     return <span className="block h-2.5 w-2.5 rounded-full" style={{ background: 'var(--success)' }} />
   }
@@ -886,6 +1014,9 @@ export function nodeCardTip(n, def, dep, arch) {
       {built && <span className="block">Running {built}</span>}
       <span className="block text-muted">{nodeOSLabel(n)}{arch ? ` · ${arch}` : ''}</span>
       {dep && <span className="block text-muted">Deployment: {dep.state}</span>}
+      {/* The spinner's own sentence: what is still being done, so the state is never
+          only a moving graphic. */}
+      {nodeConfiguring(dep) && <span className="block text-warning">Still configuring — {configPhaseOf(dep)}</span>}
       {n.exportEnabled && <span className="block text-primary">Port exported to the host</span>}
       <span className="mt-1 block border-t pt-1 text-muted">{HELP.uiNodeContext}</span>
     </span>
@@ -904,6 +1035,7 @@ export function memberCardTip(f, n, dep, sub, built, arch) {
       {!built && <span className="block text-muted">{pxcOSLabel(f)}{arch ? ` · ${arch}` : ''}</span>}
       <span className="block text-muted">In {f.label}</span>
       {dep && <span className="block text-muted">Deployment: {dep.state}</span>}
+      {nodeConfiguring(dep) && <span className="block text-warning">Still configuring — {configPhaseOf(dep)}</span>}
       {n.exportEnabled && <span className="block text-primary">Port exported to the host</span>}
       <span className="mt-1 block border-t pt-1 text-muted">{HELP.uiNodeContext}</span>
     </span>
@@ -931,6 +1063,29 @@ export function k8sReplLinkable(f1, f2) {
   if (f1.type !== 'k3d' || f2.type !== 'k3d') return false
   return f1.k3dOperator === 'pxc' && f2.k3dOperator === 'pxc'
 }
+
+// k8sReplRoleOf is what a Kubernetes frame is on the canvas's replication edges:
+// 'source', 'replica', or '' for neither. Mirrors k3dReplRole in app/k3drepl.go — the
+// edge is stored source → replica, and being the source is what forces the frame's
+// database Service to a LoadBalancer (see K3D_SOURCE_EXPOSE).
+export function k8sReplRoleOf(frameId, edges, frames) {
+  const isK3D = (id) => frames.some((f) => f.id === id && f.type === 'k3d')
+  for (const ed of edges || []) {
+    if (!isReplEdge(ed) || !isK3D(ed.from.node) || !isK3D(ed.to.node)) continue
+    if (ed.from.node === frameId) return 'source'
+    if (ed.to.node === frameId) return 'replica'
+  }
+  return ''
+}
+
+// K3D_SOURCE_EXPOSE is the Service type a replication source's database pods must have.
+//
+// A replica in another Kubernetes cluster dials the source's per-pod addresses, and a
+// ClusterIP is a name that resolves inside one cluster and nowhere else. The deploy has
+// always overridden the frame's own setting for this (provisionK3DFrame), which left the
+// canvas showing a ClusterIP that was never what ran — so the canvas is corrected
+// instead, at the moment the link is drawn, and the field is then held.
+export const K3D_SOURCE_EXPOSE = 'loadbalancer'
 
 // frameMemberSub is the one-line description under a cluster member's name on the
 // canvas.
@@ -962,7 +1117,7 @@ export function frameMemberSub(f, n, kids = []) {
 }
 
 // frameVersionLabel: the description line for a cluster-frame type.
-const frameVersionLabel = (f) => {
+export const frameVersionLabel = (f) => {
   if (f?.type === 'proxysql') return `ProxySQL ${f?.proxysqlVersion || f?.proxysqlMajor || ''}`.trim()
   if (f?.type === 'mysql') return `Percona Server ${f?.psVersion || f?.psMajor || ''} replication`.trim()
   if (f?.type === 'innodb') return `${f?.replMode === 'groupreplication' ? 'Group Replication' : 'InnoDB Cluster'}${f?.pdpsRepo ? ` · ${f.pdpsRepo}` : ''}`
@@ -1183,6 +1338,37 @@ function ProgressRing({ percent = 0, size = 24 }) {
     </svg>
   )
 }
+
+// Spinner is the card status for a node that is running but not yet finished being
+// configured: DBCanvas is still working on it (progress.configuring — see setConfiguring in
+// app/replication.go), so the green dot, which means ready, would be a lie.
+//
+// A ring with a gap in it, rotating: the two states it sits between are a partial ring with a
+// number in it (provisioning) and a filled dot (running), so it reads as the same family
+// mid-way through. It carries no number on purpose — nothing here can honestly say how far
+// along an operator is with building a cluster, and a percentage that only ever crawled would
+// be worse than motion.
+export function Spinner({ size = 16 }) {
+  const r = (size - 3) / 2
+  const c = 2 * Math.PI * r
+  const k = size / 2
+  return (
+    <svg className="shrink-0 animate-spin" width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <circle cx={k} cy={k} r={r} fill="none" stroke="var(--surface2)" strokeWidth="2" />
+      {/* A quarter of the circumference drawn, the rest gap — the arc that makes it read as
+          turning rather than pulsing. */}
+      <circle cx={k} cy={k} r={r} fill="none" stroke="var(--warning)" strokeWidth="2" strokeLinecap="round"
+        strokeDasharray={`${c / 4} ${c}`} />
+    </svg>
+  )
+}
+
+// nodeConfiguring is the one place that decides whether a card spins: running, and DBCanvas
+// still working on it. Both halves matter — a provisioning node has a progress ring with a
+// real number in it, which says more, and a stopped or failed node keeps its word.
+export const nodeConfiguring = (dep) => dep?.state === 'running' && !!dep?.progress?.configuring
+// The phase to name in the tooltip, with a fallback for a marker set without one.
+export const configPhaseOf = (dep) => (nodeConfiguring(dep) ? (dep.progress.configPhase || 'still being configured') : '')
 
 const STATUS_TONE = { draft: 'muted', deployed: 'success', expired: 'danger' }
 
@@ -1959,10 +2145,32 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       setStack(s)
       setDeployments(s.deployments || [])
       const d = s.design || {}
-      const nz = d.nodes || []
       const ez = d.edges || []
-      const fz = d.frames || []
       const vw = d.view || { x: 40, y: 20, z: 1 }
+      // Re-lay every frame on load. A design saved before frames were sized to fit
+      // their own title carries the old member-derived width, and nothing would
+      // recompute it until somebody happened to add or remove a member — so the
+      // header would still be clipped on exactly the stacks that already exist.
+      // Idempotent for a frame that is already the right size.
+      let fz = d.frames || []
+      let nz = d.nodes || []
+      const deps = {}
+      for (const x of s.deployments || []) deps[x.nodeId] = x
+      for (const f of fz) {
+        const r = relayout(f.id, fz, nz, deps)
+        fz = r.frames
+        nz = r.nodes
+      }
+      // A frame that grew can now cover the one next to it, which was placed when it was
+      // narrower — two overlapping title bars, which is worse than the clipping this was
+      // fixing. So overlapping frames are pushed clear, and their members travel with them
+      // (relayout derives member positions from the frame's).
+      for (const shift of separateFrames(fz)) {
+        const moved = fz.map((f) => (f.id === shift.id ? { ...f, x: f.x + shift.dx } : f))
+        const r = relayout(shift.id, moved, nz, deps)
+        fz = r.frames
+        nz = r.nodes
+      }
       setNodes(nz)
       setEdges(ez)
       setFrames(fz)
@@ -1998,6 +2206,40 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       setDeployPanel((p) => (p === 'hidden' ? 'open' : p))
     }
   }, [deployments])
+
+  // A frame's header text changes when it deploys — the design-time description is replaced
+  // by the version it is actually running, which is shorter — so the box is re-fitted then.
+  // Without this a deployed cluster kept a width sized for a sentence it had stopped showing,
+  // which is how a one-node frame ended up half again as wide as its own title.
+  useEffect(() => {
+    for (const f of frames) {
+      const mine = nodes.filter((n) => n.frameId === f.id)
+      const want = relayoutFrame(f, mine, frameSubLabel(f, mine, depByNode)).frame
+      if (want.w !== f.w || want.h !== f.h) {
+        const r = relayout(f.id, frames, nodes)
+        setFrames(r.frames)
+        setNodes(r.nodes)
+        return // one frame per pass; the next render picks up the next one
+      }
+    }
+  }, [deployments, frames, nodes]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A Kubernetes replication source's database pods have to be reachable from the other
+  // cluster, so its expose setting is LoadBalancer — see K3D_SOURCE_EXPOSE. This is the
+  // one place that has to hold, because there are four ways to become a source: drawing
+  // the link, flipping its direction from the link's own form, deleting the link that
+  // made you a replica, and opening a design saved before this rule existed. Writing it
+  // once here, rather than at each of those, is why the canvas can no longer disagree
+  // with what deploys. Converges in one pass: the patch is skipped when it would change
+  // nothing.
+  useEffect(() => {
+    for (const f of frames) {
+      if (f.type !== 'k3d' || f.k3dOperator !== 'pxc') continue
+      if (k8sReplRoleOf(f.id, edges, frames) !== 'source') continue
+      if ((f.k3dExposePxc || 'clusterip') === K3D_SOURCE_EXPOSE) continue
+      patchFrame(f.id, { k3dExposePxc: K3D_SOURCE_EXPOSE })
+    }
+  }, [edges, frames]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // debounced autosave — only when the design actually differs from the last
   // saved snapshot (so the 3s status poll never triggers a save).
@@ -2081,11 +2323,17 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       } else if (d.kind === 'frame') {
         const nx = w.x + d.offx, ny = w.y + d.offy
         const frame = refs.current.frames.find((f) => f.id === d.id)
-        setFrames((fs) => fs.map((f) => (f.id === d.id ? { ...f, x: nx, y: ny } : f)))
         if (frame) {
+          // Take the size from the same layout pass as the positions, rather than
+          // moving the box and leaving its width behind: a frame renamed to something
+          // longer resizes as soon as it is next dragged.
           const mine = refs.current.nodes.filter((n) => n.frameId === d.id)
-          const laid = new Map(relayoutFrame({ ...frame, x: nx, y: ny }, mine).nodes.map((n) => [n.id, n]))
+          const r = relayoutFrame({ ...frame, x: nx, y: ny }, mine)
+          const laid = new Map(r.nodes.map((n) => [n.id, n]))
+          setFrames((fs) => fs.map((f) => (f.id === d.id ? r.frame : f)))
           setNodes((ns) => ns.map((n) => laid.get(n.id) || n))
+        } else {
+          setFrames((fs) => fs.map((f) => (f.id === d.id ? { ...f, x: nx, y: ny } : f)))
         }
       } else if (d.kind === 'connect') {
         const tgt = hitPort(w, d.fromId)
@@ -2434,11 +2682,16 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   // destination may have at most ONE incoming edge (this is what makes "an HAProxy
   // fronts exactly one cluster" and "a simulator drives exactly one target" true),
   // and with opts.singleOutgoing a source may have at most ONE outgoing edge.
+  //
+  // Both cardinality guards count ASSOCIATION edges only. A replication link is a
+  // different relation that happens to share the edge list, and counting it here made
+  // the canvas refuse real links: a replication edge is stored source → replica, so a
+  // PXC-operator cluster that replicates to another one had already "sent" its one
+  // outgoing edge, and a Stock Market Sim node could not be attached to it — while the
+  // replica, which only *receives* that edge, accepted the same line. Two clusters in a
+  // replication pair, one of them undrivable, for no reason a user could see.
   function createFlow(fromEnd, toEnd, opts = {}) {
-    const E = refs.current.edges
-    if (E.some((ed) => ed.to.node === toEnd.node)) return false // destination already receives
-    if (opts.singleOutgoing && E.some((ed) => ed.from.node === fromEnd.node)) return false // source already sends
-    if (E.some((ed) => (ed.from.node === fromEnd.node && ed.to.node === toEnd.node) || (ed.from.node === toEnd.node && ed.to.node === fromEnd.node))) return false
+    if (associationBlocked(refs.current.edges, fromEnd.node, toEnd.node, opts)) return false
     const id = uid('e')
     setEdges((es) => [...es, { id, from: fromEnd, to: toEnd, type: 'directional' }])
     setSelected({ kind: 'edge', id })
@@ -2590,7 +2843,16 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
 
   // mutations
   const patchNode = (id, patch) => setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, ...patch } : n)))
-  const patchFrame = (id, patch) => setFrames((fs) => fs.map((f) => (f.id === id ? { ...f, ...patch } : f)))
+  // patchFrame re-lays the frame afterwards because a frame's width now depends on its
+  // own header text (frameHeaderW): renaming a cluster, or switching the operator its
+  // description names, changes how much room the title needs. The layout is idempotent,
+  // so a patch that changes neither is a no-op on the geometry.
+  const patchFrame = (id, patch) => {
+    const fs = refs.current.frames.map((f) => (f.id === id ? { ...f, ...patch } : f))
+    const r = relayout(id, fs, refs.current.nodes)
+    setFrames(r.frames)
+    setNodes(r.nodes)
+  }
   const patchEdge = (id, patch) => setEdges((es) => es.map((e) => (e.id === id ? { ...e, ...patch } : e)))
   // askDelete opens the confirmation modal (used before destroying a *deployed*
   // node/cluster, whose containers + volumes get torn down in real time).
@@ -2658,12 +2920,16 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
 
   // --- PXC cluster frame operations ---
   // Re-lay a frame's member nodes (positions derive from the frame geometry).
-  function relayout(frameId, framesArr, nodesArr) {
+  // deps is the deployment map to size the header against; it defaults to the one this
+  // render is holding. The load effect passes its own, because the deployments it just
+  // fetched are not in this closure yet — and a frame laid out without them is sized for
+  // the design-time description rather than the version it is actually running.
+  function relayout(frameId, framesArr, nodesArr, deps = depByNode) {
     const frame = framesArr.find((f) => f.id === frameId)
     if (!frame) return { frames: framesArr, nodes: nodesArr }
     const mine = nodesArr.filter((n) => n.frameId === frameId)
     const others = nodesArr.filter((n) => n.frameId !== frameId)
-    const r = relayoutFrame(frame, mine)
+    const r = relayoutFrame(frame, mine, frameSubLabel(frame, mine, deps))
     return {
       frames: framesArr.map((f) => (f.id === frameId ? r.frame : f)),
       nodes: [...others, ...r.nodes],
@@ -3697,7 +3963,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                 const p1 = portPoint(r1, ed.to.port)
                 const d = edgePath(p0, ed.from.port, p1, ed.to.port)
                 const on = selected?.kind === 'edge' && selected.id === ed.id
-                const repl = ed.type === 'async' || ed.type === 'bidir'
+                const repl = isReplEdge(ed)
                 // Caption: a cross-cluster replication link, or an association line
                 // (any link involving a ProxySQL or HAProxy node, or a ProxySQL cluster frame).
                 // The association caption names what crosses the line, not who initiates:
@@ -3707,8 +3973,16 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                 // a simulator, so the same phrase pointed both ways.
                 const proxyNodeEnd = nodes.some((n) => (n.id === ed.from.node || n.id === ed.to.node) && (n.type === 'proxysql' || n.type === 'haproxy'))
                 const proxyFrameEnd = frames.some((fr) => (fr.id === ed.from.node || fr.id === ed.to.node) && fr.type === 'proxysql')
+                // An application simulator's line was the one association line with no
+                // caption at all, which left the longest line on most canvases unlabelled.
+                // "app connection" and not "SQL traffic": these applications drive MongoDB
+                // and Valkey as readily as MySQL, and the sim end is checked first so a
+                // sim → proxy line reads as the application's connection rather than as
+                // the proxy's SQL — which is the same traffic, named from the wrong end.
+                const simEnd = nodes.some((n) => (n.id === ed.from.node || n.id === ed.to.node) && SIM_NODE_TYPES.has(n.type))
                 const caption = repl
                   ? (ed.type === 'bidir' ? 'bidirectional replication' : 'async replication')
+                  : simEnd ? 'app connection'
                   : (proxyNodeEnd || proxyFrameEnd ? 'SQL traffic' : null)
                 return (
                   <g key={ed.id}>
@@ -3748,10 +4022,20 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                     className="absolute inset-x-0 top-0 flex cursor-grab items-center gap-2 rounded-t-xl px-2 active:cursor-grabbing"
                     style={{ height: FRAME_TITLE, background: `color-mix(in srgb, ${col} 18%, transparent)` }}
                   >
-                    <span style={{ color: col }}>{(Icon[fdef.icon] || Icon.Database)({ size: 15 })}</span>
+                    {/* The frame spins while any of its members is still being configured. A
+                        Kubernetes cluster is configured as a whole — the seed restore is the
+                        cluster's, not one pod's — so the cluster's own header is where that
+                        belongs, and it stays visible when the frame is collapsed behind others. */}
+                    {kids.some((n) => nodeConfiguring(depByNode[n.id]))
+                      ? <Spinner size={15} />
+                      : <span style={{ color: col }}>{(Icon[fdef.icon] || Icon.Database)({ size: 15 })}</span>}
                     <div className="min-w-0 flex-1 leading-tight">
-                      <div className="truncate text-xs font-semibold text-fg">{f.label}</div>
-                      <div className="truncate text-[10px] text-muted">{frameDeployedLabel(f, kids, depByNode) || frameVersionLabel(f)} · {kids.length} node{kids.length === 1 ? '' : 's'}</div>
+                      {/* The frame is sized to fit both these lines (frameHeaderW), so the
+                          name is never abbreviated: a name is what you are looking for, and
+                          "clust…" answers nothing. Only the description truncates, and only
+                          past FRAME_MAX_W — it is also in the frame's own form. */}
+                      <div className="whitespace-nowrap text-xs font-semibold text-fg">{f.label}</div>
+                      <div className="truncate text-[10px] text-muted">{frameSubLabel(f, kids, depByNode)}</div>
                     </div>
                     {/* PS MongoDB has a fixed topology — no add/remove controls. */}
                     {f.type !== 'psmdb' && (
@@ -3801,6 +4085,11 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                               <span className="min-w-0 flex-1 truncate text-xs font-semibold text-fg">{n.label}</span>
                               {dep?.state === 'provisioning' ? (
                                 <ProgressRing percent={dep.progress?.percent || 0} size={15} />
+                              ) : nodeConfiguring(dep) ? (
+                                // Container up, cluster not finished: a Kubernetes member spends
+                                // minutes here while its operator builds the cluster, and a
+                                // replica the whole of its seed restore.
+                                <Spinner size={13} />
                               ) : dep ? (
                                 <span className="h-2 w-2 shrink-0 rounded-full"
                                   style={{ background: `var(--${DEPLOY_TONE[dep.state] === 'success' ? 'success' : dep.state === 'error' ? 'danger' : 'warning'})` }} />
@@ -5165,6 +5454,74 @@ function SeaweedBucketField({ nodes, nodeId, value, onChange, deployed }) {
   )
 }
 
+// PITRFields is point-in-time recovery on a PXC-operator Kubernetes frame: the binlog
+// collector, the bucket its binary logs go to, and how often it uploads.
+//
+// The bucket is a separate choice from the backup bucket, and gets its own picker rather
+// than reusing SeaweedBucketField, because the default is different and the reason is
+// specific: two clusters uploading binary logs into one bucket interleave two streams, and
+// neither of them can then be replayed. Backups are self-contained objects and do not care.
+// So when the node has a spare bucket, the binlogs are offered one.
+//
+// It can also be on and *not running*: a cluster that is the replica end of a replication
+// link deploys with the collector off, because it is about to be restored from the source —
+// which replaces the very history the collector would be uploading. The panel says so here
+// rather than leaving it to be discovered in a deployment log.
+export function PITRFields({ f, nodes, patchFrame, deployed, replRole = '' }) {
+  const sw = nodes.find((x) => x.id === f.seaweedfsNodeId && x.type === 'seaweedfs')
+  const buckets = sw ? seaweedBucketsOf(sw, false) : []
+  const backupBucket = (f.seaweedfsBucket && buckets.includes(f.seaweedfsBucket)) ? f.seaweedfsBucket : (buckets[0] || '')
+  const spare = buckets.filter((b) => b !== backupBucket)
+  const lock = deployed ? 'opacity-70' : ''
+  return (
+    <>
+      <label className={`flex items-start gap-2 text-sm ${lock} ${f.seaweedfsNodeId ? '' : 'opacity-60'}`}>
+        <input type="checkbox" className="mt-1" checked={!!f.k3dPitr} disabled={deployed || !f.seaweedfsNodeId}
+          onChange={(e) => patchFrame(f.id, { k3dPitr: e.target.checked })} />
+        <span>
+          Point-in-time recovery
+          <span className="block text-xs text-muted">
+            {f.seaweedfsNodeId
+              ? 'Runs the operator\'s binlog collector (spec.backup.pitr): binary logs are uploaded continuously, so a restore can land at any moment between backups rather than only on a backup.'
+              : 'Needs a SeaweedFS backup store — the collector uploads binary logs to S3. Select one above.'}
+          </span>
+        </span>
+      </label>
+      {!!f.k3dPitr && !!f.seaweedfsNodeId && (
+        <>
+          <Field label="Binlog bucket" help={HELP.s3Bucket}
+            hint={spare.length
+              ? 'Give the binary logs their own bucket: two clusters writing binlogs into one bucket produce a stream that cannot be replayed.'
+              : 'This node has one bucket, so the binary logs share it with the backups. Add a second bucket to the SeaweedFS node to separate them.'}>
+            <select className={`${inputCls} ${lock}`} value={f.k3dPitrBucket || ''} disabled={deployed}
+              onChange={(e) => patchFrame(f.id, { k3dPitrBucket: e.target.value })}>
+              <option value="">{backupBucket ? `same as backups (${backupBucket})` : 'the backup bucket'}</option>
+              {spare.map((b) => <option key={b} value={b}>{b}</option>)}
+            </select>
+          </Field>
+          <Field label="Upload every" help={HELP.s3Bucket}
+            hint="timeBetweenUploads — how much of the most recent history a restore can be missing at worst.">
+            <div className="flex items-center gap-2">
+              <input type="number" min="10" max="3600" className={`${inputCls} w-24 ${lock}`}
+                value={f.k3dPitrSeconds || 60} disabled={deployed}
+                onChange={(e) => patchFrame(f.id, { k3dPitrSeconds: Number(e.target.value) })} />
+              <span className="text-xs text-muted">seconds</span>
+            </div>
+          </Field>
+          {replRole === 'replica' && (
+            <p className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-[11px] leading-snug text-warning">
+              This cluster is the replica end of a replication link, so it deploys with the collector
+              <span className="font-medium"> off</span>: the seed restore replaces its data and its whole GTID
+              history, and binary logs uploaded across that belong to two histories in one stream. DBCanvas
+              turns it on once replication is running.
+            </p>
+          )}
+        </>
+      )}
+    </>
+  )
+}
+
 // SeaweedFSForm edits a (not-yet-running) SeaweedFS node: the S3 access key
 // (AWS_ACCESS_KEY_ID, defaults to "seaweedfs"), the secret key (left empty to
 // auto-generate), and the bucket to create. The region is fixed at us-east-1.
@@ -5649,7 +6006,7 @@ function VNCManager({ dep, onDeleteNode }) {
 // systemd node type uses), an optional package-manager proxy — and nothing else. No
 // product gets installed and there's no PMM monitoring; it's a bare jump box for
 // reaching the stack's other nodes from its terminal.
-function LinuxClientForm({ node: n, patchNode, deleteNode, dep, deployed }) {
+function LinuxClientForm({ node: n, patchNode, deleteNode, dep, deployed, frames = [] }) {
   const [cat, setCat] = useState(null)
   useEffect(() => {
     let alive = true
@@ -5706,11 +6063,67 @@ function LinuxClientForm({ node: n, patchNode, deleteNode, dep, deployed }) {
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
 
+      <K8sToolFields node={n} patchNode={patchNode} deployed={deployed} frames={frames} />
+
       <GDBFields node={n} patchNode={patchNode} deployed={deployed} />
 
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
         <Icon.Trash size={16} /> Delete node
       </Button>
+    </div>
+  )
+}
+
+// K8sToolFields — kubectl and Helm on a Linux Client, chosen at design time.
+//
+// Design time rather than "install it from the terminal" for one reason worth stating on the form:
+// the kubectl version is not a matter of taste. kubectl supports one minor version either side of
+// the API server, and a K3D frame on this canvas pins its k3s — so DBCanvas installs the version
+// that matches the cluster in the stack rather than whatever is newest today. The form says which
+// version that will be, because the answer changes when a cluster is added or its k3s pinned.
+export function K8sToolFields({ node: n, patchNode, deployed, frames = [] }) {
+  const k3d = frames.filter((f) => f.type === 'k3d')
+  // Mirrors lcKubectlVersion in app/linuxclient_k8s.go: the first Kubernetes frame decides.
+  const pinned = k3d.map((f) => f.k3dK3sVersion).find(Boolean)
+  const version = (pinned || '').replace(/[-+]k3s.*$/, '')
+  const on = !!n.lcKubectl || !!n.lcHelm
+  return (
+    <div className="space-y-2 rounded-lg bg-surface2 p-2">
+      <span className="text-xs font-medium text-muted">Kubernetes client tools</span>
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" className="mt-1" disabled={deployed} checked={!!n.lcKubectl}
+          onChange={(e) => patchNode(n.id, { lcKubectl: e.target.checked })} />
+        <span>
+          Install kubectl
+          <span className="block text-xs text-muted">
+            {k3d.length
+              ? <>Version matched to <span className="font-medium text-fg">{k3d[0].label}</span>
+                {version ? <> (<span className="font-mono">{version}</span>)</> : ' (the k3s release it deploys)'} —
+                kubectl supports one minor either side of the API server.</>
+              : 'No Kubernetes cluster on this canvas yet, so the newest k3s release in the catalog is used. Add a K3D frame and it follows that cluster instead.'}
+            {' '}Lands on PATH with bash completion and the <span className="font-mono">k</span> alias.
+          </span>
+        </span>
+      </label>
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" className="mt-1" disabled={deployed} checked={!!n.lcHelm}
+          onChange={(e) => patchNode(n.id, { lcHelm: e.target.checked })} />
+        <span>
+          Install Helm
+          <span className="block text-xs text-muted">
+            Helm 3 from its own installer, which resolves the current release and verifies its
+            checksum. It speaks the API server's REST, so no version has to be matched.
+          </span>
+        </span>
+      </label>
+      {on && (
+        <p className="rounded-md border border-accent/30 bg-accent/10 px-2 py-1.5 text-[11px] leading-snug text-muted">
+          Both need a kubeconfig, which this node is not given: the clusters deploy at the same time as
+          it does. Take one from the Kubernetes frame's server node — <span className="font-medium text-fg">Kubeconfig</span> for
+          admin, <span className="font-medium text-fg">Users</span> for a role-scoped one, which is the more interesting test.
+          {!deployed && n.useProxy === false && ' Downloads go direct; tick the Intranet proxy above to send them through Squid.'}
+        </p>
+      )}
     </div>
   )
 }
@@ -5826,6 +6239,8 @@ function LinuxClientManager({ dep, onDeleteNode, stackId }) {
   const cfg = dep?.config || {}
   const gdb = !!cfg.gdbEnabled
   const ready = cfg.gdbStatus === 'ready'
+  // Read back off the node at deploy, not from what was asked for — see linuxClientConfig.
+  const tools = [cfg.kubectlVersion && `kubectl ${cfg.kubectlVersion}`, cfg.helmVersion && `helm ${cfg.helmVersion}`].filter(Boolean)
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -5835,11 +6250,29 @@ function LinuxClientManager({ dep, onDeleteNode, stackId }) {
       <p className="text-xs text-muted">
         {gdb
           ? "Set up for core-dump analysis. Its terminal is still a plain shell if you want gdb by hand."
-          : "No product installed. Open this node's terminal to install and run clients against the stack."}
+          : tools.length
+            ? "A jump box with the Kubernetes client tools on it. Open its terminal and point them at a cluster."
+            : "No product installed. Open this node's terminal to install and run clients against the stack."}
       </p>
+      {!!tools.length && (
+        <div className="rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 text-[11px] leading-snug text-muted">
+          {cfg.kubectlVersion && <><span className="font-mono text-fg">kubectl</span> (and the <span className="font-mono">k</span> alias) </>}
+          {cfg.kubectlVersion && cfg.helmVersion && 'and '}
+          {cfg.helmVersion && <><span className="font-mono text-fg">helm</span> </>}
+          are on PATH. Neither has a kubeconfig yet: copy one from a Kubernetes frame's server node —
+          its <span className="font-medium text-fg">Kubeconfig</span> tab for admin, or{' '}
+          <span className="font-medium text-fg">Users</span> for a role-scoped one — into{' '}
+          <span className="font-mono">~/.kube/config</span> here.
+        </div>
+      )}
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
         <InfoRow label="Image" help={HELP.depImage}><span className="font-mono text-xs">{cfg.image || ''}</span></InfoRow>
         <InfoRow label="Host" help={HELP.depHost}><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></InfoRow>
+        {!!tools.length && (
+          <InfoRow label="Kubernetes tools" help={HELP.depK8sTools}>
+            <span className="font-mono text-xs">{tools.join(' · ')}</span>
+          </InfoRow>
+        )}
         {gdb && <>
           <InfoRow label="Core dumps" help={HELP.depCoreDumps}><span className="font-mono text-xs">{cfg.gdbCoreDir} ({cfg.gdbCoreCount ?? 0})</span></InfoRow>
           <InfoRow label="Libraries" help={HELP.depLibraries}><span className="font-mono text-xs">{cfg.gdbLibDir}</span></InfoRow>
@@ -7368,7 +7801,7 @@ const K3D_EXPOSE_OPTIONS = [
 // K3DFrameForm edits a K3D cluster frame: size, the CPU/memory budget for the whole cluster, and
 // what to install on it. CPU/memory are a *total*, split across the nodes — which is why the hints
 // warn in terms of the cluster, not the node.
-function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed }) {
+function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed, replRole = '' }) {
   const lock = deployed ? 'opacity-70' : ''
   const count = frameNodes.length
   const pmmNodes = nodes.filter((x) => x.type === 'pmm')
@@ -7647,8 +8080,16 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
                 <option value="proxysql">ProxySQL</option>
               </select>
             </Field>
-            <Field label="Expose · database (pxc)" help={HELP.k8sExpose} hint="Per-pod Services for the database itself.">
-              <select className={`${inputCls} ${lock}`} value={f.k3dExposePxc || 'clusterip'} disabled={deployed}
+            {/* A replication source's pods are dialled from the other cluster, so the
+                choice is not the frame's to make — it is held at LoadBalancer and said
+                so, rather than offering two options the deploy would override. */}
+            <Field label="Expose · database (pxc)" help={HELP.k8sExpose}
+              hint={replRole === 'source'
+                ? 'Held at LoadBalancer: this cluster is a replication source, and its replica dials these per-pod addresses from outside Kubernetes.'
+                : 'Per-pod Services for the database itself.'}>
+              <select className={`${inputCls} ${replRole === 'source' ? 'opacity-70' : lock}`}
+                value={replRole === 'source' ? K3D_SOURCE_EXPOSE : (f.k3dExposePxc || 'clusterip')}
+                disabled={deployed || replRole === 'source'}
                 onChange={(e) => patchFrame(f.id, { k3dExposePxc: e.target.value })}>
                 {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
               </select>
@@ -7900,6 +8341,12 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
       </Field>
       <SeaweedBucketField nodes={nodes} nodeId={f.seaweedfsNodeId} value={f.seaweedfsBucket} deployed={deployed}
         onChange={(v) => patchFrame(f.id, { seaweedfsBucket: v })} />
+      {/* Point-in-time recovery is `backup.pitr` in cr.yaml — a binlog collector Deployment
+          that uploads binary logs continuously, so a restore can land between backups. PXC
+          operator only: it is the only one of the six with this in its custom resource. */}
+      {op === 'pxc' && (
+        <PITRFields f={f} nodes={nodes} patchFrame={patchFrame} deployed={deployed} replRole={replRole} />
+      )}
       {/* PMM monitors a Percona operator's cluster through a pmm-client sidecar that the
           operator's own CR configures. CloudNativePG is not a Percona product and ships no
           such sidecar, so the picker is hidden for it rather than offering monitoring that
@@ -10329,7 +10776,8 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       return <ValkeyClusterFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
     }
     if (f.type === 'k3d') {
-      return <K3DFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+      return <K3DFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed}
+        replRole={k8sReplRoleOf(f.id, edges, frames)} />
     }
     return <PXCFrameForm frame={f} stackId={stackId} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} running={running} />
   }
@@ -10578,7 +11026,8 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       if (dep && dep.state === 'running') {
         return <LinuxClientManager dep={dep} stackId={stackId} onDeleteNode={() => deleteNode(n.id)} />
       }
-      return <LinuxClientForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+      // frames: the Kubernetes clusters on the canvas decide which kubectl this node installs.
+      return <LinuxClientForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} frames={frames} />
     }
     // Traffic Sim node — the Valkey Traffic Lab live demo app.
     if (n.type === 'trafficsim') {
@@ -10675,7 +11124,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
 
   const ed = edges.find((x) => x.id === selected.id)
   if (!ed) return null
-  if (ed.type === 'async' || ed.type === 'bidir') {
+  if (isReplEdge(ed)) {
     return <ReplicationLinkForm ed={ed} nodes={nodes} frames={frames} patchEdge={patchEdge} deleteEdge={deleteEdge} />
   }
   // An association line, and the separator says so: ↔, not →. Which end was drawn

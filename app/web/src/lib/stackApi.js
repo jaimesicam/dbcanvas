@@ -317,6 +317,11 @@ export function k3dApi(id, fid) {
     // fresh backup of its source and replaces its data, so it is a deliberate action.
     replication: () => request('GET', `${base}/replication`),
     reseed: () => request('POST', `${base}/replication/reseed`),
+    // The custom resource editor (app/k3dcrform.go). `cr` returns the operator's own CRD as a
+    // form model plus the live spec; `crPatch` sends a merge patch, always server-side dry-run
+    // first — pass dryRun to check a change without applying it.
+    cr: () => request('GET', `${base}/cr`),
+    crPatch: (patch, dryRun) => request('POST', `${base}/cr`, { patch, dryRun: !!dryRun }),
   }
 }
 

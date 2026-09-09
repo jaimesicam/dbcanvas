@@ -22160,7 +22160,6 @@ mkdir -p app/testdata && curl -sL -o app/testdata/cr.yaml \
 Every test that does not need it runs regardless — the link resolution, the validation rules, the
 restore manifest, the object naming, the waits and the pruning are all independent of it. The wider
 missing corpus still accounts for the bulk of `go test ./app` (§365).
-
 **Verified** end to end on a live two-cluster stack deployed from the new template, with nothing run
 by hand. Validation before Deploy: two warnings, no errors — the destructive seed and the overridden
 Service type. The source's `cr.yaml` carried `replicationChannels: [{cluster1_to_cluster2, isSource:
@@ -22176,3 +22175,240 @@ seconds behind; a row written on `cluster1` read back on `cluster2-pxc-2`, a non
 restore. Re-seed was exercised twice: once before the fix (returning the first seed's timestamp,
 which is how #4 was caught) and once after, which took a new backup —
 `…03:50:52-full` — and left both the pre-existing row and one written afterwards on the replica.
+
+---
+
+## 367. Five things the canvas said that were not true — `app/web/src/pages/StackDesigner.jsx`, `app/{replication,k3d,k3drepl,intranet}.go`, `app/web/smoke/render.jsx`, `app/replication_test.go`
+
+User sent a screenshot of two Kubernetes frames and a list: *"Not a fan of truncated text"*, a green
+dot on a cluster that was still being built, an application link the canvas refused to draw, and a
+missing caption. Every one of them turned out to be the canvas asserting something the deploy did
+not agree with, which is why they are one entry.
+
+**A frame is now as wide as its own title.** A frame was sized from its members — a one-member K3D
+frame is `14 + 116 + 14 = 144px` — and its header spends that on an icon, two lines of text and the
+± buttons, so it clipped to `clust…` / `k3s 1.3…`. `frameHeaderW` measures both header lines and the
+frame grows to fit them; the name never truncates now (only the description, and only past
+`FRAME_MAX_W`).
+
+Two things followed, and both were found by looking at the result rather than at the code. The first
+was that widening a frame **moved it on top of its neighbour**, which was placed when it was 144px:
+two overlapping title bars, worse than the clipping. `separateFrames` pushes them apart at load,
+left to right so a chain resolves in one pass. Its first version only repaired a *new* overlap —
+leave alone what somebody arranged deliberately — and that does not work: the grown geometry is
+saved by the next autosave, so one load later the overlap *is* what the design says and the rule
+declines to fix its own mess. It repairs any overlap now.
+
+The second was the user's follow-up: *"i think the frame became too wide."* It was 362px for a
+one-node cluster, because the width was measured from the design-time description
+(`Kubernetes (k3s via k3d) · PXC operator · 1 node`) while the header, once deployed, shows the
+version it is running (`k3s 1.36.4+k3s1 · 1 node`). The box was sized for a sentence it had stopped
+displaying. One `frameSubLabel` now feeds both the header and the layout — **362px → 203px** on the
+user's own stack — and a frame re-fits when a deploy changes the line.
+
+**A Stock Market Sim node could not be linked to the SOURCE of a replication pair, only to the
+replica.** This is the one that was worth the hunt, because the asymmetry is the whole clue: the
+replication edge is stored `source → replica`, `createFlow`'s `singleOutgoing` guard counted *every*
+edge, and so the source had already spent its one outgoing edge while the replica — which only
+*receives* that edge — had not. Two clusters in a pair, one of them undrivable, for no reason a user
+could see. The guards now count association edges only (`associationBlocked`, exported and tested
+because a rule this quiet needs to be assertable), which also fixes the same latent bug for a PXC
+member linked to MarketChaos.
+
+**The application simulators' line has a caption.** It was the one association line with none, which
+left the longest line on most canvases unlabelled. It reads **"app connection"**, not "SQL traffic":
+these applications drive MongoDB and Valkey as readily as MySQL. The simulator end is checked before
+the proxy end, so a sim → ProxySQL line reads as the application's connection rather than as the
+proxy's SQL — the same traffic, named from the wrong end.
+
+**A running container is not a finished node.** A k3s node reports `running` the moment `cr.yaml` is
+applied, minutes before the operator has built anything, and a replica cluster stays `running`
+through its entire seed restore. The canvas showed the green dot that means *ready* for all of it.
+`provProgress` grew a `configuring` marker with a phase string, set by the phases that run *after* a
+node reports running — the operator building its cluster (`k3dWaitClusterReady`), the seed backup,
+the restore, the channel attach, the PITR enable — and the card, the member card and the frame
+header show a rotating arc instead of the dot, with the phase in the tooltip so the state is never
+motion alone.
+
+Two details that only appear once two phases own one node: `clearConfiguringIf` clears the marker
+only while it still says what the caller put there (the frame's readiness wait finishing must not
+switch off the replication phase's spinner), and the Go test asserts the **JSON key names**, because
+`configuring`/`configPhase` are read by name in the browser and a rename on either side is silent —
+the dot simply goes green while work is still going on.
+
+**A replication source's Service type.** The deploy has always forced a source's database pods to
+LoadBalancer (a replica in another cluster cannot dial a ClusterIP) while the canvas went on showing
+the ClusterIP that was never what ran. The design is corrected the moment the link is drawn, held in
+the form with the reason, and — because there are four ways to become a source (drawing the link,
+flipping its direction, deleting the link that made you a replica, opening an old design) — it is
+written in one effect that watches the edges rather than at each of those four places.
+
+---
+
+## 368. Point-in-time recovery on a PXC-operator cluster, and the order a replica needs it in — `app/{k3dcr,k3d,k3drepl,intranet}.go`, `app/web/src/pages/{StackDesigner,K3DManager}.jsx`, `app/web/src/lib/help.js`, `app/{k3d_test,k3drepl_test}.go`
+
+User asked for PITR on the K3D frame *"and specify the backup bucket for that"*, with one rule
+stated up front: **if the replica has PITR enabled, disable it first and enable it after replication
+is established.** That rule is the entry.
+
+**The bucket is not a detail.** The binlog collector uploads a continuous stream, and two clusters
+uploading into one bucket interleave two streams that neither can then replay. So PITR gets a
+storage of its own in `cr.yaml` (`crBinlogStorageName`, pointed at a second bucket on the frame's
+SeaweedFS node), the form defaults to a spare bucket when the node has one, and validation refuses a
+replication pair whose two collectors would share a bucket — including the version of that mistake
+you make by simply ticking the box on both clusters, where neither names a bucket and both fall back
+to the same node's default.
+
+**The transform's existing rule was in the way.** `crTransform` repoints *every* `storageName:` in
+the backup section at the SeaweedFS storage, because the shipped schedule names a storage the
+replacement removes and the operator rejects the whole custom resource over it. Applied to
+`backup.pitr.storageName`, that quietly sends the binary logs to the *backup* bucket while the panel
+says otherwise — invisible until a point-in-time restore is attempted and finds nothing. The
+transform now tracks the `pitr` block (`pitrAt`) and excludes it, and still repoints it when PITR
+was *not* asked for, because the operator validates the name whether or not the collector runs.
+
+**The ordering, implemented where it cannot be forgotten.** A frame that is the replica end of a
+link deploys with `enabled: false` however the form is set (`k3dPITROptions` reads the role, not just
+the checkbox), the seed disables it again before restoring — which is what makes a *re-seed* of a
+replica that has been collecting for hours safe — and `k3dReplEnablePITR` turns it on only after the
+channel reports **running**, because the stream a restore replays starts where replication does.
+When replication is not up yet it says so and leaves the collector off rather than enabling it on a
+cluster whose state is unknown; the next deploy gets there with the channel running. `cfg.PITR`
+records which of the three states it is in, so the panel does not have to guess.
+
+**Verified live**, on the user's own two-cluster stack: `point-in-time recovery disabled on k3d-01
+for the restore` → restore → `channel k3d_00_to_k3d_01 ← 172.20.255.246, …` → `replication is
+running` → `point-in-time recovery enabled on k3d-01`. On a single-cluster stack deployed for the
+purpose, the collector Deployment ran (`k3d-00-pitr-…`), its log showed three binlogs uploaded, and
+SeaweedFS had them in `pxc-binlogs` (6.8 KB) with `pxc-backups` empty.
+
+---
+
+## 369. A replication pair with one object store each — `app/k3drepl.go`, `app/k3drepl_test.go`, `docs/STACKS.md`
+
+*"what if there are two seaweedfs nodes and pxc operator uses one and replica pxc operator nodes use
+another."* §366 refused that outright — *"both clusters must use the same SeaweedFS node"* — and the
+refusal was one line too broad. The restore is handed the source's **endpoint** by the backup's own
+status; only the **credentials** were wrong, because a `credentialsSecret` is a name and the name
+has to resolve in the replica's cluster.
+
+`k3dReplSeedSecret` copies the source store's keys into the replica's namespace as
+`<cluster>-seed-src-s3`, and the restore names that. It is written on every seed, not once: a
+re-seed may follow a store whose keys have been rotated, and a stale secret fails the restore with a
+403 that reads like a missing backup. When both clusters *do* share a node — the common shape, and
+what the built-in template deploys — nothing is copied at all and the replica's own backup secret is
+used, so the cheap path stays cheap and does not depend on the store still being resolvable.
+
+The wait is a minute rather than the deploy timeout, deliberately: the source has just finished
+writing a backup to this very store, so it is up, and ten minutes of a spinning card would be
+telling the user something false about what is being waited for.
+
+**Verified live** on the user's stack, which had exactly this shape: `restore credentials:
+k3d-01-seed-src-s3 (the source's store, seaweedfs-01.example.net bucket bucket1)`, followed by a
+restore that succeeded and a channel that came up.
+
+---
+
+## 370. `cr.yaml` as a form, generated from the operator's own CRD — `app/k3dcrform.go` (new), `app/k3dcrhelp.go` (new), `app/web/src/pages/CRFormEditor.jsx` (new), `app/{api_routes}.go`, `app/web/src/pages/K3DManager.jsx`, `app/web/src/lib/{stackApi.js,help.js}`, `app/k3dcrform_test.go` (new), `docs/{STACKS,API_REFERENCE}.md`
+
+*"add if you can create an editor for cr.yaml but form based and definition is already in crd."*
+Two decisions came out of the CRD itself, before any UI.
+
+**Generated, not written.** A hand-written form for `cr.yaml` offers the fields of whichever
+operator release it was written against, and goes on offering them a year later. The CRD in the
+cluster is the authority on what *this* operator version accepts, so the form is built from it —
+`kubectl explain`, rendered.
+
+**And therefore pruned.** The PXC CRD is 1.4 MB, its v1 `spec` schema 199 KB, most of it Kubernetes
+boilerplate repeated per section: affinity, tolerations, sidecars, security contexts, probes. A
+subtree that is opaque by name, oversized, or free-form is emitted as a single `raw` node the editor
+renders as a JSON box, so nothing in the custom resource is unreachable and the form is a form for
+the fields people actually turn. **1402 KB → 85 KB, all 28 sections intact**
+(`TestCRFormModelSizeIsReported` logs it).
+
+The first version of that rule collapsed whole sections: the size test counts *descendants*, and the
+`pxc` section has thousands. Sections — and the element schema of a list or a named map, which the
+user opened deliberately — are exempt, and their children pruned one by one. The tests caught it
+because they run against the real CRD rather than a fixture written to pass.
+
+**Writes are a merge patch, dry-run first, always.** The API server validates the patch against the
+same CRD the form was built from, so a value the operator would refuse comes back as its own message
+with nothing changed — which is what makes this safe to hand to somebody learning the operator. The
+deployment log records the *paths* an edit touched and never the values: a custom resource carries
+passwords.
+
+**The Percona CRDs ship no `description` on a single property.** `kubectl explain pxc.spec.pxc.size`
+answers with a type and nothing else, so a generated form would have been a wall of names — the one
+thing worse than no form. `app/k3dcrhelp.go` supplies a sentence for the fields worth understanding,
+by path and by leaf name (the vocabulary every section repeats: `image`, `resources`, `enabled`),
+and the CRD's own description wins wherever a release starts shipping them.
+
+**UX, in the order it matters.** Nothing is applied until you say so — a form whose fields restart
+database pods cannot write on every keystroke — so edits accumulate in a draft, the footer counts
+them, **Review patch** shows the exact YAML, **Check** validates, **Apply** sends. The search is the
+navigation: nobody browses to `backup.pitr.timeBetweenUploads`, so typing filters every group at
+once and matches on the path, not just the name. Booleans are switches, enums are pickers, numbers
+carry the schema's bounds, `backup.storages` is a named-entry list, `resources.limits` is key/value
+rows — that last one only after seeing it live, where a Kubernetes quantity (`500m`, which is
+int-or-string and has *no* type in the schema) had turned every resources block into a JSON box. A
+full-width mode escapes the properties column, because at panel width the review panel — the safety
+story — cannot be read at all.
+
+**Verified live** against the user's cluster: the model fetched (89 KB, correct enums, maps and
+help), a valid dry-run accepted, an invalid one rejected with the API server's own message, and a
+full **edit → review → check → apply → revert** round trip driven through the browser on
+`upgradeOptions.schedule` — inert while `apply: disabled` — leaving the cluster `ready` and its nine
+pods untouched.
+
+**The tests need a fixture, for the same reason §366's do.** What is worth testing about a schema
+pruner is what it does to the *real* schema: 1.4 MB, with a decade of served versions in it, no
+`description` on a single property, and 55 KB of Kubernetes boilerplate per section. A hand-written
+fixture would only prove the pruner works on hand-written fixtures. So the tests read
+`app/testdata/pxc-crd.json`, captured from a running cluster — gitignored by name like §366's
+`cr.yaml`, for the same reason (a verbatim copy of an upstream artifact is not ours to commit), and
+the tests skip without it:
+
+```sh
+# from any k3s node of a deployed PXC-operator frame
+docker exec <k3d-node> sh -c 'KUBECONFIG=/etc/rancher/k3s/k3s.yaml \
+  kubectl get crd perconaxtradbclusters.pxc.percona.com -o json' > app/testdata/pxc-crd.json
+```
+
+The numbers that fixture produces are the ones to watch when the pruning rules change: 1402 KB of
+CRD becomes an 85 KB form model (6%), and all 28 top-level sections survive it
+(`TestCRFormModelSizeIsReported` logs both).
+
+---
+
+## 371. kubectl and Helm on a Linux Client, chosen at design time — `app/linuxclient_k8s.go` (new), `app/{linuxclient,intranet}.go`, `app/web/src/pages/StackDesigner.jsx`, `app/web/src/lib/help.js`, `app/linuxclient_k8s_test.go` (new), `docs/STACKS.md`
+
+*"add option for linuxclient node to install kubectl and helm during design time."* Two checkboxes,
+and one thing worth stating on the form.
+
+**The version is why this belongs at design time.** kubectl is supported one minor version either
+side of the API server, and a K3D frame on the same canvas has its k3s release pinned — so "install
+the latest kubectl" is the one choice that can be wrong, and it gets more wrong the longer a stack
+lives. The install follows the stack's own cluster (`v1.36.4-k3s1` → `v1.36.4`, both spellings of
+the suffix handled, because `…/v1.36.4-k3s1/bin/linux/amd64/kubectl` is a 404 that would arrive as
+"the tools did not install"). With several clusters the first decides and the log says which; with
+none, the catalog's newest k3s stands in, because a client node on a canvas that has no cluster yet
+is a stack being built up. Helm needs no matching — it speaks the API server's REST — and takes the
+release its own installer resolves, which also verifies the checksum.
+
+**No kubeconfig is written**, and that is a decision rather than an omission: the clusters are
+provisioned concurrently with this node, so anything copied here would be a race. The frame's own
+panel already hands out an admin kubeconfig and per-role ones, which is where the choice of identity
+belongs; the install log and both panels point at it.
+
+The versions in the node's panel are **read back off the binaries** after the install, not copied
+from what was requested — a panel showing `kubectl v1.36.4` is a claim that kubectl runs. The step
+never fails the deploy, like the gdb one beside it: a Linux Client with no kubectl on it is still a
+Linux Client, and its terminal is right there.
+
+**Verified** by running the exact script bodies, extracted from the Go source, inside the real base
+images: Oracle Linux 9 and Debian 12 both produced `kubectl v1.36.4`, `helm v3.21.4`, the `k` alias
+and completion for both, and selecting only kubectl installed only kubectl. A full node deploy could
+not be completed on the day — the host was running two k3s clusters at ~10 GiB, and the Intranet
+node's systemd could not finish booting inside its 90-second wait, which failed the deploy of a
+container that was in fact coming up fine (`systemctl is-system-running` said `running` a minute
+later). That timeout is unchanged and is worth revisiting on its own.

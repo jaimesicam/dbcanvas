@@ -38,6 +38,35 @@ type releaseNote struct {
 var whatsNewNotes = []releaseNote{
 	{
 		Version: "0.0.3",
+		Date:    "2026-09-10",
+		Title:   "Edit cr.yaml as a form, generated from the operator's own CRD",
+		Body: "A Kubernetes server node's panel has a new cr.yaml tab: the live custom resource as a " +
+			"form built from the CustomResourceDefinition that cluster is running — so it offers what " +
+			"this operator version accepts rather than a fixed list that goes stale a release later. " +
+			"Search every section at once (pitr, size, resources), edit with real controls, and send " +
+			"nothing until you say so: the footer counts the pending changes, Review shows the exact " +
+			"patch, Check validates it against the API server without applying anything. Fields no " +
+			"form can usefully draw — affinity, tolerations, sidecars — are still there as JSON, so " +
+			"the whole resource is reachable. For the four Percona operators.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.3",
+		Date:    "2026-09-10",
+		Title:   "Point-in-time recovery, two object stores, and kubectl on a Linux Client",
+		Body: "A PXC-operator cluster can now run the operator's binlog collector, with a bucket of " +
+			"its own for the binary logs — two clusters sharing one produce a stream neither can " +
+			"replay. On the replica end of a replication link it starts switched off and DBCanvas " +
+			"turns it on once replication is actually running, because the seed restore replaces the " +
+			"GTID history the collector would be uploading. A replication pair may also use one " +
+			"SeaweedFS node each now, which is the shape two sites really have. And a Linux Client " +
+			"can be deployed with kubectl and Helm already on it — kubectl matched to the k3s release " +
+			"of a Kubernetes cluster on the same canvas, because it is only supported one minor " +
+			"version either side of the API server.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.3",
 		Date:    "2026-09-09",
 		Title:   "Replicate one Kubernetes cluster into another",
 		Body: "Draw a link between two Kubernetes frames that both run the PXC operator, pick a " +
