@@ -11,6 +11,16 @@ dist/
 # Group Replication fixtures escaped only because MySQL calls its error log `.err`.
 !app/testdata/**/*.log
 
+# The PXC operator's own deploy/cr.yaml, fetched into the test corpus so the three cr.yaml
+# transform tests can run (IMPLEMENTATION.md §366 has the one-line curl). It is a verbatim copy of
+# an upstream file rather than a fixture of ours, so it stays out of the repo — and ignoring it by
+# name keeps `git add -A` from sweeping it back in.
+#
+# By NAME, deliberately, not as `app/testdata/`: git does not descend into an excluded directory,
+# so a directory rule here would silently defeat the negation above and make the whole log corpus
+# uncommittable again — the exact bug that line was added to fix.
+app/testdata/cr.yaml
+
 # Screenshot-capture tooling — maintainer-only, kept out of the repo.
 # The generated screenshots (docs/screenshots/*.png) ARE committed; only the
 # machinery that produces them is ignored.
