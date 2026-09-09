@@ -173,6 +173,16 @@ type k3dConfig struct {
 	PMMToken       string `json:"pmmToken"`   // "" | "expires <when>" — the service token's lifetime
 	BackupRepo     string `json:"backupRepo"` // SeaweedFS S3 target ("" = none)
 	Image          string `json:"image"`      // the k3s image k3d used
+	// Cross-cluster replication (PXC operator only — see k3drepl.go). ReplRole is what this
+	// cluster is on the canvas's replication edge: "source", "replica", or "" for neither.
+	ReplRole    string   `json:"replRole"`
+	ReplChannel string   `json:"replChannel"` // the MySQL channel name, the same on both ends
+	ReplPeer    string   `json:"replPeer"`    // the other cluster's CR name
+	ReplSources []string `json:"replSources"` // replica only: the source addresses it dials
+	// ReplSeededFrom is the S3 destination this cluster was restored from to seed it, and its
+	// presence is what stops a redeploy restoring over the top of a working replica. Kept when a
+	// link is removed — the data is still the source's, and that is worth being able to read.
+	ReplSeededFrom string `json:"replSeededFrom"`
 	// GrafanaDashboard names the dashboard provisioned into Grafana ("" = none). Grafana
 	// with Prometheus wired up but no dashboard reads to a user as monitoring that does
 	// not work, so whether one landed is worth reporting rather than leaving to be
@@ -522,6 +532,15 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 	if proxy == "proxysql" {
 		exposeProxy = k3dExposeOf(frame.K3DExposeProxySQL, frame.K3DExpose)
 	}
+	// The source end of a cross-cluster replication link has to be dialable from outside its own
+	// Kubernetes cluster, and the only per-pod address the operator can give it is a Service. A
+	// ClusterIP is reachable from inside this cluster and nowhere else, so the frame's own setting
+	// is overridden rather than left to produce a link that cannot connect. Validation says so at
+	// design time; this says so again in the log, on the node the user is watching.
+	replRole, replChannel := k3dReplRole(doc, frame.ID)
+	if replRole == "source" && !strings.EqualFold(exposePXC, "LoadBalancer") {
+		exposePXC = "LoadBalancer"
+	}
 
 	// The Kubernetes the cluster runs. An unknown tag was already flagged by validation; fall back
 	// to the catalog's latest rather than letting k3d pick its own (stale) default.
@@ -579,6 +598,13 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		Sharding:    frame.K3DSharding,
 		MonitoredBy: monitoredBy, BackupRepo: backupRepo, ClusterName: k3dCRName(frame),
 		DiskLimit: k3dDiskLimitLabel(frame),
+		ReplRole:  replRole, ReplChannel: replChannel,
+	}
+	// A redeploy must not forget that this cluster has already been seeded — base is built from
+	// the design, not from what is on disk, and without this the seed would run again and replace
+	// a working replica's data.
+	if replRole != "" {
+		base.ReplSeededFrom = a.k3dReplSeededFrom(st, doc, frame)
 	}
 	if operator == "psmdb" {
 		base.ExposeReplset = k3dExposeOf(frame.K3DExposeReplset, frame.K3DExpose)
@@ -1416,6 +1442,14 @@ func (a *App) installPXCOperator(ctx context.Context, st Stack, frame designFram
 		// Each section gets its own Service type; only the chosen proxy's section is enabled, so
 		// the other one's expose value is irrelevant (and left as cr.yaml ships it).
 		ExposePXC: cfg.ExposePXC,
+	}
+	// The source end of a replication link declares its channel here; the replica's is patched in
+	// after its seed restore, by reconcileK3DReplication. The per-pod LoadBalancer that goes with
+	// it was forced in provisionK3DFrame — say so, because the frame's own setting was overridden.
+	if cfg.ReplRole == "source" {
+		opts.SourceChannel = cfg.ReplChannel
+		pr.logln("replication source: channel " + cfg.ReplChannel +
+			", database pods exposed per-pod on a LoadBalancer so the replica cluster can dial them")
 	}
 	if cfg.Proxy == "proxysql" {
 		opts.ExposeProxySQL = cfg.ExposeProxy

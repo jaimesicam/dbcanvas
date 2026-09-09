@@ -512,10 +512,22 @@ dbcanvas api GET /api/catalog/ps | jq '.["oraclelinux-9"]'
 | Create one with a role | `POST …/frames/{fid}/k3d/users` | `dbcanvas api POST …/k3d/users --data '{"username":"dev","role":"view"}'` |
 | Delete one | `POST …/frames/{fid}/k3d/users/delete` | `dbcanvas api POST …/k3d/users/delete` |
 | Get a kubeconfig scoped to one user | `GET …/k3d/users/{username}/kubeconfig` | `dbcanvas api GET …/kubeconfig` |
+| Read a cross-cluster replication link | `GET …/frames/{fid}/k3d/replication` | `dbcanvas api GET …/k3d/replication` |
+| Re-seed a replica from its source | `POST …/frames/{fid}/k3d/replication/reseed` | `dbcanvas api POST …/k3d/replication/reseed` |
 
 ```sh
 dbcanvas api GET /api/stacks/1/frames/k3d-01/k3d/kubeconfig | jq -r .kubeconfig > kube.yaml
 KUBECONFIG=kube.yaml kubectl get pods -A
+```
+
+Replication is set up by the deploy — draw the link between two PXC-operator frames on the canvas
+and press Deploy ([Stacks](STACKS.md)). These two are for reading where a cluster sits in the link
+and whether its channel is running, and for asking for a fresh seed. **Re-seed replaces the
+replica's data** with a new backup of the source; it is the one action that restores, which is why
+Deploy never does it on its own.
+
+```sh
+dbcanvas api GET /api/stacks/1/frames/cluster2/k3d/replication | jq '{role, channel, peer, running}'
 ```
 
 ## All in One

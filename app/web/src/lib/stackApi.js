@@ -312,6 +312,11 @@ export function k3dApi(id, fid) {
     collectStart: () => request('POST', `${base}/collect`),
     collectDumps: () => request('GET', `${base}/collect/dumps`),
     opSummary: () => request('POST', `${base}/opsummary`),
+    // Cross-cluster replication between two PXC-operator clusters (see app/k3drepl.go).
+    // `replication` is read-only and safe to poll; `reseed` restores the replica again from a
+    // fresh backup of its source and replaces its data, so it is a deliberate action.
+    replication: () => request('GET', `${base}/replication`),
+    reseed: () => request('POST', `${base}/replication/reseed`),
   }
 }
 

@@ -22025,3 +22025,154 @@ is that test doing its job — it is a tripwire on access control, and answering
 *deciding* that building images is admin-only rather than quietly appending a line to satisfy a
 failing test. Left for the
 user, and recorded here so the next person to run `go test ./app` knows these two are known.
+
+---
+
+## 366. Replicating one Kubernetes cluster into another — `app/k3drepl.go` (new), `app/{k3dcr,k3d,intranet,api_routes,templates_builtin,whatsnew}.go`, `app/web/src/pages/{StackDesigner,K3DManager}.jsx`, `app/web/src/lib/stackApi.js`, `app/web/smoke/render.jsx`, `README.md`, `docs/{STACKS,API_REFERENCE}.md`
+
+User had done it by hand first: two K3D frames on one stack, both running the PXC operator, and then
+Percona's [restore to a new
+cluster](https://docs.percona.com/percona-operator-for-xtradb-cluster/latest/backups-restore-to-new-cluster.html)
+and [replication](https://docs.percona.com/percona-operator-for-xtradb-cluster/latest/replication.html)
+pages worked through in a terminal — `pxc.expose` flipped to LoadBalancer on one, a backup taken, a
+`PerconaXtraDBClusterRestore` with a hand-written `backupSource` on the other, and a channel patched
+in. It worked. The question was what it would take to offer the same at design time, and one
+specific worry: *the replica has to wait until the load balancer IPs are assigned on the source
+cluster before it deploys*.
+
+**It doesn't, and that turned out to be the useful thing to establish.** The replica cluster waits
+for nothing — both clusters are handed to the frame loop and build concurrently, exactly as they do
+without a link. What serialises is a final phase, and what it waits on is the **seed backup**, which
+takes minutes. That strictly dominates the wait anybody would think to manage: MetalLB assigns a
+LoadBalancer address within seconds of the Service appearing, so by the time there is a
+`status.destination` string to restore from, the source's per-pod addresses have been readable for
+minutes. So the replica's `sourcesList` is *read* off `kubectl get svc` at the moment it is needed
+(`k3dReplSourceHosts`) rather than predicted, pinned to a reserved MetalLB sub-pool, or waited on.
+Nothing to arrange, and no race to lose.
+
+**The ordering that does matter is a different one.** The replica's `cr.yaml` deliberately ships
+with *no* `replicationChannels` at all. A cluster carrying `isSource: false` on its first reconcile
+attaches with `AUTO_POSITION` to a GTID set whose binary logs the source has already purged — its
+own pods joined by SST — and the IO thread stops with error 1236. The restore is what gives the
+replica the source's GTID history; the channel goes on after it, patched in by the reconciler. The
+user's own `cr.yaml` had the channel in the file, but they had applied it after the restore, so the
+file on disk did not record the order that made it work.
+
+**The canvas link joins two frames, not two nodes** — the only one that does. A Kubernetes cluster's
+identity here *is* its frame: its member nodes are k3s servers, not database servers, so there is
+nothing else to draw between. `tryConnect`'s closing comment used to read "everything else
+(frame↔frame …) is not allowed"; now there is exactly one exception, and `k8sReplLinkable` is it,
+exported so the rule can be checked without driving the canvas.
+
+**Only one way.** The operator holds a cluster carrying an inbound channel read-only, so replicating
+both ways would leave a topology with nowhere to write — and a seed can only run in one direction
+anyway. Bidirectional is dropped from the dialog and the properties panel for this pairing, and a
+`bidir` edge arriving from a hand-edited design is treated as the one-way link it draws rather than
+silently expanded into two.
+
+**Seeding happens once.** The seed replaces the replica's data, so pressing Deploy again must not do
+it. The destination it restored from is recorded on the replica's members (`ReplSeededFrom`, read
+back through `k3dReplSeededFrom` *before* provisioning rewrites the rows), and its presence is what
+makes the phase idempotent: a redeploy reconciles the channel, prunes one whose edge has been taken
+off the canvas, and never restores. Re-seeding is a button on the new **Replication** tab and its own
+endpoint.
+
+**Design-time validation is where the real constraints are stated.** Both clusters must run the PXC
+operator; both need a SeaweedFS store and it must be the *same* one, because the replica restores
+from the source's bucket with its own credentials and can only open the store it was given; and the
+address arithmetic has to fit — a source spends one MetalLB address per database pod on top of its
+proxy tier, out of the eight `k3dPoolSize` gives a cluster. The source's *Database Service* setting
+is overridden to LoadBalancer rather than obeyed, because a ClusterIP is reachable from inside its
+own cluster and nowhere else; that is a warning at design time and a line in the node's log at
+deploy.
+
+**A cr.yaml footgun found along the way, and closed.** `crTransform` inserts `expose:` at the top of
+a section and leaves cr.yaml's own commented-out `expose:` example in place further down — and
+uncommenting that block is the obvious thing to do. The user's hand-edited cluster had two `expose:`
+keys in one map because of it; non-strict decoding took the last, which is why it worked, and
+`--server-side` would have rejected the document. The transform now writes a three-line note above
+any shipped block whose key it has already set. The same shape would have applied to
+`replicationChannels` the moment this feature existed, which is what made it worth fixing here.
+
+**Two bugs that only a live deploy was ever going to find**, both of them in the seam between "this
+compiles and its tests pass" and "this runs inside a real deploy":
+
+**Four bugs that only a live deploy was ever going to find**, all of them in the seam between
+"this compiles and its tests pass" and "this runs against a real cluster":
+
+1. The first deploy failed the link within a second of pressing Deploy: `frame cluster1 is not
+   running (provisioning)`. The deploy hands every frame to a goroutine and returns, so when this
+   phase starts the clusters it is about to link have not been created yet. `reconcileReplication`
+   next door has always known this — `waitNodeRunning` — and this did not. `k3dReplWaitFrame` is the
+   fix.
+2. The next got as far as creating the seed backup and had it rejected by the API server:
+   `PerconaXtraDBClusterBackup "dbcanvas-seed-cluster1_to_cluster2" is invalid`. A MySQL channel name
+   and a Kubernetes object name are not the same alphabet — the channel this generates uses
+   underscores, an RFC 1123 subdomain does not allow them, and `sanitizeName` (a *hostname* helper)
+   passes them straight through. `k3dReplObjectName` derives the name from the cluster names and
+   enforces the rule instead of assuming its input already meets it.
+3. The third was caught one step before it fired, by calling the new status endpoint against the
+   live source: it reported no addresses at all for a cluster whose three per-pod Services plainly
+   had them. The operator labels those `app.kubernetes.io/component: external-service`, not `pxc`, so
+   the obvious `component=pxc` query returned only the headless `<cluster>-pxc` Service and its
+   `-unready` twin. The query is now deliberately broad — everything the cluster owns — and the
+   discrimination happens on the one property that actually means "this Service is one database
+   pod": a `statefulset.kubernetes.io/pod-name` selector. That also drops the proxy tier, which
+   *does* have a LoadBalancer address and is emphatically not a replication source.
+
+4. And the last came out of pressing the Re-seed button rather than reasoning about it. The seed
+   backup's object name is deterministic per link, so a re-seed applied over the Succeeded object
+   from the previous one, changed nothing, and was handed *that* backup's destination — restoring
+   the replica to where the source had been an hour earlier while reporting a fresh seed. The
+   previous object is now deleted first. That does not touch what is in S3: the operator only
+   removes the data when the delete-backup finalizer is set, and cr.yaml ships it commented out.
+
+All four have regression tests. Two run against a real store
+(`TestK3DReplWaitsForAFrameStillDeploying`, `TestK3DReplPruneRunsWithNoLinksLeft`); the fourth needed
+an ordering that exists only as a sequence of kubectl calls, so `recordingEngine` records them —
+`engCtx` reads the engine off the context, so injecting one takes no surgery, and the `Engine`
+interface is *embedded* rather than implemented so a method the test does not provide panics by name
+instead of silently doing nothing. It named `ExecInput` on the first run, which is how
+`kubectlApply` pipes its manifest. Each was confirmed non-vacuous by reverting the fix and watching
+the test fail — for the first two, with the same message the deploy had printed.
+
+**Pruning had two holes, found by reading it rather than running it.** Removing the *last* link
+leaves no links at all — and an early `len(links) == 0 → return` would have skipped the prune
+entirely and left that cluster replicating for good, which is the one case the phase most obviously
+owes an answer to. And a frame is re-provisioned on a redeploy, so asking for its container straight
+out skipped a cluster that was merely still coming up; the stale channel survives that, because it
+was added with `kubectl patch` and re-applying a `cr.yaml` that never mentioned it does not take it
+away. So the recorded role is read first, from whatever state the frame is in, and only a cluster
+that *was* a replica is then waited for.
+
+**The cr.yaml tests still skip on a fresh clone, and that is deliberate.** `TestCRTransform` has
+been skipping for want of `app/testdata/cr.yaml`, and the two new transform tests
+(`TestCRSourceChannel`, `TestCRNoChannelWhenNotASource`) skip the same way. The fixture is the
+operator's own 826-line `cr.yaml` — the exact input this transform exists to rewrite — and dropping
+a verbatim copy of an upstream file into the tree is not something to do by reflex, so it is not
+committed. To run those three locally:
+
+```sh
+mkdir -p app/testdata && curl -sL -o app/testdata/cr.yaml \
+  https://raw.githubusercontent.com/percona/percona-xtradb-cluster-operator/v1.20.0/deploy/cr.yaml
+```
+
+Every test that does not need it runs regardless — the link resolution, the validation rules, the
+restore manifest, the object naming, the waits and the pruning are all independent of it. The wider
+missing corpus still accounts for the bulk of `go test ./app` (§365).
+
+**Verified** end to end on a live two-cluster stack deployed from the new template, with nothing run
+by hand. Validation before Deploy: two warnings, no errors — the destructive seed and the overridden
+Service type. The source's `cr.yaml` carried `replicationChannels: [{cluster1_to_cluster2, isSource:
+true}]` and a single `expose: LoadBalancer`; the replica's carried no live channel at all. Both
+clusters built concurrently. The seed backup landed at
+`s3://backup1/cluster1-2026-09-09-03:31:46-full`, and the restore DBCanvas generated from its status
+named the *source's* bucket with the *replica's* credentials, carried `forcePathStyle` through, and
+mentioned no `storageName` — after it, `cluster2`'s `gtid_executed` was
+`31fc491c-abfe-11f1-840f-4e133b81515c:1-18`, identical to `cluster1`'s. The channel then attached
+with all three per-pod addresses, `Replica_IO_Running` and `Replica_SQL_Running` both `Yes`, zero
+seconds behind; a row written on `cluster1` read back on `cluster2-pxc-2`, a non-writer node, with
+`read_only = 1`. A redeploy logged *"already seeded … reconciling the channel only"* and did not
+restore. Re-seed was exercised twice: once before the fix (returning the first seed's timestamp,
+which is how #4 was caught) and once after, which took a new backup —
+`…03:50:52-full` — and left both the pre-existing row and one written afterwards on the replica.

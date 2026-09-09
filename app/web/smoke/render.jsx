@@ -34,7 +34,9 @@ import {
   BuildImageRow,
   BigHoleForm, BigHoleManager, BigHoleLink,
   nodeCardTip, memberCardTip,
+  k8sReplLinkable, ReplicationLinkForm, ReplicationLinkChoices,
 } from '../src/pages/StackDesigner.jsx'
+import { ReplicationView } from '../src/pages/K3DManager.jsx'
 import OperatorSummary, { Verdicts as OpVerdicts, Findings as OpFindings, Workloads as OpWorkloads, Pods as OpPods, CRs as OpCRs, Operators as OpOperators, Deployment as OpDeployment, Images as OpImages, Secrets as OpSecrets, Backups as OpBackups, Certs as OpCerts, Storage as OpStorage, Logs as OpLogs, Galera as OpGalera, PodSummaries as OpPodSummaries, BackupLogs as OpBackupLogs, Extras as OpExtras } from '../src/pages/OperatorSummary.jsx'
 import { PageVisibleProvider, usePolling, usePageVisible } from '../src/lib/usePolling.jsx'
 import { openTab, closeTab, tabCounts, clampTabs, TABS_DEFAULT, TABS_MIN, TABS_MAX } from '../src/lib/tabs.js'
@@ -1196,6 +1198,85 @@ check('every K3D operator maps a Stock Market Sim node to an engine', () => {
   // reports rather than guessing an engine for.
   if (ssLinkEngine({ kind: 'k3d', operator: '' })) throw new Error('an operator-less frame should have no engine')
   return 'ok'
+})
+
+// --- cross-cluster replication between two Kubernetes clusters (app/k3drepl.go) ---
+
+// The one frame-to-frame line on the canvas. Its rule has to stay narrow: two DIFFERENT frames,
+// both Kubernetes, both running the PXC operator — the only operator whose custom resource can
+// replicate from another cluster. Every other pairing is a line that would deploy into nothing.
+check('a Kubernetes replication link needs two different PXC-operator clusters', () => {
+  const k = (id, operator) => ({ id, type: 'k3d', k3dOperator: operator })
+  const a = k('f1', 'pxc')
+  const b = k('f2', 'pxc')
+  if (!k8sReplLinkable(a, b)) throw new Error('two PXC-operator clusters must be linkable')
+  if (k8sReplLinkable(a, a)) throw new Error('a cluster must not link to itself')
+  if (k8sReplLinkable(a, k('f2', 'psmdb'))) throw new Error('only the PXC operator replicates cross-cluster')
+  if (k8sReplLinkable(a, k('f2', ''))) throw new Error('a frame with no operator has no cluster to replicate')
+  if (k8sReplLinkable(a, { id: 'f3', type: 'pxc' })) throw new Error('a bare-metal PXC frame is not a Kubernetes cluster')
+  if (k8sReplLinkable(a, null)) throw new Error('a missing frame is not linkable')
+  return 'ok'
+})
+
+const k8sFrames = [
+  { id: 'kf1', type: 'k3d', label: 'cluster1', k3dOperator: 'pxc' },
+  { id: 'kf2', type: 'k3d', label: 'cluster2', k3dOperator: 'pxc' },
+]
+const k8sEdge = { id: 'e1', type: 'async', from: { node: 'kf1', port: 'right' }, to: { node: 'kf2', port: 'left' } }
+
+// Both dialogs now take either two member nodes or two Kubernetes frames, and read their labels
+// from a different list in each case. A frame endpoint looked up in `nodes` is undefined, which is
+// how this used to render "node → node" with no way to tell the clusters apart.
+check('the replication dialogs name Kubernetes clusters, and drop bidirectional', () => {
+  const html = renderToString(
+    <ReplicationLinkChoices prompt={{ e1: k8sEdge.from, e2: k8sEdge.to, kind: 'k8s' }}
+      nodes={[]} frames={k8sFrames} onClose={noop} onChoose={noop} />)
+  if (!html.includes('cluster1') || !html.includes('cluster2')) throw new Error('the cluster labels are missing')
+  if (html.includes('↔')) throw new Error('bidirectional must not be offered between Kubernetes clusters')
+  return html
+})
+
+check('the replication link form reads a frame endpoint', () => {
+  const html = renderToString(
+    <ReplicationLinkForm ed={k8sEdge} nodes={[]} frames={k8sFrames} patchEdge={noop} deleteEdge={noop} />)
+  if (!html.includes('cluster1') || !html.includes('cluster2')) throw new Error('the cluster labels are missing')
+  if (html.includes('bidirectional')) throw new Error('bidirectional must not be offered between Kubernetes clusters')
+  return html
+})
+
+// The member-to-member shape has to keep working unchanged — it is the same two components.
+check('the replication dialogs still name cluster members', () => {
+  const memberNodes = [
+    { id: 'n1', type: 'pxc', label: 'pxc-01', frameId: 'f1' },
+    { id: 'n2', type: 'pxc', label: 'pxc-02', frameId: 'f2' },
+  ]
+  const memberFrames = [{ id: 'f1', type: 'pxc', label: 'clusterA' }, { id: 'f2', type: 'pxc', label: 'clusterB' }]
+  const ed = { id: 'e2', type: 'async', from: { node: 'n1', port: 'right' }, to: { node: 'n2', port: 'left' } }
+  const modal = renderToString(
+    <ReplicationLinkChoices prompt={{ e1: ed.from, e2: ed.to }} nodes={memberNodes} frames={memberFrames} onClose={noop} onChoose={noop} />)
+  if (!modal.includes('pxc-01') || !modal.includes('clusterA')) throw new Error('the member and its cluster must both show')
+  if (!modal.includes('↔')) throw new Error('bidirectional is still offered between cluster members')
+  const form = renderToString(
+    <ReplicationLinkForm ed={ed} nodes={memberNodes} frames={memberFrames} patchEdge={noop} deleteEdge={noop} />)
+  if (!form.includes('bidirectional')) throw new Error('bidirectional is still offered between cluster members')
+  return modal + form
+})
+
+// Every state the Replication tab can be in. `running` has three values, not two — absent means
+// "nothing to read yet", and rendering that as "stopped" would be a lie about a healthy cluster.
+check('the Replication tab renders every state', () => {
+  const cases = [
+    { isServer: false },
+    { isServer: true, err: 'cluster is not running' },
+    { isServer: true },
+    { isServer: true, view: { role: '' } },
+    { isServer: true, view: { role: 'source', channel: 'cluster1_to_cluster2', cluster: 'cluster1', peer: 'cluster2', exposed: ['172.20.255.248'] } },
+    { isServer: true, view: { role: 'replica', channel: 'cluster1_to_cluster2', cluster: 'cluster2', peer: 'cluster1', sources: ['172.20.255.248'], seededFrom: 's3://backup1/cluster1-full', running: true } },
+    { isServer: true, view: { role: 'replica', channel: 'cluster1_to_cluster2', cluster: 'cluster2', peer: 'cluster1', running: false, ioRunning: 'Connecting', sqlRunning: 'Yes', lastError: 'error connecting to source' } },
+    { isServer: true, view: { role: 'replica', channel: 'cluster1_to_cluster2', cluster: 'cluster2', peer: 'cluster1' }, note: 're-seeding cluster2' },
+  ]
+  return cases.map((c) => renderToString(
+    <ReplicationView view={c.view} err={c.err} note={c.note} busy={false} isServer={c.isServer} onRefresh={noop} onReseed={noop} />)).join('')
 })
 
 // ---- Stalk Summary: verdicts and the two-archive comparison ----

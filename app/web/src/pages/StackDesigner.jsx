@@ -919,6 +919,19 @@ const pxcVersionLabel = (f) => `Percona XtraDB Cluster ${f?.pxcVersion || f?.pxc
 // a secondary, and which added members default to 'secondary'.
 export const REPL_FRAME_TYPES = new Set(['mysql', 'mariadbrepl', 'mysqlcerepl'])
 
+// k8sReplLinkable — may a replication link be drawn between these two Kubernetes frames?
+//
+// Both must run the PXC operator: of the six operators a K3D frame can install, it is the only
+// one whose custom resource can replicate from another cluster (`pxc.replicationChannels`). And
+// they must be two different frames — a cluster already replicates within itself, that is what
+// Galera is. Exported so the rule can be checked without driving the canvas; tryConnect is its
+// only caller.
+export function k8sReplLinkable(f1, f2) {
+  if (!f1 || !f2 || f1.id === f2.id) return false
+  if (f1.type !== 'k3d' || f2.type !== 'k3d') return false
+  return f1.k3dOperator === 'pxc' && f2.k3dOperator === 'pxc'
+}
+
 // frameMemberSub is the one-line description under a cluster member's name on the
 // canvas.
 //
@@ -2548,8 +2561,22 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       setReplPrompt({ e1, e2 })
       return
     }
-    // Everything else (frame↔frame, ProxySQL cluster frame as source, node↔cluster
-    // frame, self) is not allowed.
+    // Kubernetes frame ↔ Kubernetes frame, both running the PXC operator: a
+    // cross-cluster replication link between two operator-managed clusters. This is
+    // the one frame↔frame connection there is, and it has to be one: a Kubernetes
+    // cluster's identity on the canvas is its frame — its member nodes are k3s
+    // servers, not database servers, so there is nothing else to draw between.
+    // Only async is offered. The operator holds a cluster carrying an inbound
+    // channel read-only, so replicating both ways would leave nowhere to write.
+    if (k1 === 'k3d' && k2 === 'k3d') {
+      const f1 = refs.current.frames.find((x) => x.id === e1.node)
+      const f2 = refs.current.frames.find((x) => x.id === e2.node)
+      if (!k8sReplLinkable(f1, f2)) return
+      setReplPrompt({ e1, e2, kind: 'k8s' })
+      return
+    }
+    // Everything else (the remaining frame↔frame pairs, ProxySQL cluster frame as
+    // source, node↔cluster frame, self) is not allowed.
   }
   // createReplEdge adds a cross-cluster replication link. mode "async" → From is the
   // source, To the replica (arrow at the replica). mode "bidir" → both replicate
@@ -10649,7 +10676,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
   const ed = edges.find((x) => x.id === selected.id)
   if (!ed) return null
   if (ed.type === 'async' || ed.type === 'bidir') {
-    return <ReplicationLinkForm ed={ed} nodes={nodes} patchEdge={patchEdge} deleteEdge={deleteEdge} />
+    return <ReplicationLinkForm ed={ed} nodes={nodes} frames={frames} patchEdge={patchEdge} deleteEdge={deleteEdge} />
   }
   // An association line, and the separator says so: ↔, not →. Which end was drawn
   // first is an artifact of the gesture — everything that reads these edges walks
@@ -10673,19 +10700,22 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
 // (either direction) and bidirectional, or delete it. Changes take effect on the
 // next Deploy (replication is reconciled at deploy time). Options are anchored to a
 // stable node pair (sorted ids) so the active choice doesn't jump when reversed.
-function ReplicationLinkForm({ ed, nodes, patchEdge, deleteEdge }) {
+export function ReplicationLinkForm({ ed, nodes, frames, patchEdge, deleteEdge }) {
   const ends = { [ed.from.node]: ed.from, [ed.to.node]: ed.to }
   const [idA, idB] = [ed.from.node, ed.to.node].sort()
   const endA = ends[idA]
   const endB = ends[idB]
-  const labelOf = (id) => nodes.find((n) => n.id === id)?.label || id
+  // A link between two Kubernetes frames has frame ids at its ends, not node ids.
+  const k8s = (frames || []).some((f) => f.id === ed.from.node)
+  const labelOf = (id) =>
+    nodes.find((n) => n.id === id)?.label || (frames || []).find((f) => f.id === id)?.label || id
   const lA = labelOf(idA)
   const lB = labelOf(idB)
   const current = ed.type === 'bidir' ? 'bidir' : (ed.from.node === idA ? 'ab' : 'ba')
   const opts = [
     { key: 'ab', label: `${lA} → ${lB}`, hint: 'async', apply: () => patchEdge(ed.id, { type: 'async', from: endA, to: endB }) },
     { key: 'ba', label: `${lB} → ${lA}`, hint: 'async', apply: () => patchEdge(ed.id, { type: 'async', from: endB, to: endA }) },
-    { key: 'bidir', label: `${lA} ↔ ${lB}`, hint: 'bidirectional', apply: () => patchEdge(ed.id, { type: 'bidir' }) },
+    ...(k8s ? [] : [{ key: 'bidir', label: `${lA} ↔ ${lB}`, hint: 'bidirectional', apply: () => patchEdge(ed.id, { type: 'bidir' }) }]),
   ]
   return (
     <div className="space-y-3">
@@ -10693,10 +10723,18 @@ function ReplicationLinkForm({ ed, nodes, patchEdge, deleteEdge }) {
         <span className="text-sm font-semibold">Replication link</span>
         <Badge tone="success">{ed.type === 'bidir' ? 'bidirectional' : 'async'}</Badge>
       </div>
-      <p className="text-xs text-muted">
-        Cross-cluster replication between two cluster members. The arrow points from source to replica;
-        bidirectional makes each a replica of the other. Applied (and reconciled) on the next Deploy.
-      </p>
+      {k8s ? (
+        <p className="text-xs text-muted">
+          Cross-cluster replication between two PXC-operator Kubernetes clusters. The arrow points from source to
+          replica. On the next Deploy the replica is restored from a backup of the source — <span className="font-semibold">replacing
+          its data</span> — and then follows it read-only. Reversing the arrow re-seeds the other way.
+        </p>
+      ) : (
+        <p className="text-xs text-muted">
+          Cross-cluster replication between two cluster members. The arrow points from source to replica;
+          bidirectional makes each a replica of the other. Applied (and reconciled) on the next Deploy.
+        </p>
+      )}
       <div className="space-y-2">
         {opts.map((o) => (
           <button key={o.key} onClick={o.apply}
@@ -10720,27 +10758,56 @@ function ReplicationLinkForm({ ed, nodes, patchEdge, deleteEdge }) {
 
 // ReplicationLinkModal asks for the direction/type when a replication link is drawn
 // between two cluster members (PXC or Percona Server, in different frames).
-function ReplicationLinkModal({ prompt, nodes, frames, onClose, onChoose }) {
-  const { e1, e2 } = prompt
-  const node = (id) => nodes.find((n) => n.id === id)
-  const n1 = node(e1.node)
-  const n2 = node(e2.node)
-  const frameLabel = (n) => frames.find((f) => f.id === n?.frameId)?.label || ''
-  const l1 = n1?.label || 'node'
-  const l2 = n2?.label || 'node'
-  const opts = [
-    { from: e1, to: e2, mode: 'async', label: `${l1} → ${l2}`, hint: 'async — replica reads from source' },
-    { from: e2, to: e1, mode: 'async', label: `${l2} → ${l1}`, hint: 'async — replica reads from source' },
-    { from: e1, to: e2, mode: 'bidir', label: `${l1} ↔ ${l2}`, hint: 'bidirectional — each replicates from the other' },
-  ]
+export function ReplicationLinkModal({ prompt, nodes, frames, onClose, onChoose }) {
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
       <div className="w-full max-w-sm rounded-xl border bg-surface p-5 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+        <ReplicationLinkChoices prompt={prompt} nodes={nodes} frames={frames} onClose={onClose} onChoose={onChoose} />
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+// ReplicationLinkChoices is the dialog's contents, separated from the portal that positions it:
+// react-dom's server renderer cannot render a portal at all, and this is the half worth checking
+// off-browser — which labels it reads, and which directions it offers.
+export function ReplicationLinkChoices({ prompt, nodes, frames, onClose, onChoose }) {
+  const { e1, e2 } = prompt
+  // Two shapes reach this dialog. Between cluster *members* the endpoints are nodes and the
+  // parenthetical says which cluster each is in; between two Kubernetes *frames* the endpoint
+  // IS the cluster, so there is nothing to qualify it with. See tryConnect.
+  const k8s = prompt.kind === 'k8s'
+  const node = (id) => nodes.find((n) => n.id === id)
+  const frame = (id) => frames.find((f) => f.id === id)
+  const n1 = node(e1.node)
+  const n2 = node(e2.node)
+  const frameLabel = (n) => frames.find((f) => f.id === n?.frameId)?.label || ''
+  const l1 = (k8s ? frame(e1.node)?.label : n1?.label) || 'node'
+  const l2 = (k8s ? frame(e2.node)?.label : n2?.label) || 'node'
+  const opts = [
+    { from: e1, to: e2, mode: 'async', label: `${l1} → ${l2}`, hint: 'async — replica reads from source' },
+    { from: e2, to: e1, mode: 'async', label: `${l2} → ${l1}`, hint: 'async — replica reads from source' },
+    // Bidirectional is a MySQL-family-only option. The PXC operator holds a cluster that carries
+    // an inbound channel read-only, so two-way between operator clusters has nowhere to write.
+    ...(k8s ? [] : [{ from: e1, to: e2, mode: 'bidir', label: `${l1} ↔ ${l2}`, hint: 'bidirectional — each replicates from the other' }]),
+  ]
+  return (
+    <>
         <h3 className="mb-1 text-sm font-semibold">Set up replication</h3>
-        <p className="mb-3 text-xs text-muted">
-          Between <span className="font-semibold">{l1}</span> ({frameLabel(n1)}) and <span className="font-semibold">{l2}</span> ({frameLabel(n2)}).
-          Configured at deploy time (GTID auto-position when both clusters use GTID, else binlog file/position).
-        </p>
+        {k8s ? (
+          <p className="mb-3 text-xs text-muted">
+            Between the Kubernetes clusters <span className="font-semibold">{l1}</span> and <span className="font-semibold">{l2}</span>.
+            On deploy, the replica is <span className="font-semibold">restored from a backup of the source</span> — replacing whatever
+            is in it — and the operator then holds it read-only. The source's database pods get a per-pod LoadBalancer so the replica
+            can reach them.
+          </p>
+        ) : (
+          <p className="mb-3 text-xs text-muted">
+            Between <span className="font-semibold">{l1}</span> ({frameLabel(n1)}) and <span className="font-semibold">{l2}</span> ({frameLabel(n2)}).
+            Configured at deploy time (GTID auto-position when both clusters use GTID, else binlog file/position).
+          </p>
+        )}
         <div className="space-y-2">
           {opts.map((o, i) => (
             <button key={i} onClick={() => onChoose(o.from, o.to, o.mode)}
@@ -10753,8 +10820,6 @@ function ReplicationLinkModal({ prompt, nodes, frames, onClose, onChoose }) {
         <div className="mt-4 flex justify-end">
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
         </div>
-      </div>
-    </div>,
-    document.body,
+    </>
   )
 }

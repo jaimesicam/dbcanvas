@@ -63,6 +63,17 @@ type crOptions struct {
 	ExposeProxySQL string
 	PMMHost        string // "" = leave PMM disabled
 	S3             *crS3  // nil = leave the shipped (placeholder) storages alone
+	// SourceChannel names the cross-cluster replication channel this cluster is the *source* of
+	// ("" = not a source). It emits `replicationChannels: [{name, isSource: true}]`, which is all
+	// the source end of a link needs — the operator grants the replication user from it.
+	//
+	// There is deliberately no replica-side equivalent. A replica's `sourcesList` is the source's
+	// per-pod LoadBalancer addresses, which do not exist yet when this file is written, and — more
+	// importantly — a replica that carries `isSource: false` from its first reconcile attaches
+	// AUTO_POSITION to a GTID set whose binlogs the source has already purged, and the IO thread
+	// dies with 1236. The replica's channel is patched in after its seed restore, by
+	// reconcileK3DReplication (k3drepl.go).
+	SourceChannel string
 }
 
 // crExposeFor is the Service type for a section, or "" when that section should be left as shipped.
@@ -119,6 +130,14 @@ func crTransform(src string, o crOptions) string {
 	dropTo := -1        // >=0: dropping lines (the shipped backup storages) until this indent
 	inStorages := false
 	pvc := newCRPVC()
+	// inserted holds the 4-space keys this transform has written into the *current* section, so
+	// the shipped commented-out example of the same key can be marked when we reach it. See
+	// crDuplicateWarning: cr.yaml documents `expose:` (and `replicationChannels:`) as a commented
+	// block further down the section it was just inserted into, and uncommenting that block is the
+	// obvious thing to do — which silently produces two of the same key in one map. Non-strict
+	// decoding takes the last one, `--server-side` rejects the whole document, and either way the
+	// file no longer says what it does. Observed live on a hand-edited cluster.
+	inserted := map[string]bool{}
 
 	for _, ln := range lines {
 		ind, commented, body := crLine(ln)
@@ -161,6 +180,7 @@ func crTransform(src string, o crOptions) string {
 		if !commented && ind == 2 && strings.HasSuffix(body, ":") {
 			section = strings.TrimSuffix(body, ":")
 			out = append(out, ln)
+			clear(inserted)
 			// cr.yaml ships every expose block commented out, so the chosen Service type is
 			// *inserted* at the top of the section rather than uncommented (the commented
 			// examples carry cloud-specific keys we do not want).
@@ -168,9 +188,24 @@ func crTransform(src string, o crOptions) string {
 				if expose := o.crExposeFor(section); expose != "" {
 					for _, b := range blocks {
 						out = append(out, crIndent(fmt.Sprintf(b, expose), 4)...)
+						inserted[crBlockKey(b)] = true
 					}
 				}
 			}
+			// The source end of a cross-cluster replication link. Same shape, same reason: the
+			// shipped block is commented out, so this is inserted rather than uncommented.
+			if section == "pxc" && o.SourceChannel != "" {
+				block := fmt.Sprintf("replicationChannels:\n- name: %s\n  isSource: true", o.SourceChannel)
+				out = append(out, crIndent(block, 4)...)
+				inserted["replicationChannels"] = true
+			}
+			continue
+		}
+
+		// The shipped commented-out example of a key that was just inserted above it.
+		if commented && ind == 4 && inserted[strings.TrimSuffix(body, ":")] {
+			out = append(out, crDuplicateWarning(strings.TrimSuffix(body, ":")))
+			out = append(out, ln)
 			continue
 		}
 
@@ -220,6 +255,22 @@ func crTransform(src string, o crOptions) string {
 	}
 	_ = inStorages
 	return strings.Join(out, "\n")
+}
+
+// crBlockKey is the top-level key a crExposeBlocks template declares ("expose:\n  enabled…" →
+// "expose"), which is what has to be matched against the shipped commented example further down.
+func crBlockKey(block string) string {
+	head, _, _ := strings.Cut(block, "\n")
+	return strings.TrimSuffix(strings.TrimSpace(head), ":")
+}
+
+// crDuplicateWarning is the line written above a commented-out block whose key this transform has
+// already set higher up the same section. It is a comment, so it changes nothing the operator
+// reads — it exists for the person who opens the file in /root and reaches for that block.
+func crDuplicateWarning(key string) string {
+	return "#    NOTE: `" + key + "` is already set at the top of this section, from the frame's\n" +
+		"#    settings. Uncommenting the block below would put two `" + key + "` keys in one map:\n" +
+		"#    edit the one above instead."
 }
 
 // crSeaweedStorage is the one backup storage a K3D cluster gets: the stack's SeaweedFS node.

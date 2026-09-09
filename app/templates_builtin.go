@@ -104,6 +104,13 @@ var builtinTemplateDefs = []struct {
 		Design:      tplK3DPXCOperatorDesign,
 	},
 	{
+		Slug:        "k3d-pxc-replication",
+		Name:        "Kubernetes — PXC operator, two clusters replicating",
+		Description: "Two k3s clusters, each running the Percona Operator for MySQL (PXC), with a replication link between them. On deploy the second is restored from a backup of the first and then follows it read-only — Percona's \"restore to a new cluster\" and cross-site replication procedures, done for you.",
+		Category:    "Kubernetes",
+		Design:      tplK3DPXCReplicationDesign,
+	},
+	{
 		Slug:        "aio-playground",
 		Name:        "All-in-One playground",
 		Description: "One container running a Percona Server, a PostgreSQL, a PSMDB and a Valkey instance side by side. The cheapest way to have four engines up at once.",
@@ -297,6 +304,49 @@ var tplK3DPXCOperatorDesign = json.RawMessage(`{
      "pmmNodeId":"","seaweedfsNodeId":"","x":560,"y":20,"w":400,"h":138}
   ],
   "edges": [],
+  "view": {"x":0,"y":0,"z":1}
+}`)
+
+// Two PXC-operator clusters and a replication link between them.
+//
+// The interesting parts are the edge (`"type":"async"`, drawn frame to frame — a Kubernetes
+// cluster's identity on the canvas is its frame) and the shared SeaweedFS node with a bucket each:
+// the seed is a backup written to cluster1's bucket and read back by cluster2, which can only
+// reach it because both clusters' S3 credentials come from the same store. `k3dExposePxc` is left
+// at clusterip on both — the deploy overrides the source's to LoadBalancer, because that is the
+// only thing a replica in another cluster can dial, and says so in its log.
+var tplK3DPXCReplicationDesign = json.RawMessage(`{
+  "nodes": [
+    {"id":"tpl-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
+    {"id":"tpl-k3s-1","type":"k3d","label":"k3s-1","frameId":"tpl-k3d-1","x":354,"y":66},
+    {"id":"tpl-k3s-2","type":"k3d","label":"k3s-2","frameId":"tpl-k3d-2","x":774,"y":66},
+    {"id":"tpl-seaweed","type":"seaweedfs","label":"seaweedfs-01","bucket":"backup1","buckets":["backup1","backup2"],"tls":false,"x":560,"y":240}
+  ],
+  "frames": [
+    {"id":"tpl-k3d-1","type":"k3d","label":"cluster1","k3dNodes":1,"k3dCpus":4,"k3dMemoryGb":8,"k3dK3sVersion":"",
+     "k3dOperator":"pxc","k3dOperatorVer":"","k3dNamespace":"default",
+     "k3dProxy":"haproxy","k3dExposePxc":"clusterip","k3dExposeHaproxy":"loadbalancer","k3dExposeProxysql":"loadbalancer",
+     "k3dSharding":false,"k3dExposeReplset":"clusterip","k3dExposeMongos":"loadbalancer",
+     "k3dExposePg":"clusterip","k3dExposePgbouncer":"loadbalancer",
+     "k3dPgoInstances":2,"k3dPgoStorageGb":1,"k3dPgoVersion":"",
+     "k3dClusterType":"group-replication","k3dExposeMysql":"clusterip","k3dExposeRouter":"loadbalancer",
+     "k3dPmmTokenTtlValue":365,"k3dPmmTokenTtlUnit":"days",
+     "k3dDebug":false,"k3dDebugPort":40000,"k3dDebugNoPublish":false,
+     "pmmNodeId":"","seaweedfsNodeId":"tpl-seaweed","seaweedfsBucket":"backup1","x":340,"y":20,"w":220,"h":138},
+    {"id":"tpl-k3d-2","type":"k3d","label":"cluster2","k3dNodes":1,"k3dCpus":4,"k3dMemoryGb":8,"k3dK3sVersion":"",
+     "k3dOperator":"pxc","k3dOperatorVer":"","k3dNamespace":"default",
+     "k3dProxy":"haproxy","k3dExposePxc":"clusterip","k3dExposeHaproxy":"loadbalancer","k3dExposeProxysql":"loadbalancer",
+     "k3dSharding":false,"k3dExposeReplset":"clusterip","k3dExposeMongos":"loadbalancer",
+     "k3dExposePg":"clusterip","k3dExposePgbouncer":"loadbalancer",
+     "k3dPgoInstances":2,"k3dPgoStorageGb":1,"k3dPgoVersion":"",
+     "k3dClusterType":"group-replication","k3dExposeMysql":"clusterip","k3dExposeRouter":"loadbalancer",
+     "k3dPmmTokenTtlValue":365,"k3dPmmTokenTtlUnit":"days",
+     "k3dDebug":false,"k3dDebugPort":40000,"k3dDebugNoPublish":false,
+     "pmmNodeId":"","seaweedfsNodeId":"tpl-seaweed","seaweedfsBucket":"backup2","x":760,"y":20,"w":220,"h":138}
+  ],
+  "edges": [
+    {"id":"tpl-repl","type":"async","from":{"node":"tpl-k3d-1","port":"right"},"to":{"node":"tpl-k3d-2","port":"left"}}
+  ],
   "view": {"x":0,"y":0,"z":1}
 }`)
 

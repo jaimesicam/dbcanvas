@@ -38,6 +38,22 @@ type releaseNote struct {
 var whatsNewNotes = []releaseNote{
 	{
 		Version: "0.0.3",
+		Date:    "2026-09-09",
+		Title:   "Replicate one Kubernetes cluster into another",
+		Body: "Draw a link between two Kubernetes frames that both run the PXC operator, pick a " +
+			"direction, and Deploy: the second cluster becomes a replica of the first. DBCanvas runs " +
+			"Percona's own two procedures in the order they have to happen in — the source declares " +
+			"the channel and exposes its database pods so a replica can reach them, both clusters " +
+			"build at the same time, a backup of the source is taken and restored onto the replica, " +
+			"and only then is the replica's channel attached. Attaching it any earlier points the " +
+			"replica at binary logs the source has already purged. The server node's new Replication " +
+			"tab says which end a cluster is and whether the channel is running; Deploy reconciles the " +
+			"channel and never re-seeds, because a seed replaces the replica's data — that is its own " +
+			"button. Start from the new two-cluster template.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.3",
 		Date:    "2026-09-08",
 		Title:   "MClusterAdmin — a MongoDB administration panel",
 		Body: "A node that runs MClusterAdmin, a third-party web panel for MongoDB: topology and " +

@@ -37,7 +37,10 @@ Four things live on it, and everything below is a variation on them.
   cluster and a simulator driving one are both drawn as plain lines. The one link that *is*
   directional is a **cross-cluster replication link** between two cluster members, which is
   drawn with an arrow from source to replica (or a head at each end when it is bidirectional)
-  because there the direction is what you are choosing.
+  because there the direction is what you are choosing. The same arrow between **two Kubernetes
+  frames** sets up cross-cluster replication between two operator-managed PXC clusters — the one
+  link that joins two frames rather than two nodes, because a Kubernetes cluster's identity on the
+  canvas *is* its frame.
 - **The Properties panel** on the right edits whatever is selected. Every field has a `?`
   explaining what it is for and when you would change it.
 
@@ -332,6 +335,45 @@ from any other node in the stack — e.g. paste it into the **Linux Client** nod
 cluster's own CA — bound to a built-in ClusterRole (`view`/`edit`/`admin` scoped to one namespace,
 or `cluster-admin` cluster-wide), then copy that user's own kubeconfig and confirm exactly what it
 can and can't do.
+
+**Replicating one Kubernetes cluster into another.** Draw a link between two K3D frames that both
+run the **PXC operator** and pick a direction: on the next Deploy the second cluster becomes a
+replica of the first. There is nothing else to set up — start from the *Kubernetes — PXC operator,
+two clusters replicating* template, or add the link to two clusters you already have.
+
+What DBCanvas does with it is Percona's own two procedures, [*Restore to a new
+cluster*](https://docs.percona.com/percona-operator-for-xtradb-cluster/latest/backups-restore-to-new-cluster.html)
+and [*Set up cross-site
+replication*](https://docs.percona.com/percona-operator-for-xtradb-cluster/latest/replication.html),
+run in the order they have to happen in:
+
+1. The **source**'s `cr.yaml` declares the channel (`replicationChannels`, `isSource: true`), and
+   its database pods each get their own LoadBalancer address — a replica in another cluster cannot
+   reach a ClusterIP, so this overrides the frame's *Database Service* setting and says so in the
+   node's log.
+2. Both clusters deploy **at the same time**; the replica waits for nothing.
+3. Once both are ready, a **backup of the source** is taken to its SeaweedFS bucket.
+4. That backup is **restored onto the replica** — pointed at the *source's* bucket, which the
+   replica can open because both clusters' S3 credentials come from the same store. The cluster
+   pauses while this runs and comes back carrying the source's data and its GTID history.
+5. **Only then** is the replica's own channel attached, with the source's pod addresses as its
+   sources. Attaching it earlier would point the replica at binary logs the source has already
+   purged, and replication would stop with error 1236 instead of starting.
+
+Both clusters must use the **same SeaweedFS node** (each with its own bucket is fine, and is what
+the template does) — that is the one thing validation refuses to deploy without, along with the
+address arithmetic: a source spends one MetalLB address per database pod on top of its proxy tier,
+out of the eight a cluster's block holds.
+
+The server node's **Replication** tab is where it is afterwards: which end this cluster is, the
+channel, what it reads from or is reachable at, the backup it was seeded from, and — on the replica
+— whether the channel is actually running, with the IO/SQL thread state and the last error when it
+is not. **Re-seed** is there too, and it is the only thing that restores again: pressing Deploy
+reconciles the channel and never touches the data, because a seed replaces it. Take the link off
+the canvas and the next Deploy stops the channel and leaves the data where it is.
+
+> **Replicating is one-way.** The operator holds a cluster that carries an inbound channel
+> read-only, so bidirectional is not offered between Kubernetes clusters — write to the source.
 
 **S3 backups (SeaweedFS).** One SeaweedFS node can create **up to 10 buckets**, and every database
 that backs up to it — standalone PostgreSQL, Patroni, repmgr, the MongoDB clusters, and all four K3D

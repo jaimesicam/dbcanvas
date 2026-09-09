@@ -692,6 +692,10 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Delete a Kubernetes RBAC user and its bindings."},
 		{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/k3d/users/{username}/kubeconfig", Group: gK3D, Handler: m((*App).handleK3DUserKubeconfig),
 			Summary: "A kubeconfig scoped to one RBAC user, for testing what that role can actually do."},
+		{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/k3d/replication", Group: gK3D, Handler: m((*App).handleK3DReplication),
+			Summary: "Where a PXC-operator cluster sits in a cross-cluster replication link, and whether the channel is running."},
+		{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/k3d/replication/reseed", Group: gK3D, Handler: m((*App).handleK3DReplicationReseed),
+			Summary: "Restore a replica cluster again from a fresh backup of its source, replacing its data."},
 
 		// --- Operator Debugger --------------------------------------------------
 		{Method: "GET", Path: "/api/k3d/debug/targets", Group: gDebug, Handler: m((*App).handleK3DDebugTargets),

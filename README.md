@@ -163,6 +163,30 @@ yourself.
 ### 0.0.3
 
 <details open>
+<summary><b>Replicate one Kubernetes cluster into another</b></summary>
+
+Draw a link between two **Kubernetes frames that both run the PXC operator**, pick a direction,
+and press **Deploy**: the second cluster becomes a replica of the first. It is the one link on the
+canvas that joins two *frames* rather than two nodes, because a Kubernetes cluster's identity here
+is its frame.
+
+What runs is Percona's own
+[*Restore to a new cluster*](https://docs.percona.com/percona-operator-for-xtradb-cluster/latest/backups-restore-to-new-cluster.html)
+and [*cross-site replication*](https://docs.percona.com/percona-operator-for-xtradb-cluster/latest/replication.html),
+in the order they have to happen in. The source's `cr.yaml` declares the channel and its database
+pods each take a LoadBalancer address — a replica in another cluster cannot reach a ClusterIP.
+Both clusters build **at the same time**; the replica waits for nothing. Once both are ready a
+backup of the source is taken, restored onto the replica, and **only then** is the replica's own
+channel attached: attach it any earlier and it asks the source for binary logs it has already
+purged, and replication stops with error 1236 instead of starting.
+
+The server node's **Replication** tab shows which end a cluster is, what it reads from, the backup
+it was seeded from, and whether the channel is actually running. Pressing Deploy again reconciles
+the channel and never re-seeds — a seed replaces the replica's data, so that is a button of its
+own. [Kubernetes frames →](docs/STACKS.md)
+</details>
+
+<details>
 <summary><b>MClusterAdmin</b> — a MongoDB administration panel</summary>
 
 A node that runs [MClusterAdmin](https://github.com/PrzemekMalkowski/mclusteradmin), a

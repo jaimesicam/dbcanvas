@@ -58,6 +58,9 @@ const TABS = [
   { id: 'kubeconfig', label: 'Kubeconfig' },
   { id: 'users', label: 'Users' },
   { id: 'operator', label: 'Operator' },
+  // Only ever shown for a PXC-operator cluster that is one end of a replication link on the
+  // canvas — it is the one operator whose custom resource can replicate from another cluster.
+  { id: 'replication', label: 'Replication' },
   { id: 'diag', label: 'Diagnostics' },
 ]
 
@@ -160,6 +163,115 @@ function UsersTab({ stackId, frame, isServer }) {
   )
 }
 
+// ReplicationTab — where this cluster sits in a cross-cluster replication link, and whether it
+// is actually running. See app/k3drepl.go: the source declares the channel in its cr.yaml, the
+// replica is seeded from a backup of the source and only then has the channel patched in.
+function ReplicationTab({ stackId, frame, isServer }) {
+  const api = frame ? k3dApi(stackId, frame.id) : null
+  const [view, setView] = useState(null)
+  const [err, setErr] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState(null)
+
+  const load = () => {
+    if (!api) return
+    api.replication().then(setView).catch((e) => setErr(e.message))
+  }
+  useEffect(load, [frame?.id])
+
+  const reseed = async () => {
+    setNote(null); setErr(null); setBusy(true)
+    try { const r = await api.reseed(); setNote(r.message) } catch (e) { setErr(e.message) } finally { setBusy(false); load() }
+  }
+  return <ReplicationView view={view} err={err} note={note} busy={busy} isServer={isServer} onRefresh={load} onReseed={reseed} />
+}
+
+// ReplicationView is the rendering half, separated from the fetching half so every state it can be
+// in — not linked, source, replica running, replica stopped, still loading, errored — can be
+// rendered and checked without a server. See app/k3drepl.go for what produces `view`.
+export function ReplicationView({ view, err, note, busy, isServer, onRefresh, onReseed }) {
+  if (!isServer) {
+    return (
+      <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+        Replication is a property of the whole cluster — open its <span className="font-medium text-fg">server</span> node.
+      </div>
+    )
+  }
+  if (err) return <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{err}</div>
+  if (!view) return <div className="text-xs text-muted">Loading…</div>
+
+  if (!view.role) {
+    return (
+      <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+        This cluster is not part of a replication link. Draw one on the canvas between it and another Kubernetes
+        cluster running the PXC operator, then Deploy: the replica is restored from a backup of the source and
+        follows it read-only.
+      </div>
+    )
+  }
+
+  const isReplica = view.role === 'replica'
+  // Three states, not two. `running` is absent when there is nothing to read yet — a source, or a
+  // replica whose channel has not been attached — and saying "stopped" there would be a lie.
+  const runTone = view.running == null ? 'muted' : view.running ? 'success' : 'danger'
+  const runText = view.running == null ? 'not attached yet' : view.running ? 'running' : 'stopped'
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+        {isReplica
+          ? <>This cluster is a <span className="font-medium text-fg">replica</span> of <span className="font-mono">{view.peer}</span>. It
+            was restored from a backup of it and the operator holds it read-only — write to the source.</>
+          : <>This cluster is a <span className="font-medium text-fg">replication source</span> for <span className="font-mono">{view.peer}</span>. Its
+            database pods each have their own address so the replica can dial them.</>}
+      </div>
+
+      <div className="space-y-2 text-sm">
+        <KV k="Role" v={view.role} />
+        <KV k="Channel" v={view.channel} mono />
+        <KV k="This cluster" v={view.cluster} mono />
+        <KV k="Other cluster" v={view.peer} mono />
+        {isReplica && <KV k="Reads from" v={(view.sources || []).join(', ')} mono />}
+        {!isReplica && <KV k="Reachable at" v={(view.exposed || []).join(', ')} mono />}
+        {isReplica && <KV k="Seeded from" v={view.seededFrom} mono />}
+      </div>
+
+      {isReplica && (
+        <>
+          <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+            <span className="text-xs text-muted">Replication</span>
+            <Badge tone={runTone}>{runText}</Badge>
+          </div>
+          {view.running === false && (
+            <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[11px] leading-snug text-danger">
+              IO {view.ioRunning || '—'} · SQL {view.sqlRunning || '—'}
+              {view.lastError ? <div className="mt-1 font-mono">{view.lastError}</div> : null}
+            </div>
+          )}
+        </>
+      )}
+
+      {note && <div className="rounded-lg border px-3 py-2 text-[11px] leading-snug text-muted">{note}</div>}
+
+      <div className="flex gap-2">
+        <Button variant="ghost" size="sm" onClick={onRefresh} disabled={busy}>Refresh</Button>
+        {isReplica && (
+          <ConfirmButton variant="danger" size="sm" className="flex-1" disabled={busy} onConfirm={onReseed}
+            confirmLabel={`Replace ${view.cluster}'s data?`}>
+            Re-seed from {view.peer}
+          </ConfirmButton>
+        )}
+      </div>
+      {isReplica && (
+        <p className="text-[11px] leading-snug text-muted">
+          Deploy never re-seeds on its own — it only reconciles the channel — because the restore replaces this
+          cluster's data. This button is how you ask for it deliberately; watch the node's deployment log.
+        </p>
+      )}
+    </div>
+  )
+}
+
 export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }) {
   const [tab, setTab] = useState('overview')
   const { openTerminal } = useTerminals()
@@ -212,7 +324,9 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
       )}
 
       <div className="flex flex-wrap gap-1 rounded-lg bg-surface2 p-1">
-        {TABS.filter((t) => (t.id !== 'operator' || cfg.operator) && (t.id !== 'diag' || isServer)).map((t) => (
+        {TABS.filter((t) => (t.id !== 'operator' || cfg.operator)
+          && (t.id !== 'diag' || isServer)
+          && (t.id !== 'replication' || (cfg.operator === 'pxc' && isServer))).map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${tab === t.id ? 'bg-surface text-fg shadow' : 'text-muted'}`}>
             {t.label}
@@ -333,6 +447,7 @@ kubectl get svc -n ${ns}`} />
       )}
 
       {tab === 'users' && <UsersTab stackId={stackId} frame={frame} isServer={isServer} />}
+      {tab === 'replication' && <ReplicationTab stackId={stackId} frame={frame} isServer={isServer} />}
 
       {tab === 'diag' && (
         frame

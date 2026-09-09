@@ -1761,8 +1761,16 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	// *different* clusters, both with GTID enabled (auto-positioning); a server-id
 	// collision between the endpoints breaks replication.
 	replPairs := map[string]bool{}
+	k8sReplPairs := map[string]bool{}
 	for _, e := range doc.Edges {
 		if !isReplEdge(e) {
+			continue
+		}
+		// A link between two Kubernetes *frames* is the operator-managed kind (k3drepl.go), and has
+		// an entirely different set of rules. Checked first — the member lookup below cannot resolve
+		// a frame id and would reject it as "not two cluster members".
+		if kf, ok := k3dReplEdgeFrames(doc, e); ok {
+			out = append(out, k3dReplIssues(doc, kf, e, k8sReplPairs)...)
 			continue
 		}
 		src, fa, ok1 := replMember(doc, e.From.Node)
@@ -2098,6 +2106,17 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer endRepl()
 		a.reconcileReplication(replCtx, st, doc)
+	}()
+
+	// The same phase for replication links drawn between two Kubernetes frames: wait for both
+	// clusters, seed the replica from a backup of the source, then attach the channel. It is a
+	// separate goroutine from the one above because the two share nothing but the idea — that one
+	// talks to containers over docker exec, this one to two Kubernetes clusters through kubectl —
+	// and a stack can have both kinds of link. See k3drepl.go.
+	k8sReplCtx, endK8sRepl := a.deployScope(st.ID, a.eng(st))
+	go func() {
+		defer endK8sRepl()
+		a.reconcileK3DReplication(k8sReplCtx, st, doc)
 	}()
 
 	// Last of all: impair the links that were asked to be impaired. This runs
