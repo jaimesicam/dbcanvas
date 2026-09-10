@@ -21,6 +21,8 @@ import FTDCSummary from '../src/pages/FTDCSummary.jsx'
 import StalkSummary from '../src/pages/StalkSummary.jsx'
 import PacketInspector from '../src/pages/PacketInspector.jsx'
 import { ContextMenu, podMenuEntries } from '../src/pages/StackDesigner.jsx'
+import { Help } from '../src/components/Tooltip.jsx'
+import { SettingsCtx } from '../src/settings/SettingsProvider.jsx'
 
 const failures = []
 const record = (what, err) => failures.push(`${what}: ${err?.message || err}\n${(err?.stack || '').split('\n').slice(1, 4).join('\n')}`)
@@ -128,7 +130,7 @@ for (const [name, Page] of PAGES) {
 // parent, and that the leaf actually calls back with all four parts.
 const PODS = [
   { namespace: 'default', name: 'cluster1-pxc-0', phase: 'Running', containers: [
-    { name: 'pxc', state: 'running', ready: true },
+    { name: 'pxc', state: 'running', ready: true, clients: ['mysql'] },
     { name: 'pxc-init', state: 'terminated', ready: true, init: true },
   ] },
   { namespace: 'kube-system', name: 'coredns-abc', phase: 'Running', containers: [
@@ -190,10 +192,24 @@ async function drivePodMenu() {
   const panels = document.querySelectorAll('[data-menu-panel]')
   if (panels.length !== 5) throw new Error(`expected 5 open panels (root + 4 levels), found ${panels.length}`)
 
+  // A database container leads with its own client, above the shells: this is the row
+  // somebody opening a console on a pxc container came for, and it is a leaf like any
+  // other — the whole address, with `mysql` as the last part.
+  ;(await waitRow('mysql')).click()
+  if (picked.length !== 1) throw new Error(`the client leaf called back ${picked.length} times`)
+  const wantClient = { namespace: 'default', name: 'cluster1-pxc-0', container: 'pxc', shell: 'mysql' }
+  if (JSON.stringify(picked[0]) !== JSON.stringify(wantClient)) throw new Error(`picked ${JSON.stringify(picked[0])}`)
+
+  // The shells are still under it, and still reachable — the client row is an addition
+  // to that menu, not a replacement for it.
+  await open('Enter pod console')
+  await open('default')
+  await open('cluster1-pxc-0')
+  await open('pxc')
   ;(await waitRow('bash')).click()
-  if (picked.length !== 1) throw new Error(`the shell leaf called back ${picked.length} times`)
+  if (picked.length !== 2) throw new Error(`the shell leaf called back ${picked.length - 1} times`)
   const want = { namespace: 'default', name: 'cluster1-pxc-0', container: 'pxc', shell: 'bash' }
-  if (JSON.stringify(picked[0]) !== JSON.stringify(want)) throw new Error(`picked ${JSON.stringify(picked[0])}`)
+  if (JSON.stringify(picked[1]) !== JSON.stringify(want)) throw new Error(`picked ${JSON.stringify(picked[1])}`)
 
   // Hovering off the row and back on it must not ask the cluster again: the cache
   // lives as long as the open menu, and dies with it.
@@ -203,6 +219,54 @@ async function drivePodMenu() {
 }
 drivePodMenu().catch((err) => record('pod console menu', err))
 
+// ------------------------------------------------------------------ the tooltip switch
+//
+// Whether a bubble appears is the one thing about Settings → Tooltips that no SSR check
+// can see: the bubble is portalled on hover, after a delay, from a rect measured off the
+// live trigger. The render check next door can only prove the "?" is or is not in the
+// markup — this proves that hovering it does, and then does not, produce a tooltip.
+let tipsDone = false
+async function driveTooltipSwitch() {
+  const mount = (tooltips) => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    createRoot(host).render(
+      <SettingsCtx.Provider value={{ settings: { tooltips }, save: async () => {}, system: {}, saveSystem: async () => {}, loaded: true }}>
+        <Help text="what this control is for" />
+      </SettingsCtx.Provider>,
+    )
+    return host
+  }
+  // Longer than Tooltip's own OPEN_DELAY, which is what the hover is waiting out.
+  const settle = () => new Promise((r) => setTimeout(r, 260))
+  // `pointerover`, not `pointerenter`: React emulates onPointerEnter from the bubbling
+  // pair at the root, and enter does not bubble — the same reason the pod menu driver
+  // above dispatches mouseover.
+  const hover = async (host) => {
+    const btn = host.querySelector('button')
+    if (btn) btn.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+    await settle()
+    return btn
+  }
+
+  const onHost = mount('on')
+  await settle()
+  const onBtn = await hover(onHost)
+  if (!onBtn) throw new Error('tooltips on: no "?" to hover')
+  const bubble = document.querySelector('[role="tooltip"]')
+  if (!bubble) throw new Error('tooltips on: hovering the "?" produced no bubble')
+  if (!bubble.textContent.includes('what this control is for')) {
+    throw new Error(`the bubble says ${bubble.textContent}`)
+  }
+
+  const offHost = mount('off')
+  await settle()
+  if (offHost.querySelector('button')) throw new Error('tooltips off: the "?" is still there')
+  if (offHost.textContent.trim() !== '') throw new Error(`tooltips off left ${offHost.textContent}`)
+  tipsDone = true
+}
+driveTooltipSwitch().catch((err) => record('tooltip switch', err))
+
 // Give effects, their microtasks and the stubbed fetches a turn, then report.
 setTimeout(() => {
   const blank = PAGES.filter(([name]) => (document.getElementById(`page-${name}`)?.textContent || '').trim() === '')
@@ -211,6 +275,9 @@ setTimeout(() => {
   out.id = 'result'
   if (!menuDone && !failures.some((f) => f.startsWith('pod console menu'))) {
     record('pod console menu', new Error('never finished — did a submenu stop opening?'))
+  }
+  if (!tipsDone && !failures.some((f) => f.startsWith('tooltip switch'))) {
+    record('tooltip switch', new Error('never finished — did the hover stop opening a bubble?'))
   }
   if (failures.length === 0 && blank.length === 0) {
     out.textContent = 'ALL PAGES MOUNTED'

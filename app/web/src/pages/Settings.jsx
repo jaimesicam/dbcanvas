@@ -23,6 +23,20 @@ const DEPLOY_BACKENDS = [
   { id: 'vagrant', label: 'Vagrant (hybrid)', hint: 'Runs OS/DB nodes (PostgreSQL, MySQL/PXC, MongoDB, Valkey, ProxySQL, HAProxy) as VirtualBox VMs; the Intranet and image-only infra (PMM, Keycloak, etc.) stay on Docker in the same stack. Requires vagrant + VirtualBox on the host.' },
 ]
 
+// Tooltips are on for everybody who has not said otherwise: DBCanvas asks for a lot of
+// decisions before anything deploys, and the bubbles are where most of the answers live.
+// The switch is for the other case — somebody who knows this app and would rather the
+// "?" beside every label were not there.
+//
+// What it covers is this app's own explanations (components/Tooltip.jsx), which is where
+// every one of them lives. A native `title` on an icon-only button is not one of those:
+// it is that control's NAME, the only one it has, so it stays either way and the hint
+// below says so rather than letting "Hidden" promise silence it cannot deliver.
+export const TOOLTIP_MODES = [
+  { id: 'on', label: 'Shown', hint: 'Hover or focus a "?" for what a control is for, what happens if you leave it alone, and when to change it.' },
+  { id: 'off', label: 'Hidden', hint: 'No hover explanations, and the "?" buttons go with them. The short hint under a field stays, and so does the browser\'s own label on a button that is only an icon.' },
+]
+
 const NODE_LIBRARIES = [
   { id: 'menu', label: 'Canvas menu', hint: 'Right-click the canvas to add a node, and it lands where you clicked. Categories are the first level of the menu.' },
   { id: 'docked', label: 'Docked library', hint: 'Keeps the Infrastructure Library column on the left of the designer, with its search box and recently-used list. The canvas menu keeps working either way.' },
@@ -383,6 +397,37 @@ function LookPreview({ look, on }) {
 
 // LookOptions is the look grid. Exported for the render smoke test, which is the
 // only thing that renders all four at once outside this page.
+// TooltipOptions is the Tooltips row. Exported like LookOptions, and for the same
+// reason: the page itself needs an authenticated session to render, so a row worth a
+// render check has to be reachable without one.
+export function TooltipOptions({ value, onPick }) {
+  return (
+    <Row title="Tooltips" hint="The hover explanations on labels, fields and menu rows, across the whole app.">
+      <div className="grid gap-2 sm:grid-cols-2">
+        {TOOLTIP_MODES.map((m) => {
+          const on = value === m.id
+          return (
+            <button key={m.id} onClick={() => onPick(m.id)}
+              className={`flex items-start gap-2.5 rounded-lg border p-3 text-left transition ${on ? 'border-primary bg-primary/10' : 'hover:bg-surface2'}`}>
+              <span className={`mt-0.5 ${on ? 'text-primary' : 'text-muted'}`}>
+                <Icon.Help size={16} />
+              </span>
+              <span className="min-w-0">
+                <span className="flex items-center gap-1.5 text-sm font-medium">
+                  {m.label}
+                  {m.id === 'on' && <span className="text-[10px] font-normal text-muted">(default)</span>}
+                  {on && <Icon.Check size={14} />}
+                </span>
+                <span className="block text-xs text-muted">{m.hint}</span>
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </Row>
+  )
+}
+
 export function LookOptions({ value, onPick }) {
   return (
     <div className="grid gap-2 sm:grid-cols-2">
@@ -485,6 +530,8 @@ export default function Settings() {
           })}
         </div>
       </Row>
+
+      <TooltipOptions value={settings.tooltips || 'on'} onPick={(id) => set({ tooltips: id })} />
 
       <TabLimit value={clampTabs(settings.maxTabs)} onSave={(n) => save({ maxTabs: n })} />
 

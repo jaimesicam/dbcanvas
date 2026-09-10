@@ -392,6 +392,21 @@ console runs through the server node's own kubectl and admin kubeconfig, so an a
 offer it, and `dbcanvas node pods` / `dbcanvas node console --pod` are the same thing from a
 terminal ([CLI](CLI.md)).
 
+**A database prompt, in the same four clicks.** On a database container that last menu leads with
+the database's own client — **mysql** on a `pxc` or `mysql` container (and on `haproxy`,
+`pxc-monit` or `proxysql`, where it goes through the proxy instead of the socket), **psql** on a
+Percona PG or CloudNativePG container, **mongosh** on a `mongod` or `mongos` — already logged in
+as an administrator, above a separator with the shells under it. **Nobody types a password and
+DBCanvas never reads one:** each of the four operators mounts the cluster's users Secret into the
+pods it creates, so the script finds the credential inside the container
+(`/etc/mysql/mysql-users-secret/root`, `/etc/users-secret/MONGODB_DATABASE_ADMIN_*`, or nothing at
+all for Postgres, whose container runs *as* `postgres` and lets peer authentication do it). The
+password therefore never crosses the app, never reaches the k3s node's process list, and cannot
+end up in a log — which is what makes this worth having rather than merely possible. A container
+the client cannot be started in is not a terminal that flashes and dies: the script says what it
+could not find — no client in the image, no secret mounted, nothing answering — and opens a shell
+there instead, so the reason is still on screen.
+
 **Replicating one Kubernetes cluster into another.** Draw a link between two K3D frames that both
 run the **PXC operator** and pick a direction: on the next Deploy the second cluster becomes a
 replica of the first. There is nothing else to set up — start from the *Kubernetes — PXC operator,

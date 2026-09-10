@@ -22,6 +22,12 @@ import (
 // is built from (handleK3DPods), and the argv that terminal.go execs once a leaf is
 // picked (k3dPodExecCmd).
 //
+// The fourth part is not always a shell. On a database container it can be that
+// database's own client — mysql, psql or mongosh, already logged in as an
+// administrator, because all four Percona operators mount the cluster's users Secret
+// into the pod and the script finds the credential there rather than being handed one
+// (see the k3dPodClients block below).
+//
 // Everything runs *inside the k3s server node*, through its own kubectl and its own
 // admin kubeconfig, exactly like every other Kubernetes call in this app (see k3d.go's
 // header). Nothing here needs a Kubernetes client, a kubeconfig on the app host, or a
@@ -43,11 +49,15 @@ const k3dPodMaxOutput = 8 << 20
 // the kubelet has not reported one yet) — the menu greys out everything but running,
 // because `kubectl exec` into a container that is not running fails with a message
 // nobody reads at the bottom of a terminal that then closes.
+// Clients are the database clients the console can start in this container instead of
+// a shell (see k3dPodClients) — a menu hint, derived from the container's name, not a
+// permission: the client scripts probe for themselves.
 type k3dPodContainer struct {
-	Name  string `json:"name"`
-	State string `json:"state"`
-	Ready bool   `json:"ready"`
-	Init  bool   `json:"init,omitempty"`
+	Name    string   `json:"name"`
+	State   string   `json:"state"`
+	Ready   bool     `json:"ready"`
+	Init    bool     `json:"init,omitempty"`
+	Clients []string `json:"clients,omitempty"`
 }
 
 // k3dPod is one pod, flattened to what a menu needs: where it is, whether it is up, and
@@ -123,11 +133,11 @@ func parseK3DPods(out []byte) ([]k3dPod, error) {
 		}
 		for _, c := range it.Spec.Containers {
 			state, ready := stat(it.Status.ContainerStatuses, c.Name)
-			p.Containers = append(p.Containers, k3dPodContainer{Name: c.Name, State: state, Ready: ready})
+			p.Containers = append(p.Containers, k3dPodContainer{Name: c.Name, State: state, Ready: ready, Clients: k3dPodClientsFor(c.Name)})
 		}
 		for _, c := range it.Spec.InitContainers {
 			state, ready := stat(it.Status.InitContainerStatuses, c.Name)
-			p.Containers = append(p.Containers, k3dPodContainer{Name: c.Name, State: state, Ready: ready, Init: true})
+			p.Containers = append(p.Containers, k3dPodContainer{Name: c.Name, State: state, Ready: ready, Init: true, Clients: k3dPodClientsFor(c.Name)})
 		}
 		pods = append(pods, p)
 	}
@@ -191,6 +201,149 @@ func (a *App) k3dPods(ctx context.Context, serverID string) ([]k3dPod, error) {
 // container whose bash exists but is broken, or where /bin/sh is the one you meant.
 var k3dPodShells = []string{"auto", "bash", "sh"}
 
+// ------------------------------------------------------------- the database clients
+
+// A pod console's last hop is not always a shell. On a database container the thing an
+// operator actually wants is that database's own client, already logged in — and the
+// credential for it is ALREADY INSIDE THE CONTAINER: every one of the four Percona
+// operators mounts the cluster's users Secret into the pods it creates.
+//
+//   - PXC and PS: /etc/mysql/mysql-users-secret/root, and MYSQL_ROOT_PASSWORD in the
+//     database container's environment. The same mount is on the haproxy and pxc-monit
+//     sidecars, whose mysql client reaches the cluster through the proxy rather than
+//     over the socket — a different path, and sometimes the broken one.
+//   - PSMDB: /etc/users-secret/MONGODB_DATABASE_ADMIN_{USER,PASSWORD}.
+//   - PG: nothing at all — the Postgres container runs AS the postgres user, and local
+//     peer authentication lets psql in without a password.
+//
+// That the credential is already there is what makes this worth doing rather than
+// merely possible: DBCanvas never reads the Secret for it, so the password does not
+// cross the app, never lands in the k3s node's process list, and cannot reach a log.
+// Each script below is handed to the pod's own /bin/sh, and finds the credential there.
+// (The single exception is mongosh, which has no environment variable for a password,
+// so one appears on an argv — inside the mongod container only, visible to the uid
+// mongod already runs as.)
+//
+// A client is NOT restricted to the containers in Containers: that list is only what
+// the menu offers a row on, and naming a client explicitly (?shell=mysql, or the CLI's
+// --shell mysql) is allowed on any container. What stands in for that check is that
+// every script PROBES BEFORE IT EXECS and explains itself when it cannot — see
+// k3dPodClientFallback.
+//
+// Every probe reads `</dev/null` and forbids a password prompt (psql's `-w`). A probe
+// runs with the caller's terminal on its stdin, so one that decides to ask for a
+// password — `psql` does, against a server whose pg_hba wants one over TCP — would sit
+// there holding a console that has printed nothing and cannot be typed into. It has to
+// fail instead, and let the fallback say so.
+type k3dPodClient struct {
+	ID         string   // the ?shell= value, and the menu id
+	Label      string   // the menu row
+	Containers []string // the operators' container names this row is offered on
+	Script     string   // what the pod's /bin/sh runs: find the credential, probe, exec
+}
+
+// k3dPodClientFallback ends a client script that could not start its client: it says
+// why in one sentence, then opens a shell in that container anyway.
+//
+// Deliberately not an `exit 1`. This script is the terminal's PID 1, so exiting closes
+// the window and takes the explanation with it — the operator gets a terminal that
+// flashed and died, which is the exact failure the node console's own script was
+// written to avoid. A shell keeps the sentence on screen, and a container where the
+// database could not be reached is precisely where somebody now wants to look around.
+//
+// The reasons are literals in this file and hold no single quotes, which is what makes
+// wrapping them in single quotes for `echo` sound.
+func k3dPodClientFallback(reason string) string {
+	return "echo '" + reason + "'; echo 'Opening a shell in this container instead.'; " + k3dPodShellScript("auto")
+}
+
+// k3dPodClients are the database clients the console can start, in menu order.
+var k3dPodClients = []k3dPodClient{
+	{
+		ID:    "mysql",
+		Label: "mysql",
+		// pxc and mysql are the database itself (PXC and PS); haproxy and pxc-monit are
+		// the two containers of a PXC proxy pod, and proxysql the other front end — all
+		// three carry the client and the same secret mount, and answer on
+		// 127.0.0.1:3306, so a console there tests the proxy path instead.
+		Containers: []string{"pxc", "mysql", "haproxy", "pxc-monit", "proxysql"},
+		Script: `if ! command -v mysql >/dev/null 2>&1; then
+  ` + k3dPodClientFallback("This container has no mysql client.") + `
+fi
+if [ -r /etc/mysql/mysql-users-secret/root ]; then
+  MYSQL_PWD=$(cat /etc/mysql/mysql-users-secret/root)
+elif [ -n "$MYSQL_ROOT_PASSWORD" ]; then
+  MYSQL_PWD=$MYSQL_ROOT_PASSWORD
+else
+  ` + k3dPodClientFallback("No root password in this container: /etc/mysql/mysql-users-secret/root is not readable and MYSQL_ROOT_PASSWORD is not set.") + `
+fi
+export MYSQL_PWD
+if mysql -uroot -e 'SELECT 1' </dev/null >/dev/null 2>&1; then exec mysql -uroot; fi
+if mysql -h 127.0.0.1 -uroot -e 'SELECT 1' </dev/null >/dev/null 2>&1; then exec mysql -h 127.0.0.1 -uroot; fi
+unset MYSQL_PWD
+` + k3dPodClientFallback("The mysql client is here and a root password with it, but nothing answered over the socket or on 127.0.0.1:3306."),
+	},
+	{
+		ID:    "psql",
+		Label: "psql",
+		// database is the Percona PG operator's Postgres container, postgres is
+		// CloudNativePG's. Both run as the postgres system user, which IS the
+		// credential — peer authentication over the local socket needs no password, so
+		// this script never looks for one.
+		Containers: []string{"database", "postgres"},
+		Script: `if ! command -v psql >/dev/null 2>&1; then
+  ` + k3dPodClientFallback("This container has no psql client.") + `
+fi
+if psql -w -U postgres -c 'SELECT 1' </dev/null >/dev/null 2>&1; then exec psql -U postgres; fi
+if psql -w -U postgres -h 127.0.0.1 -c 'SELECT 1' </dev/null >/dev/null 2>&1; then exec psql -U postgres -h 127.0.0.1; fi
+` + k3dPodClientFallback("The psql client is here, but postgres answered neither over the local socket nor on 127.0.0.1:5432."),
+	},
+	{
+		ID:    "mongosh",
+		Label: "mongosh",
+		// mongod is a replica set member or a config server; mongos is a router. The
+		// users Secret is mounted on all of them.
+		Containers: []string{"mongod", "mongos"},
+		Script: `if ! command -v mongosh >/dev/null 2>&1; then
+  ` + k3dPodClientFallback("This container has no mongosh client.") + `
+fi
+if [ -r /etc/users-secret/MONGODB_DATABASE_ADMIN_USER ]; then
+  U=$(cat /etc/users-secret/MONGODB_DATABASE_ADMIN_USER); P=$(cat /etc/users-secret/MONGODB_DATABASE_ADMIN_PASSWORD)
+else
+  U=$MONGODB_DATABASE_ADMIN_USER; P=$MONGODB_DATABASE_ADMIN_PASSWORD
+fi
+if [ -n "$U" ] && mongosh --quiet --authenticationDatabase admin -u "$U" -p "$P" --eval 'db.version()' </dev/null >/dev/null 2>&1; then
+  exec mongosh --authenticationDatabase admin -u "$U" -p "$P"
+fi
+if mongosh --quiet --eval 'db.version()' </dev/null >/dev/null 2>&1; then exec mongosh; fi
+` + k3dPodClientFallback("mongosh is here, but it could not log in as the database admin and the server would not take an unauthenticated connection either."),
+	},
+}
+
+// k3dPodClientsFor is the clients the menu offers on one container, by its name. Pure
+// and name-based on purpose: the alternative is an exec per container just to build a
+// context menu, and the container names of the four operators are a fixed, small set.
+// A name nobody recognises simply gets the shells, which is what it had before.
+func k3dPodClientsFor(container string) []string {
+	var out []string
+	for _, c := range k3dPodClients {
+		if slices.Contains(c.Containers, container) {
+			out = append(out, c.ID)
+		}
+	}
+	return out
+}
+
+// k3dPodConsoleTargets is every value ?shell= accepts: the three shells, then the
+// clients. One list so the error message names all of them.
+func k3dPodConsoleTargets() []string {
+	out := slices.Clone(k3dPodShells)
+	for _, c := range k3dPodClients {
+		out = append(out, c.ID)
+	}
+	return out
+}
+
 // A namespace or a pod name is an RFC 1123 subdomain; a container name is an RFC 1123
 // label. Both are checked here even though the argv is passed to Docker as a list and
 // never through a shell — the names arrive in a URL from a browser, and a closed set of
@@ -215,13 +368,24 @@ func k3dPodShellScript(shell string) string {
 	}
 }
 
+// k3dPodConsoleScript is what the pod's /bin/sh is given: a database client's script
+// when the caller asked for one, and a shell otherwise.
+func k3dPodConsoleScript(target string) string {
+	for _, c := range k3dPodClients {
+		if c.ID == target {
+			return c.Script
+		}
+	}
+	return k3dPodShellScript(target)
+}
+
 // k3dPodExecCmd is the argv the k3s server node runs to put the caller inside a pod's
 // container: kubectl exec, with a TTY, into the container the menu named. Pure, so the
 // shape of the command is testable.
 func k3dPodExecCmd(ns, pod, container, shell string) []string {
 	return []string{
 		"kubectl", "-n", ns, "exec", "-i", "-t", pod, "-c", container,
-		"--", "/bin/sh", "-c", k3dPodShellScript(shell),
+		"--", "/bin/sh", "-c", k3dPodConsoleScript(shell),
 	}
 }
 
@@ -247,8 +411,8 @@ func k3dPodConsoleRequest(r *http.Request) (ns, pod, container, shell string, ok
 		return "", "", "", "", false, fmt.Errorf("pod %q is not a Kubernetes name", pod)
 	case !k3dDNSLabel.MatchString(container):
 		return "", "", "", "", false, fmt.Errorf("container %q is not a Kubernetes name", container)
-	case !slices.Contains(k3dPodShells, shell):
-		return "", "", "", "", false, fmt.Errorf("shell %q is not one of %s", shell, strings.Join(k3dPodShells, ", "))
+	case !slices.Contains(k3dPodConsoleTargets(), shell):
+		return "", "", "", "", false, fmt.Errorf("shell %q is not one of %s", shell, strings.Join(k3dPodConsoleTargets(), ", "))
 	}
 	return ns, pod, container, shell, true, nil
 }

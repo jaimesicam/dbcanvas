@@ -190,7 +190,7 @@ func buildAPIRoutes() []apiRoute {
 
 		// --- preferences --------------------------------------------------------
 		{Method: "GET", Path: "/api/me/settings", Group: gPrefs, Handler: m((*App).handleGetSettings),
-			Summary: "The caller's own UI preferences — terminal mode, theme, look, tab limit, deployment backend."},
+			Summary: "The caller's own UI preferences — terminal mode, theme, look, tab limit, deployment backend, tooltips."},
 		{Method: "PUT", Path: "/api/me/settings", Group: gPrefs, Handler: m((*App).handleUpdateSettings),
 			Summary: "Replace the caller's UI preferences. Unrecognised values fall back to the defaults."},
 		{Method: "POST", Path: "/api/me/password", Group: gPrefs, NoToken: true, Handler: m((*App).handleChangePassword),
@@ -331,9 +331,9 @@ func buildAPIRoutes() []apiRoute {
 		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/upload", Group: gNodes, Media: mediaMultipart, Handler: m((*App).handleNodeUpload),
 			Summary: "Copy files or a whole directory into a node, streamed rather than buffered."},
 		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/term", Group: gNodes, Media: mediaWebSocket, Handler: m((*App).handleNodeTerminal),
-			Summary: "Open a root console on a node: binary frames are keystrokes, text frames are resize messages. On a Kubernetes server node, `pod` (with `namespace`, `container` and `shell`) opens the console inside that pod's container instead."},
+			Summary: "Open a root console on a node: binary frames are keystrokes, text frames are resize messages. On a Kubernetes server node, `pod` (with `namespace`, `container` and `shell`) opens the console inside that pod's container instead — `shell` being a shell, or `mysql`, `psql` or `mongosh` for that database's own client, logged in with the credential the operator mounted in the container."},
 		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/k8s/pods", Group: gNodes, Handler: m((*App).handleK3DPods),
-			Summary: "Every pod in the cluster a Kubernetes server node runs, with each pod's containers and their state — what the pod console menu is built from."},
+			Summary: "Every pod in the cluster a Kubernetes server node runs, with each pod's containers, their state and which database clients a console in each can start — what the pod console menu is built from."},
 
 		// --- node file manager --------------------------------------------------
 		// Arbitrary read/write inside a node's filesystem, scoped — like the web

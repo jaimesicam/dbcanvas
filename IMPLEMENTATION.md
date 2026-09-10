@@ -22598,3 +22598,133 @@ changed nothing; and an immutable ConfigMap was refused with the API server's ow
 object created for the test was deleted afterwards. The panel was also rendered in a real browser
 with the app's own stylesheet to check the two editor shapes — an input for a password, a
 monospace textarea for a my.cnf.
+
+---
+
+## 374. A database prompt inside the pod, in the same four clicks — `app/k3dpods.go`, `app/k3dpods_test.go`, `app/web/src/pages/StackDesigner.jsx`, `app/web/src/lib/help.js`, `app/web/smoke/{render,browser}.jsx`, `cli/cmd_node.go`, `docs/{STACKS,CLI,API_REFERENCE}.md`
+
+*"Check if it is possible to provide a mysql console from pod console? anyway the credentials for
+root are in the secret."* Possible, and better than the question assumed: **the credentials do not
+have to come from the Secret at all**, because they are already inside the container.
+
+**What the operators mount.** Checked on live clusters, one per operator, before a line was
+written:
+
+| Operator | Client in the container | Credential, in the container |
+| --- | --- | --- |
+| PXC | `/usr/bin/mysql` in `pxc`, `haproxy`, `pxc-monit` | `/etc/mysql/mysql-users-secret/root`, and `MYSQL_ROOT_PASSWORD` in the `pxc` env |
+| PS | `/usr/bin/mysql` in `mysql` | `/etc/mysql/mysql-users-secret/root` |
+| PSMDB | `/usr/bin/mongosh` in `mongod` | `/etc/users-secret/MONGODB_DATABASE_ADMIN_{USER,PASSWORD}` |
+| PG | `psql` in `database` | none — the container runs *as* `postgres` (uid 26), so peer authentication is the login |
+
+So `?shell=` grew three more values — `mysql`, `psql`, `mongosh` — and each is a script handed to
+the pod's own `/bin/sh` that finds the credential where the operator put it. **DBCanvas never
+reads the Secret for this.** The alternative was there and was rejected: the k3s node could fetch
+the password with `kubectl get secret … | base64 -d` (that is what `k3dReplStatus` does, and it is
+the right thing when the *app* needs the value), but for a console it would put a live root
+password into an argv in the node's process list for as long as the session lasts, to obtain
+something the container already has on disk. The password now never crosses the app, never reaches
+a log, and cannot be in a deployment record. The one place a password lands on an argv is
+`mongosh`, which has no environment variable for one — inside the mongod container only, readable
+by the uid mongod already runs as.
+
+**A probe may not touch the caller's terminal.** Every probe reads `</dev/null` and forbids a
+password prompt (`psql -w`), which is a bug the verification found rather than a precaution: a
+probe inherits the console's own stdin, and `psql` asks for a password whenever the server wants
+one over TCP — so the second probe would have sat there holding a terminal that had printed
+nothing and could not be typed into, before the client it was checking for ever started. A probe
+has to fail and let the fallback explain.
+
+**Every script probes before it execs, and a script that comes up short opens a shell.** Same rule
+as §372's `command -v bash` and for the same reason: this script is the terminal's PID 1, so
+`exit 1` closes the window and takes the explanation with it — a terminal that flashed and died.
+Instead each one checks for its binary, then for a credential, then that something answers
+(`SELECT 1`, `db.version()`), and on any miss prints which of the three was missing and opens a
+shell in that container, where somebody now wants to look anyway. Verified in the `logs` sidecar
+of a PXC pod, which turns out to *have* a mysql client and no secret mount: the message named the
+missing password rather than the missing client, then handed over a `bash-5.1$`.
+
+**The menu shows a client where the cluster says there is one.** The pod inventory now carries a
+`clients` list per container, derived from the container's *name* (`k3dPodClientsFor`) — pure, and
+cheap, where probing would mean an exec per container to build a context menu. It is a hint, not a
+permission: `?shell=mysql` is accepted on any container, because the script is the real check. The
+canvas puts the clients above a separator with the shells under it, and `dbcanvas node pods` grew
+a `console` column saying what each container will take, since the difference between a `pxc`
+container and its `logs` sidecar is invisible unless you already know the operator.
+
+### Verified
+
+Against the live clusters of a four-operator stack, then the generated scripts themselves run
+through the real nested exec with a TTY:
+
+- **PXC `pxc` container:** the script produced a `mysql>` prompt, `SELECT @@hostname, USER()`
+  answering `k3d-00-pxc-0 | root@localhost`.
+- **PXC `haproxy` container:** the same script, and the proxy path is visible in the answer —
+  `USER()` came back `root@10.42.0.8` (the haproxy pod's own IP) on `k3d-00-pxc-0`, i.e. the
+  session went through HAProxy to the cluster rather than over a local socket. That is why the
+  proxy containers carry a `mysql` row at all.
+- **PXC `logs` container:** the fallback, as above — the reason on screen, then a shell.
+- **PS, PSMDB and PG:** the mounts and clients in the table above were read from the running
+  `mysql`, `mongod` and `database` containers, and the credentials exercised there —
+  `mongosh --authenticationDatabase admin -u … -p …` from `/etc/users-secret` (the argv the script
+  execs) returned `8.0.26-11` and its `connectionStatus` authInfo, and `psql -U postgres` returned
+  `postgres | PostgreSQL 18.6 - Percona Server for PostgreSQL 18.6.1` as uid 26. Those three
+  clusters then vanished off the host — their k3s nodes gone, only orphaned `serverlb` containers
+  left, with the frames still on the canvas — so the finished `psql` and `mongosh` scripts were
+  driven in throwaway `postgres:18` and `mongo:8` pods on the PXC cluster instead, deleted
+  afterwards: a `postgres=#` prompt answering `postgres | PostgreSQL 18.6 (Deb`, a `test>` prompt
+  answering `8.3.9` and `isWritablePrimary: true`, and — in the mongo pod, asked for `psql` —
+  "This container has no psql client", then a usable `root@mongoprobe:/#`. What that leaves
+  unexercised is the authenticated *first* branch of the mongosh script inside a real PSMDB pod;
+  its command was run there live, before the cluster went.
+
+---
+
+## 375. Tooltips, switchable off — `app/settings.go`, `app/settings_test.go`, `app/api_routes.go`, `app/web/src/components/Tooltip.jsx`, `app/web/src/settings/SettingsProvider.jsx`, `app/web/src/pages/Settings.jsx`, `app/web/smoke/{render,browser}.jsx`, `docs/{API_REFERENCE,GETTING_STARTED}.md`
+
+*"add option in settings to disable tooltips but enable tooltips by default."* Settings →
+**Tooltips** → *Shown* (default) / *Hidden*, per account like every other preference on that page.
+
+**A string from a fixed set, not a bool.** `tooltips: "on" | "off"`, matching `terminalMode`,
+`nodeLibrary` and `deploymentBackend` — and here that shape earns its keep rather than merely
+matching the neighbours. The default is ON, so a `bool` would make the zero value mean *off*, and
+the zero value is what arrives from a row written before the field existed, a client that has
+never heard of it (the CLI PUTs a settings object it built itself), or a corrupt row. Any of those
+would silently strip the explanations off a UI whose whole approach to a hundred deploy-time
+decisions is that the answer is on the screen. `""` normalises to `on`, which is what all three of
+them actually mean; only an exact `"off"` turns them off.
+
+**One gate, three different meanings.** Every bubble in the app is `Tooltip`, `Help` or `Hint`
+from one file, so the preference is read there and nowhere near the several hundred call sites.
+What "off" means is per component, and that is the design:
+
+- `Tooltip` returns its children **without the wrapper `<span>`**. A disabled tooltip has to leave
+  no trace on layout — an `inline-flex` box around a value is invisible until it is not, and
+  finding out which of two hundred panels shifted is nobody's afternoon.
+- `Help` returns **nothing**: the `?` exists only to be hovered, so leaving it behind would be a
+  control that answers nothing, still taking its space beside every label.
+- `Hint` keeps its children, because what it wraps is *content* — a version, a port, a badge.
+
+Outside the provider, and before the settings fetch lands, `useSettings()` already falls back to
+the defaults, so the fallback is "shown" everywhere by construction rather than by a guard.
+
+**What it does not cover, deliberately.** The app also carries ~200 native `title` attributes, and
+they are not explanations: on an icon-only button the `title` is the control's *name*, the only one
+it has. Stripping those with the tooltips would trade a hundred readable bubbles for a toolbar of
+unlabelled icons, so they stay — and the row's own hint says so, rather than letting *Hidden*
+promise a silence it cannot deliver.
+
+**What could only be checked in a browser.** The render check can prove the `?` is or is not in
+the markup; whether *hovering* it produces a bubble is portalled, delayed and measured off a live
+rect, so the browser suite now mounts a `Help` under each preference and hovers it — bubble with
+the right text on, no `?` at all off. Written the second time round: the first version dispatched
+`pointerenter`, which does not bubble, so React's emulated `onPointerEnter` never fired and the
+check failed against a working gate. `pointerover`, like the pod-menu driver next door.
+
+### Verified
+
+`TestTooltipsDefaultOn` covers the six ways of not saying "off" (`""`, `"off "`, `"no"`,
+`"false"`, `"0"`, `"ON"`) plus a stored row that predates the field and one that turned them off,
+through a real user row. The render suite asserts the four states of the gate — on, off, unset, no
+provider — and that the Settings row offers both choices, marks the default, and says what
+survives. The browser suite hovers it for real. Both smoke suites and the Go settings tests pass.

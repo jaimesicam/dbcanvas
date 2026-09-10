@@ -1975,10 +1975,26 @@ export const POD_SHELLS = [
   { id: 'sh', label: '/bin/sh', help: 'Run /bin/sh — busybox or dash in a minimal image. Use it when bash is present but not what you want.' },
 ]
 
+// POD_CLIENTS — the other kind of last hop. On a database container the thing you
+// actually want is that database's own client, already logged in, and the fourth level
+// offers it above the shells.
+//
+// No credential is sent from here, or from the app at all: all four Percona operators
+// mount the cluster's users Secret into the pods they create, and the script the server
+// runs reads it INSIDE the container (see app/k3dpods.go's k3dPodClients). A row is
+// shown only where the pod inventory says that container has a client — the ids are the
+// server's own, and it validates them.
+export const POD_CLIENTS = [
+  { id: 'mysql', label: 'mysql', help: 'Open the mysql client as root, with the root password the operator mounted in this container — nothing to look up, nothing typed. On a proxy container (haproxy, proxysql) it connects through the proxy rather than the database socket, which is a different path and sometimes the broken one.' },
+  { id: 'psql', label: 'psql', help: 'Open psql as the postgres superuser. The container runs as postgres, so local peer authentication is the login — there is no password in this at all.' },
+  { id: 'mongosh', label: 'mongosh', help: 'Open mongosh as the database admin user, from the users secret the operator mounted in this container, authenticating against admin.' },
+]
+
 // podMenuEntries turns the cluster's pod inventory (app/k3dpods.go) into the nested
 // menu the pod console is picked from: namespace → pod → container → shell. Four
-// levels because that is genuinely the address of a shell in Kubernetes, and none of
-// the four can be assumed — a stack can run two operators in two namespaces, an
+// levels because that is genuinely the address of a shell in Kubernetes (the fourth
+// also carries the database clients — see POD_CLIENTS), and none of the four can be
+// assumed — a stack can run two operators in two namespaces, an
 // operator names its pods with a generated suffix, and a database pod has sidecars
 // you sometimes want instead of the database.
 //
@@ -2002,18 +2018,28 @@ export function podMenuEntries(pods, onPick) {
       label: p.phase && p.phase !== 'Running' ? `${p.name} · ${p.phase}` : p.name,
       help: `${p.name} — ${p.phase || 'unknown phase'}, ${(p.containers || []).length} container${(p.containers || []).length === 1 ? '' : 's'}`,
       empty: 'No containers',
-      items: (p.containers || []).map((c) => ({
-        label: c.init ? `${c.name} · init` : c.name,
-        disabled: c.state !== 'running',
-        help: c.state === 'running'
-          ? `Open a shell in the ${c.name} container of ${p.name}.`
-          : `${c.name} is ${c.state || 'not started yet'} — kubectl exec only reaches a running container.`,
-        items: POD_SHELLS.map((sh) => ({
-          label: sh.label,
-          help: sh.help,
-          fn: () => onPick({ namespace, name: p.name, container: c.name, shell: sh.id }),
-        })),
-      })),
+      items: (p.containers || []).map((c) => {
+        // The clients the inventory reported for this container, in the server's order.
+        // A container it said nothing about gets the shells alone, exactly as before.
+        const clients = (c.clients || [])
+          .map((id) => POD_CLIENTS.find((cl) => cl.id === id))
+          .filter(Boolean)
+        const pick = (shell) => () => onPick({ namespace, name: p.name, container: c.name, shell })
+        return {
+          label: c.init ? `${c.name} · init` : c.name,
+          disabled: c.state !== 'running',
+          help: c.state === 'running'
+            ? clients.length
+              ? `Open ${clients.map((cl) => cl.label).join(' or ')}, or a shell, in the ${c.name} container of ${p.name}.`
+              : `Open a shell in the ${c.name} container of ${p.name}.`
+            : `${c.name} is ${c.state || 'not started yet'} — kubectl exec only reaches a running container.`,
+          items: [
+            ...clients.map((cl) => ({ label: cl.label, help: cl.help, fn: pick(cl.id) })),
+            ...(clients.length ? [{ sep: true }] : []),
+            ...POD_SHELLS.map((sh) => ({ label: sh.label, help: sh.help, fn: pick(sh.id) })),
+          ],
+        }
+      }),
     })),
   }))
 }

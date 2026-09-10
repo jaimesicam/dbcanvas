@@ -133,13 +133,20 @@ func nodeAction(action string) func([]string) error {
 // same endpoint, same protocol, and the server execs `kubectl exec -it` through that
 // node instead of a shell in it. `dbcanvas node pods` is where the three names come
 // from — pods outlive nothing, so list them rather than remembering them.
+//
+// --shell also takes a database client: `--shell mysql` on a pxc or mysql container,
+// `--shell psql` on a Postgres one, `--shell mongosh` on a mongod or mongos, and the
+// prompt is that client already logged in as an administrator. No credential is passed
+// for it — the operator mounts the cluster's users Secret into the pod, and the server's
+// script reads it inside the container (app/k3dpods.go). `dbcanvas node pods` prints
+// which client each container has in its `console` column.
 func nodeConsole(args []string) error {
 	fs := flagsFor("node console")
 	user := fs.String("user", "", "exec as this uid or username (default: the image's user)")
 	pod := fs.String("pod", "", "open the console inside this pod instead of the node (Kubernetes server nodes)")
 	ns := fs.String("namespace", "default", "the pod's namespace")
 	container := fs.String("container", "", "which of the pod's containers to enter")
-	shell := fs.String("shell", "auto", "the shell to run in the pod: auto, bash or sh")
+	shell := fs.String("shell", "auto", "what to run in the pod: auto, bash, sh, or a database client — mysql, psql or mongosh")
 	if err := parse(fs, args); err != nil {
 		return err
 	}
@@ -174,8 +181,9 @@ func nodeConsole(args []string) error {
 }
 
 // nodePods lists the pods of the Kubernetes cluster a k3s server node runs — the
-// three names `node console --pod` needs, and their containers' state, so a shell is
-// not attempted into a container that is not running.
+// three names `node console --pod` needs, their containers' state, so a shell is not
+// attempted into a container that is not running, and what a console in each can be:
+// a shell, or the database client that container carries.
 func nodePods(args []string) error {
 	fs := flagsFor("node pods")
 	if err := parse(fs, args); err != nil {
@@ -201,9 +209,10 @@ func nodePods(args []string) error {
 			Name       string `json:"name"`
 			Phase      string `json:"phase"`
 			Containers []struct {
-				Name  string `json:"name"`
-				State string `json:"state"`
-				Init  bool   `json:"init"`
+				Name    string   `json:"name"`
+				State   string   `json:"state"`
+				Init    bool     `json:"init"`
+				Clients []string `json:"clients"`
 			} `json:"containers"`
 		} `json:"pods"`
 	}
@@ -216,7 +225,7 @@ func nodePods(args []string) error {
 	}
 	// One row per container, not per pod: the container is what a console names, and
 	// a pod row would only send you back for its list.
-	t := newTable("namespace", "pod", "phase", "container", "state")
+	t := newTable("namespace", "pod", "phase", "container", "state", "console")
 	for _, p := range body.Pods {
 		for _, ct := range p.Containers {
 			name := ct.Name
@@ -227,7 +236,15 @@ func nodePods(args []string) error {
 			if state == "" {
 				state = "-"
 			}
-			t.add(p.Namespace, p.Name, p.Phase, name, state)
+			// What `--shell` can be here: always a shell, plus whichever client the
+			// container carries. Printed rather than left to be guessed, because the
+			// difference between a pxc container and its logs sidecar is not visible
+			// from the name unless you already know the operator.
+			console := "shell"
+			if len(ct.Clients) > 0 {
+				console = strings.Join(ct.Clients, ", ") + ", shell"
+			}
+			t.add(p.Namespace, p.Name, p.Phase, name, state, console)
 		}
 	}
 	t.print()

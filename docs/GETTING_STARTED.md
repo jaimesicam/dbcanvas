@@ -101,6 +101,13 @@ would change it. That is true of every field, every value on a deployed node, ev
 button and every entry in the node library. If you are unsure what something does, the
 answer is on the screen rather than in this document.
 
+Once you know your way around and they are in the way, turn them off: Settings →
+**Tooltips** → *Hidden*, which takes the `?` buttons with them and leaves the short hint
+under each field. It follows your account rather than the browser, like every other
+preference there, and tooltips are shown until you say otherwise. What stays is the
+browser's own label on a button that is only an icon — that is the control's name, not an
+explanation, and an unnamed icon is worse than one you have already learnt.
+
 ## Your first stack
 
 **The fastest route is a template.** Go to **Database Stacks** → **New stack**, give it a

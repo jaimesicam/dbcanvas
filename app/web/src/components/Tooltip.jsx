@@ -21,6 +21,20 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from './Icons.jsx'
+import { useSettings } from '../settings/SettingsProvider.jsx'
+
+// tooltipsOff reads the account's preference (Settings → Tooltips; app/settings.go).
+// On by default, and on outside the provider too — useSettings falls back to the
+// defaults, so a component rendered before the fetch lands, or in a render check, keeps
+// its explanations rather than losing them to a value nobody chose.
+//
+// The switch is read here rather than at each of the several hundred call sites: every
+// bubble in the app is one of the three components in this file, so this is the only
+// place that has to know. What "off" means differs by component, and that is the whole
+// design decision — see Help.
+function tooltipsOff(settings) {
+  return settings?.tooltips === 'off'
+}
 
 // Long enough that a pointer crossing a dense panel does not strobe every control it
 // passes over, short enough to feel like the answer was already there.
@@ -52,6 +66,7 @@ export function place(rect, bubble, prefer) {
 // so a "?" sits on the label's baseline, but in a vertical list (the node palette, the
 // context menu) an inline-level box picks up line-height gaps and breaks the spacing.
 export function Tooltip({ content, children, placement = 'top', className = '', display = 'inline-flex' }) {
+  const { settings } = useSettings()
   const [rect, setRect] = useState(null)      // trigger rect while open; null = closed
   const [pos, setPos] = useState(null)        // final placement, once measured
   const wrapRef = useRef(null)
@@ -101,7 +116,11 @@ export function Tooltip({ content, children, placement = 'top', className = '', 
 
   useEffect(() => () => clearTimeout(timer.current), [])
 
-  if (!content) return children
+  // No content, or the account asked for none: the children are returned as they came,
+  // without even the wrapper <span>. A disabled tooltip must leave no trace on layout —
+  // an inline-flex box around a value is invisible until it is not, and finding out
+  // which of two hundred panels shifted is nobody's afternoon.
+  if (!content || tooltipsOff(settings)) return children
 
   return (
     <>
@@ -141,7 +160,11 @@ export function Tooltip({ content, children, placement = 'top', className = '', 
 // Field renders it inside a <label>, where an unhandled click would be forwarded to the
 // input — toggling the very checkbox the reader was asking about.
 export function Help({ text, size = 13, className = '' }) {
-  if (!text) return null
+  const { settings } = useSettings()
+  // The "?" goes with the bubble. It exists only to be hovered, so leaving it behind
+  // with tooltips off would be a control that answers nothing — worse than the question
+  // mark not being there, and it would still take its space beside every label.
+  if (!text || tooltipsOff(settings)) return null
   return (
     <Tooltip content={text}>
       <button
@@ -159,6 +182,9 @@ export function Help({ text, size = 13, className = '' }) {
 // Hint wraps arbitrary content (a value in a deployed node's panel, an icon button, a
 // badge) so the whole thing is the trigger. Use it where there is no label to hang a
 // Help next to.
+// Unlike Help, what Hint wraps is content — a version string, a port, a badge — so it
+// stays on screen with tooltips off; only the explanation goes. Tooltip handles that
+// itself, which is why there is no check for the preference here.
 export function Hint({ text, children, placement = 'top', className = '', display }) {
   if (!text) return children
   return <Tooltip content={text} placement={placement} className={className} display={display}>{children}</Tooltip>

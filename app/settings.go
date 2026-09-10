@@ -27,6 +27,19 @@ const (
 	LibraryDocked = "docked" // the Infrastructure Library column, docked left
 )
 
+// tooltips values: whether the hover explanations are shown at all.
+//
+// A string from a fixed set, like every other choice on this row, and here that shape
+// earns its keep rather than merely matching: the default is ON, so a bool would make
+// the zero value mean "somebody turned them off" — indistinguishable from a client
+// that has never heard of the field, a row written before it existed, or a corrupt
+// one, any of which would silently strip the explanations off a UI full of decisions.
+// An empty string normalises to on, which is what all three of those actually mean.
+const (
+	TooltipsOn  = "on"  // the "?" bubbles explain each control (default)
+	TooltipsOff = "off" // no bubbles, and no "?" buttons left behind either
+)
+
 // themes recognised by the web UI (theme/ThemeProvider.jsx — keep in sync).
 var validThemes = map[string]bool{
 	"light": true, "dark": true, "midnight": true,
@@ -59,6 +72,7 @@ type UserSettings struct {
 	Look              string `json:"look"`              // one of validLooks
 	DeploymentBackend string `json:"deploymentBackend"` // docker | vagrant
 	NodeLibrary       string `json:"nodeLibrary"`       // menu | docked
+	Tooltips          string `json:"tooltips"`          // on | off
 	MaxTabs           int    `json:"maxTabs"`           // between minMaxTabs and maxMaxTabs
 	// WhatsNewSeen is the highest release whose notes this account has dismissed
 	// (see whatsnew.go). Free-form on purpose: it holds whatever appVersion was,
@@ -69,7 +83,8 @@ type UserSettings struct {
 func defaultSettings() UserSettings {
 	return UserSettings{
 		TerminalMode: TerminalDocked, Theme: "dark", Look: "modern",
-		DeploymentBackend: BackendDocker, NodeLibrary: LibraryMenu, MaxTabs: defaultMaxTabs,
+		DeploymentBackend: BackendDocker, NodeLibrary: LibraryMenu,
+		Tooltips: TooltipsOn, MaxTabs: defaultMaxTabs,
 	}
 }
 
@@ -90,6 +105,9 @@ func (s UserSettings) normalize() UserSettings {
 	}
 	if s.NodeLibrary != LibraryMenu && s.NodeLibrary != LibraryDocked {
 		s.NodeLibrary = def.NodeLibrary
+	}
+	if s.Tooltips != TooltipsOn && s.Tooltips != TooltipsOff {
+		s.Tooltips = def.Tooltips
 	}
 	// Clamped rather than reset, unlike the fields above: those are values from a
 	// fixed set, where anything else is meaningless, but a number slightly out of

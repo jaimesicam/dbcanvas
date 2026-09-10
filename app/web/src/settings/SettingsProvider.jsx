@@ -13,7 +13,7 @@ import { TABS_DEFAULT } from '../lib/tabs.js'
 
 const DEFAULTS = {
   terminalMode: 'docked', theme: 'dark', look: 'modern',
-  deploymentBackend: 'docker', nodeLibrary: 'menu', maxTabs: TABS_DEFAULT,
+  deploymentBackend: 'docker', nodeLibrary: 'menu', tooltips: 'on', maxTabs: TABS_DEFAULT,
 }
 // Instance-wide, not per user (app/syssettings.go). Kept here so the one fetch
 // serves both the settings page and the designer, which needs the upload
@@ -27,7 +27,10 @@ const SYSTEM_DEFAULTS = {
   maxUploadBytes: 4 * 1024 * 1024 * 1024, maxTokenDays: 90,
   sshForwarding: { enabled: false }, experimental: false,
 }
-const SettingsCtx = createContext(null)
+// Exported for the render checks, which need to mount a component under a chosen
+// preference — `tooltips: 'off'` is only observable through the context, and the
+// provider itself fetches. Application code uses useSettings().
+export const SettingsCtx = createContext(null)
 
 export function SettingsProvider({ children }) {
   const { theme, setTheme, look, setLook } = useTheme()

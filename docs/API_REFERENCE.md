@@ -70,7 +70,7 @@ dbcanvas login --url http://localhost:8080
 | --- | --- | --- |
 | Who am I | `GET /api/me` | `dbcanvas whoami` |
 | Read your UI preferences | `GET /api/me/settings` | `dbcanvas api GET /api/me/settings` |
-| Change theme, look, tab limit, terminal mode, deployment backend | `PUT /api/me/settings` | `dbcanvas api PUT /api/me/settings --data '{"theme":"forest","look":"industrial","maxTabs":20}'` |
+| Change theme, look, tab limit, terminal mode, deployment backend, tooltips | `PUT /api/me/settings` | `dbcanvas api PUT /api/me/settings --data '{"theme":"forest","look":"industrial","maxTabs":20,"tooltips":"off"}'` |
 | List the node images beyond the OS bases, with what is present | `GET /api/images` | `dbcanvas api GET /api/images` |
 | Build one of them on this Docker daemon (admin) | `POST /api/images/{id}/build` | `dbcanvas api POST /api/images/bighole/build` |
 | Download a MongoDB node's `diagnostic.data` with its log, as a tar.gz | `GET /api/stacks/{id}/nodes/{nid}/mongo/diagnostic` | `dbcanvas api GET /api/stacks/12/nodes/psmrs-01/mongo/diagnostic` |
@@ -166,6 +166,13 @@ same operation.
 
 Out-of-range values are clamped, not refused. `sshForwarding` in the response is
 derived from `SSH_FORWARDING_HOST` and read-only.
+
+A per-account value the server does not recognise falls back to that field's default
+rather than being refused, so a hand-edited row cannot wedge the UI. `tooltips` is the
+one where that matters in a direction worth knowing: it is `on` unless the stored value
+is exactly `off`, so a client that has never heard of the field — an older UI, the CLI
+sending a settings object it built itself — cannot switch the explanations off for an
+account. A PUT that omits a field keeps what is stored.
 
 ---
 
@@ -431,6 +438,7 @@ what makes them safe to hand over.
 | Open a root console | `GET …/nodes/{nid}/term` *(WebSocket)* | `dbcanvas node console <stack> <node>` |
 | List the pods on a Kubernetes server node | `GET …/nodes/{nid}/k8s/pods` | `dbcanvas node pods <stack> <node>` |
 | Open a console inside a pod's container | `GET …/nodes/{nid}/term?namespace=&pod=&container=&shell=` *(WebSocket)* | `dbcanvas node console <stack> <node> --pod P --container C` |
+| …as that database's own client | the same, with `shell=mysql`, `psql` or `mongosh` | `… --container pxc --shell mysql` |
 | Run one command | *(the same WebSocket)* | `dbcanvas node exec <stack> <node> -- mysql -e 'SHOW STATUS'` |
 | Get the `ssh -L` tunnel line | `GET …/nodes/{nid}/sshforward` | `dbcanvas node tunnel <stack> <node>` |
 | Copy files in | `POST …/nodes/{nid}/upload` *(multipart)* | `dbcanvas node cp ./my.cnf <stack>:<node>:/etc/` |
@@ -460,9 +468,9 @@ every start, so any port you noted before the restart is stale.
 ### A console inside a pod
 
 On a **k3s server node** the same `…/term` socket takes four extra parameters —
-`namespace`, `pod`, `container` and `shell` (`auto`, `bash` or `sh`) — and then the
-exec is `kubectl exec -it` into that container, run through the node's own kubectl
-and its admin kubeconfig. Nothing is configured on the caller's machine, no
+`namespace`, `pod`, `container` and `shell` (`auto`, `bash`, `sh`, or one of the
+database clients below) — and then the exec is `kubectl exec -it` into that container,
+run through the node's own kubectl and its admin kubeconfig. Nothing is configured on the caller's machine, no
 kubeconfig is downloaded, and no port is published off the cluster; a browser gets
 the same shell as the CLI because it is the same endpoint. Names are checked against
 the Kubernetes naming rules before the socket is upgraded, so a bad one is an HTTP
@@ -479,6 +487,32 @@ suffix.
 dbcanvas node pods k8s-lab k3s-01
 dbcanvas node console k8s-lab k3s-01 --namespace default --pod cluster1-pxc-0 --container pxc
 ```
+
+#### …as the database's own client
+
+`shell` also takes `mysql`, `psql` or `mongosh`, and then the console is that client
+already logged in as an administrator instead of a shell to log in from.
+
+**No credential is sent for it.** Every one of the four Percona operators mounts the
+cluster's users Secret into the pods it creates, so the script the server hands to the
+pod's `/bin/sh` reads the password *inside the container* — DBCanvas never reads the
+Secret, the password never reaches the app, never appears in the k3s node's process
+list, and cannot land in a log:
+
+| Client | Credential, in the container | Containers it is offered on |
+| --- | --- | --- |
+| `mysql` | `/etc/mysql/mysql-users-secret/root`, else `$MYSQL_ROOT_PASSWORD` | `pxc`, `mysql`, `haproxy`, `pxc-monit`, `proxysql` |
+| `psql` | none — the container runs *as* `postgres`, so peer authentication is the login | `database`, `postgres` |
+| `mongosh` | `/etc/users-secret/MONGODB_DATABASE_ADMIN_{USER,PASSWORD}` | `mongod`, `mongos` |
+
+The `clients` field of each container in the pod list is that last column, per
+container, which is what the canvas builds its menu rows from. It is a hint, not a
+restriction: a client may be asked for on any container, because every script probes
+for its binary, its credential and a live server *before* it execs anything, and a
+script that comes up short prints what was missing and opens a shell in that container
+instead — exiting would close the terminal and take the explanation with it. The probes
+read `/dev/null` and never prompt, so one of them cannot leave you holding a console
+that has printed nothing and is waiting for a password.
 
 ## Clusters & backups
 

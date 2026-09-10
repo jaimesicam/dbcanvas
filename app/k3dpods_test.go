@@ -145,3 +145,97 @@ func TestK3DPodConsoleRequest(t *testing.T) {
 		}
 	}
 }
+
+// The database clients are the fourth part of a pod console when the container is a
+// database's. Two things are asserted about every one of them, and they are the two
+// that would make a terminal useless: that nothing is exec'd without being probed for
+// first, and that a script which cannot start its client opens a shell instead of
+// exiting — an exit closes the window and takes the explanation with it.
+func TestK3DPodClientScripts(t *testing.T) {
+	for _, c := range k3dPodClients {
+		if !strings.Contains(c.Script, "command -v "+c.ID) {
+			t.Errorf("%s: exec without a `command -v` probe first", c.ID)
+		}
+		if !strings.Contains(c.Script, "exec bash -i") {
+			t.Errorf("%s: a script that cannot start its client must fall back to a shell", c.ID)
+		}
+		if strings.Contains(c.Script, "exit 1") {
+			t.Errorf("%s: exiting closes the terminal and hides the reason", c.ID)
+		}
+	}
+
+	// The credential is read INSIDE the container, from the mount the operator made.
+	// Nothing here may look like a password handed down from the app — that is the
+	// whole reason this is worth doing rather than merely possible.
+	mysql := k3dPodConsoleScript("mysql")
+	for _, want := range []string{"/etc/mysql/mysql-users-secret/root", "MYSQL_ROOT_PASSWORD", "export MYSQL_PWD"} {
+		if !strings.Contains(mysql, want) {
+			t.Errorf("mysql script is missing %q", want)
+		}
+	}
+	// MYSQL_PWD does not survive into the fallback shell.
+	if !strings.Contains(mysql, "unset MYSQL_PWD") {
+		t.Error("mysql script leaks MYSQL_PWD into the shell it falls back to")
+	}
+	if !strings.Contains(k3dPodConsoleScript("mongosh"), "/etc/users-secret/MONGODB_DATABASE_ADMIN_USER") {
+		t.Error("mongosh script does not read the operator's users secret mount")
+	}
+	// psql needs no credential at all: the container runs as postgres, and peer
+	// authentication is the login. A script that went looking for a password would be
+	// asserting something untrue about the operator's pod.
+	if psql := k3dPodConsoleScript("psql"); !strings.Contains(psql, "psql -U postgres") || strings.Contains(psql, "PGPASSWORD") {
+		t.Errorf("psql script = %s", psql)
+	}
+
+	// An unknown target is a shell, which is what every non-database container gets.
+	if k3dPodConsoleScript("auto") != k3dPodShellScript("auto") {
+		t.Error("auto stopped being the shell script")
+	}
+}
+
+func TestK3DPodClientsFor(t *testing.T) {
+	for _, tc := range []struct{ container, want string }{
+		{"pxc", "mysql"},      // PXC
+		{"mysql", "mysql"},    // PS
+		{"haproxy", "mysql"},  // the proxy carries the client and the same secret
+		{"mongod", "mongosh"}, // PSMDB
+		{"database", "psql"},  // Percona PG
+		{"postgres", "psql"},  // CloudNativePG
+		{"pxc-init", ""},      // an init container is a shell and nothing else
+		{"coredns", ""},       // and so is anything that is not a database
+	} {
+		if got := strings.Join(k3dPodClientsFor(tc.container), ","); got != tc.want {
+			t.Errorf("%s: clients = %q, want %q", tc.container, got, tc.want)
+		}
+	}
+
+	// The inventory carries the hint, so the menu does not have to know the operators'
+	// container names itself.
+	pods, err := parseK3DPods([]byte(podListJSON))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := strings.Join(pods[0].Containers[0].Clients, ","); got != "mysql" {
+		t.Errorf("haproxy container clients = %q", got)
+	}
+	if pods[2].Containers[0].Clients != nil {
+		t.Errorf("coredns should offer no clients, got %v", pods[2].Containers[0].Clients)
+	}
+}
+
+func TestK3DPodConsoleRequestAcceptsClients(t *testing.T) {
+	for _, target := range []string{"mysql", "psql", "mongosh"} {
+		r := httptest.NewRequest("GET", "/api/stacks/1/nodes/k3s-01/term?namespace=default&pod=cluster1-pxc-0&container=pxc&shell="+target, nil)
+		_, _, _, shell, ok, err := k3dPodConsoleRequest(r)
+		if !ok || err != nil || shell != target {
+			t.Errorf("%s: ok=%v err=%v shell=%q", target, ok, err, shell)
+		}
+	}
+	// The error still names everything that is accepted, or it sends the caller to the
+	// source to find out.
+	r := httptest.NewRequest("GET", "/api/stacks/1/nodes/k3s-01/term?namespace=default&pod=p&container=c&shell=mongo", nil)
+	_, _, _, _, _, err := k3dPodConsoleRequest(r)
+	if err == nil || !strings.Contains(err.Error(), "mongosh") {
+		t.Errorf("err = %v", err)
+	}
+}

@@ -372,6 +372,8 @@ dbcanvas node tunnel my-pxc-lab pxc-01                    # print the ssh -L lin
 dbcanvas node pods k8s-lab k3s-01                         # pods in the cluster that node runs
 dbcanvas node console k8s-lab k3s-01 \
   --namespace default --pod cluster1-pxc-0 --container pxc   # a shell inside the pod
+dbcanvas node console k8s-lab k3s-01 \
+  --pod cluster1-pxc-0 --container pxc --shell mysql         # …or a mysql prompt in it
 ```
 
 Nodes are named the same way stacks are: **by name or by id**. The name is the
@@ -394,6 +396,18 @@ is the check worth doing first: `kubectl exec` only reaches a *running* containe
 and its refusal arrives as one line in a terminal that then closes. The canvas has
 the same thing as a menu — right-click the k3s server node → **Enter pod console** —
 and there a container that is not running is greyed out with the reason.
+
+`--shell` also takes a **database client**: `mysql`, `psql` or `mongosh`, and the
+prompt is that client already logged in as an administrator rather than a shell you
+then have to log in from. **No password is passed for it, by you or by DBCanvas** —
+each of the four Percona operators mounts the cluster's users Secret into the pods it
+creates, so the script the server runs finds the credential inside the container
+(`/etc/mysql/mysql-users-secret/root` for PXC and PS,
+`/etc/users-secret/MONGODB_DATABASE_ADMIN_*` for PSMDB; a Postgres container runs *as*
+`postgres`, so peer authentication needs none at all). Which client a container has is
+the `console` column of `node pods`; asking for one it does not have is not an error —
+the script says what it could not find and opens a shell in that container instead, so
+the reason stays on screen.
 
 ## Templates
 

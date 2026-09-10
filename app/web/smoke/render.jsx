@@ -37,7 +37,7 @@ import {
   k8sReplLinkable, ReplicationLinkForm, ReplicationLinkChoices,
   associationBlocked, isReplEdge, k8sReplRoleOf, K3D_SOURCE_EXPOSE, K8sToolFields,
   frameHeaderW, layoutFrame, separateFrames, SIM_NODE_TYPES, frameVersionLabel, frameSubLabel,
-  podMenuEntries, POD_SHELLS,
+  podMenuEntries, POD_SHELLS, POD_CLIENTS,
   Spinner, NodeStatus, nodeConfiguring, configPhaseOf, PITRFields,
 } from '../src/pages/StackDesigner.jsx'
 import { ReplicationView } from '../src/pages/K3DManager.jsx'
@@ -78,7 +78,7 @@ import Api, {
   CliCommands as ApiCliCommands, CliHelpText as ApiCliHelpText,
 } from '../src/pages/Api.jsx'
 import WhatsNew, { WhatsNewLink } from '../src/components/WhatsNew.jsx'
-import { ChangePassword as SettingsChangePassword, LookOptions, TabLimit } from '../src/pages/Settings.jsx'
+import { ChangePassword as SettingsChangePassword, LookOptions, TabLimit, TooltipOptions, TOOLTIP_MODES } from '../src/pages/Settings.jsx'
 import { LOOKS, THEMES } from '../src/theme/ThemeProvider.jsx'
 import {
   curlFor, cliFor, matches as epMatches, samplePath, expiryText, relDate,
@@ -111,7 +111,8 @@ import FTDCSummary, {
 } from '../src/pages/FTDCSummary.jsx'
 import { chartPoints, chartLines, fmtSpan, fmtNum, ADVICE_TEXT, ADVICE_FILL, ADVICE_TONE } from '../src/lib/ftdcApi.js'
 import { Field, InfoRow } from '../src/components/ui.jsx'
-import { Hint, place } from '../src/components/Tooltip.jsx'
+import { Help, Hint, place } from '../src/components/Tooltip.jsx'
+import { SettingsCtx } from '../src/settings/SettingsProvider.jsx'
 import * as nodeFs from 'node:fs'
 import { HELP, MENU_HELP, TOOL_HELP, DEP_HELP, MORE_HELP, FTDC_HELP, nodeHelp } from '../src/lib/help.js'
 import realDeps from './real-deps.json' with { type: 'json' }
@@ -2716,13 +2717,13 @@ check('add menu: a category with nothing available is itself disabled', () => {
   return 'blocked, partly available, mixed reasons'
 })
 
-check('pod console: the menu is namespace \u2192 pod \u2192 container \u2192 shell', () => {
+check('pod console: the menu is namespace \u2192 pod \u2192 container \u2192 client or shell', () => {
   // The four levels are the address of a shell in Kubernetes, and this is the tree
   // built from what the cluster answered — not from anything on the canvas.
   const pods = [
     { namespace: 'default', name: 'cluster1-haproxy-0', phase: 'Running', containers: [
-      { name: 'haproxy', state: 'running', ready: true },
-      { name: 'pxc-monit', state: 'running', ready: true },
+      { name: 'haproxy', state: 'running', ready: true, clients: ['mysql'] },
+      { name: 'pxc-monit', state: 'running', ready: true, clients: ['mysql'] },
     ] },
     { namespace: 'default', name: 'cluster1-pxc-0', phase: 'Pending', containers: [
       { name: 'pxc', state: 'waiting', ready: false },
@@ -2752,13 +2753,31 @@ check('pod console: the menu is namespace \u2192 pod \u2192 container \u2192 she
   if (!/waiting/.test(pxc[0].help)) throw new Error(`no reason on the disabled row: ${pxc[0].help}`)
   if (pxc[1].label !== 'pxc-init \u00b7 init' || pxc[1].disabled) throw new Error(`init row = ${JSON.stringify(pxc[1])}`)
 
-  // The leaf is the shell, and picking one names all four parts.
-  const shells = def.items[0].items[0].items
-  if (shells.length !== POD_SHELLS.length) throw new Error(`shells: ${shells.length}`)
-  shells[1].fn()
+  // The leaf is what to run, and picking one names all four parts. A database
+  // container leads with its client and then a separator, because that is what
+  // somebody opening a console on a pxc or haproxy container came for; the shells keep
+  // their order under it.
+  const leaf = def.items[0].items[0].items
+  if (leaf.length !== 1 + 1 + POD_SHELLS.length) throw new Error(`leaf rows: ${leaf.length}`)
+  if (leaf[0].label !== 'mysql') throw new Error(`first row = ${leaf[0].label}`)
+  if (!leaf[1].sep) throw new Error('the client and the shells must be separated')
+  leaf[0].fn()
+  const wantMySQL = { namespace: 'default', name: 'cluster1-haproxy-0', container: 'haproxy', shell: 'mysql' }
+  if (JSON.stringify(picked[0]) !== JSON.stringify(wantMySQL)) throw new Error(`picked ${JSON.stringify(picked[0])}`)
+  leaf[3].fn()
   const want = { namespace: 'default', name: 'cluster1-haproxy-0', container: 'haproxy', shell: 'bash' }
-  if (JSON.stringify(picked[0]) !== JSON.stringify(want)) throw new Error(`picked ${JSON.stringify(picked[0])}`)
-  return `${tree.length} namespaces, ${POD_SHELLS.length} shells`
+  if (JSON.stringify(picked[1]) !== JSON.stringify(want)) throw new Error(`picked ${JSON.stringify(picked[1])}`)
+
+  // A container the cluster reported no client for is the shells alone — unchanged
+  // from before there were clients at all.
+  const dns = tree[1].items[0].items[0].items
+  if (dns.length !== POD_SHELLS.length || dns.some((r) => r.sep)) throw new Error(`coredns leaf: ${dns.length}`)
+
+  // Every client id in the menu is one the server accepts, or the row opens a socket
+  // that is refused before it upgrades.
+  const ids = POD_CLIENTS.map((c) => c.id).join(',')
+  if (ids !== 'mysql,psql,mongosh') throw new Error(`client ids = ${ids}`)
+  return `${tree.length} namespaces, ${POD_CLIENTS.length} clients, ${POD_SHELLS.length} shells`
 })
 
 check('pod console: an empty cluster and a pod with no containers still build', () => {
@@ -3523,6 +3542,59 @@ check('tooltip: placement flips and clamps to stay on screen', () => {
   if (tall.top < 0 || tall.top + 900 > 800 + 900) throw new Error(`unclamped vertical: ${tall.top}`)
   delete globalThis.window
   return 'ok'
+})
+
+check('tooltips: switching them off takes the "?" with them', () => {
+  // The preference is only visible through the context, so each case is rendered under
+  // one — which is also the closest thing to how it reaches a real component.
+  const under = (tooltips, node) => renderToString(
+    <SettingsCtx.Provider value={{ settings: { tooltips }, save: noop, system: {}, saveSystem: noop, loaded: true }}>
+      {node}
+    </SettingsCtx.Provider>,
+  )
+
+  // On: the "?" is a real button, reachable from the keyboard.
+  const on = under('on', <Help text="what this control is for" />)
+  if (!/<button/.test(on)) throw new Error(`no "?" button with tooltips on: ${on}`)
+
+  // Off: nothing at all. A "?" that cannot answer is worse than no "?", and it would
+  // still take its space beside the label.
+  const off = under('off', <Help text="what this control is for" />)
+  if (off.replaceAll('<!-- -->', '').trim() !== '') throw new Error(`tooltips off still rendered: ${off}`)
+
+  // What Hint wraps is CONTENT, not an affordance, so it survives — only the
+  // explanation goes, and it goes without the wrapper that would shift the layout.
+  const hintOff = under('off', <Hint text="the pool size in bytes"><b>3 GiB</b></Hint>)
+  if (!hintOff.includes('3 GiB')) throw new Error(`the value went with the tooltip: ${hintOff}`)
+  if (/<span/.test(hintOff)) throw new Error(`a disabled tooltip left its wrapper behind: ${hintOff}`)
+  const hintOn = under('on', <Hint text="the pool size in bytes"><b>3 GiB</b></Hint>)
+  if (!/<span/.test(hintOn) || !hintOn.includes('3 GiB')) throw new Error(`hint on = ${hintOn}`)
+
+  // An unset preference — a stored row from before the field, a component rendered
+  // before the fetch lands — is ON. Losing every explanation to a value nobody chose
+  // would be the worst way for this to fail.
+  const unset = under(undefined, <Help text="what this control is for" />)
+  if (!/<button/.test(unset)) throw new Error('an unset preference hid the tooltips')
+  const noProvider = renderToString(<Help text="what this control is for" />)
+  if (!/<button/.test(noProvider)) throw new Error('outside the provider the tooltips vanished')
+  return 'on, off, unset, and no provider'
+})
+
+check('settings: the tooltip switch', () => {
+  const html = renderToString(<TooltipOptions value="on" onPick={noop} />)
+  // The hints quote the "?" itself, which arrives escaped.
+  const flat = html.replaceAll('&quot;', '"').replaceAll('&#x27;', "'").replaceAll('&amp;', '&')
+  for (const m of TOOLTIP_MODES) {
+    if (!flat.includes(m.label)) throw new Error(`the ${m.id} choice is not offered`)
+    if (!flat.includes(m.hint)) throw new Error(`the ${m.id} choice does not say what it does`)
+  }
+  // Which one you get if you never touch this has to be on the row itself.
+  if (!/Shown[\s\S]{0,120}\(default\)/.test(html)) throw new Error('the row does not mark the default')
+  // And the row says what stays behind, or "Hidden" reads as "lose the help entirely".
+  if (!/hint under a field stays/.test(html)) throw new Error('the row does not say what survives')
+  const off = renderToString(<TooltipOptions value="off" onPick={noop} />)
+  if (off === html) throw new Error('the row renders identically whichever is selected')
+  return html
 })
 
 // --- the API page ---------------------------------------------------------------
