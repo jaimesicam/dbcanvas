@@ -9,6 +9,7 @@ import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import { Help } from '../components/Tooltip.jsx'
 import { HELP, TOOL_HELP, DEP_HELP } from '../lib/help.js'
 import { CRFormEditor } from './CRFormEditor.jsx'
+import { K8sObjectEditor } from './K8sObjectEditor.jsx'
 
 // K3DManager — a running k3s node of a K3D cluster frame.
 //
@@ -63,6 +64,11 @@ const TABS = [
   // four Percona operators — the two Helm-installed community PostgreSQL ones are not a cr.yaml
   // DBCanvas wrote, and their charts are the place to change them.
   { id: 'cr', label: 'cr.yaml' },
+  // The Secrets and ConfigMaps of the cluster. Beside cr.yaml deliberately: that tab is what the
+  // operator is told to do, this is the objects it is told it with — the credentials it
+  // reconciles, the TLS chains, and the tuning file. Any Kubernetes frame has them, so unlike
+  // cr.yaml this is not gated on the operator being a Percona one.
+  { id: 'data', label: 'Secrets & configs' },
   // Only ever shown for a PXC-operator cluster that is one end of a replication link on the
   // canvas — it is the one operator whose custom resource can replicate from another cluster.
   { id: 'replication', label: 'Replication' },
@@ -336,6 +342,7 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
       <div className="flex flex-wrap gap-1 rounded-lg bg-surface2 p-1">
         {TABS.filter((t) => (t.id !== 'operator' || cfg.operator)
           && (t.id !== 'diag' || isServer)
+          && (t.id !== 'data' || isServer)
           && (t.id !== 'cr' || CR_EDITABLE.has(cfg.operator))
           && (t.id !== 'replication' || (cfg.operator === 'pxc' && isServer))).map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
@@ -355,6 +362,9 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
           <KV k="Budget" help={DEP_HELP.Budget} v={`${cfg.cpus} CPU · ${cfg.memoryGb} GiB (whole cluster)`} />
           {cfg.diskLimit && <KV k="Disk limit" help={DEP_HELP['Disk limit']} v={cfg.diskLimit} />}
           <KV k="LoadBalancer pool" help={DEP_HELP['LoadBalancer pool']} v={cfg.metallbRange || 'MetalLB not installed'} mono />
+          {/* What is on the cluster, not what the canvas asked for: the two differ when the
+              install failed, and this is the row that would have to say so. */}
+          <KV k="cert-manager" help={DEP_HELP['cert-manager']} v={cfg.certManager || 'not installed'} mono />
           <KV k="Operator" help={DEP_HELP.Operator} v={cfg.operator ? `${cfg.operator.toUpperCase()} ${cfg.operatorVer}` : 'none'} />
           {cfg.operator && <KV k="Namespace" help={DEP_HELP.Namespace} v={ns} mono />}
           {cfg.operator && <KV k="Database cluster" help={DEP_HELP['Database cluster']} v={cr} mono />}
@@ -463,6 +473,7 @@ kubectl get svc -n ${ns}`} />
       {tab === 'users' && <UsersTab stackId={stackId} frame={frame} isServer={isServer} />}
       {tab === 'replication' && <ReplicationTab stackId={stackId} frame={frame} isServer={isServer} />}
       {tab === 'cr' && <CRFormEditor stackId={stackId} frame={frame} isServer={isServer} />}
+      {tab === 'data' && <K8sObjectEditor stackId={stackId} frame={frame} isServer={isServer} />}
 
       {tab === 'diag' && (
         frame

@@ -111,8 +111,12 @@ type k3dConfig struct {
 	MemoryGB     int    `json:"memoryGb"`     // total memory for the cluster
 	DiskLimit    string `json:"diskLimit"`    // per-node disk ceiling, e.g. "read 50 MB/s · write 20 MB/s" ("" = unlimited)
 	MetalLBRange string `json:"metallbRange"` // the LoadBalancer address pool
-	Operator     string `json:"operator"`     // "" | "pxc" | "ps" | "psmdb" | "pg"
-	OperatorVer  string `json:"operatorVer"`  //
+	// The cert-manager release installed on this cluster, or "" for none. Recorded rather than
+	// derived from the frame's checkbox: the checkbox is what was asked for, this is what is
+	// on the cluster — they differ when the install failed, and the panel should say which.
+	CertManager string `json:"certManager"`
+	Operator    string `json:"operator"`    // "" | "pxc" | "ps" | "psmdb" | "pg"
+	OperatorVer string `json:"operatorVer"` //
 	OperatorSrc  string `json:"operatorSrc"`  // /root/<repo>-<ver> on the first node
 	Namespace    string `json:"namespace"`    //
 	ClusterName  string `json:"crName"`       // the database cluster's name inside cr.yaml
@@ -852,6 +856,24 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 			base.MetalLBRange = pool
 			pr.logln("MetalLB pool " + pool + " — this cluster's own block of " +
 				strconv.Itoa(k3dPoolSize) + " from the stack subnet")
+		}
+
+		// ---- cert-manager, if the canvas asked for it ----
+		// Before the operator, and it waits: an operator that reconciles first finds no
+		// cert-manager and self-signs the cluster's certificates, which installing it a minute
+		// later does not undo. See k3dcertmanager.go.
+		if frame.K3DCertManager {
+			pr.phase("Installing cert-manager", 58)
+			ver, err := a.installCertManager(ctx, serverID, pr.logln)
+			if err != nil {
+				// Not fatal — the cluster is up, and an operator with no cert-manager issues
+				// its own certificates rather than failing. Said loudly, and left out of the
+				// config, so the panel shows what is really there.
+				pr.logln("cert-manager NOT installed: " + err.Error())
+				pr.logln("the operator will generate self-signed certificates instead")
+			} else {
+				base.CertManager = ver
+			}
 		}
 
 		// ---- the operator ----

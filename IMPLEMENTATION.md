@@ -22492,3 +22492,109 @@ browser smoke check — hover to load, three more hovers to reach the shells, fi
 once, and the leaf calling back with all four parts. The widths were checked by screenshotting the
 whole open cascade in headless Chrome with the app's own stylesheet, against that cluster's real
 pod names.
+
+---
+
+## 373. cert-manager before the operator, and the Secrets and ConfigMaps it uses — `app/k3dcertmanager.go` (new), `app/k3dobjects.go` (new), `app/{k3d,intranet,cnpg,api_routes}.go`, `app/{k3dobjects_test.go,k3dcertmanager_it_test.go}` (new), `app/web/src/pages/K8sObjectEditor.jsx` (new), `app/web/src/pages/{StackDesigner,K3DManager}.jsx`, `app/web/src/lib/{stackApi,help}.js`, `app/web/smoke/render.jsx`, `docs/{STACKS,API_REFERENCE}.md`
+
+*"Like cr.yaml, add editor for secrets and configmaps in node property of percona operators. At
+design time of k3d cluster add option to install CertManager. If ticked and in deployment, it
+should be installed first prior to installing the operator."* Two features, and the second
+sentence of the second one is the whole design.
+
+### cert-manager
+
+**Why the ordering is the feature.** The four Percona operators look for cert-manager when they
+reconcile: with it they ask it for the cluster's TLS certificates, without it they generate a
+self-signed set and never mention it. An operator that starts first has already decided, and
+installing cert-manager a minute later does not undo the objects it created — so this runs before
+the operator install and blocks until it is done.
+
+**"Done" is not three Available deployments.** cert-manager's validating webhook is admission
+control for its own CRDs and refuses traffic for a few seconds *after* the deployments report
+ready, while cainjector fills in its CA bundle; an operator applying a `Certificate` in that
+window gets an error it does not usefully retry. The last step is therefore a **server-side
+dry-run of a real Certificate** — nothing is created, and it succeeds only once the webhook is
+answering. That is what `cmctl check api` does, without adding a binary to the image. The
+integration test asserts the probe *fails* on a cluster with no cert-manager, which is the only
+way to know it is a check rather than a formality.
+
+The manifest is applied **server-side**: it is ~1 MB and its CRDs are far past the 256 KiB ceiling
+on the `last-applied-configuration` annotation a client-side apply would try to write. The release
+is pinned (`v1.21.1`) like MetalLB's beside it, and a Go test asserts the pin and the version the
+canvas prints on the checkbox are the same string — the two live in different languages, and a
+form claiming a version it did not install is worse than one that says nothing.
+
+**A failure is loud, not fatal.** The cluster is up and an operator with no cert-manager issues
+its own certificates rather than failing, so the deploy carries on with two lines in the log. What
+the panel then shows is `certManager` from the *config* — what is on the cluster — not the frame's
+checkbox, which is what was asked for. They differ exactly when the install failed, and that is
+the case the row exists for.
+
+**CloudNativePG already installed cert-manager** by Helm chart for the barman-cloud plugin, and
+two installs do not merge — the chart's objects collide with the manifest's, which Helm reports as
+invalid ownership metadata and which would have failed a plugin install for a dependency that was
+already satisfied. `installBarmanPlugin` now checks for the CRD first and uses what is there. The
+CRD is the test rather than the namespace: a namespace outlives an uninstall.
+
+### The Secrets and ConfigMaps editor
+
+If cr.yaml is what the operator was told to do, these are the objects it was told it with, and on
+a Percona cluster they carry most of what a lab is for: `<cluster>-secrets`, `internal-<cluster>`
+(the operator's own copy — the two disagreeing is a real reportable failure), the `-ssl` chains,
+and the ConfigMap holding my.cnf. It is a tab beside cr.yaml and it takes that editor's contract
+wholesale: a draft, a pending count, Review, and every apply server-side dry-run first.
+
+Three decisions are its own:
+
+- **The list carries no values.** The server sends key names and decoded sizes for a namespace's
+  objects, and values only for one named object. A panel that dumps every password in the
+  namespace to render a list is one nobody can open in a screen-share; a smoke check asserts the
+  list is value-free, and it was checked against a real cluster too.
+- **Binary is not round-tripped.** A value that is not valid UTF-8 *with no control characters*
+  (a DER blob is frequently valid UTF-8 by accident) is reported as `binary · N bytes` and the
+  editor never sends it back. Naming such a key from the API is still allowed — an explicit
+  replacement is an intent, not an accident.
+- **A failure reports the API server's message and nothing else.** `a.kubectl` puts the whole argv
+  in its error, the patch is an argument, and half of what this writes is a password — so this
+  file has its own `kubectlQuiet`. Found by reading a real refusal during verification: the
+  immutable-ConfigMap error came back with `-p {"data":…}` attached, and on a Secret that is a new
+  credential in an error box, a log line, and a browser.
+
+Values are masked until revealed, one key at a time, and Review masks them too — a review panel
+that prints every password at once undoes the point of revealing them individually, at exactly the
+moment somebody is sharing a screen to ask "does this look right?". A ConfigMap's values *are*
+printed in Review: reviewing a my.cnf change you cannot see is not a review.
+
+The tab is shown for any Kubernetes server node rather than only the four Percona operators (the
+gate cr.yaml has). Every cluster has Secrets and ConfigMaps, and the namespace picker defaults to
+the operator's own — hiding a generic Kubernetes editor from a CloudNativePG frame would be a rule
+with nothing behind it.
+
+### Verified
+
+cert-manager: an opt-in integration test (`K3D_IT=1`) creates a throwaway k3d cluster, asserts the
+webhook probe fails before the install, runs `installCertManager`, and asserts the pinned version
+is what the controller actually runs and that a Certificate is admitted afterwards — 61 seconds,
+cluster deleted at the end. Then the whole path, from a real deploy: a throwaway stack whose
+Kubernetes frame carries `k3dCertManager: true` deployed with the log reading MetalLB → apply
+(1010 KiB) → the three deployments ready → "the webhook is admitting Certificates", and
+`certManager: v1.21.1` on the node's config, which is the panel's row. The editor's namespace
+picker then found the new `cert-manager` namespace and its `cert-manager-webhook-ca` Secret. The
+stack was destroyed and deleted afterwards. It first failed for a reason worth recording: **a third k3s cluster
+would not start on the host at all** — containerd inside the node died with `failed to create
+fsnotify watcher: too many open files`, with every pod Pending and no node registered, because two
+existing clusters had exhausted `fs.inotify.max_user_instances` (128) in the Docker VM. Raising it
+to 1024 fixed it; on a machine that runs several k3d clusters that limit is worth setting
+permanently. The same exhaustion is very likely what §371 hit and recorded as an Intranet whose
+systemd "could not finish booting inside its 90-second wait" — with the limit raised, the same
+Intranet on the same host booted and the stack deployed first time.
+
+The editor: read and written against the live PXC-operator cluster. The list of six Secrets came
+back with key names and sizes and no values; `k3d-00-ssl`'s PEM keys decoded as text and its
+binary key as `binary · 1.6 KiB` with none; a password write round-tripped through base64 into the
+cluster while the binary key beside it stayed byte-identical; a key removal took effect; a dry-run
+changed nothing; and an immutable ConfigMap was refused with the API server's own message. Every
+object created for the test was deleted afterwards. The panel was also rendered in a real browser
+with the app's own stylesheet to check the two editor shapes — an input for a password, a
+monospace textarea for a my.cnf.

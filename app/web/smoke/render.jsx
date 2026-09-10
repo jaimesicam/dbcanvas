@@ -52,6 +52,9 @@ import OidcLoginGuide from '../src/components/OidcLoginGuide.jsx'
 import CRFormEditor, {
   crPatch, changedPaths, yamlish, matchField, getAt, setAt, delAt,
 } from '../src/pages/CRFormEditor.jsx'
+import K8sObjectEditor, {
+  objectPatchOf, patchCount, reviewText, isMultiline, sizeLabel,
+} from '../src/pages/K8sObjectEditor.jsx'
 import PacketInspector, {
   Timeline as PktTimeline, RangeControls as PktRangeControls, Filters as PktFilters,
   PacketList as PktList, PacketDetails as PktDetails, SummaryStrip as PktSummary,
@@ -3999,6 +4002,72 @@ check('cr editor: the whole form renders from a CRD model', () => {
   // A field's live value, its type hint and its full path all reach the screen.
   if (!text.includes('spec.pause')) throw new Error('a field must show the path it patches')
   if (!text.includes('boolean')) throw new Error('the type hint is the only machine truth on screen; show it')
+  return html.length + ' bytes'
+})
+
+check('secrets editor: the patch carries only what changed, encoded per kind', () => {
+  // What leaves the browser is the whole safety question here: half of these values are
+  // passwords, and an editor that re-sends every key on every apply rotates credentials nobody
+  // asked to rotate.
+  const obj = {
+    kind: 'secret', name: 'k3d-00-secrets', namespace: 'default',
+    entries: [
+      { key: 'root', size: 13, value: 'root_password' },
+      { key: 'monitor', size: 7, value: 'monitor' },
+      { key: 'tls.key', size: 64, binary: true },
+    ],
+  }
+  const draft = { root: 'new_password', monitor: 'monitor' }
+
+  const p = objectPatchOf(obj, draft, [])
+  if (Object.keys(p.set).join(',') !== 'root') throw new Error(`sent ${JSON.stringify(p.set)}`)
+  if (p.set.root !== 'new_password') throw new Error('the new value did not travel')
+  if (patchCount(p) !== 1) throw new Error(`counted ${patchCount(p)}`)
+
+  // A binary key is never in the patch, even though it is on screen.
+  if ('tls.key' in objectPatchOf(obj, { ...draft, 'tls.key': 'oops' }, []).set) {
+    throw new Error('a binary key must not be writable')
+  }
+
+  // A removal names the key and drops any edit to it; a brand-new key is a set.
+  const rm = objectPatchOf(obj, draft, ['monitor'])
+  if (rm.remove.join(',') !== 'monitor') throw new Error(`remove = ${rm.remove}`)
+  const added = objectPatchOf(obj, { ...draft, newkey: 'v' }, [])
+  if (added.set.newkey !== 'v') throw new Error('a new key should be set')
+  // Removing a key that was never in the object is nothing to send, not a null.
+  if (objectPatchOf(obj, draft, ['ghost']).remove.length) throw new Error('a phantom removal was sent')
+  return `${patchCount(rm)} pending`
+})
+
+check('secrets editor: review shows a config file and masks a password', () => {
+  // Review exists so an apply is never a leap of faith — but a review panel that prints every
+  // password at once undoes the point of revealing them one at a time.
+  const secret = reviewText('secret', { set: { root: 'hunter2' }, remove: ['monitor'] })
+  if (secret.includes('hunter2')) throw new Error('the review printed a password')
+  if (!secret.includes('7 characters')) throw new Error('the review should say how long it is')
+  if (!secret.includes('monitor: <removed>')) throw new Error('a removal must be visible in the review')
+
+  const cm = reviewText('configmap', { set: { 'my.cnf': '[mysqld]\nmax_connections=1000' }, remove: [] })
+  if (!cm.includes('max_connections=1000')) throw new Error('reviewing a my.cnf you cannot see is not a review')
+  return 'masked, printed'
+})
+
+check('secrets editor: a value gets the editor its shape needs', () => {
+  if (isMultiline('root_password')) throw new Error('a password is one line')
+  if (!isMultiline('[mysqld]\nmax_connections=1000')) throw new Error('a config file needs a textarea')
+  if (!isMultiline('x'.repeat(80))) throw new Error('80 characters in a panel-width input is unreadable')
+  if (sizeLabel(13) !== '13 B' || sizeLabel(2048) !== '2.0 KiB') throw new Error(`sizeLabel: ${sizeLabel(13)}, ${sizeLabel(2048)}`)
+  return 'input, textarea, sizes'
+})
+
+check('secrets editor: the panel mounts, and a worker node says where to go', () => {
+  const html = renderToString(<K8sObjectEditor stackId={1} frame={{ id: 'f1' }} isServer />)
+  const text = html.replace(/<!--.*?-->/g, '')
+  for (const want of ['Secrets', 'ConfigMaps', 'Reading the cluster']) {
+    if (!text.includes(want)) throw new Error(`missing from the editor: ${want}`)
+  }
+  const worker = renderToString(<K8sObjectEditor stackId={1} frame={{ id: 'f1' }} isServer={false} />)
+  if (!worker.replace(/<!--.*?-->/g, '').includes('server')) throw new Error('a worker node should point at the server')
   return html.length + ' bytes'
 })
 

@@ -503,6 +503,12 @@ type designFrame struct {
 	K3DPITR        bool   `json:"k3dPitr"`
 	K3DPITRBucket  string `json:"k3dPitrBucket"`
 	K3DPITRSeconds int    `json:"k3dPitrSeconds"`
+	// cert-manager, installed before the operator and waited for. A deploy-time decision
+	// because it changes what the operator does rather than what it is: the Percona operators
+	// look for cert-manager when they reconcile, and one that starts first and finds none
+	// self-signs the cluster's certificates instead — a choice a later install does not undo.
+	// See k3dcertmanager.go; the release is pinned there.
+	K3DCertManager bool   `json:"k3dCertManager"`
 	K3DOperator    string `json:"k3dOperator"`    // "" | "pxc" | "ps" | "psmdb" | "pg" | "cnpg" | "pgo"
 	K3DOperatorVer string `json:"k3dOperatorVer"` // "" = the catalog's latest
 	K3DNamespace   string `json:"k3dNamespace"`   // namespace the operator + CR are installed into

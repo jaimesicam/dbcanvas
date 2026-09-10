@@ -322,6 +322,16 @@ export function k3dApi(id, fid) {
     // first — pass dryRun to check a change without applying it.
     cr: () => request('GET', `${base}/cr`),
     crPatch: (patch, dryRun) => request('POST', `${base}/cr`, { patch, dryRun: !!dryRun }),
+    // Secrets and ConfigMaps (app/k3dobjects.go). `objects` lists a namespace — key names and
+    // sizes, never values; `object` reads one, with its text values decoded and its binary keys
+    // reported as size only; `objectPatch` writes keys or removes them, always server-side
+    // dry-run first. The same contract the cr.yaml editor has, for the same reason: these are
+    // objects an operator reconciles, and a write here restarts pods.
+    objects: (kind, namespace) => request('GET',
+      `${base}/objects?kind=${encodeURIComponent(kind)}${namespace ? `&namespace=${encodeURIComponent(namespace)}` : ''}`),
+    object: (kind, namespace, name) => request('GET',
+      `${base}/object?kind=${encodeURIComponent(kind)}&namespace=${encodeURIComponent(namespace)}&name=${encodeURIComponent(name)}`),
+    objectPatch: (body) => request('POST', `${base}/object`, body),
   }
 }
 

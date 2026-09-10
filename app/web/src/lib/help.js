@@ -724,6 +724,7 @@ export const DEP_HELP = {
   Operator: 'The operator reconciling this database. It, not DBCanvas, is what actually creates and heals the pods.',
   Manifests: 'Where the custom resources were written on the node. Edit them there and re-apply to change the cluster the way you would in production.',
   'LoadBalancer pool': 'The address range k3s hands out to LoadBalancer services in this cluster.',
+  'cert-manager': 'The cert-manager release installed on this cluster, or "not installed". It is what the operator asks for the database\u2019s TLS certificates when it is there; without it the operator generates a self-signed set of its own. This row is what is really on the cluster \u2014 a frame that asked for it and whose install failed says "not installed" here, and the deployment log says why.',
   'Expose · Postgres': 'How PostgreSQL is reachable from outside the cluster.',
   Config: 'Where this node\'s configuration file lives. Edit it with the file manager, then restart the node from its right-click menu.',
   Debugger: 'Where the Delve debugger is listening. Point your IDE\'s Go remote-debug configuration here to attach to the operator.',

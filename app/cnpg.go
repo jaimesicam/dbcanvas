@@ -825,12 +825,18 @@ func (a *App) installCNPGOperator(ctx context.Context, st Stack, frame designFra
 func (a *App) installBarmanPlugin(ctx context.Context, ar *cnpgArchiver, pr *pxcProg) error {
 	serverID := ar.serverID
 	pr.phase("Installing cert-manager", 84)
-	if err := ar.apply(ctx, "", "cert-manager", helmChartManifest(
+	// The frame may have installed cert-manager already (the canvas checkbox, see
+	// k3dcertmanager.go), and installing it twice does not merge: the chart's objects collide
+	// with the manifest's, which Helm reports as invalid ownership metadata and which would
+	// fail this plugin install for a dependency that is already satisfied.
+	if a.certManagerPresent(ctx, serverID) {
+		pr.logln("cert-manager is already on this cluster — the plugin will use it")
+	} else if err := ar.apply(ctx, "", "cert-manager", helmChartManifest(
 		certManagerChart, certManagerChartRepo, certManagerChart, "", certManagerNamespace,
 		"crds:\n  enabled: true\n")); err != nil {
 		return fmt.Errorf("apply the cert-manager HelmChart: %w", err)
 	}
-	if err := a.waitForCRD(ctx, serverID, "certificates.cert-manager.io", deployTimeout()); err != nil {
+	if err := a.waitForCRD(ctx, serverID, certManagerCRD, deployTimeout()); err != nil {
 		return fmt.Errorf("cert-manager CRDs never became established: %w", err)
 	}
 	// The plugin's Certificate resources are admitted by cert-manager's webhook, so the

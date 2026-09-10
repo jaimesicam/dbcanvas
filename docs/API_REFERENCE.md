@@ -541,6 +541,9 @@ dbcanvas api GET /api/catalog/ps | jq '.["oraclelinux-9"]'
 | Re-seed a replica from its source | `POST …/frames/{fid}/k3d/replication/reseed` | `dbcanvas api POST …/k3d/replication/reseed` |
 | Read the CRD as a form model, with the live `spec` | `GET …/frames/{fid}/k3d/cr` | `dbcanvas api GET …/k3d/cr` |
 | Patch the custom resource | `POST …/frames/{fid}/k3d/cr` | `dbcanvas api POST …/k3d/cr --data '{"patch":{"pxc":{"size":5}}}'` |
+| List a namespace's Secrets or ConfigMaps | `GET …/frames/{fid}/k3d/objects?kind=secret` | `dbcanvas api GET …/k3d/objects?kind=configmap` |
+| Read one, with its values | `GET …/frames/{fid}/k3d/object?kind=&namespace=&name=` | `dbcanvas api GET '…/k3d/object?kind=secret&name=cluster1-secrets'` |
+| Write keys into one, or remove them | `POST …/frames/{fid}/k3d/object` | `dbcanvas api POST …/k3d/object --data '{"kind":"secret","name":"cluster1-secrets","set":{"root":"new"}}'` |
 
 ```sh
 dbcanvas api GET /api/stacks/1/frames/k3d-01/k3d/kubeconfig | jq -r .kubeconfig > kube.yaml
@@ -575,6 +578,27 @@ server's own message and nothing applied.
 # what would this operator do with a fourth database pod?
 dbcanvas api POST /api/stacks/1/frames/k3d-00/k3d/cr \
   --data '{"patch":{"pxc":{"size":4}},"dryRun":true}'
+```
+
+The last three are the **Secrets and ConfigMaps editor**, and they follow the same contract: a
+write is a merge patch of `data` (a `remove` list becomes JSON nulls), always dry-run against the
+API server first, `dryRun` to stop there. A Secret's values are base64 on the wire to Kubernetes
+but **plain text in this API** — the server decodes on read and encodes on write, so a caller
+never handles base64. Two rules are worth knowing before scripting against it:
+
+- **The list carries no values**, only key names and their decoded sizes. Values come from a read
+  of one named object.
+- **A value that is not text is `"binary": true`** with a size and no value, and the editor never
+  sends one back. Naming such a key in `set` is allowed — an explicit replacement is an intent,
+  not an accident — but nothing round-trips a value it could not show.
+
+A failure reports the API server's own message and nothing else: not the command, because the
+command contains the value being written and half of what this endpoint writes is a password.
+
+```sh
+# rotate the operator's monitor user and watch what the operator does about it
+dbcanvas api POST /api/stacks/1/frames/k3d-00/k3d/object \
+  --data '{"kind":"secret","name":"k3d-00-secrets","set":{"monitor":"new-password"}}'
 ```
 
 ## All in One

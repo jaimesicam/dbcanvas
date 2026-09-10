@@ -702,6 +702,12 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "The operator's own CRD as a form model, plus the live custom resource — what the cr.yaml editor is built from."},
 		{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/k3d/cr", Group: gK3D, Handler: m((*App).handleK3DCRPatch),
 			Summary: "Apply a merge patch to the cluster's custom resource, server-side dry-run first. `dryRun` validates without changing anything."},
+		{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/k3d/objects", Group: gK3D, Handler: m((*App).handleK3DObjects),
+			Summary: "The Secrets or ConfigMaps of one namespace — names, types and key names, never values."},
+		{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/k3d/object", Group: gK3D, Handler: m((*App).handleK3DObject),
+			Summary: "One Secret or ConfigMap with its values, decoded — binary keys report their size and nothing else."},
+		{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/k3d/object", Group: gK3D, Handler: m((*App).handleK3DObjectPatch),
+			Summary: "Write keys into a Secret or ConfigMap, or remove them, server-side dry-run first. `dryRun` validates without changing anything."},
 
 		// --- Operator Debugger --------------------------------------------------
 		{Method: "GET", Path: "/api/k3d/debug/targets", Group: gDebug, Handler: m((*App).handleK3DDebugTargets),

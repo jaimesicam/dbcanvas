@@ -878,6 +878,11 @@ function nextMemberName(usedSet, prefix) {
 }
 
 // Per-frame-type presentation: accent color and the description line.
+// CERT_MANAGER_VERSION mirrors the pin in app/k3dcertmanager.go — the release a ticked frame
+// installs. Shown rather than hidden: "cert-manager is on it" is not a useful answer when the
+// question is which one.
+export const CERT_MANAGER_VERSION = 'v1.21.1'
+
 const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', mariadbrepl: '#c0765a', mariadbgalera: '#a85d43', mysqlcerepl: '#00758f', mysqlceinnodb: '#005d72', psmdb: '#10b981', psmrs: '#059669', patroni: '#336791', repmgr: '#0e7490', spock: '#dc2626', valkeycluster: '#7c3aed', k3d: '#326ce5' }
 
 // A SeaweedFS node creates up to ten buckets, so several databases can share one object store
@@ -8000,6 +8005,26 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
             : 'A sharded MongoDB cluster is 9 pods (replica set + config servers + mongos). Below 8 CPU / 12 GiB, deploy it as a replica set instead.'}
         </p>
       )}
+
+      {/* Cluster add-ons — installed before the operator, because what they change is what the
+          operator does when it first reconciles. MetalLB is not here: every frame gets it, since
+          a LoadBalancer Service with no address is a cluster half the canvas cannot reach. */}
+      <div className="space-y-2 rounded-lg border border-dashed p-2">
+        <div className="text-xs font-medium text-muted">Cluster add-ons</div>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-1" disabled={deployed}
+            checked={!!f.k3dCertManager}
+            onChange={(e) => patchFrame(f.id, { k3dCertManager: e.target.checked })} />
+          <span>
+            Install cert-manager <span className="font-mono text-xs">{CERT_MANAGER_VERSION}</span>
+            <span className="block text-xs text-muted">
+              Applied and waited for <em>before</em> the operator, which is the only order that works: an
+              operator that reconciles first finds no cert-manager and issues its own self-signed
+              certificates instead. Adds three pods.
+            </span>
+          </span>
+        </label>
+      </div>
 
       <div className="space-y-2 rounded-lg border border-dashed p-2">
         <div className="text-xs font-medium text-muted">Database operator</div>

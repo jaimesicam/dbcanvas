@@ -347,6 +347,38 @@ cluster's own CA — bound to a built-in ClusterRole (`view`/`edit`/`admin` scop
 or `cluster-admin` cluster-wide), then copy that user's own kubeconfig and confirm exactly what it
 can and can't do.
 
+**cert-manager, ticked at design time.** A Kubernetes frame has a **Cluster add-ons** box with one
+option in it: install cert-manager (a pinned release — the canvas prints which) before the
+operator. It is a design-time choice rather than something to do afterwards, because what it
+changes is what the *operator* does on its first reconcile: with cert-manager on the cluster the
+four Percona operators ask it for the database's TLS certificates — a real Issuer, renewal, a CA
+the pods trust — and without it they quietly generate a self-signed set of their own. Installing
+it a minute later does not undo that decision, so the deploy applies the manifest, waits for the
+three deployments, and then waits again until cert-manager's webhook actually admits a
+`Certificate` (the deployments report Available a few seconds before that is true) — and only then
+installs the operator. If any of it fails the deploy carries on with a loud line in the log and
+the operator self-signs as it always did; the k3s node's panel has a **cert-manager** row saying
+what is really on the cluster, which is how you tell those two apart. Both states are legitimate
+labs — "reproduce it with their cert-manager" and "reproduce it without" are different tickets.
+
+**Secrets and ConfigMaps, as an editor.** Beside the cr.yaml tab, the k3s server node's panel has
+**Secrets & configs**: every Secret or ConfigMap in a namespace, and an editor for the one you
+pick. If cr.yaml is what the operator was told to do, these are the objects it was told it with —
+`<cluster>-secrets` (root, monitor, xtrabackup, replication, proxyadmin), `internal-<cluster>`
+(the operator's own copy of them, and the two disagreeing is a specific reportable failure), the
+`-ssl` chains, and the ConfigMap holding my.cnf or mongod.conf. Editing a password here is how the
+operator's credential rotation gets exercised at all; editing the tuning file and watching the
+rollout is the other half.
+
+It follows the cr.yaml editor's rules, for the same reasons. Nothing is applied until you say so
+and the footer counts what is pending; every apply is server-side dry-run first, so an immutable
+object or a key the Secret's own type refuses comes back as the API server's message with nothing
+changed; and a Secret's values are **masked until revealed, one key at a time** — the list never
+carries values at all, so the tab can be opened in a screen-share. A value that is not text is
+shown as `binary · N bytes` and is never round-tripped through a text box. Nothing is restarted
+afterwards: what a changed Secret or ConfigMap does next is the operator's business, and watching
+which is usually the point.
+
 **A shell inside a pod, from the canvas.** Right-click the **k3s server** node and take **Enter
 pod console**: the menu opens onto the cluster's namespaces, then that namespace's pods, then the
 pod's containers, then the shell to run — `kubectl exec -it`, four clicks, with no kubeconfig and
