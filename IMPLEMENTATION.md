@@ -22412,3 +22412,83 @@ not be completed on the day — the host was running two k3s clusters at ~10 GiB
 node's systemd could not finish booting inside its 90-second wait, which failed the deploy of a
 container that was in fact coming up fine (`systemctl is-system-running` said `running` a minute
 later). That timeout is unchanged and is worth revisiting on its own.
+
+---
+
+## 372. A shell inside a pod, four clicks from the canvas — `app/k3dpods.go` (new), `app/{terminal,api_routes}.go`, `app/k3dpods_test.go` (new), `app/web/src/pages/StackDesigner.jsx`, `app/web/src/terminal/TerminalProvider.jsx`, `app/web/src/lib/{stackApi,help}.js`, `app/web/smoke/{render,browser}.jsx`, `cli/cmd_node.go`, `docs/{STACKS,CLI,API_REFERENCE}.md`
+
+*"add a feature when you right click a k3d server inside the k3d cluster to have a menu that has
+an Enter pod console that branches out to -> Namespace -> Pod Name -> Container -> Shell? So since
+deployment could be anything, the menu should refresh when invoked?"* All of it, and the last
+sentence is the design.
+
+**Four levels, because that is the address of a shell in Kubernetes.** The node console execs into
+a container *of the stack*; inside a cluster the thing you want is one layer further down, and
+none of the four parts can be assumed — a canvas can run two operators in two namespaces, an
+operator names its pods with a generated suffix, and a database pod has sidecars (`logs`,
+`logrotate`, `pxc-monit`) you sometimes want *instead* of the database. So the menu asks for all
+four rather than guessing three of them.
+
+**The refresh rule is tied to opening the menu, not to a timer.** A pod list is the
+shortest-lived thing in this app, so nothing is fetched when the canvas renders and nothing is
+kept between right-clicks: `ContextMenu` holds one cache for as long as it is open, keyed by an
+async entry's `key`, and it dies with the menu. Hovering off the row and back does not ask the
+cluster again (the browser smoke check asserts exactly that); a second right-click does. A failed
+fetch is cached the same way and shown as the submenu's own row — a cluster that cannot answer
+should not replace the canvas with an error banner.
+
+**The context menu learned two things** to carry this: submenus now nest to any depth (it was one
+level, hard-coded), and an entry's `items` may be a *function returning a promise* instead of an
+array. Both fell out of splitting the panel into a recursive `MenuPanel` — the same rendering at
+every level, the same `submenuPos` clamp, the same escape from the scroll container's clip that
+made the first submenu work. A not-yet-loaded submenu is positioned for a guessed eight rows,
+which is only ever a scrollbar's worth of wrong.
+
+**No row truncates, at any level** — which the first cut of this got wrong and the
+screenshot showed immediately: three pods came out as `k3d-00-pitr-588f5fdd5…`,
+`percona-xtradb-cluste…` and `xb-dbcanvas-seed-k3…`, an ellipsis exactly where the
+identifying half of the name was. Leaf rows already wrapped for that reason (§358);
+submenu rows only truncated because they carry a count and a chevron beside the label.
+Both now wrap, and a panel is sized to its own longest label first (`menuWidth`,
+208–340px) so it widens before it wraps — the namespace panel stays narrow next to a
+list of generated pod names. The ceiling is what keeps a cascade four deep on the
+canvas; past it a name takes two lines, with the count and the chevron held on the
+first one. `submenuPos` takes the entries rather than a row count for the same reason:
+nine wrapping names are half again as tall as nine short rows, and a panel placed for
+the short version starts too low and scrolls for nothing.
+
+**A container that is not running is shown and disabled, never hidden.** `kubectl exec` only
+reaches a running container, and its refusal arrives as one line in a terminal that immediately
+closes. A pod stuck in `Init` is exactly when somebody opens this menu, so the init containers are
+on the list too, tagged and greyed with the state that explains them.
+
+**The console is the same endpoint as the node console**, with four query parameters
+(`namespace`, `pod`, `container`, `shell`) — so the browser and `dbcanvas node console --pod` get
+the same shell from the same code, and the CLI's raw-mode bridge needed no changes at all. The
+exec is still into the k3s node's container; it is *kubectl* that crosses into the pod, reading
+the cluster's own admin kubeconfig, so nothing is configured on the caller's machine and no port
+leaves the cluster. `?user` is ignored for a pod console rather than quietly applied to the wrong
+side of that boundary. The names are validated against the Kubernetes naming rules **before the
+socket is upgraded**, so a bad one is an HTTP error with a body rather than a socket that opens
+and closes; the argv is a list, never a shell string, and the shell script at the far end mentions
+none of the names.
+
+`GET …/nodes/{nid}/k8s/pods` is the inventory, and it is node-scoped rather than frame-scoped like
+the rest of the Kubernetes endpoints — it runs through one specific server node's kubectl, and
+that node is the thing you right-click. Only a server node: an agent has no admin kubeconfig, so
+both the list and the console refuse one with `409`.
+
+**Verified against a live cluster** (stack 54, k3s v1.36.4, PXC operator 1.20.0, 14 pods across
+three namespaces): `parseK3DPods` on that cluster's real `kubectl get pods -A -o json` (314 KB,
+`managedFields` already hidden by kubectl) produced every pod with its sidecars and its terminated
+init containers; `dbcanvas node pods 54 k3s01` printed them through the whole HTTP path; and
+`dbcanvas node console 54 k3s01 --namespace default --pod k3d-00-pxc-0 --container pxc` landed in
+an interactive `bash-5.1$` inside the container as the `mysql` user. Each refusal was checked
+against the running installation too — a container name of `../etc`, `--shell zsh`, a pod console
+asked of the SeaweedFS node, and `node pods` on a node that is not a k3s server. A distroless
+container (`metrics-server`) answers with kubectl's own one-line "no such file or directory",
+which is the honest thing for it to say. The menu itself is driven with real mouse events in the
+browser smoke check — hover to load, three more hovers to reach the shells, five panels open at
+once, and the leaf calling back with all four parts. The widths were checked by screenshotting the
+whole open cascade in headless Chrome with the app's own stylesheet, against that cluster's real
+pod names.

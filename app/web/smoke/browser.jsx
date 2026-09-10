@@ -20,6 +20,7 @@ import LogSummary from '../src/pages/LogSummary.jsx'
 import FTDCSummary from '../src/pages/FTDCSummary.jsx'
 import StalkSummary from '../src/pages/StalkSummary.jsx'
 import PacketInspector from '../src/pages/PacketInspector.jsx'
+import { ContextMenu, podMenuEntries } from '../src/pages/StackDesigner.jsx'
 
 const failures = []
 const record = (what, err) => failures.push(`${what}: ${err?.message || err}\n${(err?.stack || '').split('\n').slice(1, 4).join('\n')}`)
@@ -116,12 +117,101 @@ for (const [name, Page] of PAGES) {
   }
 }
 
+// ---------------------------------------------------------------- the pod console
+//
+// The one piece of UI in this app that only exists at hover time: the pod console's
+// menu is four levels deep and its contents are FETCHED when the submenu opens, so
+// neither the SSR check next door (no effects, no pointer) nor a --dump-dom of a
+// mounted page can see any of it. Driving it with real mouse events in a real
+// browser is the only way to find out that a namespace row opens a pod row, that a
+// panel three levels in is on screen rather than clipped away inside its scrolling
+// parent, and that the leaf actually calls back with all four parts.
+const PODS = [
+  { namespace: 'default', name: 'cluster1-pxc-0', phase: 'Running', containers: [
+    { name: 'pxc', state: 'running', ready: true },
+    { name: 'pxc-init', state: 'terminated', ready: true, init: true },
+  ] },
+  { namespace: 'kube-system', name: 'coredns-abc', phase: 'Running', containers: [
+    { name: 'coredns', state: 'running', ready: true },
+  ] },
+]
+let menuDone = false
+async function drivePodMenu() {
+  const picked = []
+  let fetches = 0
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  createRoot(host).render(
+    <ContextMenu
+      menu={{ x: 40, y: 40 }}
+      onClose={() => {}}
+      actions={[{
+        label: 'Enter pod console',
+        key: 'pods:k3s-01',
+        empty: 'No pods',
+        items: () => { fetches++; return Promise.resolve(podMenuEntries(PODS, (p) => picked.push(p))) },
+      }]}
+    />,
+  )
+  const tick = () => new Promise((r) => setTimeout(r, 20))
+  // A submenu row's button holds its label, its child count and a chevron, so the
+  // label is the first span when there is one and the whole button when there is not.
+  const label = (b) => (b.querySelector('span') || b).textContent.trim()
+  const row = (text) => [...document.querySelectorAll('button')].find((b) => label(b) === text)
+  // React renders concurrently and the submenu's items arrive from a promise, so
+  // every step waits for its row rather than assuming one turn was enough.
+  const waitRow = async (text) => {
+    for (let i = 0; i < 40; i++) {
+      const el = row(text)
+      if (el) return el
+      await tick()
+    }
+    throw new Error(`no menu row "${text}" (have: ${[...document.querySelectorAll('button')].map(label).join(' | ')})`)
+  }
+  const open = async (text) => {
+    const el = await waitRow(text)
+    el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    await tick()
+    return el
+  }
+
+  await open('Enter pod console')
+  await open('default')
+  await open('cluster1-pxc-0')
+  // A container that is not running is offered and refused, not hidden.
+  const init = await waitRow('pxc-init · init')
+  if (!init || !init.disabled) throw new Error('the terminated init container should be shown and disabled')
+  await open('pxc')
+
+  // Five panels are open at once — the root plus one per level — which is the whole
+  // claim the nesting makes. (Where each one SITS is menuPos/submenuPos's business
+  // and is checked off-browser next door; this harness loads no stylesheet, so
+  // nothing here is laid out where a user would see it.)
+  const panels = document.querySelectorAll('[data-menu-panel]')
+  if (panels.length !== 5) throw new Error(`expected 5 open panels (root + 4 levels), found ${panels.length}`)
+
+  ;(await waitRow('bash')).click()
+  if (picked.length !== 1) throw new Error(`the shell leaf called back ${picked.length} times`)
+  const want = { namespace: 'default', name: 'cluster1-pxc-0', container: 'pxc', shell: 'bash' }
+  if (JSON.stringify(picked[0]) !== JSON.stringify(want)) throw new Error(`picked ${JSON.stringify(picked[0])}`)
+
+  // Hovering off the row and back on it must not ask the cluster again: the cache
+  // lives as long as the open menu, and dies with it.
+  await open('Enter pod console')
+  if (fetches !== 1) throw new Error(`the pod list was fetched ${fetches} times in one open of the menu`)
+  menuDone = true
+}
+drivePodMenu().catch((err) => record('pod console menu', err))
+
 // Give effects, their microtasks and the stubbed fetches a turn, then report.
 setTimeout(() => {
   const blank = PAGES.filter(([name]) => (document.getElementById(`page-${name}`)?.textContent || '').trim() === '')
     .map(([name]) => name)
   const out = document.createElement('pre')
   out.id = 'result'
+  if (!menuDone && !failures.some((f) => f.startsWith('pod console menu'))) {
+    record('pod console menu', new Error('never finished — did a submenu stop opening?'))
+  }
   if (failures.length === 0 && blank.length === 0) {
     out.textContent = 'ALL PAGES MOUNTED'
     document.title = 'OK'
@@ -133,4 +223,4 @@ setTimeout(() => {
     document.title = `FAIL(${blank.length + failures.length})`
   }
   document.body.appendChild(out)
-}, 1200)
+}, 2500)

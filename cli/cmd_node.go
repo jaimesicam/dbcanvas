@@ -31,10 +31,11 @@ func cmdNode(args []string) error {
 		"stop":    nodeAction("stop"),
 		"restart": nodeAction("restart"),
 		"console": nodeConsole,
+		"pods":    nodePods,
 		"exec":    nodeExec,
 		"cp":      nodeCp,
 		"tunnel":  nodeTunnel,
-	}, []string{"list", "start", "stop", "restart", "console", "exec", "cp", "tunnel"})
+	}, []string{"list", "start", "stop", "restart", "console", "pods", "exec", "cp", "tunnel"})
 }
 
 func nodeList(args []string) error {
@@ -127,14 +128,26 @@ func nodeAction(action string) func([]string) error {
 }
 
 // nodeConsole bridges the terminal to a node's shell over the WebSocket.
+//
+// --pod turns it into a console inside the Kubernetes cluster a k3s server node runs:
+// same endpoint, same protocol, and the server execs `kubectl exec -it` through that
+// node instead of a shell in it. `dbcanvas node pods` is where the three names come
+// from — pods outlive nothing, so list them rather than remembering them.
 func nodeConsole(args []string) error {
 	fs := flagsFor("node console")
 	user := fs.String("user", "", "exec as this uid or username (default: the image's user)")
+	pod := fs.String("pod", "", "open the console inside this pod instead of the node (Kubernetes server nodes)")
+	ns := fs.String("namespace", "default", "the pod's namespace")
+	container := fs.String("container", "", "which of the pod's containers to enter")
+	shell := fs.String("shell", "auto", "the shell to run in the pod: auto, bash or sh")
 	if err := parse(fs, args); err != nil {
 		return err
 	}
 	if err := need(2, "a stack and a node: dbcanvas node console <stack> <node>"); err != nil {
 		return err
+	}
+	if *pod != "" && *container == "" {
+		return fmt.Errorf("--pod needs --container: a pod has more than one, and `dbcanvas node pods %s %s` lists them", arg(0), arg(1))
 	}
 	c, st, node, err := stackAndNode(arg(0), arg(1))
 	if err != nil {
@@ -142,10 +155,83 @@ func nodeConsole(args []string) error {
 	}
 
 	path := fmt.Sprintf("/api/stacks/%d/nodes/%s/term", st.ID, url.PathEscape(node))
+	q := url.Values{}
 	if *user != "" {
-		path += "?user=" + url.QueryEscape(*user)
+		q.Set("user", *user)
 	}
-	return runConsole(c, path, fmt.Sprintf("%s/%s", st.Name, node))
+	label := fmt.Sprintf("%s/%s", st.Name, node)
+	if *pod != "" {
+		q.Set("namespace", *ns)
+		q.Set("pod", *pod)
+		q.Set("container", *container)
+		q.Set("shell", *shell)
+		label = fmt.Sprintf("%s/%s/%s", st.Name, *pod, *container)
+	}
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	return runConsole(c, path, label)
+}
+
+// nodePods lists the pods of the Kubernetes cluster a k3s server node runs — the
+// three names `node console --pod` needs, and their containers' state, so a shell is
+// not attempted into a container that is not running.
+func nodePods(args []string) error {
+	fs := flagsFor("node pods")
+	if err := parse(fs, args); err != nil {
+		return err
+	}
+	if err := need(2, "a stack and a Kubernetes server node: dbcanvas node pods <stack> <node>"); err != nil {
+		return err
+	}
+	c, st, node, err := stackAndNode(arg(0), arg(1))
+	if err != nil {
+		return err
+	}
+	var raw []byte
+	if err := c.get(fmt.Sprintf("/api/stacks/%d/nodes/%s/k8s/pods", st.ID, url.PathEscape(node)), &raw); err != nil {
+		return err
+	}
+	if g.json {
+		return printRaw(raw)
+	}
+	var body struct {
+		Pods []struct {
+			Namespace  string `json:"namespace"`
+			Name       string `json:"name"`
+			Phase      string `json:"phase"`
+			Containers []struct {
+				Name  string `json:"name"`
+				State string `json:"state"`
+				Init  bool   `json:"init"`
+			} `json:"containers"`
+		} `json:"pods"`
+	}
+	if err := jsonUnmarshal(raw, &body); err != nil {
+		return err
+	}
+	if len(body.Pods) == 0 {
+		empty("pods in the cluster on "+node, "The cluster is up but has nothing running yet.")
+		return nil
+	}
+	// One row per container, not per pod: the container is what a console names, and
+	// a pod row would only send you back for its list.
+	t := newTable("namespace", "pod", "phase", "container", "state")
+	for _, p := range body.Pods {
+		for _, ct := range p.Containers {
+			name := ct.Name
+			if ct.Init {
+				name += " (init)"
+			}
+			state := ct.State
+			if state == "" {
+				state = "-"
+			}
+			t.add(p.Namespace, p.Name, p.Phase, name, state)
+		}
+	}
+	t.print()
+	return nil
 }
 
 // runConsole is the raw-mode bridge, shared by any endpoint that speaks the terminal

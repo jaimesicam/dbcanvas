@@ -429,6 +429,8 @@ what makes them safe to hand over.
 | List a stack's deployed nodes | `GET /api/stacks/{id}` | `dbcanvas node list <stack>` |
 | Start · stop · restart | `POST …/nodes/{nid}/start` · `/stop` · `/restart` | `dbcanvas node start\|stop\|restart <stack> <node>` |
 | Open a root console | `GET …/nodes/{nid}/term` *(WebSocket)* | `dbcanvas node console <stack> <node>` |
+| List the pods on a Kubernetes server node | `GET …/nodes/{nid}/k8s/pods` | `dbcanvas node pods <stack> <node>` |
+| Open a console inside a pod's container | `GET …/nodes/{nid}/term?namespace=&pod=&container=&shell=` *(WebSocket)* | `dbcanvas node console <stack> <node> --pod P --container C` |
 | Run one command | *(the same WebSocket)* | `dbcanvas node exec <stack> <node> -- mysql -e 'SHOW STATUS'` |
 | Get the `ssh -L` tunnel line | `GET …/nodes/{nid}/sshforward` | `dbcanvas node tunnel <stack> <node>` |
 | Copy files in | `POST …/nodes/{nid}/upload` *(multipart)* | `dbcanvas node cp ./my.cnf <stack>:<node>:/etc/` |
@@ -454,6 +456,29 @@ what makes them safe to hand over.
 
 **After a restart, re-read the node.** Docker hands out a new ephemeral host port on
 every start, so any port you noted before the restart is stale.
+
+### A console inside a pod
+
+On a **k3s server node** the same `…/term` socket takes four extra parameters —
+`namespace`, `pod`, `container` and `shell` (`auto`, `bash` or `sh`) — and then the
+exec is `kubectl exec -it` into that container, run through the node's own kubectl
+and its admin kubeconfig. Nothing is configured on the caller's machine, no
+kubeconfig is downloaded, and no port is published off the cluster; a browser gets
+the same shell as the CLI because it is the same endpoint. Names are checked against
+the Kubernetes naming rules before the socket is upgraded, so a bad one is an HTTP
+error with a body rather than a socket that closes.
+
+`GET …/nodes/{nid}/k8s/pods` is where the four parts come from: every pod in the
+cluster, with each pod's containers, whether each is `running`, `waiting` or
+`terminated`, and which are init containers. It is read fresh each time — the canvas
+re-reads it on every open of the **Enter pod console** menu, because the operator
+deletes and recreates pods on its own schedule and the names carry a generated
+suffix.
+
+```sh
+dbcanvas node pods k8s-lab k3s-01
+dbcanvas node console k8s-lab k3s-01 --namespace default --pod cluster1-pxc-0 --container pxc
+```
 
 ## Clusters & backups
 
@@ -521,6 +546,12 @@ dbcanvas api GET /api/catalog/ps | jq '.["oraclelinux-9"]'
 dbcanvas api GET /api/stacks/1/frames/k3d-01/k3d/kubeconfig | jq -r .kubeconfig > kube.yaml
 KUBECONFIG=kube.yaml kubectl get pods -A
 ```
+
+These are addressed by **frame**, because a Kubernetes cluster's identity on the
+canvas is its frame. The two endpoints that reach *into* a pod are addressed by node
+instead — the pod list and the pod console, both under `…/nodes/{nid}/` in
+[Nodes](#nodes) — because they run through one specific k3s server node's kubectl,
+and that node is the thing you right-click.
 
 Replication is set up by the deploy — draw the link between two PXC-operator frames on the canvas
 and press Deploy ([Stacks](STACKS.md)). These two are for reading where a cluster sits in the link

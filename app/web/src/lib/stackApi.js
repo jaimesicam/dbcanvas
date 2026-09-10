@@ -447,6 +447,14 @@ export const PRODUCT_OS_FAMILIES = ['oraclelinux', 'ubuntu']
 export const mongoDownloadURL = (stackId, nodeId) =>
   `/api/stacks/${stackId}/nodes/${nodeId}/mongo/diagnostic`
 
+// k8sPods — every pod in the cluster a Kubernetes server node runs, with each pod's
+// containers and their state (app/k3dpods.go). This is what the canvas's pod-console
+// menu is built from, and it is fetched on every open of that menu rather than cached:
+// the operator deletes and recreates pods on its own schedule, so a list a minute old
+// offers shells into containers that are gone.
+export const k8sPods = (stackId, nodeId) =>
+  request('GET', `/api/stacks/${stackId}/nodes/${nodeId}/k8s/pods`)
+
 // imageApi — the images a node needs beyond the operating-system bases, and
 // building a missing one. Listed for anyone signed in (a missing image is why a
 // deploy will not start), built by an admin only, which the server enforces.

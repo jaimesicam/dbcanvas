@@ -347,6 +347,19 @@ cluster's own CA — bound to a built-in ClusterRole (`view`/`edit`/`admin` scop
 or `cluster-admin` cluster-wide), then copy that user's own kubeconfig and confirm exactly what it
 can and can't do.
 
+**A shell inside a pod, from the canvas.** Right-click the **k3s server** node and take **Enter
+pod console**: the menu opens onto the cluster's namespaces, then that namespace's pods, then the
+pod's containers, then the shell to run — `kubectl exec -it`, four clicks, with no kubeconfig and
+no terminal of your own. The list is read from the cluster **every time the menu is opened**,
+never cached between right-clicks, because pods are the shortest-lived thing on a canvas: the
+operator deletes and recreates them on its own schedule and names them with a generated suffix, so
+a menu built from a minute-old list offers shells into containers that are gone. A container that
+is not running is shown greyed with the reason rather than hidden — a pod stuck in `Init` is
+exactly when you want to look inside one, and its init containers are on the same list. The
+console runs through the server node's own kubectl and admin kubeconfig, so an agent node does not
+offer it, and `dbcanvas node pods` / `dbcanvas node console --pod` are the same thing from a
+terminal ([CLI](CLI.md)).
+
 **Replicating one Kubernetes cluster into another.** Draw a link between two K3D frames that both
 run the **PXC operator** and pick a direction: on the next Deploy the second cluster becomes a
 replica of the first. There is nothing else to set up — start from the *Kubernetes — PXC operator,

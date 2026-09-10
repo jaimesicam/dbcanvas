@@ -331,7 +331,9 @@ func buildAPIRoutes() []apiRoute {
 		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/upload", Group: gNodes, Media: mediaMultipart, Handler: m((*App).handleNodeUpload),
 			Summary: "Copy files or a whole directory into a node, streamed rather than buffered."},
 		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/term", Group: gNodes, Media: mediaWebSocket, Handler: m((*App).handleNodeTerminal),
-			Summary: "Open a root console on a node: binary frames are keystrokes, text frames are resize messages."},
+			Summary: "Open a root console on a node: binary frames are keystrokes, text frames are resize messages. On a Kubernetes server node, `pod` (with `namespace`, `container` and `shell`) opens the console inside that pod's container instead."},
+		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/k8s/pods", Group: gNodes, Handler: m((*App).handleK3DPods),
+			Summary: "Every pod in the cluster a Kubernetes server node runs, with each pod's containers and their state — what the pod console menu is built from."},
 
 		// --- node file manager --------------------------------------------------
 		// Arbitrary read/write inside a node's filesystem, scoped — like the web

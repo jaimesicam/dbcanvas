@@ -369,6 +369,9 @@ dbcanvas node exec my-pxc-lab pxc-01 -- mysql -e 'SHOW STATUS LIKE "wsrep%"'
 dbcanvas node cp ./my.cnf my-pxc-lab:pxc-01:/etc/my.cnf.d/
 dbcanvas node cp my-pxc-lab:pxc-01:/var/log/mysqld.log ./
 dbcanvas node tunnel my-pxc-lab pxc-01                    # print the ssh -L line
+dbcanvas node pods k8s-lab k3s-01                         # pods in the cluster that node runs
+dbcanvas node console k8s-lab k3s-01 \
+  --namespace default --pod cluster1-pxc-0 --container pxc   # a shell inside the pod
 ```
 
 Nodes are named the same way stacks are: **by name or by id**. The name is the
@@ -379,6 +382,18 @@ list` prints both, which is where to look after a failed guess.
 
 `console` puts your terminal in raw mode and bridges it to the same WebSocket the
 browser's console uses, forwarding window resizes. `Ctrl-D` or `exit` to leave.
+
+On a **Kubernetes server node** the same command takes `--pod`, and then the shell
+lands inside a container of that pod instead of in the node: the server runs
+`kubectl exec -it` through the node's own kubectl and admin kubeconfig, so nothing
+has to be configured on your machine. `--container` is required (a database pod has
+sidecars, and picking for you would pick wrong), `--namespace` defaults to `default`,
+and `--shell` is `auto` (bash if the container has it, else `/bin/sh`), `bash` or
+`sh`. `node pods` lists every pod in the cluster with each container's state, which
+is the check worth doing first: `kubectl exec` only reaches a *running* container,
+and its refusal arrives as one line in a terminal that then closes. The canvas has
+the same thing as a menu — right-click the k3s server node → **Enter pod console** —
+and there a container that is not running is greyed out with the reason.
 
 ## Templates
 

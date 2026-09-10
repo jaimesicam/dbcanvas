@@ -46,7 +46,11 @@ export function TerminalProvider({ children }) {
     setSessions((ss) => ss.map((s) => (s.id === id ? { ...s, status } : s)))
   }, [])
 
-  const openTerminal = useCallback(({ stackId, nodeId, title, user }) => {
+  // pod, when given, opens the console one layer further in: inside a container of a
+  // pod in the Kubernetes cluster this node runs, rather than in the node itself
+  // ({ namespace, name, container, shell } — see app/k3dpods.go). Same socket, same
+  // protocol; the server decides what to exec.
+  const openTerminal = useCallback(({ stackId, nodeId, title, user, pod }) => {
     // A fresh session id every call → multiple concurrent terminals per node.
     const n = ++counter.current
     const id = `${stackId}:${nodeId}#${n}`
@@ -59,7 +63,16 @@ export function TerminalProvider({ children }) {
     term.loadAddon(fit)
 
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    const q = user ? `?user=${encodeURIComponent(user)}` : ''
+    const params = new URLSearchParams()
+    if (user) params.set('user', user)
+    if (pod?.name) {
+      params.set('namespace', pod.namespace || 'default')
+      params.set('pod', pod.name)
+      params.set('container', pod.container || '')
+      params.set('shell', pod.shell || 'auto')
+    }
+    const qs = params.toString()
+    const q = qs ? `?${qs}` : ''
     const ws = new WebSocket(`${proto}://${location.host}/api/stacks/${stackId}/nodes/${nodeId}/term${q}`)
     ws.binaryType = 'arraybuffer'
     const enc = new TextEncoder()

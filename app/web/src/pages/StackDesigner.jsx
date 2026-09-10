@@ -6,7 +6,7 @@ import { Help, Hint } from '../components/Tooltip.jsx'
 import { HELP, MENU_HELP, nodeHelp } from '../lib/help.js'
 import { usePolling } from '../lib/usePolling.jsx'
 import { sendHandoff } from '../lib/handoff.js'
-import { stackApi, templateApi, imageApi, mongoDownloadURL, isBuiltinTemplate, frameApi, TTL_OPTIONS, DEPLOY_TONE, NODE_UPLOAD_DESTS, PRODUCT_OS_FAMILIES } from '../lib/stackApi.js'
+import { stackApi, templateApi, imageApi, mongoDownloadURL, k8sPods, isBuiltinTemplate, frameApi, TTL_OPTIONS, DEPLOY_TONE, NODE_UPLOAD_DESTS, PRODUCT_OS_FAMILIES } from '../lib/stackApi.js'
 import { kindOf as aioKindOf, familyOf as aioFamilyOf } from '../lib/aioPorts.js'
 import { showExperimental, visibleGroups } from '../lib/experimental.js'
 import IntranetManager from './IntranetManager.jsx'
@@ -1958,6 +1958,61 @@ export function menuEntriesFor(groups, toAction) {
   return out
 }
 
+// POD_SHELLS — the last hop of the pod console, and the only part of that menu that
+// is not read off the cluster. "Auto" is what the node console already does (try
+// bash, fall back to sh) and is right for nearly every database image; the explicit
+// two are for the containers where it is not — an image whose bash is broken, or one
+// where /bin/sh is the shell you actually meant. Mirrors k3dPodShells in
+// app/k3dpods.go, which is what validates the choice server-side.
+export const POD_SHELLS = [
+  { id: 'auto', label: 'Auto (bash, then sh)', help: 'Run bash if the container has it, otherwise /bin/sh. The safest choice, and what the node console does.' },
+  { id: 'bash', label: 'bash', help: 'Run bash. The session ends immediately if the container does not ship it.' },
+  { id: 'sh', label: '/bin/sh', help: 'Run /bin/sh — busybox or dash in a minimal image. Use it when bash is present but not what you want.' },
+]
+
+// podMenuEntries turns the cluster's pod inventory (app/k3dpods.go) into the nested
+// menu the pod console is picked from: namespace → pod → container → shell. Four
+// levels because that is genuinely the address of a shell in Kubernetes, and none of
+// the four can be assumed — a stack can run two operators in two namespaces, an
+// operator names its pods with a generated suffix, and a database pod has sidecars
+// you sometimes want instead of the database.
+//
+// A container that is not running is shown and disabled rather than hidden: "pxc-init
+// is waiting" is the answer somebody opening this menu on a broken pod is looking
+// for, and an empty submenu is not. `onPick` takes { namespace, name, container,
+// shell } — kept a parameter so this stays pure and the smoke suite can assert the
+// tree without a cluster to build it from.
+export function podMenuEntries(pods, onPick) {
+  const byNs = new Map()
+  for (const p of pods || []) {
+    if (!byNs.has(p.namespace)) byNs.set(p.namespace, [])
+    byNs.get(p.namespace).push(p)
+  }
+  return [...byNs.entries()].map(([namespace, list]) => ({
+    label: namespace,
+    help: `${list.length} pod${list.length === 1 ? '' : 's'} in ${namespace}`,
+    items: list.map((p) => ({
+      // The phase rides in the label only when it is not the boring one, so a
+      // healthy namespace reads as a list of names.
+      label: p.phase && p.phase !== 'Running' ? `${p.name} · ${p.phase}` : p.name,
+      help: `${p.name} — ${p.phase || 'unknown phase'}, ${(p.containers || []).length} container${(p.containers || []).length === 1 ? '' : 's'}`,
+      empty: 'No containers',
+      items: (p.containers || []).map((c) => ({
+        label: c.init ? `${c.name} · init` : c.name,
+        disabled: c.state !== 'running',
+        help: c.state === 'running'
+          ? `Open a shell in the ${c.name} container of ${p.name}.`
+          : `${c.name} is ${c.state || 'not started yet'} — kubectl exec only reaches a running container.`,
+        items: POD_SHELLS.map((sh) => ({
+          label: sh.label,
+          help: sh.help,
+          fn: () => onPick({ namespace, name: p.name, container: c.name, shell: sh.id }),
+        })),
+      })),
+    })),
+  }))
+}
+
 // BuildImageRow is the offer to build a missing node image, under the validation
 // error that named it.
 //
@@ -3528,6 +3583,21 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     }
   }
 
+  // podConsoleMenu asks the cluster what is running and hands back the menu for it.
+  // Called by the context menu when the "Enter pod console" submenu opens, once per
+  // open of that menu — errors included, which arrive as the submenu's own row rather
+  // than as the page-level error banner: a cluster that cannot answer should not
+  // replace the canvas with a message.
+  async function podConsoleMenu(nid) {
+    const r = await k8sPods(stack.id, nid)
+    return podMenuEntries(r.pods || [], (pod) => openTerminal({
+      stackId: stack.id,
+      nodeId: nid,
+      title: `${pod.name} · ${pod.container}`,
+      pod,
+    }))
+  }
+
   async function showConfig(nid) {
     try {
       setConfigNode(await stackApi.getNode(stack.id, nid))
@@ -3550,6 +3620,20 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
           actions.push({ label: 'Enter PMM console', help: MENU_HELP.pmmConsole, fn: () => openTerminal({ stackId: stack.id, nodeId: id, title: `${node.label} · pmm` }) })
         } else {
           actions.push({ label: 'Enter root console', help: MENU_HELP.rootConsole, fn: () => openTerminal({ stackId: stack.id, nodeId: id, title: `${node?.label || 'node'} · root` }) })
+        }
+        // A Kubernetes server node has a second console, one layer in: a shell inside
+        // a container of a pod. The tree under it is fetched when the submenu opens
+        // rather than built from anything on the canvas (see MenuPanel's async items
+        // and podMenuEntries) — the canvas knows the cluster's shape, and the pods are
+        // the operator's business, changing without it.
+        if (node?.type === 'k3d' && dep.config?.role === 'server') {
+          actions.push({
+            label: 'Enter pod console',
+            help: MENU_HELP.podConsole,
+            key: `pods:${id}`,
+            empty: 'No pods',
+            items: () => podConsoleMenu(id),
+          })
         }
         actions.push({ label: 'File manager', help: MENU_HELP.fileManager, fn: () => setFileMgr({ nodeId: id, label: node?.label || 'node' }) })
         // The thing you always end up wanting off a MongoDB node: its FTDC and the
@@ -10502,17 +10586,19 @@ function UploadDialog({ xfer, onCancel, onClose }) {
 // A long label WRAPS rather than truncating. It used to truncate, which turned
 // "Download diagnostic.data with mongod.log" into "Download diagnostic.data …" —
 // a menu item that hides the second half of what it does, on a panel with room
-// below it and none to the right. The width is fixed (w-52, and a submenu has to
-// fit beside its parent), and the looks that ship with this app include a serif
-// and Avenir, so no label length is safe in every font; wrapping is. menuRowHeight
-// below knows a wrapped row is taller, so the panel is still placed on screen.
+// below it and none to the right. The panel widens to its longest label first
+// (menuWidth) and only then wraps, and the looks that ship with this app include a
+// serif and Avenir, so no label length is safe in every font; wrapping is.
+// menuRowHeight below knows a wrapped row is taller, so the panel is still placed
+// on screen. break-words is the backstop for a label with nothing to break at —
+// a generated name is mostly hyphens, but not every one of them is.
 function MenuItem({ a, onClose }) {
   return (
     <Hint text={a.help} placement="right" className="w-full" display="block">
       <button
         disabled={a.disabled}
         onClick={() => { a.fn(); onClose() }}
-        className={`block w-full rounded-md px-2.5 py-1.5 text-left text-sm leading-snug hover:bg-surface2 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent ${a.danger ? 'text-danger' : 'text-fg'}`}
+        className={`block w-full break-words rounded-md px-2.5 py-1.5 text-left text-sm leading-snug hover:bg-surface2 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent ${a.danger ? 'text-danger' : 'text-fg'}`}
       >
         {a.label}
       </button>
@@ -10521,22 +10607,69 @@ function MenuItem({ a, onClose }) {
 }
 
 // ContextMenu renders a right-click menu. An entry is a separator ({ sep: true }),
-// a leaf ({ label, fn }), or a submenu ({ label, items: [...] }). Submenus open on
-// hover and on click, and flip to the left of the parent when there is no room on
-// the right — the add menu opens wherever the pointer is, including hard against
-// the right edge of the canvas.
-// menuRowHeight approximates a rendered row, so a menu can be pushed up by roughly
-// its own height before it is drawn. Rough is fine: maxHeight below is what
-// actually guarantees the panel stays on screen, so an under-estimate costs a
-// scrollbar rather than a menu you cannot see.
-// A label wider than the panel wraps (MenuItem), so a long one is worth roughly a
-// row per line: 26 characters is what fits across w-52 at text-sm, measured in a
-// browser. A look with a wider face fits slightly fewer and may take one more line
-// than this counts, which is the same rough-is-fine trade as above — being a row
-// short costs a scrollbar, not a menu you cannot reach.
-const menuLines = (label) => Math.max(1, Math.ceil((label || '').length / 26))
-const menuRowHeight = (a) => (a.sep ? 9 : a.heading ? 22 : 30 + 21 * (menuLines(a.label) - 1))
-const menuHeight = (actions) => actions.reduce((h, a) => h + menuRowHeight(a), 8)
+// a heading ({ heading }), a leaf ({ label, fn }), or a submenu ({ label, items }).
+// Submenus open on hover and on click, nest to any depth, and flip to the left of
+// the parent when there is no room on the right — the add menu opens wherever the
+// pointer is, including hard against the right edge of the canvas.
+//
+// `items` is either an array of entries or a FUNCTION returning a promise of one.
+// The function form is how a menu built from something outside the browser stays
+// true: the pod console's namespace → pod → container tree is fetched when that
+// submenu opens, not when the canvas rendered, because a pod list is the shortest-
+// lived thing in this app — the operator deletes and recreates pods on its own
+// schedule and the names carry a generated suffix. An async entry needs a `key`,
+// which is what the per-open cache is keyed by: hovering off a row and back on it
+// does not re-run the fetch, and closing the menu discards the cache, so the next
+// right-click asks again. That is the whole refresh rule, and it is deliberately
+// tied to opening the menu rather than to a timer.
+//
+// ---- panel geometry -------------------------------------------------------
+//
+// NO ROW TRUNCATES, at any level. A submenu row used to, and on the pod console
+// that cut off exactly the part that tells two pods apart:
+// "k3d-00-pitr-588f5fdd5…", "percona-xtradb-cluste…" — three rows ending in the
+// same ellipsis. Leaf rows already wrapped for that reason (a menu item that hides
+// half of what it does is not a menu item); submenu rows now do too, and a panel is
+// as wide as its own longest label needs, up to a ceiling.
+//
+// MENU_CHAR_W is the average character at text-sm, measured in a browser: 26
+// characters across the 208px panel this menu was built at, minus its chrome. It is
+// an average of one font, and the looks that ship with this app include a serif and
+// Avenir — so a label may take one more line than this counts, which is fine. Every
+// estimate here feeds *placement*, and maxHeight is what actually keeps a panel on
+// screen: being a row short costs a scrollbar, never a row you cannot reach.
+const MENU_W_MIN = 208 // where this menu started, and still right for short labels
+const MENU_W_MAX = 340 // past this a cascade four deep walks off the canvas
+const MENU_CHAR_W = 6.9
+const MENU_CHROME = 28 // the panel's padding plus the row's, left and right
+const MENU_SUB_CHROME = 45 // a submenu row also carries its count and its chevron
+
+// menuChars is how many characters fit on one line of a row in a panel this wide.
+const menuChars = (W, sub) => Math.max(8, Math.floor((W - MENU_CHROME - (sub ? MENU_SUB_CHROME : 0)) / MENU_CHAR_W))
+
+// menuWidth sizes a panel to its longest label — no wider than it needs, never so
+// wide that four of them side by side leave the screen. Exported for the smoke
+// suite. A label longer than the ceiling wraps, which is the point: two lines of a
+// pod name beats one line and an ellipsis.
+export function menuWidth(actions) {
+  let want = MENU_W_MIN
+  for (const a of actions || []) {
+    if (a.sep || a.heading) continue
+    const need = Math.round((a.label || '').length * MENU_CHAR_W) + MENU_CHROME + (a.items ? MENU_SUB_CHROME : 0)
+    if (need > want) want = need
+  }
+  return Math.min(MENU_W_MAX, want)
+}
+
+const menuLines = (a, W) => Math.max(1, Math.ceil((a.label || '').length / menuChars(W, !!a.items)))
+const menuRowHeight = (a, W) => (a.sep ? 9 : a.heading ? 22 : 30 + 21 * (menuLines(a, W) - 1))
+const menuHeight = (actions, W = MENU_W_MIN) => actions.reduce((h, a) => h + menuRowHeight(a, W), 8)
+
+// MENU_ASYNC_PLACEHOLDER stands in for a submenu whose items are still being
+// fetched, so it can be positioned before it has any. Any guess is wrong — the list
+// is what is being fetched — and being wrong is cheap: the panel is repositioned
+// when the items land, and clamped to the viewport either way.
+const MENU_ASYNC_PLACEHOLDER = Array.from({ length: 8 }, () => ({ label: '' }))
 
 // menuPos places the menu panel: at the pointer where it fits, pushed up and left
 // where it would run off, and never taller than the room left below it. That last
@@ -10544,8 +10677,8 @@ const menuHeight = (actions) => actions.reduce((h, a) => h + menuRowHeight(a), 8
 // `min(y, innerHeight - 160)`, a guess made when the only menu here was a short
 // node-action list. A 14-row add menu opened near the bottom hung most of itself
 // below the fold, with no way to reach the rows down there.
-export function menuPos(px, py, actions, vw, vh, W = 208) {
-  const h = menuHeight(actions)
+export function menuPos(px, py, actions, vw, vh, W = MENU_W_MIN) {
+  const h = menuHeight(actions, W)
   const x = Math.max(8, Math.min(px, vw - W - 8))
   const y = Math.max(8, Math.min(py, vh - h - 8))
   return { x, y, maxHeight: vh - y - 8 }
@@ -10556,76 +10689,144 @@ export function menuPos(px, py, actions, vw, vh, W = 208) {
 // clamps upward so a row near the bottom does not open a panel below the fold,
 // and caps its height to the room that leaves. Pure and exported so the smoke
 // suite can check the edges without a browser — the same treatment Tooltip's
-// `place` gets, and for the same reason.
-export function submenuPos(rect, count, vw, vh, W = 208) {
-  const h = Math.min(count * 30 + 8, vh * 0.6)
+// `place` gets, and for the same reason. It takes the entries rather than a row
+// count because a row is not one line tall any more: nine pods whose names wrap are
+// half again as tall as nine short rows, and a panel placed for the short version
+// starts too low and scrolls for no reason.
+export function submenuPos(rect, actions, vw, vh, W = MENU_W_MIN) {
+  const h = Math.min(menuHeight(actions, W), vh * 0.6)
   const y = Math.max(8, Math.min(rect.top - 4, vh - h - 8))
   const x = rect.right + W + 4 > vw ? rect.left - W - 4 : rect.right + 4
   return { x: Math.max(8, x), y, maxHeight: vh - y - 8 }
 }
 
-function ContextMenu({ menu, onClose, actions }) {
-  const [sub, setSub] = useState(null) // { i, x, y } — the open submenu, in viewport coords
-  const W = 208 // w-52, and the width a submenu needs beside its parent
-  const { x, y, maxHeight } = menuPos(menu.x, menu.y, actions, window.innerWidth, window.innerHeight, W)
+// MenuBox is the panel itself — one at every level, positioned in viewport coords.
+// `fixed` rather than `absolute` is load-bearing for the nested ones: a panel
+// scrolls (overflowY), and a scroll container clips *both* axes, so an absolutely
+// positioned child at left:100% is laid out correctly and then clipped away, which
+// is exactly how the first submenu here shipped broken. Going fixed escapes the
+// clip, and is also what makes the right and bottom edges clampable at all.
+const MenuBox = ({ x, y, w, maxHeight, z = 60, children }) => (
+  <div
+    data-menu-panel
+    className="fixed rounded-lg border bg-surface p-1 shadow-xl"
+    style={{ left: x, top: y, width: w, zIndex: z, maxHeight, overflowY: 'auto' }}
+    onClick={(e) => e.stopPropagation()}
+  >
+    {children}
+  </div>
+)
 
-  // A submenu is positioned against the viewport rather than against its row, and
-  // this is load-bearing: the menu panel scrolls (overflowY below), and a scroll
-  // container clips *both* axes — CSS computes the visible axis to auto as soon as
-  // the other one isn't. An absolutely-positioned child at left:100% is therefore
-  // laid out correctly and then clipped away, which is exactly how this shipped
-  // broken. Measuring the row and going `fixed` escapes the clip, and is also what
-  // makes the right and bottom edges clampable at all.
-  const openSub = (i, count, el) => {
-    const r = el.getBoundingClientRect()
-    setSub({ i, ...submenuPos(r, count, window.innerWidth, window.innerHeight, W) })
+// A row that is not an action: what a submenu shows while its items are being
+// fetched, when the fetch failed, and when the answer was "nothing".
+const MenuNote = ({ text, tone }) => (
+  <div className={`px-2.5 py-1.5 text-sm leading-snug ${tone === 'danger' ? 'text-danger' : 'text-muted'}`}>{text}</div>
+)
+
+// MenuPanel renders one panel and, recursively, whichever of its submenus is open.
+// depth only feeds the z-index, so a deep panel paints over its parent.
+function MenuPanel({ actions, x, y, w, maxHeight, onClose, cache, depth = 0 }) {
+  const [sub, setSub] = useState(null) // { i, x, y, w, maxHeight, items, loading, error }
+
+  // Where and how wide a submenu of `rows` goes, beside the row at `r`. Each panel
+  // is sized to its own contents, so a namespace list stays narrow next to a list of
+  // generated pod names.
+  const place = (r, rows) => {
+    const sw = menuWidth(rows)
+    return { w: sw, ...submenuPos(r, rows, window.innerWidth, window.innerHeight, sw) }
   }
 
+  const openSub = (i, a, el) => {
+    const async_ = typeof a.items === 'function'
+    const got = async_ ? cache.current.get(a.key) : { items: a.items }
+    const r = el.getBoundingClientRect()
+    setSub({ i, ...place(r, got?.items || MENU_ASYNC_PLACEHOLDER), ...(got || { loading: true }) })
+    if (got || !async_) return
+    // Nothing here cancels: the fetch is one HTTP GET, and a result that arrives
+    // after the pointer moved on is simply cached for the next hover. When it lands
+    // the panel is placed again — the guess it was opened with knew neither how many
+    // rows there would be nor how wide their labels are.
+    Promise.resolve().then(a.items).then(
+      (items) => {
+        cache.current.set(a.key, { items })
+        setSub((s) => (s && s.i === i ? { ...s, ...place(r, items), items, loading: false } : s))
+      },
+      (err) => {
+        const failed = { error: err?.message || String(err) }
+        cache.current.set(a.key, failed)
+        setSub((s) => (s && s.i === i ? { ...s, ...failed, loading: false } : s))
+      },
+    )
+  }
+
+  return (
+    <MenuBox x={x} y={y} w={w} maxHeight={maxHeight} z={60 + depth}>
+      {actions.map((a, i) => {
+        if (a.sep) return <div key={i} className="my-1 h-px bg-border" />
+        if (a.heading) return <div key={i} className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">{a.heading}</div>
+        // Hovering a leaf closes whatever submenu was open, so the pointer never
+        // trails an orphaned panel down the list.
+        if (!a.items) return <div key={i} onMouseEnter={() => setSub(null)}><MenuItem a={a} onClose={onClose} /></div>
+        const on = sub?.i === i
+        return (
+          // The hover handler sits on the wrapper, not the button: a disabled
+          // button swallows its own mouse events, and this row still has to be
+          // able to close whatever submenu was open when the pointer reaches it.
+          <div key={i} onMouseEnter={(e) => (a.disabled ? setSub(null) : openSub(i, a, e.currentTarget))}>
+            <Hint text={a.help} placement="right" className="w-full" display="block">
+              <button
+                disabled={a.disabled}
+                onClick={(e) => (on ? setSub(null) : openSub(i, a, e.currentTarget))}
+                aria-haspopup="menu" aria-expanded={on}
+                className="flex w-full items-start gap-2 rounded-md px-2.5 py-1.5 text-left text-sm leading-snug text-fg hover:bg-surface2 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {/* The label takes the free space so the count and the chevron
+                    stay together against the right edge, and the counts line up
+                    as a column down the menu. justify-between put the free space
+                    on BOTH sides of the count, which parked each number halfway
+                    between its own label and the chevron — a different place in
+                    every row, which is what made the menu look broken. An async
+                    submenu has no count to show until it has been opened once.
+                    A long label WRAPS (see menuWidth): items-start keeps the count
+                    and the chevron on its first line, where a row's own controls
+                    belong, instead of centred against a two-line name. */}
+                <span className="min-w-0 flex-1 break-words">{a.label}</span>
+                {Array.isArray(a.items) && <span className="mt-0.5 shrink-0 tabular-nums text-[10px] text-muted">{a.items.length}</span>}
+                <span className="mt-0.5 shrink-0 text-muted"><Icon.Chevron size={13} className="-rotate-90" /></span>
+              </button>
+            </Hint>
+            {on && !a.disabled && (
+              sub.loading || sub.error || !sub.items?.length ? (
+                <MenuBox x={sub.x} y={sub.y} w={sub.w} maxHeight={sub.maxHeight} z={61 + depth}>
+                  {sub.loading
+                    ? <MenuNote text="Loading…" />
+                    : sub.error
+                      ? <MenuNote tone="danger" text={sub.error} />
+                      : <MenuNote text={a.empty || 'Nothing here'} />}
+                </MenuBox>
+              ) : (
+                <MenuPanel actions={sub.items} x={sub.x} y={sub.y} w={sub.w} maxHeight={sub.maxHeight}
+                  onClose={onClose} cache={cache} depth={depth + 1} />
+              )
+            )}
+          </div>
+        )
+      })}
+    </MenuBox>
+  )
+}
+
+// Exported for the browser smoke check, which drives this with real mouse events —
+// the async load and the nesting only exist at hover time, so SSR cannot see them.
+export function ContextMenu({ menu, onClose, actions }) {
+  // One cache per open of the menu, keyed by an async entry's `key`. It dies with
+  // the menu, which is what makes every right-click a fresh look at the cluster.
+  const cache = useRef(new Map())
+  const W = menuWidth(actions)
+  const { x, y, maxHeight } = menuPos(menu.x, menu.y, actions, window.innerWidth, window.innerHeight, W)
   return createPortal(
     <div className="fixed inset-0 z-50" onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose() }}>
-      <div className="absolute w-52 rounded-lg border bg-surface p-1 shadow-xl" style={{ left: x, top: y, maxHeight, overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
-        {actions.map((a, i) => {
-          if (a.sep) return <div key={i} className="my-1 h-px bg-border" />
-          if (a.heading) return <div key={i} className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">{a.heading}</div>
-          // Hovering a leaf closes whatever submenu was open, so the pointer never
-          // trails an orphaned panel down the list.
-          if (!a.items) return <div key={i} onMouseEnter={() => setSub(null)}><MenuItem a={a} onClose={onClose} /></div>
-          const on = sub?.i === i
-          return (
-            // The hover handler sits on the wrapper, not the button: a disabled
-            // button swallows its own mouse events, and this row still has to be
-            // able to close whatever submenu was open when the pointer reaches it.
-            <div key={i} onMouseEnter={(e) => (a.disabled ? setSub(null) : openSub(i, a.items.length, e.currentTarget))}>
-              <Hint text={a.help} placement="right" className="w-full" display="block">
-                <button
-                  disabled={a.disabled}
-                  onClick={(e) => (on ? setSub(null) : openSub(i, a.items.length, e.currentTarget))}
-                  aria-haspopup="menu" aria-expanded={on}
-                  className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-fg hover:bg-surface2 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {/* The label takes the free space so the count and the chevron
-                      stay together against the right edge, and the counts line up
-                      as a column down the menu. justify-between put the free space
-                      on BOTH sides of the count, which parked each number halfway
-                      between its own label and the chevron — a different place in
-                      every row, which is what made the menu look broken. */}
-                  <span className="min-w-0 flex-1 truncate">{a.label}</span>
-                  <span className="shrink-0 tabular-nums text-[10px] text-muted">{a.items.length}</span>
-                  <span className="shrink-0 text-muted"><Icon.Chevron size={13} className="-rotate-90" /></span>
-                </button>
-              </Hint>
-              {on && !a.disabled && (
-                <div
-                  className="fixed w-52 rounded-lg border bg-surface p-1 shadow-xl"
-                  style={{ left: sub.x, top: sub.y, zIndex: 60, maxHeight: sub.maxHeight, overflowY: 'auto' }}
-                >
-                  {a.items.map((it, j) => <MenuItem key={j} a={it} onClose={onClose} />)}
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
+      <MenuPanel actions={actions} x={x} y={y} w={W} maxHeight={maxHeight} onClose={onClose} cache={cache} />
     </div>,
     document.body,
   )

@@ -29,7 +29,7 @@ import {
   frameMemberSub, REPL_FRAME_TYPES,
   NODE_TYPES, CONNECTABLE_FRAMES, SS_LINK_TYPES, SS_LINK_ENGINE,
   K3D_OPERATOR_LABEL, ssLinkEngine,
-  insertTemplateDesign, groupTemplates, templateSizeLabel, menuEntriesFor, submenuPos, menuPos,
+  insertTemplateDesign, groupTemplates, templateSizeLabel, menuEntriesFor, submenuPos, menuPos, menuWidth,
   MClusterAdminForm, MClusterAdminManager, MCA_DEFAULT_ADMIN_PW, MCA_DEFAULT_RO_PW,
   BuildImageRow,
   BigHoleForm, BigHoleManager, BigHoleLink,
@@ -37,6 +37,7 @@ import {
   k8sReplLinkable, ReplicationLinkForm, ReplicationLinkChoices,
   associationBlocked, isReplEdge, k8sReplRoleOf, K3D_SOURCE_EXPOSE, K8sToolFields,
   frameHeaderW, layoutFrame, separateFrames, SIM_NODE_TYPES, frameVersionLabel, frameSubLabel,
+  podMenuEntries, POD_SHELLS,
   Spinner, NodeStatus, nodeConfiguring, configPhaseOf, PITRFields,
 } from '../src/pages/StackDesigner.jsx'
 import { ReplicationView } from '../src/pages/K3DManager.jsx'
@@ -2712,6 +2713,60 @@ check('add menu: a category with nothing available is itself disabled', () => {
   return 'blocked, partly available, mixed reasons'
 })
 
+check('pod console: the menu is namespace \u2192 pod \u2192 container \u2192 shell', () => {
+  // The four levels are the address of a shell in Kubernetes, and this is the tree
+  // built from what the cluster answered — not from anything on the canvas.
+  const pods = [
+    { namespace: 'default', name: 'cluster1-haproxy-0', phase: 'Running', containers: [
+      { name: 'haproxy', state: 'running', ready: true },
+      { name: 'pxc-monit', state: 'running', ready: true },
+    ] },
+    { namespace: 'default', name: 'cluster1-pxc-0', phase: 'Pending', containers: [
+      { name: 'pxc', state: 'waiting', ready: false },
+      { name: 'pxc-init', state: 'running', ready: false, init: true },
+    ] },
+    { namespace: 'kube-system', name: 'coredns-abc', phase: 'Running', containers: [
+      { name: 'coredns', state: 'running', ready: true },
+    ] },
+  ]
+  const picked = []
+  const tree = podMenuEntries(pods, (p) => picked.push(p))
+
+  if (tree.map((e) => e.label).join(',') !== 'default,kube-system') {
+    throw new Error(`namespaces: ${tree.map((e) => e.label).join(',')}`)
+  }
+  const def = tree[0]
+  if (def.items.length !== 2) throw new Error(`default should hold 2 pods, got ${def.items.length}`)
+  // A Running pod reads as its own name; anything else carries its phase, because
+  // that is the row somebody opening this menu is looking for.
+  if (def.items[0].label !== 'cluster1-haproxy-0') throw new Error(`label = ${def.items[0].label}`)
+  if (def.items[1].label !== 'cluster1-pxc-0 \u00b7 Pending') throw new Error(`label = ${def.items[1].label}`)
+
+  // A container that is not running is shown and disabled, with the reason — never
+  // hidden, and never offered as a shell that would fail at the far end.
+  const pxc = def.items[1].items
+  if (!pxc[0].disabled) throw new Error('a waiting container must not be selectable')
+  if (!/waiting/.test(pxc[0].help)) throw new Error(`no reason on the disabled row: ${pxc[0].help}`)
+  if (pxc[1].label !== 'pxc-init \u00b7 init' || pxc[1].disabled) throw new Error(`init row = ${JSON.stringify(pxc[1])}`)
+
+  // The leaf is the shell, and picking one names all four parts.
+  const shells = def.items[0].items[0].items
+  if (shells.length !== POD_SHELLS.length) throw new Error(`shells: ${shells.length}`)
+  shells[1].fn()
+  const want = { namespace: 'default', name: 'cluster1-haproxy-0', container: 'haproxy', shell: 'bash' }
+  if (JSON.stringify(picked[0]) !== JSON.stringify(want)) throw new Error(`picked ${JSON.stringify(picked[0])}`)
+  return `${tree.length} namespaces, ${POD_SHELLS.length} shells`
+})
+
+check('pod console: an empty cluster and a pod with no containers still build', () => {
+  if (podMenuEntries([], () => {}).length !== 0) throw new Error('no pods should be no namespaces')
+  if (podMenuEntries(null, () => {}).length !== 0) throw new Error('a missing list should be no namespaces')
+  const bare = podMenuEntries([{ namespace: 'x', name: 'p', phase: 'Running' }], () => {})
+  if (bare[0].items[0].items.length !== 0) throw new Error('a container-less pod should hold no rows')
+  if (bare[0].items[0].empty !== 'No containers') throw new Error('an empty submenu needs something to say')
+  return 'empty list, container-less pod'
+})
+
 check('add menu: the menu panel itself stays on screen near an edge', () => {
   // Right-clicking low on the canvas used to open a 14-row menu that hung below
   // the fold: the clamp was a flat `min(y, innerHeight - 160)`, sized for the short
@@ -2764,31 +2819,39 @@ check('add menu: a submenu flips and clamps to stay on screen', () => {
   // positioned against the viewport, which is only meaningful if the arithmetic
   // that places it is right. W = 208.
   const row = (top, left, right) => ({ top, left, right })
+  const rows = (n) => Array.from({ length: n }, (_, i) => ({ label: `row ${i}` }))
 
   // Room on the right: opens just past the row.
-  const a = submenuPos(row(100, 300, 500), 5, 1400, 900)
+  const a = submenuPos(row(100, 300, 500), rows(5), 1400, 900)
   if (a.x !== 504) throw new Error(`expected to open right at 504, got ${a.x}`)
   if (a.y !== 96) throw new Error(`expected to align near the row, got ${a.y}`)
 
   // Against the right edge there is no room, so it flips to the left of the row.
-  const b = submenuPos(row(100, 1150, 1350), 5, 1400, 900)
+  const b = submenuPos(row(100, 1150, 1350), rows(5), 1400, 900)
   if (b.x !== 1150 - 208 - 4) throw new Error(`expected a left flip, got ${b.x}`)
   if (b.x + 208 > 1400) throw new Error('flipped panel still runs off the right')
 
   // A row near the bottom opens a panel that would run past the fold, so it rides up.
-  const c = submenuPos(row(870, 300, 500), 6, 1400, 900)
+  const c = submenuPos(row(870, 300, 500), rows(6), 1400, 900)
   const h = Math.min(6 * 30 + 8, 900 * 0.6)
   if (c.y !== 900 - h - 8) throw new Error(`expected a bottom clamp, got ${c.y}`)
   if (c.y + h > 900) throw new Error('panel runs off the bottom')
 
   // And a row at the very top never goes negative.
-  const d = submenuPos(row(0, 300, 500), 3, 1400, 900)
+  const d = submenuPos(row(0, 300, 500), rows(3), 1400, 900)
   if (d.y < 0) throw new Error(`panel runs off the top: ${d.y}`)
 
   // A very long category is capped rather than growing past the viewport.
-  const e = submenuPos(row(400, 300, 500), 40, 1400, 900)
+  const e = submenuPos(row(400, 300, 500), rows(40), 1400, 900)
   if (e.y < 8) throw new Error(`a long submenu should still start on screen: ${e.y}`)
-  return 'right, left-flip, bottom-clamp, top, long'
+
+  // Rows that WRAP are taller, and the placement has to know it: a panel of nine
+  // wrapping pod names placed as if they were one-liners starts too low.
+  const long = Array.from({ length: 9 }, (_, i) => ({ label: `percona-xtradb-cluster-operator-6b5f75f65-gpdv${i}`, items: [] }))
+  const f = submenuPos(row(700, 300, 500), long, 1400, 900, menuWidth(long))
+  const g = submenuPos(row(700, 300, 500), rows(9), 1400, 900)
+  if (f.y >= g.y) throw new Error('a panel of wrapping rows must ride further up than one of short rows')
+  return 'right, left-flip, bottom-clamp, top, long, wrapping'
 })
 
 check('nav: every sidebar entry has an icon, and no two neighbours share one', () => {
@@ -2845,6 +2908,33 @@ check('experimental: tagged features are hidden until an installation asks for t
   // from the same literal, and a filter that ate its input would empty it.
   if (groups[0].items.length !== 2) throw new Error('visibleGroups mutated the catalog')
   return 'nav, groups and items'
+})
+
+check('menu: a panel is as wide as its longest label, and nothing truncates', () => {
+  // The pod console is what forced this: a submenu row used to truncate, and three
+  // different pods came out as "percona-xtradb-cluste…", "k3d-00-pitr-588f5fdd5…",
+  // "xb-dbcanvas-seed-k3…" — an ellipsis where the identifying half of the name was.
+  const short = [{ label: 'Stop' }, { label: 'Restart' }]
+  if (menuWidth(short) !== 208) throw new Error(`short labels should keep the 208px panel, got ${menuWidth(short)}`)
+
+  // A wider label widens the panel, and a submenu row is allowed for its count and
+  // its chevron on top of the text.
+  const pods = [{ label: 'k3d-00-pitr-588f5fdd5c-2zx5j', items: [] }, { label: 'k3d-00-pxc-0', items: [] }]
+  const w = menuWidth(pods)
+  if (w <= 208) throw new Error(`a 28-character pod name needs more than 208px, got ${w}`)
+  if (w > 340) throw new Error(`a panel must not grow past the ceiling: ${w}`)
+  const leafOnly = menuWidth([{ label: 'k3d-00-pitr-588f5fdd5c-2zx5j' }])
+  if (leafOnly >= w) throw new Error('a leaf row needs no room for a count and a chevron')
+
+  // A name longer than the ceiling is capped — it wraps rather than widening the
+  // panel until a four-level cascade walks off the canvas.
+  const huge = menuWidth([{ label: 'percona-xtradb-cluster-operator-6b5f75f65-gpdvj', items: [] }])
+  if (huge !== 340) throw new Error(`expected the ceiling, got ${huge}`)
+
+  // Headings and separators have no label and must not shrink or widen anything.
+  if (menuWidth([{ sep: true }, { heading: 'MySQL' }]) !== 208) throw new Error('a heading should not size a panel')
+  if (menuWidth([]) !== 208 || menuWidth(null) !== 208) throw new Error('an empty panel keeps the minimum')
+  return `short 208, pods ${w}, capped 340`
 })
 
 check('add menu: the canvas menu offers the whole catalog, once each', () => {
