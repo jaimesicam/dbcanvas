@@ -10982,7 +10982,9 @@ function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, p
 }
 
 function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster }) {
-  if (!selected) return <p className="text-sm text-muted">Select a node, link or PXC cluster to edit it. Add an Intranet node from the toolbar to begin.</p>
+  // "or cluster" rather than a list: this component edits fourteen frame types now, and
+  // the empty state named only the first one for a long time after that stopped being true.
+  if (!selected) return <p className="text-sm text-muted">Select a node, link or cluster to edit it. Add an Intranet node from the toolbar to begin.</p>
 
   if (selected.kind === 'frame') {
     const f = frames.find((x) => x.id === selected.id)
