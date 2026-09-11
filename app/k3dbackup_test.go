@@ -255,6 +255,54 @@ func TestParseBackupListFindsTheStorageWhereverItIs(t *testing.T) {
 	}
 }
 
+// The PG operator (v2) writes status.repo as the whole pgBackRest repository object, not as a
+// name. Read as a string it failed to unmarshal, and because the items decode in one pass a single
+// such backup emptied the whole table. This is the shape 3.1.0 actually writes.
+func TestParseBackupListReadsPGsRepoObject(t *testing.T) {
+	rows, err := parseK3DBackupList([]byte(`{"items":[
+      {"metadata":{"name":"k3d-00-backup-jpm9-ng4fd","creationTimestamp":"2026-09-11T17:15:56Z"},
+       "spec":{"pgCluster":"k3d-00","repoName":"repo1","method":"pgbackrest"},
+       "status":{"state":"Succeeded","backupType":"full","completed":"2026-09-11T17:16:19Z",
+                 "destination":"s3://bucket1/pgbackrest/k3d-00/repo1",
+                 "repo":{"name":"repo1","s3":{"bucket":"bucket1","region":"us-east-1"},
+                         "schedules":{"full":"0 0 * * 6"}}}}]}`), false)
+	if err != nil {
+		t.Fatalf("a PG backup should parse, got %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("got %d rows", len(rows))
+	}
+	if rows[0].Storage != "repo1" {
+		t.Errorf("spec.repoName should be the storage: %+v", rows[0])
+	}
+	// PG names the kind of backup in status.backupType; the other three use spec.type.
+	if rows[0].Type != "full" {
+		t.Errorf("status.backupType should fill the type column: %+v", rows[0])
+	}
+	if rows[0].State != "Succeeded" || rows[0].Destination != "s3://bucket1/pgbackrest/k3d-00/repo1" {
+		t.Errorf("row: %+v", rows[0])
+	}
+}
+
+// A repo object with no name, and a repo in a shape neither branch understands, each cost their own
+// cell and nothing else — never the listing.
+func TestParseBackupListSurvivesAnUnreadableRepo(t *testing.T) {
+	rows, err := parseK3DBackupList([]byte(`{"items":[
+      {"metadata":{"name":"b1"},"status":{"state":"Succeeded","repo":["repo1"]}},
+      {"metadata":{"name":"b2"},"status":{"state":"Succeeded","repo":{"s3":{}}}}]}`), false)
+	if err != nil {
+		t.Fatalf("an unreadable repo should not fail the listing, got %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("got %d rows", len(rows))
+	}
+	for _, r := range rows {
+		if r.Storage != "" {
+			t.Errorf("%s should have an empty storage cell, got %q", r.Name, r.Storage)
+		}
+	}
+}
+
 func TestBackupStorageFallsBackToWhatCrYamlWrote(t *testing.T) {
 	if got := k3dBackupStorageOf(k3dConfig{BackupStorage: "elsewhere"}); got != "elsewhere" {
 		t.Errorf("the recorded storage wins, got %q", got)

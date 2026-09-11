@@ -176,8 +176,40 @@ type k3dRawBackup struct {
 		Error       string `json:"error"`
 		Comments    string `json:"comments"`
 		Type        string `json:"type"`
-		Repo        string `json:"repo"`
+		// BackupType is PG's name for the same thing: a PerconaPGBackup reports `full`,
+		// `incr` or `diff` in status.backupType and has no status.type at all.
+		BackupType string      `json:"backupType"`
+		Repo       k3dRepoName `json:"repo"`
 	} `json:"status"`
+}
+
+// k3dRepoName is the name of a backup repository as it appears in a status, whichever of the two
+// shapes an operator wrote it in.
+//
+// The PG operator writes status.repo as the whole pgBackRest repository — `{"name":"repo1","s3":
+// {...},"schedules":{...}}` — not as its name. Reading it as a string made ONE such object fail to
+// unmarshal, and because the list is decoded in a single pass, one object taking an object where a
+// string was expected emptied the entire backups table with "the cluster did not answer with a
+// list of objects". Anything that is not an object is taken as the name itself, so an operator
+// that does write a bare string keeps working.
+type k3dRepoName string
+
+func (n *k3dRepoName) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		*n = k3dRepoName(s)
+		return nil
+	}
+	var obj struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(b, &obj); err != nil {
+		// A repo in a shape neither branch understands is not worth failing the whole listing
+		// over: the storage column is one cell, and the rest of the row is still true.
+		return nil
+	}
+	*n = k3dRepoName(obj.Name)
+	return nil
 }
 
 // k3dBackupRowFrom flattens one object. isRestore picks which of the two shapes to read the
@@ -190,12 +222,12 @@ func k3dBackupRowFrom(raw k3dRawBackup, isRestore bool) k3dBackupRow {
 		Created:     raw.Metadata.CreationTimestamp,
 		Completed:   raw.Status.Completed,
 		Error:       orDefault(raw.Status.Error, raw.Status.Comments),
-		Type:        orDefault(raw.Spec.Type, raw.Status.Type),
+		Type:        orDefault(raw.Spec.Type, orDefault(raw.Status.Type, raw.Status.BackupType)),
 	}
 	// The spec is what was asked for and the status what happened; for the destination the status
 	// is the only truth, but for the storage the spec is, because PG reports its repo in the
 	// status and the other three do not report one at all.
-	row.Storage = orDefault(orDefault(raw.Spec.StorageName, raw.Spec.RepoName), raw.Status.Repo)
+	row.Storage = orDefault(orDefault(raw.Spec.StorageName, raw.Spec.RepoName), string(raw.Status.Repo))
 	if isRestore {
 		row.Backup = raw.Spec.BackupName
 	}
@@ -220,7 +252,10 @@ func parseK3DBackupList(out []byte, isRestore bool) ([]k3dBackupRow, error) {
 		Items []k3dRawBackup `json:"items"`
 	}
 	if err := json.Unmarshal(out, &list); err != nil {
-		return nil, fmt.Errorf("the cluster did not answer with a list of objects")
+		// The reason is part of the message: "did not answer with a list of objects" on its own
+		// sends the reader to the cluster, when what actually went wrong is here — a field an
+		// operator writes in a shape this file does not read yet.
+		return nil, fmt.Errorf("the cluster did not answer with a list of objects this panel can read: %v", err)
 	}
 	rows := make([]k3dBackupRow, 0, len(list.Items))
 	for _, it := range list.Items {
