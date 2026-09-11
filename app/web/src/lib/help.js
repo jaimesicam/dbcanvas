@@ -236,6 +236,7 @@ export const HELP = {
   benchWorkingSet:
     'How much of the dataset the queries actually touch. A small working set over a large dataset is the realistic ' +
     'case, and the one where cache-hit ratios in PMM start meaning something.',
+  ssSplitReads: 'Where this sim\'s display-only reads go. With the split on, the dashboard, list and report queries use HAProxy\'s read port (5001, round-robining the replicas) while every write — and every read whose answer decides a write — uses the write port (5000). It is the only thing in DBCanvas that puts read load on a cluster\'s replicas.',
   benchThreads:
     'How many concurrent connections drive load. Raise it past the number of cores to find the point where the ' +
     'server stops going faster and starts queueing — that knee is usually what the benchmark is for.',
@@ -559,6 +560,7 @@ export const MENU_HELP = {
     'its FTDC beside its log rather than in a dbPath it does not have. A node with no diagnostic.data yet still gives you the log.',
   podConsole: 'A shell inside a container of a pod, on the cluster this node runs — the same thing as `kubectl exec -it`, without a kubeconfig or a terminal of your own. Pick the namespace, the pod, the container and the shell; the list is read from the cluster every time you open the menu, so it is what is running now rather than what was deployed. A container that is not running is shown greyed with the reason — a pod stuck in Init is exactly when you want to look inside it. On a database container the last menu also offers that database\'s own client — mysql, psql or mongosh, already logged in as an administrator: the operator mounts the cluster\'s users secret into the pod, so the password is read inside the container and never passes through DBCanvas.',
   fileManager: 'Browse this node\'s filesystem: upload, download, edit a config in place, change ownership and permissions. Usually faster than a shell for fixing one wrong line.',
+  bucketManager: 'Browse this SeaweedFS node\'s buckets in two panes: download an object, upload files into a folder, delete what you no longer want, and copy objects from one bucket to another (on this node or another SeaweedFS node in the stack).',
   copyExec: 'Copies a ready-made `docker exec -it … bash` line, for when you would rather work in your own terminal than the browser.',
   sshTunnel: 'Copies an `ssh -L` line that forwards every port this node publishes to the same port on your own machine \u2014 for when DBCanvas runs on a server and the ports are bound to it, not to you. It logs in as your DBCanvas username, so on a server where that is also your ssh account the line is ready to paste.',
   stop: 'Stops the container. The data survives; start it again from this menu.',

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"regexp"
 	"strconv"
 	"strings"
@@ -450,4 +451,81 @@ func seaweedBucketIssues(who, seaweedNodeID, bucket string, doc designDoc) []iss
 		return []issue{{Level: "error", Message: who + ": bucket " + bucket + " is not one of the buckets on SeaweedFS node " + n.Label}}
 	}
 	return nil // a missing node is already reported by the caller's own check
+}
+
+// --- TLS material for S3 clients that do not read the system trust store -------------
+//
+// A SeaweedFS node with TLS on presents one of two certificates: one the Intranet CA signed
+// ("Use Intranet CA SSL"), or a self-signed one it made itself. Either is fine for a client
+// that trusts the system store — trustIntranetCA puts the CA there, and pgBackRest is told
+// not to verify at all. It is not fine for **Python's boto3**, which is what barman-cloud and
+// the AWS CLI both are: botocore verifies against certifi's own bundle and never looks at
+// /etc/pki, so both certificates are strangers to it and the failure is the same either way —
+// `SSL validation failed … CERTIFICATE_VERIFY_FAILED`, reading "unable to get local issuer
+// certificate" for the CA-signed one and "self-signed certificate" for the other.
+//
+// The answer for both is a bundle holding the Intranet CA *and* the node's own S3 certificate:
+// the first validates a signed leaf, and the second is the trust anchor when the leaf signed
+// itself. Whoever stages it then points the client at it — `ca_bundle` in ~/.aws/config for
+// barman-cloud, AWS_CA_BUNDLE for the AWS CLI.
+
+// seaweedTLSBundle returns that bundle for a stack's SeaweedFS node, or nil if neither
+// certificate could be read. Best-effort by design: a missing bundle is a backup that fails
+// with a clear SSL error, not a node that fails to deploy.
+func (a *App) seaweedTLSBundle(ctx context.Context, st Stack, seaweedNodeID string) []byte {
+	var out []byte
+	if intranetID := a.intranetContainerID(ctx, st); intranetID != "" {
+		if ca, err := a.readIntranetFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt"); err == nil {
+			out = append(out, ca...)
+		}
+	}
+	if cid := a.containerOf(st.ID, seaweedNodeID); cid != "" {
+		if crt, err := a.readContainerFile(ctx, cid, seaweedTLSCert); err == nil {
+			if len(out) > 0 && !strings.HasSuffix(string(out), "\n") {
+				out = append(out, '\n')
+			}
+			out = append(out, crt...)
+		}
+	}
+	return out
+}
+
+// s3EndpointHost is the hostname of an endpoint URL — "https://sw-01.example.net:8333" is
+// "sw-01.example.net". Split out of the lookup below so the parsing can be tested on its own;
+// an endpoint is written by a person in the designer and arrives in every shape they type it.
+func s3EndpointHost(endpoint string) string {
+	host := strings.TrimSpace(endpoint)
+	if i := strings.Index(host, "://"); i >= 0 {
+		host = host[i+3:]
+	}
+	host, _, _ = strings.Cut(host, "/")
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	return host
+}
+
+// seaweedNodeAtEndpoint finds the stack's SeaweedFS node serving an endpoint URL, by host.
+//
+// Matching on the endpoint rather than carrying the node id is what makes this work for a
+// cluster that was deployed before anything needed to know: a Kubernetes frame records the
+// endpoint its operator backs up to (https://<fqdn>:8333) and nothing else, and that host is
+// the node. Returns "" for an endpoint that is not one of this stack's stores — an operator
+// pointed at some other S3, where DBCanvas has no certificate to offer.
+func (a *App) seaweedNodeAtEndpoint(st Stack, endpoint string) string {
+	host := s3EndpointHost(endpoint)
+	if host == "" {
+		return ""
+	}
+	deps, _ := a.store.ListDeployments(st.ID)
+	for _, d := range deps {
+		var cfg seaweedConfig
+		if json.Unmarshal(d.Config, &cfg) != nil {
+			continue
+		}
+		if cfg.FQDN == host || (cfg.Hostname != "" && cfg.Hostname == host) {
+			return d.NodeID
+		}
+	}
+	return ""
 }

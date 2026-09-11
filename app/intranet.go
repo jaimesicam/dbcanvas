@@ -262,6 +262,13 @@ type designNode struct {
 	// size of the connection pool, so this is the knob for how much concurrency
 	// the target database actually sees.
 	SSThreads int `json:"ssThreads"`
+	// SSSplitReads sends the sim's read-only traffic to an HAProxy target's read port
+	// (5001) instead of its write port, which is the only way any of this product puts
+	// load on a cluster's replicas. Only meaningful in linked mode against an HAProxy
+	// node — every other target is one endpoint — and only the reads that merely
+	// display move: see readPreference in stocksim/internal/api/http.go for why a read
+	// that a write depends on stays on the primary.
+	SSSplitReads bool `json:"ssSplitReads"`
 	// Percona Orchestrator node fields (Type=="orchestrator"). A standalone topology
 	// visualization/failure-detection node — not a cluster frame — that async and
 	// semi-sync MySQL replication frames optionally point at

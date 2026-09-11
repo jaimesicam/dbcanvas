@@ -74,6 +74,11 @@ var reservedDatabases = map[string]bool{
 type Config struct {
 	Engine   string
 	DSN      string // full driver-native DSN/URI; when set, beats the fields below
+	// ReadDSN is an optional second endpoint for read-only traffic — the read port
+	// of a proxy in front of a replicated cluster. Empty means every statement goes
+	// to DSN, which is what a single server, a multi-master cluster, or a proxy that
+	// splits reads itself (ProxySQL) all want. See ReplicaOK for what moves.
+	ReadDSN  string
 	Host     string
 	Port     int
 	User     string
@@ -86,6 +91,31 @@ type Config struct {
 	// and sim.Engine.Threads for what the agents do with it. 0 takes
 	// DefaultThreads.
 	Threads int
+}
+
+// Split reads: which statements a replica may answer.
+//
+// The rule is not "SELECTs go to the replica" — it is that a read whose answer a write
+// depends on must not. The API's PUT and DELETE handlers load the row they are about to
+// change, and the order-placing handler checks the portfolio and the security exist; served
+// by a replica that has not caught up yet, those reads report "not found" for a row that is
+// there, and the write fails for a reason the user cannot see. The same is true of the
+// simulation's own agents, which read positions in order to update them.
+//
+// So the choice is made where the intent is known — the HTTP layer marks GET requests, which
+// are the ones that only display — and every store method honours it through readDB. A
+// request without the mark reads from the writer, which is the safe default for anything new.
+type replicaOKKey struct{}
+
+// WithReplicaOK marks ctx as a request whose reads may be answered by a replica.
+func WithReplicaOK(ctx context.Context) context.Context {
+	return context.WithValue(ctx, replicaOKKey{}, true)
+}
+
+// ReplicaOK reports whether ctx carries that mark.
+func ReplicaOK(ctx context.Context) bool {
+	ok, _ := ctx.Value(replicaOKKey{}).(bool)
+	return ok
 }
 
 // Thread-count bounds. DefaultThreads is what the sim ran at before the count

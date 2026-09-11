@@ -33,6 +33,7 @@ import {
 } from './UpstreamForms.jsx'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import FileManager from './FileManager.jsx'
+import SeaweedFileManager from './SeaweedFileManager.jsx'
 import { SecretInline, SecretValue, CopyButton as CopyBtn } from '../components/Secret.jsx'
 import {
   PORTS, dist, portPoint, edgePath, screenToWorld, zoomAt,
@@ -648,7 +649,7 @@ export const NODE_TYPES = {
     osOptions: [{ id: 'stocksim', label: 'dbcanvas-stocksim' }],
     defaults: {
       ssMode: 'linked', ssEngine: 'mysql', ssTLS: 'prefer', ssDatabase: 'stocksim',
-      ssWorkingSet: '', ssThreads: 0,
+      ssWorkingSet: '', ssThreads: 0, ssSplitReads: false,
       ssIdleTxn: '', ssExtraTables: 0, ssTempTables: 'off',
       ssLockContention: 'off', ssScanQueries: 0, ssWritePressure: 'off',
     },
@@ -2186,6 +2187,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   const [drop, setDrop] = useState(null) // dropped files awaiting a destination choice
   const [xfer, setXfer] = useState(null) // the transfer dialog, once a destination is picked
   const [fileMgr, setFileMgr] = useState(null) // { nodeId, label } while the file manager is open
+  const [bucketMgr, setBucketMgr] = useState(null) // { nodeId, label, buckets } — the SeaweedFS one
   const xferAbort = useRef(null)
   const [flash, setFlash] = useState(null) // transient bottom toast ({ tone, text })
   const [saveTpl, setSaveTpl] = useState(false)   // "Save as template" dialog
@@ -3665,6 +3667,17 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
           })
         }
         actions.push({ label: 'File manager', help: MENU_HELP.fileManager, fn: () => setFileMgr({ nodeId: id, label: node?.label || 'node' }) })
+        // A SeaweedFS node has a second one, a layer up: its buckets are an object store,
+        // not a filesystem, so the node's own files (volume needles) are never what you
+        // want from it. The buckets are.
+        if (node?.type === 'seaweedfs') {
+          const bk = dep.config?.buckets?.length ? dep.config.buckets : [dep.config?.bucket].filter(Boolean)
+          actions.push({
+            label: 'Bucket file manager',
+            help: MENU_HELP.bucketManager,
+            fn: () => setBucketMgr({ nodeId: id, label: node?.label || 'SeaweedFS', buckets: bk }),
+          })
+        }
         // The thing you always end up wanting off a MongoDB node: its FTDC and the
         // log that explains it, in one archive. Both are reachable through the File
         // manager, but only if you know where mongod keeps them — and the server
@@ -4349,6 +4362,16 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
           nodeId={fileMgr.nodeId}
           nodeLabel={fileMgr.label}
           onClose={() => setFileMgr(null)}
+        />
+      )}
+
+      {bucketMgr && (
+        <SeaweedFileManager
+          stackId={stack.id}
+          nodeId={bucketMgr.nodeId}
+          nodeLabel={bucketMgr.label}
+          buckets={bucketMgr.buckets}
+          onClose={() => setBucketMgr(null)}
         />
       )}
 
@@ -5120,7 +5143,15 @@ function VaultFields({ node: n, nodes, patchNode, deployed }) {
 // series, so turning SSO on moves the node onto it rather than letting validation reject the
 // design later. Percona Server's auth_openid_connect plugin arrived in 8.4.11-11, so the
 // minor is cleared to "latest" as well — an 8.4 pinned to an older minor has no plugin.
-const PG_OIDC_PIN = { patch: { pgMajor: '18', pgVersion: '' }, note: <>Uses PostgreSQL 18 + <span className="font-mono">pg_oidc_validator</span> (set automatically).</> }
+// The major stays editable after the pin, so `warn` re-flags a drift off 18 inline instead
+// of leaving it to the server's oidcIssues at deploy time. pgOidcMajorOk mirrors that rule:
+// the extension is packaged as percona-pg_oidc_validator18 and exists for no other major.
+const pgOidcMajorOk = (n) => (n.pgMajor || '16') === '18'
+const PG_OIDC_PIN = {
+  patch: { pgMajor: '18', pgVersion: '' },
+  note: <>Uses PostgreSQL 18 + <span className="font-mono">pg_oidc_validator</span> (set automatically).</>,
+  warn: (n) => (pgOidcMajorOk(n) ? null : <>PostgreSQL {n.pgMajor || '16'} has no <span className="font-mono">pg_oidc_validator</span> — set the PostgreSQL major to 18 above, or turn this off.</>),
+}
 const PS_OIDC_PIN = { patch: { psMajor: '8.4', psVersion: '' }, note: <>Uses Percona Server 8.4 (latest minor) + the <span className="font-mono">auth_openid_connect</span> plugin, which Percona added in 8.4.11-11. Not in the 9.7 series yet.</> }
 
 // KeycloakOidcFields renders the shared "Keycloak SSO" design block for the PMM, PostgreSQL
@@ -5132,6 +5163,9 @@ function KeycloakOidcFields({ node: n, nodes, patchNode, deployed, label, pin, b
   const sel = kcNodes.find((k) => k.id === n.keycloakNodeId)
   const selSSL = sel ? sel.generateCert !== false : true
   const noOidc = deployed || kcNodes.length === 0 || !!blocked
+  // A deployed node's version is locked, so the pin can no longer be off; only an
+  // in-design node can have drifted away from the version its validator needs.
+  const pinWarn = !deployed && pin?.warn ? pin.warn(n) : null
   return (
     <div className="space-y-2 rounded-lg border border-dashed p-2">
       <div className="text-xs font-medium text-muted">Keycloak SSO</div>
@@ -5155,7 +5189,9 @@ function KeycloakOidcFields({ node: n, nodes, patchNode, deployed, label, pin, b
             <input className={inputCls} value={n.oidcRealm ?? 'dbcanvas'} disabled={deployed} onChange={(e) => patchNode(n.id, { oidcRealm: e.target.value })} />
           </Field>
           {n.keycloakNodeId && !selSSL && <p className="text-xs text-warning">Enable “Use Intranet CA SSL” on the selected Keycloak — OIDC needs an HTTPS issuer.</p>}
-          {pin && <p className="text-xs text-muted">{pin.note}</p>}
+          {pin && (pinWarn
+            ? <p className="text-xs text-danger">{pinWarn}</p>
+            : <p className="text-xs text-muted">{pin.note}</p>)}
         </>
       )}
     </div>
@@ -5478,6 +5514,13 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
           {minors.map((v) => <option key={v} value={v}>{v}</option>)}
         </select>
       </Field>
+      {/* Enabling Keycloak SSO pins the major to 18, but the selector above stays open
+          afterwards — say so here, where the version is actually chosen. */}
+      {!deployed && n.enableOIDC && !pgOidcMajorOk(n) && (
+        <p className="text-xs text-danger">
+          Keycloak SSO is on and <span className="font-mono">pg_oidc_validator</span> is packaged for PostgreSQL 18 only — pick 18, or turn Keycloak SSO off below.
+        </p>
+      )}
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.usePgBackRest} disabled={deployed} onChange={(e) => patchNode(n.id, { usePgBackRest: e.target.checked })} />
@@ -5550,12 +5593,24 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
   )
 }
 
-// SeaweedBucketField lets a backup consumer pick which of a SeaweedFS node's buckets it uses. It
-// only appears when there is a choice to make: a node with a single bucket has nothing to pick.
+// SeaweedBucketField lets a backup consumer pick which of a SeaweedFS node's buckets it uses.
+//
+// It shows even when there is nothing to pick. Hiding it on a one-bucket node did save a dead
+// control, but it also meant the design never said where the backups went — and "which bucket is
+// this cluster writing to?" is a question people have about a store holding several clusters'
+// backups, not only about one with several buckets. With one bucket the field names it and is
+// disabled; the choice appears as soon as the node has a second.
 function SeaweedBucketField({ nodes, nodeId, value, onChange, deployed }) {
   const sw = nodes.find((x) => x.id === nodeId && x.type === 'seaweedfs')
   const buckets = sw ? seaweedBucketsOf(sw, false) : []
-  if (buckets.length < 2) return null
+  if (buckets.length === 0) return null
+  if (buckets.length === 1) {
+    return (
+      <Field label="Bucket" help={HELP.s3Bucket} hint="The only bucket on that node — add another to it to have a choice here.">
+        <input className={`${inputCls} opacity-70`} value={buckets[0]} disabled readOnly />
+      </Field>
+    )
+  }
   return (
     <Field label="Bucket" help={HELP.s3Bucket} hint="Which of that node's buckets this cluster backs up to.">
       <select className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={value || ''} disabled={deployed}
@@ -7662,6 +7717,26 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
         </details>
       )}
 
+      {/* Only an HAProxy target has a second port that means "a replica": every
+          other shape here is one endpoint, and ProxySQL splits reads inside itself.
+          Mirrors the haproxy branches of stockSimMySQLTarget/stockSimPostgresTarget. */}
+      {mode === 'linked' && linkedTarget?.kind === 'haproxy' && (
+        <label className={`flex items-start gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+          <input type="checkbox" className="mt-0.5" checked={!!n.ssSplitReads} disabled={deployed}
+            onChange={(e) => patchNode(n.id, { ssSplitReads: e.target.checked })} />
+          <span>
+            Send reads to HAProxy's read port
+            <span className="block text-[11px] leading-snug text-muted">
+              Queries that only display — the dashboard, the lists, the report — go to
+              <span className="font-mono"> :5001</span>, which round-robins the replicas; everything else stays on
+              <span className="font-mono"> :5000</span>. A read whose answer decides a write (editing a row, placing an
+              order) stays on the primary too, so replication lag cannot turn into a failed write. Off by default:
+              with it on, a list can briefly lag a row you just created, which is read-splitting working, not a fault.
+            </span>
+          </span>
+        </label>
+      )}
+
       {/* Applies on every engine — even Valkey, where it is still what decides
           how many connections the app opens. */}
       <Field label="Database threads" help={HELP.benchThreads}
@@ -7727,6 +7802,11 @@ function StockSimManager({ dep, onDeleteNode }) {
         <InfoRow label="Internal URL" help={HELP.depInternalURL}><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8093</span></InfoRow>
         <InfoRow label="Connected to" help={HELP.depLinkedTo}><span className="font-mono text-xs">{cfg.targetName} ({SS_TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></InfoRow>
         <InfoRow label="Database" help={HELP.benchDatabase}><span className="font-mono text-xs">{cfg.engine} / {db}</span></InfoRow>
+        {cfg.readEndpoint && (
+          <InfoRow label="Reads go to" help={HELP.ssSplitReads}>
+            <span className="font-mono text-xs">{cfg.readEndpoint}</span>
+          </InfoRow>
+        )}
         <InfoRow label="Dataset at High" help={HELP.depDataset}><span className="font-mono text-xs">{fmtTargetBytes(cfg.targetBytes)}</span></InfoRow>
         <InfoRow label="Working set" help={HELP.benchWorkingSet}><span className="font-mono text-xs">{cfg.workingSet || '50%'}</span></InfoRow>
         <InfoRow label="Threads" help={HELP.depThreads}><span className="font-mono text-xs">{cfg.threads || 4}</span></InfoRow>

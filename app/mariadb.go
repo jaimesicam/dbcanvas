@@ -918,7 +918,7 @@ gpgkey=https://mirror.mariadb.org/yum/RPM-GPG-KEY-MariaDB
 gpgcheck=1
 module_hotfixes=1
 EOF
-for p in $PKGS; do pin_install "$p"; done`
+pin_install $PKGS`
 
 const mariadbInstallDebian = pinInstallDebian + `set -e
 export DEBIAN_FRONTEND=noninteractive
@@ -929,7 +929,7 @@ CODE=$(. /etc/os-release; echo "$VERSION_CODENAME")
 echo "deb [signed-by=/etc/apt/keyrings/dbcanvas-mariadb.pgp] https://mirror.mariadb.org/repo/$MAJOR/ubuntu $CODE main" \
   >/etc/apt/sources.list.d/dbcanvas-mariadb.list
 apt-get update -qq >/dev/null
-for p in $PKGS; do pin_install "$p"; done`
+pin_install $PKGS`
 
 // mariadbDatadirInit prepares the datadir before the first start.
 //

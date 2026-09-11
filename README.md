@@ -160,9 +160,44 @@ yourself.
 
 ## What's new
 
-### 0.0.3
+### 0.0.4
 
 <details open>
+<summary><b>The Stock Market Sim can split its reads to HAProxy's read port</b></summary>
+
+Every simulator resolved an **HAProxy** target to one endpoint — the write port — so a Patroni or
+repmgr cluster behind HAProxy took the whole query load on its primary and the replicas sat idle.
+HAProxy's read port was configured, published and documented, and nothing ever connected to it.
+
+Tick **Send reads to HAProxy's read port** on a Stock Market Sim linked to an HAProxy node and the
+queries that only display — the dashboard, the lists, the report — go to `:5001`, which round-robins
+the replicas, while writes keep `:5000`. A read whose answer decides a write stays on the primary
+whatever the setting: the row a PUT is about to change, the portfolio an order is placed against.
+Otherwise replication lag turns into a write that fails for a reason nothing on screen explains.
+For every HAProxy-fronted cluster, PostgreSQL and MySQL alike.
+[Simulators →](docs/STACKS.md)
+</details>
+
+<details>
+<summary><b>A file manager for SeaweedFS buckets</b></summary>
+
+The SeaweedFS node's **Buckets** tab could show you that a backup landed, and nothing else. Now
+**Files…** on that tab — or **Bucket file manager** on the node's right-click menu — opens a
+two-pane file manager over the buckets themselves.
+
+**Download** an object to your machine. **Upload** files into a folder, by drag-and-drop or from
+the button, under the same size ceiling as a node file drop. **Delete** what you no longer want —
+it asks first, and takes a folder's contents with it only when the confirmation says so, because a
+folder here is a whole backup. Open the second pane and **copy objects from one bucket into
+another**, on the same node or on another SeaweedFS node in the stack — streamed container to
+container, so nothing lands on the DBCanvas host on the way. What you write is an ordinary S3
+object: a database node's `aws s3 ls` sees it with the key, size and ETag you would expect.
+[SeaweedFS →](docs/STACKS.md)
+</details>
+
+### 0.0.3
+
+<details>
 <summary><b>Edit cr.yaml as a form, generated from the operator's own CRD</b></summary>
 
 A Kubernetes server node's panel has a **cr.yaml** tab: the live custom resource as a form built

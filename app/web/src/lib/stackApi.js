@@ -235,8 +235,29 @@ export function seaweedApi(id, nid) {
     objects: (bucket, path = '', after = '') =>
       request('GET', `${base}/objects?bucket=${encodeURIComponent(bucket)}` +
         `&path=${encodeURIComponent(path)}&after=${encodeURIComponent(after)}`),
+    // A plain href the browser GETs directly, so the session cookie rides along and a
+    // multi-gigabyte object streams to disk without passing through JS.
+    downloadURL: (bucket, path) =>
+      `${base}/download?bucket=${encodeURIComponent(bucket)}&path=${encodeURIComponent(path)}`,
+    // Field names are each file's path relative to the folder, the convention the node
+    // file manager's upload already uses — so a dropped folder keeps its shape as keys.
+    upload: (bucket, path, files, opts) => {
+      const fd = new FormData()
+      fd.append('bucket', bucket)
+      fd.append('path', path)
+      for (const { path: rel, file } of files) fd.append(rel, file, rel.split('/').pop())
+      return uploadForm(`${base}/upload`, fd, opts || {})
+    },
+    transfer: (bucket, paths, toNodeId, toBucket, toPath) =>
+      request('POST', `${base}/transfer`, { bucket, paths, toNodeId, toBucket, toPath }),
+    // `recursive` is the caller saying it knows a folder takes everything under it with it;
+    // without it the server refuses a folder rather than emptying a backup repository.
+    remove: (bucket, paths, recursive) => request('POST', `${base}/delete`, { bucket, paths, recursive }),
   }
 }
+
+// The stack's running SeaweedFS nodes and their buckets, for the bucket file manager's panes.
+export const seaweedNodes = (id) => request('GET', `/api/stacks/${id}/seaweed/nodes`)
 
 // All-in-One node management. Every action execs the container's own `aioctl`
 // (see app/aio_mgmt.go), so these buttons and the CLI an operator runs in the

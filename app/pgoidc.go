@@ -38,6 +38,25 @@ type oidcInfo struct {
 	Database string   `json:"database,omitempty"` // schema the role can read
 }
 
+// pgOIDCSampleUsers are the Keycloak users created for the PostgreSQL demo, each given a
+// matching LOGIN role on the node. Unlike Percona Server — whose accounts bind to the
+// Keycloak user id (the token's `sub`) and so can only be created once Keycloak has minted
+// the user — pg_oidc_validator maps on `preferred_username`, so the role name is all that is
+// needed and the ids never come into it.
+var pgOIDCSampleUsers = []kcSampleUser{
+	{"jane", "Jane", "Doe", ""},
+	{"john", "John", "Doe", ""},
+}
+
+// pgOIDCUsernames is pgOIDCSampleUsers as plain names, for the script env and the panel.
+func pgOIDCUsernames() []string {
+	out := make([]string, 0, len(pgOIDCSampleUsers))
+	for _, u := range pgOIDCSampleUsers {
+		out = append(out, u.Username)
+	}
+	return out
+}
+
 // oidcIssues validates a pmm/pg/ps node's Keycloak-SSO selection: a linked SSL-enabled
 // Keycloak (HTTPS issuer), plus the per-engine version each validator needs — PostgreSQL 18
 // for pg (pg_oidc_validator) and Percona Server 8.4.11-11 for ps (auth_openid_connect). For
@@ -80,6 +99,27 @@ func oidcRealmOr(n designNode) string {
 		return r
 	}
 	return "dbcanvas"
+}
+
+// persistConfigKeys merges several key→val pairs into a node's Deployment.Config in one
+// write. The singular form below is this with one pair; a caller recording a handful of
+// related facts (where a cluster backs up to, say) should not cost a read-modify-write each.
+func (a *App) persistConfigKeys(st Stack, nodeID string, kv map[string]any) {
+	dep, err := a.store.GetDeployment(st.ID, nodeID)
+	if err != nil {
+		return
+	}
+	m := map[string]any{}
+	if len(dep.Config) > 0 {
+		json.Unmarshal(dep.Config, &m)
+	}
+	for k, v := range kv {
+		m[k] = v
+	}
+	if b, e := json.Marshal(m); e == nil {
+		dep.Config = b
+		a.store.UpsertDeployment(dep)
+	}
 }
 
 // persistConfigKey merges key→val into a node's Deployment.Config without disturbing the
@@ -155,28 +195,40 @@ func (a *App) applyPGOIDC(ctx context.Context, st Stack, n designNode, doc desig
 	samplePW := keycloakUserPassword()
 	if _, err := a.ensureKeycloakClient(ctx, kcID, adminPW, kcClientSpec{
 		Realm: realm, ClientID: clientID, Public: true, DeviceFlow: true, Domain: domain, SamplePW: samplePW,
-		Users: []kcSampleUser{{"jane", "Jane", "Doe", ""}, {"john", "John", "Doe", ""}},
+		Users: pgOIDCSampleUsers,
 	}); err != nil {
 		return fmt.Errorf("keycloak client: %w", err)
 	}
 	if err := a.stageIntranetCA(ctx, st, containerID); err != nil {
 		return fmt.Errorf("stage CA: %w", err)
 	}
-	env := []string{"ISSUER=" + issuer, "SERVICE=" + service}
+	users := pgOIDCUsernames()
+	env := []string{"ISSUER=" + issuer, "SERVICE=" + service, "USERS=" + strings.Join(users, " "), "VER=" + n.PGVersion}
 	if err := a.runStep(ctx, containerID, pgOIDCScript, env, pr.logln); err != nil {
 		return err
 	}
 	nodeFQDN := fqdnOf(stackHostnames(doc)[n.ID], domain)
-	a.persistConfigKey(st, n.ID, "oidc", oidcInfo{Enabled: true, Realm: realm, Issuer: issuer, ClientID: clientID, NodeFQDN: nodeFQDN})
-	pr.logln("Keycloak OAuth login configured (issuer " + issuer + ")")
+	a.persistConfigKey(st, n.ID, "oidc", oidcInfo{
+		Enabled: true, Realm: realm, Issuer: issuer, ClientID: clientID,
+		ConsoleURL: keycloakIssuer(host, ssl), NodeFQDN: nodeFQDN, Users: users,
+	})
+	// Same reasoning as the Percona Server node (mysqloidc.go): sample users the panel names
+	// are useless without their password, so it goes into the node's own secrets.
+	a.persistSecretKey(st, n.ID, "oidcSamplePassword", samplePW)
+	pr.logln("Keycloak OAuth login configured (issuer " + issuer + ", roles " + strings.Join(users, ", ") + ")")
 	return nil
 }
 
-// pgOIDCScript installs the validator + client OAuth libs, trusts the Intranet CA, and wires
-// oauth into postgresql.conf + pg_hba. Env: ISSUER, SERVICE.
-const pgOIDCScript = `set -e
+// pgOIDCScript installs the validator + client OAuth libs, trusts the Intranet CA, wires
+// oauth into postgresql.conf + pg_hba, and creates one LOGIN role per sample Keycloak user —
+// the `oauth` hba line authenticates the token, but the mapped role still has to exist.
+// Env: ISSUER, SERVICE, USERS (space-separated role names).
+const pgOIDCScript = pinInstallRHEL + `set -e
 percona-release setup -y ppg-18 >/dev/null 2>&1 || true
-dnf -y -q install percona-pg_oidc_validator18 >/dev/null 2>&1
+# pin_install, not a bare dnf: the validator carries its own version, but its dependencies are
+# this node's own PostgreSQL packages, and installing it unpinned invites dnf to upgrade the
+# server out from under the minor that was asked for (see install_pin.go).
+pin_install percona-pg_oidc_validator18 >/dev/null 2>&1
 # client OAuth flow module: Percona's package has a broken (epoch/arch-qualified) dep, so
 # download + rpm --nodeps.
 if ! rpm -q percona-postgresql18-libs-oauth >/dev/null 2>&1; then
@@ -207,4 +259,13 @@ PY
 # oauth_validator_libraries loads at startup → restart (not just reload).
 systemctl restart "$SERVICE" >/dev/null 2>&1 || su - postgres -c "pg_ctl -D $DATA restart" >/dev/null 2>&1 || true
 for i in $(seq 1 20); do su - postgres -c "psql -tAc 'select 1'" >/dev/null 2>&1 && break; sleep 1; done
-echo "pg_oidc_validator configured (issuer $ISSUER)"`
+# One LOGIN role per Keycloak user, named after the preferred_username the validator maps on.
+# Idempotent: a redeploy (or a role someone made by hand) must not fail the step.
+SQL=/tmp/dbcanvas-oidc-roles.sql
+: > "$SQL"
+for U in $USERS; do
+  echo "DO \$do\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$U') THEN CREATE ROLE \"$U\" LOGIN; END IF; END \$do\$;" >> "$SQL"
+done
+chmod 644 "$SQL"
+su - postgres -c "psql -q -v ON_ERROR_STOP=1 -f $SQL" || { echo "failed to create OIDC login roles"; exit 1; }
+echo "pg_oidc_validator configured (issuer $ISSUER, roles $USERS)"`

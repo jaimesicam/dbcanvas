@@ -65,3 +65,22 @@ func TestSeaweedBucketIssues(t *testing.T) {
 		t.Errorf("a bucket the node does not create must be an error: %v", iss)
 	}
 }
+
+// An endpoint reaches this from a deployment's config, having come from the designer, so the
+// parsing has to survive every shape one gets written in.
+func TestS3EndpointHost(t *testing.T) {
+	cases := map[string]string{
+		"https://seaweedfs-01.example.net:8333": "seaweedfs-01.example.net",
+		"http://seaweedfs-01.example.net:8333/": "seaweedfs-01.example.net",
+		"seaweedfs-01.example.net:8333":         "seaweedfs-01.example.net",
+		"seaweedfs-01.example.net":              "seaweedfs-01.example.net",
+		"https://10.1.2.3:8333/bucket":          "10.1.2.3",
+		"":                                      "",
+		"   ":                                   "",
+	}
+	for in, want := range cases {
+		if got := s3EndpointHost(in); got != want {
+			t.Errorf("s3EndpointHost(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

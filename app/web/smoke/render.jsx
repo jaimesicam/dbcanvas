@@ -49,6 +49,8 @@ import { TabCount, TabCapNotice, NAV } from '../src/App.jsx'
 import { showExperimental, visible, visibleGroups } from '../src/lib/experimental.js'
 import MySQLManager from '../src/pages/MySQLManager.jsx'
 import OidcLoginGuide from '../src/components/OidcLoginGuide.jsx'
+import SeaweedFSManager from '../src/pages/SeaweedFSManager.jsx'
+import BackupGuide, { PgBackRestGuide, BarmanGuide } from '../src/components/BackupGuide.jsx'
 import CRFormEditor, {
   crPatch, changedPaths, yamlish, matchField, getAt, setAt, delAt,
 } from '../src/pages/CRFormEditor.jsx'
@@ -453,6 +455,98 @@ check('MySQLManager: the Keycloak SSO tab renders the accounts the deploy create
   }
   if (guide.includes('undefined')) throw new Error('login guide rendered a literal "undefined"')
   return guide
+})
+
+// The PostgreSQL guide has the same job as the Percona Server one: the roles exist on the node
+// after deploy, so the panel names them and shows the password rather than printing a placeholder
+// username and leaving the reader to find KEYCLOAK_USER_PASSWORD themselves.
+check('OidcLoginGuide (pg): names the roles that exist and their password', () => {
+  const info = {
+    enabled: true, realm: 'dbcanvas', clientId: 'postgres',
+    issuer: 'https://keycloak.example.net:8443/realms/dbcanvas',
+    consoleUrl: 'https://keycloak.example.net:8443',
+    nodeFqdn: 'pg1.example.net', users: ['jane', 'john'],
+  }
+  const guide = renderToString(<OidcLoginGuide engine="pg" info={info} secrets={{ oidcSamplePassword: 'keycloak_user_password' }} />)
+  for (const want of ['pg_oidc_validator', 'jane, john', 'https://keycloak.example.net:8443', 'oauth_issuer=', 'pg1.example.net']) {
+    if (!guide.includes(want)) throw new Error(`login guide omits ${want}`)
+  }
+  if (guide.includes('undefined')) throw new Error('login guide rendered a literal "undefined"')
+  return guide
+})
+
+// A node deployed before the roles were created has no users in its config: the guide still has
+// to render, falling back to the sample name rather than printing an empty list.
+check('OidcLoginGuide (pg): an older deployment without users still renders', () => {
+  const info = { enabled: true, realm: 'dbcanvas', clientId: 'postgres', issuer: 'https://kc/realms/dbcanvas', nodeFqdn: 'pg1.example.net' }
+  const guide = renderToString(<OidcLoginGuide engine="pg" info={info} />)
+  if (!guide.includes('user=jane')) throw new Error('the fallback username is gone')
+  if (guide.includes('undefined')) throw new Error('login guide rendered a literal "undefined"')
+  return guide
+})
+
+// --- backup guides ----------------------------------------------------------
+
+// The point of the guide is that a command can be pasted as it stands, so the check is that
+// the deployment's own facts reached it: no <stanza>, no <bucket>, no "undefined".
+check('BackupGuide (pgbackrest): commands carry the stanza and the unit', () => {
+  const cfg = {
+    usePgBackRest: true, backupStanza: 'pg-01', backupBucket: 'backup2',
+    backupRepo: 'pgbackrest → SeaweedFS S3 (backup2/pgbackrest)',
+    service: 'postgresql-18', dataDir: '/var/lib/pgsql/18/data', hostname: 'pg-01',
+  }
+  if (!renderToString(<BackupGuide engine="pgbackrest" cfg={cfg} nodeLabel="pg-01" />).includes('How to back up and restore')) {
+    throw new Error('the guide has no heading')
+  }
+  const html = renderToString(<PgBackRestGuide cfg={cfg} nodeLabel="pg-01" />)
+  for (const want of [
+    'pgbackrest --stanza=pg-01 info', 'pgbackrest --stanza=pg-01 check',
+    'pgbackrest --stanza=pg-01 --type=full backup', 'expire --set=',
+    'systemctl stop postgresql-18', '--type=time --target=',
+  ]) {
+    if (!html.includes(want)) throw new Error(`the pgBackRest guide omits ${want}`)
+  }
+  if (html.includes('&lt;stanza&gt;') || html.includes('undefined')) throw new Error('a placeholder survived into a command')
+  return html
+})
+
+// The guide's body only renders once opened, so the commands themselves are checked on the
+// inner components through the same props the tab passes.
+check('BackupGuide (barman): every command names the endpoint, bucket and server', () => {
+  const cfg = {
+    useBarman: true, cluster: 'repmgr-cluster-01', backupServer: 'repmgr-cluster-01',
+    backupBucket: 'backup2', backupEndpoint: 'https://seaweedfs-01.example.net:8333',
+    backupS3Url: 's3://backup2/barman/repmgr-cluster-01', service: 'postgresql-18',
+    dataDir: '/var/lib/pgsql/18/data',
+  }
+  const html = renderToString(<BarmanGuide cfg={cfg} nodeLabel="repmgr-cluster-01" />)
+  for (const want of [
+    'barman-cloud-backup-list --cloud-provider aws-s3 --endpoint-url https://seaweedfs-01.example.net:8333 s3://backup2/barman/repmgr-cluster-01 repmgr-cluster-01',
+    'barman-cloud-backup-delete', '--backup-id', '--retention-policy',
+    'barman-cloud-restore', 'barman-cloud-wal-restore', '/var/lib/pgsql/18/data',
+  ]) {
+    if (!html.includes(want)) throw new Error(`the barman guide omits ${want}`)
+  }
+  if (html.includes('undefined') || html.includes('&lt;bucket&gt;')) throw new Error('a placeholder survived into a command')
+  return html
+})
+
+// --- SeaweedFS --------------------------------------------------------------
+
+// The Buckets tab is the way into the bucket file manager, and it is no longer read-only.
+check('SeaweedFSManager: the Buckets tab opens the file manager', () => {
+  const dep = {
+    state: 'running',
+    config: {
+      hostname: 'sw1', fqdn: 'sw1.example.net', bucket: 'backups', buckets: ['backups', 'dumps'],
+      accessKey: 'dbcanvas', region: 'us-east-1', webPort: 18080,
+      internalEndpoint: 'https://sw1.example.net:8333', tls: true,
+    },
+    secrets: { accessKey: 'dbcanvas', secretKey: 's3cret' },
+  }
+  const html = renderToString(<SeaweedFSManager stackId={1} nodeId="sw1" dep={dep} onDeleteNode={noop} />)
+  if (!html.includes('Buckets')) throw new Error('the Buckets tab is missing')
+  return html
 })
 
 // A node without OIDC must not grow the tab (cfg.oidc is simply absent).

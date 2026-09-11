@@ -138,8 +138,13 @@ the DBCanvas source, so they need a checkout and `make <name>-image`.
   repmgr, Spock, PSMDB replica sets and sharded clusters, Valkey cluster); a **Kubernetes frame
   running any of the six database operators** (PXC, Percona Server for MySQL, PSMDB, Percona
   PostgreSQL, CloudNativePG, Crunchy PGO), whose engine follows the operator the frame runs; or a
-  **ProxySQL/HAProxy** node fronting one — always resolving to the cluster's write endpoint, be
-  that the primary, the leader, the router or the mongos. A database inside Kubernetes has to be
+  **ProxySQL/HAProxy** node fronting one — resolving by default to the cluster's write endpoint, be
+  that the primary, the leader, the router or the mongos. The **Stock Market Sim** can be told to
+  split that: behind an HAProxy node, tick **Send reads to HAProxy's read port** and the queries
+  that only display — the dashboard, the lists, the report — go to `:5001`, which round-robins the
+  replicas, while writes keep `:5000`. A read whose answer decides a write stays on the primary
+  whatever the setting, so replication lag cannot turn into a failed edit; see the note under the
+  checkbox. It is the only workload here that puts read load on a cluster's replicas. A database inside Kubernetes has to be
   reachable from the stack network first: set the tier in front of it — the proxy, the mongos
   routers, the pgBouncer pool, or the database pods themselves — to **LoadBalancer** or
   **NodePort** on the frame, since a ClusterIP address exists only inside the cluster, and the
@@ -482,8 +487,19 @@ resource is reachable. Available for the four Percona operators.
 that backs up to it — standalone PostgreSQL, Patroni, repmgr, the MongoDB clusters, and all four K3D
 operators — **picks which bucket it uses**, so a stack's backups don't have to share one. Once the
 node is running, its panel **browses the buckets**: pick one, list what actually landed in it, and
-click into the folders backups nest under (`pbm/<cluster>/…`, `pgbackrest/<cluster>/repo1/…`). It is
-read-only — a way to confirm a backup exists without exec-ing into anything.
+click into the folders backups nest under (`pbm/<cluster>/…`, `pgbackrest/<cluster>/repo1/…`) — the
+quick way to confirm a backup exists without exec-ing into anything.
+
+**Files…** on that tab (or **Bucket file manager** on the node's right-click menu) opens the full
+thing: two panes, each on a node + bucket + folder of its own. **Download** an object to your
+machine, **upload** files into a folder — drag them onto the listing, or use the button — **delete**
+what you no longer want, and with the second pane open, **copy objects from one bucket into
+another**, on the same node or another SeaweedFS node in the stack. Nothing passes through your
+browser but the download itself: a copy is streamed container to container. Deleting asks first,
+and a folder is only ever removed with everything inside it when the confirmation says so — a
+folder here is a whole backup (`pbm/<cluster>`, `pgbackrest/<cluster>/repo1`). Uploads obey the same size ceiling as a node file drop, and what
+you write lands as an ordinary S3 object — `aws s3 ls` from a database node sees it with the key,
+size and ETag you would expect.
 
 > *Browsing `pxc-backups` inside the backup the PXC operator just wrote — the xtrabackup files with
 > their sizes and times. The breadcrumb walks back out; the selector switches buckets.*
@@ -665,13 +681,33 @@ to a Percona Server node from the desktop the same way they would from the node 
 > *The desktop is on the stack network, so `pxc01.example.net` resolves and the clients that
 > ship in the image reach it without any setup.*
 
-![The SeaweedFS node's Buckets tab — a read-only browser over what the databases wrote](screenshots/seaweedfs-buckets.png)
+![The SeaweedFS node's Buckets tab — a browser over what the databases wrote](screenshots/seaweedfs-buckets.png)
 
 > *Inside `mongo-backups/pbm/psmrs-00`, the snapshot a MongoDB replica set in the same stack
 > just wrote: `.pbm.init`, the timestamped snapshot directory and its `.pbm.json` metadata. The
 > replica set's frame has **Enable PBM** ticked with this node picked as its target, which is
 > all it takes. Each engine writes to its own prefix — PBM under `pbm/<cluster>`, pgBackRest
 > under `pgbackrest/<cluster>`, xtrabackup and the Percona operators at the top level.*
+
+**Backups, and how to undo one.** A PostgreSQL node or cluster with a backup store linked gets a
+**Backup** tab: where it backs up to (bucket, and for repmgr the endpoint and server name), a
+**Backup now** button, and — expanded from *How to back up and restore* — the commands for
+everything the button does not do. List what exists, check that WAL archiving is actually keeping
+up, take an incremental, delete one backup or apply a retention policy, and restore, including to a
+point in time. They are built from that deployment's own facts: the stanza, the bucket, the systemd
+unit and the data directory are already filled in, so each one can be pasted into the node's root
+console as it stands. Standalone PostgreSQL and Patroni get the **pgBackRest** set (with Patroni's
+restore going through `patronictl`, because Patroni owns PostgreSQL and `systemctl` would be undone
+under you); repmgr gets the **barman-cloud** set. The Kubernetes operators are not included — there
+a backup is a custom resource, not a command.
+
+A **TLS** SeaweedFS store works for both. pgBackRest requires it; barman-cloud does not, and used to
+fail against one — `SSL validation failed … CERTIFICATE_VERIFY_FAILED` — because barman-cloud is
+boto3, and botocore verifies against its own bundled CA list rather than the system trust store the
+Intranet CA is installed into. Each repmgr member now carries a bundle holding the Intranet CA and
+the store's own S3 certificate, with `ca_bundle` in the postgres user's `~/.aws/config` pointing at
+it, which covers both a store whose certificate the Intranet CA signed and one that is self-signed.
+An existing cluster picks this up the next time it backs up, without being rebuilt.
 
 **Diagnostics captures.** From a running node's panel, capture a diagnostic bundle and
 download it: **pg_gather** (a single `GatherReport.html`) on PostgreSQL nodes,

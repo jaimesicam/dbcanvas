@@ -880,12 +880,12 @@ fi
 
 const mysqlInstallRHEL = pinInstallRHEL + `set -e
 dnf -y -q module disable mysql >/dev/null 2>&1 || true
-` + psRepoRHEL + `for p in $PKGS $(pin_present $OPT); do pin_install "$p"; done`
+` + psRepoRHEL + `pin_install $PKGS $(pin_present $OPT)`
 
 const mysqlInstallDebian = pinInstallDebian + `set -e
 export DEBIAN_FRONTEND=noninteractive
 ` + psRepoDebian + `apt-get update -qq >/dev/null
-for p in $PKGS $(pin_present $OPT); do pin_install "$p"; done`
+pin_install $PKGS $(pin_present $OPT)`
 
 // mysqlSetRootPW is shared shell that sets root@localhost to $ROOT_PW regardless of
 // distro (RHEL expired temp password / Debian auth_socket). The ALTER USER is run

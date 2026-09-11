@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"strconv"
 	"strings"
@@ -25,7 +26,10 @@ const connectTimeout = 15 * time.Second
 // outside the stack, which is why nothing here assumes it may create users,
 // change global settings, or see other schemas.
 type mysqlStore struct {
-	db     *sql.DB
+	db *sql.DB
+	// ro is the read endpoint when this deployment splits reads (Config.ReadDSN),
+	// nil otherwise. readDB decides per query; see ReplicaOK for the rule.
+	ro     *sql.DB
 	cfg    *mysqldriver.Config
 	schema string
 	pool   int // connection ceiling, kept so EnsureSchema's reopen matches
@@ -33,6 +37,37 @@ type mysqlStore struct {
 	// objectsOn. Sticky, because the answer is a property of what we are
 	// connected to and will not change under us.
 	freshStats atomic.Bool
+}
+
+// mysqlOpenRead opens the read pool from a read endpoint's DSN.
+func mysqlOpenRead(dsn string, pool int) (*sql.DB, error) {
+	cfg, err := mysqldriver.ParseDSN(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("parse read dsn: %w", err)
+	}
+	cfg.DBName = ""
+	cfg.ParseTime = true
+	if cfg.Timeout == 0 {
+		cfg.Timeout = 10 * time.Second
+	}
+	db, err := sql.Open("mysql", cfg.FormatDSN())
+	if err != nil {
+		return nil, fmt.Errorf("open read endpoint: %w", err)
+	}
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetMaxOpenConns(pool)
+	db.SetMaxIdleConns(pool)
+	return db, nil
+}
+
+// readDB is the writer unless this is a request that only displays and a read endpoint
+// exists. Every read-only method goes through it; everything else uses s.db directly, so
+// a new write can never reach a replica by accident.
+func (s *mysqlStore) readDB(ctx context.Context) *sql.DB {
+	if s.ro != nil && ReplicaOK(ctx) {
+		return s.ro
+	}
+	return s.db
 }
 
 // openMySQL builds the DSN (or uses the supplied one verbatim), opens a lazy
@@ -66,6 +101,16 @@ func openMySQL(ctx context.Context, c Config) (Store, error) {
 	// connections continuously under exactly the load it was raised for.
 	db.SetMaxIdleConns(pool)
 	st := &mysqlStore{db: db, cfg: cfg, schema: c.Database, pool: pool}
+	// The read pool differs from the writer only in where it connects: same schema,
+	// same driver options, same ceiling. Parsed from ReadDSN so a proxy's read port
+	// (and its own credentials, if they differ) are honoured as given.
+	if c.ReadDSN != "" {
+		if ro, err := mysqlOpenRead(c.ReadDSN, pool); err != nil {
+			log.Printf("stocksim: read endpoint unusable, sending every query to the writer: %v", err)
+		} else {
+			st.ro = ro
+		}
+	}
 	st.freshStats.Store(true)
 	return st, nil
 }
@@ -98,7 +143,12 @@ func mysqlDSN(c Config) string {
 
 func (s *mysqlStore) Engine() string   { return EngineMySQL }
 func (s *mysqlStore) Database() string { return s.schema }
-func (s *mysqlStore) Close() error     { return s.db.Close() }
+func (s *mysqlStore) Close() error {
+	if s.ro != nil {
+		s.ro.Close()
+	}
+	return s.db.Close()
+}
 
 // Location: in MySQL a schema and a database are the same object, so there is
 // only ever one answer.
@@ -112,7 +162,7 @@ func (s *mysqlStore) Ping(ctx context.Context) error {
 
 func (s *mysqlStore) ServerVersion(ctx context.Context) (string, error) {
 	var v string
-	if err := s.db.QueryRowContext(ctx, "SELECT VERSION()").Scan(&v); err != nil {
+	if err := s.readDB(ctx).QueryRowContext(ctx, "SELECT VERSION()").Scan(&v); err != nil {
 		return "", err
 	}
 	return v, nil
@@ -249,6 +299,11 @@ const mysqlObjectsFromStats = `
 // Objects reports this app's tables with their row counts and sizes. See
 // mysqlObjectsWithFileSize for where the sizes come from and why there are two
 // queries rather than one.
+// Objects reads information_schema, and it stays on the writer even when reads are split:
+// a read proxy in front of a cluster pins the session to the writer the moment it sees a SET
+// it does not track and then refuses the SELECT that follows — the failure TestIsHostgroupLocked
+// exists for. The recovery for that is already here; pointing it at a second endpoint as well
+// would be two proxy behaviours interacting, for a query that runs once a page.
 func (s *mysqlStore) Objects(ctx context.Context) ([]ObjectInfo, error) {
 	out, err := s.objectsOn(ctx, s.freshStats.Load())
 	// A read proxy in front of a cluster refuses to route a SELECT on a session
@@ -418,7 +473,7 @@ func (s *mysqlStore) putBlob(ctx context.Context, table, id string, payload any)
 
 func (s *mysqlStore) getBlob(ctx context.Context, table, id string) (json.RawMessage, error) {
 	var payload string
-	err := s.db.QueryRowContext(ctx,
+	err := s.readDB(ctx).QueryRowContext(ctx,
 		"SELECT payload FROM `"+table+"` WHERE id = ?", id).Scan(&payload)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -456,7 +511,7 @@ func (s *mysqlStore) Heartbeat(ctx context.Context, agent, status, detail string
 }
 
 func (s *mysqlStore) AllHeartbeats(ctx context.Context) ([]AgentHeartbeat, error) {
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := s.readDB(ctx).QueryContext(ctx,
 		"SELECT agent_name, status, last_tick, detail, updated_at FROM agents ORDER BY agent_name")
 	if err != nil {
 		return nil, err
@@ -486,7 +541,7 @@ func (s *mysqlStore) AppendEvent(ctx context.Context, e Event) error {
 func (s *mysqlStore) EventsSince(ctx context.Context, afterID string, limit int) ([]Event, error) {
 	after, _ := strconv.ParseInt(afterID, 10, 64)
 	limit = clampLimit(limit, 50, 500)
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := s.readDB(ctx).QueryContext(ctx,
 		"SELECT id, ts, kind, symbol, message FROM events WHERE id > ? ORDER BY id ASC LIMIT ?",
 		after, limit)
 	if err != nil {

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
+import BackupGuide from '../components/BackupGuide.jsx'
 import { DEPLOY_TONE, patroniApi } from '../lib/stackApi.js'
 import { PGGatherCard } from '../components/Diagnostics.jsx'
 import PGCertTab from '../components/PGCertTab.jsx'
@@ -161,6 +162,10 @@ function BackupTab({ stackId, frameId, cfg }) {
         falling back to a streaming base backup. The initial full backup runs at deploy; use the button below to
         take another on demand (it runs on the current leader).
       </div>
+      <div className="space-y-1 text-xs">
+        <KV k="Stanza" v={cfg.backupStanza} />
+        <KV k="Bucket" v={cfg.backupBucket} />
+      </div>
       <Button size="sm" className="w-full" disabled={busy} onClick={runBackup}>
         <Icon.Arrow size={15} /> {busy ? 'Backing up…' : 'Backup now (full)'}
       </Button>
@@ -169,6 +174,7 @@ function BackupTab({ stackId, frameId, cfg }) {
           {msg.text}
         </div>
       )}
+      <BackupGuide engine="pgbackrest" patroni cfg={cfg} nodeLabel={cfg.cluster} />
     </div>
   )
 }

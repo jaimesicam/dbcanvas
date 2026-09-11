@@ -54,11 +54,16 @@ type patroniConfig struct {
 	EtcdEndpoints []string `json:"etcdEndpoints"`
 	UsePgBackRest bool     `json:"usePgBackRest"`
 	BackupRepo    string   `json:"backupRepo"` // e.g. "s3://<bucket>/pgbackrest" when pgBackRest is on
-	GenerateCert  bool     `json:"generateCert"`
-	UseProxy      bool     `json:"useProxy"`
-	MonitoredBy   string   `json:"monitoredBy"` // PMM node FQDN, if any
-	Ports         []int    `json:"ports"`
-	ExportPort    int      `json:"exportPort"` // published host port for 5432 (0 = none)
+	// What the Backup tab's commands need to be runnable as they stand: the stanza every
+	// pgbackrest command takes, and the bucket the repository actually lives in (the frame
+	// picks one of the SeaweedFS node's, so it is not always that node's default).
+	BackupStanza string `json:"backupStanza,omitempty"`
+	BackupBucket string `json:"backupBucket,omitempty"`
+	GenerateCert bool   `json:"generateCert"`
+	UseProxy     bool   `json:"useProxy"`
+	MonitoredBy  string `json:"monitoredBy"` // PMM node FQDN, if any
+	Ports        []int  `json:"ports"`
+	ExportPort   int    `json:"exportPort"` // published host port for 5432 (0 = none)
 }
 
 // pgSecrets holds the cluster-wide PostgreSQL credentials: the superuser
@@ -190,9 +195,10 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 
 	// Resolve the pgBackRest SeaweedFS backing store (config + secret) up front; the
 	// goroutine waits for it to be running before writing pgbackrest.conf.
-	backupRepo := ""
+	backupRepo, backupStanza := "", ""
 	if frame.UsePgBackRest {
 		backupRepo = "pgbackrest → SeaweedFS S3"
+		backupStanza = patroniStanza(frame.Label)
 	}
 
 	// Record every member as pending with its profile.
@@ -203,6 +209,7 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 			Hostname: host, FQDN: fqdnOf(host, domain),
 			PGMajor: ppgMajorOf(frame.PGMajor), PGVersion: frame.PGVersion,
 			EtcdEndpoints: etcdEndpoints, UsePgBackRest: frame.UsePgBackRest, BackupRepo: backupRepo,
+			BackupStanza: backupStanza,
 			GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
 			Ports: patroniPorts,
 		}
@@ -240,6 +247,14 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 				return
 			}
 			swCfg, swSec = c, s
+			// The bucket is a frame setting (one of the store's); record the resolved one
+			// so the panel names the repository these commands read and write.
+			for _, n := range members {
+				a.persistConfigKeys(st, n.ID, map[string]any{
+					"backupBucket": swCfg.Bucket,
+					"backupRepo":   fmt.Sprintf("pgbackrest → SeaweedFS S3 (%s/pgbackrest)", swCfg.Bucket),
+				})
+			}
 		}
 
 		// ---- Phase 1 (parallel): container + install + etcd/patroni config per node ----

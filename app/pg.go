@@ -51,11 +51,21 @@ type pgConfig struct {
 	Role          string `json:"role"` // "standalone"
 	UsePgBackRest bool   `json:"usePgBackRest"`
 	BackupRepo    string `json:"backupRepo"` // e.g. "pgbackrest → SeaweedFS S3" when enabled
-	GenerateCert  bool   `json:"generateCert"`
-	UseProxy      bool   `json:"useProxy"`
-	MonitoredBy   string `json:"monitoredBy"` // PMM node FQDN, if any
-	Ports         []int  `json:"ports"`
-	ExportPort    int    `json:"exportPort"` // published host port for 5432 (0 = none)
+	// What the Backup tab's commands need to be runnable as they stand: the stanza every
+	// pgbackrest command takes, and the bucket the repository actually lives in (the node
+	// picks one of the SeaweedFS node's, so it is not always that node's default).
+	BackupStanza string `json:"backupStanza,omitempty"`
+	BackupBucket string `json:"backupBucket,omitempty"`
+	// The systemd unit and data directory this node's PostgreSQL uses. Both are
+	// OS/major-dependent (postgresql-18 vs postgresql@18-main), and a restore needs to
+	// name them exactly — so they are recorded rather than guessed in the panel.
+	Service      string `json:"service,omitempty"`
+	DataDir      string `json:"dataDir,omitempty"`
+	GenerateCert bool   `json:"generateCert"`
+	UseProxy     bool   `json:"useProxy"`
+	MonitoredBy  string `json:"monitoredBy"` // PMM node FQDN, if any
+	Ports        []int  `json:"ports"`
+	ExportPort   int    `json:"exportPort"` // published host port for 5432 (0 = none)
 }
 
 // pgServiceName / pgConfDir are OS-aware: on EL the packaged unit is
@@ -102,15 +112,17 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 			}
 		}
 	}
-	backupRepo := ""
+	backupRepo, backupStanza := "", ""
 	if n.UsePgBackRest {
 		backupRepo = "pgbackrest → SeaweedFS S3"
+		backupStanza = patroniStanza(n.Label)
 	}
 
 	cfg := pgConfig{
 		Image: image, OS: n.OS, Hostname: host, FQDN: fqdn,
 		PGMajor: major, PGVersion: n.PGVersion, Role: "standalone",
-		UsePgBackRest: n.UsePgBackRest, BackupRepo: backupRepo,
+		UsePgBackRest: n.UsePgBackRest, BackupRepo: backupRepo, BackupStanza: backupStanza,
+		Service: pgServiceName(n.OS, major), DataDir: pgDataDir(n.OS, major),
 		GenerateCert: n.GenerateCert, UseProxy: n.UseProxy, MonitoredBy: monitoredBy,
 		Ports: []int{patroniPGPort},
 	}
@@ -142,6 +154,12 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 				return
 			}
 			swCfg, swSec = c, s
+			// The bucket is the node's own choice among the store's; say which one, now
+			// that it is resolved, so the panel names the repository it can be found in.
+			a.persistConfigKeys(st, n.ID, map[string]any{
+				"backupBucket": swCfg.Bucket,
+				"backupRepo":   fmt.Sprintf("pgbackrest → SeaweedFS S3 (%s/pgbackrest)", swCfg.Bucket),
+			})
 		}
 
 		// ---- create + start the container ----

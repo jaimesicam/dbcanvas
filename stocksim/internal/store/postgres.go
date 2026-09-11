@@ -57,7 +57,10 @@ import (
 //     Best effort: a role that may not alter itself still has the first
 //     mechanism.
 type pgStore struct {
-	db       *sql.DB
+	db *sql.DB
+	// ro is the read endpoint when this deployment splits reads (Config.ReadDSN),
+	// nil otherwise. readDB decides per query; see ReplicaOK for the rule.
+	ro       *sql.DB
 	name     string // the namespace the user asked for — what Database() reports
 	database string // the database actually connected to
 	schema   string // the schema the tables actually live in
@@ -92,9 +95,52 @@ func openPostgres(ctx context.Context, c Config) (Store, error) {
 	// It matters more here — a PostgreSQL backend is a process, so churning
 	// connections under load is fork() traffic, not just a handshake.
 	db.SetMaxIdleConns(pool)
-	return &pgStore{
-		db: db, name: c.Database, database: database, schema: schema, owned: owned,
-	}, nil
+	st := &pgStore{db: db, name: c.Database, database: database, schema: schema, owned: owned}
+	// The read pool is the same database and the same schema — only the endpoint
+	// differs — so it is built from the resolved DSN with the host swapped, never
+	// from ReadDSN's own path. A read endpoint pointed at a different database
+	// would answer every query with "relation does not exist", which is a confusing
+	// way to learn that the two DSNs disagreed.
+	if c.ReadDSN != "" {
+		if ro, err := pgOpenRead(c.ReadDSN, dsn, schema, pool); err != nil {
+			log.Printf("stocksim: read endpoint unusable, sending every query to the writer: %v", err)
+		} else {
+			st.ro = ro
+		}
+	}
+	return st, nil
+}
+
+// pgOpenRead opens the read pool: ReadDSN for where to connect, the resolved write DSN
+// for what to connect to.
+func pgOpenRead(readDSN, writeDSN, schema string, pool int) (*sql.DB, error) {
+	rc, err := pgx.ParseConfig(readDSN)
+	if err != nil {
+		return nil, fmt.Errorf("parse read dsn: %w", err)
+	}
+	wc, err := pgx.ParseConfig(writeDSN)
+	if err != nil {
+		return nil, fmt.Errorf("parse write dsn: %w", err)
+	}
+	rc.Database = wc.Database
+	db := stdlib.OpenDB(*rc, stdlib.OptionAfterConnect(func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, pgSetSearchPath(schema))
+		return err
+	}))
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetMaxOpenConns(pool)
+	db.SetMaxIdleConns(pool)
+	return db, nil
+}
+
+// readDB is the writer unless this is a request that only displays and a read endpoint
+// exists. Every read-only method goes through it; everything else uses s.db directly, so
+// a new write can never reach a replica by accident.
+func (s *pgStore) readDB(ctx context.Context) *sql.DB {
+	if s.ro != nil && ReplicaOK(ctx) {
+		return s.ro
+	}
+	return s.db
 }
 
 // pgResolvePlacement decides between the two layouts described on pgStore and
@@ -285,7 +331,12 @@ func pgDatabaseOf(dsn string) string {
 
 func (s *pgStore) Engine() string   { return EnginePostgres }
 func (s *pgStore) Database() string { return s.name }
-func (s *pgStore) Close() error     { return s.db.Close() }
+func (s *pgStore) Close() error {
+	if s.ro != nil {
+		s.ro.Close()
+	}
+	return s.db.Close()
+}
 
 // Location spells out which of pgStore's two layouts is in effect. This is the
 // one engine where the answer is not obvious from the namespace name alone.
@@ -310,7 +361,7 @@ func (s *pgStore) Ping(ctx context.Context) error {
 
 func (s *pgStore) ServerVersion(ctx context.Context) (string, error) {
 	var v string
-	if err := s.db.QueryRowContext(ctx, "SHOW server_version").Scan(&v); err != nil {
+	if err := s.readDB(ctx).QueryRowContext(ctx, "SHOW server_version").Scan(&v); err != nil {
 		return "", err
 	}
 	return v, nil
@@ -373,7 +424,7 @@ func (s *pgStore) DropSchema(ctx context.Context) error {
 }
 
 func (s *pgStore) Objects(ctx context.Context) ([]ObjectInfo, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.readDB(ctx).QueryContext(ctx, `
 		SELECT c.relname,
 		       GREATEST(c.reltuples, 0)::BIGINT,
 		       pg_total_relation_size(c.oid)
@@ -419,13 +470,13 @@ func (s *pgStore) ListSecurities(ctx context.Context, q ListQuery) ([]Security, 
 	clause := strings.Join(where, " AND ")
 
 	var total int
-	if err := s.db.QueryRowContext(ctx,
+	if err := s.readDB(ctx).QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM securities WHERE "+clause, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	limit := clampLimit(q.Limit, 50, 500)
 	args = append(args, limit, max0(q.Offset))
-	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(
+	rows, err := s.readDB(ctx).QueryContext(ctx, fmt.Sprintf(
 		"SELECT "+securityCols+" FROM securities WHERE %s ORDER BY symbol LIMIT $%d OFFSET $%d",
 		clause, len(args)-1, len(args)), args...)
 	if err != nil {
@@ -444,7 +495,7 @@ func (s *pgStore) ListSecurities(ctx context.Context, q ListQuery) ([]Security, 
 }
 
 func (s *pgStore) GetSecurity(ctx context.Context, id string) (Security, error) {
-	sec, err := scanSecurity(s.db.QueryRowContext(ctx,
+	sec, err := scanSecurity(s.readDB(ctx).QueryRowContext(ctx,
 		"SELECT "+securityCols+" FROM securities WHERE id = $1", id))
 	if err == sql.ErrNoRows {
 		return Security{}, ErrNotFound
@@ -539,13 +590,13 @@ func (s *pgStore) ListPortfolios(ctx context.Context, q ListQuery) ([]Portfolio,
 	clause := strings.Join(where, " AND ")
 
 	var total int
-	if err := s.db.QueryRowContext(ctx,
+	if err := s.readDB(ctx).QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM portfolios WHERE "+clause, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	limit := clampLimit(q.Limit, 50, 500)
 	args = append(args, limit, max0(q.Offset))
-	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(
+	rows, err := s.readDB(ctx).QueryContext(ctx, fmt.Sprintf(
 		"SELECT "+portfolioCols+" FROM portfolios WHERE %s ORDER BY owner, name LIMIT $%d OFFSET $%d",
 		clause, len(args)-1, len(args)), args...)
 	if err != nil {
@@ -564,7 +615,7 @@ func (s *pgStore) ListPortfolios(ctx context.Context, q ListQuery) ([]Portfolio,
 }
 
 func (s *pgStore) GetPortfolio(ctx context.Context, id string) (Portfolio, error) {
-	p, err := scanPortfolio(s.db.QueryRowContext(ctx,
+	p, err := scanPortfolio(s.readDB(ctx).QueryRowContext(ctx,
 		"SELECT "+portfolioCols+" FROM portfolios WHERE id = $1", id))
 	if err == sql.ErrNoRows {
 		return Portfolio{}, ErrNotFound
@@ -633,13 +684,13 @@ func (s *pgStore) ListOrders(ctx context.Context, q ListQuery) ([]Order, int, er
 	clause := strings.Join(where, " AND ")
 
 	var total int
-	if err := s.db.QueryRowContext(ctx,
+	if err := s.readDB(ctx).QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM orders WHERE "+clause, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	limit := clampLimit(q.Limit, 50, 500)
 	args = append(args, limit, max0(q.Offset))
-	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(
+	rows, err := s.readDB(ctx).QueryContext(ctx, fmt.Sprintf(
 		"SELECT "+orderCols+" FROM orders WHERE %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d",
 		clause, len(args)-1, len(args)), args...)
 	if err != nil {
@@ -658,7 +709,7 @@ func (s *pgStore) ListOrders(ctx context.Context, q ListQuery) ([]Order, int, er
 }
 
 func (s *pgStore) GetOrder(ctx context.Context, id string) (Order, error) {
-	o, err := scanOrder(s.db.QueryRowContext(ctx,
+	o, err := scanOrder(s.readDB(ctx).QueryRowContext(ctx,
 		"SELECT "+orderCols+" FROM orders WHERE id = $1", id))
 	if err == sql.ErrNoRows {
 		return Order{}, ErrNotFound
@@ -742,7 +793,7 @@ func (s *pgStore) TicksBefore(ctx context.Context, securityID string, at time.Ti
 	q += fmt.Sprintf(" ORDER BY ts DESC LIMIT $%d", len(args)+1)
 	args = append(args, limit)
 
-	rows, err := s.db.QueryContext(ctx, q, args...)
+	rows, err := s.readDB(ctx).QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -770,7 +821,7 @@ const pgTickSpan = `SELECT
 
 func (s *pgStore) TickSpan(ctx context.Context, securityID string) (time.Time, time.Time, error) {
 	var oldest, newest sql.NullTime
-	if err := s.db.QueryRowContext(ctx, pgTickSpan, securityID).Scan(&oldest, &newest); err != nil {
+	if err := s.readDB(ctx).QueryRowContext(ctx, pgTickSpan, securityID).Scan(&oldest, &newest); err != nil {
 		return time.Time{}, time.Time{}, err
 	}
 	return oldest.Time.UTC(), newest.Time.UTC(), nil
@@ -894,7 +945,7 @@ func (s *pgStore) ListHoldings(ctx context.Context, portfolioID string) ([]Holdi
 		q += " AND h.portfolio_id = $1"
 	}
 	q += " ORDER BY p.owner, h.symbol"
-	rows, err := s.db.QueryContext(ctx, q, args...)
+	rows, err := s.readDB(ctx).QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -912,7 +963,7 @@ func (s *pgStore) ListHoldings(ctx context.Context, portfolioID string) ([]Holdi
 }
 
 func (s *pgStore) CountOrdersByStatus(ctx context.Context) (map[string]int64, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT status, COUNT(*) FROM orders GROUP BY status")
+	rows, err := s.readDB(ctx).QueryContext(ctx, "SELECT status, COUNT(*) FROM orders GROUP BY status")
 	if err != nil {
 		return nil, err
 	}
@@ -931,7 +982,7 @@ func (s *pgStore) CountOrdersByStatus(ctx context.Context) (map[string]int64, er
 
 func (s *pgStore) RecentTrades(ctx context.Context, limit int) ([]Trade, error) {
 	limit = clampLimit(limit, 50, 1000)
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := s.readDB(ctx).QueryContext(ctx,
 		`SELECT id, order_id, portfolio_id, security_id, symbol, side, quantity, price, ts
 		 FROM trades ORDER BY ts DESC LIMIT $1`, limit)
 	if err != nil {
@@ -966,7 +1017,7 @@ func (s *pgStore) putBlob(ctx context.Context, table, id string, payload any) er
 
 func (s *pgStore) getBlob(ctx context.Context, table, id string) (json.RawMessage, error) {
 	var payload string
-	err := s.db.QueryRowContext(ctx,
+	err := s.readDB(ctx).QueryRowContext(ctx,
 		"SELECT payload FROM "+pgQuoteIdent(table)+" WHERE id = $1", id).Scan(&payload)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -1003,7 +1054,7 @@ func (s *pgStore) Heartbeat(ctx context.Context, agent, status, detail string) e
 }
 
 func (s *pgStore) AllHeartbeats(ctx context.Context) ([]AgentHeartbeat, error) {
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := s.readDB(ctx).QueryContext(ctx,
 		"SELECT agent_name, status, last_tick, detail, updated_at FROM agents ORDER BY agent_name")
 	if err != nil {
 		return nil, err
@@ -1033,7 +1084,7 @@ func (s *pgStore) AppendEvent(ctx context.Context, e Event) error {
 func (s *pgStore) EventsSince(ctx context.Context, afterID string, limit int) ([]Event, error) {
 	after, _ := strconv.ParseInt(afterID, 10, 64)
 	limit = clampLimit(limit, 50, 500)
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := s.readDB(ctx).QueryContext(ctx,
 		"SELECT id, ts, kind, symbol, message FROM events WHERE id > $1 ORDER BY id ASC LIMIT $2",
 		after, limit)
 	if err != nil {
@@ -1076,7 +1127,7 @@ func (s *pgStore) PruneOrders(ctx context.Context, before time.Time, limit int) 
 
 func (s *pgStore) TradeTotals(ctx context.Context) (int64, int64, error) {
 	var count, volume int64
-	err := s.db.QueryRowContext(ctx,
+	err := s.readDB(ctx).QueryRowContext(ctx,
 		"SELECT COUNT(*), COALESCE(SUM(quantity),0) FROM trades").Scan(&count, &volume)
 	return count, volume, err
 }

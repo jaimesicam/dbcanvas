@@ -121,6 +121,9 @@ type stockSimConfig struct {
 	// reason TargetBytes is.
 	WorkingSet string `json:"workingSet"`
 	Threads    int    `json:"threads"`
+	// ReadEndpoint is where the display-only reads go when the split is on — the
+	// HAProxy read port — and empty when every statement goes to one endpoint.
+	ReadEndpoint string `json:"readEndpoint,omitempty"`
 	// The lab knobs actually in force, resolved against the engine.
 	IdleTxn        string `json:"idleTxn,omitempty"`
 	ExtraTables    int    `json:"extraTables,omitempty"`
@@ -685,7 +688,7 @@ func (a *App) provisionStockSim(st Stack, n designNode, doc designDoc) {
 		switch mode {
 		case "linked":
 			pr.phase("Waiting for linked database", 20)
-			e, werr := a.waitStockSimTarget(ctx, st, hosts, doc, domain, coarseKind, targetID, deployTimeout(), pr.logln)
+			e, werr := a.waitStockSimTarget(ctx, st, hosts, doc, domain, coarseKind, targetID, deployTimeout(), n.SSSplitReads, pr.logln)
 			if werr != nil {
 				pr.fail("%v", werr)
 				return
@@ -693,6 +696,10 @@ func (a *App) provisionStockSim(st Stack, n designNode, doc designDoc) {
 			cfg.Engine, cfg.TargetKind, cfg.TargetName = e.engine, e.kind, e.displayName
 			env, sec = e.env, e.secrets
 			pr.logln(fmt.Sprintf("target: %s %s (%s:%d)", cfg.TargetKind, cfg.TargetName, e.host, e.port))
+			if e.readPort != 0 {
+				cfg.ReadEndpoint = fmt.Sprintf("%s:%d", e.host, e.readPort)
+				pr.logln(fmt.Sprintf("reads that only display go to %s; writes stay on :%d", cfg.ReadEndpoint, e.port))
+			}
 
 		case "aio":
 			pr.phase("Waiting for the selected All in One instance", 20)
@@ -801,6 +808,36 @@ func (a *App) provisionStockSim(st Stack, n designNode, doc designDoc) {
 	}()
 }
 
+// stockSimSQLEnv builds the sim's connection environment for a SQL engine: the write DSN,
+// and — when the target publishes a read endpoint this node asked to use — a read DSN
+// beside it. One function for both engines, because they differ only in DSN dialect while
+// the rule about when a second endpoint exists is identical, and because the pair is what
+// the test can then check without a running stack.
+//
+// readPort 0 means no split: exactly the single-DSN environment every target produced
+// before the option existed, which is what keeps an untouched node's deploy unchanged.
+func stockSimSQLEnv(engine, user, pass, host string, port, readPort int) []string {
+	dsn := func(p int) string {
+		if engine == "mysql" {
+			return fmt.Sprintf("%s:%s@tcp(%s:%d)/?tls=false", user, pass, host, p)
+		}
+		return (&url.URL{
+			Scheme: "postgres", User: url.UserPassword(user, pass),
+			Host: fmt.Sprintf("%s:%d", host, p), Path: "/postgres",
+			RawQuery: "sslmode=prefer&connect_timeout=10",
+		}).String()
+	}
+	prefix := "POSTGRES"
+	if engine == "mysql" {
+		prefix = "MYSQL"
+	}
+	env := []string{"DB_ENGINE=" + engine, prefix + "_DSN=" + dsn(port)}
+	if readPort != 0 {
+		env = append(env, prefix+"_RO_DSN="+dsn(readPort))
+	}
+	return env
+}
+
 // stockSimResolved is what a linked target resolves to.
 type stockSimResolved struct {
 	env         []string
@@ -810,6 +847,10 @@ type stockSimResolved struct {
 	displayName string
 	host        string
 	port        int
+	// readPort is the endpoint the sim's display-only reads go to, 0 when every
+	// statement goes to port. Only an HAProxy target with the split turned on sets
+	// it: it is the one target that publishes a second port meaning "a replica".
+	readPort int
 }
 
 // waitStockSimTarget resolves a linked canvas target down to a connectable
@@ -820,7 +861,7 @@ type stockSimResolved struct {
 // credentials that exist — is a property of the engine, and everything before
 // it is a property of the kind. The four family resolvers below each do the
 // second half for one engine.
-func (a *App) waitStockSimTarget(ctx context.Context, st Stack, hosts map[string]string, doc designDoc, domain, coarseKind, targetID string, timeout time.Duration, logln func(string)) (stockSimResolved, error) {
+func (a *App) waitStockSimTarget(ctx context.Context, st Stack, hosts map[string]string, doc designDoc, domain, coarseKind, targetID string, timeout time.Duration, splitReads bool, logln func(string)) (stockSimResolved, error) {
 	// A K3D frame is dispatched on the kind rather than the engine: all three
 	// engines share one resolver there, because what has to be found first — the
 	// operator's own Services, and the Secret it keeps its passwords in — is the
@@ -835,9 +876,9 @@ func (a *App) waitStockSimTarget(ctx context.Context, st Stack, hosts map[string
 	}
 	switch stockSimEngineForTarget(doc, coarseKind, targetID) {
 	case "mysql":
-		return a.stockSimMySQLTarget(ctx, st, hosts, doc, domain, coarseKind, targetID, timeout)
+		return a.stockSimMySQLTarget(ctx, st, hosts, doc, domain, coarseKind, targetID, timeout, splitReads)
 	case "postgres":
-		return a.stockSimPostgresTarget(ctx, st, hosts, doc, domain, coarseKind, targetID, timeout)
+		return a.stockSimPostgresTarget(ctx, st, hosts, doc, domain, coarseKind, targetID, timeout, splitReads)
 	case "mongodb":
 		return a.stockSimMongoTarget(ctx, st, hosts, doc, domain, coarseKind, targetID, timeout)
 	case "valkey":
@@ -851,13 +892,17 @@ func (a *App) waitStockSimTarget(ctx context.Context, st Stack, hosts map[string
 }
 
 // stockSimMySQLTarget resolves every MySQL-family shape to one write endpoint.
-func (a *App) stockSimMySQLTarget(ctx context.Context, st Stack, hosts map[string]string, doc designDoc, domain, kind, targetID string, timeout time.Duration) (stockSimResolved, error) {
+func (a *App) stockSimMySQLTarget(ctx context.Context, st Stack, hosts map[string]string, doc designDoc, domain, kind, targetID string, timeout time.Duration, splitReads bool) (stockSimResolved, error) {
 	var (
 		h    string
 		port = pxcMySQLPort
-		s    pxcSecrets
-		name = nodeLabel(doc, targetID)
-		err  error
+		// readPort is set only by the HAProxy branch below: it is the only target with a
+		// second port that means "a replica". ProxySQL splits reads inside itself, and
+		// every other shape here is one endpoint.
+		readPort int
+		s        pxcSecrets
+		name     = nodeLabel(doc, targetID)
+		err      error
 	)
 	frame := frameByID(doc, targetID)
 	if frame.ID != "" {
@@ -908,6 +953,9 @@ func (a *App) stockSimMySQLTarget(ctx context.Context, st Stack, hosts map[strin
 			_, s, err = a.waitMySQLFamilyFrame(ctx, st.ID, back, doc, domain, false, timeout)
 		}
 		h, port, kind = fqdnOf(hosts[targetID], domain), haproxyWritePort, "haproxy-"+backKind
+		if splitReads {
+			readPort = haproxyReadPort
+		}
 
 	case "proxysql":
 		var backKind string
@@ -923,23 +971,25 @@ func (a *App) stockSimMySQLTarget(ctx context.Context, st Stack, hosts map[strin
 
 	// Connect as the application user, never root: root@localhost cannot
 	// connect over TCP, which is what every sibling sim learned the hard way.
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/?tls=false", s.AppUser, s.AppPassword, h, port)
 	return stockSimResolved{
-		env:     []string{"DB_ENGINE=mysql", "MYSQL_DSN=" + dsn},
+		env:     stockSimSQLEnv("mysql", s.AppUser, s.AppPassword, h, port, readPort),
 		secrets: stockSimSecrets{User: s.AppUser, Password: s.AppPassword},
 		engine:  "mysql", kind: kind, displayName: name,
-		host: h, port: port,
+		host: h, port: port, readPort: readPort,
 	}, nil
 }
 
 // stockSimPostgresTarget resolves every PostgreSQL shape to one write endpoint.
-func (a *App) stockSimPostgresTarget(ctx context.Context, st Stack, hosts map[string]string, doc designDoc, domain, kind, targetID string, timeout time.Duration) (stockSimResolved, error) {
+func (a *App) stockSimPostgresTarget(ctx context.Context, st Stack, hosts map[string]string, doc designDoc, domain, kind, targetID string, timeout time.Duration, splitReads bool) (stockSimResolved, error) {
 	var (
 		h    string
 		port = patroniPGPort
-		s    pgSecrets
-		name = nodeLabel(doc, targetID)
-		err  error
+		// See the same field in stockSimMySQLTarget: only an HAProxy target has a second
+		// port, and only when the node asked for the split.
+		readPort int
+		s        pgSecrets
+		name     = nodeLabel(doc, targetID)
+		err      error
 	)
 	frame := frameByID(doc, targetID)
 	if frame.ID != "" {
@@ -991,6 +1041,9 @@ func (a *App) stockSimPostgresTarget(ctx context.Context, st Stack, hosts map[st
 			_, s, err = a.waitSpockRunning(ctx, st.ID, back, doc, domain, timeout)
 		}
 		h, port, kind = fqdnOf(hosts[targetID], domain), haproxyWritePort, "haproxy-"+backKind
+		if splitReads {
+			readPort = haproxyReadPort
+		}
 
 	default:
 		return stockSimResolved{}, fmt.Errorf("unresolved PostgreSQL target %q", kind)
@@ -1001,16 +1054,14 @@ func (a *App) stockSimPostgresTarget(ctx context.Context, st Stack, hosts map[st
 
 	// The superuser, because a stack node provisions no other PostgreSQL role
 	// and the app needs to create a database or a schema of its own.
-	dsn := (&url.URL{
-		Scheme: "postgres", User: url.UserPassword(s.SuperUser, s.SuperPassword),
-		Host: fmt.Sprintf("%s:%d", h, port), Path: "/postgres",
-		RawQuery: "sslmode=prefer&connect_timeout=10",
-	}).String()
+	// Same credentials and same database on both endpoints: the sim rewrites the database
+	// name onto the read DSN from the one it resolved on the writer (pgOpenRead), because
+	// which database it ends up using is decided there.
 	return stockSimResolved{
-		env:     []string{"DB_ENGINE=postgres", "POSTGRES_DSN=" + dsn},
+		env:     stockSimSQLEnv("postgres", s.SuperUser, s.SuperPassword, h, port, readPort),
 		secrets: stockSimSecrets{User: s.SuperUser, Password: s.SuperPassword},
 		engine:  "postgres", kind: kind, displayName: name,
-		host: h, port: port,
+		host: h, port: port, readPort: readPort,
 	}, nil
 }
 

@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // These cover the edge walk and the engine mapping that decide what a Stock
 // Market Sim node connects to. Both are pure, both are mirrored in
@@ -288,4 +291,65 @@ func TestStockSimAIOMember(t *testing.T) {
 func aioDepWith(instances []aioInstanceRuntime) Deployment {
 	return Deployment{State: DeployRunning, ContainerID: "c1",
 		Config: mustJSON(aioConfig{Instances: instances})}
+}
+
+// The read split is the only thing in DBCanvas that puts read load on a cluster's replicas,
+// and it exists for exactly one target shape: an HAProxy node, whose :5001 means "a replica"
+// where :5000 means "the primary". These check the environment the sim is handed, which is
+// the whole contract between the two halves of the feature.
+func TestStockSimSQLEnvSplitsReadsOnlyWhenAsked(t *testing.T) {
+	for _, engine := range []string{"mysql", "postgres"} {
+		single := stockSimSQLEnv(engine, "app", "pw", "hap-01.example.net", haproxyWritePort, 0)
+		if len(single) != 2 {
+			t.Errorf("%s: no split should be two variables, got %v", engine, single)
+		}
+		for _, v := range single {
+			if strings.Contains(v, "_RO_DSN=") {
+				t.Errorf("%s: a target with no read endpoint was given one: %q", engine, v)
+			}
+		}
+
+		split := stockSimSQLEnv(engine, "app", "pw", "hap-01.example.net", haproxyWritePort, haproxyReadPort)
+		if len(split) != 3 {
+			t.Fatalf("%s: a split target should be three variables, got %v", engine, split)
+		}
+		var write, read string
+		for _, v := range split {
+			switch {
+			case strings.Contains(v, "_RO_DSN="):
+				read = v
+			case strings.Contains(v, "_DSN="):
+				write = v
+			}
+		}
+		if !strings.Contains(write, "5000") || strings.Contains(write, "5001") {
+			t.Errorf("%s: writes must go to the write port: %q", engine, write)
+		}
+		if !strings.Contains(read, "5001") {
+			t.Errorf("%s: reads must go to the read port: %q", engine, read)
+		}
+		// Same host and same credentials on both — a read endpoint elsewhere, or one
+		// authenticating differently, would be a different database as far as the sim
+		// is concerned.
+		if !strings.Contains(read, "hap-01.example.net") || !strings.Contains(read, "app") {
+			t.Errorf("%s: the read DSN lost the host or the credentials: %q", engine, read)
+		}
+	}
+}
+
+// The engine decides the variable names, because that is what the sim reads (main.go's
+// configFromEnv). Getting this wrong is a sim that silently ignores the read endpoint.
+func TestStockSimSQLEnvUsesTheEngineVariableNames(t *testing.T) {
+	my := strings.Join(stockSimSQLEnv("mysql", "u", "p", "h", 5000, 5001), " ")
+	for _, want := range []string{"DB_ENGINE=mysql", "MYSQL_DSN=", "MYSQL_RO_DSN="} {
+		if !strings.Contains(my, want) {
+			t.Errorf("mysql env is missing %q: %s", want, my)
+		}
+	}
+	pg := strings.Join(stockSimSQLEnv("postgres", "u", "p", "h", 5000, 5001), " ")
+	for _, want := range []string{"DB_ENGINE=postgres", "POSTGRES_DSN=", "POSTGRES_RO_DSN="} {
+		if !strings.Contains(pg, want) {
+			t.Errorf("postgres env is missing %q: %s", want, pg)
+		}
+	}
 }

@@ -1014,9 +1014,18 @@ The directory database LDAP authentication binds against.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Browse a bucket's objects (read-only) | `GET …/nodes/{nid}/seaweed/objects` | `dbcanvas api GET …/seaweed/objects` |
+| Browse a bucket's objects | `GET …/nodes/{nid}/seaweed/objects` | `dbcanvas api GET …/seaweed/objects` |
+| Which SeaweedFS nodes are running, and their buckets | `GET /api/stacks/{id}/seaweed/nodes` | `dbcanvas api GET /api/stacks/{id}/seaweed/nodes` |
+| Download one object | `GET …/nodes/{nid}/seaweed/download?bucket=&path=` | — (a file download; use the panel or `curl`) |
+| Upload files into a folder | `POST …/nodes/{nid}/seaweed/upload` (multipart) | — (a file upload; use the panel or `curl -F`) |
+| Copy objects into another bucket | `POST …/nodes/{nid}/seaweed/transfer` | `dbcanvas api POST …/seaweed/transfer --data '{…}'` |
+| Delete objects (a folder needs `recursive`) | `POST …/nodes/{nid}/seaweed/delete` | `dbcanvas api POST …/seaweed/delete --data '{…}'` |
 
-Usually to confirm a backup actually landed.
+Browsing is usually to confirm a backup actually landed. The rest is the **bucket file manager**
+behind them — **Files…** on the Buckets tab, or **Bucket file manager** on the node's right-click
+menu: two panes, each on a node + bucket + folder, with download, drag-and-drop upload, delete and
+copying between buckets. An upload obeys the instance's file-drop size limit, a copy is streamed container
+to container, and objects written here are ordinary S3 objects that `aws s3` sees normally.
 
 ## OpenBao
 

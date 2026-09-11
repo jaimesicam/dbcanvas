@@ -5,6 +5,7 @@ import { DEPLOY_TONE, seaweedApi } from '../lib/stackApi.js'
 import { SecretValue } from '../components/Secret.jsx'
 import { Help } from '../components/Tooltip.jsx'
 import { HELP, DEP_HELP } from '../lib/help.js'
+import SeaweedFileManager from './SeaweedFileManager.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -65,20 +66,23 @@ export default function SeaweedFSManager({ stackId, nodeId, dep, onDeleteNode })
 
       {tab === 'overview' && <Overview cfg={cfg} dep={dep} onDeleteNode={onDeleteNode} />}
       {tab === 'access' && <AccessTab cfg={cfg} sec={sec} />}
-      {tab === 'buckets' && <BucketsTab cfg={cfg} stackId={stackId} nodeId={nodeId} />}
+      {tab === 'buckets' && <BucketsTab cfg={cfg} stackId={stackId} nodeId={nodeId} nodeLabel={cfg.hostname || 'SeaweedFS'} />}
       {tab === 'backups' && <BackupsTab cfg={cfg} sec={sec} />}
     </div>
   )
 }
 
-// BucketsTab browses what actually landed in the node's buckets. It is read-only: the backups here
-// are the ones a database wrote, and the panel is for looking at them, not for editing them.
+// BucketsTab browses what actually landed in the node's buckets — the quick look that answers
+// "did the backup land?" without leaving the panel. Anything that moves bytes (download, upload,
+// copying an object into another bucket) is the file manager this tab opens, which has the room
+// for two panes and a selection.
 //
 // The listing is a folder walk rather than a flat object list, because that is the shape backups
 // have — pbm/<cluster>/…, pgbackrest/<cluster>/repo1/backup/db/…, <cluster>-<date>-full/.
-function BucketsTab({ cfg, stackId, nodeId }) {
+function BucketsTab({ cfg, stackId, nodeId, nodeLabel }) {
   const buckets = (cfg.buckets && cfg.buckets.length ? cfg.buckets : [cfg.bucket]).filter(Boolean)
   const [bucket, setBucket] = useState(buckets[0] || '')
+  const [fileMgr, setFileMgr] = useState(false)
   const [path, setPath] = useState('')
   const [objects, setObjects] = useState([])
   const [more, setMore] = useState(false)
@@ -138,6 +142,9 @@ function BucketsTab({ cfg, stackId, nodeId }) {
         <Button variant="outline" size="sm" onClick={load} disabled={busy}>
           {busy ? 'Loading…' : 'Refresh'}
         </Button>
+        <Button variant="outline" size="sm" onClick={() => setFileMgr(true)} disabled={!buckets.length}>
+          Files…
+        </Button>
       </div>
 
       {/* Where we are, and the way back out. */}
@@ -191,11 +198,19 @@ function BucketsTab({ cfg, stackId, nodeId }) {
       )}
 
       <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
-        Read-only. What you see here is what the databases wrote — PBM under
+        What you see here is what the databases wrote — PBM under
         <span className="font-mono"> pbm/&lt;cluster&gt;</span>, pgBackRest under
         <span className="font-mono"> pgbackrest/&lt;cluster&gt;</span>, xtrabackup and the Percona operators at
-        the top level.
+        the top level. <span className="font-medium text-fg">Files…</span> opens the file manager, where you
+        can download an object, upload into a folder, and copy objects between buckets.
       </div>
+
+      {fileMgr && (
+        <SeaweedFileManager
+          stackId={stackId} nodeId={nodeId} nodeLabel={nodeLabel} buckets={buckets}
+          onClose={() => setFileMgr(false)}
+        />
+      )}
     </div>
   )
 }

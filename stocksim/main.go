@@ -208,6 +208,7 @@ func configFromEnv() store.Config {
 	c := store.Config{
 		Engine:   strings.ToLower(envOr("DB_ENGINE", store.EngineMySQL)),
 		DSN:      os.Getenv("DB_DSN"),
+		ReadDSN:  os.Getenv("DB_RO_DSN"),
 		Host:     os.Getenv("DB_HOST"),
 		Port:     envInt("DB_PORT", 0),
 		User:     os.Getenv("DB_USER"),
@@ -226,10 +227,15 @@ func configFromEnv() store.Config {
 	switch c.Engine {
 	case store.EngineMySQL:
 		c.DSN = firstNonEmpty(c.DSN, os.Getenv("MYSQL_DSN"))
+		c.ReadDSN = firstNonEmpty(c.ReadDSN, os.Getenv("MYSQL_RO_DSN"))
 		c.Database = firstNonEmpty(os.Getenv("MYSQL_DB"), c.Database)
 	case store.EnginePostgres:
 		c.DSN = firstNonEmpty(c.DSN, os.Getenv("POSTGRES_DSN"))
+		c.ReadDSN = firstNonEmpty(c.ReadDSN, os.Getenv("POSTGRES_RO_DSN"))
 		c.Database = firstNonEmpty(os.Getenv("POSTGRES_DB"), c.Database)
+	// MongoDB and Valkey have no read endpoint of their own here: a replica set's
+	// URI already carries every member and the driver's read preference chooses,
+	// and a Valkey cluster client is told about every node at connect.
 	case store.EngineMongoDB:
 		c.DSN = firstNonEmpty(c.DSN, os.Getenv("MONGO_URI"))
 		c.Database = firstNonEmpty(os.Getenv("MONGO_DB"), c.Database)

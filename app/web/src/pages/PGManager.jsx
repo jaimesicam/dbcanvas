@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
+import BackupGuide from '../components/BackupGuide.jsx'
 import { DEPLOY_TONE, pgApi } from '../lib/stackApi.js'
 import { PGGatherCard } from '../components/Diagnostics.jsx'
 import DbLoginGuide from '../components/DbLoginGuide.jsx'
@@ -94,7 +95,7 @@ export default function PGManager({ stackId, nodeId, dep, onDeleteNode }) {
       {tab === 'overview' && <Overview cfg={cfg} dep={dep} onDeleteNode={onDeleteNode} />}
       {tab === 'creds' && <Creds cfg={cfg} sec={sec} />}
       {tab === 'dirlogin' && <DbLoginGuide engine="pg" info={cfg.dirAuth} />}
-      {tab === 'sso' && <OidcLoginGuide engine="pg" info={cfg.oidc} />}
+      {tab === 'sso' && <OidcLoginGuide engine="pg" info={cfg.oidc} secrets={sec} />}
       {tab === 'cert' && <PGCertTab stackId={stackId} nodeId={nodeId} />}
       {tab === 'backup' && hasBackup && <BackupTab stackId={stackId} nodeId={nodeId} cfg={cfg} />}
       {tab === 'diag' && <PGGatherCard stackId={stackId} nodeId={nodeId} defaultDb={cfg.database} />}
@@ -164,10 +165,14 @@ function BackupTab({ stackId, nodeId, cfg }) {
   }
   return (
     <div className="space-y-3 text-sm">
-      <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] text-muted">
-        pgBackRest archives WAL + full backups to the SeaweedFS S3 bucket
-        (<span className="font-mono">{cfg.backupRepo || 'SeaweedFS'}</span>). The initial full backup runs at
-        deploy; use the button below to take another on demand.
+      <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+        pgBackRest archives WAL continuously and stores full backups in
+        <span className="font-mono"> {cfg.backupRepo || 'the SeaweedFS S3 bucket'}</span>. The initial full backup
+        runs at deploy; the button takes another on demand.
+      </div>
+      <div className="space-y-1 text-xs">
+        <KV k="Stanza" v={cfg.backupStanza} />
+        <KV k="Bucket" v={cfg.backupBucket} />
       </div>
       <Button size="sm" className="w-full" disabled={busy} onClick={runBackup}>
         <Icon.Arrow size={15} /> {busy ? 'Backing up…' : 'Backup now (full)'}
@@ -177,6 +182,7 @@ function BackupTab({ stackId, nodeId, cfg }) {
           {msg.text}
         </div>
       )}
+      <BackupGuide engine="pgbackrest" cfg={cfg} nodeLabel={cfg.hostname} />
     </div>
   )
 }

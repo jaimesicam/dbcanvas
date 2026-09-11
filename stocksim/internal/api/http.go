@@ -77,7 +77,26 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("GET /api/report.csv", h.handleReportCSV)
 
 	mux.Handle("GET /", http.FileServerFS(h.Web))
-	return corsMiddleware(mux)
+	return corsMiddleware(readPreference(mux))
+}
+
+// readPreference marks GET requests as safe for a replica to answer, which is what a
+// deployment with split reads (store.Config.ReadDSN) acts on.
+//
+// The method is the whole rule, and it is the right one because of how the handlers below
+// are written: a GET only displays, while every PUT, DELETE and POST that reads first does
+// so to decide a write — the row it is about to change, the portfolio an order is being
+// placed against. Those reads have to see the writer, or a row that has not replicated yet
+// reads as missing and the write fails for a reason nobody can see from the outside. The
+// simulation's own agents never come through here at all, so they are on the writer by
+// construction, which is what their read-modify-write loops need.
+func readPreference(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet || r.Method == http.MethodHead {
+			r = r.WithContext(store.WithReplicaOK(r.Context()))
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // corsMiddleware allows cross-origin calls from any origin.

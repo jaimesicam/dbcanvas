@@ -24,8 +24,9 @@ import (
 // guidance: 3–7 nodes. Each node exposes PostgreSQL on 5432 (publishable to the host).
 
 // barmanSeaweedIssues validates the SeaweedFS node backing Barman for a repmgr frame
-// (identified by `who`): it must be selected and present in the design. Unlike
-// pgBackRest, Barman cloud (boto3) works over plain HTTP, so S3 TLS is **not** required.
+// (identified by `who`): it must be selected and present in the design. Unlike pgBackRest,
+// Barman cloud works over plain HTTP, so S3 TLS is **not** required — and when it is on, the
+// certificates are staged for boto3 (see barmanAWSConfig), so that works too.
 func barmanSeaweedIssues(who, seaweedNodeID string, doc designDoc) []issue {
 	if seaweedNodeID == "" {
 		return []issue{{Level: "error", Message: who + " has Barman backups enabled but no SeaweedFS node selected"}}
@@ -40,17 +41,29 @@ func barmanSeaweedIssues(who, seaweedNodeID string, doc designDoc) []issue {
 
 // repmgrConfig is the non-secret profile shown for a deployed repmgr node.
 type repmgrConfig struct {
-	Cluster      string `json:"cluster"`
-	Image        string `json:"image"`
-	OS           string `json:"os"`
-	Hostname     string `json:"hostname"`
-	FQDN         string `json:"fqdn"`
-	PGMajor      string `json:"pgMajor"`
-	PGVersion    string `json:"pgVersion"`
-	Role         string `json:"role"`   // primary | standby (initial; repmgr may fail over)
-	NodeID       int    `json:"nodeId"` // repmgr node_id
-	UseBarman    bool   `json:"useBarman"`
-	BackupRepo   string `json:"backupRepo"` // e.g. "Barman → SeaweedFS S3 (bucket/prefix)" when enabled
+	Cluster    string `json:"cluster"`
+	Image      string `json:"image"`
+	OS         string `json:"os"`
+	Hostname   string `json:"hostname"`
+	FQDN       string `json:"fqdn"`
+	PGMajor    string `json:"pgMajor"`
+	PGVersion  string `json:"pgVersion"`
+	Role       string `json:"role"`   // primary | standby (initial; repmgr may fail over)
+	NodeID     int    `json:"nodeId"` // repmgr node_id
+	UseBarman  bool   `json:"useBarman"`
+	BackupRepo string `json:"backupRepo"` // e.g. "Barman → SeaweedFS S3 (bucket/prefix)" when enabled
+	// The resolved Barman destination, so the panel can name the bucket this cluster
+	// actually backs up to (the frame picks one of the SeaweedFS node's buckets) and
+	// print barman-cloud commands that run as they stand.
+	BackupBucket   string `json:"backupBucket,omitempty"`
+	BackupEndpoint string `json:"backupEndpoint,omitempty"` // http(s)://<fqdn>:8333
+	BackupS3URL    string `json:"backupS3Url,omitempty"`    // s3://<bucket>/barman/<server>
+	BackupServer   string `json:"backupServer,omitempty"`   // barman-cloud server (stanza) name
+	BackupCABundle string `json:"backupCaBundle,omitempty"` // ca_bundle for a TLS endpoint
+	// The systemd unit and data directory this member's PostgreSQL uses — a restore has
+	// to name both exactly, and both depend on the OS and major.
+	Service      string `json:"service,omitempty"`
+	DataDir      string `json:"dataDir,omitempty"`
 	GenerateCert bool   `json:"generateCert"`
 	UseProxy     bool   `json:"useProxy"`
 	MonitoredBy  string `json:"monitoredBy"`
@@ -120,6 +133,23 @@ func barmanArchiveCommand(label string, sw seaweedConfig) string {
 		barmanEndpoint(sw), barmanS3URL(label, sw), barmanServer(label))
 }
 
+// repmgrRecordBackupTarget writes the resolved Barman destination into every member's config.
+func (a *App) repmgrRecordBackupTarget(st Stack, members []designNode, frame designFrame, sw seaweedConfig) {
+	kv := map[string]any{
+		"backupRepo":     barmanRepoLabel(frame.Label, sw),
+		"backupBucket":   sw.Bucket,
+		"backupEndpoint": barmanEndpoint(sw),
+		"backupS3Url":    barmanS3URL(frame.Label, sw),
+		"backupServer":   barmanServer(frame.Label),
+	}
+	if sw.TLS {
+		kv["backupCaBundle"] = barmanCABundlePath(frame.OS)
+	}
+	for _, n := range members {
+		a.persistConfigKeys(st, n.ID, kv)
+	}
+}
+
 // --- frame orchestration ---
 
 // provisionRepmgrFrame brings up a repmgr PostgreSQL cluster: it records each member,
@@ -176,6 +206,7 @@ func (a *App) provisionRepmgrFrame(st Stack, frame designFrame, doc designDoc) {
 			Hostname: host, FQDN: fqdnOf(host, domain),
 			PGMajor: major, PGVersion: frame.PGVersion, Role: role, NodeID: i + 1,
 			UseBarman: frame.UseBarman, BackupRepo: backupRepo,
+			Service: pgServiceName(frame.OS, major), DataDir: pgDataDir(frame.OS, major),
 			GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
 			Ports: []int{patroniPGPort},
 		}
@@ -213,6 +244,10 @@ func (a *App) provisionRepmgrFrame(st Stack, frame designFrame, doc designDoc) {
 				return
 			}
 			swCfg, swSec = c, s
+			// The bucket is a frame setting (one of the SeaweedFS node's), and until it is
+			// resolved the members' config can only say "SeaweedFS S3". Record the real
+			// destination now: the panel names it, and builds its commands from it.
+			a.repmgrRecordBackupTarget(st, members, frame, swCfg)
 		}
 
 		// ---- Phase 1 (parallel): container + install + repmgr.conf (+ barman creds) ----
@@ -402,7 +437,7 @@ func (a *App) repmgrPrepareNode(ctx context.Context, st Stack, frame designFrame
 		if debian {
 			barmanScript = barmanInstallDebian
 		}
-		if err := a.runStep(ctx, id, barmanScript, nil, pr.logln); err != nil {
+		if err := a.runStep(ctx, id, barmanScript, []string{"VER=" + frame.PGVersion}, pr.logln); err != nil {
 			return pr.fail("install barman-cloud: %v", err)
 		}
 		ak := swCfg.AccessKey
@@ -422,7 +457,23 @@ func (a *App) repmgrPrepareNode(ctx context.Context, st Stack, frame designFrame
 		if err := a.engCtx(ctx).CopyFile(ctx, id, home+"/.aws", "credentials", 0o600, []byte(barmanAWSCredentials(ak, swSec.SecretKey))); err != nil {
 			return pr.fail("write AWS credentials: %v", err)
 		}
-		if err := a.engCtx(ctx).CopyFile(ctx, id, home+"/.aws", "config", 0o600, []byte(barmanAWSConfig(region))); err != nil {
+		// A TLS endpoint needs its certificates staged before the config that points at
+		// them; botocore reads the path at call time, so an absent file is an SSL error
+		// on the first WAL segment rather than at deploy.
+		caBundle := ""
+		if swCfg.TLS {
+			bundle := a.seaweedTLSBundle(ctx, st, frame.SeaweedFSNodeID)
+			if len(bundle) == 0 {
+				pr.logln("warning: the SeaweedFS S3 certificate could not be read — barman-cloud will not trust " + barmanEndpoint(swCfg))
+			} else {
+				dir, name := splitPath(barmanCABundlePath(frame.OS))
+				if err := a.engCtx(ctx).CopyFile(ctx, id, dir, name, 0o644, bundle); err != nil {
+					return pr.fail("write S3 CA bundle: %v", err)
+				}
+				caBundle = barmanCABundlePath(frame.OS)
+			}
+		}
+		if err := a.engCtx(ctx).CopyFile(ctx, id, home+"/.aws", "config", 0o600, []byte(barmanAWSConfig(region, caBundle))); err != nil {
 			return pr.fail("write AWS config: %v", err)
 		}
 		if err := a.runStep(ctx, id, barmanChownScript, []string{"HOME=" + home}, pr.logln); err != nil {
@@ -628,6 +679,12 @@ func (a *App) handleRepmgrBackup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "SeaweedFS backup node is not available")
 		return
 	}
+	// Repair the TLS material before backing up. A cluster deployed before barman-cloud was
+	// given a ca_bundle has none, and its WAL archiving is failing for the same reason this
+	// backup would — so this is not just about the command below: it puts every member right
+	// without a redeploy. Idempotent, and a no-op on a plain-HTTP store.
+	a.repmgrEnsureBarmanTLS(ctx, st, frame, doc, swCfg)
+
 	if res, err := a.engCtx(ctx).Exec(ctx, cid, []string{"bash", "-c", barmanBackupScript}, barmanBackupEnv(frame.Label, swCfg)); err != nil {
 		writeErr(w, http.StatusInternalServerError, "Barman backup failed: "+err.Error())
 		return
@@ -637,6 +694,40 @@ func (a *App) handleRepmgrBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	a.notifyStack(st.ID, "backup.done", "success", "Backup completed", frame.Label+": Barman cloud backup finished.", "")
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+// repmgrEnsureBarmanTLS stages the S3 CA bundle and rewrites ~postgres/.aws/config on every
+// running member of a repmgr frame, so an existing cluster picks up the TLS fix on its next
+// backup instead of needing to be rebuilt. Best-effort throughout: this runs on the way to
+// doing something else, and the something else reports its own failure.
+func (a *App) repmgrEnsureBarmanTLS(ctx context.Context, st Stack, frame designFrame, doc designDoc, sw seaweedConfig) {
+	if !sw.TLS {
+		return
+	}
+	bundle := a.seaweedTLSBundle(ctx, st, frame.SeaweedFSNodeID)
+	if len(bundle) == 0 {
+		return
+	}
+	region := sw.Region
+	if region == "" {
+		region = seaweedRegion
+	}
+	dir, name := splitPath(barmanCABundlePath(frame.OS))
+	for _, n := range doc.Nodes {
+		if n.FrameID != frame.ID || n.Type != "repmgr" {
+			continue
+		}
+		dep, err := a.store.GetDeployment(st.ID, n.ID)
+		if err != nil || dep.ContainerID == "" || dep.State != DeployRunning {
+			continue
+		}
+		if err := a.engCtx(ctx).CopyFile(ctx, dep.ContainerID, dir, name, 0o644, bundle); err != nil {
+			continue
+		}
+		a.engCtx(ctx).CopyFile(ctx, dep.ContainerID, pgHome(frame.OS)+"/.aws", "config", 0o600,
+			[]byte(barmanAWSConfig(region, barmanCABundlePath(frame.OS))))
+		a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", barmanChownScript}, []string{"HOME=" + pgHome(frame.OS)})
+	}
 }
 
 // barmanBackupEnv builds the env for the barman-cloud-backup command.
@@ -682,10 +773,31 @@ func barmanAWSCredentials(ak, sk string) string {
 	return fmt.Sprintf("[default]\naws_access_key_id = %s\naws_secret_access_key = %s\n", ak, sk)
 }
 
-// barmanAWSConfig forces path-style S3 addressing (SeaweedFS requires it).
-func barmanAWSConfig(region string) string {
-	return fmt.Sprintf("[default]\nregion = %s\ns3 =\n    addressing_style = path\n", region)
+// barmanAWSConfig forces path-style S3 addressing (SeaweedFS requires it) and, for a TLS
+// endpoint, points botocore at the certificates that validate it.
+//
+// `ca_bundle` is the whole fix for "SSL validation failed … CERTIFICATE_VERIFY_FAILED" on a
+// SeaweedFS node with TLS on. barman-cloud is boto3, and **botocore never reads the system
+// trust store** — it verifies against certifi's own bundle — so putting the Intranet CA in
+// /etc/pki (which trustIntranetCA does, and which is why psql, curl and pgBackRest are all
+// happy) does nothing for it. The bundle this points at carries both certificates a DBCanvas
+// SeaweedFS can present: the Intranet CA, for a node with "Use Intranet CA SSL" on, and the
+// node's own self-signed S3 certificate, for one without — where there is no CA to trust and
+// the leaf has to be the anchor itself.
+func barmanAWSConfig(region, caBundle string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "[default]\nregion = %s\n", region)
+	if caBundle != "" {
+		fmt.Fprintf(&b, "ca_bundle = %s\n", caBundle)
+	}
+	fmt.Fprintf(&b, "s3 =\n    addressing_style = path\n")
+	return b.String()
 }
+
+// barmanCABundlePath is where that bundle is staged — next to the AWS credentials, because it
+// is read by the same postgres user at the same moments (a base backup, and every WAL segment
+// the archive_command ships).
+func barmanCABundlePath(nodeOS string) string { return pgHome(nodeOS) + "/.aws/dbcanvas-s3-ca.crt" }
 
 // ------------------------------------------------------------------ scripts
 
@@ -728,8 +840,9 @@ pin_install $PKGS`
 // in AppStream), and verify against that interpreter. (Installing only boto3 into the
 // otherwise-empty 3.12 site avoids the ResolutionImpossible that the full barman[cloud]
 // pip route hit against 3.9's dnf-managed barman.)
-const barmanInstallRHEL = `set -e
-dnf -y -q install barman-cli >/dev/null
+const barmanInstallRHEL = pinInstallRHEL + `set -e
+# pin_install, so barman's dependencies cannot pull this node's PostgreSQL up a minor.
+pin_install barman-cli >/dev/null
 BCB="$(command -v barman-cloud-backup)" || { echo "barman-cloud-backup not on PATH after install"; exit 1; }
 PYINT="$(head -1 "$BCB" | sed 's|^#!||; s| .*||')"
 [ -x "$PYINT" ] || PYINT=/usr/bin/python3
@@ -740,9 +853,9 @@ if ! "$PYINT" -c 'import botocore' >/dev/null 2>&1; then
 fi
 "$PYINT" -c 'import boto3, botocore' >/dev/null 2>&1 || { echo "boto3/botocore not importable under $PYINT (barman-cloud needs it for the aws-s3 provider)"; exit 1; }`
 
-const barmanInstallDebian = `set -e
+const barmanInstallDebian = pinInstallDebian + `set -e
 export DEBIAN_FRONTEND=noninteractive
-apt-get install -y -qq barman-cli-cloud python3-boto3 >/dev/null 2>&1 || { apt-get update -qq >/dev/null; apt-get install -y -qq barman-cli-cloud python3-boto3 >/dev/null 2>&1 || apt-get install -y -qq barman-cli python3-boto3 >/dev/null; }
+pin_install barman-cli-cloud python3-boto3 >/dev/null 2>&1 || { apt-get update -qq >/dev/null; pin_install barman-cli-cloud python3-boto3 >/dev/null 2>&1 || pin_install barman-cli python3-boto3 >/dev/null; }
 BCB="$(command -v barman-cloud-backup)" || { echo "barman-cloud-backup not on PATH after install"; exit 1; }
 # Verify boto3 against the interpreter barman actually uses (its shebang), not whichever
 # python3 happens to be first on PATH.

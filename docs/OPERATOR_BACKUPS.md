@@ -142,6 +142,16 @@ the cluster's own backup image, which is already on every node, so it costs noth
 and PostgreSQL — whose backup images carry `pbm` and `pgbackrest` and no S3 client — the first
 start pulls `percona/percona-xtrabackup`. **Stop toolbox** removes it; the bucket is untouched.
 
+**A store with TLS on.** The AWS CLI is boto3, and botocore verifies certificates against its own
+bundled CA list rather than the system trust store — so against an `https://` SeaweedFS node every
+call used to fail with `SSL validation failed … CERTIFICATE_VERIFY_FAILED` before it reached the
+bucket, whether that node's certificate came from the Intranet CA or signed itself. The toolbox now
+mounts a Secret (`<cluster>-dbcanvas-s3-ca`) holding both the Intranet CA and the store's own S3
+certificate, with `AWS_CA_BUNDLE` pointing at it, so the certificate is actually *verified* rather
+than skipped — unlike the operator's own backups, where DBCanvas sets `verifyTLS: false` because
+the backup images cannot be given a trust store. A toolbox left running from before this existed is
+replaced rather than reused: nothing about it looks unhealthy, so it would keep failing.
+
 ### Listing, downloading, deleting
 
 Listing folds at the next `/`, so a flat keyspace reads as directories and a pgBackRest

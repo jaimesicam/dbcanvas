@@ -727,7 +727,7 @@ gpgcheck=1
 skip_if_unavailable=1
 module_hotfixes=1
 EOF
-for p in $PKGS; do pin_install "$p"; done`
+pin_install $PKGS`
 
 // mysqlceInstallDebian is the apt counterpart. Note the component names differ from
 // the yum repo paths: mysql-8.0 but mysql-8.4-lts (yum: mysql-8.4-community).
@@ -753,4 +753,4 @@ apt-get update -qq >/dev/null
 # empty so the install stays non-interactive (the baseline sets the real password).
 echo "mysql-community-server mysql-community-server/root-pass password" | debconf-set-selections
 echo "mysql-community-server mysql-community-server/re-root-pass password" | debconf-set-selections
-for p in $PKGS; do pin_install "$p"; done`
+pin_install $PKGS`

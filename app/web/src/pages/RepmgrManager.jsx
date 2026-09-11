@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
+import BackupGuide from '../components/BackupGuide.jsx'
 import { DEPLOY_TONE, repmgrApi } from '../lib/stackApi.js'
 import { PGGatherCard } from '../components/Diagnostics.jsx'
 import PGCertTab from '../components/PGCertTab.jsx'
@@ -157,12 +158,16 @@ function BackupTab({ stackId, frameId, cfg }) {
   }
   return (
     <div className="space-y-3 text-sm">
-      <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] text-muted">
+      <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
         Barman cloud (<span className="font-mono">barman-cloud-backup</span> / <span className="font-mono">-wal-archive</span>)
-        ships WAL + base backups to the SeaweedFS S3 bucket
-        (<span className="font-mono">{cfg.backupRepo || 'SeaweedFS'}</span>). The initial backup runs at deploy;
-        use the button below to take another on demand (it runs on the current primary). List/restore with
-        <span className="font-mono"> barman-cloud-backup-list</span> / <span className="font-mono">barman-cloud-restore</span>.
+        ships WAL + base backups to <span className="font-mono">{cfg.backupRepo || 'the SeaweedFS S3 bucket'}</span>.
+        WAL is archived continuously from the primary; the initial base backup runs at deploy, and the button
+        takes another on demand (on whichever member is primary now).
+      </div>
+      <div className="space-y-1 text-xs">
+        <KV k="Bucket" v={cfg.backupBucket} />
+        <KV k="Endpoint" v={cfg.backupEndpoint} />
+        <KV k="Server (stanza)" v={cfg.backupServer} />
       </div>
       <Button size="sm" className="w-full" disabled={busy} onClick={runBackup}>
         <Icon.Arrow size={15} /> {busy ? 'Backing up…' : 'Backup now'}
@@ -172,6 +177,7 @@ function BackupTab({ stackId, frameId, cfg }) {
           {msg.text}
         </div>
       )}
+      <BackupGuide engine="barman" cfg={cfg} nodeLabel={cfg.cluster} />
     </div>
   )
 }

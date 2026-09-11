@@ -5298,14 +5298,22 @@ public device-flow Keycloak client; install `percona-pg_oidc_validator18` + the 
 epoch/arch-qualifier dependency bug); trust the Intranet CA (staged via `PutArchive`); set
 `oauth_validator_libraries=pg_oidc_validator` + `pg_oidc_validator.authn_field=preferred_username`;
 add a `pg_hba` `oauth scope="openid",issuer=<issuer>` line before the scram catch-all (superuser
-stays scram); restart. A PG role per Keycloak username is required (shown in the guide).
+stays scram); restart; then `CREATE ROLE <user> LOGIN` for each sample Keycloak user (jane, john),
+idempotently via a `DO` block so a redeploy is a no-op. The hba line authenticates the token but the
+mapped role still has to exist, and unlike Percona Server — whose accounts bind to the Keycloak user
+id — `pg_oidc_validator` matches on `preferred_username`, so the role name is the only thing that
+has to line up and no user ids are needed. The node persists `users` + `consoleUrl` in
+`config.oidc` and the sample password in `secrets.oidcSamplePassword`, like the ps node.
 
 **Frontend.** Shared `KeycloakOidcFields` design block on the PMM (`PMMOptions`) and PostgreSQL forms
-(enable + Keycloak-node picker + realm; the pg block locks major to 18). New
+(enable + Keycloak-node picker + realm; the pg block locks major to 18, and a `pin.warn`
+predicate re-flags it in red — in the SSO block and under the version selects — if the major is
+later moved off 18, so the mismatch shows at design time rather than at deploy). New
 `components/OidcLoginGuide.jsx` rendered in a **"Keycloak SSO"** tab (shown when
 `dep.config.oidc.enabled`) on `PMMManager` (Sign-in URL + group→role note + sample users) and
-`PGManager` (one-time `CREATE ROLE`, client `libpq-oauth` prereqs, `psql … oauth_issuer …` device
-login). Validation (`oidcIssues`, `intranet.go`) requires a linked SSL Keycloak (+ PG 18 for pg).
+`PGManager` (Keycloak console/issuer/client/realm + the roles that exist + the revealable sample
+password, then client `libpq-oauth` prereqs, `psql … oauth_issuer …` device login, and a
+`CREATE ROLE` snippet for adding your own user). Validation (`oidcIssues`, `intranet.go`) requires a linked SSL Keycloak (+ PG 18 for pg).
 
 **Verification.** Both recipes proven live before wiring: PG 18 device-flow login end-to-end
 (`psql … oauth_*` → Keycloak device grant → `pg_oidc_validator` validated the token → mapped
@@ -22728,3 +22736,276 @@ check failed against a working gate. `pointerover`, like the pod-menu driver nex
 through a real user row. The render suite asserts the four states of the gate — on, off, unset, no
 provider — and that the Settings row offers both choices, marks the default, and says what
 survives. The browser suite hovers it for real. Both smoke suites and the Go settings tests pass.
+
+## 376. A file manager for SeaweedFS buckets — `app/seaweedfs_files.go` (new), `app/seaweedfs_files_test.go` (new), `app/api_routes.go`, `app/web/src/pages/SeaweedFileManager.jsx` (new), `app/web/src/pages/{SeaweedFSManager,StackDesigner}.jsx`, `app/web/src/lib/{stackApi,help}.js`, `app/web/smoke/render.jsx`, `docs/{STACKS,API_REFERENCE}.md`
+
+§139 made a SeaweedFS node's buckets legible: pick a bucket, walk the folders
+backups nest under, read sizes and times. It was read-only, and that is half the question. The
+other half is moving bytes — pull the artefact out, put a dump in, copy last night's backup into
+the bucket the other cluster restores from — which is what this adds, as a two-pane file manager.
+
+**Four endpoints, one group.** `GET …/seaweed/download?bucket=&path=` streams one object;
+`POST …/seaweed/upload` (multipart) writes files into a folder; `POST …/seaweed/transfer` copies
+objects into another bucket, on this node or another SeaweedFS node; `POST …/seaweed/delete`
+removes them. `GET /api/stacks/{id}/seaweed/nodes` lists the running SeaweedFS nodes with their
+buckets, for the pane pickers — the same job `handleFSNodes` does for the node file manager, except
+a pane here picks a bucket too.
+
+**Everything still goes through the filer inside the container**, as the listing does. Not a
+preference: the S3 port (8333) is not published to the host — a node publishes only its 8080 web
+port — so DBCanvas cannot reach S3 from outside the stack network at all, and there is no AWS SDK
+in the module to sign a request with if it could. The filer on :8888 answers GET and POST unsigned.
+
+**An object is not a container path**, so a download cannot simply be `GetArchiveStream`: the bytes
+live in volume needles. Each transfer stages through a hex-named temp file under `/data/.dbcanvas-tmp`
+— curl writes it, the engine's archive endpoint streams it out, it is removed afterwards, on a
+context of its own so a client that hung up still gets its temp cleared. That costs a copy through
+container disk and buys true streaming: unlike the Kubernetes bucket browser (`k3dbucket.go`),
+which buffers an object in DBCanvas's memory and refuses anything over its cap, nothing here is
+bounded by RAM. A cross-node copy needs no re-taring either — the source's archive stream is piped straight into the
+destination's `PutArchiveStream`, and because both sides use the same hex name the staged file
+arrives where the far side expects it.
+
+**Folder or object?** A HEAD, and the rule is the presence of an **ETag**, not the content type: the
+filer renders a directory as HTML and gives it neither ETag nor Content-Length, while a file has
+both — *including an uploaded `.html`*, which a content-type test would refuse as a folder.
+
+**Delete stats before it deletes**, for two reasons the filer hands over: it answers **204 for a key
+that was never there**, so without a stat "deleted 3 objects" could be a lie; and a folder needs
+`?recursive=true`, which it refuses to imply (500, *fail to delete non-empty folder*) — rightly, as
+a folder here is `pbm/<cluster>` or `pgbackrest/<cluster>/repo1`, a whole backup. The flag is the
+caller's to send, the panel asks for it in as many words, and the whole selection is checked before
+anything is removed so a half-refused delete leaves the bucket as it was.
+
+**Nothing user-supplied is parsed by a shell.** Bucket and key reach the scripts through the exec
+environment as `$BUCKET`/`$KEY`; the temp path is ours and hex-named, which also keeps curl's own
+`-F "file=@…"` parsing (`;` and `,` are special there) away from anything a user chose. Uploads
+reuse `planUpload`/`maxUploadBytes`, so a bucket upload and a node file drop have one ceiling and
+one refusal message, and everything is staged before anything is published — an interrupted upload
+leaves the bucket untouched rather than half-written.
+
+**Frontend.** `SeaweedFileManager.jsx` is modelled on the node `FileManager`: a portal modal, two
+panes, shift/ctrl multi-select, drag-and-drop upload, `run()` wrapping every mutation with the busy
+flag and the reload. A pane is (node, bucket, folder) rather than (node, path), because a bucket is
+not a directory you can walk up out of — the breadcrumb stops at the bucket and the bucket is a
+control of its own. Download takes exactly one object (a selection would have to be archived first,
+which at pgBackRest-repository sizes is a different feature); folders are not copied, and the
+endpoint says so rather than walking them. Delete is the one question the manager asks — a confirm
+dialog in the shape of the node file manager's, whose body names the recursive case instead of
+folding it into a count. Opened from **Files…** on the Buckets tab and **Bucket
+file manager** on the node's right-click menu.
+
+### Verified
+
+The filer's semantics were checked against a live `chrislusf/seaweedfs` before any of this was
+written, and the shipped scripts were then run against it verbatim: HEAD on a file (200,
+Content-Length + ETag), on a folder (200, neither), on a missing key (404); fetch to a temp file
+(200) and POST back under a new key (201); DELETE of a file, of a key containing a space and a `#`,
+and of a non-empty folder with `?recursive=true` (204 each) — after which the S3 listing showed
+exactly the untouched keys and nothing else. The decisive one — **objects written through the filer
+are ordinary S3 objects**: `ListObjectsV2` returned the new key with the right size and an ETag
+identical to the source's, and an S3 GET returned the bytes. Percent-encoded keys round-trip to
+literal spaces and `#`. `seaweedfs_files_test.go` pins the pure parts against those captured
+responses (the ETag rule, including the `.html` case, the status mapping, key escaping, the staging
+name, the recursive flag, and the "is that a SeaweedFS node?" check the transfer destination
+needs). `go build`/`vet`,
+the SeaweedFS and route tests, and `npm run build` are clean.
+
+## 377. Barman over a TLS SeaweedFS, the bucket it was told to use, and a Backup tab that teaches — `app/repmgr.go`, `app/{pg,patroni,pgoidc}.go`, `app/web/src/components/BackupGuide.jsx` (new), `app/web/src/pages/{PGManager,PatroniManager,RepmgrManager}.jsx`, `app/web/smoke/render.jsx`, `docs/STACKS.md`
+
+Three things a repmgr cluster's backups got wrong, reported together.
+
+**1. A TLS store broke Barman.** `Barman backup failed: … SSL validation failed for
+https://seaweedfs-01.example.net:8333/… [SSL: CERTIFICATE_VERIFY_FAILED]`. The cause is not the
+certificate: it is that **barman-cloud is boto3, and botocore never reads the system trust store**.
+It verifies against certifi's own bundle, so `trustIntranetCA` putting the CA in `/etc/pki` — which
+is why psql, curl and pgBackRest are all happy on the same node — does nothing for it. The report's
+"unable to get local issuer certificate" is an Intranet-CA-signed store; a SeaweedFS node with *Use
+Intranet CA SSL* off says "self-signed certificate" instead, and no CA can ever fix that one.
+
+So each member now carries a bundle with **both** certificates a DBCanvas SeaweedFS can present —
+the Intranet CA, and the store's own S3 certificate read out of its container (`seaweedTLSCert`),
+which is the trust anchor when it is self-signed — staged next to the AWS credentials it is read
+with, and `ca_bundle` in `~postgres/.aws/config` pointing at it. That covers `barman-cloud-backup`
+and, because `archive_command` runs as the same user, every WAL segment too. `repmgrEnsureBarmanTLS`
+re-stages it on every running member before an on-demand backup, so **an existing cluster is repaired
+by pressing Backup now** rather than being rebuilt — which matters, since its WAL archiving is
+failing for the same reason and would keep failing after a successful manual backup.
+
+**2. The bucket was chosen and then ignored.** Not in the backend — `waitSeaweedBucket` has always
+applied the frame's choice — but nothing ever *said* which bucket, so a cluster backing up to
+`backup2` and one backing up to `backup1` looked identical in the panel, and the config carried the
+bare string "Barman → SeaweedFS S3". The resolved destination (bucket, endpoint, `s3://` URL, server
+name, CA bundle path) is now written into every member's config once the store is up, via a new
+`persistConfigKeys` — one write for a handful of related facts rather than a read-modify-write each.
+Standalone PostgreSQL and Patroni got the same treatment for pgBackRest: the stanza, the bucket, and
+the systemd unit and data directory a restore has to name.
+
+**3. The Backup tab was a button and a sentence.** The button takes a full backup; everything else
+somebody needs — what exists, is archiving healthy, delete that one, restore last Tuesday — happens
+on the node, and the panel knew every fact those commands need without printing any of them. The new
+`BackupGuide` renders them from the deployment's own config, which is the whole point: `pgbackrest
+--stanza=<your stanza> info` is a command somebody has to finish, `pgbackrest --stanza=pg-01 info` is
+one they can paste. Only what is genuinely theirs to choose — which backup id, which point in time —
+stays a placeholder, and the prose says what to put there. Two engine bodies, exported so the render
+suite can assert no placeholder survived: **pgBackRest** for standalone and Patroni (whose restore
+goes through `patronictl reinit` / `pause`, because Patroni owns PostgreSQL and would undo a
+`systemctl`), **barman-cloud** for repmgr. The four Kubernetes PostgreSQL operators are deliberately
+excluded — there a backup is a custom resource, not a shell command.
+
+### Verified
+
+The TLS failure was reproduced against the live SeaweedFS node of a deployed stack, with the same
+client barman-cloud uses: botocore against `https://seaweedfs-01.example.net:8333` fails with
+`CERTIFICATE_VERIFY_FAILED` on its default trust store, and succeeds — an S3 `ls`, then a real object
+uploaded and deleted — when pointed at exactly the bundle this change stages (the Intranet CA plus
+the node's S3 certificate, two PEMs in one file). The barman-cloud command shapes in the guide were
+checked against barman's own argument parsers rather than from memory: `-b/--backup-id` and
+`-r/--retention-policy` on `barman-cloud-backup-delete`, the `backup_id recovery_dir` positionals on
+`barman-cloud-restore`, `wal_name wal_dest` on `barman-cloud-wal-restore`. `go build`/`vet`/`gofmt`,
+the Go suite's affected tests, `npm run build` and `npm run smoke` (two new checks) are clean.
+
+**Not verified live: the repmgr deploy itself.** This installation's `.env` sets
+`DOCKER_PLATFORM=linux/amd64` on an arm64 host, and no new amd64 systemd container will start on it
+— `/usr/sbin/init` exits 255 with no output, while a shell in the same image runs — so the three
+repmgr members failed with "systemd did not become ready" before any of this could be exercised
+end to end. That is the host's emulation, not the cluster: the SeaweedFS and Intranet nodes of the
+same stack are up, and the verification above ran against them.
+
+## 378. The bucket toolbox could not read a TLS store either — `app/k3dbucket.go`, `app/seaweedfs.go`, `app/repmgr.go`, `app/{k3dbucket,seaweedfs}_test.go`, `docs/OPERATOR_BACKUPS.md`
+
+Same root cause as §377, one layer up: `aws: [ERROR]: SSL validation failed for
+https://seaweedfs-01.example.net:8333/bucket?list-type=2… CERTIFICATE_VERIFY_FAILED` when listing a
+Percona PostgreSQL operator cluster's bucket. The AWS CLI is botocore, botocore verifies against
+certifi and not the system trust store, and the toolbox pod had no bundle of its own — so an
+`https://` store failed at the first `list-objects-v2`.
+
+`seaweedTLSBundle` moved out of repmgr.go into seaweedfs.go, where both users can reach it, with the
+reasoning in one place: the bundle carries the Intranet CA *and* the node's own S3 certificate,
+because which of the two is the anchor is the SeaweedFS node's own setting. `seaweedNodeAtEndpoint`
+finds the store behind a cluster's recorded endpoint by host — matching on the endpoint rather than
+carrying a node id is what makes this work for a cluster deployed before anything needed to know,
+and it correctly returns nothing for an operator pointed at some other S3, where there is no
+certificate to offer and the old behaviour is the right one.
+
+`k3dBucketEnsureCA` applies that bundle as a Secret (`<cluster>-dbcanvas-s3-ca`) and the toolbox
+manifest grows a volume, a mount and `AWS_CA_BUNDLE` — only when there is something to mount, so a
+plain-HTTP store's pod is byte-identical to before. **A toolbox already running is replaced**, which
+is the part that matters in practice: it is Running and healthy by every measure Kubernetes has, so
+`k3dBucketEnsure` would have reused it forever. `k3dBucketPodHasCA` is the one-line test for that.
+
+Note the difference from the operator's own backups, which set `verifyTLS: false` /
+`repo1-storage-verify-tls: "n"` (k3dcr.go, k3dpg.go): those run in images DBCanvas cannot hand a
+trust store to. The toolbox is DBCanvas's own pod, so it verifies properly — and the panel hands the
+exact `aws` line back to the reader, which is a poor place to teach `--no-verify-ssl`.
+
+### Verified
+
+Against the live TLS SeaweedFS node of a deployed stack, with the AWS CLI and the pod's own
+mechanism — `AWS_CA_BUNDLE` in the environment and the bundle mounted at that path, no flags: the
+exact failing call (`aws s3api list-objects-v2 --bucket backup2 --delimiter / --max-keys 500`)
+returns JSON where it previously raised CERTIFICATE_VERIFY_FAILED. Both generated manifests were
+parsed as YAML and asserted structurally (the mount, the volume and the env landed where they
+belong; the Secret carries both certificates, base64 rather than an indented PEM). Four Go tests
+cover the manifest with and without a store certificate, the Secret's shape, and the endpoint-host
+parsing. `go build`/`vet`/`gofmt` and the touched tests are clean.
+
+## 379. A pinned minor that only half arrived — `app/install_pin.go`, `app/install_pin_test.go` (new), `app/{mysql,mysqlce,mariadb,pxc,pgoidc,repmgr}.go`
+
+Reported as "PostgreSQL 16.10 is not the version I get". It is worse than that: on Oracle Linux 9
+the install **fails**, and the error says exactly why.
+
+	file /usr/pgsql-16/share/man/man1/pg_waldump.1 conflicts between attempted installs of
+	percona-postgresql16-server-1:16.10-1.el9.x86_64 and percona-postgresql16-1:16.15-1.el9.x86_64
+
+`pin_install` pinned the two packages it was *given* — server and contrib — and left the resolver
+to satisfy everything those depend on. The base package is a dependency, nobody named it, so dnf
+took the newest build in the repository: 16.10 server, 16.15 base, same files in both, transaction
+refused. Where the packages happen not to share files the same gap is quieter and worse — an
+install that succeeds as a mixture of two releases, which is what the report was describing.
+
+**A sibling is whatever ships the same version.** The fix resolves the pinned specs first
+(`dnf repoquery --requires --resolve --recursive`, `apt-cache depends --recurse`) and pins every
+dependency the repositories also build at VER. Deliberately not a name-prefix rule: `libpq5` is not
+called percona-anything and still has to move with PostgreSQL on Debian — the recursive walk finds
+it, and the "does this name have a build at VER" test is what decides. Base-OS libraries never
+match, so nothing outside the engine is touched, and when VER is empty not one extra query runs.
+
+**One call, one transaction.** Percona Server, MySQL Community and MariaDB looped —
+`for p in $PKGS; do pin_install "$p"; done` — which is one resolution per package, so the second
+install is free to upgrade what the first one pinned. They now pass the whole set at once.
+
+**The packages installed *beside* an engine are the other half.** XtraBackup next to PXC, barman-cli
+next to repmgr's PostgreSQL, pg_oidc_validator next to PostgreSQL 18: each was a bare `dnf install`
+whose own dependencies are the engine's packages, and dnf will happily upgrade an installed package
+to satisfy a new one. All three now go through `pin_install` with the engine's version, so they
+install at their own version and drag nothing.
+
+**A version that is not there says so.** The fallback to latest stays — mongosh and XtraBackup carry
+their own series and can never match an engine's minor — but it now prints a note into the node's
+deploy log naming the package and the version it could not find. That is the case where a repository
+has dropped the release that was chosen (MariaDB's mirrors keep two), and it used to pass in silence.
+
+### Verified
+
+Against the real repositories, in the same images DBCanvas deploys, by extracting the shipped shell
+and running it:
+
+| what | asked for | before | after |
+| --- | --- | --- | --- |
+| Percona PostgreSQL, Oracle Linux 9 | 16.10 | **install fails** (16.10 server vs 16.15 base) | server, contrib, base and libs all `16.10-1.el9`, 19 s |
+| Percona PostgreSQL, Debian 12 | 16.10 | — | `percona-postgresql-16`, `-client-16` **and `libpq5`** all `2:16.10-1.bookworm` |
+| Percona Server, Oracle Linux 9 | 8.0.42 | — | server, client, shared, icu-data-files all `8.0.42-33.1.el9` |
+| MariaDB, Oracle Linux 9 | a minor the mirror no longer carries | silently installs the newest | same install, with a note in the deploy log |
+
+`install_pin_test.go` pins the shape of all of it: that both helpers resolve dependencies, that the
+dependency pass is skipped when nothing was pinned, that no engine script installs a package at a
+time, that every script carrying a `pin_install` call also carries its definition, and that the
+engine-adjacent installs are no longer bare `dnf`/`apt-get` lines.
+
+## 380. The Stock Market Sim can split its reads to HAProxy's read port — `stocksim/{main.go,internal/store,internal/api}`, `app/{stocksim,intranet}.go`, `app/stocksim_target_test.go`, `app/web/src/pages/StackDesigner.jsx`, `docs/STACKS.md`
+
+Every sim resolved an HAProxy target to one endpoint — `:5000`, the write port — so a Patroni or
+repmgr cluster behind HAProxy took its entire query load on the primary and the replicas sat idle.
+`:5001` was configured, published and documented for every backend kind, and nothing in the product
+ever connected to it. This adds the option that does, on the Stock Market Sim.
+
+**What moves, and what must not.** Not "SELECTs go to the replica": a read whose answer decides a
+write cannot. The API's PUT and DELETE handlers load the row they are about to change, and placing
+an order checks the portfolio and the security exist; answered by a replica that has not caught up,
+those reads report "not found" for a row that is there and the write fails for a reason invisible
+from the outside. The simulation's own agents are worse — read-modify-write in a loop.
+
+So the intent is marked where it is known and honoured where the query runs. `readPreference` in
+`internal/api/http.go` marks GET and HEAD requests — the handlers that only display — and every
+read-only store method goes through `readDB(ctx)`, which returns the read pool only for a marked
+request on a deployment that has one. The agents never pass through HTTP, so they are on the writer
+by construction. Anything added later is on the writer until it says otherwise, which is the right
+default for a rule about correctness.
+
+**Both stores, one shape.** `pgStore` and `mysqlStore` gain an `ro *sql.DB` built from
+`Config.ReadDSN` (`POSTGRES_RO_DSN` / `MYSQL_RO_DSN`, with `DB_RO_DSN` as the engine-agnostic escape
+hatch). PostgreSQL's read pool takes its *database* from the resolved write DSN rather than from
+ReadDSN's own path — which database the app ends up using is decided on the writer
+(`pgResolvePlacement`), and a read endpoint pointed at a different one would answer every query with
+"relation does not exist". A read endpoint that will not open is logged and dropped, not fatal: the
+sim then runs exactly as it did before the option existed. MySQL's `Objects()` stays on the writer
+even when split — it reads `information_schema` through a proxy that pins sessions, which is the
+failure `TestIsHostgroupLocked` already exists for, and two proxy behaviours interacting is not
+worth it for a query that runs once a page.
+
+**The control plane end.** `SSSplitReads` on the design node, offered only in linked mode against an
+HAProxy target (the only shape with a second port that means "a replica" — ProxySQL splits reads
+inside itself, everything else is one endpoint). `stockSimSQLEnv` builds the environment for both
+engine families in one place, so "when is there a second DSN" is one rule and a testable one. The
+deploy log names the split, and the deployed node's panel shows the read endpoint.
+
+### Verified
+
+`go build`/`vet` and the sim's own suite are clean, plus new tests on both sides: `readsplit_test.go`
+in the sim pins the routing rule (an unmarked context reads from the writer, a marked one uses the
+replica only when a read pool exists, and a deployment without one never leaves the writer), and
+`stocksim_target_test.go` pins the environment (no `_RO_DSN` without the option; with it, the write
+DSN on `:5000` and the read DSN on `:5001`, same host and credentials, under each engine's own
+variable names — the names `configFromEnv` actually reads). The image was rebuilt so the option is
+live. Not verified by deploying a stack: this host still cannot start an amd64 systemd node (§377).

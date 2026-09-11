@@ -660,8 +660,18 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Reissue a MongoDB node's certificates from the Intranet CA."},
 
 		// --- SeaweedFS ----------------------------------------------------------
+		{Method: "GET", Path: "/api/stacks/{id}/seaweed/nodes", Group: gSeaweed, Handler: m((*App).handleSeaweedFSNodes),
+			Summary: "Which of a stack's SeaweedFS nodes are running, and which buckets each one holds."},
 		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/seaweed/objects", Group: gSeaweed, Handler: m((*App).handleSeaweedObjects),
-			Summary: "Browse the objects in a SeaweedFS S3 bucket, read-only — usually to confirm a backup landed."},
+			Summary: "Browse the objects in a SeaweedFS S3 bucket — usually to confirm a backup landed."},
+		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/seaweed/download", Group: gSeaweed, Media: mediaDownload, Handler: m((*App).handleSeaweedDownload),
+			Summary: "Download one object out of a SeaweedFS bucket."},
+		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/seaweed/upload", Group: gSeaweed, Media: mediaMultipart, Handler: m((*App).handleSeaweedUpload),
+			Summary: "Upload files into a folder of a SeaweedFS bucket."},
+		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/seaweed/transfer", Group: gSeaweed, Handler: m((*App).handleSeaweedTransfer),
+			Summary: "Copy objects from one SeaweedFS bucket into another, on this node or another SeaweedFS node."},
+		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/seaweed/delete", Group: gSeaweed, Handler: m((*App).handleSeaweedDelete),
+			Summary: "Delete objects from a SeaweedFS bucket — a folder only when the call says recursive."},
 
 		// --- OpenBao ------------------------------------------------------------
 		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/openbao/status", Group: gOpenBao, Handler: m((*App).handleOpenBaoStatus),

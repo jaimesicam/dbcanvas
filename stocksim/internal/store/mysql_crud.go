@@ -48,12 +48,12 @@ func (s *mysqlStore) ListSecurities(ctx context.Context, q ListQuery) ([]Securit
 	clause := strings.Join(where, " AND ")
 
 	var total int
-	if err := s.db.QueryRowContext(ctx,
+	if err := s.readDB(ctx).QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM securities WHERE "+clause, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	limit := clampLimit(q.Limit, 50, 500)
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := s.readDB(ctx).QueryContext(ctx,
 		"SELECT "+securityCols+" FROM securities WHERE "+clause+" ORDER BY symbol LIMIT ? OFFSET ?",
 		append(args, limit, max0(q.Offset))...)
 	if err != nil {
@@ -72,7 +72,7 @@ func (s *mysqlStore) ListSecurities(ctx context.Context, q ListQuery) ([]Securit
 }
 
 func (s *mysqlStore) GetSecurity(ctx context.Context, id string) (Security, error) {
-	sec, err := scanSecurity(s.db.QueryRowContext(ctx,
+	sec, err := scanSecurity(s.readDB(ctx).QueryRowContext(ctx,
 		"SELECT "+securityCols+" FROM securities WHERE id = ?", id))
 	if err == sql.ErrNoRows {
 		return Security{}, ErrNotFound
@@ -181,12 +181,12 @@ func (s *mysqlStore) ListPortfolios(ctx context.Context, q ListQuery) ([]Portfol
 	clause := strings.Join(where, " AND ")
 
 	var total int
-	if err := s.db.QueryRowContext(ctx,
+	if err := s.readDB(ctx).QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM portfolios WHERE "+clause, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	limit := clampLimit(q.Limit, 50, 500)
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := s.readDB(ctx).QueryContext(ctx,
 		"SELECT "+portfolioCols+" FROM portfolios WHERE "+clause+" ORDER BY owner, name LIMIT ? OFFSET ?",
 		append(args, limit, max0(q.Offset))...)
 	if err != nil {
@@ -205,7 +205,7 @@ func (s *mysqlStore) ListPortfolios(ctx context.Context, q ListQuery) ([]Portfol
 }
 
 func (s *mysqlStore) GetPortfolio(ctx context.Context, id string) (Portfolio, error) {
-	p, err := scanPortfolio(s.db.QueryRowContext(ctx,
+	p, err := scanPortfolio(s.readDB(ctx).QueryRowContext(ctx,
 		"SELECT "+portfolioCols+" FROM portfolios WHERE id = ?", id))
 	if err == sql.ErrNoRows {
 		return Portfolio{}, ErrNotFound
@@ -294,12 +294,12 @@ func (s *mysqlStore) ListOrders(ctx context.Context, q ListQuery) ([]Order, int,
 	clause := strings.Join(where, " AND ")
 
 	var total int
-	if err := s.db.QueryRowContext(ctx,
+	if err := s.readDB(ctx).QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM orders WHERE "+clause, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	limit := clampLimit(q.Limit, 50, 500)
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := s.readDB(ctx).QueryContext(ctx,
 		"SELECT "+orderCols+" FROM orders WHERE "+clause+" ORDER BY created_at DESC LIMIT ? OFFSET ?",
 		append(args, limit, max0(q.Offset))...)
 	if err != nil {
@@ -318,7 +318,7 @@ func (s *mysqlStore) ListOrders(ctx context.Context, q ListQuery) ([]Order, int,
 }
 
 func (s *mysqlStore) GetOrder(ctx context.Context, id string) (Order, error) {
-	o, err := scanOrder(s.db.QueryRowContext(ctx,
+	o, err := scanOrder(s.readDB(ctx).QueryRowContext(ctx,
 		"SELECT "+orderCols+" FROM orders WHERE id = ?", id))
 	if err == sql.ErrNoRows {
 		return Order{}, ErrNotFound
@@ -409,7 +409,7 @@ func (s *mysqlStore) TicksBefore(ctx context.Context, securityID string, at time
 	q += " ORDER BY ts DESC LIMIT ?"
 	args = append(args, limit)
 
-	rows, err := s.db.QueryContext(ctx, q, args...)
+	rows, err := s.readDB(ctx).QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -441,7 +441,7 @@ const mysqlTickSpan = `SELECT
 
 func (s *mysqlStore) TickSpan(ctx context.Context, securityID string) (time.Time, time.Time, error) {
 	var oldest, newest sql.NullTime
-	if err := s.db.QueryRowContext(ctx, mysqlTickSpan, securityID, securityID).
+	if err := s.readDB(ctx).QueryRowContext(ctx, mysqlTickSpan, securityID, securityID).
 		Scan(&oldest, &newest); err != nil {
 		return time.Time{}, time.Time{}, err
 	}
@@ -591,7 +591,7 @@ func (s *mysqlStore) ListHoldings(ctx context.Context, portfolioID string) ([]Ho
 		args = append(args, portfolioID)
 	}
 	q += " ORDER BY p.owner, h.symbol"
-	rows, err := s.db.QueryContext(ctx, q, args...)
+	rows, err := s.readDB(ctx).QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -611,7 +611,7 @@ func (s *mysqlStore) ListHoldings(ctx context.Context, portfolioID string) ([]Ho
 }
 
 func (s *mysqlStore) CountOrdersByStatus(ctx context.Context) (map[string]int64, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT status, COUNT(*) FROM orders GROUP BY status")
+	rows, err := s.readDB(ctx).QueryContext(ctx, "SELECT status, COUNT(*) FROM orders GROUP BY status")
 	if err != nil {
 		return nil, err
 	}
@@ -630,7 +630,7 @@ func (s *mysqlStore) CountOrdersByStatus(ctx context.Context) (map[string]int64,
 
 func (s *mysqlStore) RecentTrades(ctx context.Context, limit int) ([]Trade, error) {
 	limit = clampLimit(limit, 50, 1000)
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := s.readDB(ctx).QueryContext(ctx,
 		`SELECT id, order_id, portfolio_id, security_id, symbol, side, quantity, price, ts
 		 FROM trades ORDER BY ts DESC LIMIT ?`, limit)
 	if err != nil {
@@ -671,7 +671,7 @@ func (s *mysqlStore) PruneOrders(ctx context.Context, before time.Time, limit in
 
 func (s *mysqlStore) TradeTotals(ctx context.Context) (int64, int64, error) {
 	var count, volume int64
-	err := s.db.QueryRowContext(ctx,
+	err := s.readDB(ctx).QueryRowContext(ctx,
 		"SELECT COUNT(*), IFNULL(SUM(quantity),0) FROM trades").Scan(&count, &volume)
 	return count, volume, err
 }

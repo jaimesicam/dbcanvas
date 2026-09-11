@@ -37,6 +37,35 @@ type releaseNote struct {
 // expanded, and the tests assume the ordering.
 var whatsNewNotes = []releaseNote{
 	{
+		Version: "0.0.4",
+		Date:    "2026-09-11",
+		Title:   "The Stock Market Sim can split its reads to HAProxy's read port",
+		Body: "Every simulator resolved an HAProxy target to one endpoint — the write port — so a " +
+			"Patroni or repmgr cluster behind HAProxy took its whole query load on the primary while the " +
+			"replicas sat idle. Tick \"Send reads to HAProxy's read port\" on a Stock Market Sim linked to " +
+			"an HAProxy node and the queries that only display — the dashboard, the lists, the report — go " +
+			"to :5001, which round-robins the replicas, while writes keep :5000. A read whose answer " +
+			"decides a write stays on the primary whatever the setting, so replication lag cannot turn " +
+			"into a write that fails for a reason nothing on screen explains. For every HAProxy-fronted " +
+			"cluster, PostgreSQL and MySQL alike.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.4",
+		Date:    "2026-09-11",
+		Title:   "A file manager for SeaweedFS buckets",
+		Body: "The SeaweedFS node's Buckets tab could show you that a backup landed, and nothing else. " +
+			"\"Files…\" on that tab — or \"Bucket file manager\" on the node's right-click menu — now opens a " +
+			"two-pane file manager over the buckets themselves: download an object to your machine, upload " +
+			"files into a folder by drag-and-drop (under the same size ceiling as a node file drop), delete " +
+			"what you no longer want (it asks first, and takes a folder's contents with it only when you say " +
+			"so — a folder here is a whole backup), and with the second pane open, copy objects from one " +
+			"bucket into another, on this node or another SeaweedFS node in the stack. A copy is streamed container to container, so nothing lands on the " +
+			"DBCanvas host on the way, and what you write is an ordinary S3 object — a database node's " +
+			"`aws s3 ls` sees it with the key, size and ETag you would expect.",
+		Doc: "docs/STACKS.md",
+	},
+	{
 		Version: "0.0.3",
 		Date:    "2026-09-10",
 		Title:   "Edit cr.yaml as a form, generated from the operator's own CRD",

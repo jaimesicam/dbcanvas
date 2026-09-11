@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -87,7 +89,19 @@ const k3dBucketExecTimeout = 3 * time.Minute
 //     instance credentials on every call before falling back to the environment.
 //   - No resource requests. The same reason cr.yaml's are commented out on these clusters: a k3d
 //     budget is small and a pod that cannot be admitted never starts.
-func k3dBucketPodManifest(pod, image, endpoint, bucket, region, secret string) string {
+func k3dBucketPodManifest(pod, image, endpoint, bucket, region, secret, caSecret string) string {
+	// A TLS store needs its certificates mounted and named, because the AWS CLI is botocore
+	// and botocore verifies against certifi rather than the system trust store (see
+	// seaweedTLSBundle). Without this an `aws s3api list-objects-v2` against an https
+	// endpoint fails with "SSL validation failed … CERTIFICATE_VERIFY_FAILED" before it ever
+	// reaches the bucket.
+	caEnv, caMount, caVolume := "", "", ""
+	if caSecret != "" {
+		caEnv = fmt.Sprintf("    - name: AWS_CA_BUNDLE\n      value: %s\n", k3dBucketCAPath)
+		caMount = fmt.Sprintf("    volumeMounts:\n    - name: dbcanvas-s3-ca\n      mountPath: %s\n      readOnly: true\n",
+			path.Dir(k3dBucketCAPath))
+		caVolume = fmt.Sprintf("  volumes:\n  - name: dbcanvas-s3-ca\n    secret:\n      secretName: %s\n", caSecret)
+	}
 	return fmt.Sprintf(`apiVersion: v1
 kind: Pod
 metadata:
@@ -114,10 +128,35 @@ spec:
       value: ""
     - name: BUCKET
       value: %q
-    envFrom:
+%s    envFrom:
     - secretRef:
         name: %s
-`, pod, image, endpoint, region, bucket, secret)
+%s%s`, pod, image, endpoint, region, bucket, caEnv, secret, caMount, caVolume)
+}
+
+// k3dBucketCAPath is where the toolbox finds the store's certificates. A path under /etc
+// rather than the CLI's own config directory: the pod runs as whatever user the backup image
+// ships with, and this one is readable whoever that is.
+
+const k3dBucketCAPath = "/etc/dbcanvas-s3/ca.pem"
+
+// k3dBucketCASecretName is the Secret holding that bundle, one per cluster like the toolbox.
+func k3dBucketCASecretName(cluster string) string { return cluster + "-dbcanvas-s3-ca" }
+
+// k3dBucketCASecret renders the Secret. The PEM is base64 in `data` rather than `stringData`,
+// because a certificate is multi-line text and YAML block scalars in a generated manifest are
+// one indentation mistake away from an object that applies but is empty.
+func k3dBucketCASecret(name string, pem []byte) string {
+	return fmt.Sprintf(`apiVersion: v1
+kind: Secret
+metadata:
+  name: %s
+  labels:
+    app.kubernetes.io/managed-by: dbcanvas
+type: Opaque
+data:
+  ca.pem: %s
+`, name, base64.StdEncoding.EncodeToString(pem))
 }
 
 // k3dBucketArgs is one `aws` call: the argv, and the same call written for a human to run.
@@ -314,12 +353,20 @@ func (a *App) k3dBucketEnsure(ctx context.Context, dep Deployment, cfg k3dConfig
 	}
 	pod := k3dBucketPodName(cfg.ClusterName)
 	image := a.k3dBucketImageFor(ctx, dep.ContainerID, cfg)
+	caSecret := a.k3dBucketEnsureCA(ctx, dep, cfg)
 	manifest := k3dBucketPodManifest(pod, image, cfg.BackupEndpoint, cfg.BackupBucket,
-		orDefault(cfg.BackupRegion, seaweedRegion), cfg.BackupSecret)
+		orDefault(cfg.BackupRegion, seaweedRegion), cfg.BackupSecret, caSecret)
 
 	switch a.k3dBucketPodPhase(ctx, dep.ContainerID, cfg.Namespace, pod) {
 	case "Running":
-		return pod, manifest, nil
+		// A toolbox from before the store's certificates were mounted cannot talk to an https
+		// endpoint, and it will not fix itself: nothing about it is unhealthy, so it keeps
+		// running and keeps failing. Replace it rather than reuse it.
+		if caSecret == "" || a.k3dBucketPodHasCA(ctx, dep.ContainerID, cfg.Namespace, pod) {
+			return pod, manifest, nil
+		}
+		_, _ = a.kubectlQuiet(ctx, dep.ContainerID, "-n", cfg.Namespace, "delete", "pod", pod,
+			"--ignore-not-found", "--grace-period=1")
 	case "":
 		// nothing there — create it
 	default:
@@ -342,6 +389,46 @@ func (a *App) k3dBucketEnsure(ctx context.Context, dep Deployment, cfg k3dConfig
 		return "", manifest, fmt.Errorf("the bucket toolbox did not become ready: %s", reason)
 	}
 	return pod, manifest, nil
+}
+
+// k3dBucketEnsureCA puts the object store's certificates in the cluster, as a Secret the
+// toolbox mounts, and returns its name — or "" when there is nothing to mount: a plain-HTTP
+// endpoint, or one that is not this stack's own SeaweedFS (an operator pointed at some other
+// S3, whose certificate DBCanvas does not have and should not invent).
+//
+// Best-effort: failing to create the Secret returns "", which builds a toolbox exactly like
+// the one before this existed. The listing then fails with the SSL error, which is the honest
+// outcome and names the actual problem.
+func (a *App) k3dBucketEnsureCA(ctx context.Context, dep Deployment, cfg k3dConfig) string {
+	if !strings.HasPrefix(strings.ToLower(cfg.BackupEndpoint), "https://") {
+		return ""
+	}
+	st, err := a.store.GetStack(dep.StackID)
+	if err != nil {
+		return ""
+	}
+	swNodeID := a.seaweedNodeAtEndpoint(st, cfg.BackupEndpoint)
+	if swNodeID == "" {
+		return ""
+	}
+	bundle := a.seaweedTLSBundle(ctx, st, swNodeID)
+	if len(bundle) == 0 {
+		return ""
+	}
+	name := k3dBucketCASecretName(cfg.ClusterName)
+	if err := a.kubectlApply(ctx, dep.ContainerID, cfg.Namespace, []byte(k3dBucketCASecret(name, bundle))); err != nil {
+		return ""
+	}
+	return name
+}
+
+// k3dBucketPodHasCA reports whether a running toolbox already has the bundle named in its
+// environment — the one-line difference between a pod that can reach an https store and one
+// that cannot.
+func (a *App) k3dBucketPodHasCA(ctx context.Context, serverID, ns, pod string) bool {
+	out, err := a.kubectlQuiet(ctx, serverID, "-n", ns, "get", "pod", pod, "-o",
+		`jsonpath={.spec.containers[0].env[?(@.name=="AWS_CA_BUNDLE")].value}`)
+	return err == nil && strings.TrimSpace(out) != ""
 }
 
 // k3dBucketPodTrouble reads why a toolbox pod is not ready, so the panel can say "the image could

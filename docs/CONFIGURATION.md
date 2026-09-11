@@ -194,6 +194,21 @@ Then **reload the browser tab**. The app re-reads `versions.yaml` on every catal
 compose mounts it read-only from the repo, so no rebuild or restart is needed — the pickers
 pick it up on the next page load.
 
+**A minor you chose that the repository has since dropped.** The picker offers what `versions.yaml`
+recorded; a repository can move on between that probe and your deploy, and some keep only the last
+release or two (MariaDB's mirrors are the usual case). The install then falls back to the newest
+build there is — deliberately, because several packages beside an engine carry their own version
+series and can never match its minor — and it says so in the node's deploy log:
+
+```
+note: MariaDB-server has no 10.11.8 build in this repository — installing the newest it has
+```
+
+If you see that line, the node is running something other than what the picker said; `make versions`
+brings the catalog back in line with the repository. Everything the chosen minor *does* cover is
+installed at that minor, dependencies included — see §379 in IMPLEMENTATION.md for why that needed
+saying.
+
 If a whole **OS or series** is missing rather than one point release:
 
 ```sh

@@ -1,13 +1,14 @@
 package main
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 )
 
 func TestBucketPodManifestCarriesTheCredentialsAndEndpoint(t *testing.T) {
 	got := k3dBucketPodManifest("cluster1-dbcanvas-s3", "percona/percona-xtrabackup:8.0",
-		"http://seaweedfs.stack:8333", "dbcanvas", "us-east-1", "cluster1-backup-s3")
+		"http://seaweedfs.stack:8333", "dbcanvas", "us-east-1", "cluster1-backup-s3", "")
 	for _, want := range []string{
 		"name: cluster1-dbcanvas-s3",
 		"image: percona/percona-xtrabackup:8.0",
@@ -39,7 +40,7 @@ func TestBucketPodManifestCarriesTheCredentialsAndEndpoint(t *testing.T) {
 // An endpoint or bucket that ended the YAML string early would produce a manifest that applies as
 // something other than what was meant. %q is what prevents it, and this is the test that says so.
 func TestBucketPodManifestQuotesItsValues(t *testing.T) {
-	got := k3dBucketPodManifest("p", "img", `http://x"#evil`, `b"ucket`, "r", "s")
+	got := k3dBucketPodManifest("p", "img", `http://x"#evil`, `b"ucket`, "r", "s", "")
 	if strings.Contains(got, `value: "http://x"#evil"`) {
 		t.Errorf("the endpoint escaped its quoting:\n%s", got)
 	}
@@ -214,5 +215,43 @@ func TestByteSizeLabel(t *testing.T) {
 		if got := byteSizeLabel(c.n); got != c.want {
 			t.Errorf("byteSizeLabel(%d) = %q, want %q", c.n, got, c.want)
 		}
+	}
+}
+
+// A plain-HTTP store mounts nothing; an https one mounts the bundle and names it, because the
+// AWS CLI is botocore and botocore does not read the system trust store (see seaweedTLSBundle).
+func TestBucketPodManifestMountsTheStoreCertificateOnlyWhenThereIsOne(t *testing.T) {
+	plain := k3dBucketPodManifest("p", "img", "http://sw:8333", "b", "r", "s", "")
+	for _, unwanted := range []string{"AWS_CA_BUNDLE", "volumeMounts:", "volumes:"} {
+		if strings.Contains(plain, unwanted) {
+			t.Errorf("a plain-HTTP toolbox should not carry %q:\n%s", unwanted, plain)
+		}
+	}
+	tls := k3dBucketPodManifest("p", "img", "https://sw:8333", "b", "r", "s", "c1-dbcanvas-s3-ca")
+	for _, want := range []string{
+		"name: AWS_CA_BUNDLE",
+		"value: " + k3dBucketCAPath,
+		"mountPath: /etc/dbcanvas-s3",
+		"secretName: c1-dbcanvas-s3-ca",
+	} {
+		if !strings.Contains(tls, want) {
+			t.Errorf("the TLS toolbox manifest is missing %q:\n%s", want, tls)
+		}
+	}
+}
+
+// The certificate is base64 in `data`, so a multi-line PEM cannot be broken by indentation.
+func TestBucketCASecretCarriesThePEM(t *testing.T) {
+	pem := []byte("-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----\n")
+	got := k3dBucketCASecret("c1-dbcanvas-s3-ca", pem)
+	if !strings.Contains(got, "name: c1-dbcanvas-s3-ca") || !strings.Contains(got, "ca.pem: ") {
+		t.Errorf("the CA Secret is not shaped right:\n%s", got)
+	}
+	if strings.Contains(got, "BEGIN CERTIFICATE") {
+		t.Errorf("the PEM should be base64, not inline:\n%s", got)
+	}
+	enc := base64.StdEncoding.EncodeToString(pem)
+	if !strings.Contains(got, enc) {
+		t.Errorf("the encoded PEM is missing:\n%s", got)
 	}
 }

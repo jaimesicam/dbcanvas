@@ -6,11 +6,11 @@ import { SecretValue } from './Secret.jsx'
 // Keycloak SSO. The server is already configured; this explains how to sign in. Driven by
 // dep.config.oidc { issuer, consoleUrl, clientId, realm, nodeFqdn, loginUrl, users, group,
 // role, database }; `engine` ∈ {pmm, pg, ps}. `secrets` is the deployment's secrets, read by
-// the ps branch for the sample users' password.
+// the pg and ps branches for the sample users' password.
 //
-// The ps branch follows the PSMDB tab (MongoDBManager's KeycloakSSOTab): state the facts —
-// where Keycloak is, which accounts exist, what their password actually is — before any
-// command. A command whose inputs the reader cannot see reads as invented.
+// The pg and ps branches follow the PSMDB tab (MongoDBManager's KeycloakSSOTab): state the
+// facts — where Keycloak is, which accounts exist, what their password actually is — before
+// any command. A command whose inputs the reader cannot see reads as invented.
 
 function CopyButton({ text }) {
   const [done, setDone] = useState(false)
@@ -155,9 +155,12 @@ CREATE USER 'carol'@'%' IDENTIFIED WITH 'auth_openid_connect'
     )
   }
 
-  // pg
-  const u = 'jane' // sample directory user (password: KEYCLOAK_USER_PASSWORD in .env)
-  const roleCmd = `sudo -u postgres psql -c 'CREATE ROLE ${u} LOGIN;'   # role name = Keycloak username`
+  // pg — PostgreSQL 18's native `oauth` hba method, validated by pg_oidc_validator. The
+  // roles below are created at deploy (pgOIDCScript), so this branch states the same facts
+  // the ps one does — console, accounts, password — instead of a placeholder username.
+  // `jane` is only the fallback for a node deployed before the roles were auto-created.
+  const roles = info.users?.length ? info.users : []
+  const u = roles[0] || 'jane'
   const clientPkg = `# one-time on the client running psql (Oracle Linux / RHEL):
 sudo percona-release setup ppg-18
 sudo dnf install percona-postgresql18   # provides psql
@@ -166,17 +169,36 @@ sudo dnf download percona-postgresql18-libs-oauth && sudo rpm -Uvh --nodeps perc
   const loginCmd = `psql "host=${info.nodeFqdn} dbname=postgres user=${u} \\
   oauth_issuer=${info.issuer} oauth_client_id=${info.clientId}"
 # psql prints a URL + code — open it, sign in to Keycloak, and psql connects.`
+  const addUser = `-- the role name is the Keycloak username (pg_oidc_validator matches
+-- on the preferred_username claim), so nothing but the name has to line up:
+CREATE ROLE carol LOGIN;`
   return (
     <div className="space-y-3">
       <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
         This PostgreSQL node accepts Keycloak OAuth logins (realm <span className="font-mono">{info.realm}</span>,
-        validated by <span className="font-mono">pg_oidc_validator</span>). Log in as a Keycloak user with the
-        OAuth 2.0 device flow — no password is sent to PostgreSQL. Replace <span className="font-mono">{u}</span> with a
-        real Keycloak username; a matching PG role must exist.
+        validated by <span className="font-mono">pg_oidc_validator</span>). The roles below already exist on the
+        node, one per Keycloak user — sign in with the OAuth 2.0 device flow; no password is sent to
+        PostgreSQL. Manage users on the Keycloak node.
       </div>
-      <Code label="One-time: create a matching role (run as postgres on this node)" text={roleCmd} />
+
+      <div className="space-y-2 text-sm">
+        <KV k="Keycloak" v={info.consoleUrl} mono />
+        <KV k="Issuer" v={info.issuer} mono />
+        <KV k="Client ID" v={info.clientId} mono />
+        <KV k="Realm" v={info.realm} />
+        <KV k="PostgreSQL roles" v={roles.join(', ')} mono />
+      </div>
+
+      {secrets?.oidcSamplePassword && (
+        <div>
+          <div className="text-xs text-muted">Password for those Keycloak users</div>
+          <SecretValue value={secrets.oidcSamplePassword} />
+        </div>
+      )}
+
       <Code label="Client prerequisites (psql + libpq-oauth)" text={clientPkg} />
-      <Code label="Log in with Keycloak (device flow)" text={loginCmd} />
+      <Code label={`Log in with Keycloak (device flow, as ${u})`} text={loginCmd} />
+      <Code label="Add your own Keycloak user" text={addUser} />
     </div>
   )
 }

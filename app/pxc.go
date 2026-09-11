@@ -530,7 +530,8 @@ func (a *App) pxcPrepareNode(ctx context.Context, st Stack, frame designFrame, n
 	if !arbiter {
 		pr.phase("Installing Percona XtraBackup", 40)
 		xbpkg := pxbPackage(frame.PXCMajor)
-		xbEnv := []string{"PRODUCT=" + pxbProduct(frame.PXCMajor), "REPO=" + pxbRepoName(frame.PXCMajor), "PKG=" + xbpkg}
+		xbEnv := []string{"PRODUCT=" + pxbProduct(frame.PXCMajor), "REPO=" + pxbRepoName(frame.PXCMajor), "PKG=" + xbpkg,
+			"VER=" + frame.PXCVersion}
 		xbScript := pxcInstallXtrabackupRHEL
 		if isDebianOS(frame.OS) {
 			xbScript = pxcInstallXtrabackupDebian
@@ -845,7 +846,7 @@ pin_install "$PKG"`
 // percona-xtrabackup-80 | -84 package used for SST.
 // $PRODUCT empty takes the hand-written path, for the series percona-release cannot
 // enable — pxb-97-lts has the same problem as ps-97-lts. See psRepoRHEL in mysql.go.
-const pxcInstallXtrabackupRHEL = `set -e
+const pxcInstallXtrabackupRHEL = pinInstallRHEL + `set -e
 if [ -z "$PRODUCT" ]; then
   cat >/etc/yum.repos.d/dbcanvas-pxb.repo <<EOF
 [dbcanvas-pxb]
@@ -859,9 +860,11 @@ EOF
 else
   percona-release setup -y "$PRODUCT" >/dev/null 2>&1
 fi
-dnf -y -q install "$PKG" >/dev/null`
+# pin_install rather than a bare dnf: XtraBackup has its own version series, but it shares
+# libraries with the cluster packages, and an unpinned install can drag those up a minor.
+pin_install "$PKG" >/dev/null`
 
-const pxcInstallXtrabackupDebian = `set -e
+const pxcInstallXtrabackupDebian = pinInstallDebian + `set -e
 export DEBIAN_FRONTEND=noninteractive
 if [ -z "$PRODUCT" ]; then
   apt-get install -y -qq curl gnupg ca-certificates >/dev/null 2>&1 || true
@@ -874,7 +877,7 @@ else
   percona-release setup -y "$PRODUCT" >/dev/null 2>&1
 fi
 apt-get update -qq >/dev/null
-apt-get install -y -qq "$PKG" >/dev/null`
+pin_install "$PKG" >/dev/null`
 
 // pxcDebianIncludeCnf appends a trailing `!include /etc/mysql/dbcanvas.cnf` to
 // Debian's /etc/mysql/my.cnf so our settings are read last and win over the
