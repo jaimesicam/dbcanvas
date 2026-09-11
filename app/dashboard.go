@@ -175,8 +175,15 @@ var statsAlerts = struct {
 	last map[string]time.Time // containerID+kind -> last alert
 }{last: map[string]time.Time{}}
 
-// stackIDFromName parses the stack id from a dbcanvas-<stackID>-… container name.
+// stackIDFromName parses the stack id from a container name, in either of the two
+// schemes a stack's containers carry: dbcanvas-<stackID>-… for the ones this app names,
+// and k3d-<frame>-s<stackID>-… for the ones a K3D frame leaves to k3d. Both have to be
+// read here, or a k3s node arrives with stack 0 and the ownership filter below drops it
+// again — the same way ListManaged used to drop it one step earlier.
 func stackIDFromName(name string) int64 {
+	if id, ok := k3dStackIDFromContainer(name); ok {
+		return id
+	}
 	rest := strings.TrimPrefix(name, "dbcanvas-")
 	if i := strings.IndexByte(rest, '-'); i > 0 {
 		if id, err := strconv.ParseInt(rest[:i], 10, 64); err == nil {

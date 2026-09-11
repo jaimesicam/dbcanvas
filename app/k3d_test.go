@@ -531,3 +531,54 @@ func TestCRTransformPITR(t *testing.T) {
 		}
 	})
 }
+
+// A K3D frame is the one part of a stack whose containers this app does not name — k3d
+// does, and the dashboard has to recognise them anyway or a stack's k3s nodes go
+// unmonitored (which is exactly what happened: ListManaged matched only "dbcanvas-",
+// so every k3s node and load balancer was dropped before stats were sampled).
+//
+// The names below are real, off a host running two K3D frames in stack 2.
+func TestK3DStackIDFromContainer(t *testing.T) {
+	ours := map[string]int64{
+		"k3d-k3d-00-s2-server-0": 2,
+		"k3d-k3d-00-s2-serverlb": 2,
+		"k3d-k3d-01-s2-server-0": 2,
+		"k3d-k3d-01-s2-serverlb": 2,
+		"k3d-k3d-00-s17-agent-0": 17,
+		"k3d-k3d-00-s17-agent-3": 17,
+	}
+	for name, want := range ours {
+		got, ok := k3dStackIDFromContainer(name)
+		if !ok || got != want {
+			t.Errorf("%s → (%d, %v), want (%d, true)", name, got, ok, want)
+		}
+	}
+
+	// Not ours, and none of it may reach a DBCanvas dashboard: somebody's own k3d
+	// cluster (no stack scope), this app's own containers, the app itself, and the
+	// container names the host's Kubernetes leaves lying around.
+	for _, name := range []string{
+		"k3d-mycluster-server-0",
+		"k3d-dev-agent-0",
+		"k3d-k3d-00-sx-server-0",
+		"k3d-k3d-00-s0-server-0",
+		"dbcanvas-2-intranet-mtw8qtzg-1",
+		"dbcanvas-app-1",
+		"k8s_POD_coredns-54996dc9b4-22ld2_kube-system_27f4e82e_0",
+		"k3d-",
+		"",
+	} {
+		if id, ok := k3dStackIDFromContainer(name); ok {
+			t.Errorf("%s was claimed as stack %d; it is not a DBCanvas k3d container", name, id)
+		}
+	}
+
+	// And the dashboard's own parser has to agree, for both schemes — a k3s node that
+	// arrives with stack 0 is dropped by the ownership filter just the same.
+	if got := stackIDFromName("k3d-k3d-00-s2-server-0"); got != 2 {
+		t.Errorf("stackIDFromName(k3d node) = %d, want 2", got)
+	}
+	if got := stackIDFromName("dbcanvas-2-intranet-mtw8qtzg-1"); got != 2 {
+		t.Errorf("stackIDFromName(dbcanvas node) = %d, want 2", got)
+	}
+}

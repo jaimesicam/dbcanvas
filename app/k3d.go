@@ -290,6 +290,51 @@ func k3dNodeContainer(cluster string, i int) string {
 	return fmt.Sprintf("%s%s-agent-%d", k3dContainerPrefix, cluster, i-1)
 }
 
+// k3dRoleSuffixes are the names k3d gives the containers of one cluster: the k3s nodes
+// themselves, and the nginx load balancer it puts in front of the servers. The tools
+// container is not here — it is a transient k3d helper, not part of the cluster.
+var k3dRoleSuffixes = []string{"-server-", "-agent-", "-serverlb"}
+
+// k3dStackIDFromContainer reads the stack out of a k3d container name, and reports
+// whether the container is one of ours at all.
+//
+// It is the inverse of k3dClusterName + k3dNodeContainer, and it exists because those
+// two are the ONLY place a stack's containers are named by somebody else: k3d creates
+// them, so they are "k3d-<frame>-s<stackID>-server-0" rather than the "dbcanvas-<stackID>-…"
+// every other node gets. Anything that wants to find a stack's containers by name has to
+// ask both questions (see ListManaged and stackIDFromName).
+//
+// The "-s<digits>" scope is what makes this safe to match on. It is not decoration —
+// k3dClusterName adds it because k3d cluster names are global to the daemon — and it is
+// also the thing a k3d cluster somebody made by hand will not have, so their clusters
+// stay out of a DBCanvas dashboard.
+func k3dStackIDFromContainer(name string) (int64, bool) {
+	if !strings.HasPrefix(name, k3dContainerPrefix) {
+		return 0, false
+	}
+	rest := strings.TrimPrefix(name, k3dContainerPrefix)
+	cluster := ""
+	for _, suffix := range k3dRoleSuffixes {
+		if i := strings.LastIndex(rest, suffix); i > 0 {
+			cluster = rest[:i]
+			break
+		}
+	}
+	if cluster == "" {
+		return 0, false
+	}
+	// The cluster name ends with the stack scope: <frame label>-s<stackID>.
+	i := strings.LastIndex(cluster, "-s")
+	if i < 0 {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(cluster[i+2:], 10, 64)
+	if err != nil || id <= 0 {
+		return 0, false
+	}
+	return id, true
+}
+
 // ---------------------------------------------------------------- validation
 
 // k3dFrameIssues validates a K3D frame: node count, namespace, operator selection, and the

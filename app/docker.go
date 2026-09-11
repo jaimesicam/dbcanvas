@@ -997,8 +997,13 @@ type ContainerInfo struct {
 	State string // running | exited | …
 }
 
-// ListManaged returns dbcanvas stack containers (names like dbcanvas-<stackID>-<node>),
-// excluding the app container itself.
+// ListManaged returns dbcanvas stack containers, excluding the app container itself.
+//
+// Two naming schemes, because a stack has two kinds of container. Nearly all of them
+// this app creates and names itself (dbcanvas-<stackID>-<node>). The exception is a K3D
+// frame: k3d creates those, and names them k3d-<frame>-s<stackID>-server-0 — so matching
+// the dbcanvas- prefix alone silently left every k3s node and load balancer out of the
+// dashboard, which is the one caller of this. See k3dStackIDFromContainer.
 func (d *Docker) ListManaged(ctx context.Context) ([]ContainerInfo, error) {
 	resp, err := d.do(ctx, "GET", "/containers/json?all=true", nil)
 	if err != nil {
@@ -1021,8 +1026,13 @@ func (d *Docker) ListManaged(ctx context.Context) ([]ContainerInfo, error) {
 		if len(c.Names) > 0 {
 			name = strings.TrimPrefix(c.Names[0], "/")
 		}
-		if !strings.HasPrefix(name, "dbcanvas-") || strings.HasPrefix(name, "dbcanvas-app") {
-			continue
+		ours := strings.HasPrefix(name, "dbcanvas-") && !strings.HasPrefix(name, "dbcanvas-app")
+		if !ours {
+			// A K3D frame's containers, which carry k3d's naming rather than ours. The
+			// stack scope in the name is what keeps a hand-made k3d cluster out.
+			if _, ok := k3dStackIDFromContainer(name); !ok {
+				continue
+			}
 		}
 		out = append(out, ContainerInfo{ID: c.ID, Name: name, State: c.State})
 	}
