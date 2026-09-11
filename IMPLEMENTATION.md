@@ -22865,12 +22865,22 @@ checked against barman's own argument parsers rather than from memory: `-b/--bac
 `barman-cloud-restore`, `wal_name wal_dest` on `barman-cloud-wal-restore`. `go build`/`vet`/`gofmt`,
 the Go suite's affected tests, `npm run build` and `npm run smoke` (two new checks) are clean.
 
-**Not verified live: the repmgr deploy itself.** This installation's `.env` sets
-`DOCKER_PLATFORM=linux/amd64` on an arm64 host, and no new amd64 systemd container will start on it
-— `/usr/sbin/init` exits 255 with no output, while a shell in the same image runs — so the three
-repmgr members failed with "systemd did not become ready" before any of this could be exercised
-end to end. That is the host's emulation, not the cluster: the SeaweedFS and Intranet nodes of the
-same stack are up, and the verification above ran against them.
+**Not verified live: the repmgr deploy itself.** The three members failed with "systemd did not
+become ready", which is why the checks above ran against the stack's SeaweedFS node rather than
+through a deployed cluster. The cause was the **host's inotify limits**, not the cluster and not
+the node image: `fs.inotify.max_user_instances` is a per-UID quota in the Rancher Desktop VM, and
+everything there runs as root — the k3d clusters, the Intranet, and each new systemd container.
+systemd allocates inotify instances as it comes up, and with the quota exhausted it fails building
+its manager object and exits 255 before it has a console to say so on, which is why the container
+log was empty while a shell in the same image ran fine. It is also why one node of the same deploy
+(the Intranet) started and the next three did not, and why stopping it freed nothing — the k3d
+nodes were holding the rest. Raised on the host and the nodes start:
+
+```sh
+rdctl shell
+sudo sysctl -w fs.inotify.max_user_instances=10240
+sudo sysctl -w fs.inotify.max_user_watches=104857600
+```
 
 ## 378. The bucket toolbox could not read a TLS store either — `app/k3dbucket.go`, `app/seaweedfs.go`, `app/repmgr.go`, `app/{k3dbucket,seaweedfs}_test.go`, `docs/OPERATOR_BACKUPS.md`
 
@@ -23008,4 +23018,5 @@ replica only when a read pool exists, and a deployment without one never leaves 
 `stocksim_target_test.go` pins the environment (no `_RO_DSN` without the option; with it, the write
 DSN on `:5000` and the read DSN on `:5001`, same host and credentials, under each engine's own
 variable names — the names `configFromEnv` actually reads). The image was rebuilt so the option is
-live. Not verified by deploying a stack: this host still cannot start an amd64 systemd node (§377).
+live. Not verified by deploying a stack — the host that would have run it was hitting the inotify
+exhaustion described in §377 at the time, so the sim was exercised directly instead.
