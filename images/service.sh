@@ -5,7 +5,6 @@
 #   dbcanvas-intranet:oraclelinux-9-<arch>   (images/intranet.Dockerfile)
 #   dbcanvas-vnc:ubuntu-24.04-<arch>         (images/vnc.Dockerfile)
 #   dbcanvas-k8scollector:debian-12-amd64    (images/k8scollector.Dockerfile)
-#   dbcanvas-mclusteradmin:<version>         (images/mclusteradmin.Dockerfile)
 #   dbcanvas-bighole:<commit>                (images/bighole.Dockerfile)
 #
 # Each is the matching systemd base from `make images` with that node's packages already
@@ -18,13 +17,14 @@
 # The last two are not node images built from a systemd base. The collector is the
 # throwaway container a K3D Diagnostics capture runs pt-k8s-debug-collector in, and
 # it is pinned to linux/amd64 because Percona's apt repo publishes percona-toolkit
-# for that architecture only (see images/k8scollector.Dockerfile). MClusterAdmin is
-# a third-party Go binary built from source at a pinned upstream tag — it IS a node
-# image, but there is no OS under it: the panel is one static binary on scratch. Big
-# Hole is the same idea one step further out: a third-party browser app, built from
-# source at a pinned commit and served by nginx, with no backend at all.
+# for that architecture only (see images/k8scollector.Dockerfile). Big Hole IS a node
+# image, but there is no OS under it and no backend either: it is a third-party
+# browser app, built from source at a pinned commit and served by nginx.
 #
-# Usage: service.sh [intranet|vnc|k8scollector|mclusteradmin|bighole|all]  (default: all)
+# MClusterAdmin used to be built here too. Upstream now publishes its own image, so
+# the node pulls it at deploy (app/mclusteradmin.go) and there is nothing to build.
+#
+# Usage: service.sh [intranet|vnc|k8scollector|bighole|all]  (default: all)
 #
 # `make images` calls this with `intranet` once the bases are built — the Intranet is
 # the DNS and the CA a stack is built against, so it ships with the bases rather than
@@ -52,13 +52,6 @@ VNC_BASE_OS="ubuntu";          VNC_BASE_VER="24.04"
 K8SCOLLECTOR_PLATFORM="linux/amd64"
 K8SCOLLECTOR_TAG="dbcanvas-k8scollector:debian-12-amd64"
 
-# MClusterAdmin: the upstream git tag to build, and the image tag that carries its
-# version. Both must match mcaImage/mcaVersion in app/mclusteradmin.go — the node
-# asks Docker for that exact tag, and reports the version from it (there is no
-# shell in the image to ask). Bumping the panel means changing all three.
-MCA_VERSION="v0.3.7"
-MCA_TAG="dbcanvas-mclusteradmin:0.3.7"
-
 # Big Hole: the upstream commit to build, and the image tag that records it. The
 # project has no tags and no version in its package.json, so the revision is the
 # version. Both must match bigHoleRef/bigHoleImage in app/bighole.go.
@@ -67,8 +60,8 @@ BIGHOLE_TAG="dbcanvas-bighole:896984f"
 
 WANT="${1:-all}"
 case "$WANT" in
-  intranet|vnc|k8scollector|mclusteradmin|bighole|all) ;;
-  *) echo "usage: $(basename "$0") [intranet|vnc|k8scollector|mclusteradmin|bighole|all]" >&2; exit 2 ;;
+  intranet|vnc|k8scollector|bighole|all) ;;
+  *) echo "usage: $(basename "$0") [intranet|vnc|k8scollector|bighole|all]" >&2; exit 2 ;;
 esac
 
 # shellcheck source=platform.sh
@@ -78,17 +71,17 @@ ARCH="${PLATFORM#linux/}"
 
 # ---- BuildKit or not -------------------------------------------------------------
 #
-# mclusteradmin.Dockerfile and bighole.Dockerfile build their sources on the BUILD
-# host's architecture and emit output for the target one — `FROM
-# --platform=$BUILDPLATFORM` plus $TARGETARCH — so an arm64 installation does not run
-# `npm ci` or the Go compiler under emulation. Those two variables are BuildKit's,
-# and a Docker install with no buildx plugin (or DOCKER_BUILDKIT=0) has only the
-# legacy builder, which sets neither and dies on the very first instruction:
+# bighole.Dockerfile builds its source on the BUILD host's architecture and emits
+# output for the target one — `FROM --platform=$BUILDPLATFORM` plus $TARGETARCH — so
+# an arm64 installation does not run `npm ci` under emulation. Those two variables
+# are BuildKit's, and a Docker install with no buildx plugin (or DOCKER_BUILDKIT=0)
+# has only the legacy builder, which sets neither and dies on the very first
+# instruction:
 #
 #   failed to parse platform : "" is an invalid OS component of ""
 #
 # So work out which builder `docker build` will use and, when it is the legacy one,
-# pass both by hand. The Dockerfiles declare the two ARGs without defaults, which is
+# pass both by hand. The Dockerfile declares the two ARGs without defaults, which is
 # what makes this work either way: a default would override the value BuildKit sets
 # and cross-build the wrong way round.
 #
@@ -199,13 +192,6 @@ fi
 
 if [ "$WANT" = "k8scollector" ] || [ "$WANT" = "all" ]; then
   build_standalone k8scollector.Dockerfile "$K8SCOLLECTOR_TAG" "$K8SCOLLECTOR_PLATFORM"
-fi
-
-# Built for the installation's own platform, unlike the collector: the panel is
-# ordinary Go with no architecture-bound packages, and it runs beside the stack.
-if [ "$WANT" = "mclusteradmin" ] || [ "$WANT" = "all" ]; then
-  build_standalone mclusteradmin.Dockerfile "$MCA_TAG" "$PLATFORM" "MCA_VERSION=${MCA_VERSION}" \
-    ${XPLATFORM_ARGS[@]+"${XPLATFORM_ARGS[@]}"}
 fi
 
 if [ "$WANT" = "bighole" ] || [ "$WANT" = "all" ]; then

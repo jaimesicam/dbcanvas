@@ -231,8 +231,8 @@ A node that runs [MClusterAdmin](https://github.com/PrzemekMalkowski/mclusteradm
 third-party web panel for MongoDB: topology and replica-set status, sharding and the balancer,
 current operations, slow queries with `explain`, indexes and profiling, users and roles, and
 oplog stats. Its UI is published to a host port like PMM's, so it opens straight from your
-browser — no VNC desktop needed. Upstream publishes no image, so DBCanvas builds one from source
-at a pinned tag.
+browser — no VNC desktop needed. It runs upstream's own published image, pulled at deploy the way
+PMM's is (amd64 only, which is what upstream builds).
 
 Every MongoDB node and cluster has an **Add MClusterAdmin credentials** tick, which creates the
 two accounts the panel expects when the database deploys: `madmin` for everything it does, and

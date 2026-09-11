@@ -15,7 +15,7 @@ CLI_PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
 ## install: everything a first run needs — every image DBCanvas can build (the OS
 ## bases and the Intranet, then the optional ones on top: the VNC desktop, the K3D
-## collector, the two third-party tool images and the six demo apps), the version
+## collector, the Big Hole FTDC viewer and the six demo apps), the version
 ## catalog those bases yield, then DBCanvas itself. Safe to re-run; `make compose`
 ## alone is enough once the images exist.
 ##
@@ -136,9 +136,8 @@ images:
 	}
 
 ## extra-images: everything OPTIONAL built on top of the bases — the pre-baked Ubuntu
-## VNC image, the third-party tool images (MClusterAdmin, Big Hole), the K3D
-## diagnostics collector, and the six demo applications (Traffic/Hotel/Airline/Car
-## Rental/MarketChaos/Stock Market Sim). `make install` builds these too (through
+## VNC image, the Big Hole FTDC viewer, the K3D diagnostics collector, and the six
+## demo applications (Traffic/Hotel/Airline/Car Rental/MarketChaos/Stock Market Sim). `make install` builds these too (through
 ## install-extras, which tolerates a failure); this is the target for rebuilding them
 ## on their own, and it fails if any of them fails. Kept separate from `make images`
 ## because these reach into npm, GitHub and Percona's repos, so they fail for reasons
@@ -175,14 +174,6 @@ vnc-image:
 ## Percona's apt repo has no arm64 percona-toolkit. `make extra-images` builds this too.
 k8scollector-image:
 	bash images/service.sh k8scollector
-
-## mclusteradmin-image: rebuild only the MClusterAdmin panel image
-## (dbcanvas-mclusteradmin:<version>) — a third-party MongoDB administration panel
-## (github.com/PrzemekMalkowski/mclusteradmin) built from source at a pinned tag,
-## cross-compiled to this installation's platform. An MClusterAdmin node needs it.
-## `make extra-images` builds this too.
-mclusteradmin-image:
-	bash images/service.sh mclusteradmin
 
 ## bighole-image: rebuild only the Big Hole image (dbcanvas-bighole:<commit>) — a
 ## third-party browser-only MongoDB FTDC viewer (github.com/zelmario/Big-hole),

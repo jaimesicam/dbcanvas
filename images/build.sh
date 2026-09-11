@@ -14,9 +14,9 @@
 # Intranet on top (images/service.sh intranet), because the Intranet is the DNS and
 # the CA every other node in a stack is built against, not an optional extra.
 #
-# Everything that IS optional — the Ubuntu VNC desktop, the two third-party tool
-# images (MClusterAdmin, Big Hole), the K3D collector and the demo applications — is
-# `make extra-images` (images/service.sh, images/apps.sh). They used to be built from
+# Everything that IS optional — the Ubuntu VNC desktop, the Big Hole FTDC viewer, the
+# K3D collector and the demo applications — is `make extra-images`
+# (images/service.sh, images/apps.sh). They used to be built from
 # here, which made a first run one long command whose failures were mostly other
 # people's networks: an npm registry, a GitHub clone, a Percona repo. The split is so
 # that the thing every stack needs is quick and reliable, and the rest is asked for
@@ -109,8 +109,8 @@ echo "=================================================================="
 echo "Recorded ${#SUCCESS[@]} successful build(s) → ${OUT}"
 echo ""
 echo "These are the operating-system bases. For the images a node needs on top of"
-echo "them — Intranet, VNC desktop, MClusterAdmin, Big Hole, the K3D collector and"
-echo "the demo applications — run: make extra-images"
+echo "them — Intranet, VNC desktop, Big Hole, the K3D collector and the demo"
+echo "applications — run: make extra-images"
 if [ "${#FAILED[@]}" -gt 0 ]; then
   echo "Skipped ${#FAILED[@]} failed build(s):"
   for f in "${FAILED[@]}"; do echo "  - ${f}"; done

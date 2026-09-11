@@ -58,7 +58,7 @@ can get into it and look.
 
 One kind of Validate error can be fixed without leaving the page. `make images` builds the
 operating-system bases and the Intranet on top of them; the rest of the images layered on the
-bases — the VNC desktop, the K3D collector, MClusterAdmin, Big Hole — are `make extra-images`,
+bases — the VNC desktop, the K3D collector, Big Hole — are `make extra-images`,
 which `make install` runs but does not insist on, because they fetch from npm, GitHub and
 Percona's repositories and fail for reasons that are not about your machine. So a stack can
 name an image nobody has built yet, and when it does, an **administrator
@@ -579,8 +579,11 @@ themselves, so Percona Monitoring & Management comes up already watching the sta
 MongoDB: topology and replica-set status, sharding and the balancer, current operations, slow
 queries with explain, indexes and profiling, users and roles, and oplog stats. Its web UI is
 published to a host port like PMM's, so it opens straight from your browser — no VNC desktop
-needed. Upstream publishes no image, so DBCanvas builds one from source at a pinned tag
-(`make mclusteradmin-image`).
+needed. It runs [upstream's own published
+image](https://github.com/PrzemekMalkowski/mclusteradmin/pkgs/container/mclusteradmin), pulled at
+deploy the way PMM's and Keycloak's are, so there is nothing to build first. Pinned to a release
+tag rather than `latest`, and to `linux/amd64` — the one architecture upstream builds — so on an
+arm64 installation it runs under Rosetta or qemu, like the PMM server.
 
 **You enter the connection URI in the panel itself**, which is why this node draws no association
 lines: it is configured entirely through its own UI — no environment, no config file — so there is

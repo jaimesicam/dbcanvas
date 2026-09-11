@@ -1147,16 +1147,13 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			// credentials and no configuration, because it talks to nothing.
 		case "mclusteradmin":
 			others++
-			if !seenImg[mcaImage] {
-				seenImg[mcaImage] = true
-				if ok, _ := a.engCtx(ctx).ImageExists(ctx, mcaImage); !ok {
-					out = append(out, missingImageIssue("mclusteradmin"))
-				}
-			}
-			// Nothing else to check. The panel takes no association line and needs no
-			// database to be present: which one it opens is a URI typed into its own
-			// UI. The MongoDB half that IS wired — the two accounts — is validated on
-			// the MongoDB, where the box that asks for them lives.
+			// Nothing to check, and no image check either: the panel runs upstream's
+			// published image, which the deploy pulls the way it pulls PMM's and
+			// Watchtower's, so there is nothing for an admin to build first. The panel
+			// takes no association line and needs no database to be present, because
+			// which one it opens is a URI typed into its own UI. The MongoDB half that
+			// IS wired — the two accounts — is validated on the MongoDB, where the box
+			// that asks for them lives.
 		case "hotelsim":
 			others++
 			if !seenImg[hotelSimImage] {

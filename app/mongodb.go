@@ -1176,7 +1176,7 @@ try{a.createUser({user:%q,pwd:%q,roles:%s})}catch(e){if(/already exists/i.test(e
 // and the flag stops the panel offering a button that cannot work.
 //
 // Source: github.com/PrzemekMalkowski/mclusteradmin (README, "Required MongoDB
-// privileges"), at the version images/mclusteradmin.Dockerfile pins.
+// privileges"), at the version mcaVersion pins (mclusteradmin.go).
 const (
 	mcaAdminUser    = "madmin"
 	mcaReadOnlyUser = "madmin-ro"

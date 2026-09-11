@@ -38,23 +38,46 @@ func TestBigHoleRefIsPinnedEverywhere(t *testing.T) {
 	}
 }
 
-// Same check for the panel: its version IS its image tag, because the image is
-// scratch and has no shell for nodeversion.go to ask.
-func TestMCAVersionIsPinnedEverywhere(t *testing.T) {
+// The panel is the other way round: nothing here builds it, because upstream
+// publishes its own image and the node pulls it. What can still go wrong is the pin
+// — a :latest that makes a redeploy a different panel — and a half-finished revert,
+// where the node asks a registry for a tag while a make target still tries to build
+// a local one.
+func TestMCAImageIsUpstreamAndPinned(t *testing.T) {
+	const upstream = "ghcr.io/przemekmalkowski/mclusteradmin"
+	if mcaImageRepo != upstream {
+		t.Errorf("the panel runs %q, not upstream's published image %q", mcaImageRepo, upstream)
+	}
 	if !strings.HasSuffix(mcaImage, ":"+mcaVersion) {
 		t.Errorf("image %q does not carry version %q", mcaImage, mcaVersion)
 	}
-	b, err := os.ReadFile("../images/service.sh")
-	if err != nil {
-		t.Fatal(err)
+	if mcaVersion == "latest" || mcaVersion == "" {
+		t.Errorf("the panel's image tag is %q — pin a release, so a redeploy is the same panel", mcaVersion)
 	}
-	s := string(b)
-	if !strings.Contains(s, mcaImage) {
-		t.Errorf("images/service.sh does not build the tag %s the node asks for", mcaImage)
+	// And nothing is left building one locally. Matched on the names a build would
+	// have to use — the Dockerfile, the tag, the make target — rather than on the
+	// word, so the scripts can still say why they no longer build it.
+	for f, stale := range map[string][]string{
+		"../images/service.sh": {"mclusteradmin.Dockerfile", "MCA_TAG", "MCA_VERSION", "dbcanvas-mclusteradmin"},
+		"../Makefile":          {"mclusteradmin-image", "dbcanvas-mclusteradmin"},
+	} {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		for _, bad := range stale {
+			if strings.Contains(string(b), bad) {
+				t.Errorf("%s still carries %q — the node pulls %s, nothing builds it", f, bad, mcaImage)
+			}
+		}
 	}
-	// The git tag it builds from is the image tag with a v in front.
-	if !strings.Contains(s, `MCA_VERSION="v`+mcaVersion+`"`) {
-		t.Errorf("images/service.sh does not build MClusterAdmin from v%s", mcaVersion)
+	if _, err := os.Stat("../images/mclusteradmin.Dockerfile"); err == nil {
+		t.Error("images/mclusteradmin.Dockerfile is still there — nothing builds the panel any more")
+	}
+	// A pulled image has no catalogue entry, so a Validate must not offer a Build
+	// button for it: there is nothing to build and the deploy pulls it anyway.
+	if _, ok := extraImageByID("mclusteradmin"); ok {
+		t.Error("mclusteradmin is still in the buildable-image catalogue")
 	}
 }
 
@@ -134,7 +157,7 @@ func TestExtraImageCatalogAgreesWithTheScripts(t *testing.T) {
 
 	// And every node type that names a missing image has a catalogue entry, or
 	// missingImageIssue would silently produce a message with no Build button.
-	for _, id := range []string{"mclusteradmin", "bighole", "hotelsim", "trafficsim", "airlinesim", "carsim", "marketchaos", "stocksim", "intranet", "vnc", "k8scollector"} {
+	for _, id := range []string{"bighole", "hotelsim", "trafficsim", "airlinesim", "carsim", "marketchaos", "stocksim", "intranet", "vnc", "k8scollector"} {
 		if _, ok := extraImageByID(id); !ok {
 			t.Errorf("no catalogue entry for %q", id)
 		}

@@ -17,10 +17,14 @@ import (
 //
 // `make images` builds the OS bases and the Intranet baked onto one of them — the
 // DNS and CA a stack is built against, which is why it ships with the bases rather
-// than here. Everything else — the VNC image, the two third-party tool images, the
-// K3D collector, the six demo applications — is `make extra-images`, because those
-// reach into npm, GitHub and Percona's repositories and fail for reasons that have
-// nothing to do with the machine you are on. Most stacks need none of them.
+// than here. Everything else — the VNC image, Big Hole, the K3D collector, the six
+// demo applications — is `make extra-images`, because those reach into npm, GitHub
+// and Percona's repositories and fail for reasons that have nothing to do with the
+// machine you are on. Most stacks need none of them.
+//
+// A third-party tool whose upstream publishes an image of its own is not in here at
+// all: MClusterAdmin used to be, and now the deploy pulls it (mclusteradmin.go), the
+// way PMM's and Watchtower's images have always been pulled.
 //
 // The Intranet is still in the catalog below, because the question this file answers
 // is "the image this node needs is missing, now what" — and it is missing whenever
@@ -38,10 +42,10 @@ import (
 // this process can produce without the repository being anywhere near it.
 //
 // WHY IT IS NOT the Docker API's /build endpoint: that is the classic builder, and
-// two of these Dockerfiles use BuildKit — `FROM --platform=$BUILDPLATFORM` and
-// $TARGETARCH, which is how a cross-compiled image gets built at native speed
-// instead of under emulation. The classic builder does not set those, and fails
-// outright:
+// one of these Dockerfiles uses BuildKit — Big Hole's, with `FROM
+// --platform=$BUILDPLATFORM` and $TARGETARCH, which is how a cross-compiled image
+// gets built at native speed instead of under emulation. The classic builder does
+// not set those, and fails outright:
 //
 //	failed to parse platform : "" is an invalid OS component
 //
@@ -120,13 +124,6 @@ func extraImageCatalog() []extraImage {
 			Make:  "k8scollector-image", Needs: []string{"k3d"},
 			Dockerfile: "k8scollector.Dockerfile", Buildable: true,
 			Platform: platformAMD64,
-		},
-		{
-			ID: "mclusteradmin", Tag: mcaImage, Label: "MClusterAdmin",
-			About: "A MongoDB administration panel, built from upstream source at a pinned tag (upstream publishes no image).",
-			Make:  "mclusteradmin-image", Needs: []string{"mclusteradmin"},
-			Dockerfile: "mclusteradmin.Dockerfile", Buildable: true,
-			Args: map[string]string{"MCA_VERSION": "v" + mcaVersion},
 		},
 		{
 			ID: "bighole", Tag: bigHoleImage, Label: "Big Hole",

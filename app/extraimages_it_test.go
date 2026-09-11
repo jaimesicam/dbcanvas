@@ -15,8 +15,12 @@ import (
 // Engine API's own /build endpoint, which is why the container exists), and that the
 // tag the node asks for is what comes out.
 //
-// MClusterAdmin is the subject because it is the quickest of them: a Go binary
-// cross-compiled from a shallow clone, a few seconds on a warm cache.
+// Big Hole is the subject because it is the only one left that needs any of that:
+// it is the last Dockerfile using $BUILDPLATFORM/$TARGETARCH, and unlike the
+// Intranet, the VNC desktop and the collector it is not baked onto a systemd base
+// that `make images` would have to produce first. (MClusterAdmin was the subject
+// while DBCanvas built it; upstream publishes an image now, so the node pulls it and
+// there is no build to exercise.) The cost is the npm build — minutes, not seconds.
 //
 // Opt-in (needs the daemon socket and network):
 //
@@ -40,9 +44,9 @@ func TestBuildExtraImageForReal(t *testing.T) {
 		t.Skipf("no daemon at %s: %v", sock, err)
 	}
 
-	e, ok := extraImageByID("mclusteradmin")
+	e, ok := extraImageByID("bighole")
 	if !ok {
-		t.Fatal("no mclusteradmin in the catalogue")
+		t.Fatal("no bighole in the catalogue")
 	}
 
 	// Start from nothing, so a pass means this build produced the image rather than

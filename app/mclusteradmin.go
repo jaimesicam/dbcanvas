@@ -13,10 +13,10 @@ import (
 // the balancer, current ops, slow queries with explain, index and profile
 // management, users and roles, oplog stats.
 //
-// Runs the dbcanvas-mclusteradmin image built from source at a pinned upstream tag
-// (images/mclusteradmin.Dockerfile — upstream publishes none), and its web UI port
-// is published to the host like PMM's and the simulators' dashboards, so it is
-// reached straight from the host browser with no VNC desktop in the way.
+// Runs upstream's own published image, pulled at deploy the way PMM's and
+// Watchtower's are rather than built here, and its web UI port is published to the
+// host like PMM's and the simulators' dashboards, so it is reached straight from the
+// host browser with no VNC desktop in the way.
 //
 // Three things about this node are unlike the simulators it otherwise resembles:
 //
@@ -34,6 +34,11 @@ import (
 //     passwords this node carries. So the node's panel shows the credentials, and
 //     the host is the one thing left to type.
 //
+//   - Its image is amd64 and only amd64, because that is the one upstream builds.
+//     So this node is pinned to linux/amd64 whatever platform the installation
+//     targets — the same treatment PMM and Watchtower get, and the same
+//     consequence: on arm64 it needs Rosetta or qemu to run at all.
+//
 // No TLS option, deliberately. The panel can serve HTTPS (--tls) with a cert we
 // could sign from the Intranet CA — but the way this node is actually reached is
 // the published host port, and the host browser does not trust that CA, so the
@@ -42,12 +47,16 @@ import (
 // HTTPS for exactly that reason and publishes no host port at all.
 
 const (
-	// mcaVersion is the upstream release this node runs. It is the image tag, and
-	// images/service.sh must build that tag from the matching git tag — the image
-	// is `scratch` with one static binary in it, so there is no shell for
-	// nodeversion.go to ask, and the tag is the only place the version is written.
+	// mcaVersion is the upstream release this node runs, and it is the tag of
+	// upstream's published image — the one place the version is written, because the
+	// image is `scratch` with one static binary in it and there is no shell for
+	// nodeversion.go to ask. Bumping the panel is this line and nothing else.
+	//
+	// Pinned to a version tag rather than :latest for the reason every other image
+	// here is: a stack redeployed next month should be the stack you deployed. As of
+	// 0.3.7 the two are the same digest anyway.
 	mcaVersion   = "0.3.7"
-	mcaImageRepo = "dbcanvas-mclusteradmin"
+	mcaImageRepo = "ghcr.io/przemekmalkowski/mclusteradmin"
 	mcaImage     = mcaImageRepo + ":" + mcaVersion
 	mcaPort      = 8787
 )
@@ -129,12 +138,19 @@ func (a *App) provisionMClusterAdmin(st Stack, n designNode, doc designDoc) {
 		pr := a.pxcNewProg(st.ID, n.ID)
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 
-		if ok, _ := a.engCtx(ctx).ImageExists(ctx, mcaImage); !ok {
-			pr.fail("image %s not found — run `make mclusteradmin-image` first", mcaImage)
+		// Pinned to amd64, like PMM's and Watchtower's images and for the same
+		// reason: upstream publishes one architecture, not a manifest list. Asking
+		// for the platform this installation targets would fail the pull outright on
+		// an arm64 one, where this at least runs under Rosetta/qemu — and where it
+		// cannot, says so honestly rather than mis-resolving the manifest.
+		pr.phase("Pulling image", 10)
+		pr.logln("ensuring " + mcaImage + " for " + platformAMD64)
+		if err := a.engCtx(ctx).EnsureImage(ctx, mcaImageRepo, mcaVersion, platformAMD64); err != nil {
+			pr.fail("pull image: %v", err)
 			return
 		}
 
-		pr.phase("Waiting for Intranet to be ready", 15)
+		pr.phase("Waiting for Intranet to be ready", 25)
 		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
 		if werr != nil {
 			pr.fail("%v", werr)
@@ -160,7 +176,7 @@ func (a *App) provisionMClusterAdmin(st Stack, n designNode, doc designDoc) {
 			cmd = append(cmd, "--view-only")
 		}
 		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
-			Name: name, Image: mcaImage, Hostname: host,
+			Name: name, Image: mcaImage, Hostname: host, Platform: platformAMD64,
 			Cmd:        cmd,
 			Network:    networkName(st.ID),
 			Aliases:    []string{host},

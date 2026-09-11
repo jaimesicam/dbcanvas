@@ -504,10 +504,10 @@ export const NODE_TYPES = {
     osOptions: [{ id: 'bighole', label: 'dbcanvas-bighole' }],
     defaults: {},
   },
-  // MClusterAdmin — a third-party MongoDB administration panel (built from source
-  // at a pinned tag; see images/mclusteradmin.Dockerfile). Runs its own image, not
-  // an OS/DB image, so it carries no os/osVersion/arch. Its web UI port is
-  // published to the host like PMM's, so no VNC desktop is needed.
+  // MClusterAdmin — a third-party MongoDB administration panel. Runs upstream's own
+  // published image, pulled at deploy like PMM's and Keycloak's, so it carries no
+  // os/osVersion/arch. Its web UI port is published to the host like PMM's, so no
+  // VNC desktop is needed.
   //
   // ports:false, like Big Hole and unlike the simulators. A simulator's association
   // line is load-bearing — its provisioner walks the edge graph to find the database
@@ -524,7 +524,9 @@ export const NODE_TYPES = {
     icon: 'Sliders',
     singleton: false,
     ports: false,
-    osOptions: [{ id: 'mclusteradmin', label: 'dbcanvas-mclusteradmin' }],
+    // The id stays 'mclusteradmin' — it is the persisted `os` of every panel node
+    // already saved in a design; only the label follows the image to its registry.
+    osOptions: [{ id: 'mclusteradmin', label: 'ghcr.io/przemekmalkowski/mclusteradmin' }],
     defaults: { viewOnly: false, mcaAdminPassword: '', mcaReadonlyPassword: '' },
   },
   // Hotel Sim — the "MongoDB Hotel Reservation Lab" live demo app (ten background
