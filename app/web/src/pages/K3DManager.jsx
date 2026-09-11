@@ -10,6 +10,7 @@ import { Help } from '../components/Tooltip.jsx'
 import { HELP, TOOL_HELP, DEP_HELP } from '../lib/help.js'
 import { CRFormEditor } from './CRFormEditor.jsx'
 import { K8sObjectEditor } from './K8sObjectEditor.jsx'
+import { K8sBackupManager } from './K8sBackupManager.jsx'
 
 // K3DManager — a running k3s node of a K3D cluster frame.
 //
@@ -69,6 +70,11 @@ const TABS = [
   // reconciles, the TLS chains, and the tuning file. Any Kubernetes frame has them, so unlike
   // cr.yaml this is not gated on the operator being a Percona one.
   { id: 'data', label: 'Secrets & configs' },
+  // Backups, restores, and the bucket they live in. Beside cr.yaml and the Secrets for the same
+  // reason they are beside each other: that tab is the standing instruction to the operator, this
+  // is the two things you ask it to do once — take a backup, put one back — plus the object store
+  // underneath, which is the only part of a Percona cluster no Kubernetes object reports on.
+  { id: 'backup', label: 'Backups' },
   // Only ever shown for a PXC-operator cluster that is one end of a replication link on the
   // canvas — it is the one operator whose custom resource can replicate from another cluster.
   { id: 'replication', label: 'Replication' },
@@ -344,6 +350,7 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
           && (t.id !== 'diag' || isServer)
           && (t.id !== 'data' || isServer)
           && (t.id !== 'cr' || CR_EDITABLE.has(cfg.operator))
+          && (t.id !== 'backup' || (CR_EDITABLE.has(cfg.operator) && isServer))
           && (t.id !== 'replication' || (cfg.operator === 'pxc' && isServer))).map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${tab === t.id ? 'bg-surface text-fg shadow' : 'text-muted'}`}>
@@ -474,6 +481,7 @@ kubectl get svc -n ${ns}`} />
       {tab === 'replication' && <ReplicationTab stackId={stackId} frame={frame} isServer={isServer} />}
       {tab === 'cr' && <CRFormEditor stackId={stackId} frame={frame} isServer={isServer} />}
       {tab === 'data' && <K8sObjectEditor stackId={stackId} frame={frame} isServer={isServer} />}
+      {tab === 'backup' && <K8sBackupManager stackId={stackId} frame={frame} isServer={isServer} />}
 
       {tab === 'diag' && (
         frame

@@ -332,6 +332,28 @@ export function k3dApi(id, fid) {
     object: (kind, namespace, name) => request('GET',
       `${base}/object?kind=${encodeURIComponent(kind)}&namespace=${encodeURIComponent(namespace)}&name=${encodeURIComponent(name)}`),
     objectPatch: (body) => request('POST', `${base}/object`, body),
+    // Backups and restores (app/k3dbackup.go). `backups` lists both tables and the store they go
+    // to; the mutating calls each apply one custom resource and archive the manifest they applied
+    // under the operator's deploy/backup, and hand that manifest back so the panel can show what
+    // it did. Pass dryRun to get the manifest without applying it.
+    backups: () => request('GET', `${base}/backups`),
+    backupCreate: (body) => request('POST', `${base}/backups`, body),
+    backupDelete: (name, data) => request('POST', `${base}/backups/delete`, { name, data: !!data }),
+    restore: (body) => request('POST', `${base}/restores`, body),
+    restoreDelete: (name) => request('POST', `${base}/restores/delete`, { name }),
+    // The archive itself: every manifest the panel has ever applied, on the node.
+    backupManifests: (name) => request('GET',
+      `${base}/backups/manifests${name ? `?name=${encodeURIComponent(name)}` : ''}`),
+    // The object store, through a toolbox pod running the AWS CLI on the cluster
+    // (app/k3dbucket.go). `bucket` lists one prefix; `bucketDelete` removes an object or a whole
+    // prefix (dryRun reports what would go); the download URL is a plain href the browser GETs
+    // itself, sending the session cookie, so the file lands as a download.
+    bucket: (prefix, after) => request('GET',
+      `${base}/bucket?prefix=${encodeURIComponent(prefix || '')}${after ? `&after=${encodeURIComponent(after)}` : ''}`),
+    bucketDelete: (body) => request('POST', `${base}/bucket/delete`, body),
+    bucketDownloadURL: (key) => `${base}/bucket/download?key=${encodeURIComponent(key)}`,
+    toolbox: () => request('GET', `${base}/bucket/toolbox`),
+    toolboxAction: (action) => request('POST', `${base}/bucket/toolbox`, { action }),
   }
 }
 

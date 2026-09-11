@@ -147,6 +147,11 @@ func pgUsersBlock(cluster string) string {
   - %s`, cluster, cluster)
 }
 
+// pgBackRestRepo is the pgBackRest repository the operator's cr.yaml ships and DBCanvas keeps —
+// the one a PerconaPGBackup names in `repoName`, and the one whose objects land under
+// /pgbackrest/<cluster>/repo1 in the bucket (pgBackRestGlobal's repo1-path).
+const pgBackRestRepo = "repo1"
+
 // pgS3Repo points repo1 at the stack's SeaweedFS node. The endpoint keeps its port and drops its
 // scheme — pgBackRest takes `host:port` and is always TLS.
 func pgS3Repo(s *crS3) string {
@@ -277,6 +282,7 @@ func (a *App) installPGOperator(ctx context.Context, st Stack, frame designFrame
 			pr.logln("backups → the PVC repo the operator ships: pgBackRest speaks S3 over TLS only, and " +
 				sw.InternalEndpoint + " is plaintext — turn TLS on for the SeaweedFS node to back up to it")
 			cfg.BackupRepo = "PVC (pgBackRest)"
+			cfg.BackupStorage = pgBackRestRepo
 		default:
 			secret := cfg.ClusterName + "-pgbackrest-secrets"
 			conf := fmt.Sprintf("[global]\nrepo1-s3-key=%s\nrepo1-s3-key-secret=%s\n",
@@ -287,6 +293,23 @@ func (a *App) installPGOperator(ctx context.Context, st Stack, frame designFrame
 			}
 			opts.S3 = &crS3{Bucket: sw.Bucket, Region: sw.Region, EndpointURL: sw.InternalEndpoint, Secret: secret}
 			cfg.BackupRepo = "SeaweedFS S3 (" + sw.Bucket + ")"
+			cfg.BackupBucket, cfg.BackupEndpoint, cfg.BackupRegion = sw.Bucket, sw.InternalEndpoint, sw.Region
+			cfg.BackupStorage = pgBackRestRepo
+			// A SECOND credentials secret, in the shape every other operator's already has:
+			// AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY. pgBackRest wants its keys as an ini file
+			// under `s3.conf` and reads nothing else, so the secret above cannot be handed to a
+			// pod as `envFrom` — which is exactly what the bucket toolbox does (k3dbucket.go).
+			// Writing both at deploy time is what lets the Backups tab treat all four operators
+			// identically instead of learning to parse an ini file out of a Secret.
+			awsSecret := cfg.ClusterName + "-backup-s3"
+			if _, err := a.kubectl(ctx, serverID, "-n", ns, "create", "secret", "generic", awsSecret,
+				"--from-literal=AWS_ACCESS_KEY_ID="+seaweedAccessKeyOf(sw, sec),
+				"--from-literal=AWS_SECRET_ACCESS_KEY="+sec.SecretKey); err != nil &&
+				!strings.Contains(err.Error(), "already exists") {
+				pr.logln("bucket toolbox credentials skipped: " + err.Error())
+			} else {
+				cfg.BackupSecret = awsSecret
+			}
 			pr.logln("backups → " + sw.InternalEndpoint + " (bucket " + sw.Bucket + ", pgBackRest repo1)")
 		}
 	}

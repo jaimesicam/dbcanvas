@@ -621,6 +621,11 @@ export const TOOL_HELP = {
   // Kubernetes RBAC
   k8sUsername: 'The name of the Kubernetes user this kubeconfig authenticates as. It appears in audit logs and in RBAC bindings.',
   k8sRole: 'What this user may do in the cluster. Grant the narrowest role that lets them do the job — this is the demonstration of RBAC, so making everyone cluster-admin defeats it.',
+  // The Backups tab (pages/K8sBackupManager.jsx). These are the three questions the tab
+  // gets asked out loud, so they live behind the "?" rather than in the prose.
+  k8sBackupRetain: 'Sets the percona.com/delete-backup finalizer on this backup. With it, deleting the backup object later also clears what it wrote to the object store; without it — which is how the operators ship it — the object goes and every byte stays in the bucket. It is a property of the backup, decided when it is taken.',
+  k8sBackupRestore: 'Applies a Restore custom resource naming this backup. The operator stops the cluster, replaces its data, and on the MySQL operators replaces the GTID history with the backup\'s. There is no undo: if what is on the cluster now matters, take a backup of it first.',
+  k8sBucketToolbox: 'A pod running the AWS CLI, started on demand in the cluster\'s own namespace with the cluster\'s own backup credentials. Every listing, download and delete in this pane is a `kubectl exec` into it, which is why it works against any S3 endpoint the operator was pointed at and not just DBCanvas\'s own store. It holds no state and can be stopped whenever you like.',
 
   // Diagnostics
   pgGatherDatabase: 'Which database pg_gather collects from. It reads catalogs and statistics only, and produces a single HTML report.',

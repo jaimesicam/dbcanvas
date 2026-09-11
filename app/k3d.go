@@ -117,9 +117,9 @@ type k3dConfig struct {
 	CertManager string `json:"certManager"`
 	Operator    string `json:"operator"`    // "" | "pxc" | "ps" | "psmdb" | "pg"
 	OperatorVer string `json:"operatorVer"` //
-	OperatorSrc  string `json:"operatorSrc"`  // /root/<repo>-<ver> on the first node
-	Namespace    string `json:"namespace"`    //
-	ClusterName  string `json:"crName"`       // the database cluster's name inside cr.yaml
+	OperatorSrc string `json:"operatorSrc"` // /root/<repo>-<ver> on the first node
+	Namespace   string `json:"namespace"`   //
+	ClusterName string `json:"crName"`      // the database cluster's name inside cr.yaml
 	// PXC / PS: the front end (they are mutually exclusive) and the Service type of each tier.
 	// PXC's proxy is haproxy|proxysql; PS's is haproxy|router.
 	Proxy       string `json:"proxy"`       //
@@ -176,6 +176,19 @@ type k3dConfig struct {
 	GrafanaService string `json:"grafanaService"`
 	PMMToken       string `json:"pmmToken"`   // "" | "expires <when>" — the service token's lifetime
 	BackupRepo     string `json:"backupRepo"` // SeaweedFS S3 target ("" = none)
+	// The object store the operator's backups actually go to, recorded field by field rather than
+	// only as the sentence BackupRepo renders. The Backups tab (k3dbackup.go, k3dbucket.go) builds
+	// real manifests and real `aws s3` command lines out of these, and re-deriving them would mean
+	// resolving the SeaweedFS node again on every request — which fails once that node is stopped,
+	// at exactly the moment someone is trying to look at what a backup left behind.
+	BackupBucket   string `json:"backupBucket"`   // the S3 bucket
+	BackupEndpoint string `json:"backupEndpoint"` // http(s)://<fqdn>:8333
+	BackupRegion   string `json:"backupRegion"`   //
+	BackupSecret   string `json:"backupSecret"`   // the k8s Secret holding the access keys
+	// BackupStorage is what a backup's manifest must name: `storageName` for PXC/PS/PSMDB (an
+	// entry in spec.backup.storages), `repoName` for PG (a pgBackRest repo). The two are
+	// different fields on different CRDs, but they are the same answer to "where does this go".
+	BackupStorage string `json:"backupStorage"`
 	// PITR describes the binlog collector as it was actually applied ("" = off): enabled with
 	// its bucket and upload interval, or deferred because this cluster is a replication replica
 	// waiting to be seeded. The two are worth telling apart in the panel — "off" and "on in ten
@@ -1485,6 +1498,8 @@ func (a *App) k3dBackupSecret(ctx context.Context, st Stack, frame designFrame, 
 	}
 	pr.logln("backups → " + sw.InternalEndpoint + " (bucket " + sw.Bucket + ")")
 	cfg.BackupRepo = "SeaweedFS S3 (" + sw.Bucket + ")"
+	cfg.BackupBucket, cfg.BackupEndpoint, cfg.BackupRegion = sw.Bucket, sw.InternalEndpoint, sw.Region
+	cfg.BackupSecret, cfg.BackupStorage = name, crStorageName
 	return &crS3{
 		Bucket:      sw.Bucket,
 		Region:      sw.Region,

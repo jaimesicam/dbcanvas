@@ -578,6 +578,17 @@ dbcanvas api GET /api/catalog/ps | jq '.["oraclelinux-9"]'
 | List a namespace's Secrets or ConfigMaps | `GET …/frames/{fid}/k3d/objects?kind=secret` | `dbcanvas api GET …/k3d/objects?kind=configmap` |
 | Read one, with its values | `GET …/frames/{fid}/k3d/object?kind=&namespace=&name=` | `dbcanvas api GET '…/k3d/object?kind=secret&name=cluster1-secrets'` |
 | Write keys into one, or remove them | `POST …/frames/{fid}/k3d/object` | `dbcanvas api POST …/k3d/object --data '{"kind":"secret","name":"cluster1-secrets","set":{"root":"new"}}'` |
+| List the backups and restores, with their store | `GET …/frames/{fid}/k3d/backups` | `dbcanvas api GET …/k3d/backups` |
+| Take a backup | `POST …/frames/{fid}/k3d/backups` | `dbcanvas api POST …/k3d/backups --data '{}'` |
+| Delete a backup object, optionally its data | `POST …/frames/{fid}/k3d/backups/delete` | `dbcanvas api POST …/k3d/backups/delete --data '{"name":"b1","data":true}'` |
+| Restore a backup onto the cluster | `POST …/frames/{fid}/k3d/restores` | `dbcanvas api POST …/k3d/restores --data '{"backup":"b1"}'` |
+| Delete a restore record | `POST …/frames/{fid}/k3d/restores/delete` | `dbcanvas api POST …/k3d/restores/delete --data '{"name":"r1"}'` |
+| The manifests this tab applied, on the node | `GET …/frames/{fid}/k3d/backups/manifests` | `dbcanvas api GET '…/k3d/backups/manifests?name=b1.yaml'` |
+| List a prefix of the backup bucket | `GET …/frames/{fid}/k3d/bucket?prefix=` | `dbcanvas api GET '…/k3d/bucket?prefix=cluster1-full'` |
+| Delete an object or a prefix from it | `POST …/frames/{fid}/k3d/bucket/delete` | `dbcanvas api POST …/k3d/bucket/delete --data '{"key":"old","recursive":true,"dryRun":true}'` |
+| Download one object (≤ 64 MiB) | `GET …/frames/{fid}/k3d/bucket/download?key=` | `dbcanvas api GET '…/k3d/bucket/download?key=x/xtrabackup_info'` |
+| Whether the bucket toolbox pod is running | `GET …/frames/{fid}/k3d/bucket/toolbox` | `dbcanvas api GET …/k3d/bucket/toolbox` |
+| Start or stop it | `POST …/frames/{fid}/k3d/bucket/toolbox` | `dbcanvas api POST …/k3d/bucket/toolbox --data '{"action":"stop"}'` |
 
 ```sh
 dbcanvas api GET /api/stacks/1/frames/k3d-01/k3d/kubeconfig | jq -r .kubeconfig > kube.yaml
@@ -600,7 +611,7 @@ Deploy never does it on its own.
 dbcanvas api GET /api/stacks/1/frames/cluster2/k3d/replication | jq '{role, channel, peer, running}'
 ```
 
-The last two are the **cr.yaml editor**'s endpoints, and are useful on their own. `GET …/k3d/cr`
+The two `cr` endpoints are the **cr.yaml editor**, and are useful on their own. `GET …/k3d/cr`
 returns the operator's own CustomResourceDefinition pruned to a form model — every field with its
 type, enum, bounds and grouping — alongside the live `spec` and the cluster's state, which is a
 compact way to ask what *this* operator version accepts. `POST` takes a JSON merge patch of `spec`
@@ -614,7 +625,7 @@ dbcanvas api POST /api/stacks/1/frames/k3d-00/k3d/cr \
   --data '{"patch":{"pxc":{"size":4}},"dryRun":true}'
 ```
 
-The last three are the **Secrets and ConfigMaps editor**, and they follow the same contract: a
+The three `object` endpoints are the **Secrets and ConfigMaps editor**, and they follow the same contract: a
 write is a merge patch of `data` (a `remove` list becomes JSON nulls), always dry-run against the
 API server first, `dryRun` to stop there. A Secret's values are base64 on the wire to Kubernetes
 but **plain text in this API** — the server decodes on read and encodes on write, so a caller
@@ -634,6 +645,36 @@ command contains the value being written and half of what this endpoint writes i
 dbcanvas api POST /api/stacks/1/frames/k3d-00/k3d/object \
   --data '{"kind":"secret","name":"k3d-00-secrets","set":{"monitor":"new-password"}}'
 ```
+
+The remaining eleven are the **Backups tab** — see [Operator Backups](OPERATOR_BACKUPS.md).
+They cover the four Percona operators and normalise away what differs between them: a backup
+names `pxcCluster`/`clusterName`/`pgCluster` and `storageName`/`repoName` depending on which
+operator it is, and the API takes neither — it reads the cluster and its storage from the frame
+and tells you what it used. Every mutating call **returns the manifest it applied** and archives
+it in the operator's own `deploy/backup/` on the node, so nothing here does anything you could
+not have done with `kubectl apply`. Pass `"dryRun": true` to get the manifest and apply nothing.
+
+Two of them deserve reading twice before scripting against them:
+
+- **`backups/delete` with `"data": true`** sets the `percona.com/delete-backup` finalizer before
+  deleting, so the operator clears the object store too. Without it — the default — the record
+  goes and every byte stays. Percona's PostgreSQL operator has no such finalizer and the call is
+  refused for it rather than silently doing half the job.
+- **`restores`** stops the cluster and replaces its data, and there is no undo.
+
+```sh
+# take one and wait for it
+dbcanvas api POST /api/stacks/1/frames/k3d-01/k3d/backups --data '{}'
+dbcanvas api GET  /api/stacks/1/frames/k3d-01/k3d/backups | jq '.backups[] | {name, state, destination}'
+```
+
+The `bucket` endpoints are the object store rather than Kubernetes, and they work by running
+`aws` in a pod on the cluster (`<cluster>-dbcanvas-s3`, started on demand) with the cluster's own
+backup credentials — so they work against whatever S3 endpoint the operator was pointed at, and
+every answer carries the exact command line it ran. Listing folds at the next `/` and pages with
+`after`; a recursive delete also removes the empty directory nodes a filer-backed store leaves
+behind. Download is capped at 64 MiB, and refuses anything larger with the command that copies it
+inside the cluster instead.
 
 ## All in One
 

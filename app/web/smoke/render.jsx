@@ -55,6 +55,7 @@ import CRFormEditor, {
 import K8sObjectEditor, {
   objectPatchOf, patchCount, reviewText, isMultiline, sizeLabel,
 } from '../src/pages/K8sObjectEditor.jsx'
+import { K8sBackupManager, sizeLabel as bkSizeLabel, whenLabel, crumbsOf } from '../src/pages/K8sBackupManager.jsx'
 import PacketInspector, {
   Timeline as PktTimeline, RangeControls as PktRangeControls, Filters as PktFilters,
   PacketList as PktList, PacketDetails as PktDetails, SummaryStrip as PktSummary,
@@ -4180,6 +4181,57 @@ check('linux client: the kubectl version follows the cluster on the canvas', () 
   if (off.includes('kubeconfig')) throw new Error('the kubeconfig note belongs to a node that installs something')
   if (!withCluster.includes('kubeconfig')) throw new Error('a node with the tools on must be told it has no kubeconfig')
   return 'ok'
+})
+
+// ---- the Backups tab ------------------------------------------------------------------
+// The tab renders four panes over live cluster state, and every one of them is reached by a
+// click rather than by a route — which is exactly the shape that used to ship broken, because
+// `vite build` is happy to compile a component that throws the moment it is mounted.
+
+check('backups: the panel mounts, and a worker node says where to go', () => {
+  const html = renderToString(<K8sBackupManager stackId={1} frame={{ id: 'f1' }} isServer />)
+  // With no data loaded yet (effects do not run under SSR) the panel must still render
+  // something honest rather than crash on an absent response.
+  if (!html.replace(/<!--.*?-->/g, '').includes('Loading')) {
+    throw new Error('the panel should say it is loading before the first answer')
+  }
+  const worker = renderToString(<K8sBackupManager stackId={1} frame={{ id: 'f1' }} isServer={false} />)
+  if (!worker.replace(/<!--.*?-->/g, '').includes('server')) {
+    throw new Error('a worker node should point at the server')
+  }
+  return html.length + ' bytes'
+})
+
+check('backups: a byte count reads the same here as it does in the Go handler', () => {
+  // app/k3dbucket.go's byteSizeLabel produces these exact strings, and the "too large to
+  // stream" error quotes the cap using it — the two must not disagree in a screenshot.
+  const cases = [[512, '512 B'], [2048, '2.0 KiB'], [5 << 20, '5.0 MiB'], [3 * (1 << 30), '3.0 GiB']]
+  for (const [n, want] of cases) {
+    if (bkSizeLabel(n) !== want) throw new Error(`sizeLabel(${n}) = ${bkSizeLabel(n)}, want ${want}`)
+  }
+  return 'sizes agree'
+})
+
+check('backups: a timestamp reads as an age, and a missing one as nothing', () => {
+  if (whenLabel('') !== '—') throw new Error('a backup with no completion time must not render as Invalid Date')
+  if (whenLabel('not a date') !== 'not a date') throw new Error('an unparseable time should be shown as sent')
+  const justNow = new Date(Date.now() - 5000).toISOString()
+  if (!whenLabel(justNow).endsWith('s ago')) throw new Error(`a fresh backup should read in seconds: ${whenLabel(justNow)}`)
+  const anHour = new Date(Date.now() - 3600 * 1000).toISOString()
+  if (whenLabel(anHour) !== '1h ago') throw new Error(`an hour should read as 1h ago: ${whenLabel(anHour)}`)
+  return 'ages'
+})
+
+check('backups: the bucket breadcrumb walks back up the prefix', () => {
+  const crumbs = crumbsOf('pgbackrest/cluster1/repo1')
+  if (crumbs.length !== 3) throw new Error('three segments, three crumbs')
+  if (crumbs[0].key !== 'pgbackrest') throw new Error('the first crumb is the first segment alone')
+  // Each crumb's key must be the WHOLE path up to it, or clicking one jumps to the wrong folder.
+  if (crumbs[2].key !== 'pgbackrest/cluster1/repo1') throw new Error(`last crumb: ${crumbs[2].key}`)
+  if (crumbs[1].name !== 'cluster1') throw new Error('a crumb shows its own segment, not the path')
+  if (crumbsOf('').length !== 0) throw new Error('the bucket root has no crumbs')
+  if (crumbsOf('a//b').length !== 2) throw new Error('empty segments are not crumbs')
+  return crumbs.map((c) => c.name).join(' / ')
 })
 
 if (failures > 0) {
